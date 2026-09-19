@@ -756,7 +756,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteRecords.update',
     symbols: ['upsertKaruteRecord'],
     justification:
-      'upsertKaruteRecord (the reprocess-existing-record branch) — a private helper CALLED BY processJob (AUDITED_CORES) but not lexically inside its span; processJob emits karute.save unconditionally after this helper returns, covering the outcome.',
+      'upsertKaruteRecord (the reprocess-existing-record branch) — a private helper CALLED BY processJob (AUDITED_CORES) but not lexically inside its span; processJob emits karute.save directly after this helper returns on the normal completion path, covering the write. NARROWED 2026-09-19 (packet B fix round 2): unreachable from the existing-karute skip path — that path returns before ever calling upsertKaruteRecord, so no create/update happens there.',
     dated: '2026-07-27',
   },
   {
@@ -764,7 +764,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteRecords.create',
     symbols: ['upsertKaruteRecord'],
     justification:
-      'upsertKaruteRecord (the fresh-record branch) — same reasoning as karuteRecords.update above in this file: called by processJob (AUDITED_CORES), covered by its unconditional karute.save emit on return.',
+      'upsertKaruteRecord (the fresh-record branch) — same reasoning as karuteRecords.update above in this file: called by processJob (AUDITED_CORES) on the normal completion path only, covered by its karute.save emit directly on return. NARROWED 2026-09-19 (packet B fix round 2): unreachable from the existing-karute skip path, same as above.',
     dated: '2026-07-27',
   },
   {
@@ -794,7 +794,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteOutcomes.upsert',
     symbols: ['setKaruteOutcomeWithClient'],
     justification:
-      "karute.outcome_set is a LIVE FACADE_AUDIT_MAP row as of Wave W3, fired ONLY by the dedicated after-the-fact route (facade auto-emit); the web after-the-fact wrapper updateKaruteOutcome (src/actions/karute-outcome.ts) emits its own auditWeb (AUDITED_CORES). This symbol stays audit-free: a save-EMBEDDED outcome write (web saveKaruteRecord/saveKaruteRecordInline, the facade karute save route, processJob) is part of the save, covered by that path's karute.save row on BOTH surfaces — deliberately row-less, not a gap. NARROWED 2026-08-10: setKaruteOutcome no longer performs the upsert itself — it delegates to setKaruteOutcomeWithClient so the revisit-eligibility chokepoint cannot be enforced on one surface and missed on the other — so it no longer needs an SDK-write exemption. One write site, one entry.",
+      "karute.outcome_set is a LIVE FACADE_AUDIT_MAP row as of Wave W3, fired ONLY by the dedicated after-the-fact route (facade auto-emit); the web after-the-fact wrapper updateKaruteOutcome (src/actions/karute-outcome.ts) emits its own auditWeb (AUDITED_CORES). This symbol stays audit-free: a save-EMBEDDED outcome write (web saveKaruteRecord/saveKaruteRecordInline, the facade karute save route, processJob's normal completion path) is part of the save, covered by that path's karute.save row on BOTH surfaces — deliberately row-less, not a gap. NARROWED 2026-09-19 (packet B fix round 2): processJob's existing-karute skip path writes this SAME upsert without a save of its own (no create/update runs on that path this round) — its coverage rides the karute.save row the record's own creating write already emitted, not a row from this run. NARROWED 2026-08-10: setKaruteOutcome no longer performs the upsert itself — it delegates to setKaruteOutcomeWithClient so the revisit-eligibility chokepoint cannot be enforced on one surface and missed on the other — so it no longer needs an SDK-write exemption. One write site, one entry.",
     dated: '2026-08-10',
   },
   {

@@ -233,8 +233,22 @@ async function processJob(job: RecordingJob): Promise<string> {
     // overwrite — hence the "none recorded yet" read. CEILING: the reader is
     // null-on-failure, so a failed read + an existing label = the stop-time
     // choice re-written (a double fault, accepted).
-    if (payload.outcome && !(await getKaruteOutcomeWithClient(synqed, existing.id))) {
-      await writeSessionOutcome(synqed, existing.id, payload.staff_id, payload.customer_id, payload.outcome)
+    // 保留 (pending) is a placeholder, not a decided choice — a later job
+    // carrying a real label must still land over it (Business auto-flips a
+    // stale 保留 to 不成約 after 14 days; losing the real label here would be
+    // silent and permanent).
+    const recordedOutcome = payload.outcome ? await getKaruteOutcomeWithClient(synqed, existing.id) : null
+    if (payload.outcome && (!recordedOutcome || recordedOutcome.outcome === 'pending')) {
+      // The record's OWN customer, not the payload's: a record re-pointed to
+      // another customer (保存先を変更) must file the label under the person
+      // it now belongs to, never a queued job's stale customer_id.
+      await writeSessionOutcome(
+        synqed,
+        existing.id,
+        payload.staff_id,
+        existing.customer_id ?? payload.customer_id,
+        payload.outcome,
+      )
     }
     // No karute.save audit: nothing was saved by this run, and that emit is
     // not idempotent. This line is the receipt instead — ids only, never
