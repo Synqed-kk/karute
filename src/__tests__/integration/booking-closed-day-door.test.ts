@@ -125,6 +125,7 @@ import { createAppointmentCore } from '@/lib/appointments/mutations'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { validateAppointmentTime, type BookingDayHours } from '@/lib/appointments'
 import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { auditLines } from './helpers/audit-lines'
 import ja from '../../../messages/ja.json'
 import en from '../../../messages/en.json'
@@ -524,11 +525,17 @@ describe('the web door — createAppointment', () => {
     errSpy.mockRestore()
   })
 
-  // ⚖ R1-8 — a failed assignment lookup reports allowedStoreIds: null, the
-  // same shape as a genuinely unrestricted viewer. The raw cookie used to pass
-  // straight through it, so a blipped lookup let another store's calendar
-  // judge — and refuse — this staffer's booking.
-  it('treats the cookie as unset when the assignment lookup is degraded', async () => {
+  // ⚖ R1-8 (superseded 2026-09-19 by #948, MERGE #937×#948) — a failed
+  // assignment lookup used to report allowedStoreIds: null, the same shape as
+  // a genuinely unrestricted viewer, and the raw cookie passed straight
+  // through it: this test originally pinned R1-8's narrower fix (treat the
+  // cookie as unset, still let the booking through to the closed-day check on
+  // whatever store defaultBookingStore names). #948 (FRESH-EYES-P1B F4, on
+  // main) closes the same gap more strictly — a scope we could not read
+  // vouches for NOTHING, so the whole write is refused outright, before any
+  // store is even chosen. Strictly safer than R1-8 alone (refuses instead of
+  // falling through), so this test now pins THAT behavior.
+  it('refuses outright when the assignment lookup is degraded — never falls through to a store guess', async () => {
     getActiveStoreId.mockResolvedValue('store-daikanyama')
     resolveStoreScope.mockResolvedValue({
       storeId: 'store-daikanyama',
@@ -540,11 +547,11 @@ describe('the web door — createAppointment', () => {
 
     const result = await createAppointment(bookingInput(MON_1300_JST))
 
-    // No read of the foreign store at all — the landing store came from
-    // defaultBookingStore, and the refusal (if any) is that store's own word.
-    expect(policyGet).not.toHaveBeenCalledWith('store-daikanyama')
-    expect(policyGet).toHaveBeenCalledWith('store-ginza')
-    expect(result).toMatchObject({ code: 'closed_day' })
+    // No store is ever read or guessed at — the refusal fires before the
+    // day-hours question is even asked.
+    expect(policyGet).not.toHaveBeenCalled()
+    expect(apptCreate).not.toHaveBeenCalled()
+    expect(result).toEqual({ error: STORE_SCOPE_UNVERIFIED, code: 'store_forbidden' })
   })
 
   // ⚖ R1-6 — the two reads answer different questions, so one blipping must
@@ -639,6 +646,16 @@ describe('the reschedule door — updateAppointment', () => {
   })
 
   it('judges the day against the BOOKING’S own store, not the active one', async () => {
+    // MERGE #937×#948 (2026-09-19): #948's store lock (ensureRecordStoreInScope)
+    // now runs ahead of the hours check and refuses a clamped actor touching a
+    // booking outside their allowed stores — orthogonal to what THIS test
+    // probes (which store's hours get read), so the scope here is unrestricted,
+    // same pattern as the viewAll tests elsewhere in this file.
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: true,
+      allowedStoreIds: null,
+    })
     apptGet.mockResolvedValue({
       id: 'appt-1',
       status: 'SCHEDULED',
@@ -660,6 +677,16 @@ describe('the reschedule door — updateAppointment', () => {
   // some imports) used to ask nobody, so it could be moved onto any store's
   // 定休日. It resolves its landing store the way create does.
   it('resolves the landing store for a booking whose store_id is null', async () => {
+    // MERGE #937×#948 (2026-09-19): a clamped actor is out-of-scope for a
+    // null-store record (ensureRecordStoreInScope's null arm) — orthogonal to
+    // what THIS test probes (the store the hours check falls back to), so the
+    // scope here is unrestricted, same pattern as the viewAll tests elsewhere
+    // in this file.
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: true,
+      allowedStoreIds: null,
+    })
     apptGet.mockResolvedValue({
       id: 'appt-1',
       status: 'SCHEDULED',
