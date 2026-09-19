@@ -253,6 +253,52 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
     expect(fail).not.toHaveBeenCalled()
   })
 
+  // Placed BEFORE T7 on purpose: T7's two sub-tests each queue one
+  // getByRecordingSession.mockResolvedValueOnce(...) that their own assertion
+  // (`not.toHaveBeenCalled()`) proves is never consumed — jest.clearAllMocks()
+  // in beforeEach clears call history but not that leftover once-queue entry,
+  // so it would otherwise leak into whichever test runs next and silently
+  // divert it onto the skip path. T1-T6 all consume theirs; T7 does not.
+  describe('T8 FIX ROUND 1 — the karute.save audit row is not lost when the outcome label fails and the job requeues', () => {
+    it('T8a attempt 1: lookup 404 → transcription → create OK → outcome write fails → audit WAS called once with action:karute.save, job FAILS', async () => {
+      setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'upstream down' })
+      claim
+        .mockResolvedValueOnce({
+          ...baseJob,
+          payload: { ...baseJob.payload, outcome: { status: 'success' } },
+        })
+        .mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(karuteRecordsCreate).toHaveBeenCalledTimes(1)
+      expect(audit).toHaveBeenCalledTimes(1)
+      expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'karute.save' }))
+      expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('outcome write failed'))
+      expect(complete).not.toHaveBeenCalled()
+    })
+
+    it('T8b the requeue (same job, attempts: 2): lookup now resolves the record, no outcome recorded yet → the outcome upsert IS written, no transcription, no karute.save this run, job completes', async () => {
+      getByRecordingSession.mockResolvedValueOnce({ id: 'record-1', store_id: null })
+      getKaruteOutcomeWithClient.mockResolvedValueOnce(null)
+      claim
+        .mockResolvedValueOnce({
+          ...baseJob,
+          attempts: 2,
+          payload: { ...baseJob.payload, outcome: { status: 'success' } },
+        })
+        .mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+      expect(runMeteredTranscription).not.toHaveBeenCalled()
+      expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'karute.save' }))
+      expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+      expect(fail).not.toHaveBeenCalled()
+    })
+  })
+
   describe('T7 ORDER — the skip path never outranks the discard check or the consent gate', () => {
     it('a discarded session with an existing record → still refused exactly as today', async () => {
       getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
