@@ -42,13 +42,16 @@ export const BOOKING_SWITCHES = {
    *  is one extra window read per 月 page view, and only there. */
   monthCompare: true,
 
-  /** Calendar-number persistence is OFF in release 28. Re-enable only when:
+  /** Remembered pop-down numbers (memory + disk) are OFF in release 28. Re-enable only when:
    *  (a) the key uses the server-resolved store id carried by the DTO;
    *  (b) identity is captured at request time and compared at settle;
    *  (c) stored cells pass real calendar validation: valid dates, 28–42
-   *      consecutive unique days, and non-negative integer counts.
-   *  OFF reads/writes nothing; clearing old on-device blobs stays unconditional.
-   *  A cold pop-down loads its numbers over the network as before. */
+   *      consecutive unique days, and non-negative integer counts;
+   *  (d) a fenced-out response must not strand a pane in pending;
+   *  (e) the in-memory cache key carries the server-resolved lens too.
+   *  OFF seeds only from the page DTO and fetches on every loader call, as on
+   *  main, without cache reads/writes or a fence. Old blob clearing stays
+   *  unconditional; neighbour PAGE prefetch keeps its shared cache fence. */
   persistCalendarNumbers: false,
 
   // ── capacity (PKT-1c-B, council C4 §(2)) ────────────────────────────────

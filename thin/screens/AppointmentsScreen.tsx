@@ -26,6 +26,7 @@ import {
 } from '../data/screen-neighbours'
 import { readMonthNumbers, rememberMonthNumbers, type CalendarMonthCell } from '../data/calendar-numbers-store'
 import { monthKeyInJst } from '@/lib/appointments/date-jump'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { getThinLocale } from '../locale'
 import { useSearchParams } from '../ports/nav.vite'
 import { cacheDto, captureCacheFence, dtoCache, fetchedAtByPath, STALE_MS, ScreenStates, useScreenDto } from './ScreenBoundary'
@@ -33,8 +34,8 @@ import { cacheDto, captureCacheFence, dtoCache, fetchedAtByPath, STALE_MS, Scree
 const parse = (raw: unknown): AppointmentsScreenDTOType =>
   AppointmentsScreenDTO.parse(raw)
 
-/** The wire's month cells → what the grid renders. ONE mapping, because the
- *  page's own month and the pop-down's seed must never disagree about a cell.
+/** Switch-ON remembered cells → what the grid renders. Keep this mapping
+ *  identical to main's page-DTO monthData memo below.
  *  ⚖ PKT-2b — every field straight off the wire: monthCellsToDTO (route.ts)
  *  already merges the real numbers in, and this mapping was once the one place
  *  still throwing them away. */
@@ -116,10 +117,24 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
 
   // MonthCell wants a real Date; the DTO ships dateIso (JSON-safe).
   const monthData = useMemo<MonthCell[] | null>(
-    () => (dto.monthData ? toMonthCells(dto.monthData) : null),
+    () =>
+      dto.monthData?.map((c) => ({
+        id: c.id,
+        date: new Date(c.dateIso),
+        inMonth: c.inMonth,
+        isToday: c.isToday,
+        count: c.count,
+        density: c.density,
+        closed: c.closed,
+        // ⚖ PKT-2b — straight off the wire, like every other field on this
+        // door: monthCellsToDTO (route.ts) already merges the real numbers
+        // in, this mapping was the one place still throwing them away.
+        newCount: c.newCount,
+        newCountKnown: c.newCountKnown,
+      })) ?? null,
     [dto.monthData],
   )
-  /** THE POP-DOWN'S FIRST PAINT. The panel opens on the month the page is on;
+  /** Switch-ON only: THE POP-DOWN'S FIRST PAINT. The panel opens on the month the page is on;
    *  these are that month's cells if this session has already read them, or the
    *  ones the device kept from the last launch (numbers only — see
    *  calendar-numbers-store.ts). The panel marks every seed STALE on open and
@@ -136,7 +151,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
   // The cost of not memoizing is one Map lookup, and ~42 small objects only
   // when there IS a month to hand over.
   const popdownMonth: MonthCell[] | null = (() => {
-    if (dto.monthData) return null
+    if (!BOOKING_SWITCHES.persistCalendarNumbers || dto.monthData) return null
     const path = appointmentsScreenPath({
       date: `${monthKeyInJst(new Date(dto.selectedDateIso))}-01`,
       view: 'month',
@@ -160,6 +175,24 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
   // different ports.
   const loadMonthCells = useCallback(
     async (monthKey: string) => {
+      // Release 28: main's network-only month door, with no remembered state.
+      if (!BOOKING_SWITCHES.persistCalendarNumbers) {
+        const qs = new URLSearchParams({
+          view: 'month',
+          date: `${monthKey}-01`,
+          locale: getThinLocale(),
+        })
+        const res = await getDataPort().apiFetch(
+          `/api/app/v1/screens/appointments?${qs.toString()}`,
+        )
+        if (!res.ok) throw new Error(`date-jump month read failed: ${res.status}`)
+        const monthDto = AppointmentsScreenDTO.parse(await res.json())
+        // Never silently empty: no monthData means the read did not answer the
+        // question, which the panel must show as failed, not as a free month.
+        if (!monthDto.monthData) throw new Error('date-jump month read returned no monthData')
+        return monthDto.monthData
+      }
+
       // ONE spelling of this URL (screen-neighbours.ts) — the path IS the
       // cache key, so a month warmed for the pop-down and a month read by the
       // 月 page have to agree on it or neither ever finds the other's answer.

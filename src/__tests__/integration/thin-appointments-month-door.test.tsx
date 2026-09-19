@@ -24,6 +24,15 @@ jest.mock('@/lib/appointments/booking-switches', () => {
   } }
 })
 
+// SWC exports are non-configurable getters. Preserve the real implementations
+// in configurable module seams so the OFF tests can observe forbidden calls.
+jest.mock('../../../thin/data/calendar-numbers-store', () => ({
+  ...jest.requireActual('../../../thin/data/calendar-numbers-store'),
+}))
+jest.mock('../../../thin/screens/ScreenBoundary', () => ({
+  ...jest.requireActual('../../../thin/screens/ScreenBoundary'),
+}))
+
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
   useLocale: () => 'ja',
@@ -70,8 +79,11 @@ import { capacityRowFields, type MonthCell } from '@/lib/adapters/reservation'
 import { monthNewCount } from '@/lib/appointments/metric-menu'
 import { setDataPort } from '@/lib/ports/data-port'
 import { emitRefresh } from '../../../thin/ports/nav.vite'
-import { dtoCache, fetchedAtByPath } from '../../../thin/screens/ScreenBoundary'
+import { cacheDto, dtoCache, fetchedAtByPath } from '../../../thin/screens/ScreenBoundary'
 import { rememberMonthNumbers, clearCalendarNumbers } from '../../../thin/data/calendar-numbers-store'
+import * as numbersStore from '../../../thin/data/calendar-numbers-store'
+import * as screenBoundary from '../../../thin/screens/ScreenBoundary'
+import { clearThinActiveStore, setThinActiveStore } from '../../../thin/chrome/store-pref'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
 import type { Session } from '@supabase/supabase-js'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
@@ -127,9 +139,9 @@ async function mountScreen(monthBody: unknown = { ...DTO, view: 'month', monthDa
     .mockResolvedValueOnce(jsonResponse(DTO)) // the screen's own DTO
     .mockResolvedValue(jsonResponse(monthBody)) // every month read after it
   setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
-  render(<AppointmentsScreen />)
+  const mounted = render(<AppointmentsScreen />)
   await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
-  return { apiFetch, load: capturedProps!.loadMonthCells }
+  return { apiFetch, load: capturedProps!.loadMonthCells, rerender: mounted.rerender }
 }
 
 beforeEach(() => {
@@ -137,6 +149,8 @@ beforeEach(() => {
   clearCalendarNumbers()
   setSessionState({ status: 'signed-in', session: { user: { id: 'u1' } } as Session })
   dtoCache.clear()
+  fetchedAtByPath.clear()
+  window.localStorage.removeItem('karute-active-store')
   history.replaceState({}, '', '/appointments?date=2026-09-14&staff=self')
   capturedProps = null
 })
@@ -317,8 +331,8 @@ it.each(['sign-out', 'refresh'] as const)('loader drops a response after %s with
   }
 })
 
-it.each([undefined, true])('loader still caches with an intact fence (persistence override %s)', async (override) => {
-  mockPersistCalendarNumbers = override
+it('switch ON: loader still caches with an intact fence', async () => {
+  mockPersistCalendarNumbers = true
   const { apiFetch, load } = await mountScreen()
   await expect(load('2026-12')).resolves.toEqual([MONTH_CELL])
   const path = apiFetch.mock.calls.at(-1)![0]
@@ -328,6 +342,117 @@ it.each([undefined, true])('loader still caches with an intact fence (persistenc
   await expect(load('2026-12')).resolves.toEqual([MONTH_CELL])
   expect(apiFetch).toHaveBeenCalledTimes(calls)
   const raw = window.localStorage.getItem('karute-calendar-numbers')
-  if (override) expect(raw).toContain(MONTH_CELL.id)
-  else expect(raw).toBeNull()
+  expect(raw).toContain(MONTH_CELL.id)
+})
+
+
+const SEPTEMBER_PATH = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja'
+const SEPTEMBER_CELL = { ...MONTH_CELL, id: '2026-09-01', dateIso: '2026-08-31T15:00:00.000Z' }
+const SEPTEMBER_DTO = { ...DTO, view: 'month', monthData: [SEPTEMBER_CELL] }
+
+it('release 28 OFF: opening the same month twice makes two network reads without remembering', async () => {
+  const { apiFetch } = await mountScreen(SEPTEMBER_DTO)
+  const read = jest.spyOn(numbersStore, 'readMonthNumbers')
+  const remember = jest.spyOn(numbersStore, 'rememberMonthNumbers')
+  const fence = jest.spyOn(screenBoundary, 'captureCacheFence')
+  const write = jest.spyOn(screenBoundary, 'cacheDto')
+  try {
+    const before = new Map(dtoCache)
+    const timestamps = new Map(fetchedAtByPath)
+    for (let open = 0; open < 2; open++) {
+      const panel = mountPanel()
+      await waitFor(() => expect(screen.getAllByTestId('panel-grid').some((grid) => grid.textContent === '4')).toBe(true))
+      panel.unmount()
+    }
+    expect(apiFetch.mock.calls.filter(([path]) => path.includes('view=month') && path.includes('date=2026-09-01'))).toHaveLength(2)
+    expect(dtoCache).toEqual(before)
+    expect(fetchedAtByPath).toEqual(timestamps)
+    expect(read).not.toHaveBeenCalled()
+    expect(remember).not.toHaveBeenCalled()
+    expect(fence).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+    expect(window.localStorage.getItem('karute-calendar-numbers')).toBeNull()
+  } finally {
+    read.mockRestore()
+    remember.mockRestore()
+    fence.mockRestore()
+    write.mockRestore()
+  }
+})
+
+it('release 28 OFF: the real neighbour warm cannot seed or answer the pop-down from its fresh month DTO', async () => {
+  const { apiFetch, rerender } = await mountScreen(SEPTEMBER_DTO)
+  const neighbours = jest.requireActual<typeof import('../../../thin/data/screen-neighbours')>('../../../thin/data/screen-neighbours')
+  const oldMonth = { ...SEPTEMBER_DTO, monthData: [{ ...SEPTEMBER_CELL, count: 37 }] }
+  apiFetch.mockResolvedValue(jsonResponse(oldMonth))
+  jest.useFakeTimers()
+  try {
+    neighbours.warmAppointmentNeighbours({
+      view: 'day', selectedDate: new Date('2026-09-14T00:00:00+09:00'),
+      today: new Date('2026-09-14T00:00:00+09:00'), staff: null, locale: 'ja',
+    })
+    await act(async () => { await jest.runAllTimersAsync() })
+    expect(dtoCache.get(SEPTEMBER_PATH)).toEqual(expect.objectContaining({ monthData: oldMonth.monthData }))
+    expect(fetchedAtByPath.has(SEPTEMBER_PATH)).toBe(true)
+    expect(window.localStorage.getItem('karute-calendar-numbers')).toBeNull()
+  } finally {
+    neighbours.cancelNeighbourWarm()
+    jest.useRealTimers()
+  }
+  // Re-render AFTER the actual warm, exercising the non-memoized seed.
+  const read = jest.spyOn(numbersStore, 'readMonthNumbers')
+  rerender(<AppointmentsScreen />)
+  try {
+    expect(capturedProps!.monthData).toBeNull()
+    expect(read).not.toHaveBeenCalled()
+    apiFetch.mockResolvedValue(jsonResponse(SEPTEMBER_DTO))
+    const before = apiFetch.mock.calls.length
+    mountPanel()
+    await waitFor(() => expect(screen.getAllByTestId('panel-grid').some((grid) => grid.textContent === '4')).toBe(true))
+    expect(apiFetch.mock.calls.slice(before).filter(([path]) => path.includes('view=month') && path.includes('date=2026-09-01'))).toHaveLength(1)
+    expect(screen.getAllByTestId('panel-grid').every((grid) => !grid.textContent?.includes('37'))).toBe(true)
+    expect(dtoCache.get(SEPTEMBER_PATH)).toEqual(expect.objectContaining({ monthData: oldMonth.monthData }))
+  } finally {
+    read.mockRestore()
+  }
+})
+
+it('release 28 OFF: cached-return then sign-out dispatches no outgoing counts from memory', async () => {
+  const { apiFetch } = await mountScreen(SEPTEMBER_DTO)
+  cacheDto(SEPTEMBER_PATH, { ...SEPTEMBER_DTO, monthData: [{ ...SEPTEMBER_CELL, count: 37 }] })
+  let settle!: (response: Response) => void
+  apiFetch.mockImplementation(() => new Promise((resolve) => { settle = resolve }))
+  // The real panel calls the loader synchronously; sign-out occurs before
+  // a cached-return promise could dispatch its outgoing count of 37.
+  mountPanel()
+  await act(async () => {
+    setSessionState({ status: 'signed-out' })
+    setSessionState({ status: 'signed-in', session: { user: { id: 'u2' } } as Session })
+  })
+  expect(screen.getAllByTestId('panel-grid').every((grid) => !grid.textContent?.includes('37'))).toBe(true)
+  expect(screen.getByRole('status')).toHaveTextContent('dateJump.loading')
+  expect(apiFetch.mock.calls.filter(([path]) => path.includes('view=month'))).toHaveLength(1)
+  await act(async () => { settle(jsonResponse(SEPTEMBER_DTO)) })
+  expect(screen.getAllByTestId('panel-grid').some((grid) => grid.textContent === '4')).toBe(true)
+})
+
+it('release 28 OFF: a lens change without reload opens with only the next network response', async () => {
+  setThinActiveStore('store-A')
+  const { apiFetch, rerender } = await mountScreen(SEPTEMBER_DTO)
+  const oldMonth = { ...SEPTEMBER_DTO, monthData: [{ ...SEPTEMBER_CELL, count: 37 }] }
+  cacheDto(SEPTEMBER_PATH, oldMonth)
+  // The facade heal clears the lens; clamped staff need not reseed/refresh.
+  clearThinActiveStore('store-A')
+  let settle!: (response: Response) => void
+  apiFetch.mockImplementation(() => new Promise((resolve) => { settle = resolve }))
+  rerender(<AppointmentsScreen />)
+  expect(capturedProps!.monthData).toBeNull()
+  mountPanel()
+  await act(async () => { await Promise.resolve() })
+  expect(screen.getAllByTestId('panel-grid').every((grid) => !grid.textContent?.includes('37'))).toBe(true)
+  expect(screen.getByRole('status')).toHaveTextContent('dateJump.loading')
+  expect(apiFetch.mock.calls.filter(([path]) => path.includes('view=month'))).toHaveLength(1)
+  await act(async () => { settle(jsonResponse(SEPTEMBER_DTO)) })
+  expect(screen.getAllByTestId('panel-grid').some((grid) => grid.textContent === '4')).toBe(true)
+  expect(dtoCache.get(SEPTEMBER_PATH)).toEqual(oldMonth)
 })

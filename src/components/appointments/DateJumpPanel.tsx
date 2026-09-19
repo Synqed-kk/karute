@@ -428,7 +428,8 @@ export function DateJumpPanel({
         },
         (error) => {
           inFlightRef.current.delete(key)
-          // The thin loader cancels responses whose session/refresh fence died.
+          // Only with persistCalendarNumbers ON can the thin loader cancel
+          // a response whose session/refresh fence died.
           // Drop the settle entirely: neither old counts nor a failure is news.
           if (error instanceof DOMException && error.name === 'AbortError') return
           // Degraded is allowed, silent is not (the same line the facade's
