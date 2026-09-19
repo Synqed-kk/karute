@@ -69,7 +69,7 @@ jest.mock('@/lib/supabase/service', () => ({
 import { audit } from '@/lib/audit'
 import { auditWeb } from '@/lib/audit-web'
 
-const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1' }
+const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
 
 interface InviteFixture {
   id: string
