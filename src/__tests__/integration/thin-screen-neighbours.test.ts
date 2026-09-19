@@ -12,6 +12,18 @@
 // below, which is before these declarations have been initialised.
 // next-intl ships ESM only and this repo's jest does not transform it — every
 // suite here mocks it (ScreenBoundary pulls it in for its loading/error cards).
+// Match metric-menu.test.ts: override the registry module for ON-only cases.
+let mockPersistCalendarNumbers: boolean | undefined
+jest.mock('@/lib/appointments/booking-switches', () => {
+  const actual = jest.requireActual('@/lib/appointments/booking-switches')
+  return { BOOKING_SWITCHES: {
+    ...actual.BOOKING_SWITCHES,
+    get persistCalendarNumbers() {
+      return mockPersistCalendarNumbers ?? actual.BOOKING_SWITCHES.persistCalendarNumbers
+    },
+  } }
+})
+
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
   useLocale: () => 'ja',
@@ -82,6 +94,7 @@ function monthCells(): MonthCellDTOType[] {
 }
 
 beforeEach(() => {
+  mockPersistCalendarNumbers = undefined
   jest.useFakeTimers()
   mockFetch.mockReset()
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) })
@@ -193,6 +206,7 @@ describe('the neighbour queue (S3)', () => {
 })
 
 describe('the calendar numbers kept on the device (S4)', () => {
+  beforeEach(() => { mockPersistCalendarNumbers = true })
   const path = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja'
 
   it('isolates the same path across store lenses read at call time', () => {
@@ -362,5 +376,39 @@ describe('the calendar numbers kept on the device (S4)', () => {
     runFrames(10)
     await jest.runAllTimersAsync()
     expect(readMonthNumbers(monthPath)).toEqual(monthCells())
+  })
+})
+
+
+describe('release 28 shipped persistence OFF', () => {
+  const key = 'karute-calendar-numbers'
+  const path = 'shipped-default-month'
+  const seed = () => window.localStorage.setItem(key, JSON.stringify({
+    v: 2, entries: { [JSON.stringify(['u1', 'all', path])]: { at: 1, monthData: monthCells() } },
+  }))
+
+  it('writes nothing with the shipped default', () => {
+    rememberMonthNumbers(path, monthCells())
+    expect(window.localStorage.getItem(key)).toBeNull()
+  })
+
+  it('reads nothing even with a valid v2 blob', () => {
+    seed()
+    expect(readMonthNumbers(path)).toBeNull()
+    // Prove this is a readable fixture, not a malformed-blob false positive.
+    mockPersistCalendarNumbers = true
+    expect(readMonthNumbers(path)).toEqual(monthCells())
+  })
+
+  it('still clears old blobs with the switch off', () => {
+    seed()
+    clearCalendarNumbers()
+    expect(window.localStorage.getItem(key)).toBeNull()
+  })
+
+  it('still clears old blobs on sign-out with the switch off', () => {
+    seed()
+    setSessionState({ status: 'signed-out' })
+    expect(window.localStorage.getItem(key)).toBeNull()
   })
 })

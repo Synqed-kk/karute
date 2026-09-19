@@ -12,6 +12,18 @@
  * quietly shrink the numbers staff read, with no visible symptom until someone
  * compared them by hand.
  */
+// Match metric-menu.test.ts: override the registry module for ON-only cases.
+let mockPersistCalendarNumbers: boolean | undefined
+jest.mock('@/lib/appointments/booking-switches', () => {
+  const actual = jest.requireActual('@/lib/appointments/booking-switches')
+  return { BOOKING_SWITCHES: {
+    ...actual.BOOKING_SWITCHES,
+    get persistCalendarNumbers() {
+      return mockPersistCalendarNumbers ?? actual.BOOKING_SWITCHES.persistCalendarNumbers
+    },
+  } }
+})
+
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
@@ -37,7 +49,22 @@ jest.mock('@/lib/karute/take-store', () => ({
   stampTakeSession: jest.fn(),
 }))
 
-import { render, screen, waitFor } from '@testing-library/react'
+jest.mock('../../../thin/data/screen-neighbours', () => ({
+  ...jest.requireActual('../../../thin/data/screen-neighbours'),
+  warmAppointmentNeighbours: jest.fn(),
+  cancelNeighbourWarm: jest.fn(),
+}))
+jest.mock('@synqed-kk/ui', () => ({
+  MonthGrid: ({ cells }: { cells: { id: string; count: number }[] }) => (
+    <div data-testid="panel-grid">
+      {cells.map((cell) => <span key={cell.id} data-cell={cell.id}>{cell.count}</span>)}
+    </div>
+  ),
+}))
+
+import { act, render, screen, waitFor } from '@testing-library/react'
+import { createRef } from 'react'
+import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { capacityRowFields, type MonthCell } from '@/lib/adapters/reservation'
 import { monthNewCount } from '@/lib/appointments/metric-menu'
 import { setDataPort } from '@/lib/ports/data-port'
@@ -104,6 +131,7 @@ async function mountScreen(monthBody: unknown = { ...DTO, view: 'month', monthDa
 }
 
 beforeEach(() => {
+  mockPersistCalendarNumbers = undefined
   clearCalendarNumbers()
   setSessionState({ status: 'signed-in', session: { user: { id: 'u1' } } as Session })
   dtoCache.clear()
@@ -197,6 +225,7 @@ it('THROWS when the response carries no monthData — never a silently free mont
 
 
 it('round-trips fixture month cells to the identical rendered toMonthCells output', async () => {
+  mockPersistCalendarNumbers = true
   const cells = [MONTH_CELL, {
     ...MONTH_CELL, id: '2026-12-02', dateIso: '2026-12-01T15:00:00.000Z',
     count: 7, newCount: 2, newCountKnown: false, closed: true, isToday: true,
@@ -215,4 +244,39 @@ it('round-trips fixture month cells to the identical rendered toMonthCells outpu
   render(<AppointmentsScreen />)
   await waitFor(() => expect(capturedProps?.monthData).toEqual(before))
   expect(capturedProps!.monthData).toHaveLength(2)
+})
+
+
+function mountPanel() {
+  return render(<DateJumpPanel
+    open onClose={() => {}} anchorRef={createRef<HTMLDivElement>()}
+    selectedDate={new Date('2026-09-14T00:00:00+09:00')}
+    seedCells={capturedProps!.monthData} loadMonthCells={capturedProps!.loadMonthCells as Parameters<typeof DateJumpPanel>[0]['loadMonthCells']}
+    onPickDay={() => {}} weekdayLabels={['M', 'T', 'W', 'T', 'F', 'S', 'S']}
+  />)
+}
+
+it('release 28 OFF equals main: cold panel skeleton then network cells despite a stored v2 blob', async () => {
+  const path = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja'
+  const cells = [{ ...MONTH_CELL, id: '2026-09-01', dateIso: '2026-08-31T15:00:00.000Z' }]
+  window.localStorage.setItem('karute-calendar-numbers', JSON.stringify({
+    v: 2, entries: { [JSON.stringify(['u1', 'all', path])]: { at: 1, monthData: cells } },
+  }))
+  const { apiFetch } = await mountScreen()
+  expect(capturedProps!.monthData).toBeNull()
+  let settle!: (response: Response) => void
+  apiFetch.mockImplementation(() => new Promise((resolve) => { settle = resolve }))
+  mountPanel()
+  expect(screen.getByRole('status')).toHaveTextContent('dateJump.loading')
+  const skeleton = screen.getAllByTestId('panel-grid')[0]
+  expect(skeleton.querySelectorAll('[data-cell]').length).toBeGreaterThanOrEqual(28)
+  expect(skeleton).not.toHaveTextContent('4')
+  const monthCall = apiFetch.mock.calls.at(-1)![0]
+  const url = new URL(monthCall, 'https://shell.invalid')
+  expect(url.searchParams.get('view')).toBe('month')
+  expect(url.searchParams.get('date')).toBe('2026-09-01')
+  expect(url.searchParams.has('staff')).toBe(false)
+  await act(async () => { settle(jsonResponse({ ...DTO, view: 'month', monthData: cells })) })
+  expect(screen.getByRole('status')).toHaveTextContent('')
+  expect(screen.getAllByTestId('panel-grid').some((grid) => grid.textContent === '4')).toBe(true)
 })

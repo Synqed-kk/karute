@@ -1,4 +1,9 @@
-// The calendar's NUMBERS, kept across app launches — and nothing else.
+// Calendar-number persistence is OFF in release 28; reads and writes no-op.
+// Re-enable only with (a) the server-resolved store id from the DTO in the key,
+// (b) identity captured at request time and compared at settle, and (c) real
+// calendar validation: valid dates, 28–42 consecutive unique days, and
+// non-negative integer counts. These requirements are NOT implemented here.
+// Clearing stays unconditional to remove blobs from earlier look builds.
 //
 // WHY IT EXISTS (MEASURE-CALENDAR-SPEED-2026-09-16 §1): the first read after
 // the app has been idle is the slowest thing on this screen — 2.2 s measured
@@ -11,7 +16,8 @@
 // The free-form strings must have the producer's date/cell-id shapes; density
 // is a fixed enum. Capacity fields are not read by that mapper and stay out.
 // Every entry is validated on read; invalid entries vanish on the next write.
-// Entries are isolated by the current user, store lens and screen path.
+// Entries use the current user, LOCAL store preference and screen path.
+// That preference is not necessarily the server-resolved lens; keep this OFF.
 //
 // Plain namespaced `localStorage` with a version key and a cap, because no
 // shared utility fits: `src/lib/auth/mobile/secure-storage.ts` is for SECRETS
