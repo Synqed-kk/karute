@@ -180,6 +180,7 @@ describe('§3/H1 — the neutral row and the pure store resolver', () => {
     [{ turnoverWord: '123456789|' }, 'length'],
     [{ resourceNoun: '123456789', counter: '台' }, 'length'],
     [{ resourceNoun: '設備', counter: '123456789' }, 'length'],
+    [{ turnoverWord: '𠮷𠮷𠮷𠮷𠮷𠮷𠮷𠮷𠮷' }, 'length'],
     [{ turnoverWord: '清掃|' }, 'bar'],
     [{ resourceNoun: '設備|', counter: '台' }, 'bar'],
     [{ resourceNoun: '設備', counter: '台|' }, 'bar'],
@@ -202,9 +203,10 @@ describe('§3/H1 — the neutral row and the pure store resolver', () => {
 
   it('§3/H1 — null, empty, valid pairs and independent full/turnover words have no problem; eight characters are allowed', () => {
     expect(WORD_MAX_CHARS).toBe(8)
-    for (const override of [null, {}, { resourceNoun: '設備', counter: '台' }, { fullWord: '満室' as const }, { fullWord: '満席' as const }, { fullWord: '空きなし' as const }, { turnoverWord: '12345678' }]) {
+    for (const override of [null, {}, { resourceNoun: '設備', counter: '台' }, { fullWord: '満室' as const }, { fullWord: '満席' as const }, { fullWord: '空きなし' as const }, { turnoverWord: '12345678' }, { turnoverWord: '𠮷𠮷𠮷𠮷𠮷𠮷𠮷𠮷' }]) {
       expect(wordOverrideProblem(override)).toBeNull()
     }
+    expect(wordsForStore('chiropractic', { turnoverWord: '𠮷𠮷𠮷𠮷𠮷𠮷𠮷𠮷' }).turnoverWord).toBe('𠮷𠮷𠮷𠮷𠮷𠮷𠮷𠮷')
   })
 
   it('§3/H1 — agreeing chrome returns the original row by identity', () => {
