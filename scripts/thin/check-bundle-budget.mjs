@@ -1675,7 +1675,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     先月同期間比 ×4 · monthCompareDelta ×6 · data-pressed ×4 · the R6 seam ×1
 //     with both CSS rules · the folded TYPE_SLOT reading "new").
 //
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-16 on PKT-2b's tip (feat/booking-month-new-slot S1+S2+S3,
 // on top of the merge tip above) — the WIRING round: the month line's own
 // 新規 slot (`monthNewCount`, metric-menu.ts — Σ `newCount` over `inMonth`
@@ -1725,7 +1724,26 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Total = 2,124,225 B; ceiling = measured + 1,000 = 2,125,225 B.
 // +221 B against main's own 2,124,004 B measurement (its ceiling 2,125,004), all in index + en (index +221 B, en +0 B); vendor unchanged.
 // (the intermediate tip 27aa6604e measured 2,121,229 B → 2,122,229 after #957 alone; superseded the same afternoon.)
-const BUDGET_BYTES = 2_125_225
+
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-19 — P1b B1 (PR #960, feat/p1b-refusal-audit-1),
+// rebased onto origin/main 77786f755 (#955, this branch's own base — no file
+// overlap, so the rebase was conflict-free). What grew: four audit-log
+// labels for refused cross-store writes (karute · settings · booking ·
+// recording), ja + en — messages/ja.json + messages/en.json only, no other
+// shipped source touched. Same CI recipe — all six VITE_* values read
+// straight from .github/workflows/ci.yml, thin/dist emptied before each
+// lap, node v24.16.0, @synqed-kk/ui 0.3.2. Two clean laps byte-identical
+// (matching filenames, byte sizes and SHA-256s for all 3 output files):
+//   en-DPaPvrur.js       135,580 B
+//   index-CIENFw85.js  1,052,150 B
+//   vendor-BD5eMVWe.js    937,791 B
+// Total = 2,125,521 B; ceiling = measured + 1,000 = 2,126,521 B.
+// Against main's own #955 measurement above (2,124,225 B, ceiling
+// 2,125,225 B): +1,296 B total — en +535 B, index +761 B, vendor unchanged —
+// exactly the four new label strings landing in both locale bundles, no
+// dependency moved.
+const BUDGET_BYTES = 2_126_521
 
 let dir
 try {

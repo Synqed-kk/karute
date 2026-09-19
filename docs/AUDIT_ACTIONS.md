@@ -20,6 +20,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `booking.delete` | booking | live | `settings.auditLog.actions.booking.delete` |
 | `booking.no_show` | booking | live | `settings.auditLog.actions.booking.no_show` |
 | `booking.restore` | booking | live | `settings.auditLog.actions.booking.restore` |
+| `booking.store_write_refused` | booking | live | `settings.auditLog.actions.booking.store_write_refused` |
 | `booking.update` | booking | live | `settings.auditLog.actions.booking.update` |
 | `customer.ai_prediction_view` | customer | live | `settings.auditLog.actions.customer.ai_prediction_view` |
 | `customer.brief_view` | customer | live | `settings.auditLog.actions.customer.brief_view` |
@@ -49,6 +50,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `karute.manual_create` | karute | live | `settings.auditLog.actions.karute.manual_create` |
 | `karute.outcome_set` | karute | live | `settings.auditLog.actions.karute.outcome_set` |
 | `karute.save` | karute | live | `settings.auditLog.actions.karute.save` |
+| `karute.store_write_refused` | karute | live | `settings.auditLog.actions.karute.store_write_refused` |
 | `karute.summary_edit` | karute | live | `settings.auditLog.actions.karute.summary_edit` |
 | `karute.view` | karute | live | `settings.auditLog.actions.karute.view` |
 | `privacy.audit_log.view` | privacy | live | `settings.auditLog.actions.privacy.audit_log.view` |
@@ -66,6 +68,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `recording.play` | recording | live | `settings.auditLog.actions.recording.play` |
 | `recording.session_cleanup` | recording | live | `settings.auditLog.actions.recording.session_cleanup` |
 | `recording.share` | recording | live | `settings.auditLog.actions.recording.share` |
+| `recording.store_write_refused` | recording | live | `settings.auditLog.actions.recording.store_write_refused` |
 | `recording.take_named` | recording | live | `settings.auditLog.actions.recording.take_named` |
 | `recording.take_refused_has_record` | recording | live | `settings.auditLog.actions.recording.take_refused_has_record` |
 | `recording.transcribe` | recording | live | `settings.auditLog.actions.recording.transcribe` |
@@ -82,6 +85,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `settings.staff_stores_change` | settings | live | `settings.auditLog.actions.settings.staff_stores_change` |
 | `settings.store_create` | settings | live | `settings.auditLog.actions.settings.store_create` |
 | `settings.store_update` | settings | live | `settings.auditLog.actions.settings.store_update` |
+| `settings.store_write_refused` | settings | live | `settings.auditLog.actions.settings.store_write_refused` |
 | `settings.sync_config_update` | settings | live | `settings.auditLog.actions.settings.sync_config_update` |
 | `settings.sync_run_now` | settings | live | `settings.auditLog.actions.settings.sync_run_now` |
 | `staff.add` | staff | live | `settings.auditLog.actions.staff.add` |
