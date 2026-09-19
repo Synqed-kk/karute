@@ -123,6 +123,7 @@ jest.mock('@/lib/synqed/staff-map', () => ({
     lookupSynqedStaffIdForBusiness(profileId, businessId),
 }))
 
+import { GET as storesGET } from '@/app/api/app/v1/stores/route'
 import { PATCH as hoursPATCH } from '@/app/api/app/v1/stores/[id]/hours/route'
 import { setStoreHours, listStoresWithClient } from '@/actions/stores'
 import {
@@ -136,6 +137,7 @@ import {
   STORE_HOURS_ACTOR_UNRESOLVED,
   STORE_HOURS_INVALID_WINDOW,
   STORE_HOURS_UNKNOWN_STORE,
+  STORE_HOURS_UNREADABLE,
   STORE_HOURS_WEEK_INCOMPLETE,
   STORE_OWNER_DENIAL,
 } from '@/lib/validations/store'
@@ -467,6 +469,35 @@ describe('store membership — a storeId not owned by this business is refused',
   })
 })
 
+describe('unreadable current policy', () => {
+  it.each([
+    ['web', 'save'], ['web', 'reset'], ['facade', 'save'], ['facade', 'reset'],
+  ] as const)('%s %s refuses an unreadable stored week without a write or audit row', async (door, operation) => {
+    storePoliciesGet.mockResolvedValue({
+      weekly_hours: { ...FULL_WEEK, mon: { open: 'next-version', close: '19:00' } },
+    })
+    const hours = operation === 'reset' ? null : FULL_WEEK
+    const lines = await auditLines(async () => {
+      if (door === 'web') {
+        expect(await setStoreHours('store-7', hours)).toEqual({ error: STORE_HOURS_UNREADABLE })
+      } else {
+        const res = await hoursPATCH(patchReq(hours), params('store-7'))
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ error: STORE_HOURS_UNREADABLE })
+      }
+    })
+    expect(storePoliciesGet).toHaveBeenCalledWith('store-7')
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a readable partial stored week can still be replaced by a complete week', async () => {
+    storePoliciesGet.mockResolvedValue({ weekly_hours: { mon: FULL_WEEK.mon } })
+    expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
+    expect(storePoliciesSet).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('the exact SDK payload', () => {
   it('sends weekly_hours + acting_staff_id and NOTHING else — no other policy field is re-sent', async () => {
     expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
@@ -538,7 +569,7 @@ describe('the exact SDK payload', () => {
     expect((lines[0] as { detail: { before: string } }).detail.before).toBe('default')
   })
 
-  it('an unreadable BEFORE says so and never blocks the save', async () => {
+  it('a failed BEFORE transport read says unavailable and retains the existing save behavior', async () => {
     storePoliciesGet.mockRejectedValue(new Error('core down'))
     const lines = await auditLines(async () => {
       expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
@@ -635,6 +666,23 @@ describe('both doors, one core', () => {
 })
 
 describe('the settings read', () => {
+  it('marks malformed stored hours unreadable in both the shared reader and stores facade', async () => {
+    storePoliciesList.mockResolvedValue({ policies: [
+      { store_id: 'store-7', weekly_hours: { mon: { open: 'bad', close: '19:00' } } },
+    ] })
+    const rows = await listStoresWithClient(fakeClient as never, 'business-1', {
+      ensurePrimary: false, withHours: true,
+    })
+    expect(rows[0]).toMatchObject({ weeklyHours: null, weeklyHoursUnreadable: true })
+    const res = await storesGET(new Request('https://s/api/app/v1/stores?withHours=1', {
+      headers: auth,
+    }), { params: Promise.resolve({}) })
+    expect(res.status).toBe(200)
+    expect((await res.json()).stores[0]).toMatchObject({
+      weeklyHours: null, weeklyHoursUnreadable: true,
+    })
+  })
+
   it('asks core for store policies ONCE for the whole business, never once per store', async () => {
     storesList.mockResolvedValue({
       stores: [
@@ -709,6 +757,7 @@ describe('the DTO key is additive', () => {
 
   it('OLD SERVER → NEW CLIENT: a row with no weeklyHours key still parses, as null', () => {
     expect(StoreRowSchema.parse(BASE).weeklyHours).toBeNull()
+    expect(StoreRowSchema.parse(BASE).weeklyHoursUnreadable).toBe(false)
   })
 
   it('NEW SERVER → NEW CLIENT: a real week round-trips', () => {
@@ -732,6 +781,7 @@ describe('the DTO key is additive', () => {
         weeklyHours: { ...FULL_WEEK, mon: { open: '9:00', close: '19:30' } },
       })
       expect(row.weeklyHours).toBeNull()
+      expect(row.weeklyHoursUnreadable).toBe(true)
       expect(row.name).toBe('A') // the rest of the row survived
       expect(warn).toHaveBeenCalled()
     } finally {
@@ -754,6 +804,7 @@ describe('the DTO key is additive', () => {
       ...StoreRowSchema.parse({ ...BASE, weeklyHours: FULL_WEEK }),
     }
     delete rest.weeklyHours
+    delete rest.weeklyHoursUnreadable
     expect(rest).toEqual(BASE)
   })
 })

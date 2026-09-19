@@ -129,7 +129,7 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { GET } from '@/app/api/app/v1/screens/settings/route'
-import { SettingsScreenDTO } from '@/lib/app-api/settings-screen-dto'
+import { SettingsScreenDTO, StoreRowSchema } from '@/lib/app-api/settings-screen-dto'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -171,6 +171,7 @@ beforeEach(() => {
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   storesGet.mockResolvedValue({})
   storesList.mockResolvedValue({ stores: [] })
+  storePoliciesList.mockResolvedValue({ policies: [] })
   staffStoresCounts.mockResolvedValue({ counts: {} })
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'free', is_unlimited: false })
@@ -435,6 +436,24 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect((await res.json()).error.code).toBe('upstream_unavailable')
   })
 
+  it('a malformed policy does not fail the settings screen and its unreadable flag reaches the wire', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    storesList.mockResolvedValue({ stores: [
+      { id: 'store-A', name: 'Store A', address: null, phone: null, is_primary: true, active: true },
+      { id: 'store-B', name: 'Store B', address: null, phone: null, is_primary: false, active: true },
+    ] })
+    storePoliciesList.mockResolvedValue({ policies: [
+      { store_id: 'store-A', weekly_hours: { mon: { open: 'bad', close: '19:00' } } },
+    ] })
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const wire = body.data ?? body
+    expect(wire.initialStores[0]).toMatchObject({ weeklyHours: null, weeklyHoursUnreadable: true })
+    expect(wire.initialStores[1]).toMatchObject({ weeklyHours: null, weeklyHoursUnreadable: false })
+    expect(SettingsScreenDTO.parse(wire).initialStores).toEqual(wire.initialStores)
+  })
+
   it('initialStores/initialEntitlement populate for a stores.viewAll identity (packet 12 §B-3 S2)', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
     storesList.mockResolvedValue({
@@ -458,6 +477,7 @@ describe('GET /api/app/v1/screens/settings', () => {
         businessType: null,
         // No policy row for this store → never configured (1c-D S1).
         weeklyHours: null,
+        weeklyHoursUnreadable: false,
       },
     ])
     expect(dto.initialEntitlement).toMatchObject({ tier: 'professional', isUnlimited: true })
@@ -597,5 +617,32 @@ describe('SettingsScreenDTO — serviceNoun skew tolerance', () => {
     }
     const dto = SettingsScreenDTO.parse(skewed)
     expect(dto.serviceNoun).toBeUndefined()
+  })
+})
+
+describe('Settings store DTO unreadable hours', () => {
+  const row = {
+    id: 'store-A', name: 'Store A', address: null, phone: null,
+    isPrimary: true, active: true, staffCount: 0, customerCount: 0, businessType: null,
+  }
+
+  it('a malformed week preserves the row with null hours and an unreadable flag', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(StoreRowSchema.parse({
+        ...row, weeklyHours: { mon: { open: 'bad', close: '19:00' } }, weeklyHoursUnreadable: false,
+      })).toEqual({ ...row, weeklyHours: null, weeklyHoursUnreadable: true })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('an old server with no hours or flag defaults the unreadable flag to false', () => {
+    expect(StoreRowSchema.parse(row)).toEqual({ ...row, weeklyHours: null, weeklyHoursUnreadable: false })
+  })
+
+  it('preserves the server unreadable flag after the server has normalized the hours to null', () => {
+    expect(StoreRowSchema.parse({ ...row, weeklyHours: null, weeklyHoursUnreadable: true }))
+      .toEqual({ ...row, weeklyHours: null, weeklyHoursUnreadable: true })
   })
 })

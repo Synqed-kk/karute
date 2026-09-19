@@ -9,7 +9,7 @@
 //   · 保存 is closed until all seven rows are valid, judged by the SAME
 //     parseStoreWeeklyHours the server gate runs, and the payload it sends
 //     always carries seven weekdays.
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
   // Keys as text, with any interpolated values appended — the per-day aria
@@ -17,7 +17,9 @@ jest.mock('next-intl', () => ({
   useTranslations:
     () =>
     (k: string, v?: Record<string, string>) =>
-      v ? `${k}(${Object.values(v).join(',')})` : k,
+      k === 'unreadable'
+        ? jest.requireActual('../../../messages/ja.json').settings.stores.hours.unreadable
+        : v ? `${k}(${Object.values(v).join(',')})` : k,
   useLocale: () => 'ja',
 }))
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
@@ -62,6 +64,8 @@ jest.mock('@/components/settings/redesign/sections/stores/StoreFormDialog', () =
 
 import { StoreHoursBlock } from '@/components/settings/redesign/sections/stores/StoreHoursBlock'
 import { StoresSection } from '@/components/settings/redesign/sections/StoresSection'
+import { toast } from 'sonner'
+import ja from '../../../messages/ja.json'
 import type { OperatingHours } from '@/lib/operating-hours'
 
 const ORG_HOURS: OperatingHours = {
@@ -158,6 +162,44 @@ describe('a store that has never set its own hours', () => {
   })
 })
 
+describe('unreadable store hours', () => {
+  it.each([null, OWN_WEEK])('blocks every write control and shows the approved notice (week: %j)', (weeklyHours) => {
+    const { container } = open({ weeklyHours, weeklyHoursUnreadable: true })
+    expect(screen.getByText(ja.settings.stores.hours.unreadable)).toBeInTheDocument()
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(screen.queryByText('usingDefaultHint')).not.toBeInTheDocument()
+    const inputs = timeInputs(container)
+    expect(inputs).toHaveLength(14)
+    inputs.forEach((input) => expect(input).toBeDisabled())
+    if (!weeklyHours) inputs.forEach((input) => expect(input.value).toBe(''))
+    const toggles = screen.getAllByText('closedToggle')
+    expect(toggles).toHaveLength(7)
+    toggles.forEach((toggle) => {
+      expect(toggle).toBeDisabled()
+      fireEvent.click(toggle)
+    })
+    for (const key of ['save', 'resetToDefault']) {
+      expect(screen.getByText(key)).toBeDisabled()
+      fireEvent.click(screen.getByText(key))
+    }
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(setStoreHours).not.toHaveBeenCalled()
+  })
+
+  it.each(['save', 'reset'] as const)('maps the server unreadable refusal to the same notice on %s', async (operation) => {
+    setStoreHours.mockResolvedValue({ error: 'STORE_HOURS_UNREADABLE' })
+    open({ weeklyHours: OWN_WEEK })
+    if (operation === 'reset') {
+      fireEvent.click(screen.getByText('resetToDefault'))
+      fireEvent.click(screen.getByText('resetConfirmYes'))
+    } else {
+      fireEvent.click(screen.getByText('save'))
+    }
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ja.settings.stores.hours.unreadable))
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+})
+
 describe('a store with its own saved week', () => {
   it('shows its own hours, and does NOT claim the company-wide default', () => {
     const { container } = open({ weeklyHours: OWN_WEEK })
@@ -210,6 +252,24 @@ describe('the 休業 confirmation', () => {
 })
 
 describe('saving', () => {
+  it('disables inputs and toggles while saving, then re-enables them after the response', async () => {
+    let resolveSave!: (result: { ok: true }) => void
+    setStoreHours.mockReturnValueOnce(new Promise((resolve) => { resolveSave = resolve }))
+    const { container } = open()
+    fireEvent.click(screen.getAllByText('closedToggle')[0])
+    // A pending confirmation is also a draft control during this request.
+    fireEvent.click(screen.getByText('save'))
+    expect(screen.getByText('saving')).toBeDisabled()
+    timeInputs(container).forEach((input) => expect(input).toBeDisabled())
+    screen.getAllByText('closedToggle').forEach((toggle) => expect(toggle).toBeDisabled())
+    expect(screen.getByText('closedConfirmYes')).toBeDisabled()
+    await act(async () => resolveSave({ ok: true }))
+    expect(screen.getByText('save')).not.toBeDisabled()
+    timeInputs(container).forEach((input) => expect(input).not.toBeDisabled())
+    screen.getAllByText('closedToggle').forEach((toggle) => expect(toggle).not.toBeDisabled())
+    expect(screen.getByText('closedConfirmYes')).not.toBeDisabled()
+  })
+
   it('is closed while any row opens after it closes, and opens again when fixed', () => {
     const { container } = open()
     const save = screen.getByText('save')
@@ -439,6 +499,37 @@ describe('the section: a refresh never forgets a saved week', () => {
     fireEvent.click(hoursDisclosure(0))
     expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
     expect(timeInputs(container)[0].value).toBe('11:00')
+  })
+
+  it('an unreadable re-list keeps the known week and disables writes, including after a plain re-list', async () => {
+    listStoresWithHours.mockResolvedValue([
+      { ...row('store-7', 'Store A', null), weeklyHoursUnreadable: true },
+      row('store-8', 'Store B', null),
+    ])
+    const { container } = renderSection(OWN_WEEK)
+    fireEvent.click(screen.getAllByLabelText('edit')[1])
+    fireEvent.click(screen.getByText('submit-rename'))
+    await waitFor(() => expect(screen.getByText('Store B')).toBeInTheDocument())
+    fireEvent.click(hoursDisclosure(0))
+    expect(timeInputs(container)[0].value).toBe('11:00')
+    expect(timeInputs(container)[1].value).toBe('20:00')
+    expect(screen.getByText(ja.settings.stores.hours.unreadable)).toBeInTheDocument()
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(screen.getByText('save')).toBeDisabled()
+
+    listStoresWithHours.mockRejectedValueOnce(new Error('core storePolicies down'))
+    listStores.mockResolvedValue([
+      row('store-7', 'Store A', undefined),
+      row('store-8', 'Store B renamed', undefined),
+    ])
+    fireEvent.click(screen.getAllByLabelText('edit')[1])
+    fireEvent.click(screen.getByText('submit-rename'))
+    await waitFor(() => expect(screen.getByText('Store B renamed')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('hide'))
+    fireEvent.click(hoursDisclosure(0))
+    expect(timeInputs(container)[0].value).toBe('11:00')
+    expect(screen.getByText(ja.settings.stores.hours.unreadable)).toBeInTheDocument()
+    expect(screen.getByText('save')).toBeDisabled()
   })
 
   // PKT-FIX-938 B1 — a store-policy read blip must not make a rename look
