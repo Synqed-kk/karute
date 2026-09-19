@@ -299,6 +299,46 @@ describe('POST /api/app/v1/karute (save)', () => {
     expect(res.status).toBe(403)
     expect(create).not.toHaveBeenCalled()
   })
+
+  // ⚖ 2026-09-19 fold — Greptile finding 1: the existence-oracle close. An
+  // unplaceable Bearer caller must get the SAME answer whatever ids they send,
+  // and no consent/appointment read may run for them before that answer.
+  it('unplaceable Bearer caller + a NON-EXISTENT appointmentId → 403 store_forbidden, STORE_SCOPE_UNVERIFIED, before any read (T1)', async () => {
+    roster.current = []
+    fakeClient.appointments.get.mockRejectedValueOnce(Object.assign(new Error('no such appointment'), { status: 404 }))
+
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-missing' }), noRoute)
+
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(getConsent).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('the SAME unplaceable caller + an EXISTING appointmentId (with a staff_id) → the BYTE-IDENTICAL refusal, no existence oracle (T2/T3)', async () => {
+    roster.current = []
+    fakeClient.appointments.get.mockRejectedValueOnce(Object.assign(new Error('no such appointment'), { status: 404 }))
+    const missingRes = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-missing' }), noRoute)
+    const missingBody = await missingRes.json()
+
+    roster.current = []
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'appt-staff', store_id: null, title: null })
+    const existingRes = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-exists' }), noRoute)
+    const existingBody = await existingRes.json()
+
+    // T2: byte-identical status + body whether the sent appointmentId exists or not.
+    expect(existingRes.status).toBe(missingRes.status)
+    expect(existingBody).toEqual(missingBody)
+    expect(existingRes.status).toBe(403)
+    expect(existingBody.error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    // T3: neither call ever read the appointment or the customer's consent, and nothing was written.
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(getConsent).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
   it('missing capability → 403', async () => {
     capabilities.current = new Set(['customers.view'])
     const res = await savePOST(post({ ...auth, ...idem }, validSave), noRoute)

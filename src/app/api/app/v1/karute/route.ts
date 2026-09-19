@@ -1,11 +1,12 @@
 // Facade: SAVE a karute record (packet 08 Decision 3) — ONE route serving BOTH
 // web save flavors (the thin port maps saveKaruteRecordInline → this POST, and
 // saveKaruteRecord → this POST then a client-side navigate). Server order:
-// capability records.write → tenancy proof → CONSENT GATE (fail-closed) → staff
-// attribution (selfStaffId first, appointment fallback) → store id → the shared
-// idempotent createOrUpdateKaruteRecord (the recording_session_id dedupe is the
-// SECOND idempotency layer) → best-effort outcome + memory ingest. Idempotency-Key
-// REQUIRED; revocation-sensitive (karute.save). Transcript/entries/summary are
+// capability records.write → tenancy proof → PLACEMENT/store lock (selfStaffId,
+// fail-closed on an unplaceable caller — ⚖ 2026-09-19 fold) → CONSENT GATE
+// (fail-closed) → store id → the shared idempotent createOrUpdateKaruteRecord
+// (the recording_session_id dedupe is the SECOND idempotency layer) →
+// best-effort outcome + memory ingest. Idempotency-Key REQUIRED;
+// revocation-sensitive (karute.save). Transcript/entries/summary are
 // CLIENT-SUPPLIED by design — the client is the ORIGINATION point of the take.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
@@ -90,6 +91,36 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
   // BEFORE the consent read or any write.
   await readCustomerRaw(synqed, input.customerId)
 
+  // PLACEMENT FIRST (⚖ 2026-09-19 fold, Greptile finding 1): establish WHO the
+  // caller is and whether the roster can place them BEFORE anything is read on
+  // their behalf. The old order read consent, then fell back to an
+  // appointment's staff id when the roster couldn't place the caller, then hit
+  // the store lock last — so an unplaceable Bearer caller got a DIFFERENT
+  // refusal for an appointmentId that existed vs one that didn't, an existence
+  // oracle. Now the roster placement + store lock run first, so every
+  // unplaceable caller gets the ONE answer below whatever ids they sent, and
+  // no consent/appointment read ever runs for them.
+  const selfStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
+  if (!selfStaffId) {
+    // resolveWriteStoreScope below throws this exact same answer for a null
+    // selfStaffId; checked here too so it fires before the consent read, and
+    // so `staffId` below is provably a string rather than string | null.
+    throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
+  }
+  // The converge branch's store lock scope — the same shape every other karute
+  // facade write door passes (outcome / summary / entries): the ASSIGNMENT is the
+  // basis, so the store-id header can neither widen nor narrow it, and an
+  // unplaceable caller is refused rather than read as floating (⚖ fold round 2).
+  // Deliberately NOT the `clamp` above: that one carries the header pin because
+  // it also decides where a walk-in karute is STAMPED, which is a different
+  // question from what this caller may overwrite.
+  const lockScope = await resolveWriteStoreScope({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    selfStaffId,
+  })
+
   // CONSENT GATE, fail-closed: a record never persists for a customer whose
   // recording consent isn't CURRENT. An UNREADABLE consent REJECTS (never
   // bypasses) — mapped to the same stable CONSENT_REQUIRED_ERROR the thin
@@ -105,41 +136,20 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
     throw new AppApiError('forbidden', CONSENT_REQUIRED_ERROR, { reason: 'CONSENT_REQUIRED' })
   }
 
-  // Attribution: selfStaffId first, appointment-staff fallback (web parity);
-  // unresolvable → 403-class. The UNFALLEN-BACK id is kept: the appointment's
-  // staff is fine to ATTRIBUTE a karute to, and says nothing about whether the
-  // roster can place the CALLER — which is what the store lock below rests on.
-  const selfStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
-  let staffId = selfStaffId
-  let fetchedAppt: Appointment | null = null
-  if (!staffId && input.appointmentId) {
-    fetchedAppt = (await synqed.appointments.get(input.appointmentId).catch(() => null)) as Appointment | null
-    staffId = (fetchedAppt as { staff_id?: string | null } | null)?.staff_id ?? null
-  }
-  if (!staffId) {
-    throw new AppApiError('forbidden', 'no staff identity for the signed-in user')
-  }
+  // Attribution: the caller's own staff id is the only attribution on this
+  // door now — no appointment-staff fallback. That fallback used to let a
+  // caller the roster cannot place reach this far on an appointment's staff
+  // id, but lockScope above already refuses any such caller, so it could
+  // never change the outcome — only leak whether the appointment existed
+  // (⚖ 2026-09-19 fold, Greptile finding 1).
+  const staffId = selfStaffId
 
   const { storeId, appointment: linkedAppointment } = await resolveSaveStore(
     synqed,
     input.appointmentId,
-    fetchedAppt,
+    null,
     clamp,
   )
-
-  // The converge branch's store lock scope — the same shape every other karute
-  // facade write door passes (outcome / summary / entries): the ASSIGNMENT is the
-  // basis, so the store-id header can neither widen nor narrow it, and an
-  // unplaceable caller is refused rather than read as floating (⚖ fold round 2).
-  // Deliberately NOT the `clamp` above: that one carries the header pin because
-  // it also decides where a walk-in karute is STAMPED, which is a different
-  // question from what this caller may overwrite.
-  const lockScope = await resolveWriteStoreScope({
-    synqed,
-    authUserId: ctx.identity.authUserId,
-    capabilities: ctx.identity.capabilities,
-    selfStaffId,
-  })
 
   const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(
     synqed as unknown as SynqedClient,
