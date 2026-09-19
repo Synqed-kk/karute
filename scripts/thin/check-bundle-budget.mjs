@@ -1770,7 +1770,12 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // +1,464 B, vendor unchanged): the closed-day door's own cost — the
 // day-hours resolver + refusal path, NewBookingDialog's refusalKey/coded
 // toast handling, and the three new closedDayStore/closedDayDate/closedDayOrg
-// ja+en string pairs (en chunk; the thin bundle ships EN only).
+// ja+en string pairs. CORRECTION (fix round 1, 2026-09-19): the parenthetical
+// this entry originally carried here — "en chunk; the thin bundle ships EN
+// only" — was false. thin/main.tsx statically imports messages/ja.json (baked
+// into the main bundle, not lazy) and only messages/en.json is the dynamic
+// `import()` (thin/main.tsx:130) that makes en its own lazy chunk — both
+// locales ship, ja just isn't the one that gets its own file.
 
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-19 — P1b B1 (PR #960, feat/p1b-refusal-audit-1),
@@ -1790,7 +1795,26 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 2,125,225 B): +1,296 B total — en +535 B, index +761 B, vendor unchanged —
 // exactly the four new label strings landing in both locale bundles, no
 // dependency moved.
-const BUDGET_BYTES = 2_126_521
+//
+// RE-MEASURED 2026-09-19, PR #937 fix round 1 (main-in #2 + the B1/B2/B3
+// fixes — merge commit 96ca5c55, B1 d83fc5b5, B2 c9d569d7, B3 2520daa3 +
+// 65e74642). Same recipe — CI's six VITE_* values from
+// .github/workflows/ci.yml, thin/dist emptied before each lap, node
+// v24.16.0, @synqed-kk/ui 0.3.2. Two clean laps byte-identical (matching
+// filenames, byte sizes and SHA-256s for all 3 output files):
+//   en-CUmPcKIH.js       136,025 B
+//   index-CqecJczg.js  1,053,127 B
+//   vendor-BD5eMVWe.js   937,791 B
+// Total = 2,126,943 B; ceiling = measured + 1,000 = 2,127,943 B.
+// Against main's newest entry above (P1b B1, #960: 2,125,521 B, ceiling
+// 2,126,521 B): +1,422 B total — en +445 B, index +977 B, vendor unchanged.
+// B1 is comments only and B3 is tests only, so neither ships; the whole
+// delta is B2's switch read (the BOOKING_SWITCHES import + the one early
+// return in fetchBookingDayHours) plus whatever main's own #960 audit-log
+// labels weren't already counted in this branch's PRE-merge measurement
+// above (2,126,356 B) — this number is the ground truth for the merged tip,
+// not a sum of the two branches' separate deltas.
+const BUDGET_BYTES = 2_127_943
 let dir
 try {
   dir = readdirSync(DIST)
