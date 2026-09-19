@@ -16,7 +16,7 @@ import { setDataPort } from '@/lib/ports/data-port'
 
 jest.mock('@/lib/karute/take-store', () => ({}))
 
-import { createStaff } from '../../../thin/ports/actions.vite'
+import { createStaff, createInvite } from '../../../thin/ports/actions.vite'
 
 function respond(body: unknown, status = 201) {
   const apiFetch = jest.fn(async () => new Response(JSON.stringify(body), { status }))
