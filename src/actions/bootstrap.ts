@@ -65,7 +65,7 @@ export async function bootstrapBusinessForNewUser(
     // never change a role someone already holds. Invited staff always carry
     // permission_role from invites.ts, so their rows keep their role; the
     // idempotent owner re-run still updates full_name.
-    await service
+    const { error: updateErr } = await service
       .from('profiles')
       .update({
         full_name: salonName,
@@ -74,6 +74,9 @@ export async function bootstrapBusinessForNewUser(
           : { display_role: 'owner', permission_role: 'owner' }),
       })
       .eq('id', user.id)
+    if (updateErr) {
+      return { ok: false, error: `Failed to update profile: ${updateErr.message}` }
+    }
   } else {
     businessId = randomUUID()
     const { error: profileErr } = await service.from('profiles').insert({
