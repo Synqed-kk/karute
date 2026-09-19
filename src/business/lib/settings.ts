@@ -507,9 +507,16 @@ export interface SettingsBlock {
     count: number
     /** The static fact replaced on screen by the live example sentence. */
     liveFact: { blockId: string; index: number }
+    /** The block whose fact and cleanup controls follow the store's turnover word live. */
+    liveTurnover: {
+      blockId: string; factIndex: number; controlPrefix: string
+      /** The word used when the resolved row has none. */
+      fallback: string
+    }
     copy: {
       heading: string; current: string; standard: string; noTurnover: string
       exampleLabel: string; example: string; exampleZero: string
+      turnoverFact: string; turnoverControl: string
       problems: Record<string, string>
     }
   }
