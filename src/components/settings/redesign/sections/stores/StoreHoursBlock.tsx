@@ -79,13 +79,14 @@ function seedDraft(
   unreadable = false,
 ): WeekDraft {
   const draft = {} as WeekDraft
+  const hasOwnWeek = weeklyHours && Object.keys(weeklyHours).length > 0
   for (const key of WEEKDAY_KEYS) {
-    if (unreadable && !weeklyHours) {
+    if (unreadable && !hasOwnWeek) {
       draft[key] = { closed: false, open: '', close: '' }
       continue
     }
     const own = weeklyHours?.[key]
-    if (weeklyHours && Object.keys(weeklyHours).length > 0) {
+    if (hasOwnWeek) {
       // null OR absent = 定休日 — the resolver's own reading of this shape.
       draft[key] = own
         ? { closed: false, open: own.open, close: own.close }
@@ -137,6 +138,7 @@ export function StoreHoursBlock({
   const t = useTranslations('settings.stores.hours')
   const locale = useLocale()
   const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   return (
     <div className="mt-3 border-t border-border/30 pt-3">
@@ -144,7 +146,8 @@ export function StoreHoursBlock({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="inline-flex h-8 items-center rounded-md px-2 text-[13px] font-medium text-foreground/80 ring-1 ring-gray-200 hover:bg-gray-50 dark:ring-white/10 dark:hover:bg-white/[0.04]"
+        disabled={saving}
+        className="inline-flex h-8 items-center rounded-md px-2 text-[13px] font-medium text-foreground/80 ring-1 ring-gray-200 hover:bg-gray-50 disabled:opacity-50 dark:ring-white/10 dark:hover:bg-white/[0.04]"
       >
         {open ? t('hide') : t('title')}
       </button>
@@ -159,6 +162,8 @@ export function StoreHoursBlock({
           weeklyHoursUnreadable={weeklyHoursUnreadable}
           orgHours={orgHours}
           onSaved={onSaved}
+          saving={saving}
+          setSaving={setSaving}
           locale={locale}
           t={t}
         />
@@ -173,9 +178,13 @@ function StoreHoursEditor({
   weeklyHoursUnreadable = false,
   orgHours,
   onSaved,
+  saving,
+  setSaving,
   locale,
   t,
 }: StoreHoursBlockProps & {
+  saving: boolean
+  setSaving: (saving: boolean) => void
   locale: string
   t: ReturnType<typeof useTranslations<'settings.stores.hours'>>
 }) {
@@ -188,7 +197,6 @@ function StoreHoursEditor({
   const [unsaved, setUnsaved] = useState(
     !weeklyHours || Object.keys(weeklyHours).length === 0,
   )
-  const [saving, setSaving] = useState(false)
   /** The weekday whose 休業 flip is awaiting confirmation. */
   const [confirmDay, setConfirmDay] = useState<WeekdayKey | null>(null)
   /** The 初期値に戻す press awaiting confirmation. */
@@ -252,7 +260,7 @@ function StoreHoursEditor({
     setUnsaved(false)
     onSaved?.(storeId, week)
     toast.success(t('saved'))
-  }, [draft, storeId, t, onSaved])
+  }, [draft, storeId, t, onSaved, setSaving])
 
   /** ⚖ reversible-by-default — the way back. An explicit `null` week through
    *  the SAME core the save uses ("clear back to unconfigured", the SDK's own
@@ -271,13 +279,13 @@ function StoreHoursEditor({
     setUnsaved(true)
     onSaved?.(storeId, null)
     toast.success(t('resetDone'))
-  }, [normalizedOrg, storeId, t, onSaved])
+  }, [normalizedOrg, storeId, t, onSaved, setSaving])
 
   return (
     <div className="mt-3">
       <p className="text-[12px] text-muted-foreground">{t('description')}</p>
       {weeklyHoursUnreadable && (
-        <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 ring-1 ring-amber-200/60 dark:bg-amber-500/10 dark:ring-amber-500/20">
+        <div role="status" className="mt-2 rounded-lg bg-amber-50 px-3 py-2 ring-1 ring-amber-200/60 dark:bg-amber-500/10 dark:ring-amber-500/20">
           <div className="text-[12px] leading-relaxed text-amber-800/90 dark:text-amber-300/85">
             {t('unreadable')}
           </div>
