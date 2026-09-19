@@ -73,6 +73,7 @@ import {
 } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
+import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsSentences } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
 import {
   isIntegerTextAtLeast,
@@ -485,10 +486,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
 
   const commitSection = useCallback((target: SettingsSection) => {
     const ids = controlIdsOf(target)
+    const wordValues = committedWordValues(target, values)
+    setValues((prev) => ({ ...prev, ...wordValues }))
     setSaved((prev) => {
       const next = { ...prev }
       for (const id of ids) next[id] = values[id]
-      return next
+      return { ...next, ...wordValues }
     })
     /** ⚖ S17 fix round 4 · B2 — AND THE ROWS, because they are the section's
      *  state too. A save that copied only the control values left the block's
@@ -824,7 +827,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   }, [railHits, props.rail, shownId, panelShown])
 
   const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved, listRows, savedRows) : false
-  const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) : null
+  const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) ?? wordsBlockingError(section, values) : null
   const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
   /** ⚖ S17 fix round 5 · G1 — 予約と確保'S PAYLOAD IS ABSENT FOR A READER WHOSE
@@ -1140,6 +1143,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   <Block
                     key={b.id}
                     block={b}
+                    section={section}
                     values={values}
                     onChange={setValue}
                     labelFor={labelFor}
@@ -1470,6 +1474,7 @@ function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: 
 
 function Block({
   block,
+  section,
   values,
   onChange,
   labelFor,
@@ -1486,6 +1491,7 @@ function Block({
   reduced,
 }: {
   block: SettingsBlock
+  section: SettingsSection
   values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void
   labelFor: (id: string) => string | null
@@ -1504,6 +1510,9 @@ function Block({
   reduced: boolean
 }) {
   const rows = block.table === null ? block.table : filterTable(block, values)
+  const sentences = block.words ? wordsSentences(block.words, values, labelFor(block.words.typeId) ?? '') : null
+  const wordProblem = wordsBlockProblem(block, values)
+  const liveFact = wordsLiveFact(section, block.id, values, labelFor(section.blocks.find((b) => b.words)?.words?.typeId ?? '') ?? '')
   return (
     <section
       className="st-block"
@@ -1537,6 +1546,8 @@ function Block({
           />
         ))
       )}
+
+      {wordProblem !== null && <p className="st-field-msg" role="status">{wordProblem}</p>}
 
       {block.collection && listRows !== null && (
         <Collection
@@ -1620,8 +1631,17 @@ function Block({
         </div>
       )}
 
-      {block.facts.map((f) => (
-        <p className="st-fact" key={f}>{f}</p>
+      {block.words && sentences && (
+        <div className="st-preview" aria-live="polite">
+          <div className="st-pv-note">{block.words.copy.heading}</div>
+          <p className="st-pv-text">{sentences.current}</p>
+          <p className="st-pv-text">{sentences.standard}</p>
+          <p className="st-pv-text">{block.words.copy.exampleLabel}: {sentences.example}</p>
+        </div>
+      )}
+
+      {block.facts.map((f, index) => (
+        <p className="st-fact" key={f}>{liveFact?.index === index ? liveFact.sentence : f}</p>
       ))}
 
       {block.links.length > 0 && (
