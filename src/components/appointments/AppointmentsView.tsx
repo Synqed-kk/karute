@@ -38,7 +38,7 @@ import {
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import { DayNumbersLine } from '@/components/appointments/DayNumbersLine'
 import { WeekRows } from '@/components/appointments/WeekRows'
-import { TYPE_SLOT } from '@/lib/appointments/metric-menu'
+import { monthNewCount, TYPE_SLOT } from '@/lib/appointments/metric-menu'
 import { MonthPage } from '@/components/appointments/MonthPage'
 import { SelectedDayCard } from '@/components/appointments/SelectedDayCard'
 import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
@@ -652,11 +652,16 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             selectedDateIso={shownDayIso}
             todayIso={ymdInJst(today)}
             weekdayLabels={monthWeekdayLabels}
-            // PKT-2 owns the strict 新規/再来 producer; today's
-            // newCustomerCount is the QR import flag and must not print
-            // (spec §8). 'off' = the month line is 予約 alone, never a
-            // substitute metric in that slot.
-            typeSlot="off"
+            // ⚖ PKT-2b — 新規, for every business type (Liam 2026-09-15
+            // 20:2x). One home: the slot is read off the switch registry,
+            // never spelled per call site — the same import the day/week
+            // lines use.
+            typeSlot={TYPE_SLOT}
+            // The month sum, derived ONCE (metric-menu.ts monthNewCount) —
+            // the only place it is computed. Null propagates straight
+            // through to MonthPage, which renders nothing rather than a
+            // guess (spec: "null = no honest number → the item is ABSENT").
+            typeCount={monthNewCount(props.monthData ?? [], TYPE_SLOT)}
             // 先月同期間比 — one number, computed on the server from the same
             // window the grid is drawn from, so the clause and the month's own
             // total can never describe different rows.

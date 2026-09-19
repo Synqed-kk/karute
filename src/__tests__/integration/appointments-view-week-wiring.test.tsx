@@ -173,6 +173,7 @@ type MonthPageProps = {
   todayIso?: string
   weekdayLabels: string[]
   typeSlot: string
+  typeCount?: number | null
   locale: string
   pending?: boolean
   failed?: boolean
@@ -431,6 +432,29 @@ describe('every move keeps the 担当 filter (W-E, spec §1/§6)', () => {
 })
 
 describe('the MONTH branch renders MonthPage (A1-A3)', () => {
+  it('follows the registry when countNew is off, passing an off slot and null count', () => {
+    // Reuse this harness's registry mock; reload the view and metric menu
+    // together because TYPE_SLOT captures countNew at module load.
+    mockSwitches().countNew = false
+    try {
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { AppointmentsView: View } = require('@/components/appointments/AppointmentsView') as typeof import('@/components/appointments/AppointmentsView')
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TYPE_SLOT: slot } = require('@/lib/appointments/metric-menu') as typeof import('@/lib/appointments/metric-menu')
+        expect(slot).toBe('off')
+        render(<View {...viewWith({
+          ...MONTH_VIEW,
+          monthData: [monthCell('2026-09-15', { count: 3, newCount: 5, newCountKnown: true })],
+        }).props} />)
+        expect(monthPageProps!.typeSlot).toBe('off')
+        expect(monthPageProps!.typeCount).toBeNull()
+      })
+    } finally {
+      Object.assign(mockSwitches(), mockShipped())
+    }
+  })
+
   it('hands it the cells, the selected day, today and the 月 weekday labels', () => {
     const { getByTestId } = renderView(MONTH_VIEW)
     getByTestId('month-page')
@@ -438,8 +462,35 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
     expect(monthPageProps!.todayIso).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(monthPageProps!.weekdayLabels).toHaveLength(7)
-    // PKT-2 owns the 新規/再来 producer; until then the line is 予約 alone.
-    expect(monthPageProps!.typeSlot).toBe('off')
+    // ⚖ PKT-2b — typeSlot is read off the one switch, same as the week/day
+    // lines; MONTH_VIEW's fixture cells carry no explicit newCount, so the
+    // month sum (0 known days, 0 new) computes to 0, not null.
+    expect(monthPageProps!.typeSlot).toBe(TYPE_SLOT)
+    expect(monthPageProps!.typeCount).toBe(0)
+  })
+
+  it('⚖ PKT-2b — typeCount is the Σ of the real cells’ newCount, out-of-month excluded', () => {
+    renderView({
+      ...MONTH_VIEW,
+      monthData: [
+        monthCell('2026-08-31', { inMonth: false, newCount: 999, newCountKnown: true }),
+        monthCell('2026-09-15', { count: 3, density: 'medium', newCount: 5, newCountKnown: true }),
+        monthCell('2026-09-16', { newCount: 2, newCountKnown: true }),
+        monthCell('2026-10-01', { inMonth: false, newCount: 999, newCountKnown: true }),
+      ],
+    })
+    expect(monthPageProps!.typeCount).toBe(7)
+  })
+
+  it('⚖ PKT-2b — typeCount is ABSENT (null) when any in-month cell’s history read did not happen', () => {
+    renderView({
+      ...MONTH_VIEW,
+      monthData: [
+        monthCell('2026-09-15', { newCount: 5, newCountKnown: true }),
+        monthCell('2026-09-16', { newCount: 0, newCountKnown: false }),
+      ],
+    })
+    expect(monthPageProps!.typeCount).toBeNull()
   })
 
   // B1/B4 — this used to open the day page. The month page is a place you
