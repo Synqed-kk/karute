@@ -314,7 +314,7 @@ describe('the fixture data door', () => {
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
       // engine's own default rather than restating the number as a second
       // literal (canon-logic is pure, so nothing about this reaches a door).
-      'src/business/lib/fixtures-today.ts': ['./canon-logic/pricing', './fixtures'],
+      'src/business/lib/fixtures-today.ts': ['./canon-logic/pricing', './fixtures', './resource-words'],
       'src/business/lib/fixtures-reservations.ts': [],
       'src/business/lib/fixtures-analytics.ts': ['./fixtures'],
       // 売上分析's derivations. It reads the board's OWN predicates
@@ -826,6 +826,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
+        '@/business/lib/resource-words',
         '@/business/lib/settings',
       ],
       // ⚖ S17 fix round 1 · F15 (D-20) — THE ROOM'S ONE 詳しく DISCLOSURE, in its
@@ -903,6 +904,7 @@ describe('the fixture data door', () => {
         '@/business/lib/canon-logic/pricing',
         '@/business/lib/clock',
         '@/business/lib/data',
+        '@/business/lib/fixtures-today',
         // ⚖ D-53 (u)/(n2b2) — same reason as StorePolicySection.tsx, above.
         '@/business/lib/resource-words',
         '@/business/lib/today-board',

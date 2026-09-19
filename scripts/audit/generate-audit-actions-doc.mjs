@@ -18,6 +18,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 // proof-suite build report for the file:line of each emit site).
 const LITERAL_ONLY_CATEGORY = {
   'audit.unmapped_endpoint': 'privacy',
+  // The store-lock REFUSAL rows (FRESH-EYES-P1 §5a) — emitted from ONE place,
+  // src/lib/audit-store-lock.ts#ensureRecordStoreInScopeAudited, which picks the action by
+  // the refusing door's category. CP4 still reads all four literals off that
+  // emitter's literal-union parameter; only the CATEGORY column cannot be
+  // inferred from a shared emit site, so it is declared here, same as the
+  // literal-only doors below.
+  'booking.store_write_refused': 'booking',
+  'karute.store_write_refused': 'karute',
+  'recording.store_write_refused': 'recording',
+  'settings.store_write_refused': 'settings',
   'auth.pin_lockout': 'auth',
   'booking.cancel': 'booking',
   'booking.create': 'booking',

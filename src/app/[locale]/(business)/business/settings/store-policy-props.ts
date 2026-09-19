@@ -36,7 +36,8 @@ import { jstDayKey } from '@/business/lib/clock'
 import { computeChecks, confirmCaption, type CheckSpan } from '@/business/lib/canon-logic/drag-rules'
 import { type GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
-import { RESOURCE_WORDS } from '@/business/lib/resource-words'
+import { defaultKindOf } from '@/business/lib/fixtures-today'
+import { GENERIC_WORDS, RESOURCE_WORDS, wordsForStore } from '@/business/lib/resource-words'
 import {
   listAppointments,
   listCustomers,
@@ -116,6 +117,8 @@ export async function storePolicyProps({
   storeOptions,
   now,
 }: StorePolicyPropsInput): Promise<StorePolicyProps> {
+  const selectedStore = storeOptions.find((s) => s.id === storeId)
+  const w = selectedStore ? wordsForStore(selectedStore.business_type, defaultKindOf(selectedStore.id).words) : GENERIC_WORDS
   const dayKey = jstDayKey(now)
   const from = new Date(now.getTime() - DAY_MS).toISOString()
   const to = new Date(now.getTime() + DAY_MS).toISOString()
@@ -154,8 +157,7 @@ export async function storePolicyProps({
     operatorStaffId: shell.operator.staff_id,
     storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
     crossStore: !clamped,
-    // ⚖ D-53 (u) — the generic row until N3 hands the settings room its store's own row
-    wordsByStore: {},
+    wordsByStore: storeId === null ? {} : { [storeId]: w },
     genericWords: RESOURCE_WORDS.other,
   }
   const bookings = dayBookings(input)
@@ -201,8 +203,7 @@ export async function storePolicyProps({
    *  Nothing found = a day on which no placement costs the store anything, and
    *  the preview then says so, honestly, rather than inventing a loss. */
   const shipped = railInputFor(planes.opsConfig.newClientSessionMin, planes.opsConfig.gapGuardMode === 'strict')
-  // ⚖ D-53 (u) — the generic row until N3 hands the settings room its store's own row
-  const wordsForShipped = { byLaneKey: {}, generic: RESOURCE_WORDS.other }
+  const wordsForShipped = { byLaneKey: {}, generic: w }
   const candidates: Array<{ lane: BoardLane; start: number; refusal: boolean }> = []
   for (const lane of staffLanes) {
     for (let start = hours.open; start < hours.close; start += RAIL_STEP_MIN) {
@@ -252,6 +253,7 @@ export async function storePolicyProps({
    *  `blockStepMin`, `leadTimeMin`) is exactly this object, computed once. */
   const sceneInput: SceneInput = {
     lanes: blankLaneNames(lanes),
+    words: w,
     hours,
     stepMin: RAIL_STEP_MIN,
     dur,
@@ -287,7 +289,7 @@ export async function storePolicyProps({
           staffUntil: sampleLane.untilLabel,
           laneLocked: false,
           minutesOf: (x) => minuteOf(x, hours),
-          turnoverWord: RESOURCE_WORDS.other.turnoverWord!,
+          turnoverWord: w.turnoverWord ?? RESOURCE_WORDS.other.turnoverWord!,
         })
 
   /** ⚖ WHO COUNTS AS 「スタッフ」 FOR THE PREVIEW, read off the store's own data
