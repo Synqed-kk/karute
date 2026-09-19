@@ -401,8 +401,10 @@ export async function writeOrgSettingsBlobWithClient(
  * NOT stripped one level deeper, in writeOrgSettingsBlobWithClient:
  * that is the choke point setRecordingAutostartWithClient
  * (src/lib/settings/recording-autostart.ts) calls directly, and it must keep
- * writing the key. The only door that reaches writeOrgSettingsBlobWithClient
- * WITH this key is setRecordingAutostartWithClient. Facade twin:
+ * writing the key. Current production callers supplying this key are the
+ * setRecordingAutostartWithClient write and its receipt-failure rollback.
+ * The exported WithClient writer remains internal debt and does not itself
+ * enforce that dedicated path. Facade twin:
  * OrgSettingsPatchDTO omits the key, same guard, same reason as
  * voice_enrollments.
  */
