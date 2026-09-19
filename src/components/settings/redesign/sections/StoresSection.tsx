@@ -40,7 +40,7 @@ import { businessTypeLabel } from '@/lib/welcome/business-types'
 
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
-import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
+import { listStoresWithHours, listStores, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
 import { getEntitlement } from '@/actions/entitlements'
 import type { Entitlement } from '@/lib/entitlements'
 import { WebOnly } from '@/components/shell/WebOnly'
@@ -52,6 +52,7 @@ import {
   type StoreFormMode,
 } from './stores/StoreFormDialog'
 import { PlanComparisonDialog } from './stores/PlanComparisonDialog'
+import { StoreHoursBlock } from './stores/StoreHoursBlock'
 import type { Store, StoreFormValues } from './stores/types'
 
 interface StoresSectionProps {
@@ -81,7 +82,31 @@ function mapStoreRows(rows: StoreRow[]): Store[] {
     active: r.active,
     isPrimary: r.isPrimary,
     businessType: r.businessType,
+    // Threads through as-is, undefined included: `undefined` means "this read
+    // never asked", which must never read as "never configured". refresh()
+    // now asks (listStoresWithHours), so nothing inside this section produces
+    // that state any more — mergeKnownHours below is the belt to its braces.
+    weeklyHours: r.weeklyHours,
+    weeklyHoursUnreadable: r.weeklyHoursUnreadable,
   }))
+}
+
+/** A row that arrives WITHOUT hours (`undefined` = not fetched) must never
+ *  overwrite hours this section already knows — the editor reads `undefined`
+ *  as 全店共通の初期値を使用中 and one 保存 in that state would write the
+ *  business-wide week over the store's own saved one. */
+function mergeKnownHours(prev: Store[], incoming: Store[]): Store[] {
+  return incoming.map((s) => {
+    if (s.weeklyHours !== undefined && !s.weeklyHoursUnreadable) return s
+    const known = prev.find((p) => p.id === s.id)
+    return !known ? s : {
+      ...s,
+      weeklyHours: known.weeklyHours,
+      // An unreadable re-list keeps the known week visible but blocks writes.
+      // A plain re-list must also preserve a previously unreadable state.
+      weeklyHoursUnreadable: s.weeklyHoursUnreadable || known.weeklyHoursUnreadable,
+    }
+  })
 }
 
 export function StoresSection({
@@ -150,14 +175,21 @@ export function StoresSection({
 
   const refresh = useCallback(async () => {
     const [rows, persisted, ent] = await Promise.all([
-      listStores(),
+      // WITH hours: this section renders the 営業時間 editor, and a re-list
+      // that dropped them made the editor re-offer the business-wide default
+      // as "not saved yet" after every store rename (LENS-1 HIGH-2).
+      // Deliberately caught HERE (unlike the other two callers, which swallow
+      // to []): a store-policy blip must not blank this screen's rows — fall
+      // back to the plain list (the pre-PR call) so names/rows still repaint;
+      // mergeKnownHours below keeps whatever hours this section already knows.
+      listStoresWithHours().catch(() => listStores()),
       getActiveStoreId(),
       getEntitlement(),
     ])
     setEntitlement(ent)
     if (rows.length === 0) return
     const mapped = mapStoreRows(rows)
-    setStores(mapped)
+    setStores((prev) => mergeKnownHours(prev, mapped))
     setActiveStoreId((cur) => {
       if (persisted && mapped.some((s) => s.id === persisted)) return persisted
       return mapped.some((s) => s.id === cur) ? cur : mapped[0].id
@@ -181,6 +213,14 @@ export function StoresSection({
       void refresh()
     }
   }, [refresh, initialStores, initialEntitlement])
+
+  // R2-1: bubbled up from the block's own save/reset. Keeps this section's
+  // `stores` state — the SAME state a mounted editor seeds from — holding the
+  // just-written week, so collapsing (unmount) and reopening the block shows
+  // it immediately, with no refresh() round-trip in between.
+  const handleHoursSaved = useCallback((storeId: string, weeklyHours: Store['weeklyHours']) => {
+    setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, weeklyHours } : s)))
+  }, [])
 
   // Persist the switch (cookie via setActiveStore). Optimistic, reverts on error.
   const handleSwitch = async (storeId: string) => {
@@ -441,6 +481,19 @@ export function StoresSection({
                       </button>
                     )}
                   </div>
+
+                  {/* 営業時間 — this store's own weekly hours, owner-only, per
+                   *  ROW (never the active-store pill). The seeded placeholder
+                   *  row has no core store to write to, so it gets no editor. */}
+                  {isOwner && store.id !== 'primary' && (
+                    <StoreHoursBlock
+                      storeId={store.id}
+                      weeklyHours={store.weeklyHours}
+                      weeklyHoursUnreadable={store.weeklyHoursUnreadable}
+                      orgHours={orgSettings?.operating_hours}
+                      onSaved={handleHoursSaved}
+                    />
+                  )}
                 </div>
               )
             })}

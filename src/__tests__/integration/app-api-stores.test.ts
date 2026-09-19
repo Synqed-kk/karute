@@ -75,6 +75,12 @@ const storesCreate = jest.fn(async (input: Record<string, unknown>) => ({
 const storesUpdate = jest.fn(async () => ({}))
 const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
+// The GET now lists WITH each store's 営業時間 (R1-2) — one storePolicies.list()
+// for the business. Deliberately NOT caught inside the twin, so this seam has
+// to answer or the whole list fails rather than reading as "hours never set".
+const storePoliciesList = jest.fn(async () => ({
+  policies: [] as { store_id: string; weekly_hours: unknown }[],
+}))
 const entitlementsGet = jest.fn(async () => ({ tier: 'professional', is_unlimited: false }))
 // Raw core orgSettings payload — orgSettingsWithClient normalizes it; the
 // top-level `name` column is the 事業所名 primaryStoreName provisions with.
@@ -89,6 +95,7 @@ const fakeClient = {
   stores: { list: storesList, create: storesCreate, update: storesUpdate },
   staffStores: { counts: staffStoresCounts },
   customers: { countsByStore: customersCountsByStore },
+  storePolicies: { list: storePoliciesList },
   entitlements: { get: entitlementsGet },
   orgSettings: { get: orgSettingsGet },
 }
@@ -117,8 +124,10 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
 const VALID_INPUT = { name: '渋谷店', address: '', phone: '', business_type: 'esthetic_salon' }
 
-const getReq = (headers: Record<string, string> = {}) =>
-  new Request('https://s/api/app/v1/stores', { headers: { ...auth, ...headers } })
+const getReq = (headers: Record<string, string> = {}, withHours = false) =>
+  new Request(`https://s/api/app/v1/stores${withHours ? '?withHours=1' : ''}`, {
+    headers: { ...auth, ...headers },
+  })
 const postReq = (body: unknown, headers: Record<string, string> = {}) =>
   new Request('https://s/api/app/v1/stores', {
     method: 'POST',
@@ -143,6 +152,7 @@ beforeEach(() => {
   storesCreate.mockResolvedValue({ id: 'store-new' })
   storesUpdate.mockResolvedValue({})
   staffStoresCounts.mockResolvedValue({ counts: {} })
+  storePoliciesList.mockResolvedValue({ policies: [] })
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'professional', is_unlimited: false })
   orgSettingsGet.mockResolvedValue({ business_id: 'business-1', name: 'テストサロン', settings: {} })
@@ -186,8 +196,12 @@ describe('GET /api/app/v1/stores', () => {
         staffCount: 3,
         customerCount: 12,
         businessType: null,
+        // R2-2: hours are opt-in (?withHours=1) — no flag here, so the field
+        // never appears at all (JSON drops the `undefined` key), same as the
+        // boot-time store switcher's read.
       },
     ])
+    expect(storePoliciesList).not.toHaveBeenCalled()
   })
 
   it('an empty list creates the 本店 primary exactly once, name resolved from org settings (never the owner profile), then returns the re-listed rows', async () => {
@@ -286,6 +300,33 @@ describe('GET /api/app/v1/stores', () => {
     const res = await listGET(getReq(), noParams)
     expect(res.status).toBe(200)
     expect(storesCreate).not.toHaveBeenCalled()
+  })
+})
+
+// R2-2 — hours are opt-in: the boot-time store switcher has no use for them,
+// and storePolicies.list() is deliberately uncaught inside the twin, so a
+// policy-read outage must never take the switcher's list down with it — that
+// posture belongs to the caller who actually asked (?withHours=1).
+describe('GET /api/app/v1/stores — the withHours flag (R2-2)', () => {
+  it('without the flag, never calls storePolicies.list()', async () => {
+    storesList.mockResolvedValue({
+      stores: [{ id: 'store-A', name: '代官山', address: null, phone: null, is_primary: true, active: true }],
+    })
+    const res = await listGET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(storePoliciesList).not.toHaveBeenCalled()
+    expect('weeklyHours' in (await res.json()).stores[0]).toBe(false)
+  })
+
+  it('?withHours=1 calls storePolicies.list() exactly once and threads the week', async () => {
+    storesList.mockResolvedValue({
+      stores: [{ id: 'store-A', name: '代官山', address: null, phone: null, is_primary: true, active: true }],
+    })
+    storePoliciesList.mockResolvedValue({ policies: [{ store_id: 'store-A', weekly_hours: null }] })
+    const res = await listGET(getReq({}, true), noParams)
+    expect(res.status).toBe(200)
+    expect(storePoliciesList).toHaveBeenCalledTimes(1)
+    expect((await res.json()).stores[0].weeklyHours).toBeNull()
   })
 })
 

@@ -736,6 +736,46 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Ceiling is set from the LARGER of the two tip measurements (the CI recipe)
 // plus 1,000 B, same convention as every prior raise:
 // 2,077,233 + 1,000 = 2,078,233.
+// 1c-D (2026-09-16): the per-store 営業時間 door — StoreHoursBlock (the
+// disclosure + the seven free `<input type="time">` rows + the 休業
+// confirmation + the save), the `setStoreHours` proxy in
+// thin/ports/actions.vite.ts, and 17 new catalog keys ×2 locales
+// (settings.stores.hours.*) plus the two reworded 組織 hours strings. The
+// server half — setStoreHoursCore, the facade route, parseStoreWeeklyHours —
+// costs the phone nothing: it is port-substituted at the src/actions boundary.
+// Measured with the emptied-thin/dist method and the CI recipe (the six
+// VITE_* exports from .github/workflows/ci.yml), byte-identical across two
+// clean builds on BOTH sides, node v24.16.0, in this worktree:
+//   base origin/main 0aeb1633b — en 133,643 · index 1,006,491 · vendor
+//     937,800 = 2,077,934 B
+//   tip  feat/store-hours-door — en 134,495 · index 1,014,330 · vendor
+//     937,800 = 2,086,625 B
+// feature cost +8,691 B (en +852 B = the English catalog block; index
+// +7,839 B = the component and the ja block, which rides the main chunk;
+// vendor unchanged — no new dependency). The prior 2,078,233 ceiling had only
+// 299 B left at that base, so the overage is 8,392 B and essentially all of
+// it is this branch's own. Report-only per ⚖ 8/25: a ceiling a real feature
+// has outgrown gets raised and reported, never held for an approval round;
+// the SCRIPT still gates in CI against whatever ceiling stands below.
+// Ceiling = the measured tip + 1,000 B, same convention as every prior raise:
+// 2,086,625 + 1,000 = 2,087,625.
+// 1c-D R1 (2026-09-16): the five-lens round's folds on the same door — the
+// 「全店共通の初期値に戻す」 button and its confirmation (R1-4), the 24:00-clamp
+// note on the clamped row (R1-5), the per-day aria names + alertdialog focus
+// handling (R1-6), and 8 new catalog keys ×2 locales minus the two the aria
+// rework retired. Measured with the CI recipe (the six VITE_* values read
+// PROGRAMMATICALLY out of .github/workflows/ci.yml — 5/24/40/208/8/2 chars —
+// never retyped), byte-identical across two clean builds, node v24.16.0:
+//   en 134,939 · index 1,017,177 · vendor 937,800 = 2,089,916 B
+// +3,291 B over the 2,086,625 B tip this round started from (en +444 B = the
+// English catalog delta; index +2,847 B = the two new controls, the note and
+// the focus machinery, plus the ja block; vendor unchanged — no new
+// dependency). The 2,087,625 ceiling had 1,000 B of headroom, so the overage
+// is 2,291 B and all of it is this round's own. Report-only per ⚖ 8/25.
+// Ceiling = the measured tip + 1,000 B: 2,089,916 + 1,000 = 2,090,916.
+// (this branch's own chain ends here, kept as history — main's chain below
+// carries the live `const BUDGET_BYTES` forward, and PR #938's own merge
+// entry is appended after it, per the merge-line gate's ledger rule.)
 //
 // RAISED 2026-09-14 for the 予約 date-jump panel, ⚖ 8/25: 2,078,233 →
 // 2,093,051. A FEATURE raise, not a method correction — the method is
@@ -1814,7 +1854,87 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // labels weren't already counted in this branch's PRE-merge measurement
 // above (2,126,356 B) — this number is the ground truth for the merged tip,
 // not a sum of the two branches' separate deltas.
-const BUDGET_BYTES = 2_127_943
+
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-19 — main IN on PR #938 (feat/store-hours-door, the
+// per-store 営業時間 door), merged commit af49a232 — main's tip merged is
+// 85a451db9 (#960, 店舗の錠前 P1b 2/4, one commit past the #961 業種/N3-1
+// merge). This branch's own ledger above (1c-D + 1c-D R1) is kept as
+// history; main's chain carries the live constant through this entry.
+//
+// What grew: this branch's own feature, unchanged since 1c-D R1 above —
+// StoreHoursBlock (the disclosure + the seven free `<input type="time">`
+// rows + the 休業 confirmation + the save), the `setStoreHours` proxy in
+// thin/ports/actions.vite.ts, the R1 fold's 「全店共通の初期値に戻す」 reset
+// button + confirmation, the 24:00-clamp note, and the per-day aria names —
+// composed with everything main gained since this branch's fork (0aeb1633b):
+// the whole 予約 numbers line (#921/#929/#931/#932/#934/#935/#945/#948/#951/
+// #952/#953/#955/#956/#957/#958/#960/#961 and their folds), none of which
+// this branch's own code touches.
+//
+// Same CI recipe — all six VITE_* values read straight from
+// .github/workflows/ci.yml, thin/dist emptied before each of two laps, node
+// v24.16.0, vite 6.4.3, @synqed-kk/ui 0.3.2 (installed == lock). Two clean
+// laps byte-identical (matching filenames and byte sizes for all 3 output
+// files):
+//   en-BYF_-ijf.js       136,859 B
+//   index-ePQ2HBem.js  1,063,038 B
+//   vendor-BD5eMVWe.js   937,791 B
+// Total = 2,137,688 B; ceiling = measured + 1,000 = 2,138,688 B.
+//
+// Against main's own newest measurement above (P1b B1, PR #960,
+// 2,125,521 B): +12,167 B total — en +1,279 B, index +10,888 B, vendor
+// unchanged (no dependency moved). This is this branch's own store-hours
+// door landing on top of main's current tip: consistent with the two
+// entries this branch already measured against its OWN fork base
+// (0aeb1633b) — 1c-D's +8,691 B and 1c-D R1's own +3,291 B on top of that,
+// summing to +11,982 B — the 185 B gap is ordinary minifier/cross-term
+// drift at a merge tip, the same class this file has already documented at
+// every prior main-in entry above (e.g. the #951/#929 merge tip's own +143 B
+// cross-term).
+// RE-MEASURED 2026-09-19 — PR #938 fix round 2, product/test tip
+// 4cf652470 (throwaway clone; no main merge). The unreadable-hours DTO flag,
+// editor notice and disabled controls ship in thin; the writer refusal stays
+// server-side. No dependency files changed.
+//
+// Same six CI VITE_* values from .github/workflows/ci.yml, node v24.16.0,
+// vite 6.4.3, offline. thin/dist emptied before each lap. Both laps produced
+// these exact bytes; SHA256 matched for EVERY output file, not only JS:
+//   chunk                  lap 1       lap 2     preceding entry    delta
+//   en-DKTj9KJN.js         137,035     137,035         136,859        +176 B
+//   index-QqEfLWUn.js    1,064,195   1,064,195       1,063,038      +1,157 B
+//   vendor-CA75MqrT.js     937,800     937,800         937,791          +9 B
+//   total               2,139,030   2,139,030       2,137,688      +1,342 B
+// The comparison is to the preceding RECORDED measurement above, not a fresh
+// build of the starting tip. The vendor's +9 B is observed, not attributed
+// to a dependency change. Proof logs: artifacts-938-r2/thin-build-{1,2}.log
+// and thin-lap-{1,2}.json in the lead's evidence folder.
+//
+// Initial gate failed by 342 B against 2,138,688 B. Purchase exclusion stayed
+// clean (0/13). Ceiling = measured + 1,000 = 2,140,030 B, per round 2 packet.
+//
+// RE-MEASURED 2026-09-19 — PR #938 fix round 4 + main-in, merged tip
+// 6e5f22c9f8110c50104779a70289040b0cfce768 (origin/main 992c5b016,
+// including #937). Both dated histories above are retained. This measures
+// the store-hours door with rounds 3/4's request locking, rejection cleanup
+// and shared synchronous re-entry guard, composed with the incoming main.
+// No new user-visible strings or dependency changes in round 4.
+//
+// Same six CI VITE_* values from .github/workflows/ci.yml, node v24.16.0,
+// vite 6.4.3, offline. thin/dist emptied before each of two laps. All 23
+// output files are byte-for-byte identical (direct byte comparison, plus
+// matching paths, sizes, MD5s and SHA-256s recorded for every output file):
+//   chunk                  lap 1       lap 2     round 2 recorded    delta
+//   en-CszfzNZa.js         137,480     137,480         137,035        +445 B
+//   index-CyrfDqOb.js    1,065,460   1,065,460       1,064,195      +1,265 B
+//   vendor-CA75MqrT.js     937,800     937,800         937,800           0 B
+//   total               2,140,740   2,140,740       2,139,030      +1,710 B
+// The comparison is to round 2's RECORDED measurement, not a fresh build
+// of that tip; the delta includes main-in and round 3 as well as round 4.
+// Proof: artifacts-938-r2/r4/thin-build-{1,2}.log, thin-lap-{1,2}.json,
+// thin-measured.json. Ceiling = measured + 1,000 = 2,141,740 B.
+const BUDGET_BYTES = 2_141_740
+
 let dir
 try {
   dir = readdirSync(DIST)

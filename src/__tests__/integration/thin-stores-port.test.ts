@@ -31,7 +31,13 @@ import { setDataPort } from '@/lib/ports/data-port'
 
 jest.mock('@/lib/karute/take-store', () => ({}))
 
-import { listStores, createStore, updateStore, getEntitlement } from '../../../thin/ports/actions.vite'
+import {
+  listStores,
+  listStoresWithHours,
+  createStore,
+  updateStore,
+  getEntitlement,
+} from '../../../thin/ports/actions.vite'
 
 describe('thin actions port — stores/entitlement transport contract', () => {
   it('listStores: GET /api/app/v1/stores, unwraps { stores }', async () => {
@@ -74,6 +80,40 @@ describe('thin actions port — stores/entitlement transport contract', () => {
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     await expect(listStores()).rejects.toThrow('Load failed')
+  })
+
+  // R2-2: the phone has ONE stores GET; hours are opt-in (?withHours=1) so a
+  // policy-read outage never takes the boot-time switcher's plain listStores
+  // (pinned flag-free above) down with it.
+  it('listStoresWithHours: GET /api/app/v1/stores?withHours=1 (the 設定 screen only)', async () => {
+    const apiFetch = jest.fn(async (path: string) => {
+      expect(path).toBe('/api/app/v1/stores?withHours=1')
+      return new Response(
+        JSON.stringify({ stores: [{ id: 's-1', name: '代官山', weeklyHours: null }] }),
+        { status: 200 },
+      )
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    const rows = await listStoresWithHours()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(rows).toEqual([{ id: 's-1', name: '代官山', weeklyHours: null }])
+  })
+
+  it('cold-pass pin mU7: the hours list preserves unreadable, readable and old-server rows', async () => {
+    const stores = [
+      { id: 's-1', weeklyHours: null, weeklyHoursUnreadable: true },
+      { id: 's-2', weeklyHours: null, weeklyHoursUnreadable: false },
+      { id: 's-3', weeklyHours: null },
+    ]
+    const apiFetch = jest.fn(async (path: string) => {
+      expect(path).toBe('/api/app/v1/stores?withHours=1')
+      return new Response(JSON.stringify({ stores }), { status: 200 })
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    expect(await listStoresWithHours()).toEqual(stores)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
   it('createStore: POST with an Idempotency-Key header, success → { id }', async () => {

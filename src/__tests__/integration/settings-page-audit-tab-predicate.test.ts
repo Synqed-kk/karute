@@ -24,7 +24,8 @@ jest.mock('@/lib/staff', () => ({
 }))
 jest.mock('@/actions/org-settings', () => ({ getOrgSettings: jest.fn(async () => null) }))
 jest.mock('@/actions/stores', () => ({
-  listStores: jest.fn(async () => []),
+  // 1c-D S1: the 設定 page reads stores WITH their own 営業時間.
+  listStoresWithHours: jest.fn(async () => []),
   getActiveStoreId: jest.fn(async () => null),
 }))
 jest.mock('@/actions/menus', () => ({ listMenus: jest.fn(async () => ({ error: 'unavailable' })) }))
