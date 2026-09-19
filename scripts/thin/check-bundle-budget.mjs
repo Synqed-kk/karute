@@ -1783,7 +1783,45 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 2,125,225 B): +1,296 B total — en +535 B, index +761 B, vendor unchanged —
 // exactly the four new label strings landing in both locale bundles, no
 // dependency moved.
-const BUDGET_BYTES = 2_126_521
+
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-19 — main IN on PR #938 (feat/store-hours-door, the
+// per-store 営業時間 door), merged commit af49a232 — main's tip merged is
+// 85a451db9 (#960, 店舗の錠前 P1b 2/4, one commit past the #961 業種/N3-1
+// merge). This branch's own ledger above (1c-D + 1c-D R1) is kept as
+// history; main's chain carries the live constant through this entry.
+//
+// What grew: this branch's own feature, unchanged since 1c-D R1 above —
+// StoreHoursBlock (the disclosure + the seven free `<input type="time">`
+// rows + the 休業 confirmation + the save), the `setStoreHours` proxy in
+// thin/ports/actions.vite.ts, the R1 fold's 「全店共通の初期値に戻す」 reset
+// button + confirmation, the 24:00-clamp note, and the per-day aria names —
+// composed with everything main gained since this branch's fork (0aeb1633b):
+// the whole 予約 numbers line (#921/#929/#931/#932/#934/#935/#945/#948/#951/
+// #952/#953/#955/#956/#957/#958/#960/#961 and their folds), none of which
+// this branch's own code touches.
+//
+// Same CI recipe — all six VITE_* values read straight from
+// .github/workflows/ci.yml, thin/dist emptied before each of two laps, node
+// v24.16.0, vite 6.4.3, @synqed-kk/ui 0.3.2 (installed == lock). Two clean
+// laps byte-identical (matching filenames and byte sizes for all 3 output
+// files):
+//   en-BYF_-ijf.js       136,859 B
+//   index-ePQ2HBem.js  1,063,038 B
+//   vendor-BD5eMVWe.js   937,791 B
+// Total = 2,137,688 B; ceiling = measured + 1,000 = 2,138,688 B.
+//
+// Against main's own newest measurement above (P1b B1, PR #960,
+// 2,125,521 B): +12,167 B total — en +1,279 B, index +10,888 B, vendor
+// unchanged (no dependency moved). This is this branch's own store-hours
+// door landing on top of main's current tip: consistent with the two
+// entries this branch already measured against its OWN fork base
+// (0aeb1633b) — 1c-D's +8,691 B and 1c-D R1's own +3,291 B on top of that,
+// summing to +11,982 B — the 185 B gap is ordinary minifier/cross-term
+// drift at a merge tip, the same class this file has already documented at
+// every prior main-in entry above (e.g. the #951/#929 merge tip's own +143 B
+// cross-term).
+const BUDGET_BYTES = 2_138_688
 
 let dir
 try {
