@@ -22,6 +22,12 @@ export interface StoreRefusalActor {
   requestId?: string
 }
 
+/** The closed set of ids a door may carry on `trace.detail` — ids only, one
+ *  entry per caller found at the top of the stack (2f277902b):
+ *  recording_session_id (karute.ts's save door) and appointment_id
+ *  (appointments/mutations.ts's booking doors). */
+export type StoreRefusalDetailKey = 'recording_session_id' | 'appointment_id'
+
 /** One refusal action per door CATEGORY — the prefix that door's own SUCCESS
  *  rows already use, so the 種類 filter puts a refused karute write next to the
  *  karute writes that did land. (The packet named two; the door list it gives
@@ -93,8 +99,10 @@ export function ensureRecordStoreInScopeAudited(
     door: string
     /** Ids the door wants on the row that its target fields cannot carry — a
      *  booking row's target is the CUSTOMER (house shape, mutations.ts), so the
-     *  appointment id the caller actually probed rides here. */
-    detail?: Record<string, string | null>
+     *  appointment id the caller actually probed rides here. ids only — the
+     *  reserved keys below (door/record_store_id/code) always win, this can
+     *  never override them. */
+    detail?: Partial<Record<StoreRefusalDetailKey, string | null>>
   },
 ): void {
   try {
@@ -111,12 +119,15 @@ export function ensureRecordStoreInScopeAudited(
         // lockout or a scheduled deletion — the viewer's 警告 strip.
         severity: 'warning',
         detail: {
+          // trace.detail spreads FIRST — the reserved keys below always win,
+          // even if a future door's detail object tried to carry one (Greptile,
+          // P1b B1 review).
+          ...trace.detail,
           door: trace.door,
           record_store_id: record.store_id,
           // Degraded lookup blips are not recorded; this row is an out-of-store
           // refusal, so its code is the pure lock's 'not_found'.
           code: err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : null,
-          ...trace.detail,
         },
         requestId: trace.actor.requestId,
         source: trace.actor.source,

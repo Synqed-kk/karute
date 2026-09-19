@@ -29,7 +29,9 @@ describe('audited store lock — refusal payload contains only door, store, code
           targetType: 'karute',
           targetId: 'kar-1',
           door: `${category}.test_write`,
-          detail: { customer_id: 'cust-1', recording_session_id: 'rec-1' },
+          // customer_id is not in StoreRefusalDetailKey — cast through
+          // `as never` to prove an extra key still rides the row untouched.
+          detail: { customer_id: 'cust-1', recording_session_id: 'rec-1' } as never,
         },
       )).toThrow(expect.objectContaining({ code: 'not_found', message: 'Record not found' }))
       expect(audit).toHaveBeenCalledTimes(1)
@@ -72,6 +74,25 @@ describe('audited store lock — refusal payload contains only door, store, code
     expect(audit).toHaveBeenCalledTimes(1)
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({
       detail: { door: 'karute.test_write', record_store_id: 'store-A', code: 'not_found' },
+    }))
+  })
+
+  it('a detail trying to carry door, record_store_id or code cannot override the helper\'s own values', () => {
+    expect(() => ensureRecordStoreInScopeAudited(
+      { store_id: 'store-B' },
+      { viewAll: false, allowedStoreIds: ['store-A'] },
+      'Record not found',
+      {
+        actor,
+        category: 'karute',
+        targetId: 'kar-1',
+        door: 'karute.test_write',
+        // Reserved keys, cast through `as never` to get past the closed type.
+        detail: { door: 'spoofed.door', record_store_id: 'spoofed-store', code: 'spoofed_code' } as never,
+      },
+    )).toThrow(expect.objectContaining({ code: 'not_found' }))
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      detail: { door: 'karute.test_write', record_store_id: 'store-B', code: 'not_found' },
     }))
   })
 })
