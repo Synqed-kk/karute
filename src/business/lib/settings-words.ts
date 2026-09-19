@@ -32,7 +32,7 @@ export function wordsReadout(spec: WordsSpec, values: Values): { current: Resour
 }
 
 function fillWords(template: string, slots: Record<string, string>): string {
-  return template.replace(/\{(noun|counter|full|turnover|typeLabel|n|word)\}/g, (_, slot: string) => slots[slot])
+  return template.replace(/\{(noun|counter|full|turnover|typeLabel|n|word)\}/g, (whole, slot: string) => slots[slot] ?? whole)
 }
 
 export function wordsSentences(spec: WordsSpec, values: Values, typeLabel: string): { current: string; standard: string; example: string } {

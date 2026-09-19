@@ -102,6 +102,13 @@ describe('PKT-BUILD-N3-2 §3 H3 — the pure save door', () => {
     expect(wordsBlockingError(section, v)).toBe(wordsBlockProblem(block, v))
   })
 
+  it('PKT-FIX-N3-2-F1-b — an unsupplied problem slot stays literal', () => {
+    const words = { ...spec, copy: { ...spec.copy, problems: { ...spec.copy.problems, pair: '{noun}が足りません' } } }
+    const problem = wordsBlockProblem({ ...block, words }, values('ベッド'))
+    expect(problem).toBe('{noun}が足りません')
+    expect(problem).not.toContain('undefined')
+  })
+
   it('N3-2 §3 m3 — live fact equals the real seed fact and follows a type change', () => {
     const equipment = section.blocks.find((b) => b.id === 'people.equipment')!
     expect(wordsLiveFact(section, equipment.id, seed, label)).toEqual({ index: 0, sentence: equipment.facts[0] })
