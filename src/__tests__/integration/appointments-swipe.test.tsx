@@ -14,7 +14,8 @@
  * and 月 now — see "no swipe on 日" below for the negative proof.
  */
 jest.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, values?: { date?: string; cells?: string }) =>
+    key === 'rowAria' ? `${values?.date} ${values?.cells}` : key,
   useLocale: () => 'ja',
 }))
 
@@ -236,6 +237,53 @@ describe('the page is not taken away from a finger that meant to scroll', () => 
 })
 
 describe('the pane travelling in', () => {
+  it.each(['week', 'month'] as const)(
+    '%s shows the next period dates before release and after the next swipe settles',
+    async (view) => {
+      renderView(view)
+      const el = box()
+      Object.defineProperty(el, 'clientWidth', { configurable: true, value: 400 })
+      pointer('pointerdown', el, {
+        pointerId: 6, clientX: 300, clientY: 200, timeStamp: 1000,
+      })
+      await act(async () => {})
+
+      const track = el.firstElementChild as HTMLElement
+      const nextPane = Array.from(track.children).find((pane) =>
+        pane.classList.contains('left-full'),
+      )!
+      // Read the real rows/cells' date labels. Counting seven rows or checking
+      // router.push alone cannot distinguish next-period data from previous.
+      const dates = () => Array.from(nextPane.querySelectorAll(
+        view === 'week' ? '[data-week-row]' : '[data-month-cell]:not([data-out])',
+      )).map((cell) => cell.getAttribute('aria-label')?.match(/^\d+\/\d+/)?.[0])
+      const expected = view === 'week'
+        ? ['9/21', '9/22', '9/23', '9/24', '9/25', '9/26', '9/27']
+        : Array.from({ length: 31 }, (_, i) => `10/${i + 1}`)
+      expect(dates()).toEqual(expected)
+      expect(push).not.toHaveBeenCalled()
+
+      pointer('pointermove', el, {
+        pointerId: 6, clientX: 140, clientY: 201, timeStamp: 1001,
+      })
+      pointer('pointerup', el, {
+        pointerId: 6, clientX: 140, clientY: 201, timeStamp: 1001,
+      })
+      await frames(3000)
+
+      expect(push).toHaveBeenCalledTimes(1)
+      expect(push.mock.calls[0][0]).toContain(
+        view === 'week' ? 'date=2026-09-21' : 'date=2026-10-01',
+      )
+      // No DTO has arrived in this harness. The settled track must keep the
+      // next pane in the viewport until the real answer replaces it.
+      const offset = Number(track.style.transform.match(/translate3d\(([-\d.]+)px/)?.[1])
+      expect(offset).toBeCloseTo(-400, 0)
+      expect(nextPane).toBeInTheDocument()
+      expect(dates()).toEqual(expected)
+    },
+  )
+
   it('is not drawn at all until a finger asks for it', () => {
     renderView('week')
     // One week on screen, and nothing else paying for itself.
