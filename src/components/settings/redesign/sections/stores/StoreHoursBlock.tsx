@@ -201,6 +201,7 @@ function StoreHoursEditor({
   const [confirmDay, setConfirmDay] = useState<WeekdayKey | null>(null)
   /** The 初期値に戻す press awaiting confirmation. */
   const [confirmReset, setConfirmReset] = useState(false)
+  const inFlight = useRef(false)
 
   const parsed = parseStoreWeeklyHours(draftToWeeklyHours(draft))
   const invalid = 'error' in parsed
@@ -250,9 +251,16 @@ function StoreHoursEditor({
       toast.error(t(errorKey(check.error)))
       return
     }
+    if (inFlight.current) return
+    inFlight.current = true
     setSaving(true)
-    const result = await setStoreHours(storeId, week)
-    setSaving(false)
+    let result
+    try {
+      result = await setStoreHours(storeId, week)
+    } finally {
+      inFlight.current = false
+      setSaving(false)
+    }
     if ('error' in result) {
       toast.error(knownError(result.error) ? t(errorKey(result.error)) : result.error)
       return
@@ -267,9 +275,16 @@ function StoreHoursEditor({
    *  words), so the store returns to 全店共通の初期値 and the editor goes back
    *  to showing that default as a starting point, not as this store's truth. */
   const resetToDefault = useCallback(async () => {
+    if (inFlight.current) return
+    inFlight.current = true
     setSaving(true)
-    const result = await setStoreHours(storeId, null)
-    setSaving(false)
+    let result
+    try {
+      result = await setStoreHours(storeId, null)
+    } finally {
+      inFlight.current = false
+      setSaving(false)
+    }
     if ('error' in result) {
       toast.error(knownError(result.error) ? t(errorKey(result.error)) : result.error)
       return
