@@ -250,6 +250,7 @@ describe('resolveSynqedStaffId — create-on-miss', () => {
     const resolve = await loadFn()
     await expect(resolve('profile-seeded')).resolves.toBe('staff-created')
     expect(staffCreate).toHaveBeenCalledTimes(1)
+    expect(mockUpdateTag.mock.calls).toEqual([['staff-list']])
     expect(staffCreate).toHaveBeenCalledWith({
       name: '牧之瀬 拓海',
       email: 'takumi@salon.com',
