@@ -54,8 +54,15 @@ export class AppApiError extends Error {
   code: AppApiErrorCode
   /** Optional machine-readable extras merged into the JSON body (never secrets). */
   detail?: Record<string, unknown>
-  constructor(code: AppApiErrorCode, message: string, detail?: Record<string, unknown>) {
-    super(message)
+  /** The original thrown value, when this wraps an unclassified throw
+   *  (`toAppApiError`'s unknown arm). Standard `Error` `cause` — non-enumerable,
+   *  dropped by `JSON.stringify` — so `errorBody` and the client response never
+   *  see it; only `logFacadeError` (handler.ts) reads it, via `describeUnknownThrow`
+   *  below, for the server log. A caller that runs `util.inspect`/
+   *  `console.error(err)` directly on an `AppApiError` would print the raw
+   *  unmasked cause and its stack — never log one whole. */
+  constructor(code: AppApiErrorCode, message: string, detail?: Record<string, unknown>, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause })
     this.name = 'AppApiError'
     this.code = code
     this.detail = detail
@@ -91,8 +98,130 @@ export function toAppApiError(err: unknown): AppApiError {
   if (err instanceof RevocationError) {
     return new AppApiError('revoked', err.message)
   }
-  // Unknown throw: never leak internals to the client body.
-  return new AppApiError('internal', 'Internal error')
+  // Unknown throw: never leak internals to the CLIENT body — but keep the
+  // original value as a non-enumerable `cause` so the SERVER log can still
+  // say why (logFacadeError, handler.ts, via describeUnknownThrow below).
+  return new AppApiError('internal', 'Internal error', undefined, err)
+}
+
+// The other two ECMAScript LineTerminator characters besides \r\n — LINE
+// SEPARATOR (U+2028) and PARAGRAPH SEPARATOR (U+2029). Built via
+// String.fromCharCode rather than a \u-escape literal (source-encoding
+// safety, not a functional requirement).
+const LINE_TERMINATOR_RE = new RegExp(`[\r\n${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`)
+
+/** Sanitised, bounded one-line description of an unclassified thrown value —
+ *  read only by `logFacadeError` (handler.ts), never by `errorBody`. Never the
+ *  stack, never `cause.cause`. TOTAL (fix round 2, MUST-1a): every property
+ *  read/coercion below sits inside ONE try — a hostile shape (a throwing
+ *  `message`/`status` getter, a throwing `toString`, a non-string `name` that
+ *  would break `JSON.stringify`) can never escape this function; it degrades
+ *  to `{errName:'unformattable', errMessage:''}` instead. `errName`/
+ *  `errMessage` are only ever a value already confirmed `typeof === 'string'`
+ *  — never a raw coercion of the hostile input itself. */
+export function describeUnknownThrow(err: unknown): { errName: string; errStatus?: number; errMessage: string } {
+  try {
+    const rawName = err instanceof Error ? err.name : typeof err
+    const errName = capWithEllipsis(maskSensitive(typeof rawName === 'string' ? rawName : typeof err), 60)
+
+    const rawMessage = err instanceof Error ? err.message : String(err)
+    const message = typeof rawMessage === 'string' ? rawMessage : ''
+    // Line boundary = any ECMAScript LineTerminator (LF, CR, LS, PS) — not
+    // just `\n`: a bare `\r` used to survive into "the first line" and then
+    // get flattened to a space by the whitespace-collapse below, leaking
+    // whatever followed it (fix round 2 SHOULD).
+    const lineEnd = message.search(LINE_TERMINATOR_RE)
+    const firstLine = lineEnd === -1 ? message : message.slice(0, lineEnd)
+    // Bound BEFORE masking (fix round 2, MUST-2): keeps every regex below
+    // operating on at most 2000 chars regardless of the original message
+    // size. `preBound` trims back to the last whitespace so a secret split
+    // by THIS bound is discarded rather than left half-exposed.
+    const bounded = preBound(firstLine).replace(/\s+/g, ' ').trim()
+    const masked = maskSensitive(bounded)
+    const errMessage = capWithEllipsis(masked, 200)
+
+    const rawStatus = (err as { status?: unknown } | null)?.status
+    const errStatus = typeof rawStatus === 'number' && Number.isFinite(rawStatus) ? rawStatus : undefined
+
+    return errStatus === undefined ? { errName, errMessage } : { errName, errStatus, errMessage }
+  } catch {
+    return { errName: 'unformattable', errMessage: '' }
+  }
+}
+
+function capWithEllipsis(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s
+}
+
+/** Defense-in-depth against a huge thrown message (perf, fix round 2,
+ *  MUST-2): bound to 2000 chars BEFORE any masking regex runs. If the cut
+ *  lands mid-token, trim back to the last whitespace char (found by scanning
+ *  backward — cheap, bounded to 2000 steps); no whitespace in the first 2000
+ *  chars → keep the 2000 and let the masks + the final 200-char cap handle it. */
+function preBound(firstLine: string): string {
+  if (firstLine.length <= 2000) return firstLine
+  const cut = firstLine.slice(0, 2000)
+  for (let i = cut.length - 1; i >= 0; i--) {
+    if (/\s/.test(cut[i])) return cut.slice(0, i)
+  }
+  return cut
+}
+
+// A canonical UUID (8-4-4-4-12 hex) is exempt from the blob rule below — ids
+// are already on the log line via other fields, and a UUID's hyphens don't
+// break a blob-charset run the way they'd need to for the rule to skip it
+// on its own. Ids are not secrets, so a storage key built from ids (e.g.
+// `app_<uuid>_<uuid>.webm`) must survive too — the test below now matches a
+// UUID anywhere in the run, not just a run that equals one exactly.
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+
+/** Masking order (fix round 4): URL (origin+path, query stripped — a
+ *  case-insensitive scheme) → non-ASCII free text (upstream messages carry
+ *  no ASCII-pattern secrets the later rules would catch, so this runs right
+ *  after the URL step, before anything else can see it) → Bearer token →
+ *  labelled credentials (token/apikey/api_key/key/secret/password/
+ *  authorization = value — this also catches a secret embedded in a URL
+ *  PATH, which the URL step above only strips the QUERY of) → JWT → email
+ *  (bounded quantifiers — no nested/overlapping-quantifier ambiguity, paired
+ *  with `preBound` above) → opaque 32+-char blobs (base64 / API keys; a run
+ *  CONTAINING a canonical UUID is exempt, not just a run that equals one) →
+ *  hyphenated JP phone numbers (`090-1234-5678`) → 7+-digit runs (phone/
+ *  card-like strings).
+ *
+ *  Fix round 3: the labelled-credential pattern has no leading `\b` so
+ *  prefixed/camelCase names (access_token, clientSecret) are caught as
+ *  substrings too; this accepts over-masking an innocent word that merely
+ *  ends in a label (e.g. `monkey: banana`).
+ *
+ *  The blob charset deliberately drops `/` from the base64 alphabet
+ *  (`+/_=-`) despite it being a legal base64 char: a URL's kept origin+path
+ *  (the step right above) is itself very often a 32+-char run of letters,
+ *  digits and `/` between dots, and matching against it there re-mangled an
+ *  already-correctly-masked URL into fragments (found empirically running
+ *  the pinned URL test in fix round 2). Base64url secrets — the far more
+ *  common real-world shape, precisely because it's URL-safe — use `-`/`_`
+ *  instead of `+`/`/` and are unaffected. */
+function maskSensitive(s: string): string {
+  let out = s.replace(/https?:\/\/\S+/gi, (m) => {
+    try {
+      const u = new URL(m)
+      return u.origin + u.pathname
+    } catch {
+      return '<url>'
+    }
+  })
+  out = out.replace(/[^\x00-\x7F]+/g, '<text>')
+  out = out.replace(/\bBearer\s+\S+/gi, 'Bearer <token>')
+  out = out.replace(
+    /(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi,
+    '<label>=<redacted>',
+  )
+  out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<jwt>')
+  out = out.replace(/[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}/g, '<email>')
+  out = out.replace(/[A-Za-z0-9+_=-]{32,}/g, (m) => (UUID_RE.test(m) ? m : '<blob>'))
+  out = out.replace(/\b0\d{1,4}-\d{1,4}-\d{3,4}\b/g, '<phone>')
+  out = out.replace(/\d{7,}/g, '<digits>')
+  return out
 }
 
 /** The stable JSON body shape for every facade error response. */
