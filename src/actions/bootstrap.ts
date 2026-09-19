@@ -1,4 +1,4 @@
-'use server'
+import 'server-only'
 
 import { randomUUID } from 'crypto'
 import { SynqedClient } from '@synqed-kk/client'
@@ -19,9 +19,10 @@ type BootstrapResult =
  * salon name and ENSURES a staff record exists in synqed-core (creating only if
  * one isn't already there for this user).
  *
- * Verifies userId against Supabase Auth via service-role getUserById, so the
- * client can pass user.id from supabase.auth.signUp's response without waiting
- * for session cookies to sync server-side (which would race the action).
+ * The only caller is the email-confirmation callback route, after its code
+ * exchange. userId comes from that verified session, never from a browser.
+ * This module is server-only so it can never become a browser-callable action
+ * again. getUserById stays as a cheap existence check.
  */
 export async function bootstrapBusinessForNewUser(
   salonName: string,
@@ -57,8 +58,8 @@ export async function bootstrapBusinessForNewUser(
     // stamp the first owner resolves to `practitioner` (synqedRoleToPreset's
     // default) and is refused by every capability gate — including
     // `settings.manage` on completeOnboarding's "Finish setup". The stamp is
-    // GATED on a role-less row: this action takes userId from the
-    // (pre-session-sync) client and only verifies the user EXISTS, so it must
+    // GATED on a role-less row: the callback supplies userId from the verified
+    // session; getUserById only checks that the user EXISTS. Bootstrap must
     // never change a role someone already holds. Invited staff always carry
     // permission_role from invites.ts, so their rows keep their role; the
     // idempotent owner re-run still updates full_name.
