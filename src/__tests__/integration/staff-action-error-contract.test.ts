@@ -44,13 +44,31 @@ jest.mock('@/lib/auth/require-permission', () => ({
 // staff-actions-store-scope.test.ts.
 jest.mock('@/lib/auth/store-scope', () => ({
   staffWriteInScope: jest.fn(async () => true),
+  // ⚖ Liam 2026-09-16: createStaff resolves the CREATOR's own stores so the
+  // new card can only be placed inside them. Unclamped here — this suite is
+  // about the error contract, not the store rule.
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
 }))
 
 const staffCreate = jest.fn(async () => ({ id: 'new-1' }))
 const staffUpdate = jest.fn(async () => ({}))
+const staffDelete = jest.fn(async () => ({}))
+const staffStoresSet = jest.fn(async () => ({}))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
-    staff: { create: staffCreate, update: staffUpdate },
+    // delete + staffStores are the mint's placement/rollback ports — a client
+    // without them cannot exercise a refused placement at all.
+    staff: { create: staffCreate, update: staffUpdate, delete: staffDelete },
+    staffStores: { set: staffStoresSet, get: jest.fn(async () => ({ store_ids: [] })) },
+    // ⚖ I2 — without a stores port the store COUNT is unknown, and an unknown
+    // count is now an answer of its own (storeUnknown). This suite is about
+    // the error contract, so it models the ordinary one-store salon.
+    stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-1', is_primary: true }] })) },
   })),
 }))
 
@@ -72,6 +90,7 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 import { createStaff, updateStaff } from '@/actions/staff'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 
 const validData = { name: 'New Person', position: '', email: '', phone: '' }
 
@@ -114,6 +133,17 @@ describe('createStaff — error contract', () => {
     can.mockResolvedValue(false)
     await expect(createStaff(validData)).resolves.toEqual({ error: 'noPermission' })
     expect(staffCreate).not.toHaveBeenCalled()
+  })
+
+  it('a THROWN store-scope lookup fails closed, never an unhandled action error (F6)', async () => {
+    // ⚖ FOLD ROUND 3 (fresh-eyes F6): resolveStoreScope sat outside the
+    // try/catch every other risky call here is inside. A throw turned a hire
+    // into the stripped render/digest toast instead of a reason.
+    ;(resolveStoreScope as jest.Mock).mockRejectedValueOnce(new Error('core down'))
+    await expect(
+      createStaff({ ...validData, storeIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] }),
+    ).resolves.toEqual({ error: 'STORE_SCOPE_DENIED' })
+    expect(staffStoresSet).not.toHaveBeenCalled()
   })
 
   it('granted + valid: resolves undefined', async () => {

@@ -74,7 +74,7 @@ beforeEach(() => {
 })
 
 describe('SettingsShell — staff prop threading (T3)', () => {
-  it('threads orgSettings.business_type, initialStores, and both feature flags through to StaffSection', () => {
+  it('threads orgSettings.business_type, the ASSIGNABLE stores, and both feature flags through to StaffSection', () => {
     render(
       <SettingsShell
         orgSettings={{ business_type: 'hair_salon' } as never}
@@ -93,6 +93,12 @@ describe('SettingsShell — staff prop threading (T3)', () => {
         initialActiveStoreId={null}
         initialMenus={[]}
         menuStores={[]}
+        // ⚖ Liam 2026-09-16 (fold round 2): the 担当店舗 picker's choices come
+        // from HERE, not from initialStores — which stays [] for a
+        // branch-restricted actor by the ⚖ 8/17 isolation law, and left the
+        // picker unrenderable while the server still refused a card with no
+        // store (fresh-eyes F6).
+        assignableStores={[storeRow]}
         initialEntitlement={null}
         featureStaffInvites={true}
         featureMultiStore={false}
@@ -126,6 +132,7 @@ describe('SettingsShell — staff prop threading (T3)', () => {
         initialActiveStoreId={null}
         initialMenus={[]}
         menuStores={[]}
+        assignableStores={[]}
         initialEntitlement={null}
       />,
     )
