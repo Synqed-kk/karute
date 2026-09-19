@@ -3,7 +3,7 @@ import { NextIntlClientProvider } from 'next-intl'
 import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
-import { listStores, getActiveStoreId } from '@/actions/stores'
+import { listStoresWithHours, getActiveStoreId } from '@/actions/stores'
 import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
@@ -43,7 +43,7 @@ export default async function SettingsPage({
     // paints complete — no placeholder-then-pop-in when the second store loads.
     // Guarded: a synqed-core hiccup here must NOT 500 the whole settings page —
     // degrade to [] and let StoresSection fall back to its client fetch.
-    listStores().catch(() => []),
+    listStoresWithHours().catch(() => []),
     getActiveStoreId().catch(() => null),
     getMyCapabilities().catch(() => new Set<Capability>()),
     // Same treatment for the entitlement — the plan row + add-store gate paint
@@ -129,6 +129,22 @@ export default async function SettingsPage({
   // rather than every branch's name behind a doomed edit control (Greptile
   // P1 on #707).
   const menuStores = menuStoresForScope(storeScope, canViewAllStores, stores)
+  // ⚖ Liam 2026-09-16 (fold round 2) — the SAME rule, for a different control:
+  // which stores this actor may place a NEW staff card in. menuStoresForScope
+  // already answers exactly that question (own assignment · every store for
+  // viewAll or a floating actor · [] when the scope is degraded, matching the
+  // server clamp), so it is reused rather than reinvented. A degraded actor
+  // gets no picker AND a server refusal — both fail closed, and the outage
+  // clears itself.
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F1b) — the DEFAULT PICK is the RESOLVED store,
+  // not the raw cookie. resolveStoreScope already answers "which store is this
+  // actor actually on" (their own assignment when clamped, the primary when the
+  // cookie is unset), and the facade twin has always sent `clamp.storeId`. The
+  // raw cookie could be empty or point at a store this actor left, seeding the
+  // 担当店舗 picker with nothing ・ with somebody else's store. `initialStores`'
+  // own prop keeps the raw cookie: the 店舗 tab is about the cookie.
+  const assignableActiveStoreId = storeScope?.storeId ?? initialActiveStoreId
 
   // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
   // アクセス履歴 row). Unknown tab values — and audit links followed by staff
@@ -164,6 +180,8 @@ export default async function SettingsPage({
         auditTargetId={auditTargetId}
         initialStores={canViewAllStores ? stores : []}
         menuStores={menuStores}
+        assignableStores={menuStores}
+        assignableActiveStoreId={assignableActiveStoreId}
         initialActiveStoreId={initialActiveStoreId}
         initialMenus={canManageMenus ? initialMenus : []}
         initialEntitlement={entitlement}

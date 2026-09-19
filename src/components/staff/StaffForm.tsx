@@ -73,9 +73,21 @@ interface StaffFormProps {
    *  env` so web (which never passes this) reads the real env var, byte-for-
    *  byte unchanged. */
   featureMultiStore?: boolean
+  /** The creator's own active store — the default pick for a NEW card's
+   *  required 担当店舗 (⚖ Liam 2026-09-16). Optional: without it the picker
+   *  simply starts empty and the person chooses. */
+  activeStoreId?: string | null
 }
 
-export function StaffForm({ mode, staff, onClose, businessType, stores, featureMultiStore }: StaffFormProps) {
+export function StaffForm({
+  mode,
+  staff,
+  onClose,
+  businessType,
+  stores,
+  featureMultiStore,
+  activeStoreId,
+}: StaffFormProps) {
   // Store/location assignment shows only when multi-store is enabled + editing.
   const storesEnabled = featureMultiStore ?? process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
   const ts = useTranslations('settings')
@@ -130,6 +142,33 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
 
   const staffId = staff?.id
 
+  // ⚖ Liam 2026-09-16 — STORE AT CREATION. A new card with no store is a staff
+  // member who meets the 担当店舗が未設定です screen on their first login, so a
+  // create always CARRIES a store. The server enforces the same rule
+  // (createStaffCore); this is the UI half that makes the refusal impossible to
+  // reach by accident.
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F1) — ASKING and SENDING are two questions.
+  // The picker used to decide both from "do I have ≥2 stores to offer?", which
+  // is the CREATOR's own subset, while the server asks "does the BUSINESS have
+  // ≥2 stores?". A 銀座-only manager in a two-store business fell in the gap:
+  // no picker, no storeIds, and a refusal naming a control that was not on the
+  // screen — that manager could never hire again. So: with exactly ONE
+  // assignable store there is nothing to choose and the submission simply
+  // carries it (always inside the creator's own subset, by construction); the
+  // picker appears at TWO or more, where the choice is real.
+  //
+  // ⚖ G7 — THE CREATE SIDE DOES NOT ASK THE FLAG. The server rule is
+  // unconditional (createStaffCore refuses a storeless card whenever the
+  // BUSINESS has two or more stores), so gating the picker on
+  // NEXT_PUBLIC_FEATURE_MULTI_STORE made "flag off + two stores" a dead end:
+  // no picker, no storeIds, and a refusal naming a control that is not on the
+  // screen — adding staff became impossible. The flag still rules the EDIT
+  // side's 所属店舗 block, exactly as before.
+  const assignable = stores ?? []
+  const mustPickStore = mode === 'create' && assignable.length >= 1
+  const showStorePicker = mode === 'create' ? assignable.length >= 2 : storesEnabled
+
   useEffect(() => {
     if (!(mode === 'edit' && staffId) || staff?.unlinked) return
     let cancelled = false
@@ -153,6 +192,19 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
       cancelled = true
     }
   }, [mode, staffId, staff?.unlinked])
+
+  // The creator's ACTIVE store is the default pick: a 銀座 manager adding a
+  // 銀座 hire should not have to say so. Seeded once, never re-applied, so a
+  // deliberate un-tick sticks. Only a store the creator may actually use is
+  // seeded — a stale active-store cookie pointing outside their assignment
+  // would otherwise pre-tick an invisible store and earn STORE_SCOPE_DENIED.
+  useEffect(() => {
+    if (!mustPickStore || !activeStoreId) return
+    if (!assignable.some((s) => s.id === activeStoreId)) return
+    setStoreIds((prev) => (prev.length === 0 ? [activeStoreId] : prev))
+    // `assignable` is a fresh array each render; its CONTENT is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mustPickStore, activeStoreId, assignable.map((s) => s.id).join(',')])
 
   useEffect(() => {
     if (!(storesEnabled && mode === 'edit' && staffId)) return
@@ -182,12 +234,34 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
   async function onSubmit(data: StaffProfileInput) {
     try {
       if (mode === 'create') {
-        const res = await createStaff(data)
-        if (res?.error) {
-          toast.error(res.error)
+        // One assignable store = no picker and nothing to choose, so the
+        // submission carries it whatever the checkbox state says (F1).
+        const chosen = assignable.length === 1 ? [assignable[0].id] : storeIds
+        if (mustPickStore && chosen.length === 0) {
+          toast.error(tStore('assignRequiredError'))
           return
         }
-        toast.success(ts('staffAdded'))
+        const res = await createStaff(
+          mustPickStore ? { ...data, storeIds: chosen } : data,
+        )
+        if (res && 'error' in res) {
+          // Two MACHINE codes come back from the store-at-creation rules; the
+          // rest are already-translated messages.
+          toast.error(
+            res.error === 'STORE_REQUIRED_AT_CREATION'
+              ? tStore('assignRequiredError')
+              : res.error === 'STORE_SCOPE_DENIED'
+                ? ts('staffStoreScopeDenied')
+                : res.error === 'STAFF_CARD_LEFT_BEHIND'
+                  ? ts('staffCardLeftBehind')
+                  : res.error,
+          )
+          return
+        }
+        // ⚖ I2 — the card was made, but the store list could not be read, so
+        // nobody knows whether it still needs a 担当店舗. Said, never silent.
+        if (res && 'storeUnknown' in res) toast.warning(ts('staffAddedStoreUnknown'))
+        else toast.success(ts('staffAdded'))
       } else if (mode === 'edit' && staff) {
         const res = await updateStaff(
           staff.id,
@@ -268,10 +342,15 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
 
           {/* 所属店舗 — which stores this staff works at. Multi-store, many-to-many:
            *  check any number; none = works in every store (owner / floating staff). */}
-          {storesEnabled && mode === 'edit' && (
+          {showStorePicker && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">{tStore('assignLabel')}</label>
-              <p className="text-xs text-muted-foreground">{tStore('assignMultiHint')}</p>
+              <label className="text-sm font-medium">
+                {mustPickStore ? tStore('assignCreateLabel') : tStore('assignLabel')}
+                {mustPickStore && <span className="ml-1 text-destructive">*</span>}
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {mustPickStore ? tStore('assignCreateHint') : tStore('assignMultiHint')}
+              </p>
               <div className="flex flex-col gap-1.5">
                 {(stores ?? []).map((s) => {
                   const checked = storeIds.includes(s.id)

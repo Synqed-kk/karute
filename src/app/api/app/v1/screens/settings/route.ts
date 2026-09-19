@@ -22,7 +22,7 @@
 // placeholder for one refresh round-trip (StoresSection.tsx:28) — its mount
 // effect's own refresh() calls the (ensurePrimary: true) stores GET route,
 // which provisions and replaces the placeholder with the real row. Read
-// failures mirror web's OWN tolerance for these two (page.tsx:38,43 —
+// failures mirror web's OWN tolerance for these two (page.tsx:46,47 —
 // `.catch(() => [])` / `.catch(() => null)`): a stores/entitlement hiccup
 // must not 502 the whole settings screen. initialActiveStoreId is still real
 // — it falls out of the store clamp this route runs regardless, at no extra
@@ -84,19 +84,33 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
   const canViewAllStores = ctx.identity.capabilities.has('stores.viewAll')
 
   try {
-    const [staffList, orgSettings, storesResult, entitlementResult] = await Promise.all([
+    const [staffList, orgSettings, storesResult, entitlementResult, clampedStores] =
+      await Promise.all([
       staffListByBusinessOrThrow(businessId),
       orgSettingsWithClient(synqed),
       // Least-privilege: a non-viewAll identity never triggers the read at
       // all (the tab is hidden for them anyway) — same posture as web's own
-      // `canViewAllStores ? stores : []` gate (page.tsx:82), just applied
+      // `canViewAllStores ? stores : []` gate (page.tsx:165), just applied
       // before the fetch instead of after it.
       canViewAllStores
-        ? listStoresWithClient(synqed, businessId, { ensurePrimary: false }).catch(() => [])
+        ? listStoresWithClient(synqed, businessId, {
+            ensurePrimary: false,
+            // The 店舗 tab's 営業時間 editor needs every store's own hours —
+            // ONE storePolicies.list() for the business (S1).
+            withHours: true,
+          }).catch(() => [])
         : Promise.resolve([]),
       canViewAllStores
         ? loadEntitlementWithClient(synqed, businessId).catch(() => null)
         : Promise.resolve(null),
+      // ⚖ Liam 2026-09-16 (fold round 2) — the stores this actor may place a
+      // NEW staff card in. A viewAll identity already has the full list above;
+      // a CLAMPED one gets their own assignment, and needs the names, so this
+      // is the one read the least-privilege gate above cannot skip for them.
+      // The web twin is menuStoresForScope on the same page.
+      canViewAllStores || !clamp.allowedStoreIds?.length
+        ? Promise.resolve(null)
+        : listStoresWithClient(synqed, businessId, { ensurePrimary: false }).catch(() => []),
     ])
 
     // isOwner mirrors page.tsx's own literal comparison (staffList.some(s =>
@@ -139,7 +153,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     // this section never then hits `forbidden` opening it.
     const canViewAudit = canReadAuditLog(ctx.identity.capabilities)
     const canViewSync = isOwner || ctx.identity.capabilities.has('sync.view')
-    // Bare capability, no owner fallback — web parity (settings/page.tsx:76).
+    // Bare capability, no owner fallback — web parity (settings/page.tsx:111-115).
     const canManageMenus = ctx.identity.capabilities.has('menus.manage')
 
     // 予約同期 status card (packet 31) — SOFT-FAIL: a throw or missing config
@@ -219,6 +233,10 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         // change here.
         initialActiveStoreId: clamp.storeId,
         initialStores: storesResult,
+        assignableStores:
+          clampedStores === null
+            ? storesResult
+            : clampedStores.filter((s) => clamp.allowedStoreIds!.includes(s.id)),
         initialEntitlement: entitlementResult,
         // Server-truth flags (design-parity packet 12 §S4a) — this route's
         // own process.env is real (unlike thin's, which is {}); ship the

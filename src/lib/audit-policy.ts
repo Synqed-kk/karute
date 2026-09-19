@@ -99,6 +99,8 @@ export const AUDIT_ACTIONS = [
   'settings.recording_autostart_toggle',
   'settings.staff_stores_change',
   'settings.store_create',
+  'settings.store_hours_reset',
+  'settings.store_hours_update',
   'settings.store_update',
   'settings.store_write_refused',
   'settings.sync_config_update',
@@ -326,6 +328,7 @@ export const AUDITED_CORES: {
     symbols: [
       'createStoreCore',
       'updateStoreCore',
+      'setStoreHoursCore',
       'setStaffStoresCore',
       'setStaffStoresAtCreationCore',
     ],
@@ -502,7 +505,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'staff.create',
     symbols: ['bootstrapBusinessForNewUser'],
     justification:
-      "Signup bootstrap — creates the OWNER's own synqed staff record as part of account provisioning, not an admin managing staff. FIX ROUND 1 #13 correction: the actor is NOT unknown — the function verifies the auth uid via service.auth.admin.getUserById BEFORE this write and resolves businessId in the same call. Self-provisioning on the user's OWN new account; silent today; no wave committed (candidate mirror: a future staff.bootstrap action per the coverage inventory). No facade/web action endpoint covers this path at all.",
+      "Signup bootstrap — creates the OWNER's own synqed staff record as part of account provisioning, not an admin managing staff. FIX ROUND 1 #13 correction: the actor is NOT unknown — the function verifies the auth uid via service.auth.admin.getUserById BEFORE this write and resolves businessId in the same call. Self-provisioning on the user's OWN new account; silent today; no wave committed (candidate mirror: a future staff.bootstrap action per the coverage inventory). No facade/web action endpoint covers this path at all. Since 2026-09-19 the module is server-only (not a server action): reachable from the email-confirmation callback route only; the actor is the user of that route's verified code exchange.",
     dated: '2026-07-27',
   },
   {
@@ -928,7 +931,7 @@ export const RAW_SUPABASE_WRITE_ALLOWLIST: {
     call: 'profiles.update',
     symbols: ['bootstrapBusinessForNewUser'],
     justification:
-      "Signup bootstrap — stamps the auto-created profiles row with the salon name (and the OWNER role, once, gated on a role-less row). FIX ROUND 1 #13 correction: same as this file's staff.create SDK entry above — the actor IS verified (service.auth.admin.getUserById) before this write, not unknown.",
+      "Signup bootstrap — stamps the auto-created profiles row with the salon name (and the OWNER role, once, gated on a role-less row). FIX ROUND 1 #13 correction: same as this file's staff.create SDK entry above — the actor IS verified (service.auth.admin.getUserById) before this write, not unknown. Since 2026-09-19 the module is server-only (not a server action): reachable from the email-confirmation callback route only; the actor is the user of that route's verified code exchange.",
     dated: '2026-07-27',
   },
   {
@@ -936,7 +939,7 @@ export const RAW_SUPABASE_WRITE_ALLOWLIST: {
     call: 'profiles.insert',
     symbols: ['bootstrapBusinessForNewUser'],
     justification:
-      'Signup bootstrap fallback (only when the Supabase auto-create trigger is absent) — same reasoning and same FIX ROUND 1 #13 correction as profiles.update above in this file.',
+      'Signup bootstrap fallback (only when the Supabase auto-create trigger is absent) — same reasoning and same FIX ROUND 1 #13 correction as profiles.update above in this file. Since 2026-09-19 the module is server-only (not a server action): reachable from the email-confirmation callback route only; the actor is the user of that route\'s verified code exchange.',
     dated: '2026-07-27',
   },
   {

@@ -110,11 +110,17 @@ const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, nu
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const entitlementsGet = jest.fn(async () => ({ tier: 'free', is_unlimited: false }))
 const syncGetConfig = jest.fn(async () => null as Record<string, unknown> | null)
+// 1c-D S1: the 設定 doors list store POLICIES once for the whole business so
+// the 店舗 tab can render each store's own 営業時間.
+const storePoliciesList = jest.fn(async () => ({
+  policies: [] as Record<string, unknown>[],
+}))
 const fakeClient = {
   stores: { get: storesGet, list: storesList },
   staffStores: { get: staffStoresGet, counts: staffStoresCounts },
   customers: { countsByStore: customersCountsByStore },
   entitlements: { get: entitlementsGet },
+  storePolicies: { list: storePoliciesList },
   sync: { getConfig: syncGetConfig },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
@@ -123,7 +129,7 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { GET } from '@/app/api/app/v1/screens/settings/route'
-import { SettingsScreenDTO } from '@/lib/app-api/settings-screen-dto'
+import { SettingsScreenDTO, StoreRowSchema } from '@/lib/app-api/settings-screen-dto'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -165,6 +171,7 @@ beforeEach(() => {
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   storesGet.mockResolvedValue({})
   storesList.mockResolvedValue({ stores: [] })
+  storePoliciesList.mockResolvedValue({ policies: [] })
   staffStoresCounts.mockResolvedValue({ counts: {} })
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'free', is_unlimited: false })
@@ -429,6 +436,24 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect((await res.json()).error.code).toBe('upstream_unavailable')
   })
 
+  it('a malformed policy does not fail the settings screen and its unreadable flag reaches the wire', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    storesList.mockResolvedValue({ stores: [
+      { id: 'store-A', name: 'Store A', address: null, phone: null, is_primary: true, active: true },
+      { id: 'store-B', name: 'Store B', address: null, phone: null, is_primary: false, active: true },
+    ] })
+    storePoliciesList.mockResolvedValue({ policies: [
+      { store_id: 'store-A', weekly_hours: { mon: { open: 'bad', close: '19:00' } } },
+    ] })
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const wire = body.data ?? body
+    expect(wire.initialStores[0]).toMatchObject({ weeklyHours: null, weeklyHoursUnreadable: true })
+    expect(wire.initialStores[1]).toMatchObject({ weeklyHours: null, weeklyHoursUnreadable: false })
+    expect(SettingsScreenDTO.parse(wire).initialStores).toEqual(wire.initialStores)
+  })
+
   it('initialStores/initialEntitlement populate for a stores.viewAll identity (packet 12 §B-3 S2)', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
     storesList.mockResolvedValue({
@@ -450,6 +475,9 @@ describe('GET /api/app/v1/screens/settings', () => {
         staffCount: 0,
         customerCount: 0,
         businessType: null,
+        // No policy row for this store → never configured (1c-D S1).
+        weeklyHours: null,
+        weeklyHoursUnreadable: false,
       },
     ])
     expect(dto.initialEntitlement).toMatchObject({ tier: 'professional', isUnlimited: true })
@@ -589,5 +617,70 @@ describe('SettingsScreenDTO — serviceNoun skew tolerance', () => {
     }
     const dto = SettingsScreenDTO.parse(skewed)
     expect(dto.serviceNoun).toBeUndefined()
+  })
+})
+
+describe('Settings store DTO unreadable hours', () => {
+  const row = {
+    id: 'store-A', name: 'Store A', address: null, phone: null,
+    isPrimary: true, active: true, staffCount: 0, customerCount: 0, businessType: null,
+  }
+
+  it('retains a saved 24:00 close intact as readable', () => {
+    const weeklyHours = {
+      mon: { open: '10:00', close: '24:00' }, tue: null, wed: null,
+      thu: null, fri: null, sat: null, sun: null,
+    }
+    expect(StoreRowSchema.parse({ ...row, weeklyHours }))
+      .toEqual({ ...row, weeklyHours, weeklyHoursUnreadable: false })
+  })
+
+  it.each([
+    ['24:00 open', { mon: { open: '24:00', close: '24:00' } }],
+    ['24:01 close', { mon: { open: '10:00', close: '24:01' } }],
+    ['25:00 close', { mon: { open: '10:00', close: '25:00' } }],
+    ['unknown day key', { mon: { open: '10:00', close: '19:00', future: true } }],
+    ['unknown week key', { mon: null, future: true }],
+    ['unknown key only', { future: true }],
+    ['array', []],
+  ])('marks %s unreadable instead of stripping it', (_label, weeklyHours) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(StoreRowSchema.parse({ ...row, weeklyHours }))
+        .toEqual({ ...row, weeklyHours: null, weeklyHoursUnreadable: true })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it.each([
+    ['null', null], ['empty', {}],
+    ['six days', { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null }],
+    ['absent days', { mon: { open: '10:00', close: '19:00' } }],
+    ['open after close', { mon: { open: '20:00', close: '10:00' } }],
+    ['open equals close', { mon: { open: '10:00', close: '10:00' } }],
+  ])('keeps the existing readable classification for %s', (_label, weeklyHours) => {
+    expect(StoreRowSchema.parse({ ...row, weeklyHours }))
+      .toEqual({ ...row, weeklyHours, weeklyHoursUnreadable: false })
+  })
+
+  it('a malformed week preserves the row with null hours and an unreadable flag', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(StoreRowSchema.parse({
+        ...row, weeklyHours: { mon: { open: 'bad', close: '19:00' } }, weeklyHoursUnreadable: false,
+      })).toEqual({ ...row, weeklyHours: null, weeklyHoursUnreadable: true })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('an old server with no hours or flag defaults the unreadable flag to false', () => {
+    expect(StoreRowSchema.parse(row)).toEqual({ ...row, weeklyHours: null, weeklyHoursUnreadable: false })
+  })
+
+  it('preserves the server unreadable flag after the server has normalized the hours to null', () => {
+    expect(StoreRowSchema.parse({ ...row, weeklyHours: null, weeklyHoursUnreadable: true }))
+      .toEqual({ ...row, weeklyHours: null, weeklyHoursUnreadable: true })
   })
 })

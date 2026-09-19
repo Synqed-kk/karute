@@ -100,6 +100,7 @@ const baseProps = {
   initialMenus: [],
   initialStores: INITIAL_STORES,
   menuStores: MENU_STORES,
+  assignableStores: [],
   initialActiveStoreId: null,
   initialEntitlement: null,
 }
