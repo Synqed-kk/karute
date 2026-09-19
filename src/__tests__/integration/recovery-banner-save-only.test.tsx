@@ -1598,6 +1598,47 @@ describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
     expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
   })
 
+  // F6 (fold 2, 2026-09-19): the restored-draft save stays ID-ONLY. A draft
+  // that survived a reload with `pickedCustomerName` set (display-only, for
+  // the banner/consent dialog) must never let that name ride along into the
+  // writer — `saveKaruteRecordInline` decides who the record belongs to by
+  // `customerId` alone. `toMatchObject` above would pass silently if a name
+  // field were added; this asserts the EXACT key set instead.
+  it('a restored draft carrying pickedCustomerName never lets the name reach the save writer', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT, pickedCustomerName: '遠藤三郎' }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    const arg = mockSaveInline.mock.calls[0][0] as Record<string, unknown>
+    // The literal key set the call site at the tip sends
+    // (RecordPageView.tsx ~:3008-3022).
+    expect(Object.keys(arg).sort()).toEqual([
+      'appointmentId',
+      'customerId',
+      'duration',
+      'entries',
+      'outcome',
+      'recordingSessionId',
+      'summary',
+      'transcript',
+    ])
+    expect(Object.keys(arg).some((k) => /name/i.test(k))).toBe(false)
+    expect(JSON.stringify(arg)).not.toContain('遠藤三郎')
+  })
+
   // ⚖ …AND THAT FLAG IS WHAT MAKES THE ROW GO AWAY (PR4 fix round 2). The
   // stranded cohort is BY DEFINITION audio the server never received under its
   // finalized key, so the never-delete guard refuses it — and without the flag

@@ -1507,6 +1507,22 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2, installed
 // == lock): en 134,814 · index 1,048,257 · vendor 937,791 = 2,120,862 B.
 // Ceiling = 2,120,862 + 1,000.
+// RE-MEASURED 2026-09-17 — #952 follow-up: the picked customer's name reaches
+// server-inbox consent and ReviewScreen via display-only pipeline context.
+// Exact CI six VITE_* placeholders; thin/dist emptied before each of TWO
+// builds; all 23 output files byte-identical (SHA-256), node v24.16.0:
+// en 134,814 · index 1,048,400 · vendor 937,791 = 2,121,005 B.
+// +143 B against the prior entry's measurement, all in index; no dependency
+// changes. Ceiling = measured 2,121,005 + 1,000 = 2,122,005 B.
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-17 — consent-name stress folds: ReviewScreen persists
+// the picked display name in its recovery draft; RecordPageView restores it
+// before the preloaded-list fallback. Draft owner, key and 24 h TTL unchanged.
+// Exact CI six VITE_* placeholders; thin/dist emptied before each of TWO
+// builds; all 23 output files byte-identical (SHA-256), node v24.16.0:
+// en 134,814 · index 1,048,407 · vendor 937,791 = 2,121,012 B.
+// +7 B against the prior entry's measurement, all in index; no dependency
+// changes. Ceiling = measured 2,121,012 + 1,000 = 2,122,012 B.
 //   en:       134,204 +  19 +   138 =   134,361  ✔ exact
 //   vendor:   937,791, unchanged in all four     ✔ no dependency moved
 //   index:  1,033,009 + 596 + 9,537 = 1,043,142, measured 1,043,285 — a
@@ -1559,7 +1575,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Total = 2,121,046 B; ceiling = measured + 1,000 = 2,122,046 B.
 // +184 B against main's prior 2,120,862 B measurement, all in index;
 // en and vendor unchanged. The source branch's ceiling is not carried.
-const BUDGET_BYTES = 2_122_046
+const BUDGET_BYTES = 2_122_012
 
 let dir
 try {

@@ -404,7 +404,12 @@ describe('one fixture world', () => {
     // it explains (¥56,750 × 30 is not the landing the tile prints), which is a
     // worse lie than a decimal. It is the ONLY fractional figure on the page.
     const perDay = p.tiles!.find((t) => t.calc)!.calc!.lines[1].v
-    expect(new Set(figures.filter((s) => s.includes('.')))).toEqual(new Set([perDay]))
+    // The rate itself is whole on some calendar days (month-to-date ÷ days
+    // elapsed lands on an integer — e.g. the 19th of 2026-09 gives ¥22,279).
+    // On those days no figure on the page may carry a fraction at all.
+    expect(new Set(figures.filter((s) => s.includes('.')))).toEqual(
+      new Set([perDay].filter((s) => s.includes('.'))),
+    )
     // a FINISHED month has no 計算式 at all, so it has no fraction anywhere
     const done = await room({ store: STORE_B, month: '-1' })
     const doneFigures = JSON.stringify(done).match(/¥[\d,]+(?:\.\d+)?/g) ?? []
