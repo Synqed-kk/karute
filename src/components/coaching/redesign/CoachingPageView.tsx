@@ -10,10 +10,7 @@ import { DataDrivenStaffView } from './DataDrivenStaffView'
 import { DataDrivenOwnerRoi } from './DataDrivenOwnerRoi'
 import { SAMPLE_STAFF_VIEW, SAMPLE_STORE_ROI } from './sample-data'
 import { CoachingConsentDialog } from './CoachingConsentDialog'
-import {
-  useCoachingConsent,
-  useCoachingConsentMutations,
-} from '@/lib/coaching-consent/hooks'
+import { useCoachingConsent } from '@/lib/coaching-consent/hooks'
 import { useEffectiveCoachingRole } from '@/lib/coaching-dev-preview/hooks'
 
 // ─────────────────────────────────────────────────────────────
@@ -60,17 +57,24 @@ export function CoachingPageView({
   const tData = useTranslations('coaching.data')
   const locale = useLocale()
   const consent = useCoachingConsent()
-  const { grant, decline, reset } = useCoachingConsentMutations()
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const showStaffConsentBanner =
-    role === 'staff' && consent.status === 'unset'
+    role === 'staff' && !consent.loading && !consent.error && consent.status === 'unset'
   const showStaffConsentSummary =
-    role === 'staff' && consent.status !== 'unset'
+    role === 'staff' && !consent.loading && consent.status !== 'unset'
 
   return (
     <main className="mx-auto flex w-full max-w-[1280px] flex-col gap-5 p-4 md:p-6 md:gap-6">
       <CoachingHeader role={role} />
+      {role === 'staff' && consent.loading && <p role="status">{t('loading')}</p>}
+      {role === 'staff' && consent.error && !dialogOpen && (
+        <div role="alert" className="rounded-lg border border-border p-4 text-sm">
+          <p>{t(consent.error)}</p>
+          <button type="button" className="mt-2 rounded-md border border-primary/30 px-3 py-2 text-primary"
+            onClick={() => { void consent.reload() }}>{t('retry')}</button>
+        </div>
+      )}
 
       {/* Staff opt-in banner — only shows when consent is unset.
        *  Tapping "確認する" opens the full CoachingConsentDialog
@@ -121,7 +125,6 @@ export function CoachingPageView({
           <button
             type="button"
             onClick={() => {
-              reset()
               setDialogOpen(true)
             }}
             className="rounded-md px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
@@ -162,9 +165,14 @@ export function CoachingPageView({
       </div>
 
       <CoachingConsentDialog
+        key={`${consent.identityRevision}:${consent.currentPolicyVersion}`}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        onConsent={(granted) => (granted ? grant() : decline())}
+        onConsent={(granted) => consent.decide(granted ? 'granted' : 'declined')}
+        saving={consent.saving}
+        grantUnavailable={!consent.canGrant}
+        unavailable={consent.loading || consent.error === 'loadFailed'}
+        error={consent.error ? t(consent.error) : !consent.loading && !consent.canGrant ? t('policyUnavailable') : null}
       />
     </main>
   )
