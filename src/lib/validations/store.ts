@@ -64,6 +64,9 @@ export const STORE_HOURS_ACTOR_UNRESOLVED = 'STORE_HOURS_ACTOR_UNRESOLVED'
  *  (src/lib/settings/recording-autostart.ts). */
 export const STORE_HOURS_UNKNOWN_STORE = 'STORE_HOURS_UNKNOWN_STORE'
 
+/** A stored week cannot be read by this app version; never overwrite it. */
+export const STORE_HOURS_UNREADABLE = 'STORE_HOURS_UNREADABLE'
+
 /** 00:00–23:59, zero-padded. 24:00 is deliberately OUT: `<input type="time">`
  *  cannot hold it either, so the editor and this parser refuse the same set.
  *  (The read side, minuteOfHhmm, still accepts a 24:00 written by core or the

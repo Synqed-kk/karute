@@ -16,6 +16,7 @@ import {
   STORE_OWNER_DENIAL,
   STORE_HOURS_ACTOR_UNRESOLVED,
   STORE_HOURS_UNKNOWN_STORE,
+  STORE_HOURS_UNREADABLE,
   parseStoreWeeklyHours,
 } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
@@ -629,13 +630,13 @@ export async function setStoreHoursCore(
   const actingStaffId = deps.actingStaffId
   if (!actingStaffId) return { error: STORE_HOURS_ACTOR_UNRESOLVED }
   try {
-    // The week this store had before the save, for the app audit row's own
-    // diff. Never blocks the save: an unreadable policy row costs the BEFORE
-    // half of one log line, nothing else.
-    const before = await synqed.storePolicies
-      .get(storeId)
-      .then((policy) => weekForAudit(policy.weekly_hours ?? null))
-      .catch(() => 'unavailable')
+    // A transport failure retains the existing unavailable-before posture.
+    // A returned policy that this app cannot read must block save AND reset,
+    // including requests from older shells that ignore the DTO's flag.
+    const policy = await synqed.storePolicies.get(storeId).catch(() => null)
+    const currentHours = WeeklyHoursSchema.nullable().safeParse(policy?.weekly_hours ?? null)
+    if (!currentHours.success) return { error: STORE_HOURS_UNREADABLE }
+    const before = policy ? weekForAudit(currentHours.data) : 'unavailable'
     await synqed.storePolicies.set(storeId, {
       weekly_hours: parsed.hours,
       acting_staff_id: actingStaffId,
