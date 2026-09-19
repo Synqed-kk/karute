@@ -350,6 +350,22 @@ const SEPTEMBER_PATH = '/api/app/v1/screens/appointments?date=2026-09-01&view=mo
 const SEPTEMBER_CELL = { ...MONTH_CELL, id: '2026-09-01', dateIso: '2026-08-31T15:00:00.000Z' }
 const SEPTEMBER_DTO = { ...DTO, view: 'month', monthData: [SEPTEMBER_CELL] }
 
+it('release 28 OFF: an AbortError shows the failed state and warns once', async () => {
+  mockPersistCalendarNumbers = false
+  const { apiFetch } = await mountScreen()
+  const error = new DOMException('x', 'AbortError')
+  apiFetch.mockRejectedValue(error)
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    mountPanel()
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('dateJump.failed'))
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('[date-jump] month read failed', { month: '2026-09', error })
+  } finally {
+    warn.mockRestore()
+  }
+})
+
 it('release 28 OFF: opening the same month twice makes two network reads without remembering', async () => {
   const { apiFetch } = await mountScreen(SEPTEMBER_DTO)
   const read = jest.spyOn(numbersStore, 'readMonthNumbers')

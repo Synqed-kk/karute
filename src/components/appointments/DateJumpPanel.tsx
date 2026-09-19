@@ -57,6 +57,7 @@ import { cn } from '@/lib/utils'
 import { makeSpring, type Spring, type SpringOptions } from '@/lib/motion/spring'
 import { useHorizontalSlide, usePrefersReducedMotion } from '@/lib/motion/use-horizontal-slide'
 import { appointmentsToMonthCells } from '@/lib/adapters/reservation'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { computeMonthRange, jstMidnight } from '@/lib/date/calendar-range'
 import {
   formatMonthChipJst,
@@ -428,10 +429,10 @@ export function DateJumpPanel({
         },
         (error) => {
           inFlightRef.current.delete(key)
-          // Only with persistCalendarNumbers ON can the thin loader cancel
-          // a response whose session/refresh fence died.
-          // Drop the settle entirely: neither old counts nor a failure is news.
-          if (error instanceof DOMException && error.name === 'AbortError') return
+          // With persistCalendarNumbers ON, drop a response cancelled by the
+          // thin loader's session/refresh fence. OFF reports every rejection,
+          // including AbortError, as a failure just like main.
+          if (BOOKING_SWITCHES.persistCalendarNumbers && error instanceof DOMException && error.name === 'AbortError') return
           // Degraded is allowed, silent is not (the same line the facade's
           // menus read is held to, app-api/screens/appointments/route.ts:92-98):
           // staff get a Japanese line, and whoever reads the console gets the
