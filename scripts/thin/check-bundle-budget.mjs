@@ -1754,7 +1754,25 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Total = 2,124,225 B; ceiling = measured + 1,000 = 2,125,225 B.
 // +221 B against main's own 2,124,004 B measurement (its ceiling 2,125,004), all in index + en (index +221 B, en +0 B); vendor unchanged.
 // (the intermediate tip 27aa6604e measured 2,121,229 B → 2,122,229 after #957 alone; superseded the same afternoon.)
-const BUDGET_BYTES = 2_125_225
+//
+// RE-MEASURED 2026-09-19 after merging origin/main 77786f755 into
+// feat/booking-closed-day-door (PR #937, the closed-day booking door — a
+// booking refused before it can land on a store's 定休日 or 臨時休業 date, on
+// both doors, through the ONE time validator). The entries above are
+// retained as history; this entry supersedes their ceiling. Same recipe —
+// CI's six VITE_* values from .github/workflows/ci.yml, thin/dist emptied
+// before each lap, node v24.16.0, @synqed-kk/ui 0.3.2. Two clean laps
+// byte-identical (matching paths, byte sizes for all output files):
+//   en-Dt32exhO.js       135,712 B
+//   index--vwQvtir.js  1,052,853 B
+//   vendor-BD5eMVWe.js   937,791 B
+// Total = 2,126,356 B; ceiling = measured + 1,000 = 2,127,356 B.
+// +2,131 B against main's own 2,124,225 B measurement (en +667 B, index
+// +1,464 B, vendor unchanged): the closed-day door's own cost — the
+// day-hours resolver + refusal path, NewBookingDialog's refusalKey/coded
+// toast handling, and the three new closedDayStore/closedDayDate/closedDayOrg
+// ja+en string pairs (en chunk; the thin bundle ships EN only).
+const BUDGET_BYTES = 2_127_356
 let dir
 try {
   dir = readdirSync(DIST)
