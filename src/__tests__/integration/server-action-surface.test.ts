@@ -12,15 +12,16 @@ const NEW_EXPORT_MESSAGE = "A new export in a 'use server' file is a browser-cal
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
-    if (entry.name === '__tests__') return []
+    if (entry.name === '__tests__' || entry.name === 'node_modules') return []
     const file = `${dir}/${entry.name}`
+    if (file === 'thin/dist') return []
     return entry.isDirectory() ? sourceFiles(file) : /\.tsx?$/.test(file) ? [file] : []
   })
 }
 
 // Cheap lexical prefilter only: the AST below decides whether this is really
 // a directive. Decode string escapes and skip comments, including a BOM/shebang,
-// without parsing every client component and library in src.
+// without parsing every client component and library in src or thin.
 function mayHaveServerDirective(source: string): boolean {
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, source)
   let token = scanner.scan()
@@ -117,7 +118,8 @@ function runtimeExports(ast: ts.SourceFile) {
 
 // Each candidate action module is parsed exactly once; all assertions reuse
 // its inventory. No program/type checker or parse of the rest of the tree.
-const actionFiles = sourceFiles('src').sort().flatMap((file) => {
+const sources = ['src', 'thin'].flatMap(sourceFiles).sort()
+const actionFiles = sources.flatMap((file) => {
   const source = readFileSync(join(ROOT, file), 'utf8')
   if (!mayHaveServerDirective(source)) return []
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
@@ -185,7 +187,7 @@ describe('server action surface (PKT-SEC-CORES-A)', () => {
   it('r6: no function-level use server directives outside inventoried action files', () => {
     const inventoried = new Set(actionFiles.map(({ file }) => file))
     const offenders: string[] = []
-    for (const file of sourceFiles('src').sort()) {
+    for (const file of sources) {
       if (inventoried.has(file)) continue
       const source = readFileSync(join(ROOT, file), 'utf8')
       // Literal text or an escape is necessary; the AST decides whether it is
