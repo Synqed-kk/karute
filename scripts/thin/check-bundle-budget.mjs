@@ -1946,22 +1946,21 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Total = 2,143,142 B; ceiling = measured + 1,000 = 2,144,142 B.
 // No dependency files changed. Proof: BUNDLE-IDENTITY-1b.txt and BUNDLE-GATE-1b.txt.
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
-// RE-MEASURED 2026-09-19 — STORE AT CREATION S7 — 2/4
-// feat/sac-2-invite-create, product/test tip `26205158bee866d0616a8f1431fa21f02fa8f332`.
+// RE-MEASURED 2026-09-19 — STORE AT CREATION S7 — 2/4 (main #938 restack)
+// feat/sac-2-invite-create, product/test tip `d6ec28309553091ab4c122588ec059d6fea5fa5c`.
 // 招待 creation: mint-first staff information, store picker, pending refusal and invite message keys.
-// Re-stacked onto pinned parent 766b242a4207e9795eb124fd94289da08fff1c5b;
-// the previous entries remain as history, including both stale live markers.
+// Re-stacked onto pinned parent feat/sac-1b-add-staff-door;
+// prior measurements and the two historical stale markers remain as history.
 // Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
 // all six VITE_* placeholders read directly from .github/workflows/ci.yml.
 // thin/dist emptied before EACH of two builds; node v24.16.0.
 // All 23 output files byte-identical (relative paths, byte sizes, SHA-256s):
-//   en-Deask-p-.js                137,237 B
-//   index-BAkaXD36.js           1,057,609 B
-//   vendor-BD5eMVWe.js            937,791 B
-// Total = 2,132,637 B; ceiling = measured + 1,000 = 2,133,637 B.
-// Against the previous measured total (2,129,163 B): +3,474 B.
-// Vendor remains 937,791 B; no dependency moved.
-const BUDGET_BYTES = 2_133_637
+//   en-Y23xfm6U.js  138,722 B
+//   index-D0-Yb888.js  1,070,088 B
+//   vendor-CA75MqrT.js  937,800 B
+// Total = 2,146,610 B; ceiling = measured + 1,000 = 2,147,610 B.
+// No dependency files changed. Proof: BUNDLE-IDENTITY-2.txt and BUNDLE-GATE-2.txt.
+const BUDGET_BYTES = 2_147_610
 let dir
 try {
   dir = readdirSync(DIST)
