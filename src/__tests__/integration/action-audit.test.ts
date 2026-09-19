@@ -59,7 +59,12 @@ const invitesUpdateStatus = jest.fn(async () => ({}))
 // revokeInvite reads the list to learn whether the target is a RE-invite (the
 // store clamp's input) — core has no invites.get. Empty = a fresh invite, so
 // this suite's revoke stays unclamped and pins the audit row only.
-const invitesList = jest.fn(async () => ({ invites: [] as { id: string }[] }))
+// ⚖ I4 — a revoke whose invite the list does not carry is a "could not check
+// the card" case and writes its own notice row. inv-9 is the row the revoke
+// test below cancels: an email-only invite, no card behind it, one row.
+const invitesList = jest.fn(async () => ({
+  invites: [{ id: 'inv-9', status: 'pending', email: 'b@test.com', invited_staff_id: null }],
+}))
 const staffStoresSet = jest.fn(async () => ({}))
 const storesCreate = jest.fn(async () => ({ id: 'store-new' }))
 const storesUpdate = jest.fn(async () => ({}))
