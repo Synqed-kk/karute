@@ -1388,7 +1388,7 @@ function Screen(props: ReservationsProps) {
           )}
           <label className="rv-confirmbox">
             <input type="checkbox" checked={acceptOk} onChange={(e) => setAcceptOk(e.target.checked)} />
-            <span>予約枠・担当資格・ベッド・受付価格・通知先を確認しました</span>
+            <span>予約枠・担当資格・設備・受付価格・通知先を確認しました</span>
           </label>
         </div>
         <div className="rv-dlg-foot">
