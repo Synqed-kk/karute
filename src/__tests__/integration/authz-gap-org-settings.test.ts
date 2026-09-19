@@ -1,6 +1,6 @@
 // upsertOrgSettings capability gate (packet 03, gap 1). The action had NO gate —
 // any signed-in staff could rewrite org settings. It now requires settings.manage.
-// The ungated writeOrgSettingsBlob remains available to the voice service, which
+// The ungated writeOrgSettingsBlobWithClient remains available to the voice service, which
 // enforces OWNERSHIP instead (so staff self-enrollment isn't blocked).
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))

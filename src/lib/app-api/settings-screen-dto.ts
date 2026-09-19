@@ -141,8 +141,8 @@ export const OrgSettingsSchema = z.object({
  *  hardening for this NEW facade endpoint; web's own looseness is untouched.
  *
  *  `voice_enrollments` is dropped too (auditor finding): it is STAFF-OWNED
- *  data with its own ownership gate — writeOrgSettingsBlob's doc comment says
- *  the write/gate split exists precisely so voice fields do NOT ride the
+ *  data with its own ownership gate — writeOrgSettingsBlobWithClient's doc comment says
+ *  the voice service calls that core with its ownership gate instead of the
  *  settings.manage gate. No S1 section ever sends it (voice enrollment lives
  *  in the staff tab's voice service, S4); accepting it here would hand every
  *  settings.manage holder a write path over other staff's enrollment records
