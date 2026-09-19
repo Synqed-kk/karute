@@ -36,7 +36,6 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
 import {
   setKaruteOutcomeWithClient,
-  getKaruteOutcomeWithClient,
   REVISIT_NOT_ELIGIBLE,
 } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -137,14 +136,19 @@ async function findExistingKarute(
  *  A rejected 'revisit' is DETERMINISTIC: retrying can never make it
  *  eligible. Enqueue already 400s this case, so reaching here means the two
  *  checks disagreed — keep the record, drop the label. Real write failures
- *  still throw. */
+ *  still throw.
+ *  Returns whether a label was actually written (FIX ROUND 3, packet B,
+ *  2026-09-19): the skip path's caller uses this to decide whether a
+ *  karute.outcome_set row is owed (never on a dropped REVISIT_NOT_ELIGIBLE
+ *  label); the normal completion path ignores the value — that write is
+ *  already covered by the record's own karute.save. */
 async function writeSessionOutcome(
   synqed: SynqedClient,
   karuteRecordId: string,
   staffId: string,
   customerId: string,
   outcome: SessionOutcome,
-): Promise<void> {
+): Promise<boolean> {
   const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
     karuteRecordId,
     customerId,
@@ -159,9 +163,24 @@ async function writeSessionOutcome(
     console.warn('[job] revisit rejected server-side; record kept, label dropped', {
       karuteRecordId,
     })
+    return false
   } else if (outcomeResult.error) {
     throw new Error(`outcome write failed: ${outcomeResult.error}`)
   }
+  return true
+}
+
+/** Roster-translate a synqed staff id → the auth uid `audit()`'s actorId
+ *  expects, ONE home (FIX ROUND 3, packet B, 2026-09-19) shared by both
+ *  audit() emits in processJob (karute.save on the normal completion path,
+ *  karute.outcome_set on the skip path below) instead of two copies. An
+ *  unwired recorder degrades to null (viewer renders 不明) — never the
+ *  wrong id-space. */
+async function resolveActorUserId(synqed: SynqedClient, staffId: string): Promise<string | null> {
+  return synqed.staff
+    .get(staffId)
+    .then((s) => (s as { user_id?: string | null }).user_id ?? null)
+    .catch(() => null)
 }
 
 /** Process one claimed job end-to-end. Throws on failure — the caller reports
@@ -230,25 +249,61 @@ async function processJob(job: RecordingJob): Promise<string> {
     // whose FIRST attempt saved the karute but failed the outcome write lands
     // here and must still write its label. A session saved by ANOTHER door
     // already carries the staffer's own choice, which this job must never
-    // overwrite — hence the "none recorded yet" read. CEILING: the reader is
-    // null-on-failure, so a failed read + an existing label = the stop-time
-    // choice re-written (a double fault, accepted).
+    // overwrite — hence the "none recorded yet" read. FIX ROUND 3 (packet B,
+    // 2026-09-19): read STRICTLY, direct on the SDK (synqed.karuteOutcomes.get,
+    // null on a 404, throws on anything else) — the shared best-effort reader
+    // (getKaruteOutcomeWithClient) returns null BOTH for "no row" and for a
+    // read that threw, so a transient failure could otherwise read as "none
+    // recorded" and let this stale queued label overwrite a newer one a
+    // staffer just entered. A throw here fails the job; core requeues and the
+    // next attempt asks again — we never write a label blind.
     // 保留 (pending) is a placeholder, not a decided choice — a later job
     // carrying a real label must still land over it (Business auto-flips a
     // stale 保留 to 不成約 after 14 days; losing the real label here would be
     // silent and permanent).
-    const recordedOutcome = payload.outcome ? await getKaruteOutcomeWithClient(synqed, existing.id) : null
+    const recordedOutcome = payload.outcome ? await synqed.karuteOutcomes.get(existing.id) : null
     if (payload.outcome && (!recordedOutcome || recordedOutcome.outcome === 'pending')) {
+      // Discard check #2 (skip path) — the LAST read before the write,
+      // mirroring the normal path's check #2 below: a discard that landed
+      // after check #1 and before this late label write still wins.
+      await assertNotDiscardedByStaff(synqed, job.recording_session_id)
       // The record's OWN customer, not the payload's: a record re-pointed to
       // another customer (保存先を変更) must file the label under the person
       // it now belongs to, never a queued job's stale customer_id.
-      await writeSessionOutcome(
+      const filedCustomerId = existing.customer_id ?? payload.customer_id
+      const wrote = await writeSessionOutcome(
         synqed,
         existing.id,
         payload.staff_id,
-        existing.customer_id ?? payload.customer_id,
+        filedCustomerId,
         payload.outcome,
       )
+      // FIX ROUND 3 (packet B, 2026-09-19): a label written by a LATER run
+      // gets no karute.save of its own (nothing was saved by this run) — this
+      // is that write's own receipt, the job-pipeline twin of the web door's
+      // after-the-fact karute.outcome_set (actions/karute-outcome.ts). Not
+      // emitted when writeSessionOutcome dropped the label
+      // (REVISIT_NOT_ELIGIBLE) — nothing was written.
+      if (wrote) {
+        audit({
+          category: 'karute',
+          action: 'karute.outcome_set',
+          actorId: await resolveActorUserId(synqed, payload.staff_id),
+          actorType: 'staff',
+          businessId: job.business_id,
+          targetType: 'karute',
+          targetId: existing.id,
+          storeId: existing.store_id ?? undefined,
+          detail: {
+            via: 'job_pipeline',
+            recording_session_id: job.recording_session_id,
+            customer_id: filedCustomerId,
+            staff_id: payload.staff_id,
+          },
+          requestId: job.id,
+          source: 'system',
+        })
+      }
     }
     // No karute.save audit: nothing was saved by this run, and that emit is
     // not idempotent. This line is the receipt instead — ids only, never
@@ -417,10 +472,7 @@ async function processJob(job: RecordingJob): Promise<string> {
   // down before that throw can happen. Cannot double-log: once the record
   // exists, a requeue of this same job never reaches this line again (the
   // pre-spend check returns from the skip path first).
-  const actorUserId = await synqed.staff
-    .get(payload.staff_id)
-    .then((s) => (s as { user_id?: string | null }).user_id ?? null)
-    .catch(() => null)
+  const actorUserId = await resolveActorUserId(synqed, payload.staff_id)
   audit({
     category: 'karute',
     action: 'karute.save',
