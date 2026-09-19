@@ -140,13 +140,18 @@ describe('POST /api/app/v1/org-settings/recording-autostart', () => {
   })
 
   it('a degraded assignment lookup returns store_forbidden with NO write or refusal row', async () => {
-    fakeClient.staffStores.get.mockRejectedValueOnce(new Error('assignment unavailable'))
-    const res = await POST(req({ storeId: 'store-1', enabled: true }), route)
-    expect(res.status).toBe(403)
-    expect((await res.json()).error.code).toBe('store_forbidden')
-    expect(fakeClient.staffStores.get).toHaveBeenCalledWith('auth-user-1')
-    expect(setRecordingAutostartWithClient).not.toHaveBeenCalled()
-    expect(auditRowSpy).not.toHaveBeenCalled()
+    // Persistent for the whole request: the front probe reads the assignment first, so a one-shot rejection would be consumed there; a real outage lasts the request.
+    fakeClient.staffStores.get.mockRejectedValue(new Error('assignment unavailable'))
+    try {
+      const res = await POST(req({ storeId: 'store-1', enabled: true }), route)
+      expect(res.status).toBe(403)
+      expect((await res.json()).error.code).toBe('store_forbidden')
+      expect(fakeClient.staffStores.get).toHaveBeenCalledWith('auth-user-1')
+      expect(setRecordingAutostartWithClient).not.toHaveBeenCalled()
+      expect(auditRowSpy).not.toHaveBeenCalled()
+    } finally {
+      fakeClient.staffStores.get.mockImplementation(async () => ({ store_ids: assignedStores.current }))
+    }
   })
 
   it('a PLACED floating caller (empty assignment) is unchanged', async () => {

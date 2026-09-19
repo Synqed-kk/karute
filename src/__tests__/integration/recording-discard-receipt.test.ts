@@ -590,18 +590,23 @@ describe('a discard outside the caller’s store is refused', () => {
   })
 
   it.each(['receipt-only', 'with-reason'] as const)('facade degraded %s assignment lookup returns store_forbidden with NO row', async (door) => {
-    fakeClient.staffStores.get.mockRejectedValueOnce(new Error('assignment unavailable'))
-    const res = await post(door === 'with-reason' ? WITH_REASON : SYSTEM_VALID)
-    expect(res.status).toBe(403)
-    expect((await res.json()).error.code).toBe('store_forbidden')
-    expect(fakeClient.staffStores.get).toHaveBeenCalledWith('auth-user-1')
-    expect(recordingsGet).not.toHaveBeenCalled()
-    expect(discardCreate).not.toHaveBeenCalled()
-    expect(discardList).not.toHaveBeenCalled()
-    expect(auditList).not.toHaveBeenCalled()
-    expect(auditLog).not.toHaveBeenCalled()
-    expect(recordingUpdate).not.toHaveBeenCalled()
-    expect(coreRows).toEqual([])
+    // Persistent for the whole request: the front probe reads the assignment first, so a one-shot rejection would be consumed there; a real outage lasts the request.
+    fakeClient.staffStores.get.mockRejectedValue(new Error('assignment unavailable'))
+    try {
+      const res = await post(door === 'with-reason' ? WITH_REASON : SYSTEM_VALID)
+      expect(res.status).toBe(403)
+      expect((await res.json()).error.code).toBe('store_forbidden')
+      expect(fakeClient.staffStores.get).toHaveBeenCalledWith('auth-user-1')
+      expect(recordingsGet).not.toHaveBeenCalled()
+      expect(discardCreate).not.toHaveBeenCalled()
+      expect(discardList).not.toHaveBeenCalled()
+      expect(auditList).not.toHaveBeenCalled()
+      expect(auditLog).not.toHaveBeenCalled()
+      expect(recordingUpdate).not.toHaveBeenCalled()
+      expect(coreRows).toEqual([])
+    } finally {
+      fakeClient.staffStores.get.mockImplementation(async () => ({ store_ids: assignedStores.current }))
+    }
   })
 })
 
