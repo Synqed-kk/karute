@@ -11,6 +11,7 @@ import {
   isSeedPendingVerification,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
+import { clearCalendarNumbers } from '../data/calendar-numbers-store'
 import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
 
 type State<T> =
@@ -47,7 +48,7 @@ export const dtoCache = new Map<string, unknown>()
 // with dtoCache so the two maps never diverge. 30s = the fresh end of Liam's
 // ruled 30–60s band; a hop-away-and-back inside 30s costs zero network.
 // Exported for the packet's hygiene tests, same rationale as dtoCache's export.
-const STALE_MS = 30_000
+export const STALE_MS = 30_000
 export const fetchedAtByPath = new Map<string, number>()
 
 export function cacheDto(path: string, dto: unknown): void {
@@ -62,7 +63,7 @@ export function cacheDto(path: string, dto: unknown): void {
   fetchedAtByPath.set(path, Date.now())
 }
 
-// Straggler fence for in-flight mount-fetch writes — bumped ONLY on
+// Straggler fence for all in-flight screen-cache writes — bumped ONLY on
 // sign-out (mirrors brief-cache.ts's sessionEpoch idiom exactly; that
 // module hit this same trap first, Liam field bug 7/25 — see its comment
 // for the full story). Deliberately NOT session-store's currentGeneration():
@@ -78,13 +79,6 @@ export function cacheDto(path: string, dto: unknown): void {
 // and only a SIGN-OUT sits between any two users on a shared device.
 let sessionEpoch = 0
 
-/** Current sign-out epoch, for screen-prefetch.ts's timer bodies to capture
- *  at their own fetch start — they write into this same dtoCache and need
- *  the identical straggler fence. */
-export function dtoSessionEpoch(): number {
-  return sessionEpoch
-}
-
 // SHARED-IPAD LEAK GUARD: a signed-out transition wipes every cached DTO so
 // the next user (any user switch passes through 'signed-out' first) never
 // paints the outgoing user's data on first frame. Subscribed ONCE at module
@@ -97,6 +91,10 @@ subscribeSessionState(() => {
     sessionEpoch++ // invalidate every in-flight mount fetch's settle (fence above)
     dtoCache.clear()
     fetchedAtByPath.clear()
+    // …and the durable half of the same guard: the calendar numbers written to
+    // the device go with the in-memory cache, at the same moment, for the same
+    // reason (thin/data/calendar-numbers-store.ts).
+    clearCalendarNumbers()
   }
 })
 
@@ -109,16 +107,23 @@ subscribeSessionState(() => {
 // can settle BEFORE that deferred cleanup — `alive` reads true and the
 // straggler re-populates the cache emitRefresh just cleared with
 // pre-mutation data. `sessionEpoch` above doesn't help either: a refresh is
-// not a sign-out. This is the exact class screen-prefetch.ts's wipeEpoch
-// fence already closes for its own timers (bumped by its OWN subscribeRefresh
-// listener, checked at settle) — mirrored here, but bumped by a MODULE-SCOPE
-// listener (not the per-hook one below, which keeps doing the hard clear +
+// not a sign-out. All non-mount writers now share this epoch through
+// captureCacheFence(), rather than keeping their own refresh counters.
+// Bumped by a MODULE-SCOPE listener (not the per-hook one below, which keeps doing the hard clear +
 // attempt bump unchanged) so it closes the window for every mounted hook
 // instance regardless of which one's cleanup is still pending.
 let refreshEpoch = 0
 subscribeRefresh(() => {
   refreshEpoch++
 })
+
+/** Capture at request time for every DTO writer. Same-user session echoes
+ *  preserve the fence; sign-out and refresh invalidate it synchronously. */
+export function captureCacheFence(): () => boolean {
+  const session = sessionEpoch
+  const refresh = refreshEpoch
+  return () => sessionEpoch === session && refreshEpoch === refresh
+}
 
 /** Fetch a facade screen DTO on mount; parse enforces the zod contract on the
  *  client too (same schema module the server validates with). `fetching` is
@@ -130,6 +135,37 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
       ? { status: 'ready', dto: dtoCache.get(path) as T, path }
       : { status: 'loading' },
   )
+
+  // ⚖ THE CACHE HAS TO ANSWER A PATH CHANGE, NOT ONLY A MOUNT (Liam 9/16:
+  // 「when I switch tabs from day, week, and month, it's not just laggy and slow
+  // but it kind of flickers as well and glitches for a second」).
+  //
+  // The initializer above read `dtoCache` exactly once, at mount. ThinRouter
+  // unmounts a screen per TAB switch, so that covered a hop to 顧客 and back —
+  // but 日→週→月, the ‹ › arrows and the pop-down all change the PATH inside one
+  // mounted screen, and none of them ever looked at the cache again. Measured
+  // on the phone bundle at CPU ×4 against staging, before this fix: every
+  // 日/週/月 tap dimmed the page to 50 % for 551–1023 ms and moved the selected
+  // pill only when the round trip landed — on the THIRD identical pass, with
+  // that exact view+date already sitting in the cache. Zero blank frames, zero
+  // layout shift, zero long tasks: the "flicker" was the whole page going half
+  // strength and then snapping back, never a rendering cost.
+  //
+  // So a path change consults the cache the same way a mount does, and the
+  // mount effect below still revalidates in the background — the cache buys an
+  // instant paint, never a skipped network call. A MISS changes nothing: the
+  // outgoing screen stays painted (and dimmed) until the answer arrives, which
+  // is exactly today's behaviour.
+  //
+  // Adjusted DURING render, the way React asks for derived state that follows
+  // a prop — an effect would paint one frame of the old view first, which is
+  // the frame this is here to remove.
+  const [seenPath, setSeenPath] = useState(path)
+  if (path !== seenPath) {
+    setSeenPath(path)
+    if (dtoCache.has(path)) setState({ status: 'ready', dto: dtoCache.get(path) as T, path })
+  }
+
   const [attempt, setAttempt] = useState(0)
   const [fetching, setFetching] = useState(true)
   // Ref twin of `fetching` for the revalidate subscriber below (Greptile
@@ -209,10 +245,7 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
     // stamped, so every revisit and every foreground revalidate refetched),
     // never a correctness one (the `alive` guard below already keeps
     // setState honest regardless).
-    const epoch = sessionEpoch
-    // Refresh-wipe fence (see refreshEpoch's declaration comment above):
-    // captured the same way, alongside the sign-out epoch.
-    const myRefreshEpoch = refreshEpoch
+    const holdsCacheFence = captureCacheFence()
     getDataPort()
       .apiFetch(path)
       .then(async (res) => {
@@ -225,6 +258,17 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         return parse(body)
       })
       .then((dto) => {
+        // AN UNCHANGED ANSWER IS NOT NEWS. The background revalidate lands on
+        // every visit; when it brings back exactly what is already on screen, a
+        // fresh state object re-renders the whole screen for nothing — every
+        // memo below it recomputes on a new array identity and the view repaints
+        // (a second paint the staff member sees as a twitch). Compared against
+        // the CACHE rather than a second bookkeeping map on purpose: the cache
+        // is already cleared/evicted/deleted at every point where a stale
+        // comparison would be wrong (sign-out, refresh, retry, cap eviction), so
+        // this can never suppress a real update.
+        const unchanged =
+          dtoCache.has(path) && JSON.stringify(dtoCache.get(path)) === JSON.stringify(dto)
         // THREE gates, three different windows — `alive` is NOT enough on
         // its own (Fable audit find): it only closes the race EVENTUALLY,
         // once React flushes the old effect's cleanup. That flush is a
@@ -245,10 +289,16 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         //   fetch in flight when emitRefresh() clears dtoCache must not
         //   repopulate it with pre-mutation data, and `alive` alone races
         //   that clear too (same deferred-cleanup-vs-microtask gap). Mirrors
-        //   screen-prefetch.ts's wipeEpoch fence for its own timers exactly.
-        if (alive && sessionEpoch === epoch && refreshEpoch === myRefreshEpoch)
+        //   the same captureCacheFence() used by prefetch timers.
+        if (alive && holdsCacheFence())
           cacheDto(path, dto)
-        if (alive) setState({ status: 'ready', dto, path })
+        if (alive) {
+          setState((prev) =>
+            unchanged && prev.status === 'ready' && prev.path === path
+              ? prev
+              : { status: 'ready', dto, path },
+          )
+        }
       })
       .catch((err: unknown) => {
         if (!alive) return

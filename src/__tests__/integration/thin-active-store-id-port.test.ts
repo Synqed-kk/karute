@@ -13,7 +13,8 @@ import { setDataPort } from '@/lib/ports/data-port'
 
 jest.mock('@/lib/karute/take-store', () => ({}))
 
-import { getActiveStoreId } from '../../../thin/ports/actions.vite'
+import { getActiveStoreId, setActiveStore } from '../../../thin/ports/actions.vite'
+import { clearCalendarNumbers } from '../../../thin/data/calendar-numbers-store'
 import { setThinActiveStore } from '../../../thin/chrome/store-pref'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
 import type { Session } from '@supabase/supabase-js'
@@ -45,5 +46,26 @@ describe('thin actions port — getActiveStoreId', () => {
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     await expect(getActiveStoreId()).resolves.toBeNull()
+  })
+})
+
+
+describe('thin actions port — setActiveStore', () => {
+  it('clears persisted calendar numbers before reload', async () => {
+    const originalLocation = window.location
+    const reload = jest.fn(() => {
+      expect(window.localStorage.getItem('karute-calendar-numbers')).toBeNull()
+      expect(window.localStorage.getItem('karute-active-store')).toContain('store-B')
+    })
+    // jsdom exposes location as configurable; production still uses the real reload.
+    Object.defineProperty(window, 'location', { configurable: true, value: { reload } })
+    try {
+      window.localStorage.setItem('karute-calendar-numbers', 'persisted numbers')
+      await expect(setActiveStore('store-B')).resolves.toEqual({ ok: true })
+      expect(reload).toHaveBeenCalledTimes(1)
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+      clearCalendarNumbers()
+    }
   })
 })

@@ -107,8 +107,8 @@ describe('DayNumbersLine — order per typeSlot', () => {
     const { container } = render(
       <DayNumbersLine row={row()} soloMode={false} typeSlot="new" locale="ja" />,
     )
-    // 11件 carries its own unit and shows no word; the rest are value-then-word.
-    expect(itemTexts(container)).toEqual(['11件', '5新規', '56%稼働', '3時間30分空き'])
+    // ⚖ 2026-09-16 — the count says its word too: every cell is value-then-word.
+    expect(itemTexts(container)).toEqual(['11件予約', '5新規', '56%稼働', '3時間30分空き'])
   })
 
   it("'off' → 予約, 稼働, キャンセル (free OFF), next unused metric — never 予約時間 beside 稼働%", () => {
@@ -117,7 +117,7 @@ describe('DayNumbersLine — order per typeSlot', () => {
       <DayNumbersLine row={row({ bookedMinutes: 100 })} soloMode={false} typeSlot="off" locale="ja" />,
     )
     // R2-1: 稼働 21% and 予約時間 1時間40分 are the same minutes in two units.
-    expect(itemTexts(container)).toEqual(['11件', '21%稼働', '0キャンセル', '0無断'])
+    expect(itemTexts(container)).toEqual(['11件予約', '21%稼働', '0キャンセル', '0無断'])
   })
 })
 

@@ -45,19 +45,17 @@ export interface MetricMenuCtx {
 // Individual metric cells (no branching — one metric, one rendering).
 // ---------------------------------------------------------------------------
 
-/** R3-5 — the 予約 count carries its unit INSIDE the value, because the day
- *  line prints no label for it (mock: 「11件」, no word). JA's 「{n}件」 says
- *  what it counts on its own; EN's grid template 「{n}」 does not, and on the
- *  line it rendered as a naked "11". So the two surfaces read different value
- *  keys: the GRID cell keeps `countValue` next to its own 予約 / Bookings
- *  label, the LINE takes `countLine`, which carries the unit in every locale
- *  (JA byte-identical to countValue, EN 「{n} bookings」). */
-function countCell(
-  row: WeekDayRowData,
-  ctx: MetricMenuCtx,
-  valueKey: 'countValue' | 'countLine',
-): Cell {
-  return { key: 'count', label: ctx.t('count'), value: ctx.t(valueKey, { n: row.count }), tone: 'ink' }
+/** ⚖ 「11件 予約」 (Liam 2026-09-16) — the count says its word like every other
+ *  cell on the line.
+ *
+ *  It used to be the one cell without one: the mock printed a bare 「11件」, so
+ *  the day line suppressed the label and took a unit-carrying value key
+ *  (`countLine`) to stop EN rendering a naked "11". Liam read the finished line
+ *  and asked for the word back, which makes both surfaces the same shape —
+ *  value then word — and leaves `countValue` (JA 「{n}件」, EN 「{n}」) as the one
+ *  value both of them print. */
+function countCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
+  return { key: 'count', label: ctx.t('count'), value: ctx.t('countValue', { n: row.count }), tone: 'ink' }
 }
 
 function bookedTimeCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
@@ -289,7 +287,7 @@ export function weekRowCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
     return cell
   }
 
-  const count = take(countCell(row, ctx, 'countValue'))
+  const count = take(countCell(row, ctx))
   const utilization = take(utilizationSlot(row, ctx, used))
   const freeOrBooked = take(freeOrBookedTimeSlot(row, ctx, used))
   const fourth = newSlotOpen(row, ctx) ? take(newCell(row, ctx)) : take(pickNext(row, ctx, used))
@@ -306,7 +304,7 @@ export function dayLineCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
     return cell
   }
 
-  const count = take(countCell(row, ctx, 'countLine'))
+  const count = take(countCell(row, ctx))
   if (newSlotOpen(row, ctx)) {
     const newC = take(newCell(row, ctx))
     const utilization = take(utilizationSlot(row, ctx, used))

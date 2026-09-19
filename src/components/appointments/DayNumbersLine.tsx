@@ -36,8 +36,11 @@ interface DayNumbersLineProps {
 // :316) — 600, never 700, on a value at this size.
 const VALUE = 'font-semibold tabular-nums'
 
-// 予約 (count) carries its own unit in the value ("11件") and shows no word;
-// every other cell is value-then-word ("5新規", "41%稼働", "4時間30分予約時間").
+// ⚖ 「11件 予約」 (Liam 2026-09-16). EVERY cell on this line is value-then-word
+// now, the count included — it was the one that printed its number alone,
+// which read as a different kind of thing from its three neighbours. One
+// element, one gap (4px inside a pair, 14px between pairs), one pair of type
+// rules, so the four cells cannot drift apart.
 // mock `.dayline .it{display:inline-flex;align-items:baseline;gap:4px;
 // color:var(--sub);font-weight:600}` — the wrapper is the WORD's styling.
 function LineItem({ cell }: { cell: Cell }) {
@@ -58,7 +61,7 @@ function LineItem({ cell }: { cell: Cell }) {
         <NewSpark className={cn('shrink-0 self-center', VALUE_TONE_CLASS[cell.tone])} />
       )}
       <b className={cn(VALUE, VALUE_TONE_CLASS[cell.tone])}>{cell.value}</b>
-      {cell.key !== 'count' && cell.label}
+      {cell.label}
     </span>
   )
 }

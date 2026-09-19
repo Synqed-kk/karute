@@ -1945,6 +1945,14 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   vendor-CA75MqrT.js  937,800 B
 // Total = 2,143,142 B; ceiling = measured + 1,000 = 2,144,142 B.
 // No dependency files changed. Proof: BUNDLE-IDENTITY-1b.txt and BUNDLE-GATE-1b.txt.
+// (history — the speed + swipe round's own 2026-09-16 measurement on its old base; the live constant is set by the dated entries below.)
+// Re-based 2026-09-16 (PKT-SPEED-SWIPE): measured 2,140,676 B on the CI-way
+// build of this tip, + 1,000 B of headroom. The round added 11,283 B raw over
+// its base (2,129,393 B): the shared slide gesture, the 予約 page's own track
+// and its neighbour panes, the neighbour prefetch and the calendar-numbers
+// store. Gzip went DOWN, 594,248 → 584,058 B — the new code compresses better
+// than the duplicated gesture it replaced.
+//
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-19 — STORE AT CREATION S7 — 2/4 (main #938 restack)
 // feat/sac-2-invite-create, product/test tip `d6ec28309553091ab4c122588ec059d6fea5fa5c`.
@@ -1960,7 +1968,80 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   vendor-CA75MqrT.js  937,800 B
 // Total = 2,146,610 B; ceiling = measured + 1,000 = 2,147,610 B.
 // No dependency files changed. Proof: BUNDLE-IDENTITY-2.txt and BUNDLE-GATE-2.txt.
-const BUDGET_BYTES = 2_147_610
+//
+// (superseded by the re-measure below — kept as history)
+// RE-MEASURED 2026-09-20 — PKT-SPEED MAIN-IN + THE SIZE LEDGER (S13)
+// feat/booking-speed-swipe-main, merged tip
+// a1824b42ac680c256e8887df66a02f42aee17116;
+// origin/main 5f95dac54f442d5178c021796809738cf1670342.
+// What grew: the shared slide gesture, the appointments page's track +
+// neighbour panes, the neighbour prefetch and the calendar-numbers store,
+// composed with main. The old-base speed measurement above remains history.
+//
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* values read programmatically from .github/workflows/ci.yml,
+// offline, node v24.16.0. thin/dist emptied before EACH of two laps.
+// All 23 output files byte-identical (relative paths, sizes, SHA-256s and
+// direct byte comparison):
+//   en-Cpj6YL2u.js             138,037 B
+//   index-Bp05hTs3.js        1,078,665 B
+//   vendor-CA75MqrT.js         937,800 B
+// Total = 2,154,502 B; ceiling = measured + 1,000 = 2,155,502 B.
+// Comparison to main's newest RECORDED figure (STORE AT CREATION S7 — 1b/4,
+// 2,143,142 B), not a fresh main build: +11,360 B total.
+// en and vendor match that recorded figure; index accounts for +11,360 B.
+// Initial gate failed by 10,360 B against 2,144,142 B; purchase exclusion
+// stayed clean (0/13). No dependency files changed in this round.
+// Proof: artifacts-speed/s13/thin-lap-{1,2}.json, bundle-identity.txt,
+// thin-measured.json and bundle-gate-{before,after}.log.
+//
+// RE-MEASURED 2026-09-20 — PR #975 fix round 1 (S13), product/test tip
+// d04e1bf3. Persisted calendar numbers now carry the user/store lens, validate
+// every stored cell and copy only the nine fields consumed by the grid.
+// Store switching clears these numbers before reload. No dependency changes.
+//
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* values read programmatically from .github/workflows/ci.yml,
+// offline, node v24.16.0, vite 6.4.3, @synqed-kk/ui 0.3.2.
+// thin/dist emptied before EACH lap. All 23 output files byte-identical
+// (relative paths, sizes, SHA-256s and direct byte comparison):
+//   en-Cpj6YL2u.js             138,037 B
+//   index-DBD40D8M.js        1,079,676 B
+//   vendor-DqXjNZNP.js         937,800 B
+// Total = 2,155,513 B; ceiling = measured + 1,000 = 2,156,513 B.
+// Against the preceding RECORDED S13 measurement (not a fresh baseline
+// build): +1,011 B total, all in index; en and vendor byte sizes unchanged.
+// Initial gate failed by 11 B against 2,155,502 B; purchase exclusion 0/13.
+// Proof: artifacts-speed/s13-r1/thin-lap-{1,2}.json, bundle-identity.txt,
+// thin-measured.json, thin-build-{1,2}.log, bundle-gate-{before,after}.log.
+//
+// RE-MEASURED 2026-09-20 — S13 main-in #2
+// feat/booking-speed-swipe-main, merged tip
+// ef78e5e678452283a5753e7dc56636d12ad840b7;
+// origin/main 5dbd0111d9efbd635787a9478c75dd2a1e7b42fc (through PR #974).
+// What ships: the speed + swipe round's shared slide gesture, appointments
+// track + neighbour panes and neighbour prefetch, including the shared cache
+// fence, with calendar-number persistence OFF, composed with main through
+// #974's invite/staff placement door. Both parents' dated entries remain
+// history; this merged-tip measurement supersedes their ceilings.
+//
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* values read programmatically from .github/workflows/ci.yml,
+// offline, node v24.16.0, vite 6.4.3, @synqed-kk/ui 0.3.2.
+// thin/dist emptied before EACH of two laps. All 23 output files
+// byte-identical (relative paths, sizes, SHA-256s and direct byte comparison):
+//   en-Y23xfm6U.js              138,722 B
+//   index-2Waqcdns.js         1,081,161 B
+//   vendor-DqXjNZNP.js          937,800 B
+// Total = 2,157,683 B; ceiling = measured + 1,000 = 2,158,683 B.
+// Comparison to main's newest RECORDED total (#974, STORE AT CREATION S7 —
+// 2/4: 2,146,610 B), not a fresh main build: +11,073 B total.
+// en and vendor match that recorded byte size; index accounts for +11,073 B.
+// Initial gate failed by 1,170 B against the merge ceiling 2,156,513 B;
+// purchase exclusion stayed clean (0/13). No dependency files changed.
+// Proof: artifacts-speed/s13-mi2/thin-lap-{1,2}.json, bundle-identity.txt,
+// thin-measured.json, thin-build-{1,2}.log, bundle-gate-{before,after}.log.
+const BUDGET_BYTES = 2_158_683
 let dir
 try {
   dir = readdirSync(DIST)
