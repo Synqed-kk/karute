@@ -53,6 +53,7 @@ jest.mock('@/lib/customers/cached', () => ({ getCachedCustomerList: jest.fn(asyn
 import { revalidatePath as revalidatePathImport, revalidateTag as revalidateTagImport, updateTag as updateTagImport } from 'next/cache'
 import { requireCapability as requireCapabilityImport } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { auditWeb as auditWebImport } from '@/lib/audit-web'
 import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
 import { getSynqedClient as getSynqedClientImport } from '@/lib/synqed/client'
@@ -190,6 +191,19 @@ describe('pin 2 — store clamp (web)', () => {
         code: 'not_found',
       },
     }))
+  })
+
+  it('a clamped WEB caller + degraded scope refuses reassign with NO refusal row and no write', async () => {
+    resolveStoreScope.mockResolvedValueOnce({
+      viewAll: false, allowedStoreIds: ['store-A'], degraded: true,
+    })
+
+    const result = await reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })
+
+    expect(result).toEqual({ error: STORE_SCOPE_UNVERIFIED })
+    expect(karuteRecordsUpdate).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
   })
 
   it('a clamped actor + an out-of-store to-customer is refused, no write', async () => {

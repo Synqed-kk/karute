@@ -67,6 +67,7 @@ import {
   updateKaruteDetailEntryWithClient,
 } from '@/actions/karute'
 import { ENTRY_CONTENT_INVALID_ERROR } from '@/types/karute'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
 
 /** These cases are about the edit core itself, not the store lock — every one
@@ -305,6 +306,34 @@ describe('updateKaruteDetailEntry — web wrapper (T1 web side)', () => {
         },
       }),
     )
+  })
+
+  it('clamped WEB caller + degraded scope refuses entry-edit with NO refusal row and no write', async () => {
+    const { resolveStoreScope } = jest.requireMock('@/lib/auth/store-scope') as {
+      resolveStoreScope: jest.Mock
+    }
+    const { getSynqedClient } = jest.requireMock('@/lib/synqed/client') as {
+      getSynqedClient: jest.Mock
+    }
+    resolveStoreScope.mockResolvedValueOnce({
+      viewAll: false, allowedStoreIds: ['store-A'], degraded: true,
+    })
+    getSynqedClient.mockResolvedValueOnce({
+      karuteRecords: {
+        get: jest.fn(async () => ({
+          id: 'kar-1', customer_id: 'cust-authoritative', store_id: 'store-A',
+        })),
+        updateEntry,
+      },
+    })
+
+    const result = await updateKaruteDetailEntry('kar-1', 'e1', {
+      content: 'edited', expectedVersion: 1,
+    })
+
+    expect(result).toEqual({ error: STORE_SCOPE_UNVERIFIED })
+    expect(updateEntry).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 
   it('collapses validationError into {error} for the sheet', async () => {

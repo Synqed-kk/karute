@@ -518,17 +518,7 @@ describe('karute save converge branch — the recording_session_id door is store
     await expect(save(c, DEGRADED)).rejects.toMatchObject({ code: 'store_forbidden' })
     expect(c.update).not.toHaveBeenCalled()
     expect(c.create).not.toHaveBeenCalled()
-    expect(auditSpy).toHaveBeenCalledTimes(1)
-    expect(auditSpy).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'karute.store_write_refused',
-      targetId: 'kar-1',
-      detail: {
-        door: 'karute.save',
-        recording_session_id: 'rec-1',
-        record_store_id: 'store-ginza',
-        code: 'store_forbidden',
-      },
-    }))
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 
   it('viewAll, floating and same-store actors converge normally', async () => {

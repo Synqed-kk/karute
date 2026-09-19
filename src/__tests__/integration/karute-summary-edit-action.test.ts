@@ -63,6 +63,7 @@ import {
   updateKaruteDetailSummaryWithClient,
 } from '@/actions/karute'
 import { ENTRY_CONTENT_INVALID_ERROR } from '@/types/karute'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 
 /** These cases are about the edit core itself, not the store lock — every one
  *  of them already assumed an actor who may touch the record. */
@@ -285,6 +286,33 @@ describe('updateKaruteDetailSummary — web wrapper', () => {
         },
       }),
     )
+  })
+
+  it('clamped WEB caller + degraded scope refuses summary-edit with NO refusal row and no write', async () => {
+    const { resolveStoreScope } = jest.requireMock('@/lib/auth/store-scope') as {
+      resolveStoreScope: jest.Mock
+    }
+    const { getSynqedClient } = jest.requireMock('@/lib/synqed/client') as {
+      getSynqedClient: jest.Mock
+    }
+    resolveStoreScope.mockResolvedValueOnce({
+      viewAll: false, allowedStoreIds: ['store-A'], degraded: true,
+    })
+    getSynqedClient.mockResolvedValueOnce({
+      karuteRecords: {
+        get: jest.fn(async () => ({
+          id: 'kar-1', customer_id: 'cust-authoritative', store_id: 'store-A',
+          ai_summary: 'AIの要約', edited_summary: null,
+        })),
+        update,
+      },
+    })
+
+    const result = await updateKaruteDetailSummary('kar-1', { content: '・直した要約' })
+
+    expect(result).toEqual({ error: STORE_SCOPE_UNVERIFIED })
+    expect(update).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 
   it('derives before-text + customer_id from the AUTHORITATIVE record (ai_summary when no overlay yet)', async () => {
