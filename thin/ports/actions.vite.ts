@@ -10,6 +10,7 @@
 // action to its facade endpoint as the BFF lands.
 
 import { getDataPort } from '@/lib/ports/data-port'
+import { clearCalendarNumbers } from '../data/calendar-numbers-store'
 import { redirect as thinRedirect } from './nav.vite'
 // Pure, side-effect-free constants (no next/*, no synqed client) — safe to
 // import directly rather than duplicating the tier/feature matrix by hand.
@@ -1360,6 +1361,7 @@ export const setActiveStore = async (
 ): Promise<{ ok: true } | { error: string }> => {
   const { setThinActiveStore } = await import('../chrome/store-pref')
   setThinActiveStore(storeId)
+  clearCalendarNumbers()
   window.location.reload()
   return { ok: true }
 }

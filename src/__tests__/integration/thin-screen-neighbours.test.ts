@@ -50,6 +50,10 @@ import {
 import { dtoCache, fetchedAtByPath } from '../../../thin/screens/ScreenBoundary'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 
+import { setThinActiveStore } from '../../../thin/chrome/store-pref'
+import { setSessionState } from '@/lib/auth/mobile/session-store'
+import type { Session } from '@supabase/supabase-js'
+
 const TODAY = new Date('2026-09-16T00:00:00+09:00')
 const SELECTED = new Date('2026-09-14T00:00:00+09:00')
 
@@ -82,6 +86,8 @@ beforeEach(() => {
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) })
   dtoCache.clear()
   fetchedAtByPath.clear()
+  window.localStorage.clear()
+  setSessionState({ status: 'signed-in', session: { user: { id: 'u1' } } as Session })
   clearCalendarNumbers()
   mockRecorderState = 'idle'
   cancelNeighbourWarm()
@@ -187,6 +193,52 @@ describe('the neighbour queue (S3)', () => {
 
 describe('the calendar numbers kept on the device (S4)', () => {
   const path = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja'
+
+  it('isolates the same path across store lenses read at call time', () => {
+    setThinActiveStore('store-A')
+    rememberMonthNumbers(path, monthCells())
+    setThinActiveStore('store-B')
+    expect(readMonthNumbers(path)).toBeNull()
+    setThinActiveStore('store-A')
+    expect(readMonthNumbers(path)).toEqual(monthCells())
+  })
+
+  it('keeps the null all-store lens apart from a store id', () => {
+    rememberMonthNumbers(path, monthCells())
+    setThinActiveStore('store-A')
+    expect(readMonthNumbers(path)).toBeNull()
+    rememberMonthNumbers(path, monthCells().map((c) => ({ ...c, count: 9 })))
+    window.localStorage.removeItem('karute-active-store')
+    expect(readMonthNumbers(path)).toEqual(monthCells())
+  })
+
+  it('namespaces the same store and path by the synchronous session user', () => {
+    setThinActiveStore('store-A')
+    rememberMonthNumbers(path, monthCells())
+    setSessionState({ status: 'signed-in', session: { user: { id: 'u2' } } as Session })
+    setThinActiveStore('store-A')
+    expect(readMonthNumbers(path)).toBeNull()
+    setSessionState({ status: 'signed-in', session: { user: { id: 'u1' } } as Session })
+    expect(readMonthNumbers(path)).toEqual(monthCells())
+    setSessionState({ status: 'recovering' })
+    expect(readMonthNumbers(path)).toEqual(monthCells())
+  })
+
+  it('does not read or persist numbers without a known user', () => {
+    setSessionState({ status: 'signed-out' })
+    rememberMonthNumbers(path, monthCells())
+    expect(readMonthNumbers(path)).toBeNull()
+    expect(window.localStorage.getItem('karute-calendar-numbers')).toBeNull()
+  })
+
+  it('reads every v1 blob as absent, even with a matching new key', () => {
+    rememberMonthNumbers(path, monthCells())
+    const blob = JSON.parse(window.localStorage.getItem('karute-calendar-numbers')!)
+    blob.v = 1
+    blob.entries[path] = { at: 1, monthData: monthCells() }
+    window.localStorage.setItem('karute-calendar-numbers', JSON.stringify(blob))
+    expect(readMonthNumbers(path)).toBeNull()
+  })
 
   it('writes a month back and reads it again', () => {
     rememberMonthNumbers(path, monthCells())

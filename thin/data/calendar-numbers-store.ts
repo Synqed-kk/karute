@@ -20,17 +20,26 @@
 // small durable preference — one key, one JSON object, every read and write in
 // a try/catch, and a corrupt or absent value read as ABSENT rather than thrown.
 
+import { getCurrentSession } from '@/lib/auth/mobile/session-store'
+import { getThinActiveStore } from '../chrome/store-pref'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 
 const KEY = 'karute-calendar-numbers'
-const VERSION = 1
+const VERSION = 2
 /** A month is ~42 cells of small numbers (~6 KB). The cap is the wall against
  *  a future field quietly making this big, never a working limit. */
 const CAP_BYTES = 200_000
 /** One month at a time. The panel opens on the month the page is on; an older
  *  month's counts are re-read the moment it is swiped to. */
 const MAX_ENTRIES = 2
+
+/** Same synchronous live-or-last-known user as store-pref; no session fetch. */
+function entryKey(path: string): string | null {
+  const userId = getCurrentSession()?.user?.id
+  if (!userId) return null
+  return JSON.stringify([userId, getThinActiveStore() ?? 'all', path])
+}
 
 interface Blob {
   v: number
@@ -74,8 +83,10 @@ export function rememberMonthNumbers(path: string, monthData: MonthCellDTOType[]
   if (!monthData || monthData.length === 0) return
   if (hasNames(monthData)) return
   try {
+    const key = entryKey(path)
+    if (key === null) return
     const blob = read()
-    blob.entries[path] = { at: Date.now(), monthData }
+    blob.entries[key] = { at: Date.now(), monthData }
     // Oldest out first, then the cap. Both are guards, not working limits.
     const keys = Object.keys(blob.entries).sort((a, b) => blob.entries[b].at - blob.entries[a].at)
     for (const stale of keys.slice(MAX_ENTRIES)) delete blob.entries[stale]
@@ -94,8 +105,14 @@ export function rememberMonthNumbers(path: string, monthData: MonthCellDTOType[]
 /** The cells written down for this month path, or null. Never throws. */
 export function readMonthNumbers(path: string): MonthCellDTOType[] | null {
   if (!BOOKING_SWITCHES.persistCalendarNumbers) return null
-  const entry = read().entries[path]
-  return entry?.monthData ?? null
+  try {
+    const key = entryKey(path)
+    if (key === null) return null
+    const entry = read().entries[key]
+    return entry?.monthData ?? null
+  } catch {
+    return null
+  }
 }
 
 /** Sign-out, or a business switch. Called from ScreenBoundary's own signed-out
