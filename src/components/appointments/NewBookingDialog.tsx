@@ -303,8 +303,15 @@ export function NewBookingDialog({
       // through the thin port — so this ONE dialog serves the phone and the
       // computer with the same line. Nothing is decided here: the key is
       // picked off what the validator already resolved.
-      const key = refusalKey(result)
-      const message = key ? t(key, result.params) : result.error
+      //
+      // MERGE #937×#948: the store_forbidden branch of CreateAppointmentError
+      // returned above, so everything left here — including a
+      // CreateAppointmentError with no code — is structurally a valid
+      // BookingTimeRefusal (all its fields besides `error` are optional); TS
+      // just can't prove that across the two separately-named types.
+      const refusal = result as BookingTimeRefusal
+      const key = refusalKey(refusal)
+      const message = key ? t(key, refusal.params) : refusal.error
       toast.error(message)
       // ⚖ R1-7 — the dialog stays open and modal while sonner renders its
       // toast in a portal outside it, so a screen-reader user inside the modal

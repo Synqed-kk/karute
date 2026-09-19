@@ -198,7 +198,17 @@ const BOOKING_DOORS: Array<{
   {
     name: 'update',
     call: (c, scope) =>
-      updateAppointmentCore(c.client as never, 'appt-1', { startsAt: '2026-09-17T01:00:00.000Z' }, ACTOR, scope),
+      // MERGE #937×#948 (2026-09-19): the store lock (this test's own
+      // subject) refuses before the hours param below is ever read — the
+      // values here are structural only, never asserted on.
+      updateAppointmentCore(
+        c.client as never,
+        'appt-1',
+        { startsAt: '2026-09-17T01:00:00.000Z' },
+        ACTOR,
+        { operatingHours: undefined, orgSaved: undefined },
+        scope,
+      ),
     writeOf: (c) => c.update,
   },
   {
@@ -234,7 +244,14 @@ describe('booking by-id writes — every door is store-locked', () => {
               : door.name === 'no-show'
                 ? markNoShowAppointmentCore(c2.client as never, 'nope', { burnPack: false }, 'staff-1', ACTOR, VIEW_ALL)
                 : door.name === 'update'
-                  ? updateAppointmentCore(c2.client as never, 'nope', { startsAt: 'x' }, ACTOR, VIEW_ALL)
+                  ? updateAppointmentCore(
+                      c2.client as never,
+                      'nope',
+                      { startsAt: 'x' },
+                      ACTOR,
+                      { operatingHours: undefined, orgSaved: undefined },
+                      VIEW_ALL,
+                    )
                   : deleteAppointmentCore(c2.client as never, 'nope', ACTOR, VIEW_ALL)
         })()
         expect(refused).toEqual(missing)

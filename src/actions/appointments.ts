@@ -20,6 +20,7 @@ import {
   validateAppointmentInput,
   validateAppointmentTime,
   type AppointmentInput,
+  type BookingTimeRefusal,
 } from '@/lib/appointments'
 import { appointmentsToMonthCells, monthCellsToDTO } from '@/lib/adapters/reservation'
 import { newCountByDay } from '@/lib/appointments/first-visit'
@@ -77,7 +78,11 @@ export interface AppointmentRow {
 }
 
 export type CreateAppointmentError = { error: string; code?: 'store_forbidden' }
-export type CreateAppointmentResult = { id: string } | CreateAppointmentError
+// MERGE #937×#948 (2026-09-19): createAppointmentCore (PKT-1c-C) also returns
+// BookingTimeRefusal (closed_day/invalid_start/outside_hours) through this
+// same result — widened to a union of both error shapes rather than a single
+// narrowed `code`, so neither side's refusal type is lost.
+export type CreateAppointmentResult = { id: string } | CreateAppointmentError | BookingTimeRefusal
 
 export async function createAppointment(input: AppointmentInput): Promise<CreateAppointmentResult> {
   // Server-side gate: booking = bookings.manage (every staff preset holds it;
