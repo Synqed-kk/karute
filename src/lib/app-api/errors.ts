@@ -52,8 +52,13 @@ export class AppApiError extends Error {
   code: AppApiErrorCode
   /** Optional machine-readable extras merged into the JSON body (never secrets). */
   detail?: Record<string, unknown>
-  constructor(code: AppApiErrorCode, message: string, detail?: Record<string, unknown>) {
-    super(message)
+  /** The original thrown value, when this wraps an unclassified throw
+   *  (`toAppApiError`'s unknown arm). Standard `Error` `cause` — non-enumerable,
+   *  dropped by `JSON.stringify` — so `errorBody` and the client response never
+   *  see it; only `logFacadeError` (handler.ts) reads it, via `describeUnknownThrow`
+   *  below, for the server log. */
+  constructor(code: AppApiErrorCode, message: string, detail?: Record<string, unknown>, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause })
     this.name = 'AppApiError'
     this.code = code
     this.detail = detail
@@ -89,8 +94,41 @@ export function toAppApiError(err: unknown): AppApiError {
   if (err instanceof RevocationError) {
     return new AppApiError('revoked', err.message)
   }
-  // Unknown throw: never leak internals to the client body.
-  return new AppApiError('internal', 'Internal error')
+  // Unknown throw: never leak internals to the CLIENT body — but keep the
+  // original value as a non-enumerable `cause` so the SERVER log can still
+  // say why (logFacadeError, handler.ts, via describeUnknownThrow below).
+  return new AppApiError('internal', 'Internal error', undefined, err)
+}
+
+/** Sanitised, bounded one-line description of an unclassified thrown value —
+ *  read only by `logFacadeError` (handler.ts), never by `errorBody`. Never the
+ *  stack, never `cause.cause`. Pure — never throws on any input shape. */
+export function describeUnknownThrow(err: unknown): { errName: string; errStatus?: number; errMessage: string } {
+  const errName = err instanceof Error ? err.name : typeof err
+  const raw = err instanceof Error ? err.message : String(err)
+  const firstLine = raw.split('\n')[0].replace(/\s+/g, ' ').trim()
+  const capped = firstLine.length > 200 ? `${firstLine.slice(0, 200)}…` : firstLine
+  const errMessage = maskSensitive(capped)
+  const status = (err as { status?: unknown } | null)?.status
+  return typeof status === 'number' ? { errName, errStatus: status, errMessage } : { errName, errMessage }
+}
+
+/** Masking order matters: email → URL (origin+path, query stripped — signed-URL
+ *  tokens live in the query) → JWT → 7+-digit runs (phone/card-like strings).
+ *  UUIDs are left alone — ids are already on the log line via other fields. */
+function maskSensitive(s: string): string {
+  let out = s.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<email>')
+  out = out.replace(/https?:\/\/\S+/g, (m) => {
+    try {
+      const u = new URL(m)
+      return u.origin + u.pathname
+    } catch {
+      return '<url>'
+    }
+  })
+  out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<jwt>')
+  out = out.replace(/\d{7,}/g, '<digits>')
+  return out
 }
 
 /** The stable JSON body shape for every facade error response. */
