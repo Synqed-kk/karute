@@ -49,6 +49,90 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 }
 
+/**
+ The UIScene half of Karute's shell. An app built against the iOS 27 SDK must
+ adopt the scene life cycle to avoid UIKit's launch-time
+ `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption` assert.
+
+ It lives in AppDelegate.swift because this file is already in the App target;
+ no project.pbxproj edit is needed.
+
+ The window still comes from Main.storyboard, now via the manifest's
+ `UISceneStoryboardFile`; UIKit supplies it before `scene(_:willConnectTo:)`.
+ The root view controller is CookieVC, the CAPBridgeViewController subclass
+ below, whose cookie restoration and observers remain unchanged.
+
+ Karute registers no URL scheme or associated domain today: Info.plist has no
+ CFBundleURLTypes and the project has no entitlements file. The `capacitor`
+ scheme in capacitor.config.ts is internal to the WebView, not an incoming URL
+ registration; src and thin have no appUrlOpen listener (the App.addListener
+ reference is only a comment). If a link entry point is registered later,
+ scene-based iOS delivers it here. Forward both warm URL contexts / user
+ activities and cold-start connectionOptions to Capacitor's proxy, preserving
+ sourceApplication, annotation, and openInPlace. The stock app-delegate URL
+ forwards above remain untouched; UIKit uses these scene callbacks instead.
+ */
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        // Keep the storyboard-created window, and mirror it onto the app delegate so
+        // anything still reading `appDelegate.window` keeps seeing a real window.
+        (UIApplication.shared.delegate as? AppDelegate)?.window = window
+
+        // COLD START: a launch-from-link arrives here, never through the app delegate.
+        for context in connectionOptions.urlContexts {
+            deliver(context)
+        }
+        for activity in connectionOptions.userActivities {
+            deliver(activity)
+        }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts {
+            deliver(context)
+        }
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        deliver(userActivity)
+    }
+
+    private func deliver(_ context: UIOpenURLContext) {
+        _ = ApplicationDelegateProxy.shared.application(
+            UIApplication.shared,
+            open: context.url,
+            options: Self.appOptions(from: context.options)
+        )
+    }
+
+    private func deliver(_ userActivity: NSUserActivity) {
+        // The proxy's restorationHandler is for UIKit state restoration, which this
+        // single-webview shell does not use; Capacitor only needs the activity itself.
+        _ = ApplicationDelegateProxy.shared.application(
+            UIApplication.shared,
+            continue: userActivity,
+            restorationHandler: { _ in }
+        )
+    }
+
+    /// The proxy takes app-delegate-shaped options; a scene hands us scene-shaped ones.
+    /// Translated rather than passed as `[:]` so `sourceApplication` survives — that is
+    /// the field an OAuth callback is checked against.
+    private static func appOptions(from options: UIScene.OpenURLOptions) -> [UIApplication.OpenURLOptionsKey: Any] {
+        var translated: [UIApplication.OpenURLOptionsKey: Any] = [.openInPlace: options.openInPlace]
+        if let sourceApplication = options.sourceApplication {
+            translated[.sourceApplication] = sourceApplication
+        }
+        if let annotation = options.annotation {
+            translated[.annotation] = annotation
+        }
+        return translated
+    }
+}
+
 // MARK: - Session cookie persistence
 //
 // Fixes the forced re-login on every cold launch. WKWebView evicts the
