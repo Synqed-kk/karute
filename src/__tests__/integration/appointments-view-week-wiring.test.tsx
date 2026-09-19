@@ -171,6 +171,8 @@ type MonthPageProps = {
   cells: MonthCell[]
   selectedDateIso: string
   todayIso?: string
+  weekStart: number
+  tone: { sunday: string; saturday: string }
   weekdayLabels: string[]
   typeSlot: string
   typeCount?: number | null
@@ -462,6 +464,14 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
     expect(monthPageProps!.todayIso).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(monthPageProps!.weekdayLabels).toHaveLength(7)
+    const fmt = new Intl.DateTimeFormat('ja', { weekday: 'short', timeZone: 'UTC' })
+    expect(monthPageProps!.weekdayLabels[0]).toBe(fmt.format(new Date('2024-01-07')))
+    expect(monthPageProps!.weekdayLabels[6]).toBe(fmt.format(new Date('2024-01-13')))
+    expect(monthPageProps!.weekStart).toBe(0)
+    expect(monthPageProps!.tone).toEqual({ sunday: 'red', saturday: 'accent' })
+    expect(panelProps.weekdayLabels).toBe(monthPageProps!.weekdayLabels)
+    expect(panelProps.weekStart).toBe(monthPageProps!.weekStart)
+    expect(panelProps.tone).toBe(monthPageProps!.tone)
     // ⚖ PKT-2b — typeSlot is read off the one switch, same as the week/day
     // lines; MONTH_VIEW's fixture cells carry no explicit newCount, so the
     // month sum (0 known days, 0 new) computes to 0, not null.

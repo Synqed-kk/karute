@@ -533,10 +533,11 @@ describe('GET /api/app/v1/screens/appointments', () => {
     const dto = await dtoOf(res)
     expect(dto.view).toBe('month')
     expect(dto.weekData).toBeNull()
-    // 2027-03-01 is a Monday and March has 31 days → 5 clean rows.
+    // The ja screen starts on the Sunday before March 1: 5 rows.
     expect(dto.monthData).toHaveLength(35)
     expect(dto.monthData!.filter((c) => c.inMonth)).toHaveLength(31)
-    expect(dto.monthData![0].id).toBe('2027-03-01')
+    expect(dto.monthData![0].id).toBe('2027-02-28')
+    expect(dto.monthData![34].id).toBe('2027-04-03')
     // Not today's month, so nothing in it is today — and no cell lies about it.
     expect(dto.monthData!.some((c) => c.isToday)).toBe(false)
     // The range read asked core for that month's window, padded for the grid's

@@ -38,6 +38,7 @@ import {
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
+import { weekStartFor } from '@/lib/date/week-start'
 import { jstMidnight } from '@/lib/date/calendar-range'
 import { isClassBoundBusinessType } from '@/lib/welcome/business-types'
 import type { CapacityFact, LaneKind } from '@/lib/capacity/capacity'
@@ -598,6 +599,7 @@ export function buildAppointmentsScreen(
         // ONE source for 休: the same map the week rows read their own `closed`
         // from, so the month cell and the week row cannot disagree about a day.
         hoursFacts,
+        weekStartFor(locale),
       )
       // The same rows, the same month, one call beside the other — the cells
       // and their facts cannot come from different reads.

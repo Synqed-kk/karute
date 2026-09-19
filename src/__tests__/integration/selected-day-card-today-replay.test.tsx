@@ -1,4 +1,5 @@
 /** @jest-environment jsdom */
+import { weekStartFor } from '@/lib/date/week-start'
 import { Profiler, useEffect, useState } from 'react'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import ja from '../../../messages/ja.json'
@@ -73,7 +74,7 @@ const DATE = '2026-09-19'
 const URL = `/appointments?view=month&date=${DATE}`
 const selectedDate = jstWallTimeToDate(DATE, '00:00')
 const { monthStart, monthEnd } = computeMonthRange(selectedDate)
-const cells = appointmentsToMonthCells([], monthStart, monthEnd, selectedDate)
+const cells = appointmentsToMonthCells([], monthStart, monthEnd, selectedDate, undefined, weekStartFor('ja'))
 const totals: WeekDayRowData = {
   dateIso: DATE,
   dateNumber: 19,

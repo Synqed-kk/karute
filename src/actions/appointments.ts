@@ -1,5 +1,7 @@
 'use server'
 
+import { getLocale } from 'next-intl/server'
+import { weekStartFor } from '@/lib/date/week-start'
 import { revalidatePath, updateTag } from 'next/cache'
 import type { Appointment, AppointmentSource } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -445,6 +447,8 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
     monthStart,
     monthEnd,
     jstStartOfToday(),
+    undefined,
+    weekStartFor(await getLocale()),
   )
   // The jump panel reads COUNTS only — no hours, no roster, no store type are
   // fetched here, so these months honestly carry no capacity (no `facts`)

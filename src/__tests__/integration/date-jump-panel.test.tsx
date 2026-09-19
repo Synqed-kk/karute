@@ -14,9 +14,10 @@
  * chip (which must carry the marker the pressed state and aria-expanded hang
  * off) and MonthGrid's day buttons (which are what a "day tap" means).
  */
+let mockLocale = 'ja'
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
-  useLocale: () => 'ja',
+  useLocale: () => mockLocale,
 }))
 
 const push = jest.fn()
@@ -76,11 +77,12 @@ jest.mock('@synqed-kk/ui', () => {
         ),
         h('button', { type: 'button', 'data-testid': 'bar-today', onClick: props.onToday }, 'bar'),
       ),
-    MonthGrid: (props: { cells: Cell[]; onPickDay?: (d: Date) => void }) => {
+    MonthGrid: (props: { cells: Cell[]; onPickDay?: (d: Date) => void; copy?: { weekdayLabels: string[] }; className?: string }) => {
       mockGridRenders.push(props.cells)
       return h(
         'div',
-        { 'data-testid': 'month-grid' },
+        { 'data-testid': 'month-grid', className: props.className },
+        h('div', { 'data-weekday-header': '' }, props.copy?.weekdayLabels.map((label) => h('div', { key: label }, label))),
         props.cells.map((c) =>
           h(
             'button',
@@ -159,7 +161,7 @@ function renderView({
       activeStaffId={null}
       authProfileId={null}
       customers={[]}
-      locale="ja"
+      locale={mockLocale}
       orgSettings={null}
       initialView={view}
       selectedDateIso={SELECTED_ISO}
@@ -237,6 +239,7 @@ const allPanes = async (root: HTMLElement) => {
 }
 
 beforeEach(() => {
+  mockLocale = 'ja'
   push.mockClear()
   mockGridRenders.length = 0
 })
@@ -1819,5 +1822,45 @@ describe('the hidden native date input is gone', () => {
   it('renders no date input in the DOM either', () => {
     renderView()
     expect(document.querySelector('input[type="date"]')).toBeNull()
+  })
+})
+
+
+describe('the panel shares the view locale calendar', () => {
+  it('ja labels are Sunday-first and the grid receives all three header overrides', async () => {
+    renderView({ loadMonthCells: () => new Promise(() => {}) })
+    await openPanel()
+    const grid = centreGrid(screen.getByRole('dialog'))
+    const labels = Array.from(grid.querySelectorAll('[data-weekday-header] > div')).map((el) => el.textContent)
+    const fmt = new Intl.DateTimeFormat('ja', { weekday: 'short', timeZone: 'UTC' })
+    expect(labels).toHaveLength(7)
+    expect(labels[0]).toBe(fmt.format(new Date('2024-01-07')))
+    expect(labels[6]).toBe(fmt.format(new Date('2024-01-13')))
+    expect(grid.className).toContain('[&>div:first-child>div:nth-child(1)]:text-[var(--color-destructive)]')
+    expect(grid.className).toContain('[&>div:first-child>div:nth-child(6)]:text-[var(--color-text-muted)]')
+    expect(grid.className).toContain('[&>div:first-child>div:nth-child(7)]:text-[var(--color-accent)]')
+    expect(grid.querySelector('[data-day]')!.getAttribute('data-day')).toBe('2026-08-30')
+  })
+
+  it('en positively applies muted to all seven header cells and only ordinary weekend numbers', async () => {
+    mockLocale = 'en'
+    renderView({ loadMonthCells: () => new Promise(() => {}) })
+    await openPanel()
+    const grid = centreGrid(screen.getByRole('dialog'))
+    const headers = grid.querySelectorAll('[data-weekday-header] > div')
+    expect(headers).toHaveLength(7)
+    expect(grid.className).toContain('[&>div:first-child>div]:text-[var(--color-text-muted)]')
+    for (const header of Array.from(headers)) {
+      expect(header.matches('div:first-child > div')).toBe(true)
+      expect(header.className).not.toMatch(/text-red|text-primary|text-\[var\(--color-(accent|destructive)/)
+    }
+    expect(grid.className).not.toMatch(/\]:text-\[var\(--color-(accent|destructive)\)\]/)
+    for (const colour of ['destructive', 'accent']) {
+      const selector = `button>span:first-child[class~='text-[var(--color-${colour})]']`
+      expect(grid.className).toContain(`[&_${selector}]:text-[var(--color-text-muted)]`)
+      const fixture = document.createElement('div')
+      fixture.innerHTML = `<button><span class="text-[var(--color-${colour})]"></span><span class="text-[var(--color-${colour})]"></span></button><button><span class="bg-[var(--color-accent)] text-[var(--color-accent-text)]"></span></button><button><span class="text-[var(--color-text-muted)]/60"></span></button>`
+      expect(fixture.querySelectorAll(selector)).toHaveLength(1)
+    }
   })
 })

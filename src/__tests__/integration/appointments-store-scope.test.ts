@@ -17,6 +17,8 @@
  *     and fails CLOSED on storeless (pre-repair import) rows.
  */
 
+jest.mock('next-intl/server', () => ({ getLocale: jest.fn(async () => 'ja') }))
+
 jest.mock('next/cache', () => ({
   unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
   revalidatePath: jest.fn(),
@@ -229,10 +231,10 @@ describe('getMonthCells — store scope + the failure contract', () => {
   it('returns the month grid as wire cells, the month itself flagged inMonth', async () => {
     crossStore(null)
     const cells = await getMonthCells('2026-07')
-    // 2026-07-01 is a Wednesday → 2 leading days; 31 days; 5 rows of 7.
+    // 2026-07-01 is a Wednesday → 3 leading days; 31 days; 5 rows of 7.
     expect(cells).toHaveLength(35)
     expect(cells.filter((c) => c.inMonth)).toHaveLength(31)
-    expect(cells[0].id).toBe('2026-06-29')
+    expect(cells[0].id).toBe('2026-06-28')
     expect(cells[0].inMonth).toBe(false)
     expect(typeof cells[0].dateIso).toBe('string')
   })

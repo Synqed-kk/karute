@@ -17,6 +17,7 @@
 //      off `cell.id`, which is already the JST calendar day.
 import { useTranslations } from 'next-intl'
 import type { MonthDensityBucket } from '@synqed-kk/ui'
+import type { WeekStart, WeekendTone } from '@/lib/date/week-start'
 import { cn } from '@/lib/utils'
 import { formatCompactDateJst, jstWallTimeToDate, partsInJst } from '@/lib/date/jst'
 import type { MonthCell } from '@/lib/adapters/reservation'
@@ -32,10 +33,12 @@ interface MonthPageProps {
   /** Today in JST, YYYY-MM-DD. Absent → each cell's own `isToday`, which the
    *  server stamped (a bundle that sat through midnight would keep yesterday). */
   todayIso?: string
-  /** Mon-first localized weekday headers — the SAME array the pop-down feeds
+  /** Locale-ordered weekday headers — the SAME array the pop-down feeds
    *  the package grid, so the two calendars cannot label their columns
    *  differently. */
   weekdayLabels: [string, string, string, string, string, string, string]
+  weekStart: WeekStart
+  tone: WeekendTone
   /** PKT-2 supplies 'new' | 'returning' from the business type; until then
    *  'off' and the month line is 予約 alone. */
   typeSlot: TypeSlot
@@ -140,6 +143,8 @@ export function MonthPage({
   selectedDateIso,
   todayIso,
   weekdayLabels,
+  weekStart,
+  tone,
   typeSlot,
   typeCount = null,
   monthCompareDelta = null,
@@ -256,9 +261,9 @@ export function MonthPage({
               className={cn(
                 // ⚖ TYPE (Liam 23:4x) — a 12 px LABEL is medium, not bold.
                 'flex h-[26px] items-center justify-center text-[12px] font-medium',
-                i === 5
+                (weekStart + i) % 7 === 6 && tone.saturday === 'accent'
                   ? 'text-primary'
-                  : i === 6
+                  : (weekStart + i) % 7 === 0 && tone.sunday === 'red'
                     ? 'text-red-600 dark:text-red-400'
                     : 'text-zinc-500 dark:text-zinc-400',
               )}
@@ -389,9 +394,9 @@ export function MonthPage({
                       ? 'bg-primary font-semibold text-primary-foreground'
                       : isSelected
                         ? 'font-semibold text-primary ring-[1.8px] ring-inset ring-primary'
-                        : wd === 6
+                        : wd === 6 && tone.saturday === 'accent'
                           ? 'font-semibold text-primary'
-                          : wd === 0
+                          : wd === 0 && tone.sunday === 'red'
                             ? 'font-semibold text-red-600 dark:text-red-400'
                             : 'font-semibold text-[var(--color-text)]',
                   )}

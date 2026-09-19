@@ -53,6 +53,7 @@ import {
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { MonthGrid, type MonthGridCell } from '@synqed-kk/ui'
 import { useLocale, useTranslations } from 'next-intl'
+import type { WeekStart, WeekendTone } from '@/lib/date/week-start'
 import { cn } from '@/lib/utils'
 import { makeSpring, type Spring, type SpringOptions } from '@/lib/motion/spring'
 import { useHorizontalSlide, usePrefersReducedMotion } from '@/lib/motion/use-horizontal-slide'
@@ -108,10 +109,29 @@ function chipButton(anchor: HTMLElement | null): HTMLElement | null {
   }
 }
 
+// Static variants outrank the package's single-class colour utilities.
+// The number selectors match only ordinary weekend text: today's accent-text
+// and the out-of-month text-muted/60 classes do not match, nor do count/dot spans.
+const MONTH_GRID_LOCALE_CLASSES = {
+  sundayColour: '[&>div:first-child>div:nth-child(1)]:text-[var(--color-destructive)] [&>div:first-child>div:nth-child(6)]:text-[var(--color-text-muted)] [&>div:first-child>div:nth-child(7)]:text-[var(--color-accent)]',
+  muted: "[&>div:first-child>div]:text-[var(--color-text-muted)] [&_button>span:first-child[class~='text-[var(--color-destructive)]']]:text-[var(--color-text-muted)] [&_button>span:first-child[class~='text-[var(--color-accent)]']]:text-[var(--color-text-muted)]",
+}
+
+function monthGridLocaleClass(weekStart: WeekStart, tone: WeekendTone): string {
+  if (tone.sunday === 'muted' && tone.saturday === 'muted') return MONTH_GRID_LOCALE_CLASSES.muted
+  if (tone.sunday === 'red' && tone.saturday === 'accent') {
+    if (weekStart === 0) return MONTH_GRID_LOCALE_CLASSES.sundayColour
+    if (weekStart === 1) return '' // The package's Monday-first colours already agree.
+  }
+  // ponytail: other week starts / mixed tones need MonthGrid's own locale props.
+  return ''
+}
+
 interface PaneProps {
   cells: MonthGridCell[]
   copy: { weekdayLabels: DateJumpPanelProps['weekdayLabels'] }
   onPickDay: (date: Date) => void
+  calendarClassName: string
 }
 
 /**
@@ -132,14 +152,14 @@ interface PaneProps {
  * shift redraws no grid at all and a commit draws only the month arriving for
  * the first time.
  */
-const Pane = memo(function Pane({ cells, copy, onPickDay }: PaneProps) {
+const Pane = memo(function Pane({ cells, copy, onPickDay, calendarClassName }: PaneProps) {
   return (
     <MonthGrid
       cells={cells}
       copy={copy}
       hideLegend
       onPickDay={onPickDay}
-      className="rounded-none border-0 bg-transparent shadow-none"
+      className={cn('rounded-none border-0 bg-transparent shadow-none', calendarClassName)}
     />
   )
 })
@@ -164,9 +184,11 @@ export interface DateJumpPanelProps {
   /** Tapping a day. The caller decides what "go there" means — and keeps the
    *  current 日/週/月 mode while doing it. */
   onPickDay: (date: Date) => void
-  /** Mon-first localized weekday headers, the same array the 月 view feeds
+  /** Locale-ordered weekday headers, the same array the 月 view feeds
    *  MonthGrid. */
   weekdayLabels: [string, string, string, string, string, string, string]
+  weekStart: WeekStart
+  tone: WeekendTone
   /** 2 = open on the month chips (月 mode, §v11b) instead of the day grid. */
   defaultLevel?: 1 | 2
   onPickMonth?: (year: number, month: number) => void // §v11 point 1 — at level 2 a month chip LANDS that month
@@ -181,6 +203,8 @@ export function DateJumpPanel({
   loadMonthCells,
   onPickDay,
   weekdayLabels,
+  weekStart,
+  tone,
   defaultLevel = 1,
   onPickMonth,
 }: DateJumpPanelProps) {
@@ -473,16 +497,17 @@ export function DateJumpPanel({
       const built = skeletonCells.current.get(key)
       if (built) return built
       const { monthStart, monthEnd } = computeMonthRange(firstDayOfMonthKey(key))
-      const cells = appointmentsToMonthCells([], monthStart, monthEnd, today)
+      const cells = appointmentsToMonthCells([], monthStart, monthEnd, today, undefined, weekStart)
       skeletonCells.current.set(key, cells)
       return cells
     },
-    [state.cache, today],
+    [state.cache, today, weekStart],
   )
 
   /** The two props every pane hands MonthGrid that are not its cells. Memoized
    *  for the panes' `memo`: a fresh object or closure per render compares
    *  unequal and redraws all three months (see `Pane`). */
+  const calendarClassName = monthGridLocaleClass(weekStart, tone)
   const gridCopy = useMemo(() => ({ weekdayLabels }), [weekdayLabels])
   const pickDay = useCallback(
     (date: Date) => {
@@ -659,7 +684,7 @@ export function DateJumpPanel({
       inert={(paneDir !== 0 && paneDir !== slide.dir) || undefined}
     >
       {drawn.has(key) ? (
-        <Pane cells={cellsFor(key)} copy={gridCopy} onPickDay={pickDay} />
+        <Pane cells={cellsFor(key)} copy={gridCopy} onPickDay={pickDay} calendarClassName={calendarClassName} />
       ) : null}
     </div>
   )

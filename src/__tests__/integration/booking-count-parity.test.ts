@@ -7,6 +7,7 @@
  * counted on the month grid. This suite is the parity pin: ONE fixture day, all
  * three surfaces, the same number.
  */
+import { weekStartFor } from '@/lib/date/week-start'
 import type { Appointment } from '@synqed-kk/client'
 import {
   appointmentsToWeekData,
@@ -75,7 +76,7 @@ describe('件 parity — month cell, week row and day total are ONE number', () 
     expect(week[0].cancelledCount).toBe(1)
     expect(week[0].noShowDayCount).toBe(2)
 
-    const cells = appointmentsToMonthCells(counted, DAY, DAY, TODAY)
+    const cells = appointmentsToMonthCells(counted, DAY, DAY, TODAY, undefined, weekStartFor('ja'))
     const cell = cells.find((c) => c.id === '2026-09-15')!
     expect(cell.count).toBe(3)
 
@@ -108,7 +109,7 @@ describe('件 parity — month cell, week row and day total are ONE number', () 
     const block = [appt({ id: 'block-only', kind: 'BLOCK', customer_id: null })]
     expect(appointmentsToWeekData(block, DAY, DAY, 480, TODAY, 'ja')[0].count).toBe(0)
     expect(
-      appointmentsToMonthCells(block, DAY, DAY, TODAY).find((c) => c.id === '2026-09-15')!
+      appointmentsToMonthCells(block, DAY, DAY, TODAY, undefined, weekStartFor('ja')).find((c) => c.id === '2026-09-15')!
         .count,
     ).toBe(0)
 
@@ -121,7 +122,7 @@ describe('件 parity — month cell, week row and day total are ONE number', () 
       appointmentsToWeekData(blockWithCustomer, DAY, DAY, 480, TODAY, 'ja')[0].count,
     ).toBe(0)
     expect(
-      appointmentsToMonthCells(blockWithCustomer, DAY, DAY, TODAY).find(
+      appointmentsToMonthCells(blockWithCustomer, DAY, DAY, TODAY, undefined, weekStartFor('ja')).find(
         (c) => c.id === '2026-09-15',
       )!.count,
     ).toBe(0)
@@ -131,7 +132,7 @@ describe('件 parity — month cell, week row and day total are ONE number', () 
     const nobody = [appt({ id: 'nobody', customer_id: null })]
     expect(appointmentsToWeekData(nobody, DAY, DAY, 480, TODAY, 'ja')[0].count).toBe(0)
     expect(
-      appointmentsToMonthCells(nobody, DAY, DAY, TODAY).find((c) => c.id === '2026-09-15')!
+      appointmentsToMonthCells(nobody, DAY, DAY, TODAY, undefined, weekStartFor('ja')).find((c) => c.id === '2026-09-15')!
         .count,
     ).toBe(0)
   })

@@ -30,6 +30,7 @@ import {
   jstWallTimeToDate,
   ymdInJst,
 } from '@/lib/date/jst'
+import { weekStartFor, weekendTone, type WeekStart, type WeekendTone } from '@/lib/date/week-start'
 import { computeMonthRange, computeWeekRange, jstMidnight } from '@/lib/date/calendar-range'
 import { monthKeyInJst, monthKeyOf } from '@/lib/appointments/date-jump'
 import { shiftAppointmentsDate } from '@/lib/appointments/date-step'
@@ -177,6 +178,8 @@ const NeighbourPane = memo(function NeighbourPane({
   todayIso,
   locale,
   weekdayLabels,
+  weekStart,
+  tone,
   businessHours,
   side,
 }: {
@@ -189,6 +192,8 @@ const NeighbourPane = memo(function NeighbourPane({
   todayIso: string
   locale: string
   weekdayLabels: [string, string, string, string, string, string, string]
+  weekStart: WeekStart
+  tone: WeekendTone
   businessHours: BusinessHours
   side: -1 | 1
 }) {
@@ -200,9 +205,9 @@ const NeighbourPane = memo(function NeighbourPane({
     () => {
       if (view !== 'month') return null
       const { monthStart, monthEnd } = computeMonthRange(date)
-      return appointmentsToMonthCells([], monthStart, monthEnd, today)
+      return appointmentsToMonthCells([], monthStart, monthEnd, today, undefined, weekStart)
     },
-    [view, date, today],
+    [view, date, today, weekStart],
   )
   const rows = useMemo(
     () => {
@@ -232,6 +237,8 @@ const NeighbourPane = memo(function NeighbourPane({
           selectedDateIso={dateIso}
           todayIso={todayIso}
           weekdayLabels={weekdayLabels}
+          weekStart={weekStart}
+          tone={tone}
           typeSlot={TYPE_SLOT}
           typeCount={null}
           monthCompareDelta={null}
@@ -365,18 +372,20 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const tReservation = useTranslations('reservation')
   const tCommon = useTranslations('common')
 
-  // Mon-first localized weekday headers for MonthGrid (2024-01-01 is a Monday).
-  // Memoized — the 7 Intl.DateTimeFormat + 7 Date allocations only recompute
-  // when the locale changes, not on every render.
-  const monthWeekdayLabels = useMemo(
-    () =>
-      Array.from({ length: 7 }, (_, i) =>
+  // One locale answer shared by the page, its placeholders and the panel.
+  const { weekStart, tone, monthWeekdayLabels } = useMemo(() => {
+    const weekStart = weekStartFor(locale)
+    return {
+      weekStart,
+      tone: weekendTone(locale),
+      // 2024-01-07 is Sunday; shift the anchor to the locale's first day.
+      monthWeekdayLabels: Array.from({ length: 7 }, (_, i) =>
         new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(
-          new Date(Date.UTC(2024, 0, 1 + i)),
+          new Date(Date.UTC(2024, 0, 7 + weekStart + i)),
         ),
       ) as [string, string, string, string, string, string, string],
-    [locale],
-  )
+    }
+  }, [locale])
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date): string {
     // R1-1 — any move spends the held tap. A month-cell tap re-arms it right
@@ -560,6 +569,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             selectedDateIso={shownDayIso}
             todayIso={ymdInJst(today)}
             weekdayLabels={monthWeekdayLabels}
+            weekStart={weekStart}
+            tone={tone}
             // ⚖ PKT-2b — 新規, for every business type (Liam 2026-09-15
             // 20:2x). One home: the slot is read off the switch registry,
             // never spelled per call site — the same import the day/week
@@ -882,6 +893,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // page and the tapped day becomes its selection.
         onPickDay={(date) => navigateTo(view, date)}
         weekdayLabels={monthWeekdayLabels}
+        weekStart={weekStart}
+        tone={tone}
         // ⚖ §v11b — in 月 mode the chip opens on the twelve month chips, never
         // a day grid over a day grid (the two calendars looked identical, which
         // is what started this whole round). 日/週 are unchanged.
@@ -1056,6 +1069,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                   todayIso={ymdInJst(today)}
                   locale={props.locale}
                   weekdayLabels={monthWeekdayLabels}
+                  weekStart={weekStart}
+                  tone={tone}
                   businessHours={props.businessHours}
                   side={side}
                 />

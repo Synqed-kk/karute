@@ -16,6 +16,7 @@
  * session status hides the chip — which is why the parity below reads
  * `isFirstTimeVisit` (the tag) and the afternoon case is pinned separately.
  */
+import { weekStartFor } from '@/lib/date/week-start'
 import type { Appointment } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CachedCustomerOption } from '@/lib/customers/cached'
@@ -933,7 +934,7 @@ describe('⚖ R1-3 — the web door and the facade ship the same month', () => {
    *  and the SAME mapper the facade route uses. */
   function webDoorMonth(known = true) {
     return monthCellsToDTO(
-      appointmentsToMonthCells(WEEK_ROWS, monthStart, monthEnd, MON),
+      appointmentsToMonthCells(WEEK_ROWS, monthStart, monthEnd, MON, undefined, weekStartFor('ja')),
       { newCounts: { byDay: known ? newCountByDay(WEEK_ROWS, inputsForWeek) : new Map(), known } },
     )
   }
@@ -996,7 +997,7 @@ describe('⚖ R1-3 — the web door and the facade ship the same month', () => {
     const withheld = webDoorMonth(false)
     expect(withheld.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
     // …and the default (no `newCounts` at all) is the same withheld posture.
-    const bare = monthCellsToDTO(appointmentsToMonthCells(WEEK_ROWS, monthStart, monthEnd, MON))
+    const bare = monthCellsToDTO(appointmentsToMonthCells(WEEK_ROWS, monthStart, monthEnd, MON, undefined, weekStartFor('ja')))
     expect(bare.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
   })
 })

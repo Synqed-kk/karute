@@ -9,6 +9,9 @@
  * against that same map rather than a per-id hash. An off-roster staff id
  * falls back to 'neutral'.
  */
+import { appointmentsToMonthCells } from '@/lib/adapters/reservation'
+import { computeMonthRange } from '@/lib/date/calendar-range'
+import type { WeekStart } from '@/lib/date/week-start'
 import {
   computeDisplayStatus,
   appointmentsToReservationViews,
@@ -341,5 +344,36 @@ describe('isCancelled (PR① — cancelled ≠ completed)', () => {
       [{ ...base, synqed_status: 'COMPLETED' }], [], now,
     )
     expect(v.isCancelled).toBe(false)
+  })
+})
+
+
+describe('appointmentsToMonthCells — explicit week order', () => {
+  const month = (iso: string, weekStart: WeekStart) => {
+    const selected = new Date(`${iso}T00:00:00+09:00`)
+    const { monthStart, monthEnd } = computeMonthRange(selected)
+    return appointmentsToMonthCells([], monthStart, monthEnd, selected, undefined, weekStart)
+  }
+
+  it.each([
+    [0, '2027-02-28', '2027-04-03'],
+    [1, '2027-03-01', '2027-04-04'],
+  ] as const)('March 2027, weekStart %i: 35 cells from %s to %s', (start, first, last) => {
+    const cells = month('2027-03-01', start)
+    expect(cells).toHaveLength(35)
+    expect(cells[0].id).toBe(first)
+    expect(cells[34].id).toBe(last)
+    expect(cells.filter((cell) => cell.inMonth)).toHaveLength(31)
+  })
+
+  it('November 2026 has zero Sunday-first leading cells and six Monday-first', () => {
+    const sunday = month('2026-11-01', 0)
+    const monday = month('2026-11-01', 1)
+    expect(sunday.findIndex((cell) => cell.inMonth)).toBe(0)
+    expect(sunday[0].id).toBe('2026-11-01')
+    expect(sunday).toHaveLength(35)
+    expect(monday.findIndex((cell) => cell.inMonth)).toBe(6)
+    expect(monday[0].id).toBe('2026-10-26')
+    expect(monday).toHaveLength(42)
   })
 })
