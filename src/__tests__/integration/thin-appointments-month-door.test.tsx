@@ -72,21 +72,25 @@ jest.mock('@synqed-kk/ui', () => ({
   ),
 }))
 
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { createRef } from 'react'
 import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { capacityRowFields, type MonthCell } from '@/lib/adapters/reservation'
 import { monthNewCount } from '@/lib/appointments/metric-menu'
-import { setDataPort } from '@/lib/ports/data-port'
+import { getDataPort, setDataPort } from '@/lib/ports/data-port'
 import { emitRefresh } from '../../../thin/ports/nav.vite'
 import { cacheDto, dtoCache, fetchedAtByPath } from '../../../thin/screens/ScreenBoundary'
 import { rememberMonthNumbers, clearCalendarNumbers } from '../../../thin/data/calendar-numbers-store'
 import * as numbersStore from '../../../thin/data/calendar-numbers-store'
 import * as screenBoundary from '../../../thin/screens/ScreenBoundary'
 import { clearThinActiveStore, setThinActiveStore } from '../../../thin/chrome/store-pref'
-import { setSessionState } from '@/lib/auth/mobile/session-store'
+import { getSessionState, setSessionState } from '@/lib/auth/mobile/session-store'
 import type { Session } from '@supabase/supabase-js'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
+
+const originalDataPort = getDataPort()
+const originalSessionState = getSessionState()
+const originalUrl = window.location.href
 
 const DTO = {
   view: 'day',
@@ -152,6 +156,24 @@ beforeEach(() => {
   fetchedAtByPath.clear()
   window.localStorage.removeItem('karute-active-store')
   history.replaceState({}, '', '/appointments?date=2026-09-14&staff=self')
+  capturedProps = null
+})
+
+afterEach(() => {
+  // Unmount first: cancel the panel's frames and unsubscribe screen listeners
+  // before resetting the singletons those components read.
+  cleanup()
+  jest.restoreAllMocks()
+  jest.useRealTimers()
+  mockPersistCalendarNumbers = undefined
+  setDataPort(originalDataPort)
+  setSessionState({ status: 'signed-out' }) // also clear the last-known session
+  setSessionState(originalSessionState)
+  clearCalendarNumbers()
+  dtoCache.clear()
+  fetchedAtByPath.clear()
+  window.localStorage.removeItem('karute-active-store')
+  history.replaceState({}, '', originalUrl)
   capturedProps = null
 })
 
@@ -303,11 +325,18 @@ it.each(['sign-out', 'refresh'] as const)('loader drops a response after %s with
   mockPersistCalendarNumbers = true
   const { apiFetch } = await mountScreen()
   let settle!: (body: unknown) => void
-  apiFetch.mockResolvedValueOnce({ ok: true, json: () => new Promise((resolve) => { settle = resolve }) } as Response)
+  const readBody = jest.fn(() => new Promise((resolve) => { settle = resolve }))
+  apiFetch.mockResolvedValueOnce({ ok: true, json: readBody } as unknown as Response)
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
   try {
     mountPanel()
-    await act(async () => { await Promise.resolve() })
+    // The neighbours draw on later animation frames even while the response
+    // is pending. Compare all three panes only after that opening work lands;
+    // one promise tick can snapshot one pane and compare it against three.
+    await waitFor(() => {
+      expect(readBody).toHaveBeenCalledTimes(1)
+      expect(screen.getAllByTestId('panel-grid')).toHaveLength(3)
+    })
     const path = apiFetch.mock.calls.at(-1)![0]
     const before = screen.getAllByTestId('panel-grid').map((grid) => grid.textContent)
     expect(screen.getByRole('status')).toHaveTextContent('dateJump.loading')
