@@ -88,6 +88,7 @@ const synqedStaffListByBusiness = unstable_cache(
  * would mint a record just to delete it). The email-only match still
  * self-heals user_id on the existing record (a best-effort patch, not a
  * create), so future lookups hit the O(map) user_id path.
+ * The email fallback only considers a profile of this business.
  */
 export async function lookupSynqedStaffId(
   staffProfileId: string,
@@ -97,7 +98,8 @@ export async function lookupSynqedStaffId(
 
 /** Bearer-safe twin: the caller supplies businessId from its verified token
  *  identity — this path must never touch the cookie session (getBusinessId).
- *  Same lookup + self-heal behavior as the cookie helper above. */
+ *  Same lookup + self-heal behavior as the cookie helper above.
+ *  The email fallback only considers a profile of this business. */
 export async function lookupSynqedStaffIdForBusiness(
   staffProfileId: string,
   businessId: string,
@@ -115,6 +117,7 @@ export async function lookupSynqedStaffIdForBusiness(
     .from('profiles')
     .select('email')
     .eq('id', staffProfileId)
+    .eq('customer_id', businessId)
     .maybeSingle()
   const profileEmail = (
     profile as { email?: string | null } | null
@@ -236,7 +239,7 @@ export async function lookupProfileIdForSynqedStaffId(
  * Translate a Supabase profile id to its synqed-core staff id, creating the
  * synqed record on demand when none exists (booking flow: appointments FK to
  * staff.id, so a record MUST exist before the insert). Throws only if the
- * profile itself doesn't exist — refusing to fall back to the raw profile id
+ * profile itself doesn't exist in this business — refusing to fall back to the raw profile id
  * (which would just hand a bad value to the FK and blow up synqed-core's
  * insert with a cryptic message). Flows that must not create (delete) use
  * lookupSynqedStaffId above instead.
@@ -266,6 +269,7 @@ export async function resolveSynqedStaffIdForBusiness(
     .from('profiles')
     .select('full_name, email')
     .eq('id', staffProfileId)
+    .eq('customer_id', businessId)
     .maybeSingle()
   const typedProfile = profile as
     | { full_name?: string | null; email?: string | null }
