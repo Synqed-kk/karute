@@ -630,13 +630,12 @@ export async function setStoreHoursCore(
   const actingStaffId = deps.actingStaffId
   if (!actingStaffId) return { error: STORE_HOURS_ACTOR_UNRESOLVED }
   try {
-    // A transport failure retains the existing unavailable-before posture.
-    // A returned policy that this app cannot read must block save AND reset,
+    // A failed read or a policy this app cannot read must block save AND reset,
     // including requests from older shells that ignore the DTO's flag.
-    const policy = await synqed.storePolicies.get(storeId).catch(() => null)
+    const policy = await synqed.storePolicies.get(storeId)
     const currentHours = WeeklyHoursSchema.nullable().safeParse(policy?.weekly_hours ?? null)
     if (!currentHours.success) return { error: STORE_HOURS_UNREADABLE }
-    const before = policy ? weekForAudit(currentHours.data) : 'unavailable'
+    const before = weekForAudit(currentHours.data)
     await synqed.storePolicies.set(storeId, {
       weekly_hours: parsed.hours,
       acting_staff_id: actingStaffId,
