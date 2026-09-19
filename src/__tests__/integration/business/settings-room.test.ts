@@ -24,6 +24,7 @@ import { join } from 'node:path'
 import { spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { CALENDAR_TIGHT_RANGE, clampCalendarTight, overrideLevelFor, protectedCapacityOf, warnFaceFor, type RailCell } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { commitNumberField } from '@/business/lib/settings'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import { freePockets } from '@/business/lib/canon-logic/availability'
 import type { BoardLane } from '@/business/lib/today-board'
@@ -563,6 +564,7 @@ describe('⚖ D-15 RULED — 新規のお客様の確保 is ANY positive minutes
     }
     const sceneInput: SceneInput = {
       lanes: [lane],
+      words: RESOURCE_WORDS.other,
       hours: { open: 600, close: 1200 },
       stepMin: 30,
       dur: 60,
@@ -753,6 +755,7 @@ describe('⚖ D-25 — the read goes through readMinutes, and the two accepted s
     }
     const sceneInput: SceneInput = {
       lanes: [lane],
+      words: RESOURCE_WORDS.other,
       hours: { open: 600, close: 1200 },
       stepMin: 30,
       dur: 60,
