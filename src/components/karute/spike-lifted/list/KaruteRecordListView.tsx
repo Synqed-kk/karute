@@ -467,7 +467,8 @@ export function KaruteRecordListView({
       discardedCount !== null &&
       storeTotal !== null &&
       storeDiscardedCount !== null &&
-      total + discardedCount < storeTotal + storeDiscardedCount
+      (total + discardedCount < storeTotal + storeDiscardedCount ||
+        (total + discardedCount === storeTotal + storeDiscardedCount && total !== storeTotal))
     ) {
       rewindToFirstWindow()
     }

@@ -254,6 +254,10 @@ interface Query {
   stores: string[] | null
 }
 
+// ⚖ D-53 (ak)/(al) — a LOCAL structural alias, never an import: this file is
+// frozen and the pair is forwarded, never resolved, here.
+type AskWords = { resourceNoun: string; privateWord: string }
+
 // ⚖ ROOM RULE — A HYPOTHETICAL NEVER NEEDS THE PRIVATE ROOM, and that is what
 // keeps the flat-array cache key complete (see `buildBedTruth`). An offer, a
 // rail probe, `newClientMask` and an unarmed 次回予約 are all advertisements for
@@ -286,6 +290,7 @@ function buildBedTruth(
   lanes: BoardLane[],
   frame: DayFrame,
   liftedId: string | null,
+  words: AskWords,
 ): BedTruth {
   const openMin = frame.openMin
   const closeMin = frame.closeMin
@@ -331,6 +336,7 @@ function buildBedTruth(
       id: q.id,
       currentBed: q.currentBed,
       stores: q.stores,
+      words,
       requiresPrivate: q.requiresPrivate,
       start,
       end,
@@ -551,7 +557,7 @@ function buildBedTruth(
  *  allocator's semantics inherited faithfully — the alternative is a second bed
  *  reader, which is the disease. If a round ever needs the re-derived answer,
  *  it rebuilds the lanes through today-board and hands them in as a world. */
-function excludedWorld(lanes: BoardLane[], frame: DayFrame, hand: Hand | null): BedTruth {
+function excludedWorld(lanes: BoardLane[], frame: DayFrame, hand: Hand | null, words: AskWords): BedTruth {
   if (hand == null || typeof hand.id !== 'string' || hand.id === '') {
     throw new Error('capacity-ledger: worldMinusHand needs the live gesture id — a staged booking is real for every reader')
   }
@@ -559,7 +565,7 @@ function excludedWorld(lanes: BoardLane[], frame: DayFrame, hand: Hand | null): 
     ...l,
     items: l.items.filter((i) => i.caseId !== hand.id && i.key !== `${hand.id}-cleanup`),
   }))
-  return buildBedTruth(lifted, frame, hand.id)
+  return buildBedTruth(lifted, frame, hand.id, words)
 }
 
 /** EXACTLY TWO WORLDS PER FRAME, both eager.
@@ -573,10 +579,11 @@ export function bedTruthViews(
   lanes: BoardLane[],
   frame: DayFrame,
   hand: Hand | null,
+  words: AskWords,
 ): { world: BedTruth; worldMinusHand: BedTruth | null } {
   return Object.freeze({
-    world: buildBedTruth(lanes, frame, null),
-    worldMinusHand: hand === null ? null : excludedWorld(lanes, frame, hand),
+    world: buildBedTruth(lanes, frame, null, words),
+    worldMinusHand: hand === null ? null : excludedWorld(lanes, frame, hand, words),
   })
 }
 

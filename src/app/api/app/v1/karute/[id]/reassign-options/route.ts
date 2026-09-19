@@ -8,7 +8,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
-import { sourceStoreOutOfScope } from '@/lib/auth/store-scope'
+import { sourceStoreOutOfScope } from '@/lib/auth/store-lock'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'

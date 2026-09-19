@@ -15,7 +15,9 @@ import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
 import { staffStoresOverlap } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
+import { actorIsUnassigned } from './store-gate'
 
 export interface StoreScope {
   /** The store_id to filter store-scoped reads by. null = no store filter
@@ -25,8 +27,11 @@ export interface StoreScope {
   /** True when the viewer may see every store (owner / manager / SV). */
   viewAll: boolean
   /** The stores the viewer is RESTRICTED to, or null when unrestricted
-   *  (viewAll, or a floating staff with an empty staff_stores set). A non-null
-   *  array means reads + search MUST stay within it. */
+   *  (viewAll, or a floating staff in a SINGLE-store business). A non-null
+   *  array means reads + search MUST stay within it, and an EMPTY array means
+   *  the viewer reaches NO store — the unassigned verdict (⚖ Liam 2026-09-16).
+   *  There is no separate `unassigned` flag: one truth, read through
+   *  `reachesNoStore` (lib/auth/store-gate.ts), so the two can never drift. */
   allowedStoreIds: string[] | null
   /** True when a non-viewAll actor's staff_stores assignment LOOKUP FAILED —
    *  never a genuine empty assignment (⚖ Liam 2026-08-17, F-A). An auth id the
@@ -91,6 +96,17 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
   const degraded = lookup === null
   const allowed = lookup ?? []
   if (allowed.length === 0) {
+    // ⚖ Liam 2026-09-16 — THE FLIP. A GENUINE empty assignment in a business
+    // with ≥2 stores is no longer "works in every store": it is a staff member
+    // nobody has placed yet, and they reach NO store until a manager assigns
+    // one. The verdict comes from the gate's ONE resolution — the same memo the
+    // capability seam and the app shell's front gate read, so the three can
+    // never disagree, and the extra store-count call happens at most once per
+    // request and ONLY on this branch. A DEGRADED lookup is excluded here as
+    // well as inside the verdict: unknown is never unassigned.
+    if (staffId && !degraded && (await actorIsUnassigned(staffId))) {
+      return { storeId: null, viewAll: false, allowedStoreIds: [], degraded: false }
+    }
     // Floating staff (assigned to no specific store) = works in every store,
     // per the staff_stores convention. Same unset-cookie default as above.
     return {
@@ -154,56 +170,6 @@ export async function viewerScopeForActs(): Promise<readonly string[] | null> {
  * ever appears: it doesn't — that combination is a clamp the caller could not
  * name.
  */
-/**
- * Does a store-scoped RECORD (its own `store_id`, not a roster the actor is
- * picking from) fall outside the actor's clamp? Same predicate class as
- * customerLensFor/menuStoresForScope above — pure, no I/O. Born as karute
- * reassign's R3-1 source-store clamp (src/actions/karute.ts,
- * PACKET-F4-FIXROUND3-2026-09-02.md): a clamped actor must be refused a
- * WRITE (or a roster/picker) keyed off a record that itself sits in a store
- * they're not assigned to, independent of whatever destination the caller
- * supplied. Reused by that reassign core + roster AND the reassign-options
- * facade route (both need the identical refusal).
- *
- *   - `viewAll: true`          → false (never clamped). ponytail: dead in
- *     practice — every caller's scope already carries `allowedStoreIds:
- *     null` whenever `viewAll` is true (resolveStoreScope's own contract;
- *     callers that hand-build the scope object, e.g. the facade route,
- *     preserve it), so the `!allowedStoreIds` arm below already returns
- *     false first. Kept anyway as an invariant backstop — same house
- *     pattern as customerLensFor's dead `null` arm just above: if that
- *     pairing ever broke, this is the line that keeps a viewAll actor from
- *     being wrongly clamped.
- *   - `allowedStoreIds: null`  → false — floating actor, unclamped.
- *   - `record.store_id: null`  → true — R5-1 (Greptile #759 round-2
- *     adjudication, 2026-08-23): a clamped actor's OWN membership in a
- *     legacy unlabeled record is unprovable, so the write/roster proof
- *     fails closed on it. This is deliberately STRICTER than the read
- *     plane: resolveKaruteStoreId's appointment clamp (also in
- *     src/actions/karute.ts) keeps null-store records unclamped for
- *     reads — the 全店舗/null-store convention still holds there. The
- *     write plane is allowed to be narrower than the read plane
- *     (established precedent: the menus write clamp, `records.delete` not
- *     being universal) and no ⚖ ruling requires clamped staff to be able
- *     to reassign an unlabeled record — every DEFAULT `records.reassign`
- *     holder (owner/manager/senior presets) also holds `stores.viewAll`,
- *     so this arm only bites custom-granted clamped staff.
- *   - otherwise                → true iff the record's store isn't in
- *     `allowedStoreIds`.
- *
- * A `degraded` scope is NOT handled here — every caller refuses on
- * `degraded` before ever reaching this predicate, so it takes only the two
- * fields it needs.
- */
-export function sourceStoreOutOfScope(
-  record: { store_id: string | null },
-  scope: { viewAll: boolean; allowedStoreIds: string[] | null },
-): boolean {
-  if (scope.viewAll) return false
-  if (!scope.allowedStoreIds) return false // floating — unclamped
-  return record.store_id === null || !scope.allowedStoreIds.includes(record.store_id)
-}
-
 export function customerLensFor(scope: {
   storeId: string | null
   allowedStoreIds: string[] | null
@@ -295,7 +261,7 @@ export interface StaffStoreAssignment {
 
 // One cached fetch per business: the full staff→stores assignment map.
 // staffStores has no bulk read, so this fans out one get() per staff — bounded
-// by the roster (≤200) and amortized by the day-long cache. Every staff or
+// by the roster and amortized by the day-long cache. Every staff or
 // assignment mutation (src/actions/staff.ts, setStaffStores) already bumps the
 // 'staff-list' tag, invalidating this alongside the roster caches.
 const staffStoreAssignmentsByBusiness = unstable_cache(
@@ -307,7 +273,11 @@ const staffStoreAssignmentsByBusiness = unstable_cache(
     // client out of graphs (and tests) that never reach this path.
     const { SynqedClient } = await import('@synqed-kk/client')
     const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    const { staff } = await client.staff.list({ page_size: 200 })
+    // ⚖ R1-7 (E33, the 201st): paged to exhaustion. One page of 200 left staff
+    // 201+ with no assignment row at all, and the picker's `!a` arm then kept
+    // every one of them in EVERY store — the same fail-open R1-5 closes for the
+    // divisor, arriving by a second route.
+    const staff = await listAllCoreStaff(client.staff)
     return Promise.all(
       staff.map(async (s) => ({
         id: s.id,
@@ -359,6 +329,76 @@ export function filterStaffIdsToStore(
 }
 
 /**
+ * ⚖ R1-5 — THE DIVISOR'S roster, and it fails CLOSED where the picker above
+ * fails open.
+ *
+ * `filterStaffIdsToStore` keeps a member it cannot LINK to any assignment row
+ * (`!a`) in every store's set. That is the right posture for a picker — its
+ * own docblock says so, and the read-side clamps stay authoritative there —
+ * but this same set became a capacity divisor, and an unlinkable member then
+ * counted as a full lane at every branch simultaneously. A two-store business
+ * whose 担当 rows were never written for the other branch divided 銀座's booked
+ * minutes by EIGHT lanes instead of four: half the real occupancy, roughly
+ * double the 空き.
+ *
+ * So the divisor takes the strict subset:
+ *   - assigned to this store (an assignment row naming it), or
+ *   - explicitly floating (a row with an EMPTY store_ids — the documented
+ *     works-in-every-store convention, a DECLARATION, not an absence).
+ * A member with no assignment row at all is "we could not place this person",
+ * which is never a lane in anyone's denominator.
+ *
+ * The picker keeps its own set, unchanged. Same roster, two questions, and
+ * only one of them is allowed to guess.
+ */
+export function rosterForStore(
+  staff: ReadonlyArray<{ id: string; email?: string | null }>,
+  assignments: StaffStoreAssignment[],
+  storeId: string,
+): Set<string> {
+  const bySynqedId = new Map(assignments.map((a) => [a.id, a]))
+  const byUserId = new Map(
+    assignments.filter((a) => a.user_id).map((a) => [a.user_id as string, a]),
+  )
+  const byEmail = new Map(
+    assignments.filter((a) => a.email).map((a) => [a.email as string, a]),
+  )
+  const kept = new Set<string>()
+  for (const m of staff) {
+    const a =
+      bySynqedId.get(m.id) ??
+      byUserId.get(m.id) ??
+      (m.email ? byEmail.get(m.email.toLowerCase()) : undefined)
+    if (!a) continue
+    if (a.store_ids.length === 0 || a.store_ids.includes(storeId)) kept.add(m.id)
+  }
+  return kept
+}
+
+/**
+ * The store's booking roster for the CAPACITY divisor — the async twin of
+ * `rosterForStore`, shaped like `storeStaffIdSetForBusiness` so both doors can
+ * call it with the businessId they already hold.
+ *
+ * null = no store to ask, or the assignment read failed. The divisor reads that
+ * as "we do not know this store's roster" and hands out NO capacity (C1 §5 /
+ * C3 E28) — never the business roster.
+ */
+export async function storeDivisorRosterForBusiness(
+  staff: ReadonlyArray<{ id: string; email?: string | null }>,
+  storeId: string | null,
+  businessId: string,
+): Promise<Set<string> | null> {
+  if (!storeId) return null
+  try {
+    const assignments = await staffStoreAssignmentsByBusiness(businessId)
+    return rosterForStore(staff, assignments, storeId)
+  } catch {
+    return null
+  }
+}
+
+/**
  * The ids from `staff` that may appear in the active store's 担当 pickers, or
  * null when no filtering applies (no store lens, or the assignment fetch is
  * unavailable) — callers treat null as "show the full list" (fail open, see
@@ -405,6 +445,13 @@ export async function storeStaffIdSetForBusiness(
  * (a staff missing from their own drawer/settings list is broken). Unclamped
  * viewers (stores.viewAll, or a floating staff with an empty assignment —
  * both `allowedStoreIds: null`) keep the full roster, unchanged.
+ *
+ * ⚠ The unclamped test is an IDENTITY check (`=== null`), NOT `.length` — this
+ * is the one derived helper that does not get the "`[]` is truthy" answer for
+ * free, and a `.length` test reads an EMPTY allow-list as "unclamped" and ships
+ * every branch's names + emails (census §5, the roster leak). A clamped viewer
+ * who reaches NO store falls through to the union below, which over an empty
+ * store list is just themselves — honest, and never the other store's people.
  */
 export async function viewerStaffRosterForBusiness<
   T extends { id: string; email?: string | null },
@@ -414,7 +461,7 @@ export async function viewerStaffRosterForBusiness<
   selfId: string | null,
   businessId: string,
 ): Promise<T[]> {
-  if (!allowedStoreIds?.length) return [...staff]
+  if (allowedStoreIds === null) return [...staff]
   const sets = await Promise.all(
     allowedStoreIds.map((storeId) =>
       storeStaffIdSetForBusiness(staff, storeId, businessId),
@@ -432,7 +479,7 @@ export async function viewerStaffRoster<
 >(staff: readonly T[], selfId: string | null): Promise<T[]> {
   try {
     const { allowedStoreIds } = await resolveStoreScope()
-    if (!allowedStoreIds?.length) return [...staff]
+    if (allowedStoreIds === null) return [...staff]
     return await viewerStaffRosterForBusiness(
       staff,
       allowedStoreIds,
@@ -441,5 +488,39 @@ export async function viewerStaffRoster<
     )
   } catch {
     return [...staff]
+  }
+}
+
+/**
+ * Does the SIGNED-IN viewer reach no store? The cookie-path FRONT GATE
+ * ((app)/layout.tsx) asks this before it starts any data read, so the honest
+ * 担当店舗が未設定です screen replaces the whole app shell rather than a set of
+ * empty pages inside it.
+ *
+ * Shares actorIsUnassigned's per-request memo with the capability seam, so the
+ * layout and every downstream `can()` resolve it exactly once. Lives here
+ * rather than in store-gate.ts because only this file knows how to resolve the
+ * COOKIE session's staff id.
+ */
+export async function viewerIsUnassigned(): Promise<boolean> {
+  try {
+    const staffId = await getCurrentUserStaffId()
+    if (!staffId) return false
+    // ⚠ THE FRONT GATE READS THE VERDICT ITSELF — it does NOT test the
+    // capability set first. That short-circuit was here as a performance win,
+    // and it made Layer 2 inherit Layer 1's correctness instead of standing
+    // beside it: remove the capability-emptying line and BOTH front gates
+    // silently stopped firing (fresh-eyes M2/F4, 2026-09-16). What IS still
+    // read first is `stores.viewAll` — a cross-store role's assignment is never
+    // consulted by ANY layer, so skipping it here is the same rule the verdict
+    // itself applies, not a shortcut through a sibling layer.
+    if ((await getMyCapabilities()).has('stores.viewAll')) return false
+    return await actorIsUnassigned(staffId)
+  } catch {
+    // The gate must never take the app shell down. A thrown identity or
+    // capability read is UNKNOWN, and unknown is never unassigned — the shell
+    // renders exactly as it does today and the layers beneath it (which each
+    // have their own fail-closed posture) stay in charge.
+    return false
   }
 }

@@ -49,6 +49,7 @@ import { join } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { STORE_A } from '@/business/lib/fixtures'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import {
   bedTruthViews,
   boardOffers,
@@ -164,6 +165,7 @@ function layersOf(
     hi: price.hi,
     hqMin: props.dialogs.pricing.hqMin,
     depth,
+    words: ASK_A,
     reconcile: reconciled ? { claims, cleanupMinutesByBed: props.bedCleanupMinutes } : undefined,
   })
   return { sell, gap, claims }
@@ -171,7 +173,7 @@ function layersOf(
 
 const truthOn = (lanes: BoardLane[], hours: Hours, nowMin: number): BedTruth => {
   const frame: DayFrame = { openMin: hours.open, closeMin: hours.close, nowMin }
-  return bedTruthViews(lanes, frame, null).world
+  return bedTruthViews(lanes, frame, null, ASK_A).world
 }
 
 /** THE ASSERTION, assembled the one way: the FINAL cells of both layers, read
@@ -228,7 +230,10 @@ function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): Boar
   }
 }
 
-const SELL_OPTS = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
+const SELL_OPTS = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9, words: ASK_A }
 
 /** A スキマ枠-shaped promise on one room, as `gapLayerFor` emits them: a staff
  *  row copy and a bed row copy of the same box. */
@@ -1246,7 +1251,7 @@ describe('§7 — the cost, on real timers', () => {
         guard: REAL.guard.config,
       })
       const claims = [...gap.packed, ...gap.scraps]
-      const base = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth }
+      const base = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, words: ASK_A }
       const bare = sellLayerFor(lanes, HOURS, base)
       const layer = sellLayerFor(lanes, HOURS, { ...base, reconcile: rec(claims) })
       // WHAT THE RECONCILIATION ACTUALLY DID on this board — the number that

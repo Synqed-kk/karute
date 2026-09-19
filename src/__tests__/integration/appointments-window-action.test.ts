@@ -37,8 +37,11 @@ jest.mock('@/lib/synqed/client', () => {
   const appointments = { list: jest.fn() }
   const staff = { list: jest.fn() }
   const storePolicies = { get: jest.fn(), listClosedDays: jest.fn() }
+  // The store's own row — read for its vertical (class-bound or not), and
+  // degraded-allowed, so the default double answers an empty row.
+  const stores = { get: jest.fn(async () => ({})) }
   return {
-    getSynqedClient: jest.fn(async () => ({ appointments, staff, storePolicies })),
+    getSynqedClient: jest.fn(async () => ({ appointments, staff, storePolicies, stores })),
   }
 })
 
@@ -56,6 +59,7 @@ type Spies = {
   staffList: jest.Mock
   policyGet: jest.Mock
   closedDays: jest.Mock
+  storeGet: jest.Mock
 }
 
 async function spies(): Promise<Spies> {
@@ -63,12 +67,14 @@ async function spies(): Promise<Spies> {
     appointments: { list: jest.Mock }
     staff: { list: jest.Mock }
     storePolicies: { get: jest.Mock; listClosedDays: jest.Mock }
+    stores: { get: jest.Mock }
   }
   return {
     list: client.appointments.list,
     staffList: client.staff.list,
     policyGet: client.storePolicies.get,
     closedDays: client.storePolicies.listClosedDays,
+    storeGet: client.stores.get,
   }
 }
 
@@ -98,7 +104,10 @@ beforeEach(async () => {
   })
   s.policyGet.mockResolvedValue({ weekly_hours: { tue: { open: '10:00', close: '20:00' } } })
   s.closedDays.mockResolvedValue({ closed_days: [] })
-  ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: GINZA })
+  ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+    storeId: GINZA,
+    allowedStoreIds: [GINZA],
+  })
   ;(getCurrentUserStaffId as jest.Mock).mockResolvedValue(VIEWER_PROFILE)
   ;(getOrgSettings as jest.Mock).mockResolvedValue({
     operating_hours: null,
@@ -117,7 +126,10 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
   })
 
   it('a caller-named store cannot reach the read — only the clamp can', async () => {
-    ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: 'store-daikanyama' })
+    ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+      storeId: 'store-daikanyama',
+      allowedStoreIds: ['store-daikanyama'],
+    })
     await getAppointmentWindow(FROM, TO, 'all')
     const s = await spies()
     expect(s.list).toHaveBeenCalledWith(
@@ -126,7 +138,10 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
   })
 
   it('no store to name: no policy read at all, and the hours fall to the org blob', async () => {
-    ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: null })
+    ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+      storeId: null,
+      allowedStoreIds: null,
+    })
     const win = await getAppointmentWindow(FROM, TO, 'all')
     const s = await spies()
     expect(s.policyGet).not.toHaveBeenCalled()
@@ -140,6 +155,9 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
       openMinute: 600,
       closeMinute: 1440,
       saved: false,
+      // The 10:00–24:00 fallback nobody set — provenance, not just a boolean
+      // (S1): 'default' is the one source the capacity model may never divide.
+      source: 'default',
       closed: false,
     })
   })
@@ -154,6 +172,14 @@ describe('getAppointmentWindow — a filter it cannot place reads ZERO, never ev
     expect(win.noShow).toEqual([])
     expect(win.truncated).toBe(false)
     expect(s.list).not.toHaveBeenCalled()
+    // ⚖ R1-9: and it SAYS the window is empty by construction, so the screen
+    // does not read those zero rows as a real day and divide them by one lane.
+    expect(win.staffFilterUnknown).toBe(true)
+  })
+
+  it('a window it CAN place is not flagged — the flag is about the filter, not the emptiness', async () => {
+    const win = await getAppointmentWindow(FROM, TO, COLLEAGUE_PROFILE)
+    expect(win.staffFilterUnknown).toBe(false)
   })
 
   it('a placeable colleague id still filters at the fetch', async () => {
@@ -181,8 +207,11 @@ describe("getAppointmentWindow — 'self' is the SERVER's answer, never the call
   })
 
   it('takes no viewer-id argument at all, and ignores one if a caller POSTs it', async () => {
-    // 'use server' makes this an endpoint: a 4th argument is exactly what an
-    // attacker would send to read a colleague's 自分 week.
+    // 'use server' makes this an endpoint: an extra argument is exactly what
+    // an attacker would send to read a colleague's 自分 week. The action's
+    // only optional argument is `withHours`, a boolean that decides whether to
+    // ask about opening hours — it can never name an identity, and the three
+    // REQUIRED arguments are still the three that were always there.
     expect(getAppointmentWindow).toHaveLength(3)
     await (getAppointmentWindow as unknown as (...a: unknown[]) => Promise<unknown>)(
       FROM,
@@ -213,5 +242,52 @@ describe('getAppointmentWindow — a failed read is an ERROR, never a calm empty
     const s = await spies()
     s.policyGet.mockRejectedValue(new Error('core 503'))
     await expect(getAppointmentWindow(FROM, TO, 'all')).rejects.toThrow('core 503')
+  })
+})
+
+describe('⚖ G2 — a degraded store row is reported, never silently absorbed (Greptile round 1 #934)', () => {
+  it('stores.get rejects → storeRowDegraded true, never null-shaped like "no store id"', async () => {
+    const s = await spies()
+    s.storeGet.mockRejectedValueOnce(new Error('core 503'))
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    expect(win.storeRowDegraded).toBe(true)
+  })
+
+  it('a successfully-read store row (even an empty one) is NOT degraded', async () => {
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    expect(win.storeRowDegraded).toBe(false)
+  })
+})
+
+describe('⚖ S7 — the fetch starts one JST day EARLY (the window-edge leak)', () => {
+  it('asks core from the PREVIOUS JST midnight, while the hours still cover the visible days', async () => {
+    await getAppointmentWindow(FROM, TO, 'all')
+    const s = await spies()
+    // FROM is 2026-09-15 00:00 JST; the read begins at the 14th's midnight so
+    // a booking that started at 23:00 the night before is even returned.
+    expect(s.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: new Date('2026-09-14T00:00:00+09:00').toISOString(),
+        to: TO,
+      }),
+    )
+    // The extra day is for the SPANS only: the hours facts and the 臨時休業
+    // read still describe exactly the days on screen.
+    expect(s.closedDays).toHaveBeenCalledWith(
+      GINZA,
+      expect.objectContaining({ from: '2026-09-15', to: '2026-09-16' }),
+    )
+  })
+
+  it('carries exactly one extra day, never a wider guess', async () => {
+    await getAppointmentWindow(FROM, TO, 'all')
+    const s = await spies()
+    const call = s.list.mock.calls[0][0] as { from: string; to: string }
+    expect(Date.parse(FROM) - Date.parse(call.from)).toBe(86_400_000)
+  })
+
+  it('the hours facts still key only the VISIBLE days', async () => {
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    expect(win.hoursFacts.map(([ymd]) => ymd)).toEqual(['2026-09-15'])
   })
 })

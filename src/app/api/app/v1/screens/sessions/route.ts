@@ -24,11 +24,15 @@ import {
 } from '@/lib/app-api/sessions-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { listSynqedKaruteRowsWithTotalOrThrow } from '@/lib/karute/synqed-records'
+import {
+  listSynqedKaruteRowsWithTotalOrThrow,
+  type KaruteRowsWithTotal,
+} from '@/lib/karute/synqed-records'
 import { loadKaruteWindowRows, type KaruteWindow } from '@/lib/karute/karute-window'
 import { jstStartOfMonth } from '@/lib/date/jst'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
@@ -109,8 +113,17 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       // the first date window of the backward walk, same shared loader the web
       // page and the append action use.
       windowed
-        ? loadKaruteWindowRows(synqed, { storeId: activeStore })
-        : listSynqedKaruteRowsWithTotalOrThrow(synqed, { storeId: activeStore }),
+        ? loadKaruteWindowRows(synqed, { storeId: activeStore, enforceStore: clamped })
+        : // LEGACY (release-17) branch: the shared loader's enforceStore has no
+          // twin on this bare read, so the guard is spelled here — a clamped
+          // caller with no store reaches NO karute (⚖ Liam 2026-09-16).
+          reachesNoStore(clamp)
+          ? Promise.resolve<KaruteRowsWithTotal>({
+              rows: [],
+              total: 0,
+              discardedCount: 0,
+            })
+          : listSynqedKaruteRowsWithTotalOrThrow(synqed, { storeId: activeStore }),
       // 今月 probe (PR-1b): lean page_size:1 read over the JST month window —
       // rows discarded, only .total read. Same failure contract (throws into
       // the 502 catch below — never a swallowed stale count).
@@ -123,12 +136,14 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       // contract (proven in R4/karute-window.test.ts's comment: `total`
       // always excludes discarded, independent of the flag) it changed
       // nothing about `.total` either — dropped.
-      listSynqedKaruteRowsWithTotalOrThrow(synqed, {
-        storeId: activeStore,
-        from: monthStartIso,
-        to: nowIso,
-        page_size: 1,
-      }),
+      reachesNoStore(clamp)
+        ? Promise.resolve({ total: 0 })
+        : listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+            storeId: activeStore,
+            from: monthStartIso,
+            to: nowIso,
+            page_size: 1,
+          }),
       synqed.staff.list({ page_size: 200 }),
     ])
     const synqedKaruteRows = karuteRead.rows
@@ -162,11 +177,13 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
     // staff. Business id comes from the verified token — never the cookie
     // session (storeStaffIdSet's world). Fail-open to full roster mirrors the
     // web page's posture.
-    const storeStaffIds = await storeStaffIdSetForBusiness(
-      staffList,
-      activeStore,
-      ctx.identity.businessId,
-    )
+    const storeStaffIds = reachesNoStore(clamp)
+      ? new Set<string>()
+      : await storeStaffIdSetForBusiness(
+          staffList,
+          activeStore,
+          ctx.identity.businessId,
+        )
 
     screen = buildSessionsListScreen({
       staffList,

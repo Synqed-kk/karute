@@ -195,6 +195,9 @@ export const PATCH = facadeHandler<Params>('customer.update', async (ctx) => {
   // Same customers-class gate as every batch-3 write (review F4): PII edits
   // must never be reachable on a capability-less custom role.
   ensureCapability(ctx.identity.capabilities, 'customers.view')
+  // ⚖ Liam 2026-09-16 — the WRITE tier on top of that read gate; the web twin
+  // had no gate at all. Every shipped preset holds it. NOT a store rule.
+  ensureCapability(ctx.identity.capabilities, 'customers.manage')
   const id = await customerId(ctx)
   const synqed = newSynqedClient(ctx.identity.businessId)
 

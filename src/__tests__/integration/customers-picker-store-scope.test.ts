@@ -40,6 +40,7 @@ const resolveStoreScope = jest.fn()
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: () => resolveStoreScope(),
   storeStaffIdSet: async () => null,
+  storeDivisorRosterForBusiness: async () => null,
   // Pure derivation of the faked scope — the REAL one, since the lens IS what
   // this suite pins.
   customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,

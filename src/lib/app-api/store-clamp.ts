@@ -7,6 +7,8 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { staffStoresOverlap, type Capability } from '@/lib/auth/permissions'
+import { reachesNoStore, storeAssignmentVerdict, storeCountForGate } from '@/lib/auth/store-gate'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { AppApiError } from './errors'
 
 /** SynqedError's HTTP status, duck-typed: a VALUE import of the SDK class
@@ -24,7 +26,10 @@ export interface ClampedStore {
    *  tenant (cross-store viewer, or floating staff). Never null-means-all-tenants. */
   storeId: string | null
   /** The stores the caller is restricted to, or null when unrestricted. A
-   *  non-null array means store-scoped reads MUST stay within it. */
+   *  non-null array means store-scoped reads MUST stay within it, and an EMPTY
+   *  array means the caller reaches NO store — the unassigned verdict (⚖ Liam
+   *  2026-09-16). Read it through `reachesNoStore` (lib/auth/store-gate.ts);
+   *  there is deliberately no second `unassigned` field to drift from it. */
   allowedStoreIds: string[] | null
 }
 
@@ -97,11 +102,23 @@ export async function resolveStoreForRequest(args: {
   //    (actions/stores.ts:486-489); the facade's own caller does the same
   //    (screens/karute/[id]/route.ts:116-117). So both transports key this
   //    lookup on ONE space.
-  //    A caller the roster CANNOT place never reaches this line ON THE
-  //    RECORDING-READ PATH — viewerAllowedStoreIds returns [] first (its guard
-  //    below). The staff-write and export callers DO reach it, and fail closed
-  //    their own way (ensureStaffWriteInScope's roster oracle ·
-  //    resolveExportStoreId's refusal).
+  //    ⚠ A CALLER THE ROSTER CANNOT PLACE READS AS FLOATING HERE, and this
+  //    function cannot tell the difference — core answers `{ store_ids: [] }`
+  //    for an auth id it holds no staff row for (synqed-core
+  //    services/staff-store.service.ts: resolveStaffId → null → `return []`,
+  //    HTTP 200), byte-identical to a genuinely empty assignment. The web twin
+  //    HAS that distinction (resolveStoreScope marks a null staff id
+  //    `degraded`); this one does not, so the placement has to happen OUTSIDE,
+  //    before the caller is handed a scope.
+  //    Who does it: every caller that must fail closed goes through
+  //    resolveWriteStoreScope below (⚖ 2026-09-16) — the recording READS via
+  //    viewerAllowedStoreIds, which softens its refusal to `[]`, and every
+  //    by-id WRITE lock, which lets it throw. Staff-write and export callers
+  //    keep their own older guards (ensureStaffWriteInScope's roster oracle ·
+  //    resolveExportStoreId's refusal). Callers that reach this function
+  //    DIRECTLY are the read/lens routes, unchanged: for them "unplaceable
+  //    reads as floating" is the pre-existing, wider-than-ideal behaviour this
+  //    fold deliberately did not touch.
   let assigned: string[]
   try {
     assigned = (await synqed.staffStores.get(authUserId)).store_ids
@@ -109,10 +126,27 @@ export async function resolveStoreForRequest(args: {
     throw new AppApiError('store_forbidden', 'could not resolve store assignment (fail-closed)')
   }
 
-  // 4. DELIBERATE empty set = floating staff (works in every store) — unrestricted
-  //    within the verified tenant. This is the one legitimate "no clamp" case,
-  //    and it is distinguished from the errored case above by construction.
+  // 4. DELIBERATE empty set. ⚖ Liam 2026-09-16 — THE FLIP, the Bearer twin of
+  //    resolveStoreScope's: in a business with ≥2 stores this is a staff member
+  //    nobody has placed yet, and they reach NO store until a manager assigns
+  //    one. A SINGLE-store business and an unreadable store list both stay
+  //    exactly as they were — floating, unrestricted within the verified tenant
+  //    (storeAssignmentVerdict holds the whole definition). The extra
+  //    stores.list runs ONLY on this branch, so an assigned caller pays nothing.
   if (assigned.length === 0) {
+    // try/catch, not `.catch()`: a client whose stores port cannot even be
+    // called is the same UNKNOWN as a failed call, and the gate must never
+    // read UNKNOWN as "≥2 stores" (storeAssignmentVerdict).
+    let storeCount: number | null = null
+    try {
+      storeCount = storeCountForGate((await synqed.stores.list()).stores)
+    } catch {
+      storeCount = null
+    }
+    const verdict = storeAssignmentVerdict({ viewAll: false, assigned, storeCount })
+    if (verdict === 'unassigned') {
+      return { storeId: null, allowedStoreIds: [] }
+    }
     return { storeId: requestedStoreId, allowedStoreIds: null }
   }
 
@@ -142,33 +176,79 @@ export async function resolveStoreForRequest(args: {
  * fail-closed resolution.
  *
  * ⚠ AN UNPLACEABLE CALLER IS `[]`, NOT "UNRESTRICTED" (fix round 4, blind
- * round 2 F3). Web's twin already fails closed there: store-scope.ts:89-91
- * reads a null staff id as `degraded`, which both web callers map to `[]`. The
- * facade could not, because core answers `{ store_ids: [] }` for an id it holds
- * no rows for — indistinguishable from genuinely floating staff — so an id the
+ * round 2 F3). Web's twin already fails closed there: store-scope.ts reads a
+ * null staff id as `degraded`, which both web callers map to `[]`. The facade
+ * could not, because core answers `{ store_ids: [] }` for an id it holds no
+ * rows for — indistinguishable from genuinely floating staff — so an id the
  * roster cannot place fell through to the floating branch and heard every
- * store. `ensureStaffWriteInScope` below already guards this exact case with
- * the roster oracle; this read guards it with the self id its callers already
- * hold, so no new lookup is charged.
+ * store.
+ *
+ * ⚖ 2026-09-16: that guard now lives in resolveWriteStoreScope below, which
+ * this function simply softens — the by-id write locks let the same refusal
+ * throw. Behaviour here is unchanged byte for byte (`[]` either way); what
+ * changed is that there is one rule instead of two spellings of it.
  */
-export async function viewerAllowedStoreIds(args: {
-  synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
-  authUserId: string
-  capabilities: Set<Capability>
-  /** The caller's RESOLVED roster identity. Null = the roster could not place
-   *  them, which is not "no assignment" — it is "we could not look". */
-  selfStaffId: string | null
-}): Promise<readonly string[] | null> {
-  if (!args.selfStaffId) return []
+export async function viewerAllowedStoreIds(args: WriteScopeArgs): Promise<readonly string[] | null> {
   try {
-    const { allowedStoreIds } = await resolveStoreForRequest({
-      ...args,
-      requestedStoreId: null,
-    })
-    return allowedStoreIds
+    return (await resolveWriteStoreScope(args)).allowedStoreIds
   } catch {
     return []
   }
+}
+
+export interface WriteScopeArgs {
+  synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
+  authUserId: string
+  capabilities: Set<Capability>
+  /** The caller's RESOLVED roster identity — `resolveSelfStaffId(businessId,
+   *  authUserId)` (app-api/customer-facade.ts). Null = the roster could not
+   *  place them, which is NOT "no assignment": it is "we could not look". */
+  selfStaffId: string | null
+}
+
+/**
+ * THE FACADE'S WRITE-SIDE STORE SCOPE (⚖ Liam 2026-09-16, fold round 2) —
+ * roster placement first, then the clamp. Every Bearer door that must FAIL
+ * CLOSED goes through here, and so does the recording read above, which only
+ * softens the same refusal to `[]`. One home, so the two can never disagree
+ * about who counts as placed.
+ *
+ * WHY PLACEMENT HAS TO HAPPEN OUT HERE. synqed-core answers
+ * `{ store_ids: [] }`, HTTP 200, for an auth id it holds no staff row for
+ * (services/staff-store.service.ts: `resolveStaffId` → null → `return []`) —
+ * byte-identical to a genuinely floating staff member. So resolveStoreForRequest
+ * CANNOT tell them apart, and an unplaceable caller would otherwise resolve to
+ * `allowedStoreIds: null` and walk through every store lock as floating, while
+ * the same person on the web transport is refused (resolveStoreScope marks a
+ * null staff id `degraded`).
+ *
+ * ⚠ WHAT IT CATCHES, EXACTLY (⚖ FRESH-EYES-P1B F3 — the earlier claim here was
+ *   wrong and is corrected, not softened). It does NOT catch a staff member removed
+ *   from the roster whose phone still holds a live token: deleteStaff
+ *   (src/actions/staff.ts) removes the synqed-core staff record ONLY — its own doc
+ *   note says so — and the Supabase `profiles` row stays, which is the table
+ *   staffListByBusinessOrThrow / resolveSelfStaffId read (src/lib/staff.ts). That
+ *   person still resolves a staff id, still carries businessId + capabilities, and
+ *   core's `{ store_ids: [] }` still reads as floating.
+ *   What it DOES catch is an auth id with no `profiles` row at all, one whose
+ *   `profiles.customer_id` names another business, or one the roster read filters
+ *   out (`full_name IS NULL` / `full_name ILIKE '_system_%'`). Strictly narrower
+ *   than before, never wider — a real fail-closed narrowing, just not that one.
+ *   FOLLOW-UP QUEUED: roster removal must neutralise the profiles row, or core must
+ *   tell "no staff row" apart from "floating" (a CORE ask).
+ *
+ * `requestedStoreId: null`, always: the ASSIGNMENT is the basis, so a phone-set
+ * store-id header can neither widen nor narrow a lock.
+ *
+ * The refusal reuses the shared write-lock's failed-assignment message and
+ * carries NO `reason: 'store_header'` — the pin is fine, the caller is not, and
+ * the thin shell's stranded-pin self-heal must not act on this one.
+ */
+export async function resolveWriteStoreScope(args: WriteScopeArgs): Promise<ClampedStore> {
+  if (!args.selfStaffId) {
+    throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
+  }
+  return resolveStoreForRequest({ ...args, requestedStoreId: null })
 }
 
 /**
@@ -290,8 +370,20 @@ export async function resolveExportStoreId(args: {
   if (args.capabilities.has('stores.viewAll')) return undefined
 
   // Clamped staff: resolveStoreForRequest's storeId is requested ?? assigned[0]
-  // by construction — always concrete.
-  if (clamp.allowedStoreIds != null) return clamp.storeId ?? clamp.allowedStoreIds[0]
+  // by construction — always concrete, EXCEPT for an actor who reaches no
+  // store, where both halves are empty and `null ?? undefined` = undefined =
+  // the whole business's PII. The web twin (api/export/route.ts) already
+  // refuses this exact case with a 403; this door did not. Highest-severity
+  // finding of the census — REFUSE (⚖ Liam 2026-09-16).
+  if (clamp.allowedStoreIds != null) {
+    if (reachesNoStore(clamp)) {
+      throw new AppApiError(
+        'store_forbidden',
+        'could not resolve your store scope (fail-closed)',
+      )
+    }
+    return clamp.storeId ?? clamp.allowedStoreIds[0]
+  }
 
   // Floating staff: header store already passed tenancy validation above.
   if (clamp.storeId) return clamp.storeId

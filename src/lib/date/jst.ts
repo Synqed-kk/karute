@@ -153,3 +153,32 @@ export function formatCompactDateJst(d: Date, locale: string): string {
   const sep = locale === 'ja' ? '' : ' '
   return `${p.month}/${p.day}${sep}(${wd})`
 }
+
+/** Month title in JST for the 予約 date-jump panel ("2026年9月" / "September
+ *  2026"). Intl, not string concatenation, so the panel's heading follows the
+ *  reader's locale like every other date on the page. */
+export function formatMonthTitleJst(d: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: JST_TZ,
+    year: 'numeric',
+    month: 'long',
+  }).format(d)
+}
+
+/** Year title in JST for the panel's month-jump level ("2026年" / "2026"). */
+export function formatYearTitleJst(d: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: JST_TZ,
+    year: 'numeric',
+  }).format(d)
+}
+
+/** Bare month label in JST for the panel's twelve month chips ("9月" / "Sep").
+ *  JA wants the long form (9月); EN's long form ("September") does not fit a
+ *  4-across chip grid, so EN takes the short one. */
+export function formatMonthChipJst(d: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: JST_TZ,
+    month: locale === 'ja' ? 'long' : 'short',
+  }).format(d)
+}

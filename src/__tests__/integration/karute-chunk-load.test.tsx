@@ -451,6 +451,27 @@ describe('deleted rows reconcile on a healthy refresh (fix round 3)', () => {
     expect(screen.queryByText('幽霊 太郎')).not.toBeInTheDocument()
   })
 
+  it('active → discarded with the same universe total refreshes cached rows', async () => {
+    const view = await appendGhost()
+    loadKaruteWindow.mockResolvedValueOnce({
+      items: [{ ...item('k4', '2026-08-04', '鈴木 一郎'), isDiscarded: true }],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 8,
+      freshDiscardedCount: 1,
+      hasMore: true,
+    })
+
+    // One active record became discarded: active 9→8, discarded 0→1. The
+    // universe remains 9, but a cached active-looking row is no longer safe.
+    await act(async () => {
+      view.rerender(listEl({ total: 8, discardedCount: 1 }))
+    })
+
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+    expect(screen.queryByText('幽霊 太郎')).not.toBeInTheDocument()
+  })
+
   it('an UNCHANGED total leaves the cache alone — no purge, no refetch', async () => {
     const view = await appendGhost()
     await act(async () => {

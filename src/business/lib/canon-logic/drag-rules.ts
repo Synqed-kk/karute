@@ -182,6 +182,9 @@ export interface CheckContext {
   laneLocked: boolean
   /** x → minute, so the shift check can compare against `staffUntil`. */
   minutesOf: (x: number) => number
+  /** ⚖ D-53 (ak)/(al) N2c-2 — the store's own word for the yielded-derived row
+   *  below (Home D); resolved by the caller. */
+  turnoverWord: string
 }
 
 function toMin(hhmm: string): number {
@@ -211,7 +214,8 @@ export function computeChecks(now: { x: number; w: number }, ctx: CheckContext):
       : { ok: true, label: '時間帯の重複なし' },
   )
   if (!conflicts.length && yieldsDerived) {
-    checks.push({ ok: true, label: '空き枠・清掃は確定時に自動再配置（清掃バッファは設定に従う）' })
+    const t = ctx.turnoverWord
+    checks.push({ ok: true, label: `空き枠・${t}は確定時に自動再配置（${t}バッファは設定に従う）` })
   }
   if (ctx.staffUntil) {
     const okUntil = ctx.minutesOf(now.x + now.w) <= toMin(ctx.staffUntil)

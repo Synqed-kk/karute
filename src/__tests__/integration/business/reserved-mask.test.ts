@@ -68,6 +68,7 @@ import { freePockets, type GuardPocketSpan } from '@/business/lib/canon-logic/av
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { opsConfig } from '@/business/lib/fixtures-today'
 import { hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 // ── the store the fixture runs in ───────────────────────────────────────────
 
@@ -75,6 +76,9 @@ const OPEN = 540 // 09:00
 const CLOSE = 1080 // 18:00
 const HOURS: Hours = { open: OPEN, close: CLOSE }
 const FRAME = { openMin: OPEN, closeMin: CLOSE, nowMin: OPEN }
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13); this file never reads a refusal string.
+const ASK_A: Parameters<typeof bedTruthViews>[3] = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
 /** THE STORE'S OWN DIALS, read from the fixture — by the TEST, never by the
  *  module (the module takes every dial as a parameter; spec §2). */
 const SHIPPED_PROTECTED = opsConfig.newClientSessionMin
@@ -227,7 +231,7 @@ function board(spec: BoardSpec): BoardLane[] {
  *  the binding constraint rather than the roster. */
 const SWEEP: BoardSpec = { staff: 8, beds: 3, seed: 4242, perLane: 3 }
 
-const bookOf = (lanes: BoardLane[]): BedTruth => bedTruthViews(lanes, FRAME, null).world
+const bookOf = (lanes: BoardLane[]): BedTruth => bedTruthViews(lanes, FRAME, null, ASK_A).world
 const staffLanesOf = (lanes: BoardLane[]) => lanes.filter((l) => l.group === 'staff' && l.window != null)
 
 /** The mask, for one board at one dial combination. A FRESH book every time —
@@ -1000,7 +1004,7 @@ describe('9 — the hand is lifted from the mask exactly as the rail lifts it', 
         excludeId,
         // The same bed truth the mask is built from — spec §1's one held set.
         protectedWindowFeasible: (l, start, dur) => BOOK.newClientMask(l, dur)(start),
-      }).find((r) => r.laneKey === lane.key)!.cells
+      }, { byLaneKey: {}, generic: RESOURCE_WORDS.other }).find((r) => r.laneKey === lane.key)!.cells
 
     expect(JSON.stringify(railCells(id))).not.toBe(JSON.stringify(railCells(null)))
   })
@@ -1050,7 +1054,7 @@ describe('⚖ ROUND 3 · C — a store with no rooms holds windows on staff time
       }),
     ]
     expect(storeHasBeds(lanes)).toBe(false)
-    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null).world
+    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null, ASK_A).world
     const mask = reservedMaskFor({ lanes, closeMin: BOUNDS.until, nowMin: null, guard: GUARD, gapGuardMode: 'standard', book })
     const engine = createGapGuard({ ...GUARD, mode: 'standard' })
     const protectedMin = GUARD.protectedDurationMin!
@@ -1081,7 +1085,7 @@ describe('⚖ ROUND 3 · C — a store with no rooms holds windows on staff time
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', window: null, stores: ['store-gym'] }),
     ]
     expect(storeHasBeds(lanes, ['store-gym'])).toBe(true)
-    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null).world
+    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null, ASK_A).world
     const mask = reservedMaskFor({ lanes, closeMin: BOUNDS.until, nowMin: null, guard: GUARD, gapGuardMode: 'standard', book })
     const g01 = lanes[0]
     const oracle = startsFor(g01, GUARD, 'standard', bedCtx(book, g01))
@@ -1103,7 +1107,7 @@ describe('⚖ ROUND 3 · C — a store with no rooms holds windows on staff time
     ]
     expect(sharesStore(null, ['store-gym'])).toBe(true)
     expect(storeHasBeds(lanes, null)).toBe(true)
-    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null).world
+    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null, ASK_A).world
     const mask = reservedMaskFor({ lanes, closeMin: BOUNDS.until, nowMin: null, guard: GUARD, gapGuardMode: 'standard', book })
     const printed = mask.find((m) => m.laneKey === 'g-float')
     const withCallback = startsFor(lanes[0], GUARD, 'standard', bedCtx(book, lanes[0]))

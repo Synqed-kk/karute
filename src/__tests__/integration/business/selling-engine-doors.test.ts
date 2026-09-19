@@ -83,9 +83,19 @@ import { STORE_A } from '@/business/lib/fixtures'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged.
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
 
 const HERE = 'src/app/[locale]/(business)/business/today'
 const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
@@ -551,7 +561,7 @@ function priceOf() {
 }
 
 const frameOf = (w: World) => ({ openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open })
-const bookOf = (w: World, lanes: BoardLane[] = w.lanes): BedTruth => bedViewsFor(lanes, frameOf(w), null).world
+const bookOf = (w: World, lanes: BoardLane[] = w.lanes): BedTruth => bedViewsFor(lanes, frameOf(w), null, ASK_A).world
 
 const maskOf = (w: World, c: Combo, book: BedTruth = bookOf(w)): readonly ReservedLaneMask[] =>
   reservedMaskFor({
@@ -611,6 +621,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
     hi: price.hi,
     hqMin: REAL.dialogs.pricing.hqMin,
     depth,
+    words: ASK_A,
     reconcile: { claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => drops.push(d) },
     held,
   })
@@ -657,7 +668,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
  *  by side is pinning two functions of two inputs; one builder makes the claim
  *  structural. `rails` below is unchanged in behaviour and in every argument. */
 function railInputFor(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book: BedTruth = bookOf(w)): RailInput {
-  const views = bedViewsFor(w.lanes, frameOf(w), null)
+  const views = bedViewsFor(w.lanes, frameOf(w), null, ASK_A)
   return {
     open: w.hours.open,
     close: w.hours.close,
@@ -679,7 +690,7 @@ function railInputFor(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book:
 }
 
 function rails(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book: BedTruth = bookOf(w)): GuardRail[] {
-  return guardRailsFor(w.lanes, railInputFor(w, c, kind, book))
+  return guardRailsFor(w.lanes, railInputFor(w, c, kind, book), LANE_WORDS)
 }
 
 const cellKey = (c: RailCell) =>
@@ -836,7 +847,7 @@ describe('1 — the round gate', () => {
       // keeps the netting's cost — candidates × compatible rooms `allocateBed`
       // searches — off the drag path, and an edit that adds a per-frame value
       // here reds this line rather than being measured later by someone else.
-      '[heldCommitted, locked, committedLanes, ledgerFrame],',
+      '[heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk],',
       // …and the netting's input is the CHIP's own lane set: staff rows with a
       // window, minus the locked ones. A locked row sells nothing, so its 枠 may
       // not take a room from one that will; a price-0 row's 枠 IS protected and
@@ -983,7 +994,7 @@ describe('1 — the round gate', () => {
       // built through it would walk the whole day on every pointer frame. `null`
       // for the lift, for the same reason the rail's line passes `null`: a new
       // client is never the card in hand, and these boards hold no hand at all.
-      'return SELLING_ENGINE_LAW ? bedDoor(bookFor(lanes, ledgerFrame, null, FOREIGN_BOOKS), lanes, null) : undefined',
+      'return SELLING_ENGINE_LAW ? bedDoor(bookFor(lanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk), lanes, null) : undefined',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
     }
@@ -1009,8 +1020,8 @@ describe('1 — the round gate', () => {
       expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
       return s
     }
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,'],
       ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
@@ -1133,7 +1144,9 @@ describe('1 — the round gate', () => {
     expect(SRC('held-committed.ts').split('bookOf(').length - 1).toBe(1)
     expect(SRC('held-committed.ts')).toContain('bookOf(mask.lanes, frame, null).world')
     // …and the door it is handed is the screen's one wrapper, not a second one.
-    expect(screen).toContain('bookOf: bedViewsFor,')
+    // ⚖ D-53 (ak)/(al) — DISCLOSED PIN MOVE: the frozen `BookDoor` type stays
+    // 3-arg, so this door is now a closure over the chrome pair (R-6).
+    expect(screen).toContain('bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),')
     const sites: readonly (readonly [string, string])[] = [
       ['committed', 'heldCommittedFor({\n        gateOn: SELLING_ENGINE_LAW,'],
       ['board', 'reservedMaskFor({\n            lanes: boardLanes,'],
@@ -1222,6 +1235,7 @@ function explainOf(
     inHand: false,
     sellDisplayed: true,
     held,
+    words: LANE_WORDS,
   })
   const byLane = new Map((held ?? []).map((m) => [m.laneKey, m.spans]))
   return rs.map((r) => {
@@ -1676,8 +1690,8 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
           for (const r of rail) {
             for (const cell of r.cells) {
               cells += 1
-              const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor)
-              const vAfter = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withDoor)
+              const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor, LANE_WORDS)
+              const vAfter = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withDoor, LANE_WORDS)
               const railK = cellKey(cell)
               const railFull = JSON.stringify(cell)
               if ((vBefore ? cellKey(vBefore) : 'NULL') !== railK) {
@@ -1769,7 +1783,7 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
             const withoutDoor = railInputFor(wv, c, 'raw', book)
             for (const r of rail) {
               for (const cell of r.cells) {
-                const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor)
+                const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor, LANE_WORDS)
                 const railK = cellKey(cell)
                 const visMatch = (vBefore ? cellKey(vBefore) : 'NULL') === railK
                 const fullMatch = JSON.stringify(vBefore) === JSON.stringify(cell)
@@ -1916,7 +1930,7 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
     // the very scene it exists to demonstrate.
     const rail = rails(w, c, 'bed', book).find((r) => r.laneKey === 'p-05')!
     const ne = (input: RailInput) =>
-      rail.cells.filter((cell) => JSON.stringify(guardVerdictAt(w.lanes, 'p-05', cell.start, input)) !== JSON.stringify(cell)).length
+      rail.cells.filter((cell) => JSON.stringify(guardVerdictAt(w.lanes, 'p-05', cell.start, input, LANE_WORDS)) !== JSON.stringify(cell)).length
     const railVsWith = ne(railInputFor(w, c, 'bed', book))
     const railVsWithout = ne(railInputFor(w, c, 'raw', book))
     expect({ cells: rail.cells.length, railVsWith, railVsWithout }).toEqual({ cells: 18, railVsWith: 0, railVsWithout: 2 })
@@ -2067,7 +2081,7 @@ describe('5 — a held window explains itself, and is not explained away', () =>
     const held = maskOf(w, c)
     const seen: SellDrop[] = []
     const { price, depth } = priceOf()
-    const base = { gridMin: c.gridMin, sellSlotMin: REAL.sell.sellSlotMin, nowMinute: w.now, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, held }
+    const base = { gridMin: c.gridMin, sellSlotMin: REAL.sell.sellSlotMin, nowMinute: w.now, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, words: ASK_A, held }
     const withDrops = sellLayerFor(w.lanes, w.hours, {
       ...base,
       reconcile: { claims: door(w, c, held).claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => seen.push(d) },

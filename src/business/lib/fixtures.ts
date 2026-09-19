@@ -34,11 +34,14 @@ export const STORE_B = 'store-test-daikanyama'
  *  is the only capacity. */
 export const STORE_C = 'store-test-shibuya'
 
-export interface FixtureStore { id: string; name: string }
+/** `business_type` — ⚖ D-53 (c) R3 — the play-phase value of core's
+ *  `stores.business_type`; a key of the mirror `businessProfiles`; never a
+ *  fallback to the org-level profile (C4). */
+export interface FixtureStore { id: string; name: string; business_type: string; default_kind_id: string }
 export const stores: FixtureStore[] = [
-  { id: STORE_A, name: 'テスト東京店' },
-  { id: STORE_B, name: 'テスト横浜店' },
-  { id: STORE_C, name: 'テスト渋谷店' },
+  { id: STORE_A, name: 'テスト東京店', business_type: 'chiropractic', default_kind_id: 'k-a' },
+  { id: STORE_B, name: 'テスト横浜店', business_type: 'massage', default_kind_id: 'k-b' },
+  { id: STORE_C, name: 'テスト渋谷店', business_type: 'personal_gym', default_kind_id: 'k-c' },
 ]
 
 /** The business the shell names. One tenant, two stores. */
@@ -111,6 +114,7 @@ export type FixtureBoardState = 'confirmed' | 'attention' | 'hold' | 'noshow'
 export interface FixtureAppointment {
   id: string
   store_id: string | null
+  kind_id?: string
   customer_id: string
   staff_id: string | null
   menu_id: string | null
@@ -151,7 +155,7 @@ export interface FixtureAppointment {
   updated_minute: number | null
 }
 
-export interface FixtureMenu { id: string; store_id: string | null; name: string; price: number; duration_minutes: number }
+export interface FixtureMenu { id: string; store_id: string | null; requires_kind_id: string | null; name: string; price: number; duration_minutes: number }
 export interface FixtureStaff { id: string; full_name: string; email: string | null }
 /** The card/link shape listStaff's clamp resolves against: a real roster mixes
  *  profile ids with synqed card ids, so the fixture keeps that shape honest. */
@@ -305,12 +309,13 @@ export const customers: FixtureCustomer[] = [
 
 /** menu-06 has no store_id: a 全店舗 item, visible in every store. */
 export const menus: FixtureMenu[] = [
-  { id: 'menu-01', store_id: STORE_A, name: 'テスト整体 60分', price: 6600, duration_minutes: 60 },
-  { id: 'menu-02', store_id: STORE_A, name: 'テスト骨盤ケア 90分', price: 12100, duration_minutes: 90 },
-  { id: 'menu-03', store_id: STORE_A, name: 'テストストレッチ 30分', price: 4400, duration_minutes: 30 },
-  { id: 'menu-04', store_id: STORE_B, name: 'テスト深層ケア 120分', price: 14300, duration_minutes: 120 },
-  { id: 'menu-05', store_id: STORE_B, name: 'テストヘッドケア 45分', price: 5500, duration_minutes: 45 },
-  { id: 'menu-06', store_id: null, name: '見本 全店舗メニュー', price: 3300, duration_minutes: 20 },
+  { id: 'menu-01', store_id: STORE_A, requires_kind_id: 'k-a', name: 'テスト整体 60分', price: 6600, duration_minutes: 60 },
+  { id: 'menu-02', store_id: STORE_A, requires_kind_id: 'k-a', name: 'テスト骨盤ケア 90分', price: 12100, duration_minutes: 90 },
+  { id: 'menu-03', store_id: STORE_A, requires_kind_id: 'k-a', name: 'テストストレッチ 30分', price: 4400, duration_minutes: 30 },
+  { id: 'menu-04', store_id: STORE_B, requires_kind_id: 'k-b', name: 'テスト深層ケア 120分', price: 14300, duration_minutes: 120 },
+  { id: 'menu-05', store_id: STORE_B, requires_kind_id: 'k-b', name: 'テストヘッドケア 45分', price: 5500, duration_minutes: 45 },
+  // Shared menus resolve their kind per store later (S3).
+  { id: 'menu-06', store_id: null, requires_kind_id: null, name: '見本 全店舗メニュー', price: 3300, duration_minutes: 20 },
 ]
 
 /** Everyone on this roster has a card and a store (⚖ 8/20 data-truth): a

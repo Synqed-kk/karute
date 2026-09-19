@@ -23,6 +23,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { RecordingJobEnqueueSchema } from '@/lib/app-api/record-schemas'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
@@ -111,6 +112,13 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     capabilities: ctx.identity.capabilities,
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
+
+  // The job's store is the caller's lens; a caller who reaches none would
+  // stamp `store_id: null` on the recording job and on the karute it mints.
+  // REFUSE (⚖ Liam 2026-09-16).
+  if (reachesNoStore(clamp)) {
+    throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
+  }
 
   const payload: RecordingJobPayload = {
     customer_id: parsed.data.customerId,

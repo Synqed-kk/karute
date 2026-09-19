@@ -1,10 +1,12 @@
 // Facade GET /api/app/v1/karute/reveal (PR-1b 検索リビール, karute-tab
 // restructure packet). Web twin of karute-reveal-action.test.ts — same
 // store-scoping rules, mirrored via resolveStoreForRequest instead of the
-// cookie-bound resolveStoreScope. Pins:
+// cookie-bound resolveStoreScope. Pins (⚖ Liam 2026-09-16, P3 cross-branch
+// search — updates pin 2 from the PR-1b original: search used to stay
+// store-scoped for a clamped actor; it no longer does):
 //   1. RBAC: missing customers.view → 403, no reads.
-//   2. Store clamp: a clamped actor's search AND zero-karute check are both
-//      { store_id: THEIR store } — never business-wide.
+//   2. Store clamp: a clamped actor's search is now business-wide too; the
+//      zero-karute check stays { store_id: THEIR store }.
 //   3. viewAll actor → business-wide search, store-scoped zero-karute check.
 //   4. Fail-closed: a clamp with no resolvable store never reaches an
 //      unscoped read.
@@ -84,7 +86,7 @@ describe('GET /api/app/v1/karute/reveal', () => {
     expect(customersList).not.toHaveBeenCalled()
   })
 
-  it('clamped actor → search AND zero-karute check are both store-scoped', async () => {
+  it('clamped actor → search is now business-wide (⚖ P3); zero-karute check stays store-scoped', async () => {
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     customersList.mockResolvedValueOnce({
       customers: [{ id: 'cust-1', name: '田中太郎', karute_number: null, created_at: '2026-01-01T00:00:00.000Z' }],
@@ -93,7 +95,7 @@ describe('GET /api/app/v1/karute/reveal', () => {
     karuteRecordsList.mockResolvedValueOnce({ karute_records: [], total: 0 })
     const res = await GET(req('田中'), route)
     expect(res.status).toBe(200)
-    expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-A' }))
+    expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
     expect(karuteRecordsList).toHaveBeenCalledWith(
       expect.objectContaining({ store_id: 'store-A', customer_id: 'cust-1' }),
     )

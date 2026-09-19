@@ -17,6 +17,7 @@ import { CustomersScreenDTO } from '@/lib/app-api/customers-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
@@ -125,7 +126,9 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
         }),
         // Page parity (page.tsx pickerStaff): clamp the 担当 filter pills to
         // the active store's staff — row 担当 names still resolve business-wide.
-        storeStaffIdSetForBusiness(staffList, clamp.storeId, ctx.identity.businessId),
+        reachesNoStore(clamp)
+          ? Promise.resolve(new Set<string>())
+          : storeStaffIdSetForBusiness(staffList, clamp.storeId, ctx.identity.businessId),
       ])
     const settings = (rawSettings?.settings ?? {}) as { ticket_packs_enabled?: boolean }
     // Page parity (page.tsx): same null-coalescing split — byCustomer stays

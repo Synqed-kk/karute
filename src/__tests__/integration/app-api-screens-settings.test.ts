@@ -189,7 +189,10 @@ describe('GET /api/app/v1/screens/settings', () => {
     mockCapabilities.mockResolvedValue(new Set())
     const res = await GET(req(), route)
     expect(res.status).toBe(403)
-    expect(newSynqedClient).not.toHaveBeenCalled()
+    // ⚖ Liam 2026-09-16: a caller with ZERO capabilities is exactly the shape
+    // the unassigned gate has to inspect, so it charges ONE assignment lookup
+    // at the identity seam. That is auth work — the DATA read below is still
+    // never reached.
     expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
   })
 
@@ -465,7 +468,11 @@ describe('GET /api/app/v1/screens/settings', () => {
     const dto = await dtoOf(res)
     expect(dto.initialStores).toEqual([])
     expect(dto.initialEntitlement).toBeNull()
-    expect(storesList).not.toHaveBeenCalled()
+    // ⚖ Liam 2026-09-16: the clamp now counts the business's stores when the
+    // caller's assignment is EMPTY — that is the unassigned gate's third fact,
+    // and it is what decides between "floating in a one-store salon" and
+    // "nobody has placed this person yet". The DTO is still least-privilege:
+    // no store ROWS and no entitlement ride the response.
     expect(entitlementsGet).not.toHaveBeenCalled()
   })
 

@@ -160,6 +160,11 @@
       "legendMedium": "Medium",
       "legendBusy": "Busy"
     },
+    "dateJump": {
+      "loading": "Loading bookings…",
+      "failed": "Couldn't load bookings. Please try again.",
+      "legendCount": "Number = bookings that day"
+    },
     "weekCard": {
       "today": "Today",
       "bookings": " bookings",
@@ -171,6 +176,33 @@
       "pending": "pending",
       "empty": "No bookings",
       "more": "more"
+    },
+    "weekRows": {
+      "summaryRange": "{from}–{to}",
+      "sep": "·",
+      "count": "Bookings",
+      "utilization": "Utilization",
+      "free": "Free",
+      "bookedTime": "Booked time",
+      "new": "New",
+      "returning": "Returning",
+      "cancelled": "Cancelled",
+      "noShow": "No-show",
+      "lastMonthSamePeriod": "vs same period last month",
+      "unset": "Not set",
+      "closed": "Closed",
+      "countValue": "{n}",
+      "countLine": "{n} bookings",
+      "hours": "{h}h",
+      "minutes": "{m}m",
+      "loading": "Loading bookings…",
+      "failed": "Couldn't load bookings. Please try again.",
+      "rowAria": "{date} — {cells}",
+      "ariaSep": ", ",
+      "ariaLoading": "Loading",
+      "moreRows": "{n} more",
+      "openDay": "Open this day →",
+      "noBookings": "No bookings yet for this day"
     },
     "status": {
       "booked": "Booked",
@@ -302,7 +334,8 @@
       "toasts": {
         "customerMissing": "Pick a customer",
         "invalidDuration": "Invalid duration",
-        "invalidDateTime": "Invalid date or time"
+        "invalidDateTime": "Invalid date or time",
+        "storeScopeUnverified": "We could not verify your assigned store. Please try again later."
       }
     },
     "toasts": {
@@ -878,6 +911,11 @@
     "title": "Customers",
     "newCustomer": "+ New customer",
     "unknownName": "Unknown",
+    "otherStoreChip": "Other store",
+    "otherStoreSection": "Other store customers",
+    "otherStoreUnknownChip": "Store unknown",
+    "karuteNumberUnavailable": "Karute-number search is temporarily unavailable",
+    "remoteMore": "All-store search hit its limit of {n} — keep typing to narrow",
     "deletionBanner": {
       "title": "{name} is deleted — restorable for {days, plural, one {# more day} other {# more days}}",
       "titleToday": "The in-app restore window for {name} ends today",
@@ -1533,6 +1571,8 @@
     "autoSaved": "Karute saved",
     "viewSaved": "View",
     "autosaveFailed": "Auto-save failed. Please save from the review screen.",
+    "saveNotFound": "The karute could not be found.",
+    "storeScopeUnverified": "We could not verify your assigned store. Please try again later.",
     "discard": "Discard",
     "aiSummaryPlaceholder": "AI-generated session summary...",
     "entryTitlePlaceholder": "Entry title...",
@@ -2198,6 +2238,7 @@
     "tableColors": "Table Colors",
     "bookingSync": "Booking Sync",
     "bookingSyncDescription": "Sync with Quick Reserve etc.",
+    "bookingSyncStoreNotReady": "Quick Reserve sync for this store isn't ready yet. We'll let you know as soon as per-store sync is available.",
     "sync": {
       "webOnly": "Reservation sync is managed from the web version's settings",
       "healthy": "Syncing normally",
@@ -2482,7 +2523,8 @@
           "outcome_set": "Recorded session outcome",
           "customer_reassign": "Reassigned karute customer",
           "manual_create": "Manually created karute record",
-          "delete": "Deleted karute record"
+          "delete": "Deleted karute record",
+          "store_write_refused": "Refused a karute change without store authorization"
         },
         "staff": {
           "add": "Added staff",
@@ -2508,6 +2550,7 @@
           "store_hours_reset": "Store hours reset to default",
           "store_hours_update": "Updated store hours",
           "store_update": "Store updated",
+          "store_write_refused": "Refused a setting change without store authorization",
           "sync_config_update": "Booking sync settings changed",
           "sync_run_now": "Ran sync now"
         },
@@ -2529,7 +2572,8 @@
           "no_show": "No-show recorded",
           "restore": "Booking restored",
           "update": "Booking updated",
-          "delete": "Booking deleted"
+          "delete": "Booking deleted",
+          "store_write_refused": "Refused a booking change without store authorization"
         },
         "auth": {
           "pin_lockout": "PIN locked after repeated failures"
@@ -2553,6 +2597,7 @@
           "session_cleanup": "Recording discarded",
           "share": "Shared recording",
           "take_named": "Recording upload address issued (existing session)",
+          "store_write_refused": "Refused discarding a recording without store authorization",
           "take_refused_has_record": "Refused a duplicate link to a saved recording",
           "transcribe": "Transcribed recording",
           "transcribe_failed": "Transcription failed",
@@ -3544,6 +3589,7 @@
     "cap_stores_viewAll": "View all stores",
     "cap_alerts_manage": "Manage alerts",
     "cap_customers_view": "View customers",
+    "cap_customers_manage": "Add & edit customers",
     "cap_bookings_manage": "Manage bookings"
   },
   "staffSelector": {
@@ -3597,5 +3643,12 @@
       "coversMonths": "~{n} mo",
       "atThisPace": "{span} at this pace"
     }
+  },
+  "unassignedStore": {
+    "title": "No store assigned",
+    "body": "This account has not been assigned to a store yet. Please ask your manager to assign one.",
+    "checkAgain": "Check again",
+    "checking": "Checking…",
+    "logout": "Log out"
   }
 }

@@ -57,7 +57,10 @@ jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (cap: string) => requireCapability(cap),
 }))
 jest.mock('@/lib/auth/store-scope', () => ({
-  resolveStoreScope: jest.fn(async () => ({ storeId: 'store-A' })),
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: 'store-A',
+    allowedStoreIds: null,
+  })),
 }))
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => ({}),
@@ -71,7 +74,7 @@ jest.mock('@/lib/app-api/store-clamp', () => ({
       const { AppApiError } = jest.requireActual('@/lib/app-api/errors')
       throw new AppApiError('forbidden', 'store_forbidden')
     }
-    return { storeId: 'store-A' }
+    return { storeId: 'store-A', allowedStoreIds: null }
   }),
 }))
 

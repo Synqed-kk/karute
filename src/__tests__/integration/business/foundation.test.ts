@@ -314,7 +314,7 @@ describe('the fixture data door', () => {
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
       // engine's own default rather than restating the number as a second
       // literal (canon-logic is pure, so nothing about this reaches a door).
-      'src/business/lib/fixtures-today.ts': ['./canon-logic/pricing', './fixtures'],
+      'src/business/lib/fixtures-today.ts': ['./canon-logic/pricing', './fixtures', './resource-words'],
       'src/business/lib/fixtures-reservations.ts': [],
       'src/business/lib/fixtures-analytics.ts': ['./fixtures'],
       // 売上分析's derivations. It reads the board's OWN predicates
@@ -441,6 +441,10 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/fixtures-today',
+        // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: the ONE runtime-reader module
+        // under today/. `resourceWordsFor`/`chromeWords` live here and
+        // nowhere else in this directory (the resource-words census's C5 pin).
+        '@/business/lib/resource-words',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
@@ -521,6 +525,11 @@ describe('the fixture data door', () => {
         // 保護ルール chip and nothing else. It is a string builder with no
         // imports of its own, so this arrow adds no module to the graph below
         // it.
+        // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: a TYPE-only import of
+        // `ResourceWords`, so this screen can type the four new props without
+        // ever calling `resourceWordsFor` itself (the C5 pin: page.tsx is the
+        // ONLY runtime caller under today/).
+        '@/business/lib/resource-words',
         '@/business/lib/settings-link',
         // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY: the accepted mock's own
         // `makeSpring`, ported rather than re-invented and PURE of React and the
@@ -784,6 +793,9 @@ describe('the fixture data door', () => {
       // owns a value for — its own inventory is `./fixtures` and nothing else,
       // because a plane that imported a derivation could restate a fact.
       'src/business/lib/fixtures-settings.ts': ['./fixtures'],
+      // ⚖ D-53 (c) R4, P15 — the words home, beside the mirror. Its whole
+      // import inventory is the mirror it reads types and values from.
+      'src/business/lib/resource-words.ts': ['./fixtures-settings'],
       // The rules are PURE, and the empty inventory is the pin on that: the gate,
       // the clamps and the refusal table decide things about values they are
       // handed, never values they fetch.
@@ -814,6 +826,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
+        '@/business/lib/resource-words',
         '@/business/lib/settings',
       ],
       // ⚖ S17 fix round 1 · F15 (D-20) — THE ROOM'S ONE 詳しく DISCLOSURE, in its
@@ -853,6 +866,9 @@ describe('the fixture data door', () => {
         './Collapse',
         './store-policy-seam',
         '@/business/lib/canon-logic/pricing',
+        // ⚖ D-53 (u)/(n2b2) — `RESOURCE_WORDS.other`, the generic row this
+        // room hands `guardVerdictAt` until N3 gives it the store's own row.
+        '@/business/lib/resource-words',
         // ⚠ D-36 (⚖ S17 fix round 4 · M4) — THE ROOM'S OWN RULES FILE, for the
         // one rule this section shares with the other twenty-two: what a number
         // field does with an empty box. Both used to answer the guardrail's LOW
@@ -888,6 +904,9 @@ describe('the fixture data door', () => {
         '@/business/lib/canon-logic/pricing',
         '@/business/lib/clock',
         '@/business/lib/data',
+        '@/business/lib/fixtures-today',
+        // ⚖ D-53 (u)/(n2b2) — same reason as StorePolicySection.tsx, above.
+        '@/business/lib/resource-words',
         '@/business/lib/today-board',
       ],
       // ⚠ THE SEAM'S EMPTY INVENTORY IS THE FENCE, MADE MACHINE-READABLE: the one
@@ -998,6 +1017,10 @@ describe('the fixture data door', () => {
       ],
       'src/app/[locale]/(business)/business/recording/loading.tsx': ['@/business/i18n'],
     }
+    // P15 — a presence assertion, not just a value pin: without it, deleting
+    // the entry above would leave that file invisible to this test rather
+    // than red (m5).
+    expect(Object.keys(INVENTORY)).toContain('src/business/lib/resource-words.ts')
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
         .split('\n')

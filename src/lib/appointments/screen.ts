@@ -7,7 +7,7 @@
 // the page, Bearer fan-out in the facade route), so this can never re-fetch
 // or diverge between the two.
 
-import type { DayWeekMonthView, MonthGridCell } from '@synqed-kk/ui'
+import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { Appointment } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { OrgSettings } from '@/actions/org-settings'
@@ -20,18 +20,32 @@ import { staffRoleLabel } from '@/lib/staff/role-label'
 import {
   appointmentsToWeekData,
   appointmentsToMonthCells,
+  appointmentsToMonthFacts,
+  type MonthCell,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
-import type { AppointmentWindow } from '@/lib/appointments/by-date'
+import { countedClientIds, type AppointmentWindow } from '@/lib/appointments/by-date'
+import { isTerminalStatus } from '@/lib/appointments/status'
+import { monthCompareDeltaFrom, monthCompareWindow } from '@/lib/appointments/month-compare'
 import type { DayHoursFact } from '@/lib/operating-hours'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
-import { isReturningCustomer } from '@/lib/customers/status-signals'
-import { firstVisitFromBooking } from '@/lib/customers/first-visit'
+import {
+  isNewCustomerForDay,
+  newCountByDay,
+  titleVerdictByClient,
+  type NewCustomerInputs,
+} from '@/lib/appointments/first-visit'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
 import { jstMidnight } from '@/lib/date/calendar-range'
+import { isClassBoundBusinessType } from '@/lib/welcome/business-types'
+import type { CapacityFact, LaneKind } from '@/lib/capacity/capacity'
 import type { computeWeekRange, computeMonthRange } from '@/lib/date/calendar-range'
+
+/** ⚖ R1-2 — the withheld answer, shared so every surface of a screen whose
+ *  history read failed reads the same empty map rather than its own. */
+const EMPTY_NEW_COUNTS: ReadonlyMap<string, number> = new Map()
 
 export function parseDateParam(value: string | undefined): Date {
   // Interpret the ?date= YYYY-MM-DD as a JST calendar day. Vercel runs in
@@ -79,6 +93,18 @@ export interface AppointmentsScreenInputs {
   activeStaffId: string | null
   /** Active store's staff-id lens (null = no filtering / fail open). */
   storeStaffIds: Set<string> | null
+  /** ⚖ R1-5 — the store's booking roster for the CAPACITY DIVISOR, from
+   *  `rosterForStore`: assigned to this store or explicitly floating, and
+   *  NEVER a member no assignment row could place. Same roster as the lens
+   *  above, opposite posture, because they answer different questions: a
+   *  picker may be generous, a denominator may not. null = no store to ask or
+   *  the assignment read failed → no capacity at all. */
+  divisorStaffIds?: Set<string> | null
+  /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place, so
+   *  the caller shipped an EMPTY window on purpose (resolveFetchStaffId's
+   *  `unknown`). Zero rows is honest about the bookings and a lie about the
+   *  store, so the day gets no capacity rather than one lane at 0 %. */
+  staffFilterUnknown?: boolean
   orgSettings: OrgSettings | null
   customers: CachedCustomerOption[]
   dayAppointments: AppointmentRow[]
@@ -94,10 +120,31 @@ export interface AppointmentsScreenInputs {
   /** The selected day's own window — fetched only in day view; in week/month
    *  view the selected day is already inside the bigger window. */
   dayWindow?: AppointmentWindow | null
+  /** The PREVIOUS month's compared window (monthCompareWindow's range) — read
+   *  only in month view, and only while the 先月同期間比 switch is on. Absent →
+   *  the clause has no number and stays absent. */
+  prevMonthWindow?: AppointmentWindow | null
   /** That day's resolved hours, keyed by JST YYYY-MM-DD (resolveWindowHours). */
   hoursFacts?: ReadonlyMap<string, DayHoursFact>
+  /** THIS STORE's vertical — the per-store column when core carries it, else
+   *  the business-wide setting; both doors resolve it that way. It decides one
+   *  thing only: whether the store is class-bound, where one booking row is
+   *  many people and no percentage is honest at any layer. Absent/null reads
+   *  as not class-bound. */
+  businessType?: string | null
+  /** ⚖ G2 (Greptile round 1 #934) — the store row the caller tried to read
+   *  FAILED (never "there was no store id to read"); `businessType` above
+   *  still fell to the org-wide setting the same way a genuine no-override
+   *  store would, so THIS is the flag that says that fallback is a guess and
+   *  must not decide the store's lane kind. Absent = not degraded. */
+  storeRowDegraded?: boolean
   enrichment: Map<string, CustomerEnrichment>
-  packUsage: ReadonlyMap<string, { remaining: number; size: number }>
+  /** The 回数券 ledger (listAllPackUsage/listAllPackUsageWithClient). `null` =
+   *  the read FAILED (⚖ G2, Greptile round 1 #951) — never "there was no
+   *  ledger", which stays a real empty Map (tickets off, or genuinely nobody
+   *  holds a pack). `newCountKnown` below reads this null the same way it
+   *  reads a missing `enrichment`: withhold, don't guess empty. */
+  packUsage: ReadonlyMap<string, { remaining: number; size: number }> | null
 }
 
 export interface AppointmentsScreen {
@@ -134,8 +181,31 @@ export interface AppointmentsScreen {
   businessHours: { start: number; end: number }
   weekData: WeekDayRowData[] | null
   weekStartIso: string | null
-  monthData: MonthGridCell[] | null
+  monthData: MonthCell[] | null
+  /** The month's capacity facts, keyed by the cell's own id (JST YYYY-MM-DD),
+   *  beside the cells rather than inside them: MonthGridCell is the package's
+   *  type and cannot grow app fields. Built from the SAME rows and the same
+   *  counted-row predicate as the cells, so a cell's dot and its percentage
+   *  can never describe different days. In-month days only — the padding
+   *  cells render no numbers. */
+  monthFacts: ReadonlyMap<string, CapacityFact> | null
+  /** ⚖ PKT-2 — the month's 新規 count per JST day, keyed by the cell's own id,
+   *  beside the cells for the same reason monthFacts is. From the SAME window
+   *  memo the week rows and the day totals read, so one day cannot come out
+   *  two ways on one screen. Null when the month was not read. */
+  monthNewCounts: ReadonlyMap<string, number> | null
+  /** ⚖ R1-2 — false when the history read behind the 新規 rule did not happen,
+   *  so every 新規 number on this screen is 0 and none of them may print. Rides
+   *  beside `monthNewCounts` for the month cells (each week row carries its
+   *  own copy, because rows travel alone through the wire and the metric
+   *  menu). */
+  newCountKnown: boolean
   monthStartIso: string | null
+  /** 先月同期間比 — the displayed month's counted bookings so far MINUS the same
+   *  elapsed span of the previous month. Null = no honest number, so the clause
+   *  is absent (a future month, a truncated read, or no base to compare with);
+   *  see month-compare.ts for the three cases. */
+  monthCompareDelta: number | null
   /** The SELECTED day's row, from the same adapter the week rows come from —
    *  so the day line and the week row can never disagree. Null when no window
    *  covers the selected day, or when the read was truncated. */
@@ -144,6 +214,11 @@ export interface AppointmentsScreen {
    *  dayTotals are ALL null and the surface renders the failed-read state —
    *  never a low number. */
   truncated: boolean
+  /** The salon's `solo_mode` capability, resolved HERE from org settings so
+   *  the view never reads settings itself (the thin door carries no
+   *  orgSettings at all — reading them in the view would hand the phone a
+   *  silent `false` and kill the 未設定 discriminator, spec §8). */
+  soloMode: boolean
 }
 
 /**
@@ -188,6 +263,8 @@ export function buildAppointmentsScreen(
     staffList,
     activeStaffId,
     storeStaffIds,
+    divisorStaffIds,
+    staffFilterUnknown,
     orgSettings,
     customers,
     dayAppointments,
@@ -198,7 +275,10 @@ export function buildAppointmentsScreen(
     weekWindow,
     monthWindow,
     dayWindow,
+    prevMonthWindow,
     hoursFacts,
+    businessType,
+    storeRowDegraded,
     enrichment,
     packUsage,
   } = input
@@ -264,39 +344,41 @@ export function buildAppointmentsScreen(
       initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
     }))
 
-  // QR "returning customer" flag per client (cached customer list). A known
-  // existing customer is NEVER 新規 — even with no karute/past appointment yet
-  // (QR-migrated regulars who hold 回数券). Without this they all showed 新規.
-  // Cached customer by id — carries the QR returning-signals (visit_count, 回数券).
+  // Cached customer by id — carries the QR returning-signals (the
+  // existing-customer import flag, visit_count, 回数券).
   const cachedById = new Map(customers.map((c) => [c.id, c] as const))
-  // "First-time customer" = NOT returning, via the SAME resolver signal the 顧客
-  // list + profile use (isReturningCustomer). One source of truth → a 回数券 or
-  // visit_count regular is never shown 新規 here while reading 継続中 elsewhere.
-  const isFirstTimeByClient = new Map<string, boolean>()
-  for (const [id, e] of enrichment.entries()) {
-    const cc = cachedById.get(id)
-    isFirstTimeByClient.set(
-      id,
-      !isReturningCustomer({
-        joinDateIso: null,
-        lastVisitIso: null,
-        isExistingCustomer: cc?.isExistingCustomer,
-        visitCount: cc?.visitCount,
-        // QR flag OR a real ticket_packs ledger entry — a manually-registered
-        // pack holder is returning even before QR knows about them.
-        hasTicketPack: (cc?.hasTicketPack ?? false) || packUsage.has(id),
-        karuteCount: e.totalKarute,
-        pastAppointmentCount: e.pastAppointmentCount,
-      }),
-    )
+  // ⚖ R1-1 — the day list's 新規 tag, from THE shared predicate.
+  //
+  // The rule itself has not changed a conjunct: a known existing customer is
+  // never 新規 even with no karute/past appointment yet (QR-migrated regulars —
+  // without that guard they all showed 新規), a 回数券 holder is never 新規, and
+  // the day's course names outrank our inference either way. It MOVED, into
+  // `lib/appointments/first-visit.ts`, because the 新規 NUMBER beside this list
+  // now counts exactly what this map tags. Two functions for one question is
+  // how a screen starts contradicting its own list — which is what the number's
+  // own rule was doing on four measured inputs before R1.
+  const firstVisitInputs: NewCustomerInputs = {
+    customers: cachedById,
+    enrichment,
+    packUsage,
   }
-  // The reservation system outranks inference (Liam's rule): a booking on a
-  // 新規 course IS a first visit; a booking on any other named course means
-  // returning — our own missing history proves nothing. Titleless bookings
-  // keep the inferred value set above.
+  // ⚖ R2-1 — same row-set as newCountByDay's own verdict: a CANCELLED/NO_SHOW
+  // row's title must not force a verdict for a client's other, counted row.
+  // dayAppointments carries terminal rows too (the agenda's includeCancelled
+  // tombstones), which newCountByDay's window never sees — filter here so the
+  // tag and the number build titleVerdictByClient from the same rows, not
+  // just the same function.
+  const dayTitleVerdict = titleVerdictByClient(
+    dayAppointments
+      .filter((a) => !isTerminalStatus(a.synqed_status))
+      .map((a) => ({ clientId: a.client_id, title: a.title })),
+  )
+  const isFirstTimeByClient = new Map<string, boolean>()
   for (const a of dayAppointments) {
-    const fromBooking = firstVisitFromBooking(a.title)
-    if (fromBooking !== null) isFirstTimeByClient.set(a.client_id, fromBooking)
+    isFirstTimeByClient.set(
+      a.client_id,
+      isNewCustomerForDay(a.client_id, dayTitleVerdict, firstVisitInputs),
+    )
   }
 
   // Sequential salon karute number per customer — same helper + same cached
@@ -322,7 +404,10 @@ export function buildAppointmentsScreen(
     now,
     isFirstTimeByClient,
     karuteNumberByClientId,
-    packUsage,
+    // ⚖ G2 — a failed ledger read withholds the NUMBER (newCountKnown above);
+    // the row-level pack badge/renewal flag degrades to "no pack" instead,
+    // same as a genuinely empty ledger renders today.
+    packUsage ?? new Map(),
     noShowCountByClient,
   )
 
@@ -374,10 +459,106 @@ export function buildAppointmentsScreen(
       })()
     : Math.max(0, dayOpHours.closeMinute - dayOpHours.openMinute)
 
-  const newCustomerIds = new Set(
-    customers.filter((c) => !c.isExistingCustomer).map((c) => c.id),
-  )
+  // ⚖ PKT-2 / R1-1 — the 新規 producer, reading the SAME predicate the tag
+  // above reads. It counts, per JST day, the people whose row on that day
+  // carries the tag; nothing about a day's answer depends on which window the
+  // day was read in, so the memo below is a cost saver and no longer a
+  // correctness mechanism — the week row, the selected day's totals and the
+  // month cell agree because the rule is the same, not because they share a
+  // map.
+  //
+  // ⚖ R1-2 — and it FAILS CLOSED. An empty enrichment map beside a window that
+  // genuinely holds customers does not mean none of them has ever been here: it
+  // means the history read never happened (both doors resolve the business id
+  // with a catch and then SKIP the call — page.tsx `getBusinessId().catch(() =>
+  // null)`). The old rule answered that state with its maximal number — 新規 =
+  // everybody — beside a list showing no 新規 chip at all. The number is
+  // withheld instead. The LIST is untouched: an absent entry already reads
+  // 予約済 there, which is why this is the number catching up, not a new rule.
+  //
+  // ⚖ G2 (Greptile round 1 #951) — same posture for the 回数券 LEDGER: a FAILED
+  // read reaches here as `packUsage: null` (never an empty map standing in for
+  // "nobody holds a pack"), and a pack holder with no other returning signal
+  // would otherwise be counted 新規 while the number claims to be known.
+  // `packUsage !== null` — tickets OFF already resolves to a real empty Map
+  // upstream, so that path stays known exactly as today.
+  const newCountKnown =
+    (enrichment.size > 0 && packUsage !== null) ||
+    countedClientIds(weekWin, monthWin, dayWin).length === 0
+  const newCountCache = new Map<AppointmentWindow, ReadonlyMap<string, number>>()
+  const newCountsFor = (win: AppointmentWindow): ReadonlyMap<string, number> => {
+    if (!newCountKnown) return EMPTY_NEW_COUNTS
+    let m = newCountCache.get(win)
+    if (!m) newCountCache.set(win, (m = newCountByDay(win.counted, firstVisitInputs)))
+    return m
+  }
   const soloMode = orgSettings?.solo_mode === true
+
+  // ── THE DIVISOR (S4) — the store's own booking roster, counted ──────────
+  //
+  // ⚖ R1-5: this is `divisorStaffIds`, NOT the picker lens beside it. Both
+  // doors build it from `rosterForStore(…)`, bounded by the clamp's store
+  // (web: page.tsx; facade: route.ts), and it only ever holds ids drawn from
+  // `staffList` — so it IS the store's roster ∩ the business roster. Deriving
+  // the headcount here rather than in each door is what makes the
+  // store-isolation invariant provable at ONE site for both: no other store's
+  // staff count can reach a divisor, because no other store's ids are in this
+  // set.
+  //
+  // The picker's set differs by one arm, and that arm is the whole reason
+  // there are two: `filterStaffIdsToStore` keeps a member it cannot LINK to an
+  // assignment row in EVERY store, which is a generous list and an inflated
+  // denominator — 銀座 divided by eight lanes when four people work there.
+  //
+  // The POSTURE flips too. A null lens means "no store to ask, or the
+  // assignment read failed"; the pickers read that as "show everyone" (fail
+  // open, which is right for a list), and a divisor must read it as "we do not
+  // know this store's roster" and hand out NO capacity — never the business
+  // roster (C1 §5 / C3 E28). Same value, opposite default, on purpose.
+  //
+  // Every StaffRole counts: OWNER, ADMIN, STYLIST and ASSISTANT all take
+  // bookings and the SDK has no non-booking role, so there is nothing to
+  // filter on. A receptionist is therefore counted — a recorded overcount,
+  // closed when a real `takesBookings` exists.
+  //
+  // ⚖ R1-6: an EMPTY roster is not an answer either. `getStaffList` is graceful
+  // by design — a failed profiles read resolves to [] — so a degraded web read
+  // produced `Set{}`, which is not null and slipped past the gate above. The
+  // module's lane FLOOR then set lanes to whoever happened to be booked, and
+  // the store showed a confident percentage on exactly the days somebody worked
+  // and nothing on the days nobody did: capacity derived from who got booked,
+  // the one derivation this packet exists to forbid. A store with literally
+  // zero staff has no capacity anyway, so nothing honest is lost by reading 0
+  // as unknown.
+  const rosterHeadcount = divisorStaffIds?.size ? divisorStaffIds.size : null
+  // 自分/担当 = ONE person's day, so ONE lane (the module's caller contract
+  // (a)), and the window was already filtered at the fetch. The exception is
+  // 'self' with no resolvable viewer id: that fetch is NOT filtered and the
+  // views below fall back to the whole salon, so the day keeps the store's
+  // roster rather than dividing a salon by one person.
+  const filteredToOnePerson =
+    staffFilter !== 'all' && !(staffFilter === 'self' && !activeStaffId)
+  // ⚖ R1-9 — except when the filter names somebody the roster cannot place.
+  // That fetch is replaced with an EMPTY window by construction, so "one lane,
+  // nothing booked" would print 稼働 0 % and 空き = the whole declared day for a
+  // person nobody can find. Honest about the rows, a lie about the store.
+  const capacityRoster = staffFilterUnknown
+    ? null
+    : filteredToOnePerson
+      ? 1
+      : rosterHeadcount
+  // ── THE LANE KIND (S5) ───────────────────────────────────────────────────
+  // A yoga class of twelve is ONE booking row, so minutes booked over minutes
+  // open is a percentage of nothing. Those stores always take the count table
+  // — at every layer, behind every switch, until core models class capacity
+  // (C1 §6 / C2). Read from the STORE's own vertical where core carries it,
+  // so a chain can run a studio next to a salon.
+  // ⚖ G2 — a degraded store read never gets to decide a lane kind: laneKind
+  // stays the adapter's own neutral default ('staff'), and storeRowDegraded
+  // below withholds capacity entirely (capacityFactsFor's own no-store path)
+  // before this value would ever be read.
+  const laneKind: LaneKind =
+    !storeRowDegraded && isClassBoundBusinessType(businessType) ? 'none' : 'staff'
 
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
@@ -387,16 +568,20 @@ export function buildAppointmentsScreen(
       fallbackDayMinutes,
       now,
       locale,
-      newCustomerIds,
+      { byDay: newCountsFor(win), known: newCountKnown },
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
+      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
     )
 
   let weekData: WeekDayRowData[] | null = null
-  let monthData: MonthGridCell[] | null = null
+  let monthData: MonthCell[] | null = null
+  let monthFacts: ReadonlyMap<string, CapacityFact> | null = null
+  let monthNewCounts: ReadonlyMap<string, number> | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
+  let monthCompareDelta: number | null = null
 
   if (weekRange && weekWin) {
     if (!truncated) {
@@ -410,7 +595,53 @@ export function buildAppointmentsScreen(
         monthRange.monthStart,
         monthRange.monthEnd,
         now,
+        // ONE source for 休: the same map the week rows read their own `closed`
+        // from, so the month cell and the week row cannot disagree about a day.
+        hoursFacts,
       )
+      // The same rows, the same month, one call beside the other — the cells
+      // and their facts cannot come from different reads.
+      monthFacts = appointmentsToMonthFacts(
+        monthWin.counted,
+        monthRange.monthStart,
+        monthRange.monthEnd,
+        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
+      )
+      // Same window, same memo as the week rows would take — a month cell's
+      // 新規 and the week row's 新規 for one day are one number.
+      monthNewCounts = newCountsFor(monthWin)
+      // 先月同期間比, in the SAME branch that owns the grid: a truncated read
+      // can then never carry a delta by construction, rather than by the
+      // coincidence that month view happens to read no week or day window
+      // today. The selected-day card sitting under this grid is the obvious
+      // future day-window caller, and the day it exists the clause would have
+      // printed a number over a failed-read grid.
+      //
+      // The displayed month's own window is one side of it, so the clause and
+      // 「予約 N件」 are derived from the SAME rows; the other side is the
+      // caller's extra read. Either read truncated → null, never a low number
+      // (month-compare.ts).
+      //
+      // No previous read at all — the switch off, a future month, a failed
+      // optional read — means no clause, and the window arithmetic is skipped
+      // with it: it builds a dozen JST date parts for a discarded answer.
+      if (prevMonthWindow) {
+        monthCompareDelta = monthCompareDeltaFrom(
+          monthCompareWindow(monthRange.monthStart, now),
+          monthWin,
+          prevMonthWindow,
+        )
+      }
+      // ⚖ PKT-2b — this door's own cells, merged with the SAME map/flag
+      // monthCellsToDTO (route.ts) already merges onto the wire for the
+      // phone: one producer, two doors, so a month's 新規 total cannot mean
+      // two different things depending which door drew it. Out-of-month
+      // padding cells stay 0 either way (they render nothing).
+      monthData = monthData.map((c) => ({
+        ...c,
+        newCount: (newCountKnown && c.inMonth && monthNewCounts?.get(c.id)) || 0,
+        newCountKnown,
+      }))
     }
     monthStartIso = monthRange.monthStart.toISOString()
   }
@@ -440,8 +671,13 @@ export function buildAppointmentsScreen(
     weekData,
     weekStartIso,
     monthData,
+    monthFacts,
+    monthNewCounts,
+    newCountKnown,
     monthStartIso,
+    monthCompareDelta,
     dayTotals,
     truncated,
+    soloMode,
   }
 }

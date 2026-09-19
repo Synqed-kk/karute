@@ -37,14 +37,21 @@ export async function getRecoveryDayFacts(input: {
 }): Promise<RecoveryDayFacts> {
   if (!YMD.test(input.date)) return unavailable(input.date)
   try {
-    const [{ getTranslations }, { requireCapability }, { getSynqedClient }, { resolveStoreScope }, { buildRecoveryDayFacts }] =
-      await Promise.all([
-        import('next-intl/server'),
-        import('@/lib/auth/require-permission'),
-        import('@/lib/synqed/client'),
-        import('@/lib/auth/store-scope'),
-        import('@/lib/karute/recovery-facts'),
-      ])
+    const [
+      { getTranslations },
+      { requireCapability },
+      { getSynqedClient },
+      { resolveStoreScope },
+      { reachesNoStore },
+      { buildRecoveryDayFacts },
+    ] = await Promise.all([
+      import('next-intl/server'),
+      import('@/lib/auth/require-permission'),
+      import('@/lib/synqed/client'),
+      import('@/lib/auth/store-scope'),
+      import('@/lib/auth/store-gate'),
+      import('@/lib/karute/recovery-facts'),
+    ])
     // C-1: BOTH gates, same pairing the record screen carries — records.write
     // because this is part of saving a record, customers.view because the rows
     // are booked-customer data.
@@ -55,6 +62,10 @@ export async function getRecoveryDayFacts(input: {
       resolveStoreScope(),
       getTranslations('reservation.status'),
     ])
+    // `storeId ?? undefined` = every store's booked customers for that day —
+    // an actor who reaches no store hears the honest "unavailable" instead
+    // (⚖ Liam 2026-09-16).
+    if (reachesNoStore(scope)) return unavailable(input.date)
     return await buildRecoveryDayFacts(synqed, {
       dateYmd: input.date,
       storeId: scope.storeId ?? undefined,

@@ -14,6 +14,7 @@ import {
   type Capability,
   type PermissionRole,
 } from './permissions'
+import { actorIsUnassigned } from './store-gate'
 
 /**
  * Resolve the signed-in user's effective capabilities, tenant-scoped (the
@@ -38,8 +39,17 @@ export const getMyCapabilities = cache(async (): Promise<Set<Capability>> => {
  * shared by the cookie path (getMyCapabilities) and the facade Bearer path,
  * where the id comes from the verified token, not a cookie. Same tenant-scoped
  * profile read; same graceful pre/post-migration fallback.
+ *
+ * ⚖ Liam 2026-09-16: it is ALSO the single place the unassigned gate is
+ * enforced. An unassigned actor gets an EMPTY capability set, so every
+ * capability-gated action and facade route refuses BY CONSTRUCTION rather than
+ * by each door remembering to ask. `businessId` rides in from the facade's
+ * verified token; the cookie path omits it (see actorIsUnassigned).
  */
-export async function capabilitiesForUser(uid: string): Promise<Set<Capability>> {
+export async function capabilitiesForUser(
+  uid: string,
+  opts: { businessId?: string } = {},
+): Promise<Set<Capability>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 
@@ -71,7 +81,11 @@ export async function capabilitiesForUser(uid: string): Promise<Set<Capability>>
     role = synqedRoleToPreset(base?.display_role)
   }
 
-  return effectiveCapabilities(role, override)
+  const caps = effectiveCapabilities(role, override)
+  // A cross-store role never consults an assignment — and asking would cost a
+  // round trip on the owner's every request.
+  if (caps.has('stores.viewAll')) return caps
+  return (await actorIsUnassigned(uid, opts.businessId)) ? new Set<Capability>() : caps
 }
 
 /** Pure capability guard for a PRE-RESOLVED capability set. The one place the

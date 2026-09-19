@@ -19,6 +19,7 @@ import type { PageTiming } from '@/lib/perf/timing'
 import type { StaffMember } from '@/lib/staff'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { StoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getCachedCustomerListFor, type CachedCustomerOption } from '@/lib/customers/cached'
 import {
   enrichCustomers,
@@ -156,8 +157,16 @@ export async function buildDashboardScreen(
   // fetch errors, show no pack rows rather than another store's.
   // scope === null (resolution failed) or a required lens without businessId
   // → fail closed (no pack rows), matching the packAlerts/reconcile guards.
+  // ⚖ Greptile on #948 — THE ROOT CAUSE, and it is in this shared builder, so
+  // the WEB dashboard page has it too, not just the facade route that raised
+  // it. The membership filter below is gated on `scope.storeId` being TRUTHY,
+  // and an actor who reaches no store has `storeId: null` — so the filter was
+  // skipped entirely and the map passed through BUSINESS-WIDE, carrying another
+  // branch's customer names, pack counts and deep links into the 回数券 rebooks
+  // strip. Pack data has no store column, so membership IS the only lens there
+  // is; no store means no membership list, which means no rows.
   let packUsageLensed =
-    scope && !(scope.storeId && !businessId)
+    scope && !reachesNoStore(scope) && !(scope.storeId && !businessId)
       ? packUsage
       : (new Map() as typeof packUsage)
   if (scope?.storeId && businessId && packUsage.size > 0) {

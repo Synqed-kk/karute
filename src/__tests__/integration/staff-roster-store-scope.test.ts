@@ -171,8 +171,20 @@ describe('viewerStaffRosterForBusiness', () => {
   it('unclamped viewer (viewAll / floating actor) keeps the full roster', async () => {
     expect(await viewerStaffRosterForBusiness(roster, null, 'profile-self', BUSINESS))
       .toEqual(roster)
-    expect(await viewerStaffRosterForBusiness(roster, [], 'profile-self', BUSINESS))
-      .toEqual(roster)
+  })
+
+  it('a viewer who reaches NO store sees only themselves, never the full roster', async () => {
+    // ⚖ Liam 2026-09-16. `[]` used to take the `!allowedStoreIds?.length`
+    // shortcut above and ship every branch's names + emails through the switch
+    // drawer and 設定→スタッフ (census §5, the roster leak). An EMPTY allow-list
+    // is a clamp that reaches nothing — the union below is just the self pin.
+    const visible = await viewerStaffRosterForBusiness(
+      roster,
+      [],
+      'profile-self',
+      BUSINESS,
+    )
+    expect(visible.map((s) => s.id)).toEqual(['profile-self'])
   })
 
   it('self stays visible even when their own assignment sits elsewhere', async () => {

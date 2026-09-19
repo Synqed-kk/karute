@@ -21,6 +21,7 @@ import { StaffCombobox, type StaffComboboxOption } from '@/components/karute/Sta
 import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 import { MenuCombobox, formatYen } from '@/components/appointments/MenuCombobox'
 import { createAppointment } from '@/actions/appointments'
+import { searchCustomersCompanyWide } from '@/actions/customers'
 import { hmInJst, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
 import type { CachedMenuOption } from '@/lib/menus/cached'
 
@@ -262,7 +263,9 @@ export function NewBookingDialog({
     setSaving(false)
 
     if ('error' in result) {
-      toast.error(result.error)
+      toast.error(result.code === 'store_forbidden'
+        ? t('newBookingDialog.toasts.storeScopeUnverified')
+        : result.error)
       return
     }
     toast.success(t('toasts.bookingCreated'))
@@ -299,6 +302,7 @@ export function NewBookingDialog({
                   setCustomerFlow('quick-create')
                 }}
                 placeholder={t('newBookingDialog.customerPlaceholder')}
+                onRemoteSearch={searchCustomersCompanyWide}
               />
             )}
           </Field>

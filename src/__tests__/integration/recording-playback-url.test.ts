@@ -932,7 +932,11 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
     capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
     const res = await GET(req(KARUTE_ID), route)
     expect(res.status).toBe(200)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
   })
 
   // ⚖ AN UNPLACEABLE CALLER IS NOT FLOATING STAFF (fix round 4, blind round 2
@@ -946,7 +950,11 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
     staffStoresGet.mockResolvedValue({ store_ids: [] })
     const res = await GET(req(KARUTE_ID), route)
     expect(res.status).toBe(403)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
   })
 
   it('facade: an UNREADABLE assignment fails the grant closed → 403, never widened', async () => {

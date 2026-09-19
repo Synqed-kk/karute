@@ -97,6 +97,40 @@ export const BUSINESS_TYPES: BusinessType[] = [
   { value: 'other', label: 'Other', labelJa: 'その他' },
 ]
 
+/**
+ * Read `business_type` off a core row tolerantly — the SDK's Store type gains
+ * the field with Anthony's core change; until then it is simply absent and
+ * this answers null.
+ *
+ * Lives here, beside the registry, rather than in src/actions/stores.ts: that
+ * file is a 'use server' module, where every export becomes a callable POST
+ * endpoint, so a plain predicate cannot live there. stores.ts reads it from
+ * here, and so does the 予約 capacity path — one reader, one answer.
+ */
+export function coreBusinessType(row: unknown): string | null {
+  const v = (row as { business_type?: unknown }).business_type
+  return typeof v === 'string' && v.length > 0 ? v : null
+}
+
+/**
+ * The verticals where one booking row is MANY people (C1 §6 / C2): a yoga
+ * class of twelve is one row, so minutes booked over minutes open is not a
+ * percentage of anything. These stores always take the count table — never a
+ * 稼働%, at any layer, behind any switch — until core models class capacity.
+ *
+ * Registry values, pinned by a test: a typo here would silently hand a studio
+ * a percentage of a number that means nothing.
+ */
+export const CLASS_BOUND_BUSINESS_TYPES: readonly string[] = [
+  'yoga_studio',
+  'pilates_studio',
+  'training_school',
+]
+
+export function isClassBoundBusinessType(businessType: string | null | undefined): boolean {
+  return businessType != null && CLASS_BOUND_BUSINESS_TYPES.includes(businessType)
+}
+
 const GENERIC_CONSULTATION_QUESTIONS: ConsultationQuestionSource[] = [
   {
     id: 'g-analysis',

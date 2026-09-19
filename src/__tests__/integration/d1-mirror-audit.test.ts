@@ -15,6 +15,9 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
+  // The booking cores reach the store lock (⚖ 9/16) in src/lib/auth/
+  // store-scope.ts, which mints an unstable_cache at module scope.
+  unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
 }))
 jest.mock('next-intl/server', () => ({
   getTranslations: jest.fn(async () => (k: string) => k),
@@ -30,6 +33,16 @@ jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => new Set(['customers.view', 'records.write'])),
   requireCapability: jest.fn(async () => undefined),
   ensureCapability: jest.fn(() => undefined),
+}))
+// Store lock seam (⚖ 9/16): updateKaruteOutcome now proves the record's store
+// against the actor's assignment. The predicate itself lives in the pure
+// src/lib/auth/store-lock.ts and is untouched; only the resolved scope is
+// driven from here.
+const storeScope = {
+  current: { storeId: null as string | null, viewAll: true, allowedStoreIds: null as string[] | null, degraded: false },
+}
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => storeScope.current),
 }))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(),
@@ -157,6 +170,7 @@ beforeEach(() => {
   synqedCustomers.grantConsent.mockResolvedValue({ id: 'consent-1' })
   synqedCustomers.revokeConsent.mockResolvedValue(undefined)
   synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: 'cus-4' })
+  storeScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
   setCustomerLifecycleWithClient.mockResolvedValue({ ok: true })
   setKaruteOutcome.mockResolvedValue({})
 })
@@ -291,6 +305,44 @@ describe('updateKaruteOutcome — web twin (Wave W3)', () => {
     expect(res.error).toBe('karute has no linked customer')
     expect(setKaruteOutcome).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it("a clamped actor + another store's record is refused, byte-identically to a missing record", async () => {
+    synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: 'cus-4', store_id: 'store-ginza' })
+    storeScope.current = { storeId: 'store-daikanyama', viewAll: false, allowedStoreIds: ['store-daikanyama'], degraded: false }
+    const res = await updateKaruteOutcome('kar-1', outcome)
+    // The exact string a missing record already produced above — no oracle.
+    expect(res.error).toBe('karute record not found')
+    expect(setKaruteOutcome).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  // ⚖ Greptile fold (2026-09-16): a DEGRADED scope is the lock failing closed
+  // on the CALLER's own session — a lookup that blipped, retryable — not a
+  // statement about the record. Collapsing it into 'karute record not found'
+  // told the staff member their record was missing, which is both a lie and a
+  // hidden retry. The facade twin of this door already maps the two apart.
+  it('a DEGRADED scope keeps its own store_forbidden answer, never "not found"', async () => {
+    synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: 'cus-4', store_id: 'store-ginza' })
+    storeScope.current = { storeId: 'store-ginza', viewAll: false, allowedStoreIds: ['store-ginza'], degraded: true }
+    const res = await updateKaruteOutcome('kar-1', outcome)
+    expect(res.error).toBe('could not verify your store assignment (fail-closed)')
+    expect(res.error).not.toBe('karute record not found')
+    expect(setKaruteOutcome).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('a genuine READ failure still collapses to not-found — only the lock speaks for itself', async () => {
+    synqedKaruteRecords.get.mockRejectedValue(new Error('pg: relation karute_records exploded at 10.0.0.7'))
+    expect((await updateKaruteOutcome('kar-9', outcome)).error).toBe('karute record not found')
+    expect(setKaruteOutcome).not.toHaveBeenCalled()
+  })
+
+  it('a clamped actor inside the record own store still writes the label', async () => {
+    synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: 'cus-4', store_id: 'store-ginza' })
+    storeScope.current = { storeId: 'store-ginza', viewAll: false, allowedStoreIds: ['store-ginza'], degraded: false }
+    expect((await updateKaruteOutcome('kar-1', outcome)).error).toBeUndefined()
+    expect(setKaruteOutcome).toHaveBeenCalledTimes(1)
   })
 
   it('outcome-write failure: the error passes through, auditWeb never called', async () => {

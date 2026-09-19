@@ -54,16 +54,25 @@ const get = jest.fn(
   ): Promise<{
     id: string
     customer_id: string
+    store_id: string
     ai_summary: string | null
     edited_summary: string | null
   }> => {
     if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
-    return { id: 'kar-1', customer_id: 'cust-1', ai_summary: 'AIの要約', edited_summary: null }
+    return { id: 'kar-1', customer_id: 'cust-1', store_id: 'store-1', ai_summary: 'AIの要約', edited_summary: null }
   },
 )
 const update = jest.fn(async () => ({ id: 'kar-1' }))
+// Store lock (⚖ 9/16): the route resolves the caller's assignment before the
+// core. Default = floating (empty staff_stores = every store), so every case
+// below behaves exactly as it did; the clamped case has its own test.
+const assignedStores = { current: [] as string[] }
+const staffStoresGet = jest.fn(async () => ({ store_ids: assignedStores.current }))
 jest.mock('@/lib/synqed/client', () => ({
-  newSynqedClient: () => ({ karuteRecords: { get: (id: string) => get(id), update } }),
+  newSynqedClient: () => ({
+    karuteRecords: { get: (id: string) => get(id), update },
+    staffStores: { get: staffStoresGet },
+  }),
 }))
 
 import { PATCH } from '@/app/api/app/v1/karute/[id]/summary/route'
@@ -89,6 +98,7 @@ const patchReq = (body: unknown) =>
 beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['records.write'])
+  assignedStores.current = []
 })
 
 describe('PATCH /karute/[id]/summary (edit-layer W2 summary half)', () => {
@@ -150,6 +160,7 @@ describe('PATCH /karute/[id]/summary (edit-layer W2 summary half)', () => {
     get.mockResolvedValueOnce({
       id: 'kar-1',
       customer_id: 'cust-1',
+      store_id: 'store-1',
       ai_summary: 'AIの要約',
       edited_summary: '前回の人間版',
     })
@@ -166,6 +177,7 @@ describe('PATCH /karute/[id]/summary (edit-layer W2 summary half)', () => {
     get.mockResolvedValueOnce({
       id: 'kar-1',
       customer_id: 'cust-1',
+      store_id: 'store-1',
       ai_summary: 'AIの要約',
       edited_summary: '前回の人間版',
     })
@@ -182,5 +194,30 @@ describe('PATCH /karute/[id]/summary (edit-layer W2 summary half)', () => {
     const body = (await res.json()) as { error: { message: string } }
     expect(body.error.message).toBe('summary update failed')
     expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  // Store lock (⚖ Liam 2026-09-16) — records.write alone is no longer enough.
+  it("a clamped caller + another store's record → refused, nothing written", async () => {
+    assignedStores.current = ['store-daikanyama'] // the record lives in store-1
+    const res = await PATCH(patchReq({ content: '・直した要約' }), routeFor('kar-1'))
+    expect(res.status).toBe(404)
+    expect(update).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('that refusal is BYTE-IDENTICAL to a missing id — no existence oracle', async () => {
+    assignedStores.current = ['store-daikanyama']
+    const refused = await PATCH(patchReq({ content: '・直した要約' }), routeFor('kar-1'))
+    assignedStores.current = []
+    const missing = await PATCH(patchReq({ content: '・直した要約' }), routeFor('kar-OTHER'))
+    expect(refused.status).toBe(missing.status)
+    expect(await refused.json()).toEqual(await missing.json())
+  })
+
+  it('a clamped caller inside the record own store still writes', async () => {
+    assignedStores.current = ['store-1']
+    const res = await PATCH(patchReq({ content: '・直した要約' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(update).toHaveBeenCalledTimes(1)
   })
 })

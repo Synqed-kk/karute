@@ -30,7 +30,7 @@
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
-import { bedSecuredProof } from '@/business/lib/fixtures-today'
+import { bedSecuredProof, defaultKindOf } from '@/business/lib/fixtures-today'
 import {
   defaultStoreId,
   listAppointments,
@@ -63,7 +63,8 @@ import {
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { canReleaseHeld, clampCalendarTight, overrideLevelFor, type CalendarWindowDay } from './today-interactions'
+import { canReleaseHeld, clampCalendarTight, overrideLevelFor, storeHasBeds, type CalendarWindowDay } from './today-interactions'
+import { resourceWordsFor, wordsForStore, chromeWords, type ResourceWords } from '@/business/lib/resource-words'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -93,11 +94,18 @@ const PRICE_HOLD_PROOF = '予約時価格を保持'
  *  only in the sentence about the bed.
  *
  *  `resourceProof` is the bed's own line, or `null` when the booking has no
- *  resource yet; `priced` is whether the SERVER recorded a price for it. */
-export function bookingProofs(resourceProof: string | null, priced: boolean): string[] {
+ *  resource yet; `priced` is whether the SERVER recorded a price for it.
+ *
+ *  ⚖ D-53 (c) R2 — `hasUnits` is the booking's OWN store's axis (per
+ *  `storeHasBeds`, D-52's rule): a store with no unit has nothing undecided,
+ *  so on `hasUnits === false` and no proof, the resource line is OMITTED
+ *  entirely (a proof that exists is a fact and stays) — never
+ *  「設備の割当てが未確定」, never 「設備なし」, silence. Default `true` keeps
+ *  today's answer for a caller that hands in no store axis. */
+export function bookingProofs(resourceProof: string | null, priced: boolean, hasUnits: boolean = true): string[] {
   return [
     '担当の勤務時間内',
-    ...(resourceProof == null ? ['設備の割当てが未確定'] : ['休憩と重ならない', resourceProof]),
+    ...(resourceProof != null ? ['休憩と重ならない', resourceProof] : hasUnits ? ['設備の割当てが未確定'] : []),
     ...(priced ? [PRICE_HOLD_PROOF] : []),
   ]
 }
@@ -164,6 +172,51 @@ export default async function TodayPage({
   const staffStores = await readStaffStores(lens)
 
   const storeNames = new Map(storeOptions.map((s) => [s.id, s.name]))
+  // ⚖ D-53 (n) R-N2-1 — the ONE runtime-reader module under today/: every
+  // `resourceWordsFor` call lives here, beside the `storeNames` precedent it
+  // follows. TodayScreen/today-interactions never call it themselves — they
+  // only index the maps/values built below (C5).
+  // ⚖ D-53 (u)/(ad)/(n2b2) — EVERY store's own row, computed once — the fact
+  // `capabilitiesByStore` below still needs for every store option regardless
+  // of clamping. `wordsByStore` (the prop every lane indexes) narrows this on
+  // a clamped board (next line's own comment); this internal map does not.
+  const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
+    storeOptions.map((s) => [s.id, wordsForStore(s.business_type, defaultKindOf(s.id).words)]),
+  )
+  // ⚖ D-53 (u)/(ad)/(n2b2) — a real bug on main, fixed here: on a CLAMPED
+  // board this map used to carry every store's row, so a shared staff lane
+  // (fixture c-05 belongs to both STORE_A and STORE_B) read `stores[0]`'s row
+  // even when the operator was looking at the OTHER store's board. Clamped,
+  // the map carries only the selected store's own row; `wordsForLane` already
+  // falls to `props.words` (= that same row) for any lane affiliated with a
+  // different store, so nothing else has to change.
+  const wordsByStore: Record<string, ResourceWords> = clamped
+    ? { [storeId!]: allWordsByStore[storeId!] }
+    : allWordsByStore
+  // C1 — the ONE fallback a `null` word (privateWord/turnoverWord) may ever
+  // take, so no literal word can re-enter today/ through a gap.
+  const genericWords: ResourceWords = resourceWordsFor('other')
+  // C7 — the board's CHROME words: the signed-in store's own row when
+  // clamped; under viewAll, the store options' rows agree → that row, else
+  // the generic row (`chromeWords`, the pure helper in resource-words.ts).
+  const words: ResourceWords = clamped ? wordsByStore[storeId!] : chromeWords(storeOptions.map((s) => wordsByStore[s.id]))
+  // N3-1 H3 — private capability follows actual rows; manual turnover
+  // vocabulary follows the resolved row even when cleanup minutes are zero.
+  // ⚖ D-53 (u)/(ad)/(n2b2) — reads `allWordsByStore`, never the (now
+  // clamp-narrowed) `wordsByStore`: indexing THAT for every other store
+  // option would read `undefined` on a clamped board.
+  const capabilitiesByStore: Record<string, { privateClass: boolean; turnover: boolean }> = Object.fromEntries(
+    storeOptions.map((s) => {
+      const words = allWordsByStore[s.id]
+      const rows = resources.filter((r) => r.store_id === s.id)
+      return [s.id, { privateClass: rows.some((r) => r.room_class === 'private'), turnover: words.turnoverWord !== null }]
+    }),
+  )
+  // The CHROME store's own capabilities — same rule as `words` above — for
+  // `blockKinds` (#30) below and the screen's own gated examples.
+  const chromeCaps: { privateClass: boolean; turnover: boolean } = clamped
+    ? capabilitiesByStore[storeId!]
+    : { privateClass: words.privateWord != null, turnover: words.turnoverWord != null }
   const input: BuildInput = {
     appointments,
     customers,
@@ -183,6 +236,8 @@ export default async function TodayPage({
     operatorStaffId: shell.operator.staff_id,
     storeNames,
     crossStore: !clamped,
+    wordsByStore,
+    genericWords,
   }
 
   const bookings = dayBookings(input)
@@ -388,7 +443,12 @@ export default async function TodayPage({
         // should say is a ruled rider (one word, one home). This change only
         // stops 新規 from reading as 単発.
         ['担当・設備', `${b.staffName} / ${b.resourceName}`],
-        ['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
+        // ⚖ D-53 (n) R-N2-3 — the tag's word from the BOOKING'S OWN store
+        // (re-joined via `storeOfBooking`, below); `?? genericWords.privateWord`
+        // is the impossible-state guard (a private-tagged booking on a
+        // no-private-class store — unreachable until N3/N4 build the upstream
+        // gate; pinned never-hit on this fixture).
+        ['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],
@@ -412,20 +472,33 @@ export default async function TodayPage({
     }
   }
 
+  // ⚖ D-53 (g) — the booking's OWN store is the unit axis (Greptile #933
+  // P1-2): `BoardBooking` carries no store (frozen `today-board.ts` drops
+  // `store_id`), so it is re-joined here by id from the raw rows; a staff
+  // member's store LIST was a proxy that answers wrong for a person who
+  // works in two stores.
+  const storeOfBooking = new Map(appointments.map((a) => [a.id, a.store_id]))
   const cases: Record<string, InspectorCase> = {}
   bookings.forEach((b, i) => {
+    // ⚖ D-53 (c) R2 + (g) — the booking's own store's axis (`storeHasBeds`'s
+    // store-binding form, D-52 (a)); a booking with no store answers via the
+    // whole board, which is honest wherever any unit exists.
+    const storeId = storeOfBooking.get(b.id) ?? null
+    const hasUnits = storeHasBeds(lanes, storeId == null ? null : [storeId])
     cases[b.id] = bookingCase(
       b,
       `予約 ${i + 1} / ${bookings.length}`,
       b.state === 'hold' ? '仮押さえ' : b.state === 'attention' ? '要対応' : b.state === 'noshow' ? '来店なし' : b.settlement === 'awaiting' ? '精算待ち' : '確定',
       b.state === 'hold' ? 'waiting' : b.state === 'attention' || b.settlement === 'awaiting' ? 'checkout' : 'done',
-      b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : '設備は未確定',
+      // ⚖ D-53 (c) R2 — on a no-unit store nothing is undecided: the heading
+      // states the staff fact.
+      b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : hasUnits ? '設備は未確定' : `${b.staffName}が担当`,
       // ⚖ R8 T1 — the 価格保持 根拠 is CONDITIONAL: a booking with no recorded
       // price has nothing to hold, and the facts above already say 記録なし
       // about it. ⚖ FIX ROUND 3 (BREAKER-828 F2) — and the condition is written
       // ONCE, in `bookingProofs`, because a rule spelled once per arm is a rule
       // the fixture can only walk half of.
-      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null),
+      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null, hasUnits),
     )
   })
   planes.decisions.forEach((d, i) => {
@@ -490,6 +563,13 @@ export default async function TodayPage({
     locale,
     store: storeId,
     lensLabel: clamped ? (storeNames.get(storeId!) ?? 'この店舗') : 'すべての店舗',
+    // ⚖ D-53 (n) — the resource-words plumbing (R-N2-1/2): every store's
+    // words, the board's own CHROME words/capabilities, and the ONE fallback
+    // a `null` word may take. TodayScreen/today-interactions only index these.
+    wordsByStore,
+    words,
+    genericWords,
+    caps: chromeCaps,
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),
     // The month the calendar popover opens on. It is a FACT ABOUT THE SHOWN
@@ -737,7 +817,11 @@ export default async function TodayPage({
           .filter((c) => !c.external_owner)
           .map((c) => ({ id: c.id, name: c.name, no: c.member_number, phone: c.phone ?? '電話未登録', furigana: c.furigana ?? '' })),
         sources: ['店頭', '電話', 'Reserve', '紹介'],
-        blockKinds: ['休憩', '準備', '記録', '清掃', 'ミーティング'],
+        // ⚖ D-53 (n) — 清掃 is the CHROME store's own `turnoverWord`, GATED
+        // (C6): a store whose type has no turnover concept drops the entry
+        // entirely (a real removed option, not a relabelled one) — the ORDER
+        // is otherwise kept (清掃 sat fourth).
+        blockKinds: ['休憩', '準備', '記録', ...(chromeCaps.turnover ? [words.turnoverWord!] : []), 'ミーティング'],
         // canon's block flow is 種類 / 長さ / メモ.
         //
         // ⚖ Liam flag 65 (2026-08-22) — A PLAIN LIST, NOT A DERIVATION. These

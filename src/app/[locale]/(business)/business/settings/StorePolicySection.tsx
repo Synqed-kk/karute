@@ -44,6 +44,7 @@
 // preview an honest answer to 「what will my staff actually see?」.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { ResourceWords } from '@/business/lib/resource-words'
 import { commitNumberField } from '@/business/lib/settings'
 import {
   CALENDAR_TIGHT_RANGE,
@@ -84,6 +85,7 @@ export interface StorePolicyScene {
  *  minutes/strict-dependent fields, so this is the whole of the rest of it. */
 export interface SceneInput {
   lanes: BoardLane[]
+  words: ResourceWords
   hours: { open: number; close: number }
   stepMin: number
   dur: number
@@ -128,7 +130,7 @@ export function computeScene(input: SceneInput, mode: GapGuardMode, minutes: num
   const cell =
     sceneKeyFor(mode, minutes) === null || input.sampleLaneKey === null
       ? null
-      : guardVerdictAt(input.lanes, input.sampleLaneKey, input.sampleStart, railInput(mode === 'STRICT'))
+      : guardVerdictAt(input.lanes, input.sampleLaneKey, input.sampleStart, railInput(mode === 'STRICT'), { byLaneKey: {}, generic: input.words })
   return { capacity, cell }
 }
 
