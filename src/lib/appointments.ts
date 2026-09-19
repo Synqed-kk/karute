@@ -6,6 +6,9 @@ import {
   type DayHoursInput,
 } from '@/lib/operating-hours'
 
+// karute is JST-only, and the day is already resolved in JST, so default to JST's getTimezoneOffset value.
+const JST_TZ_OFFSET_MINUTES = -540
+
 export interface AppointmentInput {
   staffProfileId: string
   clientId: string
@@ -102,7 +105,7 @@ export async function validateAppointmentTime(
   // The DAY is resolved in JST (resolveDayHours → partsInJst / ymdInJst), like
   // every other 予約 surface — so the day the staffer sees marked 休 is exactly
   // the day refused. The open/close-minute check below keeps its own
-  // client-tz-offset reading, byte-identical to before.
+  // client-tz-offset reading when an explicit offset is supplied.
   //
   // This runs BEFORE the window check on purpose: a closed day has no window,
   // and 「営業時間内(00:00〜00:00)に設定してください」 would be nonsense.
@@ -128,7 +131,9 @@ export async function validateAppointmentTime(
     }
   }
 
-  const tzOffsetMinutes = Number.isFinite(input.tzOffsetMinutes) ? (input.tzOffsetMinutes as number) : 0
+  const tzOffsetMinutes = Number.isFinite(input.tzOffsetMinutes)
+    ? (input.tzOffsetMinutes as number)
+    : JST_TZ_OFFSET_MINUTES
   const { dayKey, minuteOfDay } = utcToLocalDayAndMinute(startDate, tzOffsetMinutes)
   // ⚖ R1-4 — the window is the STORE's when the store has one. The resolver
   // above already computed it; re-asking the business-wide blob here is what
