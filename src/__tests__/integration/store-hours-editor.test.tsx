@@ -745,3 +745,97 @@ describe('save/reset → collapse → reopen keeps the saved week (no refresh)',
     expect(timeInputs(container)[0].value).toBe('10:00') // org default pre-fill
   })
 })
+
+
+// R4: React discards the promise returned by an event handler. For the two
+// rejection cases, invoke the button's actual attached handler and retain its
+// promise so Jest can observe the propagated rejection without an unhandled
+// rejection. The race cases below dispatch real synchronous DOM clicks.
+function asyncClickHandler(button: HTMLElement): () => Promise<void> {
+  const propsKey = Object.keys(button).find((key) => key.startsWith('__reactProps$'))
+  if (!propsKey) throw new Error('React button props were not attached')
+  return (button as unknown as Record<string, { onClick: () => Promise<void> }>)[propsKey].onClick
+}
+
+describe('R4 request rejection and synchronous re-entry', () => {
+  it.each([
+    ['w1', 'save'],
+    ['w2', 'resetConfirmYes'],
+  ])('%s: a rejected %s propagates and re-enables every control and the disclosure', async (_id, action) => {
+    let rejectRequest!: (error: Error) => void
+    setStoreHours.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectRequest = reject }))
+    const onSaved = jest.fn()
+    const { container } = open({
+      weeklyHours: { ...OWN_WEEK, tue: { open: '11:00', close: '20:00' } },
+      onSaved,
+    })
+    fireEvent.click(screen.getAllByText('closedToggle')[0])
+    fireEvent.click(screen.getByText('resetToDefault'))
+    const handler = asyncClickHandler(screen.getByText(action))
+    let request!: Promise<void>
+    act(() => { request = handler() })
+    expect(setStoreHours).toHaveBeenCalledTimes(1)
+    expect(setStoreHours.mock.calls[0]).toEqual([
+      'store-7',
+      action === 'save' ? { ...OWN_WEEK, tue: { open: '11:00', close: '20:00' } } : null,
+    ])
+    expect(screen.getByText('hide')).toBeDisabled()
+    timeInputs(container).forEach((input) => expect(input).toBeDisabled())
+    for (const key of ['saving', 'closedConfirmYes', 'resetToDefault', 'resetConfirmYes']) {
+      expect(screen.getByText(key)).toBeDisabled()
+    }
+    screen.getAllByText('closedToggle').forEach((toggle) => expect(toggle).toBeDisabled())
+
+    const droppedConnection = new Error('connection dropped')
+    await act(async () => {
+      const rejection = expect(request).rejects.toBe(droppedConnection)
+      rejectRequest(droppedConnection)
+      await rejection
+    })
+    const controls = container.querySelectorAll('input, button')
+    expect(timeInputs(container)).toHaveLength(14)
+    expect(controls.length).toBeGreaterThan(24)
+    controls.forEach((control) => expect(control).toBeEnabled())
+    expect(screen.getByText('hide')).toBeEnabled()
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+    // The same editor can retry: the synchronous lock was released too.
+    await act(async () => { await handler() })
+    expect(setStoreHours).toHaveBeenCalledTimes(2)
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('w3: two synchronous save clicks issue exactly one request', async () => {
+    let finish!: (result: { ok: true }) => void
+    setStoreHours.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    open()
+    const save = screen.getByText('save')
+    act(() => {
+      fireEvent.click(save)
+      fireEvent.click(save)
+    })
+    const callsWhilePending = setStoreHours.mock.calls.length
+    await act(async () => finish({ ok: true }))
+    expect(callsWhilePending).toBe(1)
+    expect(setStoreHours).toHaveBeenCalledTimes(1)
+  })
+
+  it('w4: reset confirmation during a synchronous save cannot issue a second request', async () => {
+    let finish!: (result: { ok: true }) => void
+    setStoreHours.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    open({ weeklyHours: OWN_WEEK })
+    fireEvent.click(screen.getByText('resetToDefault'))
+    const save = screen.getByText('save')
+    const reset = screen.getByText('resetConfirmYes')
+    act(() => {
+      fireEvent.click(save)
+      fireEvent.click(reset)
+    })
+    const callsWhilePending = setStoreHours.mock.calls.length
+    await act(async () => finish({ ok: true }))
+    expect(callsWhilePending).toBe(1)
+    expect(setStoreHours).toHaveBeenCalledTimes(1)
+    expect(setStoreHours.mock.calls[0]).toEqual(['store-7', OWN_WEEK])
+  })
+})
