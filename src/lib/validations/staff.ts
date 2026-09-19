@@ -10,6 +10,14 @@ export const staffProfileSchema = z.object({
    *  the body and silently no-op the flag. Absent = leave the stored value
    *  alone (create mode and any older client never send it). */
   isManagement: z.boolean().optional(),
+  /** 担当店舗 at CREATION (⚖ Liam 2026-09-16). Required by the server for a
+   *  multi-store business — a card born with no store is a staff member who
+   *  sees the 担当店舗が未設定です screen on their first login. Optional in the
+   *  SHAPE so a single-store business (and every edit, which still saves
+   *  stores through setStaffStores) sends nothing; the rule lives server-side
+   *  in createStaffCore, not in the schema, because it depends on how many
+   *  stores the business has. */
+  storeIds: z.array(z.string().uuid()).optional(),
 })
 
 export type StaffProfileInput = z.infer<typeof staffProfileSchema>

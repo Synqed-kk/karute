@@ -117,6 +117,7 @@ const dto: SettingsScreenDTOType = {
   auditTargetId: null,
   initialActiveStoreId: null,
   initialStores: [],
+  assignableStores: [],
   initialEntitlement: null,
   featureStaffInvites: false,
   featureMultiStore: false,
@@ -202,6 +203,7 @@ describe('settings web-only panel — メニュー copy (menu-catalog PR-2)', ()
     initialActiveStoreId: null,
     initialMenus: [],
     menuStores: [],
+    assignableStores: [],
     initialEntitlement: null,
   }
 

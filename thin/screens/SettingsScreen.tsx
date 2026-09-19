@@ -109,6 +109,11 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         // Same reason, same []: no MenusSection on thin, so the actor's
         // menu-write store scope has nothing to feed.
         menuStores={[]}
+        // ⚖ Liam 2026-09-16 (fold round 2): the 担当店舗 picker's choices. For a
+        // viewAll identity this is the full list; for a branch-restricted one
+        // it is their own assignment — which initialStores deliberately is
+        // NOT (⚖ 8/17: the 店舗 tab shows them nothing).
+        assignableStores={dto.assignableStores}
         syncStatus={dto.syncStatus}
         onRunNow={runSyncNow}
         initialTab={dto.initialTab}

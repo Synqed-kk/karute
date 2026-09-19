@@ -78,7 +78,16 @@ jest.mock('@/lib/synqed/client', () => ({
     },
     invites: { create: invitesCreate, updateStatus: invitesUpdateStatus, list: invitesList },
     staffStores: { set: staffStoresSet },
-    stores: { create: storesCreate, update: storesUpdate },
+    // `stores` is a REQUIRED port on StoresClient (only `staff` is Partial), and
+    // createStore's 1→2 backfill reads the list on every create — a double
+    // without it models a client that cannot exist. One store = not the 1→2
+    // transition, so the backfill is a no-op and this suite still sees exactly
+    // the one settings.store_create row it is about.
+    stores: {
+      create: storesCreate,
+      update: storesUpdate,
+      list: async () => ({ stores: [{ id: 'store-existing', is_primary: true }] }),
+    },
     customers: {
       create: customersCreate,
       checkDuplicate: customersCheckDuplicate,

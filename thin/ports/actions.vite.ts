@@ -1928,6 +1928,9 @@ async function facadeRevokeInvite(id: string): Promise<{ ok: true } | { error: s
 // import chains pull in next/cache et al).
 type StaffProfileInput = { name: string; position: string; email: string; phone: string }
 type StaffActionResult = { error: string } | void
+/** ⚖ I2 — the 追加 door's own result: a create can succeed and still report
+ *  that the store list was unreadable. Mirrors src/actions/staff.ts. */
+type CreateStaffResult = { error: string } | { storeUnknown: true } | void
 type StaffPermissionsResult = { permissionRole: PermissionRole; capabilities: Capability[]; isOwner: boolean }
 
 // create/update/delete: web's own { error } | void result rides the 2xx
@@ -1935,12 +1938,13 @@ type StaffPermissionsResult = { permissionRole: PermissionRole; capabilities: Ca
 // same RPC-style class as every other core-backed route in this file).
 // createStaff is create-class → Idempotency-Key (idemPost), matching
 // createInvite/createStore.
-async function facadeCreateStaffAction(data: StaffProfileInput): Promise<StaffActionResult> {
+async function facadeCreateStaffAction(data: StaffProfileInput): Promise<CreateStaffResult> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/staff', idemPost(data))
     const body = (await res.json().catch(() => null)) as
-      | { id?: string; error?: string | { message?: string } }
+      | { id?: string; storeUnknown?: true; error?: string | { message?: string } }
       | null
+    if (res.ok && body?.id && body.storeUnknown) return { storeUnknown: true }
     if (res.ok && body?.id) return
     const message = typeof body?.error === 'string' ? body.error : body?.error?.message
     return { error: message ?? `Create failed (${res.status})` }
