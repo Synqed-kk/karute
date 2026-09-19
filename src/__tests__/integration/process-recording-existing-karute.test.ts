@@ -18,12 +18,13 @@ process.env.SYNQED_CORE_API_KEY ??= 'test-key'
 import { RECORDING_CONSENT_POLICY_VERSION, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 
 const setKaruteOutcomeWithClient = jest.fn(async () => ({}) as { error?: string })
-const getKaruteOutcomeWithClient = jest.fn(async () => null as { outcome: string } | null)
+// FIX ROUND 3 (packet B, 2026-09-19): the skip path no longer reads through
+// getKaruteOutcomeWithClient (best-effort, null-on-any-failure) — it reads
+// synqed.karuteOutcomes.get directly (see karuteOutcomesGet below), so this
+// module mock no longer needs to stub that reader.
 jest.mock('@/lib/karute/outcome', () => ({
   setKaruteOutcomeWithClient: (...a: unknown[]) =>
     (setKaruteOutcomeWithClient as (...a: unknown[]) => unknown)(...a),
-  getKaruteOutcomeWithClient: (...a: unknown[]) =>
-    (getKaruteOutcomeWithClient as (...a: unknown[]) => unknown)(...a),
   // The real literal, not a stub — see process-recording-outcome.test.ts.
   REVISIT_NOT_ELIGIBLE: 'revisit_not_eligible',
   REVISIT_CHECK_UNAVAILABLE: 'revisit_check_unavailable',
@@ -76,6 +77,9 @@ const fail = jest.fn(async () => ({}))
 const listDiscards = jest.fn(async () => ({ events: [] as Array<Record<string, unknown>> }))
 const staffGet = jest.fn(async () => ({ id: 'staff-1', user_id: 'auth-user-9' }))
 const appointmentsGet = jest.fn(async () => null)
+// FIX ROUND 3 (packet B, 2026-09-19): the skip path's strict reader — null on
+// a 404, throws on anything else (real SDK behavior, karute-outcomes.js).
+const karuteOutcomesGet = jest.fn(async () => null as { outcome: string } | null)
 
 const fakeClient = {
   customers: { getConsent, get: customersGet },
@@ -85,6 +89,7 @@ const fakeClient = {
     create: karuteRecordsCreate,
     update: karuteRecordsUpdate,
   },
+  karuteOutcomes: { get: karuteOutcomesGet },
   recordingJobs: { claim, complete, fail },
   recordingDiscards: { list: listDiscards },
   staff: { get: staffGet },
@@ -126,7 +131,7 @@ beforeEach(() => {
   karuteRecordsUpdate.mockResolvedValue({ id: 'record-1' })
   createSignedUrl.mockResolvedValue({ data: { signedUrl: 'https://x/audio' }, error: null })
   setKaruteOutcomeWithClient.mockResolvedValue({})
-  getKaruteOutcomeWithClient.mockResolvedValue(null)
+  karuteOutcomesGet.mockResolvedValue(null)
   complete.mockResolvedValue({})
   fail.mockResolvedValue({})
   listDiscards.mockResolvedValue({ events: [] })
@@ -167,7 +172,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
   it('T2 existing record + payload.outcome + no outcome recorded yet → the outcome upsert IS written once with the payload values; still no transcription; job completes', async () => {
     getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
-    getKaruteOutcomeWithClient.mockResolvedValueOnce(null)
+    karuteOutcomesGet.mockResolvedValueOnce(null)
     claim
       .mockResolvedValueOnce({
         ...baseJob,
@@ -177,7 +182,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
     await processRecordingJobs(10_000)
 
-    expect(getKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, 'record-existing')
+    expect(karuteOutcomesGet).toHaveBeenCalledWith('record-existing')
     expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
     expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(
       fakeClient,
@@ -196,7 +201,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
   it('T3 existing record + payload.outcome + an outcome already recorded → the outcome upsert is NOT called; job completes', async () => {
     getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
-    getKaruteOutcomeWithClient.mockResolvedValueOnce({ outcome: 'success' })
+    karuteOutcomesGet.mockResolvedValueOnce({ outcome: 'success' })
     claim
       .mockResolvedValueOnce({
         ...baseJob,
@@ -206,7 +211,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
     await processRecordingJobs(10_000)
 
-    expect(getKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, 'record-existing')
+    expect(karuteOutcomesGet).toHaveBeenCalledWith('record-existing')
     expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
     expect(complete).toHaveBeenCalledWith('job-1', 'record-existing')
     expect(fail).not.toHaveBeenCalled()
@@ -214,7 +219,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
   it('T4 existing record + payload.outcome + the outcome write fails (non-revisit error) → the job FAILS and still no transcription', async () => {
     getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
-    getKaruteOutcomeWithClient.mockResolvedValueOnce(null)
+    karuteOutcomesGet.mockResolvedValueOnce(null)
     setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'upstream down' })
     claim
       .mockResolvedValueOnce({
@@ -280,7 +285,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
     it('T8b the requeue (same job, attempts: 2): lookup now resolves the record, no outcome recorded yet → the outcome upsert IS written, no transcription, no karute.save this run, job completes', async () => {
       getByRecordingSession.mockResolvedValueOnce({ id: 'record-1', store_id: null })
-      getKaruteOutcomeWithClient.mockResolvedValueOnce(null)
+      karuteOutcomesGet.mockResolvedValueOnce(null)
       claim
         .mockResolvedValueOnce({
           ...baseJob,
@@ -308,7 +313,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
   describe('T9-T11 FIX ROUND 2 — the outcome label survives a stale 保留 row and always files under the record\'s own customer', () => {
     it('T9 existing record + a recorded PENDING (保留) row + payload.outcome decided → the outcome upsert IS called once with the payload status', async () => {
       getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
-      getKaruteOutcomeWithClient.mockResolvedValueOnce({ outcome: 'pending' })
+      karuteOutcomesGet.mockResolvedValueOnce({ outcome: 'pending' })
       claim
         .mockResolvedValueOnce({
           ...baseJob,
@@ -329,7 +334,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
     it('T10 existing record\'s customer_id differs from the payload\'s → setKaruteOutcomeWithClient is called with the RECORD\'s customer', async () => {
       getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A', customer_id: 'cust-B' })
-      getKaruteOutcomeWithClient.mockResolvedValueOnce(null)
+      karuteOutcomesGet.mockResolvedValueOnce(null)
       claim
         .mockResolvedValueOnce({
           ...baseJob,
@@ -347,7 +352,7 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
     it('T11 existing record with no customer_id field → falls back to the payload\'s customer (the ?? arm)', async () => {
       getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
-      getKaruteOutcomeWithClient.mockResolvedValueOnce(null)
+      karuteOutcomesGet.mockResolvedValueOnce(null)
       claim
         .mockResolvedValueOnce({
           ...baseJob,
@@ -361,6 +366,105 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
         fakeClient,
         expect.objectContaining({ customerId: 'cust-1' }),
       )
+    })
+  })
+
+  // Placed here (before T7), same reason as T8/T9-T11 above: T7's two
+  // sub-tests each leave one getByRecordingSession.mockResolvedValueOnce(...)
+  // unconsumed in the mock's once-queue (jest.clearAllMocks() in beforeEach
+  // does not drain it), so anything placed AFTER T7 risks that leftover
+  // value landing on its own early lookup instead of the 404 default. T12-T16
+  // each fully consume their own once-queue entries (no new leak introduced).
+  describe("T12-T16 FIX ROUND 3 — the strict outcome read, the pre-write discard fence, and the label's own audit row", () => {
+    it('T12 existing record + payload.outcome + karuteOutcomes.get REJECTS with a non-404 → the outcome upsert is NOT called, the job FAILS, no transcription (never write a label blind)', async () => {
+      getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+      karuteOutcomesGet.mockRejectedValueOnce(Object.assign(new Error('core down'), { status: 503 }))
+      claim
+        .mockResolvedValueOnce({
+          ...baseJob,
+          payload: { ...baseJob.payload, outcome: { status: 'success' } },
+        })
+        .mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+      expect(runMeteredTranscription).not.toHaveBeenCalled()
+      expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('core down'))
+      expect(complete).not.toHaveBeenCalled()
+    })
+
+    it('T13 existing record + payload.outcome + none recorded + the discard ledger flips to discarded on its SECOND read (first read clean) → fail(DISCARDED_BY_STAFF), the outcome upsert NOT called', async () => {
+      getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+      karuteOutcomesGet.mockResolvedValueOnce(null)
+      listDiscards
+        .mockResolvedValueOnce({ events: [] })
+        .mockResolvedValueOnce({ events: [{ recording_session_id: 'sess-1', source: 'STAFF' }] })
+      claim
+        .mockResolvedValueOnce({
+          ...baseJob,
+          payload: { ...baseJob.payload, outcome: { status: 'success' } },
+        })
+        .mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+      expect(fail).toHaveBeenCalledWith('job-1', 'DISCARDED_BY_STAFF')
+      expect(complete).not.toHaveBeenCalled()
+    })
+
+    it('T14 existing record, NO payload.outcome → the discard ledger is read exactly ONCE (no extra read when no label is owed)', async () => {
+      getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+      claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(listDiscards).toHaveBeenCalledTimes(1)
+      expect(karuteOutcomesGet).not.toHaveBeenCalled()
+      expect(complete).toHaveBeenCalledWith('job-1', 'record-existing')
+    })
+
+    it("T15 existing record + label written → audit called exactly once with action:'karute.outcome_set' (never karute.save)", async () => {
+      getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+      karuteOutcomesGet.mockResolvedValueOnce(null)
+      claim
+        .mockResolvedValueOnce({
+          ...baseJob,
+          payload: { ...baseJob.payload, outcome: { status: 'success' } },
+        })
+        .mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(audit).toHaveBeenCalledTimes(1)
+      expect(audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'karute.outcome_set',
+          targetType: 'karute',
+          targetId: 'record-existing',
+          detail: expect.objectContaining({ via: 'job_pipeline', customer_id: 'cust-1' }),
+        }),
+      )
+      expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'karute.save' }))
+    })
+
+    it('T16 existing record + the label dropped as REVISIT_NOT_ELIGIBLE → NO karute.outcome_set row; job completes', async () => {
+      getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+      karuteOutcomesGet.mockResolvedValueOnce(null)
+      setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'revisit_not_eligible' })
+      claim
+        .mockResolvedValueOnce({
+          ...baseJob,
+          payload: { ...baseJob.payload, outcome: { status: 'revisit' } },
+        })
+        .mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(audit).not.toHaveBeenCalled()
+      expect(complete).toHaveBeenCalledWith('job-1', 'record-existing')
+      expect(fail).not.toHaveBeenCalled()
     })
   })
 
