@@ -21,8 +21,10 @@ type BootstrapResult =
  *
  * The only caller is the email-confirmation callback route, after its code
  * exchange. userId comes from that verified session, never from a browser.
- * This module is server-only so it can never become a browser-callable action
- * again. getUserById stays as a cheap existence check.
+ * This module is server-only, not a server action: no browser can invoke it
+ * directly. A future server-action wrapper around it would reopen that door —
+ * the importer pin in bootstrap-owner-role.test.ts fails on any new importer.
+ * getUserById stays as a cheap existence check.
  */
 export async function bootstrapBusinessForNewUser(
   salonName: string,
