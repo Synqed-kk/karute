@@ -49,7 +49,8 @@ import {
   type StoreDials,
 } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
-import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
+import { closedWeekday, defaultKindOf, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
+import { GENERIC_WORDS, wordsForStore, type ResourceWords } from '@/business/lib/resource-words'
 import {
   accessFor,
   BOOKING_GUARD_ID,
@@ -138,6 +139,8 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   void locale
   const storeOptions = await listStoreOptions()
   const storeId = defaultStoreId(store, storeOptions)
+  const selectedStore = storeOptions.find((s) => s.id === storeId)
+  const words = selectedStore ? wordsForStore(selectedStore.business_type, defaultKindOf(selectedStore.id).words) : GENERIC_WORDS
   const clamped = storeId !== null
   // ⚖ S17 — the lens is REALLY read now: 予約と確保's assembly takes it as its
   // first argument, which is the data door's own rule (`foundation.test.ts`:
@@ -158,6 +161,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     storeId: clamped ? storeId! : null,
     lensLabel,
     dials,
+    words,
     access,
     now,
   }
@@ -248,6 +252,7 @@ interface Ctx {
   storeId: string | null
   lensLabel: string
   dials: StoreDials | null
+  words: ResourceWords
   access: SettingsAccess
   now: Date
 }
@@ -926,7 +931,9 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
           num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ])), {
         facts: [
-          `いまこの店舗には設備が${people(beds.length)}あります。`,
+          beds.length === 0
+            ? `いまこの店舗には${ctx.words.resourceNoun}がありません。`
+            : `いまこの店舗には${ctx.words.resourceNoun}が${beds.length}${ctx.words.counter}あります。`,
           '清掃時間を0分にすると、予約と予約のあいだに何も確保しません。',
         ],
       }),
