@@ -211,3 +211,11 @@ export const actorIsUnassigned = cache(
     }
   },
 )
+
+/**
+ * The refusal when a new staff card is submitted with NO store in a business
+ * that has more than one (⚖ Liam 2026-09-16: every new staff gets a store at
+ * creation). Machine code, mapped to copy at each door.
+ */
+export const STAFF_STORE_REQUIRED = 'STORE_REQUIRED_AT_CREATION'
+

@@ -35,7 +35,8 @@ import { actorIsUnassigned, STORE_UNASSIGNED_DENIAL } from '@/lib/auth/store-gat
 type StoresClient = Pick<
   SynqedClient,
   'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings' | 'storePolicies'
->
+> &
+  Partial<Pick<SynqedClient, 'staff'>>
 
 /** Roster row shape the owner gate needs — a subset of StaffMember so the
  *  twin doesn't import the whole staff module's type surface. */
@@ -802,6 +803,60 @@ export async function setStaffStoresCore(
     return { ok: true }
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Could not update stores' }
+  }
+}
+
+/**
+ * STORES AT CREATION — the second entry into `staffStores.set` (⚖ Liam's pick
+ * 2026-09-16).
+ *
+ * `setStaffStoresCore` above stays literal-OWNER-only: CHANGING an existing
+ * card's stores is an ownership act, and nothing here loosens `isRosterOwner`.
+ * But a manager who may CREATE staff (`staff.invite`) must be able to place the
+ * new hire, or every new card is born unassigned — the exact hole this whole
+ * change closes. So creation gets its own door with its own, narrower rule:
+ *
+ *   the creator may set the NEW card's stores WITHIN their own allowed stores.
+ *
+ * `creatorAllowedStoreIds: null` = unclamped (stores.viewAll, or a floating
+ * creator in a one-store salon) — any store of the business, which core
+ * validates on its side. A non-null array is a real clamp and the requested set
+ * must be a SUBSET of it: a 銀座-only manager cannot mint a 代官山 colleague.
+ * Enforced HERE, so both transports inherit it from one place rather than each
+ * route remembering to check.
+ */
+export async function setStaffStoresAtCreationCore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreWriteDeps,
+  staffId: string,
+  storeIds: string[],
+  creatorAllowedStoreIds: readonly string[] | null,
+): Promise<{ ok: true } | { error: string }> {
+  if (creatorAllowedStoreIds !== null) {
+    const outside = storeIds.filter((id) => !creatorAllowedStoreIds.includes(id))
+    // The literal every other door in this codebase already spells (⚖ fold
+    // round 3, N1): a second NAME for one code reads as two codes.
+    if (outside.length > 0) return { error: 'STORE_SCOPE_DENIED' }
+  }
+  try {
+    await synqed.staffStores.set(staffId, storeIds)
+    audit({
+      category: 'settings',
+      action: 'settings.staff_stores_change',
+      severity: 'notice',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'staff',
+      targetId: staffId,
+      detail: { store_ids: storeIds.join(','), count: storeIds.length, at_creation: true },
+      requestId: deps.requestId,
+      source: deps.source,
+    })
+    return { ok: true }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Could not set stores' }
   }
 }
 

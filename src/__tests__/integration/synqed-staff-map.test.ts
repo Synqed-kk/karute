@@ -5,7 +5,7 @@
  *  - email fallback (with self-heal patch to user_id),
  *  - create-on-miss: a real Supabase profile with no synqed staff record yet
  *    (e.g. seeded staff that bypassed createStaff) gets one created on demand,
- *  - and the hard throw only when the profile itself doesn't exist.
+ *  - and the hard throw when the profile doesn't exist in this business.
  *
  * Deps are mocked per-case and the module is re-imported inside
  * jest.isolateModulesAsync so unstable_cache memoization can't bleed
@@ -25,12 +25,17 @@ let mockProfileName: string | null | undefined = undefined
 let staffUpdate: jest.Mock
 let staffListMock: jest.Mock
 let staffCreate: jest.Mock
+let mockGetBusinessId: jest.Mock
+let mockUpdateTag: jest.Mock
+let mockSynqedClient: jest.Mock
+let mockProfileQueries: { select: jest.Mock; eq: jest.Mock }[] = []
 
 function mockDeps(opts: {
   staff: SynqedStaff[]
   /** undefined → the profiles row doesn't exist; null/string → it does. */
   profileEmail?: string | null
   profileName?: string | null
+  profileCustomerId?: string
   /** Omit/clear env so the self-heal + list path can be exercised without it. */
   withEnv?: boolean
   /** Force the self-heal update() to throw. */
@@ -61,39 +66,55 @@ function mockDeps(opts: {
     return { staff: mockStaff }
   })
   staffCreate = jest.fn(async () => ({ id: 'staff-created' }))
+  mockGetBusinessId = jest.fn(async () => {
+    if (opts.businessIdThrows) throw new Error('session broken')
+    return BIZ
+  })
+  mockUpdateTag = jest.fn()
+  mockProfileQueries = []
 
-  jest.doMock('@synqed-kk/client', () => ({
-    SynqedClient: jest.fn().mockImplementation(() => ({
-      staff: { list: staffListMock, update: staffUpdate, create: staffCreate },
-    })),
+  mockSynqedClient = jest.fn().mockImplementation(() => ({
+    staff: { list: staffListMock, update: staffUpdate, create: staffCreate },
   }))
+  jest.doMock('@synqed-kk/client', () => ({ SynqedClient: mockSynqedClient }))
 
   jest.doMock('@/lib/staff', () => ({
-    getBusinessId: jest.fn(async () => {
-      if (opts.businessIdThrows) throw new Error('session broken')
-      return BIZ
-    }),
+    getBusinessId: mockGetBusinessId,
   }))
 
   jest.doMock('@/lib/supabase/service', () => ({
     createServiceClient: () => {
-      const builder: Record<string, unknown> = {}
-      for (const m of ['select', 'eq']) builder[m] = () => builder
-      ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
-        // profileEmail === undefined models "no such profile" (null row);
-        // otherwise the row exists with the staged name + email.
-        data:
-          mockProfileEmail === undefined
-            ? null
-            : { full_name: mockProfileName ?? null, email: mockProfileEmail },
+      const filters = new Map<string, unknown>()
+      const customerId = opts.profileCustomerId ?? BIZ
+      const builder = {
+        select: jest.fn(),
+        eq: jest.fn(),
+        maybeSingle: async () => ({
+          // A foreign row exists but is invisible when the tenant filter is applied.
+          data:
+            mockProfileEmail === undefined ||
+            (filters.has('customer_id') && filters.get('customer_id') !== customerId)
+              ? null
+              : {
+                  full_name: mockProfileName ?? null,
+                  email: mockProfileEmail,
+                  customer_id: customerId,
+                },
+        }),
+      }
+      builder.select.mockReturnValue(builder)
+      builder.eq.mockImplementation((column: string, value: unknown) => {
+        filters.set(column, value)
+        return builder
       })
+      mockProfileQueries.push(builder)
       return { from: () => builder }
     },
   }))
 
   jest.doMock('next/cache', () => ({
     unstable_cache: (fn: unknown) => fn,
-    updateTag: jest.fn(),
+    updateTag: mockUpdateTag,
     revalidateTag: jest.fn(),
     revalidatePath: jest.fn(),
   }))
@@ -111,6 +132,22 @@ async function loadLookupFn() {
   let fn!: typeof import('@/lib/synqed/staff-map').lookupSynqedStaffId
   await jest.isolateModulesAsync(async () => {
     fn = (await import('@/lib/synqed/staff-map')).lookupSynqedStaffId
+  })
+  return fn
+}
+
+async function loadResolveForBusinessFn() {
+  let fn!: typeof import('@/lib/synqed/staff-map').resolveSynqedStaffIdForBusiness
+  await jest.isolateModulesAsync(async () => {
+    fn = (await import('@/lib/synqed/staff-map')).resolveSynqedStaffIdForBusiness
+  })
+  return fn
+}
+
+async function loadLookupForBusinessFn() {
+  let fn!: typeof import('@/lib/synqed/staff-map').lookupSynqedStaffIdForBusiness
+  await jest.isolateModulesAsync(async () => {
+    fn = (await import('@/lib/synqed/staff-map')).lookupSynqedStaffIdForBusiness
   })
   return fn
 }
@@ -182,10 +219,14 @@ describe('resolveSynqedStaffId — email fallback + self-heal', () => {
     mockDeps({
       staff: [{ id: 'staff-T', user_id: null, email: 'teammate@salon.com' }],
       profileEmail: 'teammate@salon.com',
+      profileCustomerId: BIZ,
     })
     const resolve = await loadFn()
-    await resolve('profile-99')
+    await expect(resolve('profile-99')).resolves.toBe('staff-T')
+    expect(staffUpdate).toHaveBeenCalledTimes(1)
     expect(staffUpdate).toHaveBeenCalledWith('staff-T', { user_id: 'profile-99' })
+    expect(mockUpdateTag.mock.calls).toEqual([['staff-list']])
+    expect(staffCreate).not.toHaveBeenCalled()
   })
 
   it('still returns the staff id when the self-heal patch throws', async () => {
@@ -210,19 +251,152 @@ describe('resolveSynqedStaffId — email fallback + self-heal', () => {
   })
 })
 
+describe('email fallback — business scope', () => {
+  it('e2: returns null for a foreign profile with a local card email without self-healing', async () => {
+    mockDeps({
+      staff: [{ id: 'staff-local', user_id: null, email: 'shared@example.test' }],
+      profileEmail: 'shared@example.test',
+      profileCustomerId: 'biz-other',
+    })
+    const lookup = await loadLookupFn()
+    await expect(lookup('profile-foreign')).resolves.toBeNull()
+    expect(staffUpdate).not.toHaveBeenCalled()
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(mockUpdateTag).not.toHaveBeenCalled()
+  })
+
+  it('e3: the resolver rejects a foreign profile with a local card email without updating or creating', async () => {
+    mockDeps({
+      staff: [{ id: 'staff-local', user_id: null, email: 'shared@example.test' }],
+      profileEmail: 'shared@example.test',
+      profileCustomerId: 'biz-other',
+    })
+    const resolve = await loadResolveForBusinessFn()
+    await expect(resolve('profile-foreign', BIZ)).rejects.toThrow(
+      'Could not link Supabase profile profile-foreign to a synqed-core staff record: no such profile.',
+    )
+    expect(staffUpdate).not.toHaveBeenCalled()
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(mockUpdateTag).not.toHaveBeenCalled()
+  })
+
+  it('e4: filters the email query by both profile id and business', async () => {
+    mockDeps({
+      staff: [{ id: 'staff-local', user_id: null, email: 'same@example.test' }],
+      profileEmail: 'same@example.test',
+      profileCustomerId: BIZ,
+    })
+    const lookup = await loadLookupFn()
+    await expect(lookup('profile-same')).resolves.toBe('staff-local')
+    expect(mockProfileQueries).toHaveLength(1)
+    const query = mockProfileQueries[0]
+    expect(query.select).toHaveBeenCalledWith('email')
+    expect(query.eq).toHaveBeenCalledWith('id', 'profile-same')
+    expect(query.eq).toHaveBeenCalledWith('customer_id', BIZ)
+  })
+
+  it.each([
+    ['lookup', loadLookupForBusinessFn],
+    ['resolve', loadResolveForBusinessFn],
+  ])('e5: the Bearer %s twin uses the token business for the email query', async (_name, load) => {
+    const tokenBusinessId = 'biz-token'
+    mockDeps({
+      staff: [{ id: 'staff-token', user_id: null, email: 'token@example.test' }],
+      profileEmail: 'token@example.test',
+      profileCustomerId: tokenBusinessId,
+      businessIdThrows: true,
+    })
+    const resolve = await load()
+    await expect(resolve('profile-token', tokenBusinessId)).resolves.toBe('staff-token')
+    expect(mockGetBusinessId).not.toHaveBeenCalled()
+    expect(mockProfileQueries).toHaveLength(1)
+    const query = mockProfileQueries[0]
+    expect(query.select).toHaveBeenCalledWith('email')
+    expect(query.eq).toHaveBeenCalledWith('id', 'profile-token')
+    expect(query.eq).toHaveBeenCalledWith('customer_id', tokenBusinessId)
+    expect(query.eq).not.toHaveBeenCalledWith('customer_id', BIZ)
+    expect(mockSynqedClient).toHaveBeenCalledTimes(2)
+    for (const [options] of mockSynqedClient.mock.calls) {
+      expect(options.businessId).toBe(tokenBusinessId)
+    }
+    expect(staffUpdate).toHaveBeenCalledTimes(1)
+    expect(staffUpdate).toHaveBeenCalledWith('staff-token', { user_id: 'profile-token' })
+    expect(mockUpdateTag.mock.calls).toEqual([['staff-list']])
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+})
+
 describe('resolveSynqedStaffId — create-on-miss', () => {
   it('creates a synqed staff record from the profile when no link exists', async () => {
     mockDeps({
       staff: [{ id: 'staff-A', user_id: 'other', email: 'other@x.com' }],
       profileName: '牧之瀬 拓海',
       profileEmail: 'takumi@salon.com',
+      profileCustomerId: BIZ,
     })
     const resolve = await loadFn()
     await expect(resolve('profile-seeded')).resolves.toBe('staff-created')
+    expect(staffCreate).toHaveBeenCalledTimes(1)
+    expect(mockUpdateTag.mock.calls).toEqual([['staff-list']])
     expect(staffCreate).toHaveBeenCalledWith({
       name: '牧之瀬 拓海',
       email: 'takumi@salon.com',
       user_id: 'profile-seeded',
+    })
+  })
+
+  it('s2: rejects a profile in another business without creating staff or invalidating tags', async () => {
+    mockDeps({
+      staff: [],
+      profileName: 'Foreign Staff',
+      profileEmail: 'foreign@example.test',
+      profileCustomerId: 'biz-other',
+    })
+    const resolve = await loadFn()
+    await expect(resolve('profile-foreign')).rejects.toThrow(
+      'Could not link Supabase profile profile-foreign to a synqed-core staff record: no such profile.',
+    )
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(mockUpdateTag).not.toHaveBeenCalled()
+  })
+
+  it('s3: filters the create-on-miss profile query by both profile id and business', async () => {
+    mockDeps({ staff: [], profileEmail: 'same@example.test', profileCustomerId: BIZ })
+    const resolve = await loadFn()
+    await resolve('profile-same')
+    const query = mockProfileQueries.find((q) =>
+      q.select.mock.calls.some(([columns]) => columns === 'full_name, email'),
+    )
+    expect(query).toBeDefined()
+    expect(query!.eq).toHaveBeenCalledWith('id', 'profile-same')
+    expect(query!.eq).toHaveBeenCalledWith('customer_id', BIZ)
+  })
+
+  it('s4: the Bearer twin uses the token business, never the cookie business', async () => {
+    const tokenBusinessId = 'biz-token'
+    mockDeps({
+      staff: [],
+      profileName: 'Token Staff',
+      profileEmail: 'token@example.test',
+      profileCustomerId: tokenBusinessId,
+    })
+    const resolve = await loadResolveForBusinessFn()
+    await expect(resolve('profile-token', tokenBusinessId)).resolves.toBe('staff-created')
+    expect(mockGetBusinessId).not.toHaveBeenCalled()
+    const query = mockProfileQueries.find((q) =>
+      q.select.mock.calls.some(([columns]) => columns === 'full_name, email'),
+    )
+    expect(query!.eq).toHaveBeenCalledWith('customer_id', tokenBusinessId)
+    expect(query!.eq).not.toHaveBeenCalledWith('customer_id', BIZ)
+    expect(mockSynqedClient).toHaveBeenCalledTimes(2)
+    for (const [options] of mockSynqedClient.mock.calls) {
+      expect(options.businessId).toBe(tokenBusinessId)
+    }
+    expect(staffCreate).toHaveBeenCalledTimes(1)
+    expect(staffCreate).toHaveBeenCalledWith({
+      name: 'Token Staff',
+      email: 'token@example.test',
+      user_id: 'profile-token',
     })
   })
 
