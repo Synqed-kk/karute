@@ -252,6 +252,48 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
 
       expect(result).toBeNull()
     })
+
+    it.each(['00:00', '08:59'])(
+      't5 accepts %s JST with an omitted offset when the previous UTC weekday is closed',
+      async (time) => {
+        const result = await validateAppointmentTime(
+          {
+            ...inputWithoutOffset(`2026-05-12T${time}:00+09:00`),
+            durationMinutes: 1,
+          },
+          ORG_HOURS,
+          dayHours({
+            weeklyHours: { mon: null, tue: { open: '00:00', close: '09:00' } } as never,
+          }),
+        )
+
+        expect(result).toBeNull()
+      },
+    )
+
+    it.each([
+      ['undefined', undefined],
+      ['NaN', NaN],
+      ['positive infinity', Infinity],
+      ['negative infinity', -Infinity],
+      ['null', null],
+      ['numeric string', '0'],
+    ])('t6 defaults %s to JST and refuses 22:30 past closing', async (_label, offset) => {
+      const result = await validateAppointmentTime(
+        {
+          ...inputWithoutOffset('2026-05-12T13:30:00.000Z'),
+          // Exercise malformed runtime values at the validator boundary too.
+          tzOffsetMinutes: offset as number | undefined,
+        },
+        ORG_HOURS,
+        dayHours({ weeklyHours: STORE_1000_2200 as never }),
+      )
+
+      expect(result).toMatchObject({
+        code: 'outside_hours',
+        params: { open: '10:00', close: '22:00' },
+      })
+    })
   })
 
   it("refuses the store's own 定休日, and says the STORE closed it", async () => {
