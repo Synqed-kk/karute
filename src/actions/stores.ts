@@ -601,8 +601,14 @@ export async function setStoreHoursCore(
   try {
     const { stores } = await synqed.stores.list()
     if (!stores.some((s) => s.id === storeId)) return { error: STORE_HOURS_UNKNOWN_STORE }
-  } catch {
-    return { error: STORE_HOURS_UNKNOWN_STORE }
+  } catch (e) {
+    // A failed READ of the list is not proof the store is unknown — a real
+    // owner would be told 「unknown store」 for what was only core blipping.
+    // Same shape as the core-failure catch below (StoreHoursBlock toasts an
+    // unrecognized error code RAW), never the unknown-store refusal.
+    return {
+      error: `Could not update store hours: ${e instanceof Error ? e.message : 'unknown'}`,
+    }
   }
   // CORE's staff-id space, resolved by the door (see StoreHoursWriteDeps).
   // Unresolvable = REFUSE — never deps.selfUserId, which is a profile id.
