@@ -54,7 +54,9 @@ function emitStoreWriteRefused(
 
 /**
  * THE AUDITED TWIN of ensureRecordStoreInScope (src/lib/auth/store-lock.ts) —
- * the same lock, plus ONE audit row when it REFUSES.
+ * the same lock, plus ONE audit row for an out-of-store refusal. A degraded
+ * assignment lookup is refused with the same error and is NOT recorded: an
+ * infrastructure blip on the actor's own lookup is not a cross-store probe.
  *
  * WHY IT LIVES HERE AND NOT THERE (FRESH-EYES-P1 §5a: "someone probing another
  * branch's ids is exactly the event an owner would want to see"). The lock
@@ -98,26 +100,28 @@ export function ensureRecordStoreInScopeAudited(
   try {
     ensureRecordStoreInScope(record, scope, notFoundMessage)
   } catch (err) {
-    emitStoreWriteRefused(STORE_WRITE_REFUSED[trace.category], {
-      category: trace.category,
-      actorId: trace.actor.actorId,
-      businessId: trace.actor.businessId,
-      targetType: trace.targetType,
-      targetId: trace.targetId,
-      // A cross-store write attempt is a security event, same tier as a PIN
-      // lockout or a scheduled deletion — the viewer's 警告 strip.
-      severity: 'warning',
-      detail: {
-        door: trace.door,
-        record_store_id: record.store_id,
-        // Which refusal: an out-of-store probe ('not_found') reads very
-        // differently from a blipped assignment lookup ('store_forbidden').
-        code: err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : null,
-        ...trace.detail,
-      },
-      requestId: trace.actor.requestId,
-      source: trace.actor.source,
-    })
+    if (!scope.degraded) {
+      emitStoreWriteRefused(STORE_WRITE_REFUSED[trace.category], {
+        category: trace.category,
+        actorId: trace.actor.actorId,
+        businessId: trace.actor.businessId,
+        targetType: trace.targetType,
+        targetId: trace.targetId,
+        // A cross-store write attempt is a security event, same tier as a PIN
+        // lockout or a scheduled deletion — the viewer's 警告 strip.
+        severity: 'warning',
+        detail: {
+          door: trace.door,
+          record_store_id: record.store_id,
+          // Degraded lookup blips are not recorded; this row is an out-of-store
+          // refusal, so its code is the pure lock's 'not_found'.
+          code: err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : null,
+          ...trace.detail,
+        },
+        requestId: trace.actor.requestId,
+        source: trace.actor.source,
+      })
+    }
     throw err
   }
 }

@@ -2,6 +2,7 @@ jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
 
 import { audit } from '@/lib/audit'
 import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 
 const actor = {
   actorId: 'auth-user-1',
@@ -45,6 +46,19 @@ describe('audited store lock — refusal payload contains only door, store, code
           recording_session_id: 'rec-1',
         },
       }))
+    },
+  )
+
+  it.each(['booking', 'karute', 'recording', 'settings'] as const)(
+    '%s degraded scope refuses as store_forbidden without an audit row',
+    (category) => {
+      expect(() => ensureRecordStoreInScopeAudited(
+        { store_id: 'store-A' },
+        { viewAll: false, allowedStoreIds: ['store-A'], degraded: true },
+        'Record not found',
+        { actor, category, targetId: 'kar-1', door: `${category}.test_write` },
+      )).toThrow(expect.objectContaining({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED }))
+      expect(audit).not.toHaveBeenCalled()
     },
   )
 
