@@ -13,6 +13,10 @@
 // day always renders 休 somewhere": isClosedRow gates on closed AND zero
 // bookings, by the lead's ruling, and the month grid has no 休 cell on this
 // tip at all.) Refusing on a fact no screen shows would be the worse gap.
+// ⚖ MERGE #937 fix round 1 — so OFF now means what it says here: fetchBookingDayHours
+// itself returns the no-store-facts answer when the switch is off, the same
+// answer it already gives with no store in hand, so this door's own refusal
+// goes quiet exactly when the 休 cell does.
 //
 // DEGRADED-ALLOWED, on purpose: a store-policy read we could not make says
 // NOTHING about whether the day is closed, and REFUSING a booking over a read
@@ -41,6 +45,7 @@ import type { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
 import type { WeekdayKey } from '@/lib/operating-hours'
 import type { BookingDayHours } from '@/lib/appointments'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 
 /** Only the two READ verbs — nothing here may write a store policy. */
 type StorePolicyReader = {
@@ -72,6 +77,12 @@ export async function fetchBookingDayHours(
   date: Date,
   orgSaved: readonly WeekdayKey[] | undefined,
 ): Promise<BookingDayHours> {
+  // ⚖ MERGE #937 fix round 1, B2 — a layer switched OFF must reproduce the
+  // behaviour from before this round. The same no-store-facts answer this
+  // function already gives when it has no store to ask: no weekly hours, no
+  // closed dates, so resolveDayHours can never say `closed`, and
+  // validateAppointmentTime falls through to the org hours-window check only.
+  if (!BOOKING_SWITCHES.closedDays) return orgOnlyDayHours(orgSaved)
   // ⚖ R1-3 — an Invalid Date never reaches ymdInJst: partsInJst →
   // Intl.DateTimeFormat.formatToParts throws RangeError on one, and a throw on
   // the booking write path is a 500 where the contract says a plain refusal.
