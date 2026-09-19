@@ -20,6 +20,7 @@ jest.mock('next-intl', () => ({
 // the warm's zod parse would reject a deliberately minimal month and the
 // fail-open catch would swallow it — which is not what this file is about.
 jest.mock('@/lib/app-api/appointments-screen-dto', () => ({
+  ...jest.requireActual('@/lib/app-api/appointments-screen-dto'),
   AppointmentsScreenDTO: { parse: (raw: unknown) => raw },
 }))
 jest.mock('@/lib/ports/data-port', () => ({
@@ -301,6 +302,52 @@ describe('the calendar numbers kept on the device (S4)', () => {
     expect(readMonthNumbers(path)).toBeNull()
     window.localStorage.setItem('karute-calendar-numbers', JSON.stringify({ v: 99, entries: {} }))
     expect(readMonthNumbers(path)).toBeNull()
+  })
+
+  it.each([
+    ['string', 'broken'],
+    ['object', {}],
+    ['null cell', [null]],
+    ['string count', [{ ...monthCells()[0], count: 'x' }]],
+    ['missing id', [{ ...monthCells()[0], id: undefined }]],
+    ['empty month', []],
+    ['invalid density', [{ ...monthCells()[0], density: 'invalid' }]],
+    ['missing closed', [{ ...monthCells()[0], closed: undefined }]],
+    ['missing newCount', [{ ...monthCells()[0], newCount: undefined }]],
+    ['wrong flag type', [{ ...monthCells()[0], newCountKnown: 1 }]],
+    ['wrong inMonth type', [{ ...monthCells()[0], inMonth: 'true' }]],
+    ['wrong isToday type', [{ ...monthCells()[0], isToday: 0 }]],
+    ['invalid date', [{ ...monthCells()[0], dateIso: 'invalid' }]],
+    ['invalid cell id', [{ ...monthCells()[0], id: 'invalid' }]],
+    ['mixed valid and corrupt', [monthCells()[0], null]],
+  ])('reads malformed %s as absent and removes it on the next write', (_label, monthData) => {
+    rememberMonthNumbers(path, monthCells())
+    const blob = JSON.parse(window.localStorage.getItem('karute-calendar-numbers')!)
+    const key = Object.keys(blob.entries)[0]
+    blob.entries[key].monthData = monthData
+    window.localStorage.setItem('karute-calendar-numbers', JSON.stringify(blob))
+    expect(() => expect(readMonthNumbers(path)).toBeNull()).not.toThrow()
+    rememberMonthNumbers('another-month', monthCells())
+    const rewritten = JSON.parse(window.localStorage.getItem('karute-calendar-numbers')!)
+    expect(rewritten.entries).not.toHaveProperty(key)
+    expect(readMonthNumbers('another-month')).toEqual(monthCells())
+  })
+
+  it.each([null, [], 'broken', { at: 'wrong', monthData: monthCells() }])(
+    'reads a malformed entry as absent: %j', (entry) => {
+      rememberMonthNumbers(path, monthCells())
+      const blob = JSON.parse(window.localStorage.getItem('karute-calendar-numbers')!)
+      blob.entries[Object.keys(blob.entries)[0]] = entry
+      window.localStorage.setItem('karute-calendar-numbers', JSON.stringify(blob))
+      expect(() => expect(readMonthNumbers(path)).toBeNull()).not.toThrow()
+    },
+  )
+
+  it.each([null, [], 'broken'])('reads malformed entries containers as absent: %j', (entries) => {
+    window.localStorage.setItem('karute-calendar-numbers', JSON.stringify({ v: 2, entries }))
+    expect(() => expect(readMonthNumbers(path)).toBeNull()).not.toThrow()
+    rememberMonthNumbers(path, monthCells())
+    expect(readMonthNumbers(path)).toEqual(monthCells())
   })
 
   it('a warmed month is written down for the next launch', async () => {

@@ -10,6 +10,7 @@
 // copied explicitly. Unknown DTO fields (including nested objects) are dropped.
 // The free-form strings must have the producer's date/cell-id shapes; density
 // is a fixed enum. Capacity fields are not read by that mapper and stay out.
+// Every entry is validated on read; invalid entries vanish on the next write.
 // Entries are isolated by the current user, store lens and screen path.
 //
 // Plain namespaced `localStorage` with a version key and a cap, because no
@@ -22,7 +23,7 @@
 import { getCurrentSession } from '@/lib/auth/mobile/session-store'
 import { getThinActiveStore } from '../chrome/store-pref'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
-import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
+import { MonthCellDTO, type MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 
 const KEY = 'karute-calendar-numbers'
 const VERSION = 2
@@ -53,6 +54,24 @@ interface Blob {
 const CELL_ID = /^\d{4}-\d{2}-\d{2}$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
+// This schema already ships inside AppointmentsScreenDTO. Keep its field types,
+// but require stored fields: wire-skew defaults must not repair corrupt storage.
+const StoredMonthCell = MonthCellDTO.pick({
+  id: true, dateIso: true, inMonth: true, isToday: true, count: true,
+  density: true, closed: true, newCount: true, newCountKnown: true,
+}).extend({
+  id: MonthCellDTO.shape.id.regex(CELL_ID),
+  dateIso: MonthCellDTO.shape.dateIso.regex(ISO_DATE),
+  closed: MonthCellDTO.shape.closed.removeDefault(),
+  newCount: MonthCellDTO.shape.newCount.removeDefault(),
+  newCountKnown: MonthCellDTO.shape.newCountKnown.removeDefault(),
+})
+const StoredMonth = StoredMonthCell.array().nonempty()
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 function storedCell(cell: MonthCellDTOType): CalendarMonthCell {
   return {
     id: cell.id,
@@ -71,13 +90,15 @@ function read(): Blob {
   try {
     const raw = window.localStorage.getItem(KEY)
     const parsed: unknown = raw ? JSON.parse(raw) : null
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      (parsed as Blob).v === VERSION &&
-      typeof (parsed as Blob).entries === 'object'
-    ) {
-      return parsed as Blob
+    if (isObject(parsed) && parsed.v === VERSION && isObject(parsed.entries)) {
+      const entries: Blob['entries'] = {}
+      for (const [key, entry] of Object.entries(parsed.entries)) {
+        if (!isObject(entry) || typeof entry.at !== 'number' || !Number.isFinite(entry.at)) continue
+        const cells = StoredMonth.safeParse(entry.monthData)
+        if (!cells.success) continue
+        entries[key] = { at: entry.at, monthData: cells.data }
+      }
+      return { v: VERSION, entries }
     }
   } catch {
     /* unavailable, blocked or corrupt — read as absent */
@@ -93,10 +114,7 @@ export function rememberMonthNumbers(path: string, monthData: MonthCellDTOType[]
   if (!BOOKING_SWITCHES.persistCalendarNumbers) return
   if (!monthData || monthData.length === 0) return
   try {
-    if (monthData.some((cell) =>
-      typeof cell.id !== 'string' || !CELL_ID.test(cell.id) ||
-      typeof cell.dateIso !== 'string' || !ISO_DATE.test(cell.dateIso)
-    )) return
+    if (!StoredMonth.safeParse(monthData).success) return
     const key = entryKey(path)
     if (key === null) return
     const blob = read()
