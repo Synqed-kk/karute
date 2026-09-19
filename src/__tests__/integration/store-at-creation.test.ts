@@ -13,9 +13,12 @@
  */
 
 import { createStaffCore } from '@/actions/staff'
+import { createInviteCore, listInvitesWithClient, reinviteTargetStaffIdWithClient } from '@/actions/invites'
 import { setStaffStoresAtCreationCore } from '@/actions/stores'
 import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
 import {
+  INVITE_NAME_REQUIRED,
+  STAFF_CREATE_FAILED,
   STAFF_STORE_REQUIRED,
 } from '@/lib/auth/store-gate'
 import { audit } from '@/lib/audit'
@@ -353,6 +356,374 @@ describe('the creator may only place a hire inside their OWN stores', () => {
     )
     expect(res).toEqual({ error: STAFF_STORES_OUTSIDE_CREATOR })
     expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
+  })
+})
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A FRESH INVITE MAKES THE CARD (⚖ Liam 2026-09-16 16:1x)
+//
+// Before this, an email-only invite carried no staff row: the card was minted on
+// ACCEPT, with no store. Now the card is made up front — named by a person,
+// placed in a store — and the invite carries its id as `invited_staff_id`, so
+// accept attaches the login through the EXISTING re-invite path
+// (chooseStaffToLink → staff.update) with no change to acceptInvite at all.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('a fresh invite makes the card', () => {
+  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
+
+  function inviteClient(opts: Parameters<typeof client>[0] = {}) {
+    const c = client(opts)
+    const invitesCreate = jest.fn(async () => ({ id: 'inv-1' }))
+    return {
+      ...c,
+      invitesCreate,
+      api: { ...c.api, invites: { create: invitesCreate } },
+    }
+  }
+
+  it('REFUSES a fresh invite with no store in a multi-store business', async () => {
+    const c = inviteClient({ stores: ['store-ginza', 'store-daikanyama'] })
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ error: STAFF_STORE_REQUIRED })
+    expect(c.staffCreate).not.toHaveBeenCalled()
+    expect(c.invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('REFUSES a fresh invite with no NAME — never an email-named card', async () => {
+    const c = inviteClient({ stores: ['store-ginza'] })
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+    })
+    expect(res).toEqual({ error: INVITE_NAME_REQUIRED })
+    expect(c.staffCreate).not.toHaveBeenCalled()
+    expect(c.invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('REFUSES a creator placing the hire outside their OWN stores', async () => {
+    const c = inviteClient({})
+    const res = await createInviteCore(
+      c.api as never,
+      'business-1',
+      { ...INV_DEPS, creatorAllowedStoreIds: ['store-ginza'] },
+      null,
+      { email: 'new@test.com', role: 'STYLIST', name: '新人', storeIds: ['store-daikanyama'] },
+    )
+    expect(res).toEqual({ error: STAFF_STORES_OUTSIDE_CREATOR })
+    // The card was rolled back, and no invite exists for it.
+    expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
+    expect(c.invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('a SINGLE-store business needs no store — the carve-out holds here too', async () => {
+    const c = inviteClient({ stores: ['store-ginza'] })
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ token: expect.any(String) })
+    expect(c.staffCreate).toHaveBeenCalled()
+    expect(c.staffStoresSet).not.toHaveBeenCalled()
+  })
+
+  it('a KNOWN store count keeps the invite door staff.add at info (J3 / U-V4)', async () => {
+    const c = inviteClient({ stores: ['store-ginza'] })
+    ;(audit as jest.Mock).mockClear()
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com', role: 'STYLIST', name: '新人',
+    })
+    expect(res).toEqual({ token: expect.any(String) })
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'staff.add', severity: 'info', targetId: 'staff-new',
+    }))
+    expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.objectContaining({ reason: 'store_count_unknown_unplaced' }),
+    }))
+  })
+
+  it('the invite carries invited_staff_id = the new card, so ACCEPT attaches the login to it', async () => {
+    const c = inviteClient({})
+    const res = await createInviteCore(
+      c.api as never,
+      'business-1',
+      { ...INV_DEPS, creatorAllowedStoreIds: ['store-ginza'] },
+      'mgr-1',
+      { email: 'new@test.com', role: 'STYLIST', name: '新人', storeIds: ['store-ginza'] },
+    )
+    expect(res).toEqual({ token: expect.any(String) })
+    expect(c.assignments['staff-new']).toEqual(['store-ginza'])
+    expect(c.invitesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ invited_staff_id: 'staff-new' }),
+    )
+    // acceptInvite's existing re-invite arm keys on exactly that field:
+    // chooseStaffToLink(invite.invited_staff_id, …) → staff.update(user_id).
+    // Pinned as the seam, so a change to either half shows up here.
+    const { chooseStaffToLink } = await import('@/lib/invites/link')
+    expect(
+      chooseStaffToLink('staff-new', 'new@test.com', [{ id: 'staff-new' } as never]),
+    ).toBe('staff-new')
+  })
+
+  it.each([false, true])(
+    'staff.add waits for the invite and emits exactly once, unknown count = %s (J4)',
+    async (storeUnknown) => {
+      const c = inviteClient({ stores: ['store-ginza'] })
+      if (storeUnknown) c.api.stores.list = async () => { throw new Error('core down') }
+      ;(audit as jest.Mock).mockClear()
+      c.invitesCreate.mockImplementation(async () => {
+        expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'staff.add' }))
+        return { id: 'inv-j4' }
+      })
+
+      const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+        email: 'new@test.com', role: 'STYLIST', name: '新人',
+      })
+
+      expect(res).toEqual({ token: expect.any(String), ...(storeUnknown ? { storeUnknown: true } : {}) })
+      expect(c.invitesCreate).toHaveBeenCalledTimes(1)
+      const adds = (audit as jest.Mock).mock.calls.filter(([row]) => row.action === 'staff.add')
+      expect(adds).toEqual([[expect.objectContaining({
+        severity: storeUnknown ? 'notice' : 'info',
+        targetId: 'staff-new',
+        detail: storeUnknown ? { reason: 'store_count_unknown_unplaced' } : undefined,
+      })]])
+    },
+  )
+
+  it('a failed INVITE write rolls the card back — no card without its invite', async () => {
+    const c = inviteClient({ stores: ['store-ginza'] })
+    c.invitesCreate.mockRejectedValue(new Error('core down'))
+    ;(audit as jest.Mock).mockClear()
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect('error' in res).toBe(true)
+    expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
+    expect((audit as jest.Mock).mock.calls.filter(([row]) => row.action === 'staff.add')).toHaveLength(0)
+  })
+
+  it('a failed invite whose ROLLBACK also fails is SURFACED, not swallowed (F8)', async () => {
+    const c = inviteClient({ stores: ['store-ginza'], deleteFails: true })
+    c.invitesCreate.mockRejectedValue(new Error('core down'))
+    ;(audit as jest.Mock).mockClear()
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ error: STAFF_CARD_LEFT_BEHIND })
+    expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
+    // ⚖ G8 — the invite-side twin of the same trace.
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'staff.add',
+        severity: 'warning',
+        targetId: 'staff-new',
+        detail: expect.objectContaining({ reason: 'rollback_failed' }),
+      }),
+    )
+    expect((audit as jest.Mock).mock.calls.filter(([row]) => row.action === 'staff.add')).toHaveLength(1)
+  })
+
+  // ⚖ G6 — THE MINT STAYS INSIDE THE CONTRACT. A core rejection on
+  // staff.create used to escape createInviteCore as an unhandled Server Action
+  // error — message stripped in production, so the dialog showed nothing.
+  it('a core rejection on the card mint comes back as a MACHINE CODE, not a throw (G6)', async () => {
+    const c = inviteClient({ stores: ['store-ginza'] })
+    c.staffCreate.mockRejectedValue(new Error('core down'))
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ error: STAFF_CREATE_FAILED })
+    expect(c.invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('a client with NO staff port answers with the same code (G6)', async () => {
+    const c = inviteClient({ stores: ['store-ginza'] })
+    const api = { ...c.api } as Record<string, unknown>
+    delete api.staff
+    const res = await createInviteCore(api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ error: STAFF_CREATE_FAILED })
+  })
+
+  // ⚖ I2 — the SAME answer on the invite door.
+  it('an UNREADABLE store list answers storeUnknown and leaves a notice — the 招待 door (I2)', async () => {
+    const c = inviteClient({})
+    c.api.stores.list = (async () => {
+      throw new Error('core down')
+    }) as never
+    ;(audit as jest.Mock).mockClear()
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ token: expect.any(String), storeUnknown: true })
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'staff.add',
+        severity: 'notice',
+        targetId: 'staff-new',
+        detail: expect.objectContaining({ reason: 'store_count_unknown_unplaced' }),
+      }),
+    )
+  })
+
+  it('a RE-invite is untouched — no card is made, the existing one is named', async () => {
+    const c = inviteClient({})
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'known@test.com',
+      role: 'STYLIST',
+      staffId: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(res).toEqual({ token: expect.any(String) })
+    expect(c.staffCreate).not.toHaveBeenCalled()
+    expect(c.invitesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ invited_staff_id: '11111111-1111-4111-8111-111111111111' }),
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ONE PENDING FRESH INVITE PER EMAIL (⚖ fold round 3, fresh-eyes F4)
+//
+// Inviting the same new hire twice minted two cards; accept wires one and the
+// other is permanent. The duplicate check that existed only looked at people
+// who ALREADY have a login.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('a creator keeps their own invite only while its target is storeless (F5 / G1)', () => {
+  // A fresh invite now carries invited_staff_id, so it goes through the same
+  // store lens as a re-invite. A card minted during a core blip can have NO
+  // store (the "an unreadable store list never blocks hiring" arm), and the
+  // lens refuses a storeless target — which used to hide the row from the very
+  // manager who had just created it, with no way to cancel it.
+  const rows = [
+    { id: 'inv-mine', email: 'a@test.com', role: 'STYLIST', status: 'pending', created_at: '', expires_at: null, invited_by: 'mgr-1', invited_staff_id: 'card-a' },
+    { id: 'inv-theirs', email: 'b@test.com', role: 'STYLIST', status: 'pending', created_at: '', expires_at: null, invited_by: 'mgr-2', invited_staff_id: 'card-b' },
+  ]
+  const api = {
+    invites: { list: async () => ({ invites: rows }) },
+    staffStores: { get: async () => ({ store_ids: [] as string[] }) },
+  }
+
+  it('keeps the creator’s own row and still hides somebody else’s', async () => {
+    const list = await listInvitesWithClient(
+      api as never,
+      undefined,
+      async () => false, // every card is out of this clamped viewer's stores
+      'mgr-1',
+    )
+    expect(list.map((i) => i.id)).toEqual(['inv-mine'])
+  })
+
+  it('lets the creator revoke their own storeless target, but still clamps somebody else’s', async () => {
+    expect(await reinviteTargetStaffIdWithClient(api as never, 'inv-mine', 'mgr-1')).toBeNull()
+    expect(await reinviteTargetStaffIdWithClient(api as never, 'inv-theirs', 'mgr-1')).toBe('card-b')
+  })
+
+  const noExemption = [
+    ['placed outside the creator’s stores', { get: async () => ({ store_ids: ['store-daikanyama'] }) }],
+    ['assignment read throws', { get: async () => { throw new Error('core down') } }],
+    ['no staffStores port', undefined],
+    ...[undefined, null, {}, { store_ids: null }, { store_ids: '' }, { store_ids: { length: 0 } }]
+      .map((answer) => [`malformed assignment ${JSON.stringify(answer)}`, { get: async () => answer }] as const),
+  ] as const
+
+  it.each(noExemption)('list uses the normal lens when %s', async (_label, staffStores) => {
+    const lens = jest.fn(async () => false)
+    const c = { ...api, staffStores }
+    expect(await listInvitesWithClient(c as never, undefined, lens, 'mgr-1')).toEqual([])
+    expect(lens).toHaveBeenCalledTimes(2)
+    expect(lens.mock.calls).toEqual(expect.arrayContaining([['card-a'], ['card-b']]))
+    lens.mockResolvedValue(true)
+    expect((await listInvitesWithClient(c as never, undefined, lens, 'mgr-1')).map((i) => i.id))
+      .toEqual(['inv-mine', 'inv-theirs'])
+  })
+
+  it.each(noExemption)('revoke returns the clamp target when %s', async (_label, staffStores) => {
+    expect(await reinviteTargetStaffIdWithClient({ ...api, staffStores } as never, 'inv-mine', 'mgr-1'))
+      .toBe('card-a')
+  })
+
+  it('reads only the self-created target and never the creator’s or another invite’s assignments', async () => {
+    const get = jest.fn(async (id: string) => ({ store_ids: id === 'card-a' ? [] : ['store-ginza'] }))
+    const lens = jest.fn(async () => false)
+    const c = { ...api, staffStores: { get } }
+    expect((await listInvitesWithClient(c as never, undefined, lens, 'mgr-1')).map((i) => i.id))
+      .toEqual(['inv-mine'])
+    expect(get.mock.calls).toEqual([['card-a']])
+    expect(lens.mock.calls).toEqual([['card-b']])
+    get.mockClear()
+    expect(await reinviteTargetStaffIdWithClient(c as never, 'inv-mine', 'mgr-1')).toBeNull()
+    expect(await reinviteTargetStaffIdWithClient(c as never, 'inv-theirs', 'mgr-1')).toBe('card-b')
+    expect(get.mock.calls).toEqual([['card-a']])
+  })
+
+  it('keeps email-only rows unchanged without an assignment read or a clamp', async () => {
+    const get = jest.fn()
+    const lens = jest.fn(async () => false)
+    const c = {
+      invites: { list: async () => ({ invites: [{ ...rows[0], invited_staff_id: null }] }) },
+      staffStores: { get },
+    }
+    expect((await listInvitesWithClient(c as never, undefined, lens, 'mgr-1')).map((i) => i.id))
+      .toEqual(['inv-mine'])
+    expect(await reinviteTargetStaffIdWithClient(c as never, 'inv-mine', 'mgr-1')).toBeNull()
+    expect(get).not.toHaveBeenCalled()
+    expect(lens).not.toHaveBeenCalled()
+  })
+})
+
+describe('one pending fresh invite per email (F4)', () => {
+  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
+
+  function pendingClient(pending: { email: string; status: string }[]) {
+    const c = client({ stores: ['store-ginza'] })
+    const invitesCreate = jest.fn(async () => ({ id: 'inv-1' }))
+    return {
+      ...c,
+      invitesCreate,
+      api: {
+        ...c.api,
+        invites: { create: invitesCreate, list: async () => ({ invites: pending }) },
+      },
+    }
+  }
+
+  it('REFUSES a second pending invite to the same email — two cards, one hire', async () => {
+    const c = pendingClient([{ email: 'New@Test.com', status: 'pending' }])
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ error: 'INVITE_ALREADY_PENDING' })
+    expect(c.staffCreate).not.toHaveBeenCalled()
+    expect(c.invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('a REVOKED invite to that email is no obstacle — only PENDING ones are', async () => {
+    const c = pendingClient([{ email: 'new@test.com', status: 'revoked' }])
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ token: expect.any(String) })
   })
 })
 

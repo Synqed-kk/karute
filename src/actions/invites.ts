@@ -14,6 +14,16 @@ import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
+import {
+  INVITE_ALREADY_PENDING,
+  INVITE_NAME_REQUIRED,
+  STAFF_CREATE_FAILED,
+} from '@/lib/auth/store-gate'
+import {
+  createAndPlaceStaffCard,
+  STAFF_CARD_LEFT_BEHIND,
+  type NewCardClient,
+} from '@/lib/staff/new-card'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
 import {
@@ -27,7 +37,11 @@ import {
 // as the S4a cores): the cores below take this instead of resolving
 // getSynqedClient() from the cookie session, so the facade (Bearer path) and
 // the web actions run the IDENTICAL write logic.
-type InviteClient = Pick<SynqedClient, 'invites'>
+type InviteClient = Pick<SynqedClient, 'invites'> &
+  // ⚖ Liam 2026-09-16: a FRESH invite mints the staff card first, through the
+  // same placement path createStaff uses — so the core needs the staff ports
+  // too. Partial, because every RE-invite path works without them.
+  Partial<Pick<SynqedClient, 'staff' | 'staffStores' | 'stores'>>
 
 /** Identity + provenance a Bearer/cookie caller feeds an invite write core. */
 type InviteWriteDeps = {
@@ -36,6 +50,11 @@ type InviteWriteDeps = {
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. */
   requestId?: string
+}
+
+export type InviteCreateDeps = InviteWriteDeps & {
+  /** REQUIRED on purpose: `null` = EXPLICITLY unclamped; omitted is not unclamped (see lib/staff/new-card.ts). */
+  creatorAllowedStoreIds: readonly string[] | null
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -66,6 +85,27 @@ export interface InviteRow {
   linked?: boolean
 }
 
+/** Every invite row this business holds, or `null` when the list could not be
+ *  read. try/catch, not `.catch()`: a client with no invites port at all is the
+ *  same UNKNOWN as a failed call (the idiom new-card.ts uses for the store
+ *  count). Both callers treat UNKNOWN as "carry on" — neither the duplicate
+ *  refusal nor the orphan cleanup may block the act it rides on. */
+async function inviteRowsQuietly(synqed: InviteClient): Promise<
+  {
+    id: string
+    email: string
+    status: string
+    invited_staff_id: string | null
+    created_at: string
+  }[] | null
+> {
+  try {
+    return (await synqed.invites.list()).invites
+  } catch {
+    return null
+  }
+}
+
 /** Gate invite management on the `staff.invite` capability (owner + manager by
  *  default) and return the caller's business to scope the writes. */
 async function requireInviteBusiness(): Promise<string> {
@@ -93,10 +133,10 @@ function getPublicSynqedClient(): SynqedClient {
 export async function createInviteCore(
   synqed: InviteClient,
   businessId: string,
-  deps: InviteWriteDeps,
+  deps: InviteCreateDeps,
   invitedBy: string | null,
   input: InviteInput,
-): Promise<{ token: string } | { error: string }> {
+): Promise<{ token: string; storeUnknown?: true } | { error: string }> {
   const { email, role, staffId } = input
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
@@ -112,6 +152,74 @@ export async function createInviteCore(
     .maybeSingle()
   if (existingMember) return { error: 'That email is already a member of this salon.' }
 
+  // ⚖ FOLD ROUND 3 (fresh-eyes F4) — ONE PENDING FRESH INVITE PER EMAIL.
+  // A fresh invite MINTS a card, so inviting the same new hire twice left two:
+  // accept wires one and the other is permanent, named, and eating a plan seat.
+  // The check above only sees people who already have a login here — a brand-new
+  // hire has none, which is the whole point of the door. Re-invites are exempt:
+  // they attach to a card that already exists and mint nothing.
+  //
+  // Best-effort by design: an unreadable invite list must NEVER block hiring
+  // (the same posture as the store-count read in new-card.ts). The worst case
+  // during a core blip is the duplicate we had before this fold.
+  if (!staffId) {
+    const openInvites = await inviteRowsQuietly(synqed)
+    const already = openInvites?.some(
+      (i) => i.status === 'pending' && i.email.toLowerCase() === email.toLowerCase(),
+    )
+    if (already) return { error: INVITE_ALREADY_PENDING }
+  }
+
+  // ⚖ Liam 2026-09-16 — A FRESH INVITE MAKES THE CARD FIRST.
+  //
+  // Before this, an email-only invite carried no staff row at all: the card was
+  // minted on ACCEPT, with no store, and the new hire's first login landed them
+  // on another branch's data (now: on the honest empty screen — still wrong for
+  // the person's first day). So the card is created HERE, with a real name and
+  // a real store, and the invite carries its id as `invited_staff_id` — which
+  // means accept attaches the login through the EXISTING re-invite path
+  // (chooseStaffToLink → staff.update), with no change to acceptInvite at all.
+  //
+  // NEVER an email-named card: a fresh invite with no name is refused outright.
+  // The store rule is not spelled here either — createStaffCore owns it, so the
+  // invite door and the 追加 door enforce one rule, including the
+  // creator-subset check and the delete-the-card-if-placement-fails rollback.
+  let mintedStaffId: string | null = null
+  let mintedStoreUnknown = false
+  if (!staffId) {
+    if (!input.name) return { error: INVITE_NAME_REQUIRED }
+    // ⚖ G6 — THE MINT STAYS INSIDE THE CONTRACT. Both ways the card can fail
+    // to exist answer with the same machine code the dialog already knows how
+    // to speak: the client with no staff port (an English literal before), and
+    // a core rejection on staff.create — which used to escape this action
+    // entirely as an unhandled Server Action error, its message stripped in
+    // production, leaving the owner with nothing to read.
+    if (!synqed.staff) return { error: STAFF_CREATE_FAILED }
+    let card: { id: string; storeUnknown?: true } | { error: string }
+    try {
+      card = await createAndPlaceStaffCard(
+        synqed as NewCardClient,
+        businessId,
+        {
+          actorId: deps.actorId,
+          source: deps.source,
+          requestId: deps.requestId,
+          creatorAllowedStoreIds: deps.creatorAllowedStoreIds,
+        },
+        // user_id null by construction: the existing-member check above just
+        // proved this email has no login in this business. acceptInvite fills
+        // it in through the re-invite path.
+        { name: input.name, email, userId: null, storeIds: input.storeIds ?? [] },
+      )
+    } catch (err) {
+      console.error('[createInvite] could not create the staff card:', err)
+      return { error: STAFF_CREATE_FAILED }
+    }
+    if ('error' in card) return { error: card.error }
+    mintedStaffId = card.id
+    mintedStoreUnknown = !!card.storeUnknown
+  }
+
   const token = randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000).toISOString()
 
@@ -122,11 +230,58 @@ export async function createInviteCore(
       role,
       token,
       invited_by: invitedBy,
-      invited_staff_id: staffId ?? null,
+      invited_staff_id: staffId ?? mintedStaffId,
       expires_at: expiresAt,
     })
   } catch (e) {
+    // Roll the card back: a card whose invite never existed is exactly the
+    // floating card this whole change removes, and nobody would know to delete
+    // it. Same posture as createStaffCore's own placement rollback.
+    // ⚖ FOLD ROUND 3 (fresh-eyes F8): a FAILED rollback is SAID OUT LOUD. The
+    // delete's own error used to reach console.error only, so the caller heard
+    // about the invite while a card nobody knows about sat on the roster.
+    if (mintedStaffId && synqed.staff) {
+      try {
+        await synqed.staff.delete(mintedStaffId)
+      } catch (err) {
+        // ⚖ G8 — the twin of new-card.ts's rollback trace: the id in the log
+        // line, and a warning row so 監査ログ carries the orphan too.
+        console.error('[createInvite] rollback of an inviteless card failed:', mintedStaffId, err)
+        audit({
+          category: 'staff',
+          action: 'staff.add',
+          severity: 'warning',
+          actorId: deps.actorId,
+          actorType: 'staff',
+          businessId,
+          targetType: 'staff',
+          targetId: mintedStaffId,
+          detail: { reason: 'rollback_failed', placement_error: 'invite_create_failed' },
+          requestId: deps.requestId,
+          source: deps.source,
+        })
+        return { error: STAFF_CARD_LEFT_BEHIND }
+      }
+    }
     return { error: `Could not create invite: ${e instanceof Error ? e.message : 'unknown error'}` }
+  }
+
+  // ⚖ J4 — the invite now exists, so the card will stay. A successful
+  // rollback emits nothing; a failed rollback has its own single warning.
+  if (mintedStaffId) {
+    audit({
+      category: 'staff',
+      action: 'staff.add',
+      severity: mintedStoreUnknown ? 'notice' : 'info',
+      actorId: deps.actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'staff',
+      targetId: mintedStaffId,
+      detail: mintedStoreUnknown ? { reason: 'store_count_unknown_unplaced' } : undefined,
+      requestId: deps.requestId,
+      source: deps.source,
+    })
   }
 
   // ids only — the invite email is deliberately NOT logged (PII-free sink rule).
@@ -136,13 +291,14 @@ export async function createInviteCore(
     actorId: deps.actorId,
     actorType: 'staff',
     businessId,
-    targetType: staffId ? 'staff' : undefined,
-    targetId: staffId ?? undefined,
+    targetType: staffId || mintedStaffId ? 'staff' : undefined,
+    targetId: staffId ?? mintedStaffId ?? undefined,
     detail: { invite_id: created.id ?? null, role, reinvite: !!staffId },
     requestId: deps.requestId,
     source: deps.source,
   })
 
+  if (mintedStoreUnknown) return { token, storeUnknown: true }
   return { token }
 }
 
@@ -150,7 +306,7 @@ export async function createInviteCore(
  *  full link with origin + locale). */
 export async function createInvite(
   input: InviteInput,
-): Promise<{ token: string } | { error: string }> {
+): Promise<{ token: string; storeUnknown?: true } | { error: string }> {
   const parsed = inviteSchema.safeParse(input)
   if (!parsed.success) {
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
@@ -207,15 +363,47 @@ export async function createInvite(
   }
   const invitedBy = await getCurrentUserStaffId().catch(() => null)
   const actorId = await resolveWebActorId()
+  // ⚖ Liam 2026-09-16: a fresh invite mints the card, so the same
+  // creator-subset rule the 追加 door applies has to reach this door too.
+  // ⚖ Liam 2026-09-16 (fold round 2, F7): `degraded ? [] : allowedStoreIds`.
+  // `allowedStoreIds` is null when the staff_stores lookup FAILED, and null
+  // means UNCLAMPED here — so during a core blip a 銀座-only creator would
+  // silently become able to place a new hire in 代官山. `[]` refuses every
+  // store instead. This is the file's own sibling convention (staffWriteInScope
+  // returns false on degraded) and what the facade twin already does by
+  // throwing. A WRITE fails closed on an unknown; only the read plane doesn't.
+  // ⚖ FOLD ROUND 3 (fresh-eyes F6) — and a THROW is the same unknown. Every
+  // other risky call in this action is guarded; this one was not, so a core
+  // blip turned a hire into an unhandled Server Action error (message stripped
+  // in production — the exact contract staff-action-error-contract pins). The
+  // file's own sibling viewerScopeForActs catches and returns [] for this.
+  const scope = await resolveStoreScope().catch(() => null)
+  const allowedStoreIds = scope === null || scope.degraded ? [] : scope.allowedStoreIds
   const result = await createInviteCore(
     synqed,
     businessId,
-    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    {
+      actorId,
+      source: 'web',
+      requestId: crypto.randomUUID(),
+      creatorAllowedStoreIds: allowedStoreIds,
+    },
     invitedBy,
     parsed.data,
   )
   if ('token' in result) updateTag('staff-invites')
   return result
+}
+
+/** Only a successful, empty target assignment read proves a card storeless. */
+async function targetCardIsStoreless(synqed: InviteClient, staffId: string): Promise<boolean> {
+  try {
+    if (!synqed.staffStores) return false
+    const { store_ids } = await synqed.staffStores.get(staffId)
+    return Array.isArray(store_ids) && store_ids.length === 0
+  } catch {
+    return false
+  }
 }
 
 /** Client-threaded core of listInvites (facade Bearer path, design-parity
@@ -231,10 +419,23 @@ export async function listInvitesWithClient(
    *  staffWriteInScope, the facade's Bearer ensureStaffWriteInScope. Omitted
    *  = unfiltered, the shape every pre-clamp caller had.
    *
-   *  FRESH invites (no invited_staff_id) always stay: an email-only invite
-   *  has no store dimension to judge yet — it gets one when the
-   *  mandatory-store-at-creation lane lands, and this filter widens then. */
+   *  ⚖ FOLD ROUND 3 (fresh-eyes F5) — THE WIDENING, STATED. That lane is this
+   *  branch: a fresh invite now MINTS its card, so fresh rows carry an
+   *  invited_staff_id and go through this lens like any re-invite. That is the
+   *  rule now — a pending invite is visible to whoever may write to the card it
+   *  points at.
+   *
+   *  With ONE exception, `selfStaffId`: the creator keeps their own invite
+   *  only while its target card has a confirmed empty store assignment list.
+   *  A card minted during a core blip can have no store, and its clamped
+   *  creator must still see and cancel that invite. A placed card goes through
+   *  the normal lens even for its creator. Missing, failed or malformed reads
+   *  are UNKNOWN, not storeless, so they also go through the lens. The revoke
+   *  clamp uses the same exception (reinviteTargetStaffIdWithClient) — never
+   *  show-and-refuse. */
   canSeeReinvite?: (staffId: string) => Promise<boolean>,
+  /** The VIEWER's own staff id, for the storeless-target exception only. */
+  selfStaffId?: string | null,
 ): Promise<InviteRow[]> {
   try {
     const { invites } = await synqed.invites.list()
@@ -249,9 +450,14 @@ export async function listInvitesWithClient(
       // the loop and pass allowedStoreIds down, leaving one staffStores.get
       // per row (queued, not built).
       const visible = await Promise.all(
-        pending.map((i) =>
-          i.invited_staff_id ? canSeeReinvite(i.invited_staff_id) : Promise.resolve(true),
-        ),
+        pending.map(async (i) => {
+          if (!i.invited_staff_id) return true
+          if (
+            selfStaffId && i.invited_by === selfStaffId &&
+            await targetCardIsStoreless(synqed, i.invited_staff_id)
+          ) return true
+          return canSeeReinvite(i.invited_staff_id)
+        }),
       )
       pending = pending.filter((_, idx) => visible[idx])
     }
@@ -328,6 +534,7 @@ export async function listInvites(): Promise<InviteRow[]> {
       synqed,
       await memberEmailsForBusiness(businessId),
       (targetStaffId) => staffWriteInScope({ targetStaffId, actorId }),
+      actorId,
     )
   } catch {
     return []
@@ -345,9 +552,22 @@ export async function listInvites(): Promise<InviteRow[]> {
 export async function reinviteTargetStaffIdWithClient(
   synqed: InviteClient,
   id: string,
+  /** The CALLER's own staff id. Their invite has nothing to clamp ONLY while
+   *  its target has a confirmed empty store assignment list: a card minted
+   *  during a core blip must remain cancellable by its creator, matching
+   *  listInvitesWithClient's visibility exception. A placed card goes through
+   *  the normal lens even for its creator. Missing, failed or malformed reads
+   *  are UNKNOWN, not storeless, so return the target for the normal clamp. */
+  selfStaffId?: string | null,
 ): Promise<string | null> {
   const { invites } = await synqed.invites.list()
-  return invites.find((i) => i.id === id)?.invited_staff_id ?? null
+  const invite = invites.find((i) => i.id === id)
+  if (!invite) return null
+  if (
+    invite.invited_staff_id && selfStaffId && invite.invited_by === selfStaffId &&
+    await targetCardIsStoreless(synqed, invite.invited_staff_id)
+  ) return null
+  return invite.invited_staff_id ?? null
 }
 
 /** Client-threaded core of revokeInvite (facade Bearer path, design-parity
@@ -408,7 +628,7 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   // resolveStoreScope is request-cached, so this costs nothing extra.
   try {
     if (!(await resolveStoreScope()).viewAll) {
-      const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
+      const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id, actorId)
       if (targetStaffId && !(await staffWriteInScope({ targetStaffId, actorId }))) {
         return { error: 'STORE_SCOPE_DENIED' }
       }
