@@ -19,6 +19,7 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getCustomerConsent, grantCustomerConsent } from '@/actions/customers'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { RecordingConsentDialog } from '@/components/karute/redesign/record/RecordingConsentDialog'
+import { pickedCustomerName as resolvePickedCustomerName } from '@/lib/customers/picked-customer-name'
 
 const ReviewFormSchema = z.object({
   summary: z.string().min(1),
@@ -35,6 +36,7 @@ interface ReviewScreenProps {
   duration?: number
   appointmentId?: string
   appointmentCustomerId?: string
+  pickedCustomerName?: string
   /** Outcome chosen at stop (RecordPageView) — applied directly at save, so no
    *  dialog re-opens here. */
   outcome?: SessionOutcome
@@ -59,6 +61,7 @@ export function ReviewScreen({
   duration,
   appointmentId,
   appointmentCustomerId,
+  pickedCustomerName,
   outcome,
   recordingSessionId,
   takeId,
@@ -95,10 +98,11 @@ export function ReviewScreen({
       duration,
       appointmentId,
       appointmentCustomerId,
+      pickedCustomerName,
       recordingSessionId: recordingSessionId ?? undefined,
       takeId: takeId ?? undefined,
     })
-  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, recordingSessionId, takeId])
+  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, pickedCustomerName, recordingSessionId, takeId])
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
@@ -464,9 +468,9 @@ export function ReviewScreen({
           customer whose consent is actually being recorded. */}
       {pendingConsentSave && (
         <RecordingConsentDialog
-          customerName={
-            customers.find((c) => c.id === pendingConsentSave.customerId)?.name ?? ''
-          }
+          customerName={resolvePickedCustomerName(
+            pickedCustomerName, customers, pendingConsentSave.customerId, '',
+          )}
           submitting={consentSubmitting}
           error={consentError}
           onCancel={handleConsentCancel}

@@ -3609,5 +3609,12 @@
       "coversMonths": "~{n} mo",
       "atThisPace": "{span} at this pace"
     }
+  },
+  "unassignedStore": {
+    "title": "No store assigned",
+    "body": "This account has not been assigned to a store yet. Please ask your manager to assign one.",
+    "checkAgain": "Check again",
+    "checking": "Checking…",
+    "logout": "Log out"
   }
 }

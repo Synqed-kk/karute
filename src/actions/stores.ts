@@ -16,6 +16,7 @@ import { audit } from '@/lib/audit'
 // 'use server' module, where every export is a callable endpoint, so it cannot
 // be declared here — and the 予約 capacity path needs the same one answer.
 import { coreBusinessType } from '@/lib/welcome/business-types'
+import { actorIsUnassigned, STORE_UNASSIGNED_DENIAL } from '@/lib/auth/store-gate'
 
 // Explicit-client seam (design-parity packet 12 §B-3 S2 — the P-B pattern):
 // every twin below takes this instead of resolving getSynqedClient() from the
@@ -249,9 +250,18 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
   const caps = await getMyCapabilities()
   if (!caps.has('stores.viewAll')) {
     const uid = await getCurrentUserStaffId()
-    const allowed = uid ? await getStaffStores(uid) : []
-    if (allowed.length > 0 && !allowed.includes(storeId)) {
+    const allowed = uid ? await getStaffStoresStrict(uid) : null
+    if (allowed && allowed.length > 0 && !allowed.includes(storeId)) {
       return { error: 'You can only view a store you are assigned to.' }
+    }
+    // ⚖ Liam 2026-09-16, the third flip point: an UNASSIGNED actor may pin no
+    // store at all. `getStaffStores` swallowed a failed lookup to `[]`, which
+    // read as "floating, pin anything" — the strict twin keeps the failure
+    // apart (null above) so only a GENUINE empty assignment reaches the gate,
+    // which is then answered by the gate's ONE resolution, memoized alongside
+    // the capability seam's.
+    if (allowed && allowed.length === 0 && uid && (await actorIsUnassigned(uid))) {
+      return { error: STORE_UNASSIGNED_DENIAL }
     }
   }
 

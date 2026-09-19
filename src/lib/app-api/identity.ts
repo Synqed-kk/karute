@@ -21,6 +21,7 @@ import {
 } from '@/lib/auth/revocation'
 import { businessIdForUser } from '@/lib/staff'
 import { capabilitiesForUser } from '@/lib/auth/require-permission'
+import { actorIsUnassigned } from '@/lib/auth/store-gate'
 import type { Capability } from '@/lib/auth/permissions'
 import { AppApiError } from './errors'
 
@@ -38,6 +39,12 @@ export interface RequestIdentity {
   capabilities: Set<Capability>
   /** How identity was established. */
   via: 'bearer' | 'cookie'
+  /** ⚖ Liam 2026-09-16: this caller is a staff member of a multi-store
+   *  business whom nobody has assigned to a store yet. `capabilities` is
+   *  EMPTY whenever this is true (the gate's one truth, capabilitiesForUser),
+   *  and facadeHandler refuses every endpoint with `store_unassigned` so the
+   *  shell shows the honest screen instead of a wall of 403 forbiddens. */
+  unassigned: boolean
   /** The Bearer token's own `email` claim (BearerClaims.email), or null when
    *  absent — the facade's parity source for the web page's
    *  supabase.auth.getUser().email (no cookie session to read a user object
@@ -106,11 +113,30 @@ export async function resolveBearerIdentity(
     throw new AppApiError('internal', 'Business membership resolution failed')
   }
 
-  const capabilities = await capabilitiesForUser(authUserId)
+  // businessId from the VERIFIED token — never the cookie session, which on
+  // this transport would resolve another tenant's stores (see the gate's note
+  // in unassignedForUser).
+  const capabilities = await capabilitiesForUser(authUserId, { businessId })
   return {
     authUserId,
     businessId,
     capabilities,
+    // ⚠ THE FRONT GATE READS THE VERDICT ITSELF — it does NOT test
+    // `capabilities.size === 0` first. That short-circuit was here as a
+    // performance win, and it made Layer 2 inherit Layer 1's correctness
+    // instead of standing beside it: remove the capability-emptying line and
+    // BOTH front gates silently stopped firing while 641 of 642 suites stayed
+    // green (fresh-eyes M2/F4, 2026-09-16).
+    //
+    // What IS still read first is `stores.viewAll`, and that is not the same
+    // thing: it is an INPUT to the verdict (a cross-store role's assignment is
+    // never consulted by any layer), not the gate's own OUTPUT. Emptying the
+    // set never touches it — the gate only empties for non-viewAll actors — so
+    // the mutant above still trips this line. It also keeps the owner's every
+    // request free of an assignment lookup.
+    unassigned: capabilities.has('stores.viewAll')
+      ? false
+      : await actorIsUnassigned(authUserId, businessId),
     via: 'bearer',
     email: resolved.claims.email ?? null,
   }

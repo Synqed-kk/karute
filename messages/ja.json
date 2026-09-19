@@ -3609,5 +3609,12 @@
       "coversMonths": "約{n}ヶ月分",
       "atThisPace": "いまのペースで{span}"
     }
+  },
+  "unassignedStore": {
+    "title": "担当店舗が未設定です",
+    "body": "このアカウントにはまだ店舗が割り当てられていません。管理者に店舗の割り当てを依頼してください。",
+    "checkAgain": "もう一度確認する",
+    "checking": "確認中…",
+    "logout": "ログアウト"
   }
 }

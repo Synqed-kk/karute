@@ -1492,7 +1492,160 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2, installed
 // == lock): en 134,814 · index 1,048,257 · vendor 937,791 = 2,120,862 B.
 // Ceiling = 2,120,862 + 1,000.
-const BUDGET_BYTES = 2_121_862
+// RE-MEASURED 2026-09-17 — #952 follow-up: the picked customer's name reaches
+// server-inbox consent and ReviewScreen via display-only pipeline context.
+// Exact CI six VITE_* placeholders; thin/dist emptied before each of TWO
+// builds; all 23 output files byte-identical (SHA-256), node v24.16.0:
+// en 134,814 · index 1,048,400 · vendor 937,791 = 2,121,005 B.
+// +143 B against the prior entry's measurement, all in index; no dependency
+// changes. Ceiling = measured 2,121,005 + 1,000 = 2,122,005 B.
+// RE-MEASURED 2026-09-17 — consent-name stress folds: ReviewScreen persists
+// the picked display name in its recovery draft; RecordPageView restores it
+// before the preloaded-list fallback. Draft owner, key and 24 h TTL unchanged.
+// Exact CI six VITE_* placeholders; thin/dist emptied before each of TWO
+// builds; all 23 output files byte-identical (SHA-256), node v24.16.0:
+// en 134,814 · index 1,048,407 · vendor 937,791 = 2,121,012 B.
+// +7 B against the prior entry's measurement, all in index; no dependency
+// changes. Ceiling = measured 2,121,012 + 1,000 = 2,122,012 B.
+//
+// origin/main itself (c8cab5df7) was freshly built in a throwaway worktree to
+// separate #948's own contribution from the gate commit's: byte-identical
+// across two clean builds there too: en 134,496 · index 1,043,597 · vendor
+// 937,791 = 2,115,884 B — +631 B over the #932 ledger figure above (#948's
+// backstops floor landing on main), and the gate's own commit (Layers 1-3:
+// the shared actorIsUnassigned memo, the two front gates, the three
+// resolvers) costs a further +1,958 B on top of that (index +1,775 · en
+// +183 · vendor unchanged) — genuine new capability/copy surface reached from
+// the thin bundle's own permission and screen-DTO code, not bloat; the
+// purchase-marker scan stays the real gate and remains 0/13.
+//
+// RE-MEASURED 2026-09-16 — REBASE 3 (PKT-GATE-REBASE3-M5-2026-09-16): the
+// gate rebased onto origin/main's tip after PR #935 landed (20926b3ac, `git
+// rebase --onto origin/main c8cab5df7 fix/unassigned-gate`, new tip
+// `e122dac57`, one commit). Same CI recipe — CI's own six VITE_* values, the
+// 208-char anon-key placeholder included, thin/dist emptied before each of
+// two laps, byte-identical both times (matching filenames, sizes and MD5s,
+// node v24.16.0): en 134,727 · index 1,045,932 · vendor 937,791 =
+// 2,118,450 B — +1,970 B over origin/main's own #935 measurement above
+// (2,116,480 B), the gate commit's own cost, same class as every prior raise
+// on this line. Ceiling was 2,118,450 + 1,000.
+//
+// RE-MEASURED 2026-09-17 — GREPTILE FOLD G-1..3 (PKT-GATE-FOLD-GREPTILE-3):
+// on top of gate tip `93acdf77c`, folding the phone recheck (G-1: `thin/chrome/
+// store-unassigned.ts`'s clearStoreUnassigned/recheckStoreUnassigned + the
+// shared UnassignedStoreScreen's 「もう一度確認する」 action + AuthGate's
+// foreground recheck), the ACTIVE-store carve-out fix (G-2: `activeStoreCount`,
+// store-gate.ts), and the web gate reorder (G-3, `(app)/layout.tsx` — no
+// bundle-shape effect, server-only). Same CI recipe — CI's own six VITE_*
+// values, the 208-char anon-key placeholder included, thin/dist emptied
+// before each of two laps, byte-identical both times (matching filenames,
+// sizes and MD5s, node v24.16.0): en 134,775 · index 1,046,905 · vendor
+// 937,791 = 2,119,471 B — +1,021 B over the REBASE 3 measurement above
+// (2,118,450 B), this fold's own cost (new strings + the recheck/probe code
+// reaching the thin bundle). Ceiling was 2,119,471 + 1,000.
+//
+// RE-MEASURED 2026-09-17 — REBASE 4 + G-2b (PKT-GATE-REBASE4-G2B-2026-09-17):
+// the gate rebased onto origin/main's tip after PR #945 landed (dc883ecbf,
+// `git rebase --onto origin/main 20926b3ac fix/unassigned-gate`, one conflict
+// across the 3-commit replay, in this same file only — main's cross-branch
+// search ledger kept first, this branch's own gate ledger appended after, one
+// live `BUDGET_BYTES`, same convention as REBASE 2's own resolution above; new
+// tip `6711589a0`). G-2b (Greptile fold) then widened `activeStoreCount`'s
+// predicate from `s.active` to `s.active !== false` — a row with no `active`
+// field at all now counts as active instead of silently reading as closed
+// (store-gate.ts, doc comment + three new matrix cases). Same CI recipe —
+// CI's own six VITE_* values, the 208-char anon-key placeholder included,
+// thin/dist emptied before each of two laps, byte-identical both times
+// (matching filenames, sizes and MD5s, node v24.16.0): en 135,045 · index
+// 1,050,846 · vendor 937,791 = 2,123,682 B. Ceiling was 2,123,682 + 1,000.
+//
+// +4,211 B over the G-1..3 fold's own figure above (2,119,471 B): the rebase
+// carrying main's #945 (cross-branch customer search) forward through this
+// branch's whole gate stack, plus G-2b's own one-line predicate change (bytes
+// too small to isolate past minification). Against main's own #945 ledger
+// figure (2,120,802 B, in this file's search-feature history above): the
+// whole gate stack (Layers 1-3 + M5 fold + G-1..3 Greptile fold + G-2b) costs
+// +2,880 B — genuine feature/rebase volume, not bloat, same class as every
+// prior raise on this line.
+//
+// `activeStoreCount` (renamed `storeCountForGate`) then folded once more
+// (X6, no ledger entry of its own at the time — folded into the branch
+// without a re-measurement pass): judges by TOTAL store count when every row
+// reads inactive, so an all-archived multi-store business still isolates an
+// unassigned staffer instead of falling through to the business-wide view.
+// store-gate.ts + store-clamp.ts, logic-only, no new string reaching the
+// thin bundle. Tip after this fold (pre-rebase): `4837a8f65`.
+//
+// RE-MEASURED 2026-09-17 — REBASE 5 (PKT-REBASE-GATE-S3-2026-09-17): the gate
+// (pre-rebase tip `4837a8f65`, the X6 fold above included) rebased onto
+// origin/main's tip after PR #950 landed (53bc4e9fb, `git rebase --onto
+// origin/main dc883ecbf fix/unassigned-gate`), one conflict across the
+// 5-commit replay, in this same file and in src/actions/stores.ts only —
+// main's #934 capacity-adapter ledger kept first, this branch's own gate
+// ledger appended after, one live `BUDGET_BYTES`, same convention as every
+// prior rebase's own resolution above (REBASE 2/3/4); new tip `3a059e627`.
+// stores.ts: main's own `coreBusinessType` import (moved out to
+// @/lib/welcome/business-types) kept, the gate's own `actorIsUnassigned` /
+// `STORE_UNASSIGNED_DENIAL` import layered beside it — no logic on either
+// side touched. Same CI recipe — CI's own six VITE_* values read straight out
+// of .github/workflows/ci.yml (not hand-typed, to rule out a transcription-
+// length drift), thin/dist emptied before each of two laps, byte-identical
+// both times (matching filenames, sizes and MD5s, node v24.16.0): en 135,045
+// · index 1,051,317 · vendor 937,791 = 2,124,153 B — +471 B over the G-2b
+// entry's own figure above (2,123,682 B), the rebase carrying main's #950
+// (Business file) and #934 (capacity adapter) forward through this branch's
+// whole gate stack. Genuine rebase volume, not bloat, same class as every
+// prior raise on this line. Ceiling was 2,124,153 + 1,000.
+//
+// RE-MEASURED 2026-09-17 — REBASE 6 (PKT-REBASE-GATE-S4-2026-09-17): the gate
+// (pre-rebase tip `64bd5da1b`, six commits on `53bc4e9fb`) rebased onto
+// origin/main `dbdc2d9ad`, after #953 / #952 / #951 / #954 landed. One
+// conflict during the six-commit replay, in this ledger only: main's entries
+// kept verbatim, this branch's gate history appended, one live BUDGET_BYTES.
+// The appointments facade test auto-merged; its patch against the new main
+// matches the pre-rebase patch apart from Git's blob-index metadata.
+//
+// Same CI recipe — both commands and all six VITE_* values read directly
+// from .github/workflows/ci.yml, thin/dist emptied before each of two laps
+// on rebased code tip `76a610768`, byte-identical both times (matching
+// filenames, sizes, SHA-256s and MD5s, node v24.16.0):
+//   en 135,045 · index 1,050,985 · vendor 937,791 = 2,123,821 B.
+// Ceiling = 2,123,821 + 1,000 = 2,124,821.
+//
+// Against REBASE 5's recorded figure: index 1,051,317 → 1,050,985 (−332 B),
+// en and vendor unchanged to the byte; total 2,124,153 → 2,123,821 B. The
+// gate's non-ledger patch is unchanged, so this is the composed result of
+// carrying moved main through the existing gate stack, not a new gate edit.
+// Against main's own #951 ledger figure above (2,120,862 B, not freshly
+// rebuilt here): +2,959 B total (en +231 · index +2,728 · vendor unchanged).
+// The ceiling follows the fresh measurement DOWN by 332 B, keeping exactly
+// 1,000 B headroom. Purchase exclusion remains 0/13 in both clean builds.
+//
+// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-19 — REBASE 7 (S5, PKT-REBASE-GATE-S5-2026-09-19):
+// the gate (pre-rebase tip `784d582d2`, seven commits on `dbdc2d9ad`)
+// rebased onto origin/main `fd250b41b`, after #956 / #957 landed. Two
+// conflicts during the seven-commit replay, both in this ledger: main's
+// entries kept verbatim (including #957's measured 2,121,012 B), its
+// superseded live marker removed, then the gate's own history appended.
+// The known stale live marker at line 1267 is retained as requested.
+//
+// Same CI recipe — both commands and all six VITE_* values read directly
+// from .github/workflows/ci.yml (208-char anon-key placeholder included),
+// thin/dist emptied before each of two laps on rebased code tip `244a14e0e`.
+// All 23 output files byte-identical (matching relative filenames, sizes,
+// bytes, SHA-256s and MD5s, node v24.16.0):
+//   en 135,045 · index 1,051,168 · vendor 937,791 = 2,124,004 B.
+// Ceiling = 2,124,004 + 1,000 = 2,125,004.
+//
+// Against REBASE 6's recorded figure: index 1,050,985 → 1,051,168 (+183 B),
+// en and vendor unchanged; total 2,123,821 → 2,124,004 B. The non-ledger
+// diff-of-diffs is empty: this measures moved main composed with the same
+// gate stack, with no new gate logic. Against main's own #957 measurement
+// above (2,121,012 B, not freshly rebuilt here): +2,992 B total (en +231 ·
+// index +2,761 · vendor unchanged). Ceiling rises by 183 B and retains
+// exactly 1,000 B headroom. Purchase exclusion remains 0/13 in both builds.
+const BUDGET_BYTES = 2_125_004
 
 let dir
 try {
