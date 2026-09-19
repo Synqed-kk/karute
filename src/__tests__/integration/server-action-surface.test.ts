@@ -32,7 +32,7 @@ function mayHaveServerDirective(source: string): boolean {
   return false
 }
 
-function directives(ast: ts.SourceFile): string[] {
+function directives(ast: ts.SourceFile | ts.Block): string[] {
   const result: string[] = []
   for (const statement of ast.statements) {
     if (!ts.isExpressionStatement(statement) || !ts.isStringLiteral(statement.expression)) break
@@ -197,10 +197,10 @@ describe('server action surface (PKT-SEC-CORES-A)', () => {
              ts.isArrowFunction(node) || ts.isMethodDeclaration(node) ||
              ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node) ||
              ts.isConstructorDeclaration(node)) && node.body && ts.isBlock(node.body)) {
-          const first = node.body.statements[0]
-          if (first && ts.isExpressionStatement(first) &&
-              ts.isStringLiteral(first.expression) && first.expression.text === 'use server') {
-            const { line } = ast.getLineAndCharacterOfPosition(first.getStart(ast))
+          const directiveIndex = directives(node.body).indexOf('use server')
+          if (directiveIndex !== -1) {
+            const directive = node.body.statements[directiveIndex]
+            const { line } = ast.getLineAndCharacterOfPosition(directive.getStart(ast))
             offenders.push(`${file}:${line + 1}: function-level use server directive`)
           }
         }
