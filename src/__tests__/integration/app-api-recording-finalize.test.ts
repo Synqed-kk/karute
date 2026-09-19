@@ -370,7 +370,11 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     roster.current = []
     const res = await mintPOST(jreq(auth), noRoute)
     expect(res.status).toBe(200)
-    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: ONE read, the FRONT GATE's — every non-viewAll
+    // facade request reads the caller's own assignment at the identity seam,
+    // before any door runs. What this pins is that the ACT SCOPE is not
+    // resolved: the door asks for nothing beyond the gate's single read.
+    expect(fakeClient.staffStores.get).toHaveBeenCalledTimes(1)
     expect(recordingsGet).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
@@ -583,7 +587,11 @@ describe('the act scope is resolved only where it can matter', () => {
     recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
     const res = await mintPOST(jreq(auth, mintBody), noRoute)
     expect(res.status).toBe(200)
-    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: ONE read, the FRONT GATE's — every non-viewAll
+    // facade request reads the caller's own assignment at the identity seam,
+    // before any door runs. What this pins is that the ACT SCOPE is not
+    // resolved: the door asks for nothing beyond the gate's single read.
+    expect(fakeClient.staffStores.get).toHaveBeenCalledTimes(1)
   })
 
   it('…and the SAME caller WITH the pair does — the take arm is where it counts', async () => {
@@ -592,7 +600,9 @@ describe('the act scope is resolved only where it can matter', () => {
     recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
     const res = await mintPOST(jreq(auth, mintBody), noRoute)
     expect(res.status).toBe(200)
-    expect(fakeClient.staffStores.get).toHaveBeenCalledTimes(1)
+    // One read for the front gate (see above), one for the act scope — the take
+    // arm is where the second one counts.
+    expect(fakeClient.staffStores.get).toHaveBeenCalledTimes(2)
   })
 
   it('a SEGMENT body asks for no assignment even WITH the pair — the hot path stays cold', async () => {
@@ -601,7 +611,11 @@ describe('the act scope is resolved only where it can matter', () => {
     recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
     const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
     expect(res.status).toBe(200)
-    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: ONE read, the FRONT GATE's — every non-viewAll
+    // facade request reads the caller's own assignment at the identity seam,
+    // before any door runs. What this pins is that the ACT SCOPE is not
+    // resolved: the door asks for nothing beyond the gate's single read.
+    expect(fakeClient.staffStores.get).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -681,6 +695,10 @@ describe('the store leg — a clamped pair-holder on a colleague’s take', () =
     })
     const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)
-    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: ONE read, the FRONT GATE's — every non-viewAll
+    // facade request reads the caller's own assignment at the identity seam,
+    // before any door runs. What this pins is that the ACT SCOPE is not
+    // resolved: the door asks for nothing beyond the gate's single read.
+    expect(fakeClient.staffStores.get).toHaveBeenCalledTimes(1)
   })
 })

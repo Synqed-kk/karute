@@ -269,10 +269,15 @@ const listAppointments = jest.fn(async (..._opts: unknown[]) => ({
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
   stores: {
+    // ⚖ Liam 2026-09-16: the store COUNT is the gate's third fact — with two
+    // stores, this suite's default EMPTY assignment would be the UNASSIGNED
+    // verdict and every read below would (correctly) answer empty, which is not
+    // what these tests are about. This salon has ONE store, so the default
+    // caller stays FLOATING exactly as before; `stores.get` still accepts
+    // 'store-B' so the out-of-assignment header case below is unchanged.
     list: jest.fn(async () => ({
       stores: [
         { id: 'store-A', name: 'La Estro 代官山', is_primary: true, active: true },
-        { id: 'store-B', name: 'La Estro 銀座', is_primary: false, active: true },
       ],
     })),
     get: jest.fn(async () => ({})),

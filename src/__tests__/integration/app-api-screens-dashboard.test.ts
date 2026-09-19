@@ -168,7 +168,10 @@ describe('GET /api/app/v1/screens/dashboard', () => {
     mockCapabilities.mockResolvedValue(new Set())
     const res = await GET(req(), route)
     expect(res.status).toBe(403)
-    expect(newSynqedClient).not.toHaveBeenCalled()
+    // ⚖ Liam 2026-09-16: a caller with ZERO capabilities is exactly the shape
+    // the unassigned gate has to inspect, so it charges ONE assignment lookup
+    // at the identity seam. That is auth work — the DATA read below is still
+    // never reached.
     expect(getDashboardDataFor).not.toHaveBeenCalled()
   })
 
@@ -206,7 +209,12 @@ describe('GET /api/app/v1/screens/dashboard', () => {
     it('ONE newSynqedClient call — the SAME instance reaches every WithClient twin', async () => {
       const res = await GET(req(), route)
       expect(res.status).toBe(200)
-      expect(newSynqedClient).toHaveBeenCalledTimes(1)
+      // ⚖ 2026-09-16 fold round 2: TWO now — the route's own client, plus the
+    // one the front gate builds at the identity seam to read the caller's
+    // assignment. The binding contract this pins is that every WithClient twin
+    // gets the SAME instance as the route's, asserted below; the gate's client
+    // never reaches a twin.
+    expect(newSynqedClient).toHaveBeenCalledTimes(2)
       expect(newSynqedClient).toHaveBeenCalledWith('business-1')
       // Every twin receives the EXACT client instance newSynqedClient returned
       // — proves no second client was constructed anywhere downstream.

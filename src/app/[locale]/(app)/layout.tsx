@@ -22,6 +22,8 @@ import { listStores, getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope, viewerStaffRoster } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import { redirect } from 'next/navigation'
+import { viewerIsUnassigned } from '@/lib/auth/store-scope'
+import { UnassignedStoreScreen } from '@/components/layout/UnassignedStoreScreen'
 
 export default async function DashboardLayout({
   children,
@@ -32,13 +34,38 @@ export default async function DashboardLayout({
 }) {
   const { locale } = await params
 
+  // ⚖ Liam 2026-09-16 (G-3 fold, Greptile 2026-09-17) — THE AUTHORITATIVE
+  // SESSION CHECK, ahead of the gate AND everything else. A revoked session
+  // must redirect before any read starts — including the gate's own
+  // (viewerIsUnassigned → getCurrentUserStaffId/getMyCapabilities) — not just
+  // before the read wave beneath it. Reused below (the wave no longer
+  // re-resolves it).
   const supabase = await createClient()
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser()
+  if (!user || error) {
+    redirect(`/${locale}/login`)
+  }
+
+  // THE WEB FRONT GATE. A staff member of a multi-store business with no
+  // store assigned gets the honest screen and NOTHING ELSE: no nav, no store
+  // pills, no notification feed, no roster — and, because this resolves
+  // BEFORE the wave below, not one store-scoped read is even started. The
+  // backstops underneath would each return empty anyway; this is the layer
+  // that makes the screen honest rather than merely empty.
+  //
+  // It costs no extra round trip in the steady state: the staff id and the
+  // capability set it resolves are React-memoized and every surface below
+  // reads the same two answers (see actorIsUnassigned).
+  if (await viewerIsUnassigned()) return <UnassignedStoreScreen />
+
   // RBAC store scope — resolved ONCE, shared by the switcher AND the
   // notification feed (the feed must read through the same clamped lens as
   // every other store-scoped surface — see #465).
   const storeScopePromise = resolveStoreScope().catch(() => null)
-  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores, activeStore, storeScope] = await Promise.all([
-    supabase.auth.getUser(),
+  const [staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores, activeStore, storeScope] = await Promise.all([
     getStaffList(),
     getCurrentUserStaffId(),
     getOrgSettings(),
@@ -71,9 +98,6 @@ export default async function DashboardLayout({
     // their own) + which is active.
     storeScopePromise,
   ])
-  if (!user || error) {
-    redirect(`/${locale}/login`)
-  }
 
   // A branch-restricted staff (storeScope.allowedStoreIds set) only sees their
   // own store(s) in the switcher; the clamp also picks the active store. Cross-

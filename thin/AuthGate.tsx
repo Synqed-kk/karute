@@ -19,14 +19,45 @@ import {
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
 import { releaseSplashOnFirstPaint } from '@/lib/app-root/splash'
+import { getDataPort } from '@/lib/ports/data-port'
 import { DiscreetRecordingIndicator } from '@/components/recording/DiscreetRecordingIndicator'
 import { ProcessingIndicator } from '@/components/recording/ProcessingIndicator'
+import { UnassignedStoreScreen } from '@/components/layout/UnassignedStoreScreen'
+import {
+  recheckStoreUnassigned,
+  subscribeStoreUnassigned,
+  unassignedUserId,
+} from './chrome/store-unassigned'
 import { LoginScreen } from './screens/LoginScreen'
 import { ScreenLoading } from './screens/ScreenBoundary'
 import { mark, MARKS } from './probe/marks'
 
+// G-1 fold (Greptile, 2026-09-16) — one light facade call proves the server no
+// longer refuses this user. `/screens/chrome` is fine for this: cheap, and
+// already fetched on every signed-in session, so it never adds a new endpoint
+// to the shell's surface.
+async function probeStoreAssignment(): Promise<boolean> {
+  const res = await getDataPort().apiFetch('/api/app/v1/screens/chrome')
+  return res.ok
+}
+
+// Automatic foreground recheck: a manager can assign the store while the app
+// is backgrounded, and re-opening it is the moment to find out — throttled so
+// a flurry of tab-switches doesn't hammer the facade.
+const RECHECK_THROTTLE_MS = 10_000
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const state = useSyncExternalStore(subscribeSessionState, getSessionState)
+  // ⚖ Liam 2026-09-16 — the phone's twin of the web's (app)/layout gate. The
+  // facade refuses every endpoint for a staff member with no store assigned;
+  // the first such refusal is recorded by the one fetch funnel, and this is
+  // where it becomes the honest screen rather than a generic error on whatever
+  // tab happened to load. Same component as the web, so the copy is identical
+  // by construction and cannot drift.
+  //
+  // Keyed by user id: a salon iPad is shared, and the next person to sign in
+  // must not inherit the last person's empty screen.
+  const unassignedUser = useSyncExternalStore(subscribeStoreUnassigned, unassignedUserId)
   // Cold boot only: 'recovering' before ANY session has been seen this
   // page-load. An offline resume (recovering WITH a known session) is not
   // booting — the app stays mounted, per the header contract.
@@ -52,8 +83,39 @@ export function AuthGate({ children }: { children: ReactNode }) {
     releaseSplashOnFirstPaint()
   }, [booting])
 
+  // After the session is settled, so a signed-out shell still gets the login
+  // screen rather than an empty state it cannot act on.
+  const isUnassignedForCurrentUser =
+    !!unassignedUser && state.status === 'signed-in' && unassignedUser === state.session.user.id
+
+  // G-1 fold (Greptile, 2026-09-16) — the automatic half of the recheck: while
+  // the honest screen is showing, re-probe whenever the app comes back to the
+  // foreground (a manager assigns the store, staffer switches back to the
+  // app). Throttled so rapid tab-switching can't hammer the facade, and only
+  // attached while there is anything to recheck.
+  useEffect(() => {
+    if (!isUnassignedForCurrentUser) return
+    let lastRecheck = 0
+    function onVisibilityChange() {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastRecheck < RECHECK_THROTTLE_MS) return
+      lastRecheck = now
+      void recheckStoreUnassigned(unassignedUser, probeStoreAssignment)
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [isUnassignedForCurrentUser, unassignedUser])
+
   if (state.status === 'signed-out') return <LoginScreen />
   if (booting) return <ScreenLoading />
+  if (isUnassignedForCurrentUser) {
+    return (
+      <UnassignedStoreScreen
+        onRecheck={() => recheckStoreUnassigned(unassignedUser, probeStoreAssignment)}
+      />
+    )
+  }
   // The web mounts these at the authed (app) layout root; this gate is the
   // thin tree's equivalent (packet-09 F-8). ProcessingIndicator is not just
   // the progress chip — its effect EXECUTES the background auto-save, so

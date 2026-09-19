@@ -669,7 +669,11 @@ describe('GET /api/app/v1/staff/[id]/stores — manage floor (deliberate diverge
     mockCapabilities.mockResolvedValue(new Set())
     const res = await storesGET(getReq('staff/staff-9/stores'), params('staff-9'))
     expect(res.status).toBe(403)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ Liam 2026-09-16: a caller with ZERO capabilities is the shape the
+    // unassigned gate has to inspect, so it reads the CALLER's own assignment
+    // at the identity seam. The TARGET's row is still never read — that is
+    // what "no read" means for this door.
+    expect(staffStoresGet).not.toHaveBeenCalledWith('staff-9')
   })
 
   it('happy path → 200 { storeIds }', async () => {
@@ -774,7 +778,12 @@ describe("permissions PUT is clamped to the caller's stores", () => {
     mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
     const res = await run()
     expect(res.status).toBeLessThan(300)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the WRITE CLAMP still never consults an
+    // assignment on this path — what does is the front gate at the identity
+    // seam, which reads the CALLER's own assignment on every non-viewAll
+    // request. That is auth work, one memo-shared read; the clamp's own
+    // behaviour (and the TARGET's row) is untouched.
+    expect(staffStoresGet).not.toHaveBeenCalledWith(TARGET)
   })
 
   it("a failed lookup of the caller's own assignment fails closed → 403", async () => {
