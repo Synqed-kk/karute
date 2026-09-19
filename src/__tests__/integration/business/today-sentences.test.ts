@@ -685,6 +685,7 @@ describe('⚖ D-53 (ak)/(al) — the frozen word-minting files read the handed-i
 
     const mkResource = (over: Partial<FixtureResource> & Pick<FixtureResource, 'id' | 'store_id'>): FixtureResource => ({
       name: over.id, note: '', cleanup_minutes: 0, room_class: 'standard', ...over,
+      kind_id: over.kind_id ?? `kind-${over.store_id}`,
     })
 
     const mkStaff = (id: string): FixtureStaff => ({ id, full_name: id, email: null })

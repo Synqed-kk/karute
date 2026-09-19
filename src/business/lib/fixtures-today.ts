@@ -21,8 +21,9 @@
 // shows a 14:30 booking already settled would be exactly the impossible state
 // ⚖ 8/9 forbids. Canon pins its own board the same way, at the same 13:24.
 
-import { STORE_A, STORE_B } from './fixtures'
+import { STORE_A, STORE_B, STORE_C } from './fixtures'
 import { DEFAULT_SELL_SLOT_MIN } from './canon-logic/pricing'
+import type { WordOverride } from './resource-words'
 
 /** Store opening hours (ask T-18 — core has no per-store hours). Every booking
  *  in `./fixtures` sits inside this window, and the timeline is exactly it. */
@@ -119,6 +120,7 @@ export const absence: FixtureAbsence = {
 export interface FixtureResource {
   id: string
   store_id: string
+  kind_id: string
   name: string
   note: string
   cleanup_minutes: number
@@ -137,14 +139,27 @@ export interface FixtureResource {
  *  nothing about a CUSTOMER (VIP included) reads it. */
 export type RoomClass = 'standard' | 'private'
 
+export interface FixtureResourceKind { id: string; store_id: string; words: WordOverride | null }
+export const resourceKinds: FixtureResourceKind[] = [
+  { id: 'k-a', store_id: STORE_A, words: null },
+  { id: 'k-b', store_id: STORE_B, words: null },
+  { id: 'k-c', store_id: STORE_C, words: null },
+]
+
+export function defaultKindOf(storeId: string): FixtureResourceKind {
+  const kind = resourceKinds.find((row) => row.store_id === storeId)
+  if (!kind) throw new Error(`Missing default kind for store ${storeId}`)
+  return kind
+}
+
 // ⚖ ROUND 3 · C — STORE_C (テスト渋谷店) has NO row here on purpose: it is the
 // no-bed store, and `today-board.buildLanes` (:685) draws a `group: 'beds'`
 // lane per row, so a store with no rows has no bed lane by construction.
 export const resources: FixtureResource[] = [
-  { id: 'bed-01', store_id: STORE_A, name: 'ベッド1', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
-  { id: 'bed-02', store_id: STORE_A, name: 'ベッド2', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
-  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室', cleanup_minutes: 0, room_class: 'private' },
-  { id: 'bed-04', store_id: STORE_B, name: 'ベッド1', note: '施術室B', cleanup_minutes: 0, room_class: 'standard' },
+  { id: 'bed-01', store_id: STORE_A, kind_id: 'k-a', name: 'ベッド1', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
+  { id: 'bed-02', store_id: STORE_A, kind_id: 'k-a', name: 'ベッド2', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
+  { id: 'bed-03', store_id: STORE_A, kind_id: 'k-a', name: 'ベッド3', note: '個室', cleanup_minutes: 0, room_class: 'private' },
+  { id: 'bed-04', store_id: STORE_B, kind_id: 'k-b', name: 'ベッド1', note: '施術室B', cleanup_minutes: 0, room_class: 'standard' },
 ]
 
 /** ⚖ Liam flag 77 (2026-08-24) — WHAT A CONFIRMED BOOKING ACTUALLY HOLDS, in
