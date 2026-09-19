@@ -35,11 +35,10 @@ type StaffWriteDeps = {
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. */
   requestId?: string
-  /** ⚖ Liam 2026-09-16 — the CREATOR's own allowed stores, resolved by each
-   *  transport from its own identity (web: resolveStoreScope, facade:
-   *  resolveStoreForRequest). `null` = unclamped. The new card's stores must
-   *  be a subset of it; the rule itself lives in
-   *  setStaffStoresAtCreationCore, one home for both transports. */
+}
+
+export type StaffCreateDeps = StaffWriteDeps & {
+  /** REQUIRED on purpose: `null` = EXPLICITLY unclamped; omitted is not unclamped (see lib/staff/new-card.ts). */
   creatorAllowedStoreIds: readonly string[] | null
 }
 
@@ -121,7 +120,7 @@ async function findProfileIdByEmail(
 export async function createStaffCore(
   synqed: StaffClient,
   businessId: string | null,
-  deps: StaffWriteDeps,
+  deps: StaffCreateDeps,
   data: StaffProfileInput,
 ): Promise<{ id: string; storeUnknown?: true } | { error: string }> {
   try {
@@ -342,7 +341,7 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
     const result = await updateStaffCore(
       synqed,
       businessId,
-      { actorId, source: 'web', requestId: crypto.randomUUID(), creatorAllowedStoreIds: [] },
+      { actorId, source: 'web', requestId: crypto.randomUUID() },
       id,
       parsed.data,
     )
@@ -464,7 +463,7 @@ export async function deleteStaff(id: string): Promise<StaffActionResult> {
     const result = await deleteStaffCore(
       synqed,
       businessId,
-      { actorId, source: 'web', requestId: crypto.randomUUID(), creatorAllowedStoreIds: [] },
+      { actorId, source: 'web', requestId: crypto.randomUUID() },
       id,
     )
     if ('error' in result) return { error: result.error }
@@ -533,7 +532,7 @@ export async function uploadStaffAvatar(
   const result = await uploadStaffAvatarCore(
     synqed,
     businessId,
-    { actorId, source: 'web', requestId: crypto.randomUUID(), creatorAllowedStoreIds: [] },
+    { actorId, source: 'web', requestId: crypto.randomUUID() },
     staffId,
     file,
   )

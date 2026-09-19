@@ -173,7 +173,7 @@ describe('A2(ii) — the core writes the snake_case column', () => {
     const res = await updateStaffCore(
       asStaffClient,
       'business-1',
-      { actorId: 'auth-user-1', source: 'web', creatorAllowedStoreIds: null },
+      { actorId: 'auth-user-1', source: 'web' },
       'p-kitano',
       { ...BASE, isManagement: true },
     )
@@ -186,7 +186,7 @@ describe('A2(ii) — the core writes the snake_case column', () => {
     await updateStaffCore(
       asStaffClient,
       'business-1',
-      { actorId: 'auth-user-1', source: 'web', creatorAllowedStoreIds: null },
+      { actorId: 'auth-user-1', source: 'web' },
       'p-kitano',
       { ...BASE, isManagement: false },
     )
@@ -197,7 +197,7 @@ describe('A2(ii) — the core writes the snake_case column', () => {
     await updateStaffCore(
       asStaffClient,
       'business-1',
-      { actorId: 'auth-user-1', source: 'web', creatorAllowedStoreIds: null },
+      { actorId: 'auth-user-1', source: 'web' },
       'p-kitano',
       BASE,
     )

@@ -83,7 +83,7 @@ export const POST = facadeHandler<Params>('staff.uploadAvatar', async (ctx) => {
   const result = await uploadStaffAvatarCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId, creatorAllowedStoreIds: [] },
+    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     id,
     file,
   )
