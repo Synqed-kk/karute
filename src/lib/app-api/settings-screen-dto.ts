@@ -53,21 +53,20 @@ export const StoreRowSchema = z.object({
   staffCount: z.number(),
   customerCount: z.number(),
   businessType: z.string().nullable(),
-  // ADDITIVE (1c-D): an older client's DTO carries no hours key at all, so the
-  // default keeps the row parsing — `null` is exactly what "this store never
-  // configured hours" already means everywhere else.
-  //
-  // A MALFORMED window degrades this ONE field to null with a warning rather
-  // than failing the row (and with it the whole settings screen). Reading as
-  // "no hours of its own" is the same thing the resolver already does with an
-  // unparseable window, and it is the honest answer: we could not read this
-  // store's week.
-  weeklyHours: WeeklyHoursSchema.nullable()
-    .default(null)
-    .catch(() => {
-      console.warn('[settings-dto] unreadable weekly_hours on a store row — reading as null')
-      return null
-    }),
+  // Parse the hours after the row so a malformed week can set its sibling
+  // flag without failing this store (or the whole settings screen).
+  weeklyHours: z.unknown().default(null),
+  weeklyHoursUnreadable: z.boolean().default(false),
+}).transform((row) => {
+  const parsed = WeeklyHoursSchema.nullable().safeParse(row.weeklyHours)
+  if (!parsed.success) {
+    console.warn('[settings-dto] unreadable weekly_hours on a store row — edits disabled')
+  }
+  return {
+    ...row,
+    weeklyHours: parsed.success ? parsed.data : null,
+    weeklyHoursUnreadable: row.weeklyHoursUnreadable || !parsed.success,
+  }
 })
 
 /** Mirrors TierFeatures (src/lib/subscription/types.ts). */

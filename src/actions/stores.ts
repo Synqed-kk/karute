@@ -8,6 +8,7 @@ import type { SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { businessDisplayName } from '@/lib/business-name'
 import { WEEKDAY_KEYS } from '@/lib/operating-hours'
+import { WeeklyHoursSchema } from '@/lib/app-api/settings-screen-dto'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import {
   storeSchema,
@@ -100,6 +101,9 @@ export interface StoreRow {
    *  for it (resolveDayHours, src/lib/operating-hours.ts); an object = the
    *  store's own week. A consumer must not read `undefined` as "none". */
   weeklyHours?: WeeklyHours | null
+  /** A stored week exists but this app cannot read it; null hours with this
+   *  flag must never be treated as unconfigured or offered for overwrite. */
+  weeklyHoursUnreadable?: boolean
 }
 
 // Primary-store name = the shared truth chain (business-name.ts). This write
@@ -167,11 +171,18 @@ export async function listStoresWithClient(
           .list()
           .then(
             (r) =>
-              new Map<string, WeeklyHours | null>(
-                r.policies.map((p) => [p.store_id, p.weekly_hours]),
+              new Map(
+                r.policies.map((p) => {
+                  // Both web and facade rows use the same tolerant READ shape.
+                  const parsed = WeeklyHoursSchema.nullable().safeParse(p.weekly_hours ?? null)
+                  return [p.store_id, {
+                    weeklyHours: parsed.success ? parsed.data : null,
+                    weeklyHoursUnreadable: !parsed.success,
+                  }] as const
+                }),
               ),
           )
-      : Promise.resolve(new Map<string, WeeklyHours | null>()),
+      : Promise.resolve(new Map<string, Pick<StoreRow, 'weeklyHours' | 'weeklyHoursUnreadable'>>()),
   ])
 
   // Lazily create the 本店 primary store so every business ends up with one —
@@ -217,7 +228,10 @@ export async function listStoresWithClient(
     // never configured = null, the same thing the SDK returns as
     // `weekly_hours` on a 'default'-source policy; `undefined` otherwise, so
     // no consumer can mistake "not fetched" for "none configured".
-    weeklyHours: opts.withHours ? (hoursByStore.get(s.id) ?? null) : undefined,
+    weeklyHours: opts.withHours ? (hoursByStore.get(s.id)?.weeklyHours ?? null) : undefined,
+    weeklyHoursUnreadable: opts.withHours
+      ? (hoursByStore.get(s.id)?.weeklyHoursUnreadable ?? false)
+      : undefined,
   }))
 }
 

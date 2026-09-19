@@ -46,6 +46,8 @@ export interface Store {
    *  states as StoreRow's field: undefined = this read never asked, null = never
    *  configured (the business-wide 営業時間 answers), object = the store's week. */
   weeklyHours?: WeeklyHours | null
+  /** The stored week could not be read; editing and reset are blocked. */
+  weeklyHoursUnreadable?: boolean
 }
 
 export interface StoreFormValues {

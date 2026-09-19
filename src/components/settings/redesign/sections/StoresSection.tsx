@@ -87,6 +87,7 @@ function mapStoreRows(rows: StoreRow[]): Store[] {
     // now asks (listStoresWithHours), so nothing inside this section produces
     // that state any more — mergeKnownHours below is the belt to its braces.
     weeklyHours: r.weeklyHours,
+    weeklyHoursUnreadable: r.weeklyHoursUnreadable,
   }))
 }
 
@@ -96,9 +97,15 @@ function mapStoreRows(rows: StoreRow[]): Store[] {
  *  business-wide week over the store's own saved one. */
 function mergeKnownHours(prev: Store[], incoming: Store[]): Store[] {
   return incoming.map((s) => {
-    if (s.weeklyHours !== undefined) return s
-    const known = prev.find((p) => p.id === s.id)?.weeklyHours
-    return known === undefined ? s : { ...s, weeklyHours: known }
+    if (s.weeklyHours !== undefined && !s.weeklyHoursUnreadable) return s
+    const known = prev.find((p) => p.id === s.id)
+    return !known ? s : {
+      ...s,
+      weeklyHours: known.weeklyHours,
+      // An unreadable re-list keeps the known week visible but blocks writes.
+      // A plain re-list must also preserve a previously unreadable state.
+      weeklyHoursUnreadable: s.weeklyHoursUnreadable || known.weeklyHoursUnreadable,
+    }
   })
 }
 
