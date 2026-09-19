@@ -429,8 +429,23 @@ describe('the web door — createAppointment', () => {
   // never written. The door used to ask nobody and the row still landed in the
   // staff's own store, whose Monday is 定休日. The screen painted 休; the door
   // took the booking.
+  //
+  // ⚖ MERGE #937 fix round 1, B3d — this probes `preferredStoreId: null →
+  // defaultBookingStore` on purpose: a viewAll/floating scope with no cookie,
+  // for THIS test only (the file's shared beforeEach clamps
+  // allowedStoreIds, which makes `cookieStore` always `scope.storeId` and
+  // never null — so the pre-fix version of this test asserted the same
+  // 'store-ginza' outcome without ever exercising the fallback its name and
+  // comment claim). `asks the store the row will LAND in…` below (`the core
+  // — createAppointmentCore`) is the sibling pin for the CORE'S OWN copy of
+  // this same rule.
   it('refuses on the staff’s own store when NO cookie is set at all', async () => {
     getActiveStoreId.mockResolvedValue(null)
+    resolveStoreScope.mockResolvedValue({
+      storeId: null as never,
+      viewAll: true,
+      allowedStoreIds: null,
+    })
     policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
 
     const result = await createAppointment(bookingInput(MON_1300_JST))
@@ -717,6 +732,75 @@ describe('the reschedule door — updateAppointment', () => {
   })
 })
 
+// ⚖ MERGE #937 fix round 1, B2 — a layer switched OFF must reproduce the
+// behaviour from before the round: no closed-day refusal at all (the org
+// hours-window check keeps running). Same jest.doMock/jest.resetModules
+// pattern as day-numbers-line.test.tsx's loadDayNumbersLine, scoped to this
+// describe only.
+describe('the closedDays switch OFF — reproduces the behaviour from before the round', () => {
+  beforeEach(() => {
+    jest.resetModules()
+    jest.doMock('@/lib/appointments/booking-switches', () => {
+      const actual = jest.requireActual('@/lib/appointments/booking-switches') as {
+        BOOKING_SWITCHES: Record<string, boolean>
+      }
+      return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, closedDays: false } }
+    })
+  })
+
+  afterEach(() => {
+    jest.dontMock('@/lib/appointments/booking-switches')
+    jest.resetModules()
+  })
+
+  it('accepts a CREATE on a store-closed day through the web action, and never reads the store policy', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createAppointment: createAppointmentSwitchOff } =
+      require('@/actions/appointments') as typeof import('@/actions/appointments')
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await createAppointmentSwitchOff(bookingInput(MON_1300_JST))
+
+    expect(result).toEqual({ id: 'appt-new' })
+    expect(apptCreate).toHaveBeenCalledTimes(1)
+    expect(policyGet).not.toHaveBeenCalled()
+  })
+
+  it('accepts a RESCHEDULE onto a store-closed day through updateAppointmentCore, and never reads the store policy', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { updateAppointmentCore: updateAppointmentCoreSwitchOff } =
+      require('@/lib/appointments/mutations') as typeof import('@/lib/appointments/mutations')
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await updateAppointmentCoreSwitchOff(
+      fakeClient as never,
+      'appt-1',
+      { startsAt: MON_1300_JST },
+      { actorId: 'auth-user-1', businessId: 'business-1', source: 'web' },
+      { operatingHours: ORG_HOURS, orgSaved: ALL_WEEKDAYS as never },
+      { viewAll: true, allowedStoreIds: null },
+    )
+
+    expect(result).toEqual({ success: true })
+    expect(apptUpdate).toHaveBeenCalledTimes(1)
+    expect(policyGet).not.toHaveBeenCalled()
+  })
+
+  it('still refuses outside_hours — the org hours-window check keeps running', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createAppointment: createAppointmentSwitchOff } =
+      require('@/actions/appointments') as typeof import('@/actions/appointments')
+
+    // 00:30Z = 09:30 JST Tuesday — before the org blob's 10:00 open
+    // (ORG_HOURS, 10:00–24:00 every day). The store's own policy is never
+    // read with the switch off, so only the org window can refuse this.
+    const result = await createAppointmentSwitchOff(bookingInput('2026-05-12T00:30:00.000Z'))
+
+    expect(result).toMatchObject({ code: 'outside_hours' })
+    expect(policyGet).not.toHaveBeenCalled()
+  })
+})
+
 // ⚖ R1-9 — the four invariants the packet names by name and the 12,4xx-test
 // suite had no guard for. Each of these killed a mutant that had survived the
 // whole suite unchanged.
@@ -810,6 +894,34 @@ describe('the invariants with no guard until now', () => {
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-2' })
     // The hours question is never even asked — the booking did not move.
     expect(policyGet).not.toHaveBeenCalled()
+  })
+
+  // Stress round 1, survivor m9 — a DURATION-ONLY patch is still a TIME patch:
+  // updateAppointmentCore's own doc says "a duration-only edit is still judged
+  // against the real start." Mutant mR2 (dropping the
+  // `|| patch.durationMinutes !== undefined` half of the guard above) let a
+  // booking's duration change land on a closed day with no hours question
+  // asked at all — the exact mirror of the NON-TIME test just above.
+  it('refuses a duration-only reschedule of a booking sitting on a now-closed day', async () => {
+    apptGet.mockResolvedValue({
+      id: 'appt-1',
+      status: 'SCHEDULED',
+      customer_id: 'cust-1',
+      staff_id: 'staff-core-1',
+      store_id: 'store-ginza',
+      // A MONDAY, and the store now closes on Mondays.
+      starts_at: MON_1300_JST,
+      ends_at: '2026-05-11T05:00:00.000Z',
+      duration_minutes: 60,
+      created_at: '2026-05-01T00:00:00.000Z',
+    } as never)
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await updateAppointment('appt-1', { durationMinutes: 90 })
+
+    expect(result).toMatchObject({ code: 'closed_day', level: 'store', kind: 'weekday' })
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(policyGet).toHaveBeenCalledWith('store-ginza')
   })
 })
 

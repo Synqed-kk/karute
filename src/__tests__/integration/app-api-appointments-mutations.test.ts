@@ -343,6 +343,51 @@ describe('POST /api/app/v1/appointments (create)', () => {
     expect(apptCreate).not.toHaveBeenCalled()
   })
 
+  // ⚖ MERGE #937 fix round 1, B2/B3b — the phone door reproduces the same
+  // switch-off acceptance the web action gets (booking-closed-day-door.test.ts):
+  // a layer switched OFF must reproduce the behaviour from before the round.
+  // Same jest.doMock/jest.resetModules pattern as day-numbers-line.test.tsx's
+  // loadDayNumbersLine, scoped to this one test.
+  describe('the closedDays switch OFF', () => {
+    beforeEach(() => {
+      jest.resetModules()
+      jest.doMock('@/lib/appointments/booking-switches', () => {
+        const actual = jest.requireActual('@/lib/appointments/booking-switches') as {
+          BOOKING_SWITCHES: Record<string, boolean>
+        }
+        return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, closedDays: false } }
+      })
+    })
+
+    afterEach(() => {
+      jest.dontMock('@/lib/appointments/booking-switches')
+      jest.resetModules()
+    })
+
+    it('accepts the same closed weekday the test above refuses, and never reads the store policy', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { POST: createPOSTSwitchOff } =
+        require('@/app/api/app/v1/appointments/route') as typeof import('@/app/api/app/v1/appointments/route')
+      staffStoresGet.mockResolvedValue({ store_ids: ['store-B'] })
+      policyGet.mockResolvedValue({
+        weekly_hours: {
+          mon: { open: '10:00', close: '19:00' },
+          wed: { open: '10:00', close: '19:00' },
+          thu: { open: '10:00', close: '19:00' },
+          fri: { open: '10:00', close: '19:00' },
+          sat: { open: '10:00', close: '19:00' },
+          sun: { open: '10:00', close: '19:00' },
+        },
+      })
+
+      const res = await createPOSTSwitchOff(post(CREATE_URL, CREATE_BODY), noParams)
+
+      expect(res.status).toBe(201)
+      expect(apptCreate).toHaveBeenCalledTimes(1)
+      expect(policyGet).not.toHaveBeenCalled()
+    })
+  })
+
   // ⚖ R1-2 / LENS-4 HIGH-2 — a viewAll phone identity sends no store-id
   // header, so the clamp resolves nothing. The row still lands in the booked
   // staff's own store, and that store's 定休日 is what decides.
