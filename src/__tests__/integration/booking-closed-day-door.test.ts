@@ -195,6 +195,65 @@ beforeEach(() => {
 })
 
 describe('the rule — validateAppointmentTime, the ONE home', () => {
+  describe('JST default offset', () => {
+    const STORE_1000_2200 = Object.fromEntries(
+      ALL_WEEKDAYS.map((day) => [day, { open: '10:00', close: '22:00' }]),
+    )
+
+    function inputWithoutOffset(startTime: string) {
+      return {
+        staffProfileId: 'staff-1',
+        clientId: 'cust-1',
+        startTime,
+        durationMinutes: 60,
+      }
+    }
+
+    it('t1 accepts 13:00 JST when the offset is omitted', async () => {
+      const result = await validateAppointmentTime(
+        inputWithoutOffset(TUE_1300_JST),
+        ORG_HOURS,
+        dayHours({ weeklyHours: STORE_1000_2200 as never }),
+      )
+
+      expect(result).toBeNull()
+    })
+
+    it('t2 refuses 22:30 JST for 60 minutes when the offset is omitted', async () => {
+      const result = await validateAppointmentTime(
+        inputWithoutOffset('2026-05-12T13:30:00.000Z'),
+        ORG_HOURS,
+        dayHours({ weeklyHours: STORE_1000_2200 as never }),
+      )
+
+      expect(result).toMatchObject({
+        code: 'outside_hours',
+        params: { open: '10:00', close: '22:00' },
+      })
+    })
+
+    it('t3 refuses a closed JST weekday when the offset is omitted', async () => {
+      // Sunday in UTC, but Monday 00:30 in JST: the store's closed weekday.
+      const result = await validateAppointmentTime(
+        inputWithoutOffset('2026-05-10T15:30:00.000Z'),
+        ORG_HOURS,
+        dayHours({ weeklyHours: CLOSED_ON_MONDAY as never }),
+      )
+
+      expect(result).toMatchObject({ code: 'closed_day', level: 'store', kind: 'weekday' })
+    })
+
+    it('t4 keeps an explicit UTC offset instead of the JST default', async () => {
+      const result = await validateAppointmentTime(
+        { ...inputWithoutOffset('2026-05-12T13:30:00.000Z'), tzOffsetMinutes: 0 },
+        ORG_HOURS,
+        dayHours({ weeklyHours: STORE_1000_2200 as never }),
+      )
+
+      expect(result).toBeNull()
+    })
+  })
+
   it("refuses the store's own 定休日, and says the STORE closed it", async () => {
     const result = await validateAppointmentTime(
       bookingInput(MON_1300_JST),
