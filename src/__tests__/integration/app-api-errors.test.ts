@@ -106,9 +106,11 @@ describe('unknown-throw reason (server log only, client body untouched)', () => 
     })
 
     it('caps a long message at 200 chars, appending an ellipsis when cut', () => {
-      const long = 'x'.repeat(300)
+      // Space-separated words (fix round 2: a single unbroken run this long
+      // would now hit the new blob rule below — see its own describe block).
+      const long = Array(60).fill('word').join(' ')
       const { errMessage } = describeUnknownThrow(new Error(long))
-      expect(errMessage).toBe(`${'x'.repeat(200)}…`)
+      expect(errMessage).toBe(`${long.slice(0, 200)}…`)
     })
 
     // Fix round 1 (2026-09-19, lead line-read of 01037d53a): masking must run
@@ -138,6 +140,124 @@ describe('unknown-throw reason (server log only, client body untouched)', () => 
 
     it('keeps only the first line of a multi-line message', () => {
       expect(describeUnknownThrow(new Error('first line\nsecond line with secrets')).errMessage).toBe('first line')
+    })
+
+    // Fix round 2 SHOULD: a bare CR (no LF) used to survive line-extraction
+    // and then get flattened to a space by the whitespace-collapse, leaking
+    // whatever followed it.
+    it('a bare CR is ALSO a line boundary, not just LF', () => {
+      expect(describeUnknownThrow(new Error('public\rsecret')).errMessage).toBe('public')
+    })
+
+    it('masks the value after Bearer (case-insensitive)', () => {
+      const { errMessage } = describeUnknownThrow(new Error('auth failed, bearer abc123secretvalue'))
+      expect(errMessage).toBe('auth failed, Bearer <token>')
+      expect(errMessage).not.toContain('secretvalue')
+    })
+
+    it('masks a labelled credential (token/apikey/api_key/key/secret/password/authorization = value)', () => {
+      const { errMessage } = describeUnknownThrow(new Error('request failed with api_key=sk-live-1234567890abcdef'))
+      expect(errMessage).toBe('request failed with <label>=<redacted>')
+      expect(errMessage).not.toContain('sk-live')
+    })
+
+    it('masks a labelled credential embedded inside a URL PATH — the URL step above only strips the query', () => {
+      const { errMessage } = describeUnknownThrow(new Error('GET https://x.test/key=secret failed'))
+      expect(errMessage).toBe('GET https://x.test/<label>=<redacted> failed')
+      expect(errMessage).not.toContain('secret')
+    })
+
+    it('URL masking is case-insensitive — an uppercase scheme used to survive', () => {
+      // The query key ("sig", not a label word) is chosen so ONLY the URL
+      // rule's query-stripping can hide the value — the labelled-credential
+      // rule (a different, independent mask) must not also happen to catch
+      // it, or this test would stay green under a broken URL rule too.
+      const { errMessage } = describeUnknownThrow(new Error('HTTPS://x.test/a?sig=SECRETVALUE'))
+      expect(errMessage).not.toContain('SECRETVALUE')
+    })
+
+    it('masks an opaque 32+-char blob (base64 / API key)', () => {
+      const blob = 'A'.repeat(40)
+      const { errMessage } = describeUnknownThrow(new Error(`session data ${blob} expired`))
+      expect(errMessage).toBe('session data <blob> expired')
+    })
+
+    it('a canonical UUID survives the blob rule', () => {
+      const uuid = '3fa1c2e4-5b6c-4d7e-8f9a-1a2b3c4d5e6f'
+      expect(describeUnknownThrow(new Error(`customer ${uuid} not found`)).errMessage).toBe(`customer ${uuid} not found`)
+    })
+
+    it('masks exactly 7 digits; 6 digits are left alone', () => {
+      expect(describeUnknownThrow(new Error('code 1234567 here')).errMessage).toBe('code <digits> here')
+      expect(describeUnknownThrow(new Error('code 123456 here')).errMessage).toBe('code 123456 here')
+    })
+  })
+
+  describe('errName is masked and bounded (fix round 2)', () => {
+    it('a leaked secret in .name is masked the same way as the message', () => {
+      const hostile = Object.assign(new Error('safe message'), { name: 'Bearer secret-token-value' })
+      expect(describeUnknownThrow(hostile).errName).toBe('Bearer <token>')
+    })
+
+    it('caps errName at 60 chars', () => {
+      // Space-separated (not one long run — that would hit the blob rule
+      // before the cap even applies, same interaction as the message cap test).
+      const longName = Array(20).fill('Name').join(' ')
+      const hostile = Object.assign(new Error('safe'), { name: longName })
+      expect(describeUnknownThrow(hostile).errName).toBe(`${longName.slice(0, 60)}…`)
+    })
+  })
+
+  // Fix round 2, MUST-1a: a hostile thrown shape can never make this helper
+  // throw — it degrades to the total fallback instead.
+  describe('total safety — hostile thrown shapes never throw', () => {
+    it('a throwing message getter does not throw', () => {
+      const hostile = new Error('placeholder')
+      Object.defineProperty(hostile, 'message', { get() { throw new Error('boom') } })
+      expect(() => describeUnknownThrow(hostile)).not.toThrow()
+      expect(describeUnknownThrow(hostile)).toEqual({ errName: 'unformattable', errMessage: '' })
+    })
+
+    it('a throwing toString does not throw', () => {
+      const hostile = { toString() { throw new Error('boom') } }
+      expect(() => describeUnknownThrow(hostile)).not.toThrow()
+      expect(describeUnknownThrow(hostile)).toEqual({ errName: 'unformattable', errMessage: '' })
+    })
+
+    it('a throwing status getter does not throw', () => {
+      const hostile = new Error('fine message')
+      Object.defineProperty(hostile, 'status', { get() { throw new Error('boom') } })
+      expect(() => describeUnknownThrow(hostile)).not.toThrow()
+      expect(describeUnknownThrow(hostile)).toEqual({ errName: 'unformattable', errMessage: '' })
+    })
+
+    it('a BigInt name does not throw, and never reaches JSON.stringify as a BigInt', () => {
+      const hostile = Object.assign(new Error('fine message'), { name: BigInt(1) as unknown as string })
+      expect(() => describeUnknownThrow(hostile)).not.toThrow()
+      const result = describeUnknownThrow(hostile)
+      expect(typeof result.errName).toBe('string')
+      expect(() => JSON.stringify(result)).not.toThrow()
+    })
+  })
+
+  // Fix round 2, MUST-2: a huge thrown message must format fast regardless of
+  // input size — the OLD email pattern took >1.5s on a 1 MiB pathological
+  // input (quadratic rescans). Bounded now two ways: `preBound` caps input to
+  // 2000 chars before any mask regex runs, AND the email pattern itself uses
+  // bounded quantifiers.
+  describe('perf — bounded regardless of input size', () => {
+    it('a 1 MiB single-token message formats in well under 100ms', () => {
+      const huge = new Error('a'.repeat(1024 * 1024))
+      const start = performance.now()
+      describeUnknownThrow(huge)
+      expect(performance.now() - start).toBeLessThan(100)
+    })
+
+    it('a 1 MiB "a@"-heavy message (pathological for a naive email regex) formats in well under 100ms', () => {
+      const huge = new Error('a@'.repeat(512 * 1024))
+      const start = performance.now()
+      describeUnknownThrow(huge)
+      expect(performance.now() - start).toBeLessThan(100)
     })
   })
 })
