@@ -40,7 +40,7 @@ import { businessTypeLabel } from '@/lib/welcome/business-types'
 
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
-import { listStoresWithHours, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
+import { listStoresWithHours, listStores, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
 import { getEntitlement } from '@/actions/entitlements'
 import type { Entitlement } from '@/lib/entitlements'
 import { WebOnly } from '@/components/shell/WebOnly'
@@ -171,7 +171,11 @@ export function StoresSection({
       // WITH hours: this section renders the 営業時間 editor, and a re-list
       // that dropped them made the editor re-offer the business-wide default
       // as "not saved yet" after every store rename (LENS-1 HIGH-2).
-      listStoresWithHours(),
+      // Deliberately caught HERE (unlike the other two callers, which swallow
+      // to []): a store-policy blip must not blank this screen's rows — fall
+      // back to the plain list (the pre-PR call) so names/rows still repaint;
+      // mergeKnownHours below keeps whatever hours this section already knows.
+      listStoresWithHours().catch(() => listStores()),
       getActiveStoreId(),
       getEntitlement(),
     ])

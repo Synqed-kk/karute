@@ -58,6 +58,12 @@ export const STORE_HOURS_INVALID_WINDOW = 'STORE_HOURS_INVALID_WINDOW'
  *  bug src/actions/appointments.ts records having shipped once. */
 export const STORE_HOURS_ACTOR_UNRESOLVED = 'STORE_HOURS_ACTOR_UNRESOLVED'
 
+/** `storeId` is empty, not a string, or not one of the caller's OWN business's
+ *  stores. A receipt-grade governance row must never carry a store id this
+ *  business does not own — the same guard its locked settings sibling carries
+ *  (src/lib/settings/recording-autostart.ts). */
+export const STORE_HOURS_UNKNOWN_STORE = 'STORE_HOURS_UNKNOWN_STORE'
+
 /** 00:00–23:59, zero-padded. 24:00 is deliberately OUT: `<input type="time">`
  *  cannot hold it either, so the editor and this parser refuse the same set.
  *  (The read side, minuteOfHhmm, still accepts a 24:00 written by core or the

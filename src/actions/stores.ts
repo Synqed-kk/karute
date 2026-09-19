@@ -14,6 +14,7 @@ import {
   type StoreInput,
   STORE_OWNER_DENIAL,
   STORE_HOURS_ACTOR_UNRESOLVED,
+  STORE_HOURS_UNKNOWN_STORE,
   parseStoreWeeklyHours,
 } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
@@ -141,13 +142,16 @@ export async function listStoresWithClient(
   //   - weekly hours: OPT-IN (`opts.withHours`) — one storePolicies.list() for
   //     the whole business, never one get() per store. Off by default because
   //     the app-shell layout re-lists stores on every render and has no use for
-  //     hours; only the 設定 doors (web page + screens/settings facade), whose
-  //     店舗 tab renders the editor, ask for them. Deliberately NOT caught: a
-  //     policy read that fails must not be reported as "no hours configured" —
-  //     that reads as 全店共通の初期値 in the editor and the next save would
-  //     overwrite hours the store really has. It rides the same failure
-  //     contract as stores.list() itself (both settings doors already
-  //     `.catch(() => [])` this whole twin).
+  //     hours; only the 設定 doors (web page + screens/settings facade) and
+  //     StoresSection's own refresh() ask for them. Deliberately NOT caught
+  //     HERE: a policy read that fails must not be reported as "no hours
+  //     configured" — that reads as 全店共通の初期値 in the editor and the next
+  //     save would overwrite hours the store really has. Three callers, three
+  //     postures: settings/page.tsx and screens/settings/route.ts both
+  //     `.catch(() => [])` this whole twin (an empty store list, never a false
+  //     "no hours"); StoresSection.tsx's refresh() falls back to the plain
+  //     listStores() instead, so a rename still repaints while the hours it
+  //     already knows stay put (mergeKnownHours).
   const [storesRes, staffByStore, customersByStore, hoursByStore] = await Promise.all([
     synqed.stores.list(),
     synqed.staffStores
@@ -585,6 +589,20 @@ export async function setStoreHoursCore(
   if ('error' in parsed) return { error: parsed.error }
   if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
     return { error: STORE_OWNER_DENIAL }
+  }
+  // A receipt-grade governance row must never carry a store id this business
+  // does not own — the same guard its locked settings sibling carries
+  // (recording-autostart.ts). No store-lock call: this door is owner-only
+  // (isRosterOwner above), and an owner can never be clamped to a subset of
+  // their own stores.
+  if (typeof storeId !== 'string' || storeId.length === 0) {
+    return { error: STORE_HOURS_UNKNOWN_STORE }
+  }
+  try {
+    const { stores } = await synqed.stores.list()
+    if (!stores.some((s) => s.id === storeId)) return { error: STORE_HOURS_UNKNOWN_STORE }
+  } catch {
+    return { error: STORE_HOURS_UNKNOWN_STORE }
   }
   // CORE's staff-id space, resolved by the door (see StoreHoursWriteDeps).
   // Unresolvable = REFUSE — never deps.selfUserId, which is a profile id.
