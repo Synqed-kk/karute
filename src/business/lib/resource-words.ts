@@ -24,6 +24,34 @@ export interface ResourceWords {
   readonly turnoverWord: string | null
 }
 
+export const GENERIC_WORDS: ResourceWords = Object.freeze({
+  resourceNoun: '設備', counter: '台', groupLabel: '設備', tabWord: '設備',
+  privateWord: null, fullWord: '空きなし', turnoverWord: '清掃',
+})
+
+export interface WordOverride {
+  readonly resourceNoun?: string
+  readonly counter?: string
+  readonly fullWord?: '満室' | '満席' | '空きなし'
+  readonly turnoverWord?: string
+}
+
+export const WORD_MAX_CHARS = 8
+
+export function wordOverrideProblem(o: WordOverride | null): 'pair' | 'empty' | 'trim' | 'length' | 'bar' | 'full' | 'reserved' | null {
+  if (o === null) return null
+  if ((o.resourceNoun !== undefined) !== (o.counter !== undefined)) return 'pair'
+  const values = [o.resourceNoun, o.counter, o.fullWord, o.turnoverWord]
+    .filter((value): value is string => value !== undefined)
+  if (values.some((value) => value.trim().length === 0)) return 'empty'
+  if (values.some((value) => value !== value.trim())) return 'trim'
+  if (values.some((value) => Array.from(value).length > WORD_MAX_CHARS)) return 'length'
+  if (values.some((value) => value.includes('|'))) return 'bar'
+  if (o.fullWord !== undefined && !['満室', '満席', '空きなし'].includes(o.fullWord)) return 'full'
+  if (o.turnoverWord !== undefined && ['休憩', '準備', '記録', 'ミーティング'].includes(o.turnoverWord)) return 'reserved'
+  return null
+}
+
 export const RESOURCE_WORDS: Record<BusinessProfileKey, ResourceWords> = {
   esthetic_salon: { resourceNoun: 'ベッド', counter: '台', groupLabel: 'ベッド・設備', tabWord: '設備', privateWord: '個室', fullWord: '満室', turnoverWord: '清掃' },
   hair_salon: { resourceNoun: 'セット面', counter: '面', groupLabel: 'セット面・設備', tabWord: '設備', privateWord: '個室', fullWord: '満席', turnoverWord: '片付け' },
@@ -66,12 +94,27 @@ export function resourceWordsFor(type: string | null | undefined): ResourceWords
     : RESOURCE_WORDS.other
 }
 
+export function wordsForStore(type: string, override: WordOverride | null): ResourceWords {
+  const base = Object.prototype.hasOwnProperty.call(RESOURCE_WORDS, type) ? resourceWordsFor(type) : GENERIC_WORDS
+  if (override === null || Object.keys(override).length === 0 || wordOverrideProblem(override) !== null) return base
+  const paired = override.resourceNoun !== undefined && override.counter !== undefined
+  return Object.freeze({
+    ...base,
+    ...(paired ? {
+      resourceNoun: override.resourceNoun!, counter: override.counter!,
+      groupLabel: `${override.resourceNoun}・設備`,
+    } : {}),
+    ...(override.fullWord !== undefined ? { fullWord: override.fullWord } : {}),
+    ...(base.turnoverWord !== null && override.turnoverWord !== undefined ? { turnoverWord: override.turnoverWord } : {}),
+  })
+}
+
 /** ⚖ D-53 (n) C7 — the board's CHROME words under a mixed board: every row
  *  the caller hands in (already resolved via `resourceWordsFor`) agrees on
  *  all seven fields → that row; disagreement, or nothing to agree on at all
- *  (`[]`), → `other`'s generic row. Pure — reads no store, calls nothing. */
+ *  (`[]`), → the neutral row. Pure — reads no store, calls nothing. */
 export function chromeWords(rows: readonly ResourceWords[]): ResourceWords {
-  if (rows.length === 0) return RESOURCE_WORDS.other
+  if (rows.length === 0) return GENERIC_WORDS
   const [first, ...rest] = rows
   const agree = rest.every(
     (row) =>
@@ -83,5 +126,5 @@ export function chromeWords(rows: readonly ResourceWords[]): ResourceWords {
       row.fullWord === first.fullWord &&
       row.turnoverWord === first.turnoverWord,
   )
-  return agree ? first : RESOURCE_WORDS.other
+  return agree ? first : GENERIC_WORDS
 }

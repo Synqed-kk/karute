@@ -30,7 +30,7 @@
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
-import { bedSecuredProof } from '@/business/lib/fixtures-today'
+import { bedSecuredProof, defaultKindOf } from '@/business/lib/fixtures-today'
 import {
   defaultStoreId,
   listAppointments,
@@ -64,7 +64,7 @@ import {
   type BuildInput,
 } from '@/business/lib/today-board'
 import { canReleaseHeld, clampCalendarTight, overrideLevelFor, storeHasBeds, type CalendarWindowDay } from './today-interactions'
-import { resourceWordsFor, chromeWords, type ResourceWords } from '@/business/lib/resource-words'
+import { resourceWordsFor, wordsForStore, chromeWords, type ResourceWords } from '@/business/lib/resource-words'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -181,7 +181,7 @@ export default async function TodayPage({
   // of clamping. `wordsByStore` (the prop every lane indexes) narrows this on
   // a clamped board (next line's own comment); this internal map does not.
   const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
-    storeOptions.map((s) => [s.id, resourceWordsFor(s.business_type)]),
+    storeOptions.map((s) => [s.id, wordsForStore(s.business_type, defaultKindOf(s.id).words)]),
   )
   // ⚖ D-53 (u)/(ad)/(n2b2) — a real bug on main, fixed here: on a CLAMPED
   // board this map used to carry every store's row, so a shared staff lane
@@ -200,19 +200,16 @@ export default async function TodayPage({
   // clamped; under viewAll, the store options' rows agree → that row, else
   // the generic row (`chromeWords`, the pure helper in resource-words.ts).
   const words: ResourceWords = clamped ? wordsByStore[storeId!] : chromeWords(storeOptions.map((s) => wordsByStore[s.id]))
-  // C6 — the per-TYPE default of the per-store WORD-bearing capability flags
-  // (does this store's type have a private class / a turnover word at all).
-  // N3 adds the per-store override on top; nothing here reads the type for
-  // BEHAVIOUR — the flags gate word-bearing controls only.
-  // ⚖ D-53 (z) — page-local only (TodayScreen never read this as a prop); N3
-  // threads its per-store override through here when it lands.
+  // N3-1 H3 — private capability follows actual rows; manual turnover
+  // vocabulary follows the resolved row even when cleanup minutes are zero.
   // ⚖ D-53 (u)/(ad)/(n2b2) — reads `allWordsByStore`, never the (now
   // clamp-narrowed) `wordsByStore`: indexing THAT for every other store
   // option would read `undefined` on a clamped board.
   const capabilitiesByStore: Record<string, { privateClass: boolean; turnover: boolean }> = Object.fromEntries(
     storeOptions.map((s) => {
-      const row = allWordsByStore[s.id]
-      return [s.id, { privateClass: row.privateWord != null, turnover: row.turnoverWord != null }]
+      const words = allWordsByStore[s.id]
+      const rows = resources.filter((r) => r.store_id === s.id)
+      return [s.id, { privateClass: rows.some((r) => r.room_class === 'private'), turnover: words.turnoverWord !== null }]
     }),
   )
   // The CHROME store's own capabilities — same rule as `words` above — for
