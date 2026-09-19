@@ -366,7 +366,15 @@ function reportUnmappedEndpoint(
  *  thrown value there — see errors.ts). `errMessage` is `describeUnknownThrow`'s
  *  sanitised, bounded first line — never the stack, never `cause.cause`. Every
  *  other code, and an `internal` with no cause (e.g. identity.ts's own throw),
- *  logs byte-identically to before. */
+ *  logs byte-identically to before.
+ *
+ *  TWO LAYERS of safety around the enrichment (fix round 2, MUST-1): (a)
+ *  `describeUnknownThrow` is itself total (errors.ts) — it never throws. (b)
+ *  the call to it AND the `JSON.stringify` of the enriched line below still
+ *  sit in their own try/catch here, whose fallback logs the ORIGINAL
+ *  pre-enrichment line (code/status/reason/ids only) — belt-and-braces, so
+ *  the response is never at risk even if the enrichment somehow still fails;
+ *  only the log can degrade. */
 function logFacadeError(
   endpoint: string,
   err: AppApiError,
@@ -374,23 +382,30 @@ function logFacadeError(
   businessId?: string,
 ): void {
   const reason = typeof err.detail?.reason === 'string' ? err.detail.reason : undefined
-  const unknownThrow = err.code === 'internal' && err.cause !== undefined ? describeUnknownThrow(err.cause) : undefined
-  console.warn(
-    JSON.stringify({
-      evt: 'facade_error',
-      endpoint,
-      code: err.code,
-      status: err.status,
-      reason,
-      requestId: meta.requestId,
-      appVersion: meta.appVersion,
-      platform: meta.platform,
-      businessId,
-      errName: unknownThrow?.errName,
-      errStatus: unknownThrow?.errStatus,
-      errMessage: unknownThrow?.errMessage,
-    }),
-  )
+  const baseLine = {
+    evt: 'facade_error',
+    endpoint,
+    code: err.code,
+    status: err.status,
+    reason,
+    requestId: meta.requestId,
+    appVersion: meta.appVersion,
+    platform: meta.platform,
+    businessId,
+  }
+  try {
+    const unknownThrow = err.code === 'internal' && err.cause !== undefined ? describeUnknownThrow(err.cause) : undefined
+    console.warn(
+      JSON.stringify({
+        ...baseLine,
+        errName: unknownThrow?.errName,
+        errStatus: unknownThrow?.errStatus,
+        errMessage: unknownThrow?.errMessage,
+      }),
+    )
+  } catch {
+    console.warn(JSON.stringify(baseLine))
+  }
 }
 
 function cryptoRandomId(): string {
