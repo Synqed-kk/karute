@@ -15,17 +15,16 @@
 
 import { z } from 'zod'
 
-import { STORE_HHMM } from '@/lib/validations/store'
+import { STORE_HHMM, STORE_HHMM_CLOSE_READ } from '@/lib/validations/store'
 
 /** Mirrors the SDK's WeeklyHours (@synqed-kk/client, dist/types.d.ts:1045-1049):
  *  one open/close window per weekday, `null`/absent weekday = 定休日. The
- *  window is HH:MM, the SAME bound the write path enforces
- *  (parseStoreWeeklyHours) — one regex, so the read contract and the write
- *  contract for a field cannot drift apart. */
+ *  open uses the write path's HH:MM bound; close also accepts core's stored
+ *  24:00, while parseStoreWeeklyHours still refuses 24:00 on writes. */
 const DayWindowSchema = z.object({
   open: z.string().regex(STORE_HHMM),
-  close: z.string().regex(STORE_HHMM),
-})
+  close: z.string().regex(STORE_HHMM_CLOSE_READ),
+}).strict()
 /** READ SHAPE ONLY — never a write validator. Every weekday is optional here
  *  because an older server's row may not carry all seven, which is fine for a
  *  reader; a WRITE with fewer than seven closes the store on the missing days,
@@ -40,7 +39,7 @@ export const WeeklyHoursSchema = z.object({
   fri: DayWindowSchema.nullable().optional(),
   sat: DayWindowSchema.nullable().optional(),
   sun: DayWindowSchema.nullable().optional(),
-})
+}).strict()
 
 /** Mirrors StoreRow (src/actions/stores.ts). */
 export const StoreRowSchema = z.object({

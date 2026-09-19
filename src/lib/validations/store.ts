@@ -73,6 +73,9 @@ export const STORE_HOURS_UNREADABLE = 'STORE_HOURS_UNREADABLE'
  *  business-wide blob — this is a WRITE bound only.) */
 export const STORE_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
+/** Core's closeTimeRe accepts 24:00; this is a READ bound, never a write bound. */
+export const STORE_HHMM_CLOSE_READ = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/
+
 /** THE one validator for a store-hours save — server truth, and the editor's
  *  own "can I save yet" predicate, so the two can never disagree. Returns a
  *  freshly BUILT seven-key object: nothing the caller sent beyond the seven
