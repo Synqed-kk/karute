@@ -25,6 +25,7 @@ function respond(body: unknown, status = 201) {
 }
 
 const STAFF = { name: '新人', position: '', email: '', phone: '' }
+const INVITE = { email: 'new@test.com', role: 'STYLIST' as const, name: '新人' }
 
 describe('thin port — the unknown flags reach the caller (T3)', () => {
 
@@ -36,5 +37,15 @@ describe('thin port — the unknown flags reach the caller (T3)', () => {
   it('createStaff without the flag answers void, as it always has', async () => {
     respond({ id: 'staff-new' })
     await expect(createStaff(STAFF)).resolves.toBeUndefined()
+  })
+
+  it('createInvite carries storeUnknown alongside the token', async () => {
+    respond({ token: 'tok-1', storeUnknown: true })
+    await expect(createInvite(INVITE)).resolves.toEqual({ token: 'tok-1', storeUnknown: true })
+  })
+
+  it('createInvite without the flag is the plain token answer', async () => {
+    respond({ token: 'tok-1' })
+    await expect(createInvite(INVITE)).resolves.toEqual({ token: 'tok-1' })
   })
 })

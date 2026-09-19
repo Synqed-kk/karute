@@ -3565,8 +3565,16 @@
     "linkedBadge": "接続済み",
     "revoke": "取り消す",
     "inviteExistingLabel": "既存スタッフにログインを招待（任意）",
-    "inviteExistingNone": "新しいスタッフ（メールのみ）",
-    "staffLimitReached": "スタッフ数がプランの上限に達しているため、新しいスタッフを招待できません。既存スタッフへの再招待は可能です"
+    "inviteExistingNone": "新しいスタッフ（お名前と担当店舗を入力）",
+    "staffLimitReached": "スタッフ数がプランの上限に達しているため、新しいスタッフを招待できません。既存スタッフへの再招待は可能です",
+    "inviteNameLabel": "スタッフのお名前",
+    "inviteNameRequired": "お名前を入力してください。",
+    "inviteStoreLabel": "担当店舗",
+    "inviteStoreHint": "このスタッフが働く店舗を選んでください。複数選択できます。",
+    "inviteStoreRequired": "担当店舗を選択してください。",
+    "inviteAlreadyPending": "このメールアドレスには保留中の招待があります。取り消してから送り直してください。",
+    "inviteCardCreateFailed": "スタッフ情報を作成できませんでした。しばらくしてからもう一度お試しください。",
+    "inviteStoreUnknown": "招待リンクを作成しました。担当店舗が未設定のため、店舗が2つ以上あるとこのスタッフには何も表示されません。スタッフ管理で担当店舗を設定してください。"
   },
   "permissions": {
     "roleLabel": "権限",
