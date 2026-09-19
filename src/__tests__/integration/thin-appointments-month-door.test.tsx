@@ -39,6 +39,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 
 import { render, screen, waitFor } from '@testing-library/react'
 import { capacityRowFields, type MonthCell } from '@/lib/adapters/reservation'
+import { monthNewCount } from '@/lib/appointments/metric-menu'
 import { setDataPort } from '@/lib/ports/data-port'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
@@ -157,6 +158,23 @@ it('hydrates withheld and known new counts onto the screen month cells', async (
     if (known) expect(hydrated.reduce((sum, c) => sum + (c.newCount ?? 0), 0)).toBe(5)
     unmount()
   }
+})
+
+it('hydrates an older wire cell without new-count keys as a known zero', async () => {
+  const oldCell: Partial<typeof MONTH_CELL> = { ...MONTH_CELL }
+  delete oldCell.newCount
+  delete oldCell.newCountKnown
+  setDataPort({
+    apiFetch: jest.fn(async () => jsonResponse({ ...DTO, view: 'month', monthData: [oldCell] })),
+  } as unknown as Parameters<typeof setDataPort>[0])
+  render(<AppointmentsScreen />)
+  await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
+
+  const hydrated = capturedProps!.monthData!
+  expect(hydrated).toHaveLength(1)
+  expect(hydrated[0].newCountKnown).toBe(true)
+  expect(hydrated[0].newCount).toBe(0)
+  expect(monthNewCount([hydrated[0]], 'new')).toBe(0)
 })
 
 it('THROWS on a failed read rather than reporting an empty month', async () => {

@@ -438,6 +438,18 @@ describe('MonthPage — the month line', () => {
     expect(line.querySelector('[data-new-spark]')).not.toBeNull()
   })
 
+  it('a known zero in the new type slot prints its label and value', () => {
+    const { MonthPage } = loadMonthPage()
+    const { container } = render(
+      <MonthPage {...baseProps} cells={monthCells(2026, 9)} typeSlot="new" typeCount={0} />,
+    )
+    const line = container.querySelector('[data-month-line]')!
+    expect(visibleText(line)).toBe(
+      `${WEEK_ROWS.count}${WEEK_ROWS.countValue.replace('{n}', '0')}${WEEK_ROWS.new}0`,
+    )
+    expect(screen.getByText(WEEK_ROWS.new).querySelector('b')!.textContent).toBe('0')
+  })
+
   it('a type slot with no honest number is ABSENT, not a zero', () => {
     const { MonthPage } = loadMonthPage()
     const { container } = render(
