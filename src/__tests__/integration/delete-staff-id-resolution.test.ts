@@ -65,6 +65,15 @@ jest.mock('@/lib/auth/require-permission', () => ({
 // coverage lives in staff-actions-store-scope.test.ts.
 jest.mock('@/lib/auth/store-scope', () => ({
   staffWriteInScope: jest.fn(async () => true),
+  // ⚖ Liam 2026-09-16: createStaff resolves the CREATOR's own stores so the
+  // new card can only be placed inside them. Unclamped here — this suite is
+  // about the error contract, not the store rule.
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
 }))
 
 const lookupSynqedStaffId = jest.fn(

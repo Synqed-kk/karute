@@ -829,6 +829,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-today',
         '@/business/lib/resource-words',
         '@/business/lib/settings',
+        '@/business/lib/settings-words',
       ],
       // ⚖ S17 fix round 1 · F15 (D-20) — THE ROOM'S ONE 詳しく DISCLOSURE, in its
       // own file. Both the shell room and 予約と確保 need it, and the section may

@@ -118,6 +118,7 @@ const dto: SettingsScreenDTOType = {
   auditTargetId: null,
   initialActiveStoreId: null,
   initialStores: [],
+  assignableStores: [],
   initialEntitlement: null,
   featureStaffInvites: false,
   featureMultiStore: false,

@@ -1817,7 +1817,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // `import()` (thin/main.tsx:130) that makes en its own lazy chunk — both
 // locales ship, ja just isn't the one that gets its own file.
 
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-19 — P1b B1 (PR #960, feat/p1b-refusal-audit-1),
 // rebased onto origin/main 77786f755 (#955, this branch's own base — no file
 // overlap, so the rebase was conflict-free). What grew: four audit-log
@@ -1855,7 +1854,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // above (2,126,356 B) — this number is the ground truth for the merged tip,
 // not a sum of the two branches' separate deltas.
 
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-19 — main IN on PR #938 (feat/store-hours-door, the
 // per-store 営業時間 door), merged commit af49a232 — main's tip merged is
 // 85a451db9 (#960, 店舗の錠前 P1b 2/4, one commit past the #961 業種/N3-1
@@ -1933,8 +1931,22 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // of that tip; the delta includes main-in and round 3 as well as round 4.
 // Proof: artifacts-938-r2/r4/thin-build-{1,2}.log, thin-lap-{1,2}.json,
 // thin-measured.json. Ceiling = measured + 1,000 = 2,141,740 B.
-const BUDGET_BYTES = 2_141_740
-
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-19 — STORE AT CREATION S7 — 1b/4 (main #938 restack)
+// feat/sac-1b-add-staff-door, product/test tip `9c369565f80bc6202ceede48de5b90d125821af9`.
+// 追加: staff placement, store-list plumbing, staff message keys and the thin staff flag.
+// Re-stacked onto pinned parent a2bc0be212344ea98d9f67299363aea13c4df5d7;
+// prior measurements and the two historical stale markers remain as history.
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* placeholders read directly from .github/workflows/ci.yml.
+// thin/dist emptied before EACH of two builds; node v24.16.0.
+// All 23 output files byte-identical (relative paths, byte sizes, SHA-256s):
+//   en-Cpj6YL2u.js  138,037 B
+//   index-CiYJ7d82.js  1,067,305 B
+//   vendor-CA75MqrT.js  937,800 B
+// Total = 2,143,142 B; ceiling = measured + 1,000 = 2,144,142 B.
+// No dependency files changed. Proof: BUNDLE-IDENTITY-1b.txt and BUNDLE-GATE-1b.txt.
+const BUDGET_BYTES = 2_144_142
 let dir
 try {
   dir = readdirSync(DIST)

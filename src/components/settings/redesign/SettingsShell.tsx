@@ -218,6 +218,24 @@ interface SettingsShellProps {
    *  nothing, while メニュー must name the stores they genuinely may edit
    *  (src/actions/menus.ts holds the matching server clamp). */
   menuStores: StoreRow[]
+  /** ⚖ Liam 2026-09-16 (fold round 2) — the stores this ACTOR may place a NEW
+   *  staff card in: their own assignment when they lack stores.viewAll, every
+   *  store otherwise. Exactly the rule menuStores follows, and separate from
+   *  initialStores for exactly the same reason: 店舗/自動録音 still show a
+   *  branch-restricted staffer nothing (⚖ 8/17 isolation law), while the
+   *  担当店舗 picker must name the stores they genuinely may use — otherwise
+   *  the server's "choose a store" refusal arrives with no control to satisfy
+   *  it. The matching server clamp is setStaffStoresAtCreationCore. */
+  assignableStores: StoreRow[]
+  /** ⚖ Fold round 3 (fresh-eyes F1b) — the actor's RESOLVED store
+   *  (resolveStoreScope().storeId), the default pick for a new card's
+   *  担当店舗. Separate from initialActiveStoreId, which is the raw
+   *  active-store cookie the 店舗 tab is actually about: an unset or stale
+   *  cookie must not seed this picker with nothing, or with a store the
+   *  creator no longer works in. Optional: the facade DTO's own
+   *  initialActiveStoreId is ALREADY clamp.storeId (route.ts), so the phone
+   *  door is correct without it. */
+  assignableActiveStoreId?: string | null
   initialActiveStoreId: string | null
   /** Service-menu catalog fetched on the server, passed straight to
    *  MenusSection (same idiom as initialStores). null = the fetch FAILED —
@@ -285,6 +303,8 @@ export function SettingsShell({
   auditTargetId,
   initialStores,
   menuStores,
+  assignableStores,
+  assignableActiveStoreId,
   initialActiveStoreId,
   initialMenus,
   initialEntitlement,
@@ -443,6 +463,7 @@ export function SettingsShell({
       case 'staff':
         return (
           <StaffSection
+            activeStoreId={assignableActiveStoreId ?? initialActiveStoreId}
             staffList={visibleStaff}
             activeStaffId={activeStaffId}
             canManageStaff={canManageStaff}
@@ -454,7 +475,10 @@ export function SettingsShell({
               ),
             )}
             businessType={orgSettings?.business_type}
-            stores={initialStores}
+            // NOT initialStores: that is [] for a branch-restricted staffer by
+            // the isolation law, which left the 担当店舗 picker unrenderable and
+            // the server's refusal unsatisfiable (fresh-eyes F6).
+            stores={assignableStores}
             featureStaffInvites={featureStaffInvites}
             featureMultiStore={featureMultiStore}
           />
