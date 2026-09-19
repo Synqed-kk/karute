@@ -219,3 +219,30 @@ export const actorIsUnassigned = cache(
  */
 export const STAFF_STORE_REQUIRED = 'STORE_REQUIRED_AT_CREATION'
 
+/**
+ * The refusal when a FRESH invite arrives with no name (⚖ Liam 2026-09-16). A
+ * fresh invite now mints the staff card, and a card must be named by a person,
+ * never by their email address — so the invite is refused rather than guessed
+ * at. Machine code, mapped to copy at each door.
+ */
+export const INVITE_NAME_REQUIRED = 'INVITE_NAME_REQUIRED'
+
+/**
+ * The refusal when a PENDING invite to this address already exists (⚖ fold
+ * round 3, F4). It lived in actions/invites.ts until the G1 fold: that file is
+ * `'use server'`, and Next refuses a non-async export from such a module — the
+ * Vercel build failed on it while tsc and jest saw nothing. It joins its two
+ * siblings above for the same bundle reason they are here: this module carries
+ * no translations, so /join's pre-auth graph can reach it.
+ */
+export const INVITE_ALREADY_PENDING = 'INVITE_ALREADY_PENDING'
+
+/**
+ * The refusal when the staff card a FRESH invite has to mint could not be made
+ * at all — the client has no staff port, or core rejected the write (⚖ G6).
+ * The rejection used to escape createInviteCore as an unhandled Server Action
+ * error, whose message production strips, so the dialog showed nothing usable;
+ * the no-port case answered with an English literal. Machine code, mapped to
+ * copy at each door, like its siblings above.
+ */
+export const STAFF_CREATE_FAILED = 'STAFF_CREATE_FAILED'

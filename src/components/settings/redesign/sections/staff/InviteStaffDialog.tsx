@@ -24,9 +24,19 @@ interface InviteStaffDialogProps {
   /** Existing staff rows the owner can invite to log in. Choosing one carries its
    *  id so acceptInvite LINKS that record instead of minting a duplicate. */
   staff?: { id: string; full_name: string | null; email?: string | null }[]
+  /** ⚖ Liam 2026-09-16 — a FRESH invite now MAKES the staff card, so this
+   *  dialog asks for the two things a card cannot exist without: a name and,
+   *  where there is a choice, a 担当店舗. Both threaded from the settings
+   *  surface, never fetched here. */
+  stores?: { id: string; name: string; isPrimary?: boolean }[]
+  activeStoreId?: string | null
 }
 
-export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
+export function InviteStaffDialog({
+  staff = [],
+  stores = [],
+  activeStoreId,
+}: InviteStaffDialogProps) {
   const t = useTranslations('invite')
   // Only for the re-invite store-scope refusal — the same copy the staff
   // editor shows for the same clamp. This dialog renders inside the settings
@@ -35,13 +45,37 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
   const locale = useLocale()
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [storeIds, setStoreIds] = useState<string[]>([])
   const [staffId, setStaffId] = useState('')
   const [role, setRole] = useState<InviteRole>('STYLIST')
   const [link, setLink] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** ⚖ I2 — the invite went out and the card was made, but the store list was
+   *  unreadable, so nobody knows whether a 担当店舗 still has to be set. */
+  const [storeUnknown, setStoreUnknown] = useState(false)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [pending, setPending] = useState<InviteRow[]>([])
+
+  // ⚖ Liam 2026-09-16 — a FRESH invite mints the card, so it needs a NAME
+  // always, and a 担当店舗 wherever there is a choice. Picking an EXISTING staff
+  // member skips both: that card already has its own name and stores.
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F1b) — the twin of StaffForm's rule: the
+  // picker appears only where there is a CHOICE (≥2 assignable stores), and a
+  // creator with exactly one simply sends it. The seed is the creator's
+  // RESOLVED store and is ignored unless it is one they may actually use — an
+  // unset or stale active-store cookie used to strand this door with an empty
+  // ・ out-of-scope pick and no control to correct it.
+  const fresh = !staffId
+  const showStorePicker = fresh && stores.length >= 2
+  const defaultStoreIds = () =>
+    stores.length === 1
+      ? [stores[0].id]
+      : activeStoreId && stores.some((s) => s.id === activeStoreId)
+        ? [activeStoreId]
+        : []
 
   async function refresh() {
     setPending(await listInvites())
@@ -52,7 +86,11 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
     if (next) {
       setLink(null)
       setError(null)
+      setStoreUnknown(false)
       setEmail('')
+      setName('')
+      // The creator's active store is the default pick, same as the 追加 form.
+      setStoreIds(defaultStoreIds())
       setStaffId('')
       void refresh()
     }
@@ -71,18 +109,39 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
     setLoading(true)
     setError(null)
     setLink(null)
-    const res = await createInvite({ email, role, staffId: staffId || undefined })
+    setStoreUnknown(false)
+    const res = await createInvite(
+      staffId
+        ? { email, role, staffId }
+        : {
+            email,
+            role,
+            name: name.trim(),
+            // One assignable store = no picker and nothing to choose (F1b).
+            storeIds: stores.length === 1 ? [stores[0].id] : storeIds,
+          },
+    )
     setLoading(false)
     if ('error' in res) {
-      // Machine codes from the plan gate / the re-invite store clamp → honest
-      // copy (STORE_LIMIT precedent).
+      // Machine codes from the plan gate / the store rules → honest copy
+      // (STORE_LIMIT precedent).
       if (res.error === 'STAFF_LIMIT_REACHED') setError(t('staffLimitReached'))
       else if (res.error === 'STORE_SCOPE_DENIED') setError(tSettings('staffStoreScopeDenied'))
+      else if (res.error === 'INVITE_NAME_REQUIRED') setError(t('inviteNameRequired'))
+      else if (res.error === 'STORE_REQUIRED_AT_CREATION') setError(t('inviteStoreRequired'))
+      else if (res.error === 'INVITE_ALREADY_PENDING') setError(t('inviteAlreadyPending'))
+      // ⚖ G6 — the card itself could not be made (no staff port, or core
+      // rejected the write). It used to arrive as a stripped Server Action
+      // error, i.e. nothing readable.
+      else if (res.error === 'STAFF_CREATE_FAILED') setError(t('inviteCardCreateFailed'))
+      else if (res.error === 'STAFF_CARD_LEFT_BEHIND') setError(tSettings('staffCardLeftBehind'))
       else setError(res.error)
       return
     }
+    setStoreUnknown(!!res.storeUnknown)
     setLink(`${publicSiteOrigin()}/${locale}/join?token=${res.token}`)
     setEmail('')
+    setName('')
     void refresh()
   }
 
@@ -144,6 +203,54 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
               </select>
             </div>
           )}
+          {fresh && (
+            <div>
+              <label htmlFor="invite-name" className="block text-xs font-medium mb-1">
+                {t('inviteNameLabel')}
+                <span className="ml-1 text-destructive">*</span>
+              </label>
+              <input
+                id="invite-name"
+                type="text"
+                required
+                maxLength={100}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          )}
+          {showStorePicker && (
+            <div>
+              <label className="block text-xs font-medium mb-1">
+                {t('inviteStoreLabel')}
+                <span className="ml-1 text-destructive">*</span>
+              </label>
+              <p className="mb-1.5 text-xs text-muted-foreground">{t('inviteStoreHint')}</p>
+              <div className="flex flex-col gap-1.5">
+                {stores.map((s) => (
+                  <label
+                    key={s.id}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={storeIds.includes(s.id)}
+                      onChange={(e) =>
+                        setStoreIds((prev) =>
+                          e.target.checked
+                            ? [...new Set([...prev, s.id])]
+                            : prev.filter((x) => x !== s.id),
+                        )
+                      }
+                      className="size-4 accent-blue-600"
+                    />
+                    <span>{s.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <label htmlFor="invite-email" className="block text-xs font-medium mb-1">
               {t('inviteEmailLabel')}
@@ -192,6 +299,9 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
         {link && (
           <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-2">
             <p className="text-xs font-medium text-foreground">{t('inviteLinkReady')}</p>
+            {storeUnknown && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">{t('inviteStoreUnknown')}</p>
+            )}
             <div className="flex items-center gap-2">
               <input readOnly value={link} className={`${inputCls} text-xs`} onFocus={(e) => e.target.select()} />
               <button

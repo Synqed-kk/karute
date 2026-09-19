@@ -3565,8 +3565,16 @@
     "linkedBadge": "Connected",
     "revoke": "Revoke",
     "inviteExistingLabel": "Invite an existing team member (optional)",
-    "inviteExistingNone": "New hire (email only)",
-    "staffLimitReached": "Your plan's staff limit is reached, so new staff can't be invited. Re-inviting existing staff still works"
+    "inviteExistingNone": "New staff member (enter a name and store)",
+    "staffLimitReached": "Your plan's staff limit is reached, so new staff can't be invited. Re-inviting existing staff still works",
+    "inviteNameLabel": "Staff member's name",
+    "inviteNameRequired": "Please enter a name.",
+    "inviteStoreLabel": "Store",
+    "inviteStoreHint": "Choose the store this person works in. You can pick more than one.",
+    "inviteStoreRequired": "Please choose a store.",
+    "inviteAlreadyPending": "There is already a pending invite for this email address. Revoke it before sending a new one.",
+    "inviteCardCreateFailed": "The staff record could not be created. Please try again in a moment.",
+    "inviteStoreUnknown": "The invite link was created, with no store assigned to this staff member. If this business has two or more stores, they will see nothing until one is set. Please assign a store in staff management."
   },
   "permissions": {
     "roleLabel": "Role & permissions",

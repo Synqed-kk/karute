@@ -93,11 +93,19 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { createStaff } from '@/actions/staff'
+import { createInvite } from '@/actions/invites'
 import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
 
 const resolveStoreScope = resolveStoreScopeImport as unknown as jest.Mock
 
 const CARD = { name: '新人', position: '', email: '', phone: '', storeIds: [DAIKANYAMA] }
+const INVITE = {
+  email: 'new@test.com',
+  role: 'STYLIST' as const,
+  name: '新人',
+  storeIds: [DAIKANYAMA],
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   resolveStoreScope.mockResolvedValue({ viewAll: false, degraded: false, allowedStoreIds: null })
@@ -122,6 +130,30 @@ describe('createStaff — a degraded scope places nobody (S2)', () => {
   it('an UNCLAMPED owner still places anywhere — the mapping only fires on unknowns', async () => {
     resolveStoreScope.mockResolvedValue({ viewAll: true, degraded: false, allowedStoreIds: null })
     await createStaff(CARD)
+    expect(staffStoresSet).toHaveBeenCalledWith('staff-new', [DAIKANYAMA])
+  })
+})
+
+describe('createInvite — a degraded scope places nobody (S3)', () => {
+  it('a FAILED assignment lookup refuses every store', async () => {
+    resolveStoreScope.mockResolvedValue({ viewAll: false, degraded: true, allowedStoreIds: null })
+    const res = await createInvite(INVITE)
+    expect(res).toEqual({ error: 'STORE_SCOPE_DENIED' })
+    expect(staffStoresSet).not.toHaveBeenCalled()
+    expect(invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('a THROWN lookup is the same unknown', async () => {
+    resolveStoreScope.mockRejectedValue(new Error('core down'))
+    const res = await createInvite(INVITE)
+    expect(res).toEqual({ error: 'STORE_SCOPE_DENIED' })
+    expect(invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('an UNCLAMPED owner still places anywhere — the mapping only fires on unknowns', async () => {
+    resolveStoreScope.mockResolvedValue({ viewAll: true, degraded: false, allowedStoreIds: null })
+    const res = await createInvite(INVITE)
+    expect(res).toEqual({ token: expect.any(String) })
     expect(staffStoresSet).toHaveBeenCalledWith('staff-new', [DAIKANYAMA])
   })
 })

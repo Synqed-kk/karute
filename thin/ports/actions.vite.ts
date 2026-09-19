@@ -1880,12 +1880,19 @@ function isStoreScopeRefusal(status: number, err: unknown): boolean {
   return status === 403 && (err as { code?: string } | null)?.code === 'store_forbidden'
 }
 
-async function facadeCreateInvite(input: InviteInput): Promise<{ token: string } | { error: string }> {
+async function facadeCreateInvite(
+  input: InviteInput,
+): Promise<{ token: string; storeUnknown?: true } | { error: string }> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/invites', idemPost(input))
     const body = (await res.json().catch(() => null)) as
-      | { token?: string; error?: string | { message?: string; code?: string } }
+      | { token?: string; storeUnknown?: true; error?: string | { message?: string; code?: string } }
       | null
+    // ⚖ I2 — the "we could not check the stores" flag rides back to the phone's
+    // dialog exactly as it does on web.
+    if (res.ok && body?.token && body.storeUnknown) {
+      return { token: body.token, storeUnknown: true }
+    }
     if (res.ok && body?.token) return { token: body.token }
     if (isStoreScopeRefusal(res.status, body?.error)) return { error: 'STORE_SCOPE_DENIED' }
     const message = typeof body?.error === 'string' ? body.error : body?.error?.message
