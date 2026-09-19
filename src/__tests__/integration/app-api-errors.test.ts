@@ -76,6 +76,14 @@ describe('unknown-throw reason (server log only, client body untouched)', () => 
     expect(describeUnknownThrow(err.cause)).toEqual({ errName: 'DeepgramHttpError', errStatus: 400, errMessage: 'Deepgram 400 Bad Request' })
   })
 
+  // PKT-A round 4: `Number.isFinite` already guards this (existing code), not
+  // just `typeof === 'number'` — NaN/Infinity are numbers but not a real HTTP
+  // status, and must not surface as one.
+  it('a non-finite status (NaN/Infinity) never surfaces as errStatus', () => {
+    expect(describeUnknownThrow(Object.assign(new Error('x'), { status: NaN }))).not.toHaveProperty('errStatus')
+    expect(describeUnknownThrow(Object.assign(new Error('x'), { status: Infinity }))).not.toHaveProperty('errStatus')
+  })
+
   it('a thrown non-Error does not throw inside the helper', () => {
     expect(() => describeUnknownThrow('str')).not.toThrow()
     expect(() => describeUnknownThrow({ a: 1 })).not.toThrow()
@@ -205,9 +213,43 @@ describe('unknown-throw reason (server log only, client body untouched)', () => 
       expect(describeUnknownThrow(new Error(`customer ${uuid} not found`)).errMessage).toBe(`customer ${uuid} not found`)
     })
 
+    // PKT-A round 4, point 1: a storage key BUILT from ids (not just a bare
+    // UUID) must survive whole — it names WHICH object is lost.
+    it('a storage key built from ids survives the blob rule whole', () => {
+      const msg =
+        'Audio not readable at app_3fa1c2e4-5b6c-4d7e-8f9a-1a2b3c4d5e6f_0f8c6c9a-3f2d-4a71-9b5e-7a1b2c3d4e5f.webm: Object not found'
+      expect(describeUnknownThrow(new Error(msg)).errMessage).toBe(msg)
+    })
+
     it('masks exactly 7 digits; 6 digits are left alone', () => {
       expect(describeUnknownThrow(new Error('code 1234567 here')).errMessage).toBe('code <digits> here')
       expect(describeUnknownThrow(new Error('code 123456 here')).errMessage).toBe('code 123456 here')
+    })
+
+    // PKT-A round 4, point 2: non-ASCII free text (a customer name in an
+    // upstream message) never reaches the log.
+    it('masks non-ASCII free text', () => {
+      const { errMessage } = describeUnknownThrow(new Error('customer update failed: 田中 美咲 already has an open karute'))
+      expect(errMessage).toContain('<text>')
+      expect(/[^\x00-\x7F]/.test(errMessage)).toBe(false)
+      expect(errMessage).toContain('customer update failed:')
+      expect(errMessage).toContain('already has an open karute')
+    })
+
+    // PKT-A round 4, point 3: hyphenated JP phone numbers.
+    it('masks a hyphenated phone number', () => {
+      expect(describeUnknownThrow(new Error('phone 090-1234-5678 already registered')).errMessage).toBe(
+        'phone <phone> already registered',
+      )
+    })
+
+    it('masks a hyphenated phone number with a 2-digit area code too', () => {
+      const { errMessage } = describeUnknownThrow(new Error('03-1234-5678'))
+      expect(errMessage).toBe('<phone>')
+    })
+
+    it('does not mask a hyphenated digit run with no leading 0', () => {
+      expect(describeUnknownThrow(new Error('error code 12-34-567')).errMessage).toBe('error code 12-34-567')
     })
   })
 
