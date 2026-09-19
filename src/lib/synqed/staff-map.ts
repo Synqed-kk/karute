@@ -88,6 +88,7 @@ const synqedStaffListByBusiness = unstable_cache(
  * would mint a record just to delete it). The email-only match still
  * self-heals user_id on the existing record (a best-effort patch, not a
  * create), so future lookups hit the O(map) user_id path.
+ * The email fallback only considers a profile of this business.
  */
 export async function lookupSynqedStaffId(
   staffProfileId: string,
@@ -97,7 +98,8 @@ export async function lookupSynqedStaffId(
 
 /** Bearer-safe twin: the caller supplies businessId from its verified token
  *  identity — this path must never touch the cookie session (getBusinessId).
- *  Same lookup + self-heal behavior as the cookie helper above. */
+ *  Same lookup + self-heal behavior as the cookie helper above.
+ *  The email fallback only considers a profile of this business. */
 export async function lookupSynqedStaffIdForBusiness(
   staffProfileId: string,
   businessId: string,
@@ -115,6 +117,7 @@ export async function lookupSynqedStaffIdForBusiness(
     .from('profiles')
     .select('email')
     .eq('id', staffProfileId)
+    .eq('customer_id', businessId)
     .maybeSingle()
   const profileEmail = (
     profile as { email?: string | null } | null
