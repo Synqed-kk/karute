@@ -259,7 +259,11 @@ export function ReviewScreen({
           setConsentError(null)
           setPendingConsentSave({ data, customerId })
         } else {
-          toast.error(result.error)
+          toast.error(result.code === 'not_found'
+            ? t('saveNotFound')
+            : result.code === 'store_forbidden'
+              ? t('storeScopeUnverified')
+              : result.error)
           setSaving(false)
         }
       }

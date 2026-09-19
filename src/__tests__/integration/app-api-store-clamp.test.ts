@@ -1,7 +1,8 @@
 // Store clamp (packet 03 point 4) — the #441 cross-store/cross-tenant leak class.
 // Tenancy is proven FIRST (stores.get on a business-scoped client), then the
 // staff-assignment restriction applies. A store-id is an EXPLICIT request field.
-import { resolveStoreForRequest, viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
+import { resolveStoreForRequest, resolveWriteStoreScope, viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import type { Capability } from '@/lib/auth/permissions'
 
 // The SDK's error shape, duck-built: @synqed-kk/client is ESM-only, so a
@@ -40,6 +41,17 @@ function synqedWith(opts: {
 
 const caps = (...c: Capability[]) => new Set<Capability>(c)
 const AUTH = 'staff-1'
+
+it('an unplaceable write caller gets the shared store_forbidden refusal before any lookup', async () => {
+  const get = jest.fn()
+  await expect(resolveWriteStoreScope({
+    synqed: { stores: { get }, staffStores: { get } } as never,
+    authUserId: AUTH,
+    capabilities: caps(),
+    selfStaffId: null,
+  })).rejects.toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+  expect(get).not.toHaveBeenCalled()
+})
 
 // ⚖ 2026-08-17 store isolation depends on an INVARIANT this resolver holds and
 // nothing downstream re-checks: a CLAMPED caller (allowedStoreIds non-null)

@@ -5,6 +5,16 @@
 // mocked; memory ingest stubbed (best-effort, tested elsewhere).
 import { createHmac } from 'node:crypto'
 import { RECORDING_CONSENT_POLICY_VERSION, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
+import { UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+
+// Inject the resolved scope only: the route's stamp helper and write lock
+// remain real, so neither can hide a missing guard in the other.
+jest.mock('@/lib/app-api/store-clamp', () => {
+  const actual = jest.requireActual('@/lib/app-api/store-clamp')
+  return { ...actual, resolveStoreForRequest: jest.fn(actual.resolveStoreForRequest) }
+})
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k, getLocale: async () => 'ja' }))
@@ -46,7 +56,14 @@ const consentRow = { current: { policy_version: RECORDING_CONSENT_POLICY_VERSION
 const consentThrows = { current: false }
 const customersGet = jest.fn(async (id: string) => { if (id !== 'cust-1') throw Object.assign(new Error('x'), { status: id === 'cust-boom' ? 500 : 404 }); return { id, name: 'Y' } })
 const getConsent = jest.fn(async () => { if (consentThrows.current) throw new Error('consent down'); return { consent: consentRow.current } })
-const existingBySession = { current: null as null | { id: string; transcript: string; entries?: Array<{ id: string }> } }
+const existingBySession = {
+  current: null as null | { id: string; transcript: string; store_id?: string | null; entries?: Array<{ id: string }> },
+}
+// The caller's OWN store assignment — what resolveWriteStoreScope reads for the
+// converge branch's store lock. `[]` is core's answer for floating staff (and
+// the default here), so every pre-existing case keeps its old unclamped shape.
+const assignedStores = { current: [] as string[] }
+const staffStoresGet = jest.fn(async () => ({ store_ids: assignedStores.current }))
 const getByRecordingSession = jest.fn(async () => { if (existingBySession.current) return existingBySession.current; throw Object.assign(new Error('none'), { status: 404 }) })
 const create = jest.fn(async () => ({ id: 'kar-new' }))
 const update = jest.fn(async () => ({ id: 'kar-existing' }))
@@ -69,6 +86,8 @@ const fakeClient = {
   },
   karuteOutcomes: { upsert: outcomeUpsert, get: outcomeGet },
   packs: { removeRedemption, listPacks },
+  staffStores: { get: staffStoresGet },
+  stores: { get: jest.fn(async (id: string) => ({ id })) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -100,12 +119,38 @@ beforeEach(() => {
   consentRow.current = { policy_version: RECORDING_CONSENT_POLICY_VERSION }
   consentThrows.current = false
   existingBySession.current = null
+  assignedStores.current = []
   outcomeGet.mockResolvedValue(null)
   listPacks.mockResolvedValue([])
   listKaruteRecords.mockResolvedValue({ karute_records: [] })
 })
 
 describe('POST /api/app/v1/karute (save)', () => {
+  it('degraded scope + appointment refuses before create, without an audit row', async () => {
+    const degraded = { storeId: null, allowedStoreIds: null, degraded: true }
+    jest.mocked(resolveStoreForRequest).mockResolvedValueOnce(degraded)
+
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('unassigned scope + NULL-store appointment refuses before create', async () => {
+    jest.mocked(resolveStoreForRequest).mockResolvedValueOnce({ storeId: null, allowedStoreIds: [] })
+    fakeClient.appointments.get.mockResolvedValue({ staff_id: 'appt-staff', store_id: null, title: null })
+
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: UNASSIGNED_STORE_DENIAL })
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+  })
+
   it('happy → 200 { id }, record created', async () => {
     const res = await savePOST(post({ ...auth, ...idem }, validSave), noRoute)
     expect(res.status).toBe(200)
@@ -194,6 +239,37 @@ describe('POST /api/app/v1/karute (save)', () => {
     expect(update).toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
   })
+
+  // ⚖ FRESH-EYES-P1B F1 — THE WIRING, not the core. store-write-locks.test.ts
+  // calls createOrUpdateKaruteRecord directly with a scope it chooses, so it
+  // proves the lock and says nothing about what THIS door hands it. A required
+  // parameter stops a caller OMITTING a scope; it cannot stop one handing over a
+  // permissive one, and that is exactly the shape nothing caught: with
+  // `{ viewAll: true, allowedStoreIds: null }` in place of `lockScope` the whole
+  // suite stayed green while a 代官山 staffer on the phone overwrote a 銀座 karute
+  // through the converge branch.
+  it('a clamped Bearer caller + an existing record in ANOTHER store → 404, nothing written', async () => {
+    capabilities.current = new Set(['records.write']) // no stores.viewAll — the clamp reads the assignment
+    assignedStores.current = ['store-daikanyama']
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', store_id: 'store-ginza' }
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1' }), noRoute)
+    expect(res.status).toBe(404)
+    expect((await res.json()).error).toMatchObject({
+      code: 'not_found',
+      message: 'karute not found in this business',
+    })
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('the same clamped caller converges normally on a record in their OWN store', async () => {
+    capabilities.current = new Set(['records.write'])
+    assignedStores.current = ['store-ginza']
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', store_id: 'store-ginza' }
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect(update).toHaveBeenCalledTimes(1)
+  })
   // E-1 (PR-B1 fix round 1): the dedupe UPDATE must carry the CUSTOMER, not
   // only the appointment. The recovery banner's 保存先を変更 can re-point a
   // take whose earlier partial save already landed a record under this
@@ -222,6 +298,46 @@ describe('POST /api/app/v1/karute (save)', () => {
     const res = await savePOST(post({ ...auth, ...idem }, validSave), noRoute)
     expect(res.status).toBe(403)
     expect(create).not.toHaveBeenCalled()
+  })
+
+  // ⚖ 2026-09-19 fold — Greptile finding 1: the existence-oracle close. An
+  // unplaceable Bearer caller must get the SAME answer whatever ids they send,
+  // and no consent/appointment read may run for them before that answer.
+  it('unplaceable Bearer caller + a NON-EXISTENT appointmentId → 403 store_forbidden, STORE_SCOPE_UNVERIFIED, before any read (T1)', async () => {
+    roster.current = []
+    fakeClient.appointments.get.mockRejectedValueOnce(Object.assign(new Error('no such appointment'), { status: 404 }))
+
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-missing' }), noRoute)
+
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(getConsent).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('the SAME unplaceable caller + an EXISTING appointmentId (with a staff_id) → the BYTE-IDENTICAL refusal, no existence oracle (T2/T3)', async () => {
+    roster.current = []
+    fakeClient.appointments.get.mockRejectedValueOnce(Object.assign(new Error('no such appointment'), { status: 404 }))
+    const missingRes = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-missing' }), noRoute)
+    const missingBody = await missingRes.json()
+
+    roster.current = []
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'appt-staff', store_id: null, title: null })
+    const existingRes = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-exists' }), noRoute)
+    const existingBody = await existingRes.json()
+
+    // T2: byte-identical status + body whether the sent appointmentId exists or not.
+    expect(existingRes.status).toBe(missingRes.status)
+    expect(existingBody).toEqual(missingBody)
+    expect(existingRes.status).toBe(403)
+    expect(existingBody.error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    // T3: neither call ever read the appointment or the customer's consent, and nothing was written.
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(getConsent).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
   })
   it('missing capability → 403', async () => {
     capabilities.current = new Set(['customers.view'])

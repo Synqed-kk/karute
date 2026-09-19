@@ -49,13 +49,17 @@ jest.mock('@/lib/audit', () => ({
   audit: (...a: unknown[]) => auditSpy(...(a as [])),
 }))
 
-// Store clamp mocked directly (same idiom as the web test's
-// resolveStoreScope mock) — precise per-test control without a
-// stores/staffStores fixture graph.
+// The clamp runs FOR REAL here (⚖ A2, FRESH-EYES-P1 N1: this door now goes
+// through resolveWriteStoreScope, whose fail-closed ROSTER-PLACEMENT guard is
+// exactly what these cases pin — a mocked resolver would be pinning the mock).
+// What the suite controls instead is the answer UNDER it: the roster row
+// (selfStaffId) and the assignment (staffStores.get, fed from storeClamp below,
+// where `allowedStoreIds: null` is core's own "floating" answer, `store_ids: []`).
 const storeClamp = { current: { storeId: null as string | null, allowedStoreIds: null as string[] | null } }
-const resolveStoreForRequest = jest.fn(async () => storeClamp.current)
-jest.mock('@/lib/app-api/store-clamp', () => ({
-  resolveStoreForRequest: () => resolveStoreForRequest(),
+const selfStaffId = { current: 'auth-user-1' as string | null }
+jest.mock('@/lib/app-api/customer-facade', () => ({
+  ...jest.requireActual('@/lib/app-api/customer-facade'),
+  resolveSelfStaffId: jest.fn(async () => selfStaffId.current),
 }))
 
 // store_id: 'store-A' by default — the clamped-actor fixtures below are
@@ -84,11 +88,14 @@ const customersList = jest.fn(async (opts: { store_id?: string }) => {
 })
 const packsListRedemptions = jest.fn(async (): Promise<Array<Record<string, unknown>>> => [])
 const customersListPhotos = jest.fn(async () => ({ photos: [] }))
+const staffStoresGet = jest.fn(async () => ({ store_ids: storeClamp.current.allowedStoreIds ?? [] }))
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => ({
     karuteRecords: { get: (id: string) => karuteGet(id), update: karuteUpdate },
     customers: { get: customersGet, list: customersList, listPhotos: customersListPhotos },
     packs: { listRedemptions: packsListRedemptions },
+    staffStores: { get: staffStoresGet },
+    stores: { get: jest.fn(async (id: string) => ({ id })) },
   }),
 }))
 
@@ -116,10 +123,27 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['records.reassign'])
   storeClamp.current = { storeId: null, allowedStoreIds: null } // viewAll-shaped by default
+  selfStaffId.current = 'auth-user-1'
   KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: 'store-A' }
 })
 
 describe('POST /karute/[id]/reassign', () => {
+  // FRESH-EYES-P1 N1 — the door used to call resolveStoreForRequest directly and
+  // hardcode `degraded: false`, so a Bearer caller the roster cannot place (a
+  // staff member removed mid-onboarding whose phone still holds a live token)
+  // resolved to FLOATING and could re-point any karute in the business.
+  it('a Bearer caller with no resolvable staff row → 403 store_forbidden, the reassign core never runs', async () => {
+    selfStaffId.current = null
+    const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
+    expect(res.status).toBe(403)
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      error: { code: 'store_forbidden' },
+    })
+    expect(karuteGet).not.toHaveBeenCalled()
+    expect(karuteUpdate).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
   it('missing records.reassign → 403, no read/write', async () => {
     capabilities.current = new Set()
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
