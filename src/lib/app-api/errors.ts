@@ -56,7 +56,9 @@ export class AppApiError extends Error {
    *  (`toAppApiError`'s unknown arm). Standard `Error` `cause` — non-enumerable,
    *  dropped by `JSON.stringify` — so `errorBody` and the client response never
    *  see it; only `logFacadeError` (handler.ts) reads it, via `describeUnknownThrow`
-   *  below, for the server log. */
+   *  below, for the server log. A caller that runs `util.inspect`/
+   *  `console.error(err)` directly on an `AppApiError` would print the raw
+   *  unmasked cause and its stack — never log one whole. */
   constructor(code: AppApiErrorCode, message: string, detail?: Record<string, unknown>, cause?: unknown) {
     super(message, cause === undefined ? undefined : { cause })
     this.name = 'AppApiError'
@@ -166,17 +168,23 @@ function preBound(firstLine: string): string {
 // A canonical UUID (8-4-4-4-12 hex) is exempt from the blob rule below — ids
 // are already on the log line via other fields, and a UUID's hyphens don't
 // break a blob-charset run the way they'd need to for the rule to skip it
-// on its own.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// on its own. Ids are not secrets, so a storage key built from ids (e.g.
+// `app_<uuid>_<uuid>.webm`) must survive too — the test below now matches a
+// UUID anywhere in the run, not just a run that equals one exactly.
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 
-/** Masking order (fix round 2): URL (origin+path, query stripped — a
- *  case-insensitive scheme) → Bearer token → labelled credentials
- *  (token/apikey/api_key/key/secret/password/authorization = value — this
- *  also catches a secret embedded in a URL PATH, which the URL step above
- *  only strips the QUERY of) → JWT → email (bounded quantifiers — no
- *  nested/overlapping-quantifier ambiguity, paired with `preBound` above) →
- *  opaque 32+-char blobs (base64 / API keys; a canonical UUID is exempt) →
- *  7+-digit runs (phone/card-like strings).
+/** Masking order (fix round 4): URL (origin+path, query stripped — a
+ *  case-insensitive scheme) → non-ASCII free text (upstream messages carry
+ *  no ASCII-pattern secrets the later rules would catch, so this runs right
+ *  after the URL step, before anything else can see it) → Bearer token →
+ *  labelled credentials (token/apikey/api_key/key/secret/password/
+ *  authorization = value — this also catches a secret embedded in a URL
+ *  PATH, which the URL step above only strips the QUERY of) → JWT → email
+ *  (bounded quantifiers — no nested/overlapping-quantifier ambiguity, paired
+ *  with `preBound` above) → opaque 32+-char blobs (base64 / API keys; a run
+ *  CONTAINING a canonical UUID is exempt, not just a run that equals one) →
+ *  hyphenated JP phone numbers (`090-1234-5678`) → 7+-digit runs (phone/
+ *  card-like strings).
  *
  *  Fix round 3: the labelled-credential pattern has no leading `\b` so
  *  prefixed/camelCase names (access_token, clientSecret) are caught as
@@ -200,6 +208,7 @@ function maskSensitive(s: string): string {
       return '<url>'
     }
   })
+  out = out.replace(/[^\x00-\x7F]+/g, '<text>')
   out = out.replace(/\bBearer\s+\S+/gi, 'Bearer <token>')
   out = out.replace(
     /(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi,
@@ -208,6 +217,7 @@ function maskSensitive(s: string): string {
   out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<jwt>')
   out = out.replace(/[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}/g, '<email>')
   out = out.replace(/[A-Za-z0-9+_=-]{32,}/g, (m) => (UUID_RE.test(m) ? m : '<blob>'))
+  out = out.replace(/\b0\d{1,4}-\d{1,4}-\d{3,4}\b/g, '<phone>')
   out = out.replace(/\d{7,}/g, '<digits>')
   return out
 }

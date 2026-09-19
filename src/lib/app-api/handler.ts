@@ -338,7 +338,11 @@ function reportUnmappedEndpoint(
 
 /** Structured error line — the seam metrics/alerts attach to (packet point 10).
  *  The promise: labels, plus — for `internal` only — the sanitised first line
- *  of the thrown reason. Never logs token/PII.
+ *  of the thrown reason. The reason is pattern-masked (URL query, Bearer,
+ *  labelled credentials, JWT, email, non-ASCII text, phone shapes, 32+
+ *  blobs, 7+ digits) and bounded. Romanised free text in an upstream message
+ *  is NOT recognisable and can pass, which is accepted for an
+ *  access-controlled server log that already carries ids.
  *
  *  `detail.reason` is forwarded because a code+status pair is not always enough
  *  to tell two errors apart: a roster refusal and a genuine core outage are both
