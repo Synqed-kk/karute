@@ -51,7 +51,7 @@ type InviteWriteDeps = {
    *  transport from its own identity. A fresh invite's card can only be placed
    *  inside them; the rule itself lives in setStaffStoresAtCreationCore, the
    *  one home both the staff door and this one share. `null` = unclamped. */
-  creatorAllowedStoreIds?: readonly string[] | null
+  creatorAllowedStoreIds: readonly string[] | null
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. */
   requestId?: string
@@ -204,7 +204,7 @@ export async function createInviteCore(
           actorId: deps.actorId,
           source: deps.source,
           requestId: deps.requestId,
-          creatorAllowedStoreIds: deps.creatorAllowedStoreIds ?? null,
+          creatorAllowedStoreIds: deps.creatorAllowedStoreIds,
         },
         // user_id null by construction: the existing-member check above just
         // proved this email has no login in this business. acceptInvite fills
@@ -623,7 +623,7 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   const result = await revokeInviteCore(
     synqed,
     businessId,
-    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    { actorId, source: 'web', requestId: crypto.randomUUID(), creatorAllowedStoreIds: [] },
     id,
   )
   if ('ok' in result) updateTag('staff-invites')

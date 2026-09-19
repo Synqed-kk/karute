@@ -370,7 +370,7 @@ describe('the creator may only place a hire inside their OWN stores', () => {
 // (chooseStaffToLink → staff.update) with no change to acceptInvite at all.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('a fresh invite makes the card', () => {
-  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1' }
+  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
 
   function inviteClient(opts: Parameters<typeof client>[0] = {}) {
     const c = client(opts)
@@ -629,7 +629,7 @@ describe('a creator never loses sight of the invite they just sent (F5)', () => 
 })
 
 describe('one pending fresh invite per email (F4)', () => {
-  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1' }
+  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
 
   function pendingClient(pending: { email: string; status: string }[]) {
     const c = client({ stores: ['store-ginza'] })
