@@ -50,7 +50,7 @@ import {
 } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, defaultKindOf, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
-import { GENERIC_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
+import { GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
 import {
   accessFor,
   BOOKING_GUARD_ID,
@@ -79,6 +79,7 @@ import {
   type SettingsRow,
   type SettingsSection,
 } from '@/business/lib/settings'
+import { fillWords } from '@/business/lib/settings-words'
 import { storePolicyProps, type StorePolicyPropsInput } from './store-policy-props'
 // ⚖ D-15 (round 3, A2) — ONE HOME FOR THE DERIVED CEILING (the store's own
 // operating day, floored at 1) — the same function `store-policy-props.ts`
@@ -683,7 +684,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           [],
           { link: { label: '予約と確保を開く', sectionId: 'booking-guard' } },
         ),
-        row('store-hours.row-block-step', '予定ブロックの移動単位', '休憩・準備・記録・レジ・清掃を動かすときの刻みです。', [
+        row('store-hours.row-block-step', '予定ブロックの移動単位', '休憩・準備・記録・レジなどの予定ブロックを動かすときの刻みです。', [
           num('store-hours.block-step', '予定ブロックの移動単位', opsConfig.blockStepMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
@@ -915,6 +916,9 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
   const roster = Object.keys(d.staffActive)
   const beds = resources.filter((r) => r.store_id === ctx.storeId)
   const override = ctx.wordOverride
+  const turnoverControl = '{name}の{turnoverName}時間'
+  const turnoverFact = '{turnoverName}時間を0分にすると、予約と予約のあいだに何も確保しません。'
+  const turnoverName = ctx.words.turnoverWord ?? RESOURCE_WORDS.other.turnoverWord!
   return {
     ...base,
     kicker: '店舗運営',
@@ -943,13 +947,13 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       block('people.equipment', '設備・枠', `この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。`, beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
           seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', '施術室'], ['private', '個室']]), r.room_class),
-          num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
+          num(`people.cleanup-${r.id}`, fillWords(turnoverControl, { name: r.name, turnoverName }), r.cleanup_minutes, 0, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ])), {
         facts: [
           beds.length === 0
             ? `いまこの店舗には${ctx.words.resourceNoun}が登録されていません。`
             : `いまこの店舗には${ctx.words.resourceNoun}が${beds.length}${ctx.words.counter}あります。`,
-          '清掃時間を0分にすると、予約と予約のあいだに何も確保しません。',
+          fillWords(turnoverFact, { turnoverName }),
         ],
       }),
       ...(ctx.businessType !== null ? [block('people.words', '設備の呼び名', 'ボード・予約一覧・設定で使われる言葉です。業種の標準のままでも、この店舗の言い方に変えてもかまいません。空欄にすると標準に戻ります。', [
@@ -970,7 +974,9 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
           typeId: 'people.type', nounId: 'people.words-noun', counterId: 'people.words-counter',
           fullId: 'people.words-full', turnoverId: 'people.words-turnover', standardValue: 'standard',
           count: beds.length, liveFact: { blockId: 'people.equipment', index: 0 },
+          liveTurnover: { blockId: 'people.equipment', factIndex: 1, controlPrefix: 'people.cleanup-', fallback: RESOURCE_WORDS.other.turnoverWord! },
           copy: {
+            turnoverFact, turnoverControl,
             heading: 'いま使われている言葉',
             current: '呼び名 {noun} ・ 数え方 {counter} ・ すべて埋まったとき {full} ・ あいだの作業 {turnover}',
             standard: '{typeLabel}の標準: 呼び名 {noun} ・ 数え方 {counter} ・ すべて埋まったとき {full} ・ あいだの作業 {turnover}',
@@ -1010,7 +1016,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       title: 'この値の出どころ',
       lines: [
         { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
-        { label: '設備', value: '今日の運営のベッド割り当てが使っている一覧' },
+        { label: '設備', value: '今日の運営の設備割り当てが使っている一覧' },
         ...(ctx.businessType !== null ? [{ label: '呼び名', value: '業種の標準の一覧と、この店舗で入力した言葉' }] : []),
         { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
       ],
