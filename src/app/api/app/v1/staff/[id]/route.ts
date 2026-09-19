@@ -87,7 +87,7 @@ export const PATCH = facadeHandler<Params>('staff.update', async (ctx) => {
     const result = await updateStaffCore(
       synqed,
       businessId,
-      { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
+      { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId, creatorAllowedStoreIds: [] },
       id,
       parsed.data,
     )
@@ -129,7 +129,7 @@ export const DELETE = facadeHandler<Params>('staff.delete', async (ctx) => {
     const result = await deleteStaffCore(
       synqed,
       businessId,
-      { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
+      { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId, creatorAllowedStoreIds: [] },
       id,
     )
     return ok(ctx, result)

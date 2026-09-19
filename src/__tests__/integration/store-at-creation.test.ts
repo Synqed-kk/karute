@@ -57,7 +57,7 @@ jest.mock('@/lib/entitlements', () => ({
 }))
 jest.mock('@/lib/business-name', () => ({ businessDisplayName: async () => 'Main store' }))
 
-const DEPS = { actorId: 'owner-1', source: 'web' as const, requestId: 'req-1' }
+const DEPS = { actorId: 'owner-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
 const CARD = { name: '田中', position: '', email: '', phone: '' }
 
 function client(opts: {

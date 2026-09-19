@@ -40,7 +40,7 @@ type StaffWriteDeps = {
    *  resolveStoreForRequest). `null` = unclamped. The new card's stores must
    *  be a subset of it; the rule itself lives in
    *  setStaffStoresAtCreationCore, one home for both transports. */
-  creatorAllowedStoreIds?: readonly string[] | null
+  creatorAllowedStoreIds: readonly string[] | null
 }
 
 /** House result shape for the staff mutations: undefined = success, else a
@@ -342,7 +342,7 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
     const result = await updateStaffCore(
       synqed,
       businessId,
-      { actorId, source: 'web', requestId: crypto.randomUUID() },
+      { actorId, source: 'web', requestId: crypto.randomUUID(), creatorAllowedStoreIds: [] },
       id,
       parsed.data,
     )
@@ -464,7 +464,7 @@ export async function deleteStaff(id: string): Promise<StaffActionResult> {
     const result = await deleteStaffCore(
       synqed,
       businessId,
-      { actorId, source: 'web', requestId: crypto.randomUUID() },
+      { actorId, source: 'web', requestId: crypto.randomUUID(), creatorAllowedStoreIds: [] },
       id,
     )
     if ('error' in result) return { error: result.error }
@@ -533,7 +533,7 @@ export async function uploadStaffAvatar(
   const result = await uploadStaffAvatarCore(
     synqed,
     businessId,
-    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    { actorId, source: 'web', requestId: crypto.randomUUID(), creatorAllowedStoreIds: [] },
     staffId,
     file,
   )
