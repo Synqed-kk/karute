@@ -366,8 +366,7 @@ describe('POST /api/app/v1/appointments (create)', () => {
 
     it('accepts the same closed weekday the test above refuses, and never reads the store policy', async () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { POST: createPOSTSwitchOff } =
-        require('@/app/api/app/v1/appointments/route') as typeof import('@/app/api/app/v1/appointments/route')
+      const mod = require('@/app/api/app/v1/appointments/route') as typeof import('@/app/api/app/v1/appointments/route')
       staffStoresGet.mockResolvedValue({ store_ids: ['store-B'] })
       policyGet.mockResolvedValue({
         weekly_hours: {
@@ -380,7 +379,7 @@ describe('POST /api/app/v1/appointments (create)', () => {
         },
       })
 
-      const res = await createPOSTSwitchOff(post(CREATE_URL, CREATE_BODY), noParams)
+      const res = await mod.POST(post(CREATE_URL, CREATE_BODY), noParams)
 
       expect(res.status).toBe(201)
       expect(apptCreate).toHaveBeenCalledTimes(1)
