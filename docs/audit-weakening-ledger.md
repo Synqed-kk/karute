@@ -344,3 +344,22 @@
   client 1.35, once the SDK's own types carry shared_at/shared_by_staff_id and the
   cast is no longer needed · Fable (DESIGN-SHARE-2026-09-14.md D6/D13,
   PKT-SHARE-B-2026-09-14.md C1/C2 — Liam signed off the design 9/14 01:0x)
+- 2026-09-19 · SDK_WRITE_ALLOWLIST:src/lib/staff/new-card.ts::staff.create · the shared
+  new-card mint (⚖ Liam 2026-09-16, store at creation). ONE home for "a new staff card is
+  born in a store", reached by BOTH doors that make one — the 追加 button
+  (actions/staff.ts#createStaffCore) and a FRESH invite (actions/invites.ts#createInviteCore,
+  which now mints the card up front so accept only attaches the login). Its success path
+  emits nothing ON PURPOSE: each door writes its own staff.add at the point it knows what it
+  made, which is what keeps CP7's dominating-emit walker able to read them — a shared emit
+  inside the mint would be invisible to both. Both doors are registered AUDITED_CORES
+  symbols, so no write here is silent in substance; the allowlist covers the walker's
+  lexical reach only · Fable (ADJUDICATION-STORE-AT-CREATION-3bec439c2-2026-09-19.md; ⚖ Liam 2026-09-16 store-at-creation)
+- 2026-09-19 · SDK_WRITE_ALLOWLIST:src/lib/staff/new-card.ts::staff.delete · the same mint's
+  placement ROLLBACK, in its private `rollback` helper. It only ever removes the card
+  createAndPlaceStaffCard created moments earlier in the same request, so the delete has no
+  lifecycle of its own to audit — the door's staff.add never fires for a rolled-back card.
+  ⚖ G8 (2026-09-19): the FAILURE path is no longer silent — when the delete itself throws,
+  `rollback` writes a WARNING staff.add row (targetId = the stranded card,
+  detail.reason = 'rollback_failed') and logs that id, then answers
+  STAFF_CARD_LEFT_BEHIND. That row records a card that really is on the roster, not the
+  delete · Fable (ADJUDICATION-STORE-AT-CREATION-3bec439c2-2026-09-19.md; ⚖ Liam 2026-09-16 store-at-creation)
