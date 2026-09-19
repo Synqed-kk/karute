@@ -22,7 +22,7 @@
 //     state).
 //   - Assignment writes: Layer 3 — owner-only. Frontend hides
 //     the assign chips for non-owners (`canAssign` prop);
-//     backend RLS enforces the write block.
+//     Core must enforce assignment permissions when persistence is wired.
 //
 // AI: this view READS modules that may be AI-generated (the
 // purple "AI生成" chip lights up on modules with `id` prefix
@@ -30,7 +30,7 @@
 //
 // ANTHONY: real wiring swaps:
 //   modules:  useLearningModulesData() → server-joined catalog
-//   staff:    useStaffPerformanceData().staff → consenting roster
+//   staff:    useStaffPerformanceData().staff → assignable roster (consent-independent)
 //   toggle:   server action that inserts/deletes
 //             learning_assignments + sends a Supabase realtime
 //             notification to the assigned staff.
@@ -115,7 +115,7 @@ export function LearningModulesView({
     useState<Set<string>>(seededPairs)
 
   const eligibleStaff = staffList.filter(
-    (s) => s.consentGiven && !s.isTopPerformer,
+    (s) => !s.isTopPerformer,
   )
   const targetedStaff = staffFilter
     ? staffList.find((s) => s.staffId === staffFilter)
@@ -472,6 +472,7 @@ function ModuleCard({
                 <button
                   key={s.staffId}
                   type="button"
+                  aria-pressed={assigned}
                   onClick={() => canAssign && onToggle(mod.id, s.staffId)}
                   disabled={!canAssign}
                   className={`inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-medium transition-colors ${
