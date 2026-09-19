@@ -500,6 +500,84 @@ it('restored review draft consent retains the picked name absent from the preloa
   expect(mockPipelineStart).not.toHaveBeenCalled()
 })
 
+// F5 (fold 2, 2026-09-19): a restored draft that carries a picked name with
+// no id behind it (`pickedCustomerName` survives independently of
+// `appointmentCustomerId` in a KaruteDraft) must never leak that stale name
+// once the staffer picks a REAL, different customer through the same
+// off-list search this suite's other re-point test uses. `offer.draft` is a
+// frozen snapshot of what was on disk at restore — repointing never mutates
+// it — so the picker's fresh `name` argument must always win over it.
+it('re-pointing a restored draft to a fresh customer drops the draft\'s stale picked name', async () => {
+  const realDraft = jest.requireActual<typeof import('@/lib/karute/draft')>('@/lib/karute/draft')
+  jest.mocked(saveDraft).mockImplementation(realDraft.saveDraft)
+  jest.mocked(loadDraft).mockImplementation(realDraft.loadDraft)
+  mockGetConsent.mockResolvedValue({ consent: null })
+  pipe.state = 'review'
+  pipe.result = { transcript: 'hello', entries: [], summary: 'a summary' }
+  pipe.context = {
+    locale: 'ja',
+    customers: [{ id: 'cust-1', name: '佐藤 美咲' }],
+    // No appointmentCustomerId: this offer restores UNBOUND, but the picked
+    // name still lands in the payload (ReviewScreen saves both fields
+    // independently) — the draft carries 「遠藤三郎」 with no id behind it.
+    pickedCustomerName: '遠藤三郎',
+    takeId: 'take-fold2-f5',
+    recordingSessionId: 'sess-fold2-f5',
+  }
+  const review = await renderPage()
+  expect(await realDraft.loadDraft()).toMatchObject({
+    transcript: 'hello', pickedCustomerName: '遠藤三郎', savedByStaffId: 'staff-A',
+  })
+  expect((await realDraft.loadDraft())?.appointmentCustomerId).toBeUndefined()
+
+  // A reload loses both the component state and the in-memory pipeline —
+  // only the localStorage draft survives, same boundary as the test above.
+  review.unmount()
+  pipe.state = 'idle'
+  pipe.result = null
+  pipe.context = null
+  await renderPage()
+
+  // Unbound on restore (no id survived) — pick X first, off-list, matching
+  // the draft's own stale name.
+  mockSearchCustomers.mockResolvedValue({
+    options: [{ id: 'remote-X', name: '遠藤三郎', other_store: true }],
+    karute_number_unavailable: false,
+    remote_more: false,
+  })
+  fireEvent.click(screen.getByText('recording.recoverPickAndSaveAction'))
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+  await act(async () => { jest.advanceTimersByTime(300) })
+  fireEvent.click(screen.getByText('遠藤三郎'))
+  await flush(20)
+
+  const firstDialog = within(screen.getByRole('dialog', { name: 'recording.consentDialogTitle' }))
+  expect(firstDialog.getByText('遠藤三郎')).toBeInTheDocument()
+  fireEvent.click(firstDialog.getByText('common.cancel'))
+
+  // Now RE-POINT away from X to Y. `offer.draft.pickedCustomerName` still
+  // says 遠藤三郎 underneath — the draft object never changes — so this is
+  // exactly F5m's trap: the fresh pick must win over that leftover field.
+  mockSearchCustomers.mockResolvedValue({
+    options: [{ id: 'remote-Y', name: '田中花子', other_store: true }],
+    karute_number_unavailable: false,
+    remote_more: false,
+  })
+  fireEvent.click(screen.getByText('recording.recoverRepoint'))
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '田中' } })
+  await act(async () => { jest.advanceTimersByTime(300) })
+  fireEvent.click(screen.getByText('田中花子'))
+  await flush(20)
+  fireEvent.click(screen.getByText('recording.recoverSaveAction'))
+  await flush(20)
+
+  const secondDialog = within(screen.getByRole('dialog', { name: 'recording.consentDialogTitle' }))
+  expect(secondDialog.getByText('田中花子')).toBeInTheDocument()
+  expect(screen.queryByText('遠藤三郎')).not.toBeInTheDocument()
+  expect(mockGetConsent).toHaveBeenLastCalledWith('remote-Y')
+  expect(mockPipelineStart).not.toHaveBeenCalled()
+})
+
 describe('録音履歴 — multi-take recovery', () => {
   it('two takes are two rows, and 保存する on the OLDER one saves THAT take', async () => {
     stored = [
