@@ -99,6 +99,8 @@ export const AUDIT_ACTIONS = [
   'settings.recording_autostart_toggle',
   'settings.staff_stores_change',
   'settings.store_create',
+  'settings.store_hours_reset',
+  'settings.store_hours_update',
   'settings.store_update',
   'settings.store_write_refused',
   'settings.sync_config_update',
@@ -326,6 +328,7 @@ export const AUDITED_CORES: {
     symbols: [
       'createStoreCore',
       'updateStoreCore',
+      'setStoreHoursCore',
       'setStaffStoresCore',
       'setStaffStoresAtCreationCore',
     ],
