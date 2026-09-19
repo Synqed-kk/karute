@@ -932,7 +932,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         ])), {
         facts: [
           beds.length === 0
-            ? `いまこの店舗には${ctx.words.resourceNoun}がありません。`
+            ? `いまこの店舗には${ctx.words.resourceNoun}が登録されていません。`
             : `いまこの店舗には${ctx.words.resourceNoun}が${beds.length}${ctx.words.counter}あります。`,
           '清掃時間を0分にすると、予約と予約のあいだに何も確保しません。',
         ],
