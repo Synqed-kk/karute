@@ -1912,7 +1912,28 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //
 // Initial gate failed by 342 B against 2,138,688 B. Purchase exclusion stayed
 // clean (0/13). Ceiling = measured + 1,000 = 2,140,030 B, per round 2 packet.
-const BUDGET_BYTES = 2_140_030
+//
+// RE-MEASURED 2026-09-19 — PR #938 fix round 4 + main-in, merged tip
+// 6e5f22c9f8110c50104779a70289040b0cfce768 (origin/main 992c5b016,
+// including #937). Both dated histories above are retained. This measures
+// the store-hours door with rounds 3/4's request locking, rejection cleanup
+// and shared synchronous re-entry guard, composed with the incoming main.
+// No new user-visible strings or dependency changes in round 4.
+//
+// Same six CI VITE_* values from .github/workflows/ci.yml, node v24.16.0,
+// vite 6.4.3, offline. thin/dist emptied before each of two laps. All 23
+// output files are byte-for-byte identical (direct byte comparison, plus
+// matching paths, sizes, MD5s and SHA-256s recorded for every output file):
+//   chunk                  lap 1       lap 2     round 2 recorded    delta
+//   en-CszfzNZa.js         137,480     137,480         137,035        +445 B
+//   index-CyrfDqOb.js    1,065,460   1,065,460       1,064,195      +1,265 B
+//   vendor-CA75MqrT.js     937,800     937,800         937,800           0 B
+//   total               2,140,740   2,140,740       2,139,030      +1,710 B
+// The comparison is to round 2's RECORDED measurement, not a fresh build
+// of that tip; the delta includes main-in and round 3 as well as round 4.
+// Proof: artifacts-938-r2/r4/thin-build-{1,2}.log, thin-lap-{1,2}.json,
+// thin-measured.json. Ceiling = measured + 1,000 = 2,141,740 B.
+const BUDGET_BYTES = 2_141_740
 
 let dir
 try {
