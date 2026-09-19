@@ -153,10 +153,11 @@ export function StoreHoursBlock({
       </button>
       {open && (
         <StoreHoursEditor
-          // Re-seeds only when the store changes, never on a parent refresh:
+          // Re-seeds when the store or readability changes, never on a parent
+          // refresh with the same flag:
           // StoresSection's refresh() re-lists WITHOUT hours, and a re-seed
           // from that would wipe what this editor just saved.
-          key={storeId}
+          key={`${storeId}:${weeklyHoursUnreadable ? 'u' : 'r'}`}
           storeId={storeId}
           weeklyHours={weeklyHours}
           weeklyHoursUnreadable={weeklyHoursUnreadable}
@@ -257,6 +258,9 @@ function StoreHoursEditor({
     let result
     try {
       result = await setStoreHours(storeId, week)
+    } catch {
+      toast.error(t('saveFailed'))
+      return
     } finally {
       inFlight.current = false
       setSaving(false)
@@ -281,6 +285,9 @@ function StoreHoursEditor({
     let result
     try {
       result = await setStoreHours(storeId, null)
+    } catch {
+      toast.error(t('saveFailed'))
+      return
     } finally {
       inFlight.current = false
       setSaving(false)

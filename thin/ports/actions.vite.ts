@@ -1172,6 +1172,7 @@ type StoreRow = {
   customerCount: number
   businessType: string | null
   weeklyHours?: WeeklyHours | null
+  weeklyHoursUnreadable?: boolean
 }
 type StoreInput = {
   name: string

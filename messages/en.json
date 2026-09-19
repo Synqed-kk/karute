@@ -2343,6 +2343,7 @@
         "save": "Save",
         "saving": "Saving",
         "saved": "Hours saved",
+        "saveFailed": "Could not save",
         "fixBeforeSaving": "Fix the times to save",
         "invalidWindow": "Open time must be earlier than close time.",
         "weekIncomplete": "All seven days save at once. Reopen this panel and try again.",
