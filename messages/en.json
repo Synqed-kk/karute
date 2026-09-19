@@ -2332,6 +2332,7 @@
         "description": "This store's own hours. Once saved, they take precedence over the company-wide default.",
         "usingDefault": "Using the company-wide default",
         "usingDefaultHint": "The times below are not saved yet. Save them to make them this store's hours.",
+        "unreadable": "Couldn't load this store's hours. You can't change or save them right now — your settings are still there. Update the app to the latest version, then try again.",
         "closedToggle": "Closed",
         "closedConfirm": "Closing {day} stops this store taking bookings on that day.",
         "closedConfirmYes": "Set as closed",

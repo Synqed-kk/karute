@@ -45,6 +45,7 @@ import {
   parseStoreWeeklyHours,
   STORE_HOURS_INVALID_WINDOW,
   STORE_HOURS_WEEK_INCOMPLETE,
+  STORE_HOURS_UNREADABLE,
 } from '@/lib/validations/store'
 
 const DAY_LABELS: Record<WeekdayKey, { en: string; ja: string }> = {
@@ -75,9 +76,14 @@ function hhmmForInput(minute: number): string {
 function seedDraft(
   weeklyHours: WeeklyHours | null | undefined,
   orgHours: OperatingHours,
+  unreadable = false,
 ): WeekDraft {
   const draft = {} as WeekDraft
   for (const key of WEEKDAY_KEYS) {
+    if (unreadable && !weeklyHours) {
+      draft[key] = { closed: false, open: '', close: '' }
+      continue
+    }
     const own = weeklyHours?.[key]
     if (weeklyHours && Object.keys(weeklyHours).length > 0) {
       // null OR absent = 定休日 — the resolver's own reading of this shape.
@@ -110,6 +116,7 @@ interface StoreHoursBlockProps {
   /** The store's own hours. `undefined` = this read never asked (the block is
    *  only rendered on a read that did); `null` = never configured. */
   weeklyHours: WeeklyHours | null | undefined
+  weeklyHoursUnreadable?: boolean
   /** The business-wide 営業時間 — the labelled default, and the pre-fill. */
   orgHours: OperatingHours | null | undefined
   /** Reports a successful save/reset up to the section that owns `stores`
@@ -123,6 +130,7 @@ interface StoreHoursBlockProps {
 export function StoreHoursBlock({
   storeId,
   weeklyHours,
+  weeklyHoursUnreadable = false,
   orgHours,
   onSaved,
 }: StoreHoursBlockProps) {
@@ -148,6 +156,7 @@ export function StoreHoursBlock({
           key={storeId}
           storeId={storeId}
           weeklyHours={weeklyHours}
+          weeklyHoursUnreadable={weeklyHoursUnreadable}
           orgHours={orgHours}
           onSaved={onSaved}
           locale={locale}
@@ -161,6 +170,7 @@ export function StoreHoursBlock({
 function StoreHoursEditor({
   storeId,
   weeklyHours,
+  weeklyHoursUnreadable = false,
   orgHours,
   onSaved,
   locale,
@@ -170,7 +180,9 @@ function StoreHoursEditor({
   t: ReturnType<typeof useTranslations<'settings.stores.hours'>>
 }) {
   const normalizedOrg = normalizeOperatingHours(orgHours ?? DEFAULT_OPERATING_HOURS)
-  const [draft, setDraft] = useState<WeekDraft>(() => seedDraft(weeklyHours, normalizedOrg))
+  const [draft, setDraft] = useState<WeekDraft>(() =>
+    seedDraft(weeklyHours, normalizedOrg, weeklyHoursUnreadable),
+  )
   /** True until this store has a saved week of its own — the pre-fill is the
    *  business-wide default and must never read as this store's own hours. */
   const [unsaved, setUnsaved] = useState(
@@ -192,11 +204,11 @@ function StoreHoursEditor({
    *  ever the pre-fill: a saved week is never clamped. */
   const clampedFromMidnight = useMemo(() => {
     const seededFromOrg = !weeklyHours || Object.keys(weeklyHours).length === 0
-    if (!seededFromOrg) return new Set<WeekdayKey>()
+    if (weeklyHoursUnreadable || !seededFromOrg) return new Set<WeekdayKey>()
     return new Set(
       WEEKDAY_KEYS.filter((key) => normalizedOrg[key].closeMinute > 23 * 60 + 59),
     )
-  }, [weeklyHours, normalizedOrg])
+  }, [weeklyHours, normalizedOrg, weeklyHoursUnreadable])
 
   /** Confirmation focus. A confirm that appears without taking focus is one a
    *  screen-reader user never hears; the trigger gets it back on close, so
@@ -264,7 +276,14 @@ function StoreHoursEditor({
   return (
     <div className="mt-3">
       <p className="text-[12px] text-muted-foreground">{t('description')}</p>
-      {unsaved && (
+      {weeklyHoursUnreadable && (
+        <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 ring-1 ring-amber-200/60 dark:bg-amber-500/10 dark:ring-amber-500/20">
+          <div className="text-[12px] leading-relaxed text-amber-800/90 dark:text-amber-300/85">
+            {t('unreadable')}
+          </div>
+        </div>
+      )}
+      {unsaved && !weeklyHoursUnreadable && (
         <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 ring-1 ring-amber-200/60 dark:bg-amber-500/10 dark:ring-amber-500/20">
           <div className="text-[12px] font-medium text-amber-800 dark:text-amber-300">
             {t('usingDefault')}
@@ -278,7 +297,7 @@ function StoreHoursEditor({
         {WEEKDAY_KEYS.map((key) => {
           const day = draft[key]
           const dayLabel = locale === 'ja' ? DAY_LABELS[key].ja : DAY_LABELS[key].en
-          const dayInvalid = !day.closed && !(day.open < day.close)
+          const dayInvalid = !weeklyHoursUnreadable && !day.closed && !(day.open < day.close)
           return (
             <div key={key}>
               <div className="grid grid-cols-[40px_1fr_16px_1fr_64px] items-center gap-2">
@@ -286,7 +305,7 @@ function StoreHoursEditor({
                 <input
                   type="time"
                   value={day.open}
-                  disabled={day.closed}
+                  disabled={day.closed || saving || weeklyHoursUnreadable}
                   // The day, not a bare 月 (month or Monday) and not the store
                   // name — this block already sits inside that store's row.
                   aria-label={t('openAria', { day: dayLabel })}
@@ -301,7 +320,7 @@ function StoreHoursEditor({
                 <input
                   type="time"
                   value={day.close}
-                  disabled={day.closed}
+                  disabled={day.closed || saving || weeklyHoursUnreadable}
                   aria-label={t('closeAria', { day: dayLabel })}
                   aria-invalid={dayInvalid}
                   aria-describedby={dayInvalid ? errorId(key) : undefined}
@@ -312,6 +331,7 @@ function StoreHoursEditor({
                 />
                 <button
                   type="button"
+                  disabled={saving || weeklyHoursUnreadable}
                   aria-pressed={day.closed}
                   // Seven of these per store — 「休業」 alone named them all
                   // the same thing.
@@ -352,6 +372,7 @@ function StoreHoursEditor({
                     <button
                       type="button"
                       ref={firstConfirmButton}
+                      disabled={saving || weeklyHoursUnreadable}
                       onClick={() => {
                         setDay(key, { closed: true })
                         closeConfirm(() => setConfirmDay(null))
@@ -378,21 +399,21 @@ function StoreHoursEditor({
         <button
           type="button"
           onClick={save}
-          disabled={invalid || saving}
+          disabled={invalid || saving || weeklyHoursUnreadable}
           className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {saving ? t('saving') : t('save')}
         </button>
-        {invalid && (
+        {invalid && !weeklyHoursUnreadable && (
           <span className="text-[12px] text-muted-foreground">{t('fixBeforeSaving')}</span>
         )}
         {/* The way back, offered ONLY once this store has a week of its own —
          *  there is nothing to undo while it is still on the default. */}
-        {!unsaved && (
+        {(!unsaved || weeklyHoursUnreadable) && (
           <button
             type="button"
             onClick={(e) => openConfirm(e.currentTarget, () => setConfirmReset(true))}
-            disabled={saving}
+            disabled={saving || weeklyHoursUnreadable}
             className="inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
           >
             {t('resetToDefault')}
@@ -411,7 +432,7 @@ function StoreHoursEditor({
               type="button"
               ref={firstConfirmButton}
               onClick={resetToDefault}
-              disabled={saving}
+              disabled={saving || weeklyHoursUnreadable}
               className="inline-flex h-8 items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 text-[12px] font-medium text-amber-700 disabled:opacity-50 dark:text-amber-400"
             >
               {t('resetConfirmYes')}
@@ -431,9 +452,11 @@ function StoreHoursEditor({
 }
 
 function knownError(error: string): boolean {
-  return error === STORE_HOURS_WEEK_INCOMPLETE || error === STORE_HOURS_INVALID_WINDOW
+  return error === STORE_HOURS_WEEK_INCOMPLETE || error === STORE_HOURS_INVALID_WINDOW ||
+    error === STORE_HOURS_UNREADABLE
 }
 
-function errorKey(error: string): 'weekIncomplete' | 'invalidWindow' {
+function errorKey(error: string): 'weekIncomplete' | 'invalidWindow' | 'unreadable' {
+  if (error === STORE_HOURS_UNREADABLE) return 'unreadable'
   return error === STORE_HOURS_WEEK_INCOMPLETE ? 'weekIncomplete' : 'invalidWindow'
 }

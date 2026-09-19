@@ -489,6 +489,7 @@ export function StoresSection({
                     <StoreHoursBlock
                       storeId={store.id}
                       weeklyHours={store.weeklyHours}
+                      weeklyHoursUnreadable={store.weeklyHoursUnreadable}
                       orgHours={orgSettings?.operating_hours}
                       onSaved={handleHoursSaved}
                     />
