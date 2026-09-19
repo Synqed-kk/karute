@@ -263,10 +263,11 @@ describe('booking by-id writes — every door is store-locked', () => {
         expect(refused).toEqual(missing)
       })
 
-      it('a legacy store-less booking is refused for a clamped actor', async () => {
+      it('a legacy store-less booking is refused for a clamped actor, with ZERO refusal rows — no foreign store was proven', async () => {
         const c = bookingClient(null)
         expect(await door.call(c, CLAMPED_OWN)).toEqual({ error: APPOINTMENT_404 })
         expect(door.writeOf(c)).not.toHaveBeenCalled()
+        expect(refusalRows()).toHaveLength(0)
       })
 
       it('a degraded assignment lookup fails closed', async () => {

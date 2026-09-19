@@ -502,6 +502,22 @@ describe('a discard outside the caller’s store is refused', () => {
     })
   })
 
+  it('an UNREADABLE session refuses with ZERO refusal rows — no foreign store was proven', async () => {
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    try {
+      const res = await discardRecordingWithClient(fakeClient as never, clamped, SYSTEM_VALID)
+      expect(res).toEqual({ ok: false, error: 'forbidden' })
+      expect(discardCreate).not.toHaveBeenCalled()
+      expect(auditLog).not.toHaveBeenCalled()
+      expect(coreRows).toEqual([])
+    } finally {
+      // clearAllMocks() (beforeEach) does not reset a mockRejectedValue
+      // implementation — restore the default or every later test in this
+      // file would see recordings.get reject.
+      recordingsGet.mockImplementation(async () => ({ id: 'rec-1', store_id: sessionStore.current }))
+    }
+  })
+
   it.each(['receipt-only', 'with-reason'] as const)('own-store %s discard succeeds with ONE receipt and NO refusal row', async (door) => {
     const own = { ...webActor, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
     const result = door === 'with-reason'

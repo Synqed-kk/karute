@@ -302,20 +302,19 @@ describe('POST /karute/[id]/reassign', () => {
 
   // R5-1: flips the round-3 "ALLOWED" pin — null-store now fails closed for
   // a clamped actor (membership unprovable). R9-2: status CHANGED 403 → 404,
-  // same reasoning as the two pins above.
-  it('R9-2 (was R5-1): null-store SOURCE record + clamped actor is REFUSED → 404, no write, no audit', async () => {
+  // same reasoning as the two pins above. P1b 4/4 (fold C): an unknown store
+  // cannot prove a CROSS-store attempt, so this refusal now files NO row —
+  // flipped from the one-row pin this test used to make.
+  it('R9-2 + fold C (was R5-1): null-store SOURCE record + clamped actor is REFUSED → 404, no write, no audit, ZERO rows', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: null }
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
     expect(res.status).toBe(404)
     expect(karuteUpdate).not.toHaveBeenCalled()
-    // No SUCCESS row — and one REFUSAL row (FRESH-EYES-P1 §5a). The 404 body is byte-unchanged, which the comparison pin below still proves.
-    expect(auditSpy).toHaveBeenCalledTimes(1)
-    expect(auditSpy.mock.calls[0][0]).toMatchObject({
-      action: 'karute.store_write_refused',
-      targetId: 'kar-1',
-      detail: expect.objectContaining({ door: 'karute.customer_reassign' }),
-    })
+    // No SUCCESS row — and, since the store is UNKNOWN rather than a proven
+    // foreign one, no refusal row either. The 404 body is byte-unchanged,
+    // which the comparison pin below still proves.
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 
   // R9-1/R9-2 (fix round 9, Greptile round-5 3/5) — existence-oracle class.

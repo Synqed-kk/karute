@@ -92,11 +92,13 @@ function lockAppointmentStore(
   // clamped caller that fails closed (sourceStoreOutOfScope's null arm) rather
   // than falling through to a message about a booking they may not have.
   //
-  // AUDITED (FRESH-EYES-P1 §5a): the refusal itself files one row — probing
-  // another branch's booking ids is exactly what an owner wants to see. The
-  // thrown error is unchanged, so the no-oracle guarantee above still holds.
-  // Target shape = every other booking row in this file: the CUSTOMER, with
-  // the appointment id in detail.
+  // AUDITED (FRESH-EYES-P1 §5a): a refusal against a PROVEN foreign store
+  // files one row — probing another branch's booking ids is exactly what an
+  // owner wants to see. An unreadable or legacy store-less booking (store_id
+  // null above) refuses the same way but files none: no foreign store was
+  // established. The thrown error is unchanged, so the no-oracle guarantee
+  // above still holds. Target shape = every other booking row in this file:
+  // the CUSTOMER, with the appointment id in detail.
   ensureRecordStoreInScopeAudited({ store_id: appt?.store_id ?? null }, scope, APPOINTMENT_NOT_FOUND, {
     actor,
     category: 'booking',

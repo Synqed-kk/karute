@@ -217,9 +217,11 @@ async function discardStoreAllowed(
     }
   }
   try {
-    // AUDITED (FRESH-EYES-P1 §5a) — the boolean this returns is unchanged; the
-    // refusal simply leaves a row behind it now. actorId is the staff id the
-    // caller already vouched for (null is allowed by audit()).
+    // AUDITED (FRESH-EYES-P1 §5a) — the boolean this returns is unchanged; a
+    // refusal against a PROVEN foreign store leaves a row behind it now (a
+    // failed lookup above already set storeId to null, so a get() outage
+    // leaves none). actorId is the staff id the caller already vouched for
+    // (null is allowed by audit()).
     ensureRecordStoreInScopeAudited({ store_id: storeId }, actor.scope, 'recording session not found', {
       actor: {
         actorId: actor.staffId,

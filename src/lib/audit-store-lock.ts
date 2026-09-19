@@ -61,9 +61,15 @@ function emitStoreWriteRefused(
 
 /**
  * THE AUDITED TWIN of ensureRecordStoreInScope (src/lib/auth/store-lock.ts) —
- * the same lock, plus ONE audit row for an out-of-store refusal. A degraded
- * assignment lookup is refused with the same error and is NOT recorded: an
- * infrastructure blip on the actor's own lookup is not a cross-store probe.
+ * the same lock, plus ONE audit row for an out-of-store refusal, and ONLY
+ * when that refusal proves one: a degraded assignment lookup is refused with
+ * the same error and is NOT recorded (an infrastructure blip on the actor's
+ * own lookup is not a cross-store probe), and neither is a record whose own
+ * store is UNKNOWN (`record.store_id === null` — a failed lookup, an
+ * unreadable record, or a legacy store-less one). A row says "someone reached
+ * for ANOTHER store's record"; that claim needs a concrete foreign store_id,
+ * so degraded OR unknown store both fail closed with the reply unchanged and
+ * no row.
  *
  * WHY IT LIVES HERE AND NOT THERE (FRESH-EYES-P1 §5a: "someone probing another
  * branch's ids is exactly the event an owner would want to see"). The lock
@@ -109,7 +115,7 @@ export function ensureRecordStoreInScopeAudited(
   try {
     ensureRecordStoreInScope(record, scope, notFoundMessage)
   } catch (err) {
-    if (!scope.degraded) {
+    if (!scope.degraded && record.store_id != null) {
       auditStoreWriteRefused({
         ...trace,
         recordStoreId: record.store_id,
