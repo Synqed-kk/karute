@@ -159,8 +159,18 @@ describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
     const source = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
     let found = false
     function visit(node: ts.Node) {
-      if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) return
-      if (ts.isExportDeclaration(node) && node.isTypeOnly) return
+      if (ts.isImportDeclaration(node) && node.importClause) {
+        const { isTypeOnly, name, namedBindings } = node.importClause
+        if (isTypeOnly || (!name && namedBindings && ts.isNamedImports(namedBindings) &&
+          namedBindings.elements.length > 0 &&
+          namedBindings.elements.every((element) => element.isTypeOnly))) return
+      }
+      if (ts.isExportDeclaration(node)) {
+        const { isTypeOnly, exportClause } = node
+        if (isTypeOnly || (exportClause && ts.isNamedExports(exportClause) &&
+          exportClause.elements.length > 0 &&
+          exportClause.elements.every((element) => element.isTypeOnly))) return
+      }
       const specifier = ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
         ? node.moduleSpecifier
         : ts.isCallExpression(node) && (
@@ -203,10 +213,19 @@ describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
   it.each([
     ["import type { BootstrapResult } from '@/actions/bootstrap'", false],
     ["export type { BootstrapResult } from '@/actions/bootstrap'", false],
+    ["import { type A } from '@/actions/bootstrap'", false],
+    ["import { type A, type B } from '@/actions/bootstrap'", false],
     ["import { type BootstrapResult, bootstrapBusinessForNewUser } from '@/actions/bootstrap'", true],
+    ["import d, { type A } from '@/actions/bootstrap'", true],
+    ["import * as bootstrap from '@/actions/bootstrap'", true],
+    ["import '@/actions/bootstrap'", true],
+    ["import {} from '@/actions/bootstrap'", true],
     ["import { bootstrapBusinessForNewUser } from '@/actions/bootstrap'", true],
     ["import { bootstrapBusinessForNewUser } from '../../src/actions/bootstrap'", true],
     ["export { bootstrapBusinessForNewUser } from '@/actions/bootstrap'", true],
+    ["export { type A } from '@/actions/bootstrap'", false],
+    ["export { type A, b } from '@/actions/bootstrap'", true],
+    ["export * from '@/actions/bootstrap'", true],
     ["const bootstrap = import('@/actions/bootstrap')", true],
     ["const bootstrap = require('@/actions/bootstrap')", true],
     ["import { bootstrapBusinessForNewUser } from '@/actions/bootstrapper'", false],
