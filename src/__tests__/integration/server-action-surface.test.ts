@@ -4,6 +4,8 @@ import ts from 'typescript'
 import { INTERNAL_DEBT, PUBLIC_ACTIONS } from './server-action-surface.data'
 
 const ROOT = process.cwd()
+// DEBT may only go DOWN. 2026-09-20 exception: #938 arrived before the ratchet;
+// setStoreHoursCore adds one after bootstrap removal, and leaves in repair B.
 const INTERNAL_DEBT_COUNT = 67 // may only go DOWN
 const CLOSED_DOORS = ['memberEmailsForBusiness', 'writeOrgSettingsBlob']
 const NEW_EXPORT_MESSAGE = "A new export in a 'use server' file is a browser-callable endpoint with no authentication of its own. If it is a real action, add it to PUBLIC_ACTIONS and make sure its FIRST lines check the session/capability. If it is an internal helper, put it in a server-only module instead. Read PKT-SEC-CORES-A."
@@ -121,6 +123,8 @@ const actionFiles = sourceFiles('src').sort().flatMap((file) => {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
   return directives(ast).includes('use server') ? [{ file, ...runtimeExports(ast) }] : []
 })
+
+console.info(`Surface inventory: ${actionFiles.length} files, ${actionFiles.reduce((sum, file) => sum + file.names.length, 0)} exports; PUBLIC ${Object.values(PUBLIC_ACTIONS).flat().length}; DEBT ${Object.values(INTERNAL_DEBT).flat().length}`)
 
 describe('server action surface (PKT-SEC-CORES-A)', () => {
   it('r1: every runtime export is explicitly classified', () => {

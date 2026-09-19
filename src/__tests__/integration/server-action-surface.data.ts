@@ -20,8 +20,6 @@ export const PUBLIC_ACTIONS: Record<string, string[]> = {
   'src/actions/audit-log.ts': [
     'listAuditLog',
   ],
-  'src/actions/bootstrap.ts': [
-  ],
   'src/actions/customers.ts': [
     'cancelCustomerDeletion',
     'createCustomer',
@@ -165,8 +163,10 @@ export const PUBLIC_ACTIONS: Record<string, string[]> = {
     'getDefaultStoreId', // UNSURE: no production caller found through this export.
     'getStaffStores',
     'listStores',
+    'listStoresWithHours',
     'setActiveStore',
     'setStaffStores',
+    'setStoreHours',
     'updateStore',
   ],
   'src/actions/voice.ts': [
@@ -185,9 +185,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
   ],
   'src/actions/audit-log.ts': [
     'listAuditLogWithClient',
-  ],
-  'src/actions/bootstrap.ts': [
-    'bootstrapBusinessForNewUser',
   ],
   'src/actions/customers.ts': [
     'cancelCustomerDeletionWithClient',
@@ -293,13 +290,15 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
   ],
   'src/actions/stores.ts': [
     'createStoreCore',
+    'updateStoreCore',
+    // 2026-09-20: arrived with #938 before this ratchet was on main; leaves with the stores cores in repair B
+    'setStoreHoursCore',
     'getPrimaryStoreId',
     'getStaffStoresStrict',
     'getStaffStoresWithClient',
     'listStoresWithClient',
     'setStaffStoresAtCreationCore',
     'setStaffStoresCore',
-    'updateStoreCore',
   ],
   'src/actions/voice.ts': [
     'enrollVoiceActionCore',
