@@ -805,6 +805,7 @@ describe('the fixture data door', () => {
       // its caller already resolved. An import here would mean the link builder
       // started knowing about a room.
       'src/business/lib/settings-link.ts': [],
+      'src/business/lib/settings-words.ts': ['./resource-words', './settings'],
       'src/app/[locale]/(business)/business/settings/page.tsx': [
         './SettingsScreen',
         './settings-props',
