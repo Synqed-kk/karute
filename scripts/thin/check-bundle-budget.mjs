@@ -1821,7 +1821,27 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // drift at a merge tip, the same class this file has already documented at
 // every prior main-in entry above (e.g. the #951/#929 merge tip's own +143 B
 // cross-term).
-const BUDGET_BYTES = 2_138_688
+// RE-MEASURED 2026-09-19 — PR #938 fix round 2, product/test tip
+// 4cf652470 (throwaway clone; no main merge). The unreadable-hours DTO flag,
+// editor notice and disabled controls ship in thin; the writer refusal stays
+// server-side. No dependency files changed.
+//
+// Same six CI VITE_* values from .github/workflows/ci.yml, node v24.16.0,
+// vite 6.4.3, offline. thin/dist emptied before each lap. Both laps produced
+// these exact bytes; SHA256 matched for EVERY output file, not only JS:
+//   chunk                  lap 1       lap 2     preceding entry    delta
+//   en-DKTj9KJN.js         137,035     137,035         136,859        +176 B
+//   index-QqEfLWUn.js    1,064,195   1,064,195       1,063,038      +1,157 B
+//   vendor-CA75MqrT.js     937,800     937,800         937,791          +9 B
+//   total               2,139,030   2,139,030       2,137,688      +1,342 B
+// The comparison is to the preceding RECORDED measurement above, not a fresh
+// build of the starting tip. The vendor's +9 B is observed, not attributed
+// to a dependency change. Proof logs: artifacts-938-r2/thin-build-{1,2}.log
+// and thin-lap-{1,2}.json in the lead's evidence folder.
+//
+// Initial gate failed by 342 B against 2,138,688 B. Purchase exclusion stayed
+// clean (0/13). Ceiling = measured + 1,000 = 2,140,030 B, per round 2 packet.
+const BUDGET_BYTES = 2_140_030
 
 let dir
 try {
