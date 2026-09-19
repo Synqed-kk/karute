@@ -1979,7 +1979,27 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // stayed clean (0/13). No dependency files changed in this round.
 // Proof: artifacts-speed/s13/thin-lap-{1,2}.json, bundle-identity.txt,
 // thin-measured.json and bundle-gate-{before,after}.log.
-const BUDGET_BYTES = 2_155_502
+//
+// RE-MEASURED 2026-09-20 — PR #975 fix round 1 (S13), product/test tip
+// d04e1bf3. Persisted calendar numbers now carry the user/store lens, validate
+// every stored cell and copy only the nine fields consumed by the grid.
+// Store switching clears these numbers before reload. No dependency changes.
+//
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* values read programmatically from .github/workflows/ci.yml,
+// offline, node v24.16.0, vite 6.4.3, @synqed-kk/ui 0.3.2.
+// thin/dist emptied before EACH lap. All 23 output files byte-identical
+// (relative paths, sizes, SHA-256s and direct byte comparison):
+//   en-Cpj6YL2u.js             138,037 B
+//   index-DBD40D8M.js        1,079,676 B
+//   vendor-DqXjNZNP.js         937,800 B
+// Total = 2,155,513 B; ceiling = measured + 1,000 = 2,156,513 B.
+// Against the preceding RECORDED S13 measurement (not a fresh baseline
+// build): +1,011 B total, all in index; en and vendor byte sizes unchanged.
+// Initial gate failed by 11 B against 2,155,502 B; purchase exclusion 0/13.
+// Proof: artifacts-speed/s13-r1/thin-lap-{1,2}.json, bundle-identity.txt,
+// thin-measured.json, thin-build-{1,2}.log, bundle-gate-{before,after}.log.
+const BUDGET_BYTES = 2_156_513
 let dir
 try {
   dir = readdirSync(DIST)
