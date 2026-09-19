@@ -527,3 +527,17 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     expect(countOccurrences(pageStripped, 'business_type')).toBe(1)
   })
 })
+
+
+describe('PKT-BUILD-N3-2 §3 H1 — interior whitespace', () => {
+  it.each(['a b', 'a\tb', 'a\u3000b'])('N3-2 §3 m4 — space rejects %j and preserves base identity', (value) => {
+    const override = { resourceNoun: value, counter: '台' }
+    expect(wordOverrideProblem(override)).toBe('space')
+    expect(wordsForStore('personal_gym', override)).toBe(wordsForStore('personal_gym', null))
+  })
+
+  it('N3-2 §3 H1 — trim precedes space and nine code points without space reach length', () => {
+    expect(wordOverrideProblem({ turnoverWord: ' a b ' })).toBe('trim')
+    expect(wordOverrideProblem({ turnoverWord: '123456789' })).toBe('length')
+  })
+})
