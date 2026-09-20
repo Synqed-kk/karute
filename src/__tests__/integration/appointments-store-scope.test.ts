@@ -97,6 +97,8 @@ import {
   createAppointment,
   getMonthCells,
 } from '@/actions/appointments'
+import { defaultLocale } from '@/i18n/locales'
+import { weekStartFor } from '@/lib/date/week-start'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getActiveStoreId } from '@/actions/stores'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -228,14 +230,44 @@ describe('getMonthCells — store scope + the failure contract', () => {
 
   it('returns the month grid as wire cells, the month itself flagged inMonth', async () => {
     crossStore(null)
-    const cells = await getMonthCells('2026-07')
-    // 2026-07-01 is a Wednesday → 2 leading days; 31 days; 5 rows of 7.
+    const cells = await getMonthCells('2026-07', 'ja')
+    // 2026-07-01 is a Wednesday → 3 leading days; 31 days; 5 rows of 7.
     expect(cells).toHaveLength(35)
     expect(cells.filter((c) => c.inMonth)).toHaveLength(31)
-    expect(cells[0].id).toBe('2026-06-29')
+    expect(cells[0].id).toBe('2026-06-28')
     expect(cells[0].inMonth).toBe(false)
     expect(typeof cells[0].dateIso).toBe('string')
   })
+
+  it('starts March 2027 on Sunday for ja', async () => {
+    crossStore(null)
+    const cells = await getMonthCells('2027-03', 'ja')
+    expect(cells[0].id).toBe('2027-02-28')
+    expect(new Date(`${cells[0].id}T00:00:00Z`).getUTCDay()).toBe(0)
+  })
+
+  it.each(['xx', undefined, null, 42, {}, []])(
+    'falls back to the default week order without throwing for %j',
+    async (locale) => {
+      crossStore(null)
+      // Server action arguments are untrusted at runtime, regardless of TS.
+      const cells = await getMonthCells('2027-03', locale as string | undefined)
+      expect(cells.length).toBeGreaterThan(0)
+      expect(new Date(`${cells[0].id}T00:00:00Z`).getUTCDay()).toBe(weekStartFor(defaultLocale))
+      expect(cells).toEqual(await getMonthCells('2027-03', defaultLocale))
+    },
+  )
+
+  it.each(['en', 'en-GB', 'not_a_locale', '', undefined])(
+    'uses the shipped locale or the routing default for %s',
+    async (locale) => {
+      crossStore(null)
+      const cells = await getMonthCells('2026-07', locale)
+      // Shipped en/ja start on Sunday; unsupported en-GB must NOT use Monday.
+      expect(cells[0].id).toBe('2026-06-28')
+      expect(new Date(`${cells[0].id}T00:00:00Z`).getUTCDay()).toBe(0)
+    },
+  )
 
   it('a failed read THROWS — it must never come back as a month of empty days', async () => {
     // The lie this prevents: getAppointmentsInRange's catch→[] would render

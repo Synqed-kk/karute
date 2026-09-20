@@ -14,9 +14,10 @@
  * chip (which must carry the marker the pressed state and aria-expanded hang
  * off) and MonthGrid's day buttons (which are what a "day tap" means).
  */
+let mockLocale = 'ja'
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
-  useLocale: () => 'ja',
+  useLocale: () => mockLocale,
 }))
 
 const push = jest.fn()
@@ -76,11 +77,12 @@ jest.mock('@synqed-kk/ui', () => {
         ),
         h('button', { type: 'button', 'data-testid': 'bar-today', onClick: props.onToday }, 'bar'),
       ),
-    MonthGrid: (props: { cells: Cell[]; onPickDay?: (d: Date) => void }) => {
+    MonthGrid: (props: { cells: Cell[]; onPickDay?: (d: Date) => void; copy?: { weekdayLabels: string[] }; className?: string }) => {
       mockGridRenders.push(props.cells)
       return h(
         'div',
-        { 'data-testid': 'month-grid' },
+        { 'data-testid': 'month-grid', className: props.className },
+        h('div', { 'data-weekday-header': '' }, props.copy?.weekdayLabels.map((label) => h('div', { key: label }, label))),
         props.cells.map((c) =>
           h(
             'button',
@@ -145,7 +147,7 @@ function renderView({
   staffFilter = 'all',
 }: {
   view?: DayWeekMonthView
-  loadMonthCells?: (key: string) => Promise<MonthCellDTOType[]>
+  loadMonthCells?: (key: string, locale: string) => Promise<MonthCellDTOType[]>
   /** Wrap in <StrictMode>, i.e. what `next dev` and the shell's `vite dev`
    *  actually run: mount → unmount → remount, effects double-invoked. */
   strict?: boolean
@@ -159,7 +161,7 @@ function renderView({
       activeStaffId={null}
       authProfileId={null}
       customers={[]}
-      locale="ja"
+      locale={mockLocale}
       orgSettings={null}
       initialView={view}
       selectedDateIso={SELECTED_ISO}
@@ -237,6 +239,7 @@ const allPanes = async (root: HTMLElement) => {
 }
 
 beforeEach(() => {
+  mockLocale = 'ja'
   push.mockClear()
   mockGridRenders.length = 0
 })
@@ -290,26 +293,34 @@ describe('opening and closing', () => {
 })
 
 describe('walking the calendar', () => {
+  it.each(['ja', 'en'])('passes the panel locale %s to the month loader', async (locale) => {
+    mockLocale = locale
+    const loadMonthCells = jest.fn(async (key: string) => monthCells(key))
+    renderView({ loadMonthCells })
+    await openPanel()
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-09', locale))
+  })
+
   it('the arrows move one month, and the loader is asked for it', async () => {
     const loadMonthCells = jest.fn(async (key: string) => monthCells(key))
     renderView({ loadMonthCells })
     await openPanel()
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-09'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-09', 'ja'))
     // Neighbours prefetch once the visible month lands.
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10'))
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10', 'ja'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08', 'ja'))
 
     const dialog = screen.getByRole('dialog')
     loadMonthCells.mockClear()
     fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
     // The slide commits on its timer; then the new visible month's neighbour
     // (2026-11) is the one that still needs fetching.
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-11'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-11', 'ja'))
 
     loadMonthCells.mockClear()
     fireEvent.click(within(dialog).getByRole('button', { name: 'prev' }))
     fireEvent.click(within(dialog).getByRole('button', { name: 'prev' }))
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-07'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-07', 'ja'))
   })
 
   it('the title opens the year of months, and a chip lands on the grid at that month', async () => {
@@ -348,7 +359,7 @@ describe('walking the calendar', () => {
     loadMonthCells.mockClear()
     fireEvent.click(within(dialog).getByRole('button', { name: '12月' }))
     await waitFor(() => expect(title()).toHaveTextContent('2026年12月'))
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-12'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-12', 'ja'))
     // Nothing navigated — level 2 moves the calendar, not the page.
     expect(push).not.toHaveBeenCalled()
   })
@@ -658,7 +669,7 @@ describe('reopening re-reads the months, showing the old counts meanwhile', () =
     const loadMonthCells = jest.fn(async (key: string) => monthCells(key))
     renderView({ loadMonthCells })
     await openPanel()
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08', 'ja'))
     const firstRound = loadMonthCells.mock.calls.filter((c) => c[0] === '2026-09').length
     expect(firstRound).toBe(1)
 
@@ -945,8 +956,8 @@ describe('under StrictMode (what next dev and vite dev actually run)', () => {
     expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('7')
     // And the neighbours were prefetched, which only happens once the visible
     // month's read has actually been applied.
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10'))
-    expect(loadMonthCells).toHaveBeenCalledWith('2026-08')
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10', 'ja'))
+    expect(loadMonthCells).toHaveBeenCalledWith('2026-08', 'ja')
   })
 
   it('a failed read still reaches the failed line', async () => {
@@ -1819,5 +1830,93 @@ describe('the hidden native date input is gone', () => {
   it('renders no date input in the DOM either', () => {
     renderView()
     expect(document.querySelector('input[type="date"]')).toBeNull()
+  })
+})
+
+
+describe('the panel shares the view locale calendar', () => {
+  it('cached Monday cells keep their own header beside a Sunday skeleton until refreshed', async () => {
+    const orderedCells = (first: string): MonthCellDTOType[] => Array.from({ length: 7 }, (_, i) => {
+      const id = new Date(Date.parse(`${first}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10)
+      return { ...monthCells('2026-09')[0], id, dateIso: `${id}T00:00:00+09:00` }
+    })
+    let release: (cells: MonthCellDTOType[]) => void = () => {}
+    let reads = 0
+    const loadMonthCells = jest.fn((key: string) => {
+      if (key === '2026-09' && reads++ === 0) return Promise.resolve(orderedCells('2026-08-31'))
+      return new Promise<MonthCellDTOType[]>((resolve) => {
+        if (key === '2026-09') release = resolve
+      })
+    })
+    const fmt = new Intl.DateTimeFormat('ja', { weekday: 'short', timeZone: 'UTC' })
+    const assertColumns = (grid: HTMLElement) => {
+      const headers = grid.querySelectorAll('[data-weekday-header] > div')
+      const cells = grid.querySelectorAll('[data-day]')
+      expect(headers).toHaveLength(7)
+      for (let i = 0; i < 7; i++) {
+        expect(headers[i].textContent).toBe(fmt.format(new Date(`${cells[i].getAttribute('data-day')}T00:00:00Z`)))
+      }
+    }
+    renderView({ loadMonthCells })
+    await openPanel()
+    await waitFor(() => expect(centreGrid(screen.getByRole('dialog')).querySelector('[data-day]')).toHaveAttribute('data-day', '2026-08-31'))
+    fireEvent.click(chip())
+    await waitFor(() => expect(panel()).toBeNull())
+    await openPanel()
+    await waitFor(() => expect(reads).toBe(2))
+    const dialog = screen.getByRole('dialog')
+    const grids = await allPanes(dialog)
+    const centre = centreGrid(dialog)
+    const sibling = grids.find((grid) => grid !== centre)!
+    assertColumns(centre)
+    assertColumns(sibling)
+    expect(centre.querySelector('[data-weekday-header] > div')!.textContent).toBe(fmt.format(new Date('2024-01-08')))
+    expect(centre.className).toBe('rounded-none border-0 bg-transparent shadow-none')
+    expect(sibling.querySelector('[data-weekday-header] > div')!.textContent).toBe(fmt.format(new Date('2024-01-07')))
+    expect(sibling.className).toContain('[&>div:first-child>div:nth-child(1)]:text-[var(--color-destructive)]')
+    mockGridRenders.length = 0
+    await act(async () => { release(orderedCells('2026-08-30')) })
+    assertColumns(centre)
+    expect(centre.querySelector('[data-day]')).toHaveAttribute('data-day', '2026-08-30')
+    expect(centre.querySelector('[data-weekday-header] > div')!.textContent).toBe(fmt.format(new Date('2024-01-07')))
+    expect(centre.className).toBe(sibling.className)
+    expect(mockGridRenders).toHaveLength(1)
+  })
+
+  it('ja labels are Sunday-first and the grid receives all three header overrides', async () => {
+    renderView({ loadMonthCells: () => new Promise(() => {}) })
+    await openPanel()
+    const grid = centreGrid(screen.getByRole('dialog'))
+    const labels = Array.from(grid.querySelectorAll('[data-weekday-header] > div')).map((el) => el.textContent)
+    const fmt = new Intl.DateTimeFormat('ja', { weekday: 'short', timeZone: 'UTC' })
+    expect(labels).toHaveLength(7)
+    expect(labels[0]).toBe(fmt.format(new Date('2024-01-07')))
+    expect(labels[6]).toBe(fmt.format(new Date('2024-01-13')))
+    expect(grid.className).toContain('[&>div:first-child>div:nth-child(1)]:text-[var(--color-destructive)]')
+    expect(grid.className).toContain('[&>div:first-child>div:nth-child(6)]:text-[var(--color-text-muted)]')
+    expect(grid.className).toContain('[&>div:first-child>div:nth-child(7)]:text-[var(--color-accent)]')
+    expect(grid.querySelector('[data-day]')!.getAttribute('data-day')).toBe('2026-08-30')
+  })
+
+  it('en positively applies muted to all seven header cells and only ordinary weekend numbers', async () => {
+    mockLocale = 'en'
+    renderView({ loadMonthCells: () => new Promise(() => {}) })
+    await openPanel()
+    const grid = centreGrid(screen.getByRole('dialog'))
+    const headers = grid.querySelectorAll('[data-weekday-header] > div')
+    expect(headers).toHaveLength(7)
+    expect(grid.className).toContain('[&>div:first-child>div]:text-[var(--color-text-muted)]')
+    for (const header of Array.from(headers)) {
+      expect(header.matches('div:first-child > div')).toBe(true)
+      expect(header.className).not.toMatch(/text-red|text-primary|text-\[var\(--color-(accent|destructive)/)
+    }
+    expect(grid.className).not.toMatch(/\]:text-\[var\(--color-(accent|destructive)\)\]/)
+    for (const colour of ['destructive', 'accent']) {
+      const selector = `button>span:first-child[class~='text-[var(--color-${colour})]']`
+      expect(grid.className).toContain(`[&_${selector}]:text-[var(--color-text-muted)]`)
+      const fixture = document.createElement('div')
+      fixture.innerHTML = `<button><span class="text-[var(--color-${colour})]"></span><span class="text-[var(--color-${colour})]"></span></button><button><span class="bg-[var(--color-accent)] text-[var(--color-accent-text)]"></span></button><button><span class="text-[var(--color-text-muted)]/60"></span></button>`
+      expect(fixture.querySelectorAll(selector)).toHaveLength(1)
+    }
   })
 })

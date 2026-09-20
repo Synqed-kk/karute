@@ -38,6 +38,7 @@ import {
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
+import type { WeekStart } from '@/lib/date/week-start'
 import { jstMidnight } from '@/lib/date/calendar-range'
 import { isClassBoundBusinessType } from '@/lib/welcome/business-types'
 import type { CapacityFact, LaneKind } from '@/lib/capacity/capacity'
@@ -84,6 +85,8 @@ export function parseStaffParam(value: string | undefined): string {
 // the caller resolves view → ranges before the build.
 export interface AppointmentsScreenInputs {
   locale: string
+  /** Resolved by the caller; older facade callers retain Monday cells. */
+  weekStart?: WeekStart
   now: Date
   selectedDate: Date
   staffFilter: string
@@ -257,6 +260,7 @@ export function buildAppointmentsScreen(
 ): AppointmentsScreen {
   const {
     locale,
+    weekStart = 1,
     now,
     selectedDate,
     staffFilter,
@@ -598,6 +602,7 @@ export function buildAppointmentsScreen(
         // ONE source for 休: the same map the week rows read their own `closed`
         // from, so the month cell and the week row cannot disagree about a day.
         hoursFacts,
+        weekStart,
       )
       // The same rows, the same month, one call beside the other — the cells
       // and their facts cannot come from different reads.

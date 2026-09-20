@@ -177,14 +177,12 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
     async (monthKey: string) => {
       // Release 28: main's network-only month door, with no remembered state.
       if (!BOOKING_SWITCHES.persistCalendarNumbers) {
-        const qs = new URLSearchParams({
+        const path = appointmentsScreenPath({
           view: 'month',
           date: `${monthKey}-01`,
           locale: getThinLocale(),
         })
-        const res = await getDataPort().apiFetch(
-          `/api/app/v1/screens/appointments?${qs.toString()}`,
-        )
+        const res = await getDataPort().apiFetch(path)
         if (!res.ok) throw new Error(`date-jump month read failed: ${res.status}`)
         const monthDto = AppointmentsScreenDTO.parse(await res.json())
         // Never silently empty: no monthData means the read did not answer the

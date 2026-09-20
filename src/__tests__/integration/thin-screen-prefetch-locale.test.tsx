@@ -46,7 +46,7 @@ describe('screen-prefetch URLs carry the module locale', () => {
   it('ja default: PREFETCH_PATHS and recordWarmPath stay locale=ja (unchanged from the byte-pin suite)', async () => {
     const { PREFETCH_PATHS, recordWarmPath } = await loadScreenPrefetch()
     expect(PREFETCH_PATHS[0]).toBe('/api/app/v1/screens/record?locale=ja')
-    expect(PREFETCH_PATHS[1]).toBe('/api/app/v1/screens/appointments?locale=ja')
+    expect(PREFETCH_PATHS[1]).toBe('/api/app/v1/screens/appointments?locale=ja&weekStart=locale')
     expect(recordWarmPath('a1')).toBe(
       '/api/app/v1/screens/record?appointmentId=a1&locale=ja',
     )
@@ -56,7 +56,7 @@ describe('screen-prefetch URLs carry the module locale', () => {
     window.localStorage.setItem('thin.locale', 'en')
     const { PREFETCH_PATHS, recordWarmPath } = await loadScreenPrefetch()
     expect(PREFETCH_PATHS[0]).toBe('/api/app/v1/screens/record?locale=en')
-    expect(PREFETCH_PATHS[1]).toBe('/api/app/v1/screens/appointments?locale=en')
+    expect(PREFETCH_PATHS[1]).toBe('/api/app/v1/screens/appointments?locale=en&weekStart=locale')
     expect(recordWarmPath('a1')).toBe(
       '/api/app/v1/screens/record?appointmentId=a1&locale=en',
     )

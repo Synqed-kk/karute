@@ -112,16 +112,28 @@ afterEach(() => {
 })
 
 describe('the path IS the cache key (S3)', () => {
+  it('an old Monday month cache entry cannot answer the new locale request', () => {
+    mockPersistCalendarNumbers = true
+    const legacyPath = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja'
+    const path = appointmentsScreenPath({ date: '2026-09-01', view: 'month', locale: 'ja' })
+    dtoCache.set(legacyPath, { monthData: monthCells() })
+    rememberMonthNumbers(legacyPath, monthCells())
+    expect(readMonthNumbers(legacyPath)).toEqual(monthCells())
+    expect(path).not.toBe(legacyPath)
+    expect(dtoCache.has(path)).toBe(false)
+    expect(readMonthNumbers(path)).toBeNull()
+  })
+
   it('spells it exactly as the screen does — order included, absent params absent', () => {
     expect(appointmentsScreenPath({ locale: 'ja' })).toBe(
-      '/api/app/v1/screens/appointments?locale=ja',
+      '/api/app/v1/screens/appointments?locale=ja&weekStart=locale',
     )
     expect(
       appointmentsScreenPath({ date: '2026-09-14', view: 'week', staff: 'self', locale: 'ja' }),
-    ).toBe('/api/app/v1/screens/appointments?date=2026-09-14&view=week&staff=self&locale=ja')
+    ).toBe('/api/app/v1/screens/appointments?date=2026-09-14&view=week&staff=self&locale=ja&weekStart=locale')
     // 'all' is never written to the URL by navigateTo, so it is never a key.
     expect(appointmentsScreenPath({ date: '2026-09-14', view: 'day', staff: null, locale: 'ja' })).toBe(
-      '/api/app/v1/screens/appointments?date=2026-09-14&view=day&locale=ja',
+      '/api/app/v1/screens/appointments?date=2026-09-14&view=day&locale=ja&weekStart=locale',
     )
   })
 })
@@ -130,13 +142,13 @@ describe('the neighbour queue (S3)', () => {
   it('queues one unit either way, then the other two views, then the month', () => {
     const paths = neighbourPaths({ ...base, view: 'week', selectedDate: SELECTED })
     expect(paths).toEqual([
-      '/api/app/v1/screens/appointments?date=2026-09-07&view=week&locale=ja',
-      '/api/app/v1/screens/appointments?date=2026-09-21&view=week&locale=ja',
-      '/api/app/v1/screens/appointments?date=2026-09-14&view=day&locale=ja',
-      '/api/app/v1/screens/appointments?date=2026-09-14&view=month&locale=ja',
+      '/api/app/v1/screens/appointments?date=2026-09-07&view=week&locale=ja&weekStart=locale',
+      '/api/app/v1/screens/appointments?date=2026-09-21&view=week&locale=ja&weekStart=locale',
+      '/api/app/v1/screens/appointments?date=2026-09-14&view=day&locale=ja&weekStart=locale',
+      '/api/app/v1/screens/appointments?date=2026-09-14&view=month&locale=ja&weekStart=locale',
       // The pop-down's own month — NO staff param, because the 月 counts are
       // store-wide and one would quietly shrink them.
-      '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja',
+      '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja&weekStart=locale',
     ])
   })
 
@@ -208,7 +220,7 @@ describe('the neighbour queue (S3)', () => {
 
 describe('the calendar numbers kept on the device (S4)', () => {
   beforeEach(() => { mockPersistCalendarNumbers = true })
-  const path = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja'
+  const path = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja&weekStart=locale'
 
   it('isolates the same path across store lenses read at call time', () => {
     setThinActiveStore('store-A')

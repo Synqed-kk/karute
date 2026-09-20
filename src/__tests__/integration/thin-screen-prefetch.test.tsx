@@ -203,7 +203,7 @@ import { SessionsScreen } from '../../../thin/screens/SessionsScreen'
 import { DashboardScreen } from '../../../thin/screens/DashboardScreen'
 
 const RECORD_PATH = '/api/app/v1/screens/record?locale=ja'
-const APPOINTMENTS_PATH = '/api/app/v1/screens/appointments?locale=ja'
+const APPOINTMENTS_PATH = '/api/app/v1/screens/appointments?locale=ja&weekStart=locale'
 const CUSTOMERS_PATH = '/api/app/v1/screens/customers?locale=ja'
 // ?window=1 (PR-2a 日付チャンク読み込み): the path IS the cache key, so the
 // prefetch and SessionsScreen's own fetch must name the SAME url — a bare
@@ -370,7 +370,7 @@ describe('screen-prefetch — byte-pin (test 2)', () => {
   it('pins every cache-key path against the owning screen literal', () => {
     expect(PREFETCH_PATHS).toEqual([
       '/api/app/v1/screens/record?locale=ja',
-      '/api/app/v1/screens/appointments?locale=ja',
+      '/api/app/v1/screens/appointments?locale=ja&weekStart=locale',
       '/api/app/v1/screens/customers?locale=ja',
       '/api/app/v1/screens/sessions?window=1',
       '/api/app/v1/screens/dashboard?locale=ja',

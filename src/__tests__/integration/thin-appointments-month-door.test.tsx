@@ -194,6 +194,19 @@ it('asks the screen GET for that month, and carries NO staff param', async () =>
   expect(String(monthCall![0])).not.toContain('staff')
 })
 
+it.each([false, true])('both phone requests opt into locale cells (remembered numbers %s)', async (persist) => {
+  mockPersistCalendarNumbers = persist
+  const { apiFetch, load } = await mountScreen()
+  await load('2026-12')
+  const paths = apiFetch.mock.calls.map((call) => new URL(String(call[0]), 'https://shell.invalid'))
+  const screenRequest = paths.find((url) => url.searchParams.get('date') === '2026-09-14')!
+  const monthRequest = paths.find((url) => url.searchParams.get('view') === 'month')!
+  expect(screenRequest.pathname).toBe('/api/app/v1/screens/appointments')
+  expect(monthRequest.pathname).toBe('/api/app/v1/screens/appointments')
+  expect(screenRequest.searchParams.get('weekStart')).toBe('locale')
+  expect(monthRequest.searchParams.get('weekStart')).toBe('locale')
+})
+
 it('returns the month cells verbatim — the DTO shape needs no translation', async () => {
   const { load } = await mountScreen()
   await expect(load('2026-12')).resolves.toEqual([MONTH_CELL])
@@ -275,7 +288,7 @@ it('round-trips fixture month cells to the identical rendered toMonthCells outpu
   const before = capturedProps!.monthData
   mounted.unmount()
 
-  rememberMonthNumbers('/api/app/v1/screens/appointments?date=2026-12-01&view=month&locale=ja', cells)
+  rememberMonthNumbers('/api/app/v1/screens/appointments?date=2026-12-01&view=month&locale=ja&weekStart=locale', cells)
   dtoCache.clear()
   capturedProps = null
   setDataPort({ apiFetch: jest.fn(async () => jsonResponse({ ...DTO, selectedDateIso: '2026-12-01' })) } as unknown as Parameters<typeof setDataPort>[0])
@@ -290,12 +303,12 @@ function mountPanel() {
     open onClose={() => {}} anchorRef={createRef<HTMLDivElement>()}
     selectedDate={new Date('2026-09-14T00:00:00+09:00')}
     seedCells={capturedProps!.monthData} loadMonthCells={capturedProps!.loadMonthCells as Parameters<typeof DateJumpPanel>[0]['loadMonthCells']}
-    onPickDay={() => {}} weekdayLabels={['M', 'T', 'W', 'T', 'F', 'S', 'S']}
+    onPickDay={() => {}} weekStart={0} tone={{ sunday: 'red', saturday: 'accent' }}
   />)
 }
 
 it('release 28 OFF equals main: cold panel skeleton then network cells despite a stored v2 blob', async () => {
-  const path = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja'
+  const path = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja&weekStart=locale'
   const cells = [{ ...MONTH_CELL, id: '2026-09-01', dateIso: '2026-08-31T15:00:00.000Z' }]
   window.localStorage.setItem('karute-calendar-numbers', JSON.stringify({
     v: 2, entries: { [JSON.stringify(['u1', 'all', path])]: { at: 1, monthData: cells } },
@@ -375,7 +388,7 @@ it('switch ON: loader still caches with an intact fence', async () => {
 })
 
 
-const SEPTEMBER_PATH = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja'
+const SEPTEMBER_PATH = '/api/app/v1/screens/appointments?date=2026-09-01&view=month&locale=ja&weekStart=locale'
 const SEPTEMBER_CELL = { ...MONTH_CELL, id: '2026-09-01', dateIso: '2026-08-31T15:00:00.000Z' }
 const SEPTEMBER_DTO = { ...DTO, view: 'month', monthData: [SEPTEMBER_CELL] }
 

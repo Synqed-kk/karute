@@ -41,9 +41,10 @@ import { rememberMonthNumbers } from './calendar-numbers-store'
  * it, and the pop-down calendar's month door uses it too, so a month warmed
  * here is a month the panel actually finds.
  *
- * Key order is part of the key: date, view, staff, locale, and an absent
+ * Key order is part of the key: date, view, staff, locale, weekStart, and an absent
  * param is absent rather than empty (a bare `/appointments` URL reads as
- * `?locale=ja`, which is what the boundary caches it under).
+ * `?locale=ja&weekStart=locale`, which is what the boundary caches it under).
+ * The opt-in also separates new month reads from old Monday-first cache keys.
  */
 export function appointmentsScreenPath(params: {
   date?: string | null
@@ -57,6 +58,7 @@ export function appointmentsScreenPath(params: {
     if (value) qs.set(key, value)
   }
   qs.set('locale', params.locale)
+  qs.set('weekStart', 'locale')
   return `/api/app/v1/screens/appointments?${qs.toString()}`
 }
 

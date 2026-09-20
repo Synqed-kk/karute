@@ -2041,7 +2041,29 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // purchase exclusion stayed clean (0/13). No dependency files changed.
 // Proof: artifacts-speed/s13-mi2/thin-lap-{1,2}.json, bundle-identity.txt,
 // thin-measured.json, thin-build-{1,2}.log, bundle-gate-{before,after}.log.
-const BUDGET_BYTES = 2_158_683
+//
+// RE-MEASURED 2026-09-20 — PKT-SUNDAY-REPLANT-ON-MAIN (S15)
+// feat/booking-sunday-first-main, product/test tip 7beb064c5aeaf25c7cfbf8fea775cc4aa9d4cb4c;
+// replanted onto origin/main f8cccd46a. Only the Sunday calendar changes
+// are carried; main's speed round and persistence OFF remain intact.
+// The old-base Sunday ledger commit 240cf8b81 was deliberately skipped.
+//
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* values read programmatically from .github/workflows/ci.yml,
+// offline, node v24.16.0. thin/dist emptied before EACH of two laps.
+// All 23 output files byte-identical (relative paths, sizes, SHA-256s and
+// direct byte comparison):
+//   en-Y23xfm6U.js                  138,722 B
+//   index-ihkFOhye.js             1,082,477 B
+//   vendor-DqXjNZNP.js              937,800 B
+// Total = 138,722 + 1,082,477 + 937,800 = 2,158,999 B.
+// Ceiling = measured + 1,000 = 2,159,999 B.
+// Initial gate failed by 316 B against main's 2,158,683 B ceiling;
+// purchase exclusion stayed clean (0/13). No dependency files changed.
+// Proof: /Users/liam/codex-work/artifacts-sunday/s15/thin-lap-{1,2}.json,
+// bundle-identity.txt, thin-measured.json, thin-build-{1,2}.log and
+// bundle-gate-{before,after}.log in the same evidence directory.
+const BUDGET_BYTES = 2_159_999
 let dir
 try {
   dir = readdirSync(DIST)

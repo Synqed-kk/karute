@@ -8,6 +8,7 @@
  * not "the flag arrives" — it is "both surfaces read one map and agree", plus
  * the lead ruling that a closed day WITH bookings is not a 休 cell.
  */
+import { weekStartFor } from '@/lib/date/week-start'
 import type { Appointment } from '@synqed-kk/client'
 import { buildAppointmentsScreen } from '@/lib/appointments/screen'
 import { appointmentsToMonthCells } from '@/lib/adapters/reservation'
@@ -95,13 +96,13 @@ describe('appointmentsToMonthCells — the closed fact', () => {
   const { monthStart, monthEnd } = computeMonthRange(SELECTED)
 
   it('marks a closed day and leaves every other in-month day open', () => {
-    const cells = appointmentsToMonthCells([], monthStart, monthEnd, NOW, hoursFacts())
+    const cells = appointmentsToMonthCells([], monthStart, monthEnd, NOW, hoursFacts(), weekStartFor('ja'))
     const closed = cells.filter((c) => c.closed)
     expect(closed.map((c) => c.id)).toEqual([CLOSED_YMD])
   })
 
   it('without a hours map no cell claims to be closed (today s behaviour)', () => {
-    const cells = appointmentsToMonthCells([], monthStart, monthEnd, NOW)
+    const cells = appointmentsToMonthCells([], monthStart, monthEnd, NOW, undefined, weekStartFor('ja'))
     expect(cells.some((c) => c.closed)).toBe(false)
   })
 
@@ -109,7 +110,7 @@ describe('appointmentsToMonthCells — the closed fact', () => {
     // The map covers September only, but the grid's leading/trailing cells are
     // August/October days: an out cell must not inherit a neighbour month's
     // answer, and it has no marker to show one with.
-    const cells = appointmentsToMonthCells([], monthStart, monthEnd, NOW, hoursFacts())
+    const cells = appointmentsToMonthCells([], monthStart, monthEnd, NOW, hoursFacts(), weekStartFor('ja'))
     expect(cells.filter((c) => !c.inMonth).every((c) => c.closed === false)).toBe(true)
   })
 
@@ -122,7 +123,7 @@ describe('appointmentsToMonthCells — the closed fact', () => {
       monthStart,
       monthEnd,
       NOW,
-      hoursFacts(),
+      hoursFacts(), weekStartFor('ja'),
     )
     const cell = cells.find((c) => c.id === CLOSED_YMD)!
     expect(cell.closed).toBe(true)

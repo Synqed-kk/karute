@@ -1,5 +1,7 @@
 'use server'
 
+import { locales, defaultLocale } from '@/i18n/locales'
+import { weekStartFor } from '@/lib/date/week-start'
 import { revalidatePath, updateTag } from 'next/cache'
 import type { Appointment, AppointmentSource } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -375,8 +377,14 @@ export async function getAppointmentsInRange(
  * `newCountKnown: false` rather than a number nobody may print.
  *
  * @param monthKey 'YYYY-MM' in the JST calendar.
+ * @param locale The client's locale; missing or unsupported input uses the
+ * routing default. A caller-chosen locale can only choose between the shipped
+ * week orders; it cannot change the store scope or the appointments read.
  */
-export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[]> {
+export async function getMonthCells(
+  monthKey: string,
+  locale: string = defaultLocale,
+): Promise<MonthCellDTOType[]> {
   if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(monthKey)) {
     throw new Error('getMonthCells: monthKey must be YYYY-MM')
   }
@@ -445,6 +453,8 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
     monthStart,
     monthEnd,
     jstStartOfToday(),
+    undefined,
+    weekStartFor(locales.find((shipped) => shipped === locale) ?? defaultLocale),
   )
   // The jump panel reads COUNTS only — no hours, no roster, no store type are
   // fetched here, so these months honestly carry no capacity (no `facts`)

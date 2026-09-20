@@ -171,7 +171,8 @@ type MonthPageProps = {
   cells: MonthCell[]
   selectedDateIso: string
   todayIso?: string
-  weekdayLabels: string[]
+  weekStart: number
+  tone: { sunday: string; saturday: string }
   typeSlot: string
   typeCount?: number | null
   locale: string
@@ -461,7 +462,15 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(monthPageProps!.cells).toHaveLength(2)
     expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
     expect(monthPageProps!.todayIso).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-    expect(monthPageProps!.weekdayLabels).toHaveLength(7)
+    // Label order is pinned against all seven cells in both rendered surfaces;
+    // this container supplies the locale and the empty-grid fallback only.
+    expect(monthPageProps!.locale).toBe('ja')
+    expect(monthPageProps).not.toHaveProperty('weekdayLabels')
+    expect(monthPageProps!.weekStart).toBe(0)
+    expect(monthPageProps!.tone).toEqual({ sunday: 'red', saturday: 'accent' })
+    expect(panelProps).not.toHaveProperty('weekdayLabels')
+    expect(panelProps.weekStart).toBe(monthPageProps!.weekStart)
+    expect(panelProps.tone).toBe(monthPageProps!.tone)
     // ⚖ PKT-2b — typeSlot is read off the one switch, same as the week/day
     // lines; MONTH_VIEW's fixture cells carry no explicit newCount, so the
     // month sum (0 known days, 0 new) computes to 0, not null.

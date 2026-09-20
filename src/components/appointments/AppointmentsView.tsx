@@ -30,6 +30,7 @@ import {
   jstWallTimeToDate,
   ymdInJst,
 } from '@/lib/date/jst'
+import { weekStartFor, weekendTone, type WeekStart, type WeekendTone } from '@/lib/date/week-start'
 import { computeMonthRange, computeWeekRange, jstMidnight } from '@/lib/date/calendar-range'
 import { monthKeyInJst, monthKeyOf } from '@/lib/appointments/date-jump'
 import { shiftAppointmentsDate } from '@/lib/appointments/date-step'
@@ -123,9 +124,10 @@ interface AppointmentsViewProps {
   /** The date-jump panel's month reader, injected by the host: the web page
    *  passes the getMonthCells server action, the thin screen passes a facade
    *  GET (that route is Bearer-only, so the two cannot share one door — see
-   *  getMonthCells' comment). A rejection is honest: that month shows its
-   *  「取得できませんでした」 line and retries on the next visit. */
-  loadMonthCells: (monthKey: string) => Promise<MonthCellDTOType[]>
+   *  getMonthCells' comment). The panel supplies its locale; the thin loader
+   *  reads getThinLocale() for its request instead. A rejection is honest:
+   *  that month shows its 「取得できませんでした」 line and retries on the next visit. */
+  loadMonthCells: (monthKey: string, locale: string) => Promise<MonthCellDTOType[]>
 }
 
 // The header's date chip is rendered by @synqed-kk/ui, which exposes no class
@@ -176,7 +178,8 @@ const NeighbourPane = memo(function NeighbourPane({
   dateIso,
   todayIso,
   locale,
-  weekdayLabels,
+  weekStart,
+  tone,
   businessHours,
   side,
 }: {
@@ -188,7 +191,8 @@ const NeighbourPane = memo(function NeighbourPane({
   dateIso: string
   todayIso: string
   locale: string
-  weekdayLabels: [string, string, string, string, string, string, string]
+  weekStart: WeekStart
+  tone: WeekendTone
   businessHours: BusinessHours
   side: -1 | 1
 }) {
@@ -200,9 +204,9 @@ const NeighbourPane = memo(function NeighbourPane({
     () => {
       if (view !== 'month') return null
       const { monthStart, monthEnd } = computeMonthRange(date)
-      return appointmentsToMonthCells([], monthStart, monthEnd, today)
+      return appointmentsToMonthCells([], monthStart, monthEnd, today, undefined, weekStart)
     },
-    [view, date, today],
+    [view, date, today, weekStart],
   )
   const rows = useMemo(
     () => {
@@ -231,7 +235,8 @@ const NeighbourPane = memo(function NeighbourPane({
           cells={cells ?? []}
           selectedDateIso={dateIso}
           todayIso={todayIso}
-          weekdayLabels={weekdayLabels}
+          weekStart={weekStart}
+          tone={tone}
           typeSlot={TYPE_SLOT}
           typeCount={null}
           monthCompareDelta={null}
@@ -365,18 +370,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const tReservation = useTranslations('reservation')
   const tCommon = useTranslations('common')
 
-  // Mon-first localized weekday headers for MonthGrid (2024-01-01 is a Monday).
-  // Memoized — the 7 Intl.DateTimeFormat + 7 Date allocations only recompute
-  // when the locale changes, not on every render.
-  const monthWeekdayLabels = useMemo(
-    () =>
-      Array.from({ length: 7 }, (_, i) =>
-        new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(
-          new Date(Date.UTC(2024, 0, 1 + i)),
-        ),
-      ) as [string, string, string, string, string, string, string],
-    [locale],
-  )
+  // Locale supplies the skeleton order and tones; loaded headers follow cells.
+  const { weekStart, tone } = useMemo(() => ({
+    weekStart: weekStartFor(locale),
+    tone: weekendTone(locale),
+  }), [locale])
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date): string {
     // R1-1 — any move spends the held tap. A month-cell tap re-arms it right
@@ -559,7 +557,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // is the real selection the rest of the time.
             selectedDateIso={shownDayIso}
             todayIso={ymdInJst(today)}
-            weekdayLabels={monthWeekdayLabels}
+            weekStart={weekStart}
+            tone={tone}
             // ⚖ PKT-2b — 新規, for every business type (Liam 2026-09-15
             // 20:2x). One home: the slot is read off the switch registry,
             // never spelled per call site — the same import the day/week
@@ -881,7 +880,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // mode this IS navigateTo('month', date): the page stays on the month
         // page and the tapped day becomes its selection.
         onPickDay={(date) => navigateTo(view, date)}
-        weekdayLabels={monthWeekdayLabels}
+        weekStart={weekStart}
+        tone={tone}
         // ⚖ §v11b — in 月 mode the chip opens on the twelve month chips, never
         // a day grid over a day grid (the two calendars looked identical, which
         // is what started this whole round). 日/週 are unchanged.
@@ -1055,7 +1055,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                   dateIso={ymdInJst(shiftAppointmentsDate(selectedDate, view, side, today))}
                   todayIso={ymdInJst(today)}
                   locale={props.locale}
-                  weekdayLabels={monthWeekdayLabels}
+                  weekStart={weekStart}
+                  tone={tone}
                   businessHours={props.businessHours}
                   side={side}
                 />

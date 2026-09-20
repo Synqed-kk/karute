@@ -61,6 +61,7 @@ import {
 import { ymdInJst } from '@/lib/date/jst'
 import { coreBusinessType } from '@/lib/welcome/business-types'
 import { monthCellsToDTO } from '@/lib/adapters/reservation'
+import { facadeWeekStart } from '@/lib/date/week-start'
 
 export const runtime = 'nodejs'
 
@@ -360,6 +361,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
 
     const screen = buildAppointmentsScreen({
       locale,
+      weekStart: facadeWeekStart(url.searchParams.get('weekStart'), locale),
       now,
       selectedDate,
       staffFilter,

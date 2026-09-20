@@ -1,6 +1,7 @@
 import type { Appointment } from '@synqed-kk/client'
 import type { MonthGridCell, WeekDayCardData, MonthDensityBucket } from '@synqed-kk/ui'
 import { partsInJst, ymdInJst } from '@/lib/date/jst'
+import type { WeekStart } from '@/lib/date/week-start'
 import { isCountedBooking } from '@/lib/appointments/by-date'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import type { DayHoursFact } from '@/lib/operating-hours'
@@ -587,7 +588,8 @@ export function appointmentsToMonthCells(
   /** That day's resolved hours, keyed by JST YYYY-MM-DD — the same map the
    *  week adapter above reads its own `closed` from (resolveWindowHours).
    *  Absent = no cell is closed, today's behaviour. */
-  hoursFacts?: ReadonlyMap<string, DayHoursFact>,
+  hoursFacts: ReadonlyMap<string, DayHoursFact> | undefined,
+  weekStart: WeekStart,
 ): MonthCell[] {
   const buckets = new Map<string, number>()
   // Same guard as the week adapter above: ONE 件 definition, so a month cell
@@ -598,18 +600,17 @@ export function appointmentsToMonthCells(
     buckets.set(key, (buckets.get(key) ?? 0) + 1)
   }
 
-  // Grid starts on Monday (matches MonthGrid default weekday labels: Mon..Sun).
-  // JS Day: 0=Sun..6=Sat; convert to Mon-first index (Mon=0..Sun=6).
+  // Align the grid with the locale-derived week start (JS Sunday = 0).
   // Pull weekday in JST so the leading-padding count is correct when the
   // server is UTC and monthStart is a JST midnight UTC instant.
   const monthStartParts = partsInJst(monthStart)
-  const monStartIdx = (monthStartParts.weekday + 6) % 7
+  const leading = (monthStartParts.weekday - weekStart + 7) % 7
   const gridStart = new Date(monthStart)
-  gridStart.setDate(gridStart.getDate() - monStartIdx)
+  gridStart.setDate(gridStart.getDate() - leading)
 
   const monthEndParts = partsInJst(monthEnd)
-  const monEndIdx = (monthEndParts.weekday + 6) % 7
-  const trailing = 6 - monEndIdx
+  const endIndex = (monthEndParts.weekday - weekStart + 7) % 7
+  const trailing = 6 - endIndex
   const gridEnd = new Date(monthEnd)
   gridEnd.setDate(gridEnd.getDate() + trailing)
 
