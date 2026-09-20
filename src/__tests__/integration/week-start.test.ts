@@ -2,7 +2,19 @@
 jest.mock('next-intl/routing', () => ({ defineRouting: <T,>(config: T): T => config }))
 
 import { routing } from '@/i18n/routing'
-import { weekStartFor, weekendTone, weekStartOfCells, weekdayLabelsFor } from '@/lib/date/week-start'
+import { facadeWeekStart, weekStartFor, weekendTone, weekStartOfCells, weekdayLabelsFor } from '@/lib/date/week-start'
+
+describe('facadeWeekStart', () => {
+  it.each([null, undefined, '', 'garbage', 'Locale', '0', '1', ' locale'])(
+    'keeps legacy Monday cells for %s in every shipped locale', (value) => {
+      for (const locale of routing.locales) expect(facadeWeekStart(value, locale)).toBe(1)
+    },
+  )
+
+  it.each(['ja', 'en', 'en-GB', 'not_a_locale'])('only the exact opt-in follows %s without throwing', (locale) => {
+    expect(facadeWeekStart('locale', locale)).toBe(weekStartFor(locale))
+  })
+})
 
 describe('weekStartFor', () => {
   it.each([['ja', 0], ['en-GB', 1], ['en-US', 0]] as const)(

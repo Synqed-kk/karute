@@ -939,10 +939,11 @@ describe('⚖ R1-3 — the web door and the facade ship the same month', () => {
     )
   }
 
-  /** What the facade route does: the screen's month map through that mapper. */
+  /** The opted-in phone route: the screen's month map through that mapper. */
   function facadeMonth() {
     const screen = buildAppointmentsScreen({
       locale: 'ja',
+      weekStart: weekStartFor('ja'),
       now: NOW,
       selectedDate: MON,
       staffFilter: 'all',

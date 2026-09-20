@@ -305,7 +305,15 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => fakeClient),
 }))
 
+// Observe the real assembly inputs/results without replacing its derivation.
+jest.mock('@/lib/appointments/screen', () => {
+  const actual = jest.requireActual('@/lib/appointments/screen')
+  return { ...actual, buildAppointmentsScreen: jest.fn(actual.buildAppointmentsScreen) }
+})
+
 import { GET } from '@/app/api/app/v1/screens/appointments/route'
+import { buildAppointmentsScreen } from '@/lib/appointments/screen'
+import { appointmentsToMonthCells, monthCellsToDTO } from '@/lib/adapters/reservation'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -391,6 +399,57 @@ beforeEach(() => {
 })
 
 describe('GET /api/app/v1/screens/appointments', () => {
+  // Both phone doors reach this route: the month screen carries its selected
+  // day; the pop-down sends the first of the requested month without staff.
+  describe.each([
+    ['month screen', 'view=month&date=2027-03-11&staff=self'],
+    ['pop-down month cells', 'date=2027-03-01&view=month'],
+  ])('%s compatibility', (_door, query) => {
+    it.each([
+      ['absent', '', '2027-03-01', '2027-04-04', 1],
+      ['locale', '&weekStart=locale', '2027-02-28', '2027-04-03', 0],
+      ['garbage', '&weekStart=garbage', '2027-03-01', '2027-04-04', 1],
+    ] as const)('weekStart %s preserves the complete expected month DTO', async (
+      _label, optIn, first, last, weekStart,
+    ) => {
+      // Non-empty month, so the legacy equality pin covers booking numbers
+      // and their enrichment as well as all padding cells and date metadata.
+      const rows = dayRows.map((row) => ({
+        ...row,
+        starts_at: '2027-03-11T10:00:00+09:00',
+        ends_at: '2027-03-11T11:00:00+09:00',
+      }))
+      listAppointments.mockResolvedValue({ appointments: rows, total: rows.length })
+      const res = await GET(req({},
+        `https://s/api/app/v1/screens/appointments?${query}&locale=ja${optIn}`,
+      ), route)
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.monthData).toHaveLength(35)
+      expect(dto.monthData![0].id).toBe(first)
+      expect(dto.monthData![34].id).toBe(last)
+      expect(dto.monthData!.filter((cell) => cell.inMonth)).toHaveLength(31)
+      expect(dto.monthData!.find((cell) => cell.id === '2027-03-11')!.count).toBeGreaterThan(0)
+      const assembly = jest.mocked(buildAppointmentsScreen)
+      const input = assembly.mock.calls[0][0]
+      const screen = assembly.mock.results[0].value as ReturnType<typeof buildAppointmentsScreen>
+      // weekStart 1 is main's Monday adapter rule. Resolve it independently
+      // of the facade helper/caller, and compare every serialized cell field.
+      const expected = monthCellsToDTO(appointmentsToMonthCells(
+        input.monthWindow!.counted,
+        input.monthRange!.monthStart,
+        input.monthRange!.monthEnd,
+        input.now,
+        input.hoursFacts,
+        weekStart,
+      ), {
+        newCounts: { byDay: screen.monthNewCounts!, known: screen.newCountKnown },
+        facts: screen.monthFacts,
+      })
+      expect(dto.monthData).toEqual(expected)
+    })
+  })
+
   it('missing capability → 403 with no synqed reads', async () => {
     mockCapabilities.mockResolvedValue(new Set())
     const res = await GET(req(), route)
@@ -526,7 +585,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
   // pinned that an arbitrary ?date= actually returns THAT month's grid.
   it('?view=month&date=<a day in another month> returns that month\'s cells', async () => {
     const res = await GET(
-      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2027-03-11'),
+      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2027-03-11&locale=ja&weekStart=locale'),
       route,
     )
     expect(res.status).toBe(200)

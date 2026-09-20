@@ -27,6 +27,11 @@ export function weekStartFor(locale: string): WeekStart {
   return legacyWeekStart(locale)
 }
 
+/** Baked phone bundles need Monday cells unless they explicitly opt in. */
+export function facadeWeekStart(value: string | null | undefined, locale: string): WeekStart {
+  return value === 'locale' ? weekStartFor(locale) : 1
+}
+
 /** Calendar weekend colours follow the language, independently of week order. */
 export function weekendTone(locale: string): WeekendTone {
   let japanese = /^ja(?:\b|_)/i.test(locale)

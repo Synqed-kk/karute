@@ -20,6 +20,7 @@ import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
 import { getAppointmentWindow } from '@/actions/appointments-window'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { monthCompareWindow } from '@/lib/appointments/month-compare'
+import { weekStartFor } from '@/lib/date/week-start'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsageOrNull } from '@/lib/packs/store'
 import { getBusinessId } from '@/lib/staff'
@@ -276,6 +277,7 @@ export default async function AppointmentsPage({
 
   const screen = buildAppointmentsScreen({
     locale,
+    weekStart: weekStartFor(locale),
     now,
     selectedDate,
     staffFilter,
