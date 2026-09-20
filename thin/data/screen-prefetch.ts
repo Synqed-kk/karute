@@ -35,6 +35,7 @@ import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/sessio
 import { subscribeRevalidate } from '../ports/nav.vite'
 import { cacheDto, captureCacheFence, dtoCache } from '../screens/ScreenBoundary'
 import { getThinLocale } from '../locale'
+import { appointmentsScreenPath } from './screen-neighbours'
 
 // Compressed vs brief-warm.ts's 3s/4s (Liam field feedback: staff tap
 // 予約→録音 faster than that 3s/4s cadence covers). Approved tradeoff: the
@@ -57,7 +58,7 @@ const TARGETS: Target[] = [
     parse: (raw) => RecordScreenDTO.parse(raw),
   },
   {
-    path: `/api/app/v1/screens/appointments?locale=${getThinLocale()}`,
+    path: appointmentsScreenPath({ locale: getThinLocale() }),
     parse: (raw) => AppointmentsScreenDTO.parse(raw),
   },
   {

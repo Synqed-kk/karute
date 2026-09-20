@@ -108,7 +108,7 @@ it('cache-hit mount (the literal reported repro): instant paint, revalidate in f
   // The named bug: revisit paints instantly from the packet-24 cache, then
   // background-revalidates — and the old wiring greyed + froze that whole
   // revalidate. Pre-populate the cache and mount.
-  const path = '/api/app/v1/screens/appointments?date=2026-07-23&locale=ja'
+  const path = '/api/app/v1/screens/appointments?date=2026-07-23&locale=ja&weekStart=locale'
   dtoCache.set(path, DTO)
   const apiFetch = jest
     .fn<Promise<Response>, unknown[]>()
