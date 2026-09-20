@@ -290,7 +290,7 @@ function mountPanel() {
     open onClose={() => {}} anchorRef={createRef<HTMLDivElement>()}
     selectedDate={new Date('2026-09-14T00:00:00+09:00')}
     seedCells={capturedProps!.monthData} loadMonthCells={capturedProps!.loadMonthCells as Parameters<typeof DateJumpPanel>[0]['loadMonthCells']}
-    onPickDay={() => {}} weekdayLabels={['M', 'T', 'W', 'T', 'F', 'S', 'S']}
+    onPickDay={() => {}} weekStart={0} tone={{ sunday: 'red', saturday: 'accent' }}
   />)
 }
 
