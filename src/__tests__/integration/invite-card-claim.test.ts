@@ -54,10 +54,15 @@ const mockCreateUser = jest.fn(async () => ({
   data: { user: { id: (global as any).__newUserId } },
   error: null,
 }))
-const mockProfileUpdate = jest.fn(() => ({ eq: async () => ({ error: null }) }))
+const mockProfileEq = jest.fn<Promise<object>, [string, string]>(async () => ({ error: null }))
+const mockProfileUpdate = jest.fn<{ eq: (col: string, val: string) => Promise<object> }, [Record<string, unknown>?]>(() => ({
+  eq: (col: string, val: string) => mockProfileEq(col, val),
+}))
 // Spy on the rollback (⚖ Greptile #978 R2): a join whose card was claimed
 // concurrently deletes the auth user it just created.
 const mockDeleteUser = jest.fn<Promise<object>, [string]>(async () => ({}))
+// The R3 ban barrier (a failed rollback bans the stranded account).
+const mockUpdateUserById = jest.fn<Promise<object>, [string, Record<string, unknown>]>(async () => ({}))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const chain: Record<string, unknown> = {}
@@ -69,9 +74,10 @@ jest.mock('@/lib/supabase/service', () => ({
         admin: {
           createUser: () => mockCreateUser(),
           deleteUser: (id: string) => mockDeleteUser(id),
+          updateUserById: (id: string, attrs: Record<string, unknown>) => mockUpdateUserById(id, attrs),
         },
       },
-      from: () => ({ select: () => chain, update: () => mockProfileUpdate() }),
+      from: () => ({ select: () => chain, update: (patch: Record<string, unknown>) => mockProfileUpdate(patch) }),
     }
   },
 }))
@@ -805,21 +811,6 @@ describe('the card is re-checked right before the link is written (R2)', () => {
     ])
   })
 
-  it('a failed rollback still refuses the join and says so in the same row (rollback_failed)', async () => {
-    raced({ id: 'card-aoi', email: 'aoi@test.com', user_id: 'someone-else' })
-    mockDeleteUser.mockRejectedValueOnce(new Error('auth down'))
-
-    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
-
-    expect(res).toEqual({ error: REPLACED })
-    const rows = (auditWeb as jest.Mock).mock.calls.map(([row]) => row)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      action: 'staff.link_failed',
-      detail: { reason: 'card_claimed_concurrently', rollback_failed: true },
-    })
-  })
-
   it.each([
     ['throws', new Error('core down')],
     ['answers nothing', null],
@@ -867,5 +858,110 @@ describe('the card is re-checked right before the link is written (R2)', () => {
     expect(mockDeleteUser).not.toHaveBeenCalled()
     expect(c.staffUpdate).toHaveBeenCalledWith('card-aoi', expect.objectContaining({ user_id: 'user-a' }))
     expect(c.updateStatus).toHaveBeenCalledWith('inv-A', 'accepted')
+  })
+})
+
+describe('rollback failure is a recovery state, not a clean undo (R3)', () => {
+  const pendingA = {
+    id: 'inv-A', token: 'token-A', email: 'aoi@test.com', role: 'STYLIST', status: 'pending',
+    invited_staff_id: 'card-aoi', created_at: '2026-09-01T09:00:00Z',
+    business_id: 'business-1', expires_at: null, invited_by: 'owner-user-1',
+  }
+  const REPLACED = 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.'
+  const COULD_NOT = 'Could not complete this invite. Ask the owner to send a new invite.'
+  const STRANDED_NAME = { full_name: '_system_rollback_failed' }
+
+  /** The card is unwired at 1b and claimed by someone else at the write boundary. */
+  function claimed() {
+    const first = { id: 'card-aoi', email: 'aoi@test.com', user_id: null }
+    const c = core({ invites: [{ ...pendingA }], cards: [{ ...first }] })
+    c.staffGet
+      .mockImplementationOnce(async () => ({ ...first }))
+      .mockImplementationOnce(async () => ({ ...first, user_id: 'someone-else' }))
+    install(c.api, 'user-a')
+    return c
+  }
+  const rows = () => (auditWeb as jest.Mock).mock.calls.map(([row]) => row)
+  const neutralised = () => mockProfileUpdate.mock.calls.filter(([patch]) => patch?.full_name === '_system_rollback_failed')
+
+  it('delete fails once, succeeds on retry → the normal claimed path (no ban, no profile mark, no rollback_failed)', async () => {
+    claimed()
+    mockDeleteUser.mockRejectedValueOnce(new Error('auth blip'))
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toEqual({ error: REPLACED })
+    expect(mockDeleteUser).toHaveBeenCalledTimes(2)
+    expect(mockUpdateUserById).not.toHaveBeenCalled()
+    expect(neutralised()).toHaveLength(0)
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0].detail).toEqual({ via: 'invite', invite_id: 'inv-A', role: 'STYLIST', reason: 'card_claimed_concurrently' })
+  })
+
+  it('a delete that answers { error } (not a throw) counts as a failure and is retried', async () => {
+    claimed()
+    mockDeleteUser.mockResolvedValueOnce({ error: { message: 'auth down' } })
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toEqual({ error: REPLACED })
+    expect(mockDeleteUser).toHaveBeenCalledTimes(2)
+    expect(mockUpdateUserById).not.toHaveBeenCalled()
+  })
+
+  it('delete fails twice → banned + profile marked + honest row + "could not complete"; invite NOT accepted, card NOT written', async () => {
+    const c = claimed()
+    mockDeleteUser.mockRejectedValueOnce(new Error('auth down')).mockResolvedValueOnce({ error: { message: 'auth down' } })
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toEqual({ error: COULD_NOT })
+    expect(mockDeleteUser).toHaveBeenCalledTimes(2)
+    expect(mockUpdateUserById).toHaveBeenCalledWith('user-a', { ban_duration: '876000h' })
+    expect(mockProfileUpdate).toHaveBeenLastCalledWith(STRANDED_NAME)
+    expect(mockProfileEq).toHaveBeenLastCalledWith('id', 'user-a')
+    expect(c.updateStatus).not.toHaveBeenCalled()
+    expect(c.invites[0].status).toBe('pending')
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+    expect(rows()).toEqual([
+      expect.objectContaining({
+        action: 'staff.link_failed',
+        severity: 'warning',
+        actorId: 'owner-user-1',
+        targetId: 'card-aoi',
+        detail: {
+          via: 'invite', invite_id: 'inv-A', role: 'STYLIST', reason: 'card_claimed_concurrently',
+          rollback_failed: true, stranded_user_id: 'user-a', banned: true, profile_neutralised: true,
+        },
+      }),
+    ])
+    expect(JSON.stringify(rows()[0].detail)).not.toContain('aoi@test.com')
+  })
+
+  it('delete fails twice AND the ban throws → the profile mark is still attempted; banned: false', async () => {
+    claimed()
+    mockDeleteUser.mockRejectedValue(new Error('auth down'))
+    mockUpdateUserById.mockRejectedValueOnce(new Error('ban failed'))
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+    mockDeleteUser.mockReset().mockImplementation(async () => ({}))
+
+    expect(res).toEqual({ error: COULD_NOT })
+    expect(neutralised()).toHaveLength(1)
+    expect(rows()[0].detail).toMatchObject({ rollback_failed: true, banned: false, profile_neutralised: true })
+  })
+
+  it('delete fails twice AND both barriers fail → both flags false, still "could not complete" (never "replaced")', async () => {
+    claimed()
+    mockDeleteUser.mockRejectedValue(new Error('auth down'))
+    mockUpdateUserById.mockResolvedValueOnce({ error: { message: 'ban failed' } })
+    mockProfileEq.mockResolvedValueOnce({ error: null }).mockResolvedValueOnce({ error: { message: 'db down' } }) // 1st = step-3 attach
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+    mockDeleteUser.mockReset().mockImplementation(async () => ({}))
+
+    expect(res).toEqual({ error: COULD_NOT })
+    expect(res).not.toEqual({ error: REPLACED })
+    expect(rows()[0].detail).toMatchObject({ rollback_failed: true, stranded_user_id: 'user-a', banned: false, profile_neutralised: false })
   })
 })

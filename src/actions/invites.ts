@@ -495,19 +495,59 @@ export async function acceptInvite(
     // Roll back THIS join — the just-created auth user, the step-3 precedent
     // (Greptile P1 #158); profiles.id cascades from auth.users
     // (001_initial_schema.sql), so the profile goes with it. Nothing else.
-    let rollbackFailed = false
-    try {
-      await service.auth.admin.deleteUser(userId)
-    } catch (err) {
-      rollbackFailed = true
-      console.error('[acceptInvite] rollback after concurrent card claim failed:', err)
+    // Retried once, immediately (no sleep inside a server action).
+    //
+    // If BOTH deletes fail, this is a RECOVERY STATE, never "cleanly undone"
+    // (⚖ Greptile #978 R3): the account exists, its profile is attached to
+    // the business (step 3 ran) and it has no staff card — the floating
+    // member F1 was about. Two barriers, each best-effort, each reported:
+    //  (a) BAN the account — GoTrue refuses a banned user's password and
+    //      refresh grants, and this path returns before step 6's sign-in, so
+    //      no session is ever issued (every getUser re-verify fails closed);
+    //  (b) mark the profile `_system_…` — the roster read (staffListCore,
+    //      src/lib/staff.ts) excludes `full_name ILIKE '_system_%'`, so no
+    //      roster seat even on a read path that never re-verifies the token.
+    //      (customer_id is NOT NULL — it cannot be cleared.)
+    // The residual is an OCCUPIED EMAIL: the invite stays pending, the owner's
+    // 監査ログ row (rollback_failed + stranded_user_id) is the cue, and the
+    // account is removed by hand — a support step, not a security hole.
+    // supabase admin calls report failure as `{ error }` as well as by throwing.
+    const failed = (r: unknown) => !!(r as { error?: unknown } | null)?.error
+    let rollbackFailed = true
+    for (let attempt = 1; attempt <= 2 && rollbackFailed; attempt++) {
+      try {
+        const r = await service.auth.admin.deleteUser(userId)
+        if (failed(r)) throw (r as { error: unknown }).error
+        rollbackFailed = false
+      } catch (err) {
+        console.error(`[acceptInvite] rollback after concurrent card claim failed (attempt ${attempt}):`, err)
+      }
+    }
+    let banned = false
+    let profileNeutralised = false
+    if (rollbackFailed) {
+      try {
+        const r = await service.auth.admin.updateUserById(userId, { ban_duration: '876000h' })
+        if (failed(r)) throw (r as { error: unknown }).error
+        banned = true
+      } catch (err) {
+        console.error('[acceptInvite] could not ban the stranded account:', err)
+      }
+      try {
+        const r = await service.from('profiles').update({ full_name: '_system_rollback_failed' }).eq('id', userId)
+        if (failed(r)) throw (r as { error: unknown }).error
+        profileNeutralised = true
+      } catch (err) {
+        console.error('[acceptInvite] could not neutralise the stranded profile:', err)
+      }
     }
     console.error('[acceptInvite] card claimed concurrently:', linkId)
     await auditWeb({
       category: 'staff',
       action: 'staff.link_failed',
       severity: 'warning',
-      // Same actor as the pre-account refusal: the joiner's account is gone.
+      // Same actor as the pre-account refusal: the joiner's account is gone
+      // (or, on a failed rollback, banned and off the roster).
       actorId: (invite.invited_by as string | null) ?? null,
       businessId: invite.business_id as string,
       targetType: 'staff',
@@ -517,11 +557,18 @@ export async function acceptInvite(
         invite_id: invite.id as string,
         role,
         reason: 'card_claimed_concurrently',
-        ...(rollbackFailed ? { rollback_failed: true } : {}),
+        // ids only — never the email (PII-free sink).
+        ...(rollbackFailed
+          ? { rollback_failed: true, stranded_user_id: userId, banned, profile_neutralised: profileNeutralised }
+          : {}),
       },
       requestId,
     })
-    return { error: 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.' }
+    return {
+      error: rollbackFailed
+        ? 'Could not complete this invite. Ask the owner to send a new invite.'
+        : 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.',
+    }
   }
 
   // The join is real from here (steps 4–5 are best-effort): the invitee became
