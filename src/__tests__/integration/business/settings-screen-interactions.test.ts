@@ -1135,6 +1135,7 @@ describe('PKT-BUILD-N3-2 §3 H5 — the screen calls the pure save door', () => 
     expect(blockSource).toContain('{ title: roomBlock.title }')
     expect(blockSource).toContain('{ note: roomBlock.note }')
     expect(blockSource).toContain('{roomBlock?.facts[index] ?? (turnoverFact?.index === index')
+    expect(SRC_CODE).toContain('title: wordsRoomBlock(section, b.id, values)?.title ?? b.title')
   })
 
   it('N3-2 §3 H5 — readout and inline problem use the room classes and live status attributes', () => {

@@ -305,8 +305,8 @@ describe('N3-4 room-class words seed and live copy', () => {
     expect(wordsForStore('yoga_studio', null).privateWord).toBeNull()
     const fallback = spec.liveRoom.fallback
     expect(fallback.length).toBeGreaterThan(0)
-    const [title, , , f1, f2, privateFact] = liveText(yoga)
-    for (const sentence of [f1, f2, privateFact]) expect(sentence).toContain(fallback)
+    const [title, , f0, f1, f2, privateFact] = liveText(yoga)
+    for (const sentence of [f0, f1, f2, privateFact]) expect(sentence).toContain(fallback)
     expect(title).toContain(wordsForStore('yoga_studio', null).resourceNoun)
     for (const options of liveLabels(yoga)) expect(options.find((o) => o.value === 'private')!.label).toBe(fallback)
   })

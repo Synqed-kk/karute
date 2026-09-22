@@ -1179,7 +1179,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
               sideNode(
-                section.blocks.map((b) => ({ id: b.id, title: b.title })),
+                section.blocks.map((b) => ({ id: b.id, title: wordsRoomBlock(section, b.id, values)?.title ?? b.title })),
                 null,
                 /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
                    already saved, in this browser, the moment it is pressed.
