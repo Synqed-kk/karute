@@ -2,7 +2,7 @@ import { settingsProps } from '@/app/[locale]/(business)/business/settings/setti
 import { STORE_A } from '@/business/lib/fixtures'
 import { businessProfiles } from '@/business/lib/fixtures-settings'
 import { wordsForStore } from '@/business/lib/resource-words'
-import { blockingError, labelOfValue, type RowValue, type SettingsBlock, type SettingsSection } from '@/business/lib/settings'
+import { blockingError, labelOfValue, searchTextOf, type RowValue, type SettingsBlock, type SettingsSection } from '@/business/lib/settings'
 import {
   committedWordValues, fillWords, normalisedWordValues, overrideFromValues, wordsBlockingError,
   wordsBlockProblem, wordsLiveFact, wordsProblem, wordsReadout, wordsRoomBlock, wordsRoomOptions,
@@ -321,6 +321,16 @@ describe('N3-4 room-class words seed and live copy', () => {
     expect(wordsRoomBlock(withoutSpec, 'people.room-policy', seed)).toBeNull()
     expect(wordsRoomOptions(withoutSpec, 'people.class-resource', [{ value: 'private', label: 'x' }], seed)).toBeNull()
     expect(wordsRoomOptions(section, 'people.class-resource', [{ value: 'unknown', label: 'keep' }], seed)).toEqual([{ value: 'unknown', label: 'keep' }])
+  })
+
+  it('N3-4 the settings search finds the live room-policy title, not the seed', async () => {
+    const { props } = await settingsProps({ locale: 'ja', store: STORE_A })
+    const row = props.rail.find((r) => r.id === section.id)!
+    const hair = { ...seed, [spec.typeId]: 'hair_salon' }
+    const liveSection = { ...section, blocks: section.blocks.map((b) => ({ ...b, title: wordsRoomBlock(section, b.id, hair)?.title ?? b.title })) }
+    expect(searchTextOf(row, liveSection)).toContain('セット面の自動割り当て')
+    expect(searchTextOf(row, liveSection)).not.toContain('ベッドの自動割り当て')
+    expect(searchTextOf(row, section)).toContain('ベッドの自動割り当て')
   })
 
   it('N3-4 T6 a slot token typed as the noun stays literal in one pass', () => {
