@@ -187,14 +187,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
     'listAuditLogWithClient',
   ],
   'src/actions/customers.ts': [
-    'cancelCustomerDeletionWithClient',
-    'createCustomerWithClient',
-    'createQuickCustomerWithClient',
-    'grantCustomerConsentWithClient',
-    'revokeCustomerConsentWithClient',
-    'scheduleCustomerDeletionWithClient',
-    'updateCustomerWithClient',
-    'uploadCustomerPhotoWithClient',
   ],
   'src/actions/dev-tools.ts': [
   ],
