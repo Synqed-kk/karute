@@ -35,7 +35,8 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { wordsSentences } from '@/business/lib/settings-words'
+import { fillWords, wordsSentences } from '@/business/lib/settings-words'
+import { GENERIC_WORDS } from '@/business/lib/resource-words'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
 import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
@@ -220,15 +221,15 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
     const policy = sectionOf(props, 'people-equipment').blocks.find((b) => b.id === 'people.room-policy')!
     expect(policy.rows).toEqual([])
     expect(policy.preview).toBeNull()
-    expect(policy.facts.join(' ')).toContain('施術室から順に埋め、個室は最後に使います')
-    expect(policy.facts.join(' ')).toContain('「個室のみ」の指定がある予約だけが個室に限定されます')
+    expect(policy.facts.join(' ')).toContain('ベッドは自動で決まります。通常のベッドから順に埋め、個室は最後に使います。')
+    expect(policy.facts.join(' ')).toContain('「個室のみ」の指定がある予約だけが個室に限定されます。指定は予約ごとに付きます。')
     // ⚖ VIP IS UNRELATED TO ROOMS NOW. The room class is a place, and the word
     // that tied it to a customer tier is gone from the whole page — the option
     // label the census would otherwise keep showing included.
     expect(JSON.stringify(props)).not.toContain('個室・VIP')
     expect(PROPS_CODE).not.toContain('個室・VIP')
     const cls = controlOf(props, `people.class-${resources.find((r) => r.store_id === STORE_A && r.room_class === 'private')!.id}`)
-    expect(cls.control.kind === 'segment' && cls.control.options.map((o) => o.label)).toEqual(['施術室', '個室'])
+    expect(cls.control.kind === 'segment' && cls.control.options.map((o) => o.label)).toEqual(['通常', '個室'])
   })
 
   it('the money values equal レジ’s and 分析’s own planes, and name their ceilings', async () => {
@@ -3946,7 +3947,7 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
       expect(c.control).not.toHaveProperty('required')
     }
     expect(Object.keys(words.words!.copy.problems).sort()).toEqual(['bar', 'empty', 'full', 'length', 'pair', 'reserved', 'space', 'trim'])
-    expect(section.aside!.lines.map((line) => line.label)).toEqual(['名簿', '設備', '呼び名', '部屋の決まり'])
+    expect(section.aside!.lines.map((line) => line.label)).toEqual(['名簿', '設備', '呼び名', '割り当ての決まり'])
     expect(section.aside!.lines[2].value).toBe('業種の標準の一覧と、この店舗で入力した言葉')
     expect(wordsSentences(words.words!, seedOf(props), labelOfValue(typeControl.control, typeControl.value)).example)
       .toBe(section.blocks.find((b) => b.id === 'people.equipment')!.facts[0])
@@ -3988,7 +3989,21 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     expect(section.aside!.lines).toEqual([
       { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
       { label: '設備', value: '今日の運営の設備割り当てが使っている一覧' },
-      { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
+      { label: '割り当ての決まり', value: '今日の運営の自動割り当てが使っている決まり' },
     ])
+  })
+
+  it('N3-4 no stores renders the room policy from the umbrella noun and the fallback private word', async () => {
+    const spec = sectionOf(await room({ store: STORE_A }), 'people-equipment').blocks.find((b) => b.words)!.words!
+    const policy = sectionOf(await withoutStores(true), 'people-equipment').blocks.find((b) => b.id === 'people.room-policy')!
+    expect(GENERIC_WORDS.privateWord).toBeNull()
+    const slots = { noun: GENERIC_WORDS.resourceNoun, privateWord: spec.liveRoom.fallback }
+    expect({ title: policy.title, note: policy.note, facts: policy.facts }).toEqual({
+      title: fillWords(spec.copy.policyTitle, slots),
+      note: fillWords(spec.copy.policyNote, slots),
+      facts: spec.copy.policyFacts.map((t) => fillWords(t, slots)),
+    })
+    expect(policy.facts[0]).toContain(GENERIC_WORDS.resourceNoun)
+    expect(policy.facts[2]).toContain(spec.liveRoom.fallback)
   })
 })
