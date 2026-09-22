@@ -55,6 +55,9 @@ const mockCreateUser = jest.fn(async () => ({
   error: null,
 }))
 const mockProfileUpdate = jest.fn(() => ({ eq: async () => ({ error: null }) }))
+// Spy on the rollback (⚖ Greptile #978 R2): a join whose card was claimed
+// concurrently deletes the auth user it just created.
+const mockDeleteUser = jest.fn<Promise<object>, [string]>(async () => ({}))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const chain: Record<string, unknown> = {}
@@ -65,7 +68,7 @@ jest.mock('@/lib/supabase/service', () => ({
       auth: {
         admin: {
           createUser: () => mockCreateUser(),
-          deleteUser: async () => ({}),
+          deleteUser: (id: string) => mockDeleteUser(id),
         },
       },
       from: () => ({ select: () => chain, update: () => mockProfileUpdate() }),
@@ -746,5 +749,123 @@ describe('a stale or unverifiable invite is refused BEFORE the account (F1 / F2)
     expect(c.invitesList).not.toHaveBeenCalled()
     expect(mockCreateUser).toHaveBeenCalledTimes(1)
     expect(c.staffUpdate).toHaveBeenCalledWith('card-aoi', expect.objectContaining({ user_id: 'user-a' }))
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚖ Greptile #978 R2 — the card is RE-READ at the write boundary. Two accepts
+// aimed at the same UNWIRED card both pass step 1b and both create accounts;
+// without the re-read the last write wins and one fresh account floats with
+// no card. The claim test is "owner CHANGED since 1b and is not this account"
+// — a card wired to an older login is the deliberate re-invite and still links.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('the card is re-checked right before the link is written (R2)', () => {
+  const pendingA = {
+    id: 'inv-A', token: 'token-A', email: 'aoi@test.com', role: 'STYLIST', status: 'pending',
+    invited_staff_id: 'card-aoi', created_at: '2026-09-01T09:00:00Z',
+    business_id: 'business-1', expires_at: null, invited_by: 'owner-user-1',
+  }
+  const REPLACED = 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.'
+
+  /** 1b reads `first`, the write boundary reads `second` (a value, a throw, or null). */
+  function raced(second: CardFixture | Error | null, first: CardFixture = { id: 'card-aoi', email: 'aoi@test.com', user_id: null }) {
+    const c = core({ invites: [{ ...pendingA }], cards: [{ ...first }] })
+    c.staffGet
+      .mockImplementationOnce(async () => ({ ...first }))
+      .mockImplementationOnce(async () => {
+        if (second instanceof Error) throw second
+        return second as CardFixture
+      })
+    install(c.api, 'user-a')
+    return c
+  }
+
+  it('a card claimed by someone else between the pre-check and the write → this join is rolled back, invite stays pending', async () => {
+    const c = raced({ id: 'card-aoi', email: 'aoi@test.com', user_id: 'someone-else' })
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toEqual({ error: REPLACED })
+    expect(mockCreateUser).toHaveBeenCalledTimes(1)
+    expect(mockDeleteUser).toHaveBeenCalledWith('user-a')
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+    expect(c.updateStatus).not.toHaveBeenCalled()
+    expect(c.invites[0].status).toBe('pending')
+    const rows = (auditWeb as jest.Mock).mock.calls.map(([row]) => row)
+    expect(rows).toEqual([
+      expect.objectContaining({
+        action: 'staff.link_failed',
+        severity: 'warning',
+        actorId: 'owner-user-1',
+        targetType: 'staff',
+        targetId: 'card-aoi',
+        detail: { via: 'invite', invite_id: 'inv-A', role: 'STYLIST', reason: 'card_claimed_concurrently' },
+        requestId: expect.any(String),
+      }),
+    ])
+  })
+
+  it('a failed rollback still refuses the join and says so in the same row (rollback_failed)', async () => {
+    raced({ id: 'card-aoi', email: 'aoi@test.com', user_id: 'someone-else' })
+    mockDeleteUser.mockRejectedValueOnce(new Error('auth down'))
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toEqual({ error: REPLACED })
+    const rows = (auditWeb as jest.Mock).mock.calls.map(([row]) => row)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      action: 'staff.link_failed',
+      detail: { reason: 'card_claimed_concurrently', rollback_failed: true },
+    })
+  })
+
+  it.each([
+    ['throws', new Error('core down')],
+    ['answers nothing', null],
+  ])('a write-boundary read that %s never writes blindly — the join continues, link_failed, no rollback', async (_label, second) => {
+    const c = raced(second)
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toBeUndefined()
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+    expect(mockDeleteUser).not.toHaveBeenCalled()
+    expect(c.updateStatus).toHaveBeenCalledWith('inv-A', 'accepted')
+    const rows = (auditWeb as jest.Mock).mock.calls.map(([row]) => row)
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        action: 'staff.link_failed',
+        severity: 'warning',
+        actorId: 'user-a',
+        targetId: 'user-a',
+        detail: { via: 'invite', invite_id: 'inv-A', role: 'STYLIST' },
+      }),
+    )
+  })
+
+  it('a card still unwired at the write boundary links and the invite is marked accepted (the ordinary path)', async () => {
+    const c = raced({ id: 'card-aoi', email: 'aoi@test.com', user_id: null })
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toBeUndefined()
+    expect(c.staffGet).toHaveBeenCalledTimes(2)
+    expect(c.staffUpdate).toHaveBeenCalledWith('card-aoi', expect.objectContaining({ user_id: 'user-a' }))
+    expect(c.updateStatus).toHaveBeenCalledWith('inv-A', 'accepted')
+    expect(mockDeleteUser).not.toHaveBeenCalled()
+  })
+
+  it('the deliberate re-invite (card wired to an OLDER login, owner unchanged since 1b) passes the write-boundary check and re-links', async () => {
+    const old = { id: 'card-aoi', email: 'aoi@test.com', user_id: 'user-old' }
+    const c = raced({ ...old }, { ...old })
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toBeUndefined()
+    expect(c.staffGet).toHaveBeenCalledTimes(2)
+    expect(mockDeleteUser).not.toHaveBeenCalled()
+    expect(c.staffUpdate).toHaveBeenCalledWith('card-aoi', expect.objectContaining({ user_id: 'user-a' }))
+    expect(c.updateStatus).toHaveBeenCalledWith('inv-A', 'accepted')
   })
 })

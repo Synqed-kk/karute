@@ -442,15 +442,32 @@ export async function acceptInvite(
   }
 
   // 4. Link the synqed-core staff record read in step 1b. The stale-invite
-  //    decision was made there, before the account existed, so the link is
-  //    unconditional here. ponytail: the seconds between that pre-check and
-  //    this write are an accepted race window — the create-side supersede
-  //    (newer wins) and the revoke's re-read bound it; core uniqueness is the
-  //    queued core ask that closes it.
+  //    decision was made there, before the account existed — but two accepts
+  //    aimed at the SAME unwired card both pass 1b, both create accounts, and
+  //    the last write would win: one fresh account left with no card (the F1
+  //    floating profile again) and the card's permissions on the wrong login
+  //    (⚖ Greptile #978 R2). So the card is RE-READ at the write boundary: if
+  //    its owner CHANGED since the 1b read and is not this account, someone
+  //    else claimed it meanwhile → this join is rolled back (the invite stays
+  //    pending). The test is "owner changed since 1b", not "owner is someone
+  //    else", because a card already wired to an older login is the deliberate
+  //    re-invite that 1b let through on purpose — it must still re-link. A
+  //    re-read that fails never writes blindly: it lands in the catch below
+  //    (staff.link_failed, the join continues — the existing best-effort join
+  //    contract). ponytail: the window is now the read→write gap of one core
+  //    call; the atomic form is a core ask — a conditional staff.update that
+  //    only sets user_id when it is still null (or still the 1b owner).
+  let claimedBy: string | null = null
   try {
     if (cardReadErr) throw cardReadErr
     if (linkId) {
-      await synqed.staff.update(linkId, { user_id: userId, role })
+      const fresh = await synqed.staff.get(linkId)
+      if (!fresh) throw new Error(`staff card ${linkId} unreadable at the write boundary`)
+      if (fresh.user_id != null && fresh.user_id !== userId && fresh.user_id !== (card?.user_id ?? null)) {
+        claimedBy = fresh.user_id
+      } else {
+        await synqed.staff.update(linkId, { user_id: userId, role })
+      }
     } else {
       await synqed.staff.create({ name, email, user_id: userId, role })
     }
@@ -472,6 +489,39 @@ export async function acceptInvite(
       detail: { via: 'invite', invite_id: invite.id as string, role },
       requestId,
     })
+  }
+
+  if (claimedBy && linkId) {
+    // Roll back THIS join — the just-created auth user, the step-3 precedent
+    // (Greptile P1 #158); profiles.id cascades from auth.users
+    // (001_initial_schema.sql), so the profile goes with it. Nothing else.
+    let rollbackFailed = false
+    try {
+      await service.auth.admin.deleteUser(userId)
+    } catch (err) {
+      rollbackFailed = true
+      console.error('[acceptInvite] rollback after concurrent card claim failed:', err)
+    }
+    console.error('[acceptInvite] card claimed concurrently:', linkId)
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.link_failed',
+      severity: 'warning',
+      // Same actor as the pre-account refusal: the joiner's account is gone.
+      actorId: (invite.invited_by as string | null) ?? null,
+      businessId: invite.business_id as string,
+      targetType: 'staff',
+      targetId: linkId,
+      detail: {
+        via: 'invite',
+        invite_id: invite.id as string,
+        role,
+        reason: 'card_claimed_concurrently',
+        ...(rollbackFailed ? { rollback_failed: true } : {}),
+      },
+      requestId,
+    })
+    return { error: 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.' }
   }
 
   // The join is real from here (steps 4–5 are best-effort): the invitee became
