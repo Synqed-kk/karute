@@ -73,7 +73,7 @@ import {
 } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
-import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
+import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
 import {
   isIntegerTextAtLeast,
@@ -1473,7 +1473,7 @@ function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: 
 // ── a block ────────────────────────────────────────────────────────────────
 
 function Block({
-  block,
+  block: seed,
   section,
   values,
   onChange,
@@ -1509,6 +1509,8 @@ function Block({
   onListRemove: (rowId: string) => void
   reduced: boolean
 }) {
+  const roomBlock = wordsRoomBlock(section, seed.id, values)
+  const block: SettingsBlock = roomBlock === null ? seed : { ...seed, ...(roomBlock.title === undefined ? {} : { title: roomBlock.title }), ...(roomBlock.note === undefined ? {} : { note: roomBlock.note }) }
   const rows = block.table === null ? block.table : filterTable(block, values)
   const sentences = block.words ? wordsSentences(block.words, values, labelFor(block.words.typeId) ?? '') : null
   const wordProblem = wordsBlockProblem(block, values)
@@ -1518,7 +1520,9 @@ function Block({
     ...row,
     controls: row.controls.map((c) => {
       const live = wordsTurnoverControl(section, c.id, row.label, values)
-      return live === null ? c : { ...c, aria: live }
+      const options = c.control.kind === 'segment' ? wordsRoomOptions(section, c.id, c.control.options, values) : null
+      const withOptions = options === null || c.control.kind !== 'segment' ? c : { ...c, control: { ...c.control, options } }
+      return live === null ? withOptions : { ...withOptions, aria: live }
     }),
   }))
   return (
@@ -1649,7 +1653,7 @@ function Block({
       )}
 
       {block.facts.map((f, index) => (
-        <p className="st-fact" key={f}>{turnoverFact?.index === index ? turnoverFact.sentence : liveFact?.index === index ? liveFact.sentence : f}</p>
+        <p className="st-fact" key={f}>{roomBlock?.facts[index] ?? (turnoverFact?.index === index ? turnoverFact.sentence : liveFact?.index === index ? liveFact.sentence : f)}</p>
       ))}
 
       {block.links.length > 0 && (
