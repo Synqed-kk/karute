@@ -11,6 +11,9 @@ const SOURCE_FILE = /^(?!.*\.d\.(?:ts|mts|cts)$).*\.(?:ts|tsx|js|jsx|mts|cts|mjs
 // src/lib/invites/invites.core.ts.
 const INTERNAL_DEBT_COUNT = 63 // may only go DOWN
 const CLOSED_DOORS = ['memberEmailsForBusiness', 'writeOrgSettingsBlob']
+// The server-only modules helpers were moved INTO, newest last: PR-A's
+// member-emails, then PKT-SEC-CORES-B1's four invite cores.
+const SERVER_ONLY_MODULES = ['src/lib/invites/member-emails.ts', 'src/lib/invites/invites.core.ts']
 const NEW_EXPORT_MESSAGE = "A new export in a 'use server' file is a browser-callable endpoint with no authentication of its own. If it is a real action, add it to PUBLIC_ACTIONS and make sure its FIRST lines check the session/capability. If it is an internal helper, put it in a server-only module instead. Read PKT-SEC-CORES-A."
 
 function sourceFiles(dir: string): string[] {
@@ -180,8 +183,10 @@ describe('server action surface (PKT-SEC-CORES-A)', () => {
     expect(offenders).toEqual([])
   })
 
-  it('r4: the member-email module starts with server-only and has no directive prologue', () => {
-    const file = 'src/lib/invites/member-emails.ts'
+  // Every module a helper was moved INTO joins this list in the same PR —
+  // otherwise the cure is one deleted import away from being undone in
+  // silence, and the helper is a browser-callable endpoint again.
+  it.each(SERVER_ONLY_MODULES)('r4: %s starts with server-only and has no directive prologue', (file) => {
     const source = readFileSync(join(ROOT, file), 'utf8')
     expect(source.split(/\r?\n/)[0]).toBe("import 'server-only'")
     expect(directives(ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true))).toEqual([])
