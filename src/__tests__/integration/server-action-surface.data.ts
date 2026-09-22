@@ -198,14 +198,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
   'src/actions/karute-outcome.ts': [
   ],
   'src/actions/karute.ts': [
-    'createManualKaruteRecordWithClient',
-    'createOrUpdateKaruteRecord',
-    'getCustomerKaruteRecords',
-    'getCustomerKaruteRecordsWithClient',
-    'listEntryEditHistoryWithClient',
-    'reassignKaruteCustomerWithClient',
-    'updateKaruteDetailEntryWithClient',
-    'updateKaruteDetailSummaryWithClient',
   ],
   'src/actions/memory.ts': [
     'addMemoryItemWithClient',

@@ -512,3 +512,71 @@
   roster; every card already assigned). CP7's dominating-emit walker cannot express "emits
   once per write", so the registry would fail a function whose every WRITE is in fact
   audited. Allowlisted rather than registered, for that mechanical reason only · Fable (ADJUDICATION-STORE-AT-CREATION-3bec439c2-2026-09-19.md; ⚖ Liam 2026-09-16 store-at-creation)
+- 2026-09-23 · cores:src/actions/karute.ts#createOrUpdateKaruteRecord · NOT a dropped emitter — the
+  SAME AUDITED_CORES symbol, registered at its new address
+  cores:src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord. Every runtime export of a
+  'use server' file is registered as a browser-callable server action with no authentication of its
+  own, so the eight karute cores left src/actions/karute.ts for the server-only module
+  src/lib/karute/karute.core.ts (no directive, `import 'server-only'` on line one). The body moved
+  BYTE-IDENTICAL, emitSave and all: karute.save is still the ONE choke-point emit covering web
+  saveKaruteRecord, web saveKaruteRecordInline and the facade POST, and FACADE_AUDIT_MAP['karute.save']
+  is still the skip row citing it (its coveredBy is repointed on its own line below). The entry is
+  file-scoped, so the gate reads a moved symbol as a removal · Fable
+  (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/karute.ts#updateKaruteDetailEntryWithClient · same move, same PR: the
+  per-entry CAS core and its karute.entry_edit emit are now
+  cores:src/lib/karute/karute.core.ts#updateKaruteDetailEntryWithClient. Body byte-identical, the
+  store lock still runs FIRST, the emit still sits inside the shared body so the web wrapper
+  updateKaruteDetailEntry and the facade PATCH get exactly one row between them. The web wrapper
+  stayed in the action file and was never an AUDITED_CORES symbol · Fable
+  (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/karute.ts#updateKaruteDetailSummaryWithClient · same move, same PR:
+  the edited_summary overlay core and its karute.summary_edit emit are now
+  cores:src/lib/karute/karute.core.ts#updateKaruteDetailSummaryWithClient. Body byte-identical —
+  store lock first, content bounds, the no-change guard that refuses to mint a row for an identical
+  save, then the emit — so the web wrapper updateKaruteDetailSummary and the facade PATCH still
+  share ONE row. Only the module changed, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:karute.save · NOT a repointed truth claim — the citation follows its own emitter.
+  The skip row still says "karute.save logs at the shared choke point createOrUpdateKaruteRecord,
+  never here", and that choke point is now src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord
+  instead of src/actions/karute.ts#createOrUpdateKaruteRecord. Same function, byte-identical body,
+  same single emit; CP2 re-proves the new citation resolves and emits on every non-error path ·
+  Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:karute.entry.update · same move, same PR: the skip row's coveredBy follows
+  updateKaruteDetailEntryWithClient to src/lib/karute/karute.core.ts. The doctrine is unchanged —
+  no live row here, because a row would double-log every facade entry edit against the core's own
+  karute.entry_edit emit · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security
+  tight, whole ecosystem)
+- 2026-09-23 · map:karute.summary.update · same move, same PR: the skip row's coveredBy follows
+  updateKaruteDetailSummaryWithClient to src/lib/karute/karute.core.ts. Unchanged doctrine — the ONE
+  karute.summary_edit emit lives in that shared body and covers the web action AND this facade
+  route · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole
+  ecosystem)
+- 2026-09-23 · map:recordings.session.mint · same move, same PR: this skip row has cited
+  createOrUpdateKaruteRecord since the facade map was written ("the mint stages nothing auditable;
+  the eventual save is what audits the recording"), and that function's new home is
+  src/lib/karute/karute.core.ts. Nothing about the mint changed, the cited emitter is byte-identical,
+  and the ambiguity the row's own comment records (interactive save vs processJob) is exactly as it
+  was · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole
+  ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/karute/karute.core.ts::karuteRecords.update · NOT a new
+  legalized silent write — the SAME allowlist entry, at its new address. reassignKaruteCustomerWithClient's
+  single `{ customer_id }` update has been allowlisted since 2026-08-23 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/karute.ts::karuteRecords.update (F4: the WithClient core is
+  audit-free by design; karute.customer_reassign is a LIVE FACADE_AUDIT_MAP row on the phone door
+  and the web wrapper reassignKaruteCustomer — AUDITED_CORES, unproven-marked — emits its own
+  auditWeb). Body byte-identical, symbols, justification and `dated` unchanged, no pendingWave on
+  this entry before or after; the gate reads a moved entry as an addition because the key is
+  file-scoped · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight,
+  whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/karute/karute.core.ts::karuteRecords.create · same move,
+  same PR: the karuteRecords.create call site shared by createOrUpdateKaruteRecord's fresh-record
+  branch and createManualKaruteRecordWithClient has been allowlisted since 2026-09-01 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/karute.ts::karuteRecords.create. Both symbols moved together,
+  byte-identical; the emits that cover them did not move relative to the writes — emitSave still
+  dominates the create inside createOrUpdateKaruteRecord, and the manual-create body still stays
+  audit-free with its web wrapper createManualKaruteRecord (AUDITED_CORES, in the action file) and
+  the facade's FACADE_AUDIT_MAP['karute.manualCreate'] row owning the emits. Justification and
+  `dated` unchanged · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security
+  tight, whole ecosystem)
