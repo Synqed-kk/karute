@@ -39,6 +39,13 @@ function cells(line: string): string[] {
   return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
 }
 
+// A key of __proto__ would hit the inherited setter and the row would vanish from
+// the registry; refuse the reserved names loudly (same posture as sample-facade.ts).
+function refuseReserved(key: string): string {
+  if (key === '__proto__' || key === 'constructor' || key === 'prototype') throw new Error(`manifest: reserved key refused: "${key}"`)
+  return key
+}
+
 function headingMatches(heading: string, shape: TableShape): boolean {
   return heading === shape.heading || (shape.prefix && heading.startsWith(`${shape.heading} `))
 }
@@ -73,10 +80,10 @@ export function parseManifest(text: string): Registry {
       const role = shape.role
       if (role.kind === 'ignored') continue
       if (role.kind === 'addendumStore') {
-        addendumStores[row[col('name')]] = uuid
+        addendumStores[refuseReserved(row[col('name')])] = uuid
         continue
       }
-      const fixtureId = row[col('fixture id')]
+      const fixtureId = refuseReserved(row[col('fixture id')])
       const map = twins[role.kind]
       if (Object.prototype.hasOwnProperty.call(map, fixtureId)) {
         throw new Error(`manifest: duplicate ${role.kind} fixture id ${fixtureId}`)

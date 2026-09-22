@@ -175,6 +175,12 @@ describe('the manifest parser', () => {
     expect(() => parseManifest('- fixtures commit: abc1234\n\n## Stores\n| fixture id | name | core uuid | status |\n| store-a | A店 | 11111111-1111-4111-8111-111111111111 | adopted |\n'))
       .toThrow('table without a separator row')
   })
+  it('a reserved fixture id (__proto__) throws instead of vanishing', () => {
+    expect(() => parseManifest(SNIPPET.replace('| store-b |', '| __proto__ |'))).toThrow('reserved key refused')
+  })
+  it('a reserved addendum store name (constructor) throws', () => {
+    expect(() => parseManifest(SNIPPET.replace('| C店 |', '| constructor |'))).toThrow('reserved key refused')
+  })
   it('a row whose cell count differs from the header throws', () => {
     expect(() => parseManifest('- fixtures commit: abc1234\n\n## Stores\n| fixture id | name | core uuid | status |\n|---|---|---|---|\n| store-a | A店 | 11111111-1111-4111-8111-111111111111 |\n'))
       .toThrow('row has 3 cells, header 4')
