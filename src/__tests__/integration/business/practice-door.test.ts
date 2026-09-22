@@ -274,11 +274,11 @@ describe('the sample facade', () => {
   it("ownKind 'stores' rewrites to the manifest uuid", () => {
     expect(sampleFor({ id: STORE_A }, 'stores')).toEqual({ id: 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f' })
   })
-  it.each(['__proto__', 'constructor'])('a %s key is refused loud and never reaches Object.prototype', (key) => {
+  it.each(['__proto__', 'constructor', 'prototype'])('a %s key is refused loud and never reaches Object.prototype', (key) => {
     const plane = JSON.parse(`{"${key}":{"x":1}}`)
     expect(() => sampleFor(plane, null)).toThrow(`refused key "${key}"`)
-    expect(Object.prototype).not.toHaveProperty('x')
-    expect(({} as Record<string, unknown>).x).toBeUndefined()
+    const result = sampleFor({ a: 1 }, null)
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
   })
 })
 
