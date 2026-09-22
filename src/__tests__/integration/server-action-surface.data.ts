@@ -201,11 +201,7 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
   'src/actions/entitlements.ts': [
   ],
   'src/actions/invites.ts': [
-    'createInviteCore',
     'getInviteByToken',
-    'listInvitesWithClient',
-    'reinviteTargetStaffIdWithClient',
-    'revokeInviteCore',
   ],
   'src/actions/karute-outcome.ts': [
   ],

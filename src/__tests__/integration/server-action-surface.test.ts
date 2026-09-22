@@ -7,7 +7,9 @@ const ROOT = process.cwd()
 const SOURCE_FILE = /^(?!.*\.d\.(?:ts|mts|cts)$).*\.(?:ts|tsx|js|jsx|mts|cts|mjs|cjs)$/
 // DEBT may only go DOWN. 2026-09-20 exception: #938 arrived before the ratchet;
 // setStoreHoursCore adds one after bootstrap removal, and leaves in repair B.
-const INTERNAL_DEBT_COUNT = 67 // may only go DOWN
+// 2026-09-23 (PKT-SEC-CORES-B1): 67 → 63, the four invite cores moved to
+// src/lib/invites/invites.core.ts.
+const INTERNAL_DEBT_COUNT = 63 // may only go DOWN
 const CLOSED_DOORS = ['memberEmailsForBusiness', 'writeOrgSettingsBlob']
 const NEW_EXPORT_MESSAGE = "A new export in a 'use server' file is a browser-callable endpoint with no authentication of its own. If it is a real action, add it to PUBLIC_ACTIONS and make sure its FIRST lines check the session/capability. If it is an internal helper, put it in a server-only module instead. Read PKT-SEC-CORES-A."
 

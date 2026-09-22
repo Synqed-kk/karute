@@ -475,8 +475,11 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'staff.removePin': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff-pin.ts#removeStaffPinCore' },
   'staff.voice.enroll': { kind: 'skip', category: 'privacy', action: '', coveredBy: 'src/actions/voice.ts#enrollVoiceActionCore' },
   'staff.voice.revoke': { kind: 'skip', category: 'privacy', action: '', coveredBy: 'src/actions/voice.ts#revokeVoiceActionCore' },
-  'invite.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/invites.ts#createInviteCore' },
-  'invite.revoke': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/invites.ts#revokeInviteCore' },
+  // The two invite cores moved to a server-only module (PKT-SEC-CORES-B1,
+  // 2026-09-23) — same writers, same rows, new home. Ledgered: map:invite.create
+  // / map:invite.revoke in docs/audit-weakening-ledger.md.
+  'invite.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/invites/invites.core.ts#createInviteCore' },
+  'invite.revoke': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/invites/invites.core.ts#revokeInviteCore' },
   // 今すぐ同期 manual crawl trigger (Liam ruling 7/24, packet 32): an owner
   // action worth a trail row, same family as settings.sync_config_update
   // above — this endpoint only TRIGGERS core's crawl (no credentials touched
