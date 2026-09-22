@@ -9,7 +9,7 @@
 //
 // STORES/ENTITLEMENT (design-parity packet 12 §B-3 S2): the 店舗 tab is now
 // LIVE. initialStores/initialEntitlement fan out via the listStores/
-// loadEntitlement WithClient twins (src/actions/stores.ts,
+// loadEntitlement WithClient twins (src/lib/stores/stores.core.ts,
 // src/lib/entitlements.ts) alongside the existing reads — but ONLY for a
 // canViewAllStores identity (least-privilege: the tab is hidden without that
 // grant, same divergence-from-web rule S1 applied to voice_enrollments).
@@ -43,7 +43,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { viewerStaffRosterForBusiness } from '@/lib/auth/store-scope'
 import { orgSettingsWithClient } from '@/actions/org-settings'
-import { listStoresWithClient } from '@/actions/stores'
+import { listStoresWithClient } from '@/lib/stores/stores.core'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
 import { getBusinessAiPersona, resolvePersonaTokens } from '@/lib/karute/business-ai-tokens'
 

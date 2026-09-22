@@ -1,7 +1,7 @@
 // Facade: 店舗 (stores) list + create (design-parity packet 12 §B-3 S2).
 // Single-source: both routes call the SAME cores the web actions call
-// (listStoresWithClient / createStoreCore, src/actions/stores.ts) — the P-B
-// pattern this design-parity effort standardizes on.
+// (listStoresWithClient / createStoreCore, src/lib/stores/stores.core.ts) —
+// the P-B pattern this design-parity effort standardizes on.
 //
 // GET gate: 'stores.viewAll', a deliberate least-privilege divergence from
 // web's ungated listStores() action — this is a NEW callable Bearer surface
@@ -47,7 +47,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { listStoresWithClient, createStoreCore } from '@/actions/stores'
+import { listStoresWithClient, createStoreCore } from '@/lib/stores/stores.core'
 import { STORE_OWNER_DENIAL, type StoreInput } from '@/lib/validations/store'
 
 export const runtime = 'nodejs'

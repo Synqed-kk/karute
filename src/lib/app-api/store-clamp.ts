@@ -95,7 +95,7 @@ export async function resolveStoreForRequest(args: {
   //    that equality everywhere: resolveSelfStaffId returns the auth id iff
   //    `staffList.some((s) => s.id === authUserId)` (app-api/customer-facade.ts:99),
   //    getCurrentUserStaffId does the same on the cookie path (lib/staff.ts:263),
-  //    and isRosterOwner compares the same way (actions/stores.ts:33). The WEB
+  //    and isRosterOwner compares the same way (lib/stores/stores.core.ts). The WEB
   //    twin keys this very SDK method with that very id: resolveStoreScope
   //    (auth/store-scope.ts:90) passes `getCurrentUserStaffId()` — the auth id —
   //    to getStaffStoresStrict, which is `synqed.staffStores.get(<auth id>)`
