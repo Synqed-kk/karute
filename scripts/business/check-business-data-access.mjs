@@ -6,6 +6,9 @@
 //   1. NO DIRECT core reach, anywhere — @synqed-kk/client, the app's
 //      core-client factory (lib/synqed/client), `new SynqedClient(`,
 //      `getSynqedClient(`. No file is exempt, src/business/lib/ included.
+//      ONE named exception since 2026-09-23 (⚖ Liam 9/19, the practice-salon
+//      door): src/business/lib/practice-door/core-reach.ts may import the
+//      factory — see ALLOW.
 //   2. NO writes, anywhere — .insert( .update( .upsert( .delete( .rpc(.
 //      Zero exemptions, the lock files included: nothing in Business can edit
 //      anything, by construction.
@@ -17,6 +20,7 @@
 // Reconnection is a deliberate PR on Liam's word that has to amend this file,
 // and scripts/business/ is CODEOWNER-gated, so that PR gets owner review by
 // construction. That is the point.
+// The practice-door PR-0 is that amendment: one file, one specifier, one occurrence.
 //
 // ⚠ WHAT THIS GUARD CANNOT SEE (2026-08-19 post-merge audit, the reason the
 // pair exists): it reads DIRECT specifiers and call sites in territory files
@@ -138,6 +142,15 @@ const ALLOW = [
     match: ['log.push(() => moves.delete(key))', 'log.push(() => movedSet.delete(id))'],
     count: 2,
     reason: 'Map/Set undo log of the bed-packing search, ⚖ 9/8, no data access',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'core client factory import (lib/synqed/client)',
+    match: ["from '@/lib/synqed/client'"],
+    count: 1,
+    reason:
+      '⚖ Liam 9/19 practice-salon door (DESIGN-PRACTICE-DOOR.md §2/§9): the ONE server-only core-reach file; ' +
+      'explicit-tenant factory only, one import line, the tenant throw guards it before any read',
   },
 ]
 
