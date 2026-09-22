@@ -322,6 +322,81 @@ export async function acceptInvite(
   const email = invite.email as string // trusted: from the invite, not the client
   const role = invite.role as InviteRole
 
+  // 1b. Read the card this invite points at — BEFORE any account exists
+  //     (⚖ Greptile #978 R1 F1). Prefer the staff row the invite was launched
+  //     from (invited_staff_id) so re-inviting an existing person — at a new
+  //     email, or with no email on file — ATTACHES to their record (and its
+  //     history) instead of minting a duplicate. Falls back to an email match;
+  //     no match = a brand-new hire, minted in step 4. ONE read, reused there.
+  const synqed = new SynqedClient({ baseUrl, apiKey, businessId: invite.business_id })
+  let card: { id: string; user_id?: string | null } | null = null
+  let linkId: string | null = null
+  let cardReadErr: unknown = null
+  try {
+    // ⚖ G3 — READ THE CARD, not the first page of the roster. A fresh invite
+    // carries the id of the card it minted, so the lookup is ONE row: the old
+    // `staff.list({ page_size: 200 })` silently missed a pre-made card past row
+    // 200 and minted a DUPLICATE instead (⚖ ANY-ROSTER-SIZE). The email
+    // fallback — and chooseStaffToLink's user_id arm, where invited_staff_id
+    // carries a PROFILE id — still needs the roster, and now pages it whole.
+    if (invite.invited_staff_id) {
+      card = await synqed.staff.get(invite.invited_staff_id as string).catch(() => null)
+    }
+    linkId = card?.id ?? null
+    if (!linkId) {
+      const staff = await listAllCoreStaff(synqed.staff)
+      linkId = chooseStaffToLink(invite.invited_staff_id, email, staff)
+      card = linkId ? staff.find((s) => s.id === linkId) ?? null : null
+    }
+  } catch (err) {
+    // Same posture as before this read moved up: an unreadable roster never
+    // blocks the JOIN — step 4 reports it as staff.link_failed.
+    cardReadErr = err
+  }
+
+  // ⚖ G2 + Greptile #978 R1 F1/F2 — A STALE LINK NEVER RE-POINTS A CARD THAT IS
+  // ALREADY SOMEBODY'S, and the refusal happens HERE, before the account: a
+  // refusal after step 3 left a signed-in member with NO card — and since
+  // every facade identity read goes through `profiles`, that profile passed
+  // the roster and core answered `{ store_ids: [] }` = FLOATING, unclamped.
+  // The invitee has no account yet, so ANY user_id on the card is someone
+  // else's. The newest LIVE invite for it (⚖ H1: accepted counts, only a
+  // revoked row stops counting) still re-links it — the deliberate re-invite
+  // of an already-linked person (a new email, a lost login). An UNREADABLE
+  // invite list can no longer authorise that overwrite: the invitee is told
+  // to try again. Nothing is created, and the invite stays pending.
+  if (linkId && card?.user_id) {
+    const newest = await isNewestLiveInviteForCard(synqed, invite.id as string, linkId)
+    if (newest !== 'newest') {
+      console.error('[acceptInvite] refused before account creation:', linkId, newest)
+      await auditWeb({
+        category: 'staff',
+        action: 'staff.link_failed',
+        severity: newest === 'superseded' ? 'warning' : 'notice',
+        // No account exists yet, so there is no joiner to name: the actor is
+        // the INVITER (invite.invited_by — the auth user id createInvite
+        // recorded, or null), the person whose invite this refusal concerns.
+        actorId: (invite.invited_by as string | null) ?? null,
+        businessId: invite.business_id as string,
+        targetType: 'staff',
+        targetId: linkId,
+        detail: {
+          via: 'invite',
+          invite_id: invite.id as string,
+          role,
+          reason: newest === 'superseded' ? 'card_wired_by_another_invite' : 'invite_list_unreadable',
+        },
+        requestId,
+      })
+      return {
+        error:
+          newest === 'superseded'
+            ? 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.'
+            : 'Could not verify this invite right now. Please try again in a moment.',
+      }
+    }
+  }
+
   // 2. Create the auth user (the invite IS the email verification).
   const { data: created, error: createErr } = await service.auth.admin.createUser({
     email,
@@ -366,63 +441,15 @@ export async function acceptInvite(
     return { error: `Could not join the salon: ${attachErr.message}` }
   }
 
-  // 4. Link the synqed-core staff record under the business. Prefer the staff row
-  //    the invite was launched from (invited_staff_id) so re-inviting an existing
-  //    person — at a new email, or with no email on file — ATTACHES to their
-  //    record (and its history) instead of minting a duplicate. Falls back to an
-  //    email match, then creates a new row for a brand-new hire.
-  const synqed = new SynqedClient({ baseUrl, apiKey, businessId: invite.business_id })
+  // 4. Link the synqed-core staff record read in step 1b. The stale-invite
+  //    decision was made there, before the account existed, so the link is
+  //    unconditional here. ponytail: the seconds between that pre-check and
+  //    this write are an accepted race window — the create-side supersede
+  //    (newer wins) and the revoke's re-read bound it; core uniqueness is the
+  //    queued core ask that closes it.
   try {
-    // ⚖ G3 — READ THE CARD, not the first page of the roster. A fresh invite
-    // carries the id of the card it minted, so the lookup is ONE row: the old
-    // `staff.list({ page_size: 200 })` silently missed a pre-made card past row
-    // 200 and minted a DUPLICATE instead (⚖ ANY-ROSTER-SIZE). The email
-    // fallback — and chooseStaffToLink's user_id arm, where invited_staff_id
-    // carries a PROFILE id — still needs the roster, and now pages it whole.
-    let card: { id: string; user_id?: string | null } | null = null
-    if (invite.invited_staff_id) {
-      card = await synqed.staff.get(invite.invited_staff_id as string).catch(() => null)
-    }
-    let linkId: string | null = card?.id ?? null
-    if (!linkId) {
-      const staff = await listAllCoreStaff(synqed.staff)
-      linkId = chooseStaffToLink(invite.invited_staff_id, email, staff)
-      card = linkId ? staff.find((s) => s.id === linkId) ?? null : null
-    }
-    // ⚖ G2 — A STALE LINK NEVER RE-POINTS A CARD THAT IS ALREADY SOMEBODY'S.
-    // The update used to be unconditional, so an old pending invite opened
-    // weeks later took a card that had been wired since and handed it to a new
-    // account — the first person's permissions, attribution and history move
-    // with it, silently. Now: if the card belongs to a DIFFERENT login and this
-    // invite is not the newest LIVE one for that card (⚖ H1: accepted counts,
-    // only a revoked row stops counting), nothing is overwritten and nothing
-    // is minted. The DELIBERATE case is untouched — the
-    // newest re-invite of an already-linked person still re-links their card
-    // (a new email, a lost login), which is the shipped intent.
-    const wiredToSomeoneElse = !!card?.user_id && card.user_id !== userId
-    if (
-      linkId &&
-      wiredToSomeoneElse &&
-      !(await isNewestLiveInviteForCard(synqed, invite.id as string, linkId))
-    ) {
-      console.error('[acceptInvite] the invited card is already wired by a newer invite:', linkId)
-      await auditWeb({
-        category: 'staff',
-        action: 'staff.link_failed',
-        severity: 'warning',
-        actorId: userId,
-        businessId: invite.business_id as string,
-        targetType: 'staff',
-        targetId: linkId,
-        detail: {
-          via: 'invite',
-          invite_id: invite.id as string,
-          role,
-          reason: 'card_wired_by_another_invite',
-        },
-        requestId,
-      })
-    } else if (linkId) {
+    if (cardReadErr) throw cardReadErr
+    if (linkId) {
       await synqed.staff.update(linkId, { user_id: userId, role })
     } else {
       await synqed.staff.create({ name, email, user_id: userId, role })

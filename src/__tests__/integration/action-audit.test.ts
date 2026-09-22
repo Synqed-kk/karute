@@ -81,6 +81,8 @@ jest.mock('@/lib/synqed/client', () => ({
       removePin: staffRemovePin,
       uploadAvatar: staffUploadAvatar,
     },
+    // InviteClient requires `audit` (Greptile #978 R1 F3: the revoke reads the mint row back).
+    audit: { list: jest.fn() },
     invites: { create: invitesCreate, updateStatus: invitesUpdateStatus, list: invitesList },
     staffStores: { set: staffStoresSet },
     // `stores` is a REQUIRED port on StoresClient (only `staff` is Partial), and

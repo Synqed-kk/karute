@@ -96,6 +96,8 @@ const staffDelete = jest.fn(async () => ({}))
 const storesList = jest.fn(async () => ({ stores: [{ id: 'store-a', is_primary: true }] }))
 const staffStoresSet = jest.fn(async () => ({}))
 const fakeClient = {
+  // InviteClient requires `audit` (Greptile #978 R1 F3: the revoke reads the mint row back).
+  audit: { list: jest.fn() },
   invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
   staff: { list: staffList, create: staffCreate, delete: staffDelete },
   staffStores: { get: staffStoresGet, set: staffStoresSet },

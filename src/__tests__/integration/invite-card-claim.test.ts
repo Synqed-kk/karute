@@ -47,6 +47,14 @@ jest.mock('@/lib/supabase/server', () => ({
     auth: { signInWithPassword: async () => ({ error: null }) },
   }),
 }))
+// Spies on the two account writes, so "refused BEFORE the account exists"
+// (⚖ Greptile #978 R1 F1) is a real assertion, not an inference.
+const mockCreateUser = jest.fn(async () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: { user: { id: (global as any).__newUserId } },
+  error: null,
+}))
+const mockProfileUpdate = jest.fn(() => ({ eq: async () => ({ error: null }) }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const chain: Record<string, unknown> = {}
@@ -56,12 +64,11 @@ jest.mock('@/lib/supabase/service', () => ({
     return {
       auth: {
         admin: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          createUser: async () => ({ data: { user: { id: (global as any).__newUserId } }, error: null }),
+          createUser: () => mockCreateUser(),
           deleteUser: async () => ({}),
         },
       },
-      from: () => ({ select: () => chain, update: () => ({ eq: async () => ({ error: null }) }) }),
+      from: () => ({ select: () => chain, update: () => mockProfileUpdate() }),
     }
   },
 }))
@@ -121,9 +128,11 @@ function core(opts: { invites?: InviteFixture[]; cards?: CardFixture[] } = {}) {
     invites.push(row)
     return row
   })
+  const invitesList = jest.fn(async () => ({ invites }))
   const api = {
+    audit: { list: jest.fn() },
     invites: {
-      list: async () => ({ invites }),
+      list: invitesList,
       create: invitesCreate,
       updateStatus,
       getByToken: async (token: string) =>
@@ -148,7 +157,7 @@ function core(opts: { invites?: InviteFixture[]; cards?: CardFixture[] } = {}) {
     },
     stores: { list: async () => ({ stores: [{ id: 'store-ginza' }] }) },
   }
-  return { api, invites, cards, updateStatus, staffUpdate, staffCreate, staffGet, invitesCreate }
+  return { api, invites, cards, updateStatus, staffUpdate, staffCreate, staffGet, invitesCreate, invitesList }
 }
 
 beforeEach(() => {
@@ -256,6 +265,59 @@ describe('one pending invite per card — the create side (G2a)', () => {
       staffId: 'card-aoi',
     })
     expect(c.updateStatus).not.toHaveBeenCalled()
+  })
+
+  // ⚖ Greptile #978 R1 F5 — THE NEWER INVITE WINS. Two concurrent re-invites
+  // for one card used to revoke EACH OTHER. Only a strictly OLDER pending row
+  // is cancelled; a newer one and an exact tie are left alone.
+  it('revokes only the STRICTLY OLDER pending row — never a newer one, never a tie (F5)', async () => {
+    const at = (id: string, created_at: string): InviteFixture => ({
+      id, email: `${id}@test.com`, status: 'pending', invited_staff_id: 'card-aoi', created_at,
+    })
+    const c = core({
+      invites: [
+        at('inv-older-A', '2026-09-19T09:00:00Z'),
+        at('inv-newer-B', '2026-09-19T11:00:00Z'),
+        at('inv-tie-T', '2026-09-19T10:00:00Z'), // same instant as inv-new
+      ],
+      cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: null }],
+    })
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, 'mgr-1', {
+      email: 'aoi-new@test.com',
+      role: 'STYLIST',
+      staffId: 'card-aoi',
+    })
+    expect(res).toEqual({ token: expect.any(String) })
+    expect(c.updateStatus.mock.calls).toEqual([['inv-older-A', 'revoked']])
+    expect(c.invites.find((i) => i.id === 'inv-newer-B')?.status).toBe('pending')
+    expect(c.invites.find((i) => i.id === 'inv-tie-T')?.status).toBe('pending')
+    expect(c.invites.find((i) => i.id === 'inv-new')?.status).toBe('pending')
+  })
+
+  it('an UNPARSEABLE created_at on the new invite skips the supersede, loudly (F5)', async () => {
+    const c = core({
+      invites: [
+        { id: 'inv-A', email: 'aoi@test.com', status: 'pending',
+          invited_staff_id: 'card-aoi', created_at: '2026-09-01T09:00:00Z' },
+      ],
+      cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: null }],
+    })
+    c.invitesCreate.mockImplementation((async () =>
+      ({ id: 'inv-new', created_at: 'not-a-date' })) as unknown as typeof c.invitesCreate)
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, 'mgr-1', {
+        email: 'aoi-new@test.com',
+        role: 'STYLIST',
+        staffId: 'card-aoi',
+      })
+      expect(res).toEqual({ token: expect.any(String) })
+      expect(c.updateStatus).not.toHaveBeenCalled()
+      expect(c.invites.find((i) => i.id === 'inv-A')?.status).toBe('pending')
+      expect(err).toHaveBeenCalledWith(expect.stringContaining('skipping the supersede'))
+    } finally {
+      err.mockRestore()
+    }
   })
 })
 
@@ -574,5 +636,115 @@ describe('accept finds the invited card at any roster size (G3)', () => {
       expect.objectContaining({ user_id: 'user-late' }),
     )
     expect(c.staffCreate).not.toHaveBeenCalled()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚖ Greptile #978 R1 F1 + F2 — a stale or unverifiable invite is REFUSED BEFORE
+// the account exists. Refusing after step 3 left a signed-in member with NO
+// card — a floating, unclamped profile — and an unreadable invite list used to
+// answer "yes, newest" and let the stale token overwrite a wired card.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('a stale or unverifiable invite is refused BEFORE the account (F1 / F2)', () => {
+  const pendingA = {
+    id: 'inv-A', token: 'token-A', email: 'aoi@test.com', role: 'STYLIST', status: 'pending',
+    invited_staff_id: 'card-aoi', created_at: '2026-09-01T09:00:00Z',
+    business_id: 'business-1', expires_at: null, invited_by: 'owner-user-1',
+  }
+  const newerB = {
+    id: 'inv-B', token: 'token-B', email: 'aoi-new@test.com', role: 'STYLIST', status: 'accepted',
+    invited_staff_id: 'card-aoi', created_at: '2026-09-10T09:00:00Z',
+    business_id: 'business-1', expires_at: null,
+  }
+
+  it('STALE accept → the "replaced" error, no account, no profile, invite still pending, one warning row (F1)', async () => {
+    const c = core({
+      invites: [{ ...pendingA }, { ...newerB }],
+      cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: 'user-b' }],
+    })
+    install(c.api, 'user-a')
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toEqual({
+      error: 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.',
+    })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+    expect(mockProfileUpdate).not.toHaveBeenCalled()
+    expect(c.updateStatus).not.toHaveBeenCalled()
+    expect(c.invites.find((i) => i.id === 'inv-A')?.status).toBe('pending')
+    expect(c.cards[0].user_id).toBe('user-b')
+    const rows = (auditWeb as jest.Mock).mock.calls.map(([row]) => row)
+    expect(rows).toEqual([
+      expect.objectContaining({
+        action: 'staff.link_failed',
+        severity: 'warning',
+        actorId: 'owner-user-1', // the inviter — no joiner account exists
+        targetType: 'staff',
+        targetId: 'card-aoi',
+        detail: { via: 'invite', invite_id: 'inv-A', role: 'STYLIST', reason: 'card_wired_by_another_invite' },
+      }),
+    ])
+  })
+
+  // F2 — the reversal: an UNREADABLE invite list no longer lets a stale token
+  // through onto a WIRED card. (No earlier test pinned the old "yes" — this is
+  // its first pin, written reversed.)
+  it('UNREADABLE invite list + wired card → "try again", no account, one notice row (F2)', async () => {
+    const c = core({
+      invites: [{ ...pendingA }],
+      cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: 'user-b' }],
+    })
+    c.invitesList.mockRejectedValue(new Error('core down'))
+    install(c.api, 'user-a')
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toEqual({ error: 'Could not verify this invite right now. Please try again in a moment.' })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+    expect(mockProfileUpdate).not.toHaveBeenCalled()
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+    expect(c.cards[0].user_id).toBe('user-b')
+    expect(c.invites[0].status).toBe('pending')
+    const rows = (auditWeb as jest.Mock).mock.calls.map(([row]) => row)
+    expect(rows).toEqual([
+      expect.objectContaining({
+        action: 'staff.link_failed',
+        severity: 'notice',
+        actorId: 'owner-user-1',
+        targetId: 'card-aoi',
+        detail: expect.objectContaining({ reason: 'invite_list_unreadable', invite_id: 'inv-A' }),
+      }),
+    ])
+  })
+
+  it('wired card + THIS invite is the newest → the account is created and the card re-linked (F1)', async () => {
+    const c = core({
+      invites: [{ ...pendingA, created_at: '2026-09-20T09:00:00Z' }, { ...newerB }],
+      cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: 'user-old' }],
+    })
+    install(c.api, 'user-a')
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toBeUndefined()
+    expect(mockCreateUser).toHaveBeenCalledTimes(1)
+    expect(c.staffUpdate).toHaveBeenCalledWith('card-aoi', expect.objectContaining({ user_id: 'user-a' }))
+    expect(c.cards[0].user_id).toBe('user-a')
+  })
+
+  it('an UNWIRED card never reads the invite list at all — and links (F1)', async () => {
+    const c = core({
+      invites: [{ ...pendingA }],
+      cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: null }],
+    })
+    install(c.api, 'user-a')
+
+    const res = await acceptInvite('token-A', 'password123', '葵', 'ja')
+
+    expect(res).toBeUndefined()
+    expect(c.invitesList).not.toHaveBeenCalled()
+    expect(mockCreateUser).toHaveBeenCalledTimes(1)
+    expect(c.staffUpdate).toHaveBeenCalledWith('card-aoi', expect.objectContaining({ user_id: 'user-a' }))
   })
 })

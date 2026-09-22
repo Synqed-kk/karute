@@ -101,6 +101,8 @@ jest.mock('@/lib/synqed/client', () => ({
     },
     staffStores: { set: jest.fn(async () => ({})), get: jest.fn(async () => ({ store_ids: [] })) },
     stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-a', is_primary: true }] })) },
+    // InviteClient requires `audit` (Greptile #978 R1 F3: the revoke reads the mint row back).
+    audit: { list: jest.fn() },
     invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
   })),
   newSynqedClient: jest.fn(() => ({})),

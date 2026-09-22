@@ -21,7 +21,7 @@ import {
   STAFF_CREATE_FAILED,
   STAFF_STORE_REQUIRED,
 } from '@/lib/auth/store-gate'
-import { audit } from '@/lib/audit'
+import { audit, auditDurable } from '@/lib/audit'
 
 /** One name for one code (⚖ fold round 3, N1): the refusal when a creator
  *  names a store they do not work in is the same STORE_SCOPE_DENIED every
@@ -38,7 +38,9 @@ jest.mock('next/cache', () => ({
   revalidateTag: jest.fn(),
   updateTag: jest.fn(),
 }))
-jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
+// ⚖ Greptile #978 R1 F3: the invite door's staff.add (the mint row) is now
+// written DURABLY — it is the provenance the revoke reads back.
+jest.mock('@/lib/audit', () => ({ audit: jest.fn(), auditDurable: jest.fn(async () => ({ ok: true })) }))
 jest.mock('next-intl/server', () => ({
   getTranslations: async () => (key: string) => key,
 }))
@@ -432,19 +434,52 @@ describe('a fresh invite makes the card', () => {
     expect(c.staffStoresSet).not.toHaveBeenCalled()
   })
 
+  // Pin moved (F3): the invite door's staff.add is now an auditDurable row.
   it('a KNOWN store count keeps the invite door staff.add at info (J3 / U-V4)', async () => {
     const c = inviteClient({ stores: ['store-ginza'] })
-    ;(audit as jest.Mock).mockClear()
+    ;(auditDurable as jest.Mock).mockClear()
     const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
       email: 'new@test.com', role: 'STYLIST', name: '新人',
     })
     expect(res).toEqual({ token: expect.any(String) })
-    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(auditDurable).toHaveBeenCalledWith(expect.objectContaining({
       action: 'staff.add', severity: 'info', targetId: 'staff-new',
     }))
-    expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({
+    expect(auditDurable).not.toHaveBeenCalledWith(expect.objectContaining({
       detail: expect.objectContaining({ reason: 'store_count_unknown_unplaced' }),
     }))
+  })
+
+  // ⚖ Greptile #978 R1 F3 — THE MINT ROW NAMES ITS INVITE, durably. This row is
+  // the only proof the revoke will accept that the card was made by this invite.
+  it('the mint row carries minted_by_invite_id, written through auditDurable (F3)', async () => {
+    const c = inviteClient({ stores: ['store-ginza'] })
+    ;(auditDurable as jest.Mock).mockClear()
+    ;(audit as jest.Mock).mockClear()
+    await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com', role: 'STYLIST', name: '新人',
+    })
+    expect(auditDurable).toHaveBeenCalledTimes(1)
+    expect(auditDurable).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'staff.add', targetType: 'staff', targetId: 'staff-new',
+      detail: { minted_by_invite_id: 'inv-1' },
+    }))
+    expect((audit as jest.Mock).mock.calls.filter(([row]) => row.action === 'staff.add')).toHaveLength(0)
+  })
+
+  it('a mint row that does NOT land is said out loud, and the invite still stands (F3)', async () => {
+    const c = inviteClient({ stores: ['store-ginza'] })
+    ;(auditDurable as jest.Mock).mockResolvedValueOnce({ ok: false })
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+        email: 'new@test.com', role: 'STYLIST', name: '新人',
+      })
+      expect(res).toEqual({ token: expect.any(String) })
+      expect(err).toHaveBeenCalledWith(expect.stringContaining('provenance unproven'), 'staff-new')
+    } finally {
+      err.mockRestore()
+    }
   })
 
   it('the invite carries invited_staff_id = the new card, so ACCEPT attaches the login to it', async () => {
@@ -476,8 +511,10 @@ describe('a fresh invite makes the card', () => {
       const c = inviteClient({ stores: ['store-ginza'] })
       if (storeUnknown) c.api.stores.list = async () => { throw new Error('core down') }
       ;(audit as jest.Mock).mockClear()
+      ;(auditDurable as jest.Mock).mockClear()
       c.invitesCreate.mockImplementation(async () => {
         expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'staff.add' }))
+        expect(auditDurable).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'staff.add' }))
         return { id: 'inv-j4' }
       })
 
@@ -487,11 +524,16 @@ describe('a fresh invite makes the card', () => {
 
       expect(res).toEqual({ token: expect.any(String), ...(storeUnknown ? { storeUnknown: true } : {}) })
       expect(c.invitesCreate).toHaveBeenCalledTimes(1)
-      const adds = (audit as jest.Mock).mock.calls.filter(([row]) => row.action === 'staff.add')
+      // Pin moved (F3): the row is now auditDurable, and its detail always
+      // names the invite — merged with the unplaced reason when that applies.
+      expect((audit as jest.Mock).mock.calls.filter(([row]) => row.action === 'staff.add')).toHaveLength(0)
+      const adds = (auditDurable as jest.Mock).mock.calls.filter(([row]) => row.action === 'staff.add')
       expect(adds).toEqual([[expect.objectContaining({
         severity: storeUnknown ? 'notice' : 'info',
         targetId: 'staff-new',
-        detail: storeUnknown ? { reason: 'store_count_unknown_unplaced' } : undefined,
+        detail: storeUnknown
+          ? { reason: 'store_count_unknown_unplaced', minted_by_invite_id: 'inv-j4' }
+          : { minted_by_invite_id: 'inv-j4' },
       })]])
     },
   )
@@ -566,14 +608,15 @@ describe('a fresh invite makes the card', () => {
     c.api.stores.list = (async () => {
       throw new Error('core down')
     }) as never
-    ;(audit as jest.Mock).mockClear()
+    ;(auditDurable as jest.Mock).mockClear()
     const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
       email: 'new@test.com',
       role: 'STYLIST',
       name: '新人',
     })
     expect(res).toEqual({ token: expect.any(String), storeUnknown: true })
-    expect(audit).toHaveBeenCalledWith(
+    // Pin moved (F3): the invite door's staff.add is an auditDurable row now.
+    expect(auditDurable).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'staff.add',
         severity: 'notice',
@@ -608,11 +651,16 @@ describe('a fresh invite makes the card', () => {
 describe('a revoked fresh invite leaves no orphan card (F4)', () => {
   const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1' }
 
-  // ⚖ G5 — PROVENANCE IS A TIMESTAMP NOW. A card counts as "minted by this
-  // invite" only when it is unwired, carries the invite's email, AND was born
-  // in the 30 s before the invite row — so the fixtures carry real clocks.
+  // ⚖ G5, re-grounded by Greptile #978 R1 F3 — PROVENANCE IS THE LEDGER. A
+  // card counts as "minted by this invite" only when it is unwired AND the
+  // append-only audit log holds a staff.add row for it naming THIS invite
+  // (minted_by_invite_id). `ledger` is that log; `mintRow` builds the row.
   const SENT_AT = '2026-09-19T09:00:30.000Z'
   const MINTED_AT = '2026-09-19T09:00:29.000Z' // 1 s before the invite row
+  const mintRow = (cardId: string, inviteId: string) => ({
+    id: `ev-${cardId}`, action: 'staff.add', target_type: 'staff', target_id: cardId,
+    at: MINTED_AT, detail: { minted_by_invite_id: inviteId },
+  })
   function revokeClient(
     invites: {
       id: string
@@ -625,14 +673,20 @@ describe('a revoked fresh invite leaves no orphan card (F4)', () => {
       string,
       { id: string; email: string | null; user_id: string | null; created_at?: string }
     >,
+    ledger: ReturnType<typeof mintRow>[] = [],
   ) {
     const staffUpdate = jest.fn(async () => ({}))
     const updateStatus = jest.fn(async () => ({}))
+    const invitesList = jest.fn(async () => ({ invites }))
+    const auditList = jest.fn(async () => ({ events: ledger, total: ledger.length, page: 1, page_size: 50 }))
     return {
       staffUpdate,
       updateStatus,
+      invitesList,
+      auditList,
       api: {
-        invites: { list: async () => ({ invites }), updateStatus },
+        audit: { list: auditList },
+        invites: { list: invitesList, updateStatus },
         staff: {
           get: async (id: string) => {
             if (!cards[id]) throw new Error('no such staff')
@@ -663,11 +717,23 @@ describe('a revoked fresh invite leaves no orphan card (F4)', () => {
           created_at: MINTED_AT,
         },
       },
+      [mintRow('staff-new', 'inv-1')],
     )
     const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-1')
     expect(res).toEqual({ ok: true })
     expect(c.updateStatus).toHaveBeenCalledWith('inv-1', 'revoked')
     expect(c.staffUpdate).toHaveBeenCalledWith('staff-new', { is_active: false })
+    // F3 — the ledger was asked about THIS card, around ITS birth.
+    expect(c.auditList).toHaveBeenCalledWith({
+      category: 'staff',
+      target_type: 'staff',
+      target_id: 'staff-new',
+      from: '2026-09-19T08:50:29.000Z',
+      to: '2026-09-19T09:10:29.000Z',
+      page_size: 50,
+    })
+    // F4 — re-read clean: the pre-flip read plus ONE re-read before the write.
+    expect(c.invitesList).toHaveBeenCalledTimes(2)
   })
 
   it('a RE-invite’s pre-existing card is left alone — the invite never made it', async () => {
@@ -716,15 +782,32 @@ describe('a revoked fresh invite leaves no orphan card (F4)', () => {
           created_at: MINTED_AT,
         },
       },
+      // Even with a mint row naming THIS invite, a wired card is never touched.
+      [mintRow('staff-new', 'inv-3')],
     )
     await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-3')
     expect(c.staffUpdate).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({ kept_because: 'provenance_not_proven' }),
+      }),
+    )
   })
 
-  // ── PIN T1 — a card born just AFTER the invite row is not "minted by" it.
-  // The window is the 30 s BEFORE; without `born <= sent` any card created
-  // within 30 s either way at the same address would be switched off.
-  it('a card created just AFTER the invite row is NOT this invite’s (T1)', async () => {
+  // ── PIN T1, REWRITTEN for Greptile #978 R1 F3. It used to pin the 30 s
+  // CLOCK window (a card born 1 s after the invite row is not its). The clock
+  // is gone: Greptile's probe was a card added by hand and re-invited within
+  // 30 s at the same address, which the clock called "minted". Provenance is
+  // now the ledger row, so the pin is: a card whose clock would PASS but whose
+  // ledger names nothing — or ANOTHER invite — or cannot be read — is kept,
+  // provenance_not_proven, and never switched off. (Renamed reason: the old
+  // 'not_minted_by_invite' claimed a fact; 'provenance_not_proven' says what
+  // is actually known.)
+  it.each([
+    ['names ANOTHER invite', [mintRow('staff-new', 'inv-other')], false],
+    ['holds no mint row (hand-added card)', [], false],
+    ['cannot be read', [], true],
+  ] as const)('a card whose ledger %s is KEPT — provenance_not_proven (T1 / F3)', async (_case, ledger, listThrows) => {
     const c = revokeClient(
       [
         {
@@ -738,18 +821,91 @@ describe('a revoked fresh invite leaves no orphan card (F4)', () => {
       {
         'staff-new': {
           id: 'staff-new',
-          email: 'new@test.com',
+          email: 'new@test.com', // same address, born 1 s before: the clock would have said yes
           user_id: null,
-          created_at: '2026-09-19T09:00:31.000Z', // 1 s AFTER the invite row
+          created_at: MINTED_AT,
         },
       },
+      [...ledger],
     )
-    const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-t1')
+    if (listThrows) c.auditList.mockRejectedValue(new Error('core down'))
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    ;(audit as jest.Mock).mockClear()
+    try {
+      const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-t1')
+      expect(res).toEqual({ ok: true })
+    } finally {
+      err.mockRestore()
+    }
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetId: 'staff-new',
+        detail: expect.objectContaining({ kept_because: 'provenance_not_proven' }),
+      }),
+    )
+  })
+
+  it('a card with no parseable created_at is never proven — no ledger read at all (F3)', async () => {
+    const c = revokeClient(
+      [{ id: 'inv-t2', email: 'new@test.com', status: 'pending', invited_staff_id: 'staff-new', created_at: SENT_AT }],
+      { 'staff-new': { id: 'staff-new', email: 'new@test.com', user_id: null } },
+      [mintRow('staff-new', 'inv-t2')],
+    )
+    const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-t2')
+    expect(res).toEqual({ ok: true })
+    expect(c.auditList).not.toHaveBeenCalled()
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ Greptile #978 R1 F4 — RE-READ BEFORE THE DEACTIVATION WRITE. The pre-flip
+  // snapshot cannot see a re-invite created after it.
+  it('a NEW live invite for the card appears after the snapshot → card KEPT, another_live_invite (F4)', async () => {
+    const rowA = { id: 'inv-f4', email: 'new@test.com', status: 'pending', invited_staff_id: 'staff-new', created_at: SENT_AT }
+    const c = revokeClient(
+      [rowA],
+      { 'staff-new': { id: 'staff-new', email: 'new@test.com', user_id: null, created_at: MINTED_AT } },
+      [mintRow('staff-new', 'inv-f4')],
+    )
+    c.invitesList
+      .mockResolvedValueOnce({ invites: [rowA] }) // the pre-flip snapshot
+      .mockResolvedValueOnce({
+        invites: [
+          { ...rowA, status: 'revoked' },
+          { id: 'inv-B', email: 'new@test.com', status: 'pending', invited_staff_id: 'staff-new',
+            created_at: '2026-09-19T09:05:00.000Z' },
+        ],
+      })
+    ;(audit as jest.Mock).mockClear()
+    const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-f4')
+    expect(res).toEqual({ ok: true })
+    expect(c.invitesList).toHaveBeenCalledTimes(2)
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetId: 'staff-new',
+        detail: expect.objectContaining({ kept_because: 'another_live_invite' }),
+      }),
+    )
+  })
+
+  it('an UNREADABLE re-read keeps the card — recheck_unreadable (F4)', async () => {
+    const rowA = { id: 'inv-f4b', email: 'new@test.com', status: 'pending', invited_staff_id: 'staff-new', created_at: SENT_AT }
+    const c = revokeClient(
+      [rowA],
+      { 'staff-new': { id: 'staff-new', email: 'new@test.com', user_id: null, created_at: MINTED_AT } },
+      [mintRow('staff-new', 'inv-f4b')],
+    )
+    c.invitesList
+      .mockResolvedValueOnce({ invites: [rowA] })
+      .mockRejectedValueOnce(new Error('core down'))
+    ;(audit as jest.Mock).mockClear()
+    const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-f4b')
     expect(res).toEqual({ ok: true })
     expect(c.staffUpdate).not.toHaveBeenCalled()
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
-        detail: expect.objectContaining({ kept_because: 'not_minted_by_invite' }),
+        detail: expect.objectContaining({ kept_because: 'recheck_unreadable' }),
       }),
     )
   })
@@ -1000,6 +1156,7 @@ describe('a revoked fresh invite leaves no orphan card (F4)', () => {
           created_at: MINTED_AT,
         },
       },
+      [mintRow('staff-new', 'inv-5')],
     )
     c.staffUpdate.mockRejectedValueOnce(new Error('core down'))
     const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-5')
@@ -1009,7 +1166,7 @@ describe('a revoked fresh invite leaves no orphan card (F4)', () => {
         action: 'staff.invite_revoke',
         severity: 'notice',
         targetId: 'staff-new',
-        detail: expect.objectContaining({ reason: 'invite_revoked_card_kept' }),
+        detail: expect.objectContaining({ reason: 'invite_revoked_card_kept', kept_because: 'update_failed' }),
       }),
     )
   })

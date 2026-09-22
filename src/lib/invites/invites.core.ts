@@ -15,7 +15,7 @@ import { randomBytes } from 'crypto'
 import type { SynqedClient } from '@synqed-kk/client'
 
 import { createServiceClient } from '@/lib/supabase/service'
-import { audit } from '@/lib/audit'
+import { audit, auditDurable } from '@/lib/audit'
 import {
   INVITE_ALREADY_PENDING,
   INVITE_NAME_REQUIRED,
@@ -36,7 +36,10 @@ import {
 // as the S4a cores): the cores below take this instead of resolving
 // getSynqedClient() from the cookie session, so the facade (Bearer path) and
 // the web actions run the IDENTICAL write logic.
-export type InviteClient = Pick<SynqedClient, 'invites'> &
+export type InviteClient = Pick<SynqedClient, 'invites' | 'audit'> &
+  // ⚖ Greptile #978 R1 (F3): `audit` is REQUIRED — the revoke proves which
+  // card a fresh invite minted by reading OUR append-only ledger (the J4
+  // staff.add row carries minted_by_invite_id), not by guessing from a clock.
   // ⚖ Liam 2026-09-16: a FRESH invite mints the staff card first, through the
   // same placement path createStaff uses — so the core needs the staff ports
   // too. Partial, because every RE-invite path works without them.
@@ -90,8 +93,16 @@ async function inviteRowsQuietly(synqed: InviteClient): Promise<
   }
 }
 
+/** An invite row's instant, or −∞ when core sent something unparseable — so an
+ *  unreadable stamp can never outrank a real one (⚖ I5). */
+function stampOf(row: { created_at?: string | null }): number {
+  const n = Date.parse(row.created_at ?? '')
+  return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY
+}
+
 /** Is `inviteId` the NEWEST LIVE invite pointing at `cardId` — counting the
- *  ones already ACCEPTED? (⚖ H1, correcting G2.)
+ *  ones already ACCEPTED? (⚖ H1, correcting G2.) Three answers:
+ *  'newest' · 'superseded' · 'unknown' (the list could not be read).
  *
  *  It used to count pending rows only, which broke it in the exact case it
  *  exists for: acceptInvite marks an invite 'accepted' at the very END, after
@@ -101,39 +112,36 @@ async function inviteRowsQuietly(synqed: InviteClient): Promise<
  *  one that stops counting — it was deliberately cancelled.
  *
  *  The list IS the lookup — core has no invites.get, and this is the same read
- *  the revoke clamp already makes. An UNREADABLE list answers YES: a core blip
- *  must never turn a legitimate join into a refusal, and the create-side
- *  supersede (createInviteCore) is the layer that normally stops a second live
- *  invite from existing at all. */
-/** An invite row's instant, or −∞ when core sent something unparseable — so an
- *  unreadable stamp can never outrank a real one (⚖ I5). */
-function stampOf(row: { created_at: string }): number {
-  const n = Date.parse(row.created_at ?? '')
-  return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY
-}
-
+ *  the revoke clamp already makes.
+ *
+ *  ⚖ Greptile #978 R1 (F2) — REVERSED: an UNREADABLE list used to answer YES
+ *  ("a core blip must never turn a legitimate join into a refusal"). That let
+ *  the same stale token OVERWRITE a card already wired to someone else during
+ *  an outage. It now answers 'unknown', and acceptInvite refuses a WIRED card
+ *  on 'unknown' before any account exists (the invitee can simply retry). An
+ *  unwired card never reaches this read at all, so a blip still cannot block
+ *  an ordinary join. No live rows / only this row = 'newest'. */
 export async function isNewestLiveInviteForCard(
   synqed: InviteClient,
   inviteId: string,
   cardId: string,
-): Promise<boolean> {
+): Promise<'newest' | 'superseded' | 'unknown'> {
   const rows = await inviteRowsQuietly(synqed)
-  if (!rows) return true
+  if (!rows) return 'unknown'
   const live = rows.filter((i) => i.status !== 'revoked' && i.invited_staff_id === cardId)
-  if (live.length === 0) return true
+  if (live.length === 0) return 'newest'
   const mine = live.find((i) => i.id === inviteId)
-  if (!mine) return false
+  if (!mine) return 'superseded'
   const mineAt = stampOf(mine)
   // ⚖ I5 — ONE SPELLING OF "NEWER". String compare read '…T18:00:00+09:00' as
-  // later than '…T10:00:00Z' although it is an hour EARLIER; cardWasMintedByInvite
-  // already goes through Date.parse, and two spellings of "newer" in one file
-  // is two chances to disagree. THE TIE RULE: strictly newer than every other
-  // live row. An exact tie does NOT make this invite the newest — with two
-  // rows at the same instant nothing says which was meant, and the safe answer
-  // is "do not re-point the card"; being the ONLY live row is the exception,
-  // and it passes vacuously. An UNPARSEABLE stamp never outranks a parseable
-  // one (it sorts below every real instant).
-  return live.every((i) => i.id === inviteId || stampOf(i) < mineAt)
+  // later than '…T10:00:00Z' although it is an hour EARLIER; two spellings of
+  // "newer" in one file is two chances to disagree. THE TIE RULE: strictly
+  // newer than every other live row. An exact tie does NOT make this invite
+  // the newest — with two rows at the same instant nothing says which was
+  // meant, and the safe answer is "do not re-point the card"; being the ONLY
+  // live row is the exception, and it passes vacuously. An UNPARSEABLE stamp
+  // never outranks a parseable one (it sorts below every real instant).
+  return live.every((i) => i.id === inviteId || stampOf(i) < mineAt) ? 'newest' : 'superseded'
 }
 
 /** Client-threaded core of createInvite (facade Bearer path, design-parity
@@ -235,7 +243,7 @@ export async function createInviteCore(
   const token = randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000).toISOString()
 
-  let created: { id?: string }
+  let created: { id?: string; created_at?: string }
   try {
     created = await synqed.invites.create({
       email,
@@ -280,20 +288,39 @@ export async function createInviteCore(
 
   // ⚖ J4 — the invite now exists, so the card will stay. A successful
   // rollback emits nothing; a failed rollback has its own single warning.
+  //
+  // ⚖ Greptile #978 R1 (F3) — THIS ROW IS THE PROVENANCE. Core has no field
+  // for "this invite minted this card", so the row names the invite
+  // (minted_by_invite_id) and is written DURABLY (awaited): revokeInviteCore
+  // reads it back from the append-only ledger before it will switch a card
+  // off. A failed durable write only means provenance is unproven — the card
+  // is then simply kept at revoke, with the notice row saying so.
   if (mintedStaffId) {
-    audit({
-      category: 'staff',
-      action: 'staff.add',
-      severity: mintedStoreUnknown ? 'notice' : 'info',
-      actorId: deps.actorId,
-      actorType: 'staff',
-      businessId,
-      targetType: 'staff',
-      targetId: mintedStaffId,
-      detail: mintedStoreUnknown ? { reason: 'store_count_unknown_unplaced' } : undefined,
-      requestId: deps.requestId,
-      source: deps.source,
-    })
+    try {
+      const landed = await auditDurable({
+        category: 'staff',
+        action: 'staff.add',
+        severity: mintedStoreUnknown ? 'notice' : 'info',
+        actorId: deps.actorId,
+        actorType: 'staff',
+        businessId,
+        targetType: 'staff',
+        targetId: mintedStaffId,
+        detail: {
+          ...(mintedStoreUnknown ? { reason: 'store_count_unknown_unplaced' } : {}),
+          minted_by_invite_id: created.id ?? null,
+        },
+        requestId: deps.requestId,
+        source: deps.source,
+      })
+      if (!landed.ok) {
+        console.error('[createInvite] the mint row did not land — provenance unproven:', mintedStaffId)
+      }
+    } catch (err) {
+      // auditDurable never throws by contract; this only keeps the file's own
+      // rule (auditing never breaks the act it records) if that ever changes.
+      console.error('[createInvite] the mint row did not land — provenance unproven:', mintedStaffId, err)
+    }
   }
 
   // ⚖ G2 — ONE PENDING INVITE PER CARD. A card can be aimed at by more than one
@@ -307,17 +334,30 @@ export async function createInviteCore(
   // Best-effort, AFTER the new invite exists: an unreadable invite list must
   // never block hiring (the file's own posture, see inviteRowsQuietly), and the
   // accept-side guard is the backstop for exactly that case.
+  //
+  // ⚖ Greptile #978 R1 (F5) — THE NEWER INVITE WINS; an older one never
+  // cancels a newer one. Only STRICTLY OLDER pending rows are revoked, so two
+  // concurrent re-invites for one card can no longer cancel each other: the
+  // older request finds the newer row and leaves it; the newer one revokes the
+  // older. A tie revokes nothing (nothing says which was meant — the
+  // accept-side guard is the backstop).
   const targetCardId = staffId ?? mintedStaffId
+  const createdAt = stampOf(created)
   if (targetCardId && !created.id) {
     // ⚖ I3 — NEVER REVOKE WHAT WE CANNOT EXCLUDE. The self-exclusion below is
     // `row.id === created.id`; with no id back from core that test can never
     // fire, and the loop would cancel the very invite it just wrote. Skip the
     // whole supersede instead — the accept-side guard is the backstop.
     console.error('[createInvite] core returned no invite id — skipping the supersede')
+  } else if (targetCardId && !Number.isFinite(createdAt)) {
+    // Same shape as I3: never revoke what we cannot ORDER. With no readable
+    // stamp on the new row, "strictly older" cannot be decided.
+    console.error('[createInvite] core returned no readable invite created_at — skipping the supersede')
   } else if (targetCardId) {
     for (const row of (await inviteRowsQuietly(synqed)) ?? []) {
       if (row.status !== 'pending' || row.invited_staff_id !== targetCardId) continue
       if (row.id === created.id) continue
+      if (!(stampOf(row) < createdAt)) continue
       try {
         await synqed.invites.updateStatus(row.id, 'revoked')
       } catch (err) {
@@ -488,41 +528,55 @@ export async function reinviteTargetStaffIdWithClient(
   return invite.invited_staff_id ?? null
 }
 
-/** How long after a card is minted its invite row lands, in the SAME
- *  createInviteCore call (two sequential core writes). 30 s is generous for
- *  that gap and far shorter than any human hiring session. */
-const MINT_WINDOW_MS = 30_000
+/** How far either side of the card's own birth the ledger is searched for its
+ *  mint row. The row is written moments after the card, in the same call; ten
+ *  minutes each way only bounds the read, it proves nothing by itself. */
+const MINT_ROW_SEARCH_MS = 10 * 60_000
 
 /**
- * Was this card MINTED BY THIS INVITE? (⚖ G5.)
+ * Was this card MINTED BY THIS INVITE? (⚖ G5, re-grounded by Greptile #978 R1 F3.)
  *
- * The revoke used to deactivate on "unwired + same email", which is also the
- * exact shape of an ESTABLISHED employee who has never logged in and was just
- * re-invited at the address already on their card — cancel that invite and a
- * staffer who takes bookings every day is switched off. Provenance has to be
- * PROVABLE, and core gives us no flag for it: the SDK's Invite model carries
- * no free metadata/notes field (id · business_id · email · role · token ·
- * status · invited_by · invited_staff_id · created_at · expires_at), so the
- * only readable signal is Staff.created_at — the card a fresh invite mints is
- * written moments BEFORE the invite row in the same call.
+ * Provenance comes from OUR LEDGER, not a clock. createInviteCore writes the
+ * fresh invite's staff.add row durably with `minted_by_invite_id` = the invite
+ * it created, and the audit log is append-only — so the answer is YES only
+ * when a staff.add row for this card names THIS invite. Only that card is ever
+ * switched off. A read failure, no row, a row naming another invite, or a card
+ * with no parseable created_at is NOT proven, and the card is kept.
  *
- * ponytail: the ceiling is the clock. A card created inside the window for an
- * unrelated reason, at the same address, would still match — vanishingly
- * unlikely and, unlike the email-only rule, it cannot reach a card that has
- * been on the roster for a year. The core ask that removes the guess entirely:
- * an explicit `minted_by_invite_id` on staff (Anthony, next build order); read
- * that instead the day it exists.
+ * Cards minted before this ledger line existed (between #974 and this PR)
+ * carry no such row: they are kept with the notice row, and the owner tidies
+ * them by hand. The core ask — an explicit `minted_by_invite_id` on staff —
+ * remains the final word the day it exists.
+ *
+ * A WIRED card is never touched, whatever the ledger says: that person has a
+ * login.
  */
-function cardWasMintedByInvite(
-  card: { user_id: string | null; email: string | null; created_at?: string },
-  invite: { email: string; created_at: string },
-): boolean {
+async function cardMintedByInvite(
+  synqed: InviteClient,
+  card: { id: string; user_id: string | null; created_at?: string },
+  inviteId: string,
+): Promise<boolean> {
   if (card.user_id != null) return false
-  if (!card.email || card.email.toLowerCase() !== invite.email.toLowerCase()) return false
   const born = Date.parse(card.created_at ?? '')
-  const sent = Date.parse(invite.created_at ?? '')
-  if (!Number.isFinite(born) || !Number.isFinite(sent)) return false
-  return born <= sent && sent - born <= MINT_WINDOW_MS
+  if (!Number.isFinite(born)) return false
+  try {
+    const { events } = await synqed.audit.list({
+      category: 'staff',
+      target_type: 'staff',
+      target_id: card.id,
+      from: new Date(born - MINT_ROW_SEARCH_MS).toISOString(),
+      to: new Date(born + MINT_ROW_SEARCH_MS).toISOString(),
+      page_size: 50,
+    })
+    return events.some(
+      (e) =>
+        e.action === 'staff.add' &&
+        (e.detail as { minted_by_invite_id?: unknown } | null)?.minted_by_invite_id === inviteId,
+    )
+  } catch (err) {
+    console.error('[revokeInvite] could not read the mint row for the invited card:', card.id, err)
+    return false
+  }
 }
 
 /** Client-threaded core of revokeInvite (facade Bearer path, design-parity
@@ -565,11 +619,11 @@ export async function revokeInviteCore(
   // deleted, soft only): the owner can switch it back on in one tap.
   //
   // WHICH card: ⚖ G5 — the one THIS invite minted, proved by
-  // cardWasMintedByInvite (unwired + same email + born in the 30 s before the
-  // invite row). The email match alone used to be enough, and it caught an
-  // ESTABLISHED employee who had simply never logged in and was re-invited at
-  // the address already on their card — cancelling would switch off someone
-  // who takes bookings every day.
+  // cardMintedByInvite (unwired + a ledger staff.add row naming this invite,
+  // ⚖ Greptile #978 R1 F3). The email match alone used to be enough, and it
+  // caught an ESTABLISHED employee who had simply never logged in and was
+  // re-invited at the address already on their card — cancelling would switch
+  // off someone who takes bookings every day.
   //
   // Best-effort, AFTER the revoke has already succeeded and been receipted: a
   // failure here leaves exactly the orphan we had before the fold, never a
@@ -598,7 +652,8 @@ export async function revokeInviteCore(
   } else if (invite.invited_staff_id && synqed.staff) {
     const cardId = invite.invited_staff_id
     // ⚖ I1 — NEVER SWITCH OFF A CARD A LIVE INVITE STILL NEEDS. Two more
-    // conditions, both read off the rows we already have (no second list call):
+    // conditions, first read off the pre-flip rows (a cheap early exit; F4
+    // below re-reads right before the write):
     //   · the row was PENDING before this flip — revoking an invite that was
     //     already superseded (a stale list, the phone's own copy) must not
     //     reach the card the NEW invite is about to use;
@@ -615,8 +670,7 @@ export async function revokeInviteCore(
     ) {
       keptBecause = 'another_live_invite'
     } else {
-      let card: { id: string; user_id: string | null; email: string | null; created_at?: string } | null =
-        null
+      let card: { id: string; user_id: string | null; created_at?: string } | null = null
       try {
         card = await synqed.staff.get(cardId)
         if (!card) keptBecause = 'card_unreadable'
@@ -625,8 +679,20 @@ export async function revokeInviteCore(
         keptBecause = 'card_unreadable'
       }
       if (card) {
-        if (!cardWasMintedByInvite(card, invite)) {
-          keptBecause = 'not_minted_by_invite'
+        const proven = await cardMintedByInvite(synqed, card, id)
+        // ⚖ Greptile #978 R1 (F4) — RE-READ BEFORE THE WRITE. The check above
+        // ran on the pre-flip snapshot; a re-invite created since then is
+        // missing from it. The window now shrinks to the gap between this read
+        // and the write below; core uniqueness (the queued core ask) closes it.
+        const rowsNow = proven ? await inviteRowsQuietly(synqed) : null
+        if (!proven) {
+          keptBecause = 'provenance_not_proven'
+        } else if (rowsNow === null) {
+          keptBecause = 'recheck_unreadable'
+        } else if (
+          rowsNow.some((r) => r.id !== id && r.status !== 'revoked' && r.invited_staff_id === cardId)
+        ) {
+          keptBecause = 'another_live_invite'
         } else {
           try {
             await synqed.staff.update(card.id, { is_active: false })
