@@ -440,16 +440,19 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // settings.store_create / settings.store_update themselves. A rule here
   // would double-log every facade create/update; list reads stay unmapped
   // (list-render-is-not-a-view, same ruling as customers.list).
-  'stores.create': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/stores.ts#createStoreCore' },
+  // The store write cores moved to a server-only module (PKT-SEC-CORES-B2,
+  // 2026-09-23) — same writers, same rows, new home. Ledgered: map:stores.create
+  // / map:stores.update / map:staffStores.set in docs/audit-weakening-ledger.md.
+  'stores.create': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/lib/stores/stores.core.ts#createStoreCore' },
   // TWO cores now share this key, and both emit their own row:
-  //   · src/actions/stores.ts#updateStoreCore  → settings.store_update
-  //   · src/actions/stores.ts#setStoreHoursCore → settings.store_hours_update
+  //   · src/lib/stores/stores.core.ts#updateStoreCore  → settings.store_update
+  //   · src/lib/stores/stores.core.ts#setStoreHoursCore → settings.store_hours_update
   //     / settings.store_hours_reset (PATCH /stores/[id]/hours, 1c-D)
   // The `coveredBy` FIELD holds one citation — CP2 parses it as a single
   // file#symbol and the weakening ledger treats any edit to it as a truth
   // change needing a ruled entry — so the second writer is named here. Both
   // are proven by CP7 (AUDITED_CORES lists setStoreHoursCore).
-  'stores.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/stores.ts#updateStoreCore' },
+  'stores.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/lib/stores/stores.core.ts#updateStoreCore' },
   // staff CRUD + avatar + permissions + staff-stores (design-parity packet
   // 12 §S4a): createStaffCore/updateStaffCore/deleteStaffCore/
   // uploadStaffAvatarCore/setStaffPermissionsCore/setStaffStoresCore (the
@@ -463,7 +466,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'staff.delete': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#deleteStaffCore' },
   'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#uploadStaffAvatarCore' },
   'permissions.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/permissions.ts#setStaffPermissionsCore' },
-  'staffStores.set': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/stores.ts#setStaffStoresCore' },
+  'staffStores.set': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/lib/stores/stores.core.ts#setStaffStoresCore' },
   // PIN + voice + invites (design-parity packet 12 §S4b): setStaffPinCore/
   // removeStaffPinCore/enrollVoiceActionCore/revokeVoiceActionCore/
   // createInviteCore/revokeInviteCore (the ONE core both the web action and

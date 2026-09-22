@@ -326,11 +326,21 @@ export const AUDITED_CORES: {
     // settings.staff_stores_change, the same row setStaffStoresCore writes,
     // distinguished by detail.at_creation / detail.backfill.
     symbols: [
+      'setStaffStoresAtCreationCore',
+    ],
+  },
+  // The four store write cores left the action file for a server-only module
+  // (PKT-SEC-CORES-B2, 2026-09-23) — the SAME writers, registered at their new
+  // home. Ledgered: cores:src/actions/stores.ts#createStoreCore /
+  // #updateStoreCore / #setStoreHoursCore / #setStaffStoresCore in
+  // docs/audit-weakening-ledger.md.
+  {
+    file: 'src/lib/stores/stores.core.ts',
+    symbols: [
       'createStoreCore',
       'updateStoreCore',
       'setStoreHoursCore',
       'setStaffStoresCore',
-      'setStaffStoresAtCreationCore',
     ],
   },
   { file: 'src/actions/audit-log.ts', symbols: ['listAuditLogWithClient'] },
@@ -724,7 +734,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-16',
   },
   {
-    file: 'src/actions/stores.ts',
+    file: 'src/lib/stores/stores.core.ts',
     call: 'stores.create',
     symbols: ['listStoresWithClient'],
     justification:

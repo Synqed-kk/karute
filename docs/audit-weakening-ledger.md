@@ -389,3 +389,55 @@
   'src/actions/invites.ts#revokeInviteCore' → 'src/lib/invites/invites.core.ts#revokeInviteCore'.
   Same move, same choke point: the facade DELETE /api/app/v1/invites/[id] route calls that one
   core and it emits staff.invite_revoke itself · Fable (PKT-SEC-CORES-B1-INVITES-2026-09-23.md)
+- 2026-09-23 · cores:src/actions/stores.ts#createStoreCore · NOT a dropped writer — the
+  symbol MOVED. Every runtime export of a 'use server' file is registered as a
+  browser-callable server action with no authentication of its own, so the six
+  client-threaded store cores left src/actions/stores.ts for the server-only module
+  src/lib/stores/stores.core.ts (no directive, `import 'server-only'` on line one).
+  createStoreCore is re-registered there, byte-identical body and the same
+  settings.store_create emit, as AUDITED_CORES['src/lib/stores/stores.core.ts']. Rename
+  tolerance was removed from the gate on purpose (fix round 1 #8), so the move costs this
+  line · Fable (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight,
+  whole ecosystem)
+- 2026-09-23 · cores:src/actions/stores.ts#updateStoreCore · the twin of the line above,
+  same move, same PR: updateStoreCore is now
+  AUDITED_CORES['src/lib/stores/stores.core.ts'] with a byte-identical body and the same
+  settings.store_update emit. Nothing about the write or its audit row changed — only which
+  module it lives in, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/stores.ts#setStoreHoursCore · same move, same PR: the 営業時間
+  save core is now AUDITED_CORES['src/lib/stores/stores.core.ts'] with a byte-identical body
+  and the same settings.store_hours_update / settings.store_hours_reset emits. Only its
+  module changed, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/stores.ts#setStaffStoresCore · same move, same PR:
+  setStaffStoresCore is now AUDITED_CORES['src/lib/stores/stores.core.ts'] with a
+  byte-identical body and the same settings.staff_stores_change emit. Its at-creation
+  sibling (setStaffStoresAtCreationCore) stays in src/actions/stores.ts and keeps the old
+  entry, so that file's AUDITED_CORES row was split, not dropped · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:stores.create · coveredBy repointed
+  'src/actions/stores.ts#createStoreCore' → 'src/lib/stores/stores.core.ts#createStoreCore'.
+  The same choke point, at its new address: the facade POST /api/app/v1/stores route still
+  calls that one core, which still emits settings.store_create itself, which is why the row
+  stays a 'skip' (a rule here would double-log every facade write). The citation moved
+  because the file did · Fable (PKT-SEC-CORES-B2-STORES-2026-09-23.md)
+- 2026-09-23 · map:stores.update · coveredBy repointed
+  'src/actions/stores.ts#updateStoreCore' → 'src/lib/stores/stores.core.ts#updateStoreCore'.
+  Same move, same choke point: the facade PUT /api/app/v1/stores/[id] route calls that one
+  core and it emits settings.store_update itself. The second writer named in the comment
+  above this row (setStoreHoursCore, PATCH /stores/[id]/hours) moved in the same PR and its
+  citation followed · Fable (PKT-SEC-CORES-B2-STORES-2026-09-23.md)
+- 2026-09-23 · map:staffStores.set · coveredBy repointed
+  'src/actions/stores.ts#setStaffStoresCore' → 'src/lib/stores/stores.core.ts#setStaffStoresCore'.
+  Same move, same choke point: the facade PUT /api/app/v1/staff/[id]/stores route calls that
+  one core and it emits settings.staff_stores_change itself · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/stores/stores.core.ts::stores.create · NOT a new
+  legalized silent write — the SAME allowlist entry, at its new address. listStoresWithClient's
+  lazy 本店-create (ensurePrimary) has been allowlisted since 2026-07-27 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/stores.ts::stores.create with pendingWave 'Wave W —
+  2026-07-27'; the twin moved to the server-only module in this PR, so the entry's `file`
+  followed it. Justification, dated and pendingWave are unchanged, and the gate reads a moved
+  entry as an addition because the key is file-scoped · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
