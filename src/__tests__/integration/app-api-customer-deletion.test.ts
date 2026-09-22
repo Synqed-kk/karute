@@ -281,13 +281,17 @@ describe('POST …/deletion/cancel', () => {
 // and no audit row for a request that wrote nothing.
 describe('CustomerDeletionResultDTO at the door', () => {
   afterAll(() => {
-    jest.dontMock('@/actions/customers')
+    jest.dontMock('@/lib/customers/customers.core')
     jest.resetModules()
   })
 
+  // The shared core left src/actions/customers.ts for the server-only module
+  // (PKT-SEC-CORES-D1, 2026-09-23). The stub follows the route's own import —
+  // mocking the action file would stub a module this route no longer loads,
+  // and the test would silently exercise the real core instead.
   it('an UNLISTED guard code fails loud — 500, no audit row, never a 2xx', async () => {
     jest.resetModules()
-    jest.doMock('@/actions/customers', () => ({
+    jest.doMock('@/lib/customers/customers.core', () => ({
       scheduleCustomerDeletionWithClient: async () => ({
         success: false,
         error: 'brand_new_guard_nobody_wired',

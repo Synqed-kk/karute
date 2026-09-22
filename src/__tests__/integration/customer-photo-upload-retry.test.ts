@@ -35,7 +35,10 @@ jest.mock('next-intl/server', () => ({
   getTranslations: jest.fn(async () => (k: string) => k),
 }))
 
-import { uploadCustomerPhotoWithClient, uploadCustomerPhoto } from '@/actions/customers'
+// The retry core left the action file for the server-only module
+// (PKT-SEC-CORES-D1, 2026-09-23); the web action it backs stayed.
+import { uploadCustomerPhotoWithClient } from '@/lib/customers/customers.core'
+import { uploadCustomerPhoto } from '@/actions/customers'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getCurrentUserStaffId } from '@/lib/staff'
 

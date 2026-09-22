@@ -1070,7 +1070,7 @@ export async function listReassignCustomerOptions(
  * The manual create's SHARED body — an EXPLICIT client plus an ALREADY-RESOLVED
  * store and staff, so the web action (cookie identity/store) and the facade
  * POST (Bearer identity, clamp store) run the identical core write. Same P-B
- * split as createCustomerWithClient (src/actions/customers.ts).
+ * split as createCustomerWithClient (src/lib/customers/customers.core.ts).
  *
  * Deliberately OUT here, with the callers: the capability + other-staff checks
  * (each door has its own capability source), store resolution, the cache
