@@ -659,7 +659,7 @@ export const SDK_WRITE_ALLOWLIST: {
   // writeTranscript left the action file with the two shared bodies it serves,
   // for a server-only module (PKT-SEC-CORES-C, 2026-09-23) — the SAME write,
   // registered at its new home. Ledgered: SDK_WRITE_ALLOWLIST:
-  // src/actions/recording-discard-transcript.ts::recordings.upsertSegments in
+  // src/lib/recording/discard-transcript.core.ts::recordings.upsertSegments in
   // docs/audit-weakening-ledger.md.
   {
     file: 'src/lib/recording/discard-transcript.core.ts',
