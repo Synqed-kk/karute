@@ -8,6 +8,9 @@
 // round and Greptile found in the first cuts. Case 13 pins the bed-packing
 // undo-log allowance against the DEFAULT ALLOW (Greptile P2, 2026-09-08 — the
 // budget entry combining two match strings under one count had no coverage).
+// Cases 15a–15d pin the ONE practice-door exemption (⚖ Liam 9/19): the exact
+// factory import at the exact path is green, the same line elsewhere is red,
+// a second occurrence is over budget, and the SDK ban still holds there.
 
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs'
