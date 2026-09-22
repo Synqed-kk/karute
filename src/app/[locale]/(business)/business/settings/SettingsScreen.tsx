@@ -798,12 +798,17 @@ export function SettingsScreen(props: SettingsScreenProps) {
     for (const s of props.sections) out[s.id] = s
     return out
   }, [props.sections])
+  const liveSectionById = useMemo(() => {
+    const out: Record<string, SettingsSection> = {}
+    for (const s of Object.values(sectionById)) out[s.id] = { ...s, blocks: s.blocks.map((b) => ({ ...b, title: wordsRoomBlock(s, b.id, values)?.title ?? b.title })) }
+    return out
+  }, [sectionById, values])
 
   /** The rail after the query. Every row keeps its group so the list never
    *  reshuffles under a reader mid-type. */
   const railHits = useMemo(
-    () => props.rail.filter((row) => matchesQuery(searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id)), query)),
-    [props.rail, sectionById, query],
+    () => props.rail.filter((row) => matchesQuery(searchTextOf(row, liveSectionById[row.id] ?? null, termsFor(row.id)), query)),
+    [props.rail, liveSectionById, query],
   )
   /** ⚖ S17 fix round 4 · M6 — AND THE OPEN SECTION'S ROW STAYS ON THE LIST.
    *
@@ -1058,7 +1063,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                         <RailItem
                           key={row.id}
                           row={row}
-                          hit={hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))}
+                          hit={hitOf(row, liveSectionById[row.id] ?? null, query, termsFor(row.id))}
                           on={row.id === shownId && panelShown}
                           // ⚖ M6 — this row is here because it is OPEN, not
                           // because it answered the search, and it says so.
