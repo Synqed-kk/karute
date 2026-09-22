@@ -28,6 +28,8 @@ export function sampleFor<T>(plane: T, ownKind: TwinKind | null): T {
     if (!isPlain(v)) return v
     const out: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(v)) {
+      // A plane never carries these; a core JSON row that does is refused, not merged onto the prototype.
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') throw new Error(`sample facade: refused key "${key}"`)
       const kind = Object.prototype.hasOwnProperty.call(FIELD_KIND, key)
         ? FIELD_KIND[key]
         : key === 'id'

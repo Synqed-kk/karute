@@ -171,6 +171,14 @@ describe('the manifest parser', () => {
     expect(() => parseManifest(SNIPPET.replace('| cus-01 | C-1 | あかり | 55555555-5555-4555-8555-555555555555 | adopted |', '| cus-01 | C-1 | あかり | 55555555-5555-4555-8555-555555555555 | failed |')))
       .toThrow('row status is failed')
   })
+  it('a table with no separator row throws', () => {
+    expect(() => parseManifest('- fixtures commit: abc1234\n\n## Stores\n| fixture id | name | core uuid | status |\n| store-a | A店 | 11111111-1111-4111-8111-111111111111 | adopted |\n'))
+      .toThrow('table without a separator row')
+  })
+  it('a row whose cell count differs from the header throws', () => {
+    expect(() => parseManifest('- fixtures commit: abc1234\n\n## Stores\n| fixture id | name | core uuid | status |\n|---|---|---|---|\n| store-a | A店 | 11111111-1111-4111-8111-111111111111 |\n'))
+      .toThrow('row has 3 cells, header 4')
+  })
 })
 
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -253,6 +261,25 @@ describe('the sample facade', () => {
     expect(out.held.appointment_id).toBe(live('appointments', 'apt-02'))
     expect(sampleFor({ id: 'p-01' }, null)).toEqual({ id: 'p-01' })
   })
+  it('colliding ids: untyped fields stay put even when every value IS a real fixture id', () => {
+    const input = { id: STORE_A, member_number: 'cus-01', duplicate_of: 'cus-02', display_no: 'apt-01', note: 'p-01' }
+    for (const [kind, id] of [['stores', STORE_A], ['customers', 'cus-01'], ['customers', 'cus-02'], ['appointments', 'apt-01'], ['staff', 'p-01']] as const) {
+      expect(liveIdOf(kind, id)).not.toBeNull()
+    }
+    expect(sampleFor(input, null)).toEqual(input)
+  })
+  it("ownKind 'staff' rewrites the outer id only; the nested store id is not a staff id", () => {
+    expect(sampleFor({ id: 'p-01', store: { id: STORE_A } }, 'staff')).toEqual({ id: live('staff', 'p-01'), store: { id: STORE_A } })
+  })
+  it("ownKind 'stores' rewrites to the manifest uuid", () => {
+    expect(sampleFor({ id: STORE_A }, 'stores')).toEqual({ id: 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f' })
+  })
+  it.each(['__proto__', 'constructor'])('a %s key is refused loud and never reaches Object.prototype', (key) => {
+    const plane = JSON.parse(`{"${key}":{"x":1}}`)
+    expect(() => sampleFor(plane, null)).toThrow(`refused key "${key}"`)
+    expect(Object.prototype).not.toHaveProperty('x')
+    expect(({} as Record<string, unknown>).x).toBeUndefined()
+  })
 })
 
 const DOOR_READERS = [
@@ -282,11 +309,31 @@ describe('the data.ts seam', () => {
     expect(off).toEqual(menus.filter((m) => m.store_id == null || m.store_id === 'store-test-ginza'))
     expect(await data.listStoreOptions()).toEqual(stores)
   })
-  it('ON: every delegated reader is loud, never a fixture answer', async () => {
+  const LENS = 'store-test-ginza'
+  const RANGE = { from: 0, to: 1 }
+  const ON_CALLS: Record<(typeof DOOR_READERS)[number], () => Promise<unknown>> = {
+    listStoreOptions: () => data.listStoreOptions(),
+    listCustomers: () => data.listCustomers(LENS),
+    listAppointments: () => data.listAppointments(LENS, {}),
+    listVisits: () => data.listVisits(LENS, {}),
+    readShellIdentity: () => data.readShellIdentity(),
+    listMenus: () => data.listMenus(LENS),
+    readUnresolvedCounts: () => data.readUnresolvedCounts(),
+    listResources: () => data.listResources(LENS),
+    listShiftsByDay: () => data.listShiftsByDay(LENS, RANGE),
+    listAbsenceByDay: () => data.listAbsenceByDay(LENS, RANGE),
+    listBlocksByDay: () => data.listBlocksByDay(LENS, RANGE),
+    readDayPlanes: () => data.readDayPlanes(LENS, 0),
+    readReservationPlanes: () => data.readReservationPlanes(LENS),
+    readAnalyticsPlanes: () => data.readAnalyticsPlanes(LENS),
+    listStaff: () => data.listStaff(LENS),
+    readStaffStores: () => data.readStaffStores(LENS),
+  }
+  it.each(DOOR_READERS)('ON: data.%s is loud, never a fixture answer', async (name) => {
     setEnv({ BUSINESS_PRACTICE_TENANT: u })
-    await expect(data.listMenus('store-test-ginza')).rejects.toThrow(new PracticeDoorNotBuilt('listMenus'))
-    await expect(data.listStoreOptions()).rejects.toThrow(new PracticeDoorNotBuilt('listStoreOptions'))
-    await expect(data.listMenus('store-test-ginza')).rejects.toBeInstanceOf(PracticeDoorNotBuilt)
+    const p = ON_CALLS[name]()
+    await expect(p).rejects.toBeInstanceOf(PracticeDoorNotBuilt)
+    await expect(p).rejects.toThrow(`practice door not built yet: ${name} (PR-2)`)
   })
   it('renderNow and defaultStoreId never delegate', () => {
     for (const env of [{}, { BUSINESS_PRACTICE_TENANT: u }]) {
