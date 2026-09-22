@@ -246,8 +246,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
   'src/actions/recording-autostart.ts': [
   ],
   'src/actions/recording-discard-transcript.ts': [
-    'persistDiscardTranscriptWithClient',
-    'transcribeAndPersistDiscardWithClient',
   ],
   'src/actions/recording-discard.ts': [
   ],

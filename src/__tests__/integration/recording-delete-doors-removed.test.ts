@@ -90,6 +90,9 @@ describe('the six doors that could delete a recording', () => {
     // …and neither of its two callers still reaches for it.
     for (const rel of [
       'src/actions/recording-discard-transcript.ts',
+      // …and the server-only module the shared bodies moved to
+      // (PKT-SEC-CORES-C, 2026-09-23) — the code that once held the sweep.
+      'src/lib/recording/discard-transcript.core.ts',
       'src/app/api/app/v1/recordings/discards/transcript/route.ts',
     ]) {
       expect(code(rel)).not.toContain('sweepStagedDiscardAudio')
@@ -332,7 +335,7 @@ describe('what REPLACED them', () => {
   // the one precedence every reader shares — the phone's object first, the
   // rescue second — and the escape hatch is unchanged.
   it('the discard transcript reads the ROW’s key, not the caller’s claim', () => {
-    const src = code('src/actions/recording-discard-transcript.ts')
+    const src = code('src/lib/recording/discard-transcript.core.ts')
     expect(src).toContain('const pointer = recording?.audio_storage_path ?? null')
     expect(src).toContain('let audioPath = input.audioPath')
     // The caller naming the pointer itself still costs no probe at all.
