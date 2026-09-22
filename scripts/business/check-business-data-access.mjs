@@ -20,7 +20,7 @@
 // Reconnection is a deliberate PR on Liam's word that has to amend this file,
 // and scripts/business/ is CODEOWNER-gated, so that PR gets owner review by
 // construction. That is the point.
-// The practice-door PR-0 is that amendment: one file, one specifier, one occurrence.
+// The practice-door PR-0 is that amendment: one file, one module (either spelling), one occurrence.
 //
 // ⚠ WHAT THIS GUARD CANNOT SEE (2026-08-19 post-merge audit, the reason the
 // pair exists): it reads DIRECT specifiers and call sites in territory files
