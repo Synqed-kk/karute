@@ -20,8 +20,8 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
+import { join, posix } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { hasBusinessAdminGrant, isManagementMember } from '@/business/lib/grants'
@@ -276,6 +276,23 @@ describe('the fixture data door', () => {
     expect(data.defaultStoreId(undefined, [])).toBeNull()
     expect(data.defaultStoreId(STORE_A, [])).toBeNull()
   })
+  const FORMS = [
+    /from\s*'([^'\n]+)'/g,
+    /from\s*"([^"\n]+)"/g,
+    // ⚠ THE LOOKBEHIND. Without it this pattern once read
+    //   `block('io.import', '取り込み', …)`
+    // as a side-effect import of 「, 」 — a string that happens to end in the
+    // word `import` followed by a quoted argument. That id is now `io.intake`
+    // (2026-09-05: the trigger was removed from OUR side so the shared lock
+    // outside Business territory could go back to main's bytes), so nothing
+    // in the tree needs the lookbehind today. It stays because a real
+    // side-effect import is never preceded by a word character or a dot, and
+    // the next `…import '…'` string in a Japanese label should not be able to
+    // plant a phantom specifier in this inventory.
+    /(?<![\w.$])import\s*['"]([^'"\n]+)['"]/g,
+    /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
+    /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
+  ]
   it('the sealed files import EXACTLY their inventory — any new import goes red', () => {
     // Stronger than a banned-literal list, which an UNLISTED helper reaching
     // core would walk straight past (Greptile P2 on #720): this pins the
@@ -284,23 +301,6 @@ describe('the fixture data door', () => {
     // scan, no resolver needed; one regex per import form (never a combined
     // alternation — the #660 spanning-wildcard lesson) and comment lines are
     // stripped first so prose can't plant a phantom specifier.
-    const FORMS = [
-      /from\s*'([^'\n]+)'/g,
-      /from\s*"([^"\n]+)"/g,
-      // ⚠ THE LOOKBEHIND. Without it this pattern once read
-      //   `block('io.import', '取り込み', …)`
-      // as a side-effect import of 「, 」 — a string that happens to end in the
-      // word `import` followed by a quoted argument. That id is now `io.intake`
-      // (2026-09-05: the trigger was removed from OUR side so the shared lock
-      // outside Business territory could go back to main's bytes), so nothing
-      // in the tree needs the lookbehind today. It stays because a real
-      // side-effect import is never preceded by a word character or a dot, and
-      // the next `…import '…'` string in a Japanese label should not be able to
-      // plant a phantom specifier in this inventory.
-      /(?<![\w.$])import\s*['"]([^'"\n]+)['"]/g,
-      /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
-      /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
-    ]
     const INVENTORY: Record<string, string[]> = {
       'src/business/lib/clock.ts': [],
       // Both sides' rows are REAL in the merged tree, so the entry is the union:
@@ -308,7 +308,17 @@ describe('the fixture data door', () => {
       // brought `./fixtures-reservations`. Verified against the file, not
       // reconciled by taking a side — the inventory mirrors reality or it is
       // worth nothing.
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', 'react'],
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', './practice-door/door', './practice-door/switch', 'react'],
+      // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
+      // is the ONE territory file naming the core client factory; the rest are
+      // territory-only or import nothing.
+      'src/business/lib/practice-door/switch.ts': ['react'],
+      'src/business/lib/practice-door/core-reach.ts': ['@/lib/synqed/client', './switch'],
+      'src/business/lib/practice-door/registry-manifest.ts': [],
+      'src/business/lib/practice-door/registry.generated.ts': [],
+      'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
+      'src/business/lib/practice-door/sample-facade.ts': ['./registry'],
+      'src/business/lib/practice-door/door.ts': [],
       'src/business/lib/fixtures.ts': ['./clock'],
       // ⚖ D-15/D-24 (B2) — `./canon-logic/pricing` JOINED this inventory,
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
@@ -1024,6 +1034,7 @@ describe('the fixture data door', () => {
     // the entry above would leave that file invisible to this test rather
     // than red (m5).
     expect(Object.keys(INVENTORY)).toContain('src/business/lib/resource-words.ts')
+    expect(Object.keys(INVENTORY)).toContain('src/business/lib/practice-door/registry.generated.ts')
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
         .split('\n')
@@ -1036,6 +1047,82 @@ describe('the fixture data door', () => {
       }
       expect({ file, imports: [...found].sort() }).toEqual({ file, imports: [...expected].sort() })
     }
+  })
+
+  // ⚖ Liam 9/19 — the practice-salon door's two structural pins (DESIGN-PRACTICE-DOOR.md
+  // §9). Territory is walked WITHOUT src/__tests__/: practice-door.test.ts imports the
+  // door on purpose. Specifiers are read with FORMS above, comment lines stripped.
+  const ROOT = process.cwd()
+  function territoryFiles(): string[] {
+    const prefixes: string[] = JSON.parse(readFileSync(join(ROOT, 'scripts/business/business-territory.json'), 'utf8')).territory
+    const out: string[] = []
+    const walk = (dir: string) => {
+      for (const name of readdirSync(join(ROOT, dir))) {
+        const rel = posix.join(dir, name)
+        if (name === 'node_modules' || rel.startsWith('src/__tests__/')) continue
+        const stat = lstatSync(join(ROOT, rel))
+        if (stat.isSymbolicLink()) continue
+        if (stat.isDirectory()) walk(rel)
+        else if (/\.(ts|tsx|mts|cts|mjs|cjs|jsx|js)$/.test(name)) out.push(rel)
+      }
+    }
+    for (const p of prefixes) {
+      if (!p.startsWith('src/__tests__/') && existsSync(join(ROOT, p))) walk(p.slice(0, -1))
+    }
+    return out
+  }
+  function specifiersOf(file: string): string[] {
+    const src = readFileSync(join(ROOT, file), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n')
+    const found: string[] = []
+    for (const re of FORMS) {
+      re.lastIndex = 0
+      for (let m = re.exec(src); m; m = re.exec(src)) found.push(m[1])
+    }
+    return found
+  }
+  const resolveSpec = (spec: string, from: string): string | null =>
+    spec.startsWith('@/')
+      ? posix.join('src', spec.slice(2))
+      : /^\.\.?(\/|$)/.test(spec)
+        ? posix.join(posix.dirname(from), spec)
+        : null
+  const PRACTICE_DOOR = 'src/business/lib/practice-door'
+
+  it("server-only: no 'use client' file in territory imports the data door or the practice door", () => {
+    const offenders: string[] = []
+    let clientFiles = 0
+    for (const file of territoryFiles()) {
+      const first = readFileSync(join(ROOT, file), 'utf8')
+        .split('\n')
+        .map((l) => l.trim())
+        .find((l) => l !== '' && !/^(\/\/|\/\*|\*)/.test(l))
+      if (!first || !/^(['"])use client\1;?$/.test(first)) continue
+      clientFiles += 1
+      for (const spec of specifiersOf(file)) {
+        const target = resolveSpec(spec, file)
+        if (target === 'src/business/lib/data' || target === PRACTICE_DOOR || target?.startsWith(`${PRACTICE_DOOR}/`)) {
+          offenders.push(`${file}: ${spec}`)
+        }
+      }
+    }
+    expect(clientFiles).toBeGreaterThan(0)
+    expect(offenders).toEqual([])
+  })
+
+  it('one importer each: data.ts alone imports the door, core-reach.ts alone names the core client factory', () => {
+    const doorImporters: string[] = []
+    const factoryImporters: string[] = []
+    for (const file of territoryFiles()) {
+      for (const spec of specifiersOf(file)) {
+        if (resolveSpec(spec, file) === `${PRACTICE_DOOR}/door`) doorImporters.push(file)
+        if (spec === '@/lib/synqed/client') factoryImporters.push(file)
+      }
+    }
+    expect(doorImporters).toEqual(['src/business/lib/data.ts'])
+    expect(factoryImporters).toEqual([`${PRACTICE_DOOR}/core-reach.ts`])
   })
 })
 

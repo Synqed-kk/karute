@@ -16,9 +16,15 @@
 // This module imports NOTHING outside territory except React's cache() — the
 // render runtime, already on the isolation allowlist — so the data seal stays
 // structural.
+//
+// PRACTICE DOOR (DESIGN-PRACTICE-DOOR.md §1): BUSINESS_PRACTICE_TENANT, read by
+// ./practice-door/switch, decides each reader's source. UNSET (every deployment
+// today) = the fixture path below, byte-identical; SET = ./practice-door/door.
 
 import { cache } from 'react'
 import { jstDayKey, jstSlotEnd } from './clock'
+import { practiceTenant } from './practice-door/switch'
+import * as door from './practice-door/door'
 import {
   appointments,
   business,
@@ -142,6 +148,7 @@ function heldInLens<T extends { appointment_id: string }>(held: T[], lens: Store
  *  org-level `businessProfile` is core's BACKFILL, never a runtime fallback
  *  here (C4). */
 export async function listStoreOptions(): Promise<FixtureStore[]> {
+  if (practiceTenant() !== null) return door.listStoreOptions()
   return stores
 }
 
@@ -159,6 +166,7 @@ export function defaultStoreId(store: string | undefined, options: FixtureStore[
 /** Customers are business-wide — they carry no store_id, so the lens gates
  *  access but has nothing to filter on. */
 export async function listCustomers(lens: StoreLens): Promise<FixtureCustomer[]> {
+  if (practiceTenant() !== null) return door.listCustomers(lens)
   assertLens(lens)
   return customers
 }
@@ -167,6 +175,7 @@ export async function listAppointments(
   lens: StoreLens,
   range: { from?: string; to?: string } = {},
 ): Promise<FixtureAppointment[]> {
+  if (practiceTenant() !== null) return door.listAppointments(lens, range)
   assertLens(lens)
   const inRange = appointments(renderNow()).filter(
     (a) => (!range.from || a.starts_at >= range.from) && (!range.to || a.starts_at <= range.to),
@@ -185,6 +194,7 @@ export async function listVisits(
   lens: StoreLens,
   opts: { customerId?: string } = {},
 ): Promise<FixtureAppointment[]> {
+  if (practiceTenant() !== null) return door.listVisits(lens, opts)
   assertLens(lens)
   const done = appointments(renderNow()).filter(
     (a) => a.status === 'done' && (!opts.customerId || a.customer_id === opts.customerId),
@@ -204,6 +214,7 @@ export async function readShellIdentity(): Promise<{
    *  the render anchor, so the door reads the clock in exactly one place. */
   reserveSyncedAt: string
 }> {
+  if (practiceTenant() !== null) return door.readShellIdentity()
   return {
     business,
     operator,
@@ -223,6 +234,7 @@ export async function readShellIdentity(): Promise<{
 }
 
 export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {
+  if (practiceTenant() !== null) return door.listMenus(lens)
   assertLens(lens)
   return inLens(menus, lens, true)
 }
@@ -236,6 +248,7 @@ export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {
  *  disagree with the screen under it, and leak another store's workload.
  *  ⚠ RECONNECT: ask T-15 — core has no exception queue. */
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
+  if (practiceTenant() !== null) return door.readUnresolvedCounts()
   const open = decisions.filter((d) => d.state === 'open')
   const byStore: Record<string, number> = {}
   for (const s of stores) byStore[s.id] = open.filter((d) => d.store_id === s.id).length
@@ -246,6 +259,7 @@ export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, 
  *  a resource with no store would be a 全店舗 bed, which is not a thing.
  *  ⚠ RECONNECT: ask T-04 — core has no resource plane at all today. */
 export async function listResources(lens: StoreLens): Promise<FixtureResource[]> {
+  if (practiceTenant() !== null) return door.listResources(lens)
   assertLens(lens)
   return inLens(resources, lens, false)
 }
@@ -280,6 +294,7 @@ export async function listShiftsByDay(
   lens: StoreLens,
   range: { from: number; to: number },
 ): Promise<Map<number, FixtureShift[]>> {
+  if (practiceTenant() !== null) return door.listShiftsByDay(lens, range)
   // VALIDATED, not applied: a shift is keyed to a staff member and never to a
   // store, so the roster read is what decides who the lens can see — the same
   // rule readDayPlanes states below, and clamping twice would drop the floating
@@ -311,6 +326,7 @@ export async function listAbsenceByDay(
   lens: StoreLens,
   range: { from: number; to: number },
 ): Promise<Map<number, FixtureAbsence | null>> {
+  if (practiceTenant() !== null) return door.listAbsenceByDay(lens, range)
   assertLens(lens)
   const byDay = new Map<number, FixtureAbsence | null>()
   const todayKey = jstDayKey(renderNow())
@@ -339,6 +355,7 @@ export async function listBlocksByDay(
   lens: StoreLens,
   range: { from: number; to: number },
 ): Promise<Map<number, FixtureBlock[]>> {
+  if (practiceTenant() !== null) return door.listBlocksByDay(lens, range)
   assertLens(lens)
   const byDay = new Map<number, FixtureBlock[]>()
   const todayKey = jstDayKey(renderNow())
@@ -372,6 +389,7 @@ export async function listBlocksByDay(
  *  The real door queries the dated planes BY `dayKey` instead of returning the
  *  standing one, and the today-only branch disappears with the fixtures. */
 export async function readDayPlanes(lens: StoreLens, dayKey: number) {
+  if (practiceTenant() !== null) return door.readDayPlanes(lens, dayKey)
   assertLens(lens)
   const today = dayKey === jstDayKey(renderNow())
   return {
@@ -411,6 +429,7 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
  *  decides which of those ids the viewer may resolve at all.
  *  ⚠ RECONNECT: every field here is fixture-only. See the PR's honesty table. */
 export async function readReservationPlanes(lens: StoreLens) {
+  if (practiceTenant() !== null) return door.readReservationPlanes(lens)
   assertLens(lens)
   return {
     reservations,
@@ -450,6 +469,7 @@ export async function readReservationPlanes(lens: StoreLens) {
  *  ⚠ RECONNECT: every row is fixture-only. The real door reads the settlement
  *  ledger BY month and the mixes disappear with the fixtures. */
 export async function readAnalyticsPlanes(lens: StoreLens) {
+  if (practiceTenant() !== null) return door.readAnalyticsPlanes(lens)
   assertLens(lens)
   const storeId = lensStoreId(lens)
   return {
@@ -482,6 +502,7 @@ export async function readAnalyticsPlanes(lens: StoreLens) {
  *  convention), still visible. Same filtering the real door ran; only the
  *  source of the three inputs changed. */
 export async function listStaff(lens: StoreLens): Promise<FixtureStaff[]> {
+  if (practiceTenant() !== null) return door.listStaff(lens)
   assertLens(lens)
   const storeId = lensStoreId(lens)
   if (!storeId) return staff
@@ -501,6 +522,7 @@ export async function listStaff(lens: StoreLens): Promise<FixtureStaff[]> {
  *  pair a person with a bed in a store they do not work in — that would be the
  *  board advertising a window the business cannot honour (⚖ 8/9). */
 export async function readStaffStores(lens: StoreLens): Promise<Record<string, string[] | null>> {
+  if (practiceTenant() !== null) return door.readStaffStores(lens)
   assertLens(lens)
   return staffStoreMap()
 }

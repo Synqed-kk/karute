@@ -18,6 +18,9 @@ import { fixtureIdOf, liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/b
 import { sampleFor } from '@/business/lib/practice-door/sample-facade'
 import { appointments, customers, menus, staff, stores, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { businessProfiles } from '@/business/lib/fixtures-settings'
+import * as door from '@/business/lib/practice-door/door'
+import { PracticeDoorNotBuilt } from '@/business/lib/practice-door/door'
+import * as data from '@/business/lib/data'
 
 const U = 'FB44DD68-4AF7-44B0-8CC7-4EE10C54491D'
 const u = U.toLowerCase()
@@ -249,5 +252,48 @@ describe('the sample facade', () => {
     expect(out.rows[0].at).toBe(when)
     expect(out.held.appointment_id).toBe(live('appointments', 'apt-02'))
     expect(sampleFor({ id: 'p-01' }, null)).toEqual({ id: 'p-01' })
+  })
+})
+
+const DOOR_READERS = [
+  'listStoreOptions', 'listCustomers', 'listAppointments', 'listVisits', 'readShellIdentity', 'listMenus',
+  'readUnresolvedCounts', 'listResources', 'listShiftsByDay', 'listAbsenceByDay', 'listBlocksByDay',
+  'readDayPlanes', 'readReservationPlanes', 'readAnalyticsPlanes', 'listStaff', 'readStaffStores',
+] as const
+
+describe('the door before PR-2', () => {
+  it('exports exactly the sixteen readers plus the error', () => {
+    expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, 'PracticeDoorNotBuilt'].sort())
+  })
+  it.each(DOOR_READERS)('%s rejects with PracticeDoorNotBuilt naming itself', async (name) => {
+    const read = door[name] as (...a: unknown[]) => Promise<never>
+    const p = read('store-test-ginza', { from: 0, to: 0 })
+    await expect(p).rejects.toBeInstanceOf(PracticeDoorNotBuilt)
+    await expect(p).rejects.toThrow(`practice door not built yet: ${name} (PR-2)`)
+    await p.catch((e: Error) => expect(e.name).toBe('PracticeDoorNotBuilt'))
+  })
+})
+
+describe('the data.ts seam', () => {
+  it('OFF: the fixture path answers, unchanged', async () => {
+    setEnv({})
+    const off = await data.listMenus('store-test-ginza')
+    expect(off.length).toBeGreaterThan(0)
+    expect(off).toEqual(menus.filter((m) => m.store_id == null || m.store_id === 'store-test-ginza'))
+    expect(await data.listStoreOptions()).toEqual(stores)
+  })
+  it('ON: every delegated reader is loud, never a fixture answer', async () => {
+    setEnv({ BUSINESS_PRACTICE_TENANT: u })
+    await expect(data.listMenus('store-test-ginza')).rejects.toThrow(new PracticeDoorNotBuilt('listMenus'))
+    await expect(data.listStoreOptions()).rejects.toThrow(new PracticeDoorNotBuilt('listStoreOptions'))
+    await expect(data.listMenus('store-test-ginza')).rejects.toBeInstanceOf(PracticeDoorNotBuilt)
+  })
+  it('renderNow and defaultStoreId never delegate', () => {
+    for (const env of [{}, { BUSINESS_PRACTICE_TENANT: u }]) {
+      setEnv(env)
+      expect(data.renderNow()).toBeInstanceOf(Date)
+      expect(data.defaultStoreId(undefined, stores)).toBe(stores[0].id)
+      expect(data.defaultStoreId(STORE_B, stores)).toBe(STORE_B)
+    }
   })
 })
