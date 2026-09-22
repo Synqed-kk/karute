@@ -1129,6 +1129,11 @@ describe('PKT-BUILD-N3-2 §3 H5 — the screen calls the pure save door', () => 
     expect(blockSource).toContain('wordsTurnoverControl(section,')
   })
 
+  it('N3-4 Block calls the live room block and room options doors', () => {
+    expect(blockSource).toContain('wordsRoomBlock(section,')
+    expect(blockSource).toContain('wordsRoomOptions(section,')
+  })
+
   it('N3-2 §3 H5 — readout and inline problem use the room classes and live status attributes', () => {
     const divs = openingTags(readout, 'div').map((tag) => tag.text)
     expect(divs).toEqual(['<div className="st-preview" aria-live="polite">', '<div className="st-pv-note">'])
