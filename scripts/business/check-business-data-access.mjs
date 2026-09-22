@@ -146,11 +146,11 @@ const ALLOW = [
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
     label: 'core client factory import (lib/synqed/client)',
-    match: ["from '@/lib/synqed/client'"],
+    match: ["from '@/lib/synqed/client'", "from '../../../lib/synqed/client'"],
     count: 1,
     reason:
       '⚖ Liam 9/19 practice-salon door (DESIGN-PRACTICE-DOOR.md §2/§9): the ONE server-only core-reach file; ' +
-      'explicit-tenant factory only, one import line, the tenant throw guards it before any read',
+      'explicit-tenant factory only, one import line (either spelling, one occurrence), the tenant throw guards it before any read',
   },
 ]
 

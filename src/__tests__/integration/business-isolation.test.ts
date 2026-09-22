@@ -246,6 +246,7 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     // either spelling; data.ts still may not; the SDK and @/lib/staff stay out.
     const door = 'src/business/lib/practice-door/core-reach.ts'
     expect(outwardOffense('@/lib/synqed/client', door)).toBeNull()
+    // (the scanner's ALLOW pins the same two spellings, one occurrence — the pair agrees)
     expect(outwardOffense('../../../lib/synqed/client', door)).toBeNull()
     expect(outwardOffense('@/lib/synqed', door)).not.toBeNull()
     expect(outwardOffense('@/lib/synqed/client', from)).not.toBeNull()
