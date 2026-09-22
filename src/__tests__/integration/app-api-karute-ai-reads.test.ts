@@ -88,6 +88,10 @@ describe('GET /customers/[id]/ai/body-prediction (Decision 1)', () => {
     const res = await bodyPrediction(req({ headers: auth }), routeFor('cust-1'))
     expect(res.status).toBe(200)
     expect((await res.json()).prediction.headline).toBe('h')
+    // The POSITIVE half of the 404 test's `.not.toHaveBeenCalled()` below: a
+    // stub that stopped matching the route's own import would make that
+    // assertion pass vacuously while the REAL core ran. This pins the wiring.
+    expect(getCustomerKaruteRecordsWithClient).toHaveBeenCalled()
   })
   it('generator miss (locked/no-key/failure) → 200 { prediction: null } (NOT a 502)', async () => {
     getBodyPredictionWithClient.mockResolvedValueOnce(null)
