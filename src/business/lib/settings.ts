@@ -513,11 +513,25 @@ export interface SettingsBlock {
       /** The word used when the resolved row has none. */
       fallback: string
     }
+    liveRoom: {
+      /** The control-id prefix of the class segments whose option labels follow the store's words live. */
+      classPrefix: string
+      /** The block whose title, note and facts follow the store's words live. */
+      policyBlockId: string
+      /** The index of THIS block's own fact that names the private word. */
+      privateFactIndex: number
+      /** The private word used when the resolved row has none. */
+      fallback: string
+    }
     copy: {
       heading: string; current: string; standard: string; noTurnover: string
       exampleLabel: string; example: string; exampleZero: string
       turnoverFact: string; turnoverControl: string
       problems: Record<string, string>
+      /** One template per class option VALUE. */
+      classLabels: Record<string, string>
+      privateFact: string; policyTitle: string; policyNote: string
+      policyFacts: readonly string[]
     }
   }
   rows: SettingsRow[]
