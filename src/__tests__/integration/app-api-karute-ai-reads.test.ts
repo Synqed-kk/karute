@@ -47,7 +47,11 @@ const fakeClient = { customers: { get: (id: string) => custGet(id) }, karuteReco
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
 const getCustomerKaruteRecordsWithClient = jest.fn(async () => [{ id: 'k1', created_at: '2026-06-01' }, { id: 'k2', created_at: '2026-05-01' }])
-jest.mock('@/actions/karute', () => ({ getCustomerKaruteRecordsWithClient: () => getCustomerKaruteRecordsWithClient() }))
+// The karute read left src/actions/karute.ts for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23). The stub follows the route's own import —
+// mocking the action file would stub a module it no longer loads, and the test
+// would silently exercise the real core instead.
+jest.mock('@/lib/karute/karute.core', () => ({ getCustomerKaruteRecordsWithClient: () => getCustomerKaruteRecordsWithClient() }))
 
 const getBodyPredictionWithClient = jest.fn(async (): Promise<unknown> => ({ headline: 'h', confidence: 70, delta: null, recommended: '1〜2週間後', recommendedSub: null, rationaleSummary: 'r' }))
 jest.mock('@/lib/karute/ai-body-prediction', () => ({ getBodyPredictionWithClient: () => getBodyPredictionWithClient() }))

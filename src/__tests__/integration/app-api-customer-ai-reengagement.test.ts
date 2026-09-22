@@ -51,7 +51,11 @@ jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient }))
 const getCustomerKaruteRecordsWithClient = jest.fn(async () => [
   { id: 'k1', created_at: '2026-06-01T00:00:00Z', session_date: '2026-06-01' },
 ])
-jest.mock('@/actions/karute', () => ({
+// The karute read left src/actions/karute.ts for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23). The stub follows the route's own import —
+// mocking the action file would stub a module it no longer loads, and the test
+// would silently exercise the real core instead.
+jest.mock('@/lib/karute/karute.core', () => ({
   getCustomerKaruteRecordsWithClient: () => getCustomerKaruteRecordsWithClient(),
 }))
 

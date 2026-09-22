@@ -1,4 +1,4 @@
-import { getCustomerKaruteRecords } from '@/actions/karute'
+import { getCustomerKaruteRecords } from '@/lib/karute/karute.core'
 import { getBodyPrediction } from '@/lib/karute/ai-body-prediction'
 import { getSuggestedFollowUp } from '@/lib/karute/ai-outreach'
 import {

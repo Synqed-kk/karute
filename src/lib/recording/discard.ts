@@ -497,7 +497,7 @@ async function findPriorReceipt(
 }
 
 /** The ONE write. Kept its own function so every success return is lexically
- *  dominated by the emit (the emitSave idiom, src/actions/karute.ts) — the
+ *  dominated by the emit (the emitSave idiom, src/lib/karute/karute.core.ts) — the
  *  proof suite's emission walker reads this shape directly.
  *
  *  It also owns the below-floor stamp (fix round 1), because THIS is where

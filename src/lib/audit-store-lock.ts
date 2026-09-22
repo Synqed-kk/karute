@@ -133,7 +133,7 @@ export function ensureRecordStoreInScopeAudited(
  * `store_id` and so cannot go through the twin above.
  *
  * One caller today (⚖ FRESH-EYES-P1B F7): the reassign door's TO-CUSTOMER half
- * (`ensureReassignStoreScope`, src/actions/karute.ts). Its record half is already
+ * (`ensureReassignStoreScope`, src/lib/karute/karute.core.ts). Its record half is already
  * audited; its destination half refuses a customer outside the actor's stores,
  * and left nothing behind — so a clamped actor could enumerate customer ids
  * against a karute they legitimately hold and no owner would ever see it. Same

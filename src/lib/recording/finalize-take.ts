@@ -360,7 +360,7 @@ export async function finalizeTakeWithClient(
  * its own action, emitCaptureUnlinked, instead.)
  *
  * It EMITS AND RETURNS the caller's own result (the emitSave idiom,
- * src/actions/karute.ts#createOrUpdateKaruteRecord) so this fact leaves the
+ * src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord) so this fact leaves the
  * choke point through an emit BY CONSTRUCTION — the return can never grow a
  * path that skips the row.
  */

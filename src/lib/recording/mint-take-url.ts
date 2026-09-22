@@ -263,7 +263,7 @@ const DEFAULT_MIME = 'audio/webm'
  * nothing, so `reserved` is always true when this runs and is no longer a
  * parameter.
  *
- * It EMITS AND RETURNS (the emitSave idiom, src/actions/karute.ts
+ * It EMITS AND RETURNS (the emitSave idiom, src/lib/karute/karute.core.ts
  * #createOrUpdateKaruteRecord) so the reservation's every success path is
  * dominated by the emit BY CONSTRUCTION: the reservation is a CORE WRITE now,
  * and a core write must never be silent.

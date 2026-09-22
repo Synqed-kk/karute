@@ -55,7 +55,7 @@ import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { ManualKaruteCreateSchema } from '@/lib/app-api/record-schemas'
-import { createManualKaruteRecordWithClient } from '@/actions/karute'
+import { createManualKaruteRecordWithClient } from '@/lib/karute/karute.core'
 import type { SynqedClient } from '@synqed-kk/client'
 
 export const runtime = 'nodejs'
