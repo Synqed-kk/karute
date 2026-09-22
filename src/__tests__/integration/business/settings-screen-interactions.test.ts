@@ -1137,8 +1137,7 @@ describe('PKT-BUILD-N3-2 §3 H5 — the screen calls the pure save door', () => 
     expect(blockSource).toContain('{roomBlock?.facts[index] ?? (turnoverFact?.index === index')
     expect(SRC_CODE).toContain('title: wordsRoomBlock(section, b.id, values)?.title ?? b.title')
     expect(SRC_CODE).toContain('title: wordsRoomBlock(s, b.id, values)?.title ?? b.title')
-    expect(SRC_CODE).toContain('searchTextOf(row, liveSectionById[row.id]')
-    expect(SRC_CODE).toContain('hitOf(row, liveSectionById[row.id]')
+    expect(SRC_CODE).toContain('for (const s of Object.values(seedSectionById)) out[s.id] = { ...s, blocks:')
   })
 
   it('N3-2 §3 H5 — readout and inline problem use the room classes and live status attributes', () => {
