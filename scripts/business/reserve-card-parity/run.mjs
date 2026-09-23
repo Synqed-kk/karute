@@ -24,7 +24,9 @@
 //      <tmpdir>/reserve-card-parity) · RESERVE_REPO (default <PARITY_REPO>/../reserve)
 //      PARITY_W (the lane folder; when given, its satin fixtures are cross-checked) · PARITY_DIAG=1
 //      (also dumps computed-style differences per surface — the first tool to reach for on a diff) ·
-//      PARITY_ONLY=p01,long (a subset of cases, while investigating; the proof is the full run).
+//      PARITY_ONLY=p01,long (a subset of cases, while investigating: a PARTIAL run is diagnostic, not a proof —
+//      its headline says so, it writes neither PARITY.md nor the expected-satin JSON, and its PASS/FAIL and
+//      exit code cover only the rows that ran).
 // Only the PIDs this script starts are ever stopped.
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -76,6 +78,9 @@ const CASES = [
   { id: 'long', label: `long name (${[...LONG].length} chars), seed colour`, name: LONG, card: null, gymCard: null },
   { id: 'seed', label: 'seed #285643 (legacy, off-palette)', name: SEED.la.name, card: null, gymCard: null },
 ]
+const ONLY = process.env.PARITY_ONLY ? process.env.PARITY_ONLY.split(',') : null
+const RUN = CASES.filter((x) => !ONLY || ONLY.includes(x.id))
+const PARTIAL = RUN.length < CASES.length // a subset never certifies: nothing is emitted into the port checkout
 const SIZE = { mcard: [353, 187], tcard: [353, 76], cover: [393, 295] }
 // A sibling that paints over a surface's box on Reserve's page (not part of the surface): hidden there
 // only, and the overlap probe below proves nothing else covers any surface on either side.
@@ -145,7 +150,7 @@ function emitExpectedSatin() {
     `console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(inputs)}.map((h) => [h, satinVars(h)]))))`
   const out = JSON.parse(sh(process.execPath, ['--input-type=module', '--experimental-strip-types', '-e', code]))
   const doc = { source: `Synqed-kk/reserve src/lib/satin-material.ts @ ${PIN}, run under node`, emittedBy: 'scripts/business/reserve-card-parity/run.mjs', satinVars: out }
-  writeFileSync(EXPECTED, JSON.stringify(doc, null, 1) + '\n')
+  if (!PARTIAL) writeFileSync(EXPECTED, JSON.stringify(doc, null, 1) + '\n')
   let cross = 'PARITY_W not given — lane fixture cross-check skipped'
   const fx = W && join(W, 'PARITY-SATIN-FIXTURES.json')
   if (fx && existsSync(fx)) {
@@ -153,7 +158,7 @@ function emitExpectedSatin() {
     const same = rows.filter((r) => JSON.stringify(r.real) === JSON.stringify(out[r.hex])).length
     cross = `PARITY-SATIN-FIXTURES.json real rows identical: ${same}/${rows.length}`
   }
-  log(`reserve-card.expected-satin.json: ${inputs.length} inputs emitted by Reserve's module (node ${process.version}) · ${cross}`)
+  log(`reserve-card.expected-satin.json: ${inputs.length} inputs ${PARTIAL ? 'computed (PARTIAL run: not written)' : 'emitted'} by Reserve's module (node ${process.version}) · ${cross}`)
   return out
 }
 
@@ -375,7 +380,7 @@ async function main() {
   let fallback = 'not run'
 
   try {
-    for (const c of CASES.filter((x) => !process.env.PARITY_ONLY || process.env.PARITY_ONLY.split(',').includes(x.id))) {
+    for (const c of RUN) {
       seedMock(pristine, c)
       for (const f of sh('git', ['-C', COPY, 'diff', '--name-only']).split('\n').filter(Boolean)) touched.add(f)
       if (c.card) fenceStat = sh('git', ['-C', COPY, 'diff', '--stat']).trim().split('\n').join(' / ')
@@ -493,7 +498,8 @@ async function main() {
   }
   const pass = rows.every((x) => x.verdict === 'PASS') && !problems.length
   const sizes = Object.keys(SIZE).map((s) => `${s} ${[...new Set(rows.filter((x) => x.s === s).flatMap((x) => [fmt(x.r), fmt(x.p)]))].join('/')}`).join(' · ')
-  const report = `# Reserve card parity — ${pass ? 'PASS' : 'FAIL'}
+  const headline = PARTIAL ? `PARTIAL (${RUN.length}/${CASES.length} cases) — diagnostic, not a proof\nrows that ran: ${pass ? 'PASS' : 'FAIL'}` : pass ? 'PASS' : 'FAIL'
+  const report = `# Reserve card parity — ${headline}
 
 pin ${PIN} · chromium ${chromiumVersion} · 393×852 @2x · reduced motion · clock ${NOW} · Asia/Tokyo
 measured sizes (CSS px, both sides): ${sizes}
@@ -510,7 +516,7 @@ ${table}
 PNGs: ${OUT}/<case>-<surface>-{reserve,port,diff}.png
 `
   writeFileSync(join(OUT, 'parity-report.md'), report)
-  writeParityMd(verbatim, scopedCheck)
+  if (!PARTIAL) writeParityMd(verbatim, scopedCheck)
   log('\n' + report)
   process.exitCode = pass ? 0 : 1
 }
