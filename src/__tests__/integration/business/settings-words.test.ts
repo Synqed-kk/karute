@@ -252,6 +252,20 @@ describe('PKT-BUILD-N3-2 §3 H3 — the pure save door', () => {
     expect(sentences.standard).toBe('{full}の標準: 呼び名 ベッド ・ 数え方 台 ・ すべて埋まったとき 満室 ・ あいだの作業 清掃')
     expect(sentences.example).toBe(`いまこの店舗には{full}が${spec.count}台あります。`)
   })
+
+  it('N3-5 T4 — a つ store prints 個 from ten in the example, the readout keeps つ', () => {
+    const gymValues = { ...seed, [spec.typeId]: 'personal_gym' }
+    const gymLabel = businessProfiles.find((p) => p.value === 'personal_gym')!.label
+    const ten = wordsSentences({ ...spec, count: 10 }, gymValues, gymLabel)
+    expect(ten.example).toBe('いまこの店舗にはブースが10個あります。')
+    expect(ten.current).toContain('数え方 つ')
+    expect(wordsSentences({ ...spec, count: 9 }, gymValues, gymLabel).example.endsWith('が9つあります。')).toBe(true)
+    expect(wordsSentences({ ...spec, count: 10 }, values('ブース', 'つ'), label).example).toBe('いまこの店舗にはブースが10個あります。')
+  })
+
+  it('N3-5 T5 — a 台 store at ten keeps 台', () => {
+    expect(wordsSentences({ ...spec, count: 10 }, seed, label).example.endsWith('が10台あります。')).toBe(true)
+  })
 })
 
 describe('N3-4 room-class words seed and live copy', () => {

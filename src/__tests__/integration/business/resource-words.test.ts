@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { businessProfiles, type BusinessProfileKey } from '@/business/lib/fixtures-settings'
 import { stores } from '@/business/lib/fixtures'
-import { RESOURCE_WORDS, GENERIC_WORDS, WORD_MAX_CHARS, resourceWordsFor, wordsForStore, wordOverrideProblem, chromeWords, type ResourceWords, type WordOverride } from '@/business/lib/resource-words'
+import { RESOURCE_WORDS, GENERIC_WORDS, WORD_MAX_CHARS, resourceWordsFor, wordsForStore, wordOverrideProblem, chromeWords, countWord, type ResourceWords, type WordOverride } from '@/business/lib/resource-words'
 
 // ── the folded VOCAB draft + native-pass counters, spelled out here as the
 //    ORACLE (the test is the record of the native pass, not a second truth) ──
@@ -539,5 +539,29 @@ describe('PKT-BUILD-N3-2 §3 H1 — interior whitespace', () => {
   it('N3-2 §3 H1 — trim precedes space and nine code points without space reach length', () => {
     expect(wordOverrideProblem({ turnoverWord: ' a b ' })).toBe('trim')
     expect(wordOverrideProblem({ turnoverWord: '123456789' })).toBe('length')
+  })
+})
+
+describe('PKT-BUILD-N3-5 — the counter word after a number (countWord)', () => {
+  it('N3-5 T1 — つ stays つ up to nine and becomes 個 from ten', () => {
+    for (const n of [0, 1, 2, 9]) expect(countWord(n, 'つ')).toBe('つ')
+    for (const n of [10, 11, 99, 100, 1000]) expect(countWord(n, 'つ')).toBe('個')
+  })
+
+  it('N3-5 T2 — every other counter of the table is returned unchanged', () => {
+    const others = Object.values(RESOURCE_WORDS).filter((row) => row.counter !== 'つ')
+    expect(others.length).toBeGreaterThan(0)
+    const counters = new Set(others.map((row) => row.counter))
+    for (const c of ['台', '面', '室', '枚']) expect(counters.has(c)).toBe(true)
+    for (const row of others) for (const n of [1, 9, 10, 100]) expect(countWord(n, row.counter)).toBe(row.counter)
+  })
+
+  it('N3-5 T3 — the rule follows the typed WORD through the resolver, not the type', () => {
+    const typedTsu = wordsForStore('esthetic_salon', { resourceNoun: 'ブース', counter: 'つ' }).counter
+    expect(typedTsu).toBe('つ')
+    expect(countWord(10, typedTsu)).toBe('個')
+    const typedKo = wordsForStore('nail_salon', { resourceNoun: 'ブース', counter: '個' }).counter
+    expect(typedKo).toBe('個')
+    expect(countWord(10, typedKo)).toBe('個')
   })
 })

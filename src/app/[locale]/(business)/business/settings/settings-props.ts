@@ -50,7 +50,7 @@ import {
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import { storeSample } from '@/business/lib/practice-door/sample-facade'
-import { GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
+import { countWord, GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
 import {
   accessFor,
   BOOKING_GUARD_ID,
@@ -969,7 +969,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         facts: [
           beds.length === 0
             ? `いまこの店舗には${ctx.words.resourceNoun}が登録されていません。`
-            : `いまこの店舗には${ctx.words.resourceNoun}が${beds.length}${ctx.words.counter}あります。`,
+            : `いまこの店舗には${ctx.words.resourceNoun}が${beds.length}${countWord(beds.length, ctx.words.counter)}あります。`,
           fillWords(turnoverFact, { turnoverName }),
         ],
       }),

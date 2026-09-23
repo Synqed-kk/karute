@@ -110,6 +110,14 @@ export function wordsForStore(type: string, override: WordOverride | null): Reso
   })
 }
 
+/** The counter word printed right after a NUMBER. The native counter つ
+ *  (ひとつ ... ここのつ) stops at nine; from ten the generic counter is the
+ *  copy sheet's word. Keyed on the counter word only -- a typed つ gets the
+ *  same rule; never on a business type. Every other counter is returned as is. */
+export function countWord(n: number, counter: string): string {
+  return counter === 'つ' && n >= 10 ? '個' : counter
+}
+
 /** ⚖ D-53 (n) C7 — the board's CHROME words under a mixed board: every row
  *  the caller hands in (already resolved via `resourceWordsFor`) agrees on
  *  all seven fields → that row; disagreement, or nothing to agree on at all

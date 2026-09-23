@@ -1,4 +1,4 @@
-import { wordOverrideProblem, wordsForStore, type WordOverride, type ResourceWords } from './resource-words'
+import { countWord, wordOverrideProblem, wordsForStore, type WordOverride, type ResourceWords } from './resource-words'
 import type { ControlOption, RowValue, SettingsBlock, SettingsSection } from './settings'
 
 type WordsSpec = NonNullable<SettingsBlock['words']>
@@ -51,14 +51,14 @@ export function wordsTurnoverControl(section: SettingsSection, controlId: string
 
 export function wordsSentences(spec: WordsSpec, values: Values, typeLabel: string): { current: string; standard: string; example: string } {
   const { current, standard } = wordsReadout(spec, values)
-  const fill = (template: string, row: ResourceWords) => fillWords(template, {
+  const slotsOf = (row: ResourceWords) => ({
     noun: row.resourceNoun, counter: row.counter, full: row.fullWord,
     turnover: row.turnoverWord ?? spec.copy.noTurnover, typeLabel, n: String(spec.count),
     word: normalisedWordValues(spec, values)[spec.turnoverId],
   })
   return {
-    current: fill(spec.copy.current, current), standard: fill(spec.copy.standard, standard),
-    example: fill(spec.count === 0 ? spec.copy.exampleZero : spec.copy.example, current),
+    current: fillWords(spec.copy.current, slotsOf(current)), standard: fillWords(spec.copy.standard, slotsOf(standard)),
+    example: fillWords(spec.count === 0 ? spec.copy.exampleZero : spec.copy.example, { ...slotsOf(current), counter: countWord(spec.count, current.counter) }),
   }
 }
 
