@@ -1,7 +1,7 @@
 // Staff CRUD + avatar facade routes (design-parity packet 12 §S4a). Single-
 // source: every route calls the SAME core the web action calls
 // (createStaffCore/updateStaffCore/deleteStaffCore/uploadStaffAvatarCore,
-// src/actions/staff.ts). Pins: capability gates, Idempotency-Key on create,
+// src/lib/staff/staff.core.ts). Pins: capability gates, Idempotency-Key on create,
 // exactly one audit row per successful write (source: 'facade'), and the
 // silence contract (denied/failed write → no audit row).
 import { createHmac } from 'node:crypto'
@@ -26,11 +26,9 @@ jest.mock('@synqed-kk/client', () => ({
     }
   },
 }))
-// src/actions/staff.ts also exports the web createStaff/updateStaff/etc.
-// actions (unused here, but the module graph pulls them in with
-// createStaffCore et al.) — those import next-intl/server, real ESM jest
-// can't parse; mock it the same way every other suite that touches this
-// module does.
+// The routes import the cores from src/lib/staff/staff.core.ts (PKT-SEC-CORES-D5),
+// which no longer pulls next-intl/server in through the action file; the mock
+// stays because it is harmless and guards any other path that still reaches it.
 jest.mock('next-intl/server', () => ({
   getTranslations: async () => (key: string) => key,
 }))
