@@ -115,4 +115,15 @@ describe('notification feed — recording failures (owner view)', () => {
     expect(first.map((i) => i.id)).toEqual(['recording-failure:rec-a'])
     expect(second.map((i) => i.id)).toEqual(first.map((i) => i.id))
   })
+
+  it('(5) other recording actions never become items — only transcribe_failed and karute_missing', async () => {
+    events = [
+      { action: 'recording.transcribe_failed', target_id: 'rec-a', at: hoursAgo(1), detail: { reason: 'ai_failed' } },
+      { action: 'recording.karute_missing', target_id: 'rec-b', at: hoursAgo(1), detail: { reason: 'saveFailed' } },
+      { action: 'recording.started', target_id: 'rec-c', at: hoursAgo(1), detail: {} },
+      { action: 'recording.finished', target_id: 'rec-d', at: hoursAgo(1), detail: {} },
+    ]
+    const items = recordingItems(await buildNotificationFeed(BIZ, 'ja', null, { viewerCanViewAudit: true }))
+    expect(items.map((i) => i.id).sort()).toEqual(['recording-failure:rec-a', 'recording-failure:rec-b'])
+  })
 })
