@@ -51,7 +51,7 @@ jest.useFakeTimers({
 const TODAY = jstDayKey(new Date('2026-09-14T04:24:00Z'))
 
 type Spied = { [K in keyof CoreReads]: jest.Mock }
-function useReads(o: RecordedOptions = {}): Spied {
+function withReads(o: RecordedOptions = {}): Spied {
   const base = recordedReads(o)
   const spied = Object.fromEntries(Object.entries(base).map(([k, fn]) => [k, jest.fn(fn as (...a: unknown[]) => unknown)])) as unknown as Spied
   mockCore.reads = spied as unknown as CoreReads
@@ -64,7 +64,7 @@ function as(userId: string, email: string | null = null, businessId: string = TE
 const saved = process.env.BUSINESS_PRACTICE_TENANT
 beforeEach(() => {
   process.env.BUSINESS_PRACTICE_TENANT = TENANT
-  useReads()
+  withReads()
   as(LOGIN.owner)
 })
 afterEach(() => {
@@ -77,7 +77,7 @@ const VIEW_ALL = { viewAll: true } as const
 
 describe('(1) OWNER — viewAll', () => {
   it("React cache() is a pass-through outside a render: two practiceActor() calls read staff twice", async () => {
-    const spy = useReads()
+    const spy = withReads()
     await practiceActor()
     await practiceActor()
     expect(spy.staffList).toHaveBeenCalledTimes(2)
@@ -96,7 +96,7 @@ describe('(1) OWNER — viewAll', () => {
     expect(shell.business).toEqual({ name: 'Dev Salon', storeCount: 5 })
     expect(shell.operator).toEqual({ name: 'Dev Salon', mark: 'Dev', role: 'オーナー', staff_id: CARD.owner })
     expect(typeof shell.reserveSyncedAt).toBe('string')
-    useReads({ orgName: null })
+    withReads({ orgName: null })
     expect((await data.readShellIdentity()).business.name).toBe('')
   })
 
@@ -192,7 +192,7 @@ describe('(1) OWNER — viewAll', () => {
       [jstDayKey('2026-10-01T03:00:00Z'), '2026-09-30T15:00:00.000Z', '2026-10-01T15:00:00.000Z'],
     ]
     for (const [key, from, to] of cases) {
-      const spy = useReads()
+      const spy = withReads()
       await data.listBlocksByDay(STORE.tokyo, { from: key, to: key })
       expect(spy.appointmentsList).toHaveBeenCalledWith(expect.objectContaining({ from, to, store_id: STORE.tokyo }))
     }
@@ -260,7 +260,7 @@ describe('(3) UNASSIGNED — null without viewAll is EMPTY (fold F-2)', () => {
 
 describe('(4)–(8) walls, identity, paging, errors', () => {
   it('(4) tenant mismatch: every reader rejects before any read', async () => {
-    const spy = useReads()
+    const spy = withReads()
     as(LOGIN.owner, null, 'other')
     const calls: Array<() => Promise<unknown>> = [
       () => data.listStoreOptions(), () => data.listCustomers(STORE.tokyo), () => data.listAppointments(STORE.tokyo),
@@ -284,15 +284,15 @@ describe('(4)–(8) walls, identity, paging, errors', () => {
   })
   it('(7) paging: 3 per page gives the same answers; a runaway total hits the 50-page cap', async () => {
     const normal = [await data.listStoreOptions(), await data.listStaff(STORE.tokyo), await data.listCustomers(VIEW_ALL), await data.listAppointments(VIEW_ALL)]
-    const spy = useReads({ forcePageSize: 3 })
+    const spy = withReads({ forcePageSize: 3 })
     const small = [await data.listStoreOptions(), await data.listStaff(STORE.tokyo), await data.listCustomers(VIEW_ALL), await data.listAppointments(VIEW_ALL)]
     expect(small).toEqual(normal)
     expect(spy.staffList.mock.calls.length).toBeGreaterThan(2)
-    useReads({ runawayStaff: true })
+    withReads({ runawayStaff: true })
     await expect(data.listStaff(STORE.tokyo)).rejects.toThrow('practice door: staff list exceeded 50 pages')
   })
   it('(8) a core error propagates — never an empty list', async () => {
-    const spy = useReads()
+    const spy = withReads()
     spy.staffList.mockRejectedValue(new Error('502'))
     await expect(data.listStaff(STORE.tokyo)).rejects.toThrow('502')
   })

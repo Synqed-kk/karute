@@ -5,8 +5,7 @@
 // writes, and a core error propagates (never an empty list, §7).
 
 import { cache } from 'react'
-import { requireBusinessAdmission } from '../admission'
-import { clientFor, type CoreReads } from './core-reach'
+import type { CoreReads } from './core-reach'
 
 type Staff = Awaited<ReturnType<CoreReads['staffList']>>['staff'][number]
 type Sheet = Awaited<ReturnType<CoreReads['answerSheet']>>
@@ -44,7 +43,14 @@ export async function pageAll<T>(label: string, fetch: (page: number) => Promise
 }
 
 export const practiceActor = cache(async (): Promise<PracticeActor> => {
+  // Both imports are LAZY on purpose: data.ts imports the door statically, so a
+  // static import here would load admission (next/navigation, Supabase) and
+  // core-reach (→ @/lib/synqed/client → the SDK) on the OFF path too — every
+  // fixture render and every Business jest suite, where the SDK's raw ESM is not
+  // transformed. Only the ON path loads them.
+  const { requireBusinessAdmission } = await import('../admission')
   const admitted = await requireBusinessAdmission()
+  const { clientFor } = await import('./core-reach')
   const reads = clientFor(admitted) // the tenant throw lives there (§2), before any read
   const staff = await pageAll('staff list', async (page) => {
     const r = await reads.staffList({ page, page_size: 200 })
