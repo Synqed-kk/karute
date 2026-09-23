@@ -420,14 +420,15 @@ export async function deleteStaffCore(
   // getCurrentUserStaffId answers null — so (1) alone fails closed.
   let profileNeutralised = false
   let accountBanned = false
-  // Self-removal (the actor removes their own row): there is no server-side
-  // refusal yet (only the owner row is UI-protected), and banning your own
-  // login would lock you out with no self-service way back. So the core
-  // delete above still happens exactly as before, but both moves are SKIPPED
-  // and the audit row says so. A proper refusal needs new copy — a later round.
+  // Self-removal (the actor removes their own row) gets the SAME two moves:
+  // skipping them would leave a live account whose core row is gone, i.e. an
+  // unclamped business-wide reach — worse than the lock-out. The lock-out is
+  // deliberate and reversible by an admin (strip the prefix + unban); a
+  // proper server-side refusal with its own copy is a later round. The audit
+  // row still records it as a self-removal.
   // deps.actorId is the auth user id (= profiles.id) on both doors.
   const selfRemoval = id === deps.actorId
-  if (profile && !selfRemoval) {
+  if (profile) {
     // (1) Roster-invisible by the existing `_system_` convention (staffListCore
     // excludes `full_name ILIKE '_system_%'`), KEEPING the name after the
     // prefix so the move is reversible: strip the prefix = restore. No row

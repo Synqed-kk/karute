@@ -439,7 +439,7 @@ describe('DELETE /api/app/v1/staff/[id]', () => {
     })
   })
 
-  it('self-removal (the Bearer caller removes their OWN row): core delete still runs, NO name move, NO ban; audit self_removal:true', async () => {
+  it('self-removal (the Bearer caller removes their OWN row): SAME treatment — core delete, name move AND ban run; audit self_removal:true', async () => {
     profileRow = { id: 'auth-user-1', full_name: '田中' }
     let res!: Response
     const lines = await auditLines(async () => {
@@ -448,14 +448,22 @@ describe('DELETE /api/app/v1/staff/[id]', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
     expect(staffDelete).toHaveBeenCalledWith('synqed-7')
-    expect(profileUpdates).toEqual([])
-    expect(updateUserById).not.toHaveBeenCalled()
+    expect(profileUpdates).toEqual([
+      {
+        patch: { full_name: '_system_removed_田中' },
+        eq: [
+          ['id', 'auth-user-1'],
+          ['customer_id', 'business-1'],
+        ],
+      },
+    ])
+    expect(updateUserById).toHaveBeenCalledWith('auth-user-1', { ban_duration: '876000h' })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
       action: 'staff.remove',
       actor_id: 'auth-user-1',
       target_id: 'auth-user-1',
-      detail: { synqed_staff_id: 'synqed-7', self_removal: true, profile_neutralised: false, account_banned: false },
+      detail: { synqed_staff_id: 'synqed-7', self_removal: true, profile_neutralised: true, account_banned: true },
     })
   })
 

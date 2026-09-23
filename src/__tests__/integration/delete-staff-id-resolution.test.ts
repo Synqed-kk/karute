@@ -115,6 +115,9 @@ let profileRow: { id: string; full_name?: string | null } | null = null
 // either move can be made to fail on its own (the 9/12 layer matrix).
 let profileUpdates: Array<{ patch: Record<string, unknown>; eq: Array<[string, unknown]> }> = []
 let profileUpdateError: { message: string } | null = null
+// Records the moment each profiles update is issued (for the name-before-ban
+// order pin via mock.invocationCallOrder).
+const profileUpdateCall = jest.fn()
 const updateUserById = jest.fn(
   async (_id: string, _attrs: Record<string, unknown>): Promise<{ error: unknown }> => ({ error: null }),
 )
@@ -128,6 +131,7 @@ jest.mock('@/lib/supabase/service', () => ({
     ;(builder as { update: unknown }).update = (patch: Record<string, unknown>) => {
       const rec = { patch, eq: [] as Array<[string, unknown]> }
       profileUpdates.push(rec)
+      profileUpdateCall(patch)
       const chain: Record<string, unknown> = {}
       chain.eq = (c: string, v: unknown) => {
         rec.eq.push([c, v])
@@ -256,19 +260,27 @@ describe('deleteStaff — a removed person stops being recognised (reversible)',
     })
   })
 
-  it('self-removal (the actor removes their OWN row): core delete still runs, but NO name move, NO ban; audit self_removal:true', async () => {
+  it('self-removal (the actor removes their OWN row): SAME treatment — core delete, name move AND ban run; audit self_removal:true', async () => {
     actorUserId = 'profile-1'
     profileRow = { id: 'profile-1', full_name: '田中' }
     const { result, lines } = await removeRow('profile-1')
     expect(result).toBeUndefined()
     expect(staffDelete).toHaveBeenCalledWith('synqed-resolved')
-    expect(profileUpdates).toEqual([])
-    expect(updateUserById).not.toHaveBeenCalled()
+    expect(profileUpdates).toEqual([
+      {
+        patch: { full_name: '_system_removed_田中' },
+        eq: [
+          ['id', 'profile-1'],
+          ['customer_id', 'biz-1'],
+        ],
+      },
+    ])
+    expect(updateUserById).toHaveBeenCalledWith('profile-1', { ban_duration: '876000h' })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
       action: 'staff.remove',
       target_id: 'profile-1',
-      detail: { synqed_staff_id: 'synqed-resolved', self_removal: true, profile_neutralised: false, account_banned: false },
+      detail: { synqed_staff_id: 'synqed-resolved', self_removal: true, profile_neutralised: true, account_banned: true },
     })
   })
 
@@ -320,6 +332,7 @@ describe('deleteStaff — a removed person stops being recognised (reversible)',
       const { result, lines } = await removeRow('profile-1')
       expect(result).toBeUndefined()
       expect(updateUserById).toHaveBeenCalledWith('profile-1', { ban_duration: '876000h' })
+      expect(profileUpdateCall.mock.invocationCallOrder[0]).toBeLessThan(updateUserById.mock.invocationCallOrder[0])
       expect(lines[0]).toMatchObject({ detail: { profile_neutralised: false, account_banned: true } })
       expect(err).toHaveBeenCalledTimes(1)
     } finally {
@@ -355,6 +368,22 @@ describe('deleteStaff — a removed person stops being recognised (reversible)',
     expect(profileUpdates).toHaveLength(0)
     expect(updateUserById).toHaveBeenCalledWith('profile-1', { ban_duration: '876000h' })
     expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: true } })
+  })
+
+  it('idempotency boundary: a name CONTAINING _system_ in the middle is prefixed normally (only a _system_ START is left alone)', async () => {
+    profileRow = { id: 'profile-1', full_name: '山田_system_花子' }
+    const { lines } = await removeRow('profile-1')
+    expect(profileUpdates).toHaveLength(1)
+    expect(profileUpdates[0].patch).toEqual({ full_name: '_system_removed_山田_system_花子' })
+    expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: true } })
+  })
+
+  it('order: the name write is issued BEFORE the ban', async () => {
+    profileRow = { id: 'profile-1', full_name: '田中' }
+    await removeRow('profile-1')
+    expect(profileUpdateCall).toHaveBeenCalledTimes(1)
+    expect(updateUserById).toHaveBeenCalledTimes(1)
+    expect(profileUpdateCall.mock.invocationCallOrder[0]).toBeLessThan(updateUserById.mock.invocationCallOrder[0])
   })
 })
 
