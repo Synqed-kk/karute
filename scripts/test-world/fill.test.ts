@@ -135,6 +135,7 @@ async function main() {
   assert.equal(f.stats.writes, first, 'second run: 0 writes')
   assert.equal(m.runs.length, 2)
   assert.ok(Object.values(m.runs[1].created).every((x) => x === 0), JSON.stringify(m.runs[1].created))
+  assert.deepEqual(m.runs[1].skipped, [], 'a re-run finds its own rows by key (never mistakes them for foreign bookings)')
   // A week later: only the new days, no booking twice.
   assert.equal(await apply(f.core, opts(m, addDays(TODAY, 7))), 0)
   assert.equal(new Set(f.t.appts.map((a) => `${a.customer_id}|${a.starts_at}`)).size, f.t.appts.length, 'no duplicate booking after the top-up')
