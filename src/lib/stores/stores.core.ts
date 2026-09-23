@@ -32,6 +32,8 @@ import { audit } from '@/lib/audit'
 // declared in src/actions/stores.ts, where every export is a callable
 // endpoint — and the 予約 capacity path needs the same one answer.
 import { coreBusinessType } from '@/lib/welcome/business-types'
+import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
+import { isActiveStore } from '@/lib/auth/store-gate'
 
 // Explicit-client seam (design-parity packet 12 §B-3 S2 — the P-B pattern):
 // every twin below takes this instead of resolving getSynqedClient() from the
@@ -223,6 +225,16 @@ export async function listStoresWithClient(
   }))
 }
 
+/** What a store create answers with. `backfillIncomplete` is present ONLY when
+ *  the 1→2 backfill below left someone without a store: the count of staff the
+ *  screen has to send the owner to スタッフ管理 for (⚖ G4). `backfillUnknown`
+ *  is present ONLY when the backfill could not even look (⚖ H2) — a separate
+ *  field, never a number, because "we could not check" is not "N people". Both
+ *  absent = everybody is placed, which is the ordinary answer. */
+export type StoreCreateResult =
+  | { id: string; backfillIncomplete?: number; backfillUnknown?: true }
+  | { error: string }
+
 /** Client-threaded core of createStore (facade Bearer path, design-parity
  *  packet 12 §B-3 S2). Carries EVERY rule the write needs so web and facade
  *  can never diverge: zod validation, the owner gate (against the roster/
@@ -236,7 +248,7 @@ export async function createStoreCore(
   businessId: string,
   deps: StoreWriteDeps,
   input: StoreInput,
-): Promise<{ id: string } | { error: string }> {
+): Promise<StoreCreateResult> {
   const parsed = storeSchema.safeParse(input)
   if (!parsed.success) {
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
@@ -275,6 +287,9 @@ export async function createStoreCore(
       business_type: parsed.data.business_type,
     }
     const store = await synqed.stores.create(payload)
+    // ⚖ Liam 2026-09-16 — nobody blanks mid-shift. Inside the same action,
+    // before it returns.
+    const backfill = await backfillStaffToExistingStore(synqed, businessId, deps, store.id)
     audit({
       category: 'settings',
       action: 'settings.store_create',
@@ -286,6 +301,12 @@ export async function createStoreCore(
       requestId: deps.requestId,
       source: deps.source,
     })
+    // ⚖ G4 + H2 — object LITERALS, not a spread: the emission walker reads
+    // returns lexically (see createStaffCore's own note), and the honest
+    // answer to "did everyone get a store?" rides back to the screen —
+    // including "we could not check", which is its own answer.
+    if (backfill.unknown) return { id: store.id, backfillUnknown: true }
+    if (backfill.incomplete > 0) return { id: store.id, backfillIncomplete: backfill.incomplete }
     return { id: store.id }
   } catch (e) {
     return { error: `Could not create store: ${e instanceof Error ? e.message : 'unknown'}` }
@@ -536,4 +557,191 @@ export async function setStaffStoresCore(
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Could not update stores' }
   }
+}
+
+/** The backfill looked and found nothing to do — an HONEST zero, not an
+ *  unknown (⚖ H2): this create is not the 1→2 transition (including the later
+ *  of two racing creates — the earlier one covers everyone), there is no other
+ *  active store, or the client carries no staff port. Nothing is said to the
+ *  owner on these arms, because nothing is wrong. */
+const NOTHING_TO_DO = { incomplete: 0, unknown: false }
+
+/**
+ * 1 → 2 STORES: nobody blanks mid-shift (⚖ Liam 2026-09-16).
+ *
+ * The day a salon opens its second store, every staff member with an empty
+ * assignment stops being "floating" and becomes UNASSIGNED — they would arrive
+ * at work to the 担当店舗が未設定です screen. So the moment the count goes 1→2,
+ * every such card is backfilled to the store they have in fact been working in
+ * all along, inside the same action, before it returns.
+ *
+ * ponytail: it backfills EVERY card with an empty assignment, not just the
+ * non-viewAll ones. A `stores.viewAll` holder's assignment is never consulted
+ * (both resolvers short-circuit on the capability), so the row is behaviourally
+ * a no-op for them — and it is also TRUE, since the business had exactly one
+ * store. That buys us no per-staff capability derivation and no mixing of the
+ * profile and core id spaces. The visible cost is cosmetic: the owner's card
+ * now shows the first store ticked, and that store's staff count includes them.
+ *
+ * BEST-EFFORT by design: a failure here must not undo a store the owner just
+ * created. The degraded outcome is honest, not silent — the staff member sees
+ * the empty screen and the owner assigns them by hand, which is the same door
+ * this whole change points at.
+ */
+async function backfillStaffToExistingStore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreWriteDeps,
+  newStoreId: string,
+): Promise<{ incomplete: number; unknown: boolean }> {
+  // ⚖ G4 — ONE PERSON'S FAILURE NEVER STRANDS THE REST. The loop used to sit
+  // inside a single try: the FIRST staff member core choked on ended the whole
+  // pass, so everyone after them stayed unassigned and the owner heard a plain
+  // success — the exact morning blanking this function exists to prevent. Now
+  // each member is placed on their own, the misses are collected and retried
+  // once, and whatever is still missing is SAID: a warning row naming the ids,
+  // and a line on the screen that just created the store.
+  let failed: string[] = []
+  try {
+    const { stores } = await synqed.stores.list()
+    // ⚖ GREPTILE #1002 P1 — ASK ABOUT THIS STORE'S PREDECESSORS, NOT THE
+    // TOTAL. This used to ask "are there exactly 2 active stores now?". Two
+    // creates racing on a one-store business (a double submit, two devices)
+    // can both land before either reads the list: each saw 3, each skipped,
+    // and every floating staff member was blanked the next morning under a
+    // plain success — the exact failure this function exists to prevent.
+    //
+    // Now: the active stores that already existed when THIS one was created.
+    // Exactly one → this create was the 1→2 transition, and that store is the
+    // one everyone has been working in. In a race, the store created FIRST
+    // sees one predecessor and backfills; the later one sees two and skips,
+    // because the first already covers everyone. A 2→3 opening still does
+    // nothing.
+    //
+    // "Existed before" = not created AFTER it (created_at, a tie broken by
+    // id). Written as "drop the later ones" so that core not listing the new
+    // row yet (read-after-write lag), or an unreadable timestamp, drops
+    // nothing: the answer falls back to "every other active store", never to
+    // a silent skip.
+    //
+    // ⚖ FOLD ROUND 3 (fresh-eyes F2) kept — "active" is the gate's own
+    // reading (isActiveStore): an archived store never counts and is never
+    // the target, so the roster is never clamped into premises the salon has
+    // left.
+    const self = stores.find((s) => s.id === newStoreId)
+    const selfAt = self ? Date.parse(self.created_at) : NaN
+    const predecessors = stores.filter((s) => {
+      if (s.id === newStoreId || !isActiveStore(s)) return false
+      const at = Date.parse(s.created_at)
+      return !(at > selfAt || (at === selfAt && s.id > newStoreId))
+    })
+    if (predecessors.length !== 1 || !synqed.staff) return NOTHING_TO_DO
+    const existing = predecessors[0].id
+    // ⚖ FOLD ROUND 3 (fresh-eyes F3) — the WHOLE roster. One
+    // `staff.list({ page_size: 200 })` silently left a 201st staff member
+    // unassigned on the exact day the gate started refusing them, against the
+    // standing ANY-ROSTER-SIZE rule. listAllCoreStaff is the repo's one home
+    // for "every core staff row", pager and page cap included.
+    const staff = await listAllCoreStaff(synqed.staff)
+    // TWO passes over a shrinking work list: the first places everyone, the
+    // second is the single RETRY over whoever core choked on. Core answering
+    // slowly for one row is the common shape of this failure, and a second
+    // attempt a moment later costs nothing next to a staff member arriving to
+    // a blank screen. Two passes only — a loop here would hold the owner's
+    // store-create open on a core that is really down.
+    //
+    // ⚖ GREPTILE #1002 P2 — 8 AT A TIME. One member at a time is two core
+    // round trips each, back to back: a 250-person roster held the create open
+    // for ~500 sequential calls and could time out AFTER the store existed.
+    // Inside each pass, a fixed pool of workers pulls from one shared index.
+    //
+    // Deliberately written INLINE, not as a `place()` helper: CP3 reads the
+    // enclosing NAMED symbol of every SDK write, and a named inner function
+    // (or a `const worker = async () => …`) would put staffStores.set outside
+    // this function's allowlist entry. The worker is an anonymous arrow, which
+    // CP3 resolves to this function.
+    // ponytail: 8 workers, raise if core rate limits allow.
+    let todo = staff.map((member) => member.id)
+    for (let pass = 0; pass < 2 && todo.length > 0; pass++) {
+      const batch = todo
+      const misses: string[] = []
+      let next = 0
+      await Promise.all(
+        Array.from({ length: 8 }, async () => {
+          while (next < batch.length) {
+            const staffId = batch[next++]
+            try {
+              const current = await synqed.staffStores.get(staffId).then((r) => r.store_ids)
+              if (current.length > 0) continue // already placed — nothing to do
+              await synqed.staffStores.set(staffId, [existing])
+              audit({
+                category: 'settings',
+                action: 'settings.staff_stores_change',
+                severity: 'notice',
+                actorId: deps.selfUserId,
+                actorType: 'staff',
+                businessId,
+                targetType: 'staff',
+                targetId: staffId,
+                detail: { store_ids: existing, count: 1, backfill: '1_to_2_stores' },
+                requestId: deps.requestId,
+                source: deps.source,
+              })
+            } catch (err) {
+              console.error('[createStore] staff store backfill failed for', staffId, err)
+              misses.push(staffId)
+            }
+          }
+        }),
+      )
+      todo = misses
+    }
+    failed = todo
+  } catch (err) {
+    // ⚖ H2 — A PASS THAT NEVER STARTED IS NOT SILENT. The read half (store
+    // list, roster) failed, so nobody is half-placed — but nobody was CHECKED
+    // either, and on the 1→2 transition that means every floating staff
+    // member may meet the 担当店舗が未設定です screen tomorrow morning while the
+    // owner heard a plain success. That is the same defect G4 was ruled
+    // against, one layer up. There is no number to name, so the screen is told
+    // "could not check" instead of "all fine".
+    console.error('[createStore] staff store backfill failed:', err)
+    audit({
+      category: 'settings',
+      action: 'settings.staff_stores_change',
+      severity: 'warning',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'store',
+      targetId: newStoreId,
+      detail: { backfill: '1_to_2_stores', reason: 'backfill_not_started' },
+      requestId: deps.requestId,
+      source: deps.source,
+    })
+    return { incomplete: 0, unknown: true }
+  }
+
+  if (failed.length > 0) {
+    // ONE row for the whole miss, ids only (PII-free sink rule), WARNING —
+    // this is the owner's cue that some of their staff still need a store.
+    audit({
+      category: 'settings',
+      action: 'settings.staff_stores_change',
+      severity: 'warning',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'store',
+      targetId: newStoreId,
+      detail: {
+        backfill: '1_to_2_stores',
+        incomplete: failed.length,
+        failed_staff_ids: failed,
+      },
+      requestId: deps.requestId,
+      source: deps.source,
+    })
+  }
+  return { incomplete: failed.length, unknown: false }
 }

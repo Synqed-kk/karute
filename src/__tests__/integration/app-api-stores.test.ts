@@ -419,6 +419,50 @@ describe('POST /api/app/v1/stores (create)', () => {
     })
     expect(lines).toHaveLength(0)
   })
+
+  // ⚖ 5/5 blind read F1 — the 1→2 backfill's honest answer must reach the
+  // phone through THIS handler. Every POST above runs with no `staff` port, so
+  // a backfill can never fire and a route that answered `{ id }` alone passed
+  // them all. These two drive a real 1→2 transition through the route.
+  describe('the 1→2 backfill answer reaches the wire', () => {
+    const staffStoresSet = jest.fn(async (_id: string, _storeIds: string[]) => {
+      throw new Error('core refused')
+    })
+    const backfillClient = {
+      ...fakeClient,
+      staff: { list: async () => ({ staff: [{ id: 'staff-a' }] }) },
+      staffStores: {
+        ...fakeClient.staffStores,
+        get: async (_id: string) => ({ store_ids: [] as string[] }),
+        set: staffStoresSet,
+      },
+    }
+    beforeEach(() => newSynqedClient.mockImplementation(() => backfillClient))
+    afterEach(() => newSynqedClient.mockImplementation(() => fakeClient))
+
+    it('one staff member core refuses on both passes → 201 { id, backfillIncomplete: 1 }', async () => {
+      // Exactly one ACTIVE store created before the new one = the 1→2 transition.
+      storesList.mockResolvedValue({
+        stores: [
+          { id: 'store-A', name: '代官山', is_primary: true, active: true, created_at: '2026-01-01T00:00:00.000Z' },
+          { id: 'store-new', name: '渋谷店', is_primary: false, active: true, created_at: '2026-09-23T10:00:00.000Z' },
+        ],
+      })
+      const res = await createPOST(postReq(VALID_INPUT), noParams)
+      expect(res.status).toBe(201)
+      expect(await res.json()).toEqual({ id: 'store-new', backfillIncomplete: 1 })
+      expect(staffStoresSet).toHaveBeenCalledTimes(2) // the pass and its one retry
+    })
+
+    it('the store list cannot be read → 201 { id, backfillUnknown: true }, never a count', async () => {
+      storesList.mockRejectedValue(new Error('core down'))
+      const res = await createPOST(postReq(VALID_INPUT), noParams)
+      expect(res.status).toBe(201)
+      const body = await res.json()
+      expect(body).toEqual({ id: 'store-new', backfillUnknown: true })
+      expect(body).not.toHaveProperty('backfillIncomplete')
+    })
+  })
 })
 
 describe('PATCH /api/app/v1/stores/[id] (update)', () => {

@@ -22,6 +22,7 @@ import {
   setStoreHoursCore,
   updateStoreCore,
   type RosterRow,
+  type StoreCreateResult,
   type StoresClient,
   type StoreWriteDeps,
 } from '@/lib/stores/stores.core'
@@ -177,7 +178,7 @@ export async function clearActiveStore(): Promise<{ ok: true }> {
 
 export async function createStore(
   input: StoreInput,
-): Promise<{ id: string } | { error: string }> {
+): Promise<StoreCreateResult> {
   // No pre-gate: resolve context tolerantly and let the core decide
   // everything (validation, THEN the owner check — web parity, #578 audit
   // finding). A requireOwnerBusiness() pre-gate here would short-circuit

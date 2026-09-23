@@ -115,8 +115,15 @@ export type StoreAssignmentVerdict = 'viewAll' | 'clamped' | 'unassigned' | 'unc
  * unassigned gate OFF. Unknown must never turn the gate off.
  */
 export function storeCountForGate(rows: readonly { active?: boolean | null }[]): number {
-  const active = rows.filter((s) => s.active !== false).length
+  const active = rows.filter(isActiveStore).length
   return active === 0 && rows.length > 0 ? rows.length : active
+}
+
+/** One row's answer to "is this store active?" as the gate counts it — only an
+ *  EXPLICIT `false` is inactive (G-2b above). Shared with the 1→2 backfill
+ *  (lib/stores/stores.core.ts) so the two can never read "active" differently. */
+export function isActiveStore(row: { active?: boolean | null }): boolean {
+  return row.active !== false
 }
 
 export function storeAssignmentVerdict(facts: {
