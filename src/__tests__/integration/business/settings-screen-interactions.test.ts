@@ -1159,3 +1159,53 @@ describe('PKT-BUILD-N3-2 §3 H5 — the screen calls the pure save door', () => 
     for (const name of classes.concat('st-fact')) expect(CSS_CODE).toMatch(new RegExp(`\\.${name}\\s*\\{`))
   })
 })
+
+// ⚖ S28 (2026-09-23) — A NUMBER FIELD NAMES ITS UNIT TO A SCREEN READER. The
+// unit is the input's DESCRIPTION (aria-describedby → the unit span), so the
+// name every query and pin uses stays exactly the name. Territory cannot mount
+// React (see the header), so the field's DOM is built here from the screen's OWN
+// expressions — the unit id, the input's describedby, the unit span's id and
+// text — evaluated for a unit-bearing and a unit-less control; the room's probe
+// proves the same in a real browser.
+describe('S28 — a number field announces its unit', () => {
+  const start = SRC_CODE.indexOf('function NumberField(')
+  const FIELD = SRC_CODE.slice(start, SRC_CODE.indexOf('\nfunction ', start + 1))
+  const inputs = openingTags(FIELD, 'input')
+  const unitId = FIELD.match(/const unitId = (.+)\n/)?.[1] ?? 'undefined'
+  const describedBy = inputs[0]?.text.match(/\saria-describedby=\{([^}]*)\}/)?.[1] ?? 'undefined'
+  const unitSpan = FIELD.match(/\{k\.unit && <span id=\{([^}]*)\} className="st-unit">\{k\.unit\}<\/span>\}/)
+  // Evaluates the screen's own expressions and nothing else.
+  const ids = new Function('c', 'k', `const unitId = ${unitId}; return { describedBy: ${describedBy}, span: ${unitSpan?.[1] ?? 'undefined'} }`) as
+    (c: RowControl, k: Extract<ControlKind, { kind: 'number' }>) => { describedBy: string | undefined; span: string | undefined }
+  const mount = (c: RowControl) => {
+    if (c.control.kind !== 'number') throw new Error('a number control')
+    const k = c.control
+    const { describedBy: by, span } = ids(c, k)
+    document.body.innerHTML = ''
+    const input = document.createElement('input')
+    input.setAttribute('aria-label', c.aria)
+    if (by !== undefined) input.setAttribute('aria-describedby', by)
+    document.body.append(input)
+    if (k.unit) Object.assign(document.body.appendChild(document.createElement('span')), { id: String(span), className: 'st-unit', textContent: k.unit })
+    return input
+  }
+  const cleanup: RowControl = { id: 'people.cleanup-bed-01', aria: 'ベッド1の清掃時間', control: { kind: 'number', min: 0, max: 540, step: 1, unit: '分' }, value: '0' }
+  const bare: RowControl = { id: 'x.count', aria: '件数', control: { kind: 'number', min: 0, max: null, step: 1, unit: '' }, value: '3' }
+
+  it('S28 — the renderer has one input, and its unit span carries the unit as its text', () => {
+    expect(inputs).toHaveLength(1)
+    expect(unitSpan).not.toBeNull()
+  })
+
+  it('S28 — a unit-bearing field is described by an element whose text is its unit, and keeps its name', () => {
+    const input = mount(cleanup)
+    const by = input.getAttribute('aria-describedby')
+    expect(by).not.toBeNull()
+    expect(document.getElementById(by!)?.textContent).toBe('分')
+    expect(input.getAttribute('aria-label')).toBe('ベッド1の清掃時間')
+  })
+
+  it('S28 — a field without a unit carries no aria-describedby', () => {
+    expect(mount(bare).hasAttribute('aria-describedby')).toBe(false)
+  })
+})

@@ -2236,6 +2236,9 @@ function NumberField({
   const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY
   const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))
   const [message, setMessage] = useState<string | null>(null)
+  // The unit is the field's DESCRIPTION, never folded into its name: a screen
+  // reader hears 「…の清掃時間、分」 while every name-based query keeps its name.
+  const unitId = `st-unit-${c.id}`
   // ⚖ D-27/D-30 — `lastGood` MOVES ONLY ON A COMMIT (this field's one commit
   // moment is blur; it has no preset or custom nudge button), never on every
   // keystroke — the per-keystroke effect this room's own StorePolicySection
@@ -2252,6 +2255,7 @@ function NumberField({
         max={ceilingLive ?? undefined}
         step={k.step}
         aria-label={c.aria}
+        aria-describedby={k.unit ? unitId : undefined}
         value={text}
         {...inert}
         onChange={locked ? noop : (e) => { setMessage(null); onChange(c.id, e.target.value) }}
@@ -2279,7 +2283,7 @@ function NumberField({
           onChange(c.id, String(commit.value))
         }}
       />
-      {k.unit && <span className="st-unit">{k.unit}</span>}
+      {k.unit && <span id={unitId} className="st-unit">{k.unit}</span>}
       {/* ⚖ D-31/D-32 F4 — THE ZERO STATE READS AS THE STATE, beside the unit
           slot rather than replacing it: the reader sees both what the field
           measures and, at 0, what that measurement currently means. Reuses
