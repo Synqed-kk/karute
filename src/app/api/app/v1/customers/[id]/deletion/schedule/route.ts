@@ -1,7 +1,7 @@
 // Facade: START the 30-day customer-deletion window (PHONEWIRE-2B). The phone
 // arm's twin of the web scheduleCustomerDeletion action, sharing the SAME body
-// (scheduleCustomerDeletionWithClient, src/actions/customers.ts) so the two
-// doors cannot answer the same customer differently. ⚖ NO hard delete exists
+// (scheduleCustomerDeletionWithClient, src/lib/customers/customers.core.ts) so
+// the two doors cannot answer the same customer differently. ⚖ NO hard delete exists
 // anywhere (Liam 2026-07-19): this sets core deleted_at and nothing more.
 // Until now the phone's 削除 CTA hit a notWired stub and toasted a bare 失敗.
 //
@@ -39,7 +39,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { scheduleCustomerDeletionWithClient } from '@/actions/customers'
+import { scheduleCustomerDeletionWithClient } from '@/lib/customers/customers.core'
 import { CustomerDeletionResultDTO } from '@/lib/app-api/customer-dto'
 import {
   proveCustomerInBusiness,

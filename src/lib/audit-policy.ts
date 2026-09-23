@@ -523,8 +523,15 @@ export const SDK_WRITE_ALLOWLIST: {
       "Signup bootstrap — creates the OWNER's own synqed staff record as part of account provisioning, not an admin managing staff. FIX ROUND 1 #13 correction: the actor is NOT unknown — the function verifies the auth uid via service.auth.admin.getUserById BEFORE this write and resolves businessId in the same call. Self-provisioning on the user's OWN new account; silent today; no wave committed (candidate mirror: a future staff.bootstrap action per the coverage inventory). No facade/web action endpoint covers this path at all. Since 2026-09-19 the module is server-only (not a server action): reachable from the email-confirmation callback route only; the actor is the user of that route's verified code exchange.",
     dated: '2026-07-27',
   },
+  // The five entries below follow the eight client-threaded customer cores out
+  // of the action file and into the server-only module (PKT-SEC-CORES-D1,
+  // 2026-09-23) — the SAME writes, registered at their new home. Ledgered:
+  // SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.create /
+  // .update / .uploadPhoto / .grantConsent / .revokeConsent in
+  // docs/audit-weakening-ledger.md. customers.deletePhoto keeps the old file —
+  // deleteCustomerPhoto is a web action and stayed behind.
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.create',
     symbols: ['createCustomerWithClient', 'createQuickCustomerWithClient'],
     justification:
@@ -532,7 +539,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-01',
   },
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.update',
     symbols: [
       'updateCustomerWithClient',
@@ -544,7 +551,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-02',
   },
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.uploadPhoto',
     symbols: ['uploadCustomerPhotoWithClient'],
     justification:
@@ -601,7 +608,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-14',
   },
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
     justification:
@@ -609,7 +616,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-07-28',
   },
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.revokeConsent',
     symbols: ['revokeCustomerConsentWithClient'],
     justification:

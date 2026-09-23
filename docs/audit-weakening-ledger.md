@@ -456,3 +456,50 @@
   unchanged, no pendingWave on this entry before or after; the gate reads a moved
   entry as an addition because the key is file-scoped · Fable
   (PKT-SEC-CORES-C-DISCARD-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.create · NOT a
+  new legalized silent write — the SAME allowlist entry, at its new address. The two create
+  bodies' customers.create call has been allowlisted since 2026-09-01 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.create (PHONEWIRE-1: the shared
+  WithClient cores stay audit-free; customer.create is a LIVE FACADE_AUDIT_MAP row on the phone
+  door and the web wrappers createCustomer/createQuickCustomer — both AUDITED_CORES — emit it on
+  their success path). Every runtime export of a 'use server' file is registered as a
+  browser-callable server action with no authentication of its own, so the eight
+  client-threaded customer bodies left src/actions/customers.ts for the server-only module
+  src/lib/customers/customers.core.ts (no directive, `import 'server-only'` on line one). Bodies
+  byte-identical, symbols, justification and `dated` unchanged, no pendingWave on this entry
+  before or after; the gate reads a moved entry as an addition because the key is file-scoped ·
+  Fable (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole
+  ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.update · same
+  move, same PR: the customers.update call site shared by updateCustomerWithClient and the
+  30-day deletion pair (schedule/cancel) has been allowlisted since 2026-09-02 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.update. All three symbols moved
+  together, byte-identical; the web wrappers that own the emits — updateCustomer's customer.edit
+  and scheduleCustomerDeletion/cancelCustomerDeletion's emitDeletionAudit — STAYED in the action
+  file, so AUDITED_CORES did not change and neither did the justification or `dated`. Only the
+  module changed, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.uploadPhoto · same
+  move, same PR: uploadCustomerPhotoWithClient's photo write (with its one network-level
+  retry) has been allowlisted since 2026-07-27 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.uploadPhoto. Body byte-identical,
+  justification and `dated` unchanged — including the parity-gap sentence about the web action
+  uploadCustomerPhoto, which stayed in src/actions/customers.ts and still has no auditWeb call.
+  The sibling customers.deletePhoto entry keeps the OLD file: deleteCustomerPhoto is a web
+  action and did not move · Fable (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16
+  security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.grantConsent · same
+  move, same PR: grantCustomerConsentWithClient's consent write has been allowlisted since
+  2026-07-28 under the key SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.grantConsent.
+  Body byte-identical, policy_version still SERVER-pinned in the core, justification and `dated`
+  unchanged: customer.consent_grant is still a LIVE FACADE_AUDIT_MAP row and the web wrapper
+  grantCustomerConsent — which stayed, and stays AUDITED_CORES — still emits its own auditWeb ·
+  Fable (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole
+  ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.revokeConsent · the
+  twin of the line above, same move, same PR: revokeCustomerConsentWithClient's write has
+  been allowlisted since 2026-07-28 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.revokeConsent. Body byte-identical,
+  justification and `dated` unchanged; customer.consent_revoke stays a LIVE FACADE_AUDIT_MAP row
+  and the web wrapper revokeCustomerConsent (AUDITED_CORES) still emits its own auditWeb · Fable
+  (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
