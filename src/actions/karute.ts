@@ -42,6 +42,7 @@ import {
   updateKaruteDetailEntryWithClient,
   updateKaruteDetailSummaryWithClient,
 } from '@/lib/karute/karute.core'
+import { readAppointmentForSave, type AppointmentLinkReason } from '@/lib/karute/appointment-link'
 
 // Type ALIASES, not `export type { … } from` re-exports: Next's 'use server'
 // transform registers every export NAME as a server reference at runtime, and
@@ -75,57 +76,70 @@ export interface ReassignCustomerOption {
 }
 
 /**
- * Resolve which store a karute record write should be stamped with. Reads are
- * already store-filtered (synqed-core PR #18); this is the write side.
+ * Resolve which store a karute record write should be stamped with, and which
+ * appointment link it keeps. Reads are already store-filtered (synqed-core
+ * PR #18); this is the write side.
  *
  * The booking's store is the truth of where the session happened, so an
- * appointment-linked save is stamped with ITS store_id — fetched fresh unless
- * the caller already pulled the appointment (e.g. for staff-id fallback), in
- * which case that's reused so a save never fetches the same appointment
- * twice. That store is authz-clamped: an out-of-scope appointmentId (a store
- * the caller isn't assigned to) REJECTS the save rather than stamping across
- * branches. With no appointment, fall back to the viewer's RESOLVED store scope
- * (resolveStoreScope): the active-store cookie for cross-store viewers, but a
- * branch-restricted staff is clamped to their assigned store — so an unset
- * cookie can't stamp the record with the primary store of a branch they're not
- * in (the write-side twin of the Ginza dashboard leak). Still non-null for any
- * business that has stores, so a viewer who simply hasn't touched the switcher
- * never mints a NULL-store record that vanishes from every store-scoped
- * カルテ list.
+ * appointment-linked save whose booking reads OK and sits in the caller's
+ * scope is stamped with ITS store_id. When the booking
+ * cannot be used, the save is NEVER refused and NEVER stamped NULL-store (⚖
+ * never lose a karute): it lands in the caller's own verified lens and the
+ * link depends on why (readAppointmentForSave splits the read) — core says 404
+ * → the link is dropped (a dangling id is a lie); the booking is in a store
+ * the caller isn't assigned to → the link and the booked menu are dropped, and
+ * the record is never stamped across branches; the read failed twice for any
+ * other reason → the link is KEPT for a later re-stamp. Not-found and
+ * out-of-scope look byte-identical to the caller, so the save is no oracle for
+ * whether a booking exists in a store they cannot see; each degraded case
+ * rides a notice on the one karute.save audit row (`linkReason`). A booking
+ * that reads OK with a NULL store keeps today's behaviour (pre-existing, out
+ * of scope). With no appointment, the store is the viewer's RESOLVED store
+ * scope (resolveStoreScope): the active-store cookie for cross-store viewers,
+ * but a branch-restricted staff is clamped to their assigned store — so an
+ * unset cookie can't stamp the record with the primary store of a branch
+ * they're not in (the write-side twin of the Ginza dashboard leak). That lens
+ * is non-null for any business that has stores, so neither path mints a
+ * NULL-store record that vanishes from every store-scoped カルテ list.
  */
 async function resolveKaruteStoreId(
   synqed: SynqedClient,
   appointmentId: string | null | undefined,
-  fetchedAppointment?: Appointment | null,
-): Promise<{ storeId: string | null; appointment: Appointment | null }> {
+): Promise<{
+  storeId: string | null
+  appointment: Appointment | null
+  appointmentId: string | null
+  linkReason: AppointmentLinkReason | null
+}> {
   const scope = await resolveStoreScope()
   if (scope.degraded) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
   if (reachesNoStore(scope)) throw new Error(UNASSIGNED_STORE_DENIAL)
 
-  // Also hands back the appointment it fetched so callers can copy booking
+  // Also hands back the appointment it read so callers can copy booking
   // metadata (service = the booked menu) into the record without a second
   // appointments.get for the same save.
   if (appointmentId) {
-    const appt = fetchedAppointment ?? (await synqed.appointments.get(appointmentId).catch(() => null))
-    const apptStore = appt?.store_id ?? null
-    // Authz clamp (write-side twin of getAppointmentById's read clamp): the
-    // booking's store is the truth of where the session happened, but a
+    const read = await readAppointmentForSave(synqed.appointments, appointmentId)
+    if (read.state !== 'ok') {
+      // 404 → the id is a lie, drop it; unreadable → keep it for a re-stamp.
+      return read.state === 'not_found'
+        ? { storeId: scope.storeId, appointment: null, appointmentId: null, linkReason: 'appointment_not_found' }
+        : { storeId: scope.storeId, appointment: null, appointmentId, linkReason: 'appointment_unreadable' }
+    }
+    const apptStore = read.appointment.store_id ?? null
+    // Authz clamp (write-side twin of getAppointmentById's read clamp): a
     // branch-restricted staff handed an OUT-OF-SCOPE appointmentId (stale client
     // state, a crafted server-action call) must not stamp a record into a store
-    // they're not assigned to. Allowed when the scope is viewAll (allowedStoreIds
-    // null) or the store is one of the caller's assigned stores; otherwise REJECT
-    // the save — never silently re-stamp to the caller's own store, which would
-    // attach the record to an appointment sitting in a different store. A
-    // NULL-store appointment keeps today's behavior (pre-existing, out of scope).
-    if (apptStore) {
-      if (scope.allowedStoreIds && !scope.allowedStoreIds.includes(apptStore)) {
-        throw new Error('This booking belongs to a store you are not assigned to.')
-      }
+    // they're not assigned to, nor carry that booking's link or menu. Allowed
+    // when the scope is viewAll (allowedStoreIds null) or the store is one of
+    // the caller's assigned stores.
+    if (apptStore && scope.allowedStoreIds && !scope.allowedStoreIds.includes(apptStore)) {
+      return { storeId: scope.storeId, appointment: null, appointmentId: null, linkReason: 'appointment_out_of_scope' }
     }
-    return { storeId: apptStore, appointment: appt }
+    return { storeId: apptStore, appointment: read.appointment, appointmentId, linkReason: null }
   }
   // No linked appointment: the record's store is the actor's verified lens.
-  return { storeId: scope.storeId, appointment: null }
+  return { storeId: scope.storeId, appointment: null, appointmentId: null, linkReason: null }
 }
 
 /**
@@ -164,22 +178,22 @@ export async function saveKaruteRecord(
     // Attribute the record to whoever RECORDED it — the signed-in staff — NOT
     // the booking's staff. For your own bookings these are identical; when you
     // record a customer booked under ANOTHER staff (covering, swaps, days off),
-    // the karte correctly saves under YOU. The appointment's staff is only a
-    // fallback for an account with no staff identity, so the save never fails.
-    let staffId: string | null = await getCurrentUserStaffId()
-    let fetchedAppointment: Appointment | null = null
-    if (!staffId && input.appointmentId) {
-      fetchedAppointment = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      staffId = fetchedAppointment?.staff_id ?? null
-    }
+    // the karte correctly saves under YOU. The booking's staff is never stamped,
+    // not even as a fallback — web = facade (#990).
+    const staffId = await getCurrentUserStaffId()
     if (!staffId) {
+      // Honest floor: a karute row needs a staff_id and the only one it may
+      // carry is the caller's own. No identity (removed from the roster while
+      // the auth session lives on) = refused before any booking is read —
+      // requireCapability above already refuses this caller; this is the belt.
+      // The take is not lost — it stays on review for a retry (see
+      // saveKaruteRecordInline's consent note).
       return { error: 'No staff identity for the signed-in user.' }
     }
 
-    const { storeId, appointment: linkedAppointment } = await resolveKaruteStoreId(
+    const { storeId, appointment: linkedAppointment, appointmentId, linkReason } = await resolveKaruteStoreId(
       synqed,
       input.appointmentId,
-      fetchedAppointment,
     )
 
     // Resolve BEFORE the write so a resolver hiccup can't orphan the emit
@@ -193,7 +207,7 @@ export async function saveKaruteRecord(
         customer_id: input.customerId,
         store_id: storeId,
         staff_id: staffId,
-        appointment_id: input.appointmentId ?? null,
+        appointment_id: appointmentId,
         recording_session_id: input.recordingSessionId ?? null,
         // 施術メニュー + 録音時間, so the カルテ list's "menu · minutes" line is
         // real for recorded karute, not only manual entries. The choke's
@@ -220,6 +234,8 @@ export async function saveKaruteRecord(
       // door passes) — resolveStoreScope is cached per request, so this costs
       // no second assignment read.
       await resolveStoreScope(),
+      // Why the booking link degraded, if it did — the notice on the one audit row.
+      linkReason,
     )
     recordId = id
 
@@ -296,25 +312,20 @@ export async function saveKaruteRecordInline(
       throw new Error(CONSENT_REQUIRED_ERROR)
     }
 
-    // Same recorder-first attribution + appointment-staff fallback as
-    // saveKaruteRecord: autosave only ever fires for appointment-bound takes
-    // (global-pipeline requires appointmentCustomerId), which is exactly the
-    // shape where the fallback works — without it, every autosave on a
-    // PIN-less shared account failed over to manual review.
-    let staffId: string | null = await getCurrentUserStaffId()
-    let fetchedAppointment: Appointment | null = null
-    if (!staffId && input.appointmentId) {
-      fetchedAppointment = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      staffId = fetchedAppointment?.staff_id ?? null
-    }
+    // Same recorder-only attribution as saveKaruteRecord: the record carries
+    // the signed-in staff's id, never the booking's (web = facade, #990).
+    const staffId = await getCurrentUserStaffId()
     if (!staffId) {
+      // Honest floor: no identity (removed from the roster) = refused before
+      // any booking is read — requireCapability above already refuses this
+      // caller; this is the belt. The take is not lost — it stays on review
+      // for a retry (see the consent note above: "never lost").
       return { error: 'No staff identity for the signed-in user.' }
     }
 
-    const { storeId, appointment: linkedAppointment } = await resolveKaruteStoreId(
+    const { storeId, appointment: linkedAppointment, appointmentId, linkReason } = await resolveKaruteStoreId(
       synqed,
       input.appointmentId,
-      fetchedAppointment,
     )
 
     // Resolve BEFORE the write — same identity seam as saveKaruteRecord.
@@ -326,7 +337,7 @@ export async function saveKaruteRecordInline(
         customer_id: input.customerId,
         store_id: storeId,
         staff_id: staffId,
-        appointment_id: input.appointmentId ?? null,
+        appointment_id: appointmentId,
         recording_session_id: input.recordingSessionId ?? null,
         // Same booked-menu + recording-minutes fill as saveKaruteRecord.
         service: linkedAppointment?.title ?? null,
@@ -348,6 +359,7 @@ export async function saveKaruteRecordInline(
       'fill-if-empty',
       // Same converge-branch store lock as saveKaruteRecord above.
       await resolveStoreScope(),
+      linkReason,
     )
 
     // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.

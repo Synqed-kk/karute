@@ -3,8 +3,9 @@
  * client-supplied staff id: it attributes the record to whoever RECORDED it —
  * the signed-in user, via getCurrentUserStaffId(). When you record a customer
  * booked under ANOTHER staff (covering, swaps, days off) the karte still saves
- * under YOU. The linked appointment's staff is only a FALLBACK for a signer with
- * no staff row; with neither, the save is rejected before reaching synqed-core.
+ * under YOU. The linked appointment's staff is never used, not even as a
+ * fallback (web = facade, #990): a signer with no staff row is rejected before
+ * any booking is read or synqed-core is written.
  */
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
@@ -106,22 +107,22 @@ describe('saveKaruteRecord — staff attribution', () => {
     expect(appointments.get).toHaveBeenCalledTimes(1)
   })
 
-  it("falls back to the appointment's staff only when the signer has no staff identity", async () => {
+  it("rejects a signer with no staff identity even when the booking has a staff — never the appointment's staff", async () => {
     currentStaffId = null
     appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'appt-staff' })
     karuteRecords.create.mockResolvedValue({ id: 'kr-3' })
-    await saveKaruteRecord({ ...baseInput, appointmentId: 'ap-1' })
-    expect(appointments.get).toHaveBeenCalledWith('ap-1')
-    expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'appt-staff', appointment_id: 'ap-1' }),
-    )
+    const result = await saveKaruteRecord({ ...baseInput, appointmentId: 'ap-1' })
+    expect(result).toEqual({ error: expect.stringMatching(/no staff identity/i) })
+    expect(appointments.get).not.toHaveBeenCalled()
+    expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 
-  it('rejects the save when neither the signer nor the appointment yields a staff id', async () => {
+  it('rejects the save when the signer has no staff identity and the booking is missing', async () => {
     currentStaffId = null
     appointments.get.mockRejectedValue(new Error('not found'))
     const result = await saveKaruteRecord({ ...baseInput, appointmentId: 'missing' })
     expect(result).toEqual({ error: expect.stringMatching(/no staff identity/i) })
+    expect(appointments.get).not.toHaveBeenCalled()
     expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 })
