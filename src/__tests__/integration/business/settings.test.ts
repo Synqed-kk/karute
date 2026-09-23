@@ -615,7 +615,8 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
         const substance = s.blocks.reduce((n, b) => n + b.rows.length + b.facts.length + (b.list ? 1 : 0) + (b.table ? 1 : 0), 0)
         expect({ role, id: s.id, blocks: s.blocks.length > 0 }).toEqual({ role, id: s.id, blocks: true })
         expect({ role, id: s.id, substance: substance >= 2 }).toEqual({ role, id: s.id, substance: true })
-        expect({ role, id: s.id, aside: s.aside !== null }).toEqual({ role, id: s.id, aside: true })
+        // Liam 2026-09-23: 人・設備's aside was never rendered — removed, so it alone may carry none.
+        if (s.id !== 'people-equipment') expect({ role, id: s.id, aside: s.aside !== null }).toEqual({ role, id: s.id, aside: true })
         void rows
       }
     }
@@ -3956,8 +3957,7 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
       expect(c.control).not.toHaveProperty('required')
     }
     expect(Object.keys(words.words!.copy.problems).sort()).toEqual(['bar', 'empty', 'full', 'length', 'pair', 'reserved', 'space', 'trim'])
-    expect(section.aside!.lines.map((line) => line.label)).toEqual(['名簿', '設備', '呼び名', '割り当ての決まり'])
-    expect(section.aside!.lines[2].value).toBe('業種の標準の一覧と、この店舗で入力した言葉')
+    expect(section.aside).toBeNull()
     expect(wordsSentences(words.words!, seedOf(props), labelOfValue(typeControl.control, typeControl.value)).example)
       .toBe(section.blocks.find((b) => b.id === 'people.equipment')!.facts[0])
     const added = section.blocks.filter((b) => ['people.business-type', 'people.words'].includes(b.id))
@@ -4017,15 +4017,11 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     expect(sectionOf(props, 'people-equipment').blocks).toEqual([])
   })
 
-  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks and three-line aside', async () => {
+  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks and no aside', async () => {
     const props = await withoutStores(true)
     const section = sectionOf(props, 'people-equipment')
     expect(section.blocks.map((b) => b.id)).toEqual(['people.staff', 'people.equipment', 'people.room-policy', 'people.shifts'])
-    expect(section.aside!.lines).toEqual([
-      { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
-      { label: '設備', value: '今日の運営の設備割り当てが使っている一覧' },
-      { label: '割り当ての決まり', value: '今日の運営の自動割り当てが使っている決まり' },
-    ])
+    expect(section.aside).toBeNull()
   })
 
   it('N3-4 no stores renders the room policy from the umbrella noun and the fallback private word', async () => {

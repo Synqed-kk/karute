@@ -1026,16 +1026,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         facts: ['シフトの管理は「スタッフ・シフト」で行います。ここには同じ機能を重ねていません。'],
       }),
     ],
-    aside: {
-      title: 'この値の出どころ',
-      lines: [
-        { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
-        { label: '設備', value: '今日の運営の設備割り当てが使っている一覧' },
-        ...(ctx.businessType !== null ? [{ label: '呼び名', value: '業種の標準の一覧と、この店舗で入力した言葉' }] : []),
-        { label: '割り当ての決まり', value: '今日の運営の自動割り当てが使っている決まり' },
-      ],
-      note: '稼働・設備の数を変えると、Reserveの空き枠は翌日の再計算から変わります。',
-    },
+    aside: null,
     persist: null,
   }
 }
