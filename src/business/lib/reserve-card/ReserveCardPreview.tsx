@@ -16,6 +16,9 @@
 // - The customer context is Reserve's own demo member at a fixed date (the approved mock's 9/14 sample):
 //   greeting, next visit, chips, the small card's line. The NAME, branch, address and colour are the props.
 // - The small card (.tcard) shows THIS business's own name (isolation law), never another business's.
+// - The cover's name is a <div>, not Reserve's <h1> (same className): settings.css:191
+//   `.biz .page.pg-settings h1` (0,3,1) outranks the wordmark rule inside the settings room. The preview is a
+//   picture of the card (the section marks its root aria-hidden), so it carries no heading.
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { memberTenantVars, type BrandTheme } from "./member-card-vars";
@@ -312,13 +315,13 @@ function StudioCover({
           <ChevronLeft size={15} />
           {SAMPLE.back}
         </a>
-        <h1
+        <div
           ref={nameRef}
           className={`salon-cover__wm${nameIsLong ? " salon-cover__wm--long" : ""}`}
           data-morph-wm
         >
           {tenant.displayName}
-        </h1>
+        </div>
         <span className="salon-cover__wm-probe" aria-hidden="true" ref={probeRef}>
           {tenant.displayName}
         </span>
