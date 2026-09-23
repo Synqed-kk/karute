@@ -260,6 +260,7 @@ describe('PKT-BUILD-N3-2 §3 H3 — the pure save door', () => {
     expect(ten.example).toBe('いまこの店舗にはブースが10個あります。')
     expect(ten.current).toContain('数え方 つ')
     expect(wordsSentences({ ...spec, count: 9 }, gymValues, gymLabel).example.endsWith('が9つあります。')).toBe(true)
+    expect(wordsSentences({ ...spec, count: 10 }, values('ブース', 'つ'), label).example).toBe('いまこの店舗にはブースが10個あります。')
   })
 
   it('N3-5 T5 — a 台 store at ten keeps 台', () => {
