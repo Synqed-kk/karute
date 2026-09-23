@@ -149,6 +149,7 @@ import {
 } from '@/lib/recording/key-grammar'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 /** The SIGNED success arm. The door's success side is two arms since fix round
  *  2 — the other is "the object is already there, here is its size", which
@@ -2189,5 +2190,43 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
         ext: 'mp4',
       })
     })
+  })
+})
+
+// ⚖ FIX PLAN v3 PR-2 — THE WEB DOOR'S bindIdentity. With the switch ON a
+// server-named take gets a row, and its store comes from the web session door's
+// own rule: a degraded scope or a null store means NO row — today's answer,
+// the audio still lands, never a store-less row.
+describe('mintRecordingUploadUrl — switch ON, the server-named take’s store (PR-2)', () => {
+  let replaced: { restore(): void } | undefined
+  beforeEach(() => {
+    replaced = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', true)
+  })
+  afterEach(() => replaced?.restore())
+
+  it('a readable scope binds the row to its store', async () => {
+    const res = await mintOk()
+    expect(res.recordingSessionId).toBe('sess-new')
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ staff_id: 'staff-1', store_id: 'store-9', audio_storage_path: res.path }),
+    )
+  })
+
+  it.each([
+    ['a degraded scope', { storeId: 'store-9', degraded: true }],
+    ['a null storeId', { storeId: null, degraded: false }],
+  ])('%s → today’s answer, no row', async (_label, scope) => {
+    resolveStoreScope.mockResolvedValue(scope)
+    const res = await mintOk()
+    expect(res.recordingSessionId).toBeNull()
+    expect(res.url).toEqual(expect.any(String))
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('a scope lookup that throws → today’s answer, no row', async () => {
+    resolveStoreScope.mockRejectedValue(new Error('assignment blip'))
+    const res = await mintOk()
+    expect(res.recordingSessionId).toBeNull()
+    expect(create).not.toHaveBeenCalled()
   })
 })
