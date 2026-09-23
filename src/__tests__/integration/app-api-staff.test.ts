@@ -87,6 +87,7 @@ jest.mock('@/lib/supabase/service', () => ({
       const chain: Record<string, unknown> = {}
       chain.eq = (c: string, v: unknown) => {
         rec.eq.push([c, v])
+        profileEqCalls.push([c, v])
         return chain
       }
       chain.then = (resolve: (v: unknown) => unknown) => resolve({ error: profileUpdateError })
@@ -370,6 +371,19 @@ describe('PATCH /api/app/v1/staff/[id] (update)', () => {
     })
     expect(lines).toHaveLength(0)
   })
+
+  it('profile-backed update: lookup AND update are tenant-scoped', async () => {
+    // The service client bypasses RLS — without the customer_id scope on
+    // BOTH the lookup and the update chain, a staff id from a FOREIGN tenant
+    // could be resolved here and then written to.
+    profileRow = { id: 'staff-9' }
+    const res = await updatePATCH(patchReq('staff-9', VALID_STAFF), params('staff-9'))
+    expect(res.status).toBe(200)
+    const customerIdCalls = profileEqCalls.filter(
+      ([col, val]) => col === 'customer_id' && val === 'business-1',
+    )
+    expect(customerIdCalls).toHaveLength(2)
+  })
 })
 
 describe('DELETE /api/app/v1/staff/[id]', () => {
@@ -401,6 +415,20 @@ describe('DELETE /api/app/v1/staff/[id]', () => {
     expect(await res.json()).toEqual({ ok: true })
     expect(lookupSynqedStaffIdForBusiness).toHaveBeenCalledWith('staff-9', 'business-1')
     expect(staffDelete).toHaveBeenCalledWith('synqed-7')
+  })
+
+  it('the profiles lookup is tenant-scoped (customer_id = caller business)', async () => {
+    // The service client bypasses RLS — without the customer_id scope, a
+    // staff id from a FOREIGN tenant would resolve here.
+    profileRow = { id: 'staff-9' }
+    const res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    expect(res.status).toBe(200)
+    expect(profileEqCalls).toEqual(
+      expect.arrayContaining([
+        ['id', 'staff-9'],
+        ['customer_id', 'business-1'],
+      ]),
+    )
   })
 
   it('the 400 guard (last-member) rides the 2xx body VERBATIM, no audit row', async () => {
