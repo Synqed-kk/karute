@@ -74,7 +74,7 @@ async function pool<T>(items: T[], fn: (x: T) => Promise<void>, size = 4) {
   }))
 }
 
-export interface ApplyOpts { recipe: Recipe; storeId: string; manifest: Manifest; today: string; dry: boolean; log: (l: string) => void; wait?: (ms: number) => Promise<unknown> }
+export interface ApplyOpts { recipe: Recipe; storeId: string; manifest: Manifest; today: string; dry: boolean; log: (l: string) => void; wait?: (ms: number) => Promise<unknown>; readBack?: boolean }
 
 /** One store of one type. Mutates opts.manifest (the caller saves it, even after a throw). */
 export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
@@ -229,7 +229,37 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   log(`${dry ? 'would create' : 'created'}: ${JSON.stringify(run.created)} · writes sent: ${sent}`)
   run.skipped.forEach((l) => log(`skipped: ${l}`))
   ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
+  if (o.readBack) (await readBack(core, storeId, p)).forEach((r) => log(r.join(' | ')))
   return run.conflicts409.length ? 4 : run.errors.length ? 1 : 0
+}
+
+/** What core holds for this store now, per section, beside the plan (reads only). */
+async function readBack(core: FillCore, storeId: string, p: Plan): Promise<(string | number)[][]> {
+  const members = new Set(p.customers.map((c) => c.member))
+  const [policy, links, res, { menus }, customers, appts, karutes] = await Promise.all([
+    core.storePolicies.get(storeId), core.staffStores.counts(), core.resources.list({ store_id: storeId }), core.menus.list(),
+    pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 })),
+    pageAll('appointments', (page) => core.appointments.list({ store_id: storeId, page, page_size: 500 })),
+    pageAll('karute_records', (page) => core.karuteRecords.list({ store_id: storeId, page, page_size: 200 })),
+  ])
+  const ours = customers.filter((c) => members.has(c.member_number ?? ''))
+  const packs = (await Promise.all(ours.map((c) => core.packs.listPacks(c.id)))).flat()
+  const burns = (await Promise.all([...new Set(packs.map((k) => k.customer_id))].map((id) => core.packs.listRedemptions(id)))).flat()
+  const tagged = appts.filter((a) => a.notes?.includes('[tw:'))
+  const status = JSON.stringify(tagged.reduce<Record<string, number>>((o, a) => ((o[a.status] = (o[a.status] ?? 0) + 1), o), {}))
+  return [
+    ['section', 'planned', 'in core now'],
+    ['storePolicies', 'weekly_hours', `${policy.source} ${JSON.stringify(policy.weekly_hours)}`],
+    ['staff linked to the store', p.staff.length, links.counts[storeId] ?? 0],
+    ['resources', p.resources.length, res.resources.length],
+    ['menus of the store (all)', p.menus.length, menus.filter((m) => m.store_id === storeId).length],
+    ['customers (recipe member numbers)', p.customers.length, ours.length],
+    ['packs of those customers', p.packs.length, packs.length],
+    ['redemptions on those packs', p.packs.reduce((n, k) => n + k.redeem.length, 0), burns.length],
+    ['appointments (fill-tagged)', p.appointments.length, `${tagged.length} ${status}`],
+    ['appointments of the store (all)', '', appts.length],
+    ['karuteRecords of the store (all)', p.karutes.length, karutes.length],
+  ]
 }
 
 /** Counts per section of a plan, plus the shape numbers a reader checks at a glance. */
@@ -279,7 +309,7 @@ if (process.argv[1]?.endsWith('fill.ts')) {
     const recipe = await loadRecipe(type)
     let code = 0
     try {
-      for (const [storeId] of targets) code = Math.max(code, await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log }))
+      for (const [storeId] of targets) code = Math.max(code, await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true }))
     } finally {
       if (!dry) writeFileSync(path, JSON.stringify(m, null, 1) + '\n')
     }
