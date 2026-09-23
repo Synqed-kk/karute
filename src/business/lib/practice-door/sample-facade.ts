@@ -3,7 +3,11 @@
 // position or count. Unknown ids and every field not named in FIELD_KIND
 // (member_number, duplicate_of, free text) pass through untouched.
 
-import { liveIdOf } from './registry'
+import { defaultKindOf } from '../fixtures-today'
+import { storeDials, type StoreDials } from '../fixtures-settings'
+import type { WordOverride } from '../resource-words'
+import { liveIdOf, samplePolicyFor } from './registry'
+import { practiceTenant } from './switch'
 
 export type TwinKind = 'stores' | 'staff' | 'menus' | 'customers' | 'appointments'
 
@@ -43,3 +47,47 @@ export function sampleFor<T>(plane: T, ownKind: TwinKind | null): T {
 }
 
 export const NO_SAMPLE_POLICY = (storeId: string) => ({ state: 'no-sample-policy' as const, storeId })
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const RESERVED = ['__proto__', 'constructor', 'prototype']
+
+/** `sampleFor`, then the §4 rule: a row whose store resolves to NO live store
+ *  (a fixture store id with no twin — STORE_C) is dropped, never borrowed.
+ *  Rows with no store (null/undefined) are kept. */
+export function sampleRows<T extends { store_id?: string | null }>(rows: T[], ownKind: TwinKind | null): T[] {
+  return sampleFor(rows, ownKind).filter(
+    (r) => typeof r.store_id !== 'string' || liveIdOf('stores', r.store_id) !== null || UUID.test(r.store_id),
+  )
+}
+
+/** A record keyed by fixture id → the same values keyed by the live twin. A key
+ *  with no twin is DROPPED: a fixture person with no live twin cannot stand on
+ *  a live board. */
+export function sampleKeys<V>(kind: TwinKind, record: Record<string, V>): Record<string, V> {
+  const out: Record<string, V> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (RESERVED.includes(key)) throw new Error(`sample facade: refused key "${key}"`)
+    const live = liveIdOf(kind, key)
+    if (live !== null) out[live] = value
+  }
+  return out
+}
+
+export type StoreSample =
+  | { state: 'sample'; words: WordOverride | null; dials: StoreDials | null }
+  | { state: 'no-sample-policy'; storeId: string; words: null; dials: null }
+
+/** The per-store SAMPLE words + dials the three bypass sites read (today/page,
+ *  settings-props, store-policy-props). OFF: exactly the two calls those sites
+ *  made — including defaultKindOf's throw on an unknown id (OFF is
+ *  byte-identical, not "improved"). ON: by the store's sample policy; a live
+ *  uuid never throws. */
+export function storeSample(storeId: string): StoreSample {
+  if (practiceTenant() === null) return { state: 'sample', words: defaultKindOf(storeId).words, dials: storeDials[storeId] ?? null }
+  const policy = samplePolicyFor(storeId)
+  if (policy.kind === 'twin') {
+    return { state: 'sample', words: defaultKindOf(policy.fixtureStoreId).words, dials: storeDials[policy.fixtureStoreId] ?? null }
+  }
+  if (policy.kind === 'named') return { state: 'sample', words: null, dials: null }
+  return { state: 'no-sample-policy', storeId, words: null, dials: null }
+}

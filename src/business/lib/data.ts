@@ -21,8 +21,7 @@
 // ./practice-door/switch, decides each reader's source. UNSET (every deployment
 // today) = the fixture path below, byte-identical; SET = ./practice-door/door.
 
-import { cache } from 'react'
-import { jstDayKey, jstSlotEnd } from './clock'
+import { jstDayKey, jstSlotEnd, renderNow } from './clock'
 import { practiceTenant } from './practice-door/switch'
 import * as door from './practice-door/door'
 import {
@@ -76,18 +75,9 @@ import {
 
 export type StoreLens = string | { viewAll: true }
 
-/** THE clock read for one server render — every fixture date in a render is
- *  derived from this single instant.
- *  `appointments()` re-derives the whole calendar from the clock on every call
- *  (fixtures.ts:280, deliberately), so two reads in one render that straddle
- *  JST midnight returned two different fixture days: the same booking could
- *  carry one date in 予約 and another in 来店履歴, and a screen's own `new
- *  Date()` could land on a third (Greptile P1 on #724). React cache() pins one
- *  value per request — the same tool src/lib/perf/render-stamp.ts uses — so
- *  screens read their "now" from HERE rather than the clock.
- *  ponytail: the anchor is cached, not the row array — appointments() stays a
- *  per-call function and a dozen rows twice a render costs nothing. */
-export const renderNow = cache((): Date => new Date())
+/** THE render clock lives in ./clock (one memoised function shared with the
+ *  practice door); re-exported so every room's import keeps working. */
+export { renderNow }
 
 const lensStoreId = (lens: StoreLens): string | undefined =>
   typeof lens === 'string' ? lens : undefined
