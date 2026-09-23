@@ -18,7 +18,7 @@ const paged = (key: string, rows: unknown[]) => async ({ page = 1, page_size = 2
   return { [key]: rows.slice((page - 1) * size, page * size), page, page_size: size, total: rows.length }
 }
 
-function fakeCore(o: { business?: string; devEmail?: string; customers?: number; packs?: number; softDeleted?: number } = {}): Core {
+function fakeCore(o: { business?: string; devEmail?: string; customers?: number; packs?: number; softDeleted?: number; storeCustomers?: number; resources?: number } = {}): Core {
   const customers = Array.from({ length: o.customers ?? 5 }, (_, i) => ({ id: `c${i}` }))
   // Like core: soft-deleted customers come back only with include_deleted.
   const binned = Array.from({ length: o.softDeleted ?? 0 }, (_, i) => ({ id: `d${i}`, deleted_at: PAST }))
@@ -31,8 +31,13 @@ function fakeCore(o: { business?: string; devEmail?: string; customers?: number;
     staff: { list: paged('staff', [{ email: o.devEmail ?? 'Dev@karute.test' }, { email: null }, { email: 'x@example.test' }]) },
     staffStores: { counts: async () => ({ counts: { [A]: 2 } }) },
     menus: { list: async () => ({ menus: [{ store_id: A }, { store_id: null }] }) },
-    resources: { list: async (q: Q) => ({ resources: q.store_id === A ? [{}, {}] : [] }) },
-    customers: { list: async (q: Q) => paged('customers', q.store_id === B ? [] : q.include_deleted ? [...customers, ...binned] : customers)(q) },
+    resources: { list: async (q: Q) => ({ resources: q.store_id === A ? Array.from({ length: o.resources ?? 2 }, () => ({})) : [] }) },
+    customers: {
+      list: async (q: Q) => {
+        const all = q.include_deleted ? [...customers, ...binned] : customers
+        return paged('customers', q.store_id === B ? [] : q.store_id === A ? all.slice(0, o.storeCustomers ?? all.length) : all)(q)
+      },
+    },
     appointments: { list: paged('appointments', appointments) },
     karuteRecords: { list: paged('karute_records', [{ store_id: A }]) },
     recordings: { list: paged('recordings', []) },
@@ -75,10 +80,16 @@ async function main() {
   assert.equal((await exec(['check', path], fakeCore({ customers: 7 }))).code, 0)
 
   // 4. a drop → 3 with the breach line naming store · kind · baseline · now.
-  const drop = await exec(['check', path], fakeCore({ customers: 3 }))
+  const drop = await exec(['check', path], fakeCore({ customers: 3, resources: 1 }))
   assert.equal(drop.code, 3)
-  assert.ok(drop.lines.includes('BASELINE BREACH: テスト東京店 (store-a) · customers · baseline 5 · now 3'), drop.lines.join('\n'))
+  assert.ok(drop.lines.includes('BASELINE BREACH: テスト東京店 (store-a) · resources · baseline 2 · now 1'), drop.lines.join('\n'))
   assert.ok(drop.lines.includes('BASELINE BREACH: business (business) · customers · baseline 5 · now 3'))
+  assert.ok(!drop.lines.some((l) => l.includes('(store-a) · customers')), 'per-store customers never breaches')
+
+  // 4b. per-store customers drop alone → 0, no breach line (a cancelled booking moves it; business count is the loss signal).
+  const storeOnly = await exec(['check', path], fakeCore({ storeCustomers: 3 }))
+  assert.equal(storeOnly.code, 0)
+  assert.ok(!storeOnly.lines.some((l) => l.startsWith('BASELINE BREACH')), storeOnly.lines.join('\n'))
 
   // 5. packs_active drops → 0, no breach line (volatile kind: a used-up pack is play, not loss).
   const packs = await exec(['check', path], fakeCore({ packs: 0 }))

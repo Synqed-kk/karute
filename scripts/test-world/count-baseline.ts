@@ -87,6 +87,8 @@ export function breaches(base: Counts, now: Counts): string[] {
   for (const [scope, kinds] of Object.entries(base))
     for (const [kind, was] of Object.entries(kinds)) {
       if (typeof was !== 'number' || VOLATILE.has(kind)) continue
+      // Per-store customers is info only: a customer belongs to a store only via an uncancelled visit/booking, so it moves with normal play.
+      if (kind === 'customers' && scope !== 'business') continue
       const is = Number(now[scope]?.[kind] ?? 0)
       if (is < was) out.push(`BASELINE BREACH: ${kinds.name} (${scope}) · ${kind} · baseline ${was} · now ${is}`)
     }
