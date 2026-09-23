@@ -188,10 +188,15 @@ export async function saveKaruteRecord(
     let staffId: string | null = await getCurrentUserStaffId()
     let fetchedAppointment: Appointment | null = null
     if (!staffId && input.appointmentId) {
-      fetchedAppointment = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      staffId = fetchedAppointment?.staff_id ?? null
+      // Same 404-vs-blip split as the store resolver: a blip gets its one retry.
+      const pre = await readAppointmentForSave(synqed.appointments, input.appointmentId)
+      fetchedAppointment = pre.appointment
+      staffId = pre.appointment?.staff_id ?? null
     }
     if (!staffId) {
+      // Honest floor: a karute row needs a staff_id and nobody can be named
+      // (no own identity, booking 404/unreadable). The take is not lost — it
+      // stays on review for a retry (see saveKaruteRecordInline's consent note).
       return { error: 'No staff identity for the signed-in user.' }
     }
 
@@ -325,10 +330,15 @@ export async function saveKaruteRecordInline(
     let staffId: string | null = await getCurrentUserStaffId()
     let fetchedAppointment: Appointment | null = null
     if (!staffId && input.appointmentId) {
-      fetchedAppointment = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      staffId = fetchedAppointment?.staff_id ?? null
+      // Same 404-vs-blip split as the store resolver: a blip gets its one retry.
+      const pre = await readAppointmentForSave(synqed.appointments, input.appointmentId)
+      fetchedAppointment = pre.appointment
+      staffId = pre.appointment?.staff_id ?? null
     }
     if (!staffId) {
+      // Honest floor: a karute row needs a staff_id and nobody can be named
+      // (no own identity, booking 404/unreadable). The take is not lost — it
+      // stays on review for a retry (see the consent note above: "never lost").
       return { error: 'No staff identity for the signed-in user.' }
     }
 

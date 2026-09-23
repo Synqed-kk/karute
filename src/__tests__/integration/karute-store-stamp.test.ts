@@ -293,6 +293,46 @@ describe('saveKaruteRecord — store_id resolution reuses the staff-fallback app
       expect.objectContaining({ staff_id: 'appt-staff', store_id: 'store-C' }),
     )
   })
+
+  // Greptile #988 R1: the no-identity pre-read uses the same 404-vs-blip split.
+  const notFound = () => Object.assign(new Error('not found'), { status: 404 })
+  const blip = () => Object.assign(new Error('upstream'), { status: 503 })
+  const noIdentity = async () => {
+    const { getCurrentUserStaffId } = await import('@/lib/staff')
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce(null)
+  }
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + blip then OK → saved under the booking\'s staff, two reads total', async (save) => {
+    await noIdentity()
+    appointments.get
+      .mockRejectedValueOnce(blip())
+      .mockResolvedValueOnce({ id: 'ap-1', staff_id: 'appt-staff', store_id: 'store-C', title: 'VIP施術' })
+
+    await save({ ...baseInput, appointmentId: 'ap-1' }).catch(() => {})
+
+    expect(appointments.get).toHaveBeenCalledTimes(2)
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ staff_id: 'appt-staff', store_id: 'store-C', appointment_id: 'ap-1', service: 'VIP施術' }),
+    )
+  })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + booking 404 → refused (nobody to attribute), one read', async (save) => {
+    await noIdentity()
+    appointments.get.mockRejectedValue(notFound())
+
+    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual({ error: 'No staff identity for the signed-in user.' })
+    expect(appointments.get).toHaveBeenCalledTimes(1)
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + blip twice → refused, two reads', async (save) => {
+    await noIdentity()
+    appointments.get.mockRejectedValue(blip())
+
+    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual({ error: 'No staff identity for the signed-in user.' })
+    expect(appointments.get).toHaveBeenCalledTimes(2)
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
 })
 
 describe('recorded saves copy the booked menu + recording minutes (7/29 field report)', () => {
