@@ -357,6 +357,8 @@ async function main() {
   log(`verbatim blocks: ${verbatim}`)
   const scopedCheck = checkScoped()
   log(`Scoped blocks (declarations after prefix strip): ${scopedCheck}`)
+  const scope = checkScope()
+  log(`rule headers parsed: ${scope.headers} · unscoped selectors: ${scope.bad.length}`)
   const pristine = exportReserve()
   const satin = emitExpectedSatin()
   writePortApp()
@@ -468,6 +470,7 @@ async function main() {
   ].join('\n')
   if (/ — DIFFER: /.test(verbatim)) problems.push(`verbatim check: ${verbatim}`) // a verbatim block that drifted is a FAIL
   if (/ — DIFFER: /.test(scopedCheck)) problems.push(`scoped check: ${scopedCheck}`) // so is a scoped one
+  for (const b of scope.bad) problems.push(`unscoped selector: ${b}`)
   // a deleted (or added) marker must never pass silently: the discovered counts are pinned
   for (const [what, got, want] of [['verbatim', verbatim, EXPECT_VERBATIM], ['scoped', scopedCheck, EXPECT_SCOPED]]) {
     const found = +got.match(/^\d+\/(\d+) /)[1]
@@ -484,6 +487,7 @@ reserve side: ${RESERVE_HIDE} (a sibling that overlaps the cover's bottom edge; 
 fence (git diff in the Reserve copy): ${fence}
 verbatim blocks: ${verbatim}
 Scoped blocks (declarations after prefix strip): ${scopedCheck}
+unscoped selectors: ${scope.bad.length} (rule headers parsed: ${scope.headers})
 ${problems.length ? '\nproblems:\n' + problems.map((p) => '- ' + p).join('\n') + '\n' : ''}
 ${table}
 
@@ -561,6 +565,44 @@ function checkScoped() {
     else bad.push(`reserve-card.css:${i + 1} (src/index.css:${m[1]}–${m[2]})`)
   })
   return `${ok}/${all} identical${bad.length ? ' — DIFFER: ' + bad.join(', ') : ''}`
+}
+
+// Every selector in reserve-card.css must live under .member-ground (the preview root), so no rule can reach
+// a Business element outside it. The prefix strip in checkScoped() cannot see a prefix that was removed; this
+// can. Comments are blanked (line numbers kept); at-rule headers are skipped, @keyframes bodies too.
+function checkScope() {
+  const css = readFileSync(join(MOD, 'reserve-card.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
+  const stack = [], bad = []
+  let headers = 0, start = 0
+  for (let i = 0; i < css.length; i++) {
+    const ch = css[i]
+    if (ch === '{') {
+      const raw = css.slice(start, i), text = raw.trim()
+      const line = css.slice(0, start + raw.search(/\S/)).split('\n').length
+      if (text.startsWith('@')) stack.push(/^@(-webkit-)?keyframes\b/.test(text) ? 'keyframes' : 'at')
+      else {
+        if (!stack.includes('keyframes')) {
+          headers++
+          // split the list on top-level commas only (a comma inside :is(…) belongs to one selector)
+          const sels = ['']
+          let depth = 0
+          for (const c of text) {
+            if (c === '(') depth++
+            else if (c === ')') depth--
+            if (c === ',' && !depth) sels.push('')
+            else sels[sels.length - 1] += c
+          }
+          for (const sel of sels.map((x) => x.trim())) if (!/^\.member-ground($|[ .])/.test(sel)) bad.push(`reserve-card.css:${line} ${sel}`)
+        }
+        stack.push('rule')
+      }
+      start = i + 1
+    } else if (ch === '}' || ch === ';') {
+      if (ch === '}') stack.pop()
+      start = i + 1
+    }
+  }
+  return { headers, bad }
 }
 
 main().catch((e) => { console.error(e); stopStarted(); process.exit(1) })
