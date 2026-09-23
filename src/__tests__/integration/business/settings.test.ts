@@ -3977,6 +3977,32 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     return result
   }
 
+  it('N3-5 — the seeded equipment fact on a つ store with ten resources prints 個 and equals the live example', async () => {
+    const gymStores = stores.map((s) => (s.id === STORE_A ? { ...s, business_type: 'personal_gym' } : s))
+    const ten = Array.from({ length: 10 }, (_, i) => ({ ...resources[0], id: `n35-booth-${i}`, name: `ブース${i + 1}` }))
+    jest.doMock('@/business/lib/data', () => ({ ...jest.requireActual('@/business/lib/data'), listStoreOptions: async () => gymStores }))
+    jest.doMock('@/business/lib/fixtures-today', () => ({
+      ...jest.requireActual('@/business/lib/fixtures-today'),
+      resources: [...ten, ...resources.filter((r) => r.store_id !== STORE_A)],
+    }))
+    let props!: SettingsProps
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const mod = await import('@/app/[locale]/(business)/business/settings/settings-props')
+        props = (await mod.settingsProps({ locale: 'ja', store: STORE_A })).props
+      })
+    } finally {
+      jest.dontMock('@/business/lib/data')
+      jest.dontMock('@/business/lib/fixtures-today')
+    }
+    const section = props.sections.find((s) => s.id === 'people-equipment')!
+    const seeded = section.blocks.find((b) => b.id === 'people.equipment')!.facts[0]
+    expect(seeded).toBe('いまこの店舗にはブースが10個あります。')
+    const words = section.blocks.find((b) => b.id === 'people.words')!
+    const typeControl = controlOf(props, 'people.type')
+    expect(wordsSentences(words.words!, seedOf(props), labelOfValue(typeControl.control, typeControl.value)).example).toBe(seeded)
+  })
+
   it('N3-2 §3 H4 — no stores without supplied dials keeps the empty boundary', async () => {
     const props = await withoutStores(false)
     expect(sectionOf(props, 'people-equipment').blocks).toEqual([])
