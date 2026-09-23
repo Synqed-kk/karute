@@ -1,7 +1,12 @@
 import { Entry } from '@/types/ai'
 import { getDataPort } from '@/lib/ports/data-port'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
-import { ensureFinalizedPath, readTakeSecureMeta } from '@/lib/karute/take-store'
+import {
+  ensureFinalizedPath,
+  readTakeSecureMeta,
+  readTakeTranscript,
+  stampTakeTranscript,
+} from '@/lib/karute/take-store'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
 /**
@@ -76,6 +81,14 @@ async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
   }
 }
 
+// ⚖ One tab at a time per finalized object: the browser's own cross-tab lock
+// (released by the browser if the tab dies). Where the API is absent the run
+// proceeds unlocked, as today.
+async function withTranscribeLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  return locks ? locks.request(`karute:transcribe:${key}`, fn) : fn()
+}
+
 /**
  * Orchestrates the full AI processing pipeline:
  *   1. Transcribe audio blob via Deepgram nova-3 (/api/ai/transcribe)
@@ -134,25 +147,47 @@ export async function runAIPipeline(
   const meta = takeId ? await readTakeSecureMeta(takeId) : null
   const finalizedPath =
     takeId && meta ? await ensureFinalizedPath(takeId, meta, recordingPort) : null
-  const { body: transcribeBody } = await recordingPort.prepareTranscription(
-    audioBlob,
-    finalizedPath,
-  )
+  // ⚖ THE SAME OBJECT IS NEVER PAID FOR TWICE (recording hole PR-2). The
+  // transcribe door cannot tell a repeat (a take key carries no session id, and
+  // core has no by-path read), so the device that holds the take remembers: a
+  // stored answer for THIS finalized object, asked in THIS locale, is replayed
+  // and the door is not asked — no spend on a 再試行 tap or a reload. Blob-only runs (no take, or
+  // no finalized key) have nothing to key on and ask every time, as before.
+  const transcribeOnce = async (): Promise<Awaited<ReturnType<Response['json']>>> => {
+    const stored = takeId && finalizedPath ? await readTakeTranscript(takeId) : null
+    if (stored && stored.finalizedPath === finalizedPath && stored.locale === locale) {
+      return stored.response
+    }
+    const { body: transcribeBody } = await recordingPort.prepareTranscription(
+      audioBlob,
+      finalizedPath,
+    )
 
-  const transcribeRes = await fetchWithRetry(() =>
-    getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...transcribeBody, locale }),
-    }),
-  ).catch((err) => {
-    throw new Error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`)
-  })
+    const transcribeRes = await fetchWithRetry(() =>
+      getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...transcribeBody, locale }),
+      }),
+    ).catch((err) => {
+      throw new Error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`)
+    })
 
-  // ⚖ NOTHING IS CLEANED UP (capture pipeline PR4): the object this just read is
-  // the take's finalized audio, and audio is never deleted.
+    // ⚖ NOTHING IS CLEANED UP (capture pipeline PR4): the object this just read is
+    // the take's finalized audio, and audio is never deleted.
 
-  const transcribeData = await transcribeRes.json()
+    const fresh = await transcribeRes.json()
+    // Stamped BEFORE the empty check: an empty answer was paid for too, and
+    // replays below as the same EmptyTranscriptError with no second spend.
+    if (takeId && finalizedPath) await stampTakeTranscript(takeId, finalizedPath, locale, fresh)
+    return fresh
+  }
+  // The door's JSON body, used exactly as before — replayed or fresh. Two tabs
+  // on the same object take turns, so the second one reads the first's stamp.
+  const transcribeData =
+    takeId && finalizedPath
+      ? await withTranscribeLock(finalizedPath, transcribeOnce)
+      : await transcribeOnce()
   const transcript: string = transcribeData.transcript
 
   if (!transcript) {

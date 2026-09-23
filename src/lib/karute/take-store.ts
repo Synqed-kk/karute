@@ -368,6 +368,17 @@ export type TakeMeta = {
    *  itself is failing — and a drain that cannot write cannot read its worklist
    *  either, so it seals nothing. */
   stopPendingAt?: number
+  /** ⚖ THE SAME OBJECT IS NEVER PAID FOR TWICE (recording hole PR-2). The FULL
+   *  body the transcribe door answered for `finalizedPath` — transcript,
+   *  paragraphs, words, confidence, speakerId — so an in-tab retry or a reload
+   *  replays it (diarization and the speaker hint included) instead of paying
+   *  for the same audio again. Keyed on the path AND the locale the door was
+   *  asked in: a different object, or a different language, is a different
+   *  answer. An EMPTY transcript is stamped too, and replays as the
+   *  same empty result with no spend. Lives and dies with the take — the same
+   *  record, the same owner gate, the same delete. Absent = never transcribed
+   *  (or stamped before this field existed): the door is asked, as always. */
+  transcript?: { finalizedPath: string; locale: string; response: unknown; at: number }
 }
 
 /** What a pending discard-transcript needs to finish after a reload — the
@@ -1047,6 +1058,22 @@ export async function stampTakeOutcome(
   })
 }
 
+/** Recording hole PR-2: the transcribe door answered for THIS object — keep
+ *  its whole body on the take so a retry never pays for it again (see
+ *  `TakeMeta.transcript`). Best-effort, no-throw, owner-gated through
+ *  patchTakeMeta like every other stamp here: a failed write only means the
+ *  next retry asks the door, which is today's behaviour. */
+export async function stampTakeTranscript(
+  takeId: string,
+  finalizedPath: string,
+  locale: string,
+  response: unknown,
+): Promise<void> {
+  await patchTakeMeta(takeId, {
+    transcript: { finalizedPath, locale, response, at: Date.now() },
+  })
+}
+
 /** A2-2: mark a take as "discarded, words still owed". Written BEFORE anything
  *  can delete the audio, so a crash between the discard landing and the
  *  transcript landing still leaves a take the sweep can finish.
@@ -1105,6 +1132,15 @@ export async function readTakeOutcome(takeId: string): Promise<
     outcomeLegs: meta.outcomeLegs,
     outcomeNewPack: meta.outcomeNewPack,
   }
+}
+
+/** Recording hole PR-2: the stored transcribe answer, or null — same owner
+ *  gate, same fail-closed null as readTakeOutcome. The caller compares
+ *  `finalizedPath` and `locale` against the run it is about to make. */
+export async function readTakeTranscript(
+  takeId: string,
+): Promise<NonNullable<TakeMeta['transcript']> | null> {
+  return (await readOwnTakeMeta(takeId))?.transcript ?? null
 }
 
 /** Remove a take (meta + all segments). Called on successful karute save,
