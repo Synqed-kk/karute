@@ -27,11 +27,12 @@ export function automationLabelKey(action: string): string | null {
 }
 
 /** I6 — recording.karute_missing's detail.reason rides the recordings-inbox
- *  InboxReason vocabulary (5 real values reach it, pinned at source: run.ts's
- *  karuteMissingDetail copies row.reason verbatim — packet §ADDED 18:24) —
- *  collapsed to the 3 reason.* keys the page actually ships (YAGNI: no writer
- *  produces the other candidates named in the first native-pass table).
- *  Unknown/missing -> null (no reason word), never a raw code. */
+ *  InboxReason vocabulary (every InboxReason the FAILED/recoverable branches
+ *  emit reaches it — see inbox.ts reasonFromJobError; pinned at source:
+ *  run.ts's karuteMissingDetail copies row.reason verbatim — packet §ADDED
+ *  18:24) — collapsed to the 6 reason.* keys the page actually ships (YAGNI:
+ *  no writer produces the other candidates named in the first native-pass
+ *  table). Unknown/missing -> null (no reason word), never a raw code. */
 export function karuteMissingReasonKey(reason: unknown): string | null {
   switch (reason) {
     case 'emptyTranscript':
