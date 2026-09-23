@@ -21,10 +21,20 @@
 // the core reads it does not make. No Idempotency-Key still: the dedupe is
 // SERVER-derived (the row's own pointer, read before write).
 //
-// FIX ROUND 7. The mint no longer CREATES rows, so a client-named body must
-// carry the recordingSessionId of the row startRecordingSession already minted
-// (the schema's field-pair rule — 400 without it), and this door has no store
-// to clamp: nothing it calls places a row any more.
+// FIX ROUND 7. A client-named body never creates a row: it must carry the
+// recordingSessionId of the row startRecordingSession already minted (the
+// schema's field-pair rule — 400 without it).
+//
+// FIX PLAN v3 PR-2. A SERVER-named body can create one, but only with
+// RECORDING_SWITCHES.bindUnboundUploads ON (it ships OFF): the take's row, born
+// on the key just signed. That row needs a store, so this door resolves one the
+// session door's way (session/route.ts:130-165) — lazily, inside
+// `bindIdentity`, which only that ON arm calls, and with every refusal or blip
+// turned into "stay unbound" rather than a 403: the audio already exists, and
+// this door never refuses it. With the switch OFF nothing here places a row and
+// the server-named body makes no read beyond the sign, as before. Round 7's
+// hazard does not return: the uuid is the server's own, so a lost reply costs
+// one empty row, never a stranded take.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -33,7 +43,12 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
+import {
+  resolvePrimaryStoreId,
+  resolveStoreForRequest,
+  viewerAllowedStoreIds,
+} from '@/lib/app-api/store-clamp'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { mintSegmentUploadUrls, mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 
@@ -91,6 +106,29 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
     staffId,
     businessId: ctx.identity.businessId,
     holdsOwnerKeys: callerHoldsOwnerKeys,
+    // ⚖ PR-2 — who and where a SERVER-named take's row would be (only the ON
+    // server-named arm asks). The session door's exact resolution
+    // (session/route.ts:93, :130-165), with ONE difference: every throw — a
+    // `store_forbidden` from the clamp or the primary-store lookup, a roster
+    // blip — becomes null, i.e. the take stays unbound. That door may 403
+    // because the phone records on regardless; here the audio already exists.
+    bindIdentity: async () => {
+      try {
+        const self = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
+        if (!self) return null
+        const clamp = await resolveStoreForRequest({
+          synqed,
+          authUserId: ctx.identity.authUserId,
+          capabilities: ctx.identity.capabilities,
+          requestedStoreId: ctx.req.headers.get('store-id'),
+        })
+        // ⚖ Liam 9/16: a caller who reaches NO store gets no row.
+        if (reachesNoStore(clamp)) return null
+        return { staffId: self, storeId: clamp.storeId ?? (await resolvePrimaryStoreId(synqed)) }
+      } catch {
+        return null
+      }
+    },
     source: 'facade' as const,
     requestId: ctx.meta.requestId,
   }
