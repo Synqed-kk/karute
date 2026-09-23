@@ -20,7 +20,8 @@ type FakeEvent = {
   detail: unknown
 }
 let events: FakeEvent[] = []
-const auditList = jest.fn(async () => ({ events, total: events.length, page: 1, page_size: 200 }))
+const defaultAuditList = async () => ({ events, total: events.length, page: 1, page_size: 200 })
+const auditList = jest.fn(defaultAuditList)
 const recordingsGet = jest.fn(async (id: string) => ({ id, created_at: '2026-09-22T07:02:00.000Z' }))
 
 jest.mock('@synqed-kk/client', () => {
@@ -125,5 +126,61 @@ describe('notification feed — recording failures (owner view)', () => {
     ]
     const items = recordingItems(await buildNotificationFeed(BIZ, 'ja', null, { viewerCanViewAudit: true }))
     expect(items.map((i) => i.id).sort()).toEqual(['recording-failure:rec-a', 'recording-failure:rec-b'])
+  })
+
+  // Paged fixture: `pages` full pages of non-failure rows, with `failOn` page
+  // carrying one transcribe_failed row. total = pages × 200.
+  const pagedAuditList = (pages: number, failOn: number, onPage?: (page: number) => void) => {
+    // Real time captured up front — test (7) fakes Date.now afterwards.
+    const at = hoursAgo(1)
+    return async ({ page }: { page: number }) => {
+      onPage?.(page)
+      const rows: FakeEvent[] = Array.from({ length: 200 }, (_, i) => ({
+        action: 'recording.started',
+        target_id: `rec-fill-${page}-${i}`,
+        at,
+        detail: {},
+      }))
+      if (page === failOn) {
+        rows[0] = { action: 'recording.transcribe_failed', target_id: `rec-p${page}`, at, detail: { reason: 'other' } }
+      }
+      return { events: rows, total: pages * 200, page, page_size: 200 }
+    }
+  }
+
+  it('(6) the walk follows core\'s total, not a fixed page cap — a failure on page 12 is still an item', async () => {
+    auditList.mockImplementation(pagedAuditList(12, 12) as never)
+    try {
+      const items = recordingItems(await buildNotificationFeed(BIZ, 'ja', null, { viewerCanViewAudit: true }))
+      expect(items.map((i) => i.id)).toEqual(['recording-failure:rec-p12'])
+      expect(auditList).toHaveBeenCalledTimes(12)
+    } finally {
+      auditList.mockImplementation(defaultAuditList)
+    }
+  })
+
+  it('(7) past the deadline the walk stops, keeps what it read, warns once, never throws', async () => {
+    let clock = 1_000_000
+    const fixture = pagedAuditList(3, 1, () => {
+      clock += 11_000
+    })
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => clock)
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    // Page 1 takes "11 s" — the deadline (10 s from the loader's start) has
+    // passed before page 2 is asked for.
+    auditList.mockImplementation(fixture as never)
+    try {
+      const feed = await buildNotificationFeed(BIZ, 'ja', null, { viewerCanViewAudit: true })
+      expect(recordingItems(feed).map((i) => i.id)).toEqual(['recording-failure:rec-p1'])
+      expect(auditList).toHaveBeenCalledTimes(1)
+      const truncWarns = warn.mock.calls.filter((c) => String(c[0]).includes('recording failures truncated'))
+      expect(truncWarns).toHaveLength(1)
+      expect(truncWarns[0][1]).toBe(BIZ)
+      expect(truncWarns[0][2]).toEqual({ pagesRead: 1, total: 600 })
+    } finally {
+      nowSpy.mockRestore()
+      warn.mockRestore()
+      auditList.mockImplementation(defaultAuditList)
+    }
   })
 })
