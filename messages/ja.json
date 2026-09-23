@@ -819,6 +819,9 @@
         "transcribing": "サーバーで文字起こし中",
         "unsettled": "まだ結果が届いていません",
         "autoSaved": "この録音は自動で保存されました（まだ確認されていません）",
+        "transcriptionFailed": "文字起こしができませんでした（サーバーに音声が残っています）",
+        "aiFailed": "カルテを作成できませんでした（文字起こしまでは完了しています）",
+        "saveFailed": "カルテを保存できませんでした（内容の作成までは完了しています）",
         "genericFailure": "この録音は保存されませんでした",
         "localAudio": "この端末に音声が残っています（未保存）",
         "tailIncomplete": "録音が途中で終わっています（この端末に残っているところまで保存できます）",
@@ -2659,6 +2662,9 @@
         "empty_transcript": "文字起こし結果なし",
         "job_failed": "処理エラー",
         "not_transcribed": "文字起こし未実施",
+        "transcription_failed": "文字起こしエラー",
+        "ai_failed": "AI処理エラー",
+        "karute_save_failed": "カルテ保存エラー",
         "other": "その他"
       },
       "recording": {

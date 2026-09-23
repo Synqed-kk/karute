@@ -819,6 +819,9 @@
         "transcribing": "Transcribing on the server",
         "unsettled": "No result has come back yet",
         "autoSaved": "This recording was saved automatically (nobody has checked it yet)",
+        "transcriptionFailed": "Transcription did not finish (the audio is still on the server)",
+        "aiFailed": "The karute could not be created (the transcription finished)",
+        "saveFailed": "The karute could not be saved (its content was created)",
         "genericFailure": "This recording was not saved",
         "localAudio": "The audio is still on this device (unsaved)",
         "tailIncomplete": "The recording ends partway (you can save what is left on this device)",
@@ -2659,6 +2662,9 @@
         "empty_transcript": "No transcript produced",
         "job_failed": "Processing error",
         "not_transcribed": "Not transcribed yet",
+        "transcription_failed": "Transcription error",
+        "ai_failed": "AI processing error",
+        "karute_save_failed": "Karute save error",
         "other": "Other"
       },
       "recording": {
