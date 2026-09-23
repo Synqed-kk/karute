@@ -15,7 +15,8 @@
 //   4. emits src/__tests__/integration/business/reserve-card.expected-satin.json (Reserve's own satinVars
 //      output, read by the unit test beside it), the module's PARITY.md, and
 //      <PARITY_DIR>/parity/parity-report.md with every PNG + a diff PNG.
-// PASS = 0 differing pixels on every surface of every case. Exit code 1 otherwise.
+// PASS = 0 differing pixels on every surface of every case, and every verbatim block identical (any DIFFER
+// fails the run). Exit code 1 otherwise.
 //
 // env: PARITY_REPO (the karute checkout holding src/business/lib/reserve-card/ — its module, globals.css,
 //      node_modules and emitted files; default = the checkout this script sits in, so from a checkout
@@ -279,6 +280,8 @@ function compare(aBuf, bBuf, diffPath) {
 function writeParityMd(verbatim) {
   const css = readFileSync(join(MOD, 'reserve-card.css'), 'utf8')
   const ranges = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) \*\//g)].map((m) => `${m[1]}–${m[2]}`)
+  // a SCOPED marker never matches the verbatim pattern above, so these blocks are neither checked nor listed as verbatim
+  const scoped = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/g)].map((m) => `${m[1]}–${m[2]}`)
   const md = `# Reserve member-card port — parity record
 
 Source pin: \`Synqed-kk/reserve\` @ \`${PIN}\` (2026-09-23 20:52:19 +0900).
@@ -288,9 +291,13 @@ Emitted by \`node scripts/business/reserve-card-parity/run.mjs\` — do not edit
 - \`satin-material.ts\` ← \`src/lib/satin-material.ts\` 1–30 (whole file)
 - \`member-card-vars.ts\` ← \`src/lib/types.ts\` 162–185 (BrandTheme) · \`src/lib/reserve-api/member-ia.ts\` 238–253 (tenantGradientPair) · \`src/components/customer/salon-surface.tsx\` 36–61 (memberTenantVars)
 - \`ReserveCardPreview.tsx\` ← \`studio-home.tsx\` 417–455 (the card's measure effect) · \`studio-salon.tsx\` 56–102 (the cover's measure effect) · \`membership-date.tsx\` 1–6; the JSX is Reserve's (studio-home.tsx MembershipCard 460–516, TenantCard 656–681; studio-salon.tsx StudioCover 145–230) with the edits listed in its header
-- \`reserve-card.css\` ← \`src/index.css\` ${ranges.join(' · ')}, plus ONE marked context block (not verbatim: --font-sans/--font-num from index.css 33–34, body 185–191, the page root's bg-background/text-foreground, and the inherited text defaults Reserve's page hands down — re-scoped to the preview root so a host's inherited type cannot leak in)
+- \`reserve-card.css\` ← \`src/index.css\` ${ranges.join(' · ')}, plus ONE marked context block (not verbatim: --font-sans/--font-num from index.css 33–34, body 185–191, the page root's bg-background/text-foreground, and the inherited text defaults Reserve's page hands down — re-scoped to the preview root so a host's inherited type cannot leak in), and the SCOPED blocks listed under Declared edits
 
 Verbatim check (last run): ${verbatim}
+
+## Declared edits (not verbatim)
+- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (.pressable, .tap44) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Not counted by the verbatim check.
+- \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 
 ## Left out of index.css 4520–4685, and why
 ${EXCLUDED.map(([r, why]) => `- ${r} — ${why}`).join('\n')}
@@ -301,9 +308,12 @@ ${NOT_PORTED.map(([r, why]) => `- ${r} — ${why}`).join('\n')}
 ## Proof
 The harness ships in its own non-Business PR (branch \`feat/business-reserve-card-parity-harness\`): a shared file never rides in a Business PR (scripts/business/check-business-isolation.mjs). From a checkout of that branch, point it at this one with \`PARITY_REPO=<this checkout>\`; once both are on main, no env is needed.
 
-\`node scripts/business/reserve-card-parity/run.mjs\` — 12 palette values × {home, store} + a 22-character name × {home, store} + the seed's own #285643; .mcard 353×187 · .tcard 353×76 · .salon-cover 393×295 at 393px; PASS = 0 differing RGB pixels per surface. Report + PNGs: \`$PARITY_DIR/parity/\`.
+\`node scripts/business/reserve-card-parity/run.mjs\` — 12 palette values × {home, store} + a 22-character name × {home, store} + the seed's own #285643; .mcard 353×187 · .tcard 353×76 · .salon-cover 393×295 at 393px; PASS = 0 differing RGB pixels per surface and every verbatim block identical (any DIFFER fails the run). Report + PNGs: \`$PARITY_DIR/parity/\`.
 The unit test (src/__tests__/integration/business/reserve-card.test.ts) reads \`reserve-card.expected-satin.json\` beside it, emitted by the harness from Reserve's own satin-material.ts.
 Reserve's small card at the pin is STUDIO FORCE (its name lives outside mock.ts), so the port's small card is compared under that name and colour pair; Reserve's store page hides \`.salon-rankfloat\` (a sibling overlapping the cover's bottom edge) for the capture; the port's sample context is Reserve's demo member at 2026-09-14 10:00 JST, so Reserve's clock is frozen there.
+
+## Shipping
+\`reserve-card.css\` is imported by the client component; it ships in a route chunk only once a route imports \`ReserveCardPreview\` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: \`.tap44\` and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
 
 ## Keeping it in step
 When Reserve changes any of these ranges, re-run the harness against the new pin; a diff = re-port, never patch.
@@ -446,6 +456,7 @@ async function main() {
     '|---|---|---|---|---|---|---|',
     ...rows.map((x) => `| ${x.c.label} | ${x.s} | ${fmt(x.r)} | ${fmt(x.p)} | ${x.cmp.diff < 0 ? x.cmp.size : x.cmp.diff} | ${x.cmp.diff < 0 ? '—' : ((100 * x.cmp.diff) / x.cmp.total).toFixed(4)} | ${x.verdict} |`),
   ].join('\n')
+  if (/ — DIFFER: /.test(verbatim)) problems.push(`verbatim check: ${verbatim}`) // a verbatim block that drifted is a FAIL
   const pass = rows.every((x) => x.verdict === 'PASS') && !problems.length
   const sizes = Object.keys(SIZE).map((s) => `${s} ${[...new Set(rows.filter((x) => x.s === s).flatMap((x) => [fmt(x.r), fmt(x.p)]))].join('/')}`).join(' · ')
   const report = `# Reserve card parity — ${pass ? 'PASS' : 'FAIL'}
