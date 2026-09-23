@@ -1,0 +1,35 @@
+{
+  "$comment": "The test-world TYPE registry (not CORE-30's business registry): which business type each Dev Salon test store plays, and what the fill loader (fill.ts) creates for it. The stores map moves to stores.business_type when CORE-26 lands. Type ids = BusinessProfileKey values in src/business/lib/fixtures-settings.ts.",
+  "types": {
+    "beauty_chiropractic": {
+      "label": "美容整体",
+      "sections": ["stores", "storePolicies", "staff", "staffStores", "resources", "menus", "customers", "appointments", "packs", "karuteRecords"],
+      "recipe": {
+        "staff": 6,
+        "resources": 4,
+        "menus": 7,
+        "customers": 30,
+        "packs": 12,
+        "pastDays": 90,
+        "futureDays": 14,
+        "slotMinutes": 30,
+        "cancelShare": 0.08,
+        "noShowShare": 0.02,
+        "karuteShare": 0.6
+      }
+    },
+    "personal_gym": {
+      "label": "パーソナルジム",
+      "sections": ["stores", "storePolicies", "staff", "staffStores", "resources", "menus", "customers", "appointments", "karuteRecords"],
+      "recipe": null
+    },
+    "hair_salon": {
+      "label": "ヘアサロン",
+      "sections": ["stores", "storePolicies", "staff", "staffStores", "resources", "menus", "customers", "appointments", "packs", "karuteRecords"],
+      "recipe": null
+    }
+  },
+  "stores": {
+    "aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f": "beauty_chiropractic"
+  }
+}
