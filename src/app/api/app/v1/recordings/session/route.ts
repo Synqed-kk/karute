@@ -1,7 +1,8 @@
 // Facade: mint a recording_sessions row at record-start (packet 08 Decision 3).
 // The facade twin of startRecordingSession — recorder-first attribution
-// (selfStaffId) with the appointment-staff fallback, on the business-scoped
-// client. Effectful row mint → Idempotency-Key REQUIRED (orphan rows stay the
+// (selfStaffId) on the business-scoped client; a caller the roster cannot
+// place is refused (see ROSTER FIRST below), so the core's appointment-staff
+// fallback is never reached from this door. Effectful row mint → Idempotency-Key REQUIRED (orphan rows stay the
 // accepted degradation, packet-10 fact 3); records.write; revocation-sensitive
 // (recordings.session.mint).
 //
@@ -42,6 +43,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import {
   startRecordingSessionWithClient,
   type StartRecordingSessionResult,
@@ -89,6 +91,19 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
 
   const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
   const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
+  // ROSTER FIRST (⚖ 2026-09-23, follow-up c) — parity with every sibling facade
+  // write door (karute save's PLACEMENT FIRST, appointments create's N1): a
+  // caller the roster cannot place is refused BEFORE anything is read on their
+  // behalf. Without this line a non-roster account that sent an appointmentId
+  // got a row minted and ATTRIBUTED TO THE BOOKING'S STAFF (the core's absent-
+  // take appointment-staff fallback). Placed before the store clamp and outside
+  // the fail-open try, so no appointment/store lookup runs for such a caller
+  // and they get ONE 403 whatever ids or store-id header they send (no
+  // existence oracle). Capture is never blocked: the thin client reads any
+  // non-2xx as a null mint and records on.
+  if (!selfStaffId) {
+    throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
+  }
 
   // THE STORE THIS RECORDING IS MADE IN (slice three ③) — the Bearer twin of
   // the web action's resolveStoreScope(), and the same call the job route makes
@@ -152,7 +167,9 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   // Fail-OPEN parity with the web action for the LEGITIMATE null: an
   // unresolvable staff (session-mint.ts:161) is a settled answer, not an
   // error, and still comes back here as `result === null` below — the client
-  // reads it as `{ id: null }` exactly as before. ⚖ UPDATE 25 GROUP B, d1: a
+  // reads it as `{ id: null }` exactly as before. (Since ROSTER FIRST above,
+  // selfStaffId is always set here, so that null is no longer reachable from
+  // this door; the branch stays as the core's contract.) ⚖ UPDATE 25 GROUP B, d1: a
   // genuine SDK throw is NO LONGER swallowed — it is a core failure, not a
   // walk-in, and re-throwing here is what tells the two apart on the server's
   // own logs. The client still cannot tell them apart (both read as "the mint
