@@ -604,19 +604,12 @@ function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDia
     case 'colors':
       return colors(base, ctx, d)
     default:
-      // Unreachable while RAIL and this switch agree — and the suite proves they
-      // do, section by section, rather than trusting the comment. 事業構成 and
-      // 契約・請求 never arrive here because both are gated shut above.
-      return businessSection(base, entry, ctx, d)
+      // 契約・請求 — the one entry with no case of its own: built, and reachable
+      // only for the role canon gives it (the demo persona never opens it, and a
+      // section nobody in the demo can open still has to be a real page for the
+      // role that can). 事業構成 never arrives here: the first switch takes it.
+      return billing(base, ctx, d)
   }
-}
-
-/** 事業構成 and 契約・請求 — built, and reachable only for the role canon gives
- *  them. They are in this arm because the demo persona never opens them, and a
- *  section nobody in the demo can open still has to be a real page for the role
- *  that can. */
-function businessSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDials): SettingsSection {
-  return entry.id === 'billing' ? billing(base, ctx, d) : businessStructure(base, ctx, d)
 }
 
 // ── 予約と確保 ──────────────────────────────────────────────────────────────
