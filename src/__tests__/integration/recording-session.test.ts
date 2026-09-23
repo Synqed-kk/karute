@@ -112,20 +112,22 @@ describe('startRecordingSession', () => {
     expect(res).toEqual({ id: 'session-1' })
   })
 
-  it('falls back to the appointment staff_id when the signed-in user has no staff identity', async () => {
+  // ⚖ 9/12 layers: one guard (roster-first refusal); matrix = the guard alone
+  // (the pins below) + all-off for roster callers (every other pin) = today.
+  it('returns null when the signed-in user has no staff identity — no appointment read, no store read, nothing minted (parity with the facade\'s ROSTER FIRST)', async () => {
     getCurrentUserStaffId.mockResolvedValueOnce(null)
     const res = await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
-    expect(apptGet).toHaveBeenCalledWith('appt-1')
-    expect(recordingsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'staff-from-appt' }),
-    )
-    expect(res).toEqual({ id: 'session-1' })
+    expect(res).toBeNull()
+    expect(apptGet).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+    expect(resolveStoreScope).not.toHaveBeenCalled()
   })
 
   it('returns null when neither the signed-in user nor the appointment resolves a staff id', async () => {
     getCurrentUserStaffId.mockResolvedValueOnce(null)
     apptGet.mockResolvedValueOnce(null as never)
     const res = await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(apptGet).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
     expect(res).toBeNull()
   })
@@ -136,6 +138,20 @@ describe('startRecordingSession', () => {
     expect(apptGet).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
     expect(res).toBeNull()
+  })
+
+  it('returns null for a take pair with no staff identity — the refusal precedes the tenant read', async () => {
+    getCurrentUserStaffId.mockResolvedValueOnce(null)
+    const res = await startRecordingSession({
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+      takeId: '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30',
+      mimeType: 'audio/webm',
+    })
+    expect(res).toBeNull()
+    expect(getBusinessId).not.toHaveBeenCalled()
+    expect(apptGet).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
   it('returns null on a capability denial — never throws to the caller', async () => {

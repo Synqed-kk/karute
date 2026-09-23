@@ -45,9 +45,18 @@ export async function startRecordingSession(input: {
 
     const synqed = await getSynqedClient()
 
-    // Recorder-first attribution (the signed-in staff), appointment-staff
-    // fallback only when the account has no staff identity of its own.
+    // Recorder-first attribution (the signed-in staff). An account the roster
+    // cannot place (getCurrentUserStaffId → null: no staff row, e.g. removed
+    // while the auth session lives on) is refused HERE — before the tenant,
+    // store or appointment is read — so the core's appointment-staff fallback
+    // (session-mint.ts) is never reached from this door either: parity with the
+    // facade twin's ROSTER FIRST (Greptile #990). Same fail-OPEN null as the two
+    // refusals below: capture is not blocked, the drain re-mints later.
     const staffId = await getCurrentUserStaffId()
+    if (staffId === null) {
+      console.warn('[startRecordingSession] caller not on the roster — no session minted')
+      return null
+    }
     // The tenant prefix a client-named take's key carries — read off the COOKIE
     // session, never off the argument (this is a 'use server' export, so the
     // argument is caller-supplied JSON however it is typed, and businessId is
