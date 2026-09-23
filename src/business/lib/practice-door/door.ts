@@ -98,9 +98,9 @@ const dayKeys = (range: DayRange): number[] =>
  *  of a store outside VISIBLE (belt-and-braces: core lists the tenant). */
 async function coreAppointments(actor: PracticeActor, lens: StoreLens, q: CoreQuery): Promise<CoreAppointment[]> {
   const store_id = lensStore(lens)
-  const rows = await pageAll('appointments', async (page) => {
+  const rows = await pageAll('appointments', 500, async (page) => {
     const r = await actor.reads.appointmentsList({ ...q, store_id, page, page_size: 500 })
-    return { rows: r.appointments, total: r.total }
+    return { rows: r.appointments, page_size: r.page_size }
   })
   if (store_id) {
     const stray = rows.find((r) => r.store_id !== store_id)
@@ -176,6 +176,8 @@ function blockPieces(row: CoreAppointment): Array<[number, FixtureBlock]> {
     micro: false,
     note: row.notes ?? '',
   })
+  // Loud, never a silent vanish: a block that ends before it starts is a contract violation.
+  if (Date.parse(row.ends_at) < Date.parse(row.starts_at)) throw new Error(`practice door: block ${row.id} ends before it starts`)
   const a = jstDayKey(row.starts_at)
   const b = jstDayKey(row.ends_at)
   const start = jstMinuteOfDay(row.starts_at)
@@ -220,9 +222,9 @@ export async function listStoreOptions(): Promise<FixtureStore[]> {
 }
 
 async function activeStaff(actor: PracticeActor) {
-  const rows = await pageAll('staff list', async (page) => {
+  const rows = await pageAll('staff list', 200, async (page) => {
     const r = await actor.reads.staffList({ page, page_size: 200 })
-    return { rows: r.staff, total: r.total }
+    return { rows: r.staff, page_size: r.page_size }
   })
   return rows.filter((s) => s.is_active !== false)
 }
@@ -284,9 +286,9 @@ export async function listCustomers(lens: StoreLens): Promise<FixtureCustomer[]>
   assertLensVisible(actor, lens)
   // ⚖ 8/17 ①②: a clamped lens lists core's store membership; viewAll lists all.
   const store_id = lensStore(lens)
-  const rows = await pageAll('customers', async (page) => {
+  const rows = await pageAll('customers', 500, async (page) => {
     const r = await actor.reads.customersList({ ...(store_id ? { store_id } : {}), page, page_size: 500 })
-    return { rows: r.customers, total: r.total }
+    return { rows: r.customers, page_size: r.page_size }
   })
   return rows.map((row) => {
     const twinId = fixtureIdOf('customers', row.id)
@@ -412,12 +414,17 @@ export async function listBlocksByDay(lens: StoreLens, range: DayRange): Promise
 
 // ── SAMPLE (through the facade) ────────────────────────────────────────────
 
-/** heldInLens's reading over the LIVE bookings: a held transaction belongs to
- *  the store of the booking it names; viewAll keeps them all (data.ts:134). */
+/** heldInLens's reading over the LIVE bookings: a held transaction is drawn
+ *  only when the booking it names is among today's live rows (join-miss = not
+ *  drawn, §4 — under EVERY lens, viewAll included: a twin pointing at a booking
+ *  core no longer holds must not put a 端末保持 row on a money surface), and a
+ *  store lens additionally needs that booking in its own store. */
 function heldIn<T extends { appointment_id: string }>(held: T[], lens: StoreLens, live: CoreAppointment[]): T[] {
   const id = lensStore(lens)
-  if (!id) return held
-  return held.filter((h) => live.find((a) => a.id === h.appointment_id)?.store_id === id)
+  return held.filter((h) => {
+    const booking = live.find((a) => a.id === h.appointment_id)
+    return booking !== undefined && (!id || booking.store_id === id)
+  })
 }
 
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
@@ -474,8 +481,8 @@ export async function readReservationPlanes(lens: StoreLens) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const todayKey = jstDayKey(renderNow())
-  // The held rows resolve against today's LIVE bookings; viewAll needs no read.
-  const live = typeof lens === 'string' ? (await dayRows(actor, lens, { from: todayKey, to: todayKey })).bookings : []
+  // The held rows resolve against today's LIVE bookings, under every lens.
+  const live = (await dayRows(actor, lens, { from: todayKey, to: todayKey })).bookings
   return {
     reservations: sampleFor(reservations, null),
     auditTrail: sampleKeys('appointments', auditTrail), // keyed by appointment id → live twins

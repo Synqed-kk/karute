@@ -27,7 +27,7 @@ import * as data from '@/business/lib/data'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
-import { PracticeLensRefused, practiceActor } from '@/business/lib/practice-door/actor'
+import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
 import { sampleKeys, sampleRows, storeSample } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf } from '@/business/lib/practice-door/registry'
 import { customers, STORE_A, STORE_C } from '@/business/lib/fixtures'
@@ -151,6 +151,12 @@ describe('(1) OWNER — viewAll', () => {
     expect(await data.listCustomers(VIEW_ALL)).toHaveLength(14)
   })
 
+  it('listCustomers: literal membership anchors from fixtures.ts, independent of the membership() helper', async () => {
+    // 見本 きり (cus-07) books at STORE_A (apt-09, apt-27); テスト おとは (cus-05) at STORE_B (apt-21).
+    expect(ids(await data.listCustomers(STORE.tokyo))).toContain('554c295d-8599-44b0-8394-790c40cfbfc6')
+    expect(ids(await data.listCustomers(STORE.yokohama))).toContain('f3b15433-b27f-443e-b937-ddc221fc3268')
+  })
+
   it('listAppointments: to is inclusive (+1 ms), the status map, display_no, yen only, null-store + BLOCK hidden', async () => {
     const a14Start = '2026-09-14T04:00:00.000Z'
     const tokyo = await data.listAppointments(STORE.tokyo, { from: '2026-08-01T00:00:00.000Z', to: a14Start })
@@ -201,6 +207,26 @@ describe('(1) OWNER — viewAll', () => {
     expect(byDay.get(TODAY)!.filter((b) => b.id === APT.blockOvernightBefore).map((b) => [b.start, b.end])).toEqual([[0, 30]])
   })
 
+  it('a null-store BLOCK: absent under a store lens, carried with store_id \'\' under viewAll', async () => {
+    const tokyo = await data.listBlocksByDay(STORE.tokyo, { from: TODAY, to: TODAY })
+    expect(ids(tokyo.get(TODAY)!)).not.toContain(APT.blockNullStore)
+    const all = await data.listBlocksByDay(VIEW_ALL, { from: TODAY, to: TODAY })
+    expect(all.get(TODAY)!.filter((b) => b.id === APT.blockNullStore).map((b) => [b.store_id, b.start, b.end])).toEqual([['', 9 * 60, 9 * 60 + 30]])
+  })
+
+  it('a BLOCK that ends before it starts is loud, never a silent vanish', async () => {
+    withReads({ backwardsBlock: true })
+    await expect(data.listBlocksByDay(STORE.tokyo, { from: TODAY, to: TODAY })).rejects.toThrow(`practice door: block ${APT.blockBackwards} ends before it starts`)
+  })
+
+  it('viewAll drops a booking at a store outside VISIBLE (the inactive store) — the door drops it, not the mock', async () => {
+    const spy = withReads()
+    expect(ids(await data.listAppointments(VIEW_ALL, {}))).not.toContain(APT.inactiveStore)
+    expect(spy.appointmentsList).toHaveBeenCalled()
+    const served = (await spy.appointmentsList.mock.results[0].value) as { appointments: Array<{ id: string }> }
+    expect(ids(served.appointments)).toContain(APT.inactiveStore)
+  })
+
   it('dayStartIso: 00:00 JST of today, yesterday and across a month boundary (the from/to the door sends)', async () => {
     // `from` is the day BEFORE the range (F2: an overnight block begun on from−1 must be fetched).
     const cases: Array<[number, string, string]> = [
@@ -243,6 +269,14 @@ describe('(1) OWNER — viewAll', () => {
     const other = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
     expect(other.decisions).toEqual([])
     expect(other.register.terminal_held).toEqual([])
+  })
+
+  it('held terminal rows under viewAll: drawn only when their twin booking is among the live rows (join-miss = not drawn)', async () => {
+    expect((await data.readReservationPlanes(VIEW_ALL)).register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
+    expect((await data.readDayPlanes(VIEW_ALL, TODAY)).register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
+    withReads({ omitAppointments: [APT.a25] })
+    expect((await data.readReservationPlanes(VIEW_ALL)).register.terminal_held).toEqual([])
+    expect((await data.readDayPlanes(VIEW_ALL, TODAY)).register.terminal_held).toEqual([])
   })
 
   it('readReservationPlanes + readAnalyticsPlanes: rewritten ids, targets by sample policy', async () => {
@@ -313,6 +347,21 @@ describe('(4)–(8) walls, identity, paging, errors', () => {
     expect(spy.staffList.mock.calls.length).toBeGreaterThan(2)
     withReads({ runawayStaff: true })
     await expect(data.listStaff(STORE.tokyo)).rejects.toThrow('practice door: staff list exceeded 50 pages')
+  })
+  it('(7b) pageAll stops on the SHORT page, never on core\'s total', async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => i)
+    // total claims 1, ten rows over pages of 3 → all ten.
+    const lying = jest.fn(async (page: number) => ({ rows: rows.slice((page - 1) * 3, page * 3), page_size: 3, total: 1 }))
+    expect(await pageAll('lying', 3, lying)).toEqual(rows)
+    // An exact multiple (6 rows, size 3): page 3 is the short, EMPTY page that ends the read —
+    // one extra call is the price of never trusting a count.
+    const six = jest.fn(async (page: number) => ({ rows: rows.slice(0, 6).slice((page - 1) * 3, page * 3), page_size: 3 }))
+    expect(await pageAll('six', 3, six)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(six.mock.calls.map(([p]) => p)).toEqual([1, 2, 3])
+    // Through the door: every read's total under-reports (1) at 3 per page → the same answers.
+    const normal = [await data.listStaff(STORE.tokyo), await data.listCustomers(VIEW_ALL), await data.listAppointments(VIEW_ALL)]
+    withReads({ forcePageSize: 3, lyingTotal: 1 })
+    expect([await data.listStaff(STORE.tokyo), await data.listCustomers(VIEW_ALL), await data.listAppointments(VIEW_ALL)]).toEqual(normal)
   })
   it('(8) a core error propagates — never an empty list', async () => {
     const spy = withReads()

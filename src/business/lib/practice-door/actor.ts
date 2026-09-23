@@ -30,14 +30,23 @@ export interface PracticeActor {
 
 const MAX_PAGES = 50
 
-/** Every row of a paged read — never a truncated list: a read that has not
- *  reached `total` after 50 pages throws rather than answering with part. */
-export async function pageAll<T>(label: string, fetch: (page: number) => Promise<{ rows: T[]; total: number }>): Promise<T[]> {
+/** Every row of a paged read — never a truncated list. The LAST page is the
+ *  SHORT one (fewer rows than the page size): core's `total` is never the stop
+ *  condition, so a count that under-reports cannot cut the list. The size is
+ *  the smaller of what was asked (`pageSize`) and what core says it served
+ *  (`page_size` — a server that clamps a page must not make a full page look
+ *  short). An exact multiple costs one extra, empty call — the price of never
+ *  trusting a count. Still not done after 50 pages → throw, never a part. */
+export async function pageAll<T>(
+  label: string,
+  pageSize: number,
+  fetch: (page: number) => Promise<{ rows: T[]; page_size: number }>,
+): Promise<T[]> {
   const out: T[] = []
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const { rows, total } = await fetch(page)
+    const { rows, page_size } = await fetch(page)
     out.push(...rows)
-    if (out.length >= total) return out
+    if (rows.length < Math.min(pageSize, page_size)) return out
   }
   throw new Error(`practice door: ${label} exceeded ${MAX_PAGES} pages`)
 }
@@ -52,9 +61,9 @@ export const practiceActor = cache(async (): Promise<PracticeActor> => {
   const admitted = await requireBusinessAdmission()
   const { clientFor } = await import('./core-reach')
   const reads = clientFor(admitted) // the tenant throw lives there (§2), before any read
-  const staff = await pageAll('staff list', async (page) => {
+  const staff = await pageAll('staff list', 200, async (page) => {
     const r = await reads.staffList({ page, page_size: 200 })
-    return { rows: r.staff, total: r.total }
+    return { rows: r.staff, page_size: r.page_size }
   })
   // Two-tier link (data.ts's rule, re-implemented — never staff-map.ts, which writes).
   const email = admitted.email?.toLowerCase()

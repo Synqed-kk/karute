@@ -210,6 +210,9 @@ export const APT = {
   blockMidnight: '00000000-0000-4000-8000-0000000000b2',
   blockTwoNights: '00000000-0000-4000-8000-0000000000b3',
   blockOvernightBefore: '00000000-0000-4000-8000-0000000000b4',
+  blockNullStore: '00000000-0000-4000-8000-0000000000b5',
+  blockBackwards: '00000000-0000-4000-8000-0000000000b6',
+  inactiveStore: '00000000-0000-4000-8000-0000000000a2',
 } as const
 export const APPOINTMENTS: Appointment[] = [
   booking(APT.a01, '2026-09-07T10:00', AKARI, S.hanako, STORE.tokyo, MENU.seitai, 60, 6600, 'COMPLETED'),
@@ -236,7 +239,19 @@ export const APPOINTMENTS: Appointment[] = [
   // A BLOCK begun the day BEFORE 9/14 (9/13 23:30 → 9/14 00:30 JST): its 00:00–00:30 piece is 9/14's.
   booking(APT.blockOvernightBefore, '2026-09-13T23:30', null, CARD.saburo, STORE.tokyo, null, 60, 0, 'SCHEDULED',
     { kind: 'BLOCK', booked_price_amount: null, booked_price_currency: null }),
+  // A null-store BLOCK (a bed hold no store owns): hidden under a store lens, '' under viewAll.
+  booking(APT.blockNullStore, '2026-09-14T09:00', null, CARD.saburo, null, null, 30, 0, 'SCHEDULED',
+    { kind: 'BLOCK', booked_price_amount: null, booked_price_currency: null }),
+  // A booking at the INACTIVE store — never VISIBLE, so the door drops it even under the owner's viewAll.
+  booking(APT.inactiveStore, '2026-09-14T15:00', AKARI, S.hanako, STORE.closed, MENU.seitai, 60, 6600, 'SCHEDULED'),
 ]
+
+/** 9/14 12:00 → 11:00 JST: ends before it starts (opt-in via `backwardsBlock`). */
+const BACKWARDS_BLOCK: Appointment = {
+  ...booking(APT.blockBackwards, '2026-09-14T12:00', null, CARD.saburo, STORE.tokyo, null, 30, 0, 'SCHEDULED',
+    { kind: 'BLOCK', booked_price_amount: null, booked_price_currency: null }),
+  ends_at: jst('2026-09-14T11:00'),
+}
 
 const visit = (id: string, store_id: string | null, used_at: string, sales_amount: number): Visit => ({
   id, customer_id: AKARI, store_id, qr_reservation_id: 1, used_at, status: 'visited', course_name: null, sales_amount, staff_name: null, treatment_comment: null,
@@ -255,6 +270,12 @@ export interface RecordedOptions {
   runawayStaff?: boolean
   /** orgSettings.get's name; `null` → the whole record is null. */
   orgName?: string | null
+  /** Every paged read reports this `total` (an under-reporting count). */
+  lyingTotal?: number
+  /** Appointment ids core no longer holds (the 9/20 join-miss). */
+  omitAppointments?: string[]
+  /** Adds a BLOCK whose ends_at is before its starts_at. */
+  backwardsBlock?: boolean
 }
 
 function paged<T>(rows: T[], q: { page?: number; page_size?: number } | undefined, force?: number) {
@@ -270,7 +291,7 @@ export function recordedReads(o: RecordedOptions = {}): CoreReads {
     staffList: async (q) => {
       if (o.runawayStaff) return { staff: STAFF.slice(0, 3), total: 1000, page: q?.page ?? 1, page_size: 3 }
       const p = paged(STAFF, q, o.forcePageSize)
-      return { staff: p.rows, total: STAFF.length, page: p.page, page_size: p.size }
+      return { staff: p.rows, total: o.lyingTotal ?? STAFF.length, page: p.page, page_size: p.size }
     },
     staffStoresList: async () => ({ assignments: ASSIGNMENTS }),
     answerSheet: async (id) => {
@@ -284,19 +305,22 @@ export function recordedReads(o: RecordedOptions = {}): CoreReads {
     customersList: async (q) => {
       const rows = q?.store_id === undefined ? CUSTOMERS : CUSTOMERS.filter((c) => membership(q.store_id!).includes(c.id))
       const p = paged(rows, q, o.forcePageSize)
-      return { customers: p.rows, total: rows.length, page: p.page, page_size: p.size, total_pages: Math.ceil(rows.length / p.size) }
+      const total = o.lyingTotal ?? rows.length
+      return { customers: p.rows, total, page: p.page, page_size: p.size, total_pages: Math.ceil(total / p.size) }
     },
     customerVisits: async (id) => ({ visits: VISITS[id] ?? [] }),
     appointmentsList: async (q) => {
-      const rows = APPOINTMENTS.filter(
+      const extra = o.backwardsBlock ? [BACKWARDS_BLOCK] : []
+      const rows = [...APPOINTMENTS, ...extra].filter(
         (a) =>
+          !(o.omitAppointments ?? []).includes(a.id) &&
           (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) &&
           (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)) &&
           (!q?.store_id || a.store_id === q.store_id) &&
           (!q?.status || a.status === q.status),
       )
       const p = paged(rows, q, o.forcePageSize)
-      return { appointments: p.rows, total: rows.length, page: p.page, page_size: p.size }
+      return { appointments: p.rows, total: o.lyingTotal ?? rows.length, page: p.page, page_size: p.size }
     },
     orgSettingsGet: async () =>
       o.orgName === null ? null : { business_id: TENANT, name: o.orgName ?? 'Dev Salon', settings: {}, ...stamp },
