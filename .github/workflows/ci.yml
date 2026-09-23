@@ -131,11 +131,6 @@ jobs:
 
     permissions:
       contents: read
-      # Read PR reviews: the weakening gate verifies code-owner approval on
-      # the exact head commit whenever ledgered weakenings exist (contract
-      # §8 second-reviewer rule, enforced in-gate until branch protection
-      # takes over).
-      pull-requests: read
 
     steps:
       # SHA-pinned (Greptile #635): this job's isolation claim starts at the
@@ -177,9 +172,8 @@ jobs:
         # In-repo, in-TIER regression tests (Greptile #635): the red-run
         # proof artifacts live in the lane's fleet log outside the repo —
         # this pins the same boundaries (decoy/spread/non-literal
-        # rejections, ledger-key namespacing, cited-skip deletion,
-        # owner-approval verdicts) on every PR, inside the pinned-typescript
-        # chain instead of the jest tier.
+        # rejections, ledger-key namespacing, cited-skip deletion) on every
+        # PR, inside the pinned-typescript chain instead of the jest tier.
         run: node scripts/audit/parse-audit-source.selftest.mjs
 
       - name: Audit actions doc is up to date

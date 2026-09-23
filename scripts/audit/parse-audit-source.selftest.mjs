@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Focused regression tests for the audit-gate machinery (Greptile #635):
 // parser boundary cases (accepted shapes + every documented rejection),
-// the CP8 weakening matrix (namespaced keys, coveredBy clauses), and the
-// owner-approval verdict. Plain node + assert — runs inside the isolated
+// the CP8 weakening matrix (namespaced keys, coveredBy clauses). Plain node
+// + assert — runs inside the isolated
 // audit-gates CI job on the pinned typescript install, NOT the jest tier,
 // so it cannot be neutered by unprotected npm/jest plumbing. The red-run
 // proof artifacts (real-git GREEN→RED runs of the whole gate) live in the
