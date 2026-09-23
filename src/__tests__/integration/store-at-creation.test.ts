@@ -12,7 +12,7 @@
  *     is backfilled to the store they have been working in all along.
  */
 
-import { createStaffCore } from '@/actions/staff'
+import { createStaffCore } from '@/lib/staff/staff.core'
 import { createInviteCore, listInvitesWithClient, reinviteTargetStaffIdWithClient, revokeInviteCore } from '@/lib/invites/invites.core'
 import { setStaffStoresAtCreationCore } from '@/actions/stores'
 import { createStoreCore } from '@/lib/stores/stores.core'

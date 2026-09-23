@@ -11,7 +11,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { uploadStaffAvatarCore } from '@/actions/staff'
+import { uploadStaffAvatarCore } from '@/lib/staff/staff.core'
 
 export const runtime = 'nodejs'
 

@@ -461,10 +461,14 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // settings.permissions_change, settings.staff_stores_change). Same
   // reasoning as stores.create/update above — a rule here would double-log
   // every facade write.
-  'staff.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#createStaffCore' },
-  'staff.update': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#updateStaffCore' },
-  'staff.delete': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#deleteStaffCore' },
-  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#uploadStaffAvatarCore' },
+  // The four staff cores moved to a server-only module (PKT-SEC-CORES-D5,
+  // 2026-09-23) — same writers, same rows, new home. Ledgered: map:staff.create
+  // / map:staff.update / map:staff.delete / map:staff.uploadAvatar in
+  // docs/audit-weakening-ledger.md.
+  'staff.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#createStaffCore' },
+  'staff.update': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#updateStaffCore' },
+  'staff.delete': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#deleteStaffCore' },
+  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#uploadStaffAvatarCore' },
   'permissions.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/permissions.ts#setStaffPermissionsCore' },
   'staffStores.set': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/lib/stores/stores.core.ts#setStaffStoresCore' },
   // PIN + voice + invites (design-parity packet 12 §S4b): setStaffPinCore/
