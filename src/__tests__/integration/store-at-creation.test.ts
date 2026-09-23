@@ -371,6 +371,16 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
     source: 'web' as const,
   }
   const input = { name: '銀座', address: '', phone: '', business_type: 'hair_salon' }
+  /** The `detail` of every backfill audit row matching `row`, for an EXACT
+   *  toEqual (5/5 blind read F2): the rows are ids-only by rule, and
+   *  objectContaining let an added key — a staff email next to the ids —
+   *  pass everything. The audit mock accumulates; callers clear it first. */
+  const detailsOf = (row: Record<string, unknown>) =>
+    (audit as jest.Mock).mock.calls
+      .map(([r]) => r as Record<string, unknown>)
+      .filter((r) => r.action === 'settings.staff_stores_change')
+      .filter((r) => Object.entries(row).every(([k, v]) => r[k] === v))
+      .map((r) => r.detail)
 
   it('backfills every unassigned card to the EXISTING store', async () => {
     // Two stores AFTER the create (the transition), three staff, two of whom
@@ -512,8 +522,12 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
     c.api.stores.list = (async () => {
       throw new Error('core down')
     }) as never
+    ;(audit as jest.Mock).mockClear()
     const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
     expect(res).toEqual({ id: 'store-new', backfillUnknown: true })
+    expect(detailsOf({ severity: 'warning', targetType: 'store', targetId: 'store-new' })).toEqual([
+      { backfill: '1_to_2_stores', reason: 'backfill_not_started' },
+    ])
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'settings.staff_stores_change',
@@ -559,7 +573,11 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
   // everyone suddenly belongs to 代官山.
   it('writes one settings.staff_stores_change per backfilled card (S12)', async () => {
     const c = client({ stores: ['store-daikanyama', 'store-new'], roster: ['staff-a'] })
+    ;(audit as jest.Mock).mockClear()
     await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(detailsOf({ severity: 'notice', targetType: 'staff', targetId: 'staff-a' })).toEqual([
+      { store_ids: 'store-daikanyama', count: 1, backfill: '1_to_2_stores' },
+    ])
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         category: 'settings',
@@ -583,9 +601,13 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
       failSetFor: 's3',
       failSetTimes: Infinity,
     })
+    ;(audit as jest.Mock).mockClear()
     const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
     expect(res).toEqual({ id: 'store-new', backfillIncomplete: 1 })
     expect(Object.keys(c.assignments).sort()).toEqual(['s1', 's2', 's4', 's5'])
+    expect(detailsOf({ severity: 'warning', targetType: 'store', targetId: 'store-new' })).toEqual([
+      { backfill: '1_to_2_stores', incomplete: 1, failed_staff_ids: ['s3'] },
+    ])
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'settings.staff_stores_change',
