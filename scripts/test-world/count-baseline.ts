@@ -30,6 +30,7 @@ async function pageAll<K extends string, T>(key: K, fetch: (page: number) => Pro
   const out: T[] = []
   for (let page = 1; page <= 1000; page++) {
     const r = await fetch(page)
+    if (typeof r.page_size !== 'number') throw new Error(`${key}: response has no page_size`)
     out.push(...r[key])
     if (r[key].length < r.page_size) return out
   }
@@ -46,7 +47,8 @@ export async function count(c: Core, now = new Date()): Promise<Counts> {
     c.stores.list(),
     c.staffStores.counts(),
     c.menus.list(),
-    pageAll('customers', (page) => c.customers.list({ page, page_size: 500 })),
+    // include_deleted on both customer lists: a soft-deleted/merged customer still exists in core (not a loss); a wipe removes the row.
+    pageAll('customers', (page) => c.customers.list({ include_deleted: true, page, page_size: 500 })),
     c.packs.listActivePacks(),
     pageAll('appointments', (page) => c.appointments.list({ page, page_size: 500 })),
     pageAll('karute_records', (page) => c.karuteRecords.list({ page, page_size: 200 })),
@@ -63,7 +65,7 @@ export async function count(c: Core, now = new Date()): Promise<Counts> {
   }
   for (const s of stores) {
     const [storeCustomers, storeResources] = await Promise.all([
-      pageAll('customers', (page) => c.customers.list({ store_id: s.id, page, page_size: 500 })),
+      pageAll('customers', (page) => c.customers.list({ store_id: s.id, include_deleted: true, page, page_size: 500 })),
       c.resources.list({ store_id: s.id }),
     ])
     const inStore = <T extends { store_id: string | null }>(rows: T[]) => rows.filter((r) => r.store_id === s.id)

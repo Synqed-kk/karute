@@ -10,7 +10,7 @@ const A = 'store-a'
 const B = 'store-b'
 const PAST = '2020-01-01T00:00:00Z'
 const FUTURE = '2099-01-01T00:00:00Z'
-type Q = { store_id?: string; page?: number; page_size?: number }
+type Q = { store_id?: string; include_deleted?: boolean; page?: number; page_size?: number }
 
 // Like core: honours page/page_size, echoes the page_size it used (here capped at 2).
 const paged = (key: string, rows: unknown[]) => async ({ page = 1, page_size = 20 }: Q = {}) => {
@@ -18,8 +18,10 @@ const paged = (key: string, rows: unknown[]) => async ({ page = 1, page_size = 2
   return { [key]: rows.slice((page - 1) * size, page * size), page, page_size: size, total: rows.length }
 }
 
-function fakeCore(o: { business?: string; devEmail?: string; customers?: number; packs?: number } = {}): Core {
+function fakeCore(o: { business?: string; devEmail?: string; customers?: number; packs?: number; softDeleted?: number } = {}): Core {
   const customers = Array.from({ length: o.customers ?? 5 }, (_, i) => ({ id: `c${i}` }))
+  // Like core: soft-deleted customers come back only with include_deleted.
+  const binned = Array.from({ length: o.softDeleted ?? 0 }, (_, i) => ({ id: `d${i}`, deleted_at: PAST }))
   const appointments = [
     { store_id: A, starts_at: PAST }, { store_id: A, starts_at: FUTURE }, { store_id: B, starts_at: PAST }, { store_id: null, starts_at: FUTURE },
   ]
@@ -30,7 +32,7 @@ function fakeCore(o: { business?: string; devEmail?: string; customers?: number;
     staffStores: { counts: async () => ({ counts: { [A]: 2 } }) },
     menus: { list: async () => ({ menus: [{ store_id: A }, { store_id: null }] }) },
     resources: { list: async (q: Q) => ({ resources: q.store_id === A ? [{}, {}] : [] }) },
-    customers: { list: async (q: Q) => paged('customers', q.store_id === B ? [] : customers)(q) },
+    customers: { list: async (q: Q) => paged('customers', q.store_id === B ? [] : q.include_deleted ? [...customers, ...binned] : customers)(q) },
     appointments: { list: paged('appointments', appointments) },
     karuteRecords: { list: paged('karute_records', [{ store_id: A }]) },
     recordings: { list: paged('recordings', []) },
@@ -47,6 +49,15 @@ async function main() {
   })
   assert.deepEqual(c[A], { name: 'テスト東京店', staff: 2, menus: 1, resources: 2, customers: 5, appointments: 2, appointments_past: 1, karute_records: 1, recordings: 0 })
   assert.deepEqual(c[B], { name: 'テスト横浜店', staff: 0, menus: 0, resources: 0, customers: 0, appointments: 1, appointments_past: 1, karute_records: 0, recordings: 0 })
+
+  // 1b. soft-deleted customers still count (business-wide and per store): not a loss.
+  const withBin = await count(fakeCore({ softDeleted: 2 }))
+  assert.equal(withBin.business.customers, 7, 'business customers include soft-deleted rows')
+  assert.equal(withBin[A].customers, 7, 'store customers include soft-deleted rows')
+
+  // 1c. a response without page_size fails fast instead of looping to the page cap.
+  const noPageSize = { ...fakeCore(), staff: { list: async () => ({ staff: [] }) } } as unknown as Core
+  await assert.rejects(count(noPageSize), { message: 'staff: response has no page_size' })
 
   const path = join(mkdtempSync(join(tmpdir(), 'count-baseline-')), 'baseline.json')
   const exec = async (argv: string[], core: Core) => {
