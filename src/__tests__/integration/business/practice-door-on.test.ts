@@ -28,7 +28,7 @@ import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
-import { sampleKeys, sampleRows, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
+import { attachSample, sampleKeys, sampleRows, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf } from '@/business/lib/practice-door/registry'
 import { customers, STORE_A, STORE_C } from '@/business/lib/fixtures'
 import { defaultKindOf, staffQualifications } from '@/business/lib/fixtures-today'
@@ -357,22 +357,31 @@ describe('(2b) role labels — the Business vocabulary, from the rulebook', () =
 })
 
 describe("(2c) a live actor's SAMPLE rows are their fixture twin's", () => {
-  it('ON as 見本 あずさ (twin p-06): karute 自分 = p-06; recording resolves her own card (c-06)', async () => {
+  it('ON as 見本 あずさ (twin p-06): recording resolves her own card (c-06); karute 自分 is her live id', async () => {
     as(LOGIN.azusa)
-    expect((await karuteProps({ locale: 'ja', store: STORE.tokyo })).props.selfStaffId).toBe('p-06')
+    expect((await karuteProps({ locale: 'ja', store: STORE.tokyo })).props.selfStaffId).toBe(CARD.azusa)
     const { props } = await recordingProps({ locale: 'ja', store: STORE.tokyo })
     // selfCardId is not a prop; what IS: `ownDiscardLine` is computed only when the
     // self card resolves (ownDiscardsThisMonth → null without one).
     expect(props.ownDiscardLine).not.toBeNull()
     expect(props.historyCaption).toBe('自分の録音（新しい順・まず1週間ぶん）')
   })
-  it('ON as テスト さぶろう (twin c-03, no email): only the twin reaches his card — the email tier cannot', async () => {
+  it('ON as テスト さぶろう (twin c-03, no email): his SAMPLE takes and karute rows attach to his live bookings', async () => {
     as(LOGIN.saburo)
-    expect((await karuteProps({ locale: 'ja', store: STORE.tokyo })).props.selfStaffId).toBe('c-03')
-    expect((await recordingProps({ locale: 'ja', store: STORE.tokyo })).props.ownDiscardLine).not.toBeNull()
+    const rec = (await recordingProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(rec.ownDiscardLine).not.toBeNull()
+    // `takes` (RecordingTakeProps[]): rs-0004 is his (card c-03) take on apt-05, a recorded 東京 booking.
+    expect(rec.takes.map((t) => t.id)).toContain('rs-0004')
+    const kar = (await karuteProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(kar.selfStaffId).toBe(CARD.saburo)
+    const own = kar.rows.filter((r) => r.staffId === kar.selfStaffId)
+    expect(own.length).toBeGreaterThan(0)
+    expect(JSON.stringify(kar.rows)).not.toMatch(/\bapt-\d/)
   })
-  it('ON as the owner (no twin): karute 自分 = null; recording resolves with no self card, no throw', async () => {
-    expect((await karuteProps({ locale: 'ja', store: STORE.tokyo })).props.selfStaffId).toBeNull()
+  it('ON as the owner (no twin): no self rows, no throw', async () => {
+    const kar = (await karuteProps({ locale: 'ja', store: STORE.tokyo })).props
+    expect(kar.selfStaffId).toBe(CARD.owner)
+    expect(kar.rows.filter((r) => r.staffId === kar.selfStaffId)).toEqual([])
     const { props } = await recordingProps({ locale: 'ja', store: STORE.tokyo })
     expect(props.ownDiscardLine).toBeNull()
   })
@@ -383,6 +392,13 @@ describe("(2c) a live actor's SAMPLE rows are their fixture twin's", () => {
     expect(sampleSelfId('staff', CARD.azusa)).toBe('p-06')
     expect(sampleSelfId('staff', CARD.owner)).toBeNull()
     expect(sampleSelfId('staff', null)).toBeNull()
+  })
+  it('attachSample: OFF the same plane (same reference); ON the ids rewritten', () => {
+    const plane = [{ appointment_id: 'apt-14', store_id: STORE_A, by_staff_card_id: 'c-03' }]
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect(attachSample(plane, null)).toBe(plane)
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    expect(attachSample(plane, null)).toEqual([{ appointment_id: APT.a14, store_id: STORE.tokyo, by_staff_card_id: 'c-03' }])
   })
 })
 

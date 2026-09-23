@@ -37,10 +37,10 @@ import {
   type StoreLens,
   readShellIdentity,
 } from '@/business/lib/data'
-import { sampleSelfId } from '@/business/lib/practice-door/sample-facade'
+import { attachSample, sampleSelfId } from '@/business/lib/practice-door/sample-facade'
 import { staffCards, type FixtureAppointment } from '@/business/lib/fixtures'
 import { CATEGORY_LABEL, CATEGORY_ORDER } from '@/business/lib/karute'
-import { records as recordPlane } from '@/business/lib/fixtures-karute'
+import { records as recordFixture } from '@/business/lib/fixtures-karute'
 import {
   consentGrants as grantPlane,
   takes as takePlane,
@@ -221,7 +221,12 @@ export async function recordingProps({
     ? world.appointments.filter((a) => (clamped ? a.store_id === storeId : true))
     : doorAppointments
 
-  const grants = world?.grants ?? grantPlane
+  // SAMPLE planes, attached through the facade: OFF the planes themselves; ON their
+  // appointment / customer / store / staff ids become the live twins, so they join
+  // the live bookings and customers above. Card ids (by_staff_card_id) have no twin.
+  const grants = attachSample(world?.grants ?? grantPlane, null)
+  const takePlaneAttached = attachSample(world?.takes ?? takePlane, null)
+  const recordPlane = attachSample(recordFixture, null)
   // The operator is the DOOR's (readShellIdentity: the admitted person under the
   // practice switch, the fixture operator when it is off) — never the fixture read directly.
   const { operator } = await readShellIdentity()
@@ -234,7 +239,7 @@ export async function recordingProps({
   const selfCardId = cardIdOfStaff(selfTwin, staffCards, staff)
 
   const models = buildTakes({
-    takes: world?.takes ?? takePlane,
+    takes: takePlaneAttached,
     appointments,
     customers,
     staff,
@@ -472,7 +477,7 @@ export async function recordingProps({
         // ⚖ 8/20 (b) — R2 keeps the burn out of every NUMBER; it does not erase
         // that one happened, and the manager owns the correction. Read off the
         // PLANE rather than off the R2-nulled model field.
-        const source = (world?.takes ?? takePlane).find((x) => x.id === model.id)
+        const source = takePlaneAttached.find((x) => x.id === model.id)
         return source?.ticket_redeemed ?? false
       }).map((r) => {
         const length = durationText(r.durationSeconds)

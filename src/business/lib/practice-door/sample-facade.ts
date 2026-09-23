@@ -102,3 +102,11 @@ export function sampleSelfId(kind: TwinKind, liveId: string | null): string | nu
   if (practiceTenant() === null) return liveId
   return liveId === null ? null : fixtureIdOf(kind, liveId)
 }
+
+/** The switch-aware door for a room's OWN sample plane (DESIGN §0/§4): OFF the
+ *  plane itself, same reference — byte-identical; ON `sampleFor` rewrites its
+ *  typed ids to the live twins, so the plane joins the LIVE rows it sits beside.
+ *  `sampleFor` stays the pure rewrite the door itself uses. */
+export function attachSample<T>(plane: T, ownKind: TwinKind | null): T {
+  return practiceTenant() === null ? plane : sampleFor(plane, ownKind)
+}
