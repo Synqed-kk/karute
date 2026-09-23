@@ -1,5 +1,6 @@
 // Staff invite facade routes (design-parity packet 12 §S4b). Uses the REAL
-// createInviteCore/listInvitesWithClient/revokeInviteCore (src/actions/invites.ts).
+// createInviteCore/listInvitesWithClient/revokeInviteCore
+// (src/lib/invites/invites.core.ts).
 // Pins: 'staff.invite' gate on all three · Idempotency-Key on create only ·
 // invitedBy is the roster-resolved self id (selfRow idiom), never
 // caller-supplied · the plan gate (staffAddAllowedWithClient) skips for

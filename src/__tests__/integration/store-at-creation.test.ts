@@ -13,7 +13,7 @@
  */
 
 import { createStaffCore } from '@/actions/staff'
-import { createInviteCore, listInvitesWithClient, reinviteTargetStaffIdWithClient } from '@/actions/invites'
+import { createInviteCore, listInvitesWithClient, reinviteTargetStaffIdWithClient } from '@/lib/invites/invites.core'
 import { setStaffStoresAtCreationCore } from '@/actions/stores'
 import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
 import {

@@ -1,6 +1,6 @@
 // Facade: revoke a pending staff invite (design-parity packet 12 §S4b).
 // Single-source: calls the SAME revokeInviteCore the web revokeInvite
-// action calls (src/actions/invites.ts).
+// action calls (src/lib/invites/invites.core.ts).
 //
 // Gate: 'staff.invite' (invites.ts:170 — same capability as create/list;
 // the whole invite surface is one capability).
@@ -21,7 +21,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
-import { reinviteTargetStaffIdWithClient, revokeInviteCore } from '@/actions/invites'
+import { reinviteTargetStaffIdWithClient, revokeInviteCore } from '@/lib/invites/invites.core'
 
 export const runtime = 'nodejs'
 

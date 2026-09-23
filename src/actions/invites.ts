@@ -1,6 +1,5 @@
 'use server'
 
-import { randomBytes } from 'crypto'
 import { redirect } from 'next/navigation'
 import { updateTag } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
@@ -14,49 +13,23 @@ import { chooseStaffToLink } from '@/lib/invites/link'
 import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
-import { audit } from '@/lib/audit'
 import {
-  INVITE_ALREADY_PENDING,
-  INVITE_NAME_REQUIRED,
-  STAFF_CREATE_FAILED,
-} from '@/lib/auth/store-gate'
-import {
-  createAndPlaceStaffCard,
-  STAFF_CARD_LEFT_BEHIND,
-  type NewCardClient,
-} from '@/lib/staff/new-card'
+  createInviteCore,
+  listInvitesWithClient,
+  reinviteTargetStaffIdWithClient,
+  revokeInviteCore,
+  type InviteClient,
+} from '@/lib/invites/invites.core'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
-import {
-  inviteSchema,
-  type InviteInput,
-  type InviteRole,
-  INVITE_TTL_DAYS,
-} from '@/lib/validations/invite'
+import { inviteSchema, type InviteInput, type InviteRole } from '@/lib/validations/invite'
 
-// Explicit-client seam (design-parity packet 12 §S4b — the P-B pattern, same
-// as the S4a cores): the cores below take this instead of resolving
-// getSynqedClient() from the cookie session, so the facade (Bearer path) and
-// the web actions run the IDENTICAL write logic.
-type InviteClient = Pick<SynqedClient, 'invites'> &
-  // ⚖ Liam 2026-09-16: a FRESH invite mints the staff card first, through the
-  // same placement path createStaff uses — so the core needs the staff ports
-  // too. Partial, because every RE-invite path works without them.
-  Partial<Pick<SynqedClient, 'staff' | 'staffStores' | 'stores'>>
-
-/** Identity + provenance a Bearer/cookie caller feeds an invite write core. */
-type InviteWriteDeps = {
-  actorId: string | null
-  source: 'web' | 'facade'
-  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
-   *  the facade twin. */
-  requestId?: string
-}
-
-export type InviteCreateDeps = InviteWriteDeps & {
-  /** REQUIRED on purpose: `null` = EXPLICITLY unclamped; omitted is not unclamped (see lib/staff/new-card.ts). */
-  creatorAllowedStoreIds: readonly string[] | null
-}
+// Type ALIAS, not an `export type { … }` re-export: Next's 'use server'
+// transform registers every export NAME as a server reference at runtime, and
+// a re-exported type name has no runtime binding → ReferenceError at build
+// (the same note sits over MarkNoShowResult in src/actions/appointments.ts).
+// The row shape lives with listInvitesWithClient, its only producer.
+export type InviteRow = import('@/lib/invites/invites.core').InviteRow
 
 // ───────────────────────────────────────────────────────────────────────────
 // Staff invites — owner creates a tokenized invite; invitee joins via /join.
@@ -72,40 +45,6 @@ export type InviteCreateDeps = InviteWriteDeps & {
 //     input. The signup trigger was hardened (migration 20260603000000) to ignore
 //     client-supplied customer_id, so business attachment can only happen here.
 // ───────────────────────────────────────────────────────────────────────────
-
-export interface InviteRow {
-  id: string
-  email: string
-  role: InviteRole
-  status: 'pending' | 'accepted' | 'revoked'
-  created_at: string
-  expires_at: string
-  /** A login with this email is ALREADY a member of the business — the
-   *  invite is a ghost (its person got in some other way, or mark-accepted
-   *  failed). The UI shows 接続済み instead of an eternal 保留中. */
-  linked?: boolean
-}
-
-/** Every invite row this business holds, or `null` when the list could not be
- *  read. try/catch, not `.catch()`: a client with no invites port at all is the
- *  same UNKNOWN as a failed call (the idiom new-card.ts uses for the store
- *  count). Both callers treat UNKNOWN as "carry on" — neither the duplicate
- *  refusal nor the orphan cleanup may block the act it rides on. */
-async function inviteRowsQuietly(synqed: InviteClient): Promise<
-  {
-    id: string
-    email: string
-    status: string
-    invited_staff_id: string | null
-    created_at: string
-  }[] | null
-> {
-  try {
-    return (await synqed.invites.list()).invites
-  } catch {
-    return null
-  }
-}
 
 /** Gate invite management on the `staff.invite` capability (owner + manager by
  *  default) and return the caller's business to scope the writes. */
@@ -123,184 +62,6 @@ function getPublicSynqedClient(): SynqedClient {
     throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
   }
   return new SynqedClient({ baseUrl, apiKey, businessId: '' })
-}
-
-/** Client-threaded core of createInvite (facade Bearer path, design-parity
- *  packet 12 §S4b). `invitedBy` is explicit — web resolves it via the
- *  cookie-bound getCurrentUserStaffId, the facade via the Bearer identity
- *  roster row (selfRow idiom); never caller-supplied. businessId is
- *  REQUIRED — it scopes the existing-member lookup (tenant boundary), not
- *  just the audit row. */
-export async function createInviteCore(
-  synqed: InviteClient,
-  businessId: string,
-  deps: InviteCreateDeps,
-  invitedBy: string | null,
-  input: InviteInput,
-): Promise<{ token: string; storeUnknown?: true } | { error: string }> {
-  const { email, role, staffId } = input
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-
-  // Don't invite someone already in this business. Case-insensitive: the invite
-  // email is normalized lowercase, but profile emails may carry the original
-  // signup casing, so `.eq` would miss them. (Greptile flag, #158.)
-  const { data: existingMember } = await service
-    .from('profiles')
-    .select('id')
-    .ilike('email', email)
-    .eq('customer_id', businessId)
-    .maybeSingle()
-  if (existingMember) return { error: 'That email is already a member of this salon.' }
-
-  // ⚖ FOLD ROUND 3 (fresh-eyes F4) — ONE PENDING FRESH INVITE PER EMAIL.
-  // A fresh invite MINTS a card, so inviting the same new hire twice left two:
-  // accept wires one and the other is permanent, named, and eating a plan seat.
-  // The check above only sees people who already have a login here — a brand-new
-  // hire has none, which is the whole point of the door. Re-invites are exempt:
-  // they attach to a card that already exists and mint nothing.
-  //
-  // Best-effort by design: an unreadable invite list must NEVER block hiring
-  // (the same posture as the store-count read in new-card.ts). The worst case
-  // during a core blip is the duplicate we had before this fold.
-  if (!staffId) {
-    const openInvites = await inviteRowsQuietly(synqed)
-    const already = openInvites?.some(
-      (i) => i.status === 'pending' && i.email.toLowerCase() === email.toLowerCase(),
-    )
-    if (already) return { error: INVITE_ALREADY_PENDING }
-  }
-
-  // ⚖ Liam 2026-09-16 — A FRESH INVITE MAKES THE CARD FIRST.
-  //
-  // Before this, an email-only invite carried no staff row at all: the card was
-  // minted on ACCEPT, with no store, and the new hire's first login landed them
-  // on another branch's data (now: on the honest empty screen — still wrong for
-  // the person's first day). So the card is created HERE, with a real name and
-  // a real store, and the invite carries its id as `invited_staff_id` — which
-  // means accept attaches the login through the EXISTING re-invite path
-  // (chooseStaffToLink → staff.update), with no change to acceptInvite at all.
-  //
-  // NEVER an email-named card: a fresh invite with no name is refused outright.
-  // The store rule is not spelled here either — createStaffCore owns it, so the
-  // invite door and the 追加 door enforce one rule, including the
-  // creator-subset check and the delete-the-card-if-placement-fails rollback.
-  let mintedStaffId: string | null = null
-  let mintedStoreUnknown = false
-  if (!staffId) {
-    if (!input.name) return { error: INVITE_NAME_REQUIRED }
-    // ⚖ G6 — THE MINT STAYS INSIDE THE CONTRACT. Both ways the card can fail
-    // to exist answer with the same machine code the dialog already knows how
-    // to speak: the client with no staff port (an English literal before), and
-    // a core rejection on staff.create — which used to escape this action
-    // entirely as an unhandled Server Action error, its message stripped in
-    // production, leaving the owner with nothing to read.
-    if (!synqed.staff) return { error: STAFF_CREATE_FAILED }
-    let card: { id: string; storeUnknown?: true } | { error: string }
-    try {
-      card = await createAndPlaceStaffCard(
-        synqed as NewCardClient,
-        businessId,
-        {
-          actorId: deps.actorId,
-          source: deps.source,
-          requestId: deps.requestId,
-          creatorAllowedStoreIds: deps.creatorAllowedStoreIds,
-        },
-        // user_id null by construction: the existing-member check above just
-        // proved this email has no login in this business. acceptInvite fills
-        // it in through the re-invite path.
-        { name: input.name, email, userId: null, storeIds: input.storeIds ?? [] },
-      )
-    } catch (err) {
-      console.error('[createInvite] could not create the staff card:', err)
-      return { error: STAFF_CREATE_FAILED }
-    }
-    if ('error' in card) return { error: card.error }
-    mintedStaffId = card.id
-    mintedStoreUnknown = !!card.storeUnknown
-  }
-
-  const token = randomBytes(32).toString('hex')
-  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000).toISOString()
-
-  let created: { id?: string }
-  try {
-    created = await synqed.invites.create({
-      email,
-      role,
-      token,
-      invited_by: invitedBy,
-      invited_staff_id: staffId ?? mintedStaffId,
-      expires_at: expiresAt,
-    })
-  } catch (e) {
-    // Roll the card back: a card whose invite never existed is exactly the
-    // floating card this whole change removes, and nobody would know to delete
-    // it. Same posture as createStaffCore's own placement rollback.
-    // ⚖ FOLD ROUND 3 (fresh-eyes F8): a FAILED rollback is SAID OUT LOUD. The
-    // delete's own error used to reach console.error only, so the caller heard
-    // about the invite while a card nobody knows about sat on the roster.
-    if (mintedStaffId && synqed.staff) {
-      try {
-        await synqed.staff.delete(mintedStaffId)
-      } catch (err) {
-        // ⚖ G8 — the twin of new-card.ts's rollback trace: the id in the log
-        // line, and a warning row so 監査ログ carries the orphan too.
-        console.error('[createInvite] rollback of an inviteless card failed:', mintedStaffId, err)
-        audit({
-          category: 'staff',
-          action: 'staff.add',
-          severity: 'warning',
-          actorId: deps.actorId,
-          actorType: 'staff',
-          businessId,
-          targetType: 'staff',
-          targetId: mintedStaffId,
-          detail: { reason: 'rollback_failed', placement_error: 'invite_create_failed' },
-          requestId: deps.requestId,
-          source: deps.source,
-        })
-        return { error: STAFF_CARD_LEFT_BEHIND }
-      }
-    }
-    return { error: `Could not create invite: ${e instanceof Error ? e.message : 'unknown error'}` }
-  }
-
-  // ⚖ J4 — the invite now exists, so the card will stay. A successful
-  // rollback emits nothing; a failed rollback has its own single warning.
-  if (mintedStaffId) {
-    audit({
-      category: 'staff',
-      action: 'staff.add',
-      severity: mintedStoreUnknown ? 'notice' : 'info',
-      actorId: deps.actorId,
-      actorType: 'staff',
-      businessId,
-      targetType: 'staff',
-      targetId: mintedStaffId,
-      detail: mintedStoreUnknown ? { reason: 'store_count_unknown_unplaced' } : undefined,
-      requestId: deps.requestId,
-      source: deps.source,
-    })
-  }
-
-  // ids only — the invite email is deliberately NOT logged (PII-free sink rule).
-  audit({
-    category: 'staff',
-    action: 'staff.invite_create',
-    actorId: deps.actorId,
-    actorType: 'staff',
-    businessId,
-    targetType: staffId || mintedStaffId ? 'staff' : undefined,
-    targetId: staffId ?? mintedStaffId ?? undefined,
-    detail: { invite_id: created.id ?? null, role, reinvite: !!staffId },
-    requestId: deps.requestId,
-    source: deps.source,
-  })
-
-  if (mintedStoreUnknown) return { token, storeUnknown: true }
-  return { token }
 }
 
 /** Owner action: create a pending invite, return its token (the dialog builds the
@@ -396,108 +157,6 @@ export async function createInvite(
   return result
 }
 
-/** Only a successful, empty target assignment read proves a card storeless. */
-async function targetCardIsStoreless(synqed: InviteClient, staffId: string): Promise<boolean> {
-  try {
-    if (!synqed.staffStores) return false
-    const { store_ids } = await synqed.staffStores.get(staffId)
-    return Array.isArray(store_ids) && store_ids.length === 0
-  } catch {
-    return false
-  }
-}
-
-/** Client-threaded core of listInvites (facade Bearer path, design-parity
- *  packet 12 §S4b). Never throws — degrades to [] the same way the web
- *  action's own catch does. */
-export async function listInvitesWithClient(
-  synqed: InviteClient,
-  memberEmails?: Set<string>,
-  /** Store lens for RE-INVITE rows (isolation law: HIDE, never
-   *  show-and-refuse — a row the revoke clamp below would refuse must not be
-   *  on screen at all). Each transport passes its own clamp because the two
-   *  resolve the actor from different identities: web's cookie
-   *  staffWriteInScope, the facade's Bearer ensureStaffWriteInScope. Omitted
-   *  = unfiltered, the shape every pre-clamp caller had.
-   *
-   *  ⚖ FOLD ROUND 3 (fresh-eyes F5) — THE WIDENING, STATED. That lane is this
-   *  branch: a fresh invite now MINTS its card, so fresh rows carry an
-   *  invited_staff_id and go through this lens like any re-invite. That is the
-   *  rule now — a pending invite is visible to whoever may write to the card it
-   *  points at.
-   *
-   *  With ONE exception, `selfStaffId`: the creator keeps their own invite
-   *  only while its target card has a confirmed empty store assignment list.
-   *  A card minted during a core blip can have no store, and its clamped
-   *  creator must still see and cancel that invite. A placed card goes through
-   *  the normal lens even for its creator. Missing, failed or malformed reads
-   *  are UNKNOWN, not storeless, so they also go through the lens. The revoke
-   *  clamp uses the same exception (reinviteTargetStaffIdWithClient) — never
-   *  show-and-refuse. */
-  canSeeReinvite?: (staffId: string) => Promise<boolean>,
-  /** The VIEWER's own staff id, for the storeless-target exception only. */
-  selfStaffId?: string | null,
-): Promise<InviteRow[]> {
-  try {
-    const { invites } = await synqed.invites.list()
-    let pending = invites.filter((i) => i.status === 'pending')
-    if (canSeeReinvite) {
-      // ponytail: one clamp call per re-invite row, and on the facade each
-      // call re-resolves the ACTOR (staffStores.get) before reading the
-      // target's — so a clamped viewer pays ~2 core reads per re-invite row,
-      // plus one uncached roster read whenever their assignment comes back
-      // empty. Ceiling accepted: a pending list is a handful of rows. Hoist
-      // path when it stops being true: resolve the actor's scope ONCE outside
-      // the loop and pass allowedStoreIds down, leaving one staffStores.get
-      // per row (queued, not built).
-      const visible = await Promise.all(
-        pending.map(async (i) => {
-          if (!i.invited_staff_id) return true
-          if (
-            selfStaffId && i.invited_by === selfStaffId &&
-            await targetCardIsStoreless(synqed, i.invited_staff_id)
-          ) return true
-          return canSeeReinvite(i.invited_staff_id)
-        }),
-      )
-      pending = pending.filter((_, idx) => visible[idx])
-    }
-    // Second linkage signal (Greptile #626 P1): a profile can lack an email
-    // value, so the email match alone can miss a connected person. If the
-    // card an invite was launched from already carries a user_id, that
-    // person is wired regardless of which email their login ended up on.
-    // Best-effort — a roster read failure just means fewer 接続済み badges.
-    let wiredCardIds = new Set<string>()
-    const staffApi = (synqed as Partial<SynqedClient>).staff
-    if (staffApi && pending.some((i) => i.invited_staff_id)) {
-      try {
-        const { staff } = await staffApi.list({ page_size: 200 })
-        wiredCardIds = new Set(
-          staff
-            .filter((s) => (s as { user_id?: string | null }).user_id)
-            .map((s) => s.id),
-        )
-      } catch {
-        /* roster unavailable — email signal still applies */
-      }
-    }
-    // Core returns all statuses (createdAt desc); the UI only wants pending.
-    return pending.map((i) => ({
-      id: i.id,
-      email: i.email,
-      role: i.role as InviteRole,
-      status: i.status as InviteRow['status'],
-      created_at: i.created_at,
-      expires_at: i.expires_at ?? '',
-      linked:
-        (memberEmails?.has(i.email.toLowerCase()) ?? false) ||
-        (!!i.invited_staff_id && wiredCardIds.has(i.invited_staff_id)),
-    }))
-  } catch {
-    return []
-  }
-}
-
 /** Owner action: list this business's pending invites. */
 export async function listInvites(): Promise<InviteRow[]> {
   try {
@@ -522,64 +181,6 @@ export async function listInvites(): Promise<InviteRow[]> {
   } catch {
     return []
   }
-}
-
-/** The staff card a pending invite RE-ACTIVATES, or null for a fresh
- *  (email-only) one. Core has no invites.get, so the list IS the lookup —
- *  the same read listInvites already makes, and cheap next to the write it
- *  guards. An id absent from the list is null: there is nothing to clamp and
- *  the revoke's own core error answers it. A THROWN lookup is left to the
- *  caller to fail closed on — an invite whose target cannot be read is one
- *  nothing can be vouched for. Exported for the facade twin (same explicit-
- *  client seam as revokeInviteCore). */
-export async function reinviteTargetStaffIdWithClient(
-  synqed: InviteClient,
-  id: string,
-  /** The CALLER's own staff id. Their invite has nothing to clamp ONLY while
-   *  its target has a confirmed empty store assignment list: a card minted
-   *  during a core blip must remain cancellable by its creator, matching
-   *  listInvitesWithClient's visibility exception. A placed card goes through
-   *  the normal lens even for its creator. Missing, failed or malformed reads
-   *  are UNKNOWN, not storeless, so return the target for the normal clamp. */
-  selfStaffId?: string | null,
-): Promise<string | null> {
-  const { invites } = await synqed.invites.list()
-  const invite = invites.find((i) => i.id === id)
-  if (!invite) return null
-  if (
-    invite.invited_staff_id && selfStaffId && invite.invited_by === selfStaffId &&
-    await targetCardIsStoreless(synqed, invite.invited_staff_id)
-  ) return null
-  return invite.invited_staff_id ?? null
-}
-
-/** Client-threaded core of revokeInvite (facade Bearer path, design-parity
- *  packet 12 §S4b). businessId is AUDIT-ONLY — updateStatus is already
- *  business-scoped server-side by the synqed client (id + x-business-id). */
-export async function revokeInviteCore(
-  synqed: InviteClient,
-  businessId: string | null,
-  deps: InviteWriteDeps,
-  id: string,
-): Promise<{ ok: true } | { error: string }> {
-  try {
-    // updateStatus is business-scoped server-side (id + x-business-id), so a
-    // foreign invite id can't be revoked across tenants.
-    await synqed.invites.updateStatus(id, 'revoked')
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Could not revoke invite.' }
-  }
-  audit({
-    category: 'staff',
-    action: 'staff.invite_revoke',
-    actorId: deps.actorId,
-    actorType: 'staff',
-    businessId,
-    detail: { invite_id: id },
-    requestId: deps.requestId,
-    source: deps.source,
-  })
-  return { ok: true }
 }
 
 /** Owner action: revoke a pending invite (scoped to this business). */

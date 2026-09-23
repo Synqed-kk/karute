@@ -1,6 +1,6 @@
 // Facade: staff invites create + list (design-parity packet 12 §S4b).
 // Single-source: both routes call the SAME cores the web actions call
-// (createInviteCore / listInvitesWithClient, src/actions/invites.ts).
+// (createInviteCore / listInvitesWithClient, src/lib/invites/invites.core.ts).
 //
 // Gate: 'staff.invite' on BOTH — matches web's own requireCapability
 // (invites.ts's requireInviteBusiness for create, and list's own gate).
@@ -40,7 +40,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { ensureStaffWriteInScope, resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
-import { createInviteCore, listInvitesWithClient } from '@/actions/invites'
+import { createInviteCore, listInvitesWithClient } from '@/lib/invites/invites.core'
 import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { inviteSchema } from '@/lib/validations/invite'
 import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'

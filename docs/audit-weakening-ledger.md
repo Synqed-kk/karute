@@ -363,3 +363,29 @@
   detail.reason = 'rollback_failed') and logs that id, then answers
   STAFF_CARD_LEFT_BEHIND. That row records a card that really is on the roster, not the
   delete · Fable (ADJUDICATION-STORE-AT-CREATION-3bec439c2-2026-09-19.md; ⚖ Liam 2026-09-16 store-at-creation)
+- 2026-09-23 · cores:src/actions/invites.ts#createInviteCore · NOT a dropped writer — the
+  symbol MOVED. Every runtime export of a 'use server' file is registered as a
+  browser-callable server action with no authentication of its own, so the four
+  client-threaded invite cores left src/actions/invites.ts for the server-only module
+  src/lib/invites/invites.core.ts (no directive, `import 'server-only'` on line one).
+  createInviteCore is re-registered there, byte-identical body and the same
+  staff.invite_create / staff.add emits, as
+  AUDITED_CORES['src/lib/invites/invites.core.ts']. Rename tolerance was removed from the
+  gate on purpose (fix round 1 #8), so the move costs this line · Fable
+  (PKT-SEC-CORES-B1-INVITES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/invites.ts#revokeInviteCore · the twin of the line above,
+  same move, same PR: revokeInviteCore is now
+  AUDITED_CORES['src/lib/invites/invites.core.ts'] with a byte-identical body and the same
+  staff.invite_revoke emit. Nothing about the write or its audit row changed — only which
+  module it lives in, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-B1-INVITES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:invite.create · coveredBy repointed
+  'src/actions/invites.ts#createInviteCore' → 'src/lib/invites/invites.core.ts#createInviteCore'.
+  The same choke point, at its new address: the facade POST /api/app/v1/invites route still
+  calls that one core, which still emits staff.invite_create itself, which is why the row
+  stays a 'skip' (a rule here would double-log every facade write). The citation moved
+  because the file did · Fable (PKT-SEC-CORES-B1-INVITES-2026-09-23.md)
+- 2026-09-23 · map:invite.revoke · coveredBy repointed
+  'src/actions/invites.ts#revokeInviteCore' → 'src/lib/invites/invites.core.ts#revokeInviteCore'.
+  Same move, same choke point: the facade DELETE /api/app/v1/invites/[id] route calls that one
+  core and it emits staff.invite_revoke itself · Fable (PKT-SEC-CORES-B1-INVITES-2026-09-23.md)
