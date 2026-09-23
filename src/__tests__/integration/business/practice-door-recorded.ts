@@ -283,8 +283,6 @@ export interface RecordedOptions {
   orgName?: string | null
   /** Every paged read reports this `total` (an under-reporting count). */
   lyingTotal?: number
-  /** Appointment ids core no longer holds (the 9/20 join-miss). */
-  omitAppointments?: string[]
   /** Adds a BLOCK whose ends_at is before its starts_at. */
   backwardsBlock?: boolean
 }
@@ -324,7 +322,6 @@ export function recordedReads(o: RecordedOptions = {}): CoreReads {
       const extra = o.backwardsBlock ? [BACKWARDS_BLOCK] : []
       const rows = [...APPOINTMENTS, ...extra].filter(
         (a) =>
-          !(o.omitAppointments ?? []).includes(a.id) &&
           (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) &&
           (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)) &&
           (!q?.store_id || a.store_id === q.store_id) &&

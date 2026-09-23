@@ -841,8 +841,11 @@ describe('the fixture data door', () => {
         // ⚡ R2 BRANCH C — the dial's mapping pair (⚖ D-11); the empty-inventory
         // fence on the seam file itself (below) is unchanged.
         './store-policy-seam',
+        // ⚖ PR-2b — `jstSlotEnd` for 「最終同期は…分前」 off the shell's own sync
+        // stamp; and `@/business/lib/fixtures` LEFT: the room's stores, staff,
+        // menus and business now come through `@/business/lib/data`.
+        '@/business/lib/clock',
         '@/business/lib/data',
-        '@/business/lib/fixtures',
         '@/business/lib/fixtures-analytics',
         '@/business/lib/fixtures-register',
         '@/business/lib/fixtures-settings',
