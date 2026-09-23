@@ -19,6 +19,16 @@
 // - The cover's name is a <div>, not Reserve's <h1> (same className): settings.css:191
 //   `.biz .page.pg-settings h1` (0,3,1) outranks the wordmark rule inside the settings room. The preview is a
 //   picture of the card (the section marks its root aria-hidden), so it carries no heading.
+// - reserve-card.css index.css:214–221 (.pressable) is SCOPED, not verbatim: selectors prefixed `.member-ground `,
+//   declarations byte-identical to Reserve.
+// - reserve-card.css index.css:237–246 (.tap44) is SCOPED, not verbatim: selectors prefixed `.member-ground `,
+//   declarations byte-identical to Reserve.
+// - The cover's no-store branch is ported (Reserve's `store ? … : …`): an empty storeLine prints the category
+//   and 「いつでもご予約いただけます」 in the same two <p>s. The category is fixed to GENERIC 「お店」 because the
+//   port carries no business type. Fallback branch: same markup as Reserve, not pixel-proven (no store-less
+//   case in the harness set).
+// - The first chip's crown drops Reserve's rank gate (`me.salons.some(… && salon.rank)`): the port's sample
+//   member is ranked and the port carries no membership data, so the crown always shows on the first chip.
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { memberTenantVars, type BrandTheme } from "./member-card-vars";
@@ -48,6 +58,7 @@ const SAMPLE = {
   nextAt: "9/14（月）14:30",
   chips: ["ゴールド", "回数券 残り4回", "ホームケア 1件"],
   smallLine: "いつでもご予約いただけます",
+  coverCategory: "お店",
   back: "ホーム",
 } as const;
 
@@ -325,15 +336,26 @@ function StudioCover({
         <span className="salon-cover__wm-probe" aria-hidden="true" ref={probeRef}>
           {tenant.displayName}
         </span>
-        {storeLine && (
-          <p className="salon-cover__st" data-morph-branch>
-            {storeLine}
-          </p>
-        )}
-        {address && (
-          <p className="salon-cover__ad" data-morph-hide>
-            {address.replace(/\s+(?=[A-Z])/, "\n").split("\n").map((line, index) => <span key={index} className="block">{line}</span>)}
-          </p>
+        {storeLine ? (
+          <>
+            <p className="salon-cover__st" data-morph-branch>
+              {storeLine}
+            </p>
+            {address && (
+              <p className="salon-cover__ad" data-morph-hide>
+                {address.replace(/\s+(?=[A-Z])/, "\n").split("\n").map((line, index) => <span key={index} className="block">{line}</span>)}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="salon-cover__st" data-morph-branch>
+              {SAMPLE.coverCategory}
+            </p>
+            <p className="salon-cover__ad" data-morph-hide>
+              {SAMPLE.smallLine}
+            </p>
+          </>
         )}
       </div>
     </div>
