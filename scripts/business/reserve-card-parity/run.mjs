@@ -119,7 +119,11 @@ function stopStarted() {
 function exportReserve() {
   rmSync(COPY, { recursive: true, force: true })
   mkdirSync(COPY, { recursive: true })
-  execFileSync('/bin/sh', ['-c', `git -C "${RESERVE}" archive ${PIN} | tar -x -C "${COPY}"`])
+  // argument arrays only, never shell source: a path holding $, a backtick or a quote stays a path
+  const tarball = join(WORK, 'reserve-c2a9f95.tar')
+  sh('git', ['-C', RESERVE, 'archive', '--format=tar', '-o', tarball, PIN])
+  sh('tar', ['-x', '-f', tarball, '-C', COPY])
+  rmSync(tarball)
   const g = (...a) => sh('git', ['-C', COPY, ...a]).trim()
   g('init', '-q')
   g('add', '-A')
