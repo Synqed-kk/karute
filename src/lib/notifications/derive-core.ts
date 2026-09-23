@@ -12,6 +12,7 @@
 //   3. 要フォロー/休眠 — chase roll-up, ONE item (customer_return)
 //   4. 未保存カルテ   — DRAFT karute, deduped + age-gated (memory_review)
 //   5. 同期待ち       — returning customers with no dated history (system)
+//   6. カルテ未作成の録音 — recording audit failures, OWNER-VIEW only (system)
 //
 // PHASE-2 (NOT built here — each is data-blocked so it can't render
 // broken; listed so the next pass knows the shape):
@@ -25,6 +26,13 @@
 // When each data source lands, add a builder below + a source block.
 
 import type { NotificationItem } from './types'
+import {
+  karuteMissingReasonKey,
+  transcribeFailedReasonKey,
+} from '@/lib/audit-labels'
+import { INBOX_WINDOW_MS } from '@/lib/recordings/inbox'
+import ja from '../../../messages/ja.json'
+import en from '../../../messages/en.json'
 
 // ─────────────────────────────────────────────────────────────
 // Input shapes — the minimal projections each source needs. derive.ts
@@ -67,6 +75,22 @@ export interface FeedDraftRecord {
   createdAt: string
 }
 
+/** A `recording`-category audit row the bell reports (transcribe_failed /
+ *  karute_missing). Only reaches the assembler for a viewer who can open the
+ *  監査ログ (canReadAuditLog) — the caller gates it. */
+export interface FeedRecordingFailure {
+  action: string
+  /** recording_sessions id — one item per target. */
+  targetId: string
+  /** ISO — the audit row's own time (the item's createdAt + window check). */
+  at: string
+  /** detail.reason as written (unknown shape — gated to known keys). */
+  reason: unknown
+  /** ISO — when the recording was made (recordings.get created_at); null =
+   *  unread, the body falls back to the row's time. */
+  recordedAt: string | null
+}
+
 export interface AssembleFeedInputs {
   /** "now" — injected so tests are deterministic and JST math is stable. */
   now: Date
@@ -85,6 +109,10 @@ export interface AssembleFeedInputs {
   /** Count of returning customers with no dated history (same set the customer
    *  page shows 同期待ち for). Already computed by the caller. */
   syncPendingCount: number
+  /** Empty unless the viewer passes canReadAuditLog (see derive.ts). */
+  recordingFailures?: FeedRecordingFailure[]
+  /** 録音 page — hosts the 録音履歴 card (RecordingsInboxCard). */
+  recordingHref?: string
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -255,6 +283,53 @@ function buildSyncPending(
   }
 }
 
+/** 6. カルテ未作成の録音 — one item per recording (newest row wins), inside the
+ *  録音履歴's own window. Never a customer name: date/time + the 監査ログ's own
+ *  reason word (settings.auditLog.reason.*). */
+const RECORDING_FAILURE_ACTIONS = new Set([
+  'recording.transcribe_failed',
+  'recording.karute_missing',
+])
+
+function buildRecordingFailures(
+  rows: FeedRecordingFailure[],
+  now: Date,
+  href: string,
+): NotificationItem[] {
+  const nowMs = now.getTime()
+  const newest = new Map<string, FeedRecordingFailure>()
+  for (const r of rows) {
+    if (!RECORDING_FAILURE_ACTIONS.has(r.action)) continue
+    const atMs = new Date(r.at).getTime()
+    if (Number.isNaN(atMs) || nowMs - atMs > INBOX_WINDOW_MS) continue
+    const seen = newest.get(r.targetId)
+    if (!seen || new Date(seen.at).getTime() < atMs) newest.set(r.targetId, r)
+  }
+  return [...newest.values()].map((r) => {
+    const key =
+      r.action === 'recording.karute_missing'
+        ? karuteMissingReasonKey(r.reason)
+        : transcribeFailedReasonKey(r.reason)
+    const code = key?.slice('reason.'.length) as
+      | keyof typeof ja.settings.auditLog.reason
+      | undefined
+    const reasonJa = code ? ja.settings.auditLog.reason[code] : null
+    const reasonEn = code ? en.settings.auditLog.reason[code] : null
+    const when = formatMonthDayTime(r.recordedAt ?? r.at)
+    return {
+      id: `recording-failure:${r.targetId}`,
+      category: 'system' as const,
+      titleJa: 'カルテ未作成の録音',
+      titleEn: 'Recording with no karute',
+      bodyJa: reasonJa ? `${when}の録音・${reasonJa}` : `${when}の録音`,
+      bodyEn: reasonEn ? `Recorded ${when} · ${reasonEn}` : `Recorded ${when}`,
+      createdAt: r.at,
+      readAt: null,
+      href,
+    }
+  })
+}
+
 // ─────────────────────────────────────────────────────────────
 // The pure assembler — composes the five sources into a flat feed,
 // newest-first. (The panel re-sorts on render too, but returning a
@@ -284,6 +359,12 @@ export function assembleNotificationFeed(
     hrefs.customersSyncPending,
   )
   if (sync) items.push(sync)
+
+  if (inputs.recordingFailures?.length && inputs.recordingHref) {
+    items.push(
+      ...buildRecordingFailures(inputs.recordingFailures, now, inputs.recordingHref),
+    )
+  }
 
   // Newest-first by createdAt — booking events bubble above the standing
   // roll-ups (which all anchor to JST midnight), matching the panel grouping.
