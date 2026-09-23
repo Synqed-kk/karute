@@ -238,6 +238,12 @@ describe('the generated registry', () => {
         expect(profiles).toContain(policy.business_type)
       }
     }
+    // …and the reverse: 設定's D1 gate reads "is this store a twin?" from the
+    // registry (sampleSelfId) but takes the dials from this policy, so a
+    // registry-only twin would bring 店舗を選んでください back under ON silently.
+    for (const uuid of twinStores) {
+      expect({ uuid, policy: samplePolicyFor(uuid) }).toEqual({ uuid, policy: { kind: 'twin', fixtureStoreId: fixtureIdOf('stores', uuid) } })
+    }
   })
 })
 
