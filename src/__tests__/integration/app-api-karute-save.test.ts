@@ -17,6 +17,14 @@ jest.mock('@/lib/app-api/store-clamp', () => {
 })
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
+// `serviceOverride` = the removed-staff helper's in-memory profiles table,
+// installed only while it runs the REAL roster read (helpers/removed-staff.ts);
+// otherwise the real module, exactly as before.
+const serviceOverride = { current: null as unknown }
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: (...a: unknown[]) =>
+    serviceOverride.current ?? jest.requireActual('@/lib/supabase/service').createServiceClient(...a),
+}))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k, getLocale: async () => 'ja' }))
 jest.mock('@/lib/karute/memory-ingest', () => ({ ingestSessionMemory: jest.fn(async () => {}) }))
 
@@ -92,6 +100,7 @@ const fakeClient = {
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
 import { POST as savePOST, OPTIONS as saveOPTIONS } from '@/app/api/app/v1/karute/route'
+import { rosterOf, removedRow, BUSINESS } from './helpers/removed-staff'
 import { POST as undoPOST } from '@/app/api/app/v1/packs/redemptions/[id]/undo/route'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -309,6 +318,26 @@ describe('POST /api/app/v1/karute (save)', () => {
 
     const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-missing' }), noRoute)
 
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(getConsent).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  // A REMOVED staffer whose token is still alive: their profile carries the
+  // name the removal leaves (`_system_removed_…`), the REAL roster read drops
+  // them, and core no longer knows them (`{ store_ids: [] }`) — the door
+  // refuses before any read, never reading them as floating.
+  it('a REMOVED staffer (real roster read over a _system_removed_ profile) → 403 store_forbidden STORE_SCOPE_UNVERIFIED, before any read', async () => {
+    roster.current = (await rosterOf(
+      [removedRow('auth-user-1', '田中'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      (c) => (serviceOverride.current = c),
+    )) as typeof roster.current
+    expect(roster.current.map((s) => s.id)).toEqual(['colleague-1'])
+    assignedStores.current = []
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-1' }), noRoute)
     expect(res.status).toBe(403)
     expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
     expect(fakeClient.appointments.get).not.toHaveBeenCalled()

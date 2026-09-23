@@ -63,12 +63,15 @@ jest.mock('@/lib/staff', () => ({
 // profiles lookup used by updateStaffCore/deleteStaffCore — null = synqed-only
 // staff (routes to the synqed client); a row = profile-backed (routes to the
 // Supabase update).
-let profileRow: { id: string } | null = null
+let profileRow: { id: string; full_name?: string } | null = null
 let profileUpdateError: { message: string } | null = null
 // Every .eq() applied to a profiles query, recorded so pins can assert
 // tenant scoping (the service client bypasses RLS — the .eq('customer_id',…)
 // IS the isolation).
 let profileEqCalls: Array<[string, unknown]> = []
+// deleteStaffCore's two neutralising moves on a removal (name prefix + ban).
+let profileUpdates: Array<{ patch: Record<string, unknown>; eq: Array<[string, unknown]> }> = []
+const updateUserById = jest.fn(async (_id: string, _a: Record<string, unknown>) => ({ error: null }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
@@ -78,13 +81,21 @@ jest.mock('@/lib/supabase/service', () => ({
       return builder
     }
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: profileRow })
-    ;(builder as { update: unknown }).update = () => {
+    ;(builder as { update: unknown }).update = (patch: Record<string, unknown>) => {
+      const rec = { patch, eq: [] as Array<[string, unknown]> }
+      profileUpdates.push(rec)
       const chain: Record<string, unknown> = {}
-      chain.eq = () => chain
+      chain.eq = (c: string, v: unknown) => {
+        rec.eq.push([c, v])
+        return chain
+      }
       chain.then = (resolve: (v: unknown) => unknown) => resolve({ error: profileUpdateError })
       return chain
     }
-    return { from: () => builder }
+    return {
+      from: () => builder,
+      auth: { admin: { updateUserById: (id: string, a: Record<string, unknown>) => updateUserById(id, a) } },
+    }
   },
 }))
 
@@ -180,6 +191,7 @@ beforeEach(() => {
   profileRow = null
   profileUpdateError = null
   profileEqCalls = []
+  profileUpdates = []
   storeAssignments = {}
   storeList = []
   storesList.mockImplementation(async () => ({ stores: storeList }))
@@ -398,6 +410,42 @@ describe('DELETE /api/app/v1/staff/[id]', () => {
       expect(await res.json()).toEqual({ error: 'Cannot delete the last staff member.' })
     })
     expect(lines).toHaveLength(0)
+  })
+
+  it('profile-backed removal: name → _system_removed_ scoped by id AND business, account banned, audit flags', async () => {
+    profileRow = { id: 'staff-9', full_name: '田中' }
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(staffDelete).toHaveBeenCalledWith('synqed-7')
+    expect(profileUpdates).toEqual([
+      {
+        patch: { full_name: '_system_removed_田中' },
+        eq: [
+          ['id', 'staff-9'],
+          ['customer_id', 'business-1'],
+        ],
+      },
+    ])
+    expect(updateUserById).toHaveBeenCalledWith('staff-9', { ban_duration: '876000h' })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'staff.remove',
+      source: 'facade',
+      detail: { synqed_staff_id: 'synqed-7', profile_neutralised: true, account_banned: true },
+    })
+  })
+
+  it('the 400 guard on a profile-backed id neutralises nothing: no profile update, no ban', async () => {
+    profileRow = { id: 'staff-9', full_name: '田中' }
+    staffDelete.mockRejectedValueOnce(new SynqedError(400, 'Cannot delete the last staff member.'))
+    const res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    expect(await res.json()).toEqual({ error: 'Cannot delete the last staff member.' })
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).not.toHaveBeenCalled()
   })
 })
 

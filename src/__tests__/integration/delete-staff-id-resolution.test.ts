@@ -101,7 +101,15 @@ jest.mock('@/lib/staff', () => ({
 
 // profileRow === null models a synqed-only id (owner-created teammate not yet
 // signed up); a row models a profile-backed staff (the crash case).
-let profileRow: { id: string } | null = null
+let profileRow: { id: string; full_name?: string | null } | null = null
+// The removal's two neutralising moves (name → `_system_removed_…`, account
+// banned): every profiles update is recorded with the .eq() scope it carried;
+// either move can be made to fail on its own (the 9/12 layer matrix).
+let profileUpdates: Array<{ patch: Record<string, unknown>; eq: Array<[string, unknown]> }> = []
+let profileUpdateError: { message: string } | null = null
+const updateUserById = jest.fn(
+  async (_id: string, _attrs: Record<string, unknown>): Promise<{ error: unknown }> => ({ error: null }),
+)
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
@@ -109,15 +117,33 @@ jest.mock('@/lib/supabase/service', () => ({
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
       data: profileRow,
     })
-    return { from: () => builder }
+    ;(builder as { update: unknown }).update = (patch: Record<string, unknown>) => {
+      const rec = { patch, eq: [] as Array<[string, unknown]> }
+      profileUpdates.push(rec)
+      const chain: Record<string, unknown> = {}
+      chain.eq = (c: string, v: unknown) => {
+        rec.eq.push([c, v])
+        return chain
+      }
+      chain.then = (resolve: (v: unknown) => unknown) => resolve({ error: profileUpdateError })
+      return chain
+    }
+    return {
+      from: () => builder,
+      auth: { admin: { updateUserById: (id: string, a: Record<string, unknown>) => updateUserById(id, a) } },
+    }
   },
 }))
 
 import { deleteStaff } from '@/actions/staff'
+import { auditLines } from './helpers/audit-lines'
 
 beforeEach(() => {
   jest.clearAllMocks()
   profileRow = null
+  profileUpdates = []
+  profileUpdateError = null
+  updateUserById.mockImplementation(async () => ({ error: null }))
   requireCapability.mockImplementation(async () => {})
   can.mockImplementation(async () => true)
   lookupSynqedStaffId.mockImplementation(async () => 'synqed-resolved')
@@ -185,6 +211,113 @@ describe('deleteStaff — authorization', () => {
       error: 'noPermission',
     })
     expect(staffDelete).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleteStaff — a removed person stops being recognised (reversible)', () => {
+  const removeRow = async (id: string) => {
+    let result: unknown
+    const lines = await auditLines(async () => {
+      result = await deleteStaff(id)
+    })
+    return { result, lines }
+  }
+
+  it('profile-backed: core delete → name gains _system_removed_ (scoped by id AND business) → account banned → audit flags', async () => {
+    profileRow = { id: 'profile-1', full_name: '田中' }
+    const { result, lines } = await removeRow('profile-1')
+    expect(result).toBeUndefined()
+    expect(staffDelete).toHaveBeenCalledWith('synqed-resolved')
+    expect(profileUpdates).toEqual([
+      {
+        patch: { full_name: '_system_removed_田中' },
+        eq: [
+          ['id', 'profile-1'],
+          ['customer_id', 'biz-1'],
+        ],
+      },
+    ])
+    expect(updateUserById).toHaveBeenCalledTimes(1)
+    expect(updateUserById).toHaveBeenCalledWith('profile-1', { ban_duration: '876000h' })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'staff.remove',
+      target_id: 'profile-1',
+      detail: { synqed_staff_id: 'synqed-resolved', profile_neutralised: true, account_banned: true },
+    })
+  })
+
+  it('ban ALONE fails (name move on): removal still succeeds, name still neutralised, account_banned:false, one console.error', async () => {
+    profileRow = { id: 'profile-1', full_name: '田中' }
+    updateUserById.mockRejectedValueOnce(new Error('auth down'))
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { result, lines } = await removeRow('profile-1')
+      expect(result).toBeUndefined()
+      expect(profileUpdates).toHaveLength(1)
+      expect(profileUpdates[0].patch).toEqual({ full_name: '_system_removed_田中' })
+      expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: false } })
+      expect(err).toHaveBeenCalledTimes(1)
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it('a ban answered as { error } counts as not banned too', async () => {
+    profileRow = { id: 'profile-1', full_name: '田中' }
+    updateUserById.mockResolvedValueOnce({ error: { message: 'nope' } })
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { lines } = await removeRow('profile-1')
+      expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: false } })
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it('name move ALONE fails (ban on): removal still succeeds, account still banned, profile_neutralised:false', async () => {
+    profileRow = { id: 'profile-1', full_name: '田中' }
+    profileUpdateError = { message: 'db down' }
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { result, lines } = await removeRow('profile-1')
+      expect(result).toBeUndefined()
+      expect(updateUserById).toHaveBeenCalledWith('profile-1', { ban_duration: '876000h' })
+      expect(lines[0]).toMatchObject({ detail: { profile_neutralised: false, account_banned: true } })
+      expect(err).toHaveBeenCalledTimes(1)
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it('profile-less id (pure synqed id): no profiles update, no ban, both flags false', async () => {
+    profileRow = null
+    const { result, lines } = await removeRow('synqed-abc')
+    expect(result).toBeUndefined()
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).not.toHaveBeenCalled()
+    expect(lines[0]).toMatchObject({
+      detail: { synqed_staff_id: 'synqed-abc', profile_neutralised: false, account_banned: false },
+    })
+  })
+
+  it('the 400 guard: message returned, NO profile update, NO ban, NO audit', async () => {
+    profileRow = { id: 'profile-1', full_name: '田中' }
+    staffDelete.mockRejectedValue(new SynqedError(400, 'Cannot delete the last staff member.'))
+    const { result, lines } = await removeRow('profile-1')
+    expect(result).toEqual({ error: 'Cannot delete the last staff member.' })
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('idempotent: an already-_system_ name is not double-prefixed (the ban is still asserted)', async () => {
+    profileRow = { id: 'profile-1', full_name: '_system_removed_田中' }
+    const { result, lines } = await removeRow('profile-1')
+    expect(result).toBeUndefined()
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).toHaveBeenCalledWith('profile-1', { ban_duration: '876000h' })
+    expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: true } })
   })
 })
 

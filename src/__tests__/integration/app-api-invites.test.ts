@@ -46,8 +46,12 @@ let existingMember: { id: string } | null = null
 // Rows memberEmailsForBusiness's awaited select resolves to (the linked-badge
 // lookup awaits the chain directly, no maybeSingle — hence the thenable).
 let memberEmailRows: { email: string | null }[] = []
+// `serviceOverride` = the removed-staff helper's in-memory profiles table,
+// installed only while it runs the REAL roster read.
+const serviceOverride = { current: null as unknown }
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
+    if (serviceOverride.current) return serviceOverride.current
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'ilike', 'eq']) builder[m] = () => builder
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: existingMember })
@@ -103,6 +107,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { GET, POST } from '@/app/api/app/v1/invites/route'
 import { DELETE } from '@/app/api/app/v1/invites/[id]/route'
+import { rosterOf, removedRow, BUSINESS } from './helpers/removed-staff'
 import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -259,6 +264,18 @@ describe('POST /api/app/v1/invites (create)', () => {
     // resolveWriteStoreScope asks roster-placement FIRST — the same posture web
     // takes (a null staff id is `degraded` there, which maps to `[]`).
     staffListByBusinessOrThrow.mockResolvedValue([])
+    const res = await POST(postReq(VALID_INVITE), noParams)
+    expect(res.status).toBe(403)
+    expect(invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('a REMOVED caller (real roster read over a _system_removed_ profile) → refused, nothing written', async () => {
+    const roster = await rosterOf(
+      [removedRow('auth-user-1', 'Mika Tanaka'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      (c) => (serviceOverride.current = c),
+    )
+    expect(roster.map((s) => s.id)).toEqual(['colleague-1'])
+    staffListByBusinessOrThrow.mockResolvedValue(roster as never)
     const res = await POST(postReq(VALID_INVITE), noParams)
     expect(res.status).toBe(403)
     expect(invitesCreate).not.toHaveBeenCalled()
