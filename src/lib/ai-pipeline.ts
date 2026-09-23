@@ -81,6 +81,14 @@ async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
   }
 }
 
+// ⚖ One tab at a time per finalized object: the browser's own cross-tab lock
+// (released by the browser if the tab dies). Where the API is absent the run
+// proceeds unlocked, as today.
+async function withTranscribeLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  return locks ? locks.request(`karute:transcribe:${key}`, fn) : fn()
+}
+
 /**
  * Orchestrates the full AI processing pipeline:
  *   1. Transcribe audio blob via Deepgram nova-3 (/api/ai/transcribe)
@@ -145,12 +153,11 @@ export async function runAIPipeline(
   // stored answer for THIS finalized object, asked in THIS locale, is replayed
   // and the door is not asked — no spend on a 再試行 tap or a reload. Blob-only runs (no take, or
   // no finalized key) have nothing to key on and ask every time, as before.
-  const stored = takeId && finalizedPath ? await readTakeTranscript(takeId) : null
-  // The door's JSON body, used exactly as before — replayed or fresh.
-  let transcribeData: Awaited<ReturnType<Response['json']>>
-  if (stored && stored.finalizedPath === finalizedPath && stored.locale === locale) {
-    transcribeData = stored.response
-  } else {
+  const transcribeOnce = async (): Promise<Awaited<ReturnType<Response['json']>>> => {
+    const stored = takeId && finalizedPath ? await readTakeTranscript(takeId) : null
+    if (stored && stored.finalizedPath === finalizedPath && stored.locale === locale) {
+      return stored.response
+    }
     const { body: transcribeBody } = await recordingPort.prepareTranscription(
       audioBlob,
       finalizedPath,
@@ -169,11 +176,18 @@ export async function runAIPipeline(
     // ⚖ NOTHING IS CLEANED UP (capture pipeline PR4): the object this just read is
     // the take's finalized audio, and audio is never deleted.
 
-    transcribeData = await transcribeRes.json()
+    const fresh = await transcribeRes.json()
     // Stamped BEFORE the empty check: an empty answer was paid for too, and
     // replays below as the same EmptyTranscriptError with no second spend.
-    if (takeId && finalizedPath) await stampTakeTranscript(takeId, finalizedPath, locale, transcribeData)
+    if (takeId && finalizedPath) await stampTakeTranscript(takeId, finalizedPath, locale, fresh)
+    return fresh
   }
+  // The door's JSON body, used exactly as before — replayed or fresh. Two tabs
+  // on the same object take turns, so the second one reads the first's stamp.
+  const transcribeData =
+    takeId && finalizedPath
+      ? await withTranscribeLock(finalizedPath, transcribeOnce)
+      : await transcribeOnce()
   const transcript: string = transcribeData.transcript
 
   if (!transcript) {
