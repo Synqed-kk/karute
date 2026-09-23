@@ -919,6 +919,17 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
   const turnoverControl = '{name}の{turnoverName}時間'
   const turnoverFact = '{turnoverName}時間を0分にすると、予約と予約のあいだに何も確保しません。'
   const turnoverName = ctx.words.turnoverWord ?? RESOURCE_WORDS.other.turnoverWord!
+  const classLabels = { standard: '通常', private: '{privateWord}' }
+  const privateFact = '{privateWord}の呼び名は業種の標準のままです。この画面からは変えられません。'
+  const policyTitle = '{noun}の自動割り当て'
+  const policyNote = '予約の{noun}は、次の決まりのとおりに自動で決まります。ここで変える設定はありません。'
+  const policyFacts = [
+    '{noun}は自動で決まります。通常の{noun}から順に埋め、{privateWord}は最後に使います。',
+    '「{privateWord}のみ」の指定がある予約だけが{privateWord}に限定されます。指定は予約ごとに付きます。',
+    '{privateWord}しか空いていないときは、指定のない予約も{privateWord}に入ります。入れ替えは自動では行いません。',
+  ]
+  const privateName = ctx.words.privateWord ?? RESOURCE_WORDS.other.privateWord!
+  const roomSlots = { noun: ctx.words.resourceNoun, privateWord: privateName }
   return {
     ...base,
     kicker: '店舗運営',
@@ -946,7 +957,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       }),
       block('people.equipment', '設備・枠', `この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。`, beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
-          seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', '施術室'], ['private', '個室']]), r.room_class),
+          seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', fillWords(classLabels.standard, roomSlots)], ['private', fillWords(classLabels.private, roomSlots)]]), r.room_class),
           num(`people.cleanup-${r.id}`, fillWords(turnoverControl, { name: r.name, turnoverName }), r.cleanup_minutes, 0, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ])), {
         facts: [
@@ -968,15 +979,16 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
           txt('people.words-turnover', '予約のあいだの作業の呼び名', override?.turnoverWord ?? '', { placeholder: '例）清掃' }),
         ]),
       ], {
-        facts: ['個室の呼び名は業種の標準のままです。この画面からは変えられません。'],
+        facts: [fillWords(privateFact, roomSlots)],
         audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（設備の呼び名を変更）`,
         words: {
           typeId: 'people.type', nounId: 'people.words-noun', counterId: 'people.words-counter',
           fullId: 'people.words-full', turnoverId: 'people.words-turnover', standardValue: 'standard',
           count: beds.length, liveFact: { blockId: 'people.equipment', index: 0 },
           liveTurnover: { blockId: 'people.equipment', factIndex: 1, controlPrefix: 'people.cleanup-', fallback: RESOURCE_WORDS.other.turnoverWord! },
+          liveRoom: { classPrefix: 'people.class-', policyBlockId: 'people.room-policy', privateFactIndex: 0, fallback: RESOURCE_WORDS.other.privateWord! },
           copy: {
-            turnoverFact, turnoverControl,
+            turnoverFact, turnoverControl, classLabels, privateFact, policyTitle, policyNote, policyFacts,
             heading: 'いま使われている言葉',
             current: '呼び名 {noun} ・ 数え方 {counter} ・ すべて埋まったとき {full} ・ あいだの作業 {turnover}',
             standard: '{typeLabel}の標準: 呼び名 {noun} ・ 数え方 {counter} ・ すべて埋まったとき {full} ・ あいだの作業 {turnover}',
@@ -1001,12 +1013,8 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
        * 「VIPは個室から出さない」はルールとして廃止され、「個室は最後」はすべての
        * 店舗で常に有効になりました。回せないつまみは死んだレバーなので、スイッチは
        * 置かず、今日の運営が実際に使っている決まりを事実として書きます。 */
-      block('people.room-policy', '部屋の自動割り当て', '予約の部屋は、次の決まりのとおりに自動で決まります。ここで変える設定はありません。', [], {
-        facts: [
-          '部屋は自動で決まります。施術室から順に埋め、個室は最後に使います。',
-          '「個室のみ」の指定がある予約だけが個室に限定されます。指定は予約ごとに付きます。',
-          '個室しか空いていないときは、指定のない予約も個室に入ります。入れ替えは自動では行いません。',
-        ],
+      block('people.room-policy', fillWords(policyTitle, roomSlots), fillWords(policyNote, roomSlots), [], {
+        facts: policyFacts.map((t) => fillWords(t, roomSlots)),
       }),
       block('people.shifts', 'シフト', '誰がいつ働くかは、別の画面で管理します。', [], {
         facts: ['シフトの管理は「スタッフ・シフト」で行います。ここには同じ機能を重ねていません。'],
@@ -1018,7 +1026,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
         { label: '設備', value: '今日の運営の設備割り当てが使っている一覧' },
         ...(ctx.businessType !== null ? [{ label: '呼び名', value: '業種の標準の一覧と、この店舗で入力した言葉' }] : []),
-        { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
+        { label: '割り当ての決まり', value: '今日の運営の自動割り当てが使っている決まり' },
       ],
       note: '稼働・設備の数を変えると、Reserveの空き枠は翌日の再計算から変わります。',
     },

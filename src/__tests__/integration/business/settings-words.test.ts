@@ -2,11 +2,11 @@ import { settingsProps } from '@/app/[locale]/(business)/business/settings/setti
 import { STORE_A } from '@/business/lib/fixtures'
 import { businessProfiles } from '@/business/lib/fixtures-settings'
 import { wordsForStore } from '@/business/lib/resource-words'
-import { blockingError, labelOfValue, type RowValue, type SettingsBlock, type SettingsSection } from '@/business/lib/settings'
+import { blockingError, labelOfValue, searchTextOf, type RowValue, type SettingsBlock, type SettingsSection } from '@/business/lib/settings'
 import {
-  committedWordValues, normalisedWordValues, overrideFromValues, wordsBlockingError,
-  wordsBlockProblem, wordsLiveFact, wordsProblem, wordsReadout, wordsSentences,
-  wordsTurnoverControl, wordsTurnoverFact,
+  committedWordValues, fillWords, normalisedWordValues, overrideFromValues, wordsBlockingError,
+  wordsBlockProblem, wordsLiveFact, wordsProblem, wordsReadout, wordsRoomBlock, wordsRoomOptions,
+  wordsSentences, wordsTurnoverControl, wordsTurnoverFact,
 } from '@/business/lib/settings-words'
 
 let section: SettingsSection
@@ -251,5 +251,97 @@ describe('PKT-BUILD-N3-2 §3 H3 — the pure save door', () => {
     expect(sentences.current).toBe('呼び名 {full} ・ 数え方 台 ・ すべて埋まったとき 満室 ・ あいだの作業 清掃')
     expect(sentences.standard).toBe('{full}の標準: 呼び名 ベッド ・ 数え方 台 ・ すべて埋まったとき 満室 ・ あいだの作業 清掃')
     expect(sentences.example).toBe(`いまこの店舗には{full}が${spec.count}台あります。`)
+  })
+})
+
+describe('N3-4 room-class words seed and live copy', () => {
+  const policyOf = (s: SettingsSection) => s.blocks.find((b) => b.id === 'people.room-policy')!
+  const classControls = () => section.blocks.find((b) => b.id === 'people.equipment')!.rows
+    .flatMap((r) => r.controls).filter((c) => c.id.startsWith('people.class-'))
+  const optionsOf = (c: ReturnType<typeof classControls>[number]) => c.control.kind === 'segment' ? c.control.options : []
+  const liveText = (v: Record<string, RowValue>) => {
+    const policy = wordsRoomBlock(section, 'people.room-policy', v)!
+    return [policy.title!, policy.note!, ...Object.values(policy.facts), wordsRoomBlock(section, 'people.words', v)!.facts[0]]
+  }
+  const liveLabels = (v: Record<string, RowValue>) => classControls().map((c) => wordsRoomOptions(section, c.id, optionsOf(c), v)!)
+
+  it('N3-4 T1 every assembled seed equals its live copy', () => {
+    const policy = policyOf(section)
+    expect(wordsRoomBlock(section, 'people.room-policy', seed)).toEqual({
+      title: policy.title, note: policy.note, facts: { 0: policy.facts[0], 1: policy.facts[1], 2: policy.facts[2] },
+    })
+    expect(policy.facts).toHaveLength(3)
+    expect(wordsRoomBlock(section, 'people.words', seed)!.facts[0]).toBe(block.facts[0])
+    expect(classControls().length).toBeGreaterThan(0)
+    for (const c of classControls()) expect(wordsRoomOptions(section, c.id, optionsOf(c), seed)).toEqual(optionsOf(c))
+  })
+
+  it('N3-4 T2 a type change updates the noun everywhere and keeps the option values', () => {
+    const hair = { ...seed, [spec.typeId]: 'hair_salon' }
+    const noun = wordsForStore('hair_salon', null).resourceNoun
+    const seedNoun = wordsReadout(spec, seed).current.resourceNoun
+    expect(noun).not.toBe(seedNoun)
+    const [title, note, f0, f1, f2, privateFact] = liveText(hair)
+    for (const sentence of [title, note, f0]) {
+      expect(sentence).toContain(noun)
+      expect(sentence).not.toContain(seedNoun)
+    }
+    for (const sentence of [f0, f1, f2, privateFact]) expect(sentence).toContain(wordsForStore('hair_salon', null).privateWord!)
+    expect(liveLabels(hair).map((o) => o.map((x) => x.value))).toEqual(classControls().map((c) => optionsOf(c).map((x) => x.value)))
+  })
+
+  it('N3-4 T3 a valid typed pair updates the noun and a one-sided or invalid pair resolves to base', () => {
+    const typed = 'ソファ'
+    const [title, note, f0] = liveText(values(typed, '台'))
+    for (const sentence of [title, note, f0]) expect(sentence).toContain(typed)
+    for (const v of [values(typed, ''), values('長'.repeat(9), '台')]) {
+      expect(liveText(v)).toEqual(liveText(values()))
+      expect(liveLabels(v)).toEqual(liveLabels(values()))
+    }
+  })
+
+  it('N3-4 T4 an absent private word prints the fallback', () => {
+    const yoga = { ...seed, [spec.typeId]: 'yoga_studio' }
+    expect(wordsForStore('yoga_studio', null).privateWord).toBeNull()
+    const fallback = spec.liveRoom.fallback
+    expect(fallback.length).toBeGreaterThan(0)
+    const [title, , f0, f1, f2, privateFact] = liveText(yoga)
+    for (const sentence of [f0, f1, f2, privateFact]) expect(sentence).toContain(fallback)
+    expect(title).toContain(wordsForStore('yoga_studio', null).resourceNoun)
+    for (const options of liveLabels(yoga)) expect(options.find((o) => o.value === 'private')!.label).toBe(fallback)
+  })
+
+  it('N3-4 T5 other blocks, other controls, sections without a spec and unknown options stay null or unchanged', () => {
+    for (const id of [...section.blocks.map((b) => b.id).filter((id) => !['people.room-policy', 'people.words'].includes(id)), 'absent']) {
+      expect(wordsRoomBlock(section, id, seed)).toBeNull()
+    }
+    expect(wordsRoomOptions(section, 'people.cleanup-resource', [{ value: 'private', label: 'x' }], seed)).toBeNull()
+    expect(wordsRoomOptions(section, 'x.people.class-resource', [{ value: 'private', label: 'x' }], seed)).toBeNull()
+    const withoutSpec = { ...section, blocks: section.blocks.filter((b) => !b.words) }
+    expect(wordsRoomBlock(withoutSpec, 'people.room-policy', seed)).toBeNull()
+    expect(wordsRoomOptions(withoutSpec, 'people.class-resource', [{ value: 'private', label: 'x' }], seed)).toBeNull()
+    expect(wordsRoomOptions(section, 'people.class-resource', [{ value: 'unknown', label: 'keep' }], seed)).toEqual([{ value: 'unknown', label: 'keep' }])
+  })
+
+  it('N3-4 the settings search finds the live room-policy title, not the seed', async () => {
+    const { props } = await settingsProps({ locale: 'ja', store: STORE_A })
+    const row = props.rail.find((r) => r.id === section.id)!
+    const hair = { ...seed, [spec.typeId]: 'hair_salon' }
+    const liveSection = { ...section, blocks: section.blocks.map((b) => ({ ...b, title: wordsRoomBlock(section, b.id, hair)?.title ?? b.title })) }
+    expect(searchTextOf(row, liveSection)).toContain('セット面の自動割り当て')
+    expect(searchTextOf(row, liveSection)).not.toContain('ベッドの自動割り当て')
+    expect(searchTextOf(row, section)).toContain('ベッドの自動割り当て')
+  })
+
+  it('N3-4 T6 a slot token typed as the noun stays literal in one pass', () => {
+    for (const typed of ['{noun}', '{name}']) {
+      const v = values(typed, '台')
+      expect(wordsProblem(spec, v)).toBeNull()
+      const privateWord = wordsReadout(spec, v).current.privateWord!
+      const policy = wordsRoomBlock(section, 'people.room-policy', v)!
+      expect(policy.title).toBe(spec.copy.policyTitle.replace('{noun}', typed))
+      expect(policy.facts[0]).toBe(spec.copy.policyFacts[0].split('{noun}').join(typed).split('{privateWord}').join(privateWord))
+    }
+    expect(fillWords('{noun}|{privateWord}', { noun: '{privateWord}', privateWord: 'P' })).toBe('{privateWord}|P')
   })
 })

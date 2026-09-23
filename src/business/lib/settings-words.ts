@@ -1,5 +1,5 @@
 import { wordOverrideProblem, wordsForStore, type WordOverride, type ResourceWords } from './resource-words'
-import type { RowValue, SettingsBlock, SettingsSection } from './settings'
+import type { ControlOption, RowValue, SettingsBlock, SettingsSection } from './settings'
 
 type WordsSpec = NonNullable<SettingsBlock['words']>
 type Values = Record<string, RowValue>
@@ -32,7 +32,7 @@ export function wordsReadout(spec: WordsSpec, values: Values): { current: Resour
 }
 
 export function fillWords(template: string, slots: Record<string, string>): string {
-  return template.replace(/\{(noun|counter|full|turnover|typeLabel|n|word|name|turnoverName)\}/g, (whole, slot: string) => slots[slot] ?? whole)
+  return template.replace(/\{(noun|counter|full|turnover|typeLabel|n|word|name|turnoverName|privateWord)\}/g, (whole, slot: string) => slots[slot] ?? whole)
 }
 
 export function wordsTurnoverName(spec: WordsSpec, values: Values): string {
@@ -84,4 +84,28 @@ export function wordsLiveFact(section: SettingsSection, blockId: string, values:
 
 export function committedWordValues(section: SettingsSection, values: Values): Record<string, string> {
   return Object.assign({}, ...section.blocks.map((block) => block.words ? normalisedWordValues(block.words, values) : {}))
+}
+
+function roomSlots(spec: WordsSpec, values: Values): { noun: string; privateWord: string } {
+  const { current } = wordsReadout(spec, values)
+  return { noun: current.resourceNoun, privateWord: current.privateWord ?? spec.liveRoom.fallback }
+}
+
+export function wordsRoomOptions(section: SettingsSection, controlId: string, options: readonly ControlOption[], values: Values): ControlOption[] | null {
+  const spec = section.blocks.find((block) => block.words && controlId.startsWith(block.words.liveRoom.classPrefix))?.words
+  if (!spec) return null
+  const slots = roomSlots(spec, values)
+  return options.map((o) => ({ ...o, label: spec.copy.classLabels[o.value] === undefined ? o.label : fillWords(spec.copy.classLabels[o.value], slots) }))
+}
+
+export function wordsRoomBlock(section: SettingsSection, blockId: string, values: Values): { title?: string; note?: string; facts: Record<number, string> } | null {
+  const carrier = section.blocks.find((block) => block.words)
+  const spec = carrier?.words
+  if (!spec) return null
+  const fill = (template: string) => fillWords(template, roomSlots(spec, values))
+  if (blockId === spec.liveRoom.policyBlockId) {
+    return { title: fill(spec.copy.policyTitle), note: fill(spec.copy.policyNote), facts: Object.fromEntries(spec.copy.policyFacts.map((t, i) => [i, fill(t)])) }
+  }
+  if (carrier.id === blockId) return { facts: { [spec.liveRoom.privateFactIndex]: fill(spec.copy.privateFact) } }
+  return null
 }

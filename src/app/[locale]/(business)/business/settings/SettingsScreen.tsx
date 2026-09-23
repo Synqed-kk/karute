@@ -73,7 +73,7 @@ import {
 } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
-import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
+import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
 import {
   isIntegerTextAtLeast,
@@ -793,11 +793,16 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const groups: string[] = []
   for (const row of props.rail) if (!groups.includes(row.group)) groups.push(row.group)
 
-  const sectionById = useMemo(() => {
+  const seedSectionById = useMemo(() => {
     const out: Record<string, SettingsSection> = {}
     for (const s of props.sections) out[s.id] = s
     return out
   }, [props.sections])
+  const sectionById = useMemo(() => {
+    const out: Record<string, SettingsSection> = {}
+    for (const s of Object.values(seedSectionById)) out[s.id] = { ...s, blocks: s.blocks.map((b) => ({ ...b, title: wordsRoomBlock(s, b.id, values)?.title ?? b.title })) }
+    return out
+  }, [seedSectionById, values])
 
   /** The rail after the query. Every row keeps its group so the list never
    *  reshuffles under a reader mid-type. */
@@ -1179,7 +1184,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
               sideNode(
-                section.blocks.map((b) => ({ id: b.id, title: b.title })),
+                section.blocks.map((b) => ({ id: b.id, title: wordsRoomBlock(section, b.id, values)?.title ?? b.title })),
                 null,
                 /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
                    already saved, in this browser, the moment it is pressed.
@@ -1473,7 +1478,7 @@ function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: 
 // ── a block ────────────────────────────────────────────────────────────────
 
 function Block({
-  block,
+  block: seed,
   section,
   values,
   onChange,
@@ -1509,6 +1514,8 @@ function Block({
   onListRemove: (rowId: string) => void
   reduced: boolean
 }) {
+  const roomBlock = wordsRoomBlock(section, seed.id, values)
+  const block: SettingsBlock = roomBlock === null ? seed : { ...seed, ...(roomBlock.title === undefined ? {} : { title: roomBlock.title }), ...(roomBlock.note === undefined ? {} : { note: roomBlock.note }) }
   const rows = block.table === null ? block.table : filterTable(block, values)
   const sentences = block.words ? wordsSentences(block.words, values, labelFor(block.words.typeId) ?? '') : null
   const wordProblem = wordsBlockProblem(block, values)
@@ -1518,7 +1525,9 @@ function Block({
     ...row,
     controls: row.controls.map((c) => {
       const live = wordsTurnoverControl(section, c.id, row.label, values)
-      return live === null ? c : { ...c, aria: live }
+      const options = c.control.kind === 'segment' ? wordsRoomOptions(section, c.id, c.control.options, values) : null
+      const withOptions = options === null || c.control.kind !== 'segment' ? c : { ...c, control: { ...c.control, options } }
+      return live === null ? withOptions : { ...withOptions, aria: live }
     }),
   }))
   return (
@@ -1649,7 +1658,7 @@ function Block({
       )}
 
       {block.facts.map((f, index) => (
-        <p className="st-fact" key={f}>{turnoverFact?.index === index ? turnoverFact.sentence : liveFact?.index === index ? liveFact.sentence : f}</p>
+        <p className="st-fact" key={f}>{roomBlock?.facts[index] ?? (turnoverFact?.index === index ? turnoverFact.sentence : liveFact?.index === index ? liveFact.sentence : f)}</p>
       ))}
 
       {block.links.length > 0 && (
