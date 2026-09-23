@@ -42,10 +42,12 @@ export const TRANSCRIPTION_LEDGER_UNAVAILABLE = 'transcription ledger unavailabl
 
 /** Which of the worker's three paid-or-saving stages refused (the recording
  *  hole, PR-1, 2026-09-23): the job's `last_error` becomes
- *  `${code}: ${cause}` so 録音履歴 and the 監査ログ row can name the step
- *  instead of a bare 「保存されませんでした」. `cause` is the thrown error's
- *  FIRST LINE only, capped at 200 chars — an SDK/HTTP error string, never
- *  transcript text. The sentinels above are never wrapped in this. */
+ *  `${code}: ${cause}` so 録音履歴 can name the step instead of a bare
+ *  「保存されませんでした」, and the 監査ログ row carries the CODE only. `cause`
+ *  is the thrown error's FIRST LINE only, capped at 200 chars (it bounds
+ *  `last_error`) — an SDK/HTTP error string, never transcript text. The cause
+ *  never enters an audit row: it lives only in `last_error` and the worker's
+ *  console line. The sentinels above are never wrapped in this. */
 export type StageFailureCode = 'transcription_failed' | 'ai_failed' | 'karute_save_failed'
 
 export class StageFailure extends Error {

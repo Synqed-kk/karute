@@ -676,7 +676,7 @@ async function upsertKaruteRecord(
 function emitTranscribeFailedIfExhausted(
   job: RecordingJob,
   message: string,
-  stage: StageFailure | null,
+  stage: StageFailureCode | null,
 ): void {
   if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
   if (message === DISCARD_LEDGER_UNREADABLE) return
@@ -699,10 +699,10 @@ function emitTranscribeFailedIfExhausted(
       audio_path: payload?.audio_path ?? null,
       attempt: job.attempts,
       max_attempts: job.max_attempts,
-      // The stage's code + its capped first line (recording hole PR-1) —
-      // 'other' stays for anything thrown outside the three stages.
-      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : (stage?.code ?? 'other'),
-      ...(stage ? { message: stage.cause } : {}),
+      // The stage's code IS the classification (recording hole PR-1); the
+      // raw error line never enters this row — it stays in last_error and the
+      // console line only. 'other' = thrown outside the three stages.
+      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : (stage ?? 'other'),
     },
     requestId: `job:${job.id}:failed`,
     source: 'system',
@@ -743,7 +743,7 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
       failed++
       console.error(`[jobs] recording job ${job.id} failed:`, message)
       if (failResult !== null && failResult.status === 'FAILED') {
-        emitTranscribeFailedIfExhausted(failResult, message, err instanceof StageFailure ? err : null)
+        emitTranscribeFailedIfExhausted(failResult, message, err instanceof StageFailure ? err.code : null)
       }
     }
   }
