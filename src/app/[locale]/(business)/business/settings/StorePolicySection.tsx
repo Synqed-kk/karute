@@ -1010,6 +1010,11 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     type="text"
                     inputMode="numeric"
                     aria-labelledby="stMinutesLabel"
+                    /* ⚖ S28's pattern (SettingsScreen `NumberField`): the unit is the
+                       field's DESCRIPTION, never folded into its name — a screen reader
+                       hears the unit while every name-based query keeps its name. Same id
+                       shape, `st-unit-<field>`, on all three fields of this section. */
+                    aria-describedby="st-unit-stMinutes"
                     value={minutesText}
                     onChange={(e) => {
                       setMinutesMsg(null)
@@ -1027,7 +1032,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                   />
                   <button type="button" aria-label={`${NUDGE_MIN}分増やす`} onClick={() => nudgeMinutes(NUDGE_MIN)}>＋</button>
                 </div>
-                <span className="st-step-u">分</span>
+                <span id="st-unit-stMinutes" className="st-step-u">分</span>
               </div>
             </div>
             <p className={`st-ctrl-d${minutesWarn || minutesMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
@@ -1100,6 +1105,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     type="text"
                     inputMode="numeric"
                     aria-labelledby="stSlotLabel"
+                    aria-describedby="st-unit-stSlot"
                     value={slotText}
                     onChange={(e) => {
                       setSlotMsg(null)
@@ -1135,7 +1141,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                   />
                   <button type="button" aria-label={`${NUDGE_MIN}分増やす`} onClick={() => nudgeSlot(NUDGE_MIN)}>＋</button>
                 </div>
-                <span className="st-step-u">分</span>
+                <span id="st-unit-stSlot" className="st-step-u">分</span>
             </div>
             </div>
             {/* ⚖ 9/1 (fix round 1 F10) — THE REJECTION IS SAID, NOT ONLY
@@ -1195,6 +1201,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     type="text"
                     inputMode="numeric"
                     aria-labelledby="stTightLabel"
+                    aria-describedby="st-unit-stTight"
                     value={tightText}
                     onChange={(e) => {
                       setTightMsg(null)
@@ -1215,7 +1222,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                   />
                   <button type="button" aria-label="1枠増やす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>＋</button>
                 </div>
-                <span className="st-step-u">枠</span>
+                <span id="st-unit-stTight" className="st-step-u">枠</span>
             </div>
             </div>
             {/* ⚖ F10 の同じ生き領域。⚠ そして 0 のときは「効かない」ことを言う:
