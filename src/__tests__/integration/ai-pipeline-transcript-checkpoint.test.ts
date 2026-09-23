@@ -126,4 +126,12 @@ describe('⚖ runAIPipeline never pays for the same finalized object twice', () 
     await run(null)
     expect(count('/transcribe')).toBe(2)
   })
+
+  it('(6) a take with no finalized key yet: nothing to key on — the door is asked every run, nothing stamped', async () => {
+    takes.set(TAKE, {})
+    await run()
+    await run()
+    expect(count('/transcribe')).toBe(2)
+    expect(takes.get(TAKE)!.transcript).toBeUndefined()
+  })
 })
