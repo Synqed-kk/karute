@@ -36,7 +36,8 @@ import Link from 'next/link'
 import { toggleColumn, wireColumnsPopover } from '@/business/lib/column-config'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring, type Spring } from '@/business/lib/spring'
-import { localCustomerRow, type CustomerRow, type CustomersProps } from './customers-props'
+import type { CustomerRow, CustomersProps } from './customers-props'
+import { localCustomerRow } from './customers-row'
 
 export type { CustomerRow }
 

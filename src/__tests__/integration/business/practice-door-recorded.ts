@@ -28,10 +28,13 @@ export const STORE = {
   laEstro: '8696b856-11ab-4879-9290-bef40b03ea66',
   closed: '00000000-0000-4000-8000-00000000dead',
 } as const
-export const LOGIN = { owner: 'owner-login-uuid', probe: 'probe-login-uuid', goro: 'goro-login-uuid', musubi: 'musubi-login-uuid' } as const
+export const LOGIN = { owner: 'owner-login-uuid', probe: 'probe-login-uuid', goro: 'goro-login-uuid', musubi: 'musubi-login-uuid', perry: 'perry-login-uuid' } as const
 export const CARD = {
   owner: 'da7ccca7-8706-4e3f-bb07-ce2300fbc799',
   saburo: '875f0912-9e21-42d0-9f22-673bed198d88',
+  probe: 'b89b95cf-2365-4652-b8f4-d9235cabc8f9',
+  perry: 'b61de85f-c873-4231-ad03-70d211e8b32f',
+  mio: '75e26903-953c-4e74-bc6b-ec791b5e82f1',
   goro: '6279b2a0-7f01-4d7b-8644-2f1ce127c947',
   musubi: '00000000-0000-4000-8000-0000000000c9',
   inactive: '00000000-0000-4000-8000-0000000000ca',
@@ -57,7 +60,7 @@ const card = (id: string, name: string, role: Staff['role'], email: string | nul
 export const STAFF: Staff[] = [
   card(CARD.owner, 'Dev Salon', 'OWNER', 'dev@karute.test', LOGIN.owner),
   card('b89b95cf-2365-4652-b8f4-d9235cabc8f9', 'Invite Probe 0817', 'STYLIST', 'invite-probe-0817@karute.test', LOGIN.probe),
-  card('b61de85f-c873-4231-ad03-70d211e8b32f', 'perry', 'STYLIST', 'jon@kim.com'),
+  card('b61de85f-c873-4231-ad03-70d211e8b32f', 'perry', 'STYLIST', 'jon@kim.com', LOGIN.perry),
   card('52157c64-f2d4-41c3-9396-47046d20db07', 'yes', 'STYLIST', 'yes@yes.com'),
   card(CARD.saburo, 'テスト さぶろう', 'STYLIST', null),
   card('75e26903-953c-4e74-bc6b-ec791b5e82f1', 'テスト みお', 'STYLIST', null),
@@ -107,6 +110,9 @@ export const SHEETS: Record<string, Sheet> = {
   [CARD.owner]: sheet(CARD.owner, 'owner', 'OWNER', OWNER_CAPS, null),
   [CARD.goro]: sheet(CARD.goro, 'manager', 'ADMIN', ['customers.view', 'bookings.manage'], [STORE.tokyo, STORE.yokohama]),
   [CARD.musubi]: sheet(CARD.musubi, 'practitioner', 'STYLIST', ['customers.view'], null), // the F-2 case
+  // Role-label cases (the Business vocabulary): a practitioner and a frontdesk, each on Dev Salon.
+  [CARD.perry]: sheet(CARD.perry, 'practitioner', 'STYLIST', ['customers.view', 'bookings.manage'], [STORE.devSalon]),
+  [CARD.probe]: sheet(CARD.probe, 'frontdesk', 'ASSISTANT', ['customers.view'], [STORE.devSalon]),
 }
 
 const menu = (id: string, store_id: string | null, name: string, price: number, duration_minutes: number, active = true): Menu => ({

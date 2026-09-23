@@ -35,8 +35,9 @@ import {
   listStoreOptions,
   renderNow,
   type StoreLens,
+  readShellIdentity,
 } from '@/business/lib/data'
-import { operator, staffCards, type FixtureAppointment } from '@/business/lib/fixtures'
+import { staffCards, type FixtureAppointment } from '@/business/lib/fixtures'
 import { CATEGORY_LABEL, CATEGORY_ORDER } from '@/business/lib/karute'
 import { records as recordPlane } from '@/business/lib/fixtures-karute'
 import {
@@ -220,6 +221,9 @@ export async function recordingProps({
     : doorAppointments
 
   const grants = world?.grants ?? grantPlane
+  // The operator is the DOOR's (readShellIdentity: the admitted person under the
+  // practice switch, the fixture operator when it is off) — never the fixture read directly.
+  const { operator } = await readShellIdentity()
   const role = world?.role ?? operator.role
   const access = accessFor(role)
   const selfCardId = cardIdOfStaff(operator.staff_id, staffCards, staff)

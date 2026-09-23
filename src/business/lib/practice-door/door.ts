@@ -43,6 +43,7 @@ import {
   type FixtureShift,
 } from '../fixtures-today'
 import { analyticsPolicy, dowWeight, menuMix, salesLedger, salesTargets, sourceMix, staffMix } from '../fixtures-analytics'
+import { rulebook } from '../fixtures-settings'
 import { auditTrail, reservations } from '../fixtures-reservations'
 import { jstDayKey, jstMinuteOfDay, jstSlot, jstSlotEnd, renderNow } from '../clock'
 
@@ -51,17 +52,14 @@ type DayRange = { from: number; to: number }
 type CoreAppointment = Awaited<ReturnType<PracticeActor['reads']['appointmentsList']>>['appointments'][number]
 type CoreQuery = { from?: string; to?: string; status?: CoreAppointment['status'] }
 
-/** Mirrors src/lib/staff/role-label.ts's labels for the permission role keys
- *  (territory cannot import src/lib; foundation.test.ts reads both files and
- *  pins the five shared labels equal). custom / area_manager / trainee /
- *  accountant have no label there → '' here: hide, never print a raw code. */
-const ROLE_LABEL: Record<string, string> = {
-  owner: 'オーナー',
-  manager: 'マネージャー',
-  senior: 'シニアスタッフ',
-  practitioner: '施術者',
-  frontdesk: '受付',
-}
+/** The operator's role LABEL is the Business family's own vocabulary — the word
+ *  every room's `accessFor` grants by — so it is the inverse of the rulebook's
+ *  `roleKeyOf` (オーナー→owner, 店舗管理者→manager, スタッフ→practitioner). Every
+ *  other key (senior, frontdesk, custom, area_manager, trainee, accountant) → ''
+ *  — a label no room grants anything to; never the fixture operator's role. */
+const ROLE_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(rulebook.roleKeyOf).map(([label, key]) => [key, label]),
+)
 
 /** A BLOCK row with no title. The phone app prints no label of its own for
  *  one (grep 9/23, PKT-PR2 fold 2), so this is an honest empty chip; the
@@ -249,10 +247,23 @@ export async function readStaffStores(lens: StoreLens): Promise<Record<string, s
   assertLensVisible(actor, lens)
   const rows = await activeStaff(actor)
   const { assignments } = await actor.reads.staffStoresList()
-  // Every live row gets a key (null = floating): the fixture's "missing key = no
-  // card" case cannot arise on the wire — a roster row IS a card.
+  // Assignments are cut to the stores THIS actor may see, so no hidden store id
+  // ever leaves the door (they reach client-bound lanes). null = floating (no
+  // assignment rows at all); a card assigned ONLY to hidden stores gets NO key —
+  // absent = unresolved, which the roster clamp excludes; never null, which
+  // would mean "works everywhere". viewAll intersects too, so an inactive
+  // store's id never leaves either.
+  const visible = visibleIds(actor)
   const out: Record<string, string[] | null> = {}
-  for (const row of rows) out[row.id] = (assignments[row.id] ?? []).length === 0 ? null : assignments[row.id]
+  for (const row of rows) {
+    const assigned = assignments[row.id] ?? []
+    if (assigned.length === 0) {
+      out[row.id] = null
+      continue
+    }
+    const seen = assigned.filter((id) => visible.includes(id))
+    if (seen.length > 0) out[row.id] = seen
+  }
   return out
 }
 

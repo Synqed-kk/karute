@@ -32,8 +32,14 @@ import { sampleKeys, sampleRows, storeSample } from '@/business/lib/practice-doo
 import { liveIdOf } from '@/business/lib/practice-door/registry'
 import { customers, STORE_A, STORE_C } from '@/business/lib/fixtures'
 import { defaultKindOf, staffQualifications } from '@/business/lib/fixtures-today'
-import { storeDials } from '@/business/lib/fixtures-settings'
 import { jstDayKey } from '@/business/lib/clock'
+import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
+import { accessFor as settingsAccessFor, RAIL } from '@/business/lib/settings'
+import { accessFor as askAiAccessFor } from '@/business/lib/ask-ai'
+import { accessFor as karuteAccessFor } from '@/business/lib/karute'
+import { accessFor as recordingAccessFor } from '@/business/lib/recording'
+import { accessFor as registerAccessFor } from '@/business/lib/register'
+import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 import {
   APT, AKARI, ASSIGNMENTS, CARD, KOBAYASHI, LOGIN, MENU, STAFF, STORE, TENANT, membership, recordedReads,
   type RecordedOptions,
@@ -302,7 +308,49 @@ describe('(2) AREA MANAGER — two stores by the answer sheet', () => {
     await expect(data.listAppointments(VIEW_ALL)).rejects.toBeInstanceOf(PracticeLensRefused)
     const shell = await data.readShellIdentity()
     expect(shell.business.storeCount).toBe(2)
-    expect(shell.operator.role).toBe('マネージャー')
+    expect(shell.operator.role).toBe('店舗管理者')
+  })
+
+  it('readStaffStores never carries a hidden store id; a card assigned only to hidden stores has no key', async () => {
+    const map = await data.readStaffStores(STORE.tokyo)
+    const json = JSON.stringify(map)
+    for (const hidden of [STORE.laEstro, STORE.devSalon, STORE.devGinza]) expect(json).not.toContain(hidden)
+    expect(map).not.toHaveProperty(CARD.mio) // assigned ONLY to La Estro (READBACK §2) → unresolved, never null
+    expect(map).not.toHaveProperty(CARD.owner) // Dev Salon only
+    expect(map[CARD.saburo]).toEqual([STORE.tokyo, STORE.yokohama])
+    expect(map[CARD.musubi]).toBeNull() // floating stays floating
+    as(LOGIN.owner)
+    expect((await data.readStaffStores(STORE.tokyo))[CARD.mio]).toEqual([STORE.laEstro])
+  })
+})
+
+describe('(2b) role labels — the Business vocabulary, from the rulebook', () => {
+  it("each sheet role prints the label rulebook.roleKeyOf maps to it; any other role prints ''", async () => {
+    const labelOf = Object.fromEntries(Object.entries(rulebook.roleKeyOf).map(([label, key]) => [key, label]))
+    expect(Object.keys(labelOf).sort()).toEqual(['manager', 'owner', 'practitioner'])
+    for (const [login, key] of [[LOGIN.owner, 'owner'], [LOGIN.goro, 'manager'], [LOGIN.perry, 'practitioner']] as const) {
+      as(login)
+      expect((await data.readShellIdentity()).operator.role).toBe(labelOf[key])
+    }
+    as(LOGIN.probe) // frontdesk
+    expect((await data.readShellIdentity()).operator.role).toBe('')
+  })
+  it('settings under ON: a practitioner reads as スタッフ and every settings.manage section is closed', async () => {
+    as(LOGIN.perry)
+    const { props } = await settingsProps({ locale: 'ja' })
+    expect(props.roleLabel).toBe('スタッフ')
+    expect(settingsAccessFor(props.roleLabel, rulebook).has('settings.manage')).toBe(false)
+    const needsManage = RAIL.filter((e) => e.scope === 'store' && e.needs === 'settings.manage').map((e) => e.id)
+    expect(needsManage.length).toBeGreaterThan(0)
+    for (const id of needsManage) expect(props.sections.find((x) => x.id === id)?.gate).toBe('no-rights')
+  })
+  it("every room's accessFor('') is its most restrictive answer and never throws", () => {
+    expect(RAIL.every((e) => e.needs === null || !settingsAccessFor('', rulebook).has(e.needs))).toBe(true)
+    expect(rulebook.capabilities.every(({ token }) => !settingsAccessFor('', rulebook).has(token as never))).toBe(true)
+    expect(askAiAccessFor('')).toEqual({ consult: false })
+    expect(karuteAccessFor('')).toEqual({ discardContent: false, reassign: false })
+    expect(recordingAccessFor('')).toEqual({ storeWide: false, discardReview: false })
+    expect(registerAccessFor('')).toEqual({ refund: false, close: false, redactSummary: true })
   })
 })
 

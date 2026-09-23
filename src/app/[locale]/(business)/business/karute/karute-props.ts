@@ -27,8 +27,9 @@ import {
   listStoreOptions,
   renderNow,
   type StoreLens,
+  readShellIdentity,
 } from '@/business/lib/data'
-import { operator, type FixtureAppointment } from '@/business/lib/fixtures'
+import { type FixtureAppointment } from '@/business/lib/fixtures'
 import { records as recordPlane, type FixtureKaruteRecord } from '@/business/lib/fixtures-karute'
 import {
   accessFor,
@@ -153,6 +154,9 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
     ? world.appointments.filter((a) => (clamped ? a.store_id === storeId : true))
     : doorAppointments
 
+  // The operator is the DOOR's (readShellIdentity: the admitted person under the
+  // practice switch, the fixture operator when it is off) — never the fixture read directly.
+  const { operator } = await readShellIdentity()
   const role = world?.role ?? operator.role
   const access = accessFor(role)
 
