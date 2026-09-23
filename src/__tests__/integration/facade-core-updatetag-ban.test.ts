@@ -18,8 +18,15 @@
 // PLUS every server-only module the security moves took route-imported cores
 // INTO (SERVER_ONLY_MODULES — the same list server-action-surface.test.ts
 // reads): those cores are no longer under @/actions/*, so the scan above can't
-// see them. Whole file, comments ignored: nothing in these modules is a Server
-// Action, so no updateTag call belongs anywhere in them.
+// see them. Whole file, comments ignored (comments are not AST nodes): the
+// scan below flags any `ts.Identifier` or `ts.StringLiteral` node whose text
+// is exactly 'updateTag', not just a direct-call or `.property`-call shape —
+// so a direct call, a namespace `.updateTag()` access, a bracket access
+// (`c['updateTag']()`), an aliased import's `propertyName`
+// (`import { updateTag as ut } from 'next/cache'`), and an indirect call
+// (`(0, updateTag)()`) are all caught the same way a direct call is.
+// Guarantee: no identifier or string literal named updateTag exists anywhere
+// in these modules, so aliasing cannot hide one.
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
@@ -144,19 +151,17 @@ describe('facade-imported action cores never call updateTag (Server-Action-only)
     expect(offenders).toEqual([])
   })
 
-  it.each(SERVER_ONLY_MODULES)('server-only core module %s never calls updateTag', (file) => {
+  it.each(SERVER_ONLY_MODULES)('server-only core module %s contains no updateTag identifier or string literal, aliased or not', (file) => {
     const src = readFileSync(join(process.cwd(), file), 'utf8')
     const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true)
-    const calls: string[] = []
+    const hits: string[] = []
     const visit = (node: ts.Node) => {
-      if (ts.isCallExpression(node)) {
-        const callee = node.expression
-        const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : ''
-        if (name === 'updateTag') calls.push(`line ${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`)
+      if ((ts.isIdentifier(node) || ts.isStringLiteral(node)) && node.text === 'updateTag') {
+        hits.push(`line ${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`)
       }
       ts.forEachChild(node, visit)
     }
     visit(sf)
-    expect(calls).toEqual([])
+    expect(hits).toEqual([])
   })
 })
