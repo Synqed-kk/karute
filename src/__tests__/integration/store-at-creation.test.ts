@@ -619,6 +619,23 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
     )
   })
 
+  // 5/5 blind read F3 — EXACTLY one retry. A member core refuses twice and
+  // would accept a third try: the backfill stops after the retry and SAYS so,
+  // rather than quietly spending more attempts than the owner is told about.
+  it('retries a miss exactly once — a third attempt never happens (blind read F3)', async () => {
+    const c = client({
+      stores: ['store-daikanyama', 'store-new'],
+      roster: ['s1', 's2', 's3'],
+      failSetFor: 's2',
+      failSetTimes: 2,
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new', backfillIncomplete: 1 })
+    const sets = c.staffStoresSet.mock.calls as unknown as [string, string[]][]
+    expect(sets.filter(([id]) => id === 's2')).toHaveLength(2)
+    expect(c.assignments['s2']).toBeUndefined()
+  })
+
   // ⚖ GREPTILE #1002 P1 — TWO CREATES RACING on a one-store business. Both
   // stores exist before either request lists them, so each sees 3 active
   // stores; the old total-count test skipped in BOTH and blanked everyone.
