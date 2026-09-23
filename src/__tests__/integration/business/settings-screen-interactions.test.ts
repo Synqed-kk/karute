@@ -1171,25 +1171,44 @@ describe('S28 — a number field announces its unit', () => {
   const start = SRC_CODE.indexOf('function NumberField(')
   const FIELD = SRC_CODE.slice(start, SRC_CODE.indexOf('\nfunction ', start + 1))
   const inputs = openingTags(FIELD, 'input')
+  /** The `{…}` expression of one attribute on the input, brace-matched, so a
+   *  template literal inside it (`${…}`) is read whole rather than cut. */
+  const attrExpr = (tag: string, name: string): string => {
+    const at = tag.search(new RegExp(`\\s${name}=\\{`))
+    if (at < 0) return 'undefined'
+    const open = tag.indexOf('{', at)
+    let depth = 0
+    for (let j = open; j < tag.length; j += 1) {
+      if (tag[j] === '{') depth += 1
+      else if (tag[j] === '}') { depth -= 1; if (depth === 0) return tag.slice(open + 1, j) }
+    }
+    return 'undefined'
+  }
   const unitId = FIELD.match(/const unitId = (.+)\n/)?.[1] ?? 'undefined'
-  const describedBy = inputs[0]?.text.match(/\saria-describedby=\{([^}]*)\}/)?.[1] ?? 'undefined'
+  const label = attrExpr(inputs[0]?.text ?? '', 'aria-label')
+  const describedBy = attrExpr(inputs[0]?.text ?? '', 'aria-describedby')
   const unitSpan = FIELD.match(/\{k\.unit && <span id=\{([^}]*)\} className="st-unit">\{k\.unit\}<\/span>\}/)
   // Evaluates the screen's own expressions and nothing else.
-  const ids = new Function('c', 'k', `const unitId = ${unitId}; return { describedBy: ${describedBy}, span: ${unitSpan?.[1] ?? 'undefined'} }`) as
-    (c: RowControl, k: Extract<ControlKind, { kind: 'number' }>) => { describedBy: string | undefined; span: string | undefined }
+  const ids = new Function('c', 'k', `const unitId = ${unitId}; return { name: ${label}, describedBy: ${describedBy}, span: ${unitSpan?.[1] ?? 'undefined'} }`) as
+    (c: RowControl, k: Extract<ControlKind, { kind: 'number' }>) => { name: string | undefined; describedBy: string | undefined; span: string | undefined }
+  const idsOf = (c: RowControl) => {
+    if (c.control.kind !== 'number') throw new Error('a number control')
+    return ids(c, c.control)
+  }
   const mount = (c: RowControl) => {
     if (c.control.kind !== 'number') throw new Error('a number control')
     const k = c.control
-    const { describedBy: by, span } = ids(c, k)
+    const { name, describedBy: by, span } = idsOf(c)
     document.body.innerHTML = ''
     const input = document.createElement('input')
-    input.setAttribute('aria-label', c.aria)
+    if (name !== undefined) input.setAttribute('aria-label', name)
     if (by !== undefined) input.setAttribute('aria-describedby', by)
     document.body.append(input)
     if (k.unit) Object.assign(document.body.appendChild(document.createElement('span')), { id: String(span), className: 'st-unit', textContent: k.unit })
     return input
   }
   const cleanup: RowControl = { id: 'people.cleanup-bed-01', aria: 'ベッド1の清掃時間', control: { kind: 'number', min: 0, max: 540, step: 1, unit: '分' }, value: '0' }
+  const cleanup2: RowControl = { ...cleanup, id: 'people.cleanup-bed-02', aria: 'ベッド2の清掃時間' }
   const bare: RowControl = { id: 'x.count', aria: '件数', control: { kind: 'number', min: 0, max: null, step: 1, unit: '' }, value: '3' }
 
   it('S28 — the renderer has one input, and its unit span carries the unit as its text', () => {
@@ -1205,7 +1224,17 @@ describe('S28 — a number field announces its unit', () => {
     expect(input.getAttribute('aria-label')).toBe('ベッド1の清掃時間')
   })
 
-  it('S28 — a field without a unit carries no aria-describedby', () => {
-    expect(mount(bare).hasAttribute('aria-describedby')).toBe(false)
+  it('S28 — a field without a unit carries no aria-describedby, and keeps its name', () => {
+    const input = mount(bare)
+    expect(input.hasAttribute('aria-describedby')).toBe(false)
+    expect(input.getAttribute('aria-label')).toBe('件数')
+  })
+
+  it('S28 — two unit-bearing fields get two different unit ids, each pointing at its own span', () => {
+    const [a, b] = [idsOf(cleanup), idsOf(cleanup2)]
+    expect(a.describedBy).toBe(a.span)
+    expect(b.describedBy).toBe(b.span)
+    expect(a.describedBy).not.toBe(b.describedBy)
+    expect(a.span).not.toBe(b.span)
   })
 })
