@@ -43,6 +43,9 @@ describe('karuteMissingReasonKey (I6 — InboxReason -> reason.* key)', () => {
   const cases: [unknown, string | null][] = [
     ['emptyTranscript', 'reason.empty_transcript'],
     ['genericFailure', 'reason.job_failed'],
+    ['transcriptionFailed', 'reason.transcription_failed'],
+    ['aiFailed', 'reason.ai_failed'],
+    ['saveFailed', 'reason.karute_save_failed'],
     ['localAudio', 'reason.not_transcribed'],
     ['tailIncomplete', 'reason.not_transcribed'],
     ['serverAudio', 'reason.not_transcribed'],
@@ -59,6 +62,9 @@ describe('transcribeFailedReasonKey (I6)', () => {
   const cases: [unknown, string | null][] = [
     ['empty_transcript', 'reason.empty_transcript'],
     ['other', 'reason.other'],
+    ['transcription_failed', 'reason.transcription_failed'],
+    ['ai_failed', 'reason.ai_failed'],
+    ['karute_save_failed', 'reason.karute_save_failed'],
     ['something_else', null],
     [undefined, null],
   ]

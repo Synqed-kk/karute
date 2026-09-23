@@ -6,7 +6,9 @@
  * (never a local recomputation of the job object claim() handed the worker —
  * see the long comment on emitTranscribeFailedIfExhausted in
  * process-recording.ts for the source evidence); reason mapping
- * (EMPTY_TRANSCRIPT → 'empty_transcript', anything else → 'other'); never
+ * (EMPTY_TRANSCRIPT → 'empty_transcript', a named stage → its code + the
+ * capped first line as `message` (recording hole PR-1), anything else →
+ * 'other'); never
  * when core instead QUEUEs the job for another attempt; never when the
  * fail() call itself rejects (the job stays RUNNING for the stale-claim
  * reclaim, which decides on its own later round); never on a discard refusal,
@@ -121,7 +123,7 @@ beforeEach(() => {
 })
 
 describe('process-recording worker — recording.transcribe_failed (subject 6, fix round 1)', () => {
-  it('core\'s fail() verdict says FAILED + a generic failure → emits reason "other"', async () => {
+  it('core\'s fail() verdict says FAILED + the transcription stage rejects → reason "transcription_failed" + the capped message', async () => {
     runMeteredTranscription.mockRejectedValueOnce(new Error('provider timeout'))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
     // attempts (4) > max_attempts (3): a stale-claim reclaim can push attempts
@@ -132,7 +134,7 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
 
     await processRecordingJobs(10_000)
 
-    expect(fail).toHaveBeenCalledWith('job-1', 'provider timeout')
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription_failed: provider timeout')
     expect(audit).toHaveBeenCalledTimes(1)
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -154,7 +156,8 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
           audio_path: baseJob.payload.audio_path,
           attempt: 4,
           max_attempts: 3,
-          reason: 'other',
+          reason: 'transcription_failed',
+          message: 'provider timeout',
         }),
       }),
     )
@@ -187,7 +190,7 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
 
     await processRecordingJobs(10_000)
 
-    expect(fail).toHaveBeenCalledWith('job-1', 'provider timeout')
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription_failed: provider timeout')
     expect(audit).not.toHaveBeenCalled()
   })
 
@@ -198,7 +201,7 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
 
     await processRecordingJobs(10_000)
 
-    expect(fail).toHaveBeenCalledWith('job-1', 'provider timeout')
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription_failed: provider timeout')
     expect(audit).not.toHaveBeenCalled()
   })
 
@@ -243,6 +246,87 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
     runMeteredTranscription.mockRejectedValueOnce(
       new AppApiError('upstream_unavailable', 'transcription ledger unavailable', { reason: 'ledger_unavailable' }),
     )
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription ledger unavailable')
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  // Recording hole PR-1 — each stage names itself; nothing outside a stage does.
+  it('an AI leg rejects → fail() gets "ai_failed: …", the row carries reason ai_failed + message', async () => {
+    const { runKaruteSummary } = jest.requireMock('@/lib/ai/karute-summarize') as {
+      runKaruteSummary: jest.Mock
+    }
+    runKaruteSummary.mockRejectedValueOnce(new Error('summary 529 overloaded'))
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'ai_failed: summary 529 overloaded')
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({ reason: 'ai_failed', message: 'summary 529 overloaded' }),
+      }),
+    )
+  })
+
+  it('the karute upsert rejects → fail() gets "karute_save_failed: …", the row carries reason + message', async () => {
+    karuteRecordsCreate.mockRejectedValueOnce(new Error('core 409 conflict'))
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'karute_save_failed: core 409 conflict')
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({ reason: 'karute_save_failed', message: 'core 409 conflict' }),
+      }),
+    )
+  })
+
+  it('a multi-line / over-long cause is cut at the first newline and capped at 200 chars', async () => {
+    const long = 'x'.repeat(250)
+    runMeteredTranscription.mockRejectedValueOnce(new Error(`${long}\nsecond line never kept`))
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', `transcription_failed: ${'x'.repeat(200)}`)
+    const detail = (audit.mock.calls[0][0] as { detail: { message: string } }).detail
+    expect(detail.message).toBe('x'.repeat(200))
+
+    jest.clearAllMocks()
+    runMeteredTranscription.mockRejectedValueOnce(new Error('first line\nsecond line'))
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription_failed: first line')
+  })
+
+  it('a throw outside the three stages keeps its raw message, reason "other", and no message field', async () => {
+    createSignedUrl.mockResolvedValueOnce({ data: null, error: { message: 'gone' } } as never)
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    const sent = (fail.mock.calls[0] as unknown as [string, string])[1]
+    expect(sent.startsWith('Audio not readable at ')).toBe(true)
+    const detail = (audit.mock.calls[0][0] as { detail: Record<string, unknown> }).detail
+    expect(detail.reason).toBe('other')
+    expect('message' in detail).toBe(false)
+  })
+
+  it('a sentinel thrown from inside the transcription stage is never wrapped', async () => {
+    runMeteredTranscription.mockRejectedValueOnce(new Error('transcription ledger unavailable'))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
     fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
 

@@ -537,7 +537,8 @@ describe('the job worker — the phone’s normal save path', () => {
 
     expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
     expect(recordUsage).not.toHaveBeenCalled()
-    expect(fail).toHaveBeenCalledWith('job-1', 'core unreachable')
+    // Recording hole PR-1: the worker names the stage in front of the raw line.
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription_failed: core unreachable')
     // Not the spend-limit word: only a classified refusal earns that name.
     expect(fail).not.toHaveBeenCalledWith('job-1', AI_SPEND_LIMIT)
   })
@@ -1368,7 +1369,7 @@ describe('the release — a provider that ANSWERS non-2xx gives the reserve back
     expect(recordUsage).not.toHaveBeenCalledWith('transcribe', null, null, -46)
     // The provider's own error reaches the worker unchanged — the job requeues
     // by attempts rather than wearing the spend-limit word.
-    expect(fail).toHaveBeenCalledWith('job-1', REFUSAL_MESSAGE)
+    expect(fail).toHaveBeenCalledWith('job-1', `transcription_failed: ${REFUSAL_MESSAGE}`)
     expect(fail).not.toHaveBeenCalledWith('job-1', AI_SPEND_LIMIT)
     expect(complete).not.toHaveBeenCalled()
     // NO receipt (nothing was transcribed) and NO true-up (nothing to true up).
@@ -1398,7 +1399,7 @@ describe('the release — a provider that ANSWERS non-2xx gives the reserve back
     ])
     // The message the two interactive routes have always surfaced, unchanged by
     // the class it now travels in.
-    expect(fail).toHaveBeenCalledWith('job-1', 'Deepgram 502 Bad Gateway: upstream boom')
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription_failed: Deepgram 502 Bad Gateway: upstream boom')
     expect(rows('recording.transcribe')).toHaveLength(0)
   })
 
@@ -1414,7 +1415,7 @@ describe('the release — a provider that ANSWERS non-2xx gives the reserve back
     expect(ledger()).toEqual([45])
     expect(ledger().every((c) => c > 0)).toBe(true)
     expect(order).toEqual(['consume', 'recordUsage(reserve)', 'deepgram'])
-    expect(fail).toHaveBeenCalledWith('job-1', 'fetch failed')
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription_failed: fetch failed')
     expect(rows('recording.transcribe')).toHaveLength(0)
   })
 
@@ -1494,7 +1495,7 @@ describe('the release — a provider that ANSWERS non-2xx gives the reserve back
     // ⚖ The reserve simply STAYS — an over-count, the safe direction. Nothing
     // is thrown from the release itself: the provider's error is the one the
     // caller sees.
-    expect(fail).toHaveBeenCalledWith('job-1', REFUSAL_MESSAGE)
+    expect(fail).toHaveBeenCalledWith('job-1', `transcription_failed: ${REFUSAL_MESSAGE}`)
     expect(rows('recording.transcribe')).toHaveLength(0)
   })
 
