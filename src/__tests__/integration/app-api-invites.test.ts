@@ -109,6 +109,7 @@ import { GET, POST } from '@/app/api/app/v1/invites/route'
 import { DELETE } from '@/app/api/app/v1/invites/[id]/route'
 import { rosterOf, removedRow, BUSINESS } from './helpers/removed-staff'
 import { auditLines } from './helpers/audit-lines'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -202,6 +203,26 @@ describe('GET /api/app/v1/invites', () => {
     staffList.mockResolvedValue({ staff: [{ id: 'card-8', user_id: null }] })
     const res = await GET(getReq(), noParams)
     expect((await res.json()).invites[0]).toMatchObject({ id: 'inv-3', linked: false })
+  })
+
+  it('a REMOVED caller with staff.invite (real roster read over a _system_removed_ profile) → 403 store_forbidden STORE_SCOPE_UNVERIFIED, the invites list never read', async () => {
+    const roster = await rosterOf(
+      [removedRow('auth-user-1', 'Mika Tanaka'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      (c) => (serviceOverride.current = c),
+    )
+    expect(roster.map((s) => s.id)).toEqual(['colleague-1'])
+    staffListByBusinessOrThrow.mockResolvedValue(roster as never)
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(invitesList).not.toHaveBeenCalled()
+  })
+
+  it('a roster caller → the list is read and returned unchanged (the gate lets them through)', async () => {
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(invitesList).toHaveBeenCalledTimes(1)
+    expect((await res.json()).invites).toHaveLength(1)
   })
 
   it('a read failure degrades to [] (web-exact tolerance)', async () => {

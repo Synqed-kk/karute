@@ -95,8 +95,16 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 const getBusinessId = jest.fn(async () => 'biz-1')
+// The web actor (resolveWebActorId → resolveUserId = the auth user id =
+// profiles.id). Default: unresolvable → actorId null, the path every pin below
+// was written against; the self-removal pins set it.
+let actorUserId: string | null = null
 jest.mock('@/lib/staff', () => ({
   getBusinessId: () => getBusinessId(),
+  resolveUserId: async () => {
+    if (!actorUserId) throw new Error('Not authenticated')
+    return actorUserId
+  },
 }))
 
 // profileRow === null models a synqed-only id (owner-created teammate not yet
@@ -141,6 +149,7 @@ import { auditLines } from './helpers/audit-lines'
 beforeEach(() => {
   jest.clearAllMocks()
   profileRow = null
+  actorUserId = null
   profileUpdates = []
   profileUpdateError = null
   updateUserById.mockImplementation(async () => ({ error: null }))
@@ -243,7 +252,35 @@ describe('deleteStaff — a removed person stops being recognised (reversible)',
     expect(lines[0]).toMatchObject({
       action: 'staff.remove',
       target_id: 'profile-1',
-      detail: { synqed_staff_id: 'synqed-resolved', profile_neutralised: true, account_banned: true },
+      detail: { synqed_staff_id: 'synqed-resolved', self_removal: false, profile_neutralised: true, account_banned: true },
+    })
+  })
+
+  it('self-removal (the actor removes their OWN row): core delete still runs, but NO name move, NO ban; audit self_removal:true', async () => {
+    actorUserId = 'profile-1'
+    profileRow = { id: 'profile-1', full_name: '田中' }
+    const { result, lines } = await removeRow('profile-1')
+    expect(result).toBeUndefined()
+    expect(staffDelete).toHaveBeenCalledWith('synqed-resolved')
+    expect(profileUpdates).toEqual([])
+    expect(updateUserById).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'staff.remove',
+      target_id: 'profile-1',
+      detail: { synqed_staff_id: 'synqed-resolved', self_removal: true, profile_neutralised: false, account_banned: false },
+    })
+  })
+
+  it('the actor removes ANOTHER row: both moves run, audit self_removal:false', async () => {
+    actorUserId = 'profile-manager'
+    profileRow = { id: 'profile-1', full_name: '田中' }
+    const { lines } = await removeRow('profile-1')
+    expect(profileUpdates).toHaveLength(1)
+    expect(updateUserById).toHaveBeenCalledWith('profile-1', { ban_duration: '876000h' })
+    expect(lines[0]).toMatchObject({
+      actor_id: 'profile-manager',
+      detail: { self_removal: false, profile_neutralised: true, account_banned: true },
     })
   })
 
