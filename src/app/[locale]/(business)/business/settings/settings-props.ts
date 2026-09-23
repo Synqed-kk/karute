@@ -931,6 +931,9 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
   const policyNote = '予約ごとに使う{noun}の選び方です。ここで変えられる設定はありません。'
   const equipmentTitle = '{noun}・枠'
   const equipmentNote = 'この数は、ボードの空き枠計算に使われます（{noun}の数 × 営業時間）。'
+  // ⚖ S29 — no business type = no words block, so nothing renames the 設備・枠 block live: its title and
+  // its 台数 note both stay byte-for-byte, on ONE switch, even if a word override is somehow present.
+  const typed = ctx.businessType !== null
   const policyFacts = [
     '{noun}は自動で決まります。通常の{noun}から順に埋め、{privateWord}は最後に使います。',
     '「{privateWord}のみ」の指定がある予約だけが{privateWord}に限定されます。指定は予約ごとに付きます。',
@@ -963,8 +966,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         links: [{ label: '役職と権限はスタッフ管理で', sectionId: 'staff' }],
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（稼働状態を変更）`,
       }),
-      // ⚖ S29 — no business type = no words block, so nothing renames this block live; its umbrella note (台数) stays byte-for-byte.
-      block('people.equipment', fillWords(equipmentTitle, roomSlots), ctx.businessType !== null ? fillWords(equipmentNote, roomSlots) : 'この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。', beds.map((r) =>
+      block('people.equipment', typed ? fillWords(equipmentTitle, roomSlots) : '設備・枠', typed ? fillWords(equipmentNote, roomSlots) : 'この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。', beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
           seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', fillWords(classLabels.standard, roomSlots)], ['private', fillWords(classLabels.private, roomSlots)]]), r.room_class),
           num(`people.cleanup-${r.id}`, fillWords(turnoverControl, { name: r.name, turnoverName }), r.cleanup_minutes, 0, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
