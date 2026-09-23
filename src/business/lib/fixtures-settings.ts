@@ -502,7 +502,7 @@ export const colorTokenMeaning: Record<string, string> = {
  *  quietly pick between: `completeOnboarding` puts it in the business's own
  *  org-settings blob (`src/actions/org-settings.ts:294` → `:363-366`
  *  `orgSettings.upsert({ settings })`), and the store add/edit dialog puts it on
- *  the STORE (`src/lib/stores/stores.core.ts` → `synqed.stores.create/update`,
+ *  the STORE (`src/actions/stores.ts:330,405` → `synqed.stores.create/update`,
  *  core's `stores.business_type` column). The row is per-store here, says so, and
  *  names the other home in its own 詳しく rather than pretending there is one. */
 export const businessProfiles = [
