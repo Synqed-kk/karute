@@ -376,7 +376,7 @@ export async function deleteStaffCore(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: profile } = await (service as any)
     .from('profiles')
-    .select('id')
+    .select('id, full_name')
     .eq('id', id)
     .eq('customer_id', businessId)
     .maybeSingle()
@@ -408,6 +408,54 @@ export async function deleteStaffCore(
     }
   }
 
+  // A removed person must stop being recognised NOW, not when their token
+  // dies. Core's record is gone, but the profiles row (customer_id = this
+  // business) still admitted them at every identity read — and core's
+  // `{ store_ids: [] }` for an id it no longer knows read as FLOATING, i.e.
+  // unclamped. Two independent, reversible moves, on the success exit only
+  // (after the 400 guard, so a refused delete neutralises nothing), in this
+  // order: (1) roster-invisible name, (2) banned account. A crash between
+  // them leaves a roster-invisible profile with a live account — every facade
+  // door already refuses a caller the roster cannot place, and the web
+  // getCurrentUserStaffId answers null — so (1) alone fails closed.
+  let profileNeutralised = false
+  let accountBanned = false
+  if (profile) {
+    // (1) Roster-invisible by the existing `_system_` convention (staffListCore
+    // excludes `full_name ILIKE '_system_%'`), KEEPING the name after the
+    // prefix so the move is reversible: strip the prefix = restore. No row
+    // deleted, no column added (customer_id is NOT NULL — it cannot be
+    // cleared). Idempotent: a null name or one already `_system_…` is left as
+    // is (already off the roster). Scoped by id AND business. Inline, not a
+    // helper, so the write stays inside this audited core's span.
+    const currentName: string | null = profile.full_name ?? null
+    if (currentName == null || currentName.startsWith('_system_')) {
+      profileNeutralised = true
+    } else {
+      try {
+        const r = await service
+          .from('profiles')
+          .update({ full_name: '_system_removed_' + currentName })
+          .eq('id', id)
+          .eq('customer_id', businessId)
+        if (r?.error) throw r.error
+        profileNeutralised = true
+      } catch (err) {
+        console.error('[deleteStaffCore] could not neutralise the removed profile:', err)
+      }
+    }
+    // (2) Banned: no new token can be minted.
+    try {
+      const r = await service.auth.admin.updateUserById(id, { ban_duration: '876000h' })
+      if (r?.error) throw r.error
+      accountBanned = true
+    } catch (err) {
+      // Best-effort (same as acceptInvite's stranded-account ban): the name
+      // move already fails every placement door closed; the audit row says so.
+      console.error('[deleteStaffCore] could not ban the removed account:', err)
+    }
+  }
+
   // Emitted on the success exit (including the already-gone-in-core path —
   // the roster removal the operator asked for still completed); the 400
   // guard above returns before reaching here, so a refused delete never logs.
@@ -420,7 +468,11 @@ export async function deleteStaffCore(
     businessId,
     targetType: 'staff',
     targetId: id,
-    detail: { synqed_staff_id: synqedStaffId ?? null },
+    detail: {
+      synqed_staff_id: synqedStaffId ?? null,
+      profile_neutralised: profileNeutralised,
+      account_banned: accountBanned,
+    },
     requestId: deps.requestId,
     source: deps.source,
   })
@@ -443,11 +495,10 @@ export async function deleteStaffCore(
  * already gone — treat as success rather than crash.
  *
  * NOTE (Anthony): this deletes the synqed-core staff record only. For
- * profile-backed staff the Supabase `profiles` row remains, so the roster
- * (which reads profiles first) still lists them. profiles.id === auth.users.id,
- * so removing that row is an auth-project / transactional operation owned by the
- * backend — updateStaff already treats profile rows as auth-owned (it won't even
- * change the email). Deactivating/removing the profile is out of scope here.
+ * profile-backed staff the Supabase `profiles` row is KEPT (profiles.id ===
+ * auth.users.id; removing it is backend-owned) but neutralised reversibly in
+ * deleteStaffCore: its name gains the `_system_removed_` prefix (off the
+ * roster) and the auth account is banned. Restore = strip the prefix + unban.
  */
 export async function deleteStaff(id: string): Promise<StaffActionResult> {
   const t = await getTranslations('common')
