@@ -6,7 +6,7 @@
 // the phone's pipeline branches on it (global-pipeline.ts, which is baked into
 // the thin bundle). Importing the constant from the worker would drag that
 // whole server graph into the phone's build, so the word itself lives here,
-// alone, with no other export and no imports at all.
+// with no imports at all.
 //
 // EMPTY_TRANSCRIPT and CONSENT_REQUIRED_ERROR predate this file and keep their
 // own homes (the latter in lib/consent, which the phone already imports).
@@ -39,3 +39,23 @@ export const DISCARD_LEDGER_UNREADABLE = 'discard ledger row unreadable — refu
  *  exact throw. It is a refusal, not a failure: never a second row under
  *  recording.transcribe_failed for the same event. */
 export const TRANSCRIPTION_LEDGER_UNAVAILABLE = 'transcription ledger unavailable'
+
+/** Which of the worker's three paid-or-saving stages refused (the recording
+ *  hole, PR-1, 2026-09-23): the job's `last_error` becomes
+ *  `${code}: ${cause}` so 録音履歴 and the 監査ログ row can name the step
+ *  instead of a bare 「保存されませんでした」. `cause` is the thrown error's
+ *  FIRST LINE only, capped at 200 chars — an SDK/HTTP error string, never
+ *  transcript text. The sentinels above are never wrapped in this. */
+export type StageFailureCode = 'transcription_failed' | 'ai_failed' | 'karute_save_failed'
+
+export class StageFailure extends Error {
+  readonly code: StageFailureCode
+  readonly cause: string
+  constructor(code: StageFailureCode, rawMessage: string) {
+    const cause = rawMessage.split('\n', 1)[0].slice(0, 200)
+    super(`${code}: ${cause}`)
+    this.name = 'StageFailure'
+    this.code = code
+    this.cause = cause
+  }
+}
