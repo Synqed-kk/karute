@@ -79,9 +79,9 @@ export async function buildNotificationFeed(
     recording: `${lp}/settings?tab=audit`,
   }
 
-  // Fan out the four independent reads. Each is individually guarded so a
+  // Fan out the five independent reads. Each is individually guarded so a
   // single failure degrades that ONE source to empty rather than the feed.
-  // All three SDK-backed sources are cached 60s/business (like loadChaseAndSync)
+  // All four SDK-backed sources are cached 60s/business (like loadChaseAndSync)
   // so seeding the feed on every (app) page doesn't re-fetch per navigation.
   const [todayAppointments, recentBookings, drafts, chaseAndSync, recordingFailures] =
     await Promise.all([

@@ -331,7 +331,7 @@ function buildRecordingFailures(
 }
 
 // ─────────────────────────────────────────────────────────────
-// The pure assembler — composes the five sources into a flat feed,
+// The pure assembler — composes the six sources into a flat feed,
 // newest-first. (The panel re-sorts on render too, but returning a
 // sorted feed keeps the badge/most-recent logic honest.)
 // ─────────────────────────────────────────────────────────────
