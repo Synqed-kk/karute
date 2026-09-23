@@ -372,12 +372,13 @@ export type TakeMeta = {
    *  body the transcribe door answered for `finalizedPath` — transcript,
    *  paragraphs, words, confidence, speakerId — so an in-tab retry or a reload
    *  replays it (diarization and the speaker hint included) instead of paying
-   *  for the same audio again. Keyed on the path: a different object is a
-   *  different answer. An EMPTY transcript is stamped too, and replays as the
+   *  for the same audio again. Keyed on the path AND the locale the door was
+   *  asked in: a different object, or a different language, is a different
+   *  answer. An EMPTY transcript is stamped too, and replays as the
    *  same empty result with no spend. Lives and dies with the take — the same
    *  record, the same owner gate, the same delete. Absent = never transcribed
    *  (or stamped before this field existed): the door is asked, as always. */
-  transcript?: { finalizedPath: string; response: unknown; at: number }
+  transcript?: { finalizedPath: string; locale: string; response: unknown; at: number }
 }
 
 /** What a pending discard-transcript needs to finish after a reload — the
@@ -1065,9 +1066,12 @@ export async function stampTakeOutcome(
 export async function stampTakeTranscript(
   takeId: string,
   finalizedPath: string,
+  locale: string,
   response: unknown,
 ): Promise<void> {
-  await patchTakeMeta(takeId, { transcript: { finalizedPath, response, at: Date.now() } })
+  await patchTakeMeta(takeId, {
+    transcript: { finalizedPath, locale, response, at: Date.now() },
+  })
 }
 
 /** A2-2: mark a take as "discarded, words still owed". Written BEFORE anything
@@ -1132,7 +1136,7 @@ export async function readTakeOutcome(takeId: string): Promise<
 
 /** Recording hole PR-2: the stored transcribe answer, or null — same owner
  *  gate, same fail-closed null as readTakeOutcome. The caller compares
- *  `finalizedPath` against the object it is about to transcribe. */
+ *  `finalizedPath` and `locale` against the run it is about to make. */
 export async function readTakeTranscript(
   takeId: string,
 ): Promise<NonNullable<TakeMeta['transcript']> | null> {
