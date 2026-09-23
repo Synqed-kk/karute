@@ -21,7 +21,9 @@ const SOURCE_FILE = /^(?!.*\.d\.(?:ts|mts|cts)$).*\.(?:ts|tsx|js|jsx|mts|cts|mjs
 // to src/lib/customers/memory.core.ts — that file's entry is now empty as well.
 // 2026-09-23 (PKT-SEC-CORES-D4): 33 → 27, the six pack cores moved to
 // src/lib/packs/packs.core.ts — that file's entry is now empty too.
-const INTERNAL_DEBT_COUNT = 27 // may only go DOWN
+// 2026-09-23 (PKT-SEC-CORES-D5): 27 → 23, the four staff cores moved to
+// src/lib/staff/staff.core.ts — that file's entry is now empty as well.
+const INTERNAL_DEBT_COUNT = 23 // may only go DOWN
 const CLOSED_DOORS = ['memberEmailsForBusiness', 'writeOrgSettingsBlob']
 const NEW_EXPORT_MESSAGE = "A new export in a 'use server' file is a browser-callable endpoint with no authentication of its own. If it is a real action, add it to PUBLIC_ACTIONS and make sure its FIRST lines check the session/capability. If it is an internal helper, put it in a server-only module instead. Read PKT-SEC-CORES-A."
 

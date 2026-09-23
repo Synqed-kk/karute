@@ -580,3 +580,34 @@
   the facade's FACADE_AUDIT_MAP['karute.manualCreate'] row owning the emits. Justification and
   `dated` unchanged · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security
   tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/staff.ts · NOT a dropped writer — the symbols MOVED. Every
+  runtime export of a 'use server' file is registered as a browser-callable server action with
+  no authentication of its own, so the four client-threaded staff cores (createStaffCore,
+  updateStaffCore, deleteStaffCore, uploadStaffAvatarCore) left src/actions/staff.ts for the
+  server-only module src/lib/staff/staff.core.ts (no directive, `import 'server-only'` on line
+  one). All four are re-registered there as AUDITED_CORES['src/lib/staff/staff.core.ts'],
+  byte-identical body, same staff.add/staff.update/staff.remove/staff.avatar_update emits. The
+  whole entry left the old file (nothing registered stays behind — the web wrappers were never
+  registered), and the entry key is file-scoped so the move costs this line · Fable
+  (PKT-SEC-CORES-D5-STAFF-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:staff.create · coveredBy repointed
+  'src/actions/staff.ts#createStaffCore' → 'src/lib/staff/staff.core.ts#createStaffCore'.
+  The same choke point, at its new address: the facade POST /api/app/v1/staff route still calls
+  that one core, which still emits staff.add itself, which is why the row stays a 'skip' (a rule
+  here would double-log every facade write). The citation moved because the file did · Fable
+  (PKT-SEC-CORES-D5-STAFF-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:staff.update · coveredBy repointed
+  'src/actions/staff.ts#updateStaffCore' → 'src/lib/staff/staff.core.ts#updateStaffCore'.
+  Same move, same choke point: the facade PATCH /api/app/v1/staff/[id] route calls that one core
+  and it emits staff.update itself · Fable (PKT-SEC-CORES-D5-STAFF-2026-09-23.md; ⚖ Liam
+  2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:staff.delete · coveredBy repointed
+  'src/actions/staff.ts#deleteStaffCore' → 'src/lib/staff/staff.core.ts#deleteStaffCore'.
+  Same move, same choke point: the facade DELETE /api/app/v1/staff/[id] route calls that one core
+  and it emits staff.remove itself · Fable (PKT-SEC-CORES-D5-STAFF-2026-09-23.md; ⚖ Liam
+  2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:staff.uploadAvatar · coveredBy repointed
+  'src/actions/staff.ts#uploadStaffAvatarCore' → 'src/lib/staff/staff.core.ts#uploadStaffAvatarCore'.
+  Same move, same choke point: the facade POST /api/app/v1/staff/[id]/avatar route calls that one
+  core and it emits staff.avatar_update itself · Fable (PKT-SEC-CORES-D5-STAFF-2026-09-23.md;
+  ⚖ Liam 2026-09-16 security tight, whole ecosystem)
