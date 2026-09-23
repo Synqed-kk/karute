@@ -46,6 +46,9 @@ jest.mock('@/lib/ports/recording-port', () => ({
 let transcribeBody: Record<string, unknown> = { transcript: 'こんにちは' }
 let extractFails = false
 const posts: string[] = []
+/** When set, the `/transcribe` answer waits for this — so two runs can both be
+ *  in flight before the first answer lands. */
+let transcribeGate: Promise<void> | null = null
 jest.mock('@/lib/ports/data-port', () => ({
   getDataPort: () => ({
     apiFetch: async (url: string) => {
@@ -53,6 +56,7 @@ jest.mock('@/lib/ports/data-port', () => ({
       if (url.endsWith('/extract') && extractFails) {
         return { ok: false, status: 500, text: async () => 'boom' } as unknown as Response
       }
+      if (url.endsWith('/transcribe') && transcribeGate) await transcribeGate
       const body = url.endsWith('/transcribe')
         ? transcribeBody
         : url.endsWith('/extract')
@@ -78,6 +82,7 @@ beforeEach(() => {
   posts.length = 0
   transcribeBody = { transcript: 'こんにちは' }
   extractFails = false
+  transcribeGate = null
 })
 
 describe('⚖ runAIPipeline never pays for the same finalized object twice', () => {
@@ -133,5 +138,54 @@ describe('⚖ runAIPipeline never pays for the same finalized object twice', () 
     await run()
     expect(count('/transcribe')).toBe(2)
     expect(takes.get(TAKE)!.transcript).toBeUndefined()
+  })
+})
+
+describe('⚖ two tabs on the same object take turns (the Web Locks API)', () => {
+  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  const setNavigator = (value: unknown) =>
+    Object.defineProperty(globalThis, 'navigator', { value, configurable: true })
+  afterEach(() => {
+    if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator)
+  })
+
+  it('(7) two concurrent runs, both in flight before the first answer → ONE transcribe POST, same transcript', async () => {
+    // A per-name promise chain: the next holder starts only when the last one
+    // settles — what the browser's exclusive lock does across tabs.
+    const tails = new Map<string, Promise<unknown>>()
+    const requested: string[] = []
+    setNavigator({
+      locks: {
+        request: (name: string, fn: () => Promise<unknown>) => {
+          requested.push(name)
+          const next = (tails.get(name) ?? Promise.resolve()).then(() => fn())
+          tails.set(name, next.catch(() => {}))
+          return next
+        },
+      },
+    })
+    let open!: () => void
+    transcribeGate = new Promise<void>((r) => {
+      open = r
+    })
+
+    const a = run()
+    const b = run()
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    // both runs are in flight and one POST is parked before any answer arrives
+    expect(requested).toEqual([`karute:transcribe:${FINALIZED}`, `karute:transcribe:${FINALIZED}`])
+    open()
+    const [ra, rb] = await Promise.all([a, b])
+
+    expect(count('/transcribe')).toBe(1)
+    expect(ra.transcript).toBe('こんにちは')
+    expect(rb.transcript).toBe(ra.transcript)
+  })
+
+  it('(8) no navigator.locks: the run still goes through, unlocked — one run, one POST', async () => {
+    setNavigator({})
+    const result = await run()
+    expect(count('/transcribe')).toBe(1)
+    expect(result.transcript).toBe('こんにちは')
   })
 })
