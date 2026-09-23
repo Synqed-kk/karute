@@ -14,8 +14,16 @@
 // updateTag would slip through; today every such shared writer is itself
 // route-imported (writeOrgSettingsBlobWithClient), so the direct scan covers
 // the seam. Extend to a call graph only if that stops being true.
+//
+// PLUS every server-only module the security moves took route-imported cores
+// INTO (SERVER_ONLY_MODULES — the same list server-action-surface.test.ts
+// reads): those cores are no longer under @/actions/*, so the scan above can't
+// see them. Whole file, comments ignored: nothing in these modules is a Server
+// Action, so no updateTag call belongs anywhere in them.
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import ts from 'typescript'
+import { SERVER_ONLY_MODULES } from './server-action-surface.data'
 
 const ROOT = join(process.cwd(), 'src/app/api/app/v1')
 
@@ -134,5 +142,21 @@ describe('facade-imported action cores never call updateTag (Server-Action-only)
     // A name this scan can't resolve is a hole in the guard, not a pass.
     expect(missing).toEqual([])
     expect(offenders).toEqual([])
+  })
+
+  it.each(SERVER_ONLY_MODULES)('server-only core module %s never calls updateTag', (file) => {
+    const src = readFileSync(join(process.cwd(), file), 'utf8')
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true)
+    const calls: string[] = []
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node)) {
+        const callee = node.expression
+        const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : ''
+        if (name === 'updateTag') calls.push(`line ${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sf)
+    expect(calls).toEqual([])
   })
 })
