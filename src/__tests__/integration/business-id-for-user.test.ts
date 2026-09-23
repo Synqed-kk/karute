@@ -83,6 +83,12 @@ describe('businessIdForUser', () => {
     const businessIdForUser = await loadHelper()
     await expect(businessIdForUser('user-1')).resolves.toBe('biz-1')
   })
+
+  it('a REMOVED null-name profile (the bare marker _system_removed_) → membership_inactive', async () => {
+    mockService({ data: { customer_id: 'biz-1', full_name: '_system_removed_' }, error: null })
+    const businessIdForUser = await loadHelper()
+    await expect(businessIdForUser('removed-null')).rejects.toMatchObject({ code: 'membership_inactive' })
+  })
 })
 
 export {}

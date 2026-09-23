@@ -72,6 +72,13 @@ describe('removal → roster', () => {
     expect(await rosterIds()).toEqual(['auth-user-1', 'colleague-1'])
   })
 
+  it('a null-name profile removed → bare _system_removed_ (empty suffix) is off the roster', async () => {
+    const fake = fakeProfilesService([...table(), { id: 'null-1', full_name: null, customer_id: BUSINESS }])
+    await remove(fake, 'null-1')
+    expect(fake.rows.find((r) => r.id === 'null-1')!.full_name).toBe('_system_removed_')
+    expect(await rosterIds()).toEqual(['auth-user-1', 'colleague-1'])
+  })
+
   it('a second removal of the same id does not double-prefix', async () => {
     const fake = fakeProfilesService(table())
     await remove(fake, 'auth-user-1')

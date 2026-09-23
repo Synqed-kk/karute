@@ -375,12 +375,21 @@ export async function deleteStaffCore(
   // synqed staff ids and pass through unchanged.
   const service = createServiceClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: profile } = await (service as any)
+  const { data: profile, error: profileErr } = await (service as any)
     .from('profiles')
     .select('id, full_name, display_role')
     .eq('id', id)
     .eq('customer_id', businessId)
     .maybeSingle()
+  // Fail CLOSED on a failed lookup — before the owner guard and every write.
+  // A null `profile` from an error would otherwise read as "no profile row":
+  // the owner guard and both neutralising moves skipped, the RAW id sent to
+  // core (404 → swallowed) and `{ ok: true }` + an audit row returned while
+  // the person stays fully active. Each door already answers a throw (facade
+  // 502 via the route's AppApiError pass-through, web the translated fallback).
+  if (profileErr) {
+    throw new AppApiError('upstream_unavailable', 'staff profile lookup failed')
+  }
 
   // The OWNER row cannot be removed — refused here, before ANY write (core
   // delete, rename, ban, audit: a refused removal logs nothing, same as the
@@ -446,17 +455,21 @@ export async function deleteStaffCore(
     // excludes `full_name ILIKE '_system_%'`), KEEPING the name after the
     // prefix so the move is reversible: strip the prefix = restore. No row
     // deleted, no column added (customer_id is NOT NULL — it cannot be
-    // cleared). Idempotent: a null name or one already `_system_…` is left as
-    // is (already off the roster). Scoped by id AND business. Inline, not a
-    // helper, so the write stays inside this audited core's span.
+    // cleared). Idempotent ONLY for the exact `_system_removed_` prefix — the
+    // one the identity seam (businessIdForUser) refuses. Every other name gets
+    // the marker, including another `_system_…` value (off the roster but NOT
+    // refused at the seam) and a null name (same: the marker is what closes
+    // the seam). Restore caveat: for a null name, stripping the prefix yields
+    // '' rather than null. Scoped by id AND business. Inline, not a helper, so
+    // the write stays inside this audited core's span.
     const currentName: string | null = profile.full_name ?? null
-    if (currentName == null || currentName.startsWith('_system_')) {
+    if (currentName != null && currentName.startsWith('_system_removed_')) {
       profileNeutralised = true
     } else {
       try {
         const r = await service
           .from('profiles')
-          .update({ full_name: '_system_removed_' + currentName })
+          .update({ full_name: '_system_removed_' + (currentName ?? '') })
           .eq('id', id)
           .eq('customer_id', businessId)
         if (r?.error) throw r.error

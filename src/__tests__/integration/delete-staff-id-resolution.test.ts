@@ -115,6 +115,8 @@ let profileRow: { id: string; full_name?: string | null; display_role?: string |
 // either move can be made to fail on its own (the 9/12 layer matrix).
 let profileUpdates: Array<{ patch: Record<string, unknown>; eq: Array<[string, unknown]> }> = []
 let profileUpdateError: { message: string } | null = null
+// A failed profiles LOOKUP (Supabase answers { data: null, error }).
+let profileLookupError: { message: string } | null = null
 // Records the moment each profiles update is issued (for the name-before-ban
 // order pin via mock.invocationCallOrder).
 const profileUpdateCall = jest.fn()
@@ -125,9 +127,8 @@ jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'eq']) builder[m] = () => builder
-    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
-      data: profileRow,
-    })
+    ;(builder as { maybeSingle: unknown }).maybeSingle = async () =>
+      profileLookupError ? { data: null, error: profileLookupError } : { data: profileRow, error: null }
     ;(builder as { update: unknown }).update = (patch: Record<string, unknown>) => {
       const rec = { patch, eq: [] as Array<[string, unknown]> }
       profileUpdates.push(rec)
@@ -156,6 +157,7 @@ beforeEach(() => {
   actorUserId = null
   profileUpdates = []
   profileUpdateError = null
+  profileLookupError = null
   updateUserById.mockImplementation(async () => ({ error: null }))
   requireCapability.mockImplementation(async () => {})
   can.mockImplementation(async () => true)
@@ -361,13 +363,46 @@ describe('deleteStaff — a removed person stops being recognised (reversible)',
     expect(lines).toHaveLength(0)
   })
 
-  it('idempotent: an already-_system_ name is not double-prefixed (the ban is still asserted)', async () => {
+  it('idempotent: an already-_system_removed_ name is not double-prefixed (the ban is still asserted)', async () => {
     profileRow = { id: 'profile-1', full_name: '_system_removed_田中' }
     const { result, lines } = await removeRow('profile-1')
     expect(result).toBeUndefined()
     expect(profileUpdates).toHaveLength(0)
     expect(updateUserById).toHaveBeenCalledWith('profile-1', { ban_duration: '876000h' })
     expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: true } })
+  })
+
+  it('another _system_ name (not the removal marker) IS prefixed — the seam refuses only _system_removed_', async () => {
+    profileRow = { id: 'profile-1', full_name: '_system_other' }
+    const { lines } = await removeRow('profile-1')
+    expect(profileUpdates).toHaveLength(1)
+    expect(profileUpdates[0].patch).toEqual({ full_name: '_system_removed__system_other' })
+    expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: true } })
+  })
+
+  it('a NULL name gets the bare marker _system_removed_ (the marker is what closes the seam)', async () => {
+    profileRow = { id: 'profile-1', full_name: null }
+    const { lines } = await removeRow('profile-1')
+    expect(profileUpdates).toHaveLength(1)
+    expect(profileUpdates[0].patch).toEqual({ full_name: '_system_removed_' })
+    expect(profileUpdates[0].eq).toEqual([['id', 'profile-1'], ['customer_id', expect.anything()]])
+    expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: true } })
+  })
+
+  // Fail-closed lookup — first in the chain, before the owner guard.
+  it('the profiles LOOKUP fails → translated fallback: NO core delete, NO profile update, NO ban, NO audit', async () => {
+    profileLookupError = { message: 'db down' }
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { result, lines } = await removeRow('profile-1')
+      expect(result).toEqual({ error: 'somethingWentWrong' })
+      expect(staffDelete).not.toHaveBeenCalled()
+      expect(profileUpdates).toHaveLength(0)
+      expect(updateUserById).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    } finally {
+      err.mockRestore()
+    }
   })
 
   it('idempotency boundary: a name CONTAINING _system_ in the middle is prefixed normally (only a _system_ START is left alone)', async () => {

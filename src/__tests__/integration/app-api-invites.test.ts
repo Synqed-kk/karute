@@ -218,6 +218,19 @@ describe('GET /api/app/v1/invites', () => {
     expect(invitesList).not.toHaveBeenCalled()
   })
 
+  it('the roster READ fails → 200 with the same empty shape the web list answers, the invites list never read', async () => {
+    staffListByBusinessOrThrow.mockRejectedValueOnce(new Error('profiles down'))
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = await GET(getReq(), noParams)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ invites: [] })
+      expect(invitesList).not.toHaveBeenCalled()
+    } finally {
+      err.mockRestore()
+    }
+  })
+
   it('a roster caller → the list is read and returned unchanged (the gate lets them through)', async () => {
     const res = await GET(getReq(), noParams)
     expect(res.status).toBe(200)

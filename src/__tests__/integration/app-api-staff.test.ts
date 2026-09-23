@@ -65,6 +65,7 @@ jest.mock('@/lib/staff', () => ({
 // Supabase update).
 let profileRow: { id: string; full_name?: string; display_role?: string } | null = null
 let profileUpdateError: { message: string } | null = null
+let profileLookupError: { message: string } | null = null
 // Every .eq() applied to a profiles query, recorded so pins can assert
 // tenant scoping (the service client bypasses RLS — the .eq('customer_id',…)
 // IS the isolation).
@@ -80,7 +81,8 @@ jest.mock('@/lib/supabase/service', () => ({
       profileEqCalls.push([col, val])
       return builder
     }
-    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: profileRow })
+    ;(builder as { maybeSingle: unknown }).maybeSingle = async () =>
+      profileLookupError ? { data: null, error: profileLookupError } : { data: profileRow, error: null }
     ;(builder as { update: unknown }).update = (patch: Record<string, unknown>) => {
       const rec = { patch, eq: [] as Array<[string, unknown]> }
       profileUpdates.push(rec)
@@ -190,6 +192,7 @@ beforeEach(() => {
   mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'staff.manage']))
   profileRow = null
   profileUpdateError = null
+  profileLookupError = null
   profileEqCalls = []
   profileUpdates = []
   storeAssignments = {}
@@ -481,6 +484,28 @@ describe('DELETE /api/app/v1/staff/[id]', () => {
     expect(profileUpdates).toHaveLength(0)
     expect(updateUserById).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
+  })
+
+  it('the profiles LOOKUP fails → 502 upstream_unavailable: NO core delete, NO profile update, NO ban, NO audit', async () => {
+    profileLookupError = { message: 'db down' }
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    })
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).toMatchObject({ code: 'upstream_unavailable' })
+    expect(staffDelete).not.toHaveBeenCalled()
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('another _system_ name (not the removal marker) → renamed _system_removed__system_other', async () => {
+    profileRow = { id: 'staff-9', full_name: '_system_other' }
+    const res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    expect(res.status).toBe(200)
+    expect(profileUpdates).toHaveLength(1)
+    expect(profileUpdates[0].patch).toEqual({ full_name: '_system_removed__system_other' })
   })
 
   it('a MANAGER row (not the owner) → today\'s removal: 200, name move, ban', async () => {
