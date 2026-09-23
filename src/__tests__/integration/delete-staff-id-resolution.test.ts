@@ -415,12 +415,12 @@ describe('deleteStaff — a removed person stops being recognised (reversible)',
 
   // The owner guard — ONE home (deleteStaffCore), first in the chain, before
   // any write. ⚖ 9/12: guard off = the existing pins above, unchanged.
-  it('the OWNER row: refused with the existing translated fallback — NO core delete, NO profile update, NO ban, NO audit', async () => {
+  it('the OWNER row: refused as a REFUSAL (noPermission) — NO core delete, NO profile update, NO ban, NO audit', async () => {
     profileRow = { id: 'profile-owner', full_name: '佐藤', display_role: 'owner' }
     const err = jest.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const { result, lines } = await removeRow('profile-owner')
-      expect(result).toEqual({ error: 'somethingWentWrong' })
+      expect(result).toEqual({ error: 'noPermission' })
       expect(staffDelete).not.toHaveBeenCalled()
       expect(profileUpdates).toHaveLength(0)
       expect(updateUserById).not.toHaveBeenCalled()

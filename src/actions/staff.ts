@@ -398,7 +398,7 @@ export async function deleteStaffCore(
   // staff a staff-manager could remove the owner through either door — and
   // the rename + ban below would then lock the whole business out. The
   // message is dev-facing: each door already maps a throw to its own answer
-  // (facade 403 forbidden, web the translated fallback).
+  // (facade 403 forbidden, web `noPermission`).
   if (profile?.display_role === 'owner') {
     throw new AppApiError('forbidden', 'the owner row cannot be removed')
   }
@@ -558,6 +558,8 @@ export async function deleteStaff(id: string): Promise<StaffActionResult> {
     revalidatePath('/', 'layout')
     updateTag('staff-list')
   } catch (err) {
+    // A refusal (the owner guard) is not a system error — answer it as one.
+    if (err instanceof AppApiError && err.code === 'forbidden') return { error: t('noPermission') }
     console.error('[deleteStaff]', err)
     return { error: t('somethingWentWrong') }
   }
