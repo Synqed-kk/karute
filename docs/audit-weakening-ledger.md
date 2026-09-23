@@ -363,3 +363,220 @@
   detail.reason = 'rollback_failed') and logs that id, then answers
   STAFF_CARD_LEFT_BEHIND. That row records a card that really is on the roster, not the
   delete · Fable (ADJUDICATION-STORE-AT-CREATION-3bec439c2-2026-09-19.md; ⚖ Liam 2026-09-16 store-at-creation)
+- 2026-09-23 · cores:src/actions/invites.ts#createInviteCore · NOT a dropped writer — the
+  symbol MOVED. Every runtime export of a 'use server' file is registered as a
+  browser-callable server action with no authentication of its own, so the four
+  client-threaded invite cores left src/actions/invites.ts for the server-only module
+  src/lib/invites/invites.core.ts (no directive, `import 'server-only'` on line one).
+  createInviteCore is re-registered there, byte-identical body and the same
+  staff.invite_create / staff.add emits, as
+  AUDITED_CORES['src/lib/invites/invites.core.ts']. Rename tolerance was removed from the
+  gate on purpose (fix round 1 #8), so the move costs this line · Fable
+  (PKT-SEC-CORES-B1-INVITES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/invites.ts#revokeInviteCore · the twin of the line above,
+  same move, same PR: revokeInviteCore is now
+  AUDITED_CORES['src/lib/invites/invites.core.ts'] with a byte-identical body and the same
+  staff.invite_revoke emit. Nothing about the write or its audit row changed — only which
+  module it lives in, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-B1-INVITES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:invite.create · coveredBy repointed
+  'src/actions/invites.ts#createInviteCore' → 'src/lib/invites/invites.core.ts#createInviteCore'.
+  The same choke point, at its new address: the facade POST /api/app/v1/invites route still
+  calls that one core, which still emits staff.invite_create itself, which is why the row
+  stays a 'skip' (a rule here would double-log every facade write). The citation moved
+  because the file did · Fable (PKT-SEC-CORES-B1-INVITES-2026-09-23.md)
+- 2026-09-23 · map:invite.revoke · coveredBy repointed
+  'src/actions/invites.ts#revokeInviteCore' → 'src/lib/invites/invites.core.ts#revokeInviteCore'.
+  Same move, same choke point: the facade DELETE /api/app/v1/invites/[id] route calls that one
+  core and it emits staff.invite_revoke itself · Fable (PKT-SEC-CORES-B1-INVITES-2026-09-23.md)
+- 2026-09-23 · cores:src/actions/stores.ts#createStoreCore · NOT a dropped writer — the
+  symbol MOVED. Every runtime export of a 'use server' file is registered as a
+  browser-callable server action with no authentication of its own, so the six
+  client-threaded store cores left src/actions/stores.ts for the server-only module
+  src/lib/stores/stores.core.ts (no directive, `import 'server-only'` on line one).
+  createStoreCore is re-registered there, byte-identical body and the same
+  settings.store_create emit, as AUDITED_CORES['src/lib/stores/stores.core.ts']. Rename
+  tolerance was removed from the gate on purpose (fix round 1 #8), so the move costs this
+  line · Fable (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight,
+  whole ecosystem)
+- 2026-09-23 · cores:src/actions/stores.ts#updateStoreCore · the twin of the line above,
+  same move, same PR: updateStoreCore is now
+  AUDITED_CORES['src/lib/stores/stores.core.ts'] with a byte-identical body and the same
+  settings.store_update emit. Nothing about the write or its audit row changed — only which
+  module it lives in, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/stores.ts#setStoreHoursCore · same move, same PR: the 営業時間
+  save core is now AUDITED_CORES['src/lib/stores/stores.core.ts'] with a byte-identical body
+  and the same settings.store_hours_update / settings.store_hours_reset emits. Only its
+  module changed, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/stores.ts#setStaffStoresCore · same move, same PR:
+  setStaffStoresCore is now AUDITED_CORES['src/lib/stores/stores.core.ts'] with a
+  byte-identical body and the same settings.staff_stores_change emit. Its at-creation
+  sibling (setStaffStoresAtCreationCore) stays in src/actions/stores.ts and keeps the old
+  entry, so that file's AUDITED_CORES row was split, not dropped · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:stores.create · coveredBy repointed
+  'src/actions/stores.ts#createStoreCore' → 'src/lib/stores/stores.core.ts#createStoreCore'.
+  The same choke point, at its new address: the facade POST /api/app/v1/stores route still
+  calls that one core, which still emits settings.store_create itself, which is why the row
+  stays a 'skip' (a rule here would double-log every facade write). The citation moved
+  because the file did · Fable (PKT-SEC-CORES-B2-STORES-2026-09-23.md)
+- 2026-09-23 · map:stores.update · coveredBy repointed
+  'src/actions/stores.ts#updateStoreCore' → 'src/lib/stores/stores.core.ts#updateStoreCore'.
+  Same move, same choke point: the facade PUT /api/app/v1/stores/[id] route calls that one
+  core and it emits settings.store_update itself. The second writer named in the comment
+  above this row (setStoreHoursCore, PATCH /stores/[id]/hours) moved in the same PR and its
+  citation followed · Fable (PKT-SEC-CORES-B2-STORES-2026-09-23.md)
+- 2026-09-23 · map:staffStores.set · coveredBy repointed
+  'src/actions/stores.ts#setStaffStoresCore' → 'src/lib/stores/stores.core.ts#setStaffStoresCore'.
+  Same move, same choke point: the facade PUT /api/app/v1/staff/[id]/stores route calls that
+  one core and it emits settings.staff_stores_change itself · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/stores/stores.core.ts::stores.create · NOT a new
+  legalized silent write — the SAME allowlist entry, at its new address. listStoresWithClient's
+  lazy 本店-create (ensurePrimary) has been allowlisted since 2026-07-27 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/stores.ts::stores.create with pendingWave 'Wave W —
+  2026-07-27'; the twin moved to the server-only module in this PR, so the entry's `file`
+  followed it. Justification, dated and pendingWave are unchanged, and the gate reads a moved
+  entry as an addition because the key is file-scoped · Fable
+  (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/recording/discard-transcript.core.ts::recordings.upsertSegments · NOT
+  a new legalized silent write — the SAME allowlist entry, at its new address.
+  writeTranscript's one-segment upsert has been allowlisted since 2026-08-31 under
+  the key SDK_WRITE_ALLOWLIST:src/actions/recording-discard-transcript.ts::recordings.upsertSegments
+  (the A2-2 ruling: the staff discard that authorises the write already emitted its
+  own recording.discard receipt, and ⚖ 8/17 doc law keeps the CONTENT out of audit
+  details). Every runtime export of a 'use server' file is registered as a
+  browser-callable server action with no authentication of its own, so the two
+  client-threaded discard-transcript bodies — and the private writeTranscript they
+  both call — left src/actions/recording-discard-transcript.ts for the server-only
+  module src/lib/recording/discard-transcript.core.ts (no directive, `import
+  'server-only'` on line one). Body byte-identical, justification and `dated`
+  unchanged, no pendingWave on this entry before or after; the gate reads a moved
+  entry as an addition because the key is file-scoped · Fable
+  (PKT-SEC-CORES-C-DISCARD-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.create · NOT a
+  new legalized silent write — the SAME allowlist entry, at its new address. The two create
+  bodies' customers.create call has been allowlisted since 2026-09-01 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.create (PHONEWIRE-1: the shared
+  WithClient cores stay audit-free; customer.create is a LIVE FACADE_AUDIT_MAP row on the phone
+  door and the web wrappers createCustomer/createQuickCustomer — both AUDITED_CORES — emit it on
+  their success path). Every runtime export of a 'use server' file is registered as a
+  browser-callable server action with no authentication of its own, so the eight
+  client-threaded customer bodies left src/actions/customers.ts for the server-only module
+  src/lib/customers/customers.core.ts (no directive, `import 'server-only'` on line one). Bodies
+  byte-identical, symbols, justification and `dated` unchanged, no pendingWave on this entry
+  before or after; the gate reads a moved entry as an addition because the key is file-scoped ·
+  Fable (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole
+  ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.update · same
+  move, same PR: the customers.update call site shared by updateCustomerWithClient and the
+  30-day deletion pair (schedule/cancel) has been allowlisted since 2026-09-02 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.update. All three symbols moved
+  together, byte-identical; the web wrappers that own the emits — updateCustomer's customer.edit
+  and scheduleCustomerDeletion/cancelCustomerDeletion's emitDeletionAudit — STAYED in the action
+  file, so AUDITED_CORES did not change and neither did the justification or `dated`. Only the
+  module changed, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.uploadPhoto · same
+  move, same PR: uploadCustomerPhotoWithClient's photo write (with its one network-level
+  retry) has been allowlisted since 2026-07-27 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.uploadPhoto. Body byte-identical,
+  justification and `dated` unchanged — including the parity-gap sentence about the web action
+  uploadCustomerPhoto, which stayed in src/actions/customers.ts and still has no auditWeb call.
+  The sibling customers.deletePhoto entry keeps the OLD file: deleteCustomerPhoto is a web
+  action and did not move · Fable (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16
+  security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.grantConsent · same
+  move, same PR: grantCustomerConsentWithClient's consent write has been allowlisted since
+  2026-07-28 under the key SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.grantConsent.
+  Body byte-identical, policy_version still SERVER-pinned in the core, justification and `dated`
+  unchanged: customer.consent_grant is still a LIVE FACADE_AUDIT_MAP row and the web wrapper
+  grantCustomerConsent — which stayed, and stays AUDITED_CORES — still emits its own auditWeb ·
+  Fable (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole
+  ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.revokeConsent · the
+  twin of the line above, same move, same PR: revokeCustomerConsentWithClient's write has
+  been allowlisted since 2026-07-28 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.revokeConsent. Body byte-identical,
+  justification and `dated` unchanged; customer.consent_revoke stays a LIVE FACADE_AUDIT_MAP row
+  and the web wrapper revokeCustomerConsent (AUDITED_CORES) still emits its own auditWeb · Fable
+  (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-19 · SDK_WRITE_ALLOWLIST:src/lib/stores/stores.core.ts::staffStores.set · the 1→2-store
+  backfill (⚖ Liam 2026-09-16: nobody blanks mid-shift). It DOES audit — one
+  settings.staff_stores_change notice per staff member it places, detail.backfill =
+  '1_to_2_stores', plus (⚖ G4) one WARNING row naming the ids still unplaced after the
+  retry pass — but the emits sit INSIDE the per-staff loop, and the function returns
+  without emitting on the paths where it wrote nothing at all (not the 1→2 transition; no
+  roster; every card already assigned). CP7's dominating-emit walker cannot express "emits
+  once per write", so the registry would fail a function whose every WRITE is in fact
+  audited. Allowlisted rather than registered, for that mechanical reason only · Fable (ADJUDICATION-STORE-AT-CREATION-3bec439c2-2026-09-19.md; ⚖ Liam 2026-09-16 store-at-creation)
+- 2026-09-23 · cores:src/actions/karute.ts#createOrUpdateKaruteRecord · NOT a dropped emitter — the
+  SAME AUDITED_CORES symbol, registered at its new address
+  cores:src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord. Every runtime export of a
+  'use server' file is registered as a browser-callable server action with no authentication of its
+  own, so the eight karute cores left src/actions/karute.ts for the server-only module
+  src/lib/karute/karute.core.ts (no directive, `import 'server-only'` on line one). The body moved
+  BYTE-IDENTICAL, emitSave and all: karute.save is still the ONE choke-point emit covering web
+  saveKaruteRecord, web saveKaruteRecordInline and the facade POST, and FACADE_AUDIT_MAP['karute.save']
+  is still the skip row citing it (its coveredBy is repointed on its own line below). The entry is
+  file-scoped, so the gate reads a moved symbol as a removal · Fable
+  (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/karute.ts#updateKaruteDetailEntryWithClient · same move, same PR: the
+  per-entry CAS core and its karute.entry_edit emit are now
+  cores:src/lib/karute/karute.core.ts#updateKaruteDetailEntryWithClient. Body byte-identical, the
+  store lock still runs FIRST, the emit still sits inside the shared body so the web wrapper
+  updateKaruteDetailEntry and the facade PATCH get exactly one row between them. The web wrapper
+  stayed in the action file and was never an AUDITED_CORES symbol · Fable
+  (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/karute.ts#updateKaruteDetailSummaryWithClient · same move, same PR:
+  the edited_summary overlay core and its karute.summary_edit emit are now
+  cores:src/lib/karute/karute.core.ts#updateKaruteDetailSummaryWithClient. Body byte-identical —
+  store lock first, content bounds, the no-change guard that refuses to mint a row for an identical
+  save, then the emit — so the web wrapper updateKaruteDetailSummary and the facade PATCH still
+  share ONE row. Only the module changed, and that module is no longer HTTP-reachable · Fable
+  (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:karute.save · NOT a repointed truth claim — the citation follows its own emitter.
+  The skip row still says "karute.save logs at the shared choke point createOrUpdateKaruteRecord,
+  never here", and that choke point is now src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord
+  instead of src/actions/karute.ts#createOrUpdateKaruteRecord. Same function, byte-identical body,
+  same single emit; CP2 re-proves the new citation resolves and emits on every non-error path ·
+  Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:karute.entry.update · same move, same PR: the skip row's coveredBy follows
+  updateKaruteDetailEntryWithClient to src/lib/karute/karute.core.ts. The doctrine is unchanged —
+  no live row here, because a row would double-log every facade entry edit against the core's own
+  karute.entry_edit emit · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security
+  tight, whole ecosystem)
+- 2026-09-23 · map:karute.summary.update · same move, same PR: the skip row's coveredBy follows
+  updateKaruteDetailSummaryWithClient to src/lib/karute/karute.core.ts. Unchanged doctrine — the ONE
+  karute.summary_edit emit lives in that shared body and covers the web action AND this facade
+  route · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole
+  ecosystem)
+- 2026-09-23 · map:recordings.session.mint · same move, same PR: this skip row has cited
+  createOrUpdateKaruteRecord since the facade map was written ("the mint stages nothing auditable;
+  the eventual save is what audits the recording"), and that function's new home is
+  src/lib/karute/karute.core.ts. Nothing about the mint changed, the cited emitter is byte-identical,
+  and the ambiguity the row's own comment records (interactive save vs processJob) is exactly as it
+  was · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole
+  ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/karute/karute.core.ts::karuteRecords.update · NOT a new
+  legalized silent write — the SAME allowlist entry, at its new address. reassignKaruteCustomerWithClient's
+  single `{ customer_id }` update has been allowlisted since 2026-08-23 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/karute.ts::karuteRecords.update (F4: the WithClient core is
+  audit-free by design; karute.customer_reassign is a LIVE FACADE_AUDIT_MAP row on the phone door
+  and the web wrapper reassignKaruteCustomer — AUDITED_CORES, unproven-marked — emits its own
+  auditWeb). Body byte-identical, symbols, justification and `dated` unchanged, no pendingWave on
+  this entry before or after; the gate reads a moved entry as an addition because the key is
+  file-scoped · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security tight,
+  whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/karute/karute.core.ts::karuteRecords.create · same move,
+  same PR: the karuteRecords.create call site shared by createOrUpdateKaruteRecord's fresh-record
+  branch and createManualKaruteRecordWithClient has been allowlisted since 2026-09-01 under the key
+  SDK_WRITE_ALLOWLIST:src/actions/karute.ts::karuteRecords.create. Both symbols moved together,
+  byte-identical; the emits that cover them did not move relative to the writes — emitSave still
+  dominates the create inside createOrUpdateKaruteRecord, and the manual-create body still stays
+  audit-free with its web wrapper createManualKaruteRecord (AUDITED_CORES, in the action file) and
+  the facade's FACADE_AUDIT_MAP['karute.manualCreate'] row owning the emits. Justification and
+  `dated` unchanged · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security
+  tight, whole ecosystem)

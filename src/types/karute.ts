@@ -1,7 +1,7 @@
 import type { EntryCategory } from '@/lib/karute/categories'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
-/** Per-entry edit-save validation message (actions/karute.ts core + its test).
+/** Per-entry edit-save validation message (lib/karute/karute.core.ts core + its test).
  *  Lives HERE, not in actions/karute.ts: that file is 'use server', and a
  *  non-async export there is a next-build error that voids the module's
  *  exports entirely (broke the ff0255d1 prod deploy). */

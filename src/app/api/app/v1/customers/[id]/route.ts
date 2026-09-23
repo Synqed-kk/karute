@@ -23,7 +23,7 @@ function classifyCustomerLookupError(err: unknown): AppApiError {
   }
   return new AppApiError('upstream_unavailable', 'customer lookup unavailable')
 }
-import { updateCustomerWithClient } from '@/actions/customers'
+import { updateCustomerWithClient } from '@/lib/customers/customers.core'
 import { isConsentCurrent } from '@/lib/consent'
 import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getCustomerContactForBusiness } from '@/lib/customers/customer-detail-cached'

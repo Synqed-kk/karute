@@ -39,7 +39,7 @@ import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 /** Liam ruling 2026-07-26: every booking mutation writes exactly ONE audit
  *  row, emitted from HERE so the web actions and the facade twins can never
  *  double-log. `actor` has no cookie/Bearer context of its own — same
- *  threading contract as createOrUpdateKaruteRecord (src/actions/karute.ts):
+ *  threading contract as createOrUpdateKaruteRecord (src/lib/karute/karute.core.ts):
  *  facade callers pass their already-resolved identity, web callers resolve
  *  it via resolveWebAuditContext() before calling in. */
 type BookingActor = {

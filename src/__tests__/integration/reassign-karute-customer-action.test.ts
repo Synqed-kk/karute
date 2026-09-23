@@ -58,11 +58,10 @@ import { auditWeb as auditWebImport } from '@/lib/audit-web'
 import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
 import { getSynqedClient as getSynqedClientImport } from '@/lib/synqed/client'
 import { getCachedCustomerList as getCachedCustomerListImport } from '@/lib/customers/cached'
-import {
-  reassignKaruteCustomer,
-  reassignKaruteCustomerWithClient,
-  listReassignCustomerOptions,
-} from '@/actions/karute'
+import { reassignKaruteCustomer, listReassignCustomerOptions } from '@/actions/karute'
+// The reassign core left the action file for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23); the two web actions above stayed.
+import { reassignKaruteCustomerWithClient } from '@/lib/karute/karute.core'
 
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedClient: jest.fn() }))
 

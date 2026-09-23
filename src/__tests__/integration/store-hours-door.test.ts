@@ -125,7 +125,8 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 
 import { GET as storesGET } from '@/app/api/app/v1/stores/route'
 import { PATCH as hoursPATCH } from '@/app/api/app/v1/stores/[id]/hours/route'
-import { setStoreHours, listStoresWithClient } from '@/actions/stores'
+import { setStoreHours } from '@/actions/stores'
+import { listStoresWithClient } from '@/lib/stores/stores.core'
 import {
   normalizeOperatingHours,
   resolveDayHours,

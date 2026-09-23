@@ -52,7 +52,11 @@ jest.mock('@/actions/appointments', () => ({
   getAppointmentsByDate: async () => [],
   getAppointmentById: async () => null,
 }))
-jest.mock('@/actions/karute', () => ({ getCustomerKaruteRecords: async () => [] }))
+// The karute read left src/actions/karute.ts for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23). The stub follows the page's own import —
+// mocking the action file would stub a module it no longer loads, and the test
+// would silently exercise the real core instead.
+jest.mock('@/lib/karute/karute.core', () => ({ getCustomerKaruteRecords: async () => [] }))
 jest.mock('@/lib/karute/ai-brief', () => ({ getAiPreSessionBrief: async () => null }))
 // The assembly is pinned by its own suites; this file is only about WHICH
 // customers reach the client.

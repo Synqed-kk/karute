@@ -326,11 +326,21 @@ export const AUDITED_CORES: {
     // settings.staff_stores_change, the same row setStaffStoresCore writes,
     // distinguished by detail.at_creation / detail.backfill.
     symbols: [
+      'setStaffStoresAtCreationCore',
+    ],
+  },
+  // The four store write cores left the action file for a server-only module
+  // (PKT-SEC-CORES-B2, 2026-09-23) — the SAME writers, registered at their new
+  // home. Ledgered: cores:src/actions/stores.ts#createStoreCore /
+  // #updateStoreCore / #setStoreHoursCore / #setStaffStoresCore in
+  // docs/audit-weakening-ledger.md.
+  {
+    file: 'src/lib/stores/stores.core.ts',
+    symbols: [
       'createStoreCore',
       'updateStoreCore',
       'setStoreHoursCore',
       'setStaffStoresCore',
-      'setStaffStoresAtCreationCore',
     ],
   },
   { file: 'src/actions/audit-log.ts', symbols: ['listAuditLogWithClient'] },
@@ -344,13 +354,29 @@ export const AUDITED_CORES: {
     file: 'src/actions/staff.ts',
     symbols: ['createStaffCore', 'updateStaffCore', 'deleteStaffCore', 'uploadStaffAvatarCore'],
   },
-  { file: 'src/actions/invites.ts', symbols: ['createInviteCore', 'revokeInviteCore', 'acceptInvite'] },
+  { file: 'src/actions/invites.ts', symbols: ['acceptInvite'] },
+  // The two invite write cores left the action file for a server-only module
+  // (PKT-SEC-CORES-B1, 2026-09-23) — the SAME writers, registered at their new
+  // home. Ledgered: cores:src/actions/invites.ts#createInviteCore /
+  // #revokeInviteCore in docs/audit-weakening-ledger.md.
+  { file: 'src/lib/invites/invites.core.ts', symbols: ['createInviteCore', 'revokeInviteCore'] },
+  // The three karute spine emitters followed their bodies out of the action
+  // file and into the server-only module (PKT-SEC-CORES-D2, 2026-09-23) — the
+  // SAME emitters, registered at their new home. Ledgered:
+  // cores:src/actions/karute.ts#createOrUpdateKaruteRecord /
+  // #updateKaruteDetailEntryWithClient / #updateKaruteDetailSummaryWithClient
+  // in docs/audit-weakening-ledger.md. The web wrappers below stayed.
   {
-    file: 'src/actions/karute.ts',
+    file: 'src/lib/karute/karute.core.ts',
     symbols: [
       'createOrUpdateKaruteRecord',
       'updateKaruteDetailEntryWithClient',
       'updateKaruteDetailSummaryWithClient',
+    ],
+  },
+  {
+    file: 'src/actions/karute.ts',
+    symbols: [
       // F4 (2026-08-23): the web wrapper's own auditWeb() call — the
       // audit-free WithClient core (reassignKaruteCustomerWithClient) is
       // deliberately NOT listed here (Core/WithClient split, see its own
@@ -508,8 +534,15 @@ export const SDK_WRITE_ALLOWLIST: {
       "Signup bootstrap — creates the OWNER's own synqed staff record as part of account provisioning, not an admin managing staff. FIX ROUND 1 #13 correction: the actor is NOT unknown — the function verifies the auth uid via service.auth.admin.getUserById BEFORE this write and resolves businessId in the same call. Self-provisioning on the user's OWN new account; silent today; no wave committed (candidate mirror: a future staff.bootstrap action per the coverage inventory). No facade/web action endpoint covers this path at all. Since 2026-09-19 the module is server-only (not a server action): reachable from the email-confirmation callback route only; the actor is the user of that route's verified code exchange.",
     dated: '2026-07-27',
   },
+  // The five entries below follow the eight client-threaded customer cores out
+  // of the action file and into the server-only module (PKT-SEC-CORES-D1,
+  // 2026-09-23) — the SAME writes, registered at their new home. Ledgered:
+  // SDK_WRITE_ALLOWLIST:src/lib/customers/customers.core.ts::customers.create /
+  // .update / .uploadPhoto / .grantConsent / .revokeConsent in
+  // docs/audit-weakening-ledger.md. customers.deletePhoto keeps the old file —
+  // deleteCustomerPhoto is a web action and stayed behind.
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.create',
     symbols: ['createCustomerWithClient', 'createQuickCustomerWithClient'],
     justification:
@@ -517,7 +550,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-01',
   },
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.update',
     symbols: [
       'updateCustomerWithClient',
@@ -529,7 +562,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-02',
   },
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.uploadPhoto',
     symbols: ['uploadCustomerPhotoWithClient'],
     justification:
@@ -586,7 +619,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-14',
   },
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
     justification:
@@ -594,15 +627,20 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-07-28',
   },
   {
-    file: 'src/actions/customers.ts',
+    file: 'src/lib/customers/customers.core.ts',
     call: 'customers.revokeConsent',
     symbols: ['revokeCustomerConsentWithClient'],
     justification:
       'customer.consent_revoke is a LIVE FACADE_AUDIT_MAP row as of Wave W3 (facade auto-emit); the web wrapper revokeCustomerConsent emits its own auditWeb (AUDITED_CORES). revokeCustomerConsentWithClient itself stays audit-free, matching the Core/WithClient split convention.',
     dated: '2026-07-28',
   },
+  // The two entries below follow the client-threaded karute cores out of the
+  // action file and into the server-only module (PKT-SEC-CORES-D2,
+  // 2026-09-23) — the SAME writes, registered at their new home. Ledgered:
+  // SDK_WRITE_ALLOWLIST:src/lib/karute/karute.core.ts::karuteRecords.update /
+  // ::karuteRecords.create in docs/audit-weakening-ledger.md.
   {
-    file: 'src/actions/karute.ts',
+    file: 'src/lib/karute/karute.core.ts',
     call: 'karuteRecords.update',
     symbols: ['reassignKaruteCustomerWithClient'],
     justification:
@@ -610,7 +648,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-08-23',
   },
   {
-    file: 'src/actions/karute.ts',
+    file: 'src/lib/karute/karute.core.ts',
     call: 'karuteRecords.create',
     symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecordWithClient'],
     justification:
@@ -630,7 +668,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'recordingJobs.enqueue',
     symbols: ['enqueueRecordingJob'],
     justification:
-      "coveredBy the eventual karute.save emit at pipeline completion (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES) — see FACADE_AUDIT_MAP['recordings.job.enqueue'] skip row (FIX ROUND 1 #17: this citation now correctly points at processJob, the job pipeline's true and only choke point — not createOrUpdateKaruteRecord, which karute.ts's own header comment says process-recording.ts never calls). The enqueue step itself stages no auditable outcome.",
+      "coveredBy the eventual karute.save emit at pipeline completion (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES) — see FACADE_AUDIT_MAP['recordings.job.enqueue'] skip row (FIX ROUND 1 #17: this citation now correctly points at processJob, the job pipeline's true and only choke point — not createOrUpdateKaruteRecord, which karute.core.ts's own header comment says process-recording.ts never calls). The enqueue step itself stages no auditable outcome.",
     dated: '2026-07-27',
   },
   {
@@ -641,8 +679,13 @@ export const SDK_WRITE_ALLOWLIST: {
       "Build 23 slice ③ — the shared body BOTH new doors run (the web action enqueueRecordingJobFromSession and POST /api/app/v1/recordings/job/from-session). Identical reasoning to the src/actions/recording-jobs.ts entry above and to FACADE_AUDIT_MAP['recordings.job.enqueueFromSession']'s skip row: this call routes EXCLUSIVELY into the job worker (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES), which is where the recording actually becomes a karute and emits karute.save. The enqueue step stages no auditable outcome of its own, and a row here would double-log every save the worker performs. Nothing else in this symbol writes: every other SDK call is a read (recordings.get, the shared discard-ledger read, and the revisit guard's customer/pack/record lookups).",
     dated: '2026-09-06',
   },
+  // writeTranscript left the action file with the two shared bodies it serves,
+  // for a server-only module (PKT-SEC-CORES-C, 2026-09-23) — the SAME write,
+  // registered at its new home. Ledgered: SDK_WRITE_ALLOWLIST:
+  // src/lib/recording/discard-transcript.core.ts::recordings.upsertSegments in
+  // docs/audit-weakening-ledger.md.
   {
-    file: 'src/actions/recording-discard-transcript.ts',
+    file: 'src/lib/recording/discard-transcript.core.ts',
     call: 'recordings.upsertSegments',
     symbols: ['writeTranscript'],
     justification:
@@ -703,7 +746,7 @@ export const SDK_WRITE_ALLOWLIST: {
     file: 'src/lib/staff/new-card.ts',
     call: 'staff.create',
     symbols: ['createAndPlaceStaffCard'],
-    justification: "The shared new-card mint (⚖ Liam 2026-09-16): one home for 'a new staff card is born in a store', reached by BOTH doors that make one — the 追加 button (actions/staff.ts#createStaffCore) and a FRESH invite (actions/invites.ts#createInviteCore, which now mints the card up front so accept only attaches the login). createAndPlaceStaffCard itself emits NOTHING on its success path, on purpose: each door emits its own staff.add row at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both citations are registered AUDITED_CORES symbols. 'staff.delete' is the placement ROLLBACK, in its own `rollback` helper — it only ever removes the card this same function created moments earlier, so it has no separate lifecycle to audit; the door's staff.add never fires for a rolled-back card. ⚖ G8 (2026-09-19): that helper DOES emit on one path — when the rollback's own delete throws, it writes a WARNING staff.add row (targetId = the stranded card, detail.reason = 'rollback_failed') before returning STAFF_CARD_LEFT_BEHIND, because that is the one case where the roster really did grow and no door's staff.add ever fires for it. It is a private function, so CP7's exported-symbol registry-reality scan does not reach it, and it is listed here rather than in AUDITED_CORES because its SUCCESS path correctly emits nothing.",
+    justification: "The shared new-card mint (⚖ Liam 2026-09-16): one home for 'a new staff card is born in a store', reached by BOTH doors that make one — the 追加 button (actions/staff.ts#createStaffCore) and a FRESH invite (lib/invites/invites.core.ts#createInviteCore, which now mints the card up front so accept only attaches the login). createAndPlaceStaffCard itself emits NOTHING on its success path, on purpose: each door emits its own staff.add row at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both citations are registered AUDITED_CORES symbols. 'staff.delete' is the placement ROLLBACK, in its own `rollback` helper — it only ever removes the card this same function created moments earlier, so it has no separate lifecycle to audit; the door's staff.add never fires for a rolled-back card. ⚖ G8 (2026-09-19): that helper DOES emit on one path — when the rollback's own delete throws, it writes a WARNING staff.add row (targetId = the stranded card, detail.reason = 'rollback_failed') before returning STAFF_CARD_LEFT_BEHIND, because that is the one case where the roster really did grow and no door's staff.add ever fires for it. It is a private function, so CP7's exported-symbol registry-reality scan does not reach it, and it is listed here rather than in AUDITED_CORES because its SUCCESS path correctly emits nothing.",
     dated: '2026-09-16',
   },
   {
@@ -715,11 +758,19 @@ export const SDK_WRITE_ALLOWLIST: {
     // (STAFF_CARD_LEFT_BEHIND) instead of a console line. Same single call
     // site, same reasoning, one level down.
     symbols: ['rollback'],
-    justification: "The shared new-card mint's ROLLBACK (⚖ Liam 2026-09-16; moved into its own helper by the F8 fold, 2026-09-17). The delete itself is never audited: it only ever removes the card createAndPlaceStaffCard created moments earlier in the same request, so it has no separate lifecycle — the door's staff.add never fires for a rolled-back card. ⚖ G8 (2026-09-19): the FAILURE path now does emit — when the delete throws, `rollback` writes a WARNING staff.add row (targetId = the stranded card, detail.reason = 'rollback_failed') and logs that id, then returns STAFF_CARD_LEFT_BEHIND. That row records a card that really is on the roster, not the delete. The mint's success path still carries NO audit call on purpose — each door emits its own staff.add at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both doors (actions/staff.ts#createStaffCore and actions/invites.ts#createInviteCore) are registered AUDITED_CORES symbols; `rollback` is private, so CP7's exported-symbol registry-reality scan does not reach it.",
+    justification: "The shared new-card mint's ROLLBACK (⚖ Liam 2026-09-16; moved into its own helper by the F8 fold, 2026-09-17). The delete itself is never audited: it only ever removes the card createAndPlaceStaffCard created moments earlier in the same request, so it has no separate lifecycle — the door's staff.add never fires for a rolled-back card. ⚖ G8 (2026-09-19): the FAILURE path now does emit — when the delete throws, `rollback` writes a WARNING staff.add row (targetId = the stranded card, detail.reason = 'rollback_failed') and logs that id, then returns STAFF_CARD_LEFT_BEHIND. That row records a card that really is on the roster, not the delete. The mint's success path still carries NO audit call on purpose — each door emits its own staff.add at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both doors (actions/staff.ts#createStaffCore and lib/invites/invites.core.ts#createInviteCore) are registered AUDITED_CORES symbols; `rollback` is private, so CP7's exported-symbol registry-reality scan does not reach it.",
     dated: '2026-09-16',
   },
   {
-    file: 'src/actions/stores.ts',
+    file: 'src/lib/stores/stores.core.ts',
+    call: 'staffStores.set',
+    symbols: ['backfillStaffToExistingStore'],
+    justification:
+      "The 1→2-store backfill (⚖ Liam 2026-09-16: nobody blanks mid-shift). It DOES audit — one settings.staff_stores_change row per staff member it places, detail.backfill = '1_to_2_stores' — but the emit sits INSIDE the per-staff loop, and the function returns without emitting on the paths where it wrote nothing at all (not the 1→2 transition; no roster; every card already assigned). CP7's dominating-emit walker cannot express 'emits once per write', so the registry would fail on a function whose every WRITE is in fact audited. Allowlisted rather than registered, for that mechanical reason only.",
+    dated: '2026-09-16',
+  },
+  {
+    file: 'src/lib/stores/stores.core.ts',
     call: 'stores.create',
     symbols: ['listStoresWithClient'],
     justification:

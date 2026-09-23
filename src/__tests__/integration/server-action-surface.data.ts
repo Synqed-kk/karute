@@ -187,37 +187,17 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
     'listAuditLogWithClient',
   ],
   'src/actions/customers.ts': [
-    'cancelCustomerDeletionWithClient',
-    'createCustomerWithClient',
-    'createQuickCustomerWithClient',
-    'grantCustomerConsentWithClient',
-    'revokeCustomerConsentWithClient',
-    'scheduleCustomerDeletionWithClient',
-    'updateCustomerWithClient',
-    'uploadCustomerPhotoWithClient',
   ],
   'src/actions/dev-tools.ts': [
   ],
   'src/actions/entitlements.ts': [
   ],
   'src/actions/invites.ts': [
-    'createInviteCore',
     'getInviteByToken',
-    'listInvitesWithClient',
-    'reinviteTargetStaffIdWithClient',
-    'revokeInviteCore',
   ],
   'src/actions/karute-outcome.ts': [
   ],
   'src/actions/karute.ts': [
-    'createManualKaruteRecordWithClient',
-    'createOrUpdateKaruteRecord',
-    'getCustomerKaruteRecords',
-    'getCustomerKaruteRecordsWithClient',
-    'listEntryEditHistoryWithClient',
-    'reassignKaruteCustomerWithClient',
-    'updateKaruteDetailEntryWithClient',
-    'updateKaruteDetailSummaryWithClient',
   ],
   'src/actions/memory.ts': [
     'addMemoryItemWithClient',
@@ -250,8 +230,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
   'src/actions/recording-autostart.ts': [
   ],
   'src/actions/recording-discard-transcript.ts': [
-    'persistDiscardTranscriptWithClient',
-    'transcribeAndPersistDiscardWithClient',
   ],
   'src/actions/recording-discard.ts': [
   ],
@@ -289,16 +267,9 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
     'uploadStaffAvatarCore',
   ],
   'src/actions/stores.ts': [
-    'createStoreCore',
-    'updateStoreCore',
-    // 2026-09-20: arrived with #938 before this ratchet was on main; leaves with the stores cores in repair B
-    'setStoreHoursCore',
     'getPrimaryStoreId',
     'getStaffStoresStrict',
-    'getStaffStoresWithClient',
-    'listStoresWithClient',
     'setStaffStoresAtCreationCore',
-    'setStaffStoresCore',
   ],
   'src/actions/voice.ts': [
     'enrollVoiceActionCore',

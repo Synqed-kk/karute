@@ -30,11 +30,11 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ karuteRecords: { listEntryEdits } })),
 }))
 
-import {
-  listEntryEditHistory,
-  listEntryEditHistoryWithClient,
-  type EntryEditHistoryRow,
-} from '@/actions/karute'
+import { listEntryEditHistory, type EntryEditHistoryRow } from '@/actions/karute'
+// The trail-read core left the action file for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23); the web wrapper above stayed, and so does
+// the published EntryEditHistoryRow name (re-aliased from the action file).
+import { listEntryEditHistoryWithClient } from '@/lib/karute/karute.core'
 import { requireCapability } from '@/lib/auth/require-permission'
 
 beforeEach(() => {

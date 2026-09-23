@@ -1200,12 +1200,26 @@ async function facadeListStores(withHours: boolean): Promise<StoreRow[]> {
 
 async function facadeCreateStore(
   input: StoreInput,
-): Promise<{ id: string } | { error: string }> {
+): Promise<
+  { id: string; backfillIncomplete?: number; backfillUnknown?: true } | { error: string }
+> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/stores', idemPost(input))
     const body = (await res.json().catch(() => null)) as
-      | { id?: string; error?: string | { message?: string } }
+      | {
+          id?: string
+          backfillIncomplete?: number
+          backfillUnknown?: true
+          error?: string | { message?: string }
+        }
       | null
+    // ⚖ G4 — the 1→2 backfill's honest count rides back to the SAME screen on
+    // both doors: createStoreCore puts it on the 2xx body, and StoresSection
+    // reads `backfillIncomplete` without caring which door answered.
+    if (res.ok && body?.id && body.backfillUnknown) return { id: body.id, backfillUnknown: true }
+    if (res.ok && body?.id && body.backfillIncomplete) {
+      return { id: body.id, backfillIncomplete: body.backfillIncomplete }
+    }
     if (res.ok && body?.id) return { id: body.id }
     // Business failure (e.g. STORE_LIMIT_REACHED) rides a 2xx { error: string }
     // VERBATIM — RPC-style, same class as createAppointment/facadeUpsertOrgSettings

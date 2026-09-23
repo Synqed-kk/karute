@@ -2359,12 +2359,14 @@
         "openAria": "{day} opening time",
         "closeAria": "{day} closing time"
       },
+      "assignLabel": "Store / location",
+      "assignMultiHint": "Select any number. Leaving this empty means the staff member has no store assigned and sees nothing.",
+      "unassigned": "Unassigned",
       "assignCreateLabel": "Store",
       "assignCreateHint": "Choose the store this person works in. You can pick more than one.",
       "assignRequiredError": "Please choose a store.",
-      "assignLabel": "Store / location",
-      "assignMultiHint": "Select any number. Leaving this empty means the staff member has no store assigned and sees nothing.",
-      "unassigned": "Unassigned"
+      "backfillIncomplete": "The store was created, but {n} staff members' store could not be set. Please set it from staff management.",
+      "backfillUnknown": "The store was created, but we could not check whether your staff have a store assigned. Please check in staff management."
     },
     "coaching": {
       "title": "Coaching settings",

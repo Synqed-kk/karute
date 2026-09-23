@@ -58,10 +58,10 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ karuteRecords: { update, get } })),
 }))
 
-import {
-  updateKaruteDetailSummary,
-  updateKaruteDetailSummaryWithClient,
-} from '@/actions/karute'
+import { updateKaruteDetailSummary } from '@/actions/karute'
+// The overlay core left the action file for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23); the web wrapper above stayed.
+import { updateKaruteDetailSummaryWithClient } from '@/lib/karute/karute.core'
 import { ENTRY_CONTENT_INVALID_ERROR } from '@/types/karute'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 

@@ -2086,7 +2086,31 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // thousand).
 // Proof: /Users/liam/codex-work/artifacts-rec-hole/PR-1/logs/thin-build-{1,2}.log,
 // thin-lap-{1,2}.txt, bundle-gate-{before,after}.log.
-const BUDGET_BYTES = 2_161_469
+//
+// RAISED 2026-09-23 — store-at-creation 5/5 (feat/sac-4-store-backfill)
+// The 1→2 store backfill in createStoreCore (per-staff placement with one
+// retry, the honest backfillIncomplete count and the backfillUnknown flag),
+// two new ja + en strings (settings.stores backfillIncomplete /
+// backfillUnknown) and the thin port pass-through in facadeCreateStore.
+// Genuine feature volume, not bloat — same class as every prior raise; the
+// purchase-marker scan below stays the real gate.
+//
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* values read programmatically from .github/workflows/ci.yml
+// (keylen = 208; macOS sed has no \s → [[:space:]]), offline.
+// thin/dist emptied before EACH of two laps; both laps identical
+// (node v24.16.0, this Mac):
+//   en-CCv5F1Pn.js                  139,347 B
+//   index-BNxNnOM6.js             1,084,495 B
+//   vendor-DqXjNZNP.js              937,800 B
+// Total = 139,347 + 1,084,495 + 937,800 = 2,161,642 B.
+// Initial gate failed by 173 B against main's 2,161,469 B ceiling;
+// purchase exclusion stayed clean (0/13). No dependency files changed.
+// Ceiling = measured + 1,000 = 2,162,642 B.
+// Re-measured on main f8485db34 after the port onto src/lib/stores/stores.core.ts
+// (#981 moved createStoreCore): the same three chunks, byte-identical.
+// Proof: /Users/liam/Documents/Claude/karute-ginza-onboarding-2026-09-16/evidence/s13-port/BUNDLE.txt.
+const BUDGET_BYTES = 2_162_642
 let dir
 try {
   dir = readdirSync(DIST)

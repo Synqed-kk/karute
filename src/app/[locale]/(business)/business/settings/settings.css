@@ -1650,9 +1650,16 @@
   .biz .pg-settings .st-side-card { order: 5; }
   .biz .pg-settings .st-save-card {
     order: 6;
-    position: sticky; bottom: 0; z-index: 3;
+    /* ⚠ IT RESTS 6px UNDER THE EDGE SO THAT IT CAN RISE INTO PLACE. The card lifts
+       6px when there is something to save (`SaveCard`, `raised ? -6 : 0`); docked
+       at `bottom: 0` that lift opened a 6px strip under it where the form showed
+       through (seen in S22, measured in S27: 6.00px at 899/768/440/393, 0 at rest).
+       So it rests 6px below the edge with 6px more padding: at rest the picture is
+       today's, raised it is card, not strip. The 6 here and the 6 there are one
+       number; the test pins them together. */
+    position: sticky; bottom: -6px; z-index: 3;
     margin: 0 -14px -32px; border-radius: 13px 13px 0 0; border-bottom: 0;
-    padding: 10px 14px 14px;
+    padding: 10px 14px 20px;
     background: rgba(255, 255, 255, .96);
     backdrop-filter: saturate(180%) blur(12px);
     box-shadow: 0 -4px 14px rgba(16, 24, 40, .06);

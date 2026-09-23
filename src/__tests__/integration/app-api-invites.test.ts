@@ -1,5 +1,6 @@
 // Staff invite facade routes (design-parity packet 12 §S4b). Uses the REAL
-// createInviteCore/listInvitesWithClient/revokeInviteCore (src/actions/invites.ts).
+// createInviteCore/listInvitesWithClient/revokeInviteCore
+// (src/lib/invites/invites.core.ts).
 // Pins: 'staff.invite' gate on all three · Idempotency-Key on create only ·
 // invitedBy is the roster-resolved self id (selfRow idiom), never
 // caller-supplied · the plan gate (staffAddAllowedWithClient) skips for
@@ -95,6 +96,8 @@ const staffDelete = jest.fn(async () => ({}))
 const storesList = jest.fn(async () => ({ stores: [{ id: 'store-a', is_primary: true }] }))
 const staffStoresSet = jest.fn(async () => ({}))
 const fakeClient = {
+  // InviteClient requires `audit` (Greptile #978 R1 F3: the revoke reads the mint row back).
+  audit: { list: jest.fn() },
   invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
   staff: { list: staffList, create: staffCreate, delete: staffDelete },
   staffStores: { get: staffStoresGet, set: staffStoresSet },
@@ -363,6 +366,15 @@ describe('DELETE /api/app/v1/invites/[id] (revoke)', () => {
   })
 
   it('happy path → 200 { ok: true }, exactly one staff.invite_revoke row carrying the invite id', async () => {
+    // ⚖ I4 — the row being cancelled has to BE in the list: a revoke whose
+    // invite the list does not carry is a "could not check the card" case and
+    // writes its own notice row. This is the ordinary happy path — an
+    // email-only invite, no card behind it, one row.
+    invitesList.mockResolvedValue({
+      invites: [
+        { id: 'inv-9', email: 'b@test.com', role: 'STYLIST', status: 'pending', created_at: '2026-01-01', expires_at: '2026-01-08' },
+      ],
+    })
     let res!: Response
     const lines = await auditLines(async () => {
       res = await DELETE(deleteReq('inv-9'), params('inv-9'))
@@ -568,14 +580,16 @@ describe('pending re-invites: list hides, revoke refuses', () => {
     expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
   })
 
-  it('revoking as a viewAll caller never pays the invite lookup — and a broken lookup cannot block them', async () => {
-    // The clamp free-passes viewAll, so the LIST that feeds it is pure cost
-    // AND a pure new failure mode for an owner. Neither may exist.
+  it('revoking as a viewAll caller pays no CLAMP lookup — and a broken lookup cannot block them', async () => {
+    // The clamp free-passes viewAll, so the read that feeds IT is pure cost and
+    // a pure new failure mode for an owner. ⚖ FOLD ROUND 3 (F4): the invite ROW
+    // is now load-bearing for every caller (it names the card a revoked fresh
+    // invite leaves behind), so the core reads it once, quietly — and a broken
+    // read still cannot block the revoke, which is the half that matters.
     mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'stores.viewAll']))
     invitesList.mockRejectedValue(new Error('core down'))
     const res = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
     expect(res.status).toBe(200)
-    expect(invitesList).not.toHaveBeenCalled()
     // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
     // identity seam (the front gate reads the unassigned verdict itself, for
     // every non-viewAll request). What this pins is that the DOOR asks for

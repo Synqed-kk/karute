@@ -16,7 +16,7 @@ import { setDataPort } from '@/lib/ports/data-port'
 
 jest.mock('@/lib/karute/take-store', () => ({}))
 
-import { createStaff, createInvite } from '../../../thin/ports/actions.vite'
+import { createStore, createStaff, createInvite } from '../../../thin/ports/actions.vite'
 
 function respond(body: unknown, status = 201) {
   const apiFetch = jest.fn(async () => new Response(JSON.stringify(body), { status }))
@@ -28,6 +28,28 @@ const STAFF = { name: '新人', position: '', email: '', phone: '' }
 const INVITE = { email: 'new@test.com', role: 'STYLIST' as const, name: '新人' }
 
 describe('thin port — the unknown flags reach the caller (T3)', () => {
+  it('createStore carries backfillUnknown', async () => {
+    respond({ id: 'store-new', backfillUnknown: true })
+    await expect(createStore({ name: '渋谷店' })).resolves.toEqual({
+      id: 'store-new',
+      backfillUnknown: true,
+    })
+  })
+
+  // 5/5 fold R1 (stress MUT-G): the count rides the same 2xx body — a port
+  // that drops it turns "N staff could not be placed" into a plain success.
+  it('createStore carries the backfillIncomplete count (MUT-G)', async () => {
+    respond({ id: 'store-new', backfillIncomplete: 3 })
+    await expect(createStore({ name: '渋谷店' })).resolves.toEqual({
+      id: 'store-new',
+      backfillIncomplete: 3,
+    })
+  })
+
+  it('createStore without the flag is still a plain success', async () => {
+    respond({ id: 'store-new' })
+    await expect(createStore({ name: '渋谷店' })).resolves.toEqual({ id: 'store-new' })
+  })
 
   it('createStaff carries storeUnknown', async () => {
     respond({ id: 'staff-new', storeUnknown: true })

@@ -30,7 +30,7 @@ export interface RequestIdentity {
    *  same id the core roster carries as its staff `id`: resolveSelfStaffId
    *  compares them directly (app-api/customer-facade.ts:99), as do
    *  getCurrentUserStaffId (lib/staff.ts:263) and isRosterOwner
-   *  (actions/stores.ts:33). A caller the roster cannot place is refused where
+   *  (lib/stores/stores.core.ts). A caller the roster cannot place is refused where
    *  it matters — viewerAllowedStoreIds returns [] (app-api/store-clamp.ts). */
   authUserId: string
   /** The tenant boundary — every downstream read/write is scoped to it. */

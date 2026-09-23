@@ -59,7 +59,12 @@ const invitesUpdateStatus = jest.fn(async () => ({}))
 // revokeInvite reads the list to learn whether the target is a RE-invite (the
 // store clamp's input) — core has no invites.get. Empty = a fresh invite, so
 // this suite's revoke stays unclamped and pins the audit row only.
-const invitesList = jest.fn(async () => ({ invites: [] as { id: string }[] }))
+// ⚖ I4 — a revoke whose invite the list does not carry is a "could not check
+// the card" case and writes its own notice row. inv-9 is the row the revoke
+// test below cancels: an email-only invite, no card behind it, one row.
+const invitesList = jest.fn(async () => ({
+  invites: [{ id: 'inv-9', status: 'pending', email: 'b@test.com', invited_staff_id: null }],
+}))
 const staffStoresSet = jest.fn(async () => ({}))
 const storesCreate = jest.fn(async () => ({ id: 'store-new' }))
 const storesUpdate = jest.fn(async () => ({}))
@@ -76,17 +81,23 @@ jest.mock('@/lib/synqed/client', () => ({
       removePin: staffRemovePin,
       uploadAvatar: staffUploadAvatar,
     },
+    // InviteClient requires `audit` (Greptile #978 R1 F3: the revoke reads the mint row back).
+    audit: { list: jest.fn() },
     invites: { create: invitesCreate, updateStatus: invitesUpdateStatus, list: invitesList },
     staffStores: { set: staffStoresSet },
     // `stores` is a REQUIRED port on StoresClient (only `staff` is Partial), and
     // createStore's 1→2 backfill reads the list on every create — a double
-    // without it models a client that cannot exist. One store = not the 1→2
-    // transition, so the backfill is a no-op and this suite still sees exactly
-    // the one settings.store_create row it is about.
+    // without it models a client that cannot exist. EMPTY on purpose: the
+    // backfill counts the active stores that existed BEFORE the new one (the
+    // new row may not be listed yet), and exactly one such store IS the 1→2
+    // transition. Zero predecessors = a plain create, so the backfill is a
+    // no-op and this suite still sees exactly the one settings.store_create
+    // row it is about. The other readers of this list (the store gate, the
+    // new-card mint) only change behaviour at 2+, so 0 reads as 1 did.
     stores: {
       create: storesCreate,
       update: storesUpdate,
-      list: async () => ({ stores: [{ id: 'store-existing', is_primary: true }] }),
+      list: async () => ({ stores: [] }),
     },
     customers: {
       create: customersCreate,

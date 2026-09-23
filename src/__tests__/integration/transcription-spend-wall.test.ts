@@ -318,7 +318,7 @@ jest.mock('@/lib/audit-web', () => ({ auditWeb: (...a: unknown[]) => auditWeb(..
 
 import { processRecordingJobs } from '@/lib/jobs/process-recording'
 import { DeepgramHttpError, type DeepgramTranscribeResult } from '@/lib/deepgram'
-import { transcribeAndPersistDiscardWithClient } from '@/actions/recording-discard-transcript'
+import { transcribeAndPersistDiscardWithClient } from '@/lib/recording/discard-transcript.core'
 import type { SynqedClient } from '@synqed-kk/client'
 import { estimateTranscriptionCostCents } from '@/lib/ai-rate-limit'
 import { AI_SPEND_LIMIT } from '@/lib/recording/job-errors'

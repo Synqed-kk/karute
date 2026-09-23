@@ -47,9 +47,10 @@
 //
 // ⛔ NEVER THE JOB QUEUE — the shared body transcribes DIRECTLY and writes
 // recordings.upsertSegments; enqueueing would surface a discarded take as a
-// real DRAFT karute (doctrine R2, see that module's header). This route imports
-// the shared body and nothing else, and a mutation test pins that a happy-path
-// POST creates neither a job row nor a karute.
+// real DRAFT karute (doctrine R2, in recording-discard-transcript.ts's header —
+// the bodies themselves now live in lib/recording/discard-transcript.core.ts).
+// This route imports the shared body and nothing else, and a mutation test pins
+// that a happy-path POST creates neither a job row nor a karute.
 //
 // audit: 'recordings.discards.transcript.write' is a 'skip' on the SAME ruling
 // as the shared body's SDK_WRITE_ALLOWLIST row — the authorising staff discard
@@ -65,7 +66,7 @@ import { getDiscardTranscriptWithClient } from '@/actions/recording-discards'
 import {
   persistDiscardTranscriptWithClient,
   transcribeAndPersistDiscardWithClient,
-} from '@/actions/recording-discard-transcript'
+} from '@/lib/recording/discard-transcript.core'
 import { DiscardTranscriptDTO } from '@/lib/app-api/discard-reasons-dto'
 import { DiscardTranscriptWriteSchema } from '@/lib/app-api/record-schemas'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'

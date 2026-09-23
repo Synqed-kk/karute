@@ -10,7 +10,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { grantCustomerConsentWithClient } from '@/actions/customers'
+import { grantCustomerConsentWithClient } from '@/lib/customers/customers.core'
 import {
   proveCustomerInBusiness,
   requireIdempotencyKey,

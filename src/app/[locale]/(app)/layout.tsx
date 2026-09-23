@@ -16,6 +16,8 @@ import { getNextCustomer } from '@/lib/appointments/next-customer'
 import { SessionProvider } from '@/providers/session-provider'
 import { NotificationsProvider } from '@/lib/notifications/context'
 import { buildNotificationFeed } from '@/lib/notifications/derive'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { canReadAuditLog } from '@/lib/auth/audit-read'
 
 import { createClient } from '@/lib/supabase/server'
 import { listStores, getActiveStoreId } from '@/actions/stores'
@@ -78,8 +80,8 @@ export default async function DashboardLayout({
     // seeded here the same way the dashboard seeds packAlerts into its card.
     // Best-effort: a failure degrades to an empty feed (bell shows no badge),
     // never blocks the app shell.
-    Promise.all([getBusinessId(), storeScopePromise])
-      .then(([businessId, scope]) =>
+    Promise.all([getBusinessId(), storeScopePromise, getMyCapabilities().catch(() => null)])
+      .then(([businessId, scope, caps]) =>
         // Fail CLOSED on scope-resolution failure (scope === null): an empty
         // feed, never an unfiltered business-wide one. A RESOLVED scope with
         // storeId null (business has no stores) keeps the unfiltered feed.
@@ -87,7 +89,11 @@ export default async function DashboardLayout({
         // actor who reaches NO store gets an empty bell, not the business's
         // (⚖ Liam 2026-09-16; census §7).
         scope && !reachesNoStore(scope)
-          ? buildNotificationFeed(businessId, locale, scope.storeId)
+          ? buildNotificationFeed(businessId, locale, scope.storeId, {
+              // The 監査ログ rule (audit.view AND stores.viewAll) — the only
+              // viewers whose bell carries recording failures. Fails closed.
+              viewerCanViewAudit: caps ? canReadAuditLog(caps) : false,
+            })
           : [],
       )
       .catch(() => []),

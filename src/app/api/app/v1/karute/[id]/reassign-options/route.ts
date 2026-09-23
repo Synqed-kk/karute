@@ -34,7 +34,7 @@ export const GET = facadeHandler<Params>('karute.reassignOptions', async (ctx: F
   })
 
   // R3-1 (fix round 3, Greptile issue 1 — REAL; fix round 4: now the SAME
-  // shared predicate src/actions/karute.ts's ensureReassignStoreScope uses,
+  // shared predicate src/lib/karute/karute.core.ts's ensureReassignStoreScope uses,
   // not a local duplicate) — run before any roster is built: a clamped
   // actor must not reach a picker for a karute record that itself sits
   // outside their assignment.
@@ -44,7 +44,7 @@ export const GET = facadeHandler<Params>('karute.reassignOptions', async (ctx: F
   // this BUSINESS; a clamped actor probing an id that exists in a
   // DIFFERENT store must get the identical 404 shape, or the two cases are
   // distinguishable by status code alone (same reasoning as
-  // src/actions/karute.ts's ensureReassignStoreScope R9-2 comment).
+  // src/lib/karute/karute.core.ts's ensureReassignStoreScope R9-2 comment).
   if (sourceStoreOutOfScope(record, { viewAll: ctx.identity.capabilities.has('stores.viewAll'), allowedStoreIds })) {
     throw new AppApiError('not_found', 'karute not found in this business')
   }
@@ -55,7 +55,7 @@ export const GET = facadeHandler<Params>('karute.reassignOptions', async (ctx: F
   // confirm write accepts, not identical parity — resolveStoreForRequest
   // resolves storeId to `assigned[0]` only, so a multi-store actor's roster
   // here is their FIRST assigned store, while toCustomerInScope
-  // (src/actions/karute.ts) loops every entry in allowedStoreIds and accepts
+  // (src/lib/karute/karute.core.ts) loops every entry in allowedStoreIds and accepts
   // a to-customer from ANY of them. No leak (narrower, never wider) — a
   // picker miss here just means the roster under-offers, never over-offers,
   // for a staffer assigned to more than one store. The web path has the

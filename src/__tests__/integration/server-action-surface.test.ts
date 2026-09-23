@@ -6,9 +6,32 @@ import { INTERNAL_DEBT, PUBLIC_ACTIONS } from './server-action-surface.data'
 const ROOT = process.cwd()
 const SOURCE_FILE = /^(?!.*\.d\.(?:ts|mts|cts)$).*\.(?:ts|tsx|js|jsx|mts|cts|mjs|cjs)$/
 // DEBT may only go DOWN. 2026-09-20 exception: #938 arrived before the ratchet;
-// setStoreHoursCore adds one after bootstrap removal, and leaves in repair B.
-const INTERNAL_DEBT_COUNT = 67 // may only go DOWN
+// setStoreHoursCore added one after bootstrap removal, and left in repair B.
+// 2026-09-23 (PKT-SEC-CORES-B1): 67 → 63, the four invite cores moved to
+// src/lib/invites/invites.core.ts.
+// 2026-09-23 (PKT-SEC-CORES-B2): 63 → 57, the six store cores moved to
+// src/lib/stores/stores.core.ts.
+// 2026-09-23 (PKT-SEC-CORES-C): 57 → 55, the two discard-transcript cores moved
+// to src/lib/recording/discard-transcript.core.ts.
+// 2026-09-23 (PKT-SEC-CORES-D1): 55 → 47, the eight customer cores moved to
+// src/lib/customers/customers.core.ts — that file's entry is now empty.
+// 2026-09-23 (PKT-SEC-CORES-D2): 47 → 39, the eight karute cores moved to
+// src/lib/karute/karute.core.ts — that file's entry is now empty too.
+const INTERNAL_DEBT_COUNT = 39 // may only go DOWN
 const CLOSED_DOORS = ['memberEmailsForBusiness', 'writeOrgSettingsBlob']
+// The server-only modules helpers were moved INTO, newest last: PR-A's
+// member-emails, then PKT-SEC-CORES-B1's four invite cores, then
+// PKT-SEC-CORES-B2's six store cores, then PKT-SEC-CORES-C's two
+// discard-transcript cores, then PKT-SEC-CORES-D1's eight customer cores,
+// then PKT-SEC-CORES-D2's eight karute cores.
+const SERVER_ONLY_MODULES = [
+  'src/lib/invites/member-emails.ts',
+  'src/lib/invites/invites.core.ts',
+  'src/lib/stores/stores.core.ts',
+  'src/lib/recording/discard-transcript.core.ts',
+  'src/lib/customers/customers.core.ts',
+  'src/lib/karute/karute.core.ts',
+]
 const NEW_EXPORT_MESSAGE = "A new export in a 'use server' file is a browser-callable endpoint with no authentication of its own. If it is a real action, add it to PUBLIC_ACTIONS and make sure its FIRST lines check the session/capability. If it is an internal helper, put it in a server-only module instead. Read PKT-SEC-CORES-A."
 
 function sourceFiles(dir: string): string[] {
@@ -178,8 +201,10 @@ describe('server action surface (PKT-SEC-CORES-A)', () => {
     expect(offenders).toEqual([])
   })
 
-  it('r4: the member-email module starts with server-only and has no directive prologue', () => {
-    const file = 'src/lib/invites/member-emails.ts'
+  // Every module a helper was moved INTO joins this list in the same PR —
+  // otherwise the cure is one deleted import away from being undone in
+  // silence, and the helper is a browser-callable endpoint again.
+  it.each(SERVER_ONLY_MODULES)('r4: %s starts with server-only and has no directive prologue', (file) => {
     const source = readFileSync(join(ROOT, file), 'utf8')
     expect(source.split(/\r?\n/)[0]).toBe("import 'server-only'")
     expect(directives(ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true))).toEqual([])

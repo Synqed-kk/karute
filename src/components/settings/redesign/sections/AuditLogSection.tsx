@@ -875,7 +875,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                     history dies with it) without asserting THIS
                     is that case — the read has a documented
                     offset-drift gap (listEntryEditHistoryWithClient,
-                    src/actions/karute.ts) that can also return
+                    src/lib/karute/karute.core.ts) that can also return
                     empty for an intact record, and this is a
                     dispute-investigation surface. */}
                 {trail.truncated ? t('entryEditPartial') : t('entryEditDeleted')}

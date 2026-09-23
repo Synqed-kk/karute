@@ -1,8 +1,8 @@
 // Facade: 新規顧客 create — the phone arm's twin of the web createCustomer()
 // action. Single-source: calls the SAME shared body that action delegates to
-// (createCustomerWithClient, src/actions/customers.ts) — the P-B pattern the
-// 破棄の記録 pair standardizes, so phone and web cannot drift into different
-// creates. The collection had `[id]/*` subroutes but no create door at all,
+// (createCustomerWithClient, src/lib/customers/customers.core.ts) — the P-B
+// pattern the 破棄の記録 pair standardizes, so phone and web cannot drift into
+// different creates. The collection had `[id]/*` subroutes but no create door at all,
 // which is why the thin port's createCustomer was a notWired stub.
 //
 // Gate: 'customers.view' — the SAME predicate the sibling PATCH
@@ -41,7 +41,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
-import { createCustomerWithClient } from '@/actions/customers'
+import { createCustomerWithClient } from '@/lib/customers/customers.core'
 
 export const runtime = 'nodejs'
 

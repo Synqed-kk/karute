@@ -31,10 +31,11 @@ import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/prac
 import { attachSample, sampleKeys, sampleRows, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf } from '@/business/lib/practice-door/registry'
 import { customers, STORE_A, STORE_C } from '@/business/lib/fixtures'
-import { defaultKindOf, staffQualifications } from '@/business/lib/fixtures-today'
+import { defaultKindOf, register, staffQualifications } from '@/business/lib/fixtures-today'
 import { jstDayKey } from '@/business/lib/clock'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
-import { accessFor as settingsAccessFor, RAIL } from '@/business/lib/settings'
+import { accessFor as settingsAccessFor, RAIL, yen } from '@/business/lib/settings'
+import { salesTargets } from '@/business/lib/fixtures-analytics'
 import { accessFor as askAiAccessFor } from '@/business/lib/ask-ai'
 import { accessFor as karuteAccessFor } from '@/business/lib/karute'
 import { accessFor as recordingAccessFor } from '@/business/lib/recording'
@@ -272,25 +273,27 @@ describe('(1) OWNER — viewAll', () => {
     expect(ids(planes.blocks)).toEqual([APT.blockUntitled, APT.blockMidnight, APT.blockOvernightBefore])
     expect(planes.sellSlots.every((s) => s.store_id === STORE.tokyo)).toBe(true)
     expect(planes.sellSlots.length).toBeGreaterThan(0)
-    expect(planes.register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
+    expect(planes.register.terminal_held).toEqual([])
     expect(JSON.stringify(planes)).not.toContain('store-test-')
     const other = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
     expect(other.decisions).toEqual([])
     expect(other.register.terminal_held).toEqual([])
   })
 
-  it('held terminal rows under viewAll: drawn only when their twin booking is among the live rows (join-miss = not drawn)', async () => {
-    expect((await data.readReservationPlanes(VIEW_ALL)).register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
-    expect((await data.readDayPlanes(VIEW_ALL, TODAY)).register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
-    withReads({ omitAppointments: [APT.a25] })
-    expect((await data.readReservationPlanes(VIEW_ALL)).register.terminal_held).toEqual([])
-    expect((await data.readDayPlanes(VIEW_ALL, TODAY)).register.terminal_held).toEqual([])
+  it('terminal_held under ON is [] — the fixture held row\'s twin booking IS live at 東京 today, and still no fixture ¥6,600 attaches (FE-1)', async () => {
+    expect(register.terminal_held.map((h) => liveIdOf('appointments', h.appointment_id))).toEqual([APT.a25])
+    const a25 = (await data.listAppointments(STORE.tokyo, {})).find((a) => a.id === APT.a25)!
+    expect(jstDayKey(a25.starts_at)).toBe(TODAY)
+    for (const lens of [STORE.tokyo, VIEW_ALL]) {
+      expect((await data.readDayPlanes(lens, TODAY)).register.terminal_held).toEqual([])
+      expect((await data.readReservationPlanes(lens)).register.terminal_held).toEqual([])
+    }
   })
 
   it('readReservationPlanes + readAnalyticsPlanes: rewritten ids, targets by sample policy', async () => {
     const res = await data.readReservationPlanes(STORE.tokyo)
     expect(JSON.stringify(res)).not.toContain('store-test-')
-    expect(res.register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
+    expect(res.register.terminal_held).toEqual([])
     // F3: the audit trail is keyed by appointment id → the keys are the live twins.
     const keys = Object.keys(res.auditTrail)
     expect(keys).toEqual(expect.arrayContaining([liveIdOf('appointments', 'apt-30'), liveIdOf('appointments', 'apt-31')]))
@@ -499,5 +502,110 @@ describe('(10) sampleKeys + sampleRows', () => {
     expect(customers.length).toBe(13)
     expect(STAFF).toHaveLength(17)
     expect(ASSIGNMENTS).not.toHaveProperty(CARD.musubi)
+  })
+})
+
+describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows the store policy', () => {
+  type Props = Awaited<ReturnType<typeof settingsProps>>['props']
+  const sec = (props: Props, id: string) => props.sections.find((s) => s.id === id)!
+  const blockOf = (props: Props, sectionId: string, blockId: string) => sec(props, sectionId).blocks.find((b) => b.id === blockId)!
+  const controlOf = (props: Props, id: string) =>
+    props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls))).find((c) => c.id === id)!
+  const SAMPLE_NONE = 'サンプル設定なし'
+
+  it('twin 東京: the roster is listStaff (core 稼働 beats a fixture 休止; a no-twin person appears), menus are listMenus, 事業構成 is the shell + the live stores', async () => {
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.sections.filter((s) => s.kicker === '店舗を選んでください')).toEqual([])
+    const live = ids(await data.listStaff(STORE.tokyo))
+    // 人・設備
+    const people = blockOf(props, 'people-equipment', 'people.staff').rows
+    expect(people.map((r) => r.id).sort()).toEqual(live.map((id) => `people.row-${id}`).sort())
+    const mirai = liveIdOf('staff', 'p-09')!
+    expect(storeDials[STORE_A].staffActive['p-09']).toBe(false) // the fixture says 休止…
+    expect(controlOf(props, `people.active-${mirai}`).value).toBe(true) // …core lists her active, and core wins
+    expect(people.find((r) => r.id === `people.row-${CARD.musubi}`)!.meta).toEqual([SAMPLE_NONE])
+    expect(people.find((r) => r.id === `people.row-${CARD.azusa}`)!.meta).toEqual([rulebook.roles.find((r) => r.key === 'manager')!.label])
+    // スタッフ管理
+    expect(blockOf(props, 'staff', 'staff.roster').rows.map((r) => r.id).sort()).toEqual(live.map((id) => `staff.row-${id}`).sort())
+    expect(controlOf(props, `staff.preset-${CARD.musubi}`).value).toBe(SAMPLE_NONE)
+    expect(controlOf(props, `staff.preset-${CARD.azusa}`).value).toBe('manager')
+    // 提供内容: 東京's live menus + 全店舗; 表示 through the twin
+    const menuRows = blockOf(props, 'services', 'services.menus').rows
+    expect(menuRows.map((r) => r.id)).toEqual([MENU.seitai, MENU.kotsuban, MENU.stretch, MENU.zenten].map((id) => `services.row-${id}`))
+    expect(controlOf(props, `services.visible-${MENU.stretch}`).value).toBe(false) // twin menu-03 is 非表示
+    // 回数券の整合: the floor is the twin menu's LIVE price × 0.7, never ¥0
+    expect(blockOf(props, 'services', 'services.tickets').rows[0].meta[0]).toBe(`対象メニューの最低価格 ${yen(4620)}`)
+    // 料金・ポイント: bands from the live menus; the target through the store's fixture self
+    expect(controlOf(props, `pricing.hi-${MENU.seitai}`).value).toBe('6600')
+    expect(salesTargets[STORE_A]).toBeGreaterThan(0)
+    expect(controlOf(props, 'pricing.target').value).toBe(String(salesTargets[STORE_A]))
+    // 事業構成
+    const org = blockOf(props, 'business-structure', 'org.stores')
+    expect(org.note).toBe('Dev Salonが運営する店舗の一覧です。ほかの店舗の設定はここからは変更できません。')
+    expect(org.table!.rows.map((r) => r.cells[0])).toEqual(['Dev Salon', 'Dev 銀座', 'テスト東京店', 'テスト横浜店', 'La Estro Test Store'])
+    expect(org.table!.rows.map((r) => r.cells[1])).toEqual(['—', '—', 'いま見ている店舗', '—', '—'])
+    expect(blockOf(props, 'business-structure', 'org.brand').facts[0]).toMatch(/^5店舗の運営のため/)
+    expect(sec(props, 'business-structure').aside!.lines.find((l) => l.label === '店舗数')!.value).toBe('5店舗')
+    // 予約同期: the shell's own stamp, 12 minutes before the board's moment
+    expect(blockOf(props, 'sync', 'sync.status').facts[0]).toMatch(/^最終同期は12分前/)
+  })
+
+  it('予約同期 on a wall clock 37 s past the board minute still says 12分前 — the board anchor, never the wall clock', async () => {
+    // Every other clock here sits on :00.000, where the wall clock and the board anchor agree.
+    jest.setSystemTime(new Date('2026-09-14T04:24:37Z'))
+    try {
+      const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+      expect(blockOf(props, 'sync', 'sync.status').facts[0]).toMatch(/^最終同期は12分前/)
+    } finally {
+      jest.setSystemTime(new Date('2026-09-14T04:24:00Z'))
+    }
+  })
+
+  it.each([
+    ['La Estro (named)', STORE.laEstro],
+    ['Dev Salon (none)', STORE.devSalon],
+  ])('%s: never 店舗を選んでください; live rows render and every SAMPLE part says サンプル設定なし', async (_label, store) => {
+    const { props } = await settingsProps({ locale: 'ja', store })
+    expect(props.sections.filter((s) => s.kicker === '店舗を選んでください')).toEqual([])
+    const people = blockOf(props, 'people-equipment', 'people.staff').rows
+    expect(people.map((r) => r.id)).toEqual(ids(await data.listStaff(store)).map((id) => `people.row-${id}`))
+    expect(people.length).toBeGreaterThan(0)
+    expect(people.every((r) => r.controls[0].value === true && r.meta[0] === SAMPLE_NONE)).toBe(true)
+    const menuRows = blockOf(props, 'services', 'services.menus').rows
+    expect(menuRows.map((r) => r.id)).toEqual(ids(await data.listMenus(store)).map((id) => `services.row-${id}`))
+    expect(menuRows.every((r) => r.controls[0].value === SAMPLE_NONE)).toBe(true)
+    expect(blockOf(props, 'services', 'services.tickets').facts).toEqual([SAMPLE_NONE])
+    expect(blockOf(props, 'business-structure', 'org.entity').facts).toEqual([SAMPLE_NONE])
+    expect(blockOf(props, 'business-structure', 'org.stores').table!.rows).toHaveLength(5)
+    const pay = sec(props, 'payments')
+    expect({ kicker: pay.kicker, lead: pay.lead, blocks: pay.blocks }).toEqual({ kicker: RAIL.find((e) => e.id === 'payments')!.group, lead: SAMPLE_NONE, blocks: [] })
+    expect(sec(props, 'booking-guard').kicker).toBe('店舗運営')
+  })
+
+  it('viewAll (an actor with no visible store): open store sections keep 店舗を選んでください, and no row reader is asked — the door would refuse the lens', async () => {
+    as(LOGIN.musubi)
+    const spy = withReads()
+    await expect(data.listStaff(VIEW_ALL)).rejects.toThrow(PracticeLensRefused)
+    spy.menusList.mockClear()
+    spy.resourcesList.mockClear()
+    spy.staffStoresList.mockClear()
+    const { props } = await settingsProps({ locale: 'ja' })
+    expect(props.lensLabel).toBe('すべての店舗')
+    const open = props.sections.filter((s) => s.scope === 'store' && s.gate === 'open')
+    expect(open.length).toBeGreaterThan(0)
+    expect(open.every((s) => s.kicker === '店舗を選んでください')).toBe(true)
+    expect(spy.menusList).not.toHaveBeenCalled()
+    expect(spy.resourcesList).not.toHaveBeenCalled()
+    expect(spy.staffStoresList).not.toHaveBeenCalled()
+  })
+})
+
+describe('(12) PR-2b — the register plane under ON is neutral, never fixture money (LIVE-PROOF M-A)', () => {
+  it('readDayPlanes + readReservationPlanes: refunds and cash_difference are 0, whatever the fixture holds', async () => {
+    expect(register.refunds).toBeGreaterThan(0) // the fixture refund the door used to spread onto a live 純売上
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY)
+    expect({ refunds: day.register.refunds, cash_difference: day.register.cash_difference }).toEqual({ refunds: 0, cash_difference: 0 })
+    const res = await data.readReservationPlanes(STORE.tokyo)
+    expect({ refunds: res.register.refunds, cash_difference: res.register.cash_difference }).toEqual({ refunds: 0, cash_difference: 0 })
   })
 })

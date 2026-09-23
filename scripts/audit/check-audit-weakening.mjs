@@ -402,91 +402,11 @@ export function findAllowlistWeakenings(mainV, headV, bootstrapping) {
   return weakenings
 }
 
-// ── Second-reviewer enforcement (contract §8; Greptile #635 P1) ──────────
-// A ledger line proves a weakening was DECLARED, not that anyone else
-// approved it — the ledger would otherwise self-authorize while branch
-// protection is off. Whenever ledgered weakenings exist in a PR CI run,
-// the gate itself requires an APPROVED review from the code owner on the
-// PR's EXACT head commit. Local runs and push-to-main runs skip it (same
-// documented local-caveat class as the FETCH_HEAD fallback — CI on the PR
-// is the enforcement point). Fail-closed: an API failure fails the gate.
-// Branch protection, once Anthony flips it, makes this redundant belt.
-const CODE_OWNER_LOGIN = 'alee046' // keep in sync with .github/CODEOWNERS
-
-/** Pure verdict (selftest-covered without the network): the owner's LATEST
- *  non-comment review must be APPROVED and pinned to the exact head SHA —
- *  an approval of an older commit must never authorize commits pushed
- *  after it. */
-export function ownerApprovalVerdict(reviews, headSha, ownerLogin = CODE_OWNER_LOGIN) {
-  const ownerReviews = (reviews ?? []).filter(
-    (r) => r?.user?.login === ownerLogin && r?.state !== 'COMMENTED',
-  )
-  const last = ownerReviews[ownerReviews.length - 1]
-  if (!last) return { ok: false, why: `no review from @${ownerLogin}` }
-  if (last.state !== 'APPROVED') return { ok: false, why: `latest review from @${ownerLogin} is ${last.state}` }
-  if (last.commit_id !== headSha) {
-    return {
-      ok: false,
-      why:
-        `@${ownerLogin}'s approval is for ${String(last.commit_id).slice(0, 7)}, not the current head ` +
-        `${String(headSha).slice(0, 7)} — the exact head commit must be re-approved`,
-    }
-  }
-  return { ok: true, why: 'approved at head' }
-}
-
-/** Fetch EVERY page of reviews (Greptile #635 r2: a single per_page=100 call
- *  could hide the owner's LATER withdrawal on page 2 behind a stale page-1
- *  approval — "latest" is only meaningful over the full list). fetchImpl is
- *  injectable so the selftest covers pagination without the network.
- *  Fail-closed throughout: an error status or an absurd page count throws. */
-export async function fetchAllReviews(fetchImpl, baseUrl, headers) {
-  const all = []
-  for (let page = 1; ; page += 1) {
-    if (page > 30) throw new Error('more than 3000 reviews — refusing to trust a truncated list')
-    const res = await fetchImpl(`${baseUrl}?per_page=100&page=${page}`, { headers })
-    if (!res.ok) throw new Error(`could not list PR reviews (HTTP ${res.status})`)
-    const batch = await res.json()
-    all.push(...batch)
-    if (batch.length < 100) return all
-  }
-}
-
-async function enforceOwnerApproval(weakeningCount) {
-  const eventPath = process.env.GITHUB_EVENT_PATH
-  if (!process.env.GITHUB_ACTIONS || !eventPath) {
-    console.log(
-      '[check-audit-weakening] owner-approval check skipped (not a CI run) — the PR CI run is the enforcement point.',
-    )
-    return
-  }
-  const event = JSON.parse(readFileSync(eventPath, 'utf8'))
-  const pr = event.pull_request
-  if (!pr) {
-    console.log('[check-audit-weakening] owner-approval check skipped (not a pull_request event).')
-    return
-  }
-  const token = process.env.GITHUB_TOKEN
-  if (!token) fail('GITHUB_TOKEN missing — cannot verify code-owner approval for ledgered weakenings.')
-  const api = process.env.GITHUB_API_URL ?? 'https://api.github.com'
-  let reviews
-  try {
-    reviews = await fetchAllReviews(fetch, `${api}/repos/${event.repository.full_name}/pulls/${pr.number}/reviews`, {
-      authorization: `Bearer ${token}`,
-      accept: 'application/vnd.github+json',
-    })
-  } catch (err) {
-    fail(`${err?.message ?? err} — failing closed; ledgered weakenings need verified owner approval.`)
-  }
-  const verdict = ownerApprovalVerdict(reviews, pr.head.sha)
-  if (!verdict.ok) {
-    fail(
-      `${weakeningCount} ledgered weakening(s) need a SECOND REVIEWER (contract §8): ${verdict.why}. ` +
-        `@${CODE_OWNER_LOGIN} must APPROVE the exact head commit, then re-run this job.`,
-    )
-  }
-  console.log(`[check-audit-weakening] owner approval verified (@${CODE_OWNER_LOGIN}, ${verdict.why}).`)
-}
+// Second-reviewer enforcement (a CI check that one hard-coded code owner
+// APPROVED the exact PR head whenever ledgered weakenings existed) was
+// RETIRED by Liam 2026-09-23. The merge bar is fresh eyes + stress + Greptile
+// 5/5 + green checks on the final tip via safe-merge; DB-touching changes
+// still wait for Liam's word. The ledger rules below are unchanged.
 
 function ledgerDiffLines(mainRef) {
   if (!existsSync(join(ROOT, LEDGER_PATH))) return { added: [], removed: [] }
@@ -605,8 +525,6 @@ async function main() {
     )
     process.exit(1)
   }
-
-  await enforceOwnerApproval(weakenings.length)
 
   console.log(`[check-audit-weakening] ${weakenings.length} weakening(s), all ledgered (1:1, append-only). EXIT=0`)
   process.exit(0)

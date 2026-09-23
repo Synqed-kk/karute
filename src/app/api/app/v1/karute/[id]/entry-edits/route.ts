@@ -1,6 +1,6 @@
 // Facade: per-entry edit history (edit-layer W2 history-sheet packet). Read-
 // only companion to entries/[entryId]'s PATCH — delegates to the SAME twin
-// (listEntryEditHistoryWithClient, src/actions/karute.ts) the web action uses.
+// (listEntryEditHistoryWithClient, src/lib/karute/karute.core.ts) the web action uses.
 //
 // Gate: 'customers.view' (same class gate as the detail screen read —
 // screens/karute/[id]/route.ts:51).
@@ -28,7 +28,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
-import { listEntryEditHistoryWithClient } from '@/actions/karute'
+import { listEntryEditHistoryWithClient } from '@/lib/karute/karute.core'
 
 export const runtime = 'nodejs'
 

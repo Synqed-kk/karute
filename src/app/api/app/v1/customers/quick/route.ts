@@ -1,7 +1,8 @@
 // Facade: 顧客のかんたん作成 (name only) — the phone arm's twin of the web
 // createQuickCustomer() action, reached from the booking dialog's and
 // NewKaruteDialog's customer picker. Single-source: the SAME shared body that
-// action delegates to (createQuickCustomerWithClient, src/actions/customers.ts).
+// action delegates to (createQuickCustomerWithClient,
+// src/lib/customers/customers.core.ts).
 //
 // WHY ITS OWN DOOR rather than a flag on the collection POST next door: the two
 // web actions are two different bodies — quick-create runs no duplicate check
@@ -22,7 +23,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
-import { createQuickCustomerWithClient } from '@/actions/customers'
+import { createQuickCustomerWithClient } from '@/lib/customers/customers.core'
 
 export const runtime = 'nodejs'
 
