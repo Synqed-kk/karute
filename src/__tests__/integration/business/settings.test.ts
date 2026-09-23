@@ -35,7 +35,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fillWords, wordsSentences } from '@/business/lib/settings-words'
+import { fillWords, wordsRoomBlock, wordsSentences, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { GENERIC_WORDS } from '@/business/lib/resource-words'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
 import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
@@ -4040,5 +4040,42 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     })
     expect(policy.facts[0]).toContain(GENERIC_WORDS.resourceNoun)
     expect(policy.facts[2]).toContain(spec.liveRoom.fallback)
+  })
+})
+
+// ⚖ S28 (2026-09-23) — THE COPY ROUND. Two pre-existing sentences rewritten from
+// scratch (COPY-S28-FINAL.md); both consts are shared by the seed and the live
+// door, so each worked example is pinned byte-for-byte on BOTH paths.
+describe('S28 — the 0-minute fact and the auto-assignment note, byte-for-byte', () => {
+  it.each([STORE_A, STORE_B])('S28 K1 — %s seeds the sheet\'s 清掃 sentence and the live door prints the same', async (store) => {
+    const props = await room({ store })
+    const turnover = '清掃時間を0分にすると、前の予約の終了時刻から次の予約を入れられます。'
+    const section = sectionOf(props, 'people-equipment')
+    expect(section.blocks.find((b) => b.id === 'people.equipment')!.facts[1]).toBe(turnover)
+    expect(wordsTurnoverFact(section, 'people.equipment', seedOf(props))).toEqual({ index: 1, sentence: turnover })
+  })
+
+  it('S28 K1 — the live door prints the sheet\'s 片付け and 消毒 sentences on a type change', async () => {
+    const props = await room({ store: STORE_A })
+    const section = sectionOf(props, 'people-equipment')
+    const live = (type: string) => wordsTurnoverFact(section, 'people.equipment', { ...seedOf(props), 'people.type': type })!.sentence
+    expect(live('hair_salon')).toBe('片付け時間を0分にすると、前の予約の終了時刻から次の予約を入れられます。')
+    expect(live('dental_clinic')).toBe('消毒時間を0分にすると、前の予約の終了時刻から次の予約を入れられます。')
+  })
+
+  it.each([STORE_A, STORE_B])('S28 K2 — %s seeds the sheet\'s ベッド note and the live door prints the same', async (store) => {
+    const props = await room({ store })
+    const section = sectionOf(props, 'people-equipment')
+    const note = '予約ごとに使うベッドの選び方です。ここで変えられる設定はありません。'
+    expect(section.blocks.find((b) => b.id === 'people.room-policy')!.note).toBe(note)
+    expect(wordsRoomBlock(section, 'people.room-policy', seedOf(props))!.note).toBe(note)
+  })
+
+  it('S28 K2 — the live door prints the sheet\'s ブース note for テスト渋谷店\'s own type', async () => {
+    const props = await room({ store: STORE_A })
+    const section = sectionOf(props, 'people-equipment')
+    const type = stores.find((s) => s.id === STORE_C)!.business_type
+    expect(wordsRoomBlock(section, 'people.room-policy', { ...seedOf(props), 'people.type': type })!.note)
+      .toBe('予約ごとに使うブースの選び方です。ここで変えられる設定はありません。')
   })
 })

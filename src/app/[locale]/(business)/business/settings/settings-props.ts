@@ -923,12 +923,12 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
   const beds = resources.filter((r) => r.store_id === ctx.storeId)
   const override = ctx.wordOverride
   const turnoverControl = '{name}の{turnoverName}時間'
-  const turnoverFact = '{turnoverName}時間を0分にすると、予約と予約のあいだに何も確保しません。'
+  const turnoverFact = '{turnoverName}時間を0分にすると、前の予約の終了時刻から次の予約を入れられます。'
   const turnoverName = ctx.words.turnoverWord ?? RESOURCE_WORDS.other.turnoverWord!
   const classLabels = { standard: '通常', private: '{privateWord}' }
   const privateFact = '{privateWord}の呼び名は業種の標準のままです。この画面からは変えられません。'
   const policyTitle = '{noun}の自動割り当て'
-  const policyNote = '予約の{noun}は、次の決まりのとおりに自動で決まります。ここで変える設定はありません。'
+  const policyNote = '予約ごとに使う{noun}の選び方です。ここで変えられる設定はありません。'
   const policyFacts = [
     '{noun}は自動で決まります。通常の{noun}から順に埋め、{privateWord}は最後に使います。',
     '「{privateWord}のみ」の指定がある予約だけが{privateWord}に限定されます。指定は予約ごとに付きます。',
