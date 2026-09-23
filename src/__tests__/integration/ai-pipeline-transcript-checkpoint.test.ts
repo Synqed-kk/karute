@@ -21,9 +21,14 @@ jest.mock('@/lib/karute/take-store', () => ({
   ensureFinalizedPath: async (_takeId: string, meta: { finalizedPath?: string }) =>
     meta.finalizedPath ?? null,
   readTakeTranscript: async (takeId: string) => takes.get(takeId)?.transcript ?? null,
-  stampTakeTranscript: async (takeId: string, finalizedPath: string, response: unknown) => {
+  stampTakeTranscript: async (
+    takeId: string,
+    finalizedPath: string,
+    locale: string,
+    response: unknown,
+  ) => {
     const meta = takes.get(takeId)
-    if (meta) meta.transcript = { finalizedPath, response, at: 1 }
+    if (meta) meta.transcript = { finalizedPath, locale, response, at: 1 }
   },
 }))
 
@@ -63,8 +68,8 @@ import { EmptyTranscriptError, runAIPipeline } from '@/lib/ai-pipeline'
 const TAKE = 'take-1'
 const FINALIZED = 'app_biz-1_take-1.webm'
 const count = (suffix: string) => posts.filter((u) => u.endsWith(suffix)).length
-const run = (takeId: string | null = TAKE) =>
-  runAIPipeline(new Blob(['audio']), takeId, 'ja', () => {})
+const run = (takeId: string | null = TAKE, locale = 'ja') =>
+  runAIPipeline(new Blob(['audio']), takeId, locale, () => {})
 
 beforeEach(() => {
   jest.useRealTimers()
@@ -76,7 +81,7 @@ beforeEach(() => {
 })
 
 describe('⚖ runAIPipeline never pays for the same finalized object twice', () => {
-  it('(1) extraction fails → retry: ONE transcribe POST in total, extraction asked twice', async () => {
+  it('(1) extraction fails → retry: ONE transcribe POST in total, THREE extract calls (two in run 1 incl. its own retry, one in run 2)', async () => {
     jest.useFakeTimers()
     extractFails = true
     const first = run().catch((e: unknown) => e)
@@ -108,6 +113,12 @@ describe('⚖ runAIPipeline never pays for the same finalized object twice', () 
     posts.length = 0
     await expect(run()).rejects.toBeInstanceOf(EmptyTranscriptError)
     expect(posts).toHaveLength(0)
+  })
+
+  it('(5) the same object in a DIFFERENT locale → the door is asked again', async () => {
+    await run(TAKE, 'ja')
+    await run(TAKE, 'en')
+    expect(count('/transcribe')).toBe(2)
   })
 
   it('(4) no take: nothing to key on — the door is asked every run, as before', async () => {
