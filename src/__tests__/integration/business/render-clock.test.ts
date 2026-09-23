@@ -140,9 +140,13 @@ describe('one clock anchor per render (#724)', () => {
 
     // …and in the door itself the one bare clock read sits inside cache(),
     // with no call to appointments() left taking its own default clock.
+    // Practice door PR-2 (fold 5): that cache() moved to clock.ts — ONE memoised
+    // clock shared with the practice door — and data.ts re-exports it, so data.ts
+    // now reads the clock nowhere of its own.
     const data = code('src/business/lib/data.ts')
-    expect(data.match(/new Date\(\s*\)/g)).toHaveLength(1)
-    expect(data).toContain('cache((): Date => new Date())')
+    expect(data.match(/new Date\(\s*\)/g)).toBeNull()
+    expect(data).toContain('export { renderNow }')
+    expect(code('src/business/lib/clock.ts')).toContain('export const renderNow = cache((): Date => new Date())')
     expect(data.match(/appointments\(\s*\)/g)).toBeNull()
 
     // THE BLIND SPOT the scans above cannot see: clock.ts DEFAULTS its `now`

@@ -329,7 +329,9 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
       'shiftsPolicy.laborCostRoles',
       'analyticsPolicy.viewRoles',
       'salesTargets',
-      'storeDials',
+      // Practice door PR-2: the dials are read through the facade's `storeSample`
+      // (OFF = `storeDials[id] ?? null` exactly — practice-door-on.test.ts (9)).
+      'storeSample(storeId!).dials',
     ]) {
       expect({ source, read: PROPS_CODE.includes(source) }).toEqual({ source, read: true })
     }

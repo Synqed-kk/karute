@@ -302,13 +302,15 @@ describe('the fixture data door', () => {
     // alternation — the #660 spanning-wildcard lesson) and comment lines are
     // stripped first so prose can't plant a phantom specifier.
     const INVENTORY: Record<string, string[]> = {
-      'src/business/lib/clock.ts': [],
+      // ⟲ PR-2: `renderNow` (React cache()) moved here from data.ts — one memoised clock.
+      'src/business/lib/clock.ts': ['react'],
       // Both sides' rows are REAL in the merged tree, so the entry is the union:
       // the stack brought `react` (data.ts wraps its readers in `cache`), #727
       // brought `./fixtures-reservations`. Verified against the file, not
       // reconciled by taking a side — the inventory mirrors reality or it is
       // worth nothing.
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', './practice-door/door', './practice-door/switch', 'react'],
+      // PR-2: `react` left with `renderNow` (now in ./clock, re-exported).
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', './practice-door/door', './practice-door/switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.
@@ -317,8 +319,9 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/registry-manifest.ts': [],
       'src/business/lib/practice-door/registry.generated.ts': [],
       'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
-      'src/business/lib/practice-door/sample-facade.ts': ['./registry'],
-      'src/business/lib/practice-door/door.ts': [],
+      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures-settings', '../fixtures-today', '../resource-words', './registry', './switch'],
+      'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-today', './actor', './registry', './sample-facade'],
       'src/business/lib/fixtures.ts': ['./clock'],
       // ⚖ D-15/D-24 (B2) — `./canon-logic/pricing` JOINED this inventory,
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
@@ -451,6 +454,8 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/fixtures-today',
+        // PR-2: the per-store SAMPLE words read (`storeSample`, never a throw on a live uuid).
+        '@/business/lib/practice-door/sample-facade',
         // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: the ONE runtime-reader module
         // under today/. `resourceWordsFor`/`chromeWords` live here and
         // nowhere else in this directory (the resource-words census's C5 pin).
@@ -837,6 +842,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
@@ -917,7 +923,7 @@ describe('the fixture data door', () => {
         '@/business/lib/canon-logic/pricing',
         '@/business/lib/clock',
         '@/business/lib/data',
-        '@/business/lib/fixtures-today',
+        '@/business/lib/practice-door/sample-facade',
         // ⚖ D-53 (u)/(n2b2) — same reason as StorePolicySection.tsx, above.
         '@/business/lib/resource-words',
         '@/business/lib/today-board',
@@ -1123,6 +1129,39 @@ describe('the fixture data door', () => {
     }
     expect(doorImporters).toEqual(['src/business/lib/data.ts'])
     expect(factoryImporters).toEqual([`${PRACTICE_DOOR}/core-reach.ts`])
+  })
+
+  // §7 — FORBIDDEN ON THE READ PATH. Comment lines stripped first, as specifiersOf does.
+  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call', () => {
+    const FORBIDDEN = [
+      'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
+      '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
+      '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
+    ]
+    const files = readdirSync(join(ROOT, PRACTICE_DOOR)).filter((n) => n.endsWith('.ts'))
+    expect(files).toContain('door.ts')
+    const hits: string[] = []
+    for (const name of files) {
+      const code = readFileSync(join(ROOT, PRACTICE_DOOR, name), 'utf8')
+        .split('\n')
+        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+        .join('\n')
+      for (const bad of FORBIDDEN) if (code.includes(bad)) hits.push(`${name}: ${bad}`)
+    }
+    expect(hits).toEqual([])
+  })
+
+  // The door cannot import src/lib, so its role labels MIRROR the phone's; both read from disk.
+  it("the door's role labels mirror src/lib/staff/role-label.ts for the five shared keys", () => {
+    const labels = (file: string) => {
+      const src = readFileSync(join(ROOT, file), 'utf8')
+      return Object.fromEntries(
+        ['owner', 'manager', 'senior', 'practitioner', 'frontdesk'].map((k) => [k, new RegExp(`^\\s*${k}: '([^']+)',`, 'm').exec(src)?.[1]]),
+      )
+    }
+    const phone = labels('src/lib/staff/role-label.ts')
+    expect(Object.values(phone).every((v) => typeof v === 'string' && v.length > 0)).toBe(true)
+    expect(labels(`${PRACTICE_DOOR}/door.ts`)).toEqual(phone)
   })
 })
 
