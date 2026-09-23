@@ -63,7 +63,7 @@ jest.mock('@/lib/staff', () => ({
 // profiles lookup used by updateStaffCore/deleteStaffCore — null = synqed-only
 // staff (routes to the synqed client); a row = profile-backed (routes to the
 // Supabase update).
-let profileRow: { id: string; full_name?: string } | null = null
+let profileRow: { id: string; full_name?: string; display_role?: string } | null = null
 let profileUpdateError: { message: string } | null = null
 // Every .eq() applied to a profiles query, recorded so pins can assert
 // tenant scoping (the service client bypasses RLS — the .eq('customer_id',…)
@@ -465,6 +465,32 @@ describe('DELETE /api/app/v1/staff/[id]', () => {
       target_id: 'auth-user-1',
       detail: { synqed_staff_id: 'synqed-7', self_removal: true, profile_neutralised: true, account_banned: true },
     })
+  })
+
+  // The owner guard lives in deleteStaffCore (one home, first in the chain);
+  // the route lets its AppApiError through instead of relabelling it a 502.
+  it('the OWNER row → 403 forbidden: NO core delete, NO profile update, NO ban, NO audit', async () => {
+    profileRow = { id: 'staff-owner', full_name: '佐藤', display_role: 'owner' }
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await deleteDELETE(deleteReq('staff-owner'), params('staff-owner'))
+    })
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'forbidden' })
+    expect(staffDelete).not.toHaveBeenCalled()
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a MANAGER row (not the owner) → today\'s removal: 200, name move, ban', async () => {
+    profileRow = { id: 'staff-mgr', full_name: '鈴木', display_role: 'manager' }
+    const res = await deleteDELETE(deleteReq('staff-mgr'), params('staff-mgr'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(staffDelete).toHaveBeenCalledWith('synqed-7')
+    expect(profileUpdates).toHaveLength(1)
+    expect(updateUserById).toHaveBeenCalledWith('staff-mgr', { ban_duration: '876000h' })
   })
 
   it('the 400 guard on a profile-backed id neutralises nothing: no profile update, no ban', async () => {

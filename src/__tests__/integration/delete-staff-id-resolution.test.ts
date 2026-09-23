@@ -109,7 +109,7 @@ jest.mock('@/lib/staff', () => ({
 
 // profileRow === null models a synqed-only id (owner-created teammate not yet
 // signed up); a row models a profile-backed staff (the crash case).
-let profileRow: { id: string; full_name?: string | null } | null = null
+let profileRow: { id: string; full_name?: string | null; display_role?: string | null } | null = null
 // The removal's two neutralising moves (name → `_system_removed_…`, account
 // banned): every profiles update is recorded with the .eq() scope it carried;
 // either move can be made to fail on its own (the 9/12 layer matrix).
@@ -375,6 +375,33 @@ describe('deleteStaff — a removed person stops being recognised (reversible)',
     const { lines } = await removeRow('profile-1')
     expect(profileUpdates).toHaveLength(1)
     expect(profileUpdates[0].patch).toEqual({ full_name: '_system_removed_山田_system_花子' })
+    expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: true } })
+  })
+
+  // The owner guard — ONE home (deleteStaffCore), first in the chain, before
+  // any write. ⚖ 9/12: guard off = the existing pins above, unchanged.
+  it('the OWNER row: refused with the existing translated fallback — NO core delete, NO profile update, NO ban, NO audit', async () => {
+    profileRow = { id: 'profile-owner', full_name: '佐藤', display_role: 'owner' }
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { result, lines } = await removeRow('profile-owner')
+      expect(result).toEqual({ error: 'somethingWentWrong' })
+      expect(staffDelete).not.toHaveBeenCalled()
+      expect(profileUpdates).toHaveLength(0)
+      expect(updateUserById).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it('a MANAGER row (not the owner): today\'s full removal — core delete, name move, ban, audit', async () => {
+    profileRow = { id: 'profile-mgr', full_name: '鈴木', display_role: 'manager' }
+    const { result, lines } = await removeRow('profile-mgr')
+    expect(result).toBeUndefined()
+    expect(staffDelete).toHaveBeenCalledWith('synqed-resolved')
+    expect(profileUpdates).toHaveLength(1)
+    expect(updateUserById).toHaveBeenCalledWith('profile-mgr', { ban_duration: '876000h' })
     expect(lines[0]).toMatchObject({ detail: { profile_neutralised: true, account_banned: true } })
   })
 

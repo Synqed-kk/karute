@@ -14,6 +14,7 @@ import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
 import { createAndPlaceStaffCard } from '@/lib/staff/new-card'
 import { resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
+import { AppApiError } from '@/lib/app-api/errors'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 
 // Explicit-client seam (design-parity packet 12 §S4a — the P-B pattern, same
@@ -376,10 +377,22 @@ export async function deleteStaffCore(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: profile } = await (service as any)
     .from('profiles')
-    .select('id, full_name')
+    .select('id, full_name, display_role')
     .eq('id', id)
     .eq('customer_id', businessId)
     .maybeSingle()
+
+  // The OWNER row cannot be removed — refused here, before ANY write (core
+  // delete, rename, ban, audit: a refused removal logs nothing, same as the
+  // 400 guard). Until now only the web UI hid the owner's delete button, and
+  // core's last-member guard fires only for the SOLE staff row, so with 2+
+  // staff a staff-manager could remove the owner through either door — and
+  // the rename + ban below would then lock the whole business out. The
+  // message is dev-facing: each door already maps a throw to its own answer
+  // (facade 403 forbidden, web the translated fallback).
+  if (profile?.display_role === 'owner') {
+    throw new AppApiError('forbidden', 'the owner row cannot be removed')
+  }
 
   // Pure lookup — null means the profile has no synqed record, i.e. nothing
   // to delete on the synqed side: skip the delete and just refresh the roster,
