@@ -11,10 +11,12 @@ import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
+import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import {
   createInviteCore,
+  isNewestLiveInviteForCard,
   listInvitesWithClient,
   reinviteTargetStaffIdWithClient,
   revokeInviteCore,
@@ -320,6 +322,81 @@ export async function acceptInvite(
   const email = invite.email as string // trusted: from the invite, not the client
   const role = invite.role as InviteRole
 
+  // 1b. Read the card this invite points at — BEFORE any account exists
+  //     (⚖ Greptile #978 R1 F1). Prefer the staff row the invite was launched
+  //     from (invited_staff_id) so re-inviting an existing person — at a new
+  //     email, or with no email on file — ATTACHES to their record (and its
+  //     history) instead of minting a duplicate. Falls back to an email match;
+  //     no match = a brand-new hire, minted in step 4. ONE read, reused there.
+  const synqed = new SynqedClient({ baseUrl, apiKey, businessId: invite.business_id })
+  let card: { id: string; user_id?: string | null } | null = null
+  let linkId: string | null = null
+  let cardReadErr: unknown = null
+  try {
+    // ⚖ G3 — READ THE CARD, not the first page of the roster. A fresh invite
+    // carries the id of the card it minted, so the lookup is ONE row: the old
+    // `staff.list({ page_size: 200 })` silently missed a pre-made card past row
+    // 200 and minted a DUPLICATE instead (⚖ ANY-ROSTER-SIZE). The email
+    // fallback — and chooseStaffToLink's user_id arm, where invited_staff_id
+    // carries a PROFILE id — still needs the roster, and now pages it whole.
+    if (invite.invited_staff_id) {
+      card = await synqed.staff.get(invite.invited_staff_id as string).catch(() => null)
+    }
+    linkId = card?.id ?? null
+    if (!linkId) {
+      const staff = await listAllCoreStaff(synqed.staff)
+      linkId = chooseStaffToLink(invite.invited_staff_id, email, staff)
+      card = linkId ? staff.find((s) => s.id === linkId) ?? null : null
+    }
+  } catch (err) {
+    // Same posture as before this read moved up: an unreadable roster never
+    // blocks the JOIN — step 4 reports it as staff.link_failed.
+    cardReadErr = err
+  }
+
+  // ⚖ G2 + Greptile #978 R1 F1/F2 — A STALE LINK NEVER RE-POINTS A CARD THAT IS
+  // ALREADY SOMEBODY'S, and the refusal happens HERE, before the account: a
+  // refusal after step 3 left a signed-in member with NO card — and since
+  // every facade identity read goes through `profiles`, that profile passed
+  // the roster and core answered `{ store_ids: [] }` = FLOATING, unclamped.
+  // The invitee has no account yet, so ANY user_id on the card is someone
+  // else's. The newest LIVE invite for it (⚖ H1: accepted counts, only a
+  // revoked row stops counting) still re-links it — the deliberate re-invite
+  // of an already-linked person (a new email, a lost login). An UNREADABLE
+  // invite list can no longer authorise that overwrite: the invitee is told
+  // to try again. Nothing is created, and the invite stays pending.
+  if (linkId && card?.user_id) {
+    const newest = await isNewestLiveInviteForCard(synqed, invite.id as string, linkId)
+    if (newest !== 'newest') {
+      console.error('[acceptInvite] refused before account creation:', linkId, newest)
+      await auditWeb({
+        category: 'staff',
+        action: 'staff.link_failed',
+        severity: newest === 'superseded' ? 'warning' : 'notice',
+        // No account exists yet, so there is no joiner to name: the actor is
+        // the INVITER (invite.invited_by — the auth user id createInvite
+        // recorded, or null), the person whose invite this refusal concerns.
+        actorId: (invite.invited_by as string | null) ?? null,
+        businessId: invite.business_id as string,
+        targetType: 'staff',
+        targetId: linkId,
+        detail: {
+          via: 'invite',
+          invite_id: invite.id as string,
+          role,
+          reason: newest === 'superseded' ? 'card_wired_by_another_invite' : 'invite_list_unreadable',
+        },
+        requestId,
+      })
+      return {
+        error:
+          newest === 'superseded'
+            ? 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.'
+            : 'Could not verify this invite right now. Please try again in a moment.',
+      }
+    }
+  }
+
   // 2. Create the auth user (the invite IS the email verification).
   const { data: created, error: createErr } = await service.auth.admin.createUser({
     email,
@@ -364,17 +441,33 @@ export async function acceptInvite(
     return { error: `Could not join the salon: ${attachErr.message}` }
   }
 
-  // 4. Link the synqed-core staff record under the business. Prefer the staff row
-  //    the invite was launched from (invited_staff_id) so re-inviting an existing
-  //    person — at a new email, or with no email on file — ATTACHES to their
-  //    record (and its history) instead of minting a duplicate. Falls back to an
-  //    email match, then creates a new row for a brand-new hire.
-  const synqed = new SynqedClient({ baseUrl, apiKey, businessId: invite.business_id })
+  // 4. Link the synqed-core staff record read in step 1b. The stale-invite
+  //    decision was made there, before the account existed — but two accepts
+  //    aimed at the SAME unwired card both pass 1b, both create accounts, and
+  //    the last write would win: one fresh account left with no card (the F1
+  //    floating profile again) and the card's permissions on the wrong login
+  //    (⚖ Greptile #978 R2). So the card is RE-READ at the write boundary: if
+  //    its owner CHANGED since the 1b read and is not this account, someone
+  //    else claimed it meanwhile → this join is rolled back (the invite stays
+  //    pending). The test is "owner changed since 1b", not "owner is someone
+  //    else", because a card already wired to an older login is the deliberate
+  //    re-invite that 1b let through on purpose — it must still re-link. A
+  //    re-read that fails never writes blindly: it lands in the catch below
+  //    (staff.link_failed, the join continues — the existing best-effort join
+  //    contract). ponytail: the window is now the read→write gap of one core
+  //    call; the atomic form is a core ask — a conditional staff.update that
+  //    only sets user_id when it is still null (or still the 1b owner).
+  let claimedBy: string | null = null
   try {
-    const { staff } = await synqed.staff.list({ page_size: 200 })
-    const linkId = chooseStaffToLink(invite.invited_staff_id, email, staff)
+    if (cardReadErr) throw cardReadErr
     if (linkId) {
-      await synqed.staff.update(linkId, { user_id: userId, role })
+      const fresh = await synqed.staff.get(linkId)
+      if (!fresh) throw new Error(`staff card ${linkId} unreadable at the write boundary`)
+      if (fresh.user_id != null && fresh.user_id !== userId && fresh.user_id !== (card?.user_id ?? null)) {
+        claimedBy = fresh.user_id
+      } else {
+        await synqed.staff.update(linkId, { user_id: userId, role })
+      }
     } else {
       await synqed.staff.create({ name, email, user_id: userId, role })
     }
@@ -396,6 +489,86 @@ export async function acceptInvite(
       detail: { via: 'invite', invite_id: invite.id as string, role },
       requestId,
     })
+  }
+
+  if (claimedBy && linkId) {
+    // Roll back THIS join — the just-created auth user, the step-3 precedent
+    // (Greptile P1 #158); profiles.id cascades from auth.users
+    // (001_initial_schema.sql), so the profile goes with it. Nothing else.
+    // Retried once, immediately (no sleep inside a server action).
+    //
+    // If BOTH deletes fail, this is a RECOVERY STATE, never "cleanly undone"
+    // (⚖ Greptile #978 R3): the account exists, its profile is attached to
+    // the business (step 3 ran) and it has no staff card — the floating
+    // member F1 was about. Two barriers, each best-effort, each reported:
+    //  (a) BAN the account — GoTrue refuses a banned user's password and
+    //      refresh grants, and this path returns before step 6's sign-in, so
+    //      no session is ever issued (every getUser re-verify fails closed);
+    //  (b) mark the profile `_system_…` — the roster read (staffListCore,
+    //      src/lib/staff.ts) excludes `full_name ILIKE '_system_%'`, so no
+    //      roster seat even on a read path that never re-verifies the token.
+    //      (customer_id is NOT NULL — it cannot be cleared.)
+    // The residual is an OCCUPIED EMAIL: the invite stays pending, the owner's
+    // 監査ログ row (rollback_failed + stranded_user_id) is the cue, and the
+    // account is removed by hand — a support step, not a security hole.
+    // supabase admin calls report failure as `{ error }` as well as by throwing.
+    const failed = (r: unknown) => !!(r as { error?: unknown } | null)?.error
+    let rollbackFailed = true
+    for (let attempt = 1; attempt <= 2 && rollbackFailed; attempt++) {
+      try {
+        const r = await service.auth.admin.deleteUser(userId)
+        if (failed(r)) throw (r as { error: unknown }).error
+        rollbackFailed = false
+      } catch (err) {
+        console.error(`[acceptInvite] rollback after concurrent card claim failed (attempt ${attempt}):`, err)
+      }
+    }
+    let banned = false
+    let profileNeutralised = false
+    if (rollbackFailed) {
+      try {
+        const r = await service.auth.admin.updateUserById(userId, { ban_duration: '876000h' })
+        if (failed(r)) throw (r as { error: unknown }).error
+        banned = true
+      } catch (err) {
+        console.error('[acceptInvite] could not ban the stranded account:', err)
+      }
+      try {
+        const r = await service.from('profiles').update({ full_name: '_system_rollback_failed' }).eq('id', userId)
+        if (failed(r)) throw (r as { error: unknown }).error
+        profileNeutralised = true
+      } catch (err) {
+        console.error('[acceptInvite] could not neutralise the stranded profile:', err)
+      }
+    }
+    console.error('[acceptInvite] card claimed concurrently:', linkId)
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.link_failed',
+      severity: 'warning',
+      // Same actor as the pre-account refusal: the joiner's account is gone
+      // (or, on a failed rollback, banned and off the roster).
+      actorId: (invite.invited_by as string | null) ?? null,
+      businessId: invite.business_id as string,
+      targetType: 'staff',
+      targetId: linkId,
+      detail: {
+        via: 'invite',
+        invite_id: invite.id as string,
+        role,
+        reason: 'card_claimed_concurrently',
+        // ids only — never the email (PII-free sink).
+        ...(rollbackFailed
+          ? { rollback_failed: true, stranded_user_id: userId, banned, profile_neutralised: profileNeutralised }
+          : {}),
+      },
+      requestId,
+    })
+    return {
+      error: rollbackFailed
+        ? 'Could not complete this invite. Ask the owner to send a new invite.'
+        : 'This invite link has been replaced by a newer invite. Ask the owner for the latest link.',
+    }
   }
 
   // The join is real from here (steps 4–5 are best-effort): the invitee became

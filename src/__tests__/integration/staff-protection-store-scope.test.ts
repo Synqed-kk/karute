@@ -101,6 +101,8 @@ jest.mock('@/lib/synqed/client', () => ({
     },
     staffStores: { set: jest.fn(async () => ({})), get: jest.fn(async () => ({ store_ids: [] })) },
     stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-a', is_primary: true }] })) },
+    // InviteClient requires `audit` (Greptile #978 R1 F3: the revoke reads the mint row back).
+    audit: { list: jest.fn() },
     invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
   })),
   newSynqedClient: jest.fn(() => ({})),
@@ -308,13 +310,16 @@ describe('pending re-invites — list hides, revoke refuses', () => {
     expect(invitesUpdateStatus).not.toHaveBeenCalled()
   })
 
-  it('revokeInvite: a viewAll actor never pays the lookup — and a broken lookup cannot block them', async () => {
-    // The clamp free-passes viewAll, so the read that feeds it is pure cost
-    // AND a pure new failure mode for an owner. Neither may exist.
+  it('revokeInvite: a viewAll actor pays no CLAMP lookup — and a broken lookup cannot block them', async () => {
+    // The clamp free-passes viewAll, so the read that feeds IT is pure cost and
+    // a pure new failure mode for an owner — staffWriteInScope must not be
+    // reached. ⚖ FOLD ROUND 3 (F4): the invite ROW itself is now load-bearing
+    // for every caller (it names the card a revoked fresh invite leaves
+    // behind), so revokeInviteCore reads it once, quietly — and a broken read
+    // still cannot block the revoke, which is the half that matters.
     resolveStoreScope.mockResolvedValue({ viewAll: true })
     invitesList.mockRejectedValue(new Error('core down'))
     await expect(revokeInvite(REINVITE.id)).resolves.toEqual({ ok: true })
-    expect(invitesList).not.toHaveBeenCalled()
     expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
   })
