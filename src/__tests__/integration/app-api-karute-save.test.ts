@@ -90,7 +90,7 @@ const fakeClient = {
   customers: { get: customersGet, getConsent },
   karuteRecords: { getByRecordingSession, create, update, list: listKaruteRecords },
   appointments: {
-    get: jest.fn(async () => ({ staff_id: 'appt-staff', store_id: null, title: null as string | null })),
+    get: jest.fn(async () => ({ staff_id: 'appt-staff', store_id: null as string | null, title: null as string | null })),
   },
   karuteOutcomes: { upsert: outcomeUpsert, get: outcomeGet },
   packs: { removeRedemption, listPacks },
@@ -132,6 +132,11 @@ beforeEach(() => {
   outcomeGet.mockResolvedValue(null)
   listPacks.mockResolvedValue([])
   listKaruteRecords.mockResolvedValue({ karute_records: [] })
+  // The T1/T2 oracle pins queue appointment reads they prove are NEVER made;
+  // clearAllMocks keeps that queue, and a leftover 404 now drops the next
+  // test's link — so every test starts from the default booking read.
+  fakeClient.appointments.get.mockReset()
+  fakeClient.appointments.get.mockImplementation(async () => ({ staff_id: 'appt-staff', store_id: null, title: null }))
 })
 
 describe('POST /api/app/v1/karute (save)', () => {
@@ -505,6 +510,68 @@ describe('POST /api/app/v1/karute (save) — karute.save choke-point audit (pack
     const [call] = audit.mock.calls[0] as [{ detail: Record<string, unknown> }]
     expect(call.detail).toHaveProperty('recording_session_id', null)
     expect(call.detail).toHaveProperty('appointment_id', null)
+  })
+})
+
+describe('POST /api/app/v1/karute (save) — a booking that cannot be used never loses the karute', () => {
+  // ⚖ 9/12 matrix: the three degraded arms are mutually exclusive outcomes of ONE read, so the matrix = each arm alone + the all-OK case unchanged.
+  const ginzaClamp = () =>
+    jest.mocked(resolveStoreForRequest).mockResolvedValueOnce({ storeId: 'store-ginza', allowedStoreIds: ['store-ginza'] })
+  const notFound = () => Object.assign(new Error('no such appointment'), { status: 404 })
+  const blip = () => Object.assign(new Error('upstream'), { status: 503 })
+  const saveWith = async (appointmentId: string) => {
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId }), noRoute)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ id: 'kar-new' })
+    expect(audit).toHaveBeenCalledTimes(1)
+    return audit.mock.calls[0][0] as { action: string; severity?: string; detail: Record<string, unknown> }
+  }
+
+  it('booking in scope → the booking\'s store, link and menu kept, a normal audit row', async () => {
+    ginzaClamp()
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 'VIP施術' })
+    const row = await saveWith('ap-g')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: 'VIP施術' }))
+    expect(row.severity).toBeUndefined()
+    expect(row.detail).toHaveProperty('appointment_link', null)
+  })
+
+  it('booking not found → 200, saved in the caller\'s store, link dropped, one read, notice row', async () => {
+    ginzaClamp()
+    fakeClient.appointments.get.mockRejectedValueOnce(notFound())
+    const row = await saveWith('ap-gone')
+    expect(fakeClient.appointments.get).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }))
+    expect(row).toMatchObject({ action: 'karute.save', severity: 'notice', detail: { appointment_link: 'appointment_not_found' } })
+  })
+
+  it('booking in another store → 200 (no refusal), saved in the caller\'s store, link and menu dropped, notice row', async () => {
+    ginzaClamp()
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-daikanyama', title: '代官山の施術' })
+    const row = await saveWith('ap-x')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }))
+    expect(row).toMatchObject({ severity: 'notice', detail: { appointment_link: 'appointment_out_of_scope' } })
+  })
+
+  it('a blip then a good read → a normal save with the booking\'s store, link and menu', async () => {
+    ginzaClamp()
+    fakeClient.appointments.get
+      .mockRejectedValueOnce(blip())
+      .mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 'VIP施術' })
+    const row = await saveWith('ap-g')
+    expect(fakeClient.appointments.get).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: 'VIP施術' }))
+    expect(row.severity).toBeUndefined()
+    expect(row.detail).toHaveProperty('appointment_link', null)
+  })
+
+  it('booking unreadable twice → 200, saved in the caller\'s store, link KEPT, no menu, notice row', async () => {
+    ginzaClamp()
+    fakeClient.appointments.get.mockRejectedValueOnce(blip()).mockRejectedValueOnce(blip())
+    const row = await saveWith('ap-g')
+    expect(fakeClient.appointments.get).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: null }))
+    expect(row).toMatchObject({ severity: 'notice', detail: { appointment_link: 'appointment_unreadable' } })
   })
 })
 

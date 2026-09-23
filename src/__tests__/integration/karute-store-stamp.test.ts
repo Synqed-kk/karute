@@ -6,7 +6,9 @@
  * karuteRecords.create() call site sent none — every new record was
  * store-less in a multi-store business. Resolution order:
  *   1. appointmentId present → the BOOKING's store (the truth of where the
- *      session happened) — fetched via synqed.appointments.get(), .catch(null)
+ *      session happened) — read via readAppointmentForSave; a booking that
+ *      cannot be used (404 / out of scope / unreadable after one retry) saves
+ *      into the caller's lens instead, never refused, never NULL-store
  *   2. no appointmentId → resolveStoreScope().storeId (the RBAC-clamped store:
  *      active-store cookie for cross-store viewers, but a branch-restricted staff
  *      is clamped to their assigned store; never mint a NULL-store record for a
@@ -122,10 +124,11 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
     )
   })
 
-  it('(e) OUT-OF-SCOPE appointmentId: rejects the save, stamps nothing', async () => {
+  it('(e) OUT-OF-SCOPE appointmentId: saves into the caller\'s own store, with no booking link', async () => {
     // A branch-restricted staff (銀座-only) handed a 代官山 booking id: the record
-    // must NOT be created — never re-stamped to the caller's own store either.
-    appointments.get.mockResolvedValue({ id: 'ap-x', staff_id: 'other-staff', store_id: 'store-daikanyama' })
+    // is kept (⚖ never lose a karute) but lands in 銀座 — never stamped into
+    // 代官山 — and carries neither the link nor the booking's menu.
+    appointments.get.mockResolvedValue({ id: 'ap-x', staff_id: 'other-staff', store_id: 'store-daikanyama', title: '代官山の施術' })
     resolveStoreScopeMock.mockResolvedValue({
       storeId: 'store-ginza',
       viewAll: false,
@@ -134,8 +137,10 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
 
     const res = await saveKaruteRecordInline({ ...baseInput, appointmentId: 'ap-x' })
 
-    expect(res).toEqual({ error: expect.any(String) })
-    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(res).not.toHaveProperty('error')
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }),
+    )
   })
 
   it('(f) in-scope appointmentId for a restricted staff: still saves with the booking store', async () => {
@@ -191,22 +196,75 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
     )
   })
 
-  it('(d) appointment fetch failure: store_id is null (no secondary default-store fallback)', async () => {
-    appointments.get.mockRejectedValue(new Error('not found'))
+  it('(d) appointment not found: saved into the viewer\'s store with no link, never a NULL-store record', async () => {
+    appointments.get.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
     resolveStoreScopeMock.mockResolvedValue(scope('store-B'))
 
     await saveKaruteRecordInline({ ...baseInput, appointmentId: 'missing' })
 
+    // A dangling id is dropped; the record lands in the viewer's verified lens
+    // so it shows in their store's カルテ list instead of vanishing.
     expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({ appointment_id: 'missing', store_id: null }),
+      expect.objectContaining({ appointment_id: null, store_id: 'store-B', service: null }),
     )
-    // The booking's store is the only source of truth for an appointment-linked
-    // save — a failed lookup means "unknown", not "assume the viewer's store".
-    // ⚖ A1: resolveStoreScope IS called now, for the converge branch's store
-    // LOCK — a different question from where this record is STAMPED, so "never
-    // called" stopped being a proof of this rule. The store_id: null above is
-    // the rule itself, and 'store-B' is deliberately the value it would catch
-    // if the viewer's store ever leaked into the stamp.
+    expect(appointments.get).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a booking that cannot be used never loses the karute (both web doors)', () => {
+  // ⚖ 9/12 matrix: the three degraded arms are mutually exclusive outcomes of ONE read, so the matrix = each arm alone + the all-OK pins ((a)/(f)) unchanged.
+  const notFound = () => Object.assign(new Error('not found'), { status: 404 })
+  const blip = () => Object.assign(new Error('upstream'), { status: 503 })
+  const ginza = () =>
+    resolveStoreScopeMock.mockResolvedValue({ storeId: 'store-ginza', viewAll: false, allowedStoreIds: ['store-ginza'] })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: booking not found → saved in the caller\'s store, link dropped, one read', async (save) => {
+    ginza()
+    appointments.get.mockRejectedValue(notFound())
+
+    await save({ ...baseInput, appointmentId: 'ap-gone' }).catch(() => {})
+
+    expect(appointments.get).toHaveBeenCalledTimes(1)
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }),
+    )
+  })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: booking in another store → saved in the caller\'s store, link and menu dropped', async (save) => {
+    ginza()
+    appointments.get.mockResolvedValue({ id: 'ap-x', staff_id: 'other', store_id: 'store-daikanyama', title: '代官山の施術' })
+
+    await save({ ...baseInput, appointmentId: 'ap-x' }).catch(() => {})
+
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }),
+    )
+  })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: a blip then a good read → a normal save with the booking\'s store, link and menu', async (save) => {
+    ginza()
+    appointments.get
+      .mockRejectedValueOnce(blip())
+      .mockResolvedValueOnce({ id: 'ap-g', staff_id: 'other', store_id: 'store-ginza', title: 'VIP施術' })
+
+    await save({ ...baseInput, appointmentId: 'ap-g' }).catch(() => {})
+
+    expect(appointments.get).toHaveBeenCalledTimes(2)
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: 'VIP施術' }),
+    )
+  })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: booking unreadable twice → saved in the caller\'s store, link KEPT, no menu', async (save) => {
+    ginza()
+    appointments.get.mockRejectedValue(blip())
+
+    await save({ ...baseInput, appointmentId: 'ap-g' }).catch(() => {})
+
+    expect(appointments.get).toHaveBeenCalledTimes(2)
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: null }),
+    )
   })
 })
 

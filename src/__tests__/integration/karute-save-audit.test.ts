@@ -159,6 +159,42 @@ describe('karute.save — web saveKaruteRecord emits exactly once', () => {
     expect(call.detail).toHaveProperty('recording_session_id', null)
     expect(call.detail).toHaveProperty('appointment_id', null)
   })
+
+  it('a normal save carries appointment_link: null and no severity override', async () => {
+    await saveKaruteRecord({ ...baseInput, appointmentId: 'appt-1' })
+    expect(audit).toHaveBeenCalledTimes(1)
+    const [call] = audit.mock.calls[0] as [{ severity?: string; detail: Record<string, unknown> }]
+    expect(call.severity).toBeUndefined()
+    expect(call.detail).toHaveProperty('appointment_link', null)
+  })
+})
+
+describe('karute.save — a booking that cannot be used rides a notice on the ONE save row', () => {
+  // ⚖ 9/12 matrix: the three degraded arms are mutually exclusive outcomes of ONE read, so the matrix = each arm alone + the normal-save pin above unchanged.
+  const ginza = () =>
+    jest.mocked(resolveStoreScope).mockResolvedValue({
+      storeId: 'store-ginza', viewAll: false, allowedStoreIds: ['store-ginza'], degraded: false,
+    })
+
+  it.each([
+    ['not found', 'appointment_not_found', () => appointments.get.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))],
+    ['in another store', 'appointment_out_of_scope', () => appointments.get.mockResolvedValue({ staff_id: 'x', store_id: 'store-daikanyama', title: 't' })],
+    ['unreadable twice', 'appointment_unreadable', () => appointments.get.mockRejectedValue(Object.assign(new Error('down'), { status: 503 }))],
+  ] as const)('booking %s → saved, one karute.save row with severity notice and appointment_link %s', async (_label, reason, arrange) => {
+    ginza()
+    arrange()
+    for (const save of [saveKaruteRecord, saveKaruteRecordInline]) {
+      audit.mockClear()
+      await save({ ...baseInput, appointmentId: 'appt-1' })
+      expect(audit).toHaveBeenCalledTimes(1)
+      expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'karute.save',
+        severity: 'notice',
+        storeId: 'store-ginza',
+        detail: expect.objectContaining({ appointment_link: reason }),
+      }))
+    }
+  })
 })
 
 describe('karute.save — update/retry path (recording session already saved)', () => {
