@@ -87,7 +87,7 @@ describe('notification feed — recording failures (owner view)', () => {
     expect(items.map((i) => i.id).sort()).toEqual(['recording-failure:rec-a', 'recording-failure:rec-b'])
     const a = feed.find((n) => n.id === 'recording-failure:rec-a')!
     expect(a.category).toBe('system')
-    expect(a.href).toBe('/ja/sessions')
+    expect(a.href).toBe('/ja/settings?tab=audit')
     expect(a.titleJa).toBe('カルテ未作成の録音')
     // 07:02Z = 16:02 JST; the newest row's reason (karute save), not the older one.
     expect(a.bodyJa).toBe('9/22 16:02の録音・カルテ保存エラー')

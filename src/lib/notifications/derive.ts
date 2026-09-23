@@ -74,7 +74,9 @@ export async function buildNotificationFeed(
     customersFollowup: `${lp}/customers`,
     customersSyncPending: `${lp}/customers`,
     karute: `${lp}/karute`,
-    recording: `${lp}/sessions`,
+    // The 監査ログ tab — same access rule as this source (canReadAuditLog),
+    // and where these audit rows are listed. No `target` (a customer id there).
+    recording: `${lp}/settings?tab=audit`,
   }
 
   // Fan out the four independent reads. Each is individually guarded so a

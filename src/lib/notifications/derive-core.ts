@@ -111,7 +111,7 @@ export interface AssembleFeedInputs {
   syncPendingCount: number
   /** Empty unless the viewer passes canReadAuditLog (see derive.ts). */
   recordingFailures?: FeedRecordingFailure[]
-  /** 録音 page — hosts the 録音履歴 card (RecordingsInboxCard). */
+  /** The 監査ログ tab (settings ?tab=audit), where these rows are listed. */
   recordingHref?: string
 }
 
