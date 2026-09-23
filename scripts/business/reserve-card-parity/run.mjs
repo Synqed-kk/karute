@@ -277,7 +277,7 @@ function compare(aBuf, bBuf, diffPath) {
 }
 
 // ---- 6. PARITY.md, from the files themselves ----
-function writeParityMd(verbatim) {
+function writeParityMd(verbatim, scopedCheck) {
   const css = readFileSync(join(MOD, 'reserve-card.css'), 'utf8')
   const ranges = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) \*\//g)].map((m) => `${m[1]}–${m[2]}`)
   // a SCOPED marker never matches the verbatim pattern above, so these blocks are neither checked nor listed as verbatim
@@ -294,9 +294,10 @@ Emitted by \`node scripts/business/reserve-card-parity/run.mjs\` — do not edit
 - \`reserve-card.css\` ← \`src/index.css\` ${ranges.join(' · ')}, plus ONE marked context block (not verbatim: --font-sans/--font-num from index.css 33–34, body 185–191, the page root's bg-background/text-foreground, and the inherited text defaults Reserve's page hands down — re-scoped to the preview root so a host's inherited type cannot leak in), and the SCOPED blocks listed under Declared edits
 
 Verbatim check (last run): ${verbatim}
+Scoped blocks (declarations after prefix strip): ${scopedCheck}
 
 ## Declared edits (not verbatim)
-- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (.pressable, .tap44) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Not counted by the verbatim check.
+- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (.pressable, .tap44) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
 - \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 
 ## Left out of index.css 4520–4685, and why
@@ -347,6 +348,8 @@ async function main() {
   mkdirSync(OUT, { recursive: true })
   const verbatim = checkVerbatim()
   log(`verbatim blocks: ${verbatim}`)
+  const scopedCheck = checkScoped()
+  log(`Scoped blocks (declarations after prefix strip): ${scopedCheck}`)
   const pristine = exportReserve()
   const satin = emitExpectedSatin()
   writePortApp()
@@ -457,6 +460,7 @@ async function main() {
     ...rows.map((x) => `| ${x.c.label} | ${x.s} | ${fmt(x.r)} | ${fmt(x.p)} | ${x.cmp.diff < 0 ? x.cmp.size : x.cmp.diff} | ${x.cmp.diff < 0 ? '—' : ((100 * x.cmp.diff) / x.cmp.total).toFixed(4)} | ${x.verdict} |`),
   ].join('\n')
   if (/ — DIFFER: /.test(verbatim)) problems.push(`verbatim check: ${verbatim}`) // a verbatim block that drifted is a FAIL
+  if (/ — DIFFER: /.test(scopedCheck)) problems.push(`scoped check: ${scopedCheck}`) // so is a scoped one
   const pass = rows.every((x) => x.verdict === 'PASS') && !problems.length
   const sizes = Object.keys(SIZE).map((s) => `${s} ${[...new Set(rows.filter((x) => x.s === s).flatMap((x) => [fmt(x.r), fmt(x.p)]))].join('/')}`).join(' · ')
   const report = `# Reserve card parity — ${pass ? 'PASS' : 'FAIL'}
@@ -467,13 +471,14 @@ wordmark faces (CDP platform fonts, cover): reserve ${JSON.stringify(fonts.reser
 reserve side: ${RESERVE_HIDE} (a sibling that overlaps the cover's bottom edge; not a surface element)
 fence (git diff in the Reserve copy): ${fence}
 verbatim blocks: ${verbatim}
+Scoped blocks (declarations after prefix strip): ${scopedCheck}
 ${problems.length ? '\nproblems:\n' + problems.map((p) => '- ' + p).join('\n') + '\n' : ''}
 ${table}
 
 PNGs: ${OUT}/<case>-<surface>-{reserve,port,diff}.png
 `
   writeFileSync(join(OUT, 'parity-report.md'), report)
-  writeParityMd(verbatim)
+  writeParityMd(verbatim, scopedCheck)
   log('\n' + report)
   process.exitCode = pass ? 0 : 1
 }
@@ -523,6 +528,26 @@ function checkVerbatim() {
   }
   const whole = readFileSync(join(MOD, 'satin-material.ts'), 'utf8').split('\n').slice(1).join('\n') === show('src/lib/satin-material.ts').join('\n')
   all++; if (whole) ok++; else bad.push('satin-material.ts (whole file)')
+  return `${ok}/${all} identical${bad.length ? ' — DIFFER: ' + bad.join(', ') : ''}`
+}
+
+// Every block under a SCOPED marker must equal the pin's lines once the literal `.member-ground ` prefix is
+// stripped from the start of each selector (line start, or after `, `) — its press / reduced-motion
+// declarations never show in a static screenshot, so this is their only guard.
+function checkScoped() {
+  const pin = sh('git', ['-C', RESERVE, 'show', `${PIN}:src/index.css`]).split('\n')
+  const lines = readFileSync(join(MOD, 'reserve-card.css'), 'utf8').split('\n')
+  let ok = 0, all = 0
+  const bad = []
+  lines.forEach((l, i) => {
+    const m = l.match(/^\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/)
+    if (!m) return
+    const want = pin.slice(+m[1] - 1, +m[2])
+    const got = lines.slice(i + 1, i + 1 + want.length).map((x) => x.replace(/(^\s*|, )\.member-ground (?=\.)/g, '$1'))
+    all++
+    if (JSON.stringify(want) === JSON.stringify(got)) ok++
+    else bad.push(`reserve-card.css:${i + 1} (src/index.css:${m[1]}–${m[2]})`)
+  })
   return `${ok}/${all} identical${bad.length ? ' — DIFFER: ' + bad.join(', ') : ''}`
 }
 
