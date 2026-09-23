@@ -27,7 +27,7 @@
 //      PARITY_ONLY=p01,long (a subset of cases, while investigating; the proof is the full run).
 // Only the PIDs this script starts are ever stopped.
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -35,11 +35,15 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const ROOT = resolve(process.env.PARITY_REPO ?? resolve(HERE, '../../..'))
+// real paths only: Vite's fs.allow compares realpaths, so a symlinked root (macOS /var → /private/var under
+// os.tmpdir()) would be refused and the port app would render nothing
+const ROOT = realpathSync(resolve(process.env.PARITY_REPO ?? resolve(HERE, '../../..')))
 const require = createRequire(join(ROOT, 'package.json'))
 const PIN = 'c2a9f9543187bff689307e22a6fcfa29f02a5215'
 const RESERVE = resolve(process.env.RESERVE_REPO ?? join(ROOT, '../reserve'))
-const WORK = resolve(process.env.PARITY_DIR ?? join(tmpdir(), 'reserve-card-parity'))
+const WORK_GIVEN = resolve(process.env.PARITY_DIR ?? join(tmpdir(), 'reserve-card-parity'))
+mkdirSync(WORK_GIVEN, { recursive: true })
+const WORK = realpathSync(WORK_GIVEN)
 const W = process.env.PARITY_W // the lane folder, optional: its satin fixtures are cross-checked when given
 const COPY = join(WORK, 'reserve-c2a9f95')
 const APP = join(WORK, 'port-app')
