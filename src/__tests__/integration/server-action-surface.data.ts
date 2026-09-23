@@ -285,16 +285,9 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
     'uploadStaffAvatarCore',
   ],
   'src/actions/stores.ts': [
-    'createStoreCore',
-    'updateStoreCore',
-    // 2026-09-20: arrived with #938 before this ratchet was on main; leaves with the stores cores in repair B
-    'setStoreHoursCore',
     'getPrimaryStoreId',
     'getStaffStoresStrict',
-    'getStaffStoresWithClient',
-    'listStoresWithClient',
     'setStaffStoresAtCreationCore',
-    'setStaffStoresCore',
   ],
   'src/actions/voice.ts': [
     'enrollVoiceActionCore',

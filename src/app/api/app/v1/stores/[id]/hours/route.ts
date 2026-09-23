@@ -24,7 +24,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { lookupSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
-import { setStoreHoursCore } from '@/actions/stores'
+import { setStoreHoursCore } from '@/lib/stores/stores.core'
 import { STORE_OWNER_DENIAL } from '@/lib/validations/store'
 
 export const runtime = 'nodejs'

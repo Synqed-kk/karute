@@ -153,7 +153,7 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'stores.update',
   // 'stores.list' is a GET but write-capable: listStoresWithClient's
   // ensurePrimary:true path lazily provisions the 本店 primary store
-  // (src/actions/stores.ts). The method-scan coverage test can't see a
+  // (src/lib/stores/stores.core.ts). The method-scan coverage test can't see a
   // write hidden under a GET key, so this entry is asserted directly by
   // GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS in
   // app-api-revocation-coverage.test.ts — a revoked token must not reach

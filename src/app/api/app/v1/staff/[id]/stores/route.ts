@@ -1,6 +1,7 @@
 // Facade: per-staff store assignment read + write (design-parity packet 12
 // §S4a). Single-source: both routes call the SAME cores the web actions call
-// (getStaffStoresWithClient / setStaffStoresCore, src/actions/stores.ts).
+// (getStaffStoresWithClient / setStaffStoresCore,
+// src/lib/stores/stores.core.ts).
 //
 // GET gate: web's own getStaffStores() has NO gate at all (stores.ts:457) —
 // this facade adds an ensureCapability('staff.manage') floor, a DELIBERATE
@@ -35,7 +36,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { getStaffStoresWithClient, setStaffStoresCore } from '@/actions/stores'
+import { getStaffStoresWithClient, setStaffStoresCore } from '@/lib/stores/stores.core'
 import { STORE_OWNER_DENIAL } from '@/lib/validations/store'
 
 export const runtime = 'nodejs'

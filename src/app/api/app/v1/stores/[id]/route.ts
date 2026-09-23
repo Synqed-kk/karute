@@ -22,7 +22,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { updateStoreCore } from '@/actions/stores'
+import { updateStoreCore } from '@/lib/stores/stores.core'
 import { STORE_OWNER_DENIAL, type StoreInput } from '@/lib/validations/store'
 
 export const runtime = 'nodejs'
