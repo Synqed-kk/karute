@@ -31,6 +31,8 @@ import {
   DISCARDED_BY_STAFF,
   DISCARD_LEDGER_UNREADABLE,
   TRANSCRIPTION_LEDGER_UNAVAILABLE,
+  StageFailure,
+  type StageFailureCode,
 } from '@/lib/recording/job-errors'
 import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
@@ -114,6 +116,25 @@ async function assertNotDiscardedByStaff(synqed: SynqedClient, recordingSessionI
  *  branch (packet B, 2026-09-19): only a 404 means "no record yet" — any
  *  other failure must throw so the job retries rather than treating "could
  *  not ask" as "none". */
+/** Every word `last_error` already carries a meaning for (the phone's live
+ *  indicator and core's re-arm read them byte-for-byte) — a stage never
+ *  wraps one of these. */
+const JOB_SENTINELS: ReadonlySet<string> = new Set([
+  'EMPTY_TRANSCRIPT',
+  CONSENT_REQUIRED_ERROR,
+  DISCARDED_BY_STAFF,
+  AI_SPEND_LIMIT,
+  DISCARD_LEDGER_UNREADABLE,
+  TRANSCRIPTION_LEDGER_UNAVAILABLE,
+])
+
+/** A stage's rejection, named by its stage (recording hole PR-1) — unless it
+ *  is a sentinel, which passes through untouched. */
+function asStageFailure(code: StageFailureCode, err: unknown): unknown {
+  const message = err instanceof Error ? err.message : String(err)
+  return JOB_SENTINELS.has(message) ? err : new StageFailure(code, message)
+}
+
 async function findExistingKarute(
   synqed: SynqedClient,
   recordingSessionId: string,
@@ -414,7 +435,7 @@ async function processJob(job: RecordingJob): Promise<string> {
     if (err instanceof AppApiError && err.code === 'rate_limited') {
       throw new Error(AI_SPEND_LIMIT)
     }
-    throw err
+    throw asStageFailure('transcription_failed', err)
   }
   const flat = transcription.transcript ?? ''
   if (!flat.trim()) throw new Error('EMPTY_TRANSCRIPT')
@@ -445,7 +466,9 @@ async function processJob(job: RecordingJob): Promise<string> {
   const [extraction, summary] = await Promise.all([
     runKaruteExtraction(common),
     runKaruteSummary(common),
-  ])
+  ]).catch((err: unknown) => {
+    throw asStageFailure('ai_failed', err)
+  })
 
   // Discard check #2 — the LAST read before the write; a discard that landed
   // during transcription ends here, with no karute.
@@ -458,6 +481,8 @@ async function processJob(job: RecordingJob): Promise<string> {
     transcript,
     summary: summary.result.summary,
     entries: extraction.result.entries,
+  }).catch((err: unknown) => {
+    throw asStageFailure('karute_save_failed', err)
   })
 
   // Audit: the save is a completed action (server-side actor = the recorder).
@@ -648,7 +673,11 @@ async function upsertKaruteRecord(
  *  also carries `audio_path` — that field is this row's memory key, keyed on
  *  the OBJECT and never the session, because a retake mints a new object and
  *  must still pay for its own transcription. */
-function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
+function emitTranscribeFailedIfExhausted(
+  job: RecordingJob,
+  message: string,
+  stage: StageFailureCode | null,
+): void {
   if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
   if (message === DISCARD_LEDGER_UNREADABLE) return
   if (message === TRANSCRIPTION_LEDGER_UNAVAILABLE) return
@@ -670,7 +699,10 @@ function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): vo
       audio_path: payload?.audio_path ?? null,
       attempt: job.attempts,
       max_attempts: job.max_attempts,
-      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : 'other',
+      // The stage's code IS the classification (recording hole PR-1); the
+      // raw error line never enters this row — it stays in last_error and the
+      // console line only. 'other' = thrown outside the three stages.
+      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : (stage ?? 'other'),
     },
     requestId: `job:${job.id}:failed`,
     source: 'system',
@@ -698,6 +730,7 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
       await worker.recordingJobs.complete(job.id, recordId)
       processed++
     } catch (err) {
+      // A StageFailure's message is already `${code}: ${cause}` (job-errors.ts).
       const message = err instanceof Error ? err.message : String(err)
       // Core's own verdict decides, not a local guess (fix round 1, subject
       // 1): a rejected fail() call leaves the job RUNNING for the
@@ -710,7 +743,7 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
       failed++
       console.error(`[jobs] recording job ${job.id} failed:`, message)
       if (failResult !== null && failResult.status === 'FAILED') {
-        emitTranscribeFailedIfExhausted(failResult, message)
+        emitTranscribeFailedIfExhausted(failResult, message, err instanceof StageFailure ? err.code : null)
       }
     }
   }

@@ -10,6 +10,7 @@ import en from '../../../messages/en.json'
 import ja from '../../../messages/ja.json'
 import {
   deriveInboxRows,
+  reasonFromJobError,
   countNeedsAttention,
   needsAttention,
   INBOX_WINDOW_MS,
@@ -96,6 +97,23 @@ describe('録音履歴 — the five states', () => {
     ])
     expect(row.state).toBe('failed')
     expect(row.reason).toBe('genericFailure')
+  })
+
+  // Recording hole PR-1 — the worker's stage prefix names the step; the fold
+  // routes through ONE helper (reasonFromJobError).
+  it.each([
+    ['EMPTY_TRANSCRIPT', 'emptyTranscript'],
+    ['transcription_failed: provider timeout', 'transcriptionFailed'],
+    ['ai_failed: summary 529', 'aiFailed'],
+    ['karute_save_failed: core 409', 'saveFailed'],
+    ['karute_save_failed', 'genericFailure'],
+    ['CONSENT_REQUIRED', 'genericFailure'],
+    ['ECONNRESET while calling whisper', 'genericFailure'],
+    [null, 'genericFailure'],
+  ] as const)('reasonFromJobError(%p) → %p, and the FAILED fold agrees', (lastError, expected) => {
+    expect(reasonFromJobError(lastError)).toBe(expected)
+    const [row] = fold([session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: lastError })])
+    expect(row.reason).toBe(expected)
   })
 
   it('失敗: DONE with no karute record is the core anomaly — generic reason', () => {
@@ -584,6 +602,9 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'reason.unsettled',
     'reason.autoSaved',
     'reason.genericFailure',
+    'reason.transcriptionFailed',
+    'reason.aiFailed',
+    'reason.saveFailed',
     'reason.localAudio',
     'reason.tailIncomplete',
     'reason.serverAudio',
@@ -630,6 +651,9 @@ describe('録音履歴 — i18n parity for the new keys', () => {
       'sessionUnlisted',
       'refusedHasRecord',
       'emptyTranscript',
+      'transcriptionFailed',
+      'aiFailed',
+      'saveFailed',
     ] as const
     const jaInbox = jaRecording.inbox as { reason: Record<string, string> }
     const enInbox = enRecording.inbox as { reason: Record<string, string> }
