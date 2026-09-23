@@ -35,7 +35,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fillWords, wordsSentences } from '@/business/lib/settings-words'
+import { fillWords, wordsRoomBlock, wordsSentences, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { GENERIC_WORDS } from '@/business/lib/resource-words'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
 import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
@@ -615,7 +615,8 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
         const substance = s.blocks.reduce((n, b) => n + b.rows.length + b.facts.length + (b.list ? 1 : 0) + (b.table ? 1 : 0), 0)
         expect({ role, id: s.id, blocks: s.blocks.length > 0 }).toEqual({ role, id: s.id, blocks: true })
         expect({ role, id: s.id, substance: substance >= 2 }).toEqual({ role, id: s.id, substance: true })
-        expect({ role, id: s.id, aside: s.aside !== null }).toEqual({ role, id: s.id, aside: true })
+        // Liam 2026-09-23: 人・設備's aside was never rendered — removed, so it alone may carry none.
+        if (s.id !== 'people-equipment') expect({ role, id: s.id, aside: s.aside !== null }).toEqual({ role, id: s.id, aside: true })
         void rows
       }
     }
@@ -1532,7 +1533,7 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).not.toContain('Number(text) === 0')
     // …and it is a SIBLING span, not a replacement — the field still says what
     // it measures.
-    expect(SCREEN_CODE).toContain('{k.unit && <span className="st-unit">{k.unit}</span>}')
+    expect(SCREEN_CODE).toContain('{k.unit && <span id={unitId} className="st-unit">{k.unit}</span>}')
   })
 
   it('⚖ D-15 (round 3, A2) — a field with NO CEILING gets a floor-only message, never 「…Infinity…」', () => {
@@ -3956,8 +3957,7 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
       expect(c.control).not.toHaveProperty('required')
     }
     expect(Object.keys(words.words!.copy.problems).sort()).toEqual(['bar', 'empty', 'full', 'length', 'pair', 'reserved', 'space', 'trim'])
-    expect(section.aside!.lines.map((line) => line.label)).toEqual(['名簿', '設備', '呼び名', '割り当ての決まり'])
-    expect(section.aside!.lines[2].value).toBe('業種の標準の一覧と、この店舗で入力した言葉')
+    expect(section.aside).toBeNull()
     expect(wordsSentences(words.words!, seedOf(props), labelOfValue(typeControl.control, typeControl.value)).example)
       .toBe(section.blocks.find((b) => b.id === 'people.equipment')!.facts[0])
     const added = section.blocks.filter((b) => ['people.business-type', 'people.words'].includes(b.id))
@@ -4017,15 +4017,11 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     expect(sectionOf(props, 'people-equipment').blocks).toEqual([])
   })
 
-  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks and three-line aside', async () => {
+  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks and no aside', async () => {
     const props = await withoutStores(true)
     const section = sectionOf(props, 'people-equipment')
     expect(section.blocks.map((b) => b.id)).toEqual(['people.staff', 'people.equipment', 'people.room-policy', 'people.shifts'])
-    expect(section.aside!.lines).toEqual([
-      { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
-      { label: '設備', value: '今日の運営の設備割り当てが使っている一覧' },
-      { label: '割り当ての決まり', value: '今日の運営の自動割り当てが使っている決まり' },
-    ])
+    expect(section.aside).toBeNull()
   })
 
   it('N3-4 no stores renders the room policy from the umbrella noun and the fallback private word', async () => {
@@ -4040,5 +4036,42 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     })
     expect(policy.facts[0]).toContain(GENERIC_WORDS.resourceNoun)
     expect(policy.facts[2]).toContain(spec.liveRoom.fallback)
+  })
+})
+
+// ⚖ S28 (2026-09-23) — THE COPY ROUND. Two pre-existing sentences rewritten from
+// scratch (COPY-S28-FINAL.md); both consts are shared by the seed and the live
+// door, so each worked example is pinned byte-for-byte on BOTH paths.
+describe('S28 — the 0-minute fact and the auto-assignment note, byte-for-byte', () => {
+  it.each([STORE_A, STORE_B])('S28 K1 — %s seeds the sheet\'s 清掃 sentence and the live door prints the same', async (store) => {
+    const props = await room({ store })
+    const turnover = '清掃時間を0分にすると、前の予約の終了時刻から次の予約を入れられます。'
+    const section = sectionOf(props, 'people-equipment')
+    expect(section.blocks.find((b) => b.id === 'people.equipment')!.facts[1]).toBe(turnover)
+    expect(wordsTurnoverFact(section, 'people.equipment', seedOf(props))).toEqual({ index: 1, sentence: turnover })
+  })
+
+  it('S28 K1 — the live door prints the sheet\'s 片付け and 消毒 sentences on a type change', async () => {
+    const props = await room({ store: STORE_A })
+    const section = sectionOf(props, 'people-equipment')
+    const live = (type: string) => wordsTurnoverFact(section, 'people.equipment', { ...seedOf(props), 'people.type': type })!.sentence
+    expect(live('hair_salon')).toBe('片付け時間を0分にすると、前の予約の終了時刻から次の予約を入れられます。')
+    expect(live('dental_clinic')).toBe('消毒時間を0分にすると、前の予約の終了時刻から次の予約を入れられます。')
+  })
+
+  it.each([STORE_A, STORE_B])('S28 K2 — %s seeds the sheet\'s ベッド note and the live door prints the same', async (store) => {
+    const props = await room({ store })
+    const section = sectionOf(props, 'people-equipment')
+    const note = '予約ごとに使うベッドの選び方です。ここで変えられる設定はありません。'
+    expect(section.blocks.find((b) => b.id === 'people.room-policy')!.note).toBe(note)
+    expect(wordsRoomBlock(section, 'people.room-policy', seedOf(props))!.note).toBe(note)
+  })
+
+  it('S28 K2 — the live door prints the sheet\'s ブース note for テスト渋谷店\'s own type', async () => {
+    const props = await room({ store: STORE_A })
+    const section = sectionOf(props, 'people-equipment')
+    const type = stores.find((s) => s.id === STORE_C)!.business_type
+    expect(wordsRoomBlock(section, 'people.room-policy', { ...seedOf(props), 'people.type': type })!.note)
+      .toBe('予約ごとに使うブースの選び方です。ここで変えられる設定はありません。')
   })
 })
