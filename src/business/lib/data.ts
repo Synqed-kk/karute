@@ -13,9 +13,9 @@
 // = that store; { viewAll: true } = every store), the clamp semantics, and the
 // fail-loud posture (nothing here swallows an error into an empty list).
 //
-// This module imports NOTHING outside territory except React's cache() — the
-// render runtime, already on the isolation allowlist — so the data seal stays
-// structural.
+// This module imports NOTHING outside territory — React's cache() (the render
+// runtime, already on the isolation allowlist) now lives in ./clock with
+// `renderNow`, re-exported here — so the data seal stays structural.
 //
 // PRACTICE DOOR (DESIGN-PRACTICE-DOOR.md §1): BUSINESS_PRACTICE_TENANT, read by
 // ./practice-door/switch, decides each reader's source. UNSET (every deployment

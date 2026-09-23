@@ -255,6 +255,12 @@ describe('the sample facade', () => {
     })
     expect(JSON.stringify(input)).toBe(before)
   })
+  it("a decision's owner_staff_id becomes the manifest uuid; null stays null", () => {
+    expect(sampleFor([{ id: 'dec-1', owner_staff_id: 'p-06' }, { id: 'dec-2', owner_staff_id: null }], null)).toEqual([
+      { id: 'dec-1', owner_staff_id: 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5' },
+      { id: 'dec-2', owner_staff_id: null },
+    ])
+  })
   it('leaves unknown ids alone, walks nested planes, keeps Date instances', () => {
     const when = new Date()
     const out = sampleFor(

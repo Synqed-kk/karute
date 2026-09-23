@@ -208,6 +208,8 @@ export const APT = {
   nullStore: '00000000-0000-4000-8000-0000000000a1',
   blockUntitled: '00000000-0000-4000-8000-0000000000b1',
   blockMidnight: '00000000-0000-4000-8000-0000000000b2',
+  blockTwoNights: '00000000-0000-4000-8000-0000000000b3',
+  blockOvernightBefore: '00000000-0000-4000-8000-0000000000b4',
 } as const
 export const APPOINTMENTS: Appointment[] = [
   booking(APT.a01, '2026-09-07T10:00', AKARI, S.hanako, STORE.tokyo, MENU.seitai, 60, 6600, 'COMPLETED'),
@@ -228,6 +230,12 @@ export const APPOINTMENTS: Appointment[] = [
     { kind: 'BLOCK', booked_price_amount: null, booked_price_currency: null }),
   booking(APT.blockMidnight, '2026-09-14T23:30', null, CARD.saburo, STORE.tokyo, null, 60, 0, 'SCHEDULED',
     { kind: 'BLOCK', title: 'recorded block', notes: 'recorded note', booked_price_amount: null, booked_price_currency: null }),
+  // A BLOCK crossing TWO midnights (9/15 22:00 → 9/17 02:00 JST): three day pieces.
+  booking(APT.blockTwoNights, '2026-09-15T22:00', null, CARD.saburo, STORE.tokyo, null, 28 * 60, 0, 'SCHEDULED',
+    { kind: 'BLOCK', booked_price_amount: null, booked_price_currency: null }),
+  // A BLOCK begun the day BEFORE 9/14 (9/13 23:30 → 9/14 00:30 JST): its 00:00–00:30 piece is 9/14's.
+  booking(APT.blockOvernightBefore, '2026-09-13T23:30', null, CARD.saburo, STORE.tokyo, null, 60, 0, 'SCHEDULED',
+    { kind: 'BLOCK', booked_price_amount: null, booked_price_currency: null }),
 ]
 
 const visit = (id: string, store_id: string | null, used_at: string, sales_amount: number): Visit => ({

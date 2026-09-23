@@ -180,16 +180,34 @@ describe('(1) OWNER — viewAll', () => {
     expect(byDay.get(TODAY)!.map((b) => [b.id, b.kind, b.start, b.end, b.store_id])).toEqual([
       [APT.blockUntitled, '', 12 * 60, 12 * 60 + 30, STORE.tokyo],
       [APT.blockMidnight, 'recorded block', 23 * 60 + 30, 1440, STORE.tokyo],
+      [APT.blockOvernightBefore, '', 0, 30, STORE.tokyo],
     ])
-    expect(byDay.get(TODAY + 1)!.map((b) => [b.id, b.start, b.end, b.micro, b.note])).toEqual([[APT.blockMidnight, 0, 30, false, 'recorded note']])
+    expect(byDay.get(TODAY + 1)!.map((b) => [b.id, b.start, b.end, b.micro, b.note])).toEqual([
+      [APT.blockMidnight, 0, 30, false, 'recorded note'],
+      [APT.blockTwoNights, 22 * 60, 1440, false, ''],
+    ])
+  })
+
+  it('listBlocksByDay: a block crossing TWO midnights yields three pieces (first · whole middle · last)', async () => {
+    const byDay = await data.listBlocksByDay(STORE.tokyo, { from: TODAY + 1, to: TODAY + 3 })
+    const pieces = [TODAY + 1, TODAY + 2, TODAY + 3].map((k) =>
+      (byDay.get(k) ?? []).filter((b) => b.id === APT.blockTwoNights).map((b) => [b.start, b.end]))
+    expect(pieces).toEqual([[[22 * 60, 1440]], [[0, 1440]], [[0, 2 * 60]]])
+  })
+
+  it('listBlocksByDay: an overnight block begun the day BEFORE the queried day shows its 00:00–00:30 piece', async () => {
+    const byDay = await data.listBlocksByDay(STORE.tokyo, { from: TODAY, to: TODAY })
+    expect([...byDay.keys()]).toEqual([TODAY])
+    expect(byDay.get(TODAY)!.filter((b) => b.id === APT.blockOvernightBefore).map((b) => [b.start, b.end])).toEqual([[0, 30]])
   })
 
   it('dayStartIso: 00:00 JST of today, yesterday and across a month boundary (the from/to the door sends)', async () => {
+    // `from` is the day BEFORE the range (F2: an overnight block begun on from−1 must be fetched).
     const cases: Array<[number, string, string]> = [
-      [TODAY, '2026-09-13T15:00:00.000Z', '2026-09-14T15:00:00.000Z'],
-      [TODAY - 1, '2026-09-12T15:00:00.000Z', '2026-09-13T15:00:00.000Z'],
-      [jstDayKey('2026-08-31T03:00:00Z'), '2026-08-30T15:00:00.000Z', '2026-08-31T15:00:00.000Z'],
-      [jstDayKey('2026-10-01T03:00:00Z'), '2026-09-30T15:00:00.000Z', '2026-10-01T15:00:00.000Z'],
+      [TODAY, '2026-09-12T15:00:00.000Z', '2026-09-14T15:00:00.000Z'],
+      [TODAY - 1, '2026-09-11T15:00:00.000Z', '2026-09-13T15:00:00.000Z'],
+      [jstDayKey('2026-08-31T03:00:00Z'), '2026-08-29T15:00:00.000Z', '2026-08-31T15:00:00.000Z'],
+      [jstDayKey('2026-10-01T03:00:00Z'), '2026-09-29T15:00:00.000Z', '2026-10-01T15:00:00.000Z'],
     ]
     for (const [key, from, to] of cases) {
       const spy = withReads()
@@ -217,7 +235,7 @@ describe('(1) OWNER — viewAll', () => {
   it('readDayPlanes(東京, today): SAMPLE planes on live ids, the live blocks, no fixture store id anywhere', async () => {
     const planes = await data.readDayPlanes(STORE.tokyo, TODAY)
     expect(planes.shifts.every((s) => /^[0-9a-f-]{36}$/.test(s.staff_id))).toBe(true)
-    expect(ids(planes.blocks)).toEqual([APT.blockUntitled, APT.blockMidnight])
+    expect(ids(planes.blocks)).toEqual([APT.blockUntitled, APT.blockMidnight, APT.blockOvernightBefore])
     expect(planes.sellSlots.every((s) => s.store_id === STORE.tokyo)).toBe(true)
     expect(planes.sellSlots.length).toBeGreaterThan(0)
     expect(planes.register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
@@ -231,6 +249,11 @@ describe('(1) OWNER — viewAll', () => {
     const res = await data.readReservationPlanes(STORE.tokyo)
     expect(JSON.stringify(res)).not.toContain('store-test-')
     expect(res.register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
+    // F3: the audit trail is keyed by appointment id → the keys are the live twins.
+    const keys = Object.keys(res.auditTrail)
+    expect(keys).toEqual(expect.arrayContaining([liveIdOf('appointments', 'apt-30'), liveIdOf('appointments', 'apt-31')]))
+    expect(keys.every((k) => /^[0-9a-f-]{36}$/.test(k))).toBe(true)
+    expect(keys.some((k) => k.startsWith('apt-'))).toBe(false)
     expect((await data.readAnalyticsPlanes(STORE.tokyo)).target).toBe(2000000)
     expect((await data.readAnalyticsPlanes(STORE.laEstro)).target).toBe(0)
     expect((await data.readAnalyticsPlanes(VIEW_ALL)).target).toBe(2800000)

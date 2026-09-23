@@ -16,6 +16,7 @@ const FIELD_KIND: Record<string, TwinKind> = {
   staff_id: 'staff',
   by_staff_id: 'staff',
   reassigned_from: 'staff',
+  owner_staff_id: 'staff',
   menu_id: 'menus',
   customer_id: 'customers',
   appointment_id: 'appointments',

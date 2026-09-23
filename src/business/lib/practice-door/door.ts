@@ -160,8 +160,8 @@ async function bookings(actor: PracticeActor, lens: StoreLens, q: CoreQuery): Pr
 }
 
 /** A core BLOCK → board block piece(s), keyed by JST day. A block crossing JST
- *  midnight is SPLIT at the boundary (day A to 24:00, day B from 00:00), never
- *  dropped. */
+ *  midnight is SPLIT at every boundary — first day to 24:00, each middle day
+ *  whole, last day from 00:00 — never dropped. */
 function blockPieces(row: CoreAppointment): Array<[number, FixtureBlock]> {
   const piece = (start: number, end: number): FixtureBlock => ({
     id: row.id,
@@ -181,14 +181,19 @@ function blockPieces(row: CoreAppointment): Array<[number, FixtureBlock]> {
   const start = jstMinuteOfDay(row.starts_at)
   const end = jstMinuteOfDay(row.ends_at)
   if (b === a) return [[a, piece(start, end)]]
-  if (end === 0 && b === a + 1) return [[a, piece(start, 1440)]] // ends exactly at midnight
-  return [[a, piece(start, 1440)], [b, piece(0, end)]]
+  const last = end === 0 ? b - 1 : b // ends exactly at 00:00 → the day before runs to 24:00
+  return Array.from({ length: last - a + 1 }, (_, i): [number, FixtureBlock] => {
+    const k = a + i
+    return [k, piece(k === a ? start : 0, k === last && k === b ? end : 1440)]
+  })
 }
 
 /** The one read behind blocks-by-day: every row of [from, to] (JST days,
- *  inclusive) for the lens — the BLOCKs grouped by day, the BOOKINGs as rows. */
+ *  inclusive) for the lens — the BLOCKs grouped by day, the BOOKINGs as rows.
+ *  The query starts a day EARLY so an overnight block begun on from−1 still
+ *  reaches `from` (its from−1 piece is dropped by the key filter). */
 async function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
-  const rows = await coreAppointments(actor, lens, { from: dayStartIso(range.from), to: dayStartIso(range.to + 1) })
+  const rows = await coreAppointments(actor, lens, { from: dayStartIso(range.from - 1), to: dayStartIso(range.to + 1) })
   const pieces = rows
     .filter((r) => r.kind === 'BLOCK')
     .flatMap(blockPieces)
@@ -196,7 +201,7 @@ async function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
   const keys = [...new Set(pieces.map(([k]) => k))]
   return {
     blocksByDay: new Map(keys.map((k) => [k, pieces.filter(([p]) => p === k).map(([, b]) => b)])),
-    bookings: rows.filter((r) => r.kind === 'BOOKING'),
+    bookings: rows.filter((r) => r.kind === 'BOOKING' && jstDayKey(r.starts_at) >= range.from && jstDayKey(r.starts_at) <= range.to),
   }
 }
 
@@ -473,7 +478,7 @@ export async function readReservationPlanes(lens: StoreLens) {
   const live = typeof lens === 'string' ? (await dayRows(actor, lens, { from: todayKey, to: todayKey })).bookings : []
   return {
     reservations: sampleFor(reservations, null),
-    auditTrail: sampleFor(auditTrail, null),
+    auditTrail: sampleKeys('appointments', auditTrail), // keyed by appointment id → live twins
     /** JST minutes from midnight — the pinned moment every countdown is measured
      *  against, the same one the board's now-line uses. */
     boardNow,
