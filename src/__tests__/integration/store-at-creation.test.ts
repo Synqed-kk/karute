@@ -15,6 +15,7 @@
 import { createStaffCore } from '@/actions/staff'
 import { createInviteCore, listInvitesWithClient, reinviteTargetStaffIdWithClient, revokeInviteCore } from '@/lib/invites/invites.core'
 import { setStaffStoresAtCreationCore } from '@/actions/stores'
+import { createStoreCore } from '@/lib/stores/stores.core'
 import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
 import {
   INVITE_NAME_REQUIRED,
@@ -67,8 +68,10 @@ const CARD = { name: '田中', position: '', email: '', phone: '' }
 
 function client(opts: {
   /** A bare id is an ACTIVE store; `{ id, active: false }` is an archived one
-   *  (⚖ fold round 3 / fresh-eyes F2 — the gate counts ACTIVE stores). */
-  stores?: (string | { id: string; active: boolean })[]
+   *  (⚖ fold round 3 / fresh-eyes F2 — the gate counts ACTIVE stores).
+   *  `created_at` orders a race (Greptile #1002 P1); left out, it is unknown,
+   *  and the backfill reads an unknown time as "not after the new store". */
+  stores?: (string | { id: string; active?: boolean; created_at?: string })[]
   assignments?: Record<string, string[]>
   roster?: string[]
   setFails?: boolean
@@ -359,6 +362,377 @@ describe('the creator may only place a hire inside their OWN stores', () => {
     expect(res).toEqual({ error: STAFF_STORES_OUTSIDE_CREATOR })
     expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
   })
+})
+
+describe('1 → 2 stores: nobody blanks mid-shift', () => {
+  const ownerDeps = {
+    staffList: [{ id: 'owner-1', display_role: 'owner' }],
+    selfUserId: 'owner-1',
+    source: 'web' as const,
+  }
+  const input = { name: '銀座', address: '', phone: '', business_type: 'hair_salon' }
+
+  it('backfills every unassigned card to the EXISTING store', async () => {
+    // Two stores AFTER the create (the transition), three staff, two of whom
+    // have no assignment at all — exactly the salon this rule exists for.
+    const c = client({
+      stores: ['store-daikanyama', 'store-new'],
+      roster: ['owner-1', 'staff-a', 'staff-b'],
+      assignments: { 'staff-b': ['store-daikanyama'] },
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.assignments['owner-1']).toEqual(['store-daikanyama'])
+    expect(c.assignments['staff-a']).toEqual(['store-daikanyama'])
+    // Already placed — left exactly as it was.
+    expect(c.assignments['staff-b']).toEqual(['store-daikanyama'])
+  })
+
+  // 5/5 fold R1 (stress MUT-D): the case above leaves staff-b on the SAME
+  // store the backfill targets, so re-setting them changed nothing visible and
+  // deleting the `current.length > 0` skip survived. Here the write itself is
+  // the assertion: an already-placed card gets no set and no audit row.
+  it('an ALREADY-PLACED card is left alone — no re-set, no audit row (MUT-D)', async () => {
+    const c = client({
+      stores: ['store-daikanyama', 'store-new'],
+      roster: ['staff-a', 'staff-b'],
+      assignments: { 'staff-b': ['store-daikanyama'] },
+    })
+    // The audit mock is module-level and accumulates across this file.
+    ;(audit as jest.Mock).mockClear()
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.staffStoresSet).toHaveBeenCalledWith('staff-a', ['store-daikanyama'])
+    expect(c.staffStoresSet).not.toHaveBeenCalledWith('staff-b', expect.anything())
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'notice', targetType: 'staff', targetId: 'staff-a' }),
+    )
+    expect(audit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ targetType: 'staff', targetId: 'staff-b' }),
+    )
+  })
+
+  // 5/5 blind read (mutant M2): every other backfill test lists the NEW store
+  // LAST, so dropping `s.id !== newStoreId` survived. Here core answers with
+  // the new store FIRST — the backfill must still target the EXISTING one.
+  it('never backfills INTO the store it just created, even when core lists it first (M2)', async () => {
+    const c = client({ stores: ['store-new', 'store-daikanyama'], roster: ['staff-a', 'staff-b'] })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.staffStoresSet).toHaveBeenCalledTimes(2)
+    for (const [, ids] of c.staffStoresSet.mock.calls as unknown as [string, string[]][]) {
+      expect(ids).toEqual(['store-daikanyama'])
+    }
+  })
+
+  it('does NOT fire on a 2→3 store opening — only the transition blanks people', async () => {
+    const c = client({
+      stores: ['store-daikanyama', 'store-ginza', 'store-new'],
+      roster: ['staff-a'],
+    })
+    await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(c.staffStoresSet).not.toHaveBeenCalled()
+  })
+
+  // ⚖ FOLD ROUND 3 (fresh-eyes F2) — ONE SPELLING OF THE STORE COUNT. The
+  // backfill used to count raw store ROWS while the gate counts
+  // storeCountForGate (active stores, or all rows when none is active). An
+  // ARCHIVED store made the two disagree in both directions.
+  it('an ARCHIVED store + the first real second store: the backfill still runs (F2a)', async () => {
+    // The gate goes 1 → 2 here (one active store becomes two), so every
+    // floating card is about to become UNASSIGNED — the exact blanking this
+    // backfill exists to prevent. Raw rows = 3, which used to return early.
+    const c = client({
+      stores: ['store-daikanyama', { id: 'store-old', active: false }, 'store-new'],
+      roster: ['staff-a'],
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.assignments['staff-a']).toEqual(['store-daikanyama'])
+  })
+
+  it('never backfills into an ARCHIVED store (F2b)', async () => {
+    // A business that archived its only store and opened a new one: the gate
+    // counts ONE active store, so the single-store carve-out still holds and
+    // nobody blanks. Raw rows = 2, which used to fire the backfill and clamp
+    // everyone into the CLOSED store, hiding the live one from them.
+    const c = client({
+      stores: [{ id: 'store-old', active: false }, 'store-new'],
+      roster: ['staff-a'],
+    })
+    await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(c.staffStoresSet).not.toHaveBeenCalled()
+    expect(c.assignments['staff-a']).toBeUndefined()
+  })
+
+  it('pages the whole roster — a 250-staff salon leaves nobody behind (F3)', async () => {
+    // ⚖ ANY-ROSTER-SIZE on the store dimension. One `page_size: 200` read left
+    // the overflow unassigned on the very day the gate started refusing them.
+    const roster = Array.from({ length: 250 }, (_, i) => `staff-${i}`)
+    const c = client({ stores: ['store-daikanyama', 'store-new'], roster })
+    await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(Object.keys(c.assignments)).toHaveLength(250)
+    expect(c.assignments['staff-249']).toEqual(['store-daikanyama'])
+  })
+
+  it('a failed backfill never undoes the store the owner just created', async () => {
+    const c = client({
+      stores: ['store-daikanyama', 'store-new'],
+      roster: ['staff-a'],
+      setFails: true,
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    // ⚖ G4: the store still stands — and the ONE staff member who could not be
+    // placed is now NAMED in the answer instead of silently dropped.
+    expect(res).toEqual({ id: 'store-new', backfillIncomplete: 1 })
+  })
+
+  // ⚖ G4 — ONE PERSON'S FAILURE NEVER STRANDS THE REST. The loop sat inside a
+  // single try: the first staff member core choked on ended the pass, everyone
+  // after them stayed unassigned, and the owner heard a plain success.
+  it('one member’s hiccup never strands the rest — the retry places all five (G4)', async () => {
+    const c = client({
+      stores: ['store-daikanyama', 'store-new'],
+      roster: ['s1', 's2', 's3', 's4', 's5'],
+      failSetFor: 's3',
+      failSetTimes: 1,
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(Object.keys(c.assignments).sort()).toEqual(['s1', 's2', 's3', 's4', 's5'])
+  })
+
+  // ⚖ H2 — A PASS THAT NEVER STARTED IS NOT SILENT. Nobody is half-placed,
+  // but nobody was CHECKED either, and on the 1→2 transition that is the same
+  // morning blanking with a plain success on top.
+  it('a backfill that could not even LOOK says so (H2)', async () => {
+    const c = client({ stores: ['store-daikanyama', 'store-new'], roster: ['staff-a'] })
+    // stores.list is the backfill's OWN read here — the create path reaches it
+    // nowhere else (the entitlement read is stubbed at the top of this file).
+    c.api.stores.list = (async () => {
+      throw new Error('core down')
+    }) as never
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new', backfillUnknown: true })
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'settings.staff_stores_change',
+        severity: 'warning',
+        targetType: 'store',
+        targetId: 'store-new',
+        detail: expect.objectContaining({ reason: 'backfill_not_started' }),
+      }),
+    )
+  })
+
+  it('an HONEST zero stays quiet — a 2→3 opening says nothing at all (H2)', async () => {
+    const c = client({
+      stores: ['store-daikanyama', 'store-ginza', 'store-new'],
+      roster: ['staff-a'],
+    })
+    // The audit mock is module-level and accumulates across this file, so the
+    // NEGATIVE assertion below needs a clean slate of its own.
+    ;(audit as jest.Mock).mockClear()
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(audit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ reason: 'backfill_not_started' }) }),
+    )
+  })
+
+  // ⚖ G10 / S1 — the backfill target must be an ACTIVE store. Without the
+  // `active !== false` filter, `find` takes the first row that is not the new
+  // store — an ARCHIVED one when it sits first — and clamps the whole roster
+  // to premises the salon has left, hiding the store they actually work in.
+  it('picks the ACTIVE existing store even when an archived row comes first (S1)', async () => {
+    const c = client({
+      stores: [{ id: 'store-old', active: false }, 'store-daikanyama', 'store-new'],
+      roster: ['staff-a'],
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.assignments['staff-a']).toEqual(['store-daikanyama'])
+  })
+
+  // ⚖ G10 / S12 — the per-staff row the backfill writes. Without it a whole
+  // morning's reassignments happen with nothing in 監査ログ to explain why
+  // everyone suddenly belongs to 代官山.
+  it('writes one settings.staff_stores_change per backfilled card (S12)', async () => {
+    const c = client({ stores: ['store-daikanyama', 'store-new'], roster: ['staff-a'] })
+    await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'settings',
+        action: 'settings.staff_stores_change',
+        severity: 'notice',
+        targetType: 'staff',
+        targetId: 'staff-a',
+        detail: expect.objectContaining({
+          store_ids: 'store-daikanyama',
+          count: 1,
+          backfill: '1_to_2_stores',
+        }),
+      }),
+    )
+  })
+
+  it('a member core keeps refusing is REPORTED, ids and all (G4)', async () => {
+    const c = client({
+      stores: ['store-daikanyama', 'store-new'],
+      roster: ['s1', 's2', 's3', 's4', 's5'],
+      failSetFor: 's3',
+      failSetTimes: Infinity,
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new', backfillIncomplete: 1 })
+    expect(Object.keys(c.assignments).sort()).toEqual(['s1', 's2', 's4', 's5'])
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'settings.staff_stores_change',
+        severity: 'warning',
+        targetType: 'store',
+        targetId: 'store-new',
+        detail: expect.objectContaining({ incomplete: 1, failed_staff_ids: ['s3'] }),
+      }),
+    )
+  })
+
+  // ⚖ GREPTILE #1002 P1 — TWO CREATES RACING on a one-store business. Both
+  // stores exist before either request lists them, so each sees 3 active
+  // stores; the old total-count test skipped in BOTH and blanked everyone.
+  // Now the store created FIRST backfills and the later one skips.
+  const T_OLD = '2026-01-01T00:00:00.000Z'
+  const T_1 = '2026-09-23T10:00:00.000Z'
+  const T_2 = '2026-09-23T10:00:01.000Z'
+
+  it('race, FIRST-created: backfills to the existing store (R1)', async () => {
+    const c = client({
+      stores: [
+        { id: 'store-daikanyama', created_at: T_OLD },
+        { id: 'store-new', created_at: T_1 },
+        { id: 'store-rival', created_at: T_2 },
+      ],
+      roster: ['staff-a', 'staff-b'],
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.assignments['staff-a']).toEqual(['store-daikanyama'])
+    expect(c.assignments['staff-b']).toEqual(['store-daikanyama'])
+  })
+
+  it('race, SECOND-created: sets nothing and writes no backfill row (R2)', async () => {
+    const c = client({
+      stores: [
+        { id: 'store-daikanyama', created_at: T_OLD },
+        { id: 'store-rival', created_at: T_1 },
+        { id: 'store-new', created_at: T_2 },
+      ],
+      roster: ['staff-a', 'staff-b'],
+    })
+    ;(audit as jest.Mock).mockClear()
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.staffStoresSet).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'settings.staff_stores_change' }),
+    )
+  })
+
+  // Equal created_at: the id decides who came first, so exactly one of the two
+  // racing requests backfills. Both orders pinned.
+  it.each<[string, string[] | undefined]>([
+    // The rival's id sorts BEFORE ours → it counts as earlier → two
+    // predecessors → this request skips (the rival's request backfills).
+    ['store-aaa', undefined],
+    // ...sorts AFTER ours → it counts as later → one predecessor → backfill.
+    ['store-zzz', ['store-daikanyama']],
+  ])('a created_at tie is broken by id — rival %s (R3)', async (rival, expected) => {
+    const c = client({
+      stores: [
+        { id: 'store-daikanyama', created_at: T_OLD },
+        { id: rival, created_at: T_1 },
+        { id: 'store-new', created_at: T_1 },
+      ],
+      roster: ['staff-a'],
+    })
+    await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(c.assignments['staff-a']).toEqual(expected)
+  })
+
+  // Core has not listed the new store yet (read-after-write lag): every other
+  // ACTIVE store counts as a predecessor.
+  it.each<[string[], string[] | undefined]>([
+    [['store-daikanyama'], ['store-daikanyama']],
+    [['store-daikanyama', 'store-ginza'], undefined],
+  ])('the new store missing from the list: others %j → %j (R4)', async (stores, expected) => {
+    const c = client({ stores, roster: ['staff-a'] })
+    await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(c.assignments['staff-a']).toEqual(expected)
+  })
+
+  it('an OLDER archived store neither counts nor is the target (R5)', async () => {
+    const c = client({
+      stores: [
+        { id: 'store-daikanyama', created_at: T_1 },
+        { id: 'store-old', active: false, created_at: T_OLD },
+        { id: 'store-new', created_at: T_2 },
+      ],
+      roster: ['staff-a'],
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.assignments['staff-a']).toEqual(['store-daikanyama'])
+  })
+
+  // ⚖ GREPTILE #1002 P2 — the roster runs 8 at a time: never one by one (a
+  // 250-person salon could time the create out), never all at once.
+  it('places the roster 8 at a time, each once, and still retries a miss (R6)', async () => {
+    const roster = Array.from({ length: 20 }, (_, i) => `s${i}`)
+    const c = client({
+      stores: ['store-daikanyama', 'store-new'],
+      roster,
+      failSetFor: 's7',
+      failSetTimes: 1,
+    })
+    type Port = {
+      get: (id: string) => Promise<unknown>
+      set: (id: string, ids: string[]) => Promise<unknown>
+    }
+    const api = c.api as unknown as { staffStores: Port }
+    const real = api.staffStores
+    let now = 0
+    let max = 0
+    const slow =
+      <A extends unknown[]>(fn: (...a: A) => Promise<unknown>) =>
+      async (...a: A) => {
+        now++
+        max = Math.max(max, now)
+        try {
+          await new Promise((r) => setTimeout(r, 1))
+          return await fn(...a)
+        } finally {
+          now--
+        }
+      }
+    api.staffStores = { get: slow(real.get), set: slow(real.set) }
+    ;(audit as jest.Mock).mockClear()
+
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+
+    expect(res).toEqual({ id: 'store-new' })
+    expect(max).toBeGreaterThan(1)
+    expect(max).toBeLessThanOrEqual(8)
+    for (const id of roster) expect(c.assignments[id]).toEqual(['store-daikanyama'])
+    const placed = (audit as jest.Mock).mock.calls
+      .map(([row]) => row)
+      .filter((row) => row.severity === 'notice' && row.detail?.backfill === '1_to_2_stores')
+      .map((row) => row.targetId)
+    expect(placed.sort()).toEqual([...roster].sort())
+    const sets = c.staffStoresSet.mock.calls as unknown as [string, string[]][]
+    expect(sets.filter(([id]) => id === 's7')).toHaveLength(2) // failed once, retried once
+    expect(sets).toHaveLength(21)
+  })
+
 })
 
 

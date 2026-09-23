@@ -246,6 +246,18 @@ export function StoresSection({
         toast.error(res.error === 'STORE_LIMIT_REACHED' ? t('limitReached') : res.error)
         return
       }
+      // ⚖ G4 — the store was created, but somebody's 担当店舗 could not be set
+      // on the 1→2 transition. Said out loud, with the number and the door to
+      // fix it, instead of a plain success and a blank screen for those staff
+      // the next morning. Both doors feed this: the web action returns the
+      // count, the phone's facade port passes the same field through.
+      if (res.backfillIncomplete) {
+        toast.warning(t('backfillIncomplete', { n: res.backfillIncomplete }))
+      } else if (res.backfillUnknown) {
+        // ⚖ H2 — the backfill could not even look. "We could not check" is its
+        // own answer, never a silent success and never a made-up number.
+        toast.warning(t('backfillUnknown'))
+      }
     } else if (formMode?.kind === 'edit') {
       const res = await updateStore(formMode.store.id, payload)
       if ('error' in res) {

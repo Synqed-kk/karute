@@ -8,10 +8,12 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
-  useTranslations: () => (k: string) => k,
+  // Values ride into the rendered string so a dropped interpolation is visible
+  // (5/5 fold R1, MUT-F); a key with no values still renders as the bare key.
+  useTranslations: () => (k: string, v?: Record<string, unknown>) => (v ? `${k} ${JSON.stringify(v)}` : k),
   useLocale: () => 'ja',
 }))
-jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
+jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn(), warning: jest.fn() } }))
 jest.mock('@/actions/stores', () => ({
   listStoresWithHours: jest.fn(async () => []),
   createStore: jest.fn(async () => ({ id: 'store-new' })),
@@ -27,13 +29,23 @@ jest.mock('@/components/settings/redesign/sections/stores/AddStoreSubscriptionDi
     open ? <div data-testid="subscription-dialog" /> : null,
 }))
 jest.mock('@/components/settings/redesign/sections/stores/StoreFormDialog', () => ({
-  StoreFormDialog: ({ mode }: { mode: unknown }) =>
-    mode ? <div data-testid="store-form-dialog" /> : null,
+  // The save button is what PIN T4 needs: handleFormSave is only reachable
+  // through onSave, and the real dialog is a form this suite does not drive.
+  StoreFormDialog: ({ mode, onSave }: { mode: unknown; onSave: (v: unknown) => void }) =>
+    mode ? (
+      <div data-testid="store-form-dialog">
+        <button type="button" onClick={() => onSave({ name: '渋谷店', address: '', phone: '', businessType: 'hair_salon' })}>
+          save-store
+        </button>
+      </div>
+    ) : null,
 }))
 jest.mock('@/components/settings/redesign/sections/stores/PlanComparisonDialog', () => ({
   PlanComparisonDialog: () => null,
 }))
 
+import { toast } from 'sonner'
+import { createStore } from '@/actions/stores'
 import { StoresSection } from '@/components/settings/redesign/sections/StoresSection'
 import type { Entitlement } from '@/lib/entitlements'
 import { TIER_FEATURES } from '@/lib/subscription/types'
@@ -89,6 +101,53 @@ describe('StoresSection — native add-store branch', () => {
     fireEvent.click(screen.getByText('addStore'))
     expect(screen.queryByTestId('subscription-dialog')).toBeNull()
     expect(screen.getByTestId('store-form-dialog')).toBeTruthy()
+  })
+
+  // ── PIN T4 — the screen SAYS the backfill could not be checked. Without the
+  // branch, ⚖ H2's honest answer dies one layer short of the person.
+  it('shows the backfillUnknown line when the store create answers it (T4)', async () => {
+    ;(createStore as jest.Mock).mockResolvedValueOnce({ id: 'store-new', backfillUnknown: true })
+    // The native shell opens StoreFormDialog directly, which is the shortest
+    // route to handleFormSave (the web path adds a billing-confirm step first).
+    ;(window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true }
+    render(<StoresSection {...baseProps} />)
+    await waitFor(() => {})
+
+    fireEvent.click(screen.getByText('addStore'))
+    fireEvent.click(screen.getByText('save-store'))
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith('backfillUnknown'))
+  })
+
+  // 5/5 fold R1 (stress MUT-F): the count is the whole point of this line —
+  // "N staff could not be placed". Dropping `{ n }` left only the bare key.
+  it('the backfillIncomplete line carries the count (MUT-F)', async () => {
+    ;(createStore as jest.Mock).mockResolvedValueOnce({ id: 'store-new', backfillIncomplete: 2 })
+    ;(window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true }
+    render(<StoresSection {...baseProps} />)
+    await waitFor(() => {})
+
+    fireEvent.click(screen.getByText('addStore'))
+    fireEvent.click(screen.getByText('save-store'))
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith('backfillIncomplete {"n":2}'))
+  })
+
+  it('a plain store create says nothing extra (T4)', async () => {
+    // The sonner mock is module-level and accumulates across this file.
+    ;(toast.warning as jest.Mock).mockClear()
+    ;(createStore as jest.Mock).mockResolvedValueOnce({ id: 'store-new' })
+    // The native shell opens StoreFormDialog directly, which is the shortest
+    // route to handleFormSave (the web path adds a billing-confirm step first).
+    ;(window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true }
+    render(<StoresSection {...baseProps} />)
+    await waitFor(() => {})
+
+    fireEvent.click(screen.getByText('addStore'))
+    fireEvent.click(screen.getByText('save-store'))
+
+    await waitFor(() => expect(createStore).toHaveBeenCalled())
+    expect(toast.warning).not.toHaveBeenCalled()
   })
 
   it('on the open web, the add button still opens the subscription step first (unchanged)', async () => {

@@ -503,3 +503,12 @@
   justification and `dated` unchanged; customer.consent_revoke stays a LIVE FACADE_AUDIT_MAP row
   and the web wrapper revokeCustomerConsent (AUDITED_CORES) still emits its own auditWeb · Fable
   (PKT-SEC-CORES-D1-CUSTOMERS-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/stores/stores.core.ts::staffStores.set · the 1→2-store
+  backfill (⚖ Liam 2026-09-16: nobody blanks mid-shift). It DOES audit — one
+  settings.staff_stores_change notice per staff member it places, detail.backfill =
+  '1_to_2_stores', plus (⚖ G4) one WARNING row naming the ids still unplaced after the
+  retry pass — but the emits sit INSIDE the per-staff loop, and the function returns
+  without emitting on the paths where it wrote nothing at all (not the 1→2 transition; no
+  roster; every card already assigned). CP7's dominating-emit walker cannot express "emits
+  once per write", so the registry would fail a function whose every WRITE is in fact
+  audited. Allowlisted rather than registered, for that mechanical reason only · Liam 2026-09-23 (ruling carried from #1002: ADJUDICATION-STORE-AT-CREATION-3bec439c2-2026-09-19.md; ⚖ Liam 2026-09-16 store-at-creation)

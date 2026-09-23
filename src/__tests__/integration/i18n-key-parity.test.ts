@@ -61,3 +61,16 @@ describe('監査ログ action label paths', () => {
     expect(jaKeys.has('settings.auditLog.actions.privacy.audit_log_view')).toBe(true)
   })
 })
+
+// 5/5 blind read (mutant M1): screen tests mock next-intl as (k) => k, so a
+// renamed placeholder ({count}) would render literally with nothing going red.
+describe('store-create backfill notices', () => {
+  it.each([
+    ['en', en],
+    ['ja', ja],
+  ])('%s keeps {n} in backfillIncomplete and has backfillUnknown', (_, msgs) => {
+    const stores = (msgs as unknown as { settings: { stores: Record<string, string> } }).settings.stores
+    expect(stores.backfillIncomplete).toContain('{n}')
+    expect(typeof stores.backfillUnknown).toBe('string')
+  })
+})

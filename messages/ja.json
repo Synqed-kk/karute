@@ -2359,12 +2359,14 @@
         "openAria": "{day}曜日の開店時間",
         "closeAria": "{day}曜日の閉店時間"
       },
+      "assignLabel": "店舗（所属）",
+      "assignMultiHint": "複数選択できます。未選択にすると担当店舗が未設定になり、このスタッフには何も表示されなくなります。",
+      "unassigned": "未割り当て",
       "assignCreateLabel": "担当店舗",
       "assignCreateHint": "このスタッフが働く店舗を選んでください。複数選択できます。",
       "assignRequiredError": "担当店舗を選択してください。",
-      "assignLabel": "店舗（所属）",
-      "assignMultiHint": "複数選択できます。未選択にすると担当店舗が未設定になり、このスタッフには何も表示されなくなります。",
-      "unassigned": "未割り当て"
+      "backfillIncomplete": "店舗を作成しました。{n}名のスタッフの担当店舗を設定できませんでした。スタッフ管理から担当店舗を設定してください。",
+      "backfillUnknown": "店舗を作成しました。スタッフの担当店舗が設定済みかどうかは確認できませんでした。スタッフ管理でご確認ください。"
     },
     "coaching": {
       "title": "コーチング設定",

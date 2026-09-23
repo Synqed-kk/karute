@@ -747,6 +747,14 @@ export const SDK_WRITE_ALLOWLIST: {
   },
   {
     file: 'src/lib/stores/stores.core.ts',
+    call: 'staffStores.set',
+    symbols: ['backfillStaffToExistingStore'],
+    justification:
+      "The 1→2-store backfill (⚖ Liam 2026-09-16: nobody blanks mid-shift). It DOES audit — one settings.staff_stores_change row per staff member it places, detail.backfill = '1_to_2_stores' — but the emit sits INSIDE the per-staff loop, and the function returns without emitting on the paths where it wrote nothing at all (not the 1→2 transition; no roster; every card already assigned). CP7's dominating-emit walker cannot express 'emits once per write', so the registry would fail on a function whose every WRITE is in fact audited. Allowlisted rather than registered, for that mechanical reason only.",
+    dated: '2026-09-16',
+  },
+  {
+    file: 'src/lib/stores/stores.core.ts',
     call: 'stores.create',
     symbols: ['listStoresWithClient'],
     justification:
