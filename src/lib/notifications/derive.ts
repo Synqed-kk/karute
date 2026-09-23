@@ -24,10 +24,12 @@ import {
   assembleNotificationFeed,
   NEW_BOOKING_LOOKBACK_MS,
   type FeedDraftRecord,
+  type FeedRecordingFailure,
   type FeedRecentBooking,
   type FeedTodayAppointment,
 } from './derive-core'
 import type { NotificationItem } from './types'
+import { INBOX_WINDOW_MS } from '@/lib/recordings/inbox'
 
 // synqed-core clamps list page_size at 200; pull recent activity within that.
 const PAGE_SIZE = 200
@@ -54,7 +56,12 @@ export async function buildNotificationFeed(
   // Callers that already hold today's appointment rows (the chrome facade
   // route fetches them for the next-customer pick) inject the mapped digest
   // input so the feed doesn't re-read the same day from core (Greptile #562).
-  deps: { todayAppointments?: FeedTodayAppointment[] } = {},
+  deps: {
+    todayAppointments?: FeedTodayAppointment[]
+    /** canReadAuditLog(viewer caps) — the 監査ログ rule. Only then is the
+     *  recording-failure source read at all; default false = never. */
+    viewerCanViewAudit?: boolean
+  } = {},
 ): Promise<NotificationItem[]> {
   const now = new Date()
   const lp = locale === 'en' ? '/en' : '/ja'
@@ -67,18 +74,25 @@ export async function buildNotificationFeed(
     customersFollowup: `${lp}/customers`,
     customersSyncPending: `${lp}/customers`,
     karute: `${lp}/karute`,
+    // The 監査ログ tab — same access rule as this source (canReadAuditLog),
+    // and where these audit rows are listed. No `target` (a customer id there).
+    recording: `${lp}/settings?tab=audit`,
   }
 
-  // Fan out the four independent reads. Each is individually guarded so a
+  // Fan out the five independent reads. Each is individually guarded so a
   // single failure degrades that ONE source to empty rather than the feed.
-  // All three SDK-backed sources are cached 60s/business (like loadChaseAndSync)
+  // All four SDK-backed sources are cached 60s/business (like loadChaseAndSync)
   // so seeding the feed on every (app) page doesn't re-fetch per navigation.
-  const [todayAppointments, recentBookings, drafts, chaseAndSync] =
+  const [todayAppointments, recentBookings, drafts, chaseAndSync, recordingFailures] =
     await Promise.all([
       deps.todayAppointments ?? loadTodayAppointments(businessId),
       loadRecentBookings(businessId, storeId),
       loadDraftKarute(businessId, storeId),
       loadChaseAndSync(businessId, storeId),
+      // The gate sits BEFORE the cache: a viewer without the flag never
+      // reaches getCachedRecordingFailures, so its business-wide entry can
+      // only ever be served to someone who may open the 監査ログ.
+      deps.viewerCanViewAudit ? loadRecordingFailures(businessId) : [],
     ])
 
   return assembleNotificationFeed({
@@ -89,6 +103,8 @@ export async function buildNotificationFeed(
     drafts,
     chase: chaseAndSync.chase,
     syncPendingCount: chaseAndSync.syncPendingCount,
+    recordingFailures,
+    recordingHref: hrefs.recording,
   })
 }
 
@@ -342,6 +358,74 @@ async function loadChaseAndSync(
     return await getCachedChaseSync(businessId, storeId)
   } catch {
     return { chase: { needsFollowup: 0, dormant: 0 }, syncPendingCount: 0 }
+  }
+}
+
+/** カルテ未作成の録音 — `recording`-category audit rows in the 録音履歴's own
+ *  window, plus one recordings.get per failed recording for its date. Walks the
+ *  WHOLE window (core has no action filter — CORE ask queued — so every
+ *  recording row is paged and the two actions kept), bounded by the window
+ *  itself and a wall-clock deadline; a truncated walk is logged once and
+ *  returns what it read (never silent, never a throw). Business-wide on
+ *  purpose: only reached for canReadAuditLog viewers, who all hold
+ *  stores.viewAll. Cached 60s/business like its siblings — no auth read inside.
+ *  Reads the SDK directly, like the audit-watch cron: no privacy.audit_log.view
+ *  receipt (that belongs to opening the 監査ログ page). */
+const RECORDING_AUDIT_DEADLINE_MS = 10_000
+const RECORDING_DATE_READS = 20 // ponytail: beyond this the body shows the row's time
+const getCachedRecordingFailures = unstable_cache(
+  async (businessId: string): Promise<FeedRecordingFailure[]> => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return []
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
+    const now = Date.now()
+    const from = new Date(now - INBOX_WINDOW_MS).toISOString()
+    const to = new Date(now).toISOString()
+    const rows: FeedRecordingFailure[] = []
+    const deadline = now + RECORDING_AUDIT_DEADLINE_MS
+    let total = 0
+    for (let page = 1; ; page++) {
+      if (Date.now() >= deadline) {
+        console.warn('[notifications] recording failures truncated for business', businessId, {
+          pagesRead: page - 1,
+          total,
+        })
+        break
+      }
+      const res = await synqed.audit.list({ category: 'recording', from, to, page, page_size: PAGE_SIZE })
+      total = res.total
+      for (const e of res.events) {
+        if (
+          e.target_id &&
+          (e.action === 'recording.transcribe_failed' || e.action === 'recording.karute_missing')
+        ) {
+          const reason = (e.detail as { reason?: unknown } | null)?.reason
+          rows.push({ action: e.action, targetId: e.target_id, at: e.at, reason, recordedAt: null })
+        }
+      }
+      if (res.events.length === 0 || page * PAGE_SIZE >= res.total) break
+    }
+    const targets = [...new Set(rows.map((r) => r.targetId))].slice(0, RECORDING_DATE_READS)
+    const recordedAt = new Map(
+      await Promise.all(
+        targets.map(async (id) => {
+          const rec = await synqed.recordings.get(id).catch(() => null)
+          return [id, rec?.created_at ?? null] as const
+        }),
+      ),
+    )
+    return rows.map((r) => ({ ...r, recordedAt: recordedAt.get(r.targetId) ?? null }))
+  },
+  ['notif-recording-failures-v1'],
+  { revalidate: 60 },
+)
+
+async function loadRecordingFailures(businessId: string): Promise<FeedRecordingFailure[]> {
+  try {
+    return await getCachedRecordingFailures(businessId)
+  } catch {
+    return []
   }
 }
 

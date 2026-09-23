@@ -222,9 +222,24 @@ describe('GET /api/app/v1/screens/chrome', () => {
       'store-A',
       // The injected digest — mapped from the route's own appointments fetch,
       // so the feed builder never re-reads the same day (Greptile #562).
-      { todayAppointments: [{ isExistingCustomer: true }, { isExistingCustomer: true }] },
+      {
+        todayAppointments: [{ isExistingCustomer: true }, { isExistingCustomer: true }],
+        // customers.view only — not the 監査ログ pair, so no recording failures.
+        viewerCanViewAudit: false,
+      },
     )
     expect(listAppointments).toHaveBeenCalledTimes(1)
+  })
+
+  it('the 監査ログ pair (audit.view AND stores.viewAll) turns the recording-failure source on', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'audit.view', 'stores.viewAll']))
+    await GET(req({}), route)
+    expect(buildNotificationFeed).toHaveBeenCalledWith(
+      'business-1',
+      'ja',
+      null, // stores.viewAll — no store lens
+      expect.objectContaining({ viewerCanViewAudit: true }),
+    )
   })
 
   it('a failed appointments read degrades to nextCustomer:null, not a 502', async () => {

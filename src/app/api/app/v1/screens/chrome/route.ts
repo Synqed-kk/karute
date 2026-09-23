@@ -11,6 +11,7 @@ import { ChromeScreenDTO } from '@/lib/app-api/chrome-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import { getAppointmentsByDateWithClient } from '@/lib/appointments/by-date'
@@ -96,6 +97,8 @@ export const GET = facadeHandler('screens.chrome', async (ctx) => {
             todayAppointments: appts.map((a) => ({
               isExistingCustomer: existingById.get(a.client_id),
             })),
+            // Same 監査ログ rule as the web layout.
+            viewerCanViewAudit: canReadAuditLog(ctx.identity.capabilities),
           })
         })
         .catch(() => []),
