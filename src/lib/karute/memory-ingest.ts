@@ -23,8 +23,9 @@ export async function ingestSessionMemory(params: {
     // Plan gate (P4): auto-extract is a paid capability once billing arms —
     // silent skip here (this whole function is best-effort by contract; the
     // record save it rides on must never fail on a plan check). Manual staff
-    // memory edits live in actions/memory.ts → customer-memory.ts and are
-    // deliberately NOT gated. Dynamic import per this file's header rule.
+    // memory edits live in actions/memory.ts → customers/memory.core.ts →
+    // customer-memory.ts and are deliberately NOT gated. Dynamic import per this
+    // file's header rule.
     // Identity-threaded when a businessId is present (packet 08 Decision 3 — the
     // facade save has no cookie); the cookie path is unchanged for web callers.
     const { featureAllowed, featureAllowedForBusiness } = await import('@/lib/subscription/feature-gate')
@@ -110,7 +111,7 @@ export async function backfillMemoryFromTranscripts(params: {
     // CONTRACT: `transcripts` arrives NEWEST-first — every caller sorts
     // explicitly before calling (core's list order is not guaranteed):
     // customers/[id]/page.tsx, ai-brief.ts (getCustomerKaruteRecords sorts),
-    // actions/memory.ts. We keep the newest CHUNK_LIMIT×CHUNK_SIZE sessions
+    // lib/customers/memory.core.ts. We keep the newest CHUNK_LIMIT×CHUNK_SIZE sessions
     // when over the cap (logged, never silent), then process chunks
     // OLDEST→NEWEST so facts evolve forward the way they happened (the dog is
     // alive before it passes away, not after).

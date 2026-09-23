@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
-import { INTERNAL_DEBT, PUBLIC_ACTIONS } from './server-action-surface.data'
+import { INTERNAL_DEBT, PUBLIC_ACTIONS, SERVER_ONLY_MODULES } from './server-action-surface.data'
 
 const ROOT = process.cwd()
 const SOURCE_FILE = /^(?!.*\.d\.(?:ts|mts|cts)$).*\.(?:ts|tsx|js|jsx|mts|cts|mjs|cjs)$/
@@ -17,21 +17,10 @@ const SOURCE_FILE = /^(?!.*\.d\.(?:ts|mts|cts)$).*\.(?:ts|tsx|js|jsx|mts|cts|mjs
 // src/lib/customers/customers.core.ts — that file's entry is now empty.
 // 2026-09-23 (PKT-SEC-CORES-D2): 47 → 39, the eight karute cores moved to
 // src/lib/karute/karute.core.ts — that file's entry is now empty too.
-const INTERNAL_DEBT_COUNT = 39 // may only go DOWN
+// 2026-09-23 (PKT-SEC-CORES-D3): 39 → 33, the six customer-memory cores moved
+// to src/lib/customers/memory.core.ts — that file's entry is now empty as well.
+const INTERNAL_DEBT_COUNT = 33 // may only go DOWN
 const CLOSED_DOORS = ['memberEmailsForBusiness', 'writeOrgSettingsBlob']
-// The server-only modules helpers were moved INTO, newest last: PR-A's
-// member-emails, then PKT-SEC-CORES-B1's four invite cores, then
-// PKT-SEC-CORES-B2's six store cores, then PKT-SEC-CORES-C's two
-// discard-transcript cores, then PKT-SEC-CORES-D1's eight customer cores,
-// then PKT-SEC-CORES-D2's eight karute cores.
-const SERVER_ONLY_MODULES = [
-  'src/lib/invites/member-emails.ts',
-  'src/lib/invites/invites.core.ts',
-  'src/lib/stores/stores.core.ts',
-  'src/lib/recording/discard-transcript.core.ts',
-  'src/lib/customers/customers.core.ts',
-  'src/lib/karute/karute.core.ts',
-]
 const NEW_EXPORT_MESSAGE = "A new export in a 'use server' file is a browser-callable endpoint with no authentication of its own. If it is a real action, add it to PUBLIC_ACTIONS and make sure its FIRST lines check the session/capability. If it is an internal helper, put it in a server-only module instead. Read PKT-SEC-CORES-A."
 
 function sourceFiles(dir: string): string[] {
