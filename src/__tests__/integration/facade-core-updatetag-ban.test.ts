@@ -151,12 +151,12 @@ describe('facade-imported action cores never call updateTag (Server-Action-only)
     expect(offenders).toEqual([])
   })
 
-  it.each(SERVER_ONLY_MODULES)('server-only core module %s contains no updateTag identifier or string literal, aliased or not', (file) => {
+  it.each(SERVER_ONLY_MODULES)('server-only core module %s contains no updateTag identifier, string literal or template literal, aliased or not', (file) => {
     const src = readFileSync(join(process.cwd(), file), 'utf8')
     const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true)
     const hits: string[] = []
     const visit = (node: ts.Node) => {
-      if ((ts.isIdentifier(node) || ts.isStringLiteral(node)) && node.text === 'updateTag') {
+      if ((ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && node.text === 'updateTag') {
         hits.push(`line ${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`)
       }
       ts.forEachChild(node, visit)
