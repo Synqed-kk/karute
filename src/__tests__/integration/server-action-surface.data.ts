@@ -200,12 +200,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
   'src/actions/karute.ts': [
   ],
   'src/actions/memory.ts': [
-    'addMemoryItemWithClient',
-    'deleteMemoryItemWithClient',
-    'relearnCustomerMemoryWithClient',
-    'toggleMemoryPinWithClient',
-    'updateMemoryItemWithClient',
-    'upsertPassportFieldWithClient',
   ],
   'src/actions/menus.ts': [
     'listMenus',
