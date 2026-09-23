@@ -46,6 +46,9 @@ const APP = join(WORK, 'port-app')
 const OUT = join(WORK, 'parity')
 const MOD = join(ROOT, 'src/business/lib/reserve-card')
 const EXPECTED = join(ROOT, 'src/__tests__/integration/business/reserve-card.expected-satin.json')
+// a re-port that adds or removes a block updates these on purpose
+const EXPECT_VERBATIM = 23
+const EXPECT_SCOPED = 2
 const NOW = '2026-09-14T10:00:00+09:00' // the port's sample date (9/14（月）14:30) is Reserve's mock at this instant
 
 // The 12 curated values (W/CARD-LOOK-HANDOVER.json) and the six extra satin fixtures
@@ -461,6 +464,11 @@ async function main() {
   ].join('\n')
   if (/ — DIFFER: /.test(verbatim)) problems.push(`verbatim check: ${verbatim}`) // a verbatim block that drifted is a FAIL
   if (/ — DIFFER: /.test(scopedCheck)) problems.push(`scoped check: ${scopedCheck}`) // so is a scoped one
+  // a deleted (or added) marker must never pass silently: the discovered counts are pinned
+  for (const [what, got, want] of [['verbatim', verbatim, EXPECT_VERBATIM], ['scoped', scopedCheck, EXPECT_SCOPED]]) {
+    const found = +got.match(/^\d+\/(\d+) /)[1]
+    if (found !== want) problems.push(`${what} markers: found ${found}, expected ${want}`)
+  }
   const pass = rows.every((x) => x.verdict === 'PASS') && !problems.length
   const sizes = Object.keys(SIZE).map((s) => `${s} ${[...new Set(rows.filter((x) => x.s === s).flatMap((x) => [fmt(x.r), fmt(x.p)]))].join('/')}`).join(' · ')
   const report = `# Reserve card parity — ${pass ? 'PASS' : 'FAIL'}
