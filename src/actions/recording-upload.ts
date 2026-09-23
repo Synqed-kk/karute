@@ -134,6 +134,21 @@ export async function mintRecordingUploadUrl(
         businessId,
         holdsOwnerKeys: pairHeld,
         allowedStoreIds,
+        // ⚖ PR-2 — who and where a SERVER-named take's row would be (only the
+        // ON server-named arm asks). Staff = the cookie's own; store = the web
+        // session door's rule (actions/recordings.ts#startRecordingSession): a
+        // degraded scope or a null store means no row, and so does a throw —
+        // the take stays unbound, as today, and is never refused.
+        bindIdentity: async () => {
+          try {
+            if (!staffId) return null
+            const scope = await (await import('@/lib/auth/store-scope')).resolveStoreScope()
+            if (scope.degraded || scope.storeId === null) return null
+            return { staffId, storeId: scope.storeId }
+          } catch {
+            return null
+          }
+        },
         source: 'web',
       },
       input,
@@ -192,6 +207,9 @@ export async function mintRecordingSegmentUrls(
         businessId,
         holdsOwnerKeys: holdsOwnerKeys(capabilities),
         allowedStoreIds: null,
+        // Never asked: only the server-named whole-take arm binds a row, and a
+        // segment always hangs under a take its row already reserved.
+        bindIdentity: async () => null,
         source: 'web',
       },
       input,
