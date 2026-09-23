@@ -38,6 +38,14 @@ export function karuteMissingReasonKey(reason: unknown): string | null {
       return 'reason.empty_transcript'
     case 'genericFailure':
       return 'reason.job_failed'
+    // Recording hole PR-1: the inbox now names the failed stage, and this
+    // row copies it — same words as the worker's own transcribe_failed row.
+    case 'transcriptionFailed':
+      return 'reason.transcription_failed'
+    case 'aiFailed':
+      return 'reason.ai_failed'
+    case 'saveFailed':
+      return 'reason.karute_save_failed'
     case 'localAudio':
     case 'tailIncomplete':
     case 'serverAudio':
@@ -48,11 +56,18 @@ export function karuteMissingReasonKey(reason: unknown): string | null {
 }
 
 /** I6 — recording.transcribe_failed's detail.reason is already spelled as
- *  the key suffix at the writer (process-recording.ts:499: 'empty_transcript'
- *  | 'other') — just gate it to the two real values, never pass an unknown
- *  string through as a key. */
+ *  the key suffix at the writer (process-recording.ts emitTranscribeFailedIfExhausted:
+ *  'empty_transcript' | the three StageFailure codes | 'other') — just gate it
+ *  to the real values, never pass an unknown string through as a key. */
+const TRANSCRIBE_FAILED_REASONS: ReadonlySet<unknown> = new Set([
+  'empty_transcript',
+  'transcription_failed',
+  'ai_failed',
+  'karute_save_failed',
+  'other',
+])
 export function transcribeFailedReasonKey(reason: unknown): string | null {
-  return reason === 'empty_transcript' || reason === 'other' ? `reason.${reason}` : null
+  return TRANSCRIBE_FAILED_REASONS.has(reason) ? `reason.${reason}` : null
 }
 
 /** I7 — cost_cents_estimate (Deepgram $/min estimate, USD cents:
