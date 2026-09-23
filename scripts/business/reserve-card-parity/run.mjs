@@ -151,15 +151,19 @@ function emitExpectedSatin() {
   const out = JSON.parse(sh(process.execPath, ['--input-type=module', '--experimental-strip-types', '-e', code]))
   const doc = { source: `Synqed-kk/reserve src/lib/satin-material.ts @ ${PIN}, run under node`, emittedBy: 'scripts/business/reserve-card-parity/run.mjs', satinVars: out }
   if (!PARTIAL) writeFileSync(EXPECTED, JSON.stringify(doc, null, 1) + '\n')
-  let cross = 'PARITY_W not given — lane fixture cross-check skipped'
+  let cross = 'PARITY_W not given — lane fixture cross-check skipped', fixtureProblem = null
   const fx = W && join(W, 'PARITY-SATIN-FIXTURES.json')
-  if (fx && existsSync(fx)) {
+  if (fx && !existsSync(fx)) {
+    cross = `PARITY_W given but ${fx} is missing`
+    fixtureProblem = `satin fixtures: ${cross}`
+  } else if (fx) {
     const rows = JSON.parse(readFileSync(fx, 'utf8')).rows
-    const same = rows.filter((r) => JSON.stringify(r.real) === JSON.stringify(out[r.hex])).length
-    cross = `PARITY-SATIN-FIXTURES.json real rows identical: ${same}/${rows.length}`
+    const off = rows.filter((r) => JSON.stringify(r.real) !== JSON.stringify(out[r.hex])).map((r) => r.hex)
+    cross = `PARITY-SATIN-FIXTURES.json real rows identical: ${rows.length - off.length}/${rows.length}`
+    if (!rows.length || off.length) fixtureProblem = `satin fixtures: ${cross}${off.length ? ' — DIFFER: ' + off.join(', ') : ' (no rows)'}`
   }
   log(`reserve-card.expected-satin.json: ${inputs.length} inputs ${PARTIAL ? 'computed (PARTIAL run: not written)' : 'emitted'} by Reserve's module (node ${process.version}) · ${cross}`)
-  return out
+  return { out, fixtureProblem }
 }
 
 // ---- 3. the port app (Business's globals.css + the module) ----
@@ -365,7 +369,7 @@ async function main() {
   const scope = checkScope()
   log(`rule headers parsed: ${scope.headers} · unscoped selectors: ${scope.bad.length}`)
   const pristine = exportReserve()
-  const satin = emitExpectedSatin()
+  const { out: satin, fixtureProblem } = emitExpectedSatin()
   writePortApp()
   const reserve = await startVite(COPY, ['node_modules/vite/bin/vite.js'], { VITE_RESERVE_API: '', VITE_RESERVE_HOME_SLUG: '', VITE_PREVIEW_TOOLS: '' })
   const port = await startVite(APP, [join(ROOT, 'node_modules/vite/bin/vite.js'), '--config', join(APP, 'vite.config.mjs')], {})
@@ -490,6 +494,7 @@ async function main() {
   if (/ — DIFFER: /.test(verbatim)) problems.push(`verbatim check: ${verbatim}`) // a verbatim block that drifted is a FAIL
   if (/ — DIFFER: /.test(scopedCheck)) problems.push(`scoped check: ${scopedCheck}`) // so is a scoped one
   for (const b of scope.bad) problems.push(`unscoped selector: ${b}`)
+  if (fixtureProblem) problems.push(fixtureProblem) // PARITY_W asked for the cross-check: a miss fails the run
   if (fallback !== 'ok') problems.push(`fallback DOM (cover, no store): ${fallback}`)
   // a deleted (or added) marker must never pass silently: the discovered counts are pinned
   for (const [what, got, want] of [['verbatim', verbatim, EXPECT_VERBATIM], ['scoped', scopedCheck, EXPECT_SCOPED]]) {
