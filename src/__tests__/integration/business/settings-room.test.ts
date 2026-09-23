@@ -1493,3 +1493,35 @@ describe('the room is wired into the door like its siblings', () => {
     expect({ file: 'store-policy-props.ts', reachesCore: PAGE_CODE.includes(SDK) }).toEqual({ file: 'store-policy-props.ts', reachesCore: false })
   })
 })
+
+// ⚖ S29 (2026-09-23) — S28's unit announcement (SettingsScreen's `NumberField`),
+// carried to this section's three number fields: the unit is each input's
+// DESCRIPTION (aria-describedby → its own unit span), so the name every query
+// uses stays exactly the name. Territory cannot mount React (see the header), so
+// each field's DOM is built here from the section's OWN attributes — the input's
+// id, name and describedby, and every unit span's id and text, read off the
+// source — and the only words this pin spells are the expected units.
+describe('S29 — 予約と確保’s three number fields announce their unit', () => {
+  it('each input is described by an element whose text is its unit, and keeps its name', () => {
+    const attr = (tag: string, name: string) => new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]
+    const inputs = openingTags(SCREEN_CODE, 'input')
+    const spans = [...SCREEN_CODE.matchAll(/<span id="([^"]*)" className="st-step-u">([^<]*)<\/span>/g)].map((m) => ({ id: m[1], text: m[2] }))
+    // Three unit spans, three different ids, and the unit words unchanged —
+    // 「枠」 stays 「枠」: 残りわずかの目安 counts slots, not minutes.
+    expect(spans.map((s) => s.text)).toEqual(['分', '分', '枠'])
+    expect(new Set(spans.map((s) => s.id)).size).toBe(3)
+    for (const [id, label, unit] of [['stMinutes', 'stMinutesLabel', '分'], ['stSlot', 'stSlotLabel', '分'], ['stTight', 'stTightLabel', '枠']]) {
+      const tag = inputs.find((t) => attr(t, 'id') === id) ?? ''
+      document.body.innerHTML = ''
+      const input = document.body.appendChild(document.createElement('input'))
+      for (const name of ['id', 'aria-labelledby', 'aria-describedby']) {
+        const value = attr(tag, name)
+        if (value !== undefined) input.setAttribute(name, value)
+      }
+      for (const s of spans) Object.assign(document.body.appendChild(document.createElement('span')), { id: s.id, className: 'st-step-u', textContent: s.text })
+      const by = input.getAttribute('aria-describedby')
+      expect({ id, unit: by === null ? null : (document.getElementById(by)?.textContent ?? null) }).toEqual({ id, unit })
+      expect({ id, name: input.getAttribute('aria-labelledby') }).toEqual({ id, name: label })
+    }
+  })
+})
