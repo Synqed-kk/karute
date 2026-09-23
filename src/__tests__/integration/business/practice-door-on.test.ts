@@ -273,25 +273,27 @@ describe('(1) OWNER — viewAll', () => {
     expect(ids(planes.blocks)).toEqual([APT.blockUntitled, APT.blockMidnight, APT.blockOvernightBefore])
     expect(planes.sellSlots.every((s) => s.store_id === STORE.tokyo)).toBe(true)
     expect(planes.sellSlots.length).toBeGreaterThan(0)
-    expect(planes.register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
+    expect(planes.register.terminal_held).toEqual([])
     expect(JSON.stringify(planes)).not.toContain('store-test-')
     const other = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
     expect(other.decisions).toEqual([])
     expect(other.register.terminal_held).toEqual([])
   })
 
-  it('held terminal rows under viewAll: drawn only when their twin booking is among the live rows (join-miss = not drawn)', async () => {
-    expect((await data.readReservationPlanes(VIEW_ALL)).register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
-    expect((await data.readDayPlanes(VIEW_ALL, TODAY)).register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
-    withReads({ omitAppointments: [APT.a25] })
-    expect((await data.readReservationPlanes(VIEW_ALL)).register.terminal_held).toEqual([])
-    expect((await data.readDayPlanes(VIEW_ALL, TODAY)).register.terminal_held).toEqual([])
+  it('terminal_held under ON is [] — the fixture held row\'s twin booking IS live at 東京 today, and still no fixture ¥6,600 attaches (FE-1)', async () => {
+    expect(register.terminal_held.map((h) => liveIdOf('appointments', h.appointment_id))).toEqual([APT.a25])
+    const a25 = (await data.listAppointments(STORE.tokyo, {})).find((a) => a.id === APT.a25)!
+    expect(jstDayKey(a25.starts_at)).toBe(TODAY)
+    for (const lens of [STORE.tokyo, VIEW_ALL]) {
+      expect((await data.readDayPlanes(lens, TODAY)).register.terminal_held).toEqual([])
+      expect((await data.readReservationPlanes(lens)).register.terminal_held).toEqual([])
+    }
   })
 
   it('readReservationPlanes + readAnalyticsPlanes: rewritten ids, targets by sample policy', async () => {
     const res = await data.readReservationPlanes(STORE.tokyo)
     expect(JSON.stringify(res)).not.toContain('store-test-')
-    expect(res.register.terminal_held.map((h) => h.appointment_id)).toEqual([APT.a25])
+    expect(res.register.terminal_held).toEqual([])
     // F3: the audit trail is keyed by appointment id → the keys are the live twins.
     const keys = Object.keys(res.auditTrail)
     expect(keys).toEqual(expect.arrayContaining([liveIdOf('appointments', 'apt-30'), liveIdOf('appointments', 'apt-31')]))
