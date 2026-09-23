@@ -5,7 +5,9 @@
 // 2+) will be a deliberate, owner-reviewed edit to THIS suite, never a quiet
 // import. Complements the CI diff gate (scripts/business/
 // check-business-isolation.mjs); territory list is shared via
-// business-territory.json.
+// business-territory.json. ONE named outward exception (⚖ Liam 9/19, the
+// practice-salon door): src/business/lib/practice-door/core-reach.ts may
+// import the core client factory, see FILE_ALLOWED_TARGETS.
 //
 // Scanner lessons inherited from the #660/#661 guard work: three independent
 // per-form regexes, never one combined alternation (a spanning wildcard let a
@@ -156,6 +158,14 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   // call sites inside territory, and cannot see what a shared helper does).
   // Neither is sufficient alone. Its own walk: walk() above SKIPS territory.
   const ALLOWED_TARGETS = ['src/lib/supabase/server', 'src/lib/supabase/service']
+  // ⚖ Liam 9/19 — the practice-salon door. ONE territory file may import ONE
+  // outside target: the explicit-tenant core client factory. Keyed by the
+  // importing file, judged on the RESOLVED target like everything else here, so
+  // the alias and relative spellings get one verdict and a barrel (`@/lib/synqed`)
+  // stays an offender. DESIGN-PRACTICE-DOOR.md §9.
+  const FILE_ALLOWED_TARGETS: Record<string, string[]> = {
+    'src/business/lib/practice-door/core-reach.ts': ['src/lib/synqed/client'],
+  }
   // Bare packages: the render runtime only. `node:` builtins ride along because
   // the territory's own test file reads fixtures off disk — stdlib reaches no
   // app data, so it cannot smuggle core the way a shared @/ helper does.
@@ -178,6 +188,7 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     }
     if (inTerritory(target)) return null // territory's own, root barrel included
     if (ALLOWED_TARGETS.includes(target)) return null
+    if (FILE_ALLOWED_TARGETS[fromFile]?.includes(target)) return null
     return `resolves outside territory to ${target}`
   }
 
@@ -231,6 +242,16 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     // …and core, with no type-only carve-out: types come from fixtures too.
     expect(outwardOffense('@synqed-kk/client', from)).not.toBeNull()
     expect(outwardOffense('next-intl', from)).not.toBeNull()
+    // …and the ONE named door: the core-reach file may import the factory in
+    // either spelling; data.ts still may not; the SDK and @/lib/staff stay out.
+    const door = 'src/business/lib/practice-door/core-reach.ts'
+    expect(outwardOffense('@/lib/synqed/client', door)).toBeNull()
+    // (the scanner's ALLOW pins the same two spellings, one occurrence — the pair agrees)
+    expect(outwardOffense('../../../lib/synqed/client', door)).toBeNull()
+    expect(outwardOffense('@/lib/synqed', door)).not.toBeNull()
+    expect(outwardOffense('@/lib/synqed/client', from)).not.toBeNull()
+    expect(outwardOffense('@synqed-kk/client', door)).not.toBeNull()
+    expect(outwardOffense('@/lib/staff', door)).not.toBeNull()
   })
 
   it('every Business import is on the allowlist', () => {

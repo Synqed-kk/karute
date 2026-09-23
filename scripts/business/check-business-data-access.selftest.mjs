@@ -8,6 +8,10 @@
 // round and Greptile found in the first cuts. Case 13 pins the bed-packing
 // undo-log allowance against the DEFAULT ALLOW (Greptile P2, 2026-09-08 — the
 // budget entry combining two match strings under one count had no coverage).
+// Cases 15a–15f pin the ONE practice-door exemption (⚖ Liam 9/19): the exact
+// factory import at the exact path is green, the same line elsewhere is red,
+// a second occurrence is over budget, the SDK ban still holds there, and the
+// relative spelling is green alone but shares the one-occurrence budget.
 
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs'
@@ -168,8 +172,51 @@ assert.equal(bedPackingWrongPath.length, 2, `expected both lines flagged at the 
 assert.ok(bedPackingWrongPath.every((f) => f.label === 'write call .delete('))
 clear('src/business/lib')
 
+// 15a. The practice-salon door (⚖ Liam 9/19): the ONE factory import line at
+//     the ONE exempt path is green under the DEFAULT allow.
+const doorPath = 'src/business/lib/practice-door/core-reach.ts'
+const doorImport = "import { newSynqedClient } from '@/lib/synqed/client'\n"
+write(doorPath, doorImport + 'export const c = (id) => newSynqedClient(id)\n')
+assert.deepEqual(scanDataAccess(root), [])
+
+// 15b. The SAME line at a different path (data.ts) is an ordinary finding.
+write('src/business/lib/data.ts', doorImport)
+const doorWrongPath = scanDataAccess(root)
+assert.equal(doorWrongPath.length, 1, `expected 1 finding at the wrong path, got ${JSON.stringify(doorWrongPath)}`)
+assert.equal(doorWrongPath[0].label, 'core client factory import (lib/synqed/client)')
+assert.equal(doorWrongPath[0].rel, 'src/business/lib/data.ts')
+clear('src/business/lib/data.ts')
+
+// 15c. A second import line in the exempt file: 2 > 1 — fails CLOSED.
+write(doorPath, doorImport + "import { newSynqedClient as again } from '@/lib/synqed/client'\n")
+const doorOverBudget = scanDataAccess(root)
+assert.equal(doorOverBudget.length, 2, `expected 2 over-budget findings, got ${JSON.stringify(doorOverBudget)}`)
+assert.ok(doorOverBudget.every((f) => f.label === 'allowlist over budget (2 > 1 pinned)'))
+
+// 15d. The SDK ban stays absolute, the door included.
+write(doorPath, "import { SynqedClient } from '@synqed-kk/client'\nexport const d = new SynqedClient({})\n")
+const doorSdk = scanDataAccess(root)
+assert.deepEqual(
+  doorSdk.map((f) => f.label).sort(),
+  ['core SDK import (@synqed-kk/client)', 'new SynqedClient('],
+  `expected the SDK import + constructor flagged in the door, got ${JSON.stringify(doorSdk)}`,
+)
+
+// 15e. GREEN — the relative spelling of the same module, alone, is the one
+//     pinned occurrence too (the isolation test pins both spellings).
+const doorRelImport = "import { newSynqedClient } from '../../../lib/synqed/client'\n"
+write(doorPath, doorRelImport)
+assert.deepEqual(scanDataAccess(root), [])
+
+// 15f. RED — alias AND relative line: one shared budget, 2 > 1 — fails CLOSED.
+write(doorPath, doorImport + doorRelImport)
+const doorBothSpellings = scanDataAccess(root)
+assert.equal(doorBothSpellings.length, 2, `expected 2 over-budget findings, got ${JSON.stringify(doorBothSpellings)}`)
+assert.ok(doorBothSpellings.every((f) => f.label === 'allowlist over budget (2 > 1 pinned)'))
+clear('src/business/lib')
+
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 14 cases green')
+console.log('✓ business data-access guard selftest: 20 cases green')
