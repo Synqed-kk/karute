@@ -40,6 +40,7 @@ import type { SessionCategory } from '@/components/karute/redesign/detail/Curren
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
+import type { AppointmentLinkReason } from '@/lib/karute/appointment-link'
 
 /**
  * Create the karute record — or, if this recording session was ALREADY saved,
@@ -92,6 +93,11 @@ export async function createOrUpdateKaruteRecord(
    *  (web: resolveStoreScope(); facade: resolveWriteStoreScope()). An optional
    *  parameter would have let a future caller re-open the hole silently. */
   scope: RecordStoreScope,
+  /** Set by the three save doors when the booking could not be used (see
+   *  resolveKaruteStoreId): the one karute.save row then carries severity
+   *  notice + detail.appointment_link. Null = a normal save; every other
+   *  caller takes the default. */
+  linkReason: AppointmentLinkReason | null = null,
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
   const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
     audit({
@@ -102,6 +108,8 @@ export async function createOrUpdateKaruteRecord(
       businessId: actor.businessId,
       targetType: 'karute',
       targetId: result.id,
+      // undefined = the default ('info'); a degraded booking link is a notice.
+      severity: linkReason ? 'notice' : undefined,
       // The PERSISTED store (fix round 2, Greptile P1): on the converge branch
       // the update keeps the existing record's ORIGINAL store_id (CEILING
       // F-7 above) rather than payload.store_id, so the audit row must name
@@ -118,6 +126,9 @@ export async function createOrUpdateKaruteRecord(
         customer_id: payload.customer_id ?? null,
         recording_session_id: payload.recording_session_id ?? null,
         appointment_id: payload.appointment_id ?? null,
+        // Why the booking link degraded (not found / out of scope /
+        // unreadable) — null on a normal save, never undefined.
+        appointment_link: linkReason,
       },
       requestId: actor.requestId,
       source: actor.source,

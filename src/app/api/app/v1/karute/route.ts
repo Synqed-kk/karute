@@ -24,6 +24,7 @@ import { createOrUpdateKaruteRecord } from '@/lib/karute/karute.core'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
+import { readAppointmentForSave, type AppointmentLinkReason, type AppointmentRead } from '@/lib/karute/appointment-link'
 import type { SynqedClient, Appointment } from '@synqed-kk/client'
 
 export const runtime = 'nodejs'
@@ -32,32 +33,49 @@ type EntryCat =
   | 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE'
   | 'LIFESTYLE' | 'NEXT_VISIT' | 'PRODUCT' | 'OTHER'
 
-/** Store for the write — the booking's store (authz-clamped against the caller's
- *  header-resolved assignment) or the clamp's active store. Mirrors the web
- *  resolveKaruteStoreId with the facade clamp instead of the cookie scope. */
+/** Store + appointment link for the write — the booking's store (authz-clamped
+ *  against the caller's header-resolved assignment) or the clamp's active
+ *  store. Mirrors the web resolveKaruteStoreId with the facade clamp instead of
+ *  the cookie scope, including its rule for a booking that cannot be used: the
+ *  save lands in the caller's lens, never refused, never NULL-store — 404 and
+ *  out-of-scope drop the link (identical to the caller, so no existence
+ *  oracle), an unreadable booking keeps it; `linkReason` names which. */
 async function resolveSaveStore(
   synqed: Pick<SynqedClient, 'appointments'>,
   appointmentId: string | null | undefined,
   fetchedAppt: Appointment | null,
   clamp: { storeId: string | null; allowedStoreIds: string[] | null; degraded?: boolean },
-): Promise<{ storeId: string | null; appointment: Appointment | null }> {
+): Promise<{
+  storeId: string | null
+  appointment: Appointment | null
+  appointmentId: string | null
+  linkReason: AppointmentLinkReason | null
+}> {
   if (clamp.degraded) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
   if (reachesNoStore(clamp)) {
     throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
   }
 
-  // Web-parity: also hands back the fetched appointment so the save can copy
+  // Web-parity: also hands back the read appointment so the save can copy
   // the booked menu (service) into the record without a second fetch.
   if (appointmentId) {
-    const appt = fetchedAppt ?? (await synqed.appointments.get(appointmentId).catch(() => null))
-    const apptStore = (appt as { store_id?: string | null } | null)?.store_id ?? null
-    if (apptStore && clamp.allowedStoreIds && !clamp.allowedStoreIds.includes(apptStore)) {
-      throw new AppApiError('store_forbidden', 'this booking belongs to a store you are not assigned to')
+    const read: AppointmentRead = fetchedAppt
+      ? { appointment: fetchedAppt, state: 'ok' }
+      : await readAppointmentForSave(synqed.appointments, appointmentId)
+    if (read.state !== 'ok') {
+      // 404 → the id is a lie, drop it; unreadable → keep it for a re-stamp.
+      return read.state === 'not_found'
+        ? { storeId: clamp.storeId, appointment: null, appointmentId: null, linkReason: 'appointment_not_found' }
+        : { storeId: clamp.storeId, appointment: null, appointmentId, linkReason: 'appointment_unreadable' }
     }
-    return { storeId: apptStore, appointment: appt }
+    const apptStore = (read.appointment as { store_id?: string | null }).store_id ?? null
+    if (apptStore && clamp.allowedStoreIds && !clamp.allowedStoreIds.includes(apptStore)) {
+      return { storeId: clamp.storeId, appointment: null, appointmentId: null, linkReason: 'appointment_out_of_scope' }
+    }
+    return { storeId: apptStore, appointment: read.appointment, appointmentId, linkReason: null }
   }
   // No linked booking: the record's store is the caller's verified lens.
-  return { storeId: clamp.storeId, appointment: null }
+  return { storeId: clamp.storeId, appointment: null, appointmentId: null, linkReason: null }
 }
 
 export const POST = facadeHandler('karute.save', async (ctx) => {
@@ -144,7 +162,7 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
   // (⚖ 2026-09-19 fold, Greptile finding 1).
   const staffId = selfStaffId
 
-  const { storeId, appointment: linkedAppointment } = await resolveSaveStore(
+  const { storeId, appointment: linkedAppointment, appointmentId, linkReason } = await resolveSaveStore(
     synqed,
     input.appointmentId,
     null,
@@ -157,7 +175,7 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       customer_id: input.customerId,
       store_id: storeId,
       staff_id: staffId,
-      appointment_id: input.appointmentId ?? null,
+      appointment_id: appointmentId,
       recording_session_id: input.recordingSessionId ?? null,
       // Booked menu + recording minutes — web-parity fill (see
       // saveKaruteRecord); the choke's update path never sends these.
@@ -176,6 +194,7 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
     { actorId: ctx.identity.authUserId, businessId, source: 'facade', requestId: ctx.meta.requestId },
     input.entriesMode,
     lockScope,
+    linkReason,
   )
 
   // Best-effort outcome (the coaching label) — never gate the save on it.
