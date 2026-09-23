@@ -372,6 +372,7 @@ async function main() {
   const ctxOpts = { viewport: { width: 393, height: 852 }, deviceScaleFactor: 2, reducedMotion: 'reduce', timezoneId: 'Asia/Tokyo', locale: 'ja-JP' }
   const rows = [], problems = [], fonts = {}, touched = new Set()
   let fenceStat = ''
+  let fallback = 'not run'
 
   try {
     for (const c of CASES.filter((x) => !process.env.PARITY_ONLY || process.env.PARITY_ONLY.split(',').includes(x.id))) {
@@ -450,6 +451,19 @@ async function main() {
       }
       log(`${c.id.padEnd(5)} ${rows.slice(-3).map((x) => `${x.s} ${x.cmp.diff}`).join(' · ')}`)
     }
+    // the cover's no-store branch, port only: Reserve's store page cannot render store-less at the pin, so this
+    // is a DOM assert of the two fallback lines (ja/member.json drillin.cover.category.GENERIC / .alwaysOpen),
+    // not a pixel row
+    {
+      const ctx = await browser.newContext(ctxOpts)
+      const page = await ctx.newPage()
+      await page.goto(`${port.url}/?${new URLSearchParams({ name: SEED.la.name, store: '', card: SEED.la.card, primary: SEED.la.primary, view: 'store' })}`, { waitUntil: 'networkidle' })
+      await settle(page)
+      const got = await page.evaluate(() => ['.salon-cover__st', '.salon-cover__ad'].map((s) => document.querySelector(s)?.textContent ?? null))
+      const want = ['お店', 'いつでもご予約いただけます']
+      fallback = JSON.stringify(got) === JSON.stringify(want) ? 'ok' : `MISMATCH — .salon-cover__st/.salon-cover__ad show ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`
+      await ctx.close()
+    }
 
   } finally {
     await browser.close()
@@ -471,6 +485,7 @@ async function main() {
   if (/ — DIFFER: /.test(verbatim)) problems.push(`verbatim check: ${verbatim}`) // a verbatim block that drifted is a FAIL
   if (/ — DIFFER: /.test(scopedCheck)) problems.push(`scoped check: ${scopedCheck}`) // so is a scoped one
   for (const b of scope.bad) problems.push(`unscoped selector: ${b}`)
+  if (fallback !== 'ok') problems.push(`fallback DOM (cover, no store): ${fallback}`)
   // a deleted (or added) marker must never pass silently: the discovered counts are pinned
   for (const [what, got, want] of [['verbatim', verbatim, EXPECT_VERBATIM], ['scoped', scopedCheck, EXPECT_SCOPED]]) {
     const found = +got.match(/^\d+\/(\d+) /)[1]
@@ -488,6 +503,7 @@ fence (git diff in the Reserve copy): ${fence}
 verbatim blocks: ${verbatim}
 Scoped blocks (declarations after prefix strip): ${scopedCheck}
 unscoped selectors: ${scope.bad.length} (rule headers parsed: ${scope.headers})
+fallback DOM: ${fallback}
 ${problems.length ? '\nproblems:\n' + problems.map((p) => '- ' + p).join('\n') + '\n' : ''}
 ${table}
 
