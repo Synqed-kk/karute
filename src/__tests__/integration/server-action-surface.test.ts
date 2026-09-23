@@ -230,6 +230,18 @@ describe('server action surface (PKT-SEC-CORES-A)', () => {
     expect(offenders).toEqual([])
   })
 
+  // Every *.core.ts module under src/lib must be listed here so r4 and the
+  // updateTag ban scan it too — SERVER_ONLY_MODULES is otherwise self-attested
+  // list data that a silent removal (or a new core module never added) can't
+  // fail. Its one non-core entry, src/lib/invites/member-emails.ts, stays
+  // self-attested — nothing but naming pins it as server-only.
+  it('r6: every src/lib/**/*.core.ts module is in SERVER_ONLY_MODULES, and every *.core.ts entry there exists', () => {
+    const message = 'a server-only core module must be listed in SERVER_ONLY_MODULES so r4 and the updateTag ban scan it'
+    const actual = sourceFiles('src/lib').filter((file) => file.endsWith('.core.ts')).sort()
+    const listed = SERVER_ONLY_MODULES.filter((file) => file.endsWith('.core.ts')).sort()
+    expect({ message, actual }).toEqual({ message, actual: listed })
+  })
+
   it('r5: the internal debt count is pinned and may only go down', () => {
     expect(Object.values(INTERNAL_DEBT).reduce((sum, names) => sum + names.length, 0)).toBe(INTERNAL_DEBT_COUNT)
   })
