@@ -1532,7 +1532,7 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).not.toContain('Number(text) === 0')
     // …and it is a SIBLING span, not a replacement — the field still says what
     // it measures.
-    expect(SCREEN_CODE).toContain('{k.unit && <span className="st-unit">{k.unit}</span>}')
+    expect(SCREEN_CODE).toContain('{k.unit && <span id={unitId} className="st-unit">{k.unit}</span>}')
   })
 
   it('⚖ D-15 (round 3, A2) — a field with NO CEILING gets a floor-only message, never 「…Infinity…」', () => {
