@@ -36,7 +36,7 @@ import { jstDayKey } from '@/business/lib/clock'
 import { computeChecks, confirmCaption, type CheckSpan } from '@/business/lib/canon-logic/drag-rules'
 import { type GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
-import { defaultKindOf } from '@/business/lib/fixtures-today'
+import { storeSample } from '@/business/lib/practice-door/sample-facade'
 import { GENERIC_WORDS, RESOURCE_WORDS, wordsForStore } from '@/business/lib/resource-words'
 import {
   listAppointments,
@@ -118,7 +118,7 @@ export async function storePolicyProps({
   now,
 }: StorePolicyPropsInput): Promise<StorePolicyProps> {
   const selectedStore = storeOptions.find((s) => s.id === storeId)
-  const w = selectedStore ? wordsForStore(selectedStore.business_type, defaultKindOf(selectedStore.id).words) : GENERIC_WORDS
+  const w = selectedStore ? wordsForStore(selectedStore.business_type, storeSample(selectedStore.id).words) : GENERIC_WORDS
   const dayKey = jstDayKey(now)
   const from = new Date(now.getTime() - DAY_MS).toISOString()
   const to = new Date(now.getTime() + DAY_MS).toISOString()

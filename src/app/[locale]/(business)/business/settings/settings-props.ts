@@ -45,11 +45,11 @@ import {
   entitlement,
   planPricing,
   rulebook,
-  storeDials,
   type StoreDials,
 } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
-import { closedWeekday, defaultKindOf, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
+import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
+import { storeSample } from '@/business/lib/practice-door/sample-facade'
 import { GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
 import {
   accessFor,
@@ -141,7 +141,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   const storeOptions = await listStoreOptions()
   const storeId = defaultStoreId(store, storeOptions)
   const selectedStore = storeOptions.find((s) => s.id === storeId)
-  const words = selectedStore ? wordsForStore(selectedStore.business_type, defaultKindOf(selectedStore.id).words) : GENERIC_WORDS
+  const words = selectedStore ? wordsForStore(selectedStore.business_type, storeSample(selectedStore.id).words) : GENERIC_WORDS
   const clamped = storeId !== null
   // ⚖ S17 — the lens is REALLY read now: 予約と確保's assembly takes it as its
   // first argument, which is the data door's own rule (`foundation.test.ts`:
@@ -156,7 +156,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
 
   // ⚠ THE STORE CLAMP IS THE READ, not a filter after it: one store's settings
   // are fetched by id and no other store's row is ever in the payload (⚖ 8/17).
-  const dials = world?.dials !== undefined ? world.dials : clamped ? (storeDials[storeId!] ?? null) : null
+  const dials = world?.dials !== undefined ? world.dials : clamped ? storeSample(storeId!).dials : null
 
   const ctx: Ctx = {
     storeId: clamped ? storeId! : null,
@@ -164,7 +164,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     dials,
     words,
     businessType: selectedStore?.business_type ?? null,
-    wordOverride: selectedStore ? defaultKindOf(selectedStore.id).words : null,
+    wordOverride: selectedStore ? storeSample(selectedStore.id).words : null,
     access,
     now,
   }

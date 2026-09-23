@@ -30,7 +30,8 @@
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
-import { bedSecuredProof, defaultKindOf } from '@/business/lib/fixtures-today'
+import { bedSecuredProof } from '@/business/lib/fixtures-today'
+import { storeSample } from '@/business/lib/practice-door/sample-facade'
 import {
   defaultStoreId,
   listAppointments,
@@ -181,7 +182,7 @@ export default async function TodayPage({
   // of clamping. `wordsByStore` (the prop every lane indexes) narrows this on
   // a clamped board (next line's own comment); this internal map does not.
   const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
-    storeOptions.map((s) => [s.id, wordsForStore(s.business_type, defaultKindOf(s.id).words)]),
+    storeOptions.map((s) => [s.id, wordsForStore(s.business_type, storeSample(s.id).words)]),
   )
   // ⚖ D-53 (u)/(ad)/(n2b2) — a real bug on main, fixed here: on a CLAMPED
   // board this map used to carry every store's row, so a shared staff lane
