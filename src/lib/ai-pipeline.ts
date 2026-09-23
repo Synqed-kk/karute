@@ -142,13 +142,13 @@ export async function runAIPipeline(
   // ⚖ THE SAME OBJECT IS NEVER PAID FOR TWICE (recording hole PR-2). The
   // transcribe door cannot tell a repeat (a take key carries no session id, and
   // core has no by-path read), so the device that holds the take remembers: a
-  // stored answer for THIS finalized object is replayed and the door is not
-  // asked — no spend on a 再試行 tap or a reload. Blob-only runs (no take, or
+  // stored answer for THIS finalized object, asked in THIS locale, is replayed
+  // and the door is not asked — no spend on a 再試行 tap or a reload. Blob-only runs (no take, or
   // no finalized key) have nothing to key on and ask every time, as before.
   const stored = takeId && finalizedPath ? await readTakeTranscript(takeId) : null
   // The door's JSON body, used exactly as before — replayed or fresh.
   let transcribeData: Awaited<ReturnType<Response['json']>>
-  if (stored && stored.finalizedPath === finalizedPath) {
+  if (stored && stored.finalizedPath === finalizedPath && stored.locale === locale) {
     transcribeData = stored.response
   } else {
     const { body: transcribeBody } = await recordingPort.prepareTranscription(
@@ -172,7 +172,7 @@ export async function runAIPipeline(
     transcribeData = await transcribeRes.json()
     // Stamped BEFORE the empty check: an empty answer was paid for too, and
     // replays below as the same EmptyTranscriptError with no second spend.
-    if (takeId && finalizedPath) await stampTakeTranscript(takeId, finalizedPath, transcribeData)
+    if (takeId && finalizedPath) await stampTakeTranscript(takeId, finalizedPath, locale, transcribeData)
   }
   const transcript: string = transcribeData.transcript
 
