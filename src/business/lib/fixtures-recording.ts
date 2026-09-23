@@ -81,7 +81,7 @@ export interface FixtureConsentGrant {
 
 /** ⚖ ONE TRANSCRIPT SEGMENT, in the CONTRACT'S OWN SHAPE — the required fields
  *  of the `recordings.upsertSegments` row the shipped discard-transcript action
- *  writes (`src/lib/recording/discard-transcript.core.ts#writeTranscript`:
+ *  writes (`src/actions/recording-discard-transcript.ts:200-208`:
  *  `{ segment_index, text, start_time, end_time }`, times in SECONDS from the
  *  start of the take). `segment_index` is the array position and is therefore
  *  not restated (⚖ one home per fact).
