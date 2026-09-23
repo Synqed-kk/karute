@@ -25,7 +25,7 @@ import { listAllCustomers } from '@/lib/customers/list-all'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { getAppointmentsByDateWithClient } from '@/lib/appointments/by-date'
 import { getCustomerWithClient } from '@/lib/customers/queries'
-import { getCustomerKaruteRecordsWithClient } from '@/actions/karute'
+import { getCustomerKaruteRecordsWithClient } from '@/lib/karute/karute.core'
 import {
   listCustomerPacksWithClient,
   getCustomerLifecycleCheckedWithClient,

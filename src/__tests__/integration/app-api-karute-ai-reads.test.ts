@@ -47,7 +47,11 @@ const fakeClient = { customers: { get: (id: string) => custGet(id) }, karuteReco
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
 const getCustomerKaruteRecordsWithClient = jest.fn(async () => [{ id: 'k1', created_at: '2026-06-01' }, { id: 'k2', created_at: '2026-05-01' }])
-jest.mock('@/actions/karute', () => ({ getCustomerKaruteRecordsWithClient: () => getCustomerKaruteRecordsWithClient() }))
+// The karute read left src/actions/karute.ts for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23). The stub follows the route's own import —
+// mocking the action file would stub a module it no longer loads, and the test
+// would silently exercise the real core instead.
+jest.mock('@/lib/karute/karute.core', () => ({ getCustomerKaruteRecordsWithClient: () => getCustomerKaruteRecordsWithClient() }))
 
 const getBodyPredictionWithClient = jest.fn(async (): Promise<unknown> => ({ headline: 'h', confidence: 70, delta: null, recommended: '1〜2週間後', recommendedSub: null, rationaleSummary: 'r' }))
 jest.mock('@/lib/karute/ai-body-prediction', () => ({ getBodyPredictionWithClient: () => getBodyPredictionWithClient() }))
@@ -84,6 +88,10 @@ describe('GET /customers/[id]/ai/body-prediction (Decision 1)', () => {
     const res = await bodyPrediction(req({ headers: auth }), routeFor('cust-1'))
     expect(res.status).toBe(200)
     expect((await res.json()).prediction.headline).toBe('h')
+    // The POSITIVE half of the 404 test's `.not.toHaveBeenCalled()` below: a
+    // stub that stopped matching the route's own import would make that
+    // assertion pass vacuously while the REAL core ran. This pins the wiring.
+    expect(getCustomerKaruteRecordsWithClient).toHaveBeenCalled()
   })
   it('generator miss (locked/no-key/failure) → 200 { prediction: null } (NOT a 502)', async () => {
     getBodyPredictionWithClient.mockResolvedValueOnce(null)

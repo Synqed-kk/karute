@@ -41,7 +41,7 @@ const LITERAL_ONLY_CATEGORY = {
   // door, same doctrine as karute.save above.
   'karute.delete': 'karute',
   'karute.entry_edit': 'karute',
-  // Choke emit: src/actions/karute.ts#updateKaruteDetailSummaryWithClient
+  // Choke emit: src/lib/karute/karute.core.ts#updateKaruteDetailSummaryWithClient
   // (facade key karute.summary.update is a skip row — same doctrine as
   // karute.entry_edit above).
   'karute.summary_edit': 'karute',

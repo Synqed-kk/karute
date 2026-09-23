@@ -568,7 +568,7 @@ async function upsertKaruteRecord(
     is_manual: false,
   }))
 
-  // Same upsert contract as createOrUpdateKaruteRecord (actions/karute.ts):
+  // Same upsert contract as createOrUpdateKaruteRecord (lib/karute/karute.core.ts):
   // only a 404 means "no record yet" — any other failure must throw so the
   // job retries rather than minting stale-content success. processJob's own
   // pre-spend check already asked this same question before transcription
@@ -578,7 +578,7 @@ async function upsertKaruteRecord(
   // duplicating.
   const existing = await findExistingKarute(synqed, job.recording_session_id)
   if (existing) {
-    // Carry-forward merge (packet PR-2c). Unlike actions/karute.ts's retry
+    // Carry-forward merge (packet PR-2c). Unlike lib/karute/karute.core.ts's retry
     // branch, a reprocess CAN legitimately produce a genuinely new AI
     // extraction (re-run on a corrected transcript) — so this path can't just
     // omit `entries`. It must instead keep whatever staff already edited/added
@@ -613,7 +613,7 @@ async function upsertKaruteRecord(
       entries: [...entries, ...carriedHumanEntries],
       appointment_id: payload.appointment_id ?? null,
     })
-    // CEILING (mirrors actions/karute.ts fix round 2): store_id does NOT move
+    // CEILING (mirrors lib/karute/karute.core.ts fix round 2): store_id does NOT move
     // with this update, so the persisted store is still the EXISTING record's
     // — already in hand from the lookup, no second read.
     return { id: existing.id, storeId: existing.store_id }

@@ -2,7 +2,7 @@
 // PACKET-F4-REASSIGN-2026-09-02.md §2c). Structurally modeled on
 // customer.photo.delete (capability → tenancy proof → the mutation → ok(ctx)),
 // running the SAME reassignKaruteCustomerWithClient core the web action uses
-// (src/actions/karute.ts) on the business-scoped Bearer client.
+// (src/lib/karute/karute.core.ts) on the business-scoped Bearer client.
 //
 // TWO-PHASE, stateless: confirmed:false returns the honesty preview with NO
 // write and ctx.auditSuppress = 'preview' (success-only audit pin ⚖ HELD —
@@ -18,7 +18,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { reassignKaruteCustomerWithClient } from '@/actions/karute'
+import { reassignKaruteCustomerWithClient } from '@/lib/karute/karute.core'
 
 export const runtime = 'nodejs'
 

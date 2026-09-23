@@ -79,7 +79,11 @@ const getBrief = jest.fn(async () => ({ isFirstTimeVisit: false, lastVisitDate: 
 jest.mock('@/lib/karute/ai-brief', () => ({ getAiPreSessionBriefWithClient: (...a: unknown[]) => getBrief(...(a as [])) }))
 jest.mock('@/actions/org-settings', () => ({ orgSettingsWithClient: jest.fn(async () => ({ speaker_diarization: true })) }))
 jest.mock('@/lib/ai-cache', () => ({ getCachedAI: jest.fn(async () => null), setCachedAI: jest.fn(async () => {}) }))
-jest.mock('@/actions/karute', () => ({ getCustomerKaruteRecordsWithClient: jest.fn(async () => []) }))
+// The karute read left src/actions/karute.ts for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23). The stub follows the route's own import —
+// mocking the action file would stub a module it no longer loads, and the test
+// would silently exercise the real core instead.
+jest.mock('@/lib/karute/karute.core', () => ({ getCustomerKaruteRecordsWithClient: jest.fn(async () => []) }))
 
 const createSignedUrl = jest.fn(async (p: string) => ({ data: { signedUrl: 'https://x/read/' + p }, error: null }))
 const removeObj = jest.fn(async () => ({ error: null }))

@@ -1,7 +1,7 @@
 // Facade: per-entry karute edit (edit-layer W2 PR-B — edit-save only, no
 // delete; that's PR-B2). CAS-guarded: expectedVersion is REQUIRED, a stale
 // value maps to 409 (the 'conflict' code). Calls the SAME WithClient core the
-// web action uses (src/actions/karute.ts) — never core's update({entries}).
+// web action uses (src/lib/karute/karute.core.ts) — never core's update({entries}).
 
 import { z } from 'zod'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
@@ -11,7 +11,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
-import { updateKaruteDetailEntryWithClient } from '@/actions/karute'
+import { updateKaruteDetailEntryWithClient } from '@/lib/karute/karute.core'
 
 export const runtime = 'nodejs'
 

@@ -438,7 +438,7 @@ export async function readRecordingsInbox({
       for (let i = next++; i < probes.length; i = next++) {
         const row = probes[i]
         // ONLY a 404 means "no job for this session" — the repo's own rule for
-        // this exact class of lookup (actions/karute.ts's upsert probe). Every
+        // this exact class of lookup (lib/karute/karute.core.ts's upsert probe). Every
         // other failure (timeout, 5xx, network-dark) is NOT an answer, and
         // collapsing it into "no job" is how a blip turns a session core is
         // actively processing into a 復元可能 row offering a second save.

@@ -25,7 +25,11 @@ jest.mock('@/lib/subscription/feature-gate', () => ({
   featureAllowed: jest.fn(async () => true),
   featureAllowedForBusiness: jest.fn(async () => true),
 }))
-jest.mock('@/actions/karute', () => ({
+// The two karute reads left src/actions/karute.ts for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23). The stub follows the subject's own import —
+// mocking the action file would stub a module it no longer loads, and the test
+// would silently exercise the real core instead.
+jest.mock('@/lib/karute/karute.core', () => ({
   getCustomerKaruteRecords: jest.fn(async () => []),
   getCustomerKaruteRecordsWithClient: jest.fn(async () => []),
 }))
@@ -146,7 +150,7 @@ describe('plan gate (Test #2, F8)', () => {
 describe('cache-key contract (Test #4, F10)', () => {
   it('a memory label edit changes the cache key; a summary change changes it too (isolated); ttlDays=1 explicit', async () => {
     const { getCustomerMemory } = jest.requireMock('@/lib/karute/customer-memory')
-    const { getCustomerKaruteRecords } = jest.requireMock('@/actions/karute')
+    const { getCustomerKaruteRecords } = jest.requireMock('@/lib/karute/karute.core')
     const { getCachedAI, setCachedAI } = jest.requireMock('@/lib/ai-cache')
 
     const memItem = (label: string) => [
@@ -338,7 +342,7 @@ describe('§1 pin (Test #6, F3)', () => {
   it('§1 reuses the SAME 8-record fetch — no second/different karute read', async () => {
     mockDraftResolved()
     await getReengagementDraft({ ...BASE_PARAMS, status: 'dormant', lastVisitAgoDays: 120 })
-    const { getCustomerKaruteRecords } = jest.requireMock('@/actions/karute')
+    const { getCustomerKaruteRecords } = jest.requireMock('@/lib/karute/karute.core')
     const { getBodyPrediction } = jest.requireMock('@/lib/karute/ai-body-prediction')
     expect(getCustomerKaruteRecords).toHaveBeenCalledWith('cust-1', 8)
     expect(getBodyPrediction).toHaveBeenCalledTimes(1)

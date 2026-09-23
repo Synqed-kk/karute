@@ -26,7 +26,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readCustomerRaw } from '@/lib/app-api/karute-facade'
-import { getCustomerKaruteRecordsWithClient } from '@/actions/karute'
+import { getCustomerKaruteRecordsWithClient } from '@/lib/karute/karute.core'
 import { getReengagementDraftWithClient } from '@/lib/karute/ai-reengagement'
 import { enrichCustomers, effectiveLastVisitIso, effectiveFirstVisitIso } from '@/lib/customers/list-enrich'
 import { mergeKaruteRows } from '@/lib/karute/synqed-records'
@@ -65,7 +65,7 @@ export const GET = facadeHandler<Params>('customer.ai.reengagement', async (ctx)
   const enr = enrichment.get(id)
   const lifecycle = lifecycleRead.ok ? lifecycleRead.lifecycle : null
   // FIX ROUND 1 R2: getCustomerKaruteRecordsWithClient sorts by created_at
-  // DESC only (actions/karute.ts) — web's equivalent fallback (profile-
+  // DESC only (lib/karute/karute.core.ts) — web's equivalent fallback (profile-
   // screen.ts) reads records already sorted by mergeKaruteRows's
   // `session_date ?? created_at` DESC. A back-dated karute (recent
   // created_at, older session_date) could rank #1 here but not there,

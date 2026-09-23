@@ -360,12 +360,23 @@ export const AUDITED_CORES: {
   // home. Ledgered: cores:src/actions/invites.ts#createInviteCore /
   // #revokeInviteCore in docs/audit-weakening-ledger.md.
   { file: 'src/lib/invites/invites.core.ts', symbols: ['createInviteCore', 'revokeInviteCore'] },
+  // The three karute spine emitters followed their bodies out of the action
+  // file and into the server-only module (PKT-SEC-CORES-D2, 2026-09-23) — the
+  // SAME emitters, registered at their new home. Ledgered:
+  // cores:src/actions/karute.ts#createOrUpdateKaruteRecord /
+  // #updateKaruteDetailEntryWithClient / #updateKaruteDetailSummaryWithClient
+  // in docs/audit-weakening-ledger.md. The web wrappers below stayed.
   {
-    file: 'src/actions/karute.ts',
+    file: 'src/lib/karute/karute.core.ts',
     symbols: [
       'createOrUpdateKaruteRecord',
       'updateKaruteDetailEntryWithClient',
       'updateKaruteDetailSummaryWithClient',
+    ],
+  },
+  {
+    file: 'src/actions/karute.ts',
+    symbols: [
       // F4 (2026-08-23): the web wrapper's own auditWeb() call — the
       // audit-free WithClient core (reassignKaruteCustomerWithClient) is
       // deliberately NOT listed here (Core/WithClient split, see its own
@@ -623,8 +634,13 @@ export const SDK_WRITE_ALLOWLIST: {
       'customer.consent_revoke is a LIVE FACADE_AUDIT_MAP row as of Wave W3 (facade auto-emit); the web wrapper revokeCustomerConsent emits its own auditWeb (AUDITED_CORES). revokeCustomerConsentWithClient itself stays audit-free, matching the Core/WithClient split convention.',
     dated: '2026-07-28',
   },
+  // The two entries below follow the client-threaded karute cores out of the
+  // action file and into the server-only module (PKT-SEC-CORES-D2,
+  // 2026-09-23) — the SAME writes, registered at their new home. Ledgered:
+  // SDK_WRITE_ALLOWLIST:src/lib/karute/karute.core.ts::karuteRecords.update /
+  // ::karuteRecords.create in docs/audit-weakening-ledger.md.
   {
-    file: 'src/actions/karute.ts',
+    file: 'src/lib/karute/karute.core.ts',
     call: 'karuteRecords.update',
     symbols: ['reassignKaruteCustomerWithClient'],
     justification:
@@ -632,7 +648,7 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-08-23',
   },
   {
-    file: 'src/actions/karute.ts',
+    file: 'src/lib/karute/karute.core.ts',
     call: 'karuteRecords.create',
     symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecordWithClient'],
     justification:
@@ -652,7 +668,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'recordingJobs.enqueue',
     symbols: ['enqueueRecordingJob'],
     justification:
-      "coveredBy the eventual karute.save emit at pipeline completion (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES) — see FACADE_AUDIT_MAP['recordings.job.enqueue'] skip row (FIX ROUND 1 #17: this citation now correctly points at processJob, the job pipeline's true and only choke point — not createOrUpdateKaruteRecord, which karute.ts's own header comment says process-recording.ts never calls). The enqueue step itself stages no auditable outcome.",
+      "coveredBy the eventual karute.save emit at pipeline completion (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES) — see FACADE_AUDIT_MAP['recordings.job.enqueue'] skip row (FIX ROUND 1 #17: this citation now correctly points at processJob, the job pipeline's true and only choke point — not createOrUpdateKaruteRecord, which karute.core.ts's own header comment says process-recording.ts never calls). The enqueue step itself stages no auditable outcome.",
     dated: '2026-07-27',
   },
   {

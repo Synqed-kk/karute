@@ -62,10 +62,10 @@ jest.mock('@/lib/synqed/client', () => ({
   })),
 }))
 
-import {
-  updateKaruteDetailEntry,
-  updateKaruteDetailEntryWithClient,
-} from '@/actions/karute'
+import { updateKaruteDetailEntry } from '@/actions/karute'
+// The CAS core left the action file for the server-only module
+// (PKT-SEC-CORES-D2, 2026-09-23); the web wrapper above stayed.
+import { updateKaruteDetailEntryWithClient } from '@/lib/karute/karute.core'
 import { ENTRY_CONTENT_INVALID_ERROR } from '@/types/karute'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'

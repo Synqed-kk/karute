@@ -122,7 +122,7 @@ export async function deleteRecordingSessionWithClient(
   // it came from. Refuse, silently and without an audit row: nothing was
   // removed, so there is nothing to log. getByRecordingSession is the cheapest
   // real surface for the question (one lookup, no page) and is the SAME probe
-  // the karute upsert uses for it (actions/karute.ts) — structural 404 check
+  // the karute upsert uses for it (lib/karute/karute.core.ts) — structural 404 check
   // included, so a partial test mock of the client can't break the detection.
   try {
     await synqed.karuteRecords.getByRecordingSession(recordingSessionId)
