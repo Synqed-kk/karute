@@ -286,6 +286,8 @@ describe('N3-4 room-class words seed and live copy', () => {
     })
     expect(policy.facts).toHaveLength(3)
     expect(wordsRoomBlock(section, 'people.words', seed)!.facts[0]).toBe(block.facts[0])
+    const equipment = section.blocks.find((b) => b.id === 'people.equipment')!
+    expect(wordsRoomBlock(section, 'people.equipment', seed)).toEqual({ title: equipment.title, note: equipment.note, facts: {} })
     expect(classControls().length).toBeGreaterThan(0)
     for (const c of classControls()) expect(wordsRoomOptions(section, c.id, optionsOf(c), seed)).toEqual(optionsOf(c))
   })
@@ -326,7 +328,7 @@ describe('N3-4 room-class words seed and live copy', () => {
   })
 
   it('N3-4 T5 other blocks, other controls, sections without a spec and unknown options stay null or unchanged', () => {
-    for (const id of [...section.blocks.map((b) => b.id).filter((id) => !['people.room-policy', 'people.words'].includes(id)), 'absent']) {
+    for (const id of [...section.blocks.map((b) => b.id).filter((id) => !['people.room-policy', 'people.words', 'people.equipment'].includes(id)), 'absent']) {
       expect(wordsRoomBlock(section, id, seed)).toBeNull()
     }
     expect(wordsRoomOptions(section, 'people.cleanup-resource', [{ value: 'private', label: 'x' }], seed)).toBeNull()
