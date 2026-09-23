@@ -36,6 +36,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   // that one drifted — the same call isUnsecurableTake's double already makes
   // in discard-transcript-persist.
   ensureFinalizedPath: jest.requireActual('@/lib/karute/take-store').ensureFinalizedPath,
+  // No stored answer: every run here asks the door (the replay rule is
+  // ai-pipeline-transcript-checkpoint.test.ts's).
+  readTakeTranscript: async () => null,
+  stampTakeTranscript: async () => {},
 }))
 
 const apiFetch = jest.fn(async (url: string) => {

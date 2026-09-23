@@ -1,0 +1,118 @@
+/**
+ * ⚖ THE IN-TAB RETRY NEVER PAYS TWICE (recording hole PR-2).
+ *
+ * On the in-tab arm, 再試行 (and every reload) re-runs `runAIPipeline`, which
+ * POSTed the SAME finalized object to the transcribe door again — and that door
+ * has no existing-karute check, so each run could pay for the same audio. The
+ * take now keeps the door's whole answer for the object it was given
+ * (`TakeMeta.transcript`), and a run over that same object replays it.
+ *
+ * The store is faked in memory: what is pinned here is the PIPELINE's rule —
+ * when it asks the door, when it stamps, and that it stamps before the empty
+ * check. The data port counts every `/transcribe` POST.
+ */
+jest.mock('@/lib/global-recorder', () => ({
+  globalRecorder: { awaitTakeSecured: async () => {} },
+}))
+
+const takes = new Map<string, { finalizedPath?: string; transcript?: unknown }>()
+jest.mock('@/lib/karute/take-store', () => ({
+  readTakeSecureMeta: async (takeId: string) => takes.get(takeId) ?? null,
+  ensureFinalizedPath: async (_takeId: string, meta: { finalizedPath?: string }) =>
+    meta.finalizedPath ?? null,
+  readTakeTranscript: async (takeId: string) => takes.get(takeId)?.transcript ?? null,
+  stampTakeTranscript: async (takeId: string, finalizedPath: string, response: unknown) => {
+    const meta = takes.get(takeId)
+    if (meta) meta.transcript = { finalizedPath, response, at: 1 }
+  },
+}))
+
+jest.mock('@/lib/ports/recording-port', () => ({
+  getRecordingPipelinePort: () => ({
+    aiBase: '/api/ai',
+    prepareTranscription: async (_blob: Blob, finalizedPath: string | null) => ({
+      body: { path: finalizedPath ?? 'app_biz-1_staged-9.webm' },
+      path: finalizedPath ?? 'app_biz-1_staged-9.webm',
+    }),
+    finalizedKey: async () => null,
+  }),
+}))
+
+let transcribeBody: Record<string, unknown> = { transcript: 'こんにちは' }
+let extractFails = false
+const posts: string[] = []
+jest.mock('@/lib/ports/data-port', () => ({
+  getDataPort: () => ({
+    apiFetch: async (url: string) => {
+      posts.push(url)
+      if (url.endsWith('/extract') && extractFails) {
+        return { ok: false, status: 500, text: async () => 'boom' } as unknown as Response
+      }
+      const body = url.endsWith('/transcribe')
+        ? transcribeBody
+        : url.endsWith('/extract')
+          ? { entries: [] }
+          : { summary: 'まとめ' }
+      return { ok: true, json: async () => body } as unknown as Response
+    },
+  }),
+}))
+
+import { EmptyTranscriptError, runAIPipeline } from '@/lib/ai-pipeline'
+
+const TAKE = 'take-1'
+const FINALIZED = 'app_biz-1_take-1.webm'
+const count = (suffix: string) => posts.filter((u) => u.endsWith(suffix)).length
+const run = (takeId: string | null = TAKE) =>
+  runAIPipeline(new Blob(['audio']), takeId, 'ja', () => {})
+
+beforeEach(() => {
+  jest.useRealTimers()
+  takes.clear()
+  takes.set(TAKE, { finalizedPath: FINALIZED })
+  posts.length = 0
+  transcribeBody = { transcript: 'こんにちは' }
+  extractFails = false
+})
+
+describe('⚖ runAIPipeline never pays for the same finalized object twice', () => {
+  it('(1) extraction fails → retry: ONE transcribe POST in total, extraction asked twice', async () => {
+    jest.useFakeTimers()
+    extractFails = true
+    const first = run().catch((e: unknown) => e)
+    await jest.runAllTimersAsync()
+    expect(await first).toBeInstanceOf(Error)
+    jest.useRealTimers()
+
+    extractFails = false
+    const result = await run()
+
+    expect(count('/transcribe')).toBe(1)
+    // first run: extract + its one retry; second run: one more
+    expect(count('/extract')).toBe(3)
+    expect(result.transcript).toBe('こんにちは')
+  })
+
+  it('(2) a DIFFERENT finalized object is a different answer → the door is asked again', async () => {
+    await run()
+    takes.get(TAKE)!.finalizedPath = 'app_biz-1_take-1.mp4'
+    await run()
+    expect(count('/transcribe')).toBe(2)
+  })
+
+  it('(3) an empty 2xx is stamped, and replays as EmptyTranscriptError with ZERO POSTs', async () => {
+    transcribeBody = { transcript: '' }
+    await expect(run()).rejects.toBeInstanceOf(EmptyTranscriptError)
+    expect(count('/transcribe')).toBe(1)
+
+    posts.length = 0
+    await expect(run()).rejects.toBeInstanceOf(EmptyTranscriptError)
+    expect(posts).toHaveLength(0)
+  })
+
+  it('(4) no take: nothing to key on — the door is asked every run, as before', async () => {
+    await run(null)
+    await run(null)
+    expect(count('/transcribe')).toBe(2)
+  })
+})
