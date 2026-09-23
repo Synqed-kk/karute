@@ -147,6 +147,13 @@ export const SessionMintSchema = z
 // refused for the same reason a take is minted once: two entries for one seq
 // would probe and sign the same immutable key twice in one answer, and the
 // caller could only PUT one of them.
+//
+// customerId + appointmentId (fix plan v3 PR-2) are the visit a SERVER-named
+// take belongs to: with RECORDING_SWITCHES.bindUnboundUploads ON, that arm
+// creates the take's row and carries them onto it. Bounded like
+// SessionMintSchema's own pair, and they ride ONLY on a body with no takeId, no
+// stagedFor and no seqs — every other act already names its row, and a field
+// the mint would silently drop is refused instead.
 export const MAX_SEGMENT_SEQ = 999_999
 export const MAX_SEGMENT_BATCH = 60
 export const UploadUrlMintSchema = z
@@ -161,6 +168,8 @@ export const UploadUrlMintSchema = z
       .min(1)
       .max(MAX_SEGMENT_BATCH)
       .nullish(),
+    customerId: z.string().max(MAX_ID_CHARS).nullish(),
+    appointmentId: z.string().max(MAX_ID_CHARS).nullish(),
   })
   .strict()
   .refine((v) => !(v.takeId && v.stagedFor), {
@@ -190,6 +199,10 @@ export const UploadUrlMintSchema = z
   .refine((v) => !v.seqs || new Set(v.seqs).size === v.seqs.length, {
     message: 'each seq may appear once — a segment key is minted once',
     path: ['seqs'],
+  })
+  .refine((v) => !((v.customerId || v.appointmentId) && (v.takeId || v.stagedFor || v.seqs)), {
+    message: 'customerId and appointmentId ride only on a server-named take',
+    path: ['customerId'],
   })
 
 // ── Take finalize (capture pipeline PR2) — "this take is complete on storage".
