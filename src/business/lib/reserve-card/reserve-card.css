@@ -1,0 +1,771 @@
+/* Verified port of Synqed-kk/reserve src/index.css @ c2a9f9543187 — the rules the member card's three
+   surfaces (.mcard, .tcard, .salon-cover) and the Home greeting render from. Every block below a
+   `reserve index.css:A–B` marker is byte-identical to those lines; never edit one — re-port (PARITY.md).
+   Fonts: the wordmarks are Georgia (a system face, hardcoded by Reserve's own rules — no @font-face
+   there either); everything else is --font-sans, Reserve's system stack, re-declared in the context
+   block below. Reserve's @fontsource Cormorant Garamond reaches these surfaces only through
+   --tenant-face, which the Satin rules (4560, 4587, tcard__name 1370) override — so it is not loaded. */
+
+/* context — NOT verbatim. What Reserve's page hands these surfaces from OUTSIDE the ported rules,
+   re-scoped to the preview root so no Business page style leaks in and nothing leaks out:
+   - index.css:33–34 (@theme inline → :root): --font-sans / --font-num, the same stack, same order;
+   - index.css:185–191 (body): font-family, -webkit-font-smoothing, text-rendering;
+   - the page root's `bg-background text-foreground` (WalletPage / MemberSalonPage): the ground + ink;
+   - the inherited text defaults Reserve's page hands down (Tailwind preflight html / the UA, read off
+     its computed style), pinned so a host's inherited type — Business's body sets
+     font-feature-settings "palt" — cannot leak into the port. */
+.member-ground.reserve-card-preview {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
+  --font-num: var(--font-sans);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-size: 16px;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-align: start;
+  text-transform: none;
+  white-space: normal;
+  font-feature-settings: normal;
+  font-variation-settings: normal;
+}
+
+/* reserve index.css:214–221 */
+/* tactile press — expensive apps respond to fingers */
+.pressable {
+  transition: transform 150ms cubic-bezier(0.2, 0, 0, 1), box-shadow 150ms, background-color 150ms;
+}
+.pressable:active { transform: scale(0.975); }
+@media (prefers-reduced-motion: reduce) {
+  .pressable, .pressable:active { transition: none; transform: none; }
+}
+
+/* reserve index.css:237–246 */
+.tap44 { position: relative; }
+.tap44::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
+/* reserve index.css:740–753 */
+/* The ground itself. Cards keep --card (white), so the elevation the cards
+   already carry finally has something to sit on. */
+.member-ground {
+  --background: var(--member-paper);
+  /* the phone's status-bar inset, named once so the top mask can be written as
+     a proportion of it and a proof can substitute a device's number for the
+     browser's 0 */
+  --member-safe-top: env(safe-area-inset-top, 0px);
+  /* ⚖ the mint at 0.56 lightness measured 3.6:1 on white — under the floor for
+     the small text it is always used for (the login-reward line, a discount, a
+     「受け取り済み」 check). Darkened HERE rather than at :root so the public
+     website keeps the exact pixels it shipped with; the rig proves that. */
+  --success: oklch(0.5 0.115 168);
+}
+
+/* reserve index.css:774–825 */
+/* ミッドナイト — the app's palette, permanently (⚖ Liam 2026-09-03 on the
+   simulator; スレート and ボルドー retired with the switch 2026-09-04). */
+.member-ground {
+  --member-paper: #f6f6f8; --member-surface: #ffffff; --member-tint: #f0f0f6;
+  --member-ink: #15172b; --member-ink2: #5f6275; --member-hair: #e5e6ee;
+  --member-lead: #1c2247; --member-lead-deep: #11142e; --member-lead-wash: #e9eaf3;
+  --member-lit-a: #1c2247; --member-lit-b: #2a2f6b;
+  --member-glow: 0 16px 40px -16px rgb(28 34 71 / 0.45);
+  --member-reward: #f26b5e; --member-reward-wash: #fdece9; --member-reward-ink: #a83a2e;
+  --member-destructive: #c62828;
+  --member-wash: rgb(21 23 43 / 0.045); --member-warn: #b45309;
+  /* ⚖ Liam 2026-09-15: ONE font ruling — the store-name serif exception lives
+     ONLY on the card/cover wordmark rules (.mcard__wm, .salon-cover__wm,
+     hardcoded Georgia in the Satin block). Nothing that reads through here
+     prints a tenant name: the 受付 stamp (.member-seal__l, app copy, i18n'd),
+     the ためる ticket stub (.tameru-ticket__stub, an app-supplied label) and
+     the ためる post heading (.tameru-post__h) are all app-authored surfaces
+     that happened to share this token with the old JP editorial face — they
+     go system like everything else. */
+  --member-mincho: var(--font-sans);
+}
+/* The palette taking over the ROLE tokens the member pages already spend
+   (bg-background, text-muted-foreground, bg-primary…). Re-pointing fourteen
+   variables re-skins every member surface at once, which is why no page
+   component holds a colour: the port is a token swap, not a rewrite. Still
+   scoped to .member-ground, which the pages add only when isAppShell() is
+   true — the website keeps the cobalt system untouched. */
+.member-ground {
+  --card: var(--member-surface);
+  --foreground: var(--member-ink);
+  --card-foreground: var(--member-ink);
+  --muted-foreground: var(--member-ink2);
+  --muted: var(--member-tint);
+  --secondary: var(--member-tint);
+  --border: var(--member-hair);
+  --input: var(--member-hair);
+  --primary: var(--member-lead);
+  --ring: var(--member-lead);
+  --accent: var(--member-lead-wash);
+  --accent-foreground: var(--member-lead);
+  --destructive: var(--member-destructive);
+  /* the mock's two object shadows, by name (fragment.html 23-24) */
+  --member-obj: 0 1px 2px rgb(20 16 18 / 0.05), 0 12px 32px -14px rgb(20 16 18 / 0.18);
+  --member-obj-sm: 0 1px 2px rgb(20 16 18 / 0.05), 0 6px 16px -8px rgb(20 16 18 / 0.15);
+  /* --success is deliberately NOT re-pointed. It carries several distinct
+     meanings in this app — a slot is available, a booking is confirmed, a task
+     is done — and collapsing them into the reward hue made five unrelated
+     surfaces read as "you earned something". The palette's reward colour is
+     applied by NAME (.member-reward, the +pt chips), never by swapping a role
+     token. The pre-existing mint on ためる's earn discs stands until PR4
+     restyles that page. */
+}
+
+/* reserve index.css:933–945 */
+.member-ground .studio-greet {
+  padding: 0.625rem 0 0.625rem;
+}
+.member-ground .studio-greet__hi {
+  font-size: 13px;
+  color: var(--member-ink2);
+}
+.member-ground .studio-greet__name {
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.015em;
+  margin-top: 2px;
+}
+
+/* reserve index.css:947–998 */
+/* the foil sheen, verbatim from the design source: a slow drift, paused for
+   anyone who asked for less motion. The WRAP is what a pointer rotates (±12°,
+   the mock's f*24 over a ±0.5 range); the sheen inside keeps drifting. */
+.member-ground .mcard__sheenwrap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  display: block;
+  pointer-events: none;
+  /* NO transition: the foil follows the finger, it does not chase it. A .18s
+     ease here put the highlight 142 ms behind the pointer (measured) where the
+     design source's wrap has none at all. */
+}
+.member-ground .mcard__sheen {
+  position: absolute;
+  inset: -42%;
+  display: block;
+  opacity: 0.8;
+  pointer-events: none;
+  /* ⚖ a tenant that never chose a foil colour does not get one invented — the
+     same rule the rest of this file follows for grounds and display faces. The
+     fallback used to be WHITE, and on a light brand colour that foil was what
+     put the card under the contrast floor (measured: 2.69:1 on STUDIO FORCE).
+     No ornament, no sheen; La Estro's rose-gold is untouched. */
+  background: linear-gradient(
+    115deg,
+    color-mix(in oklab, var(--tenant-ornament, transparent) 0%, transparent) 32%,
+    color-mix(in oklab, var(--tenant-ornament, transparent) 44%, transparent) 50%,
+    color-mix(in oklab, var(--tenant-ornament, transparent) 0%, transparent) 68%
+  );
+  animation: member-foil-drift 6s ease-in-out infinite alternate;
+  will-change: transform;
+  /* the press-brighten RAMP (design source .sheen): .8 -> 1 over 180 ms, so
+     the object warms under the finger instead of snapping on in one frame. */
+  transition: opacity 0.18s ease;
+}
+@keyframes member-foil-drift {
+  from { transform: translateX(-13%); }
+  to { transform: translateX(13%); }
+}
+.member-ground .mcard__sheen[data-hold="true"] { animation-play-state: paused; }
+/* pointer-down brightens the foil 20% — the object answers the finger */
+.member-ground .mcard[data-pressed="true"] .mcard__sheen { opacity: 1; }
+/* PRESS WEIGHT's shadow answer (card-opening cues, 2026-09-06): the object
+   settles closer to the ground under the finger. `.pressable` already carries
+   the box-shadow transition (line ~215); this only supplies the pressed value. */
+.member-ground .mcard[data-pressed="true"] { box-shadow: 0 1px 1px rgb(20 16 18 / 0.04), 0 6px 16px -12px rgb(20 16 18 / 0.12); }
+.member-ground .tcard[data-pressed="true"] { box-shadow: 0 1px 1px rgb(20 16 18 / 0.04), 0 3px 10px -8px rgb(20 16 18 / 0.10); }
+@media (prefers-reduced-motion: reduce) {
+  .member-ground .mcard__sheen { animation: none; transition: none; }
+}
+
+/* reserve index.css:1000–1020 */
+/* THE TENANT'S SECOND GRADIENT STOP, as a token. The membership card, the
+   tenant card, the store cover and the 回数券 stub all read ONE value, so the
+   object that morphs into the cover cannot arrive on a different green than
+   the one it left. It runs DOWNWARD into the brand colour, never toward white
+   — the measured-contrast rule below, unchanged; the design source's own
+   --tenant-2 is its LIGHTER stop, the same role read the other way.
+   Declared on the objects themselves because that is where --tenant lands
+   (memberTenantVars puts it there inline): a custom property substitutes
+   var() at the element it is DECLARED on, so this cannot live on the ground. */
+.member-ground .mcard,
+.member-ground .tcard,
+.member-ground .salon-cover,
+.member-ground .member-minicard,
+.member-ground .tameru-ticket__stub {
+  --tenant-2: color-mix(in oklab, var(--tenant, var(--member-lead)) 82%, #000);
+  /* the wordmark's ink: the tenant's ornament taken almost to paper, so the
+     logotype reads as foil rather than as a second brand colour. The design
+     source carries this as its own --foil-p token beside --foil; the app has
+     one ornament per tenant, so it derives the pale from it. */
+  --tenant-foil-pale: color-mix(in oklab, var(--tenant-ornament, #fff) 15%, #fff);
+}
+
+/* reserve index.css:1034–1034 */
+.member-ground .studio-cards { position: relative; }
+
+/* reserve index.css:1142–1396 */
+/* --- the membership card --- */
+.member-ground .mcard {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 11rem;
+  /* NO margin-top: .studio-greet's own 10px bottom padding is the mock's
+     whole gap here (greet.name bottom -> card top = 10px there) — an extra
+     8px on top of it doubled the gap to 18px. */
+  border-radius: 20px;
+  overflow: hidden;
+  color: #fff;
+  /* ⚖ contrast, measured on the rendered pixel, not eyeballed. A tenant may
+     hand us ANY brand colour, so the floor cannot depend on which one: a flat
+     12% ink scrim rides over the tenant gradient, and every text on the card
+     is then ≥ 4.5:1 on both fixtures (white 6.11 on terracotta / 9.03 on
+     verde; .92 alpha 5.45 / 7.93; white on an ink chip 8.57 / 11.60). The
+     tenant's colour is still the colour — 12% is a shade, not a veil. */
+  /* ⚖ the gradient runs the tenant colour into a DEEPER version of itself,
+     never a lighter one. Mixing toward white — even at 10% — is a perceptual
+     mix in oklab, which lightened terracotta far past what a naive sRGB model
+     predicts and put white text at 2.85:1 on the rendered pixel. Downward, the
+     worst case IS the brand colour, which every brand has already vetted. */
+  /* ⚖ the tenant's OWN pair when it authored a second colour — LIGHT into the
+     brand colour, the way the design source prints every tenant object
+     (fragment.html 225/250/549: .mcard 62%, .tcard 70%, .cover 64%). A tenant
+     that named only one colour keeps the app's contrast-safe derivation, which
+     is why the fallback runs the other way: mixing an unvetted brand hue toward
+     white put white text at 2.85:1 on the rendered pixel. Same pair on the card,
+     the tenant cards, the cover and the thumbnail, so the object that morphs
+     from one into the other never changes colour mid-flight. */
+  background: linear-gradient(
+    150deg,
+    var(--tenant-g1, var(--tenant, var(--member-lead))) 0%,
+    var(--tenant-g2, var(--tenant-2)) 62%
+  );
+  box-shadow: 0 1px 2px rgb(20 16 18 / 0.05), 0 12px 32px -14px rgb(20 16 18 / 0.18);
+}
+/* ⚖ the contrast floor, and it has to sit ABOVE the foil: the sheen is what
+   blows a light brand colour out (measured on the rendered pixel — STUDIO
+   FORCE's ground peaked at rgb(185,150,142), 2.69:1 under white). A scrim
+   under the sheen cannot fix that; this one is over it and under the text. */
+.member-ground .mcard::after,
+.member-ground .tcard::after,
+.member-ground .salon-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: rgb(0 0 0 / 0.08);
+  border-radius: inherit;
+}
+.member-ground .mcard__in {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  padding: 1.125rem;
+  display: flex;
+  flex-direction: column;
+}
+.member-ground .mcard__hd {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+/* the tenant's own display face, on the tenant's own object — the one place
+   it is allowed (⚖ scoping law) */
+.member-ground .mcard__wm {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--tenant-face, var(--font-sans));
+  /* ⚖ Liam 2026-09-16: the card/cover wordmark is Georgia UPRIGHT — one
+     serif, one posture, on every store-name object (hero card, compact
+     card, cover), so nothing switches face mid-flight. The Satin shorthand
+     below is the effective home for this rule's face/style/size. */
+  font-style: normal;
+  font-size: 23px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--tenant-foil-pale);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the branch the member actually goes to, under the wordmark — a card that
+   names only the business leaves a two-store member guessing which one. */
+.member-ground .mcard__store {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  color: rgb(255 255 255 / 0.68);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member-ground .mcard__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  flex: none;
+  font-size: 13px;
+  line-height: 1.2;
+  color: rgb(255 255 255 / 0.92);
+}
+.member-ground .mcard__mid {
+  margin-top: auto;
+  padding-top: 0.8125rem;
+  display: block;
+}
+.member-ground .mcard__eb {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  color: rgb(255 255 255 / 0.92);
+}
+.member-ground .mcard__big {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-num);
+  font-weight: 600;
+  font-size: 28px;
+  line-height: 1.06;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* ⚖ Liam 2026-09-05 — the appointment's face is for an APPOINTMENT. A tenant
+   with nothing booked says so at the card's own reading size and WRAPS: no
+   28 px slot borrowed for a sentence, and no ellipsis, which is what turned
+   「いつでもご予約いただけます」 into 「いつでもご予約いただけ…」 on his screen. Two lines
+   at these sizes are 43.2 px against the 51 px the mid block holds, so the
+   fixed 176 px card cannot clip them at any width the app renders. */
+.member-ground .mcard__none {
+  display: block;
+  font-size: 15px;
+  line-height: 1.4;
+  color: rgb(255 255 255 / 0.92);
+}
+/* …and the way in, quieter than the truth above it. Copy, not a control: the
+   card is one tap target and it already leads exactly here (the tenant page,
+   whose primary action is 予約する) — a second interactive thing inside an
+   anchor is neither legal nor honest. */
+.member-ground .mcard__door {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgb(255 255 255 / 0.78);
+}
+.member-ground .mcard__foot {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.8125rem;
+  overflow: hidden;
+}
+.member-ground .mcard__chip,
+.member-ground .tcard__chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 1.5rem;
+  padding: 0 0.5625rem;
+  border-radius: 9999px;
+  /* WHITE washes (design source .cchip). The contrast floor is held by the
+     gradient's darkening step and the 8% scrim over the foil — by making the
+     CARD dark enough, never by making the chips dark. */
+  background: rgb(255 255 255 / 0.15);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member-ground .mcard__foot > :first-child {
+  background: rgb(255 255 255 / 0.22);
+  font-weight: 700;
+}
+/* the tenant card's single chip sits a shade brighter and a size taller than
+   the membership card's row, exactly as the design source has it */
+.member-ground .tcard__chip {
+  height: 1.625rem;
+  padding: 0 0.625rem;
+  background: rgb(255 255 255 / 0.17);
+}
+/* --- every other place, its own colour, smaller --- */
+.member-ground .tcard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.875rem 1.125rem;
+  min-height: 4.375rem;
+  border-radius: 18px;
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(
+    150deg,
+    var(--tenant-g1, var(--tenant, var(--member-lead))) 0%,
+    var(--tenant-g2, var(--tenant-2)) 70%
+  );
+  box-shadow: 0 1px 2px rgb(20 16 18 / 0.05), 0 6px 16px -8px rgb(20 16 18 / 0.15);
+}
+.member-ground .tcard .mcard__sheen { opacity: 0.34; }
+.member-ground .tcard__body {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* ⚖ no text on a tenant object may leave its box, at ANY tenant name length
+   (Liam 2026-09-05). `.tcard__body` already refuses to grow past its flex
+   track (min-width: 0), but a name with no break opportunity — 24 unbroken
+   latin characters, which is a perfectly ordinary business name — still spills
+   out of it, because normal wrapping has nowhere to break. `anywhere` gives it
+   one, and it also feeds the flex algorithm the true min-content width, so the
+   chip beside it keeps its own space. Inert on every name that already fits:
+   both fixtures are unchanged to the byte. */
+.member-ground .tcard__name,
+.member-ground .tcard__sub {
+  overflow-wrap: anywhere;
+}
+.member-ground .tcard__name {
+  display: block;
+  font: 17px/1.25 Georgia, "Times New Roman", serif;
+  letter-spacing: -0.3px;
+}
+.member-ground .tcard__sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #fff;
+}
+.member-ground .tcard__chip {
+  position: relative;
+  z-index: 2;
+}
+
+/* KEYBOARD FOCUS on a tenant object. The Tailwind ring utility is a
+   box-shadow, and these objects carry their own two-layer elevation shadow on
+   the same property — so the ring simply never appeared (measured: no visible
+   indicator on either card). An OUTLINE is a different property and cannot be
+   overwritten by an elevation, which is why the design source uses one. */
+.member-ground .mcard:focus-visible,
+.member-ground .tcard:focus-visible {
+  outline: 2px solid var(--member-lead);
+  outline-offset: 2px;
+}
+
+/* reserve index.css:1398–1426 */
+/* ---- A CONTROL IS NOT COPY (app shell only) ----
+   iOS treats every run of text the same way, and on the phone that came out
+   twice: a ~100 ms press on the 受付 sheet's 「デモ: 受付されたところを見る」
+   put selection handles and the loupe over the BUTTON'S OWN LABEL (walk shot
+   18-reception-stamped), and a 700 ms hold on the ホーム card opened the link
+   preview over the page (fable-1f2b575-23-home-released.png, 19:10). Both are
+   the OS doing the right thing to the wrong kind of object.
+
+   Three selectors are the WHOLE interactive vocabulary of this area, checked
+   by grep rather than assumed: there is not one raw `<a>` in src/ — every
+   anchor is a react-router `<Link>` and therefore navigation — every control
+   is a `<button>`, and the design's own objects (cards, chips, rows, sheet
+   controls, tray cells, the FAB) all carry `.pressable`. The chips inside the
+   cards inherit it from the card's own anchor.
+
+   NOT on body copy: the post's text, the store's address, the legal
+   documents and the visit rows keep their selection, because a member may
+   very well want to copy one — none of them is inside a control (the cover's
+   address is a `<p>` beside the back-link, not under it).
+
+   `.member-ground` only, so the public website is untouched — and a
+   mouse-and-keyboard page has no loupe to raise in the first place. */
+.member-ground a,
+.member-ground button,
+.member-ground .pressable {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* reserve index.css:1445–1472 */
+/* ---- PRESS TIERS (fragment.html 129-132) ----
+   Three answers, by what the thing IS, all on pointer-DOWN via :active:
+     an OBJECT (a card, the points strip) sinks a little — scale .985
+     a FLAT thing (a tray cell, a row, a chip) takes a WASH and never scales,
+       because scaling a full-width row reads as the page flexing
+     a BUTTON — the thing that commits — takes the deeper .97
+   These override the generic .pressable idiom inside the member area, so the
+   scale a member feels matches what they touched. */
+.member-ground .mcard:active,
+.member-ground .tcard:active,
+.member-ground .tameru-ticket:not([data-static]):active,
+.member-ground .tameru-post:active,
+.member-ground .pstrip:active {
+  transform: scale(0.985);
+  transition: transform 120ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.member-ground .member-tray__item:active,
+.member-ground .member-solo-row:active,
+.member-ground .member-seg2__btn:active,
+.member-ground .salon-segs button:active,
+.member-ground .visit-rows > *:active,
+.member-ground .care-rows > *:active,
+.member-ground .mcard__chip:active,
+.member-ground .tcard__chip:active {
+  transform: none;
+  background-color: var(--member-lead-wash);
+  transition: background-color 120ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+
+/* reserve index.css:1528–1561 */
+@media (prefers-reduced-motion: reduce) {
+  .member-ground .mcard:active,
+  .member-ground .tcard:active,
+  .member-ground .tameru-ticket:not([data-static]):active,
+  .member-ground .tameru-post:active,
+  .member-ground .pstrip:active,
+  .member-ground .member-fab:active,
+  .member-ground .member-sheet__close:active,
+  .member-ground .tameru-tbtn:active,
+  .member-ground .member-btn-wash:active,
+  .member-ground .member-btn-line:active,
+  .member-ground .member-btn-quiet:active,
+  .member-ground .member-btn-fill:active,
+  .member-ground .salon-acts > *:active,
+  .member-ground .today__act:active,
+  .member-ground .studio-chip:active,
+  .member-ground .studio-again__cta:active,
+  .member-ground .studio-scard:active,
+  .member-ground .studio-dcell:active,
+  .member-ground .studio-slot:active,
+  .member-ground .studio-gcell:active,
+  .member-ground .studio-pillbtn:active,
+  .member-ground .studio-deal:active,
+  .member-ground .studio-stickybar__cta:active {
+    transform: none;
+    opacity: 0.85;
+  }
+  /* a flat press is a wash, and a wash needs no travel — it just arrives */
+  .member-ground .member-rows > *:active,
+  .member-ground .studio-mrow:active,
+  .member-ground .member-sheet__opt:active {
+    transition: none;
+  }
+}
+
+/* reserve index.css:3823–3893 */
+/* ============================================================
+   お店ページ, studio skin — the design source's own store page (§お店ページ).
+   ============================================================ */
+/* TENANT OBJECT: the cover. The membership card lands here (member-morph),
+   so it wears the same downward gradient the card does — the object does not
+   change colour mid-flight. Full-bleed on purpose: it is the page's ground,
+   not a card on it. */
+.member-ground .salon-cover {
+  position: relative;
+  height: 220px;
+  overflow: hidden;
+  color: #fff;
+  /* the source bakes the whole status allowance into the object and then gives
+     the back chevron its own 10px (fragment.html 549/551); the app was adding
+     16px on top of the inset, which put the chevron 6px low on a real device.
+     The bottom 34px is the source's, carried on its .ad there. */
+  /* --member-safe-top, never a second env() reading of the same inset: the two
+     spellings are equal on a device and NOT equal in a proof that forces the
+     variable, which is how the cover's own top clearance read as 0 while the
+     mask was 74px tall (final walk W1, F-1). One name, one number. */
+  padding: var(--member-safe-top) 1.25rem 34px;
+  background: linear-gradient(
+    150deg,
+    var(--tenant-g1, var(--tenant, var(--member-lead))) 0%,
+    var(--tenant-g2, var(--tenant-2)) 64%
+  );
+}
+/* the cover is a tenant object, so it drifts like one (design source wires
+   .cover into the same wireSheen the card uses, fragment 1514) */
+.member-ground .salon-cover .mcard__sheen { opacity: 0.5; }
+.member-ground .salon-cover__in {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 28rem;
+  margin-inline: auto;
+}
+.member-ground .salon-cover__back {
+  align-self: flex-start;
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  font-size: 13px;
+  color: rgb(255 255 255 / 0.9);
+}
+.member-ground .salon-cover__wm {
+  margin-top: auto;
+  font-family: var(--tenant-face, var(--font-sans));
+  /* the logotype the card wears, at the size a cover gives it — this is what
+     the card's 23px wordmark grows into on the way here */
+  font-style: italic;
+  font-weight: 500;
+  font-size: 34px;
+  line-height: 1;
+  color: var(--tenant-foil-pale);
+}
+.member-ground .salon-cover__st {
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgb(255 255 255 / 0.9);
+}
+.member-ground .salon-cover__ad {
+  margin-top: 3px;
+  font-size: 12px;
+  color: rgb(255 255 255 / 0.82);
+}
+
+/* reserve index.css:4527–4545 */
+/* Accepted Satin: one smooth colour field; the copy and card never drift. */
+.member-ground :is(.mcard,.tcard,.salon-cover) { background:var(--satin-base); color:var(--satin-ink); border:0; }
+.member-ground :is(.mcard,.tcard,.salon-cover)::after { display:none; }
+.member-ground .mcard__sheenwrap { overflow:hidden; transform:none; }
+.member-ground :is(.mcard,.tcard,.salon-cover) .mcard__sheen {
+  inset:auto; left:-14.9123%; top:-21.2121%; width:129.8246%; height:142.4242%;
+  opacity:1; animation:none; transition:none; transform-origin:center;
+  background:radial-gradient(ellipse 80% 110% at 82% 12%,var(--satin-high) 0%,var(--satin-high) 10%,var(--satin-shoulder) 43%,var(--satin-body) 70%,var(--satin-low) 100%);
+}
+.member-ground :is(.mcard,.tcard,.salon-cover) :is(.mcard__wm,.mcard__store,.mcard__more,.mcard__eb,.mcard__none,.mcard__door,.tcard__sub,.mcard__chip,.tcard__chip,.salon-cover__wm,.salon-cover__st,.salon-cover__ad,.salon-cover__back) { color:var(--satin-ink); }
+.member-ground .mcard { height:190px; border-radius:22px; }
+.member-ground .mcard__in { padding:21px; }
+.member-ground .mcard__wm { font-size:27px; }
+.member-ground .mcard__store { font-size:11px; }
+.member-ground .mcard__foot { gap:13px; margin-top:17px; }
+.member-ground .mcard__foot .mcard__chip { background:none; height:auto; padding:0; font-size:11px; font-weight:500; }
+.member-ground .mcard__foot .mcard__chip:first-child { background:none; }
+.member-ground .salon-cover { height:248px; }
+.member-ground .salon-cover__wm { font-size:40px; }
+
+/* reserve index.css:4550–4550 */
+.member-ground .salon-cover { touch-action:pinch-zoom; }
+
+/* reserve index.css:4552–4553 */
+/* Shared branch copy keeps its glyph geometry through the card handoff. */
+.member-ground .salon-cover__st { font-size:11px; letter-spacing:.09em; line-height:1.5; }
+
+/* reserve index.css:4555–4590 */
+/* Dimensions and typography transcribed from the approved phone-finishes mock. */
+.member-ground :is(.mcard,.tcard,.salon-cover,.salon-next,.salon-rankfloat,.salon-acts,.salon-posts) { font-family:var(--font-sans); }
+.member-ground .mcard { height:187px; text-align:left; }
+.member-ground .mcard__in { padding:0; }
+.member-ground .mcard__hd { position:absolute; top:20px; left:21px; right:20px; }
+.member-ground .mcard__wm { font:27px/1.1 Georgia,"Times New Roman",serif; letter-spacing:-.5px; }
+.member-ground .mcard__more { font-size:11px; font-weight:400; letter-spacing:1px; }
+.member-ground .mcard__store { position:absolute; top:56px; left:22px; right:20px; margin:0; font-size:12px; letter-spacing:1px; line-height:1.5; }
+.member-ground .mcard__mid { position:absolute; top:85px; left:22px; right:20px; margin:0; }
+.member-ground :is(.mcard__eb,.salon-next__label) { font-size:11px; letter-spacing:1px; line-height:1.5; font-weight:400; }
+.member-ground :is(.mcard__big,.salon-next__date) { margin-top:5px; font-family:inherit; font-size:27px; font-weight:570; letter-spacing:-.7px; line-height:1.25; font-variant-numeric:normal; }
+.member-ground .membership-weekday { font-size:18px; letter-spacing:-1px; margin:0 4px; }
+.member-ground .mcard__foot { position:absolute; bottom:17px; left:22px; right:20px; margin:0; gap:8px; }
+.member-ground .mcard__foot .mcard__chip { font-size:11px; font-weight:400; gap:5px; }
+.member-ground .mcard__foot .mcard__chip:first-child { letter-spacing:1px; }
+.member-ground .tcard { height:76px; min-height:76px; border-radius:22px; margin-top:11px; padding:0 18px 0 20px; }
+.member-ground .tcard__sub { margin-top:10px; font-size:10px; letter-spacing:.2px; }
+.member-ground .tcard__chip { height:29px; padding:0 9px; font-size:10px; font-weight:400; }
+.member-ground .salon-cover { height:295px; padding:0; }
+.member-ground .salon-cover__in { max-width:none; }
+.member-ground .salon-cover__back { position:absolute; top:69px; left:19px; margin:0; height:36px; min-height:36px; padding:6px 12px 6px 8px; gap:3px; border-radius:22px; background:color-mix(in srgb,var(--satin-ink) 12%,transparent); font-size:11px; font-weight:400; }
+/* ⚖ Liam 2026-09-16: the cover wears the SAME serif as the card, for every
+   tenant — no plain variant. The store name is one object at other sizes
+   (card, compact card, cover); a tenant with no chosen display face gets the
+   app's own serif here too, exactly like its card already did on main.
+   FOLD-2: top 151→149 puts the name's bottom edge 2px higher so a compact
+   card's opening glider clears the category line's box earlier in the glide
+   — measured: clearance q 0.9867→0.980, category fade 16→18 frames, max
+   per-frame Δ 0.2018→0.1987 (check:morph's <0.2 gate, now green); the
+   remaining tightness is pre-existing for any compact-card tenant with a
+   serif cover (confirmed identical on テスト東京店 on main) and is a
+   motion-side fix for Liam, not this rule — logged, not fixed here. */
+.member-ground .salon-cover__wm { position:absolute; top:149px; left:25px; margin:0; font:36px/1.1 Georgia,"Times New Roman",serif; letter-spacing:-.66px; }
+.member-ground .salon-cover__wm-probe { position:absolute; left:0; top:0; visibility:hidden; pointer-events:none; white-space:nowrap; font:36px/1.1 Georgia,"Times New Roman",serif; letter-spacing:-.66px; }
+.member-ground .salon-cover__st { position:absolute; top:199px; left:26px; right:25px; margin:0; font-size:12px; letter-spacing:1px; line-height:1.5; }
+.member-ground .salon-cover__ad { position:absolute; top:225px; left:25px; right:25px; margin:0; font-size:10px; letter-spacing:.25px; line-height:1.8; }
+
+/* reserve index.css:4632–4685 */
+/* PKT-COVER-LONG-NAME-FOLD-5: the cover is 295px high; a short name's
+   single 36px/1.1 line ends at 149 + 39.6 = 188.6px. A long name is
+   anchored by its BOTTOM at that same line (295 - 188.6 = 106.4px) and
+   grows upward — one 28px line starts at 157.8px, two at 127px — so
+   every name sits the same distance above the branch (199px) however
+   many lines it takes. The height is never fixed, so nothing can clip a
+   line mid-glyph. Three classes so it still follows every per-size
+   override.
+   FOLD-7: the base rule above is main's, untouched — a short name
+   receives no new declaration, so it is identical to main by
+   construction; everything a long name needs lives here. */
+.member-ground .salon-cover .salon-cover__wm--long {
+  top: auto;
+  bottom: 106.4px;
+  max-width: calc(100% - 50px);
+  font-size: 28px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-break: strict;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* PKT-CARD-STAGE-3 (⚖ Liam 9/23 17:03, the still's middle phone): a name the
+   cover prints on two lines prints on two EQUAL lines on the Home card too —
+   the cover's own long rule at the card's own .75 (27/36): 28 × .75 = 21px,
+   −.66 × .75 = −.495px, and a column of .75 × the cover's column
+   (ground − 50), written by the card's own measure() as --mcard-col — one
+   truth, the cover's yardstick, no home-gutter constant here. The card only
+   takes this rule when it can hold that column; a card capped narrower
+   (the wide layouts) keeps main's one-line rule. Same breaks at both ends → the same shape →
+   the existing flight carries it; member-morph.ts is untouched. The three
+   wrapping declarations and the clamp are the cover's (above), so the lines
+   break where the cover breaks them. The hd and the branch leave their
+   absolute places for the SAME boxes in flow (.mcard__in is a padding-0 flex
+   column), so the branch follows the name down, 6px under it — the short
+   card's own relation (56 − 20 − 29.7 ≈ 6.3). .mcard__mid and .mcard__foot
+   keep their rules: the date's box already ends where the foot begins.
+   The cue keeps only its chevron, at the hd's right end — its words are
+   hidden by CSS alone (font-size 0; letter-spacing 0 too, or the base
+   rule's 1px per character leaves ~5px of blank before the chevron), so
+   the cue's markup stays main's exact text on every card.
+   Like FOLD-7: a short name matches NO selector here — identical to main by
+   construction; everything a long name needs lives in this block. */
+.member-ground .mcard--long .mcard__hd { position:static; margin:20px 20px 0 21px; }
+.member-ground .mcard--long .mcard__wm { font-size:21px; letter-spacing:-.495px; white-space:normal; max-width:var(--mcard-col); overflow-wrap:anywhere; word-break:normal; line-break:strict; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.member-ground .mcard--long .mcard__more { margin-left:auto; font-size:0; letter-spacing:0; gap:0; }
+.member-ground .mcard--long .mcard__store { position:static; margin:6px 20px 0 22px; }
+/* B's slot — the square mark's place before the name; geometry copied from MOCK-SWITCHBOARD-v2.html:437–439; nothing renders it yet (Stage 4) */
+.member-ground .mcard__hd .mcard__emb { display:block; flex:none; width:28px; height:28px; margin:.85px -2px 0 0; }
+.member-ground .mcard__emb.ink { background:var(--satin-ink); -webkit-mask:var(--lg) no-repeat 0 0/100% 100%; mask:var(--lg) no-repeat 0 0/100% 100%; }
