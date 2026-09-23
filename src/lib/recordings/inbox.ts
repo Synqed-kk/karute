@@ -68,6 +68,11 @@ export type InboxReason =
   | 'unsettled'
   | 'autoSaved'
   | 'emptyTranscript'
+  /** The worker named the stage that refused (recording hole PR-1): the
+   *  transcription, the AI pair, or the karute save. */
+  | 'transcriptionFailed'
+  | 'aiFailed'
+  | 'saveFailed'
   | 'genericFailure'
   | 'localAudio'
   /** …and the SAME device audio when the stop could not finish writing it
@@ -356,6 +361,17 @@ export function countNeedsAttention(rows: readonly InboxRow[]): number {
  * that session's single row, newest take first — that take is the one a save
  * would use.
  */
+/** A FAILED job's `last_error` → the row's reason (recording hole PR-1). The
+ *  worker prefixes a stage failure `${code}: ` (StageFailure, job-errors.ts);
+ *  anything else — a pre-PR-1 row, a sentinel — stays generic. */
+export function reasonFromJobError(lastError: string | null): InboxReason {
+  if (lastError === 'EMPTY_TRANSCRIPT') return 'emptyTranscript'
+  if (lastError?.startsWith('transcription_failed:')) return 'transcriptionFailed'
+  if (lastError?.startsWith('ai_failed:')) return 'aiFailed'
+  if (lastError?.startsWith('karute_save_failed:')) return 'saveFailed'
+  return 'genericFailure'
+}
+
 export function deriveInboxRows(input: {
   sessions: readonly InboxServerSession[]
   takes: readonly InboxLocalTake[]
@@ -514,7 +530,7 @@ export function deriveInboxRows(input: {
         state: 'failed',
         // The SAME mapping PipelineErrorCard uses — one honest string for the
         // one error core names, generic for everything else.
-        reason: s.jobLastError === 'EMPTY_TRANSCRIPT' ? 'emptyTranscript' : 'genericFailure',
+        reason: reasonFromJobError(s.jobLastError),
         canRetry: !!take || s.serverAudio === 'object',
         // The flag means "the save comes from the SERVER", so it is set only
         // when this device holds nothing — a take on the device still routes
