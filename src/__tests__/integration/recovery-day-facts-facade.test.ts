@@ -88,11 +88,13 @@ jest.mock('@/lib/karute/recovery-facts', () => ({
   buildRecoveryDayFacts: (c: unknown, i: unknown) => buildRecoveryDayFacts(c, i),
 }))
 
-// Redeem-route deps (C-2).
+// Redeem-route deps (C-2). Mocks the module the redeem route imports the core
+// from (src/lib/packs/packs.core.ts since PKT-SEC-CORES-D4) — mocking
+// @/actions/packs instead would let the REAL core run on the fake client.
 const redeemSessionActionWithClient = jest.fn(
   async (_c: unknown, _s: unknown, _i: unknown) => ({ ok: true, redemptionId: 'red-1' }),
 )
-jest.mock('@/actions/packs', () => ({
+jest.mock('@/lib/packs/packs.core', () => ({
   redeemSessionActionWithClient: (c: unknown, s: unknown, i: unknown) =>
     redeemSessionActionWithClient(c, s, i),
 }))

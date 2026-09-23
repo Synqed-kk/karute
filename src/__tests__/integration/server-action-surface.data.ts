@@ -210,12 +210,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
     'writeOrgSettingsBlobWithClient',
   ],
   'src/actions/packs.ts': [
-    'createPackActionWithClient',
-    'dismissPackAlertActionWithClient',
-    'dismissVisitReconcileActionWithClient',
-    'logCustomerContactActionWithClient',
-    'redeemSessionActionWithClient',
-    'setLifecycleActionWithClient',
   ],
   'src/actions/permissions.ts': [
     'getStaffPermissionsCore',
@@ -276,7 +270,7 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
 // PKT-SEC-CORES-B2's six store cores, then PKT-SEC-CORES-C's two
 // discard-transcript cores, then PKT-SEC-CORES-D1's eight customer cores,
 // then PKT-SEC-CORES-D2's eight karute cores, then PKT-SEC-CORES-D3's six
-// customer-memory cores.
+// customer-memory cores, then PKT-SEC-CORES-D4's six pack cores.
 // ONE list drives both r4 in server-action-surface.test.ts (server-only first
 // line, no directive) and the
 // updateTag ban in facade-core-updatetag-ban.test.ts.
@@ -288,4 +282,5 @@ export const SERVER_ONLY_MODULES: string[] = [
   'src/lib/customers/customers.core.ts',
   'src/lib/karute/karute.core.ts',
   'src/lib/customers/memory.core.ts',
+  'src/lib/packs/packs.core.ts',
 ]

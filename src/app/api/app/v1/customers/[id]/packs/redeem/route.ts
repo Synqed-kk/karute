@@ -11,7 +11,7 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { redeemSessionActionWithClient } from '@/actions/packs'
+import { redeemSessionActionWithClient } from '@/lib/packs/packs.core'
 import {
   proveAppointmentForCustomer,
   proveCustomerInBusiness,

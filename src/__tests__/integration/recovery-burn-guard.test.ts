@@ -68,7 +68,8 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => fakeClient,
 }))
 
-import { redeemSessionAction, redeemSessionActionWithClient } from '@/actions/packs'
+import { redeemSessionAction } from '@/actions/packs'
+import { redeemSessionActionWithClient } from '@/lib/packs/packs.core'
 
 const DAY = '2026-08-18'
 
