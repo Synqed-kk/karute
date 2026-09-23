@@ -247,6 +247,20 @@ describe('karute.save — update/retry path (recording session already saved)', 
     })
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-A' }))
   })
+  // The choke (createOrUpdateKaruteRecord) is shared by both doors, so this one web pin covers the facade too.
+  it('a degraded booking link on the update path still rides a notice (fresh:false, appointment_not_found)', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({ id: 'kar-x', transcript: 'old' } as never)
+    appointments.get.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-1', appointmentId: 'appt-gone' })
+    expect(karuteRecords.update).toHaveBeenCalledTimes(1)
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'karute.save',
+      severity: 'notice',
+      detail: expect.objectContaining({ appointment_link: 'appointment_not_found', fresh: false }),
+    }))
+  })
 })
 
 describe('karute.save — a FAILED write emits nothing (pins emit-after-write)', () => {

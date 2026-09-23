@@ -48,6 +48,18 @@ describe('readAppointmentForSave', () => {
     expect(get).toHaveBeenCalledTimes(2)
   })
 
+  it('a 403 twice is unreadable after two calls — only a literal 404 means not found', async () => {
+    const get = jest.fn().mockRejectedValue(withStatus(403))
+    expect(await readAppointmentForSave(client(get), 'ap-1')).toEqual({ appointment: null, state: 'unreadable' })
+    expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('a 400 then a good read is ok after two calls — a non-404 4xx retries like any blip', async () => {
+    const get = jest.fn().mockRejectedValueOnce(withStatus(400)).mockResolvedValueOnce(booking)
+    expect(await readAppointmentForSave(client(get), 'ap-1')).toEqual({ appointment: booking, state: 'ok' })
+    expect(get).toHaveBeenCalledTimes(2)
+  })
+
   it("a 404 carried as the STRING '404' is not treated as not found (unreadable after the retry)", async () => {
     const get = jest.fn().mockRejectedValue(withStatus('404'))
     expect(await readAppointmentForSave(client(get), 'ap-1')).toEqual({ appointment: null, state: 'unreadable' })

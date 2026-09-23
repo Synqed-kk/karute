@@ -573,6 +573,15 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: null }))
     expect(row).toMatchObject({ severity: 'notice', detail: { appointment_link: 'appointment_unreadable' } })
   })
+  it('a booking with no store keeps today\'s behaviour (link and menu kept, store null), a normal audit row', async () => {
+    // Pins the `apptStore &&` guard on the facade door (web twin in karute-store-stamp.test.ts).
+    ginzaClamp()
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: null, title: 'ストア無し施術' })
+    const row = await saveWith('ap-n')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: null, appointment_id: 'ap-n', service: 'ストア無し施術' }))
+    expect(row.severity).toBeUndefined()
+    expect(row.detail).toHaveProperty('appointment_link', null)
+  })
 })
 
 describe('POST /api/app/v1/packs/redemptions/[id]/undo', () => {

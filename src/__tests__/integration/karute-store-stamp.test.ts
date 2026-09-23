@@ -266,6 +266,18 @@ describe('a booking that cannot be used never loses the karute (both web doors)'
       expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: null }),
     )
   })
+  it('saveKaruteRecord: a booking with no store keeps today\'s behaviour (link and menu kept, store null)', async () => {
+    // Pins the `apptStore &&` guard: a clamped caller + a booking that reads OK
+    // with store_id null is NOT out of scope — pre-existing behaviour, unchanged.
+    ginza()
+    appointments.get.mockResolvedValue({ id: 'ap-n', staff_id: 'other', store_id: null, title: 'ストア無し施術' })
+
+    await saveKaruteRecord({ ...baseInput, appointmentId: 'ap-n' }).catch(() => {})
+
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: null, appointment_id: 'ap-n', service: 'ストア無し施術' }),
+    )
+  })
 })
 
 describe('saveKaruteRecord — store_id resolution reuses the staff-fallback appointment fetch', () => {
