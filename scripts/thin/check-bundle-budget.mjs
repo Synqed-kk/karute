@@ -2072,11 +2072,14 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //
 // Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
 // all six VITE_* values read programmatically from .github/workflows/ci.yml,
-// offline. thin/dist emptied before EACH of two laps; both laps identical:
+// offline. thin/dist emptied before EACH of two laps; both laps identical
+// (node v24.16.0, this Mac):
 //   en-bG7973nv.js                  139,075 B
 //   index-BIeG4EhT.js             1,083,294 B
 //   vendor-DqXjNZNP.js              937,800 B
 // Total = 139,075 + 1,083,294 + 937,800 = 2,160,169 B (2109.5 KB, 3 chunks).
+// CI (node 20 per .github/workflows/ci.yml setup-node) reported the
+// identical 2109.5 KB raw / 3 chunks on the same commit.
 // Initial gate failed by 170 B against main's 2,159,999 B ceiling;
 // purchase exclusion stayed clean (0/13). No dependency files changed.
 // Ceiling = measured + 1,300 = 2,161,469 B (~1.3 KB headroom, not a round
