@@ -28,13 +28,14 @@ export const STORE = {
   laEstro: '8696b856-11ab-4879-9290-bef40b03ea66',
   closed: '00000000-0000-4000-8000-00000000dead',
 } as const
-export const LOGIN = { owner: 'owner-login-uuid', probe: 'probe-login-uuid', goro: 'goro-login-uuid', musubi: 'musubi-login-uuid', perry: 'perry-login-uuid' } as const
+export const LOGIN = { owner: 'owner-login-uuid', probe: 'probe-login-uuid', goro: 'goro-login-uuid', musubi: 'musubi-login-uuid', perry: 'perry-login-uuid', azusa: 'azusa-login-uuid', saburo: 'saburo-login-uuid' } as const
 export const CARD = {
   owner: 'da7ccca7-8706-4e3f-bb07-ce2300fbc799',
   saburo: '875f0912-9e21-42d0-9f22-673bed198d88',
   probe: 'b89b95cf-2365-4652-b8f4-d9235cabc8f9',
   perry: 'b61de85f-c873-4231-ad03-70d211e8b32f',
   mio: '75e26903-953c-4e74-bc6b-ec791b5e82f1',
+  azusa: 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5',
   goro: '6279b2a0-7f01-4d7b-8644-2f1ce127c947',
   musubi: '00000000-0000-4000-8000-0000000000c9',
   inactive: '00000000-0000-4000-8000-0000000000ca',
@@ -62,9 +63,9 @@ export const STAFF: Staff[] = [
   card('b89b95cf-2365-4652-b8f4-d9235cabc8f9', 'Invite Probe 0817', 'STYLIST', 'invite-probe-0817@karute.test', LOGIN.probe),
   card('b61de85f-c873-4231-ad03-70d211e8b32f', 'perry', 'STYLIST', 'jon@kim.com', LOGIN.perry),
   card('52157c64-f2d4-41c3-9396-47046d20db07', 'yes', 'STYLIST', 'yes@yes.com'),
-  card(CARD.saburo, 'テスト さぶろう', 'STYLIST', null),
+  card(CARD.saburo, 'テスト さぶろう', 'STYLIST', null, LOGIN.saburo),
   card('75e26903-953c-4e74-bc6b-ec791b5e82f1', 'テスト みお', 'STYLIST', null),
-  card('d27c76c4-eda7-4b12-9491-4eb6d9edaee5', '見本 あずさ', 'STYLIST', 'azusa@test.invalid'),
+  card(CARD.azusa, '見本 あずさ', 'STYLIST', 'azusa@test.invalid', LOGIN.azusa),
   card('36fddcba-258a-4497-846a-bca901ee0aa3', '見本 かい', 'STYLIST', null),
   card(CARD.goro, '見本 ごろう', 'STYLIST', 'goro@test.invalid', LOGIN.goro),
   card('00a86dcc-1204-4438-b295-e20861f3a137', '見本 しろう', 'STYLIST', 'shiro@test.invalid'),
@@ -112,6 +113,10 @@ export const SHEETS: Record<string, Sheet> = {
   [CARD.musubi]: sheet(CARD.musubi, 'practitioner', 'STYLIST', ['customers.view'], null), // the F-2 case
   // Role-label cases (the Business vocabulary): a practitioner and a frontdesk, each on Dev Salon.
   [CARD.perry]: sheet(CARD.perry, 'practitioner', 'STYLIST', ['customers.view', 'bookings.manage'], [STORE.devSalon]),
+  // 見本 あずさ — the twin of the fixture operator p-06: her SAMPLE rows are p-06's.
+  [CARD.azusa]: sheet(CARD.azusa, 'practitioner', 'STYLIST', ['customers.view', 'records.write'], [STORE.tokyo]),
+  // テスト さぶろう — twin c-03, NO email: only the twin reaches his card (the email tier cannot).
+  [CARD.saburo]: sheet(CARD.saburo, 'practitioner', 'STYLIST', ['customers.view', 'records.write'], [STORE.tokyo, STORE.yokohama]),
   [CARD.probe]: sheet(CARD.probe, 'frontdesk', 'ASSISTANT', ['customers.view'], [STORE.devSalon]),
 }
 

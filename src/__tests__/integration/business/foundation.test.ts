@@ -797,6 +797,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures',
         '@/business/lib/fixtures-karute',
         '@/business/lib/karute',
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/karute/KaruteScreen.tsx': [
@@ -1025,6 +1026,7 @@ describe('the fixture data door', () => {
         // those strings in the recording room would be a second home for one
         // vocabulary, and the two would drift the first time one is edited.
         '@/business/lib/karute',
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/recording',
         '@/business/lib/today-board',
       ],
@@ -1120,9 +1122,13 @@ describe('the fixture data door', () => {
     }
     return found
   }
+  // The walk stays INSIDE territory on purpose: an outside module importing territory
+  // data is already forbidden by the reverse-direction scanner (scripts/business/check-business-isolation.mjs).
   const TERRITORY_ROOTS = ['src/business/', 'src/app/[locale]/(business)/']
+  // A `.js`/`.jsx` specifier names the `.ts`/`.tsx` source (ESM-suffix style), so the stem is tried too.
   function resolveFile(target: string): string | null {
-    for (const f of [target, `${target}.ts`, `${target}.tsx`, `${target}/index.ts`, `${target}/index.tsx`]) {
+    const stem = target.replace(/\.(ts|tsx|js|jsx)$/, '')
+    for (const f of [target, `${stem}.ts`, `${stem}.tsx`, `${stem}/index.ts`, `${stem}/index.tsx`]) {
       if (/\.(ts|tsx)$/.test(f) && existsSync(join(ROOT, f)) && lstatSync(join(ROOT, f)).isFile()) return f
     }
     return null
@@ -1148,7 +1154,7 @@ describe('the fixture data door', () => {
         for (const spec of valueSpecifiersOf(at)) {
           const target = resolveSpec(spec, at)
           if (!target) continue
-          const bare = target.replace(/\.(ts|tsx)$/, '')
+          const bare = target.replace(/\.(ts|tsx|js|jsx)$/, '')
           if (isServerOnly(bare)) { offenders.push([...path, spec].join(' → ')); continue }
           const next = resolveFile(target)
           if (!next || seen.has(next) || !TERRITORY_ROOTS.some((r) => next.startsWith(r))) continue
@@ -1159,6 +1165,8 @@ describe('the fixture data door', () => {
     }
     expect(clientFiles).toBeGreaterThan(0)
     expect(offenders).toEqual([])
+    // The walker's own self-check: an ESM `.js` specifier resolves to its `.ts` source.
+    expect(resolveFile('src/business/lib/data.js')).toBe('src/business/lib/data.ts')
   })
 
   it('one importer each: data.ts alone imports the door, core-reach.ts alone names the core client factory', () => {

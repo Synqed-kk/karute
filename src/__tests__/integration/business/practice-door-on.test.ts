@@ -28,7 +28,7 @@ import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
-import { sampleKeys, sampleRows, storeSample } from '@/business/lib/practice-door/sample-facade'
+import { sampleKeys, sampleRows, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf } from '@/business/lib/practice-door/registry'
 import { customers, STORE_A, STORE_C } from '@/business/lib/fixtures'
 import { defaultKindOf, staffQualifications } from '@/business/lib/fixtures-today'
@@ -40,6 +40,8 @@ import { accessFor as karuteAccessFor } from '@/business/lib/karute'
 import { accessFor as recordingAccessFor } from '@/business/lib/recording'
 import { accessFor as registerAccessFor } from '@/business/lib/register'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { recordingProps } from '@/app/[locale]/(business)/business/recording/recording-props'
+import { karuteProps } from '@/app/[locale]/(business)/business/karute/karute-props'
 import {
   APT, AKARI, ASSIGNMENTS, CARD, KOBAYASHI, LOGIN, MENU, STAFF, STORE, TENANT, membership, recordedReads,
   type RecordedOptions,
@@ -351,6 +353,36 @@ describe('(2b) role labels — the Business vocabulary, from the rulebook', () =
     expect(karuteAccessFor('')).toEqual({ discardContent: false, reassign: false })
     expect(recordingAccessFor('')).toEqual({ storeWide: false, discardReview: false })
     expect(registerAccessFor('')).toEqual({ refund: false, close: false, redactSummary: true })
+  })
+})
+
+describe("(2c) a live actor's SAMPLE rows are their fixture twin's", () => {
+  it('ON as 見本 あずさ (twin p-06): karute 自分 = p-06; recording resolves her own card (c-06)', async () => {
+    as(LOGIN.azusa)
+    expect((await karuteProps({ locale: 'ja', store: STORE.tokyo })).props.selfStaffId).toBe('p-06')
+    const { props } = await recordingProps({ locale: 'ja', store: STORE.tokyo })
+    // selfCardId is not a prop; what IS: `ownDiscardLine` is computed only when the
+    // self card resolves (ownDiscardsThisMonth → null without one).
+    expect(props.ownDiscardLine).not.toBeNull()
+    expect(props.historyCaption).toBe('自分の録音（新しい順・まず1週間ぶん）')
+  })
+  it('ON as テスト さぶろう (twin c-03, no email): only the twin reaches his card — the email tier cannot', async () => {
+    as(LOGIN.saburo)
+    expect((await karuteProps({ locale: 'ja', store: STORE.tokyo })).props.selfStaffId).toBe('c-03')
+    expect((await recordingProps({ locale: 'ja', store: STORE.tokyo })).props.ownDiscardLine).not.toBeNull()
+  })
+  it('ON as the owner (no twin): karute 自分 = null; recording resolves with no self card, no throw', async () => {
+    expect((await karuteProps({ locale: 'ja', store: STORE.tokyo })).props.selfStaffId).toBeNull()
+    const { props } = await recordingProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.ownDiscardLine).toBeNull()
+  })
+  it('sampleSelfId: OFF identity; ON the twin, an unknown uuid → null', () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect(sampleSelfId('staff', 'p-06')).toBe('p-06')
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    expect(sampleSelfId('staff', CARD.azusa)).toBe('p-06')
+    expect(sampleSelfId('staff', CARD.owner)).toBeNull()
+    expect(sampleSelfId('staff', null)).toBeNull()
   })
 })
 

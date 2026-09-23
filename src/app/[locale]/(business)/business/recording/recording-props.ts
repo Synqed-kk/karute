@@ -37,6 +37,7 @@ import {
   type StoreLens,
   readShellIdentity,
 } from '@/business/lib/data'
+import { sampleSelfId } from '@/business/lib/practice-door/sample-facade'
 import { staffCards, type FixtureAppointment } from '@/business/lib/fixtures'
 import { CATEGORY_LABEL, CATEGORY_ORDER } from '@/business/lib/karute'
 import { records as recordPlane } from '@/business/lib/fixtures-karute'
@@ -226,7 +227,11 @@ export async function recordingProps({
   const { operator } = await readShellIdentity()
   const role = world?.role ?? operator.role
   const access = accessFor(role)
-  const selfCardId = cardIdOfStaff(operator.staff_id, staffCards, staff)
+  // The operator is LIVE under the practice switch; the take plane is SAMPLE and
+  // card-keyed, so the join runs through the operator's FIXTURE twin (the
+  // `byUser` tier links p-06 → c-06 without the roster). OFF: the same id.
+  const selfTwin = sampleSelfId('staff', operator.staff_id)
+  const selfCardId = cardIdOfStaff(selfTwin, staffCards, staff)
 
   const models = buildTakes({
     takes: world?.takes ?? takePlane,
@@ -264,7 +269,7 @@ export async function recordingProps({
   // scope that ignored it would hand a card-tagged operator an empty picker and
   // call it an evening with no bookings.
   const ownStaffIds: ReadonlySet<string> = new Set(
-    [operator.staff_id, selfCardId].filter((v): v is string => v !== null),
+    [operator.staff_id, selfTwin, selfCardId].filter((v): v is string => v !== null),
   )
   const nowMinute = jstMinuteOfDay(now)
   const options = pickerOptions({

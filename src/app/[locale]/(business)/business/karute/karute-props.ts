@@ -29,6 +29,7 @@ import {
   type StoreLens,
   readShellIdentity,
 } from '@/business/lib/data'
+import { sampleSelfId } from '@/business/lib/practice-door/sample-facade'
 import { type FixtureAppointment } from '@/business/lib/fixtures'
 import { records as recordPlane, type FixtureKaruteRecord } from '@/business/lib/fixtures-karute'
 import {
@@ -341,7 +342,9 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
       '施術記録の一覧です。行を選ぶと、記入内容・詳細記録・写真・結果をまとめて確認できます。新しいカルテは＋新規カルテから作成します。検索や絞り込みは表示が変わるだけで、記録の内容は変わりません。',
     filters: FILTERS,
     // Canon's 担当 scope (`SCOPE_FILTERS`), with the logged-in operator as 自分.
-    selfStaffId: operator.staff_id,
+    // The karute rows are the fixture record plane, keyed by fixture staff ids:
+    // the live operator reaches them through their twin (none → null → 自分 shows nothing).
+    selfStaffId: sampleSelfId('staff', operator.staff_id),
     selfLabel: `自分（${operator.name}）`,
     rows,
     // The quiet reveal's candidates — the lens's own customers with no record
