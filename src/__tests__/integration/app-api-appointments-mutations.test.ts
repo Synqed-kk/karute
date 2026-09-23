@@ -46,6 +46,14 @@ jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
 })
+// `serviceOverride` = the removed-staff helper's in-memory profiles table,
+// installed only while it runs the REAL roster read (helpers/removed-staff.ts);
+// otherwise the real module, exactly as before.
+const serviceOverride = { current: null as unknown }
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: (...a: unknown[]) =>
+    serviceOverride.current ?? jest.requireActual('@/lib/supabase/service').createServiceClient(...a),
+}))
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffIdForBusiness: jest.fn(async () => 'staff-core-1'),
   lookupSynqedStaffIdForBusiness: jest.fn(async () => 'staff-core-1'),
@@ -141,6 +149,7 @@ import { POST as noShowPOST } from '@/app/api/app/v1/appointments/[id]/no-show/r
 import { POST as restorePOST } from '@/app/api/app/v1/appointments/[id]/restore/route'
 import { GET as burnableGET } from '@/app/api/app/v1/customers/[id]/packs/burnable/route'
 import { auditLines } from './helpers/audit-lines'
+import { rosterOf, unplaceableRow, BUSINESS } from './helpers/removed-staff'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -251,6 +260,24 @@ describe('POST /api/app/v1/appointments (create)', () => {
       noParams,
     )
     expect(res.status).toBe(400)
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // The DOOR layer alone (the identity seam is mocked here): a caller the
+  // roster cannot place — a null-name profile, which the seam lets through
+  // (a `_system_removed_` profile now stops at the seam first) — is dropped by
+  // the REAL roster read, and core answers `{ store_ids: [] }` for them —
+  // never read as floating.
+  it('an UNPLACEABLE caller (real roster read over a null-name profile — door layer alone) → 403 store_forbidden, nothing written', async () => {
+    roster.current = (await rosterOf(
+      [{ id: 'profile-1', full_name: 'Mika', customer_id: BUSINESS }, unplaceableRow('auth-user-1')],
+      (c) => (serviceOverride.current = c),
+    )) as typeof roster.current
+    expect(roster.current.map((s) => s.id)).toEqual(['profile-1'])
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await createPOST(post(CREATE_URL, CREATE_BODY), noParams)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
     expect(apptCreate).not.toHaveBeenCalled()
   })
 

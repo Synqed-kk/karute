@@ -3,10 +3,9 @@
 // (updateStaffCore / deleteStaffCore, src/actions/staff.ts).
 //
 // Gate: 'staff.manage' for both — matches web's own can('staff.manage')
-// gate on updateStaff/deleteStaff. Owner-target protection lives INSIDE
-// deleteStaffCore/updateStaffCore's own profile-vs-synqed branching + the
-// synqed SDK's own last-member/attributed-records guard (identical to web —
-// the UI also just hides the delete control for the owner row).
+// gate on updateStaff/deleteStaff. The owner guard lives in deleteStaffCore
+// (it throws AppApiError('forbidden') for the owner row before any write),
+// next to the synqed SDK's own last-member/attributed-records guard.
 //
 // Business-result passthrough: updateStaffCore/deleteStaffCore's own
 // { ok: true } | { error } result rides the 2xx body VERBATIM — same
@@ -133,7 +132,10 @@ export const DELETE = facadeHandler<Params>('staff.delete', async (ctx) => {
       id,
     )
     return ok(ctx, result)
-  } catch {
+  } catch (err) {
+    // deleteStaffCore's own refusals (the owner guard → 403 forbidden) pass
+    // through unchanged; everything else stays the 502.
+    if (err instanceof AppApiError) throw err
     throw new AppApiError('upstream_unavailable', 'staff deletion failed')
   }
 })

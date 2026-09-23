@@ -63,12 +63,16 @@ jest.mock('@/lib/staff', () => ({
 // profiles lookup used by updateStaffCore/deleteStaffCore — null = synqed-only
 // staff (routes to the synqed client); a row = profile-backed (routes to the
 // Supabase update).
-let profileRow: { id: string } | null = null
+let profileRow: { id: string; full_name?: string; display_role?: string } | null = null
 let profileUpdateError: { message: string } | null = null
+let profileLookupError: { message: string } | null = null
 // Every .eq() applied to a profiles query, recorded so pins can assert
 // tenant scoping (the service client bypasses RLS — the .eq('customer_id',…)
 // IS the isolation).
 let profileEqCalls: Array<[string, unknown]> = []
+// deleteStaffCore's two neutralising moves on a removal (name prefix + ban).
+let profileUpdates: Array<{ patch: Record<string, unknown>; eq: Array<[string, unknown]> }> = []
+const updateUserById = jest.fn(async (_id: string, _a: Record<string, unknown>) => ({ error: null }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
@@ -77,14 +81,23 @@ jest.mock('@/lib/supabase/service', () => ({
       profileEqCalls.push([col, val])
       return builder
     }
-    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: profileRow })
-    ;(builder as { update: unknown }).update = () => {
+    ;(builder as { maybeSingle: unknown }).maybeSingle = async () =>
+      profileLookupError ? { data: null, error: profileLookupError } : { data: profileRow, error: null }
+    ;(builder as { update: unknown }).update = (patch: Record<string, unknown>) => {
+      const rec = { patch, eq: [] as Array<[string, unknown]> }
+      profileUpdates.push(rec)
       const chain: Record<string, unknown> = {}
-      chain.eq = () => chain
+      chain.eq = (c: string, v: unknown) => {
+        rec.eq.push([c, v])
+        return chain
+      }
       chain.then = (resolve: (v: unknown) => unknown) => resolve({ error: profileUpdateError })
       return chain
     }
-    return { from: () => builder }
+    return {
+      from: () => builder,
+      auth: { admin: { updateUserById: (id: string, a: Record<string, unknown>) => updateUserById(id, a) } },
+    }
   },
 }))
 
@@ -179,7 +192,9 @@ beforeEach(() => {
   mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'staff.manage']))
   profileRow = null
   profileUpdateError = null
+  profileLookupError = null
   profileEqCalls = []
+  profileUpdates = []
   storeAssignments = {}
   storeList = []
   storesList.mockImplementation(async () => ({ stores: storeList }))
@@ -398,6 +413,118 @@ describe('DELETE /api/app/v1/staff/[id]', () => {
       expect(await res.json()).toEqual({ error: 'Cannot delete the last staff member.' })
     })
     expect(lines).toHaveLength(0)
+  })
+
+  it('profile-backed removal: name → _system_removed_ scoped by id AND business, account banned, audit flags', async () => {
+    profileRow = { id: 'staff-9', full_name: '田中' }
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(staffDelete).toHaveBeenCalledWith('synqed-7')
+    expect(profileUpdates).toEqual([
+      {
+        patch: { full_name: '_system_removed_田中' },
+        eq: [
+          ['id', 'staff-9'],
+          ['customer_id', 'business-1'],
+        ],
+      },
+    ])
+    expect(updateUserById).toHaveBeenCalledWith('staff-9', { ban_duration: '876000h' })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'staff.remove',
+      source: 'facade',
+      detail: { synqed_staff_id: 'synqed-7', self_removal: false, profile_neutralised: true, account_banned: true },
+    })
+  })
+
+  it('self-removal (the Bearer caller removes their OWN row): SAME treatment — core delete, name move AND ban run; audit self_removal:true', async () => {
+    profileRow = { id: 'auth-user-1', full_name: '田中' }
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await deleteDELETE(deleteReq('auth-user-1'), params('auth-user-1'))
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(staffDelete).toHaveBeenCalledWith('synqed-7')
+    expect(profileUpdates).toEqual([
+      {
+        patch: { full_name: '_system_removed_田中' },
+        eq: [
+          ['id', 'auth-user-1'],
+          ['customer_id', 'business-1'],
+        ],
+      },
+    ])
+    expect(updateUserById).toHaveBeenCalledWith('auth-user-1', { ban_duration: '876000h' })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'staff.remove',
+      actor_id: 'auth-user-1',
+      target_id: 'auth-user-1',
+      detail: { synqed_staff_id: 'synqed-7', self_removal: true, profile_neutralised: true, account_banned: true },
+    })
+  })
+
+  // The owner guard lives in deleteStaffCore (one home, first in the chain);
+  // the route lets its AppApiError through instead of relabelling it a 502.
+  it('the OWNER row → 403 forbidden: NO core delete, NO profile update, NO ban, NO audit', async () => {
+    profileRow = { id: 'staff-owner', full_name: '佐藤', display_role: 'owner' }
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await deleteDELETE(deleteReq('staff-owner'), params('staff-owner'))
+    })
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'forbidden' })
+    expect(staffDelete).not.toHaveBeenCalled()
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('the profiles LOOKUP fails → 502 upstream_unavailable: NO core delete, NO profile update, NO ban, NO audit', async () => {
+    profileLookupError = { message: 'db down' }
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    })
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).toMatchObject({ code: 'upstream_unavailable' })
+    expect(staffDelete).not.toHaveBeenCalled()
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('another _system_ name (not the removal marker) → renamed _system_removed__system_other', async () => {
+    profileRow = { id: 'staff-9', full_name: '_system_other' }
+    const res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    expect(res.status).toBe(200)
+    expect(profileUpdates).toHaveLength(1)
+    expect(profileUpdates[0].patch).toEqual({ full_name: '_system_removed__system_other' })
+  })
+
+  it('a MANAGER row (not the owner) → today\'s removal: 200, name move, ban', async () => {
+    profileRow = { id: 'staff-mgr', full_name: '鈴木', display_role: 'manager' }
+    const res = await deleteDELETE(deleteReq('staff-mgr'), params('staff-mgr'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(staffDelete).toHaveBeenCalledWith('synqed-7')
+    expect(profileUpdates).toHaveLength(1)
+    expect(updateUserById).toHaveBeenCalledWith('staff-mgr', { ban_duration: '876000h' })
+  })
+
+  it('the 400 guard on a profile-backed id neutralises nothing: no profile update, no ban', async () => {
+    profileRow = { id: 'staff-9', full_name: '田中' }
+    staffDelete.mockRejectedValueOnce(new SynqedError(400, 'Cannot delete the last staff member.'))
+    const res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    expect(await res.json()).toEqual({ error: 'Cannot delete the last staff member.' })
+    expect(profileUpdates).toHaveLength(0)
+    expect(updateUserById).not.toHaveBeenCalled()
   })
 })
 

@@ -34,6 +34,7 @@
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
@@ -49,6 +50,24 @@ export const runtime = 'nodejs'
 export const GET = facadeHandler('invite.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'staff.invite')
   const businessId = ctx.identity.businessId
+  // Roster gate BEFORE any read (same answer as the POST / karute doors): a
+  // caller the roster cannot place — e.g. a removed staffer whose token is
+  // still alive — reads no pending invite (email + role). A roster caller is
+  // unaffected.
+  //
+  // Outage arm only: a roster READ failure answers the same empty list the
+  // web's listInvites answers (src/actions/invites.ts, its outer catch →
+  // `return []`), byte-identical to this route's normal empty result below
+  // (`{ invites: [] }`). Nothing is read on the caller's behalf on that path.
+  // A roster that reads fine and cannot place the caller stays the 403.
+  let selfStaffId: string | null
+  try {
+    selfStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
+  } catch (err) {
+    console.error('[invite.list] roster read failed — answering empty like the web list', err)
+    return ok(ctx, { invites: [] })
+  }
+  if (!selfStaffId) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
   const synqed = newSynqedClient(businessId)
   const invites = await listInvitesWithClient(
     synqed,

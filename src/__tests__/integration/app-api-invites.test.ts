@@ -46,8 +46,12 @@ let existingMember: { id: string } | null = null
 // Rows memberEmailsForBusiness's awaited select resolves to (the linked-badge
 // lookup awaits the chain directly, no maybeSingle — hence the thenable).
 let memberEmailRows: { email: string | null }[] = []
+// `serviceOverride` = the removed-staff helper's in-memory profiles table,
+// installed only while it runs the REAL roster read.
+const serviceOverride = { current: null as unknown }
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
+    if (serviceOverride.current) return serviceOverride.current
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'ilike', 'eq']) builder[m] = () => builder
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: existingMember })
@@ -103,7 +107,9 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { GET, POST } from '@/app/api/app/v1/invites/route'
 import { DELETE } from '@/app/api/app/v1/invites/[id]/route'
+import { rosterOf, unplaceableRow, BUSINESS } from './helpers/removed-staff'
 import { auditLines } from './helpers/audit-lines'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -199,6 +205,39 @@ describe('GET /api/app/v1/invites', () => {
     expect((await res.json()).invites[0]).toMatchObject({ id: 'inv-3', linked: false })
   })
 
+  it('an UNPLACEABLE caller with staff.invite (real roster read over a null-name profile — door layer alone) → 403 store_forbidden STORE_SCOPE_UNVERIFIED, the invites list never read', async () => {
+    const roster = await rosterOf(
+      [unplaceableRow('auth-user-1'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      (c) => (serviceOverride.current = c),
+    )
+    expect(roster.map((s) => s.id)).toEqual(['colleague-1'])
+    staffListByBusinessOrThrow.mockResolvedValue(roster as never)
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(invitesList).not.toHaveBeenCalled()
+  })
+
+  it('the roster READ fails → 200 with the same empty shape the web list answers, the invites list never read', async () => {
+    staffListByBusinessOrThrow.mockRejectedValueOnce(new Error('profiles down'))
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = await GET(getReq(), noParams)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ invites: [] })
+      expect(invitesList).not.toHaveBeenCalled()
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it('a roster caller → the list is read and returned unchanged (the gate lets them through)', async () => {
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(invitesList).toHaveBeenCalledTimes(1)
+    expect((await res.json()).invites).toHaveLength(1)
+  })
+
   it('a read failure degrades to [] (web-exact tolerance)', async () => {
     invitesList.mockRejectedValueOnce(new Error('core down'))
     const res = await GET(getReq(), noParams)
@@ -259,6 +298,18 @@ describe('POST /api/app/v1/invites (create)', () => {
     // resolveWriteStoreScope asks roster-placement FIRST — the same posture web
     // takes (a null staff id is `degraded` there, which maps to `[]`).
     staffListByBusinessOrThrow.mockResolvedValue([])
+    const res = await POST(postReq(VALID_INVITE), noParams)
+    expect(res.status).toBe(403)
+    expect(invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('an UNPLACEABLE caller (real roster read over a null-name profile — door layer alone) → refused, nothing written', async () => {
+    const roster = await rosterOf(
+      [unplaceableRow('auth-user-1'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      (c) => (serviceOverride.current = c),
+    )
+    expect(roster.map((s) => s.id)).toEqual(['colleague-1'])
+    staffListByBusinessOrThrow.mockResolvedValue(roster as never)
     const res = await POST(postReq(VALID_INVITE), noParams)
     expect(res.status).toBe(403)
     expect(invitesCreate).not.toHaveBeenCalled()

@@ -81,7 +81,12 @@ jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, get
 const held = new Set<string>()
 const createSignedUploadUrl = jest.fn(fakeCreateSignedUploadUrl(held, () => 'https://x/upload'))
 const info = jest.fn(async (_key: string) => ({ data: null as { size?: number } | null, error: { ...OBJECT_NOT_FOUND } as { message: string; status?: number; statusCode?: string } | null }))
-jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ storage: { from: () => ({ createSignedUploadUrl, info }) } }) }))
+// `serviceOverride` = the removed-staff helper's in-memory profiles table,
+// installed only while it runs the REAL roster read.
+const serviceOverride = { current: null as unknown }
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => serviceOverride.current ?? { storage: { from: () => ({ createSignedUploadUrl, info }) } },
+}))
 
 import { GET as consentGET } from '@/app/api/app/v1/customers/[id]/consent/route'
 import { POST as grantPOST } from '@/app/api/app/v1/customers/[id]/consent/grant/route'
@@ -91,6 +96,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
+import { rosterOf, unplaceableRow, BUSINESS } from './helpers/removed-staff'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -402,6 +408,28 @@ describe('POST recordings/session mint', () => {
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
     expect(res.status).toBe(403)
     expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+  // The DOOR layer alone (the identity seam and the getUser round-trip are
+  // mocked as passing here): a null-name profile the seam lets through (a
+  // `_system_removed_` one now stops at the seam first) is dropped by the
+  // REAL roster read, core answers
+  // `{ store_ids: [] }` — in a ONE-store business that is the floating shape.
+  // With follow-up (c) (ROSTER FIRST) under this branch, the mint refuses them
+  // before the store clamp: the same 403 as every non-roster caller.
+  it('an UNPLACEABLE staffer (real roster read over a null-name profile — door layer alone) → 403 store_forbidden (ROSTER FIRST), nothing read or minted', async () => {
+    roster.current = (await rosterOf(
+      [unplaceableRow('auth-user-1'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      (c) => (serviceOverride.current = c),
+    )) as typeof roster.current
+    expect(roster.current.map((s) => s.id)).toEqual(['colleague-1'])
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    storesList.mockResolvedValue({ stores: [{ id: 'store-primary', is_primary: true, active: true }] })
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(resolveStoreForRequest).not.toHaveBeenCalled()
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
   it('missing capability → 403', async () => {

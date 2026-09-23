@@ -43,6 +43,14 @@ jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
   staffListByBusinessOrThrow: (...a: unknown[]) => staffListByBusinessOrThrow(...a),
 }))
+// `serviceOverride` = the removed-staff helper's in-memory profiles table,
+// installed only while the REAL identity seam runs (helpers/removed-staff.ts
+// seamOver); otherwise the real module, exactly as before.
+const serviceOverride = { current: null as unknown }
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: (...a: unknown[]) =>
+    serviceOverride.current ?? jest.requireActual('@/lib/supabase/service').createServiceClient(...a),
+}))
 
 function coreEvent(overrides: Record<string, unknown> = {}) {
   return {
@@ -90,6 +98,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { GET } from '@/app/api/app/v1/audit-log/route'
 import { auditLines } from './helpers/audit-lines'
+import { seamOver, removedRow } from './helpers/removed-staff'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -457,5 +466,37 @@ describe('GET /api/app/v1/audit-log', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { ok: true; folded: number }
     expect(body.folded).toBe(0)
+  })
+})
+
+// A REMOVED staffer whose Bearer token is still alive: this route's roster
+// read only stamps the actor (absent → actorId:null, never a refusal), so the
+// REAL identity seam must refuse before capabilities, the roster or core.
+describe('GET /api/app/v1/audit-log — a removed staffer at the identity seam', () => {
+  const useSeam = (rows: Array<Record<string, unknown>>) => {
+    const { businessIdForUser } = jest.requireMock('@/lib/staff') as { businessIdForUser: jest.Mock }
+    businessIdForUser.mockImplementationOnce(seamOver(rows, (c) => (serviceOverride.current = c)))
+  }
+
+  it('a REMOVED profile\'s Bearer → 403 membership_inactive; no capabilities, no roster, no core read, no audit row', async () => {
+    useSeam([removedRow('auth-user-1', 'Mika Tanaka')])
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await GET(getReq(), noParams)
+    })
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'membership_inactive' })
+    expect(mockCapabilities).not.toHaveBeenCalled()
+    expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
+    expect(newSynqedClient).not.toHaveBeenCalled()
+    expect(auditList).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('control: the same real seam over a normal profile → 200', async () => {
+    useSeam([{ id: 'auth-user-1', full_name: 'Mika Tanaka', customer_id: 'business-1' }])
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(auditList).toHaveBeenCalled()
   })
 })
