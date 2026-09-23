@@ -75,9 +75,13 @@ async function requireOwnPath(path: string): Promise<void> {
  * its own output, and RESERVES the key on the caller's own recording row before
  * it signs anything (see mintTakeUploadUrl).
  *
- * NO STORE any more (fix round 7): the mint never creates a row, so it has none
- * to place — startRecordingSession is the one door that mints, and it is where
- * a take's store comes from. Same deletion finalizeTake took in fix round 4.
+ * NO STORE any more (fix round 7) — true with RECORDING_SWITCHES.bindUnboundUploads
+ * OFF (ships OFF): the mint never creates a row, so it has none to place;
+ * startRecordingSession is the one door that mints, and it is where a take's
+ * store comes from. Same deletion finalizeTake took in fix round 4. With the
+ * switch ON, the mint's own server-named arm creates a row too (through
+ * startRecordingSessionWithClient), and that row's store comes from this
+ * action's own bindIdentity below, not from startRecordingSession.
  *
  * Returns the result UNION rather than throwing (fix round 4), the same shape
  * finalizeTake gives: `exists` and `reserved_elsewhere` are answers the client
