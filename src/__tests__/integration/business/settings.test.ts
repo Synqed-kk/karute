@@ -3374,8 +3374,15 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
   it('⚖ S17 fix round 3 · R3-1 — at ① the sticky save bar is the button and its one reason, and the standing sentences read in the column', () => {
     const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
     // the bar really is stuck to the bottom of the phone's screen (the reason
-    // the rest of this pin exists)…
-    expect(phone).toMatch(/\.st-save-card \{[^}]*position: sticky; bottom: 0/)
+    // the rest of this pin exists)… It rests exactly its own lift below the
+    // edge, with that lift added to its bottom padding, so the rise SaveCard
+    // gives it when there is something to save lands it flush instead of
+    // opening a strip of the form under it: the inset is read from the spring's
+    // target, not typed twice.
+    const LIFT = Number(/spring\.current\?\.set\(raised \? -(\d+) : 0\)/.exec(SCREEN_CODE)?.[1])
+    expect(LIFT).toBeGreaterThan(0)
+    expect(phone).toMatch(new RegExp(`\\.st-save-card \\{[^}]*position: sticky; bottom: -${LIFT}px`))
+    expect(phone).toMatch(new RegExp(`\\.st-save-card \\{[^}]*padding: 10px 14px ${14 + LIFT}px`))
     // …so the section's save ROW is a button line: no section padding, no rule
     // above it, and its reason beside the control rather than under it.
     expect(phone).toMatch(/\.st-save-card \.st-row \{[\s\S]*?padding: 0; border-top: 0;/)
