@@ -107,7 +107,11 @@ describe('facade-imported action cores never call updateTag (Server-Action-only)
   const imports = actionImports(routeFiles(ROOT))
 
   it('finds route→action imports to scan', () => {
-    expect(imports.size).toBeGreaterThan(20)
+    // A parser-sanity floor, not a coverage count: it drops each time cores
+    // leave '@/actions/*' for a server-only module (scanned whole-file below).
+    // 2026-09-23 (PKT-SEC-CORES-D4): 20 → 10, the six pack cores' routes now
+    // import from src/lib/packs/packs.core.ts, leaving 16 route→action imports.
+    expect(imports.size).toBeGreaterThan(10)
   })
 
   it('route files import actions modules ONLY in the form this scan parses', () => {
