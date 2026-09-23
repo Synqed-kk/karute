@@ -80,6 +80,9 @@ function client(opts: {
    *  makes "the rest are not stranded" a real assertion. */
   failSetFor?: string
   failSetTimes?: number
+  /** Emails on the roster rows, by staff id — a PII value no log line may
+   *  carry (5/5 delta read, mutant G). Absent = rows are `{ id }` only. */
+  emails?: Record<string, string>
   /** The ROLLBACK itself fails — the double failure F8 is about. */
   deleteFails?: boolean
   /** A client with no staffStores port at all (a partial test double, or a
@@ -113,7 +116,7 @@ function client(opts: {
         // Honours page/page_size like core does (and reports `total`), so a
         // roster past one page is a real read here — ⚖ fold round 3 / F3.
         list: async (o?: { page?: number; page_size?: number }) => {
-          const all = (opts.roster ?? []).map((id) => ({ id }))
+          const all = (opts.roster ?? []).map((id) => ({ id, ...(opts.emails?.[id] ? { email: opts.emails[id] } : {}) }))
           const size = o?.page_size ?? all.length
           const page = o?.page ?? 1
           return { staff: all.slice((page - 1) * size, page * size), total: all.length }
@@ -600,10 +603,24 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
       roster: ['s1', 's2', 's3', 's4', 's5'],
       failSetFor: 's3',
       failSetTimes: Infinity,
+      emails: { s3: 'tanaka@example.test' },
     })
     ;(audit as jest.Mock).mockClear()
-    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {})
+    let res: Awaited<ReturnType<typeof createStoreCore>>
+    let logged: unknown[][]
+    try {
+      res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    } finally {
+      logged = errors.mock.calls.filter((args) => String(args[0]).includes('staff store backfill failed for'))
+      errors.mockRestore()
+    }
     expect(res).toEqual({ id: 'store-new', backfillIncomplete: 1 })
+    // 5/5 delta read (mutant G): the diagnostic line names the bare id, never
+    // the staff record — the pass and its one retry, and no email anywhere.
+    expect(logged).toHaveLength(2)
+    for (const args of logged) expect(args[1]).toBe('s3')
+    expect(JSON.stringify(logged)).not.toContain('tanaka@example.test')
     expect(Object.keys(c.assignments).sort()).toEqual(['s1', 's2', 's4', 's5'])
     expect(detailsOf({ severity: 'warning', targetType: 'store', targetId: 'store-new' })).toEqual([
       { backfill: '1_to_2_stores', incomplete: 1, failed_staff_ids: ['s3'] },
