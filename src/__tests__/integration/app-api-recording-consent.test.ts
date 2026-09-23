@@ -6,6 +6,13 @@
 import { createHmac } from 'node:crypto'
 import { fakeCreateSignedUploadUrl, OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 
+// Spy on the mint's store clamp (real behaviour kept) so ROSTER FIRST can prove
+// the clamp never runs for a caller the roster cannot place.
+jest.mock('@/lib/app-api/store-clamp', () => {
+  const actual = jest.requireActual('@/lib/app-api/store-clamp')
+  return { ...actual, resolveStoreForRequest: jest.fn(actual.resolveStoreForRequest) }
+})
+
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k, getLocale: async () => 'ja' }))
 
@@ -81,6 +88,9 @@ import { POST as grantPOST } from '@/app/api/app/v1/customers/[id]/consent/grant
 import { POST as mintPOST } from '@/app/api/app/v1/recordings/session/route'
 import { POST as uploadPOST } from '@/app/api/app/v1/recordings/upload-url/route'
 import { AppApiError } from '@/lib/app-api/errors'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
+import { staffListByBusinessOrThrow } from '@/lib/staff'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -382,15 +392,17 @@ describe('POST recordings/session mint', () => {
     expect(res.status).toBe(400)
     expect((await res.json()).error.code).toBe('validation')
   })
-  // The ONLY 200-null left: a settled non-throw (session-mint.ts's own
-  // fail-OPEN contract for "nothing to attribute this to"), kept distinct
-  // from the SDK-failure case above by design — sharpened name, unchanged
-  // behaviour.
-  it('unresolvable staff + no appointment → the ONLY 200-null: fail-OPEN {id:null} (never blocks capture)', async () => {
+  // ⚖ 2026-09-23 follow-up c — PIN CHANGED. This used to be the settled
+  // 200 {id:null}; a caller the roster cannot place is now refused BEFORE the
+  // store clamp (ROSTER FIRST, route.ts), the same 403 every sibling facade
+  // write door answers. The thin client reads any non-2xx as a null mint, so
+  // capture is still never blocked.
+  it('unresolvable staff + no appointment → 403 store_forbidden (ROSTER FIRST; was the 200-null)', async () => {
     roster.current = []
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
-    expect(res.status).toBe(200)
-    expect((await res.json()).id).toBeNull()
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
   it('missing capability → 403', async () => {
     capabilities.current = new Set(['customers.view'])
@@ -445,6 +457,91 @@ describe('POST recordings/session mint', () => {
       noRoute,
     )
     expect(res.status).toBe(400)
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ 2026-09-23 follow-up c — ROSTER FIRST. The facade mint refuses a caller the
+// roster cannot place before anything is read on their behalf; without it a
+// non-roster account that sent an appointmentId got a row minted under the
+// BOOKING'S staff (session-mint's absent-take fallback). ⚖ 9/12 layer matrix:
+// this round is ONE guard, so the matrix = the guard alone (the non-roster
+// pins below) + all-off = today's behaviour for every roster caller (the two
+// roster pins below plus every other test in this file, all roster callers).
+describe('POST recordings/session mint — ROSTER FIRST (follow-up c)', () => {
+  it('roster caller + appointmentId → 200, minted, attributed to SELF (not the booking’s staff)', async () => {
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1', appointmentId: 'ap-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect((await res.json()).id).toBe('rec-1')
+    expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ staff_id: 'auth-user-1', appointment_id: 'ap-1' }))
+  })
+
+  it('roster caller, no appointment → 200, minted', async () => {
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ staff_id: 'auth-user-1' }))
+  })
+
+  // THE DEFECT, rewritten to the rule: before ROSTER FIRST this minted a row
+  // with staff_id = the appointment's staff ('appt-staff').
+  it('NON-roster caller + an EXISTING appointmentId → 403 store_forbidden, no appointment read, no row, never the booking’s staff', async () => {
+    roster.current = []
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1', appointmentId: 'ap-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+    // No audit row can name the booking's staff: the refusal is a throw, and
+    // facadeHandler only emits on a 2xx (this endpoint's audit rule is 'skip'
+    // besides); the create payload — the only place 'appt-staff' could land —
+    // was never sent.
+    expect(JSON.stringify(recordingsCreate.mock.calls)).not.toContain('appt-staff')
+  })
+
+  it('NON-roster caller: EXISTING vs NONEXISTENT appointmentId → the BYTE-IDENTICAL 403 (no existence oracle)', async () => {
+    roster.current = []
+    fakeClient.appointments.get.mockRejectedValueOnce(Object.assign(new Error('no such appointment'), { status: 404 }))
+    const missingRes = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1', appointmentId: 'ap-missing' }), noRoute)
+    const missingBody = await missingRes.json()
+
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'appt-staff' })
+    const existingRes = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1', appointmentId: 'ap-exists' }), noRoute)
+    const existingBody = await existingRes.json()
+
+    expect(existingRes.status).toBe(missingRes.status)
+    expect(existingBody).toEqual(missingBody)
+    expect(existingRes.status).toBe(403)
+    expect(existingBody.error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('NON-roster caller with a store-id they could never reach → the same placement 403, the store clamp never runs', async () => {
+    roster.current = []
+    const res = await mintPOST(
+      jreq({ ...auth, ...idem, 'store-id': 'store-9' }, { customerId: 'cust-1', appointmentId: 'ap-1' }),
+      noRoute,
+    )
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(resolveStoreForRequest).not.toHaveBeenCalled()
+    expect(storesList).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  // Today's behaviour, pinned (unchanged by this round): a roster read that
+  // cannot answer throws a plain Error, which facadeHandler normalizes to
+  // 500 internal (errors.ts toAppApiError) — no row, no clamp, no appointment read.
+  it('a core blip on the roster read → today’s answer, pinned: 500 internal, nothing read or minted', async () => {
+    // The real reader's own throw shape (staff.ts staffListCore, orThrow leg).
+    jest.mocked(staffListByBusinessOrThrow).mockRejectedValueOnce(new Error('staff profiles read failed: timeout'))
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1', appointmentId: 'ap-1' }), noRoute)
+    error.mockRestore()
+    expect(res.status).toBe(500)
+    expect((await res.json()).error.code).toBe('internal')
+    expect(resolveStoreForRequest).not.toHaveBeenCalled()
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
 })
