@@ -319,6 +319,7 @@ Scoped blocks (declarations after prefix strip): ${scopedCheck}
 ## Declared edits (not verbatim)
 - \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (.pressable, .tap44) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
 - \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
+- \`ReserveCardPreview.tsx\` + \`card-color.ts\` — Colour inputs are normalised at the boundary (card-color.ts): only \`#RRGGBB\` reaches the satin math; anything else counts as absent — identical on server and client, no hydration drift.
 
 ## Left out of index.css 4520–4685, and why
 ${EXCLUDED.map(([r, why]) => `- ${r} — ${why}`).join('\n')}
