@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { memberTenantVars } from '@/business/lib/reserve-card/member-card-vars'
 import { satinVars } from '@/business/lib/reserve-card/satin-material'
 
@@ -59,5 +60,22 @@ describe('reserve card port — memberTenantVars on the same inputs', () => {
       '--tenant-g1': '#1a6b55',
       '--tenant-g2': '#0d4a3a',
     })
+  })
+})
+
+describe('reserve card port — the colour boundary (card-color.ts)', () => {
+  it.each([['#1c2247', '#1C2247'], ['#285643', '#285643']])('%s → %s', (value, want) => {
+    expect(normalizeCardColor(value)).toBe(want)
+  })
+
+  it.each([['#FFF'], ['#1C224780'], ['red'], ['oklch(0.5 0.1 250)'], [null], [undefined], [{}], ['']])('%p → null (absent)', (value) => {
+    expect(normalizeCardColor(value)).toBeNull()
+  })
+
+  it('a non-hex colour counts as absent: the satin is the default, the same the explicit default hex gives (server = client)', () => {
+    const oklch = 'oklch(0.5 0.1 250)'
+    const normalised = memberTenantVars({ cardColor: normalizeCardColor(oklch) ?? undefined, primaryColor: normalizeCardColor(oklch) ?? undefined })
+    expect(normalised).toEqual(memberTenantVars({ cardColor: '#1C2247' }))
+    expect(normalised).toEqual(EXPECTED['#1C2247'])
   })
 })

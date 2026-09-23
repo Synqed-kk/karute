@@ -29,8 +29,11 @@
 //   case in the harness set).
 // - The first chip's crown drops Reserve's rank gate (`me.salons.some(… && salon.rank)`): the port's sample
 //   member is ranked and the port carries no membership data, so the crown always shows on the first chip.
+// - Colour inputs are normalised at the boundary (card-color.ts): only `#RRGGBB` reaches the satin math; anything
+//   else counts as absent — identical on server and client, no hydration drift.
 import { useLayoutEffect, useRef, useState } from "react";
 
+import { normalizeCardColor } from "./card-color";
 import { memberTenantVars, type BrandTheme } from "./member-card-vars";
 import "./reserve-card.css";
 
@@ -97,7 +100,8 @@ export function MembershipDate({ value }: { value: string }) {
 export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, address, view }: ReserveCardPreviewProps) {
   // Reserve's MembershipCard/TenantCard/StudioCover each take `memberTenantVars(theme)`; the theme here is
   // the two colours the caller owns. The same vars also sit on the root (packet): custom properties inherit.
-  const theme: BrandTheme = { cardColor: cardColor ?? undefined, primaryColor };
+  // Each colour passes the boundary first; a null is the absent colour Reserve already handles (satin default).
+  const theme: BrandTheme = { cardColor: normalizeCardColor(cardColor) ?? undefined, primaryColor: normalizeCardColor(primaryColor) ?? undefined };
   const vars = memberTenantVars(theme);
   // the shape the two verbatim measure effects read (`row.tenant.displayName` / `tenant.displayName`)
   const tenant = { displayName: name };
