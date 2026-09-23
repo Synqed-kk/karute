@@ -87,13 +87,17 @@ jest.mock('@/lib/synqed/client', () => ({
     staffStores: { set: staffStoresSet },
     // `stores` is a REQUIRED port on StoresClient (only `staff` is Partial), and
     // createStore's 1→2 backfill reads the list on every create — a double
-    // without it models a client that cannot exist. One store = not the 1→2
-    // transition, so the backfill is a no-op and this suite still sees exactly
-    // the one settings.store_create row it is about.
+    // without it models a client that cannot exist. EMPTY on purpose: the
+    // backfill counts the active stores that existed BEFORE the new one (the
+    // new row may not be listed yet), and exactly one such store IS the 1→2
+    // transition. Zero predecessors = a plain create, so the backfill is a
+    // no-op and this suite still sees exactly the one settings.store_create
+    // row it is about. The other readers of this list (the store gate, the
+    // new-card mint) only change behaviour at 2+, so 0 reads as 1 did.
     stores: {
       create: storesCreate,
       update: storesUpdate,
-      list: async () => ({ stores: [{ id: 'store-existing', is_primary: true }] }),
+      list: async () => ({ stores: [] }),
     },
     customers: {
       create: customersCreate,
