@@ -10,9 +10,10 @@ Emitted by `node scripts/business/reserve-card-parity/run.mjs` — do not edit b
 - `reserve-card.css` ← `src/index.css` 740–753 · 774–825 · 933–945 · 947–998 · 1000–1020 · 1034–1034 · 1142–1396 · 1398–1426 · 1445–1472 · 1528–1561 · 3823–3893 · 4527–4545 · 4550–4550 · 4552–4553 · 4555–4590 · 4632–4685, plus ONE marked context block (not verbatim: --font-sans/--font-num from index.css 33–34, body 185–191, the page root's bg-background/text-foreground, and the inherited text defaults Reserve's page hands down — re-scoped to the preview root so a host's inherited type cannot leak in), and the SCOPED blocks listed under Declared edits
 
 Verbatim check (last run): 23/23 identical
+Scoped blocks (declarations after prefix strip): 2/2 identical
 
 ## Declared edits (not verbatim)
-- `reserve-card.css` ← `src/index.css` 214–221 · 237–246 (.pressable, .tap44) — SCOPED: selectors prefixed `.member-ground `, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Not counted by the verbatim check.
+- `reserve-card.css` ← `src/index.css` 214–221 · 237–246 (.pressable, .tap44) — SCOPED: selectors prefixed `.member-ground `, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
 - `ReserveCardPreview.tsx` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 
 ## Left out of index.css 4520–4685, and why
