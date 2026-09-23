@@ -2,9 +2,11 @@
 // per kind, checked against a saved baseline so a data loss is caught the same day (the
 // 9/15–9/20 practice-salon wipe went unnoticed for days). No write call to core anywhere.
 //
-//   npx tsx scripts/test-world/count-baseline.ts print          counts table + one JSON line
-//   npx tsx scripts/test-world/count-baseline.ts write <path>   saves { takenAt, businessId, counts }
-//   npx tsx scripts/test-world/count-baseline.ts check <path>   diff vs baseline; exit 3 on any drop
+//   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/count-baseline.ts <cmd>
+//     <cmd> = print          counts table + one JSON line
+//             write <path>   saves { takenAt, businessId, counts }
+//             check <path>   diff vs baseline; exit 3 on any drop
+//   Lockfile-pinned ts-node, same form as ci.yml (tsx is not a repo dependency).
 //
 // Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (values are never printed).
 // Exit: 0 ok · 1 error/usage · 2 REFUSED (not Dev Salon) · 3 BASELINE BREACH.

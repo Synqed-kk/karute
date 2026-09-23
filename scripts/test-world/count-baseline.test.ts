@@ -1,4 +1,5 @@
-// Runnable check (no framework, no network): `npx tsx scripts/test-world/count-baseline.test.ts`.
+// Runnable check (no framework, no network), same command as ci.yml:
+//   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/count-baseline.test.ts
 // A fake core object stands in for SynqedClient; it caps pages at 2 rows so paging is exercised.
 import assert from 'node:assert/strict'
 import { mkdtempSync } from 'node:fs'
