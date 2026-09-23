@@ -480,9 +480,14 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     blocks: day.blocksByDay.get(dayKey) ?? [],
     sellSlots: clamp(sampleRows(sellSlots, null), lens),
     decisions: clamp(sampleRows(today ? decisions : [], null), lens),
-    register: today
-      ? { ...register, terminal_held: heldIn(sampleFor(register.terminal_held, null), lens, day.bookings) }
-      : { ...register, refunds: 0, cash_difference: 0, terminal_held: [] },
+    // SAMPLE contract: no register in core yet — neutral, never fixture money.
+    // Named field by field, never a spread of the fixture plane, so a fixture
+    // refund can never be subtracted from a live 純売上 (LIVE-PROOF M-A).
+    register: {
+      cash_difference: 0,
+      refunds: 0,
+      terminal_held: today ? heldIn(sampleFor(register.terminal_held, null), lens, day.bookings) : [],
+    },
     pricingRule,
     recoverySteps: [...recoverySteps],
   }
@@ -505,7 +510,8 @@ export async function readReservationPlanes(lens: StoreLens) {
     staffQualifications: sampleKeys('staff', staffQualifications),
     absence: clamp(sampleRows([absence], null), lens)[0] ?? null,
     sellSlots: clamp(sampleRows(sellSlots, null), lens),
-    register: { ...register, terminal_held: heldIn(sampleFor(register.terminal_held, null), lens, live) },
+    // SAMPLE contract: no register in core yet — neutral, never fixture money (as readDayPlanes).
+    register: { cash_difference: 0, refunds: 0, terminal_held: heldIn(sampleFor(register.terminal_held, null), lens, live) },
   }
 }
 

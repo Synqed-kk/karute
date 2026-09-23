@@ -31,7 +31,7 @@ import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/prac
 import { attachSample, sampleKeys, sampleRows, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf } from '@/business/lib/practice-door/registry'
 import { customers, STORE_A, STORE_C } from '@/business/lib/fixtures'
-import { defaultKindOf, staffQualifications } from '@/business/lib/fixtures-today'
+import { defaultKindOf, register, staffQualifications } from '@/business/lib/fixtures-today'
 import { jstDayKey } from '@/business/lib/clock'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { accessFor as settingsAccessFor, RAIL } from '@/business/lib/settings'
@@ -499,5 +499,15 @@ describe('(10) sampleKeys + sampleRows', () => {
     expect(customers.length).toBe(13)
     expect(STAFF).toHaveLength(17)
     expect(ASSIGNMENTS).not.toHaveProperty(CARD.musubi)
+  })
+})
+
+describe('(12) PR-2b — the register plane under ON is neutral, never fixture money (LIVE-PROOF M-A)', () => {
+  it('readDayPlanes + readReservationPlanes: refunds and cash_difference are 0, whatever the fixture holds', async () => {
+    expect(register.refunds).toBeGreaterThan(0) // the fixture refund the door used to spread onto a live 純売上
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY)
+    expect({ refunds: day.register.refunds, cash_difference: day.register.cash_difference }).toEqual({ refunds: 0, cash_difference: 0 })
+    const res = await data.readReservationPlanes(STORE.tokyo)
+    expect({ refunds: res.register.refunds, cash_difference: res.register.cash_difference }).toEqual({ refunds: 0, cash_difference: 0 })
   })
 })
