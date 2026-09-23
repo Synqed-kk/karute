@@ -179,7 +179,7 @@ export async function buildCustomerProfileScreen(
     // synqedKaruteRows (not the merged KaruteRow) carry the transcript field.
     // Newest-first BEFORE slicing — backfill's contract (its over-cap keep and
     // oldest→newest chunk walk both assume it; core's list order is not
-    // guaranteed). Same sort as the 再学習 action (actions/memory.ts).
+    // guaranteed). Same sort as the 再学習 core (lib/customers/memory.core.ts).
     const rowsNewestFirst = [...synqedKaruteRows].sort((a, b) =>
       (b.created_at ?? '').localeCompare(a.created_at ?? ''),
     )
