@@ -42,7 +42,7 @@ import {
   updateKaruteDetailEntryWithClient,
   updateKaruteDetailSummaryWithClient,
 } from '@/lib/karute/karute.core'
-import { readAppointmentForSave, type AppointmentLinkReason, type AppointmentRead } from '@/lib/karute/appointment-link'
+import { readAppointmentForSave, type AppointmentLinkReason } from '@/lib/karute/appointment-link'
 
 // Type ALIASES, not `export type { … } from` re-exports: Next's 'use server'
 // transform registers every export NAME as a server reference at runtime, and
@@ -82,9 +82,7 @@ export interface ReassignCustomerOption {
  *
  * The booking's store is the truth of where the session happened, so an
  * appointment-linked save whose booking reads OK and sits in the caller's
- * scope is stamped with ITS store_id — fetched fresh unless the caller already
- * pulled the appointment (e.g. for staff-id fallback), in which case that's
- * reused so a save never fetches the same appointment twice. When the booking
+ * scope is stamped with ITS store_id. When the booking
  * cannot be used, the save is NEVER refused and NEVER stamped NULL-store (⚖
  * never lose a karute): it lands in the caller's own verified lens and the
  * link depends on why (readAppointmentForSave splits the read) — core says 404
@@ -107,7 +105,6 @@ export interface ReassignCustomerOption {
 async function resolveKaruteStoreId(
   synqed: SynqedClient,
   appointmentId: string | null | undefined,
-  fetchedAppointment?: Appointment | null,
 ): Promise<{
   storeId: string | null
   appointment: Appointment | null
@@ -122,9 +119,7 @@ async function resolveKaruteStoreId(
   // metadata (service = the booked menu) into the record without a second
   // appointments.get for the same save.
   if (appointmentId) {
-    const read: AppointmentRead = fetchedAppointment
-      ? { appointment: fetchedAppointment, state: 'ok' }
-      : await readAppointmentForSave(synqed.appointments, appointmentId)
+    const read = await readAppointmentForSave(synqed.appointments, appointmentId)
     if (read.state !== 'ok') {
       // 404 → the id is a lie, drop it; unreadable → keep it for a re-stamp.
       return read.state === 'not_found'
@@ -183,27 +178,22 @@ export async function saveKaruteRecord(
     // Attribute the record to whoever RECORDED it — the signed-in staff — NOT
     // the booking's staff. For your own bookings these are identical; when you
     // record a customer booked under ANOTHER staff (covering, swaps, days off),
-    // the karte correctly saves under YOU. The appointment's staff is only a
-    // fallback for an account with no staff identity, so the save never fails.
-    let staffId: string | null = await getCurrentUserStaffId()
-    let fetchedAppointment: Appointment | null = null
-    if (!staffId && input.appointmentId) {
-      // Same 404-vs-blip split as the store resolver: a blip gets its one retry.
-      const pre = await readAppointmentForSave(synqed.appointments, input.appointmentId)
-      fetchedAppointment = pre.appointment
-      staffId = pre.appointment?.staff_id ?? null
-    }
+    // the karte correctly saves under YOU. The booking's staff is never stamped,
+    // not even as a fallback — web = facade (#990).
+    const staffId = await getCurrentUserStaffId()
     if (!staffId) {
-      // Honest floor: a karute row needs a staff_id and nobody can be named
-      // (no own identity, booking 404/unreadable). The take is not lost — it
-      // stays on review for a retry (see saveKaruteRecordInline's consent note).
+      // Honest floor: a karute row needs a staff_id and the only one it may
+      // carry is the caller's own. No identity (removed from the roster while
+      // the auth session lives on) = refused before any booking is read —
+      // requireCapability above already refuses this caller; this is the belt.
+      // The take is not lost — it stays on review for a retry (see
+      // saveKaruteRecordInline's consent note).
       return { error: 'No staff identity for the signed-in user.' }
     }
 
     const { storeId, appointment: linkedAppointment, appointmentId, linkReason } = await resolveKaruteStoreId(
       synqed,
       input.appointmentId,
-      fetchedAppointment,
     )
 
     // Resolve BEFORE the write so a resolver hiccup can't orphan the emit
@@ -322,30 +312,20 @@ export async function saveKaruteRecordInline(
       throw new Error(CONSENT_REQUIRED_ERROR)
     }
 
-    // Same recorder-first attribution + appointment-staff fallback as
-    // saveKaruteRecord: autosave only ever fires for appointment-bound takes
-    // (global-pipeline requires appointmentCustomerId), which is exactly the
-    // shape where the fallback works — without it, every autosave on a
-    // PIN-less shared account failed over to manual review.
-    let staffId: string | null = await getCurrentUserStaffId()
-    let fetchedAppointment: Appointment | null = null
-    if (!staffId && input.appointmentId) {
-      // Same 404-vs-blip split as the store resolver: a blip gets its one retry.
-      const pre = await readAppointmentForSave(synqed.appointments, input.appointmentId)
-      fetchedAppointment = pre.appointment
-      staffId = pre.appointment?.staff_id ?? null
-    }
+    // Same recorder-only attribution as saveKaruteRecord: the record carries
+    // the signed-in staff's id, never the booking's (web = facade, #990).
+    const staffId = await getCurrentUserStaffId()
     if (!staffId) {
-      // Honest floor: a karute row needs a staff_id and nobody can be named
-      // (no own identity, booking 404/unreadable). The take is not lost — it
-      // stays on review for a retry (see the consent note above: "never lost").
+      // Honest floor: no identity (removed from the roster) = refused before
+      // any booking is read — requireCapability above already refuses this
+      // caller; this is the belt. The take is not lost — it stays on review
+      // for a retry (see the consent note above: "never lost").
       return { error: 'No staff identity for the signed-in user.' }
     }
 
     const { storeId, appointment: linkedAppointment, appointmentId, linkReason } = await resolveKaruteStoreId(
       synqed,
       input.appointmentId,
-      fetchedAppointment,
     )
 
     // Resolve BEFORE the write — same identity seam as saveKaruteRecord.

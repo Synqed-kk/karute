@@ -280,57 +280,55 @@ describe('a booking that cannot be used never loses the karute (both web doors)'
   })
 })
 
-describe('saveKaruteRecord — store_id resolution reuses the staff-fallback appointment fetch', () => {
-  it('fetches the appointment only ONCE when the recorder has no staff identity', async () => {
-    const { getCurrentUserStaffId } = await import('@/lib/staff')
-    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce(null)
-    appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'appt-staff', store_id: 'store-C' })
-
-    await saveKaruteRecord({ ...baseInput, appointmentId: 'ap-1' }).catch(() => {})
-
-    expect(appointments.get).toHaveBeenCalledTimes(1)
-    expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'appt-staff', store_id: 'store-C' }),
-    )
-  })
-
-  // Greptile #988 R1: the no-identity pre-read uses the same 404-vs-blip split.
+describe('web saves — no staff identity is refused; the booking\'s staff is never stamped (web = facade, #990)', () => {
+  // The record carries the signed-in staff's id only. An account the roster
+  // cannot place is refused before any booking is read — whatever the booking
+  // would have said (readable, out of scope, 404, unreadable).
   const notFound = () => Object.assign(new Error('not found'), { status: 404 })
   const blip = () => Object.assign(new Error('upstream'), { status: 503 })
   const noIdentity = async () => {
     const { getCurrentUserStaffId } = await import('@/lib/staff')
     ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce(null)
   }
+  const refused = { error: 'No staff identity for the signed-in user.' }
 
-  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + blip then OK → saved under the booking\'s staff, two reads total', async (save) => {
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + a readable in-scope booking → refused, the booking is never read', async (save) => {
     await noIdentity()
-    appointments.get
-      .mockRejectedValueOnce(blip())
-      .mockResolvedValueOnce({ id: 'ap-1', staff_id: 'appt-staff', store_id: 'store-C', title: 'VIP施術' })
+    appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'appt-staff', store_id: 'store-C', title: 'VIP施術' })
 
-    await save({ ...baseInput, appointmentId: 'ap-1' }).catch(() => {})
-
-    expect(appointments.get).toHaveBeenCalledTimes(2)
-    expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'appt-staff', store_id: 'store-C', appointment_id: 'ap-1', service: 'VIP施術' }),
-    )
-  })
-
-  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + booking 404 → refused (nobody to attribute), one read', async (save) => {
-    await noIdentity()
-    appointments.get.mockRejectedValue(notFound())
-
-    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual({ error: 'No staff identity for the signed-in user.' })
-    expect(appointments.get).toHaveBeenCalledTimes(1)
+    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual(refused)
+    expect(appointments.get).not.toHaveBeenCalled()
     expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 
-  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + blip twice → refused, two reads', async (save) => {
+  // S14 blind read (evidence/S14/blind/PROOF-out-of-scope-staff-leak.diff):
+  // the old fallback took the booking's staff_id BEFORE the store clamp ran,
+  // so an out-of-scope booking id stamped a foreign store's staff.
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + an OUT-OF-SCOPE booking → refused, the foreign staff is never stamped', async (save) => {
+    await noIdentity()
+    resolveStoreScopeMock.mockResolvedValue({ storeId: 'store-ginza', viewAll: false, allowedStoreIds: ['store-ginza'] })
+    appointments.get.mockResolvedValue({ id: 'ap-x', staff_id: 'daikanyama-staff', store_id: 'store-daikanyama', title: '代官山の施術' })
+
+    expect(await save({ ...baseInput, appointmentId: 'ap-x' })).toEqual(refused)
+    expect(appointments.get).not.toHaveBeenCalled()
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + booking 404 → refused, no read', async (save) => {
+    await noIdentity()
+    appointments.get.mockRejectedValue(notFound())
+
+    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual(refused)
+    expect(appointments.get).not.toHaveBeenCalled()
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: no staff identity + booking unreadable → refused, no read', async (save) => {
     await noIdentity()
     appointments.get.mockRejectedValue(blip())
 
-    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual({ error: 'No staff identity for the signed-in user.' })
-    expect(appointments.get).toHaveBeenCalledTimes(2)
+    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual(refused)
+    expect(appointments.get).not.toHaveBeenCalled()
     expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 })
