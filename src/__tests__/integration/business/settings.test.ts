@@ -4024,6 +4024,12 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     expect(section.aside).toBeNull()
   })
 
+  it('S29 — no stores (no business type) keeps the 設備・枠 title and its 台数 note byte-for-byte', async () => {
+    const equipment = sectionOf(await withoutStores(true), 'people-equipment').blocks.find((b) => b.id === 'people.equipment')!
+    expect(equipment.title).toBe('設備・枠')
+    expect(equipment.note).toBe('この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。')
+  })
+
   it('N3-4 no stores renders the room policy from the umbrella noun and the fallback private word', async () => {
     const spec = sectionOf(await room({ store: STORE_A }), 'people-equipment').blocks.find((b) => b.words)!.words!
     const policy = sectionOf(await withoutStores(true), 'people-equipment').blocks.find((b) => b.id === 'people.room-policy')!
