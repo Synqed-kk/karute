@@ -2063,7 +2063,27 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Proof: /Users/liam/codex-work/artifacts-sunday/s15/thin-lap-{1,2}.json,
 // bundle-identity.txt, thin-measured.json, thin-build-{1,2}.log and
 // bundle-gate-{before,after}.log in the same evidence directory.
-const BUDGET_BYTES = 2_159_999
+//
+// RAISED 2026-09-23 — recording hole PR-1 (#989, fix/recording-failure-reason)
+// The 録音履歴 失敗 row now names the failed step: three new genuine
+// feature strings, recording.inbox.reason transcriptionFailed / aiFailed /
+// saveFailed, in ja + en. Not bloat — same class as every prior raise; the
+// purchase-marker scan below stays the real gate.
+//
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* values read programmatically from .github/workflows/ci.yml,
+// offline. thin/dist emptied before EACH of two laps; both laps identical:
+//   en-bG7973nv.js                  139,075 B
+//   index-BIeG4EhT.js             1,083,294 B
+//   vendor-DqXjNZNP.js              937,800 B
+// Total = 139,075 + 1,083,294 + 937,800 = 2,160,169 B (2109.5 KB, 3 chunks).
+// Initial gate failed by 170 B against main's 2,159,999 B ceiling;
+// purchase exclusion stayed clean (0/13). No dependency files changed.
+// Ceiling = measured + 1,300 = 2,161,469 B (~1.3 KB headroom, not a round
+// thousand).
+// Proof: /Users/liam/codex-work/artifacts-rec-hole/PR-1/logs/thin-build-{1,2}.log,
+// thin-lap-{1,2}.txt, bundle-gate-{before,after}.log.
+const BUDGET_BYTES = 2_161_469
 let dir
 try {
   dir = readdirSync(DIST)
