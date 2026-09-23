@@ -323,15 +323,19 @@ export const getBusinessId = cache(async (): Promise<string> => {
  * Resolve a user's business id from an EXPLICIT auth-user id — the identity seam
  * shared by the cookie path (getBusinessId) and the facade Bearer path. This
  * INDEXED per-request lookup on the primary key (profiles.id) is also the
- * authoritative membership gate: a user with no profile row in any business has
- * no active membership and is rejected fail-closed (NOT the 24h roster cache,
- * which is unfit for a security gate). Throws when there is no membership.
+ * authoritative membership gate (NOT the 24h roster cache, which is unfit for a
+ * security gate). Two ways to be a non-member, both rejected fail-closed with
+ * the same membership_inactive: (1) no profile row in any business; (2) a
+ * REMOVED row — deleteStaffCore keeps the row but prefixes its name with
+ * `_system_removed_`, so a removed person's still-valid token is refused here,
+ * before any route reads capabilities. Only that exact prefix (case-sensitive,
+ * at the start) — other `_system_` rows are not this seam's concern.
  */
 export async function businessIdForUser(userId: string): Promise<string> {
   const service = createServiceClient()
   const { data, error } = await service
     .from('profiles')
-    .select('customer_id')
+    .select('customer_id, full_name')
     .eq('id', userId)
     .single()
 
@@ -348,6 +352,9 @@ export async function businessIdForUser(userId: string): Promise<string> {
     throw new AppApiError('upstream_unavailable', 'Business membership lookup failed')
   }
   if (!data?.customer_id) {
+    throw new AppApiError('membership_inactive', 'No active business membership for this user')
+  }
+  if (typeof data.full_name === 'string' && data.full_name.startsWith('_system_removed_')) {
     throw new AppApiError('membership_inactive', 'No active business membership for this user')
   }
   return data.customer_id

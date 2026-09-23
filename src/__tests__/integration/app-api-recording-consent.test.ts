@@ -96,7 +96,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { rosterOf, removedRow, BUSINESS } from './helpers/removed-staff'
+import { rosterOf, unplaceableRow, BUSINESS } from './helpers/removed-staff'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -410,15 +410,16 @@ describe('POST recordings/session mint', () => {
     expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
-  // A REMOVED staffer whose token is still alive (the ban's getUser
-  // round-trip is mocked as passing here, so this pins the ROSTER leg alone):
-  // the REAL roster read drops their `_system_removed_` profile, core answers
+  // The DOOR layer alone (the identity seam and the getUser round-trip are
+  // mocked as passing here): a null-name profile the seam lets through (a
+  // `_system_removed_` one now stops at the seam first) is dropped by the
+  // REAL roster read, core answers
   // `{ store_ids: [] }` — in a ONE-store business that is the floating shape.
   // With follow-up (c) (ROSTER FIRST) under this branch, the mint refuses them
   // before the store clamp: the same 403 as every non-roster caller.
-  it('a REMOVED staffer (real roster read over a _system_removed_ profile), floating shape → 403 store_forbidden (ROSTER FIRST), nothing read or minted', async () => {
+  it('an UNPLACEABLE staffer (real roster read over a null-name profile — door layer alone) → 403 store_forbidden (ROSTER FIRST), nothing read or minted', async () => {
     roster.current = (await rosterOf(
-      [removedRow('auth-user-1', '田中'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      [unplaceableRow('auth-user-1'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
       (c) => (serviceOverride.current = c),
     )) as typeof roster.current
     expect(roster.current.map((s) => s.id)).toEqual(['colleague-1'])

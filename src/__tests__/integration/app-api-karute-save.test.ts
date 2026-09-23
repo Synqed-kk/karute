@@ -100,7 +100,7 @@ const fakeClient = {
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
 import { POST as savePOST, OPTIONS as saveOPTIONS } from '@/app/api/app/v1/karute/route'
-import { rosterOf, removedRow, BUSINESS } from './helpers/removed-staff'
+import { rosterOf, removedRow, unplaceableRow, seamOver, BUSINESS } from './helpers/removed-staff'
 import { POST as undoPOST } from '@/app/api/app/v1/packs/redemptions/[id]/undo/route'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -327,12 +327,33 @@ describe('POST /api/app/v1/karute (save)', () => {
   })
 
   // A REMOVED staffer whose token is still alive: their profile carries the
-  // name the removal leaves (`_system_removed_…`), the REAL roster read drops
-  // them, and core no longer knows them (`{ store_ids: [] }`) — the door
-  // refuses before any read, never reading them as floating.
-  it('a REMOVED staffer (real roster read over a _system_removed_ profile) → 403 store_forbidden STORE_SCOPE_UNVERIFIED, before any read', async () => {
+  // name the removal leaves (`_system_removed_…`), so the REAL identity seam
+  // (businessIdForUser) refuses them FIRST — membership_inactive, before the
+  // capabilities, the roster placement gate or any read.
+  it('a REMOVED staffer (real identity seam over a _system_removed_ profile) → 403 membership_inactive from the SEAM, before the placement gate and any read', async () => {
+    const { businessIdForUser } = jest.requireMock('@/lib/staff') as { businessIdForUser: jest.Mock }
+    const { staffListByBusinessOrThrow } = jest.requireMock('@/lib/staff') as { staffListByBusinessOrThrow: jest.Mock }
+    businessIdForUser.mockImplementationOnce(
+      seamOver([removedRow('auth-user-1', '田中')], (c) => (serviceOverride.current = c)),
+    )
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'membership_inactive' })
+    expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
+    expect(staffStoresGet).not.toHaveBeenCalled()
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(getConsent).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  // The DOOR layer alone (seam mocked): a null-name profile the seam lets
+  // through is dropped by the REAL roster read, core answers
+  // `{ store_ids: [] }` — the door refuses before any read, never reading
+  // them as floating.
+  it('an UNPLACEABLE staffer (real roster read over a null-name profile — door layer alone) → 403 store_forbidden STORE_SCOPE_UNVERIFIED, before any read', async () => {
     roster.current = (await rosterOf(
-      [removedRow('auth-user-1', '田中'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      [unplaceableRow('auth-user-1'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
       (c) => (serviceOverride.current = c),
     )) as typeof roster.current
     expect(roster.current.map((s) => s.id)).toEqual(['colleague-1'])

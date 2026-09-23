@@ -28,6 +28,14 @@ jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
   staffListByBusinessOrThrow: (...a: unknown[]) => staffListByBusinessOrThrow(...a),
 }))
+// `serviceOverride` = the removed-staff helper's in-memory profiles table,
+// installed only while the REAL identity seam runs (helpers/removed-staff.ts
+// seamOver); otherwise the real module, exactly as before.
+const serviceOverride = { current: null as unknown }
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: (...a: unknown[]) =>
+    serviceOverride.current ?? jest.requireActual('@/lib/supabase/service').createServiceClient(...a),
+}))
 const mockCapabilities = jest.fn(async () => new Set(['customers.view']))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
@@ -110,6 +118,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { GET } from '@/app/api/app/v1/screens/dashboard/route'
 import { DashboardScreenDTO } from '@/lib/app-api/dashboard-screen-dto'
+import { seamOver, removedRow } from './helpers/removed-staff'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -303,5 +312,34 @@ describe('GET /api/app/v1/screens/dashboard', () => {
     staffListByBusinessOrThrow.mockRejectedValueOnce(new Error('core down'))
     const res = await GET(req(), route)
     expect(res.status).toBe(502)
+  })
+})
+
+// A REMOVED staffer whose Bearer token is still alive: this route has no
+// roster check of its own, so the REAL identity seam (businessIdForUser over a
+// `_system_removed_` profile) must refuse before capabilities or any read.
+describe('GET /api/app/v1/screens/dashboard — a removed staffer at the identity seam', () => {
+  const useSeam = (rows: Array<Record<string, unknown>>) => {
+    const { businessIdForUser } = jest.requireMock('@/lib/staff') as { businessIdForUser: jest.Mock }
+    businessIdForUser.mockImplementationOnce(seamOver(rows, (c) => (serviceOverride.current = c)))
+  }
+
+  it('a REMOVED profile\'s Bearer → 403 membership_inactive; no capabilities read, no synqed client, no reads', async () => {
+    useSeam([removedRow('auth-user-1', 'Mika Tanaka')])
+    const res = await GET(req(), route)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'membership_inactive' })
+    expect(mockCapabilities).not.toHaveBeenCalled()
+    expect(newSynqedClient).not.toHaveBeenCalled()
+    expect(staffStoresGet).not.toHaveBeenCalled()
+    expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
+    expect(getDashboardDataFor).not.toHaveBeenCalled()
+  })
+
+  it('control: the same real seam over a normal profile → 200', async () => {
+    useSeam([{ id: 'auth-user-1', full_name: 'Mika Tanaka', customer_id: 'business-1' }])
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    expect(newSynqedClient).toHaveBeenCalledWith('business-1')
   })
 })

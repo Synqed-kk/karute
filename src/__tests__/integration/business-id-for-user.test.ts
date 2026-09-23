@@ -56,6 +56,33 @@ describe('businessIdForUser', () => {
     const businessIdForUser = await loadHelper()
     await expect(businessIdForUser('user-1')).rejects.toMatchObject({ code: 'membership_inactive' })
   })
+
+  it('a REMOVED profile (name starts _system_removed_) → membership_inactive, same message as the absent row', async () => {
+    mockService({ data: { customer_id: 'biz-1', full_name: '_system_removed_田中' }, error: null })
+    const businessIdForUser = await loadHelper()
+    await expect(businessIdForUser('removed-1')).rejects.toMatchObject({
+      code: 'membership_inactive',
+      message: 'No active business membership for this user',
+    })
+  })
+
+  it('a normal profile with a full_name → the customer_id', async () => {
+    mockService({ data: { customer_id: 'biz-1', full_name: '田中' }, error: null })
+    const businessIdForUser = await loadHelper()
+    await expect(businessIdForUser('user-1')).resolves.toBe('biz-1')
+  })
+
+  it('_system_removed_ in the MIDDLE of a name is still a member (only a prefix counts)', async () => {
+    mockService({ data: { customer_id: 'biz-1', full_name: '山田_system_removed_花子' }, error: null })
+    const businessIdForUser = await loadHelper()
+    await expect(businessIdForUser('user-1')).resolves.toBe('biz-1')
+  })
+
+  it('a null full_name is still a member at this seam (the per-door roster gates own that class)', async () => {
+    mockService({ data: { customer_id: 'biz-1', full_name: null }, error: null })
+    const businessIdForUser = await loadHelper()
+    await expect(businessIdForUser('user-1')).resolves.toBe('biz-1')
+  })
 })
 
 export {}

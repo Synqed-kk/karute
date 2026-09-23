@@ -6,6 +6,9 @@
  * issue — select / eq / not is-null / not ilike with SQL LIKE semantics /
  * order / maybeSingle / update — so the roster filter a pin exercises is the
  * real one, not a copy of it.
+ * `seamOver(rows, installService)` returns the REAL businessIdForUser (the
+ * identity seam both doors pass through) bound to the same table — a suite
+ * delegates its mocked businessIdForUser to it for one call.
  *
  * `rosterOf(rows, installService)` runs the REAL staffListByBusinessOrThrow
  * over the rows. The door suites (karute save, appointments, invites,
@@ -62,6 +65,11 @@ export function fakeProfilesService(rows: Row[]) {
         return b
       },
       maybeSingle: async () => ({ data: matched()[0] ?? null, error: null }),
+      // PostgREST's .single(): no row → PGRST116 (what businessIdForUser reads).
+      single: async () => {
+        const row = matched()[0]
+        return row ? { data: row, error: null } : { data: null, error: { code: 'PGRST116' } }
+      },
       then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
         try {
           if (patch) {
@@ -112,6 +120,31 @@ export const removedRow = (id: string, name: string, businessId = BUSINESS): Row
   full_name: `_system_removed_${name}`,
   customer_id: businessId,
 })
+
+/** A profile the roster cannot place WITHOUT the removed prefix (a null name):
+ *  the seam lets it through, so only the per-door roster gate refuses it. */
+export const unplaceableRow = (id: string, businessId = BUSINESS): Row => ({
+  id,
+  full_name: null,
+  customer_id: businessId,
+})
+
+/** The REAL businessIdForUser over `rows`, through the suite's service hook. */
+export function seamOver(rows: Row[], installService: (client: unknown) => void) {
+  return async (userId: string): Promise<string> => {
+    const fake = fakeProfilesService(rows)
+    // NOT isolated: the seam's AppApiError must be the SAME class the route's
+    // identity.ts checks with instanceof (an isolated copy would read as
+    // 'internal', not membership_inactive).
+    const lib: typeof import('@/lib/staff') = jest.requireActual('@/lib/staff')
+    installService(fake.client)
+    try {
+      return await lib.businessIdForUser(userId)
+    } finally {
+      installService(null)
+    }
+  }
+}
 
 /** The REAL roster read over `rows`, through the suite's service hook. */
 export async function rosterOf(

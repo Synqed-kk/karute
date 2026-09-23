@@ -107,7 +107,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { GET, POST } from '@/app/api/app/v1/invites/route'
 import { DELETE } from '@/app/api/app/v1/invites/[id]/route'
-import { rosterOf, removedRow, BUSINESS } from './helpers/removed-staff'
+import { rosterOf, unplaceableRow, BUSINESS } from './helpers/removed-staff'
 import { auditLines } from './helpers/audit-lines'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 
@@ -205,9 +205,9 @@ describe('GET /api/app/v1/invites', () => {
     expect((await res.json()).invites[0]).toMatchObject({ id: 'inv-3', linked: false })
   })
 
-  it('a REMOVED caller with staff.invite (real roster read over a _system_removed_ profile) → 403 store_forbidden STORE_SCOPE_UNVERIFIED, the invites list never read', async () => {
+  it('an UNPLACEABLE caller with staff.invite (real roster read over a null-name profile — door layer alone) → 403 store_forbidden STORE_SCOPE_UNVERIFIED, the invites list never read', async () => {
     const roster = await rosterOf(
-      [removedRow('auth-user-1', 'Mika Tanaka'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      [unplaceableRow('auth-user-1'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
       (c) => (serviceOverride.current = c),
     )
     expect(roster.map((s) => s.id)).toEqual(['colleague-1'])
@@ -290,9 +290,9 @@ describe('POST /api/app/v1/invites (create)', () => {
     expect(invitesCreate).not.toHaveBeenCalled()
   })
 
-  it('a REMOVED caller (real roster read over a _system_removed_ profile) → refused, nothing written', async () => {
+  it('an UNPLACEABLE caller (real roster read over a null-name profile — door layer alone) → refused, nothing written', async () => {
     const roster = await rosterOf(
-      [removedRow('auth-user-1', 'Mika Tanaka'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
+      [unplaceableRow('auth-user-1'), { id: 'colleague-1', full_name: '佐藤', customer_id: BUSINESS }],
       (c) => (serviceOverride.current = c),
     )
     expect(roster.map((s) => s.id)).toEqual(['colleague-1'])

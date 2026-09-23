@@ -149,7 +149,7 @@ import { POST as noShowPOST } from '@/app/api/app/v1/appointments/[id]/no-show/r
 import { POST as restorePOST } from '@/app/api/app/v1/appointments/[id]/restore/route'
 import { GET as burnableGET } from '@/app/api/app/v1/customers/[id]/packs/burnable/route'
 import { auditLines } from './helpers/audit-lines'
-import { rosterOf, removedRow, BUSINESS } from './helpers/removed-staff'
+import { rosterOf, unplaceableRow, BUSINESS } from './helpers/removed-staff'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -263,12 +263,14 @@ describe('POST /api/app/v1/appointments (create)', () => {
     expect(apptCreate).not.toHaveBeenCalled()
   })
 
-  // A REMOVED staffer whose token is still alive: their profile carries the
-  // name the removal leaves, the REAL roster read drops them, and core answers
-  // `{ store_ids: [] }` for them — never read as floating.
-  it('a REMOVED caller (real roster read over a _system_removed_ profile) → 403 store_forbidden, nothing written', async () => {
+  // The DOOR layer alone (the identity seam is mocked here): a caller the
+  // roster cannot place — a null-name profile, which the seam lets through
+  // (a `_system_removed_` profile now stops at the seam first) — is dropped by
+  // the REAL roster read, and core answers `{ store_ids: [] }` for them —
+  // never read as floating.
+  it('an UNPLACEABLE caller (real roster read over a null-name profile — door layer alone) → 403 store_forbidden, nothing written', async () => {
     roster.current = (await rosterOf(
-      [{ id: 'profile-1', full_name: 'Mika', customer_id: BUSINESS }, removedRow('auth-user-1', 'Viewer')],
+      [{ id: 'profile-1', full_name: 'Mika', customer_id: BUSINESS }, unplaceableRow('auth-user-1')],
       (c) => (serviceOverride.current = c),
     )) as typeof roster.current
     expect(roster.current.map((s) => s.id)).toEqual(['profile-1'])
