@@ -164,7 +164,7 @@ describe('backfill render-path callers (source contract)', () => {
   it('all three callers pass dated transcripts', () => {
     expect(page).toContain('date: r.session_date ?? r.created_at ?? null')
     expect(brief).toContain('date: r.created_at ?? null')
-    const action = readFileSync('src/actions/memory.ts', 'utf8')
+    const action = readFileSync('src/lib/customers/memory.core.ts', 'utf8')
     expect(action).toContain('date: r.session_date ?? r.created_at ?? null')
   })
 })
