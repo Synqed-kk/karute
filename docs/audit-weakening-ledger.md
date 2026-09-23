@@ -441,3 +441,18 @@
   followed it. Justification, dated and pendingWave are unchanged, and the gate reads a moved
   entry as an addition because the key is file-scoped · Fable
   (PKT-SEC-CORES-B2-STORES-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · SDK_WRITE_ALLOWLIST:src/lib/recording/discard-transcript.core.ts::recordings.upsertSegments · NOT
+  a new legalized silent write — the SAME allowlist entry, at its new address.
+  writeTranscript's one-segment upsert has been allowlisted since 2026-08-31 under
+  the key SDK_WRITE_ALLOWLIST:src/actions/recording-discard-transcript.ts::recordings.upsertSegments
+  (the A2-2 ruling: the staff discard that authorises the write already emitted its
+  own recording.discard receipt, and ⚖ 8/17 doc law keeps the CONTENT out of audit
+  details). Every runtime export of a 'use server' file is registered as a
+  browser-callable server action with no authentication of its own, so the two
+  client-threaded discard-transcript bodies — and the private writeTranscript they
+  both call — left src/actions/recording-discard-transcript.ts for the server-only
+  module src/lib/recording/discard-transcript.core.ts (no directive, `import
+  'server-only'` on line one). Body byte-identical, justification and `dated`
+  unchanged, no pendingWave on this entry before or after; the gate reads a moved
+  entry as an addition because the key is file-scoped · Fable
+  (PKT-SEC-CORES-C-DISCARD-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
