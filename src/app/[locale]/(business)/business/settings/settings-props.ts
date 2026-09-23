@@ -190,7 +190,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     // 「最終同期は…分前」 — ONE TRUTH for the last sync: the shell's own stamp,
     // measured against the board's moment it was set before (data.ts / door.ts
     // `readShellIdentity`), never the wall clock.
-    syncMinutesAgo: (Date.parse(jstSlotEnd(0, 0, boardNow, 0, now)) - Date.parse(reserveSyncedAt)) / 60_000,
+    syncMinutesAgo: Math.round((Date.parse(jstSlotEnd(0, 0, boardNow, 0, now)) - Date.parse(reserveSyncedAt)) / 60_000),
     words,
     businessType: selectedStore?.business_type ?? null,
     wordOverride: selectedStore ? storeSample(selectedStore.id).words : null,

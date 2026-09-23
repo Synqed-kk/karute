@@ -548,6 +548,17 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     expect(blockOf(props, 'sync', 'sync.status').facts[0]).toMatch(/^最終同期は12分前/)
   })
 
+  it('予約同期 on a wall clock 37 s past the board minute still says 12分前 — the board anchor, never the wall clock', async () => {
+    // Every other clock here sits on :00.000, where the wall clock and the board anchor agree.
+    jest.setSystemTime(new Date('2026-09-14T04:24:37Z'))
+    try {
+      const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+      expect(blockOf(props, 'sync', 'sync.status').facts[0]).toMatch(/^最終同期は12分前/)
+    } finally {
+      jest.setSystemTime(new Date('2026-09-14T04:24:00Z'))
+    }
+  })
+
   it.each([
     ['La Estro (named)', STORE.laEstro],
     ['Dev Salon (none)', STORE.devSalon],
