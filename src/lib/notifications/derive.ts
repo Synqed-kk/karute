@@ -362,13 +362,16 @@ async function loadChaseAndSync(
 }
 
 /** カルテ未作成の録音 — `recording`-category audit rows in the 録音履歴's own
- *  window (core has no action filter, so page and keep the two actions), plus
- *  one recordings.get per failed recording for its date. Business-wide on
+ *  window, plus one recordings.get per failed recording for its date. Walks the
+ *  WHOLE window (core has no action filter — CORE ask queued — so every
+ *  recording row is paged and the two actions kept), bounded by the window
+ *  itself and a wall-clock deadline; a truncated walk is logged once and
+ *  returns what it read (never silent, never a throw). Business-wide on
  *  purpose: only reached for canReadAuditLog viewers, who all hold
  *  stores.viewAll. Cached 60s/business like its siblings — no auth read inside.
  *  Reads the SDK directly, like the audit-watch cron: no privacy.audit_log.view
  *  receipt (that belongs to opening the 監査ログ page). */
-const RECORDING_AUDIT_MAX_PAGES = 10 // ponytail: 2,000 rows/7 days; raise if a salon outgrows it
+const RECORDING_AUDIT_DEADLINE_MS = 10_000
 const RECORDING_DATE_READS = 20 // ponytail: beyond this the body shows the row's time
 const getCachedRecordingFailures = unstable_cache(
   async (businessId: string): Promise<FeedRecordingFailure[]> => {
@@ -380,8 +383,18 @@ const getCachedRecordingFailures = unstable_cache(
     const from = new Date(now - INBOX_WINDOW_MS).toISOString()
     const to = new Date(now).toISOString()
     const rows: FeedRecordingFailure[] = []
-    for (let page = 1; page <= RECORDING_AUDIT_MAX_PAGES; page++) {
+    const deadline = now + RECORDING_AUDIT_DEADLINE_MS
+    let total = 0
+    for (let page = 1; ; page++) {
+      if (Date.now() >= deadline) {
+        console.warn('[notifications] recording failures truncated for business', businessId, {
+          pagesRead: page - 1,
+          total,
+        })
+        break
+      }
       const res = await synqed.audit.list({ category: 'recording', from, to, page, page_size: PAGE_SIZE })
+      total = res.total
       for (const e of res.events) {
         if (
           e.target_id &&
