@@ -8,13 +8,30 @@
 // JST is UTC+9 with no daylight saving, so a whole day is exactly 86_400_000ms
 // from JST midnight and the arithmetic below needs no calendar library.
 //
-// This module imports nothing (play-phase seal) and reads the clock only
+// This module imports only React's cache() (for `renderNow`, below — moved
+// here from data.ts so the practice door and data.ts share ONE memoised
+// clock without importing each other) and otherwise reads the clock only
 // through the `now` argument, which every caller may pin — that is how the
 // test suite fakes a date, and how the +30-days assertion proves the fixture
 // set survives real time passing.
 
+import { cache } from 'react'
+
 const DAY_MS = 86_400_000
 const JST_OFFSET_MS = 9 * 3_600_000
+
+/** THE clock read for one server render — every fixture date in a render is
+ *  derived from this single instant.
+ *  `appointments()` re-derives the whole calendar from the clock on every call
+ *  (fixtures.ts:280, deliberately), so two reads in one render that straddle
+ *  JST midnight returned two different fixture days: the same booking could
+ *  carry one date in 予約 and another in 来店履歴, and a screen's own `new
+ *  Date()` could land on a third (Greptile P1 on #724). React cache() pins one
+ *  value per request — the same tool src/lib/perf/render-stamp.ts uses — so
+ *  screens read their "now" from HERE rather than the clock.
+ *  ponytail: the anchor is cached, not the row array — appointments() stays a
+ *  per-call function and a dozen rows twice a render costs nothing. */
+export const renderNow = cache((): Date => new Date())
 
 /** UTC instant of JST-midnight on the day `now` falls in. */
 export function jstMidnight(now: Date = new Date()): number {

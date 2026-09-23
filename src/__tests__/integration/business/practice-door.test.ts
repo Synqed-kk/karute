@@ -1,7 +1,8 @@
 /**
  * The practice-salon door, PR-1 (DESIGN-PRACTICE-DOOR.md §1, §2, §4, §8): the
  * switch, the tenant throw, the registry parser + generated map, the sample
- * facade, the not-built door, and data.ts's one-line seam. Unit-level: no
+ * facade, the door's export list, and data.ts's one-line seam (the door's ON
+ * behaviour is practice-door-on.test.ts, against the recorded answer set). Unit-level: no
  * network — the core client is constructed at most with dummy env, never called.
  */
 
@@ -15,12 +16,12 @@ import { clientFor, PracticeTenantMismatch } from '@/business/lib/practice-door/
 import { parseManifest } from '@/business/lib/practice-door/registry-manifest'
 import { PRACTICE_REGISTRY } from '@/business/lib/practice-door/registry.generated'
 import { fixtureIdOf, liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
-import { sampleFor } from '@/business/lib/practice-door/sample-facade'
+import { sampleFor, sampleSelfId } from '@/business/lib/practice-door/sample-facade'
 import { appointments, customers, menus, staff, stores, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { businessProfiles } from '@/business/lib/fixtures-settings'
 import * as door from '@/business/lib/practice-door/door'
-import { PracticeDoorNotBuilt } from '@/business/lib/practice-door/door'
 import * as data from '@/business/lib/data'
+import { renderNow as clockRenderNow } from '@/business/lib/clock'
 
 const U = 'FB44DD68-4AF7-44B0-8CC7-4EE10C54491D'
 const u = U.toLowerCase()
@@ -254,6 +255,19 @@ describe('the sample facade', () => {
     })
     expect(JSON.stringify(input)).toBe(before)
   })
+  it("a decision's owner_staff_id becomes the manifest uuid; null stays null", () => {
+    expect(sampleFor([{ id: 'dec-1', owner_staff_id: 'p-06' }, { id: 'dec-2', owner_staff_id: null }], null)).toEqual([
+      { id: 'dec-1', owner_staff_id: 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5' },
+      { id: 'dec-2', owner_staff_id: null },
+    ])
+  })
+  it('sampleSelfId: OFF passes the id through; ON a live uuid → its fixture twin, an unknown uuid → null', () => {
+    setEnv({})
+    expect(sampleSelfId('staff', 'p-06')).toBe('p-06')
+    setEnv({ BUSINESS_PRACTICE_TENANT: u })
+    expect(sampleSelfId('staff', 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5')).toBe('p-06')
+    expect(sampleSelfId('staff', '00000000-0000-4000-8000-000000000000')).toBeNull()
+  })
   it('leaves unknown ids alone, walks nested planes, keeps Date instances', () => {
     const when = new Date()
     const out = sampleFor(
@@ -294,16 +308,9 @@ const DOOR_READERS = [
   'readDayPlanes', 'readReservationPlanes', 'readAnalyticsPlanes', 'listStaff', 'readStaffStores',
 ] as const
 
-describe('the door before PR-2', () => {
-  it('exports exactly the sixteen readers plus the error', () => {
-    expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, 'PracticeDoorNotBuilt'].sort())
-  })
-  it.each(DOOR_READERS)('%s rejects with PracticeDoorNotBuilt naming itself', async (name) => {
-    const read = door[name] as (...a: unknown[]) => Promise<never>
-    const p = read('store-test-ginza', { from: 0, to: 0 })
-    await expect(p).rejects.toBeInstanceOf(PracticeDoorNotBuilt)
-    await expect(p).rejects.toThrow(`practice door not built yet: ${name} (PR-2)`)
-    await p.catch((e: Error) => expect(e.name).toBe('PracticeDoorNotBuilt'))
+describe('the door', () => {
+  it('exports exactly the sixteen readers', () => {
+    expect(Object.keys(door).sort()).toEqual([...DOOR_READERS].sort())
   })
 })
 
@@ -315,36 +322,11 @@ describe('the data.ts seam', () => {
     expect(off).toEqual(menus.filter((m) => m.store_id == null || m.store_id === 'store-test-ginza'))
     expect(await data.listStoreOptions()).toEqual(stores)
   })
-  const LENS = 'store-test-ginza'
-  const RANGE = { from: 0, to: 1 }
-  const ON_CALLS: Record<(typeof DOOR_READERS)[number], () => Promise<unknown>> = {
-    listStoreOptions: () => data.listStoreOptions(),
-    listCustomers: () => data.listCustomers(LENS),
-    listAppointments: () => data.listAppointments(LENS, {}),
-    listVisits: () => data.listVisits(LENS, {}),
-    readShellIdentity: () => data.readShellIdentity(),
-    listMenus: () => data.listMenus(LENS),
-    readUnresolvedCounts: () => data.readUnresolvedCounts(),
-    listResources: () => data.listResources(LENS),
-    listShiftsByDay: () => data.listShiftsByDay(LENS, RANGE),
-    listAbsenceByDay: () => data.listAbsenceByDay(LENS, RANGE),
-    listBlocksByDay: () => data.listBlocksByDay(LENS, RANGE),
-    readDayPlanes: () => data.readDayPlanes(LENS, 0),
-    readReservationPlanes: () => data.readReservationPlanes(LENS),
-    readAnalyticsPlanes: () => data.readAnalyticsPlanes(LENS),
-    listStaff: () => data.listStaff(LENS),
-    readStaffStores: () => data.readStaffStores(LENS),
-  }
-  it.each(DOOR_READERS)('ON: data.%s is loud, never a fixture answer', async (name) => {
-    setEnv({ BUSINESS_PRACTICE_TENANT: u })
-    const p = ON_CALLS[name]()
-    await expect(p).rejects.toBeInstanceOf(PracticeDoorNotBuilt)
-    await expect(p).rejects.toThrow(`practice door not built yet: ${name} (PR-2)`)
-  })
   it('renderNow and defaultStoreId never delegate', () => {
     for (const env of [{}, { BUSINESS_PRACTICE_TENANT: u }]) {
       setEnv(env)
       expect(data.renderNow()).toBeInstanceOf(Date)
+      expect(data.renderNow).toBe(clockRenderNow) // one memoised clock, re-exported
       expect(data.defaultStoreId(undefined, stores)).toBe(stores[0].id)
       expect(data.defaultStoreId(STORE_B, stores)).toBe(STORE_B)
     }

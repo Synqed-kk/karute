@@ -22,8 +22,8 @@ import {
   readReservationPlanes,
   renderNow,
   type StoreLens,
+  readShellIdentity,
 } from '@/business/lib/data'
-import { operator } from '@/business/lib/fixtures'
 import {
   cashTolerance,
   closing as closingPlane,
@@ -161,6 +161,9 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   // place, so the ceiling holds for the settings control, for this room's own
   // worlds, and for whatever writes the dial after reconnect.
   const tolerance = resolveTolerance(world?.tolerance ?? cashTolerance, MAX_CASH_TOLERANCE)
+  // The operator is the DOOR's (readShellIdentity: the admitted person under the
+  // practice switch, the fixture operator when it is off) — never the fixture read directly.
+  const { operator } = await readShellIdentity()
   const access = accessFor(world?.role ?? operator.role)
   /** ⚖ REDACTION IS STRUCTURAL — ONE GATE, ONE PLACE. Every figure this role may
    *  not see goes through here, so a new money surface cannot quietly ship

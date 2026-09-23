@@ -27,8 +27,10 @@ import {
   listStoreOptions,
   renderNow,
   type StoreLens,
+  readShellIdentity,
 } from '@/business/lib/data'
-import { operator, type FixtureAppointment } from '@/business/lib/fixtures'
+import { attachSample } from '@/business/lib/practice-door/sample-facade'
+import { type FixtureAppointment } from '@/business/lib/fixtures'
 import { records as recordPlane, type FixtureKaruteRecord } from '@/business/lib/fixtures-karute'
 import {
   accessFor,
@@ -153,11 +155,16 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
     ? world.appointments.filter((a) => (clamped ? a.store_id === storeId : true))
     : doorAppointments
 
+  // The operator is the DOOR's (readShellIdentity: the admitted person under the
+  // practice switch, the fixture operator when it is off) — never the fixture read directly.
+  const { operator } = await readShellIdentity()
   const role = world?.role ?? operator.role
   const access = accessFor(role)
 
   const models = buildRecords({
-    records: world?.records ?? recordPlane,
+    // SAMPLE record plane, attached through the facade (ON: its appointment ids and
+    // by_staff_id become the live twins, so it joins the live bookings; OFF unchanged).
+    records: attachSample(world?.records ?? recordPlane, null),
     appointments,
     customers,
     menus,
@@ -337,6 +344,8 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
       '施術記録の一覧です。行を選ぶと、記入内容・詳細記録・写真・結果をまとめて確認できます。新しいカルテは＋新規カルテから作成します。検索や絞り込みは表示が変わるだけで、記録の内容は変わりません。',
     filters: FILTERS,
     // Canon's 担当 scope (`SCOPE_FILTERS`), with the logged-in operator as 自分.
+    // The rows' staff ids come from the (live) bookings the attached record plane
+    // joins, so the live operator's own id is 自分 under ON; the fixture id under OFF.
     selfStaffId: operator.staff_id,
     selfLabel: `自分（${operator.name}）`,
     rows,

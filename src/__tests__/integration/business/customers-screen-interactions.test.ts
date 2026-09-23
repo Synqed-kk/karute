@@ -41,7 +41,7 @@ import {
   TILE_PREDICATE,
   type CustomerRow,
 } from '@/app/[locale]/(business)/business/customers/CustomersScreen'
-import { localCustomerRow, winBackLine } from '@/app/[locale]/(business)/business/customers/customers-props'
+import { localCustomerRow, winBackLine } from '@/app/[locale]/(business)/business/customers/customers-row'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -422,7 +422,11 @@ describe('顧客 V2 — the three riders as FACTS (⚖ §3)', () => {
       .split('\n')
       .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
       .join('\n')
-    expect(props).toContain("const CHIPPED: BookingCategory[] = ['new', 'vip']")
+    // The CHIPPED list moved with the client-safe row rules (PR-2, Vercel on #992); the
+    // props file imports it from there — one home, both callers.
+    const rowRules = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/customers/customers-row.ts'), 'utf8')
+    expect(rowRules).toContain("export const CHIPPED: BookingCategory[] = ['new', 'vip']")
+    expect(props).toContain("import { CHIPPED, winBackLine } from './customers-row'")
     // …and the category itself comes from the BOARD's own function, never a
     // second opinion written here.
     expect(props).toContain('bookingCategory(c, priorVisits.get(c.id) ?? 0)')

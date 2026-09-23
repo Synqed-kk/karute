@@ -31,8 +31,8 @@ import {
   listStoreOptions,
   renderNow,
   type StoreLens,
+  readShellIdentity,
 } from '@/business/lib/data'
-import { operator } from '@/business/lib/fixtures'
 import { threads as threadPlane } from '@/business/lib/fixtures-inbox'
 import { records as recordPlane } from '@/business/lib/fixtures-karute'
 import {
@@ -218,6 +218,9 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
   const hrefOf = (segment: string) => `/${locale}/business/${segment}${storeQuery}`
 
   const now = renderNow()
+  // The operator is the DOOR's (readShellIdentity: the admitted person under the
+  // practice switch, the fixture operator when it is off) — never the fixture read directly.
+  const { operator } = await readShellIdentity()
   const role = world?.role ?? operator.role
   const access = accessFor(role)
 

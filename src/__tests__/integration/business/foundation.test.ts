@@ -302,13 +302,15 @@ describe('the fixture data door', () => {
     // alternation — the #660 spanning-wildcard lesson) and comment lines are
     // stripped first so prose can't plant a phantom specifier.
     const INVENTORY: Record<string, string[]> = {
-      'src/business/lib/clock.ts': [],
+      // ⟲ PR-2: `renderNow` (React cache()) moved here from data.ts — one memoised clock.
+      'src/business/lib/clock.ts': ['react'],
       // Both sides' rows are REAL in the merged tree, so the entry is the union:
       // the stack brought `react` (data.ts wraps its readers in `cache`), #727
       // brought `./fixtures-reservations`. Verified against the file, not
       // reconciled by taking a side — the inventory mirrors reality or it is
       // worth nothing.
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', './practice-door/door', './practice-door/switch', 'react'],
+      // PR-2: `react` left with `renderNow` (now in ./clock, re-exported).
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', './practice-door/door', './practice-door/switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.
@@ -317,8 +319,9 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/registry-manifest.ts': [],
       'src/business/lib/practice-door/registry.generated.ts': [],
       'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
-      'src/business/lib/practice-door/sample-facade.ts': ['./registry'],
-      'src/business/lib/practice-door/door.ts': [],
+      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures-settings', '../fixtures-today', '../resource-words', './registry', './switch'],
+      'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', './actor', './registry', './sample-facade'],
       'src/business/lib/fixtures.ts': ['./clock'],
       // ⚖ D-15/D-24 (B2) — `./canon-logic/pricing` JOINED this inventory,
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
@@ -414,13 +417,18 @@ describe('the fixture data door', () => {
       // board cannot disagree about who is 新規; the COUNT that feeds it is the
       // function 売上分析 already calls, on the same lens-clamped rows.
       'src/app/[locale]/(business)/business/customers/customers-props.ts': [
+        './customers-row',
         '@/business/lib/analytics',
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/today-board',
       ],
+      // PR-2 (Vercel on #992): the pure row rules come from the client-safe
+      // `./customers-row`; `./customers-props` is TYPE-only here now.
+      'src/app/[locale]/(business)/business/customers/customers-row.ts': ['./customers-props', '@/business/lib/today-board'],
       'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': [
         './customers-props',
+        './customers-row',
         '@/business/lib/column-config',
         // ⚖ Liam 8/23 — the 画面の説明 tour's shared engine.
         '@/business/lib/guide',
@@ -451,6 +459,8 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/fixtures-today',
+        // PR-2: the per-store SAMPLE words read (`storeSample`, never a throw on a live uuid).
+        '@/business/lib/practice-door/sample-facade',
         // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: the ONE runtime-reader module
         // under today/. `resourceWordsFor`/`chromeWords` live here and
         // nowhere else in this directory (the resource-words census's C5 pin).
@@ -747,7 +757,7 @@ describe('the fixture data door', () => {
         './RegisterScreen',
         '@/business/lib/clock',
         '@/business/lib/data',
-        '@/business/lib/fixtures',
+        // PR-2 (Greptile on #992): the operator now comes from the door (readShellIdentity).
         '@/business/lib/fixtures-register',
         '@/business/lib/register',
         '@/business/lib/settings-link',
@@ -787,6 +797,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures',
         '@/business/lib/fixtures-karute',
         '@/business/lib/karute',
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/karute/KaruteScreen.tsx': [
@@ -837,6 +848,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
@@ -917,7 +929,7 @@ describe('the fixture data door', () => {
         '@/business/lib/canon-logic/pricing',
         '@/business/lib/clock',
         '@/business/lib/data',
-        '@/business/lib/fixtures-today',
+        '@/business/lib/practice-door/sample-facade',
         // ⚖ D-53 (u)/(n2b2) — same reason as StorePolicySection.tsx, above.
         '@/business/lib/resource-words',
         '@/business/lib/today-board',
@@ -959,7 +971,7 @@ describe('the fixture data door', () => {
         '@/business/lib/ask-ai',
         '@/business/lib/clock',
         '@/business/lib/data',
-        '@/business/lib/fixtures',
+        // PR-2 (Greptile on #992): the operator now comes from the door (readShellIdentity).
         '@/business/lib/fixtures-ask-ai',
         '@/business/lib/fixtures-inbox',
         '@/business/lib/fixtures-karute',
@@ -1014,6 +1026,7 @@ describe('the fixture data door', () => {
         // those strings in the recording room would be a second home for one
         // vocabulary, and the two would drift the first time one is edited.
         '@/business/lib/karute',
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/recording',
         '@/business/lib/today-board',
       ],
@@ -1091,7 +1104,40 @@ describe('the fixture data door', () => {
         : null
   const PRACTICE_DOOR = 'src/business/lib/practice-door'
 
-  it("server-only: no 'use client' file in territory imports the data door or the practice door", () => {
+  // TRANSITIVE (PR-2, Vercel on #992): a client file that reaches the door through a
+  // server helper (CustomersScreen → customers-props → data) put Supabase and core-reach
+  // in the browser bundle. The walk follows every VALUE import through territory
+  // modules; a type-only import (`import type …` / `export type … from`) is erased at
+  // build and is skipped; a mixed `import { type X, y }` counts.
+  function valueSpecifiersOf(file: string): string[] {
+    const src = readFileSync(join(ROOT, file), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n')
+      .replace(/(?:import|export)\s+type\s[^;]*?from\s*['"][^'"\n]+['"]/g, '')
+    const found: string[] = []
+    for (const re of FORMS) {
+      re.lastIndex = 0
+      for (let m = re.exec(src); m; m = re.exec(src)) found.push(m[1])
+    }
+    return found
+  }
+  // The walk stays INSIDE territory on purpose: an outside module importing territory
+  // data is already forbidden by the reverse-direction scanner (scripts/business/check-business-isolation.mjs).
+  const TERRITORY_ROOTS = ['src/business/', 'src/app/[locale]/(business)/']
+  // A `.js`/`.jsx` specifier names the `.ts`/`.tsx` source (ESM-suffix style), so the stem is tried too.
+  function resolveFile(target: string): string | null {
+    const stem = target.replace(/\.(ts|tsx|js|jsx)$/, '')
+    for (const f of [target, `${stem}.ts`, `${stem}.tsx`, `${stem}/index.ts`, `${stem}/index.tsx`]) {
+      if (/\.(ts|tsx)$/.test(f) && existsSync(join(ROOT, f)) && lstatSync(join(ROOT, f)).isFile()) return f
+    }
+    return null
+  }
+  const isServerOnly = (target: string) =>
+    target === 'src/business/lib/data' || target === 'src/business/lib/admission' ||
+    target === PRACTICE_DOOR || target.startsWith(`${PRACTICE_DOOR}/`)
+
+  it("server-only, TRANSITIVE: no 'use client' file in territory reaches data, admission or the practice door by any value-import path", () => {
     const offenders: string[] = []
     let clientFiles = 0
     for (const file of territoryFiles()) {
@@ -1101,15 +1147,26 @@ describe('the fixture data door', () => {
         .find((l) => l !== '' && !/^(\/\/|\/\*|\*)/.test(l))
       if (!first || !/^(['"])use client\1;?$/.test(first)) continue
       clientFiles += 1
-      for (const spec of specifiersOf(file)) {
-        const target = resolveSpec(spec, file)
-        if (target === 'src/business/lib/data' || target === PRACTICE_DOOR || target?.startsWith(`${PRACTICE_DOOR}/`)) {
-          offenders.push(`${file}: ${spec}`)
+      const seen = new Set<string>([file])
+      const queue: Array<[string, string[]]> = [[file, [file]]]
+      while (queue.length) {
+        const [at, path] = queue.shift()!
+        for (const spec of valueSpecifiersOf(at)) {
+          const target = resolveSpec(spec, at)
+          if (!target) continue
+          const bare = target.replace(/\.(ts|tsx|js|jsx)$/, '')
+          if (isServerOnly(bare)) { offenders.push([...path, spec].join(' → ')); continue }
+          const next = resolveFile(target)
+          if (!next || seen.has(next) || !TERRITORY_ROOTS.some((r) => next.startsWith(r))) continue
+          seen.add(next)
+          queue.push([next, [...path, next]])
         }
       }
     }
     expect(clientFiles).toBeGreaterThan(0)
     expect(offenders).toEqual([])
+    // The walker's own self-check: an ESM `.js` specifier resolves to its `.ts` source.
+    expect(resolveFile('src/business/lib/data.js')).toBe('src/business/lib/data.ts')
   })
 
   it('one importer each: data.ts alone imports the door, core-reach.ts alone names the core client factory', () => {
@@ -1123,6 +1180,26 @@ describe('the fixture data door', () => {
     }
     expect(doorImporters).toEqual(['src/business/lib/data.ts'])
     expect(factoryImporters).toEqual([`${PRACTICE_DOOR}/core-reach.ts`])
+  })
+
+  // §7 — FORBIDDEN ON THE READ PATH. Comment lines stripped first, as specifiersOf does.
+  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call', () => {
+    const FORBIDDEN = [
+      'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
+      '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
+      '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
+    ]
+    const files = readdirSync(join(ROOT, PRACTICE_DOOR)).filter((n) => n.endsWith('.ts'))
+    expect(files).toContain('door.ts')
+    const hits: string[] = []
+    for (const name of files) {
+      const code = readFileSync(join(ROOT, PRACTICE_DOOR, name), 'utf8')
+        .split('\n')
+        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+        .join('\n')
+      for (const bad of FORBIDDEN) if (code.includes(bad)) hits.push(`${name}: ${bad}`)
+    }
+    expect(hits).toEqual([])
   })
 })
 

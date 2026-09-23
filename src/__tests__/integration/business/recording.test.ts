@@ -1572,8 +1572,11 @@ describe('canon’s picker rule, and the 来店なし exclusion', () => {
     })
     expect(oneKey).toEqual([])
     // …and the props really build the set from BOTH of the operator's ids, the
-    // card coming through the room's own bridge rather than being restated
-    expect(PROPS_CODE).toContain('new Set(\n    [operator.staff_id, selfCardId].filter((v): v is string => v !== null),\n  )')
+    // card coming through the room's own bridge rather than being restated.
+    // Practice door PR-2 (Greptile on #992): plus the operator's fixture TWIN
+    // (`sampleSelfId`; OFF it IS operator.staff_id), from which the card is bridged.
+    expect(PROPS_CODE).toContain('new Set(\n    [operator.staff_id, selfTwin, selfCardId].filter((v): v is string => v !== null),\n  )')
+    expect(PROPS_CODE).toContain("const selfTwin = sampleSelfId('staff', operator.staff_id)")
     expect(PROPS_CODE).not.toMatch(/const ownStaffId = operator\.staff_id/)
   })
 })
