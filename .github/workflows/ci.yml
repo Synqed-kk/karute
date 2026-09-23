@@ -76,6 +76,13 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://test-dummy.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: dummy-not-a-key
 
+      - name: Seeder core-target guard selftest (fixture red→green)
+        # seed-booking-data.ts wipes core data; it must refuse any non-local
+        # core before a client or request exists. Here, not in audit-gates:
+        # it spawns the real seeder, whose imports need this job's npm ci.
+        # Only .invalid hosts + a from-scratch child env — never a real core.
+        run: node scripts/lib/core-target-guard.test.mjs
+
       - name: Thin bundle gate (size budget + purchase exclusion)
         # The gate breached silently for weeks because it only ran by hand
         # (packet-09 F-1: the breach masked a §1.5 purchase-code leak).

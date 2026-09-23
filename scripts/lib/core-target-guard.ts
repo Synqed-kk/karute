@@ -1,4 +1,6 @@
-// The one guard in front of every script that WIPES synqed-core data.
+// The guard in front of the TEST seeder (seed-booking-data.ts) and its e2e
+// entry (e2e/global-setup.ts).
+// Deliberately NOT guarded: scripts/import/final-reconcile.mjs, final-pass.mjs (manual real-core imports).
 //
 // seed-booking-data.ts deletes every appointment + customer of the dev
 // business it resolves. Pointed at the shared core it wiped the Dev Salon test
