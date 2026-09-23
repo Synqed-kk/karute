@@ -9,8 +9,7 @@
 // Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (values are never printed).
 // Exit: 0 ok · 1 error/usage · 2 REFUSED (not Dev Salon) · 3 BASELINE BREACH.
 import { readFileSync, writeFileSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
-import { SynqedClient } from '@synqed-kk/client'
+import type { SynqedClient } from '@synqed-kk/client'
 
 // Hard pin: the only business this script will ever count. No flag or env can change it.
 export const DEV_SALON_BUSINESS_ID = 'fb44dd68-4af7-44b0-8cc7-4ee10c54491d'
@@ -77,12 +76,15 @@ export async function count(c: Core, now = new Date()): Promise<Counts> {
   return out
 }
 
+// packs_active falls when a pack is used up/closed (normal play, not a loss): shown, never compared.
+const VOLATILE = new Set(['packs_active'])
+
 // A count that FELL below its baseline is the loss signal; growth is fine.
 export function breaches(base: Counts, now: Counts): string[] {
   const out: string[] = []
   for (const [scope, kinds] of Object.entries(base))
     for (const [kind, was] of Object.entries(kinds)) {
-      if (typeof was !== 'number') continue
+      if (typeof was !== 'number' || VOLATILE.has(kind)) continue
       const is = Number(now[scope]?.[kind] ?? 0)
       if (is < was) out.push(`BASELINE BREACH: ${kinds.name} (${scope}) · ${kind} · baseline ${was} · now ${is}`)
     }
@@ -132,17 +134,21 @@ export async function run(argv: string[], c: Core, log: (line: string) => void =
   return 0
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Runs only as the CLI. No import.meta and a lazy client import, so the test loads this file
+// under CI's CommonJS ts-node without the ESM client (tsx is not a repo dependency).
+if (process.argv[1]?.endsWith('count-baseline.ts')) {
   const { SYNQED_CORE_URL: baseUrl, SYNQED_CORE_API_KEY: apiKey } = process.env
   if (!baseUrl || !apiKey) {
     console.error('set SYNQED_CORE_URL and SYNQED_CORE_API_KEY first (values are never printed)')
     process.exit(1)
   }
-  run(process.argv.slice(2), new SynqedClient({ baseUrl, apiKey, businessId: DEV_SALON_BUSINESS_ID })).then(
-    (code) => process.exit(code),
-    (e) => {
-      console.error('count failed:', e instanceof Error ? e.message : String(e))
-      process.exit(1)
-    },
-  )
+  import('@synqed-kk/client')
+    .then(({ SynqedClient }) => run(process.argv.slice(2), new SynqedClient({ baseUrl, apiKey, businessId: DEV_SALON_BUSINESS_ID })))
+    .then(
+      (code) => process.exit(code),
+      (e) => {
+        console.error('count failed:', e instanceof Error ? e.message : String(e))
+        process.exit(1)
+      },
+    )
 }

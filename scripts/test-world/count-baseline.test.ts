@@ -18,7 +18,7 @@ const paged = (key: string, rows: unknown[]) => async ({ page = 1, page_size = 2
   return { [key]: rows.slice((page - 1) * size, page * size), page, page_size: size, total: rows.length }
 }
 
-function fakeCore(o: { business?: string; devEmail?: string; customers?: number } = {}): Core {
+function fakeCore(o: { business?: string; devEmail?: string; customers?: number; packs?: number } = {}): Core {
   const customers = Array.from({ length: o.customers ?? 5 }, (_, i) => ({ id: `c${i}` }))
   const appointments = [
     { store_id: A, starts_at: PAST }, { store_id: A, starts_at: FUTURE }, { store_id: B, starts_at: PAST }, { store_id: null, starts_at: FUTURE },
@@ -34,7 +34,7 @@ function fakeCore(o: { business?: string; devEmail?: string; customers?: number 
     appointments: { list: paged('appointments', appointments) },
     karuteRecords: { list: paged('karute_records', [{ store_id: A }]) },
     recordings: { list: paged('recordings', []) },
-    packs: { listActivePacks: async () => [{}] },
+    packs: { listActivePacks: async () => Array.from({ length: o.packs ?? 1 }, () => ({})) },
   } as unknown as Core
 }
 
@@ -69,13 +69,18 @@ async function main() {
   assert.ok(drop.lines.includes('BASELINE BREACH: テスト東京店 (store-a) · customers · baseline 5 · now 3'), drop.lines.join('\n'))
   assert.ok(drop.lines.includes('BASELINE BREACH: business (business) · customers · baseline 5 · now 3'))
 
-  // 5. wrong business → 2 REFUSED, and no dev@karute.test card → 2.
+  // 5. packs_active drops → 0, no breach line (volatile kind: a used-up pack is play, not loss).
+  const packs = await exec(['check', path], fakeCore({ packs: 0 }))
+  assert.equal(packs.code, 0)
+  assert.ok(!packs.lines.some((l) => l.startsWith('BASELINE BREACH')), packs.lines.join('\n'))
+
+  // 6. wrong business → 2 REFUSED, and no dev@karute.test card → 2.
   const wrong = await exec(['print'], fakeCore({ business: '00000000-0000-0000-0000-000000000000' }))
   assert.equal(wrong.code, 2)
   assert.match(wrong.lines[0], /^REFUSED: /)
   assert.equal((await exec(['check', path], fakeCore({ devEmail: 'someone@else.test' }))).code, 2)
 
-  // 6. usage: write/check need a path.
+  // 7. usage: write/check need a path.
   assert.equal((await exec(['check'], fakeCore())).code, 1)
 
   console.log('✓ count-baseline: all assertions passed')
