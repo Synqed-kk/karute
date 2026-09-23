@@ -342,12 +342,13 @@ describe('PR-2b — the rooms read ROW data only through the door', () => {
   const isFixtures = (spec: string) => /(^|\/)fixtures(-[\w-]+)?$/.test(spec)
   const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   /** Every VALUE a file takes from a fixtures module (`file: name`); a form whose
-   *  names cannot be read off the statement (namespace, dynamic, require) is
-   *  reported whole, so it can never slip a ROW name past the pin. */
+   *  names cannot be read off the statement (namespace, `export *`, dynamic,
+   *  require) is reported whole, so it can never slip a ROW name past the pin. */
   function fixtureValues(file: string, src: string): string[] {
     const code = strip(src)
     const out: string[] = []
-    for (const m of code.matchAll(/\b(?:import|export)\s+(type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    // A default binding may stand before the braces (`import def, { menus } from …`).
+    for (const m of code.matchAll(/\b(?:import|export)\s+(type\s+)?(?:\w+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
       if (m[1] || !isFixtures(m[3])) continue
       for (const spec of m[2].split(',')) {
         const name = spec.trim()
@@ -355,6 +356,7 @@ describe('PR-2b — the rooms read ROW data only through the door', () => {
       }
     }
     for (const m of code.matchAll(/\bimport\s+\*\s+as\s+\w+\s+from\s*['"]([^'"]+)['"]/g)) if (isFixtures(m[1])) out.push(`${file}: * namespace`)
+    for (const m of code.matchAll(/\bexport\s+\*\s+(?:as\s+\w+\s+)?from\s*['"]([^'"]+)['"]/g)) if (isFixtures(m[1])) out.push(`${file}: * namespace`)
     for (const m of code.matchAll(/\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]/g)) if (isFixtures(m[1])) out.push(`${file}: * dynamic`)
     return out
   }
@@ -369,12 +371,16 @@ describe('PR-2b — the rooms read ROW data only through the door', () => {
       "import { business, reserveSync } from '@/business/lib/fixtures'",
       "import * as fx from '@/business/lib/fixtures'",
       "const fx = await import('@/business/lib/fixtures')",
+      "import def, { menus } from '@/business/lib/fixtures'",
+      "export * from '@/business/lib/fixtures'",
+      "export * as fx from '../../../business/lib/fixtures-today'",
     ]) expect({ decoy, caught: forbidden(fixtureValues('decoy', decoy)).length > 0 }).toEqual({ decoy, caught: true })
     for (const honest of [
       "import type { FixtureStaff } from '@/business/lib/fixtures'",
       "// import { menus } from '@/business/lib/fixtures'",
       "import { staffCards, type FixtureAppointment } from '@/business/lib/fixtures'",
       "import { menus } from '@/business/lib/menu-catalog'",
+      "export * from '@/business/lib/menu-catalog'",
     ]) expect({ honest, caught: forbidden(fixtureValues('honest', honest)) }).toEqual({ honest, caught: [] })
   })
 
