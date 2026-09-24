@@ -482,8 +482,9 @@ export interface SettingsRow {
    *
    *  ⚠ ONLY A RECEIPT THAT NAMES A ROW MOVES. A section-level fact (「このページ
    *  の権限」, 「保存先」) is not about any single row, and forcing it into one
-   *  would put a true sentence under a false heading. Those stay in the
-   *  section's own folded card — see `SettingsSection.aside`. */
+   *  would put a true sentence under a false heading. Those go in the
+   *  nearest block's own `facts:` (③, 2026-09-24: the folded card was
+   *  deleted). */
   source?: string
 }
 
@@ -567,7 +568,7 @@ export interface SettingsBlock {
    *  ⚖ D-35 — `dropWhen` names ONE sentence that CONTRADICTS a zero state
    *  (「売らない」 said, then a discount clause for the thing not sold in the
    *  next breath): a sentence that contradicts a zero state is dropped, not
-   *  reworded — the aside already does the same at D-33 R2. See
+   *  reworded — the gap-fill row's `zeroLabel` does the same at D-33 R2. See
    *  `previewTemplate` below, the one place this is resolved. */
   preview: { template: string; attrs?: Record<string, string>; dropWhen?: { controlId: string; is: string; sentence: string } } | null
   /** A block-level action button — canon's エクスポートする, 需要履歴をリセット,
@@ -655,7 +656,6 @@ export interface SettingsSection {
     palette: ReadonlyArray<{ order: number; name: string; hex: string }>
   }
   blocks: SettingsBlock[]
-  aside: { title: string; lines: Array<{ label: string; value: string }>; note: string } | null
   /** `local` = this section's values round-trip through the reader's own
    *  browser, which is 自分の表示設定 and nothing else. */
   persist: 'local' | null

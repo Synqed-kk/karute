@@ -39,6 +39,13 @@ export const DENSITY_CEILING = 12
  *  (`readMinutes(raw, ceiling) ?? DEFAULT_SELL_SLOT_MIN`). */
 export const DEFAULT_SELL_SLOT_MIN = 60
 
+/** The yen unit EVERY price in this module is rounded to — `priceAt`, the
+ *  `clampPriceInputs` ceiling / floor / 最低価格, and the gap-fill / packed-
+ *  session prices (canon rounds to ¥10 with a literal at each site). One home,
+ *  so the rounding and the words can never part: the settings page's Reserve
+ *  受付 fact renders `¥${PRICE_UNIT_YEN}単位` from here. */
+export const PRICE_UNIT_YEN = 10
+
 /** canon's ¥ formatter (`money`, :2736) — same output as the board's `yen`. */
 export const money = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`
 
@@ -58,7 +65,7 @@ export interface PriceFrame {
 export function priceAt(listPrice: number, hour: number, hiPrice: number, hqBase: number, discountDepth: number): number {
   const list = listPrice * (hiPrice / hqBase)
   const depth = ((1 - (SELL_CURVE[hour] ?? 1)) / CURVE_MAX_DIP) * (discountDepth / 100)
-  return Math.round((list * (1 - depth)) / 10) * 10
+  return Math.round((list * (1 - depth)) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
 }
 
 /** canon `clampPriceInputs` (:3046) — the guardrail the Reserve dialog's
@@ -79,10 +86,10 @@ export function clampPriceInputs(
    *  P-2). Canon's reading wins, and canon's two defaults are the store's own
    *  numbers — HQ's ceiling and the store's 基準価格 — not literals. */
   const orDefault = (raw: number | string | null | undefined, fallback: number) => Number(raw || fallback)
-  let hi = Math.round(orDefault(hiRaw, frame.hqMax) / 10) * 10
+  let hi = Math.round(orDefault(hiRaw, frame.hqMax) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
   hi = Math.min(frame.hqMax, Math.max(frame.hqMin, hi))
-  const floor = Math.round((hi * 0.7) / 10) * 10
-  let lo = Math.round(orDefault(loRaw, frame.base ?? floor) / 10) * 10
+  const floor = Math.round((hi * 0.7) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
+  let lo = Math.round(orDefault(loRaw, frame.base ?? floor) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
   lo = Math.min(hi, Math.max(floor, lo))
   return { hi, lo, floor }
 }
@@ -154,14 +161,14 @@ export function gapFillPrice(listPrice: number, startMin: number, endMin: number
   const raw = gapFillRawTotal(listPrice, startMin, endMin, frame, depth)
   const discounted = raw * (1 - discountPct / 100)
   const floor = gapFillFloorTotal(listPrice, endMin - startMin, frame)
-  return Math.round(Math.max(discounted, floor) / 10) * 10
+  return Math.round(Math.max(discounted, floor) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
 }
 
 /** canon `packedPrice` (:5024): full price, no discount, no clamp — and the
  *  same tripwire canon keeps, because "structurally always above the floor"
  *  is only true while the depth cap holds. */
 export function packedPrice(listPrice: number, startMin: number, endMin: number, frame: PriceFrame, depth: number): number {
-  const price = Math.round(gapFillRawTotal(listPrice, startMin, endMin, frame, depth) / 10) * 10
+  const price = Math.round(gapFillRawTotal(listPrice, startMin, endMin, frame, depth) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
   const floor = gapFillFloorTotal(listPrice, endMin - startMin, frame)
   if (price < floor) {
     throw new Error(
