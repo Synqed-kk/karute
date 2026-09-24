@@ -16,10 +16,11 @@
  * (a grayed 破棄済み row off the same ledger) instead of destroying it. The
  * orphan problem is solved by naming the row correctly, not by deleting it.
  *
- * The census argument is unchanged in shape and stronger in result:
- * `deleteRecordingSession` now has ZERO call sites in RecordPageView, so no
- * path through this component can reach it. Every case below asserts that, at
- * the paths that used to be wired and at the paths that never were.
+ * The web action itself is retired outright as of the hard-delete rollback
+ * (2026-09-24) — `deleteRecordingSession` no longer exists on
+ * `@/actions/recordings` at all. This file keeps only the source-level pin:
+ * RecordPageView never imports or calls it, so no path through this
+ * component can reach it.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -31,12 +32,8 @@ jest.mock('@/i18n/navigation', () => ({
   Link: ({ children }: { children: unknown }) => children,
 }))
 
-const mockDeleteRecordingSession = jest.fn(
-  async (_id: string): Promise<{ ok: true } | { error: string }> => ({ ok: true }),
-)
 jest.mock('@/actions/recordings', () => ({
   startRecordingSession: jest.fn(),
-  deleteRecordingSession: (id: string) => mockDeleteRecordingSession(id),
 }))
 /** P5-A: every deliberate discard now passes the written-reason gate first,
  *  and the cleanup only runs once that gate reports success. */
@@ -278,18 +275,9 @@ describe('A2-1 — a reasoned discard KEEPS its session row', () => {
     await renderPage()
     await discardThroughReasonGate('discard')
 
-    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
     // …and the take is still discarded. Keeping the row is not a half-discard:
     // the audio goes, the explanation stays.
     expect(mockDiscardRecording).toHaveBeenCalled()
-  })
-
-  it('ReviewScreen’s 破棄 does NOT clean up either — same reason, same rule', async () => {
-    mockPipelineState = 'review'
-    await renderPage()
-    await discardThroughReasonGate('review-discard')
-
-    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
   })
 
   // The census, asserted rather than asserted-about. The two cases above prove
@@ -313,30 +301,6 @@ describe('A2-1 — a reasoned discard KEEPS its session row', () => {
 })
 
 describe('NOT WIRED — paths where the row must survive', () => {
-  it('the error card’s キャンセル does NOT clean up (the take is KEPT)', async () => {
-    mockPipelineState = 'error'
-    await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('cancel'))
-    })
-    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
-  })
-
-  it('settle-on-save does NOT clean up (the record needs its session)', async () => {
-    mockPipelineState = 'review'
-    await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('review-saved'))
-    })
-    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
-  })
-
-  it('the logout wipe does NOT clean up (a phone job can still land)', async () => {
-    const { wipeSessionVault } = await import('@/lib/karute/logout-wipe')
-    await wipeSessionVault()
-    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
-  })
-
   // ⚖ AND IT KEEPS THE TAKE (slice five, D4). `discard()` cut the mic without
   // running onstop: the take was left unstamped, up to a flush interval short
   // of what was captured, and carrying no `tailIncomplete` — a shape the native
