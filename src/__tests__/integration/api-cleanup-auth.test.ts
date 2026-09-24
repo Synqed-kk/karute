@@ -332,6 +332,8 @@ describe('GET /api/cleanup — the sweep reports, it does not delete', () => {
           ? [
               { name: 'seg', id: null, created_at: null as unknown as string },
               { name: 'seg', id: null, created_at: old },
+              // The transcript memos' folder (PR-5) — the same placeholder row.
+              { name: 'trc', id: null, created_at: old },
               { name: 'ageless.webm', id: 'ageless-1', created_at: null as unknown as string },
               { name: 'garbage-date.webm', id: 'garbage-date-1', created_at: 'not-a-date' },
               { name: 'garbage', id: 'garbage-1', created_at: old },

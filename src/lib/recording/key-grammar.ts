@@ -17,12 +17,20 @@
 // A minted key is the ONLY legitimate source of one (mintRecordingUploadUrl in
 // src/actions/recording-upload.ts and the upload-url facade twin compose it
 // byte-identically), so the grammar is matched POSITIVELY and anything else is
-// refused. Four shapes, ONE parser:
+// refused. Five shapes, ONE parser:
 //
-//     take     app_<businessId>_<lowercase uuid>.<ext>
-//     segment  seg/app_<businessId>_<lowercase uuid>/<6-digit seq>.<ext>
-//     staged   stg/<businessId>_<recordingSessionId>_<lowercase uuid>.<ext>
-//     rescue   rsc/app_<businessId>_<lowercase uuid>.<ext>
+//     take        app_<businessId>_<lowercase uuid>.<ext>
+//     segment     seg/app_<businessId>_<lowercase uuid>/<6-digit seq>.<ext>
+//     staged      stg/<businessId>_<recordingSessionId>_<lowercase uuid>.<ext>
+//     rescue      rsc/app_<businessId>_<lowercase uuid>.<ext>
+//     transcript  trc/<a take or rescue key of the same business>.<ja|en>.json
+//
+// ⚖ THE TRANSCRIPT IS THE PAID ANSWER, KEPT BESIDE ITS AUDIO (PR-5, charge
+// once). The meter writes the provider's answer here after it paid for it and
+// reads it back before it would pay again (src/lib/recording/transcript-memo.ts),
+// so one audio object in one language is transcribed once. The audio key is
+// read back through THIS parser, so the memo is fenced to the business exactly
+// as the audio is — and it is audio of neither kind: no fence below admits it.
 //
 // ⚖ AND THE RESCUE IS THE TAKE KEY UNDER A PREFIX (⚖ Liam 2026-09-06, "b").
 // The nightly assembler rebuilds a dead device's take out of its segments, and
@@ -68,6 +76,10 @@ const STAGED_PREFIX = 'stg/'
  *  in, so the take's own key is never occupied by it (⚖ Liam 2026-09-06, "b").
  *  Exported because the assembler's own docs and the resolver name the prefix. */
 export const RESCUE_PREFIX = 'rsc/'
+const TRANSCRIPT_PREFIX = 'trc/'
+const TRANSCRIPT_SUFFIX = '.json'
+/** Closed set — the two languages runTranscription asks the provider in. */
+const TRANSCRIPT_LOCALES: readonly string[] = ['ja', 'en']
 const UUID_LENGTH = 36
 /**
  * The CLOSED container map — the one place a recorder MIME becomes a key
@@ -105,6 +117,7 @@ export type ParsedRecordingKey =
   | { kind: 'segment'; takeId: string; seq: number; ext: string }
   | { kind: 'staged'; recordingSessionId: string; ext: string }
   | { kind: 'rescue'; takeId: string; ext: string }
+  | { kind: 'transcript'; audioKey: string; locale: 'ja' | 'en' }
 
 /** `<stem>.<ext>` split on the LAST dot, ext from the closed set or nothing. */
 function splitExtension(name: string): { stem: string; ext: string } | null {
@@ -188,6 +201,24 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
     // so the two kinds cannot disagree about what a take body is.
     const body = parseTakeBody(key.slice(RESCUE_PREFIX.length), prefix)
     return body === null ? null : { kind: 'rescue', ...body }
+  }
+
+  if (key.startsWith(TRANSCRIPT_PREFIX)) {
+    // trc/<audio key>.<locale>.json — the locale is split off the LAST dot, and
+    // what remains must read back through this same parser as this business's
+    // take or rescue. That one read refuses a nested memo (its body parses as a
+    // transcript), a segment, a staged copy and every other tenant's audio.
+    const rest = key.slice(TRANSCRIPT_PREFIX.length)
+    if (!rest.endsWith(TRANSCRIPT_SUFFIX)) return null
+    const named = rest.slice(0, -TRANSCRIPT_SUFFIX.length)
+    const dot = named.lastIndexOf('.')
+    if (dot <= 0) return null
+    const locale = named.slice(dot + 1)
+    if (!TRANSCRIPT_LOCALES.includes(locale)) return null
+    const audioKey = named.slice(0, dot)
+    const audio = parseRecordingKey(audioKey, businessId)
+    if (audio?.kind !== 'take' && audio?.kind !== 'rescue') return null
+    return { kind: 'transcript', audioKey, locale: locale as 'ja' | 'en' }
   }
 
   const body = parseTakeBody(key, prefix)
@@ -332,6 +363,38 @@ export function composeRescueKey(
     throw new Error('composed rescue key failed its own grammar')
   }
   return { key, ext: take.ext, contentType: take.contentType }
+}
+
+/**
+ * Compose the TRANSCRIPT-MEMO key for one audio object in one language — where
+ * the meter keeps the answer it paid for (PR-5, charge once).
+ *
+ * `audioKey` must already be this business's take or rescue: the memo is the
+ * transcription of THAT object, so it is named for it and nothing else. A
+ * staged copy, a segment, another tenant's key or a memo key is null — the
+ * caller then simply has no memo, and pays exactly as it did before.
+ *
+ * SAME SELF-CHECK CONTRACT as composeTakeKey: the inputs are validated first,
+ * the composition is parsed back with the SAME parser and compared field by
+ * field, so reaching the throw means this composer and the grammar have drifted
+ * apart — a bug here, never caller input.
+ *
+ * `businessId` is the caller's OWN verified tenant — never a request field.
+ */
+export function composeTranscriptKey(
+  businessId: string,
+  audioKey: unknown,
+  locale: unknown,
+): { key: string } | null {
+  const audio = parseRecordingKey(audioKey, businessId)
+  if (audio?.kind !== 'take' && audio?.kind !== 'rescue') return null
+  if (typeof locale !== 'string' || !TRANSCRIPT_LOCALES.includes(locale)) return null
+  const key = `${TRANSCRIPT_PREFIX}${audioKey as string}.${locale}${TRANSCRIPT_SUFFIX}`
+  const parsed = parseRecordingKey(key, businessId)
+  if (parsed?.kind !== 'transcript' || parsed.audioKey !== audioKey || parsed.locale !== locale) {
+    throw new Error('composed transcript key failed its own grammar')
+  }
+  return { key }
 }
 
 /**
