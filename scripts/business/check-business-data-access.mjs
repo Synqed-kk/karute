@@ -11,7 +11,9 @@
 //      factory — see ALLOW.
 //   2. NO writes, anywhere — .insert( .update( .upsert( .delete( .rpc(.
 //      Zero exemptions, the lock files included: nothing in Business can edit
-//      anything, by construction.
+//      anything, by construction. ONE named exception since 2026-09-24 (⚖ Liam
+//      9/24, A2): the Reserve card colour's one guarded line in
+//      src/business/lib/practice-door/door.ts — see ALLOW.
 //   3. Supabase / service-client READS are legal in EXACTLY two lock files,
 //      src/business/lib/grants.ts and src/business/lib/admission.ts, so the
 //      workspace-grant lock stays real config, not a fixture. Everywhere else
@@ -151,6 +153,15 @@ const ALLOW = [
     reason:
       '⚖ Liam 9/19 practice-salon door (DESIGN-PRACTICE-DOOR.md §2/§9): the ONE server-only core-reach file; ' +
       'explicit-tenant factory only, one import line (either spelling, one occurrence), the tenant throw guards it before any read',
+  },
+  {
+    path: 'src/business/lib/practice-door/door.ts',
+    // Double-quoted for the same reason as the first entry: the settings-screen
+    // suite censuses `label: 'write call .X('` (single quotes) as the guard's banned tokens.
+    label: "write call .upsert(",
+    match: ['orgSettings.upsert({ settings: { reserve_card_color: next } })'],
+    count: 1,
+    reason: '⚖ Liam 9/24 A2 (CONTRACT-CARD-LOOK §5, RULINGS R3): the ONE Business writer — one key, palette-or-null, settings.manage, admitted tenant only, read-before-write, one PUT',
   },
 ]
 

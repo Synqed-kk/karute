@@ -12,6 +12,9 @@
 // factory import at the exact path is green, the same line elsewhere is red,
 // a second occurrence is over budget, the SDK ban still holds there, and the
 // relative spelling is green alone but shares the one-occurrence budget.
+// Cases 16a–16d pin the ONE write exemption (⚖ Liam 9/24, A2): the exact
+// card-colour line in door.ts is green, a copy of it is over budget, any other
+// .upsert( in door.ts is a plain finding, and the same line elsewhere is too.
 
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs'
@@ -215,8 +218,37 @@ assert.equal(doorBothSpellings.length, 2, `expected 2 over-budget findings, got 
 assert.ok(doorBothSpellings.every((f) => f.label === 'allowlist over budget (2 > 1 pinned)'))
 clear('src/business/lib')
 
+// 16a. The ONE Business writer (⚖ Liam 9/24, A2): the exact card-colour line in
+//     door.ts is green under the DEFAULT allow.
+const writerPath = 'src/business/lib/practice-door/door.ts'
+const writerLine = '  const saved = await writer.orgSettings.upsert({ settings: { reserve_card_color: next } })\n'
+write(writerPath, writerLine)
+assert.deepEqual(scanDataAccess(root), [])
+
+// 16b. A second copy of the line in door.ts: 2 > 1 — fails CLOSED.
+write(writerPath, writerLine + writerLine)
+const writerOverBudget = scanDataAccess(root)
+assert.equal(writerOverBudget.length, 2, `expected 2 over-budget findings, got ${JSON.stringify(writerOverBudget)}`)
+assert.ok(writerOverBudget.every((f) => f.label === 'allowlist over budget (2 > 1 pinned)'))
+
+// 16c. Any OTHER .upsert( in door.ts is an ordinary finding (the match is the exact one-key body).
+write(writerPath, writerLine + "  await writer.orgSettings.upsert({ settings: { reserve_card_color: next, other: 1 } })\n")
+const writerOther = scanDataAccess(root)
+assert.equal(writerOther.length, 1, `expected the second upsert flagged, got ${JSON.stringify(writerOther)}`)
+assert.equal(writerOther[0].label, 'write call .upsert(')
+assert.equal(writerOther[0].line, 2)
+clear(writerPath)
+
+// 16d. The SAME line in any other Business file is an ordinary finding.
+write('src/business/lib/data.ts', writerLine)
+const writerWrongPath = scanDataAccess(root)
+assert.equal(writerWrongPath.length, 1, `expected 1 finding at the wrong path, got ${JSON.stringify(writerWrongPath)}`)
+assert.equal(writerWrongPath[0].label, 'write call .upsert(')
+assert.equal(writerWrongPath[0].rel, 'src/business/lib/data.ts')
+clear('src/business/lib')
+
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 20 cases green')
+console.log('✓ business data-access guard selftest: 24 cases green')

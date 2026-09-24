@@ -3,6 +3,11 @@
 // Caller evidence and UNSURE classifications are recorded in the packet report.
 
 export const PUBLIC_ACTIONS: Record<string, string[]> = {
+  // ⚖ A2 (Liam 9/24) — Business's ONE write; its first line is requireBusinessAdmission(), then the
+  // expected-business check, then the door (settings.manage, palette-or-null, one key).
+  'src/app/[locale]/(business)/business/settings/save-card-color.ts': [
+    'saveReserveCardColor',
+  ],
   'src/actions/appointments-window.ts': [
   ],
   'src/actions/appointments.ts': [
@@ -175,6 +180,8 @@ export const PUBLIC_ACTIONS: Record<string, string[]> = {
 }
 
 export const INTERNAL_DEBT: Record<string, string[]> = {
+  'src/app/[locale]/(business)/business/settings/save-card-color.ts': [
+  ],
   'src/actions/appointments-window.ts': [
     'getAppointmentWindow',
   ],

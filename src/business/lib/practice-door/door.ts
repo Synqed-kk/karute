@@ -6,7 +6,8 @@
 // SAMPLE planes (everything core does not hold) stay fixture-shaped and reach the
 // live ids through the facade (./sample-facade), by exact twin, never by position.
 // Every lensed reader first checks the lens against the actor's visible stores
-// (§3). A core error propagates — never an empty list (§7). Nothing here writes.
+// (§3). A core error propagates — never an empty list (§7). Nothing here writes,
+// except the ONE guarded writer (A2, Liam 9/24): `writeReserveCardColor`, one key, one PUT.
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
@@ -46,6 +47,8 @@ import { rulebook } from '../fixtures-settings'
 import { auditTrail, reservations } from '../fixtures-reservations'
 import { jstDayKey, jstMinuteOfDay, jstSlot, jstSlotEnd, renderNow } from '../clock'
 import { normalizeCardColor } from '../reserve-card/card-color'
+import { PALETTE } from '../reserve-card/palette'
+import { practiceTenant } from './switch'
 
 type StoreLens = string | { viewAll: true }
 type DayRange = { from: number; to: number }
@@ -414,6 +417,43 @@ export async function readReserveCardColor(): Promise<string | null> {
   const actor = await practiceActor()
   const org = await orgSettingsOf(actor)
   return normalizeCardColor(org?.settings?.reserve_card_color)
+}
+
+export type WriteCardColorResult =
+  | { ok: true; color: string | null }
+  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core' }
+
+/** ⚖ A2 (Liam 9/24, CONTRACT-CARD-LOOK §5) — THE ONE BUSINESS WRITER: the Reserve card colour.
+ *  OFF has no writer. Only the 12 palette hex values or null, checked before any core call.
+ *  `settings.manage` on core's own answer sheet. Read-before-write through the shared org read: an
+ *  equal value sends nothing. Core merges a one-key PUT (org-settings.service.ts:50), so exactly one
+ *  key is sent and nothing is read-merged-written. A core failure is reported, never swallowed or retried. */
+export async function writeReserveCardColor(next: string | null): Promise<WriteCardColorResult> {
+  if (practiceTenant() === null) return { ok: false, reason: 'tenant' }
+  if (next !== null && !PALETTE.some((c) => c.hex === next)) return { ok: false, reason: 'invalid' }
+  const reach = await import('./core-reach') // lazy, like actor.ts: the OFF path never loads the SDK
+  let actor: PracticeActor
+  try {
+    actor = await practiceActor()
+  } catch (e) {
+    if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
+    throw e
+  }
+  if (!actor.sheet.capabilities.includes('settings.manage')) return { ok: false, reason: 'forbidden' }
+  try {
+    const before = (await orgSettingsOf(actor))?.settings?.reserve_card_color ?? null
+    if (normalizeCardColor(before) === next) return { ok: true, color: next }
+    const writer = reach.orgSettingsWriterFor({ businessId: actor.businessId })
+    const saved = await writer.orgSettings.upsert({ settings: { reserve_card_color: next } })
+    const color = normalizeCardColor(saved?.settings?.reserve_card_color)
+    // R-A2-4 — the audit line (a core audit row is R5, later).
+    console.info('[business card colour]', JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, old: before, new: color, at: renderNow().toISOString() }))
+    return { ok: true, color }
+  } catch (e) {
+    if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
+    console.error('[business card colour] core did not save:', e instanceof Error ? e.message : String(e))
+    return { ok: false, reason: 'core' }
+  }
 }
 
 /** ⚖ A1b · K11 — LIVE: the store's own address, from the door's own core store record (null = none). */

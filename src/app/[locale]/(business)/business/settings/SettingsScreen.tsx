@@ -278,7 +278,23 @@ function useNarrow(): boolean {
  *  予約と確保 gate is shut the server does not assemble it at all. `null` is not
  *  「loading」 and not 「empty」: it is the ONLY shape a reader who may not see the
  *  section is given, and the screen renders that section's own boundary for it. */
-export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null }
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave }
+
+/** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save, handed over by page.tsx ONLY while the practice door is
+ *  ON; absent = today's page-local commit. The screen never imports the action (it is a server action). */
+type CardSaveReason = 'forbidden' | 'tenant' | 'invalid' | 'core'
+type CardSave = {
+  businessId: string
+  save: (expectedBusinessId: string, next: string | null) => Promise<{ ok: true; color: string | null } | { ok: false; reason: CardSaveReason }>
+}
+/** JP-COPY-A2-FINAL.md, byte for byte, by id. */
+const CARD_SAVE_NOTE = '色は事業全体の設定として保存され、お客様が次にReserveのお店ページを開くと表示されます。' // save.note.card
+const CARD_SAVE_FAIL: Record<CardSaveReason, string> = {
+  forbidden: '設定を変更できる権限がないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.forbidden
+  tenant: 'ここからはこの事業の設定を保存できないため、Reserveのカードはこれまでの色のままです。', // save.fail.tenant
+  invalid: '選んだ色が12色に含まれていないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.invalid
+  core: 'いまは保存できないため、時間をおいてもう一度保存してください（Reserveのカードはこれまでの色のままです）。', // save.fail.core
+}
 
 export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
@@ -315,6 +331,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  covers all of it — and it keeps `.delete(`, which the guard really does
    *  ban, out of the room without an exception being argued for. */
   const [committed, setCommitted] = useState<Record<string, boolean>>({})
+  /** ⚖ A2 — why the last real card save did not land (null = none, or it did). */
+  const [cardFail, setCardFail] = useState<CardSaveReason | null>(null)
+  const cardSaving = useRef(false)
   const [results, setResults] = useState<Record<string, string>>({})
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [tourIdx, setTourIdx] = useState(-1)
@@ -511,6 +530,24 @@ export function SettingsScreen(props: SettingsScreenProps) {
     })
     setCommitted((prev) => ({ ...prev, [target.id]: true }))
   }, [values, listRows])
+
+  /** ⚖ A2 — カードの見た目 with the door ON: core first, and the page commits ONLY on core's yes. The
+   *  committed baseline takes core's answer, not the input echoed; a pick made while the save is in
+   *  flight stays a pending change. A throw (network, a refused request) is the 'core' line. */
+  const saveCardSection = useCallback(async (target: SettingsSection, card: CardSave) => {
+    if (cardSaving.current) return
+    cardSaving.current = true
+    setCardFail(null)
+    const picked = String(values[CARD_COLOR_ID] ?? '')
+    const result = await card.save(card.businessId, picked === '' ? null : picked).catch(() => ({ ok: false as const, reason: 'core' as const }))
+    cardSaving.current = false
+    if (!result.ok) {
+      setCardFail(result.reason)
+      return
+    }
+    commitSection(target)
+    setSaved((prev) => ({ ...prev, [CARD_COLOR_ID]: result.color ?? '' }))
+  }, [values, commitSection])
 
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */
@@ -976,7 +1013,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           type="button"
           className="st-save"
           disabled={!dirty || blocked !== null}
-          onClick={() => commitSection(section)}
+          onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : commitSection(section))}
         >
           保存する
         </button>
@@ -1191,8 +1228,17 @@ export function SettingsScreen(props: SettingsScreenProps) {
               reduced={reduced}
               render={(slots) =>
                 columnAnd(
-                  <div className="st-main">{slots.main}<p className="st-foot">{props.demoSaveLine}</p></div>,
-                  sideNode([], slots.preview, roomSave(section), () => false, changed > 0),
+                  <div className="st-main">{slots.main}<p className="st-foot">{props.saveCardColor ? CARD_SAVE_NOTE : props.demoSaveLine}</p></div>,
+                  sideNode(
+                    [],
+                    slots.preview,
+                    <>
+                      {roomSave(section)}
+                      {cardFail && <p className="st-act-error" role="alert">{CARD_SAVE_FAIL[cardFail]}</p>}
+                    </>,
+                    () => false,
+                    changed > 0,
+                  ),
                 )
               }
             />
