@@ -59,7 +59,7 @@ export function InviteStaffDialog({
   const [storeUnknown, setStoreUnknown] = useState(false)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [pending, setPending] = useState<InviteRow[]>([])
+  const [pending, setPending] = useState<InviteRow[] | null>([])
 
   // ⚖ Liam 2026-09-16 — a FRESH invite mints the card, so it needs a NAME
   // always, and a 担当店舗 wherever there is a choice. Picking an EXISTING staff
@@ -320,7 +320,10 @@ export function InviteStaffDialog({
           </div>
         )}
 
-        {pending.length > 0 && (
+        {pending === null && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">{t('pendingInvitesUnavailable')}</p>
+        )}
+        {pending && pending.length > 0 && (
           <div className="border-t border-border/40 pt-3">
             <p className="text-xs font-medium text-muted-foreground mb-2">{t('pendingInvites')}</p>
             <ul className="space-y-1.5">

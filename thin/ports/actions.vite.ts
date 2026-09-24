@@ -1857,9 +1857,10 @@ async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean; reason
 }
 
 // Invites: createInvite is create-class → Idempotency-Key (idemPost). listInvites
-// degrades to [] on ANY failure (web-exact — the web action's own two catches
-// both return []). revokeInvite mirrors createStore's business-result
-// passthrough (2xx { ok: true } | { error } VERBATIM).
+// is web-exact: a 403 (missing staff.invite) → [], any other failure → null,
+// so the dialog shows its could-not-load line on the phone too. revokeInvite
+// mirrors createStore's business-result passthrough
+// (2xx { ok: true } | { error } VERBATIM).
 /** The invite twin of voiceStoreScopeRefusal above, read off an ALREADY-parsed
  *  body: these ports consume res.json() themselves and a Response body can
  *  only be read once. Both invite writes are store-clamped server-side, and
@@ -1892,14 +1893,15 @@ async function facadeCreateInvite(
   }
 }
 
-async function facadeListInvites(): Promise<InviteRow[]> {
+async function facadeListInvites(): Promise<InviteRow[] | null> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/invites')
-    if (!res.ok) return []
+    if (res.status === 403) return []
+    if (!res.ok) return null
     const body = (await res.json().catch(() => null)) as { invites?: InviteRow[] } | null
     return body?.invites ?? []
   } catch {
-    return []
+    return null
   }
 }
 
