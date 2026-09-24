@@ -266,98 +266,7 @@ export async function secureTake(
           (await readTakeSecureMeta(takeId))?.recordingSessionId ?? recordingSessionId
     }
 
-    // The row the mint RESERVES this key on — never null now, and never
-    // re-pointed from the reply: a take's row is what its discard and its
-    // karute write against.
-    const minted = await port.mintTakeUrl(takeId, mimeType, recordingSessionId)
-    // A refusal is a settled ANSWER now, the same as finalize's. Recorded
-    // verbatim: TERMINAL_SECURE_ERRORS is the one place that judges which of
-    // them can ever turn into a yes.
-    if ('error' in minted) {
-      await markTakeSecureError(takeId, minted.error)
-      return
-    }
-
-    // ⚖ NOTHING TO SEND (hotfix 2026-09-05). The mint found this take's own
-    // object already at its own row's reserved key — the PUT landed, only the
-    // finalize was lost — so it signed nothing and there is no `url`. Fall
-    // through to finalize, which re-proves the size against the object
-    // server-side: what the "409 IS a success" note below always intended.
-    //
-    // ⚠ THE VALUE IS THE GUARD. `'url' in minted` alone is a shape check, and
-    // the phone port rebuilds this answer field by field — a `url: undefined`
-    // would pass it and reach fetch. The `in` only tells the COMPILER which arm
-    // carries the field; the half that decides reads the value.
-    if ('url' in minted && minted.url) {
-      // AbortController + a timer, not AbortSignal.timeout: that static is absent
-      // from jsdom (this file's own tests) and from WebViews older than Chrome
-      // 103, where it would throw a TypeError and fail every take instead of
-      // saving them. A plain timer is universal — and it is the only form jest's
-      // fake timers can advance, which is what makes the stall provable.
-      //
-      // Declared INSIDE the block with the PUT it belongs to: the already-there
-      // path must leave no timer armed behind it.
-      const deadline = new AbortController()
-      const putTimer = setTimeout(() => deadline.abort(), putDeadlineMs(blob.size))
-      let put: Response
-      try {
-        put = await fetch(minted.url, {
-          method: 'PUT',
-          // The SERVER's content type for the key it composed, never our own guess:
-          // this is where the iOS "mp4 bytes under a .webm/audio-webm label" bug
-          // dies for the finalized object.
-          headers: { 'content-type': minted.contentType },
-          body: blob,
-          // An abort throws, so a stalled upload lands in the catch below as the
-          // RETRYABLE 'network' — and the finally releases this take, which is
-          // what lets the drain reach the next one.
-          signal: deadline.signal,
-        })
-      } finally {
-        clearTimeout(putTimer)
-      }
-      // 409 IS a success. The mint no longer signs for upsert (PR2 fix round 3):
-      // a finalized key is immutable evidence, so storage refusing a second PUT
-      // to it is exactly right — and for us that refusal means "the object is
-      // ALREADY there". What reaches here is the race the mint's own probe did
-      // not see a moment earlier (a concurrent tab's PUT landing between the
-      // two). So fall through and finalize, which re-proves the byte length and
-      // the ownership before it writes anything.
-      //
-      // Known ceiling: if that first PUT landed with the WRONG bytes, nothing can
-      // replace them under this key. Finalize refuses on the size mismatch and
-      // the take surfaces as 要対応 (R10) for a human to resolve.
-      //
-      // And the refusal does not always carry 409 as its STATUS (fix round 12,
-      // P2) — putSaysAlreadyThere (storage-put.ts) reads the body for the shape that hides
-      // it in a 400.
-      if (!put.ok && !(await putSaysAlreadyThere(put))) {
-        // Nothing is finalized against an object storage refused to take.
-        await markTakeSecureError(takeId, `upload_${put.status}`)
-        return
-      }
-    }
-
-    const result = await port.finalizeTake({
-      takeId,
-      mimeType,
-      // The recorder's live measurement when this IS the stop; the one it
-      // stamped at stop when this is a later retry — settled at the gate above.
-      durationSeconds: Math.max(0, measuredSeconds),
-      byteLength: blob.size,
-      // REQUIRED by the door — the take's own row, stamped on the take before
-      // the mint was even asked.
-      recordingSessionId,
-    })
-    // `already: true` rides the ok arm on purpose — an exact retry and a take a
-    // job already finished are both settled successes, not failures to re-run.
-    // Nothing is stamped here: the session was settled before the mint, above.
-    // The KEY goes on the take with the mark (PR4): the object this leg just
-    // proved is the one the pipeline transcribes and the one the core job's
-    // audio_path names, and `minted.path` is the SERVER's composed key — the
-    // client never assembles a tenant key of its own.
-    if ('ok' in result) await markTakeFinalized(takeId, minted.path)
-    else await markTakeSecureError(takeId, result.error)
+    await secureBlob(port, blob, takeId, recordingSessionId, mimeType, measuredSeconds)
   } catch (err) {
     // A dead socket, or a door that threw instead of answering. The take keeps
     // its audio and stays un-finalized, which is exactly what the retry looks
@@ -368,4 +277,116 @@ export async function secureTake(
   } finally {
     inFlight.delete(takeId)
   }
+}
+
+/**
+ * The mint → PUT → finalize tail, for bytes whose session is already settled
+ * (lifted out of secureTake unchanged, S33). Answers the finalized key, or
+ * null on a settled refusal — which it has already recorded on the take.
+ * Throws only what secureTake's own catch always caught.
+ */
+async function secureBlob(
+  port: RecordingPipelinePort,
+  blob: Blob,
+  takeId: string,
+  recordingSessionId: string,
+  mimeType: string,
+  measuredSeconds: number,
+): Promise<string | null> {
+  // The row the mint RESERVES this key on — never null now, and never
+  // re-pointed from the reply: a take's row is what its discard and its
+  // karute write against.
+  const minted = await port.mintTakeUrl(takeId, mimeType, recordingSessionId)
+  // A refusal is a settled ANSWER now, the same as finalize's. Recorded
+  // verbatim: TERMINAL_SECURE_ERRORS is the one place that judges which of
+  // them can ever turn into a yes.
+  if ('error' in minted) {
+    await markTakeSecureError(takeId, minted.error)
+    return null
+  }
+
+  // ⚖ NOTHING TO SEND (hotfix 2026-09-05). The mint found this take's own
+  // object already at its own row's reserved key — the PUT landed, only the
+  // finalize was lost — so it signed nothing and there is no `url`. Fall
+  // through to finalize, which re-proves the size against the object
+  // server-side: what the "409 IS a success" note below always intended.
+  //
+  // ⚠ THE VALUE IS THE GUARD. `'url' in minted` alone is a shape check, and
+  // the phone port rebuilds this answer field by field — a `url: undefined`
+  // would pass it and reach fetch. The `in` only tells the COMPILER which arm
+  // carries the field; the half that decides reads the value.
+  if ('url' in minted && minted.url) {
+    // AbortController + a timer, not AbortSignal.timeout: that static is absent
+    // from jsdom (this file's own tests) and from WebViews older than Chrome
+    // 103, where it would throw a TypeError and fail every take instead of
+    // saving them. A plain timer is universal — and it is the only form jest's
+    // fake timers can advance, which is what makes the stall provable.
+    //
+    // Declared INSIDE the block with the PUT it belongs to: the already-there
+    // path must leave no timer armed behind it.
+    const deadline = new AbortController()
+    const putTimer = setTimeout(() => deadline.abort(), putDeadlineMs(blob.size))
+    let put: Response
+    try {
+      put = await fetch(minted.url, {
+        method: 'PUT',
+        // The SERVER's content type for the key it composed, never our own guess:
+        // this is where the iOS "mp4 bytes under a .webm/audio-webm label" bug
+        // dies for the finalized object.
+        headers: { 'content-type': minted.contentType },
+        body: blob,
+        // An abort throws, so a stalled upload lands in the catch below as the
+        // RETRYABLE 'network' — and the finally releases this take, which is
+        // what lets the drain reach the next one.
+        signal: deadline.signal,
+      })
+    } finally {
+      clearTimeout(putTimer)
+    }
+    // 409 IS a success. The mint no longer signs for upsert (PR2 fix round 3):
+    // a finalized key is immutable evidence, so storage refusing a second PUT
+    // to it is exactly right — and for us that refusal means "the object is
+    // ALREADY there". What reaches here is the race the mint's own probe did
+    // not see a moment earlier (a concurrent tab's PUT landing between the
+    // two). So fall through and finalize, which re-proves the byte length and
+    // the ownership before it writes anything.
+    //
+    // Known ceiling: if that first PUT landed with the WRONG bytes, nothing can
+    // replace them under this key. Finalize refuses on the size mismatch and
+    // the take surfaces as 要対応 (R10) for a human to resolve.
+    //
+    // And the refusal does not always carry 409 as its STATUS (fix round 12,
+    // P2) — putSaysAlreadyThere (storage-put.ts) reads the body for the shape that hides
+    // it in a 400.
+    if (!put.ok && !(await putSaysAlreadyThere(put))) {
+      // Nothing is finalized against an object storage refused to take.
+      await markTakeSecureError(takeId, `upload_${put.status}`)
+      return null
+    }
+  }
+
+  const result = await port.finalizeTake({
+    takeId,
+    mimeType,
+    // The recorder's live measurement when this IS the stop; the one it
+    // stamped at stop when this is a later retry — settled at the gate above.
+    durationSeconds: Math.max(0, measuredSeconds),
+    byteLength: blob.size,
+    // REQUIRED by the door — the take's own row, stamped on the take before
+    // the mint was even asked.
+    recordingSessionId,
+  })
+  // `already: true` rides the ok arm on purpose — an exact retry and a take a
+  // job already finished are both settled successes, not failures to re-run.
+  // Nothing is stamped here: the session was settled before the mint, above.
+  // The KEY goes on the take with the mark (PR4): the object this leg just
+  // proved is the one the pipeline transcribes and the one the core job's
+  // audio_path names, and `minted.path` is the SERVER's composed key — the
+  // client never assembles a tenant key of its own.
+  if ('ok' in result) {
+    await markTakeFinalized(takeId, minted.path)
+    return minted.path
+  }
+  await markTakeSecureError(takeId, result.error)
+  return null
 }
