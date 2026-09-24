@@ -327,7 +327,7 @@ ledgerRed(ledgerLines.flatMap((l, i) => (i === firstEntry ? [l, '  appended to a
 assert.equal(
   checkLedgerAppend(
     LEDGER,
-    LEDGER + `- 2026-09-24 · cores:${TERRITORY_FILE}#writeReserveCardColor · why\n  wrapped why · who\n` + PR2_LEDGER_LINE,
+    LEDGER + `- 2026-09-24 · cores:${TERRITORY_FILE}#writeReserveCardColor · why\n  wrapped why, who\n` + PR2_LEDGER_LINE,
     territory,
   ),
   null,
@@ -449,4 +449,19 @@ assert.equal(
 const lastAt = tailCut.length + 1 // the last line's first byte
 ledgerRed(LEDGER.slice(0, lastAt) + (LEDGER[lastAt] === 'x' ? 'y' : 'x') + LEDGER.slice(lastAt + 1))
 
-console.log('✓ business isolation gate selftest: 41 cases green')
+// ── a new entry's wrap is prose only (Greptile P2, 9/25) ─────────────────────
+const wrapped = (wrap) => checkLedgerAppend(LEDGER, PR2_LEDGER + wrap + '\n', territory)
+
+// 42. RED (clause 3) — an indented `- ` line under a new entry (reads as a nested entry).
+assert.match(wrapped('  - approved by the owner'), /^clause 3: an inserted wrap line starts a list item or heading/)
+
+// 43. RED (clause 3) — an indented line holding ' · ' (a second key in disguise).
+assert.match(
+  wrapped(`  2026-09-24 · SDK_WRITE_ALLOWLIST:src/actions/org-settings.ts::orgSettings.upsert · ok`),
+  /^clause 3: an inserted wrap line holds the entry separator ' · '/,
+)
+
+// 44. GREEN — a plain indented wrap.
+assert.equal(wrapped('  one PUT per save, the old value in the server log'), null)
+
+console.log('✓ business isolation gate selftest: 44 cases green')

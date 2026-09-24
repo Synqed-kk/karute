@@ -19,7 +19,10 @@
 //     CP8's own parser must still read the head.
 //     One entry per CP8 key (`file` / `file::call`): widening a grant is owner-routed (base entries never change).
 //   - docs/audit-weakening-ledger.md — base lines unchanged and in order; new
-//     lines only; each new entry's key names a territory file.
+//     lines only; each new entry's key names a territory file; a new entry's
+//     wrap lines are indented prose — never a list item or heading, never the
+//     ' · ' separator. Ceiling: the entry's own free-text tail is not judged;
+//     the ledger is read by humans.
 // Everything else outside territory stays refused exactly as before: Karute
 // app paths, src/lib/audit.ts, the scanners, this gate, business-territory.json
 // and ci.yml. The Business WRITERS list (business-territory.json "writers",
@@ -191,7 +194,10 @@ const LEDGER_ENTRY_RE = /^- \d{4}-\d{2}-\d{2} · (.+?) · /
 const LEDGER_KEY_FILE_RE = /^[A-Za-z_]+:(.+?)(?:::|#|$)/
 
 /** Clause 3 of the door. null = base lines intact and in order, and every
- *  inserted line is a territory-keyed entry or that entry's indented wrap. */
+ *  inserted line is a territory-keyed entry or that entry's indented wrap. A
+ *  wrap never starts a list item or heading after its indent and never holds
+ *  ' · ', so it can never read as a second entry with another key. Ceiling:
+ *  the entry's own free-text tail is not judged; the ledger is read by humans. */
 export function checkLedgerAppend(baseText, headText, territory) {
   const base = baseText.split('\n')
   let j = 0
@@ -210,6 +216,10 @@ export function checkLedgerAppend(baseText, headText, territory) {
       inNewEntry = true
     } else if (!(inNewEntry && /^\s+\S/.test(line))) {
       return `clause 3: an inserted ledger line is neither a new '- YYYY-MM-DD · <key> · …' entry nor its indented wrap: ${JSON.stringify(line.slice(0, 80))}`
+    } else if (/^\s+[-*#]/.test(line)) {
+      return `clause 3: an inserted wrap line starts a list item or heading after its indent: ${JSON.stringify(line.slice(0, 80))}`
+    } else if (line.includes(' · ')) {
+      return `clause 3: an inserted wrap line holds the entry separator ' · ' (a wrap never carries a second key): ${JSON.stringify(line.slice(0, 80))}`
     }
   }
   if (j < base.length) return `clause 3: base ledger line ${j + 1} was deleted or edited (append-only)`
