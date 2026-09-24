@@ -600,6 +600,33 @@ describe('the unknown verdict — degraded lookup ≠ unassigned AND ≠ unclamp
     expect(await actorIsUnassigned('staff-1', 'business-1')).toBe(false)
   })
 
+  // Blind-read F3: the OUTER catch — no client at all (the lazy
+  // '@/lib/synqed/client' import itself rejects), not one RPC failing.
+  // resetModules drops jest's cached fake so the next lazy import re-runs the
+  // (now throwing) factory; the modules already imported above keep theirs.
+  it('the client module cannot load (the lazy import REJECTS) → unknown, and the web scope reaches no store', async () => {
+    load(SHAPES[2]) // empty assignment in a two-store business — the branch that asks the verdict
+    jest.resetModules()
+    jest.doMock('@/lib/synqed/client', () => {
+      throw new Error('core client failed to load')
+    })
+    try {
+      expect(await actorStoreVerdict('staff-1', 'business-1')).toBe('unknown')
+      expect(await actorIsUnassigned('staff-1', 'business-1')).toBe(false)
+      expect(await resolveStoreScope()).toEqual({
+        storeId: null,
+        viewAll: false,
+        allowedStoreIds: [],
+        degraded: true,
+      })
+    } finally {
+      jest.doMock('@/lib/synqed/client', () => ({
+        newSynqedClient: () => fakeClient,
+        getSynqedClient: async () => fakeClient,
+      }))
+    }
+  })
+
   it('web: empty assignment + unreadable store list → the degraded reach-no-store scope → outage', async () => {
     load(SHAPES[3]) // floating, ONE store — the carve-out, IF the list can be read
     storesList.mockRejectedValue(new Error('stores.list down'))

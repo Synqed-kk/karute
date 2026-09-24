@@ -44,8 +44,10 @@ import {
   dismissVisitReconcileAction,
   logCustomerContactAction,
   dismissPackAlertAction,
+  undoRedemptionAction,
 } from '@/actions/packs'
 import { can } from '@/lib/auth/require-permission'
+import { getCurrentUserStaffId } from '@/lib/staff'
 
 // Round 2 (2026-09-24): an OUTAGE is not a permission answer.
 it('dismissPackAlertAction: a capability read that FAILS → "write failed", never "forbidden"', async () => {
@@ -63,6 +65,15 @@ it('control: a real denial is still "forbidden"', async () => {
     ok: false,
     error: 'forbidden',
   })
+})
+
+// Round 2 (2026-09-24): an identity-read OUTAGE is not an anonymous undo —
+// refused before any write, never removed_by: null (blind-read F4).
+it('undoRedemptionAction: an identity read that FAILS → "write failed", no write', async () => {
+  getSynqedClient.mockClear()
+  ;(getCurrentUserStaffId as jest.Mock).mockRejectedValueOnce(new Error('roster read failed'))
+  await expect(undoRedemptionAction('r1')).resolves.toEqual({ ok: false, error: 'write failed' })
+  expect(getSynqedClient).not.toHaveBeenCalled()
 })
 
 describe('server-action wrappers: getSynqedClient() rejection degrades gracefully, never throws', () => {
