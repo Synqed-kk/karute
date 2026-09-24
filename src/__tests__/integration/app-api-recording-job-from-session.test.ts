@@ -70,7 +70,8 @@ const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
   recordings: { get: recordingsGet },
   recordingJobs: { enqueue: jobsEnqueue },
-  stores: { get: storesGet },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { get: storesGet, list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: staffStoresGet },
   // The revisit guard calls `.then` on this, so a bare jest.fn() (undefined)
   // throws synchronously and the handler answers 500 instead of the door's own

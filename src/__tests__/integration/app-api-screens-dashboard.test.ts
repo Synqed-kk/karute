@@ -106,7 +106,8 @@ jest.mock('@/lib/packs/store', () => ({
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const storesGet = jest.fn(async () => ({}))
 const fakeClient = {
-  stores: { get: storesGet },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { get: storesGet, list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: staffStoresGet },
   karuteRecords: { list: jest.fn(async () => ({ karute_records: [] })) },
   packs: { listRecentRedemptions: jest.fn(async () => []) },

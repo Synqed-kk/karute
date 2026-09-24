@@ -326,14 +326,17 @@ describe('roster seams (server → client)', () => {
     ])
   })
 
-  it('staff-switch drawer is UNAFFECTED by a degraded scope (keeps the fallback)', async () => {
+  // Round 2 (2026-09-24, D-S16-4): a degraded scope reaches NO store, so the
+  // drawer's roster is the union over no store — the viewer alone, never
+  // another branch's names.
+  it('staff-switch drawer on a degraded scope: the viewer only, never the full roster', async () => {
     degradedActor()
     const el = await DashboardLayout({
       children: null,
       params: Promise.resolve({ locale: 'ja' }),
     })
     const data = propsWith(el, 'data')?.data as { staffList: { id: string }[] }
-    expect(ids(data.staffList)).toEqual(ids(roster))
+    expect(ids(data.staffList)).toEqual(['profile-self'])
   })
 
   it('設定→スタッフ list goes BLIND when resolveStoreScope THREW (scope null, not just degraded) — SELF ONLY', async () => {

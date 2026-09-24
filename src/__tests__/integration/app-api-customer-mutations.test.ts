@@ -49,7 +49,9 @@ const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string
 const fakeClient = {
   customers: { revokeConsent, uploadPhoto, listPhotos, deletePhoto },
   staffStores: { get: (id: string) => staffStoresGet(id) },
-  stores: { get: jest.fn(async () => ({ id: 'store-a' })) },
+  // One store: floating = the single-store carve-out (a readable list is
+  // required — an unreadable one is `unknown` and refused).
+  stores: { get: jest.fn(async () => ({ id: 'store-a' })), list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
 }
 // Relearn transcript read — spied so the owner-gate tests can distinguish
 // "gate refused before any read" from "read ran, nothing to relearn".

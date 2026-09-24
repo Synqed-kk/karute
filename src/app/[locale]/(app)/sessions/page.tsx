@@ -44,8 +44,9 @@ export default async function SessionsPage({
   // ⚖ Liam 2026-08-17: the 録音 picker must not offer another branch's
   // customers, so this array carries the clamped actor's store lens only
   // (server-filtered → the picker's client-side search is clamped too).
-  // viewAll, floating and degraded stay business-wide — reads ignore
-  // `degraded` by the shipped F-A convention.
+  // viewAll and floating stay business-wide; a degraded scope (an unreadable
+  // assignment) reaches no store since Round 2 (2026-09-24, D-S16-4) and
+  // takes the `null` lens below.
   //
   // The array is ALSO the fallback name map for the 録音履歴 rows, the recovery
   // banner and the re-point dialog. Those rows carry their own customerName

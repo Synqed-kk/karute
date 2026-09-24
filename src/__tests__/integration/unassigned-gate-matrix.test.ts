@@ -19,7 +19,10 @@
  *                            still answers empty rather than business-wide.
  *
  * The five shapes are the whole definition's truth table: only ONE of them is
- * unassigned, and the other four must be BYTE-IDENTICAL to today.
+ * unassigned. Three of the other four are byte-identical to before; the
+ * DEGRADED shape (assignment unreadable) changed in Round 2 (2026-09-24,
+ * D-S16-4, discussed, default): on the web it reaches NO store and the shell
+ * shows the outage screen — neither unassigned nor unclamped.
  */
 
 import type { Capability } from '@/lib/auth/permissions'
@@ -69,8 +72,9 @@ const mockCookieSet = jest.fn()
 jest.mock('next/headers', () => ({
   cookies: jest.fn(async () => ({ get: () => undefined, set: mockCookieSet, delete: jest.fn() })),
 }))
+const mockStaffId = jest.fn(async (): Promise<string | null> => 'staff-1')
 jest.mock('@/lib/staff', () => ({
-  getCurrentUserStaffId: async () => 'staff-1',
+  getCurrentUserStaffId: () => mockStaffId(),
   getBusinessId: async () => 'business-1',
   getStaffList: async () => [],
   businessIdForUser: async () => 'business-1',
@@ -102,11 +106,13 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 import { capabilitiesForUser } from '@/lib/auth/require-permission'
-import { resolveStoreScope, viewerIsUnassigned } from '@/lib/auth/store-scope'
+import { resolveShellGate, resolveStoreScope, viewerIsUnassigned } from '@/lib/auth/store-scope'
 import { resolveStoreForRequest, resolveExportStoreId } from '@/lib/app-api/store-clamp'
 import {
   storeCountForGate,
   actorIsUnassigned,
+  actorStoreVerdict,
+  STORE_SCOPE_UNVERIFIED_DENIAL,
   STORE_UNASSIGNED_DENIAL,
   storeAssignmentVerdict,
 } from '@/lib/auth/store-gate'
@@ -198,13 +204,24 @@ describe('unassigned gate — the layer matrix', () => {
         const caps = await capabilitiesForUser('staff-1')
         const gate = await viewerIsUnassigned()
         const scope = await resolveStoreScope()
+        const shell = await resolveShellGate()
 
         if (shape.unassigned) {
           expect(caps.size).toBe(0)
           expect(gate).toBe(true)
+          expect(shell).toBe('unassigned')
           expect(scope.allowedStoreIds).toEqual([])
           expect(scope.storeId).toBeNull()
+        } else if (shape.assignment === null) {
+          // Round 2, 2026-09-24, D-S16-4 (discussed, default): an UNREADABLE
+          // assignment is neither unassigned (capabilities kept, no unassigned
+          // screen) nor unclamped (no store at all) — the outage screen.
+          expect(caps.size).toBeGreaterThan(0)
+          expect(gate).toBe(false)
+          expect(shell).toBe('outage')
+          expect(scope).toEqual({ storeId: null, viewAll: false, allowedStoreIds: [], degraded: true })
         } else {
+          expect(shell).toBe('ok')
           expect(caps.size).toBeGreaterThan(0)
           expect(gate).toBe(false)
           // Every non-unassigned shape keeps today's clamp exactly.
@@ -218,7 +235,12 @@ describe('unassigned gate — the layer matrix', () => {
           shape: shape.name,
           transport: 'web',
           caps: caps.size === 0 ? 'EMPTY' : `${caps.size} capabilities`,
-          frontGate: gate ? '担当店舗が未設定です screen' : 'app shell (unchanged)',
+          frontGate:
+            shell === 'unassigned'
+              ? '担当店舗が未設定です screen'
+              : shell === 'outage'
+                ? 'outage screen (retrying), no data'
+                : 'app shell (unchanged)',
           scope: lens(scope.allowedStoreIds, scope.storeId),
           backstopsGateOff: await webBackstops(scope),
         })
@@ -509,15 +531,96 @@ describe('setActiveStore — the third flip point (M5 fold)', () => {
     expect(mockCookieSet).not.toHaveBeenCalled()
   })
 
-  it('a DEGRADED lookup (strict null — the lookup itself failed) is NOT refused by this clause', async () => {
+  // Round 2, 2026-09-24, D-S16-4 (discussed, default) — INVERTED: a lookup
+  // that failed used to fall through and pin ANY store.
+  it('a DEGRADED lookup (strict null — the lookup itself failed) is REFUSED as unverified, cookie never set', async () => {
     load(SHAPES[4]) // degraded (lookup failed)
     const result = await setActiveStore('store-ginza')
-    expect(result).toEqual({ ok: true })
-    expect(mockCookieSet).toHaveBeenCalledWith(
-      'karute_active_store',
-      'store-ginza',
-      expect.any(Object),
-    )
+    expect(result).toEqual({ error: STORE_SCOPE_UNVERIFIED_DENIAL })
+    expect(mockCookieSet).not.toHaveBeenCalled()
+  })
+
+  it('a caller the roster cannot place (uid null) is REFUSED as unverified, cookie never set', async () => {
+    load(SHAPES[1]) // an assignment that would otherwise pass
+    mockStaffId.mockResolvedValue(null)
+    try {
+      const result = await setActiveStore('store-ginza')
+      expect(result).toEqual({ error: STORE_SCOPE_UNVERIFIED_DENIAL })
+      expect(mockCookieSet).not.toHaveBeenCalled()
+    } finally {
+      mockStaffId.mockResolvedValue('staff-1')
+    }
+  })
+
+  it('a roster OUTAGE (the staff read rejects) is the same unverified refusal — never a silent rejection', async () => {
+    load(SHAPES[1])
+    mockStaffId.mockRejectedValue(new Error('roster read failed'))
+    try {
+      await expect(setActiveStore('store-ginza')).resolves.toEqual({ error: STORE_SCOPE_UNVERIFIED_DENIAL })
+      expect(mockCookieSet).not.toHaveBeenCalled()
+    } finally {
+      mockStaffId.mockResolvedValue('staff-1')
+    }
+  })
+
+  it('control: an ASSIGNED actor pinning their own store still succeeds', async () => {
+    load(SHAPES[1]) // assigned (銀座 staff)
+    await expect(setActiveStore('store-ginza')).resolves.toEqual({ ok: true })
+    expect(mockCookieSet).toHaveBeenCalledWith('karute_active_store', 'store-ginza', expect.any(Object))
+  })
+})
+
+// ── Round 2 (2026-09-24, D-S16-4, discussed, default): UNKNOWN ──────────────
+// An unreadable fact is its own verdict — never `unassigned` (a staffing fact)
+// and never `unclamped` (every store).
+describe('the unknown verdict — degraded lookup ≠ unassigned AND ≠ unclamped', () => {
+  it('assignment lookup FAILED (assigned null) → unknown, whatever the store count', () => {
+    for (const storeCount of [null, 0, 1, 2]) {
+      const v = storeAssignmentVerdict({ viewAll: false, assigned: null, storeCount })
+      expect(v).toBe('unknown')
+    }
+  })
+
+  it('empty assignment + UNREADABLE store list (storeCount null) → unknown, not the carve-out', () => {
+    expect(storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: null })).toBe('unknown')
+    // The carve-out needs a KNOWN count — unchanged for 0 and 1.
+    expect(storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: 1 })).toBe('unclamped')
+    expect(storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: 0 })).toBe('unclamped')
+  })
+
+  it('the resolution answers unknown on both failures, and actorIsUnassigned stays FALSE on it', async () => {
+    load(SHAPES[4]) // assignment lookup fails
+    expect(await actorStoreVerdict('staff-1', 'business-1')).toBe('unknown')
+    expect(await actorIsUnassigned('staff-1', 'business-1')).toBe(false)
+
+    load(SHAPES[2]) // empty assignment, two stores …
+    storesList.mockRejectedValueOnce(new Error('stores.list down')) // … list unreadable
+    expect(await actorStoreVerdict('staff-1', 'business-1')).toBe('unknown')
+    storesList.mockRejectedValueOnce(new Error('stores.list down'))
+    expect(await actorIsUnassigned('staff-1', 'business-1')).toBe(false)
+  })
+
+  it('web: empty assignment + unreadable store list → the degraded reach-no-store scope → outage', async () => {
+    load(SHAPES[3]) // floating, ONE store — the carve-out, IF the list can be read
+    storesList.mockRejectedValue(new Error('stores.list down'))
+    try {
+      expect(await resolveStoreScope()).toEqual({
+        storeId: null,
+        viewAll: false,
+        allowedStoreIds: [],
+        degraded: true,
+      })
+      expect(await resolveShellGate()).toBe('outage')
+    } finally {
+      storesList.mockReset()
+      storesList.mockImplementation(async () => ({
+        stores: fixture.stores.map((id, i) => ({
+          id,
+          is_primary: i === 0,
+          active: !fixture.inactiveStores.includes(id),
+        })),
+      }))
+    }
   })
 })
 

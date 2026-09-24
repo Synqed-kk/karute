@@ -96,11 +96,11 @@ export default async function AppointmentsPage({
   // layout this request, so this is a memo hit, not a serialized roundtrip.
   const storeScope = await t.phase('storeScope', () => resolveStoreScope())
   // Clamped → the single active-store lens (server-filtered, so the combobox's
-  // client-side search is store-clamped by construction). viewAll, floating
-  // and degraded stay business-wide: reads ignore `degraded` by the shipped
-  // F-A convention — the fail-closed blindness the menu clamp below applies is
-  // a WRITE-offer posture, not the read plane's. `null` = clamped with no store
-  // to name: an EMPTY combobox, never the business-wide one (customerLensFor).
+  // client-side search is store-clamped by construction). viewAll and floating
+  // stay business-wide. `null` = a viewer who reaches no store — unassigned, or
+  // degraded (an unreadable assignment reaches no store since Round 2,
+  // 2026-09-24, D-S16-4): an EMPTY combobox, never the business-wide one
+  // (customerLensFor).
   const customerLens = customerLensFor(storeScope)
 
   const [

@@ -164,6 +164,8 @@ const fakeClient = {
   recordingDiscards: new ThisSensitiveDiscardClient(discardCreate, discardList),
   recordings: { update: recordingUpdate, get: recordingsGet },
   staffStores: { get: jest.fn(async () => ({ store_ids: assignedStores.current })) },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
 }
 
 // forwardToCore's own dynamically-imported client (the durable WRITE).
