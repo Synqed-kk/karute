@@ -358,6 +358,8 @@ export interface ControlOption {
   label: string
   /** A colour swatch's own paint. Only `swatch` uses it. */
   hex?: string
+  /** ⚖ PR-3 — a select's unset state (「未設定」): shown selected, never choosable. */
+  disabled?: true
 }
 
 export type ControlKind =
@@ -494,6 +496,14 @@ export interface SettingsBlock {
   note: string
   /** 準備中 / 適用範囲: 組織全体 / 本部設定 — canon's own block-head chip. */
   flag?: string
+  /** ⚖ PR-3 — the practice door is ON and this block shows SAMPLE values
+   *  (dials or a fixture-only plane): the 「サンプル」 chip beside `flag` and the
+   *  note line under the lead. Absent (never `false`) everywhere else, so the
+   *  switch-OFF payload is byte-identical. */
+  sample?: true
+  /** ⚖ PR-3 — the store has no sample plane for this block's SAMPLE part: the
+   *  designed card where the bare 「サンプル設定なし」 used to print. */
+  sampleNone?: true
   /** ⚖ S17 STEP 1 — the ONE block whose rows are a WEEK rather than a list.
    *
    *  営業時間 is seven rows that all answer the same three questions (営業する ·
@@ -656,6 +666,12 @@ export interface SettingsSection {
     palette: ReadonlyArray<{ order: number; name: string; hex: string }>
   }
   blocks: SettingsBlock[]
+  /** ⚖ PR-3 — the section-level forms of `SettingsBlock.sample` / `.sampleNone`:
+   *  a block-less section whose dials are SAMPLE (予約と確保), and a
+   *  SAMPLE-only section on a store with no sample plane (zero blocks → the
+   *  card in the body slot, the lead kept). */
+  sample?: true
+  sampleNone?: true
   /** `local` = this section's values round-trip through the reader's own
    *  browser, which is 自分の表示設定 and nothing else. */
   persist: 'local' | null

@@ -887,6 +887,8 @@ describe('the fixture data door', () => {
         './StorePolicySection',
         // ⚖ A1b — …and カードの見た目's picker + ported card for its row.
         './ReserveCardLookSection',
+        // ⚖ PR-3 — the 「サンプル」 mark's strings: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/settings',
         '@/business/lib/settings-words',

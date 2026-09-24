@@ -2050,8 +2050,9 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // `aria-disabled`, never `disabled`, on a locked control: it has to stay
     // focusable for its reason to be reachable by keyboard. The two `disabled`
     // attributes in this file are the save button and the tour's 前へ, which are
-    // genuinely unusable rather than refusing.
-    expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(2)
+    // genuinely unusable rather than refusing — and (⚖ PR-3) a select's
+    // 「未設定」 option, which is a state shown, never a choice offered.
+    expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(3)
   })
 
   it('the room’s own SOURCE keeps the codes where codes belong', () => {
@@ -3819,10 +3820,24 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
         if (name && /^[a-z][\w-]*$/.test(name)) rendered.add(name)
       }
     }
-    const SHELL = new Set(['page', 'pg-settings', 'btn', 'primary'])
+    // ⚖ PR-3 — the 「サンプル」 mark is ONE token for two rooms, so it is the shell sheet's.
+    const SHELL = new Set(['page', 'pg-settings', 'btn', 'primary', 'sample-mark', 'sample-mark-note', 'sample-mark-line', 'sample-pop', 'no-sample'])
     const strays = [...rendered].filter((n) => !n.startsWith('st-') && !n.startsWith('is-') && !SHELL.has(n))
     expect(strays).toEqual([])
     expect([...rendered].filter((n) => n.startsWith('st-')).length).toBeGreaterThan(35)
+  })
+
+  // ⚖ PR-3 — the room draws the mark and the card ONLY off the payload's own flags,
+  // which the builders emit only when true (so a switch-OFF payload never has them).
+  it('PR-3: chip + note on `block.sample`, the card on `block.sampleNone` / `section.sampleNone`, the section mark on `section.sample`', () => {
+    for (const gate of [
+      '{block.sample && <MarkChip ',
+      '{block.sample && <MarkNote ',
+      '{block.sampleNone && <NoSample />}',
+      '{section.sampleNone && <NoSample />}',
+      '{section.sample && <SampleMark ',
+    ]) expect(SCREEN_CODE.split(gate).length - 1).toBe(1)
+    expect(SCREEN_CODE.match(/<(MarkChip|MarkNote|NoSample|SampleMark)\b/g)).toHaveLength(7) // the five gated + SampleMark's own chip + note
   })
 
   it('this room’s own names exist NOWHERE else in the family', () => {

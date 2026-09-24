@@ -71,6 +71,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
+import { businessStrings } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
@@ -977,6 +978,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           )}
         </p>
       )}
+      {section.sample && <SampleMark id={`st-mark-${section.id}`} reduced={reduced} />}
     </div>
   )
 
@@ -1269,6 +1271,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           ) : (
             columnAnd(
               <div className="st-main">
+                {section.sampleNone && <NoSample />}
                 {section.blocks.map((b) => (
                   <Block
                     key={b.id}
@@ -1569,6 +1572,76 @@ function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: 
   )
 }
 
+// ── ⚖ PR-3 — the 「サンプル」 mark ────────────────────────────────────────────
+//
+// ONE token (`.sample-mark` in the shell sheet, amber wash — never black), ONE
+// string home (`businessStrings.sampleMark`). The chip opens its two-line
+// explanation on the room's ONE disclosure (`Collapse` → `makeSpring`): no
+// second easing, and an inline panel rather than a floating popover because
+// that is the shape `Collapse` has. Esc on the chip closes it; focus never left
+// the chip, so it is already where it returns to.
+
+const MARK = businessStrings.sampleMark
+
+function MarkChip({ open, controls, onToggle }: { open: boolean; controls: string; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="sample-mark"
+      aria-expanded={open}
+      aria-controls={controls}
+      aria-label={MARK.chipLabel}
+      data-guide-title={MARK.popLabel}
+      data-guide={`${MARK.popLine1}${MARK.popLine2}`}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) {
+          e.stopPropagation()
+          onToggle()
+        }
+      }}
+    >
+      {MARK.chip}
+    </button>
+  )
+}
+
+/** The note line, and under it the chip's explanation on `Collapse`. */
+function MarkNote({ id, open, reduced }: { id: string; open: boolean; reduced: boolean }) {
+  return (
+    <>
+      <p className="sample-mark-note">{MARK.markNote}</p>
+      <Collapse open={open} id={id} reduced={reduced}>
+        <div className="sample-pop" role="note" aria-label={MARK.popLabel}>
+          <p>{MARK.popLine1}</p>
+          <p>{MARK.popLine2}</p>
+        </div>
+      </Collapse>
+    </>
+  )
+}
+
+/** A block-less section's mark (予約と確保): chip + note on one line under the lead. */
+function SampleMark({ id, reduced }: { id: string; reduced: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="sample-mark-line">
+      <MarkChip open={open} controls={id} onToggle={() => setOpen((o) => !o)} />
+      <MarkNote id={id} open={open} reduced={reduced} />
+    </div>
+  )
+}
+
+/** The `no-sample-policy` state: where 「サンプル設定なし」 used to print. */
+function NoSample() {
+  return (
+    <div className="no-sample" role="note" data-guide-title={MARK.noneHead} data-guide={MARK.noneText}>
+      <b>{MARK.noneHead}</b>
+      <p>{MARK.noneText}</p>
+    </div>
+  )
+}
+
 // ── a block ────────────────────────────────────────────────────────────────
 
 function Block({
@@ -1608,6 +1681,7 @@ function Block({
   onListRemove: (rowId: string) => void
   reduced: boolean
 }) {
+  const [markOpen, setMarkOpen] = useState(false)
   const roomBlock = wordsRoomBlock(section, seed.id, values)
   const block: SettingsBlock = roomBlock === null ? seed : { ...seed, ...(roomBlock.title === undefined ? {} : { title: roomBlock.title }), ...(roomBlock.note === undefined ? {} : { note: roomBlock.note }) }
   const rows = block.table === null ? block.table : filterTable(block, values)
@@ -1636,9 +1710,11 @@ function Block({
             jump has to move the caret as well as the page, or a keyboard reader
             presses 「営業時間」 and is still standing in the list. */}
         <h3 id={`st-blkh-${block.id}`} tabIndex={-1}>{block.title}</h3>
+        {block.sample && <MarkChip open={markOpen} controls={`st-mark-${block.id}`} onToggle={() => setMarkOpen((o) => !o)} />}
         {block.flag && <span className="st-flag is-soon">{block.flag}</span>}
       </div>
       {block.note && <p className="st-block-note">{block.note}</p>}
+      {block.sample && <MarkNote id={`st-mark-${block.id}`} open={markOpen} reduced={reduced} />}
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.layout === 'week' ? (
@@ -1750,6 +1826,8 @@ function Block({
           <p className="st-pv-text">{block.words.copy.exampleLabel}: {sentences.example}</p>
         </div>
       )}
+
+      {block.sampleNone && <NoSample />}
 
       {block.facts.map((f, index) => (
         <p className="st-fact" key={f}>{roomBlock?.facts[index] ?? (turnoverFact?.index === index ? turnoverFact.sentence : liveFact?.index === index ? liveFact.sentence : f)}</p>
@@ -2221,7 +2299,7 @@ function Control({
         onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
       >
         {k.options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+          <option key={opt.value} value={opt.value} disabled={opt.disabled}>{opt.label}</option>
         ))}
       </select>
     )
