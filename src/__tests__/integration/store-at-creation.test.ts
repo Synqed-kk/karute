@@ -17,6 +17,7 @@ import { createInviteCore, listInvitesWithClient, reinviteTargetStaffIdWithClien
 import { setStaffStoresAtCreationCore } from '@/actions/stores'
 import { createStoreCore } from '@/lib/stores/stores.core'
 import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
+import { ROLE_PRESETS } from '@/lib/auth/permissions'
 import {
   INVITE_NAME_REQUIRED,
   STAFF_CREATE_FAILED,
@@ -802,7 +803,8 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
 // (chooseStaffToLink → staff.update) with no change to acceptInvite at all.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('a fresh invite makes the card', () => {
-  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
+  // The inviter holds the full owner preset — the role cap is pinned in invite-role-cap.test.ts.
+  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null, callerCapabilities: new Set(ROLE_PRESETS.owner) }
 
   function inviteClient(opts: Parameters<typeof client>[0] = {}) {
     const c = client(opts)
@@ -1693,7 +1695,8 @@ describe('a creator keeps their own invite only while its target is storeless (F
 })
 
 describe('one pending fresh invite per email (F4)', () => {
-  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
+  // The inviter holds the full owner preset — the role cap is pinned in invite-role-cap.test.ts.
+  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null, callerCapabilities: new Set(ROLE_PRESETS.owner) }
 
   function pendingClient(pending: { email: string; status: string }[]) {
     const c = client({ stores: ['store-ginza'] })

@@ -253,3 +253,12 @@ export const INVITE_ALREADY_PENDING = 'INVITE_ALREADY_PENDING'
  * copy at each door, like its siblings above.
  */
 export const STAFF_CREATE_FAILED = 'STAFF_CREATE_FAILED'
+
+/**
+ * The refusal when an invite's role would hand the new person a capability the
+ * INVITER does not hold (hold what you grant — the rule setStaffPermissionsCore
+ * already enforces on permission edits). The accepted role becomes that role's
+ * full preset, so a custom role holding staff.invite could otherwise mint a
+ * manager. Machine code, mapped to copy at each door, like its siblings above.
+ */
+export const INVITE_ROLE_EXCEEDS_CALLER = 'INVITE_ROLE_EXCEEDS_CALLER'

@@ -36,7 +36,8 @@ const can = jest.fn<Promise<boolean>, [string]>(async () => true)
 jest.mock('@/lib/auth/require-permission', () => ({
   can: (c: string) => can(c),
   requireCapability: jest.fn(async () => {}),
-  getMyCapabilities: jest.fn(async () => new Set(['staff.manage'])),
+  // + the practitioner preset a STYLIST invite seeds (hold what you grant).
+  getMyCapabilities: jest.fn(async () => new Set(['staff.manage', 'records.write', 'customers.view', 'customers.manage', 'bookings.manage'])),
 }))
 
 // The clamp's own module — stubbed to a switch so this file pins the WIRING

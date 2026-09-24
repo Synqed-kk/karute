@@ -165,6 +165,9 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
       source: 'facade',
       requestId: ctx.meta.requestId,
       creatorAllowedStoreIds: allowedStoreIds,
+      // The Bearer twin of web's getMyCapabilities — the core refuses a role
+      // whose preset the caller does not hold (soft 200 machine code).
+      callerCapabilities: ctx.identity.capabilities,
     },
     invitedBy,
     parsed.data,

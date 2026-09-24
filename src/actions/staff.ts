@@ -174,6 +174,8 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
     revalidatePath('/settings')
     updateTag('staff-list')
   } catch (err) {
+    // A refusal (the owner guard) is not a system error — answer it as one.
+    if (err instanceof AppApiError && err.code === 'forbidden') return { error: t('noPermission') }
     console.error('[updateStaff]', err)
     return { error: t('somethingWentWrong') }
   }
