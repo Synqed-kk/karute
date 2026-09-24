@@ -268,6 +268,13 @@ describe('⚖ A2 — the route: strict same-origin, 409 on the wrong business, e
     expect(await answer(await put())).toEqual({ status: 503, body: { ok: false, reason: 'core' } })
   })
 
+  it.each(['staffList', 'answerSheet'] as const)('503 — the actor’s %s read fails while the save is prepared: core, never a 500, and no PUT', async (read) => {
+    withReads()[read].mockRejectedValue(new Error('boom'))
+    expect(await answer(await put())).toEqual({ status: 503, body: { ok: false, reason: 'core' } })
+    expect(mockCore.upsert).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith('[business card colour] core did not answer:', 'boom')
+  })
+
   it('409 — switch OFF: the door has no writer', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     expect(await answer(await put())).toEqual({ status: 409, body: { ok: false, reason: 'tenant' } })

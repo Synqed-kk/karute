@@ -437,7 +437,9 @@ export async function writeReserveCardColor(next: string | null): Promise<WriteC
     actor = await practiceActor()
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
-    throw e
+    // The route promises 503 honesty: a failed staff / sheet / store read is core's failure, never a 500.
+    console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
+    return { ok: false, reason: 'core' }
   }
   if (!actor.sheet.capabilities.includes('settings.manage')) return { ok: false, reason: 'forbidden' }
   try {
