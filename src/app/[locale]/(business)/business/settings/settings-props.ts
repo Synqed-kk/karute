@@ -839,7 +839,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           trio: {
             base: '初期値: 無給',
             guardrail: `金額を動かす設定のため、人件費を見られる役職（${shiftsPolicy.laborCostRoles.join('・')}）だけが変えられます。`,
-            businessType: '業種による初期値: サロンは無給、固定シフトのお店は有給が多いです。',
+            businessType: businessTypeNote('サロンは無給、固定シフトのお店は有給が多いです。'),
           },
         }),
       ], {
@@ -1006,6 +1006,13 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSe
 const TICKET_FLOOR_RATIO = 0.7
 const floorPriceOf = (listPrice: number) => Math.round((listPrice * TICKET_FLOOR_RATIO) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
 
+/** The trio's third line — how a setting differs by business type. It is
+ *  printed, never obeyed: no row here reads a per-type value, so the prefix
+ *  promises no default. ONE home for the prefix; every row goes through
+ *  `businessTypeNote`. */
+export const BUSINESS_TYPE_NOTE_PREFIX = '業種による違い: '
+const businessTypeNote = (body: string) => BUSINESS_TYPE_NOTE_PREFIX + body
+
 // ── 人・設備 ────────────────────────────────────────────────────────────────
 
 function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
@@ -1162,7 +1169,7 @@ function payments(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           trio: {
             base: '初期値: ¥0',
             guardrail: `上限は${yen(MAX_CASH_TOLERANCE)}です。これ以上にすると、取引まるごとの抜けが差異として通ってしまいます。`,
-            businessType: '業種による初期値: 施術のお店は¥0、少額の現金売りが多いお店は数百円が目安です。',
+            businessType: businessTypeNote('施術のお店は¥0、少額の現金売りが多いお店は数百円が目安です。'),
           },
         }),
       ], {
@@ -1204,7 +1211,7 @@ function customerContact(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
             // not a cap constant. The short side is already in the row's own
             // description above.
             guardrail: '長すぎると、来なくなったお客様にも声をかけ続けることになります。',
-            businessType: '業種による初期値: 来店の間隔は業種で大きく違うため、業種ごとの初期値を持ちます。',
+            businessType: businessTypeNote('来店の間隔は業種で大きく変わるため、日数は店舗ごとに決めます。'),
           },
         }),
       ], {
@@ -1553,7 +1560,7 @@ function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           trio: {
             base: '初期値: 使わない（お申し込みで使えるようになります）',
             guardrail: 'オフにしても、すでにある記録は消えません。保存期間の設定に従います。',
-            businessType: '業種による初期値: 会話の項目名は業種の言葉に合わせて変わります。',
+            businessType: businessTypeNote('会話の項目名は業種の言葉に合わせて変わります。'),
           },
         }),
         row('coaching.row-sharing', '共有の方針', 'スタッフが自分の振り返りを誰に見せられるかの範囲です。許可を出すのは常に本人です。', [
