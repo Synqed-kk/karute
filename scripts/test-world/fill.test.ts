@@ -1,9 +1,11 @@
 // Runnable check (no framework, no network), same command as ci.yml:
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/fill.test.ts
-// An in-memory core stands in for SynqedClient. Like core, it answers a double-booked practitioner or bed with a 409.
+// An in-memory core stands in for SynqedClient. Like core, it answers a double-booked practitioner or bed with a 409
+// (a CANCELLED / NO_SHOW booking frees its slot: the app's isTerminalStatus).
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
 import { apply, assertOneStore, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
 import { addDays, hoursOn, jstIso, plan, type Plan } from './plan'
@@ -67,7 +69,7 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
       list: async (q: Q) => paged('appointments', t.appts.filter((a) => (!q.from || (a.starts_at as string) >= q.from) && (!q.to || (a.starts_at as string) < q.to)), q),
       create: async (i: Record<string, unknown>, opts?: { idempotencyKey?: string }) => {
         if (o.fail409) throw conflict('RESOURCE_TAKEN')
-        if (t.appts.some((a) => a.status !== 'CANCELLED' && overlaps(a, i) && (a.staff_id === i.staff_id || a.resource_id === i.resource_id))) throw conflict('double-booked')
+        if (t.appts.some((a) => !isTerminalStatus(a.status as string) && overlaps(a, i) && (a.staff_id === i.staff_id || a.resource_id === i.resource_id))) throw conflict('double-booked')
         return add(t.appts, { ...i, occupied_until: null, idempotencyKey: opts?.idempotencyKey })
       },
     },
@@ -178,11 +180,11 @@ async function main() {
   assert.deepEqual(dh.stats.policy?.weekly_hours, recipe.policy.weekly_hours, 'the loader set the recipe hours')
   assert.equal(dhCode, 0)
 
-  // A foreign booking (no fill tag) on the first planned slot's practitioner: SCHEDULED holds the slot (skipped up
-  // front, no 409); CANCELLED frees it (the visit is made).
+  // A foreign booking (no fill tag) on the first planned slot's practitioner: SCHEDULED / IN_PROGRESS hold the slot
+  // (skipped up front, no 409); CANCELLED / NO_SHOW free it (the visit is made) — the app's isTerminalStatus rule.
   const a0 = p1.appointments[0]
   assert.notEqual(a0.member, 'BC-0003')
-  for (const [status, clashes] of [['SCHEDULED', true], ['CANCELLED', false]] as const) {
+  for (const [status, clashes] of [['SCHEDULED', true], ['IN_PROGRESS', true], ['CANCELLED', false], ['NO_SHOW', false]] as const) {
     const fo = fakeCore()
     const staffCard = fo.t.staff.find((x) => x.name === a0.staff)!.id
     fo.t.appts.push({ id: 'foreign-appt', store_id: STORE, customer_id: 'foreign', staff_id: staffCard, resource_id: null, starts_at: a0.startsAt, ends_at: a0.endsAt, occupied_until: null, notes: null, status })
