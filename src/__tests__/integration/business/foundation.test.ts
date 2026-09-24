@@ -436,6 +436,8 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': [
         './customers-props',
         './customers-row',
+        // ⚖ PR-3 — 「番号未登録」 / 「未登録」: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
         '@/business/lib/column-config',
         // ⚖ Liam 8/23 — the 画面の説明 tour's shared engine.
         '@/business/lib/guide',
