@@ -20,6 +20,7 @@ import type {
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
 import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 // The staged PUT's deadline, from the module that holds the whole-take one
 // (slice five fix round 3, F7). It imports nothing app-side, so a port may
 // reach it without a cycle.
@@ -164,7 +165,12 @@ export interface RecordingPipelinePort {
   prepareTranscription(
     blob: Blob,
     finalizedPath: string | null,
-    opts?: { stagedFor?: string | null; stagedTake?: string | null },
+    opts?: {
+      stagedFor?: string | null
+      stagedTake?: string | null
+      /** The unbound fallback only (S33): why the take's own row was not used. */
+      attachOutcome?: AttachOutcome | null
+    },
   ): Promise<{ body: Record<string, unknown>; path: string }>
   /**
    * The finalized KEY this take's audio was sealed under — composed, never
@@ -472,7 +478,9 @@ export const webRecordingPort: RecordingPipelinePort = {
               stagedTake: opts.stagedTake ?? null,
               mimeType: blob.type || undefined,
             }
-          : undefined,
+          : opts?.attachOutcome
+            ? { attachOutcome: opts.attachOutcome }
+            : undefined,
       )
       if ('error' in minted) throw new Error('could not mint an upload URL')
       // ⚖ ADOPT ONLY WHAT IS OUR OWN BYTE LENGTH (fix round 2). The door signed

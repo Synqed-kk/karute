@@ -407,7 +407,12 @@ class GlobalPipeline {
           this.step = step
           this.notify()
         },
-        { customerName, sessionDate },
+        {
+          customerName,
+          sessionDate,
+          recordingSessionId: this.context.recordingSessionId,
+          durationSeconds: this.context.duration,
+        },
       )
       if (runId !== this.runId) return
       this.result = result

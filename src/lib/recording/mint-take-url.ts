@@ -82,7 +82,7 @@ import {
   composeTakeKey,
   parseRecordingKey,
 } from '@/lib/recording/key-grammar'
-import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
+import { UploadUrlMintSchema, type AttachOutcome } from '@/lib/app-api/record-schemas'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   assertRecorderOwnsRow,
@@ -197,6 +197,9 @@ export interface MintTakeUrlInput {
    *  or seqs (the schema refuses it). */
   customerId?: string | null
   appointmentId?: string | null
+  /** Why an in-tab fallback reached the SERVER-named arm (S33) — see
+   *  record-schemas.ts. 'attach_failed' never creates a row. */
+  attachOutcome?: AttachOutcome | null
 }
 
 export type MintTakeUrlResult =
@@ -933,8 +936,25 @@ export async function mintTakeUploadUrl(
   if (!input.takeId) {
     const signed = await signUpload(composed, 'take-server-named')
     if ('error' in signed) return signed
-    if (!RECORDING_SWITCHES.bindUnboundUploads) return { ...signed, recordingSessionId: null }
-    return bindServerNamedTake(synqed, actor, input, takeId, mimeType, signed)
+    // ⚖ A RECORDING THAT HAS A ROW NEVER GETS A SECOND ONE (S33). The client
+    // says 'attach_failed' when its take's own row exists and attaching to it
+    // failed: that upload stays unbound in BOTH switch states. 'no_session' and
+    // an absent field (a client older than it) keep the switch's answer.
+    const minted =
+      RECORDING_SWITCHES.bindUnboundUploads && input.attachOutcome !== 'attach_failed'
+        ? await bindServerNamedTake(synqed, actor, input, takeId, mimeType, signed)
+        : { ...signed, recordingSessionId: null }
+    // The per-business count of in-tab fallbacks (S33) — ids and flags only,
+    // never a customer and never a key. Counted only when an upload is really
+    // handed out: the ON arm's `exists` answers an error (settleUnboundBind).
+    if (!('error' in minted))
+      console.info('[mint-take-url] unbound upload', {
+        businessId,
+        attachOutcome: input.attachOutcome ?? null,
+        switchOn: RECORDING_SWITCHES.bindUnboundUploads,
+        bound: 'recordingSessionId' in minted && Boolean(minted.recordingSessionId),
+      })
+    return minted
   }
 
   // A CLIENT-NAMED take names its row. The schema's field-pair rule already
