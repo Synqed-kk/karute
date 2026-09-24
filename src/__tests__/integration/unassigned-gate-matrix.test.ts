@@ -563,6 +563,21 @@ describe('setActiveStore — the third flip point (M5 fold)', () => {
     }
   })
 
+  // Greptile G1 (Round 2 fold): a GENUINE empty assignment whose store list
+  // cannot be read is `unknown` — the read plane reaches no store there, so
+  // the pin must refuse too (it used to fall through and write the cookie).
+  it('refuses with the unverified answer when the assignment is empty and the store list cannot be read (Greptile G1)', async () => {
+    load(SHAPES[2]) // empty assignment (strict []), two stores …
+    const listImpl = storesList.getMockImplementation()!
+    storesList.mockRejectedValue(new Error('stores.list down')) // … list unreadable
+    try {
+      await expect(setActiveStore('store-ginza')).resolves.toEqual({ error: STORE_SCOPE_UNVERIFIED_DENIAL })
+      expect(mockCookieSet).not.toHaveBeenCalled()
+    } finally {
+      storesList.mockImplementation(listImpl)
+    }
+  })
+
   it('control: an ASSIGNED actor pinning their own store still succeeds', async () => {
     load(SHAPES[1]) // assigned (銀座 staff)
     await expect(setActiveStore('store-ginza')).resolves.toEqual({ ok: true })

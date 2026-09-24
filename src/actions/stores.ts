@@ -10,7 +10,7 @@ import type { StoreInput } from '@/lib/validations/store'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
 import {
-  actorIsUnassigned,
+  actorStoreVerdict,
   STORE_SCOPE_UNVERIFIED_DENIAL,
   STORE_UNASSIGNED_DENIAL,
 } from '@/lib/auth/store-gate'
@@ -163,9 +163,13 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
     // read as "floating, pin anything" — the strict twin keeps the failure
     // apart (null above) so only a GENUINE empty assignment reaches the gate,
     // which is then answered by the gate's ONE resolution, memoized alongside
-    // the capability seam's.
-    if (allowed && allowed.length === 0 && uid && (await actorIsUnassigned(uid))) {
-      return { error: STORE_UNASSIGNED_DENIAL }
+    // the capability seam's; `unknown` pins nothing (Round 2 fold, Greptile G1).
+    if (allowed && allowed.length === 0 && uid) {
+      const verdict = await actorStoreVerdict(uid)
+      if (verdict === 'unassigned') return { error: STORE_UNASSIGNED_DENIAL }
+      // `unknown` (or two reads that disagree) never pins: the read plane reaches
+      // no store in this state (store-scope.ts), and the pin must not disagree.
+      if (verdict !== 'unclamped') return { error: STORE_SCOPE_UNVERIFIED_DENIAL }
     }
   }
 
