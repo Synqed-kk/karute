@@ -234,15 +234,18 @@ export const recipe: RecipeData = {
   ],
   firstMenu: FIRST,
   customers,
-  // 回数券: bought at the Nth completed visit (atVisit), used from that visit on. トリートメント5回券 ×3 ·
-  // メンズカット5回券 ×2 · ヘッドスパ5回券 ×1 (unit price a little under the single price).
+  // 回数券: bought at the Nth completed visit (atVisit); the loader burns one on each completed visit from then on,
+  // whatever that visit's menu. So a ticket goes ONLY to a customer who books nothing but its service (menu and alt
+  // both that service). メンズカット5回券 ×5 (MENS / MENS) · トリートメント5回券 ×1 (HS-0013, CUTTR / TR — both
+  // treatments); unit price a little under the single price. No ヘッドスパ券: no customer books ヘッドスパ only.
+  // A new customer's visit 1 is the 初回 menu, so a new holder (HS-0027) buys at visit 2.
   packs: [
-    { member: 'HS-0013', size: 5, unitPrice: 4950, atVisit: 1 },
-    { member: 'HS-0017', size: 5, unitPrice: 4950, atVisit: 1 },
-    { member: 'HS-0025', size: 5, unitPrice: 4950, atVisit: 1 },
-    { member: 'HS-0004', size: 5, unitPrice: 4950, atVisit: 2 },
-    { member: 'HS-0012', size: 5, unitPrice: 4950, atVisit: 2 },
-    { member: 'HS-0021', size: 5, unitPrice: 3850, atVisit: 1 },
+    { member: 'HS-0004', size: 5, unitPrice: 4950, atVisit: 2 }, // メンズカット5回券
+    { member: 'HS-0012', size: 5, unitPrice: 4950, atVisit: 1 }, // メンズカット5回券
+    { member: 'HS-0016', size: 5, unitPrice: 4950, atVisit: 1 }, // メンズカット5回券
+    { member: 'HS-0027', size: 5, unitPrice: 4950, atVisit: 2 }, // メンズカット5回券
+    { member: 'HS-0030', size: 5, unitPrice: 4950, atVisit: 1 }, // メンズカット5回券
+    { member: 'HS-0013', size: 5, unitPrice: 4950, atVisit: 1 }, // トリートメント5回券
   ],
   karute,
 }
