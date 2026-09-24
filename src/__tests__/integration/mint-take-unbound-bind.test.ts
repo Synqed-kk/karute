@@ -1,6 +1,7 @@
 /**
  * ⚖ THE SERVER-NAMED UPLOAD GETS A ROW (fix plan v3 PR-2), behind
- * RECORDING_SWITCHES.bindUnboundUploads — OFF as shipped.
+ * RECORDING_SWITCHES.bindUnboundUploads — ON since 2026-09-24 (shipped OFF);
+ * both states stay pinned below.
  *
  * With the switch OFF the upload door answers exactly as it always did: a
  * server-named take is signed and bound to no row, and nothing new is read.
@@ -111,11 +112,11 @@ const actor = (): MintTakeActor => ({
   source: 'facade',
 })
 const mint = (body: Record<string, unknown> = {}) => mintTakeUploadUrl(fakeClient as never, actor(), body)
-/** Turns the switch ON for one describe; restored after every case. */
-const switchOn = () => {
+/** Forces the switch for one describe; restored after every case. */
+const forceSwitch = (value: boolean) => {
   let replaced: { restore(): void } | undefined
   beforeEach(() => {
-    replaced = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', true)
+    replaced = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', value)
   })
   afterEach(() => replaced?.restore())
 }
@@ -156,10 +157,12 @@ describe('settleUnboundBind — every answer of the create (fold B)', () => {
   // The sixth row (the create THROWS) is settled in the mint — see the ON block.
 })
 
-describe('switch OFF (as shipped) — the door answers exactly as before', () => {
-  it('ships OFF', () => {
-    expect(RECORDING_SWITCHES.bindUnboundUploads).toBe(false)
-  })
+it('ships ON (flipped 2026-09-24)', () => {
+  expect(RECORDING_SWITCHES.bindUnboundUploads).toBe(true)
+})
+
+describe('switch OFF (forced) — the door answers exactly as before', () => {
+  forceSwitch(false)
 
   it('a server-named take: no bindIdentity, no create, no extra read, today’s shape', async () => {
     const res = await mint({ customerId: 'cust-1', appointmentId: 'appt-1' })
@@ -189,7 +192,7 @@ describe('switch OFF (as shipped) — the door answers exactly as before', () =>
 })
 
 describe('switch ON — the server-named take gets a row on the key it was signed for', () => {
-  switchOn()
+  forceSwitch(true)
 
   it('creates ONE row, born reserved on exactly the signed key, after the sign', async () => {
     const res = await mint({ customerId: 'cust-1', appointmentId: 'appt-1' })
@@ -211,6 +214,21 @@ describe('switch ON — the server-named take gets a row on the key it was signe
     expect(createSignedUploadUrl.mock.invocationCallOrder[0]).toBeLessThan(
       recordingsCreate.mock.invocationCallOrder[0],
     )
+  })
+
+  it('logs ONE bare line on a bind, none when kept unbound (the post-flip watch)', async () => {
+    const logged = jest.spyOn(console, 'info').mockImplementation(() => {})
+    try {
+      // A create that settles to today's answer (storage could not say) — no line.
+      info.mockImplementationOnce(async () => ({ data: null, error: { message: 'boom', status: 500 } }))
+      await expect(mint()).resolves.toMatchObject({ recordingSessionId: null })
+      expect(warned).toContain('[mint-take-url] unbound upload kept unbound: create answered upstream')
+      expect(logged).not.toHaveBeenCalled()
+      await mint()
+      expect(logged.mock.calls).toEqual([['[mint-take-url] unbound upload bound']])
+    } finally {
+      logged.mockRestore()
+    }
   })
 
   it.each([
@@ -275,7 +293,7 @@ describe('switch ON — the server-named take gets a row on the key it was signe
 })
 
 describe('switch ON — the phone door never refuses the unbound body', () => {
-  switchOn()
+  forceSwitch(true)
 
   it('binds with the clamp’s store', async () => {
     const res = await mintPOST(jreq({ ...auth, 'store-id': 'store-1' }), noRoute)

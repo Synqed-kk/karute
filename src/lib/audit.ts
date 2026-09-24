@@ -853,7 +853,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // auditTakeNamed in the same file, same actor idiom. Not a second coveredBy
   // row: both emits live at this one endpoint's one choke point.
   // coveredBy = the client-named write only. The switch-ON server-named arm
-  // (RECORDING_SWITCHES.bindUnboundUploads, ships OFF) files a row with NO
+  // (RECORDING_SWITCHES.bindUnboundUploads, ships ON since 2026-09-24) files a row with NO
   // audit of its own — same coverage as recordings.session.mint above (karute
   // save). check-audit-weakening.mjs cannot see this; re-read this line before
   // the flip (recording-switches.ts condition 5).
