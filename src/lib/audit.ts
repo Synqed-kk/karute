@@ -1067,4 +1067,14 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       "watchOneBusiness (src/lib/audit-watch/run.ts) emits recording.karute_missing, recording.transcribe_storm and recording.no_sessions_today — one row per NEW candidate actually written. Conditional by design, same shape as the auto-burn/assemble rows above (return unemitted when there is nothing to do), except the emit sits inline in the driver rather than a downstream helper, so it cannot be handed a dominated coveredBy citation the way those two are.",
     dated: '2026-09-12',
   },
+  // ⚖ A2 (Liam 9/24, PKT-A2-CORE-WRITE §7 R-A2-13) — SYNQED Business's カードの見た目 save. Same class as
+  // Karute's own org-settings writer (unaudited by design, the 7/27 parity rule; R-A2-11): the route writes
+  // exactly one org-settings key through the practice door and logs one structured server line per real
+  // write (R-A2-4). A core audit row is R5 (later). No `coveredBy`: nothing emits by design.
+  'business/card-color': {
+    kind: 'skip',
+    justification:
+      "Business card colour (org settings' reserve_card_color, one key, palette-or-null, settings.manage) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule, R-A2-11); one structured server log line per real write (R-A2-4); core audit row = R5 (later).",
+    dated: '2026-09-24',
+  },
 }
