@@ -427,7 +427,7 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
         // ⚠ 「権限がありません」 ON ITS OWN IS NOT A REASON. The sentence has to
         // name WHO is reading and WHAT would open it, or the reader is told they
         // are locked out and nothing else.
-        expect({ role, id, names: line.includes(s.label) }).toEqual({ role, id, names: true })
+        expect({ role, id, names: line.includes(RAIL.find((e) => e.id === id)!.label) }).toEqual({ role, id, names: true })
         expect({ role, id, long: line.length >= 40 }).toEqual({ role, id, long: true })
         expect({ role, id, whose: line.includes(role) }).toEqual({ role, id, whose: true })
       }
@@ -2133,7 +2133,7 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
     for (const store of [undefined, 'store-that-is-not-ours']) {
       const { props, storeKey } = await settingsProps({ locale: 'ja', store })
       expect({ store, key: storeKey }).not.toEqual({ store, key: 'all-stores' })
-      expect({ store, label: props.lensLabel }).not.toEqual({ store, label: 'すべての店舗' })
+      expect({ store, allStores: props.dateline.endsWith('/ すべての店舗') }).toEqual({ store, allStores: false })
       // …and the section really carries its blocks, rather than the designed
       // no-store panel a null lens would render.
       const hours = props.sections.find((s) => s.id === 'store-hours')!
