@@ -280,10 +280,16 @@ export const AUDITED_CORES: {
   // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
   // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
   // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a
-  // server-named take reserves nothing and files no row) and carries no
-  // audit() of its own, so CP7's registry-reality cross-check (exported
-  // symbols only) can never require this entry — recording-upload-actions
-  // .test.ts pins it directly instead.
+  // server-named take reserves nothing and files no row — with
+  // RECORDING_SWITCHES.bindUnboundUploads OFF (ships OFF); ON, that arm files a
+  // row through startRecordingSessionWithClient (session-mint.ts), which
+  // carries no audit() and is NOT covered by auditTakeNamed — the row is
+  // covered the same way recordings.session.mint's is
+  // (karute.core.ts#createOrUpdateKaruteRecord at save; inbox 復元可能/失敗 until
+  // then), see audit.ts's map entry) and carries no audit() of its own, so
+  // CP7's registry-reality cross-check (exported symbols only) can never
+  // require this entry — recording-upload-actions.test.ts pins it directly
+  // instead.
   // commitReservation joins it because IT is the write: fix round 6 split the
   // old reserveTakeForRecorder into a read-only planReservation (the fences +
   // exists check, never a write) and commitReservation (recordings.update,

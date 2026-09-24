@@ -855,6 +855,11 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // already has a saved karute — auditTakeRefusedHasRecord, beside
   // auditTakeNamed in the same file, same actor idiom. Not a second coveredBy
   // row: both emits live at this one endpoint's one choke point.
+  // coveredBy = the client-named write only. The switch-ON server-named arm
+  // (RECORDING_SWITCHES.bindUnboundUploads, ships OFF) files a row with NO
+  // audit of its own — same coverage as recordings.session.mint above (karute
+  // save). check-audit-weakening.mjs cannot see this; re-read this line before
+  // the flip (recording-switches.ts condition 5).
   'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now

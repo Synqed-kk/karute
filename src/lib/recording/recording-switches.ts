@@ -11,7 +11,7 @@ export const RECORDING_SWITCHES = {
    *  answers exactly as it did before this switch existed: signed, bound to no
    *  row, no extra reads.
    *
-   *  Flip conditions — all four must hold before this is turned ON:
+   *  Flip conditions — all five must hold before this is turned ON:
    *  1. Read, not assumed: does build 28's baked upload-url consumer ignore,
    *     or safely use, a non-null `recordingSessionId`? Answer this from
    *     thin/ports/recording.vite.ts at the bake commit.
@@ -28,6 +28,11 @@ export const RECORDING_SWITCHES = {
    *     (find-karute-missing.ts:75). Today that path is silent because no row
    *     exists. No audio is lost (the retry draws a new uuid). The flip PR
    *     states this cost in its body and the inbox reason text for such rows
-   *     is checked to read honestly before the flip. */
+   *     is checked to read honestly before the flip.
+   *  5. Audit coverage re-read by a human: the ON arm's row create emits no
+   *     audit line (audit.ts `recordings.uploadUrl` entry's coveredBy names
+   *     only the client-named write; audit-policy.ts's mint-take-url block).
+   *     Either accept the session.mint-style coverage (karute save) in the
+   *     flip PR's body or add an emitter first. */
   bindUnboundUploads: false,
 } as const
