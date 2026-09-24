@@ -118,6 +118,10 @@ async function main() {
   const noDev = fakeCore({ devEmail: 'someone@else.test' })
   assert.equal(await apply(noDev.core, opts(empty())), 2)
   assert.equal(noDev.stats.writes, 0)
+  // A store registry.json does not map to this type → refused before any write.
+  const unmapped = fakeCore()
+  await assert.rejects(apply(unmapped.core, { ...opts(empty()), storeId: OTHER }), /not mapped/)
+  assert.equal(unmapped.stats.writes, 0, 'an unmapped store gets no write')
 
   // (c) idempotency: the second run creates 0; links kept (never narrowed); a dry-run sends nothing.
   const f = fakeCore()
