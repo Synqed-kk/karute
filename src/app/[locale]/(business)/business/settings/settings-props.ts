@@ -1504,7 +1504,7 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
             '封をした録音と破棄した録音は、どの経路からも読めず、書き出しもできません。',
           ],
         },
-        facts: ['録音そのものの削除や封は、この画面では扱いません。'],
+        facts: ['録音そのものの破棄は、録音画面で行います。'],
       }),
       block('recording.voice', '自分の音声登録', '自分の声を登録すると、録音の文字起こしの精度が上がります。ここは権限に関わらず本人だけが変えられます。', [
         // ⚖ S17 · C4 — the value is a STATE, not a flag: Karute holds
@@ -1942,7 +1942,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           dropWhen: { controlId: 'reserve.gapfill', is: '0', sentence: RESERVE_PREVIEW_DISCOUNT },
         },
         facts: [
-          `お客様が選べる開始時刻の${minutesLabel(opsConfig.reserveStartGridMin)}きざみは、今日の運営の公開レイヤーが読む値です。`,
+          `お客様が選べる開始時刻の${minutesLabel(opsConfig.reserveStartGridMin)}きざみは、今日の運営のお客様向け表示が読む値です。`,
           `受付できるのは営業時間の範囲内だけです。価格は時間帯ごとの価格を分単位で按分し、¥${PRICE_UNIT_YEN}単位で表示します。`,
         ],
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],
