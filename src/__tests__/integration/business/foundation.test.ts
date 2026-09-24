@@ -852,6 +852,8 @@ describe('the fixture data door', () => {
         // ⚡ R2 BRANCH C — the dial's mapping pair (⚖ D-11); the empty-inventory
         // fence on the seam file itself (below) is unchanged.
         './store-policy-seam',
+        // ⚖ PR-3 — 業種's 「未設定」 option label: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
         // ③ — PRICE_UNIT_YEN, the ¥ unit the Reserve 受付 fact prints from the
         // same constant gapFillPrice and packedPrice round to.
         '@/business/lib/canon-logic/pricing',

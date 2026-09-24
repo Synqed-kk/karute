@@ -530,7 +530,10 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
   const blockOf = (props: Props, sectionId: string, blockId: string) => sec(props, sectionId).blocks.find((b) => b.id === blockId)!
   const controlOf = (props: Props, id: string) =>
     props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls))).find((c) => c.id === id)!
-  const SAMPLE_NONE = 'サンプル設定なし'
+  // ⚖ PR-3 — the bare 「サンプル設定なし」 is gone: a SAMPLE part with no sample
+  // plane is the block's (or the page's) `sampleNone` card, and a SAMPLE block
+  // under the door carries `sample`. Rows keep their live facts, never a placeholder.
+  const everyBlock = (props: Props) => props.sections.flatMap((x) => x.blocks)
 
   it('twin 東京: the roster is listStaff (core 稼働 beats a fixture 休止; a no-twin person appears), menus are listMenus, 事業構成 is the shell + the live stores', async () => {
     const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
@@ -542,11 +545,11 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     const mirai = liveIdOf('staff', 'p-09')!
     expect(storeDials[STORE_A].staffActive['p-09']).toBe(false) // the fixture says 休止…
     expect(controlOf(props, `people.active-${mirai}`).value).toBe(true) // …core lists her active, and core wins
-    expect(people.find((r) => r.id === `people.row-${CARD.musubi}`)!.meta).toEqual([SAMPLE_NONE])
+    expect(people.find((r) => r.id === `people.row-${CARD.musubi}`)!.meta).toEqual([]) // no twin → no sample role, and no placeholder
     expect(people.find((r) => r.id === `people.row-${CARD.azusa}`)!.meta).toEqual([rulebook.roles.find((r) => r.key === 'manager')!.label])
     // スタッフ管理
     expect(blockOf(props, 'staff', 'staff.roster').rows.map((r) => r.id).sort()).toEqual(live.map((id) => `staff.row-${id}`).sort())
-    expect(controlOf(props, `staff.preset-${CARD.musubi}`).value).toBe(SAMPLE_NONE)
+    expect(blockOf(props, 'staff', 'staff.roster').rows.find((r) => r.id === `staff.row-${CARD.musubi}`)!.controls).toEqual([])
     expect(controlOf(props, `staff.preset-${CARD.azusa}`).value).toBe('manager')
     // 提供内容: 東京's live menus + 全店舗; 表示 through the twin
     const menuRows = blockOf(props, 'services', 'services.menus').rows
@@ -566,6 +569,16 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     expect(blockOf(props, 'business-structure', 'org.brand').facts[0]).toMatch(/^5店舗の運営のため/)
     // 予約同期: the shell's own stamp, 12 minutes before the board's moment
     expect(blockOf(props, 'sync', 'sync.status').facts[0]).toMatch(/^最終同期は12分前/)
+    // ⚖ PR-3 — the mark: SAMPLE blocks carry it, ROW blocks never; a twin has no no-sample card.
+    expect(blockOf(props, 'audit-log', 'audit.rows').sample).toBe(true)
+    expect(blockOf(props, 'business-structure', 'org.entity').sample).toBe(true)
+    expect(blockOf(props, 'people-equipment', 'people.staff').sample).toBe(true) // mixed: live names, sample 役職
+    expect(sec(props, 'booking-guard').sample).toBe(true) // block-less; fixture planes for every store
+    for (const [sid, bid] of [['business-structure', 'org.stores'], ['business-structure', 'org.brand'], ['audit-log', 'audit.filter'], ['people-equipment', 'people.equipment'], ['pricing-points', 'pricing.bands']]) {
+      expect(blockOf(props, sid, bid)).not.toHaveProperty('sample')
+    }
+    expect(everyBlock(props).filter((b) => b.sampleNone)).toEqual([])
+    expect(props.sections.filter((x) => x.sampleNone)).toEqual([])
   })
 
   it('予約同期 on a wall clock 37 s past the board minute still says 12分前 — the board anchor, never the wall clock', async () => {
@@ -582,22 +595,45 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
   it.each([
     ['La Estro (named)', STORE.laEstro],
     ['Dev Salon (none)', STORE.devSalon],
-  ])('%s: never 店舗を選んでください; live rows render and every SAMPLE part says サンプル設定なし', async (_label, store) => {
+  ])('%s: never 店舗を選んでください; live rows render and every SAMPLE part is the no-sample card', async (_label, store) => {
     const { props } = await settingsProps({ locale: 'ja', store })
     expect(props.sections.filter((s) => s.kicker === '店舗を選んでください')).toEqual([])
     const people = blockOf(props, 'people-equipment', 'people.staff').rows
     expect(people.map((r) => r.id)).toEqual(ids(await data.listStaff(store)).map((id) => `people.row-${id}`))
     expect(people.length).toBeGreaterThan(0)
-    expect(people.every((r) => r.controls[0].value === true && r.meta[0] === SAMPLE_NONE)).toBe(true)
+    expect(people.every((r) => r.controls[0].value === true && r.meta.length === 0)).toBe(true)
     const menuRows = blockOf(props, 'services', 'services.menus').rows
     expect(menuRows.map((r) => r.id)).toEqual(ids(await data.listMenus(store)).map((id) => `services.row-${id}`))
-    expect(menuRows.every((r) => r.controls[0].value === SAMPLE_NONE)).toBe(true)
-    expect(blockOf(props, 'services', 'services.tickets').facts).toEqual([SAMPLE_NONE])
-    expect(blockOf(props, 'business-structure', 'org.entity').facts).toEqual([SAMPLE_NONE])
+    expect(menuRows.every((r) => r.controls.length === 0 && r.meta.length > 0)).toBe(true) // live facts, no sample switch
+    for (const [sid, bid] of [['services', 'services.menus'], ['services', 'services.tickets'], ['business-structure', 'org.entity'], ['people-equipment', 'people.staff'], ['pricing-points', 'pricing.bands'], ['staff', 'staff.roster'], ['staff', 'staff.gaps'], ['store-hours', 'store-hours.info']]) {
+      expect({ bid, sampleNone: blockOf(props, sid, bid).sampleNone, sample: blockOf(props, sid, bid).sample }).toEqual({ bid, sampleNone: true, sample: undefined })
+    }
+    expect(blockOf(props, 'services', 'services.tickets').facts).toEqual([])
+    expect(blockOf(props, 'business-structure', 'org.entity').facts).toEqual([])
+    expect(blockOf(props, 'business-structure', 'org.entity').rows).toEqual([])
     expect(blockOf(props, 'business-structure', 'org.stores').table!.rows).toHaveLength(5)
     const pay = sec(props, 'payments')
-    expect({ kicker: pay.kicker, lead: pay.lead, blocks: pay.blocks }).toEqual({ kicker: RAIL.find((e) => e.id === 'payments')!.group, lead: SAMPLE_NONE, blocks: [] })
+    expect({ kicker: pay.kicker, lead: pay.lead, blocks: pay.blocks, sampleNone: pay.sampleNone }).toEqual({
+      kicker: RAIL.find((e) => e.id === 'payments')!.group,
+      lead: 'レジで受け取れる支払い方法と、締めのときの現金の扱いです。ポイント制の有効・無効は料金・ポイントで設定します。', // its own lead, kept
+      blocks: [],
+      sampleNone: true,
+    })
+    expect(sec(props, 'audit-log')).toMatchObject({ lead: '誰が・いつ・何を変えたかの記録です。表示だけで、ここから編集はできません。', blocks: [], sampleNone: true })
+    // no SAMPLE block is drawn for a store with no sample plane; 予約と確保 still reads fixture planes, so it keeps its mark
+    expect(everyBlock(props).filter((b) => b.sample)).toEqual([])
+    expect(sec(props, 'booking-guard').sample).toBe(true)
+    expect(JSON.stringify(props)).not.toContain('サンプル設定なし')
     expect(sec(props, 'booking-guard').kicker).toBe('店舗運営')
+  })
+
+  it('PR-3 業種: a store whose type is \'\' shows 「未設定」 selected and never choosable; a typed store has no such option', async () => {
+    const dev = (await settingsProps({ locale: 'ja', store: STORE.devSalon })).props
+    const c = controlOf(dev, 'people.type')
+    expect(c.value).toBe('')
+    expect(c.control.kind === 'select' && c.control.options[0]).toEqual({ value: '', label: '未設定', disabled: true })
+    const t = controlOf((await settingsProps({ locale: 'ja', store: STORE.tokyo })).props, 'people.type')
+    expect(t.control.kind === 'select' && t.control.options.some((o) => o.value === '')).toBe(false)
   })
 
   it('viewAll (an actor with no visible store): open store sections keep 店舗を選んでください, and no row reader is asked — the door would refuse the lens', async () => {

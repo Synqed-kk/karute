@@ -93,6 +93,7 @@ import {
   type SettingsRow,
   type SettingsSection,
 } from '@/business/lib/settings'
+import { businessStrings } from '@/business/i18n'
 import { fillWords } from '@/business/lib/settings-words'
 import { storePolicyProps, type StorePolicyPropsInput } from './store-policy-props'
 // ⚖ D-15 (round 3, A2) — ONE HOME FOR THE DERIVED CEILING (the store's own
@@ -190,10 +191,17 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     ? await Promise.all([listStaff(lens), listMenus(lens), listResources(lens)])
     : [[], [], []]
 
+  // ⚖ PR-3 — THE MARK KEYS ON THE DOOR BEING ON, never on `state === 'sample'`
+  // (which is also every switch-OFF answer): the facade's own `marked`, or its
+  // no-sample-policy state, which exists only under the switch.
+  const facade = clamped ? storeSample(storeId!) : null
+  const marked = facade !== null && (facade.state === 'no-sample-policy' || facade.marked)
+
   const ctx: Ctx = {
     storeId: clamped ? storeId! : null,
     lensLabel,
     dials,
+    marked,
     businessName: business.name,
     stores: storeOptions,
     staff,
@@ -296,6 +304,9 @@ interface Ctx {
   storeId: string | null
   lensLabel: string
   dials: StoreDials | null
+  /** ⚖ PR-3 — the practice door is ON for this store (see `settingsProps`):
+   *  a block that shows SAMPLE values carries the 「サンプル」 mark. OFF: false. */
+  marked: boolean
   /** ⚖ PR-2b — ROW data, read through the door (see `settingsProps`). */
   businessName: string
   stores: Awaited<ReturnType<typeof listStoreOptions>>
@@ -404,7 +415,7 @@ const block = (
   title: string,
   note: string,
   rows: SettingsRow[],
-  extra: Partial<Omit<SettingsBlock, 'id' | 'title' | 'note' | 'rows'>> = {},
+  extra: Partial<Omit<SettingsBlock, 'id' | 'title' | 'note' | 'rows' | 'sample' | 'sampleNone'>> & { sample?: boolean; sampleNone?: boolean } = {},
 ): SettingsBlock => ({
   id,
   title,
@@ -423,6 +434,9 @@ const block = (
   ...(extra.layout ? { layout: extra.layout } : {}),
   ...(extra.flag ? { flag: extra.flag } : {}),
   ...(extra.rightsNote ? { rightsNote: extra.rightsNote } : {}),
+  // ⚖ PR-3 — present only when true, so a switch-OFF payload never grows a key.
+  ...(extra.sample ? { sample: true as const } : {}),
+  ...(extra.sampleNone ? { sampleNone: true as const } : {}),
 })
 
 const BUSINESS_SCOPE = '事業全体'
@@ -456,18 +470,37 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
   // dials (STORE_C, or a test world's `dials: null`) keeps its pinned boundary;
   // switch ON, a live store with no fixture twin (La Estro, Dev Salon…) gets
   // null and takes the live-rows path — its ROW data renders and every SAMPLE
-  // part says サンプル設定なし.
+  // part carries the no-sample card (PR-3).
   if (ctx.dials === null && (ctx.storeId === null || sampleSelfId('stores', ctx.storeId) !== null)) return noStore(base, entry)
   return storeSection(base, entry, ctx, ctx.dials)
 }
 
-/** ⚖ PR-2b — the one placeholder for a SAMPLE value a store has no sample
- *  policy for (DESIGN-PRACTICE-DOOR.md §4's own term; PR-3 designs the copy). */
-const SAMPLE_NONE = 'サンプル設定なし'
+/** ⚖ PR-3 — the leads of the sections that hold SAMPLE values only, in ONE
+ *  place, because two pages read each: the section's own builder, and
+ *  `noSample` for a store with no sample plane (the mock's C1 keeps the lead
+ *  and puts the card where the blocks would sit). `{store}` = the lens label. */
+const SAMPLE_ONLY_LEAD: Record<string, string> = {
+  payments: 'レジで受け取れる支払い方法と、締めのときの現金の扱いです。ポイント制の有効・無効は料金・ポイントで設定します。',
+  'customer-contact': 'しばらくご来店のないお客様に、カルテがお声がけの案を出すまでの日数です。',
+  ai: 'カルテのAIが何をどう書くかの設定です。カルテとAI相談が同じ設定を読みます。',
+  recording: '録音に関するお店の決まりと、自分の音声登録です。このページは誰でも開けます — 変えられる範囲は、それぞれのまとまりの権限で決まります。',
+  coaching: '接客の振り返りを{store}で使うかどうかと、その見せ方の決まりです。',
+  sync: 'Reserveの予約をどう取り込むかの設定です。いまの状態は画面の右上にも出ています。',
+  'reserve-acceptance': 'お客様がオンラインで予約できる範囲と、キャンセルの決まりです。営業時間そのものは店舗情報・営業時間で管理します。',
+  notifications: '予約まわりの出来事と、価格まわりの注意サインを、どの経路で届けるかの設定です。',
+  integrations: '外部のサービスとのつながりの設定です。つなぐと、その種類のデータをやり取りできるようになります。',
+  'data-io': 'データの書き出しと取り込みです。このページは誰でも開けます — 実際にできる操作は、それぞれのまとまりの権限で決まります。',
+  'audit-log': '誰が・いつ・何を変えたかの記録です。表示だけで、ここから編集はできません。',
+  'language-display': '表示言語と、予約の色分けです。言語は人ごと、色分けは店舗ごとの設定です。',
+  colors: 'この製品が使う色の元です。押すと、すぐ下のプレビューがその色になります。',
+  billing: 'プランの変更・お支払い・領収書は、このWeb画面だけで扱います。カルテやReserveのアプリの中で請求することはありません。',
+}
+const leadOf = (id: string, ctx: Ctx) => SAMPLE_ONLY_LEAD[id].replace('{store}', ctx.lensLabel)
 
-/** A section that holds SAMPLE values only, on a store with no sample policy. */
-function noSample(base: SectionBase, entry: RailEntry): SettingsSection {
-  return { ...base, kicker: entry.group, title: entry.label, lead: SAMPLE_NONE, blocks: [], persist: null }
+/** A section that holds SAMPLE values only, on a store with no sample policy:
+ *  its own lead, zero blocks, and (⚖ PR-3) the no-sample card in the body. */
+function noSample(base: SectionBase, entry: RailEntry, ctx: Ctx): SettingsSection {
+  return { ...base, kicker: entry.group, title: entry.label, lead: leadOf(entry.id, ctx), blocks: [], persist: null, sampleNone: true }
 }
 
 /** ⚖ PR-2b — a person's SAMPLE settings, found through their fixture self
@@ -569,7 +602,7 @@ function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDia
     case 'store-hours':
       return storeHours(base, ctx, d)
     case 'booking-guard':
-      return bookingGuard(base)
+      return bookingGuard(base, ctx)
     case 'services':
       return services(base, ctx, d)
     case 'people-equipment':
@@ -581,7 +614,7 @@ function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDia
     case 'business-structure':
       return businessStructure(base, ctx, d)
   }
-  if (d === null) return noSample(base, entry)
+  if (d === null) return noSample(base, entry, ctx)
   switch (entry.id) {
     case 'payments':
       return payments(base, ctx, d)
@@ -642,9 +675,12 @@ const BOOKING_GUARD_LEAD =
  *  nothing. Both forms ship and the sheet shows the true one. */
 const BOOKING_GUARD_LEAD_NARROW = BOOKING_GUARD_LEAD.replace('右のカード', '下のカード')
 
-function bookingGuard(base: SectionBase): SettingsSection {
+function bookingGuard(base: SectionBase, ctx: Ctx): SettingsSection {
   return {
     ...base,
+    // ⚖ PR-3 — its dials read the fixture planes for EVERY store (opsConfig,
+    // storeBookingPolicy …): under the door the whole section is SAMPLE.
+    ...(ctx.marked ? { sample: true as const } : {}),
     kicker: '店舗運営',
     title: '予約と確保',
     lead: BOOKING_GUARD_LEAD,
@@ -699,7 +735,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
   ], { scopeLabel: STORE_SCOPE })
   // ⚖ PR-2b — the store's NAME is its live row; every other value here is SAMPLE.
   if (d === null) {
-    return { ...head, blocks: [block('store-hours.info', '店舗情報', infoNote, [nameRow], { facts: [SAMPLE_NONE] })], persist: null }
+    return { ...head, blocks: [block('store-hours.info', '店舗情報', infoNote, [nameRow], { sampleNone: true })], persist: null }
   }
   const p = storeBookingPolicy
   // ⚖ C1 — the plane boundary, and the ONE place the seven days come into being.
@@ -721,6 +757,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           ro('store-hours.photo', '店舗写真', d.profile.photo ?? '未設定'),
         ], { scopeLabel: STORE_SCOPE }),
       ], {
+        sample: ctx.marked,
         facts: ['店舗写真の登録はこれから用意します。それまでは未設定のまま表示されます。'],
       }),
       // ⚖ S17 · C1 — SEVEN DAYS, EACH WITH ITS OWN PAIR, because that is what
@@ -747,6 +784,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           weekday: dayIndex,
         }
       }), {
+        sample: ctx.marked,
         layout: 'week',
         // ⚖ C1 — THE SENTENCE READS THE SEVEN, and it had to stop being a fact.
         // 「いまの営業時間は10:00〜19:00、定休日は月曜です」 was true of the ONE pair
@@ -843,6 +881,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           },
         }),
       ], {
+        sample: ctx.marked,
         // ⚖ S17 — the sentence describes ONLY the dials this block still holds. A
         // preview naming a control that moved would be a dead lever with words.
         preview: {
@@ -859,6 +898,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
       // a value core has no field for at all (registry ⑨ `special_open_days`;
       // named in the report and in the Anthony column list, never on screen).
       block('store-hours.closures', '臨時休業', '通常の営業時間を休みにする、その日限りの予定です。', [], {
+        sample: ctx.marked,
         collection: {
           // ⚖ F9 — ONE FORMATTER, and the id is what it reads. A seeded row and
           // an added row used to be titled by two different code paths, so the
@@ -948,14 +988,15 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSe
     blocks: [
       block('services.menus', 'カテゴリーとメニュー', 'Reserveの予約ページに出すメニューです。オフにすると、お客様の予約ページからは選べなくなります（過去の記録には影響しません）。', own.map((m) => {
         const visible = visibleOf(m.id)
-        return row(`services.row-${m.id}`, m.name, '', [
-          visible === undefined
-            ? ro(`services.visible-${m.id}`, `${m.name}をReserveに表示`, SAMPLE_NONE)
-            : sw(`services.visible-${m.id}`, `${m.name}をReserveに表示`, '表示', '非表示', visible),
+        // ⚖ PR-3 — no sample 表示 for this menu: the row keeps its live facts and
+        // no switch; the block's no-sample card says why.
+        return row(`services.row-${m.id}`, m.name, '', visible === undefined ? [] : [
+          sw(`services.visible-${m.id}`, `${m.name}をReserveに表示`, '表示', '非表示', visible),
         ], {
           meta: [minutesLabel(m.duration_minutes), yen(m.price), m.store_id === null ? '全店舗' : STORE_SCOPE],
         })
       }), {
+        sample: ctx.marked && d !== null, sampleNone: d === null,
         facts: [
           'メニューの追加はこれから用意します。いまある内容の表示・非表示はここで切り替えられます。',
           'ここに並ぶメニューと所要時間は、予約作成とレジが使っているメニュー一覧と同じです。',
@@ -969,8 +1010,9 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSe
         ], {
           meta: [`対象メニューの最低価格 ${yen(floorPriceOf(priceOf.get(t.menuId) ?? 0))}`, t.unitPrice > floorPriceOf(priceOf.get(t.menuId) ?? 0) ? '要確認' : '問題なし'],
         })), {
+        sample: ctx.marked && d !== null, sampleNone: d === null,
         facts: d === null
-          ? [SAMPLE_NONE]
+          ? []
           : tickets.length === 0
             ? ['この店舗では回数券を使っていません。']
             : [`回数券の「最低価格」は、定価から割引の上限（−${Math.round((1 - TICKET_FLOOR_RATIO) * 100)}%）を引いた金額です。`],
@@ -1046,7 +1088,13 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): Set
     blocks: [
       ...(ctx.businessType !== null ? [block('people.business-type', '業種', 'この店舗の業種です。ボード・予約一覧・設定で使われる設備の呼び名は、ここで選んだ業種の標準が元になります。', [
         row('people.row-type', 'この店舗の業種', '26の業種から、この店舗に当てはまるものを選びます。', [
-          sel('people.type', 'この店舗の業種を選択', businessProfiles.map((p) => ({ value: p.value, label: p.label })), ctx.businessType),
+          // ⚖ PR-3 — a store whose 業種 is still '' (no option holds it) shows
+          // 「未設定」 selected and never choosable, instead of the list's first
+          // 業種 standing in for it. A question of PRESENCE, never of which type.
+          sel('people.type', 'この店舗の業種を選択', [
+            ...(businessProfiles.some((p) => p.value === ctx.businessType) ? [] : [{ value: '', label: businessStrings.settings.typeUnset, disabled: true as const }]),
+            ...businessProfiles.map((p) => ({ value: p.value, label: p.label })),
+          ], ctx.businessType),
         ], { scopeLabel: STORE_SCOPE }),
       ], {
         facts: ['業種を変えると、設備の呼び名の標準もその業種のものに変わります。自分で入力した呼び名は、そのまま残ります。', 'AI相談とカルテが使う「業種プロファイル」は、これとは別の設定です。変更はサポートが承ります。'],
@@ -1062,9 +1110,10 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): Set
           // active people — a fixture 休止 never speaks for a live person.
           sw(`people.active-${p.id}`, `${p.full_name}を稼働にする`, '稼働', '休止', d?.staffActive[p.id] ?? true),
         ], {
-          meta: [settings === null ? SAMPLE_NONE : roleLabelOf(settings.preset)],
+          meta: settings === null ? [] : [roleLabelOf(settings.preset)],
         })
       }), {
+        sample: ctx.marked && d !== null, sampleNone: d === null,
         facts: ['休止にすると、その人の予約枠はボードにもReserveにも出なくなります。すでに入っている予約は残ります。'],
         links: [{ label: '役職と権限はスタッフ管理で', sectionId: 'staff' }],
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（稼働状態を変更）`,
@@ -1145,7 +1194,7 @@ function payments(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     ...base,
     kicker: 'レジ',
     title: '決済',
-    lead: 'レジで受け取れる支払い方法と、締めのときの現金の扱いです。ポイント制の有効・無効は料金・ポイントで設定します。',
+    lead: leadOf('payments', ctx),
     blocks: [
       block('payments.methods', 'レジで使える支払い方法', 'スタッフのレジ画面に表示される支払い方法です。オフにした方法はその場では選べなくなります（過去の記録には影響しません）。', [
         row('payments.row-cash', '現金', '店頭での現金でのお支払いです。', [
@@ -1158,6 +1207,7 @@ function payments(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           sw('payments.qr', 'QRコード決済を受け付ける', '受け付ける', '受け付けない', d.payQr),
         ], { scopeLabel: STORE_SCOPE }),
       ], {
+        sample: ctx.marked,
         preview: { template: 'いまレジで選べるのは、現金は{payments.cash}、カードは{payments.card}、QRコード決済は{payments.qr}です。' },
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -4))}（カード決済をオンに）`,
       }),
@@ -1173,6 +1223,7 @@ function payments(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: 'いまの設定では、{payments.tolerance}までの差異は理由なしで締められます。' },
         links: [{ label: 'ポイント制の設定は料金・ポイントで', sectionId: 'pricing-points' }],
       }),
@@ -1198,7 +1249,7 @@ function customerContact(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
     ...base,
     kicker: '再来促し',
     title: '顧客・連絡',
-    lead: 'しばらくご来店のないお客様に、カルテがお声がけの案を出すまでの日数です。',
+    lead: leadOf('customer-contact', ctx),
     blocks: [
       block('contact.winback', '再来促し', '最後のご来店からこの日数が経つと、カルテにお声がけの案が出るようになります。', [
         row('contact.row-winback', '再来促しの日数', '短すぎるとまだ来る時期でない方に届き、長すぎると引っ越された方に届きます。', [
@@ -1215,6 +1266,7 @@ function customerContact(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: '最後のご来店から{contact.winback}が経つと、カルテにお声がけの案が出ます。' },
         facts: ['同じ数字がカルテとBusinessの両方に出るため、値はひとつの置き場所にだけ持ちます。'],
       }),
@@ -1253,7 +1305,8 @@ function pricingPoints(base: SectionBase, ctx: Ctx, d: StoreDials | null): Setti
     ], {
       meta: [`安全範囲 ${yen(floorPriceOf(m.price))}〜${yen(Math.round(m.price * 1.1))}`],
     })), {
-    facts: d === null ? [floorFact, SAMPLE_NONE] : [floorFact],
+    facts: [floorFact],
+    sampleNone: d === null,
     audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 0))}（最低価格を変更）`,
   })
   if (d === null) return { ...head, blocks: [bands], persist: null }
@@ -1280,6 +1333,7 @@ function pricingPoints(base: SectionBase, ctx: Ctx, d: StoreDials | null): Setti
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: '動的価格は{pricing.dyn}、価格の見せ方は{pricing.framing}です。動的価格がオンのあいだは、予約ページで価格を隠せません。' },
         facts: ['動的価格をオンにしているあいだ、予約ページの価格表示は隠せません（法とお客様への誠実さのためです）。'],
         links: [{ label: '再計算中に価格を隠す設定はReserve受付で', sectionId: 'reserve-acceptance' }],
@@ -1301,6 +1355,7 @@ function pricingPoints(base: SectionBase, ctx: Ctx, d: StoreDials | null): Setti
             num(`pricing.pack-points-${i}`, `${yen(p.price)}パックの付与ポイント`, p.points, 1000, 600000, 100, 'pt'),
           ])),
       ], {
+        sample: ctx.marked,
         facts: [
           'パックの購入はWebのお支払いのみです。パックを削除しても、購入済みの残高はそのまま使えます。',
           '残高は譲渡できず、この事業の中でのみ使えます。',
@@ -1318,6 +1373,7 @@ function pricingPoints(base: SectionBase, ctx: Ctx, d: StoreDials | null): Setti
           },
         }),
       ], {
+        sample: ctx.marked,
         facts: [
           '公開価格の再計算は、Reserveが予約の実績から毎晩行います。日中に価格が動くことはありません。',
           '未使用ポイントの残高が基準日に事業全体で1,000万円を超えると、財務局への届出と残高の半額以上の供託が必要になります。近づくとここでお知らせします。',
@@ -1338,7 +1394,7 @@ function aiSettings(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
     ...base,
     kicker: 'Karute設定',
     title: 'AI設定',
-    lead: 'カルテのAIが何をどう書くかの設定です。カルテとAI相談が同じ設定を読みます。',
+    lead: leadOf('ai', ctx),
     blocks: [
       block('ai.summary', '要約スタイル', 'カルテのAI要約の分量と言い回しです。内容そのものは変わりません。', [
         row('ai.row-length', '要約の長さ', 'カルテの記録に表示されるAI要約の分量です。', [
@@ -1381,12 +1437,14 @@ function aiSettings(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: 'いまの設定では、要約は{ai.length}・{ai.voice-style}で、{ai.language}で書かれます。' },
       }),
       block('ai.outcomes', '施術結果の選択肢', 'カルテの「施術結果」の欄で選べる言葉です。カルテの一覧と記録が同じ言葉を読みます。', d.aiOutcomes.map((term, i) =>
         row(`ai.row-outcome-${i}`, `選択肢 ${i + 1}`, '', [
           txt(`ai.outcome-${i}`, `施術結果の選択肢 ${i + 1}`, term, { required: true, maxLength: 12 }),
         ])), {
+        sample: ctx.marked,
         facts: ['空欄のまま保存はできません。選択肢は最低ひとつ必要です。'],
       }),
       block('ai.advice', 'AI相談', '提案の積極度と、出す提案の種類です。', [
@@ -1405,6 +1463,7 @@ function aiSettings(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           ]), Object.entries(d.aiCategories).filter(([, on]) => on).map(([k]) => k)),
         ], { scopeLabel: STORE_SCOPE }),
       ], {
+        sample: ctx.marked,
         preview: { template: '積極度は{ai.aggressiveness}、出す提案の種類は{ai.categories}です。' },
       }),
       // ⚖ S17 · C4 — the 26 are KARUTE'S, verbatim (`businessProfiles` carries
@@ -1421,6 +1480,7 @@ function aiSettings(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           source: 'カルテと同じ26業種の一覧です。店舗ごとの業種と、事業を始めるときに選んだ業種は別に持たれていて、片方を変えても、もう片方は変わりません',
         }),
       ], {
+        sample: ctx.marked,
         facts: [`いまのプロファイルは「${profileLabel}」です。`],
       }),
     ],
@@ -1443,7 +1503,7 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
     ...base,
     kicker: 'Karute設定',
     title: '録音設定',
-    lead: '録音に関するお店の決まりと、自分の音声登録です。このページは誰でも開けます — 変えられる範囲は、それぞれのまとまりの権限で決まります。',
+    lead: leadOf('recording', ctx),
     blocks: [
       block('recording.org', '組織の録音設定', '録音を始めてよい条件です。', [
         row('recording.row-consent', '同意が必要', 'オンのあいだは、お客様の同意が確認できるまで録音を始められません。', [
@@ -1473,6 +1533,7 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
           source: 'いまは「録音の全件閲覧」権限（標準ではオーナーだけ）がこの役目を担っています。この設定がコアに保存されるようになると、その決まりに置き換わります',
         }),
       ], {
+        sample: ctx.marked,
         flag: '適用範囲: 事業全体',
         ...(rightsNote ? { rightsNote } : {}),
         preview: { template: '録音の前の同意確認は{recording.consent}、文字起こしを読めるのは{recording.transcript}です。' },
@@ -1489,6 +1550,7 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
           },
         }),
       ], {
+        sample: ctx.marked,
         flag: '適用範囲: この店舗',
         table: {
           head: ['業態', '保持クラス'],
@@ -1530,6 +1592,7 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
           source: 'カルテの音声登録と同じ値です（登録済み / 取り消し済み）',
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: 'いまの状態は「{recording.voice}」です。削除すると、次の録音では文字起こしの精度が下がることがあります。' },
       }),
     ],
@@ -1548,7 +1611,7 @@ function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     ...base,
     kicker: 'Karute設定',
     title: 'コーチング',
-    lead: `接客の振り返りを${ctx.lensLabel}で使うかどうかと、その見せ方の決まりです。`,
+    lead: leadOf('coaching', ctx),
     blocks: [
       block('coaching.use', '利用と共有', 'この店舗で振り返りを使うかどうかと、共有してよい範囲です。', [
         // ⚖ C4 — `coaching_enabled` lives in the business's own org-settings blob,
@@ -1573,6 +1636,7 @@ function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: 'この事業のコーチングは{coaching.enabled}、共有の範囲は{coaching.sharing}です。' },
         list: {
           title: 'この機能にないもの',
@@ -1615,6 +1679,7 @@ function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: '記録は{coaching.retention}のあいだ持ち、{coaching.floor}に届いてから区分を出します。気づきは{coaching.cadence}届きます。' },
         links: [{ label: '共有の権限はスタッフ管理で', sectionId: 'staff' }],
       }),
@@ -1630,9 +1695,10 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     ...base,
     kicker: 'Karute設定',
     title: '予約同期',
-    lead: 'Reserveの予約をどう取り込むかの設定です。いまの状態は画面の右上にも出ています。',
+    lead: leadOf('sync', ctx),
     blocks: [
       block('sync.status', '同期の状態', 'Reserveとの予約同期のいまの状態です。', [], {
+        sample: ctx.marked,
         facts: [
           `最終同期は${ctx.syncMinutesAgo}分前、同期元はReserveです。いまのところ正常です。`,
           '次の自動同期は、下の間隔と稼働時間帯に従って行われます。',
@@ -1683,6 +1749,7 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: '同期は{sync.interval}、{sync.start}から{sync.end}のあいだだけ動きます。重なったときは{sync.conflict}です。' },
         links: [{ label: '予約の受付の範囲はReserve受付で', sectionId: 'reserve-acceptance' }],
       }),
@@ -1767,7 +1834,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
     ...base,
     kicker: 'Reserve設定',
     title: 'Reserve 受付',
-    lead: 'お客様がオンラインで予約できる範囲と、キャンセルの決まりです。営業時間そのものは店舗情報・営業時間で管理します。',
+    lead: leadOf('reserve-acceptance', ctx),
     blocks: [
       block('reserve.window', '受付ウィンドウ', 'お客様がオンラインで予約できる期間です。', [
         row('reserve.row-days', '何日先まで受け付けるか', 'この日数を超える先の予約は、オンラインでは受け付けません（店頭・電話は対象外です）。', [
@@ -1944,6 +2011,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         ),
       ], {
+        sample: ctx.marked,
         preview: {
           template: RESERVE_PREVIEW_HEAD + RESERVE_PREVIEW_DISCOUNT,
           dropWhen: { controlId: 'reserve.gapfill', is: '0', sentence: RESERVE_PREVIEW_DISCOUNT },
@@ -1998,6 +2066,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: '{reserve.free}までは無料、それ以降のキャンセルは{reserve.sameday}、ご連絡のないキャンセルは{reserve.noshow}です。' },
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -9))}（当日キャンセル料を変更）`,
       }),
@@ -2012,6 +2081,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: '再計算のあいだ、新規予約の価格は{reserve.lock}設定です。' },
         links: [{ label: 'ポイント制の設定は料金・ポイントで', sectionId: 'pricing-points' }],
       }),
@@ -2034,12 +2104,13 @@ function notifications(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSect
     ...base,
     kicker: 'Reserve設定',
     title: '通知',
-    lead: '予約まわりの出来事と、価格まわりの注意サインを、どの経路で届けるかの設定です。',
+    lead: leadOf('notifications', ctx),
     blocks: [
       block('notify.booking', '予約・キャンセル', 'お客様の予約に関わる出来事のお知らせです。経路はそれぞれ選べます。', NOTIFY_EVENTS.map(([id, label, description]) =>
         row(`notify.row-${id}`, label, description, [
           chips(`notify.${id}`, `${label}のお知らせの経路`, channelOpts, channelsOf(d.notify[id])),
         ], { scopeLabel: STORE_SCOPE })), {
+        sample: ctx.marked,
         preview: { template: '新規予約は{notify.new-booking}、予約変更は{notify.changed}、キャンセルは{notify.cancelled}に届きます。' },
         facts: ['経路をどちらも外すと、その出来事のお知らせはどこにも届きません。受信トレイには残ります。'],
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -12))}（キャンセルのお知らせにメールを追加）`,
@@ -2055,6 +2126,7 @@ function notifications(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSect
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: '表示の健全性のお知らせは{notify.guard}設定です。' },
         links: [{ label: '価格の状態は料金・ポイントで', sectionId: 'pricing-points' }],
       }),
@@ -2070,6 +2142,7 @@ function notifications(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSect
           },
         }),
       ], {
+        sample: ctx.marked,
         preview: { template: '{notify.quiet-start}から{notify.quiet-end}のあいだ、アプリのお知らせは届きません。' },
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -16))}（静かな時間を設定）`,
       }),
@@ -2108,8 +2181,9 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
         const s = sampleSettingsOf(d, p.id)
         const name = p.full_name
         // ⚖ PR-2b — a person the reader lists but no sample dial knows still
-        // appears; only their SAMPLE settings say サンプル設定なし.
-        if (s === null) return row(`staff.row-${p.id}`, name, '', [ro(`staff.preset-${p.id}`, `${name}の役職`, SAMPLE_NONE)])
+        // appears. ⚖ PR-3 — with the name and no controls; the block's
+        // no-sample card (or, at a twin store, its mark) says why.
+        if (s === null) return row(`staff.row-${p.id}`, name, '', [])
         const granted = s.caps.length > 0 ? s.caps : [...(rulebook.grants[s.preset] ?? [])]
         return row(`staff.row-${p.id}`, name, '', [
           sel(`staff.preset-${p.id}`, `${name}の役職`, presetOpts, s.preset),
@@ -2134,6 +2208,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           source: `カルテと同じ権限の一覧です（役職を選ぶとひな形どおりに入り、そのあと1つずつ足し引きできます）。コアの権限表には役職の種類が${rulebook.roles.length + rulebook.unadoptedRoleKeys.length}つあり、いまカルテが使っているのは${rulebook.roles.length}つです。残る${rulebook.unadoptedRoleKeys.length}つは、まだ名前も権限のひな形も用意されていません。`,
         })
       }), {
+        sample: ctx.marked && d !== null, sampleNone: d === null,
         facts: [
           // ⚖ 8/25 — a number says WHAT it counts, and both are DERIVED from the
           // rulebook so a nineteenth capability cannot ship beside a page still
@@ -2167,6 +2242,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
         facts: ['保留中の招待はありません。参加後も役職と権限はこの画面でいつでも変更できます。'],
       }),
       block('staff.gaps', 'いまの権限の仕組みで足りないところ', 'この2つは、いまの権限の一覧に項目そのものがありません。', [], {
+        sample: ctx.marked && d !== null, sampleNone: d === null,
         list: {
           title: 'まだ用意されていない権限',
           items: [
@@ -2179,7 +2255,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
             '設定ページごとの権限 — いまは「設定の変更」ひとつで、すべての設定ページをまとめて開いています。',
           ],
         },
-        facts: d === null ? [SAMPLE_NONE] : [
+        facts: d === null ? [] : [
           `いま「置けない」場所に置けるのは ${storeBookingPolicy.overridePolicy.roles.join('・')} です。`,
           `人件費を見られるのは ${shiftsPolicy.laborCostRoles.join('・')} です。`,
           `売上分析を店舗全体で見られるのは ${analyticsPolicy.viewRoles.join('・')} です。`,
@@ -2199,12 +2275,13 @@ function integrations(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSecti
     ...base,
     kicker: '組織・管理',
     title: '外部連携',
-    lead: '外部のサービスとのつながりの設定です。つなぐと、その種類のデータをやり取りできるようになります。',
+    lead: leadOf('integrations', ctx),
     blocks: [
       block('link.list', '連携', 'つなぎたいサービスの種類を選んでください。特定の会社名ではなく、種類でお選びいただきます。', connectorCatalog.map((c) =>
         row(`link.row-${c.id}`, c.name, c.note, [
           sw(`link.${c.id}`, `${c.name}につなぐ`, 'リクエスト済み', '未接続', d.connectors[c.id] === 'pending'),
         ], { scopeLabel: STORE_SCOPE })), {
+        sample: ctx.marked,
         preview: { template: '外部カレンダーは{link.calendar}、会計ソフトは{link.accounting}、メッセージ配信は{link.messaging}、外部予約サイトは{link.booking-site}です。' },
         facts: [
           'つなぐ・外すの操作は記録に残ります。実際のつなぎ込みは、リクエストのあとで担当が行います。',
@@ -2230,7 +2307,7 @@ function dataIo(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     ...base,
     kicker: '組織・管理',
     title: 'データ入出力',
-    lead: 'データの書き出しと取り込みです。このページは誰でも開けます — 実際にできる操作は、それぞれのまとまりの権限で決まります。',
+    lead: leadOf('data-io', ctx),
     blocks: [
       block('io.export', '書き出し', '書き出す対象と形式を選んでください。', [
         row('io.row-scope', '対象データ', '選んだ種類だけを書き出します。', [
@@ -2242,6 +2319,7 @@ function dataIo(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           seg('io.format', '書き出しの形式', opts([['csv', 'CSV'], ['json', 'JSON']]), d.exportFormat, locked),
         ], { scopeLabel: STORE_SCOPE }),
       ], {
+        sample: ctx.marked,
         ...(mayExport ? {} : { rightsNote: '権限がありません — データを書き出すには、書き出しの権限が必要です。' }),
         action: mayExport
           ? {
@@ -2287,7 +2365,7 @@ function auditLog(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     ...base,
     kicker: '組織・管理',
     title: '監査ログ',
-    lead: '誰が・いつ・何を変えたかの記録です。表示だけで、ここから編集はできません。',
+    lead: leadOf('audit-log', ctx),
     blocks: [
       block('audit.filter', '絞り込み', '期間と種類で、表示する記録を絞り込みます。押すとすぐ下の表が変わります。', [
         row('audit.row-period', '期間', 'この日数より前の記録は表示しません。', [
@@ -2300,6 +2378,7 @@ function auditLog(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
         preview: { template: 'いま{audit.period}以内・{audit.category}の記録を表示しています。' },
       }),
       block('audit.rows', '変更の記録', '変更の内容は「前 → 後」で表示します。', [], {
+        sample: ctx.marked,
         filterBy: ['audit.period', 'audit.category'],
         table: {
           head: ['日時', '誰が', '何を', '変更の内容'],
@@ -2351,7 +2430,7 @@ function languageDisplay(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
     ...base,
     kicker: '組織・管理',
     title: '言語・表示',
-    lead: '表示言語と、予約の色分けです。言語は人ごと、色分けは店舗ごとの設定です。',
+    lead: leadOf('language-display', ctx),
     blocks: [
       block('lang.language', '表示言語', 'SYNQEDの3つの製品それぞれで、使う人が自分の言語を選べます。', [
         row('lang.row-ui', 'この画面の言語', 'この画面を含む管理画面の言語です。スタッフごとに別の言語を選べます。', [
@@ -2370,6 +2449,7 @@ function languageDisplay(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
           ro('lang.reserve', 'Reserveの言語', 'お客様が選択（日本語 / English）'),
         ], { scopeLabel: STORE_SCOPE }),
       ], {
+        sample: ctx.marked,
         preview: { template: 'この画面は{lang.ui}、カルテの最初の言語は{lang.karute}です。切り替えると、メニュー・状態・お知らせの文がすべて選んだ言語になります。' },
         facts: ['すべての画面を言語に対応させる作業はこれから行います。それまでは日本語で表示されます。'],
       }),
@@ -2377,6 +2457,7 @@ function languageDisplay(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         row(`lang.row-color-${id}`, label, hint, [
           swatch(`lang.color-${id}`, `${label}の色`, paletteOpts, d.bookingColors[id] ?? 'gray'),
         ], { scopeLabel: STORE_SCOPE })), {
+        sample: ctx.marked,
         preview: { template: '新規予約は{lang.color-new}、再来は{lang.color-repeat}、更新案内は{lang.color-renewal}の帯で表示します。' },
         facts: [
           '状態の色は変えられません — 緑（確定）・琥珀（要対応）・赤（停止・障害）は全店舗共通の安全の決まりです。',
@@ -2424,12 +2505,13 @@ function colors(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     ...base,
     kicker: '組織・管理',
     title: '色・テーマ',
-    lead: 'この製品が使う色の元です。押すと、すぐ下のプレビューがその色になります。',
+    lead: leadOf('colors', ctx),
     blocks: [
       block('colors.tokens', '色の設定', 'それぞれの色が画面のどこを塗るかを、色の横に書いています。', tokens.map((t) =>
         row(`colors.row-${t}`, colorTokenMeaning[t] ?? t, '', [
           swatch(`colors.${t}`, `${colorTokenMeaning[t] ?? t}の色`, paletteFor(d.colorTokens[t]), d.colorTokens[t]),
         ], { scopeLabel: STORE_SCOPE })), {
+        sample: ctx.marked,
         preview: { template: '確定・保存ボタンは{colors.--commit-bg}、選択中の行は{colors.--select-bg}、注意のしるしは{colors.--orange}です。' },
         facts: [
           'ボタンやタブなどの押せるところを黒一色にしないのが既定です。色は「選んでいる」「実行する」を見分けるために使います。',
@@ -2477,7 +2559,8 @@ function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials | null): S
         row('org.row-form', '法人格', '設立の形です。', [
           ro('org.form', '法人格', d.companyForm),
         ], { scopeLabel: BUSINESS_SCOPE }),
-      ], d === null ? { facts: [SAMPLE_NONE] } : {
+      ], d === null ? { sampleNone: true } : {
+        sample: ctx.marked,
         facts: ['代表と法人番号の変更は、本人確認のうえサポートが承ります（この画面からは変更できません）。'],
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -34))}（会社名の表記を修正）`,
       }),
@@ -2507,7 +2590,7 @@ function billing(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     ...base,
     kicker: '組織・管理',
     title: '契約・請求',
-    lead: 'プランの変更・お支払い・領収書は、このWeb画面だけで扱います。カルテやReserveのアプリの中で請求することはありません。',
+    lead: leadOf('billing', ctx),
     blocks: [
       // ⚖ S17 · C11 — A STATEMENT AND A DOOR, NOT TWO SWITCHES.
       // The entitlement is `{ business_id, tier, is_unlimited }` — ONE row for
@@ -2527,6 +2610,7 @@ function billing(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           source: '契約はコアの事業ごとの記録から読んでいます（この設定画面からは変更しません）',
         }),
       ], {
+        sample: ctx.marked,
         facts: [
           `いまの月額の合計は${yen(total)}（税込）です。`,
           // ⚖ F7 — ONE DESTINATION, ONE NAME. This line used to send the reader
@@ -2548,9 +2632,11 @@ function billing(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           ro('billing.card', 'カード', `•••• ${d.cardLast4}`),
         ], { scopeLabel: BUSINESS_SCOPE }),
       ], {
+        sample: ctx.marked,
         facts: ['カードの情報はこの製品に保存されません。'],
       }),
       block('billing.history', '請求の履歴', '金額は税込です。領収書はいつでも再発行できます。', [], {
+        sample: ctx.marked,
         table: {
           head: ['請求日', '内容', '金額', '状態'],
           rows: [0, 1, 2].map((i) => ({

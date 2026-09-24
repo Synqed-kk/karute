@@ -4285,3 +4285,17 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     ]) expect({ line, present: LOOK_CODE.includes(line) }).toEqual({ line, present: true })
   })
 })
+
+// ⚖ PR-3 — THE 「サンプル」 MARK AND THE NO-SAMPLE CARD ARE UNREACHABLE WITH THE
+// PRACTICE SWITCH OFF (every deployment today): no block or section of any lens
+// grows a `sample` / `sampleNone` key, and the bare placeholder is gone for good.
+describe('⚖ PR-3 — switch OFF: no mark, no card, no placeholder', () => {
+  it.each([['STORE_A', STORE_A], ['STORE_B', STORE_B], ['STORE_C', STORE_C], ['all stores', undefined]])('%s', async (_label, store) => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const props = await room(store === undefined ? {} : { store })
+    const json = JSON.stringify(props)
+    expect(json).not.toMatch(/"sample(None)?":/)
+    expect(json).not.toContain('サンプル設定なし')
+    expect(json).not.toContain('"disabled":true') // 業種 has a type on every fixture store
+  })
+})
