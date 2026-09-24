@@ -37,13 +37,15 @@ export function UnassignedStoreScreen({
   )
 }
 
-/** The shell's full-screen gate LAYOUT, shared by this screen and
- *  StoreOutageScreen (Round 2): same look, each with its own words. */
+/** The shell's full-screen gate LAYOUT, shared by this screen,
+ *  StoreOutageScreen (Round 2) and RemovedStaffScreen (Round 3): same look,
+ *  each with its own words. No `recheck` copy = no recheck button (a removed
+ *  membership is a fact a reload cannot change — D-S19-2). */
 export function StoreGateScreen({
   copy,
   onRecheck,
 }: {
-  copy: { title: string; body: string; recheck: string; rechecking: string; logout: string }
+  copy: { title: string; body: string; recheck?: string; rechecking?: string; logout: string }
   onRecheck?: () => Promise<void>
 }) {
   const locale = useLocale()
@@ -93,19 +95,21 @@ export function StoreGateScreen({
         <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
           {copy.body}
         </p>
-        <button
-          type="button"
-          onClick={handleRecheck}
-          disabled={busy}
-          className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-60"
-        >
-          {checking ? copy.rechecking : copy.recheck}
-        </button>
+        {copy.recheck && (
+          <button
+            type="button"
+            onClick={handleRecheck}
+            disabled={busy}
+            className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-60"
+          >
+            {checking ? copy.rechecking : copy.recheck}
+          </button>
+        )}
         <button
           type="button"
           onClick={handleSignOut}
           disabled={busy}
-          className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+          className={`${copy.recheck ? 'mt-3' : 'mt-8'} inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60`}
         >
           <LogOut className="size-4" aria-hidden />
           {copy.logout}
