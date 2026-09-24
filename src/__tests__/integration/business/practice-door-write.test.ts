@@ -328,6 +328,13 @@ describe('⚖ A2 — the screen speaks the route’s contract (source pin; the c
     expect(SCREEN).toContain('{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}')
     expect(SCREEN).toContain('{props.saveCardColor?.canSave === false ? null : roomSave(section)}')
   })
+  it('G7 — an old refusal is cleared by a new pick and by every section change (source pin: territory cannot mount a React tree)', () => {
+    const at = (needle: string) => { const i = SCREEN.indexOf(needle); expect(i).toBeGreaterThan(-1); return SCREEN.slice(i, SCREEN.indexOf('}', SCREEN.indexOf('setPicked(', i) + 1) + 1) }
+    expect(SCREEN).toMatch(/onPick=\{\(hex\) => \{\s*setCardFail\(null\)[^\n]*\n\s*setValue\(CARD_COLOR_ID, hex\)/)
+    expect(at('const openSection = useCallback(')).toContain('setCardFail(null)')
+    expect(at('const backToList = useCallback(')).toContain('setCardFail(null)')
+    expect(SCREEN.match(/setPicked\(/g)).toHaveLength(2) // openSection + backToList are the only section switches
+  })
   it('the JP lines are JP-COPY-A2-FINAL’s, byte for byte, by id', () => {
     for (const line of [
       "'色は事業全体の設定として保存され、お客様が次にReserveのお店ページを開くと表示されます。' // save.note.card",

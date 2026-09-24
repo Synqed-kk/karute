@@ -571,6 +571,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  the way back lands the keyboard where it left. */
   const openSection = useCallback((id: string, fromRail: boolean) => {
     if (fromRail) cameFromRef.current = id
+    setCardFail(null) // G7 — the section changes (`picked` is state): an old card refusal goes with it
     setPicked(id)
     setJumpPin(null)
     setInView(null)
@@ -578,6 +579,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
 
   const backToList = useCallback(() => {
     const id = cameFromRef.current
+    setCardFail(null) // G7 — leaving the section clears an old card refusal
     setPicked(null)
     if (!id) return
     // The rail is only mounted again once `picked` is null, so the focus move
@@ -1242,7 +1244,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
             <ReserveCardLookSection
               look={section.cardLook}
               value={String(values[CARD_COLOR_ID] ?? '')}
-              onPick={(hex) => setValue(CARD_COLOR_ID, hex)}
+              onPick={(hex) => {
+                setCardFail(null) // G7 — an old refusal never stands beside a new pick
+                setValue(CARD_COLOR_ID, hex)
+              }}
               reduced={reduced}
               render={(slots) =>
                 columnAnd(
