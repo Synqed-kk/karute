@@ -4024,6 +4024,37 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     expect(section.aside).toBeNull()
   })
 
+  it('S29 — no stores (no business type) keeps the 設備・枠 title and its 台数 note byte-for-byte', async () => {
+    const equipment = sectionOf(await withoutStores(true), 'people-equipment').blocks.find((b) => b.id === 'people.equipment')!
+    expect(equipment.title).toBe('設備・枠')
+    expect(equipment.note).toBe('この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。')
+  })
+
+  it('S29 — a store with no business type keeps both generic lines even with a saved ブース/つ override', async () => {
+    const typeless = stores.map((s) => (s.id === STORE_A ? { ...s, business_type: null } : s))
+    jest.doMock('@/business/lib/data', () => ({ ...jest.requireActual('@/business/lib/data'), listStoreOptions: async () => typeless }))
+    jest.doMock('@/business/lib/practice-door/sample-facade', () => {
+      const actual = jest.requireActual('@/business/lib/practice-door/sample-facade')
+      return { ...actual, storeSample: (id: string) => ({ ...actual.storeSample(id), words: { resourceNoun: 'ブース', counter: 'つ' } }) }
+    })
+    let props!: SettingsProps
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const mod = await import('@/app/[locale]/(business)/business/settings/settings-props')
+        props = (await mod.settingsProps({ locale: 'ja', store: STORE_A })).props
+      })
+    } finally {
+      jest.dontMock('@/business/lib/data')
+      jest.dontMock('@/business/lib/practice-door/sample-facade')
+    }
+    const section = sectionOf(props, 'people-equipment')
+    expect(section.blocks.some((b) => b.words)).toBe(false)
+    expect(section.blocks.find((b) => b.id === 'people.equipment')!.facts[0]).toContain('ブース')
+    const equipment = section.blocks.find((b) => b.id === 'people.equipment')!
+    expect(equipment.title).toBe('設備・枠')
+    expect(equipment.note).toBe('この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。')
+  })
+
   it('N3-4 no stores renders the room policy from the umbrella noun and the fallback private word', async () => {
     const spec = sectionOf(await room({ store: STORE_A }), 'people-equipment').blocks.find((b) => b.words)!.words!
     const policy = sectionOf(await withoutStores(true), 'people-equipment').blocks.find((b) => b.id === 'people.room-policy')!

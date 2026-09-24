@@ -505,7 +505,7 @@ export interface SettingsBlock {
     standardValue: string
     /** This store's equipment rows today; the example sentence counts them. */
     count: number
-    /** The static fact replaced on screen by the live example sentence. */
+    /** The equipment block: its static fact at `index` is replaced on screen by the live example sentence, and its title and note follow the store's noun (`copy.equipmentTitle` / `copy.equipmentNote`). */
     liveFact: { blockId: string; index: number }
     /** The block whose fact and cleanup controls follow the store's turnover word live. */
     liveTurnover: {
@@ -531,6 +531,7 @@ export interface SettingsBlock {
       /** One template per class option VALUE. */
       classLabels: Record<string, string>
       privateFact: string; policyTitle: string; policyNote: string
+      equipmentTitle: string; equipmentNote: string
       policyFacts: readonly string[]
     }
   }
