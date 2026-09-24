@@ -4289,6 +4289,19 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
 // ⚖ PR-3 — THE 「サンプル」 MARK AND THE NO-SAMPLE CARD ARE UNREACHABLE WITH THE
 // PRACTICE SWITCH OFF (every deployment today): no block or section of any lens
 // grows a `sample` / `sampleNone` key, and the bare placeholder is gone for good.
+describe('⚖ PR-3 — the preview board is a DISPLAY EXAMPLE (X-1), at every switch position', () => {
+  it('its note reads 「いまの設定での見え方（表示例）」 from the string home — ONLY where the static 見本 board draws; live previews keep their note', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expect((require('@/business/i18n') as typeof import('@/business/i18n')).businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')
+    expect(SCREEN_CODE).toContain("<div className=\"st-pv-note\">{block.preview.attrs ? businessStrings.settings.pvNoteExample : 'いまの設定での見え方'}</div>")
+    expect(SCREEN_CODE).toContain('{block.preview.attrs && (')
+    expect(SCREEN_CODE).toContain('<span>10:00 見本 あかり 様</span>')
+    // the board (and so the 表示例 note) is 自分の表示設定's alone
+    const withAttrs = (await room({ store: STORE_A })).sections.flatMap((x) => x.blocks.filter((b) => b.preview?.attrs).map((b) => b.id))
+    expect(withAttrs).toEqual(['my-display.prefs'])
+  })
+})
+
 describe('⚖ PR-3 — switch OFF: no mark, no card, no placeholder', () => {
   it.each([['STORE_A', STORE_A], ['STORE_B', STORE_B], ['STORE_C', STORE_C], ['all stores', undefined]])('%s', async (_label, store) => {
     delete process.env.BUSINESS_PRACTICE_TENANT

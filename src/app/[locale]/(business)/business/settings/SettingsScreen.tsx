@@ -1806,7 +1806,11 @@ function Block({
             Object.entries(block.preview.attrs ?? {}).map(([attr, id]) => [attr, String(values[id] ?? '')]),
           )}
         >
-          <div className="st-pv-note">いまの設定での見え方</div>
+          {/* ⚖ PR-3 — ONLY the preview that draws the static 見本 board (`attrs`,
+              自分の表示設定) is a display example and says so; every other
+              preview is a live readout of this block's own values and keeps
+              its note. */}
+          <div className="st-pv-note">{block.preview.attrs ? businessStrings.settings.pvNoteExample : 'いまの設定での見え方'}</div>
           <p className="st-pv-text">{fillTemplate(previewTemplate(block.preview, values), labelFor)}</p>
           {block.preview.attrs && (
             <div className="st-pv-board">
