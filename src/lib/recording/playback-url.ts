@@ -281,9 +281,8 @@ export async function mintPlaybackUrlWithClient(
   //    miss — telling a staffer her recording has no audio when storage merely
   //    blipped is the one wrong thing to say here, and it is the same
   //    fail-closed reading the mint and the discard door already take. A THROW
-  //    is the same answer: wrapped like session-cleanup.ts's twin of this
-  //    probe, so it leaves as this door's own 502 rather than escaping to the
-  //    handler as a 500.
+  //    is the same answer: wrapped, so it leaves as this door's own 502
+  //    rather than escaping to the handler as a 500.
   const parsed = parseRecordingKey(audioPath, actor.businessId)
   if (parsed?.kind !== 'take') {
     console.warn(

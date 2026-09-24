@@ -1,7 +1,7 @@
 // The signed-upload-URL mint, shared by both doors (web action + facade route).
 //
-// NO 'use server' directive, deliberately — same rule as discard.ts and
-// session-cleanup.ts: `businessId` is the AUTHENTICATED tenant the caller
+// NO 'use server' directive, deliberately — same rule as discard.ts:
+// `businessId` is the AUTHENTICATED tenant the caller
 // vouches for. Exported from a 'use server' module it would become a
 // client-invokable action taking any tenant id, which is the exact escape the
 // grammar exists to prevent.
@@ -100,7 +100,7 @@ import {
 import { settleUnboundBind } from '@/lib/recording/unbound-bind'
 
 // ⚖ UPDATE 25 GROUP B, d4: commitReservation's legacy write needs the karute
-// probe (session-cleanup.ts's own idiom) — widened here rather than passed as
+// probe (the retired session-cleanup's idiom) — widened here rather than passed as
 // a second parameter, since planReservation/mintTakeUploadUrl/
 // mintSegmentUploadUrls all thread the SAME `synqed` through unchanged.
 // `appointments` (PR-2): the server-named arm's row create needs it
@@ -579,16 +579,14 @@ async function commitReservation(
   // LIVE path on current builds, not merely legacy, and it can leave a
   // null-pointer session that ALREADY has a saved karute — the web in-tab
   // pipeline writes one directly, with no take/job/audio_storage_path trail
-  // at all (session-cleanup.ts:68-78). Binding a second take onto such a
+  // at all. Binding a second take onto such a
   // session here would let the worker's carry-forward merge
   // (process-recording.ts:401-432 upsertKaruteRecord) silently REPLACE that
   // saved visit's transcript and ai_summary the moment its job runs — the
   // exact "a take never reached the server and nobody was told" this whole
   // packet exists to close, just for a visit that WAS recorded, not one that
-  // wasn't. Same idiom as session-cleanup.ts's own provenance gate
-  // (:120-147): getByRecordingSession, a structural 404 check, ONLY a 404
-  // proves "no record". (session-cleanup.ts's own internal `'has_record'`
-  // string is that door's own, unrelated guard — a different code path.)
+  // wasn't. The provenance idiom: getByRecordingSession, a structural 404
+  // check, ONLY a 404 proves "no record".
   let existingRecord: KaruteRecord | null
   try {
     existingRecord = await synqed.karuteRecords.getByRecordingSession(row.id)

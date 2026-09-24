@@ -4,8 +4,6 @@ import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/l
 import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
-import { resolveWebAuditContext } from '@/lib/audit-web'
-import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanup'
 import { startRecordingSessionWithClient } from '@/lib/recording/session-mint'
 import {
   finalizeTakeWithClient,
@@ -190,36 +188,6 @@ export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTa
     )
   } catch (err) {
     console.warn('[finalizeTake] failed:', err)
-    return { error: 'failed' }
-  }
-}
-
-/**
- * The mint's undo — see lib/recording/session-cleanup.ts for why this exists
- * and when it gets deleted. Web door; the facade twin is
- * /api/app/v1/recordings/session/[id]. Fire-and-forget by contract: callers
- * never await it into the discard UX.
- */
-export async function deleteRecordingSession(
-  recordingSessionId: string,
-): Promise<{ ok: true } | { error: string }> {
-  try {
-    // Same gate the mint carries — only a recorder discards a recording.
-    await requireCapability('records.write')
-    const [synqed, staffId, ctx] = await Promise.all([
-      getSynqedClient(),
-      getCurrentUserStaffId(),
-      resolveWebAuditContext(),
-    ])
-    return await deleteRecordingSessionWithClient(
-      synqed,
-      { staffId, businessId: ctx.businessId, source: 'web' },
-      recordingSessionId,
-    )
-  } catch (err) {
-    // Never blocks the discard — the row just stays until the 7-day window
-    // rolls past it.
-    console.warn('[deleteRecordingSession] failed:', err)
     return { error: 'failed' }
   }
 }
