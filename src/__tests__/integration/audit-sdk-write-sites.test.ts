@@ -28,6 +28,43 @@ const INFRA_EXEMPT = new Set(['src/lib/audit.ts', 'src/lib/audit-web.ts', 'src/l
 const FIX_HINT =
   "if this site predates the PR, check whether @synqed-kk/client was bumped; fix surface = src/lib/audit-policy.ts"
 
+// ── Business writers pairing (lock-3 door, ⚖ Liam 9/24, R-A2-15 §4) ──────────
+// Every write site inside Business territory must be named in
+// scripts/business/business-territory.json "writers" — file + call + symbol,
+// exact, the call as the scanners below print it. That JSON is outside
+// territory, so the isolation gate refuses it in a Business PR: the row lands
+// in its own owner-routed PR, and nothing a Business PR adds (an allowlist
+// entry, an AUDITED_CORES span) can stand in for it. Checked BEFORE the
+// AUDITED_CORES `continue`, so audited Business writes are paired too. No
+// "writers" key = an empty list; a site with no enclosing symbol matches no
+// row. A row may land before its site exists.
+interface BusinessFences {
+  territory: string[]
+  writers?: { file: string; call: string; symbol: string }[]
+}
+const BUSINESS_FENCES: BusinessFences = JSON.parse(
+  readFileSync(join(ROOT, 'scripts/business/business-territory.json'), 'utf8'),
+)
+
+/** The reason a write site is an unpaired Business write, or null. */
+function businessWriterGap(
+  rel: string,
+  call: string,
+  symbol: string | undefined,
+  fences: BusinessFences = BUSINESS_FENCES,
+): string | null {
+  if (!fences.territory.some((p) => rel.startsWith(p))) return null
+  const paired = (fences.writers ?? []).some(
+    (w) => symbol !== undefined && w.file === rel && w.call === call && w.symbol === symbol,
+  )
+  if (paired) return null
+  return (
+    `'${call}' (enclosing symbol '${symbol ?? '<none>'}') is a Business-territory write with no writers row — ` +
+    `add { "file": "${rel}", "call": "${call}", "symbol": "${symbol ?? '<enclosing function>'}" } to ` +
+    `scripts/business/business-territory.json "writers" in its own non-Business PR first`
+  )
+}
+
 interface Site {
   pos: number
   line: number
@@ -388,6 +425,7 @@ describe('CP3 — SDK write-method derivation (from the installed SDK, not hardc
 describe('CP3 — every SDK/raw-Supabase/auth-admin/storage write call site is covered', () => {
   const offenders: string[] = []
   const computedDispatchOffenders: string[] = []
+  const businessWriterOffenders: string[] = []
 
   for (const file of files) {
     const rel = file.replace(ROOT + '/', '')
@@ -411,6 +449,8 @@ describe('CP3 — every SDK/raw-Supabase/auth-admin/storage write call site is c
     ]
 
     for (const { site, kind } of allSites) {
+      const businessGap = businessWriterGap(rel, site.call, symbolAt(site.pos, exportedSpans))
+      if (businessGap) businessWriterOffenders.push(`${rel}:${site.line}: ${businessGap}`)
       if (withinAnySpan(site.pos, coreSpans)) continue // covered by AUDITED_CORES
       const allowlist = kind === 'sdk' ? SDK_WRITE_ALLOWLIST : RAW_SUPABASE_WRITE_ALLOWLIST
       const enclosingSymbol = symbolAt(site.pos, exportedSpans)
@@ -435,6 +475,54 @@ describe('CP3 — every SDK/raw-Supabase/auth-admin/storage write call site is c
 
   it('no computed member dispatch on an SDK-client-adjacent value', () => {
     expect(computedDispatchOffenders).toEqual([])
+  })
+
+  it('every Business-territory write site has its business-territory.json writers row (lock-3 door)', () => {
+    expect(businessWriterOffenders).toEqual([])
+  })
+})
+
+describe('CP3 self-check — the Business writers pairing (lock-3 door, R-A2-15 §4)', () => {
+  const territory = BUSINESS_FENCES.territory
+  const FILE = 'src/business/lib/practice-door/door.ts'
+  // A2's writer line (feat/business-card-look-a2-write door.ts), scanned by
+  // CP3's OWN scanner — the call + symbol its writers row must carry.
+  const src = `
+    export async function writeReserveCardColor(next: string | null) {
+      const saved = await writer.orgSettings.upsert({ settings: { reserve_card_color: next } })
+      return saved
+    }
+  `
+  const sf = ts.createSourceFile(FILE, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const sites = scanSdkWriteCalls(sf, writePairs, new Set())
+  const call = sites[0]?.call ?? '<no site>'
+  const symbol = sites[0] ? symbolAt(sites[0].pos, namedSymbolSpans(sf)) : undefined
+  const row = { file: FILE, call, symbol: symbol ?? '<no symbol>' }
+
+  it("CP3 prints A2's writer as orgSettings.upsert in writeReserveCardColor, and the real writers row is exactly that", () => {
+    expect({ sites: sites.length, call, symbol }).toEqual({ sites: 1, call: 'orgSettings.upsert', symbol: 'writeReserveCardColor' })
+    expect(BUSINESS_FENCES.writers).toContainEqual(row)
+  })
+
+  it('RED: a Business write site with no writers row — and with no "writers" key at all', () => {
+    expect(businessWriterGap(FILE, call, symbol, { territory, writers: [] })).toMatch(/no writers row/)
+    expect(businessWriterGap(FILE, call, symbol, { territory })).toMatch(/no writers row/)
+  })
+
+  it('RED: a row for another call, symbol or file does not pair; a site with no enclosing symbol never pairs', () => {
+    const only = { territory, writers: [row] }
+    expect(businessWriterGap(FILE, 'customers.update', symbol, only)).not.toBeNull()
+    expect(businessWriterGap(FILE, call, 'otherWriter', only)).not.toBeNull()
+    expect(businessWriterGap('src/business/lib/data.ts', call, symbol, only)).not.toBeNull()
+    // a row missing its symbol, read from JSON as the real file is
+    const noSymbolRow = { territory, writers: JSON.parse(`[{ "file": "${FILE}", "call": "${call}" }]`) }
+    expect(businessWriterGap(FILE, call, undefined, noSymbolRow)).not.toBeNull()
+    expect(businessWriterGap(FILE, call, symbol, noSymbolRow)).not.toBeNull()
+  })
+
+  it('GREEN: the matching row pairs; a write outside territory needs no row', () => {
+    expect(businessWriterGap(FILE, call, symbol, { territory, writers: [row] })).toBeNull()
+    expect(businessWriterGap('src/actions/org-settings.ts', call, 'writeOrgSettingsBlobWithClient', { territory, writers: [] })).toBeNull()
   })
 })
 
