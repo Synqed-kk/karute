@@ -611,3 +611,18 @@
   Same move, same choke point: the facade POST /api/app/v1/staff/[id]/avatar route calls that one
   core and it emits staff.avatar_update itself · Fable (PKT-SEC-CORES-D5-STAFF-2026-09-23.md;
   ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-24 · action:recording.session_cleanup · AUDIT_ACTIONS member removed. Its one emitter,
+  src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient, is deleted with the
+  module, so CP4 would fail the member as an orphan. Retired on the lead's ruling 2026-09-23:
+  nothing deleted, soft only; the write it covered no longer exists. The ja/en label stays, so
+  past rows still render · Fable (PKT-S28-PR4-RETIRE-HARD-DELETE.md; ⚖ Liam 2026-09-16 nothing
+  deleted, soft only)
+- 2026-09-24 · cores:src/lib/recording/session-cleanup.ts · AUDITED_CORES entry removed. The
+  module and its recordings.delete write are deleted outright (the entry's own INTERIM note said
+  it goes with the module). Retired on the lead's ruling 2026-09-23: nothing deleted, soft only;
+  the write it covered no longer exists · Fable (PKT-S28-PR4-RETIRE-HARD-DELETE.md; ⚖ Liam
+  2026-09-16 nothing deleted, soft only)
+- 2026-09-24 · map:recordings.session.delete · cited skip row deleted with its route (the facade
+  DELETE /api/app/v1/recordings/session/[id] file is removed). Retired on the lead's ruling
+  2026-09-23: nothing deleted, soft only; the write it covered no longer exists · Fable
+  (PKT-S28-PR4-RETIRE-HARD-DELETE.md; ⚖ Liam 2026-09-16 nothing deleted, soft only)

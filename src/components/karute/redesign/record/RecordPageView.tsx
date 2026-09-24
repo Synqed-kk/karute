@@ -1057,8 +1057,12 @@ export function RecordPageView({
   // (see lib/recordings/inbox.ts). The orphan-as-失敗 problem the cleanup was
   // built for is solved by naming the row correctly instead of destroying it.
   //
-  // SYSTEM/abandoned cleanup is untouched — deleteRecordingSessionWithClient
-  // keeps its other call sites (the recordings action + the facade route).
+  // The SYSTEM/abandoned cleanup is RETIRED too (2026-09-24): nothing in the
+  // app hard-deletes a recording row. A STAFF discard (a reason in core's
+  // discard ledger) renders as a grayed 破棄済み row; an abandoned session
+  // simply stays and is NOT grayed — with no record, job, take or server audio
+  // behind it, the inbox reads it 処理中 for SESSION_UNSETTLED_GRACE_MS (3 h),
+  // then 失敗 (lib/recordings/inbox.ts).
 
   /** `keepTake` (A2-2): the take has been stamped `discardPending` and its audio
    *  is owed to the discard record, so this arm hands no take id on to be

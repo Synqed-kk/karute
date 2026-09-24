@@ -25,8 +25,8 @@
 // happens — it simply now holds against concurrency by construction rather than
 // by the mint's re-read.
 //
-// NO 'use server' directive, deliberately — same rule as discard.ts and
-// session-cleanup.ts: `actor` is the authenticated identity the CALLER
+// NO 'use server' directive, deliberately — same rule as discard.ts:
+// `actor` is the authenticated identity the CALLER
 // resolved and vouches for. As a server action a caller could supply its own.
 //
 // ONE choke point, two doors: the web action (src/actions/recordings.ts) and

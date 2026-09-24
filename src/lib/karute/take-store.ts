@@ -1164,7 +1164,8 @@ export async function readTakeTranscript(
  * than a default. Without it the refusal had no exit at all: a 確認待ち row
  * whose take was never secured could not be cleared by anyone, which is the
  * unclearable 要対応 badge this family has already been burned by once
- * (session-cleanup.ts's header). It is passed straight through to the rows
+ * (the orphan problem the now-retired session-cleanup was built for). It is
+ * passed straight through to the rows
  * below, where the one guard lives. */
 export async function deleteTake(
   takeId: string,

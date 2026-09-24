@@ -1400,35 +1400,11 @@ export const setStaffStores = facadeSetStaffStores
 export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
 
-// The mint's undo (Build F1 fix round 3, INTERIM — P5's kept-discard build
-// replaces it). Fire-and-forget by contract: a failed cleanup must never block
-// the discard, so every failure resolves to { error } instead of throwing.
-export const deleteRecordingSession = async (
-  recordingSessionId: string,
-): Promise<{ ok: true } | { error: string }> => {
-  try {
-    const res = await getDataPort().apiFetch(
-      `/api/app/v1/recordings/session/${enc(recordingSessionId)}`,
-      // idemPost() with no body: the id is in the path, so a DELETE carries
-      // no payload — only the Idempotency-Key the route requires.
-      { ...idemPost(), method: 'DELETE' },
-    )
-    const body = (await res.json().catch(() => null)) as
-      | { ok?: true; error?: string | { message?: string } }
-      | null
-    if (res.ok && body?.ok) return { ok: true }
-    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
-    return { error: message ?? `cleanup failed (${res.status})` }
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Network error' }
-  }
-}
-
 // P5-A (⚖ 8/17) — the written-reason discard. Same endpoint the receipt-only
 // shape uses; the presence of `reason` is what routes it to the door that
 // writes the core discard row first (src/app/api/app/v1/recordings/discard).
 //
-// FAILS CLOSED, unlike its deleteRecordingSession neighbour above: this call
+// FAILS CLOSED: this call
 // IS the trace, so anything short of a 2xx must leave the take alone. Every
 // failure — network, non-2xx, unparseable body — resolves to { ok: false },
 // which RecordPageView renders as the retry-able inline error.

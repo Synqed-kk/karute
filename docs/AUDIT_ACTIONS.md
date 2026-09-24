@@ -66,7 +66,6 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `recording.karute_missing` | recording | live | `settings.auditLog.actions.recording.karute_missing` |
 | `recording.no_sessions_today` | recording | live | `settings.auditLog.actions.recording.no_sessions_today` |
 | `recording.play` | recording | live | `settings.auditLog.actions.recording.play` |
-| `recording.session_cleanup` | recording | live | `settings.auditLog.actions.recording.session_cleanup` |
 | `recording.share` | recording | live | `settings.auditLog.actions.recording.share` |
 | `recording.store_write_refused` | recording | live | `settings.auditLog.actions.recording.store_write_refused` |
 | `recording.take_named` | recording | live | `settings.auditLog.actions.recording.take_named` |

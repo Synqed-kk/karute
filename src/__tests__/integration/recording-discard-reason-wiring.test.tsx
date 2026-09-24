@@ -27,12 +27,8 @@ jest.mock('@/i18n/navigation', () => ({
   Link: ({ children }: { children: unknown }) => children,
 }))
 
-const mockDeleteRecordingSession = jest.fn(
-  async (): Promise<{ ok: true } | { error: string }> => ({ ok: true }),
-)
 jest.mock('@/actions/recordings', () => ({
   startRecordingSession: jest.fn(),
-  deleteRecordingSession: () => mockDeleteRecordingSession(),
 }))
 /** P5-A: every deliberate discard now passes the written-reason gate first,
  *  and the cleanup only runs once that gate reports success. */
@@ -477,7 +473,6 @@ describe('a discard that cannot leave its trace does not happen', () => {
     // That failed too — so there is still nowhere to key the reason row (G14).
     expect(mockDiscardWithReason).not.toHaveBeenCalled()
     expect(mockDiscardRecording).not.toHaveBeenCalled()
-    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
     // The staff member is told, keeps their text, and can try again.
     expect(screen.getByRole('alert')).toHaveTextContent('discardReason.failed')
     expect(screen.getByRole('textbox')).toHaveValue(REASON)
@@ -673,7 +668,6 @@ describe('a discard that cannot leave its trace does not happen', () => {
     await confirmReason()
 
     expect(mockPipelineReset).not.toHaveBeenCalled()
-    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
   })
 
   it('cancel always backs out cleanly — nothing written, nothing thrown away', async () => {

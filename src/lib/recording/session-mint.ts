@@ -11,7 +11,7 @@
 // a caller free to name it could reserve a key under ANY business's prefix.
 //
 // NO 'use server' directive here, deliberately — same rule as
-// mint-take-url.ts, discard.ts and session-cleanup.ts: businessId is the
+// mint-take-url.ts and discard.ts: businessId is the
 // AUTHENTICATED tenant the caller (the web action's cookie session, or the
 // facade's Bearer identity) vouches for, never a body field a caller
 // controls.
@@ -24,7 +24,7 @@ import { objectExists } from '@/lib/recording/mint-take-url'
  *  `bad_input` (a take pair it will not compose a key from), `exists` (fix
  *  round 11, fresh-eyes #7 P2 — the composed key already holds bytes with no
  *  row of this caller's reserving it: a hard-deleted sibling row's audio,
- *  most concretely, staying on storage after session-cleanup deletes its row
+ *  most concretely, left on storage by the now-retired session-cleanup delete
  *  — refused before any row is created, never repointed onto it), and
  *  `upstream` (storage failed to answer whether the key is free — retryable,
  *  and no row is created meanwhile). `null` stays what it has always been —
@@ -57,9 +57,9 @@ export type StartRecordingSessionResult =
  * mint's update path survives only for LEGACY rows minted before this round.
  *
  * THE EXISTS FENCE (fix round 11, fresh-eyes #7 P2). Born-reserved closed the
- * two-rows-one-key race, but not a colder path: session-cleanup HARD-DELETES a
- * row (the abandoned/system path — see session-cleanup.ts) while its finalized
- * object stays on storage, never deleted alongside it. A caller who can name
+ * two-rows-one-key race, but not a colder path: session-cleanup (RETIRED
+ * 2026-09-24 — nothing hard-deletes a row now) removed rows while their
+ * finalized objects stayed on storage (they still do). A caller who can name
  * that exact take id again (it rides in cleartext on the audit trail's own
  * recording.take_named / karute-save rows) would otherwise get a FRESH row
  * created pointing straight at somebody else's audio, with finalize accepting

@@ -19,16 +19,15 @@ import { join, sep } from 'node:path'
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8')
 
-/** Source with comment lines dropped — every one of these files EXPLAINS the
- *  door it lost, and prose naming a delete is not a delete. */
-const code = (rel: string) =>
-  read(rel)
-    .split('\n')
-    .filter((l) => {
-      const t = l.trim()
-      return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*')
-    })
-    .join('\n')
+/** A line that is code, not a comment line — every one of these files EXPLAINS
+ *  the door it lost, and prose naming a delete is not a delete. */
+const isCode = (l: string) => {
+  const t = l.trim()
+  return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*')
+}
+
+/** Source with comment lines dropped. */
+const code = (rel: string) => read(rel).split('\n').filter(isCode).join('\n')
 
 /** EVERY non-test source file under src/ — the census's reach for a rule that
  *  has to hold in the whole app, not only in the files this suite names. */
@@ -301,12 +300,53 @@ describe('what REPLACED them', () => {
     expect(code('src/lib/recordings/inbox.ts')).toContain('strandedTakes')
   })
 
-  it('session cleanup refuses a row whose audio still exists', () => {
-    const src = code('src/lib/recording/session-cleanup.ts')
-    // The POINTER is no longer the question — every born-reserved row has one.
-    expect(src).toContain("if (row.status !== 'RECORDING')")
-    expect(src).toContain('await objectExists(row.audio_storage_path)')
-    expect(src).toContain("return { error: 'has_audio' }")
+  // ⚖ NOTHING DELETED, SOFT ONLY (PR-4, 2026-09-24). session-cleanup was the
+  // app's ONLY hard delete of a recording row. It is gone with its three doors
+  // (web action, facade DELETE route, thin wrapper) and NOTHING replaced it: a
+  // staff discard stays as a grayed 破棄済み row, and an abandoned session simply
+  // stays, NOT grayed (処理中, then 失敗 after the grace). Deleted, not emptied — and
+  // neither shape of that delete may come back anywhere in src/ or thin/.
+  // Comment lines are skipped (store-clamp.ts's prose names both the session
+  // route and DELETE), and test files are skipped, this one included. The
+  // needles run over the comment-stripped file TEXT, so whitespace or a newline
+  // between the parts hides nothing: `recordings.delete(`, `recordings .delete (`,
+  // `recordings\n  .delete(`, `recordings['delete'](` / `["delete"]`, a
+  // `{ delete: del } = …recordings` destructure, and a session route split by
+  // one `' + '` concatenation. A trailing `// note` on a code line still counts.
+  // ponytail: a regex census, not an AST walk. Its known hole is an ALIASED
+  // client (`const r = synqed.recordings; r.delete(`) — an AST walk if that
+  // hole ever matters or the census ever false-positives.
+  it('no recording row is hard-deleted anywhere — the cleanup and its doors are gone', () => {
+    for (const rel of [
+      'src/lib/recording/session-cleanup.ts',
+      'src/app/api/app/v1/recordings/session/[id]/route.ts',
+    ]) {
+      expect([rel, existsSync(join(process.cwd(), rel))]).toEqual([rel, false])
+    }
+
+    const DELETE_CALL = /\brecordings\s*(?:\.\s*delete|\[\s*['"]delete['"]\s*\])\s*\(/g
+    // `[^{}]`, not `[^}]`: the match must start at the destructure's OWN brace,
+    // or it starts at an enclosing `try {` and names the wrong line.
+    const DELETE_DESTRUCTURE =
+      /\brecordings\s*\}\s*=|\{[^{}]*\bdelete\b[^{}]*\}\s*=\s*[\w.]*recordings\b/g
+    const SESSION_PATH = /\/recordings(?:['"`]\s*\+\s*['"`])?\/(?:['"`]\s*\+\s*['"`])?session\//g
+    const offenders: string[] = []
+    for (const rel of [...srcFiles(), ...thinFiles()]) {
+      if (/\.(test|spec)\.|\.d\.ts$/.test(rel)) continue
+      // The code lines joined, each keeping its ORIGINAL line number, so a hit
+      // names the line a reader would open, not its place in the stripped text.
+      const kept = read(rel)
+        .split('\n')
+        .flatMap((l, i) => (isCode(l) ? [{ l, n: i + 1 }] : []))
+      const text = kept.map((k) => k.l).join('\n')
+      const at = (re: RegExp) =>
+        [...text.matchAll(re)].map((m) => `${rel}:${kept[text.slice(0, m.index).split('\n').length - 1].n}`)
+      offenders.push(...at(DELETE_CALL), ...at(DELETE_DESTRUCTURE))
+      const pathLines = at(SESSION_PATH)
+      const deleteLines = at(/\bDELETE\b/g)
+      if (pathLines.length > 0 && deleteLines.length > 0) offenders.push(...pathLines, ...deleteLines)
+    }
+    expect(offenders).toEqual([])
   })
 
   it('the mint never defaults a CLIENT-NAMED take’s container', () => {

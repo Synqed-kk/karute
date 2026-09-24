@@ -81,7 +81,6 @@ export const AUDIT_ACTIONS = [
   'recording.karute_missing',
   'recording.no_sessions_today',
   'recording.play',
-  'recording.session_cleanup',
   'recording.share',
   'recording.store_write_refused',
   'recording.take_named',
@@ -231,11 +230,6 @@ export const AUDITED_CORES: {
     file: 'src/lib/ai/transcribe.ts',
     symbols: ['auditTranscriptionReceipt', 'auditTranscriptionRefused'],
   },
-  // Build F1 fix round 3 — the deliberate-discard orphan cleanup. Its
-  // recordings.delete is the write; the audit() sits on the ONLY success path
-  // (every refusal returns { error } before reaching it). INTERIM: P5's
-  // kept-discard build deletes the module, and this entry goes with it.
-  { file: 'src/lib/recording/session-cleanup.ts', symbols: ['deleteRecordingSessionWithClient'] },
   // The take-finalize choke point (capture pipeline PR2) — its recordings
   // .update write sits inside the same symbol as its emit (via emitFinalized,
   // the emitSave call-through idiom), so no SDK_WRITE_ALLOWLIST row is needed.
