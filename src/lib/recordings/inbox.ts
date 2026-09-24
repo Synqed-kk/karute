@@ -74,6 +74,11 @@ export type InboxReason =
   | 'aiFailed'
   | 'saveFailed'
   | 'genericFailure'
+  /** A 失敗 row whose recorder was WARNED during the take that the phone could
+   *  not keep the audio on the device (recording hole PR-7's fact). */
+  | 'warnedDevice'
+  /** …or that the server was not receiving it (PR-7's `server` fact). */
+  | 'warnedServer'
   | 'localAudio'
   /** …and the SAME device audio when the stop could not finish writing it
    *  (capture pipeline PR3 fix round 16). The take's final flush was skipped —
@@ -383,8 +388,18 @@ export function deriveInboxRows(input: {
    *  file's own idiom: absent = an ordinary complete read, which is every
    *  call before this field existed. */
   serverReadFailed?: boolean
+  /** Recording hole PR-7 — sessionId → the side the recorder was WARNED about
+   *  (the newest recording.capture_warned fact). Optional, the file's idiom:
+   *  absent = every call before this field existed, and the rows are
+   *  byte-identical to them. Read ONLY where a row would say genericFailure. */
+  captureWarnings?: ReadonlyMap<string, 'device' | 'server'>
 }): InboxRow[] {
-  const { sessions, takes, now, serverReadFailed = false } = input
+  const { sessions, takes, now, serverReadFailed = false, captureWarnings } = input
+  /** The generic 失敗 line, unless the recorder was warned — then it names why. */
+  const failedReason = (sessionId: string): InboxReason => {
+    const warned = captureWarnings?.get(sessionId)
+    return warned === 'device' ? 'warnedDevice' : warned === 'server' ? 'warnedServer' : 'genericFailure'
+  }
   const windowMs = input.windowMs ?? INBOX_WINDOW_MS
   const floor = now - windowMs
 
@@ -550,7 +565,7 @@ export function deriveInboxRows(input: {
       // genuinely heals it (the in-tab pipeline writes the record itself), so
       // the affordance stays. Upgrade path if this is ever seen in the field:
       // a core-side "re-mint the job" verb, or hiding retry on the thin arm.
-      rows.push({ ...base, state: 'failed', reason: 'genericFailure', canRetry: !!take })
+      rows.push({ ...base, state: 'failed', reason: failedReason(s.recordingSessionId), canRetry: !!take })
       continue
     }
 
@@ -600,7 +615,7 @@ export function deriveInboxRows(input: {
     rows.push(
       now - startedAt <= SESSION_UNSETTLED_GRACE_MS
         ? { ...base, state: 'processing', reason: 'unsettled' }
-        : { ...base, state: 'failed', reason: 'genericFailure' },
+        : { ...base, state: 'failed', reason: failedReason(s.recordingSessionId) },
     )
   }
 

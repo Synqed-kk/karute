@@ -2668,6 +2668,8 @@
         "transcription_failed": "Transcription error",
         "ai_failed": "AI processing error",
         "karute_save_failed": "Karute save error",
+        "warned_device": "Device storage warning shown",
+        "warned_server": "Server upload warning shown",
         "other": "Other"
       },
       "recording": {
