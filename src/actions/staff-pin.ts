@@ -70,7 +70,8 @@ async function resolvePinWriteActor(
     const actingStaffId = await getCurrentUserStaffId()
     const denied = await nonSelfPinDenial(targetStaffId, actingStaffId)
     return { actingStaffId, denied }
-  } catch {
+  } catch (err) {
+    console.error('[staff-pin] pre-core read failed (roster / permission / store scope):', { targetStaffId }, err)
     return { error: (await getTranslations('pin'))('pinChangeFailed') }
   }
 }

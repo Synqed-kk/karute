@@ -68,7 +68,19 @@ beforeEach(() => {
 describe('setStaffPin / removeStaffPin — a thrown pre-core read answers { error }', () => {
   it('P1 setStaffPin: roster outage → pinChangeFailed, core and gate untouched', async () => {
     getCurrentUserStaffId.mockRejectedValue(outage())
-    await expect(setStaffPin(TARGET, '1234')).resolves.toEqual({ error: 'pinChangeFailed' })
+    const logged = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await expect(setStaffPin(TARGET, '1234')).resolves.toEqual({ error: 'pinChangeFailed' })
+      // The operator can tell which read failed — ids only, never the PIN.
+      expect(logged).toHaveBeenCalledTimes(1)
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining('staff-pin'),
+        expect.objectContaining({ targetStaffId: TARGET }),
+        expect.any(Error),
+      )
+    } finally {
+      logged.mockRestore()
+    }
     expect(setPin).not.toHaveBeenCalled()
     expect(can).not.toHaveBeenCalled()
   })
