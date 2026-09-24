@@ -410,7 +410,7 @@ class GlobalPipeline {
         {
           customerName,
           sessionDate,
-          recordingSessionId: this.context.recordingSessionId ?? null,
+          recordingSessionId: this.context.recordingSessionId,
           durationSeconds: this.context.duration,
         },
       )
