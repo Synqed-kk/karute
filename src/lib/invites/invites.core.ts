@@ -427,8 +427,9 @@ async function targetCardIsStoreless(synqed: InviteClient, staffId: string): Pro
 }
 
 /** Client-threaded core of listInvites (facade Bearer path, design-parity
- *  packet 12 §S4b). Never throws — degrades to [] the same way the web
- *  action's own catch does. */
+ *  packet 12 §S4b). THROWS on a failed list read or a thrown lens (Round 3
+ *  leg 3): the web action answers null, the facade an error status — never a
+ *  false empty. The roster read for the 接続済み badge stays best-effort. */
 export async function listInvitesWithClient(
   synqed: InviteClient,
   memberEmails?: Set<string>,
@@ -457,64 +458,60 @@ export async function listInvitesWithClient(
   /** The VIEWER's own staff id, for the storeless-target exception only. */
   selfStaffId?: string | null,
 ): Promise<InviteRow[]> {
-  try {
-    const { invites } = await synqed.invites.list()
-    let pending = invites.filter((i) => i.status === 'pending')
-    if (canSeeReinvite) {
-      // ponytail: one clamp call per re-invite row, and on the facade each
-      // call re-resolves the ACTOR (staffStores.get) before reading the
-      // target's — so a clamped viewer pays ~2 core reads per re-invite row,
-      // plus one uncached roster read whenever their assignment comes back
-      // empty. Ceiling accepted: a pending list is a handful of rows. Hoist
-      // path when it stops being true: resolve the actor's scope ONCE outside
-      // the loop and pass allowedStoreIds down, leaving one staffStores.get
-      // per row (queued, not built).
-      const visible = await Promise.all(
-        pending.map(async (i) => {
-          if (!i.invited_staff_id) return true
-          if (
-            selfStaffId && i.invited_by === selfStaffId &&
-            await targetCardIsStoreless(synqed, i.invited_staff_id)
-          ) return true
-          return canSeeReinvite(i.invited_staff_id)
-        }),
-      )
-      pending = pending.filter((_, idx) => visible[idx])
-    }
-    // Second linkage signal (Greptile #626 P1): a profile can lack an email
-    // value, so the email match alone can miss a connected person. If the
-    // card an invite was launched from already carries a user_id, that
-    // person is wired regardless of which email their login ended up on.
-    // Best-effort — a roster read failure just means fewer 接続済み badges.
-    let wiredCardIds = new Set<string>()
-    const staffApi = (synqed as Partial<SynqedClient>).staff
-    if (staffApi && pending.some((i) => i.invited_staff_id)) {
-      try {
-        const { staff } = await staffApi.list({ page_size: 200 })
-        wiredCardIds = new Set(
-          staff
-            .filter((s) => (s as { user_id?: string | null }).user_id)
-            .map((s) => s.id),
-        )
-      } catch {
-        /* roster unavailable — email signal still applies */
-      }
-    }
-    // Core returns all statuses (createdAt desc); the UI only wants pending.
-    return pending.map((i) => ({
-      id: i.id,
-      email: i.email,
-      role: i.role as InviteRole,
-      status: i.status as InviteRow['status'],
-      created_at: i.created_at,
-      expires_at: i.expires_at ?? '',
-      linked:
-        (memberEmails?.has(i.email.toLowerCase()) ?? false) ||
-        (!!i.invited_staff_id && wiredCardIds.has(i.invited_staff_id)),
-    }))
-  } catch {
-    return []
+  const { invites } = await synqed.invites.list()
+  let pending = invites.filter((i) => i.status === 'pending')
+  if (canSeeReinvite) {
+    // ponytail: one clamp call per re-invite row, and on the facade each
+    // call re-resolves the ACTOR (staffStores.get) before reading the
+    // target's — so a clamped viewer pays ~2 core reads per re-invite row,
+    // plus one uncached roster read whenever their assignment comes back
+    // empty. Ceiling accepted: a pending list is a handful of rows. Hoist
+    // path when it stops being true: resolve the actor's scope ONCE outside
+    // the loop and pass allowedStoreIds down, leaving one staffStores.get
+    // per row (queued, not built).
+    const visible = await Promise.all(
+      pending.map(async (i) => {
+        if (!i.invited_staff_id) return true
+        if (
+          selfStaffId && i.invited_by === selfStaffId &&
+          await targetCardIsStoreless(synqed, i.invited_staff_id)
+        ) return true
+        return canSeeReinvite(i.invited_staff_id)
+      }),
+    )
+    pending = pending.filter((_, idx) => visible[idx])
   }
+  // Second linkage signal (Greptile #626 P1): a profile can lack an email
+  // value, so the email match alone can miss a connected person. If the
+  // card an invite was launched from already carries a user_id, that
+  // person is wired regardless of which email their login ended up on.
+  // Best-effort — a roster read failure just means fewer 接続済み badges.
+  let wiredCardIds = new Set<string>()
+  const staffApi = (synqed as Partial<SynqedClient>).staff
+  if (staffApi && pending.some((i) => i.invited_staff_id)) {
+    try {
+      const { staff } = await staffApi.list({ page_size: 200 })
+      wiredCardIds = new Set(
+        staff
+          .filter((s) => (s as { user_id?: string | null }).user_id)
+          .map((s) => s.id),
+      )
+    } catch {
+      /* roster unavailable — email signal still applies */
+    }
+  }
+  // Core returns all statuses (createdAt desc); the UI only wants pending.
+  return pending.map((i) => ({
+    id: i.id,
+    email: i.email,
+    role: i.role as InviteRole,
+    status: i.status as InviteRow['status'],
+    created_at: i.created_at,
+    expires_at: i.expires_at ?? '',
+    linked:
+      (memberEmails?.has(i.email.toLowerCase()) ?? false) ||
+      (!!i.invited_staff_id && wiredCardIds.has(i.invited_staff_id)),
+  }))
 }
 
 /** The staff card a pending invite RE-ACTIVATES, or null for a fresh
