@@ -151,12 +151,16 @@ const WORK: Record<string, string[]> = {
 const RECIPE: Record<Exclude<Kind, 'cut' | 'set'>, string[]> = {
   color: ['イルミナカラー オーキッド8 : サファリ8 = 1:1、OX 6%', 'アディクシー サファイア9 : シルバー9 = 1:1、OX 6%', 'イルミナカラー オーシャン6 : ブリック6 = 2:1、OX 3%', 'スロウカラー ベージュ11 : アッシュ11 = 2:1、OX 6%'],
   highlight: ['ハイライト 細め30枚（ブリーチ、OX 6%）。オンカラー イルミナカラー ヌード10 : オーロラ10 = 1:1、OX 3%', 'ハイライト 細め20枚（ブリーチ、OX 6%）。オンカラー アディクシー グレーパール9、OX 3%'],
-  perm: ['1剤 システアミン系、ロッド 26mm（中間〜毛先）、80℃で8分', '1剤 チオ系、ロッド 17〜20mm、2剤 ブロム 5分×2回'],
+  perm: ['1剤 チオ系、ロッド 17〜20mm、2剤 ブロム 5分×2回', '1剤 コスメ系、ロッド 20〜23mm、常温放置15分、2剤 ブロム 5分×2回'],
   straight: ['1剤 酸性ストレート（根元〜中間）、毛先は弱酸性、アイロン 160℃、2剤 ブロム', '根元のみ 1剤 チオ系。既矯正部は薬剤をつけず、アイロン 140℃で整えた'],
-  tr: ['TOKIO インカラミ 4ステップ', 'オージュア クエンチ 4ステップ', 'ミルボン フィヨーレ Fプロテクト'],
+  tr: ['TOKIO インカラミ 4ステップ', 'オージュア クエンチ 4ステップ', 'フィヨーレ プリュ F.プロテクト'],
   spa: ['スパ用クレンジングジェル、炭酸泉でオフ'],
 }
-const GRAY = ['オルディーブ ボーテ 8-NB : 8-BE = 1:1、OX 6%、放置20分', 'オルディーブ ボーテ 7-NB : アディクシー グレーパール7 = 2:1、OX 6%、放置20分', '根元 オルディーブ ボーテ 6-NB、OX 6%。毛先はイルミナカラー ヌード8、OX 3%でなじませた']
+// A recipe tied to the menu itself wins over its kind's: a heated デジタルパーマ never prints on a cold パーマ.
+const RECIPE_BY_MENU: Partial<Record<string, string[]>> = {
+  [DIGI]: ['1剤 システアミン系、ロッド 26mm（中間〜毛先）、80℃で8分', '1剤 システアミン系、ロッド 23〜26mm、乾燥後 90℃で10分、2剤 ブロム 5分×2回'],
+}
+const GRAY = ['オルディーブ ボーテ 8-NB : 8-BE = 1:1、OX 6%、放置20分', 'オルディーブ ボーテ 7-NB : 7-BE = 2:1、OX 6%、放置20分', '根元 オルディーブ ボーテ 6-NB、OX 6%。毛先はイルミナカラー ヌード8、OX 3%でなじませた']
 const FINISH: Record<Kind, string[]> = {
   cut: ['乾かすだけでまとまる形に。', '毛流れに沿って整え、扱いやすい長さになった。', 'スタイリング剤を少量つけるだけでまとまる。'],
   color: ['黄みが抑えられ、透明感のある色味に。', '艶が出て、光に当たるとほんのり赤みが見える。'],
@@ -184,7 +188,7 @@ function karute({ customer: c, menu, date, first, prev, pick }: KaruteCtx): Karu
     { category: 'PREFERENCE', label: 'ご要望', text: prev ? `前回（${md(prev.date)}・${prev.menu}）から${weeks(prev.date, date)}週間。${wish}` : wish },
     { category: 'TREATMENT', label: '施術内容', text: pick(WORK[menu]) },
   ]
-  const recipes = kind === 'cut' || kind === 'set' ? null : kind === 'color' && c.theme === 'gray' ? GRAY : menu === ILLUMINA ? RECIPE.color.filter((r) => r.startsWith('イルミナ')) : RECIPE[kind]
+  const recipes = kind === 'cut' || kind === 'set' ? null : RECIPE_BY_MENU[menu] ?? (kind === 'color' && c.theme === 'gray' ? GRAY : menu === ILLUMINA ? RECIPE.color.filter((r) => r.startsWith('イルミナ')) : RECIPE[kind])
   if (recipes) lines.push({ category: 'PRODUCT', label: '薬剤・配合', text: pick(recipes) })
   lines.push({ category: 'OTHER', label: '仕上がり', text: pick((c.theme === 'gray' && GRAY_FINISH[kind]) || FINISH[kind]) })
   lines.push({ category: 'NEXT_VISIT', label: '次回への申し送り', text: pick(t.next) })
