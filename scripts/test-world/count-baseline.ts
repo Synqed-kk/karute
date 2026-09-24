@@ -15,20 +15,20 @@ import type { SynqedClient } from '@synqed-kk/client'
 
 // Hard pin: the only business this script will ever count. No flag or env can change it.
 export const DEV_SALON_BUSINESS_ID = 'fb44dd68-4af7-44b0-8cc7-4ee10c54491d'
-const DEV_EMAIL = 'dev@karute.test'
+export const DEV_EMAIL = 'dev@karute.test'
 
 export type Core = Pick<
   SynqedClient,
   'orgSettings' | 'stores' | 'staff' | 'staffStores' | 'menus' | 'resources' | 'customers' | 'appointments' | 'karuteRecords' | 'recordings' | 'packs'
 >
 export type Counts = Record<string, Record<string, number | string>>
-class Refused extends Error {}
+export class Refused extends Error {}
 
 // Pages until a short page. The page size is the server's own `page_size` echo (we ask for
 // each route's zod max: staff/karute/recordings 200, customers/appointments 500 — core
 // rejects larger, it never clamps silently), so rows < page_size proves the last page.
 // ponytail: 1000-page cap, raise it if the test world ever outgrows it.
-async function pageAll<K extends string, T>(key: K, fetch: (page: number) => Promise<Record<K, T[]> & { page_size: number }>): Promise<T[]> {
+export async function pageAll<K extends string, T>(key: K, fetch: (page: number) => Promise<Record<K, T[]> & { page_size: number }>): Promise<T[]> {
   const out: T[] = []
   for (let page = 1; page <= 1000; page++) {
     const r = await fetch(page)
@@ -39,11 +39,18 @@ async function pageAll<K extends string, T>(key: K, fetch: (page: number) => Pro
   throw new Error(`${key}: more than 1000 pages`)
 }
 
-export async function count(c: Core, now = new Date()): Promise<Counts> {
+// The Dev Salon pin (the other two legs: the hard business id the client is built with, and
+// callers never taking a business from input). Returns every staff card so callers need not re-read.
+export async function assertDevSalon(c: Pick<Core, 'orgSettings' | 'staff'>) {
   const org = await c.orgSettings.get()
   if (org?.business_id !== DEV_SALON_BUSINESS_ID) throw new Refused(`core resolved business ${org?.business_id ?? '(none)'}, not the Dev Salon`)
   const staff = await pageAll('staff', (page) => c.staff.list({ page, page_size: 200 }))
   if (!staff.some((s) => s.email?.toLowerCase() === DEV_EMAIL)) throw new Refused(`no ${DEV_EMAIL} staff card in the resolved business`)
+  return staff
+}
+
+export async function count(c: Core, now = new Date()): Promise<Counts> {
+  const staff = await assertDevSalon(c)
 
   const [{ stores }, staffPerStore, { menus }, customers, packs, appointments, karute, recordings] = await Promise.all([
     c.stores.list(),

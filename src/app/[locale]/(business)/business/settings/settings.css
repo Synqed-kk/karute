@@ -629,6 +629,58 @@
 }
 .biz .pg-settings .st-swatch.is-on { box-shadow: 0 0 0 2px #fff inset, 0 0 0 2px var(--st-accent); }
 
+/* ── カードの見た目 (⚖ A1b) ─────────────────────────────────────────────────
+   The Reserve card is shown at TRUE PHONE SIZE (393px, never scaled), so at ③
+   the stack is 393 wide for this section and the reading column — a heading,
+   three sentences and twelve dots — takes no floor of its own. The ③ threshold
+   (`.st-body` ≥ 960) is unchanged; only the two tracks move. The swatches are
+   the room's own `.st-swatch` (press scale, touch floor, R13's ring when
+   checked), round and painted from the port's satin — one colour math. */
+/* `:has()` (the shell's own opt-in selector, same support note): the panel is the
+   grid, and only this section puts a phone in it. */
+.biz .pg-settings .st-panel:has(.cl-phone) { --st-side-w: 393px; --st-main-min: 0px; }
+.biz .pg-settings .cl-state { margin: 6px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+.biz .pg-settings .cl-dot { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--line); border-radius: 999px; background: var(--satin-base); }
+.biz .pg-settings .cl-swatches { display: grid; grid-template-columns: repeat(4, max-content); gap: 10px; margin-top: 12px; }
+.biz .pg-settings .cl-swatch {
+  width: 36px; height: 36px; padding: 2px; border-radius: 999px;
+  display: inline-flex; background: transparent;
+}
+/* The colour is CONTENT, never the control's own fill (no colour-filled
+   interactive element — 墨 would make the button itself near-black): a round
+   fill inset 2px inside the neutral button, with a hairline so 白 / 生成り /
+   桜 / 空色 still read on the white block; the check sits on it in its ink. */
+.biz .pg-settings .cl-swatch__fill {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--satin-base); color: var(--satin-ink);
+}
+.biz .pg-settings .cl-preview { max-width: 393px; }
+.biz .pg-settings .cl-preview .sp-seg { margin-bottom: 12px; }
+/* ⚖ R-A1b-1b — THE STRIP IS A SCROLL CONTAINER AT 1:1, AND IT NEVER SCROLLS.
+   A 393px phone in a 393px strip has nothing to pan. The pair below is there to
+   give the card its own paint layer: that is how Reserve's own page paints it
+   (the card sits in a scrolling page), and without it Chrome draws the rounded
+   corners' edge pixels a shade differently from Reserve's.
+   WHERE THE COLUMN IS NARROWER THAN A PHONE (the shell's 76px icon rail at
+   393/440), THE PHONE SCALES DOWN TO FIT and `is-scaled` turns the scroller into
+   a clip — never a pan, and nothing is cut, because the scaled card fits the
+   strip. A transform, not `zoom`: the layout stays 393px, so the port's own
+   measure effects see Reserve's geometry. `--cl-scale` / `--cl-h` and the class
+   are set by one ResizeObserver in the section (min(1, strip ÷ 393); the
+   phone's height × that), so the strip's height follows the painted card. The phone's own type
+   is the port's: it resets what the room hands down (reserve-card.css), and the
+   two inherited values it does not name are reset HERE, at the host:
+   `overflow-wrap` (the room's `anywhere`) and `color-scheme` (the shell's
+   `light`) — Reserve's page carries neither (in-room parity, computed style). */
+.biz .pg-settings .cl-strip { height: var(--cl-h, auto); overflow-x: auto; overscroll-behavior-x: contain; }
+.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }
+.biz .pg-settings .cl-phone {
+  width: 393px; overflow-wrap: normal; color-scheme: normal;
+  /* no fallback on purpose: unset (every column ≥ 393px) = no transform at all */
+  transform: scale(var(--cl-scale)); transform-origin: top left;
+}
+
 /* a switch, with a thumb that rides the same spring */
 .biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
 .biz .pg-settings .st-state { color: var(--ink-3); font-size: 12px; line-height: 1.5; white-space: nowrap; }
@@ -1716,6 +1768,8 @@
   .biz .pg-settings .st-coll-field { width: 100%; }
   .biz .pg-settings .st-coll-field .st-input { width: 100%; max-width: none; }
   .biz .pg-settings .st-coll-add > .st-act { width: 100%; }
+  /* ⚖ A1b — the phone sits centred under the picker (list-is-the-page). */
+  .biz .pg-settings .cl-preview { margin-inline: auto; }
 }
 
 /* ═══ ≥900 — the rail and the panel share the page, and a data table earns its

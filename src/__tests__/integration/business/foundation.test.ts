@@ -310,7 +310,9 @@ describe('the fixture data door', () => {
       // reconciled by taking a side — the inventory mirrors reality or it is
       // worth nothing.
       // PR-2: `react` left with `renderNow` (now in ./clock, re-exported).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', './practice-door/door', './practice-door/switch'],
+      // ⚖ A1b · K11 — `./fixtures-settings`: OFF, a store's address is its SAMPLE 店舗情報 dial
+      // (`readStoreAddress`); ON it is the door's own core store record.
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.
@@ -321,7 +323,9 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
       'src/business/lib/practice-door/sample-facade.ts': ['../fixtures-settings', '../fixtures-today', '../resource-words', './registry', './switch'],
       'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
-      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', './actor', './registry', './sample-facade'],
+      // ⚖ A1b — `../reserve-card/card-color`: the card colour's ONE normaliser (the
+      // port's boundary), so the door's `readReserveCardColor` never grows a second.
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', './actor', './registry', './sample-facade'],
       'src/business/lib/fixtures.ts': ['./clock'],
       // ⚖ D-15/D-24 (B2) — `./canon-logic/pricing` JOINED this inventory,
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
@@ -852,6 +856,8 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
         '@/business/lib/practice-door/sample-facade',
+        // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
+        '@/business/lib/reserve-card/palette',
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
@@ -869,6 +875,8 @@ describe('the fixture data door', () => {
         './Collapse',
         // ⚖ S17 FOLD (A1) — the rail renders #812's room for its 予約と確保 row.
         './StorePolicySection',
+        // ⚖ A1b — …and カードの見た目's picker + ported card for its row.
+        './ReserveCardLookSection',
         '@/business/lib/guide',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
@@ -940,6 +948,17 @@ describe('the fixture data door', () => {
       // ⚠ THE SEAM'S EMPTY INVENTORY IS THE FENCE, MADE MACHINE-READABLE: the one
       // file core's reconnect lands in reaches nothing at all today.
       'src/app/[locale]/(business)/business/settings/store-policy-seam.ts': [],
+      // ⚖ A1b — カードの見た目: the port is its ONLY card drawing (and its satin the
+      // only colour math); the room's spring and the tour's ring helper; no data door.
+      'src/app/[locale]/(business)/business/settings/ReserveCardLookSection.tsx': [
+        '@/business/lib/guide',
+        '@/business/lib/reserve-card/ReserveCardPreview',
+        '@/business/lib/reserve-card/satin-material',
+        '@/business/lib/settings',
+        '@/business/lib/spring',
+        'react',
+      ],
+      'src/business/lib/reserve-card/palette.ts': ['./card-color'],
       'src/app/[locale]/(business)/business/settings/loading.tsx': ['@/business/i18n'],
       // AI相談. The room's own CONSULTATION plane plus the derivations that
       // BORROW every other fact it shows: the booking's customer / staff / menu
