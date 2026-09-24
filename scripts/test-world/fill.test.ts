@@ -19,7 +19,7 @@ const paged = (key: string, rows: unknown[], { page = 1, page_size = 20 }: Q = {
 }
 const conflict = (msg: string) => Object.assign(new Error(msg), { status: 409 })
 
-function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean } = {}) {
+function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; defaultHours?: Record<string, unknown> } = {}) {
   let n = 0
   const t = { staff: [] as Row[], links: new Map<string, string[]>(), resources: [] as Row[], menus: [] as Row[], customers: [] as Row[], packs: [] as Row[], burns: [] as Row[], appts: [] as Row[], karutes: [] as Row[] }
   const stats = { writes: 0, policy: null as null | Record<string, unknown> }
@@ -46,7 +46,7 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean }
       set: async (id: string, ids: string[]) => (stats.writes++, t.links.set(id, ids), { ok: true }),
     },
     storePolicies: {
-      get: async () => stats.policy ?? { source: 'default', weekly_hours: null },
+      get: async () => stats.policy ?? { source: 'default', weekly_hours: o.defaultHours ?? null },
       set: async (_: string, i: Record<string, unknown>) => (stats.writes++, (stats.policy = { ...i, source: 'custom' })),
     },
     resources: { list: async () => ({ resources: t.resources }), create: async (i: Record<string, unknown>) => add(t.resources, i) },
@@ -140,6 +140,15 @@ async function main() {
   assert.equal(await apply(f.core, opts(m, addDays(TODAY, 7))), 0)
   assert.equal(new Set(f.t.appts.map((a) => `${a.customer_id}|${a.starts_at}`)).size, f.t.appts.length, 'no duplicate booking after the top-up')
   assert.equal(f.t.appts.length, p2.appointments.length)
+
+  // A default policy may echo platform hours: the snapshot is still the recipe's hours, the ones the loader sets.
+  const nine = Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, { open: '09:00', close: '18:00' }]))
+  const dh = fakeCore({ defaultHours: nine })
+  const mdh = empty()
+  const dhCode = await apply(dh.core, opts(mdh))
+  assert.deepEqual(mdh.stores[STORE].weeklyHours, recipe.policy.weekly_hours, 'hours snapshot = the recipe hours the loader set, not the default policy echo')
+  assert.deepEqual(dh.stats.policy?.weekly_hours, recipe.policy.weekly_hours, 'the loader set the recipe hours')
+  assert.equal(dhCode, 0)
 
   // A 409 is recorded, never retried, and exits 4; 5xx is retried, 409 is not.
   const c409 = fakeCore({ fail409: true })

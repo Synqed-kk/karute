@@ -96,7 +96,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const m = o.manifest
   const policy = await read(() => core.storePolicies.get(storeId))
   const prior = m.stores[storeId]
-  const st = prior ?? { type: recipe.id, epoch: today, weeklyHours: policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
+  const st = prior ?? { type: recipe.id, epoch: today, weeklyHours: policy.source === 'default' ? recipe.policy.weekly_hours : policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
   if (!dry) m.stores[storeId] = st
   const run: Run = { at: new Date().toISOString(), type: recipe.id, store: storeId, today, created: {}, skipped: [], conflicts409: [], errors: [] }
   if (!dry) m.runs.push(run)
