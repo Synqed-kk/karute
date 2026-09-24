@@ -45,7 +45,12 @@ export function StoreGateScreen({
   copy,
   onRecheck,
 }: {
-  copy: { title: string; body: string; recheck?: string; rechecking?: string; logout: string }
+  /** recheck + rechecking come as a PAIR or not at all (Greptile P2 on #1028):
+   *  a recheck without its busy label would render an unlabeled button. */
+  copy: { title: string; body: string; logout: string } & (
+    | { recheck: string; rechecking: string }
+    | { recheck?: undefined; rechecking?: undefined }
+  )
   onRecheck?: () => Promise<void>
 }) {
   const locale = useLocale()

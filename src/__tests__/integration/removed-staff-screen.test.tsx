@@ -25,6 +25,7 @@ jest.mock('@/lib/karute/logout-wipe', () => ({ wipeSessionVault: jest.fn(async (
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }))
 
 import { RemovedStaffScreen } from '@/components/layout/RemovedStaffScreen'
+import { StoreGateScreen } from '@/components/layout/UnassignedStoreScreen'
 
 const originalLocation = window.location
 const reload = jest.fn()
@@ -51,6 +52,14 @@ it('P5 never reloads on its own', () => {
   render(<RemovedStaffScreen />)
   act(() => jest.advanceTimersByTime(10 * 60_000))
   expect(reload).not.toHaveBeenCalled()
+})
+
+it('StoreGateScreen copy: recheck + rechecking are a pair or absent (tsc refuses a lopsided pair)', () => {
+  const lopsided = (
+    // @ts-expect-error — a recheck without its busy label would render an unlabeled button (Greptile P2, #1028)
+    <StoreGateScreen copy={{ title: 't', body: 'b', recheck: 'r', logout: 'l' }} />
+  )
+  expect(lopsided).toBeTruthy()
 })
 
 it('catalogue: ja/en carry the same three keys; logout matches the unassigned screen', () => {
