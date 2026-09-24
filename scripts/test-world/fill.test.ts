@@ -169,6 +169,9 @@ async function main() {
     assert.doesNotMatch(src, /(from\s+|require\(\s*|import\(\s*)['"][^'"]*core-target-guard/, `${file}: does not import core-target-guard`)
   }
 
+  // One recipe = one store (grep-pinned: the registry is read at import, so a test cannot remap it).
+  assert.match(readFileSync(join(__dirname, 'fill.ts'), 'utf8'), /must map exactly one store/, 'fill.ts refuses a type mapped to more than one store')
+
   console.log('✓ fill: all assertions passed')
 }
 

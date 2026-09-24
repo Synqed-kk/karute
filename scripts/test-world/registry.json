@@ -1,5 +1,5 @@
 {
-  "$comment": "The test-world TYPE registry (not CORE-30's business registry): which business type each Dev Salon test store plays, and what the fill loader (fill.ts) creates for it. The stores map moves to stores.business_type when CORE-26 lands. Type ids = BusinessProfileKey values in src/business/lib/fixtures-settings.ts.",
+  "$comment": "The test-world TYPE registry (not CORE-30's business registry): which business type each Dev Salon test store plays, and what the fill loader (fill.ts) creates for it. The stores map moves to stores.business_type when CORE-26 lands. Type ids = BusinessProfileKey values in src/business/lib/fixtures-settings.ts. One recipe = one store: a type must map exactly one store here; a second store of a type needs its own recipe and member-number series.",
   "types": {
     "beauty_chiropractic": {
       "label": "美容整体",

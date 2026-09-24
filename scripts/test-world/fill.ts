@@ -89,6 +89,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     return 2
   }
   if (registry.stores[storeId] !== recipe.id) throw new Error(`store ${storeId} is not mapped to ${recipe.id} in registry.json`)
+  if (Object.values(registry.stores).filter((t) => t === recipe.id).length !== 1) throw new Error(`type ${recipe.id} must map exactly one store in registry.json (one recipe = one store; a second store of a type needs its own recipe and member-number series)`)
   const { stores } = await read(() => core.stores.list())
   if (!stores.some((s) => s.id === storeId)) throw new Error(`store ${storeId} is not in core`)
   const dev = cards.find((s) => s.email?.toLowerCase() === DEV_EMAIL)!
