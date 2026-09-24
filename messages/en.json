@@ -3575,6 +3575,7 @@
     "copy": "Copy",
     "copied": "Copied",
     "pendingInvites": "Pending invites",
+    "pendingInvitesUnavailable": "Pending invites could not be loaded. Please try again in a moment.",
     "linkedBadge": "Connected",
     "revoke": "Revoke",
     "inviteExistingLabel": "Invite an existing team member (optional)",

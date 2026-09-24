@@ -3575,6 +3575,7 @@
     "copy": "コピー",
     "copied": "コピーしました",
     "pendingInvites": "保留中の招待",
+    "pendingInvitesUnavailable": "保留中の招待を読み込めませんでした。しばらくしてからもう一度お試しください。",
     "linkedBadge": "接続済み",
     "revoke": "取り消す",
     "inviteExistingLabel": "既存スタッフにログインを招待（任意）",
