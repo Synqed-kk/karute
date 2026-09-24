@@ -363,6 +363,7 @@ async function main() {
   const prefer = (open: string, close: string) => (['am', 'pm', 'eve'] as const).map((part) => preferredStart({ open, close }, part, 60, 30))
   assert.deepEqual(prefer('07:00', '22:00'), [420, 870, 1230], 'preferredStart: 07:00–22:00 → am 07:00 · pm 14:30 · eve 20:30')
   assert.deepEqual(prefer('10:00', '19:00'), [600, 870, 1050], 'preferredStart: 10:00–19:00 → am 10:00 · pm 14:30 · eve 17:30')
+  assert.deepEqual(prefer('09:05', '19:25'), [545, 840, 1075], 'preferredStart: 09:05–19:25 (mid 14:15, off the grid) → am 09:05 · pm 14:00 (snapped down) · eve 17:55')
   const types = Object.keys(registry.types).filter((t) => registry.types[t].recipe)
   assert.ok(types.length >= 3, 'every registry type with a recipe runs')
   const storeOf = new Map(types.map((t) => [t, Object.keys(registry.stores).find((id) => registry.stores[id] === t) ?? `store-${t}`]))
@@ -386,6 +387,9 @@ async function main() {
 
       const q1 = plan(r, ctxT, TODAY, TODAY)
       assert.deepEqual(plan(r, ctxT, TODAY, TODAY), q1, `${type}: same inputs → same plan`)
+      // load-bearing: the r() draw order (weights before the role filter). A change here = the plan drifted from the live テスト東京店 — do not re-pin without checking the live rows.
+      const perBed = q1.appointments.reduce<Record<string, number>>((n, a) => ((n[a.resource] = (n[a.resource] ?? 0) + 1), n), {})
+      if (type === 'beauty_chiropractic') assert.deepEqual(perBed, { 'ベッド1': 74, 'ベッド2': 68, 'ベッド3': 79, '個室': 14 }, `${type}: q1 bookings per bed`)
       assert.equal(q1.packs.length, r.packs.length, `${type}: every 回数券 is bought in the window`)
       assert.ok(q1.appointments.length >= r.customers.length && q1.karutes.length > 0, `${type}: the plan fills the store`)
       for (const k of q1.karutes) assert.ok(k.entries.length >= 3 && k.entries.length <= 6, `${type} ${k.key}: 3–6 karute lines`)
