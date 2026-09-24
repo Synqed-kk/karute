@@ -823,6 +823,8 @@
         "aiFailed": "The karute could not be created (the transcription finished)",
         "saveFailed": "The karute could not be saved (its content was created)",
         "genericFailure": "This recording was not saved",
+        "warnedDevice": "This recording was not saved (the device could not store the audio while recording)",
+        "warnedServer": "This recording was not saved (the audio was not reaching the server while recording)",
         "localAudio": "The audio is still on this device (unsaved)",
         "tailIncomplete": "The recording ends partway (you can save what is left on this device)",
         "serverAudio": "Audio is on the server (not saved yet; may end partway)",
@@ -2603,6 +2605,7 @@
           "capture_finalized": "Recording audio saved",
           "capture_resumed": "Recording audio restored on the server",
           "capture_unlinked": "Recording audio not linked to a record",
+          "capture_warned": "Recording warning shown to staff",
           "discard": "Discarded recording",
           "karute_missing": "Recording never became a karute",
           "no_sessions_today": "No recording sessions today",
@@ -2667,6 +2670,8 @@
         "transcription_failed": "Transcription error",
         "ai_failed": "AI processing error",
         "karute_save_failed": "Karute save error",
+        "warned_device": "Device storage warning shown",
+        "warned_server": "Server upload warning shown",
         "other": "Other"
       },
       "recording": {

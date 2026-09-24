@@ -62,6 +62,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `recording.capture_finalized` | recording | live | `settings.auditLog.actions.recording.capture_finalized` |
 | `recording.capture_resumed` | recording | live | `settings.auditLog.actions.recording.capture_resumed` |
 | `recording.capture_unlinked` | recording | live | `settings.auditLog.actions.recording.capture_unlinked` |
+| `recording.capture_warned` | recording | live | `settings.auditLog.actions.recording.capture_warned` |
 | `recording.discard` | recording | live | `settings.auditLog.actions.recording.discard` |
 | `recording.karute_missing` | recording | live | `settings.auditLog.actions.recording.karute_missing` |
 | `recording.no_sessions_today` | recording | live | `settings.auditLog.actions.recording.no_sessions_today` |

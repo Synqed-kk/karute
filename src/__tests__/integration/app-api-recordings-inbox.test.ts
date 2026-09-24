@@ -42,6 +42,7 @@ type RecordingRow = {
   staff_id: string
   duration_seconds: number | null
   created_at: string
+  audio_storage_path?: string | null
 }
 type KaruteRow = { id: string; recording_session_id: string | null; staff_id: string }
 // SDK shape (recording-discards.d.ts's RecordingDiscardEvent) isn't a public
@@ -79,6 +80,11 @@ const getByRecordingSession = jest.fn(async (_id: string) => {
   throw Object.assign(new Error('not found'), { status: 404 })
 })
 const storesGet = jest.fn(async (id: string) => ({ id }))
+/** Recording hole PR-7 — the warning-fact read. Default: no rows at all. */
+const auditList = jest.fn(async (_opts: unknown): Promise<{ events: unknown[]; total: number }> => ({
+  events: [],
+  total: 0,
+}))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 
 const recordingsGet = jest.fn(async (id: string) => ({
@@ -117,6 +123,7 @@ const fakeClient = {
   },
   stores: { get: storesGet },
   staffStores: { get: staffStoresGet },
+  audit: { list: auditList },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -377,6 +384,45 @@ describe('GET recordings/inbox — the join', () => {
     // UPDATE 25 GROUP A, piece c: `sameDay` joined the allowlist — a boolean
     // JST-day flag, not a fact about what was said either.
     expect(Object.keys(body.sessions[0]).sort()).toEqual([
+      'createdAt',
+      'customerId',
+      'customerName',
+      'discardedByStaff',
+      'durationSeconds',
+      'jobLastError',
+      'jobProbeFailed',
+      'jobStatus',
+      'karuteRecordId',
+      'recordingSessionId',
+      'sameDay',
+    ])
+  })
+
+  it('PR-7: a warned 失敗 session ships ONE more key, captureWarning — a code, never text', async () => {
+    // Past the 3h grace, no job, no record: the server-only fold calls it
+    // genericFailure, so its warning fact is asked for (and only its).
+    const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+    recordingRows.current = [
+      {
+        id: 'sess-mine',
+        customer_id: 'cust-1',
+        staff_id: 'auth-user-1',
+        duration_seconds: 1380,
+        created_at: nowIso(300),
+        audio_storage_path: `app_business-1_${TAKE}.webm`,
+      },
+    ]
+    auditList.mockResolvedValueOnce({
+      events: [{ action: 'recording.capture_warned', detail: { reason: 'device', warned_at: 'x', take_id: TAKE } }],
+      total: 1,
+    })
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { sessions: Array<Record<string, unknown>> }
+    expect(auditList).toHaveBeenCalledTimes(1)
+    expect(body.sessions[0].captureWarning).toBe('device')
+    expect(Object.keys(body.sessions[0]).sort()).toEqual([
+      'captureWarning',
       'createdAt',
       'customerId',
       'customerName',

@@ -10,6 +10,11 @@ import {
   type FinalizeTakeInput,
   type FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
+import {
+  recordCaptureWarningWithClient,
+  type CaptureWarningInput,
+  type CaptureWarningResult,
+} from '@/lib/recording/capture-warning'
 
 /**
  * Mints a `recording_sessions` row (synqed-core, server-generated uuid) the
@@ -188,6 +193,28 @@ export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTa
     )
   } catch (err) {
     console.warn('[finalizeTake] failed:', err)
+    return { error: 'failed' }
+  }
+}
+
+/**
+ * Web door for "the recorder was shown the at-risk notice" (recording hole
+ * PR-7) — the cookie twin of POST /api/app/v1/recordings/capture-warning. Both
+ * call the ONE choke point (lib/recording/capture-warning.ts), which owns the
+ * parse, the own-session check and the single audit row. Identity comes from
+ * the cookie session only; finalizeTake's gate and never-throws contract.
+ */
+export async function recordCaptureWarning(input: CaptureWarningInput): Promise<CaptureWarningResult> {
+  try {
+    if (!(await can('records.write'))) return { error: 'forbidden' }
+    const [businessId, staffId] = await Promise.all([getBusinessId(), getCurrentUserStaffId()])
+    return await recordCaptureWarningWithClient(
+      newSynqedClient(businessId, await getCurrentAccessToken()),
+      { staffId, businessId, source: 'web' },
+      input,
+    )
+  } catch (err) {
+    console.warn('[recordCaptureWarning] failed:', err)
     return { error: 'failed' }
   }
 }
