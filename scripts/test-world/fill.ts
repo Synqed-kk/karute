@@ -177,7 +177,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const mine = new Map<string, { id: string; status: string }>()
   for (const a of window) {
     const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
-    if (tag) mine.set(tag, a)
+    if (tag && a.store_id === storeId) mine.set(tag, a)
     if (a.store_id === storeId && a.customer_id) mine.set(`${a.customer_id}|${Date.parse(a.starts_at)}`, a)
   }
   const clash = (a: Plan['appointments'][number], sid: string, rid: string) => {
