@@ -184,6 +184,8 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       const rec = st.created.packs?.[k.key]
       const list = dry && cid.startsWith('dry:') ? undefined : await read(() => core.packs.listPacks(cid))
       const have = list?.find((x) => x.id === rec) ?? list?.find((x) => x.kind === 'pack' && x.purchase_round === 1 && (x.notes ?? '').startsWith('テストデータ'))
+      // an adopted row is recorded like a created one, so a lost manifest is rebuilt in one run
+      if (have && !dry) (st.created.packs ??= {})[k.key] = have.id
       const id = have?.id ?? (await write('packs', k.key, () => core.packs.createPack({
         customer_id: cid, kind: 'pack', pack_size: k.size, unit_price: k.unitPrice, total_price: k.unitPrice * k.size, purchase_round: 1,
         purchased_at: k.purchasedOn, source: 'manual', notes: `テストデータ [${k.key}]`, created_by: staffId.get(k.staff) ?? null,
@@ -215,7 +217,10 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
       if (!cid || !sid || !rid || !mid) return void run.skipped.push(`appointments ${a.key}: missing customer/staff/bed/menu`)
       const have = mine.get(a.key)
-      if (have) return void apptRow.set(a.key, have)
+      if (have) {
+        if (!dry) (st.created.appointments ??= {})[a.key] = have.id
+        return void apptRow.set(a.key, have)
+      }
       const other = clash(a, sid, rid)
       if (other) return void run.skipped.push(`appointments ${a.key}: overlaps existing booking ${other.id}`)
       const row = await write('appointments', a.key, () => core.appointments.create({
