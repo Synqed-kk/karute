@@ -730,7 +730,9 @@ async function bindServerNamedTake(
   if (result && 'error' in result && result.error !== 'exists') {
     keptUnbound(`create answered ${result.error}`)
   }
-  return settleUnboundBind(result, signed)
+  const settled = settleUnboundBind(result, signed)
+  if ('recordingSessionId' in settled && settled.recordingSessionId) console.info('[mint-take-url] unbound upload bound')
+  return settled
 }
 
 /**

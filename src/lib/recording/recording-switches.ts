@@ -33,6 +33,7 @@ export const RECORDING_SWITCHES = {
    *     audit line (audit.ts `recordings.uploadUrl` entry's coveredBy names
    *     only the client-named write; audit-policy.ts's mint-take-url block).
    *     Either accept the session.mint-style coverage (karute save) in the
-   *     flip PR's body or add an emitter first. */
-  bindUnboundUploads: false,
+   *     flip PR's body or add an emitter first.
+   *  Flipped ON 2026-09-24 — all five held; verdicts: karute-field-issues-2026-08-18/diag-yumeka-1602-2026-09-23/PRE-FLIP-READS-2026-09-24.md (outside the repo). */
+  bindUnboundUploads: true,
 } as const
