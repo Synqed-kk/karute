@@ -48,7 +48,7 @@
 // ever READS a row and UPDATES the one it was given.
 //
 // THE ONE ROW THIS FILE CAN CREATE (fix plan v3 PR-2), and only with
-// RECORDING_SWITCHES.bindUnboundUploads ON — it ships ON since 2026-09-24. A SERVER-named take
+// RECORDING_SWITCHES.bindUnboundUploads ON — it ships OFF (on 2026-09-24, off again 2026-09-25). A SERVER-named take
 // (a body with no takeId) is signed and, with the switch OFF, handed out bound to
 // no row, exactly as before: its audio can land with nothing pointing at it.
 // With the switch ON, that arm creates a row born reserved on the exact key it

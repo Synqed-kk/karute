@@ -157,8 +157,8 @@ describe('settleUnboundBind — every answer of the create (fold B)', () => {
   // The sixth row (the create THROWS) is settled in the mint — see the ON block.
 })
 
-it('ships ON (flipped 2026-09-24)', () => {
-  expect(RECORDING_SWITCHES.bindUnboundUploads).toBe(true)
+it('ships OFF (back off 2026-09-25)', () => {
+  expect(RECORDING_SWITCHES.bindUnboundUploads).toBe(false)
 })
 
 describe('switch OFF (forced) — the door answers exactly as before', () => {
