@@ -14,7 +14,7 @@ jest.mock('next/cache', () => ({
   updateTag: jest.fn(),
 }))
 
-// Echo the i18n key so assertions read 'pinSetFailed' / 'noPermission'.
+// Echo the i18n key so assertions read 'pinChangeFailed' / 'noPermission'.
 jest.mock('next-intl/server', () => ({
   getTranslations: async () => (key: string) => key,
 }))
@@ -66,29 +66,29 @@ beforeEach(() => {
 })
 
 describe('setStaffPin / removeStaffPin — a thrown pre-core read answers { error }', () => {
-  it('P1 setStaffPin: roster outage → pinSetFailed, core and gate untouched', async () => {
+  it('P1 setStaffPin: roster outage → pinChangeFailed, core and gate untouched', async () => {
     getCurrentUserStaffId.mockRejectedValue(outage())
-    await expect(setStaffPin(TARGET, '1234')).resolves.toEqual({ error: 'pinSetFailed' })
+    await expect(setStaffPin(TARGET, '1234')).resolves.toEqual({ error: 'pinChangeFailed' })
     expect(setPin).not.toHaveBeenCalled()
     expect(can).not.toHaveBeenCalled()
   })
 
-  it('P2 removeStaffPin: roster outage → pinRemoveFailed, core untouched', async () => {
+  it('P2 removeStaffPin: roster outage → pinChangeFailed, core untouched', async () => {
     getCurrentUserStaffId.mockRejectedValue(outage())
-    await expect(removeStaffPin(TARGET)).resolves.toEqual({ error: 'pinRemoveFailed' })
+    await expect(removeStaffPin(TARGET)).resolves.toEqual({ error: 'pinChangeFailed' })
     expect(removePin).not.toHaveBeenCalled()
   })
 
-  it('P3 non-self: can() rejecting → pinSetFailed, clamp never asked, core untouched', async () => {
+  it('P3 non-self: can() rejecting → pinChangeFailed, clamp never asked, core untouched', async () => {
     can.mockRejectedValue(outage())
-    await expect(setStaffPin(TARGET, '1234')).resolves.toEqual({ error: 'pinSetFailed' })
+    await expect(setStaffPin(TARGET, '1234')).resolves.toEqual({ error: 'pinChangeFailed' })
     expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(setPin).not.toHaveBeenCalled()
   })
 
-  it('P4 non-self: the clamp rejecting → pinSetFailed, core untouched', async () => {
+  it('P4 non-self: the clamp rejecting → pinChangeFailed, core untouched', async () => {
     staffWriteInScope.mockRejectedValue(outage())
-    await expect(setStaffPin(TARGET, '1234')).resolves.toEqual({ error: 'pinSetFailed' })
+    await expect(setStaffPin(TARGET, '1234')).resolves.toEqual({ error: 'pinChangeFailed' })
     expect(setPin).not.toHaveBeenCalled()
   })
 
