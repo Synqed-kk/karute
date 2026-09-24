@@ -67,7 +67,7 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
       list: async (q: Q) => paged('appointments', t.appts.filter((a) => (!q.from || (a.starts_at as string) >= q.from) && (!q.to || (a.starts_at as string) < q.to)), q),
       create: async (i: Record<string, unknown>, opts?: { idempotencyKey?: string }) => {
         if (o.fail409) throw conflict('RESOURCE_TAKEN')
-        if (t.appts.some((a) => overlaps(a, i) && (a.staff_id === i.staff_id || a.resource_id === i.resource_id))) throw conflict('double-booked')
+        if (t.appts.some((a) => a.status !== 'CANCELLED' && overlaps(a, i) && (a.staff_id === i.staff_id || a.resource_id === i.resource_id))) throw conflict('double-booked')
         return add(t.appts, { ...i, occupied_until: null, idempotencyKey: opts?.idempotencyKey })
       },
     },
@@ -178,17 +178,20 @@ async function main() {
   assert.deepEqual(dh.stats.policy?.weekly_hours, recipe.policy.weekly_hours, 'the loader set the recipe hours')
   assert.equal(dhCode, 0)
 
-  // A foreign booking (no fill tag) already holds the first planned slot's practitioner: skipped up front, no 409.
+  // A foreign booking (no fill tag) on the first planned slot's practitioner: SCHEDULED holds the slot (skipped up
+  // front, no 409); CANCELLED frees it (the visit is made).
   const a0 = p1.appointments[0]
-  const fo = fakeCore()
-  const staffCard = fo.t.staff.find((x) => x.name === a0.staff)!.id
-  fo.t.appts.push({ id: 'foreign-appt', store_id: STORE, customer_id: 'foreign', staff_id: staffCard, resource_id: null, starts_at: a0.startsAt, ends_at: a0.endsAt, occupied_until: null, notes: null, status: 'SCHEDULED' })
-  const mfo = empty()
-  assert.equal(await apply(fo.core, opts(mfo)), 0)
-  assert.deepEqual(mfo.runs[0].skipped.filter((l) => /overlaps existing booking/.test(l)), [`appointments ${a0.key}: overlaps existing booking foreign-appt`])
-  assert.deepEqual(mfo.runs[0].conflicts409, [])
   assert.notEqual(a0.member, 'BC-0003')
-  assert.equal(fo.t.appts.length, p1.appointments.length - binnedOnly(p1.appointments).length, 'the foreign booking + every planned one but the clashing one and the binned customer\'s')
+  for (const [status, clashes] of [['SCHEDULED', true], ['CANCELLED', false]] as const) {
+    const fo = fakeCore()
+    const staffCard = fo.t.staff.find((x) => x.name === a0.staff)!.id
+    fo.t.appts.push({ id: 'foreign-appt', store_id: STORE, customer_id: 'foreign', staff_id: staffCard, resource_id: null, starts_at: a0.startsAt, ends_at: a0.endsAt, occupied_until: null, notes: null, status })
+    const mfo = empty()
+    assert.equal(await apply(fo.core, opts(mfo)), 0)
+    assert.deepEqual(mfo.runs[0].skipped.filter((l) => /overlaps existing booking/.test(l)), clashes ? [`appointments ${a0.key}: overlaps existing booking foreign-appt`] : [], `a foreign ${status} booking`)
+    assert.deepEqual(mfo.runs[0].conflicts409, [])
+    assert.equal(fo.t.appts.length, p1.appointments.length - binnedOnly(p1.appointments).length + (clashes ? 0 : 1), `${status}: the foreign booking + every planned one but the binned customer's (and the clashing one)`)
+  }
 
   // A 回数券 sold by hand (round 1, no loader note) is never adopted: the loader makes its own and burns only that.
   const k0 = p1.packs.find((k) => k.member !== 'BC-0003' && k.redeem.length > 0)!

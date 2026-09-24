@@ -24,6 +24,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
+import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { addDays, hoursOn, jstIso, plan, type Plan, type Recipe, type RecipeData } from './plan'
 
@@ -190,9 +191,10 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
     if (tag && a.store_id === storeId) mine.set(tag, a)
   }
+  // A CANCELLED / NO_SHOW booking frees its slot — the app's own rule (isTerminalStatus, src/lib/appointments/status.ts).
   const clash = (a: Plan['appointments'][number], sid: string, rid: string) => {
     const [start, end] = [Date.parse(a.startsAt), Date.parse(a.endsAt) + p.resources.find((r) => r.name === a.resource)!.cleanup_minutes * 60_000]
-    return window.find((x: Appointment) => Date.parse(x.starts_at) < end && start < Date.parse(x.occupied_until ?? x.ends_at) && (x.staff_id === sid || x.resource_id === rid))
+    return window.find((x: Appointment) => !isTerminalStatus(x.status) && Date.parse(x.starts_at) < end && start < Date.parse(x.occupied_until ?? x.ends_at) && (x.staff_id === sid || x.resource_id === rid))
   }
   const apptRow = new Map<string, { id: string; status: string }>()
   await pool(p.appointments, async (a) => {
