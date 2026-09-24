@@ -291,7 +291,6 @@ export type FacadeEndpointKey =
   | 'recordings.job.enqueueFromSession'
   | 'recordings.job.status'
   | 'recordings.playbackUrl'
-  | 'recordings.session.delete'
   | 'recordings.session.mint'
   | 'recordings.share'
   | 'recordings.uploadUrl'
@@ -808,12 +807,6 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // interactive choke point (the default/primary flow when no job is
   // enqueued); the job-pipeline alternative is real too and not reducible to
   // one symbol — flagged here rather than silently picking one truth.
-  // recordings.session.delete (Build F1 fix round 3): a deliberate 破棄's
-  // orphan-row cleanup. Skip HERE and cited to the shared choke point instead,
-  // exactly like recordings.discard above — both doors call
-  // deleteRecordingSessionWithClient, so one cleanup writes one row. A
-  // 'mutation' row here would double-log every facade discard.
-  'recordings.session.delete': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient' },
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord' },
   // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
   // design D6). Same doctrine as the writers above: the shared body

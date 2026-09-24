@@ -115,10 +115,6 @@ const LITERAL_ONLY_CATEGORY = {
   'recording.capture_resumed': 'recording',
   'recording.capture_unlinked': 'recording',
   'recording.discard': 'recording',
-  // Choke emit: src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient
-  // (facade key recordings.session.delete is a skip row — same doctrine).
-  // INTERIM: goes away with P5's kept-discard build, and this line with it.
-  'recording.session_cleanup': 'recording',
   // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
   // its own emitShareAudit helper) — the recorder's own share toggle (⚖ Liam
   // 2026-09-13 sharing law; 2026-09-14 design D6). FIX ROUND 1: facade key
