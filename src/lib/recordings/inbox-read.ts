@@ -115,11 +115,11 @@ const MAX_DISCARD_PAGES = 20
  *  lookup gets WARNING_DEADLINE_MS before the read moves on without it
  *  (fix round 1, Greptile P1: the inbox and the audit-watch cron both wait on
  *  this read, and the cron's 30 s reserve never budgeted for it).
- *  ponytail: the ceiling is 20 per-session audit reads, six at a time, 2 s
+ *  ponytail: the ceiling is 50 per-session audit reads, six at a time, 2 s
  *  total — past either, the OLDEST (or slowest) failed rows keep the generic
  *  失敗 line: honest, just unexplained. Upgrade path: an `action` filter on
  *  core's ListAuditOptions (CORE-19 item 2) makes this ONE call per read. */
-const MAX_WARNING_READS = 20
+const MAX_WARNING_READS = 50
 const WARNING_DEADLINE_MS = 2_000
 /** One page of the session's `recording`-category rows — the audit-watch
  *  dedupe read's own shape and size (run.ts isNewCandidate). */
