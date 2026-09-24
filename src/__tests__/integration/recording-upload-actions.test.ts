@@ -142,6 +142,7 @@ import {
   composeSegmentKey,
   composeStagedKey,
   composeRescueKey,
+  composeTranscriptKey,
   composeTakeKeyFromExt,
   composeRescueKeyFromExt,
   extFromMime,
@@ -1794,6 +1795,85 @@ describe('isOwnAudioKey — take OR rescue, and nothing else', () => {
         isOwnRecordingKey(key, 'biz-1') || key === rescue(),
       )
     }
+  })
+})
+
+// ⚖ THE FIFTH KIND — THE TRANSCRIPT MEMO (PR-5, charge once). The meter keeps
+// the answer it paid for at `trc/<audio key>.<locale>.json`, beside the audio,
+// and reads it back before it would pay again. What this block owns: the memo
+// is named for exactly one take or rescue of THIS business in one closed
+// language, it nests nowhere, and it passes no audio fence at all.
+describe('composeTranscriptKey — the paid answer, named for its audio', () => {
+  const take = () => composeTakeKey('biz-1', UUID, 'audio/webm')!.key
+  const rescue = () => composeRescueKey('biz-1', UUID, 'audio/webm')!.key
+
+  it('parses a take’s memo and a rescue’s memo as kind transcript', () => {
+    expect(parseRecordingKey(`trc/app_biz-1_${UUID}.webm.ja.json`, 'biz-1')).toEqual({
+      kind: 'transcript',
+      audioKey: `app_biz-1_${UUID}.webm`,
+      locale: 'ja',
+    })
+    expect(parseRecordingKey(`trc/rsc/app_biz-1_${UUID}.mp4.en.json`, 'biz-1')).toEqual({
+      kind: 'transcript',
+      audioKey: `rsc/app_biz-1_${UUID}.mp4`,
+      locale: 'en',
+    })
+  })
+
+  it.each([
+    ['a nested memo', `trc/trc/app_biz-1_${UUID}.webm.ja.json.ja.json`],
+    ['a SEGMENT body', `trc/seg/app_biz-1_${UUID}/000000.webm.ja.json`],
+    ['a STAGED body', `trc/stg/biz-1_${SESSION_UUID}_${UUID}.webm.ja.json`],
+    ['another tenant’s take', `trc/app_biz-2_${UUID}.webm.ja.json`],
+    ['a locale outside the closed set', `trc/app_biz-1_${UUID}.webm.fr.json`],
+    ['no `.json`', `trc/app_biz-1_${UUID}.webm.ja`],
+    ['no locale at all', `trc/app_biz-1_${UUID}.webm.json`],
+    ['a query suffix', `trc/app_biz-1_${UUID}.webm.ja.json?x=1`],
+  ])('%s does not parse for biz-1', (_label, key) => {
+    expect(parseRecordingKey(key, 'biz-1')).toBeNull()
+  })
+
+  it.each([
+    ['take', take],
+    ['rescue', rescue],
+  ])('round-trips a %s in both languages', (_label, audio) => {
+    for (const locale of ['ja', 'en'] as const) {
+      const composed = composeTranscriptKey('biz-1', audio(), locale)!
+      expect(composed.key).toBe(`trc/${audio()}.${locale}.json`)
+      expect(parseRecordingKey(composed.key, 'biz-1')).toEqual({
+        kind: 'transcript',
+        audioKey: audio(),
+        locale,
+      })
+      // …and belongs to NOBODY else.
+      expect(parseRecordingKey(composed.key, 'biz-2')).toBeNull()
+    }
+  })
+
+  it.each([
+    ['a staged copy', () => composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key, 'ja'],
+    ['a segment', () => composeSegmentKey('biz-1', UUID, 0, 'audio/webm')!.key, 'ja'],
+    ['a memo key as the audio', () => composeTranscriptKey('biz-1', take(), 'ja')!.key, 'ja'],
+    ['another tenant’s take', () => composeTakeKey('biz-2', UUID, 'audio/webm')!.key, 'ja'],
+    ['a string-shaped non-string', () => IMPOSTOR, 'ja'],
+    ['a locale outside the closed set', () => take(), 'fr'],
+    ['a region-tagged locale', () => take(), 'ja-JP'],
+    ['no locale', () => take(), null],
+  ])('refuses %s — null, never a composed key', (_label, audio, locale) => {
+    expect(composeTranscriptKey('biz-1', audio(), locale)).toBeNull()
+  })
+
+  // A memo is neither kind of audio: no fence that means a take (or a take's
+  // audio) may ever be handed one, and the tenant-blind cleanup walk reads
+  // neither the memo nor its folder as a recording.
+  it('passes NO audio fence, and cleanup reads neither it nor its folder as a take', () => {
+    const memo = composeTranscriptKey('biz-1', rescue(), 'en')!.key
+    expect(isOwnRecordingKey(memo, 'biz-1')).toBe(false)
+    expect(isOwnAudioKey(memo, 'biz-1')).toBe(false)
+    expect(isStagedKeyFor(memo, 'biz-1', SESSION_UUID)).toBe(false)
+    expect(looksLikeRecordingKey('trc')).toBe(false)
+    expect(looksLikeRecordingKey(memo)).toBe(false)
+    expect(looksLikeRecordingKey(composeTranscriptKey('biz-1', take(), 'ja')!.key)).toBe(false)
   })
 })
 

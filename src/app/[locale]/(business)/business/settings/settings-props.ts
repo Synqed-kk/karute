@@ -248,7 +248,6 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
 
   const props: SettingsProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
-    lensLabel,
     subtitle:
       'お店の決まりごとと、自分の見え方をここでまとめて変えます。左の一覧から見たい設定を選ぶと、右にその中身が出ます。',
     // ⚖ H3 — and the same sentence where the room is one column deep, told the
@@ -276,9 +275,6 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     demoSaveLine: '保存はこの画面の中だけに反映されます（実データ接続後に本保存）。',
     selfSaveLine: 'この設定はこの端末のこのブラウザに保存され、ほかのスタッフの画面は変わりません。',
     boundaryFallback: '設定を変更できる権限がありません。店舗の設定は、権限のあるアカウントでのみ表示されます。',
-    // The demo persona, so the boundary sentences can say who is reading rather
-    // than 「あなた」 to somebody who is not who the page thinks they are.
-    roleLabel: role,
     // ⚖ S17 fix round 5 · G3 — and WHO they are, as the roster id the shell
     // already resolved. It is not printed anywhere; the one section that saves
     // to this browser keys its row by it, so a shared front-desk machine holds
@@ -439,9 +435,6 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
   const gate = gateOf(entry, ctx.access)
   const base = {
     id: entry.id,
-    group: entry.group,
-    label: entry.label,
-    scope: entry.scope,
     gate,
     boundaryLine: gate === 'no-rights' ? boundaryLineFor(entry, ctx.access.role) : null,
   }
@@ -500,7 +493,7 @@ function rosterIn(people: Ctx['staff'], dial: Record<string, unknown> | undefine
   return [...people].sort((a, b) => rank(a.id) - rank(b.id))
 }
 
-type SectionBase = Pick<SettingsSection, 'id' | 'group' | 'label' | 'scope' | 'gate' | 'boundaryLine'>
+type SectionBase = Pick<SettingsSection, 'id' | 'gate' | 'boundaryLine'>
 
 function boundaryLineFor(entry: RailEntry, role: string): string {
   // ⚖ S17 · C7 — THE SENTENCE WAS WRONG AND IS CORRECTED AT THE SOURCE.
