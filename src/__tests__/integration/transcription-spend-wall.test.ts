@@ -209,12 +209,38 @@ const createSignedUrl = jest.fn(async () => ({
   data: { signedUrl: 'https://x/audio' },
   error: null,
 }))
+// ── THE TRANSCRIPT MEMO'S STORAGE (PR-5, charge once) ───────────────────────
+// The bucket as the memo sees it: one map, cleared before every test. A `trc/`
+// key that is not in it answers storage's real NoSuchKey shape (HTTP 400, body
+// statusCode '404', 'Object not found' — take-binding.ts#isStorageNotFound); a
+// second upload of the same key answers the duplicate refusal, because the memo
+// is written upsert:false. Every other key keeps the answer this suite always
+// gave, so no pre-PR-5 test sees a different bucket.
+const memoStore = new Map<string, string>()
+const storageDownload = jest.fn(async (key: string) => {
+  if (!key.startsWith('trc/')) return { data: null, error: { message: 'none' } }
+  const body = memoStore.get(key)
+  return body === undefined
+    ? { data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } }
+    : { data: new Blob([body]), error: null }
+})
+const storageUpload = jest.fn(
+  async (key: string, body: string, opts?: { upsert?: boolean; contentType?: string }) => {
+    void opts
+    if (memoStore.has(key)) {
+      return { data: null, error: { statusCode: '409', message: 'The resource already exists' } }
+    }
+    memoStore.set(key, body)
+    return { data: { path: key }, error: null }
+  },
+)
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
       from: () => ({
         createSignedUrl,
-        download: jest.fn(async () => ({ data: null, error: { message: 'none' } })),
+        download: (...a: unknown[]) => storageDownload(...(a as [string])),
+        upload: (...a: unknown[]) => storageUpload(...(a as [string, string])),
         info: jest.fn(async () => ({ data: { size: 1 }, error: null })),
       }),
     },
@@ -326,6 +352,7 @@ import { POST as webTranscribePOST } from '@/app/api/ai/transcribe/route'
 import { POST as facadeTranscribePOST } from '@/app/api/app/v1/ai/transcribe/route'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { runMeteredTranscription } from '@/lib/ai/transcribe'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
 
 const OWN_KEY = conformingKey('biz-1')
@@ -381,6 +408,7 @@ beforeEach(() => {
     audio_storage_path: null,
   })
   listSegments.mockResolvedValue({ segments: [] })
+  memoStore.clear()
 })
 
 // ── t3 — the cents ──────────────────────────────────────────────────────────
@@ -878,6 +906,7 @@ describe('the web route (cookie door)', () => {
           cost_cents: 45,
           cents_reserved: 45,
           debit_recorded: true,
+          replayed: false,
         },
       }),
     )
@@ -926,6 +955,7 @@ describe('the web route (cookie door)', () => {
           cost_cents: 45,
           cents_reserved: 5,
           debit_recorded: false,
+          replayed: false,
         },
       }),
     )
@@ -1050,14 +1080,75 @@ describe('the facade route (Bearer door)', () => {
       cents_reserved: 45,
       debit_recorded: true,
     })
-    // Four keys since fix round 4 — still well inside the hook's cap of 8
-    // (handler.ts) — and none of them reaches the client: the body is the
+    // Five keys since PR-5 added `replayed` — still well inside the hook's cap
+    // of 8 (handler.ts) — and none of them reaches the client: the body is the
     // provider's own.
-    expect(Object.keys(receipts[0].detail as object)).toHaveLength(4)
+    expect(Object.keys(receipts[0].detail as object)).toHaveLength(5)
     expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
     // A landed debit is an ordinary row (fix round 3 — same default as every
     // other route the hook serves).
     expect(receipts[0].severity).toBeUndefined()
+  })
+
+  // ⚖ CHARGE ONCE ACROSS DOORS (PR-5, T2 on the doors this build wires). The
+  // phone's interactive door pays for a take; the worker then reaches the SAME
+  // object (same business, same key) and answers from the memo — one provider
+  // call and one reserve between them, and the job's own receipt says so.
+  it('t2 the app door pays, then the job door on the same audio pays NOTHING — one provider call, one reserve', async () => {
+    const res = await facadeTranscribePOST(post(), noRoute)
+    expect(res.status).toBe(200)
+
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        business_id: 'business-1',
+        payload: { ...baseJob.payload, audio_path: conformingKey('business-1') },
+      })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+    expect(consume).toHaveBeenCalledTimes(1)
+    expect(complete).toHaveBeenCalledTimes(1)
+    // The job's receipt row: the door ran, and paid nothing.
+    const jobRows = rows('recording.transcribe').filter(
+      (r) => (r.detail as Record<string, unknown>).door === 'job',
+    )
+    expect(jobRows).toHaveLength(1)
+    expect(jobRows[0].detail).toMatchObject({
+      duration_seconds: 5400,
+      cost_cents: 0,
+      cents_reserved: 0,
+      debit_recorded: true,
+      replayed: true,
+    })
+  })
+
+  // T11 — the receipt's new key rides the hook's OWN row, inside its cap of 8
+  // route keys (handler.ts): five receipt keys + staff_id = six, none evicted.
+  it('t11 a replay on this door: the hook row carries replayed:true and all six keys survive the cap', async () => {
+    ;(resolveSelfStaffId as jest.Mock)
+      .mockResolvedValueOnce('staff-app-1')
+      .mockResolvedValueOnce('staff-app-1')
+
+    const first = await facadeTranscribePOST(post(), noRoute)
+    const second = await facadeTranscribePOST(post(), noRoute)
+
+    expect(await second.json()).toEqual(await first.json())
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    const receipts = rows('recording.transcribe')
+    expect(receipts).toHaveLength(2)
+    expect(receipts[1].detail).toEqual({
+      duration_seconds: 5400,
+      cost_cents: 0,
+      cents_reserved: 0,
+      debit_recorded: true,
+      replayed: true,
+      staff_id: 'staff-app-1',
+    })
+    expect(Object.keys(receipts[1].detail as object)).toHaveLength(6)
+    expect(receipts[1].severity).toBeUndefined()
   })
 
   // G1 (Greptile 4/5, fix round 2): same claim as the web door's g1 test above
@@ -1276,6 +1367,7 @@ describe('the reserve on the buffer door (the web FormData path)', () => {
           cost_cents: 45,
           cents_reserved: 5,
           debit_recorded: true,
+          replayed: false,
         },
       }),
     )
@@ -1535,5 +1627,173 @@ describe('the release — a provider that ANSWERS non-2xx gives the reserve back
 
     expect(recordUsage).not.toHaveBeenCalled()
     expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ CHARGE ONCE, DURABLY (PR-5) ───────────────────────────────────────────
+// A transcription is paid for ONCE per (business, audio object, language). The
+// meter reads the memo BEFORE the ceiling, the reserve and the provider, and
+// writes it only AFTER the provider answered. The assertions count the
+// PROVIDER mock, the consume and the reserve — the three things that cost.
+describe('charge once — the durable transcript memo', () => {
+  const AUDIO = conformingKey('biz-1')
+  const memoKey = (audio: string, locale: 'ja' | 'en' = 'ja') => `trc/${audio}.${locale}.json`
+  const call = (audioKey: string | null | undefined, locale = 'ja') =>
+    runMeteredTranscription(
+      {
+        synqed: fakeClient as unknown as Pick<SynqedClient, 'aiRateLimit'>,
+        businessId: 'biz-1',
+        door: 'app',
+        audioKey,
+      },
+      {
+        audio: { url: 'https://x/audio' },
+        locale,
+        diarize: true,
+        reference: null,
+        mode: 'off',
+        businessType: null,
+      },
+    )
+
+  it('t1 paid, then the same key + locale → ONE provider call, ONE consume, ONE reserve; the replay is free and identical', async () => {
+    const first = await call(AUDIO)
+    const second = await call(AUDIO)
+
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(consume).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+    expect(first.receipt).toEqual({
+      duration_seconds: 5400,
+      cost_cents: 45,
+      cents_reserved: 45,
+      debit_recorded: true,
+      replayed: false,
+    })
+    expect(second.receipt).toEqual({
+      duration_seconds: 5400,
+      cost_cents: 0,
+      cents_reserved: 0,
+      debit_recorded: true,
+      replayed: true,
+    })
+    expect(second.result).toEqual(first.result)
+    expect(storageUpload).toHaveBeenCalledTimes(1)
+    expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
+      contentType: 'application/json',
+      upsert: false,
+    })
+  })
+
+  it('t3 the same audio in the OTHER language pays again, and its memo lands under its own key', async () => {
+    await call(AUDIO, 'ja')
+    await call(AUDIO, 'en')
+
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(2)
+    expect(recordUsage).toHaveBeenCalledTimes(2)
+    expect(storageUpload.mock.calls.map((c) => c[0])).toEqual([
+      memoKey(AUDIO, 'ja'),
+      memoKey(AUDIO, 'en'),
+    ])
+    expect([...memoStore.keys()].sort()).toEqual([memoKey(AUDIO, 'en'), memoKey(AUDIO, 'ja')])
+  })
+
+  it('t4 an EMPTY transcript was still paid for → written, and the replay returns it with no provider call', async () => {
+    deepgramResult.transcript = ''
+
+    const first = await call(AUDIO)
+    const second = await call(AUDIO)
+
+    expect(first.result.transcript).toBe('')
+    expect(second.result.transcript).toBe('')
+    expect(second.receipt.replayed).toBe(true)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('t5 another tenant’s key composes NO memo key → storage is never touched, and the call pays as today', async () => {
+    const res = await call(conformingKey('biz-2'))
+
+    expect(storageDownload).not.toHaveBeenCalled()
+    expect(storageUpload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+    expect(res.receipt.replayed).toBe(false)
+  })
+
+  it('t6 the web multipart arm carries no key → no memo read or write, and it pays', async () => {
+    const form = new FormData()
+    form.append('audio', new File([new Uint8Array(3_000_000)], 'take.webm', { type: 'audio/webm' }))
+    form.append('locale', 'ja')
+
+    const res = await webTranscribePOST(
+      new Request('https://s/api/ai/transcribe', { method: 'POST', body: form }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(storageDownload).not.toHaveBeenCalled()
+    expect(storageUpload).not.toHaveBeenCalled()
+    expect(transcribeWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['a DeepgramHttpError', () => new DeepgramHttpError(503, 'Service Unavailable', 'upstream')],
+    ['a plain Error', () => new Error('socket hang up')],
+  ])('t7 the provider throws %s → nothing is written', async (_label, error) => {
+    transcribeUrlWithDeepgram.mockRejectedValueOnce(error())
+
+    await expect(call(AUDIO)).rejects.toThrow()
+
+    expect(storageDownload).toHaveBeenCalledTimes(1)
+    expect(storageUpload).not.toHaveBeenCalled()
+    expect(memoStore.size).toBe(0)
+  })
+
+  it.each([
+    ['answers an error', () => storageUpload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'boom' } } as never)],
+    ['rejects', () => storageUpload.mockRejectedValueOnce(new Error('storage down'))],
+  ])('t8 the memo upload %s → the paid result is still returned, nothing thrown, ONE warn', async (_label, arrange) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    arrange()
+
+    const res = await call(AUDIO)
+
+    expect(res.result.transcript).toBe('こんにちは')
+    expect(res.receipt.replayed).toBe(false)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain('transcript-memo.write')
+    // Status only — never the key (the business + take id).
+    expect(String(warn.mock.calls[0][0])).not.toContain(AUDIO)
+    warn.mockRestore()
+  })
+
+  it('t8 a duplicate refusal (two doors paid in the same moment) is SILENT — the first copy stands', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    memoStore.set(memoKey(AUDIO), 'first copy')
+    // The read above misses (the other door had not landed yet); the write then
+    // meets the other door's copy.
+    storageDownload.mockResolvedValueOnce({
+      data: null,
+      error: { status: 400, statusCode: '404', message: 'Object not found' },
+    })
+
+    const res = await call(AUDIO)
+
+    expect(res.receipt.replayed).toBe(false)
+    expect(storageUpload).toHaveBeenCalledTimes(1)
+    expect(memoStore.get(memoKey(AUDIO))).toBe('first copy')
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('a memo that is not a v1 memo is a MISS — the call pays, with one warn', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    memoStore.set(memoKey(AUDIO), JSON.stringify({ v: 2, result: {}, duration_seconds: 1 }))
+
+    const res = await call(AUDIO)
+
+    expect(res.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
   })
 })
