@@ -58,17 +58,17 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
       listPacks: async (cid: string) => t.packs.filter((p) => p.customer_id === cid),
       createPack: async (i: Record<string, unknown>) => add(t.packs, i),
       listRedemptions: async (cid: string) => t.burns.filter((b) => b.customer_id === cid),
-      addRedemption: async (i: Record<string, unknown>) => {
+      addRedemption: async (i: Record<string, unknown>, opts?: { idempotencyKey?: string }) => {
         if (t.burns.some((b) => b.appointment_id === i.appointment_id)) throw conflict('duplicate redemption')
-        return add(t.burns, i)
+        return add(t.burns, { ...i, idempotencyKey: opts?.idempotencyKey })
       },
     },
     appointments: {
       list: async (q: Q) => paged('appointments', t.appts.filter((a) => (!q.from || (a.starts_at as string) >= q.from) && (!q.to || (a.starts_at as string) < q.to)), q),
-      create: async (i: Record<string, unknown>) => {
+      create: async (i: Record<string, unknown>, opts?: { idempotencyKey?: string }) => {
         if (o.fail409) throw conflict('RESOURCE_TAKEN')
         if (t.appts.some((a) => overlaps(a, i) && (a.staff_id === i.staff_id || a.resource_id === i.resource_id))) throw conflict('double-booked')
-        return add(t.appts, { ...i, occupied_until: null })
+        return add(t.appts, { ...i, occupied_until: null, idempotencyKey: opts?.idempotencyKey })
       },
     },
     karuteRecords: {
@@ -133,6 +133,16 @@ async function main() {
   assert.ok(first > 400, `first run fills (${first} writes)`)
   assert.equal(f.t.appts.length, p1.appointments.length, 'every planned booking landed (core-like 409s: none)')
   assert.equal(f.t.karutes.length, p1.karutes.length)
+  // Idempotency keys: one per booking / burn, built from its own fill tag (a constant key would make core drop all but one).
+  const tagOf = (r: Row) => /\[(tw:[^\]]+)\]/.exec(r.notes as string)![1]
+  const apptKeys = f.t.appts.map((a) => a.idempotencyKey)
+  assert.deepEqual(apptKeys, f.t.appts.map((a) => `test-world:${tagOf(a)}`), 'booking key = test-world:<its tag>')
+  assert.equal(new Set(apptKeys).size, apptKeys.length, 'booking keys are distinct')
+  const apptById = new Map(f.t.appts.map((a) => [a.id, a]))
+  const burnKeys = f.t.burns.map((b) => b.idempotencyKey)
+  assert.ok(burnKeys.length > 0, 'the run burnt 回数券')
+  assert.deepEqual(burnKeys, f.t.burns.map((b) => `test-world:${tagOf(apptById.get(b.appointment_id as string)!)}:redeem`), 'burn key = test-world:<its booking tag>:redeem')
+  assert.equal(new Set(burnKeys).size, burnKeys.length, 'burn keys are distinct')
   assert.deepEqual(f.t.links.get('st-3'), [OTHER, STORE], 'an existing link set is kept as is')
   assert.deepEqual(f.t.links.get('st-4'), [OTHER, STORE], 'this store is ADDED to a staff member working elsewhere')
   assert.equal(f.t.links.get('st-0'), undefined, 'a practitioner of every store is never narrowed to one')
