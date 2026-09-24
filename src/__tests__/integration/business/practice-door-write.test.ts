@@ -101,6 +101,12 @@ describe('⚖ A2 — the one writer: data.writeReserveCardColor → door', () =>
     expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { reserve_card_color: SHIRO } }]])
   })
 
+  it('G6 — a legacy value is really cleared: stored navy + { color: null } → the null PUT is sent', async () => {
+    withReads({ reserve_card_color: 'navy' })
+    expect(await data.writeReserveCardColor(null)).toEqual({ ok: true, color: null })
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { reserve_card_color: null } }]])
+  })
+
   it.each([
     ['equal value', { reserve_card_color: KON }, KON],
     ['equal value, stored lowercase', { reserve_card_color: '#1c2247' }, KON],

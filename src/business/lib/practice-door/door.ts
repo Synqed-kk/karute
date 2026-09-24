@@ -462,7 +462,9 @@ export async function writeReserveCardColor(next: string | null): Promise<WriteC
   if (!canManageSettings(actor)) return { ok: false, reason: 'forbidden' }
   try {
     const before = (await orgSettingsOf(actor))?.settings?.reserve_card_color ?? null
-    if (normalizeCardColor(before) === next) return { ok: true, color: next }
+    // G6 — a clear compares the RAW value: a legacy 'navy' normalises to null but is still stored.
+    const same = next === null ? before === null : normalizeCardColor(before) === next
+    if (same) return { ok: true, color: next }
     const writer = reach.orgSettingsWriterFor({ businessId: actor.businessId })
     const saved = await writer.orgSettings.upsert({ settings: { reserve_card_color: next } })
     const color = normalizeCardColor(saved?.settings?.reserve_card_color)
