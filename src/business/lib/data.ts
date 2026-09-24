@@ -223,6 +223,16 @@ export async function readShellIdentity(): Promise<{
   }
 }
 
+/** ⚖ A1b — the business's Reserve card colour (org settings `reserve_card_color`,
+ *  contract §1–§2): a strict #RRGGBB, uppercased, or null. No lens: it is ONE
+ *  value per business (R3), the same under every store.
+ *  ⚠ RECONNECT: the play phase has no business-level fixture home for it, so
+ *  OFF answers null — 「nothing set」, which is the honest fixture answer. */
+export async function readReserveCardColor(): Promise<string | null> {
+  if (practiceTenant() !== null) return door.readReserveCardColor()
+  return null
+}
+
 export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {
   if (practiceTenant() !== null) return door.listMenus(lens)
   assertLens(lens)

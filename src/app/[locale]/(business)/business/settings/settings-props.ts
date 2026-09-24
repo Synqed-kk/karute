@@ -40,6 +40,7 @@ import {
   listResources,
   listStaff,
   listStoreOptions,
+  readReserveCardColor,
   readShellIdentity,
   renderNow,
   type StoreLens,
@@ -59,6 +60,7 @@ import {
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { boardNow, closedWeekday, operatingHours, opsConfig, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import { sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
+import { PALETTE } from '@/business/lib/reserve-card/palette'
 import { countWord, GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
 import {
   accessFor,
@@ -161,6 +163,8 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   // The operator is the DOOR's (the admitted person under the practice switch;
   // the fixture operator when it is off) — never the fixture read directly.
   const { business, operator, reserveSyncedAt } = await readShellIdentity()
+  // ⚖ A1b — ONE value per business, read once and never with a store (R3).
+  const cardColor = await readReserveCardColor()
   const role = world?.role ?? operator.role
   const access = accessFor(role, rulebook)
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
@@ -197,6 +201,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     access,
     now,
     operator,
+    cardColor,
   }
 
   const sections = RAIL.map((entry) => buildSection(entry, ctx))
@@ -299,6 +304,8 @@ interface Ctx {
   now: Date
   /** The door's operator (readShellIdentity) — its name signs the audit lines. */
   operator: { name: string; role: string; staff_id: string }
+  /** ⚖ A1b — the business's Reserve card colour (readReserveCardColor). */
+  cardColor: string | null
 }
 
 const opts = (pairs: Array<[string, string]>): ControlOption[] => pairs.map(([value, label]) => ({ value, label }))
@@ -434,6 +441,9 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
   }
 
   if (entry.scope === 'self') return myDisplay(base)
+  // ⚖ A1b (R3) — a per-business section needs no store: it renders under every
+  // lens and in the all-stores view, so it answers BEFORE the noStore line.
+  if (entry.scope === 'business') return reserveCardLook(base, ctx)
   // ⚖ PR-2b — WHO STILL GETS 「店舗を選んでください」. No store in the lens: as
   // before. A store with no dials splits on the facade's live→fixture map:
   // switch OFF, every store is its own fixture self, so a fixture store without
@@ -1781,6 +1791,36 @@ const linkedLabel = (leadTimeMin: number) =>
 const RESERVE_PREVIEW_HEAD =
   'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。直前締切は{reserve.cutoff}、直前の空き制限は{reserve.lead}、スキマ枠の販売は{reserve.gapfill}です。'
 const RESERVE_PREVIEW_DISCOUNT = '対象のスキマ枠は{reserve.gapdisc}引きで掲載します。'
+
+// ── カードの見た目 (⚖ A1b) ────────────────────────────────────────────────────
+//
+// The section head only, like 予約と確保: the picker and the live card render in
+// `ReserveCardLookSection.tsx` from `cardLook`. Nothing here reaches core but the
+// door's own read (A2 is the write). The card shows the lens store — or the
+// first store — as its branch line; the colour is the same under every lens.
+function reserveCardLook(base: SectionBase, ctx: Ctx): SettingsSection {
+  const shown = ctx.stores.find((s) => s.id === ctx.storeId) ?? ctx.stores[0]
+  // ⚖ K11 — the address 店舗情報 prints for that store; none = the port's own no-address shape.
+  const address = shown ? storeSample(shown.id).dials?.profile.address : undefined
+  return {
+    ...base,
+    kicker: 'Reserve設定',
+    title: 'カードの見た目',
+    lead: 'お客様がReserveのホームで見る、お店のカードの色をここで選びます。色は事業全体でひとつで、店舗ごとには分かれていません。',
+    guide: 'お客様がReserveのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
+    cardLook: {
+      businessName: ctx.businessName,
+      storeLine: shown?.name ?? '',
+      ...(address ? { address } : {}),
+      scopeLabel: BUSINESS_SCOPE,
+      value: ctx.cardColor,
+      palette: PALETTE,
+    },
+    blocks: [],
+    aside: null,
+    persist: null,
+  }
+}
 
 function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx

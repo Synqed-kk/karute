@@ -45,6 +45,7 @@ import { analyticsPolicy, dowWeight, menuMix, salesLedger, salesTargets, sourceM
 import { rulebook } from '../fixtures-settings'
 import { auditTrail, reservations } from '../fixtures-reservations'
 import { jstDayKey, jstMinuteOfDay, jstSlot, jstSlotEnd, renderNow } from '../clock'
+import { normalizeCardColor } from '../reserve-card/card-color'
 
 type StoreLens = string | { viewAll: true }
 type DayRange = { from: number; to: number }
@@ -393,6 +394,14 @@ export async function readShellIdentity(): Promise<{
     // SAMPLE: exactly data.ts's scene stamp.
     reserveSyncedAt: jstSlotEnd(0, 0, boardNow, -reserveSync.minutes_ago, now),
   }
+}
+
+/** LIVE: org settings' `reserve_card_color` through the door's existing read;
+ *  null / absent / malformed → null (contract §2, §6 — Reserve reads it the same way). */
+export async function readReserveCardColor(): Promise<string | null> {
+  const actor = await practiceActor()
+  const org = await actor.reads.orgSettingsGet()
+  return normalizeCardColor(org?.settings?.reserve_card_color)
 }
 
 export async function listResources(lens: StoreLens): Promise<FixtureResource[]> {
