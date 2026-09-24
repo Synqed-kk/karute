@@ -93,7 +93,7 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
-import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
@@ -1431,12 +1431,16 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     for (const r of trioRows(props)) {
       const states = typeof r.trio!.businessType === 'string' && r.trio!.businessType.length > 0
       expect({ id: r.id, statesOne: states }).toEqual({ id: r.id, statesOne: RULED.includes(r.id) })
-      if (states) expect({ id: r.id, real: r.trio!.businessType!.startsWith('業種による初期値:') }).toEqual({ id: r.id, real: true })
+      if (states) expect({ id: r.id, real: r.trio!.businessType!.startsWith(BUSINESS_TYPE_NOTE_PREFIX) }).toEqual({ id: r.id, real: true })
     }
     // …and the null sentence is gone from the WHOLE payload, not just from the
     // rows this test walked.
     expect(JSON.stringify(props)).not.toContain('業種による初期値の決まりはありません')
     expect(PROPS_CODE).not.toContain('業種による初期値の決まりはありません')
+    // one home: the prefix literal lives only in the constant
+    expect(PROPS_CODE.split(BUSINESS_TYPE_NOTE_PREFIX).length).toBe(2)
+    // the wording itself: a regression of the constant to the old promise goes red here
+    expect(BUSINESS_TYPE_NOTE_PREFIX).toBe('業種による違い: ')
     // The screen renders the line CONDITIONALLY, so a future row that omits it
     // cannot print an empty bullet.
     // ⚖ S17 STEP 1 — RE-PINNED AT ITS NEW HOME. The three lines did not change
