@@ -594,13 +594,12 @@ export async function runMeteredTranscription(
   // A PROVEN-corrupt memo is replaced by this answer; any other state writes
   // create-only, so a readable memo is never overwritten by the normal path.
   //
-  // ⚖ AND A REPAIR RE-CHECKS THE OBJECT FIRST (Greptile round 2). Another caller
-  // that read the same garbage may have repaired it while we paid: a hit now
-  // means its answer stands and we write nothing — ours is for the same audio
-  // in the same language, and the caller still gets it. The re-check shrinks
-  // the overwrite window to the instant between this read and the upsert, and
-  // whatever lands in that instant is another PAID answer: nothing legible is
-  // ever replaced by garbage.
+  // ⚖ AND A REPAIR YIELDS TO ANOTHER CALLER'S (Greptile rounds 2–3). The first
+  // read proved garbage; the re-check only asks whether someone else has
+  // already replaced it while we paid — a hit yields (ours is for the same
+  // audio in the same language, and the caller still gets it), anything else
+  // repairs; an upsert onto nothing simply creates. Whatever lands between the
+  // re-check and the upsert is another PAID answer, never garbage.
   if (memoKey !== null) {
     const again = memoRead?.state === 'corrupt' ? await readTranscriptMemo(memoKey) : null
     if (again?.state !== 'hit') {
@@ -612,7 +611,7 @@ export async function runMeteredTranscription(
           duration_seconds: receipt.duration_seconds,
           written_at: new Date().toISOString(),
         },
-        { repair: again?.state === 'corrupt' },
+        { repair: memoRead?.state === 'corrupt' },
       )
     }
   }
