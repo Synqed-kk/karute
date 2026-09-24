@@ -195,9 +195,13 @@ export async function secureTake(
     // ⚖ A TAKE HAS ITS ROW BEFORE IT IS SECURED (fix round 6). The mint used to
     // create one for a take whose start-mint never landed; it does not any more
     // (PR2 fix round 7), because a create whose RESPONSE was lost left an orphan
-    // row and a retry with no id to name it. Row minting has ONE home — the
-    // session door the recorder's own start-mint knocks on — so this leg knocks
-    // on the same one through the port, and the mint below always carries an id.
+    // row and a retry with no id to name it. For a CLIENT-NAMED take like this
+    // one, row minting still has ONE home — the session door the recorder's own
+    // start-mint knocks on. (RECORDING_SWITCHES.bindUnboundUploads does not
+    // change that: ON, it only lets a SERVER-named, no-takeId upload mint its
+    // own row elsewhere — a take that already has an id, like this one, never
+    // takes that arm.) So this leg knocks on the same session door through the
+    // port, and the mint below always carries an id.
     let recordingSessionId = meta.recordingSessionId
     if (!recordingSessionId) {
       const attributed = {
