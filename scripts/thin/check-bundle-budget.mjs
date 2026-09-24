@@ -2120,7 +2120,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // ja/en strings ship in the thin bundle (both catalogues are bundled whole)
 // plus StoreGateScreen's optional recheck button (AuthGate imports it).
 // Same CI recipe (keylen = 208, node v24.16.0), merged tree = origin/main
-// 3a5cfb3a4 + this branch (main had not moved):
+// d0064ccf6 (#1025, no bundled file) + this branch at b460ffbc5:
 // 140,251 + 1,085,797 + 937,800 = 2,163,848 B, 72 B over 2,163,776 B;
 // main alone 2,163,176 B → this PR adds 672 B.
 // Proof: /Users/liam/Documents/Claude/karute-ginza-onboarding-2026-09-16/evidence/s19-removed-screen/.
