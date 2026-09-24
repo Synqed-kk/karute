@@ -1507,8 +1507,19 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
 
     // THE ROW ITSELF, in the 表示設定 popover beside its sibling dial.
     expect(SRC).toContain('<input type="checkbox" checked={showNametags} onChange={() => setShowNametags((v) => !v)} /> 種類の名札')
-    const pop = SRC.slice(SRC.indexOf('<strong>予約カードの表示項目（店舗設定）</strong>'))
+    const pop = SRC.slice(SRC.indexOf('<strong>予約カードの表示項目（自分の表示）</strong>'))
     expect(pop.indexOf('種類の名札')).toBeGreaterThan(pop.indexOf('空き枠の価格'))
+    // THE PANEL'S LABELS SAY WHAT THE BOARD DOES. Every dial on it is this
+    // viewer's own useState — no store setting, no business-type profile —
+    // and the category colours are literal hexes, so no label names 店舗設定.
+    expect(SRC).toContain('<strong>予約カードの表示項目（自分の表示）</strong>')
+    expect(SRC).toContain('<strong>販売可能枠の表示（自分の表示）</strong>')
+    expect(SRC).toContain('<span>お客様名は常に表示</span>')
+    expect(SRC).toContain('aria-label="予約カテゴリー色"')
+    expect(SRC).not.toContain('予約カードの表示項目（店舗設定）')
+    expect(SRC).not.toContain('販売可能枠の表示（店舗設定・業種プロファイルが初期値）')
+    expect(SRC).not.toContain('全ボード共通の店舗設定')
+    expect(SRC).not.toContain('店舗設定の予約カテゴリー色')
 
     // ⚖ 8/23 GUIDED-TOUR LAW — a new function declares itself the same round.
     // ⚖ NATIVE PASS (2026-08-30): the tour sentence is native-confirmed final.
