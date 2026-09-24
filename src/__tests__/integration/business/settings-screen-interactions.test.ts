@@ -922,7 +922,9 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // (`props.demoSaveLine`), which is where it belongs on every section rather
     // than only after a press.
     expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: true }))")
-    expect(SRC_CODE).toContain('onClick={() => commitSection(section)}')
+    // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the ONE exception is カードの見た目
+    // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color).
+    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : commitSection(section))}')
     // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
     expect(SRC_CODE).toContain("{blocked ??")

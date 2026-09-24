@@ -12,7 +12,9 @@
 // サンプルデータ dateline and ONE footnote per store section carry that fact;
 // 自分の表示設定 is the single exception and it is a designed one, saving to this
 // browser for this reader, because a self-scoped preference is nobody else's
-// permission.
+// permission. ⚖ A2 (Liam 9/24): with the practice door ON, カードの見た目 is the
+// one section whose 保存 reaches core (the /api/business/card-color route) — the
+// screen is told so only then.
 //
 // ⚖ THE THREE DOCTRINE LINES, for this room:
 //  · N-STORES — per-store, ONE lens, and the room PRINTS the scope of every
@@ -30,6 +32,7 @@
 //    — the type note is printed beside the row, and the suite pins that.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
+import { practiceDoorOn } from '@/business/lib/data'
 import { SettingsScreen } from './SettingsScreen'
 import { settingsProps } from './settings-props'
 import './settings.css'
@@ -41,7 +44,7 @@ export default async function SettingsPage({
   params: Promise<{ locale: string }>
   searchParams: Promise<{ store?: string; section?: string }>
 }) {
-  await requireBusinessAdmission()
+  const admitted = await requireBusinessAdmission()
   const [{ locale }, query] = await Promise.all([params, searchParams])
   // Everything between the gate and the render lives in `settings-props.ts`, so
   // the evidence harness renders the SAME assembly this route does rather than a
@@ -58,5 +61,8 @@ export default async function SettingsPage({
   // is the isolation law failing at the frame rather than at the read. Keying by
   // the resolved lens resets both, which is what a shop expects when it changes
   // which store it is looking at.
-  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} />
+  // ⚖ A2 — OFF: no prop, today's page-local commit byte for byte. ON: the one real save, for the
+  // ADMITTED business (the route's X-Expected-Business check compares against it).
+  const saveCardColor = practiceDoorOn() ? { businessId: admitted.businessId } : undefined
+  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} />
 }

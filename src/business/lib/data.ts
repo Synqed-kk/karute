@@ -234,6 +234,18 @@ export async function readReserveCardColor(): Promise<string | null> {
   return null
 }
 
+/** ⚖ A2 (Liam 9/24) — is the practice door ON? The 設定 page offers the REAL card-colour save
+ *  only then; OFF keeps today's page-local commit. */
+export function practiceDoorOn(): boolean {
+  return practiceTenant() !== null
+}
+
+/** ⚖ A2 (Liam 9/24) — the ONE Business write: the business's Reserve card colour, through the door.
+ *  OFF has no writer — the door answers 'tenant' before anything else. */
+export async function writeReserveCardColor(next: string | null): Promise<door.WriteCardColorResult> {
+  return door.writeReserveCardColor(next)
+}
+
 /** ⚖ A1b · K11 — the store's address as the Reserve card's cover prints it; null = none
  *  (the cover then shows Reserve's own no-address shape). ON: the door's own store record.
  *  OFF: the play-phase store's SAMPLE address — the same 店舗情報 dial the 設定 room shows. */

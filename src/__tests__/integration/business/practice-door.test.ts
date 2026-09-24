@@ -8,11 +8,16 @@
 
 // The SDK ships raw ESM that this jest setup does not transform; every repo test
 // that reaches the factory stubs the class the same way (request-correlation.test.ts).
-// Nothing is ever called on it: the env check in newSynqedClient stays REAL.
-jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
+// Nothing is called on it but the A2 handle's own bind check (below): the env check in
+// newSynqedClient stays REAL. `orgSettings` answers with the `this` it was called on.
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: class {
+    orgSettings = { get() {}, upsert(this: unknown, input: unknown) { return { self: this, input } } }
+  },
+}))
 
 import { practiceTenant } from '@/business/lib/practice-door/switch'
-import { clientFor, PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
+import { clientFor, orgSettingsWriterFor, PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { parseManifest } from '@/business/lib/practice-door/registry-manifest'
 import { PRACTICE_REGISTRY } from '@/business/lib/practice-door/registry.generated'
 import { fixtureIdOf, liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
@@ -106,6 +111,28 @@ describe('core-reach: the tenant throw comes before the client', () => {
     setEnv({ BUSINESS_PRACTICE_TENANT: u, SYNQED_CORE_URL: 'https://dummy.invalid', SYNQED_CORE_API_KEY: 'dummy' })
     const reads = clientFor({ businessId: u })
     for (const bad of ['create', 'update', 'delete', 'set', 'save', 'upsert']) expect(reads).not.toHaveProperty(bad)
+  })
+})
+
+describe('core-reach: the ONE org-settings writer (A2, Liam 9/24) — same throws first, write-only handle', () => {
+  it('switch unset → refuses', () => {
+    setEnv({})
+    expect(() => orgSettingsWriterFor({ businessId: u })).toThrow('practice door called with the switch unset')
+  })
+  it('another business → PracticeTenantMismatch, thrown before the factory runs (core env UNSET)', () => {
+    setEnv({ BUSINESS_PRACTICE_TENANT: u })
+    expect(() => orgSettingsWriterFor({ businessId: 'other' })).toThrow(PracticeTenantMismatch)
+    // the practice tenant with the env unset reaches the factory — proving the two throws above ran first
+    expect(() => orgSettingsWriterFor({ businessId: u })).toThrow('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+  })
+  it('the handle is { orgSettings: { upsert } } and nothing else, bound to the client’s own orgSettings', () => {
+    setEnv({ BUSINESS_PRACTICE_TENANT: u, SYNQED_CORE_URL: 'https://dummy.invalid', SYNQED_CORE_API_KEY: 'dummy' })
+    const handle = orgSettingsWriterFor({ businessId: u })
+    expect(Object.keys(handle)).toEqual(['orgSettings'])
+    expect(Object.keys(handle.orgSettings)).toEqual(['upsert'])
+    const answer = (handle.orgSettings.upsert({ settings: {} }) as unknown) as { self: Record<string, unknown>; input: unknown }
+    expect(answer.input).toEqual({ settings: {} })
+    expect(Object.keys(answer.self).sort()).toEqual(['get', 'upsert']) // `this` = the client's orgSettings, never the handle
   })
 })
 
@@ -317,10 +344,12 @@ const DOOR_READERS = [
   'readReserveCardColor', // ⚖ A1b — the business's Reserve card colour (no lens)
   'readStoreAddress', // ⚖ A1b · K11 — the store's own address (lens first)
 ] as const
+/** ⚖ A2 (Liam 9/24) — the ONE writer beside them. */
+const DOOR_WRITERS = ['writeReserveCardColor'] as const
 
 describe('the door', () => {
-  it('exports exactly the eighteen readers', () => {
-    expect(Object.keys(door).sort()).toEqual([...DOOR_READERS].sort())
+  it('exports exactly the eighteen readers and the one writer', () => {
+    expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, ...DOOR_WRITERS].sort())
   })
 })
 
