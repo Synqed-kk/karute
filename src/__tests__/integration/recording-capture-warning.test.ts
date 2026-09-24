@@ -4,9 +4,13 @@
  *      recording.capture_warned row, of exactly the capture_unlinked shape,
  *      and only for the recorder's OWN session in her OWN tenant;
  *   2. a body the schema refuses reaches neither core nor the audit sink;
- *   3. the inbox fold names the warned side at the two genericFailure sites
- *      and nowhere else — and without the map it is exactly today's fold;
- *   4. the bell maps both new reasons to labelled keys, in ja and en.
+ *   3. the inbox fold names the warned side at every genericFailure site and
+ *      nowhere else — and without the field it is exactly today's fold;
+ *   4. the inbox read asks for the fact ONLY for sessions a server-only fold
+ *      calls genericFailure, and a failed ask costs the row nothing but the
+ *      explanation;
+ *   5. the bell maps both new reasons to labelled keys, in ja and en.
+ * The cron's end-to-end naming (t10) lives in audit-watch-run.test.ts.
  */
 const auditFn = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
@@ -175,15 +179,20 @@ const FIXTURE_SESSIONS: InboxServerSession[] = [
   session({ recordingSessionId: 'past-grace', createdAt: PAST_GRACE }),
 ]
 const FIXTURE_TAKES = [take({ takeId: 't1', recordingSessionId: 'with-take' })]
-const EVERY_ID = FIXTURE_SESSIONS.map((s) => s.recordingSessionId)
+/** The three sites that fall to genericFailure today. */
+const GENERIC_SITES = ['failed-job', 'done-anomaly', 'past-grace']
 
-const foldWith = (captureWarnings?: ReadonlyMap<string, 'device' | 'server'>) =>
-  deriveInboxRows({ sessions: FIXTURE_SESSIONS, takes: FIXTURE_TAKES, now: NOW, captureWarnings })
-const reasonOf = (rows: ReturnType<typeof foldWith>, id: string) =>
-  rows.find((r) => r.recordingSessionId === id)?.reason
+const foldWith = (captureWarning?: InboxServerSession['captureWarning']) =>
+  deriveInboxRows({
+    sessions:
+      captureWarning === undefined ? FIXTURE_SESSIONS : FIXTURE_SESSIONS.map((s) => ({ ...s, captureWarning })),
+    takes: FIXTURE_TAKES,
+    now: NOW,
+  })
+const rowOf = (rows: ReturnType<typeof foldWith>, id: string) => rows.find((r) => r.recordingSessionId === id)!
 
 describe('deriveInboxRows — the warned reasons', () => {
-  it('t9: all-off — no map is exactly the fold before PR-7 (states + reasons pinned from origin/main)', () => {
+  it('t9: all-off — no field is exactly the fold before PR-7 (states + reasons pinned from origin/main)', () => {
     expect(foldWith().map((r) => [r.recordingSessionId, r.state, r.reason])).toEqual([
       ['saved', 'saved', null],
       ['discarded', 'discarded', null],
@@ -196,40 +205,45 @@ describe('deriveInboxRows — the warned reasons', () => {
       ['server-object', 'recoverable', 'serverAudio'],
       ['past-grace', 'failed', 'genericFailure'],
     ])
-    // …and an empty map is the same rows, field for field.
-    expect(foldWith(new Map())).toEqual(foldWith())
+    // …and an explicit null is the same rows, field for field.
+    expect(foldWith(null)).toEqual(foldWith())
   })
 
   it.each([
     ['device', 'warnedDevice'],
     ['server', 'warnedServer'],
-  ] as const)('t6: a %s fact names the failure at BOTH genericFailure sites', (side, expected) => {
-    const rows = foldWith(new Map([['done-anomaly', side], ['past-grace', side]]))
-    expect(reasonOf(rows, 'done-anomaly')).toBe(expected)
-    expect(reasonOf(rows, 'past-grace')).toBe(expected)
-    // Only the reason moves: state, retry and every other field are today's.
+  ] as const)('t6: a %s fact names the failure at ALL THREE genericFailure sites, and only there', (side, expected) => {
+    const rows = foldWith(side)
     const before = foldWith()
-    for (const id of ['done-anomaly', 'past-grace']) {
-      const { reason: _a, ...rest } = rows.find((r) => r.recordingSessionId === id)!
-      const { reason: _b, ...restBefore } = before.find((r) => r.recordingSessionId === id)!
-      expect(rest).toEqual(restBefore)
+    for (const id of FIXTURE_SESSIONS.map((s) => s.recordingSessionId)) {
+      if (GENERIC_SITES.includes(id)) {
+        expect(rowOf(rows, id).reason).toBe(expected)
+        // Only the reason moves: state, retry and every other field are today's.
+        expect({ ...rowOf(rows, id), reason: null }).toEqual({ ...rowOf(before, id), reason: null })
+      } else {
+        expect(rowOf(rows, id)).toEqual(rowOf(before, id))
+      }
     }
   })
 
-  it('t6: without a fact for that session the row stays genericFailure', () => {
-    const rows = foldWith(new Map([['done-anomaly', 'device']]))
-    expect(reasonOf(rows, 'past-grace')).toBe('genericFailure')
+  it('t6: a NAMED stage failure keeps its own name — the fact explains only the generic line', () => {
+    const [row] = deriveInboxRows({
+      sessions: [
+        session({
+          recordingSessionId: 's1',
+          jobStatus: 'FAILED',
+          jobLastError: 'transcription_failed: provider timeout',
+          captureWarning: 'device',
+        }),
+      ],
+      takes: [],
+      now: NOW,
+    })
+    expect(row.reason).toBe('transcriptionFailed')
   })
 
-  it('a fact on EVERY session renames only those two sites — every other row is unchanged', () => {
-    const rows = foldWith(new Map(EVERY_ID.map((id) => [id, 'device'] as const)))
-    const before = foldWith()
-    for (const id of EVERY_ID) {
-      if (id === 'done-anomaly' || id === 'past-grace') continue
-      expect(rows.find((r) => r.recordingSessionId === id)).toEqual(
-        before.find((r) => r.recordingSessionId === id),
-      )
-    }
+  it('t6: a value this build does not know is read as absent (the plain-string DTO idiom)', () => {
+    expect(rowOf(foldWith('network' as never), 'past-grace').reason).toBe('genericFailure')
   })
 })
 

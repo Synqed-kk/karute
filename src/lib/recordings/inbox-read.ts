@@ -54,6 +54,7 @@ import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import { parseRecordingKey } from '@/lib/recording/key-grammar'
 import { ymdInJst } from '@/lib/date/jst'
 import {
+  deriveInboxRows,
   INBOX_WINDOW_MS,
   SESSION_UNSETTLED_GRACE_MS,
   type InboxServerSession,
@@ -108,6 +109,16 @@ const MAX_AUDIO_PROBES = MAX_JOB_PROBES
  *  ask core for a date-range (or session-set) filter on recordingDiscards.list,
  *  which is the same gap that forces this read to be unfiltered at all. */
 const MAX_DISCARD_PAGES = 20
+
+/** Recording hole PR-7 — at most this many failed sessions are asked for a
+ *  warning fact per read, newest first (the fold's own order).
+ *  ponytail: past the cap the OLDEST failed rows keep the generic 失敗 line —
+ *  honest, just unexplained. Upgrade path: an `action` filter on core's
+ *  ListAuditOptions (CORE-19 item 2) would make this one call per read. */
+const MAX_WARNING_READS = 50
+/** One page of the session's `recording`-category rows — the audit-watch
+ *  dedupe read's own shape and size (run.ts isNewCandidate). */
+const WARNING_PAGE_SIZE = 50
 
 /**
  * Sessions in this window that a staff member deliberately discarded.
@@ -245,7 +256,7 @@ const listFirstSegment: SegmentsProbe = async (businessId, takeKey) => {
 export interface InboxReadDeps {
   synqed: Pick<
     SynqedClient,
-    'recordings' | 'karuteRecords' | 'recordingJobs' | 'recordingDiscards'
+    'recordings' | 'karuteRecords' | 'recordingJobs' | 'recordingDiscards' | 'audit'
   >
   /** The AUTHENTICATED actor's staff id — never a client-supplied parameter.
    *  `null` = the WHOLE business (the audit-watch cron, which has no single
@@ -489,7 +500,62 @@ export async function readRecordingsInbox({
     })
   }
 
+  await attachCaptureWarnings(synqed, rows, now.getTime())
+
   return fillCustomerNames(rows, businessId)
+}
+
+/**
+ * WHY A FAILED RECORDING FAILED, when the recorder was warned (recording hole
+ * PR-7). A server-only fold — no device takes, the same call the audit-watch
+ * cron makes — picks the sessions that would read genericFailure, and ONLY
+ * those are asked for their newest recording.capture_warned row; zero calls
+ * when there are none. The fact rides the session as `captureWarning`, and
+ * every fold downstream (the screen's, the cron's) names it.
+ *
+ * A read that throws is not an answer: the session keeps no field (today's
+ * generic line), the miss is logged, and the inbox still returns.
+ */
+async function attachCaptureWarnings(
+  synqed: Pick<SynqedClient, 'audit'>,
+  rows: InboxServerSession[],
+  nowMs: number,
+): Promise<void> {
+  const failed = deriveInboxRows({ sessions: rows, takes: [], now: nowMs })
+    .filter((r) => r.reason === 'genericFailure' && r.recordingSessionId)
+    .map((r) => r.recordingSessionId as string)
+  if (failed.length > MAX_WARNING_READS) {
+    console.warn(
+      `[recordings-inbox] ${failed.length - MAX_WARNING_READS} oldest failed sessions ` +
+        'left unasked for a warning fact (cap reached)',
+    )
+  }
+  const asks = failed.slice(0, MAX_WARNING_READS)
+  const byId = new Map(rows.map((r) => [r.recordingSessionId, r]))
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_CONCURRENCY, asks.length) }, async () => {
+      for (let i = next++; i < asks.length; i = next++) {
+        const id = asks[i]
+        try {
+          const res = await synqed.audit.list({
+            target_type: 'recording',
+            target_id: id,
+            category: 'recording',
+            page_size: WARNING_PAGE_SIZE,
+          })
+          // Newest first (the SDK's own contract), so the first match is the
+          // latest raise. Only the two known codes are carried.
+          const fact = res.events.find((e) => e.action === 'recording.capture_warned')
+          const reason = (fact?.detail as { reason?: unknown } | null | undefined)?.reason
+          const row = byId.get(id)
+          if (row && (reason === 'device' || reason === 'server')) row.captureWarning = reason
+        } catch (err) {
+          console.warn(`[recordings-inbox] warning-fact read failed for ${id}:`, err)
+        }
+      }
+    }),
+  )
 }
 
 /**

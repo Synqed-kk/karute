@@ -247,6 +247,16 @@ export interface InboxServerSession {
    * stays closed rather than open on an unproven day.
    */
   sameDay?: boolean
+  /**
+   * Recording hole PR-7 — the recorder was WARNED during this take: the phone
+   * could not keep the audio on the device ('device'), or the server was not
+   * receiving it ('server'). The newest recording.capture_warned fact, read by
+   * inbox-read.ts ONLY for sessions a server-only fold would label
+   * genericFailure. Optional, the file's idiom: absent = not warned (or not
+   * asked), which is exactly today's fold. Like `serverAudio` it ships as a
+   * plain string in the DTO and is narrowed here by `===`. A code, never text.
+   */
+  captureWarning?: 'device' | 'server' | null
 }
 
 /** One device-local take (lib/karute/take-store). Audio is guaranteed: the
@@ -377,6 +387,16 @@ export function reasonFromJobError(lastError: string | null): InboxReason {
   return 'genericFailure'
 }
 
+/** The generic 失敗 line, unless the recorder was WARNED during the take
+ *  (recording hole PR-7) — then the row names which side. Used at every site
+ *  that would otherwise fall to `genericFailure`; a named stage failure
+ *  (reasonFromJobError) keeps its own name. */
+function fallbackFailureReason(s: Pick<InboxServerSession, 'captureWarning'>): InboxReason {
+  if (s.captureWarning === 'device') return 'warnedDevice'
+  if (s.captureWarning === 'server') return 'warnedServer'
+  return 'genericFailure'
+}
+
 export function deriveInboxRows(input: {
   sessions: readonly InboxServerSession[]
   takes: readonly InboxLocalTake[]
@@ -388,18 +408,8 @@ export function deriveInboxRows(input: {
    *  file's own idiom: absent = an ordinary complete read, which is every
    *  call before this field existed. */
   serverReadFailed?: boolean
-  /** Recording hole PR-7 — sessionId → the side the recorder was WARNED about
-   *  (the newest recording.capture_warned fact). Optional, the file's idiom:
-   *  absent = every call before this field existed, and the rows are
-   *  byte-identical to them. Read ONLY where a row would say genericFailure. */
-  captureWarnings?: ReadonlyMap<string, 'device' | 'server'>
 }): InboxRow[] {
-  const { sessions, takes, now, serverReadFailed = false, captureWarnings } = input
-  /** The generic 失敗 line, unless the recorder was warned — then it names why. */
-  const failedReason = (sessionId: string): InboxReason => {
-    const warned = captureWarnings?.get(sessionId)
-    return warned === 'device' ? 'warnedDevice' : warned === 'server' ? 'warnedServer' : 'genericFailure'
-  }
+  const { sessions, takes, now, serverReadFailed = false } = input
   const windowMs = input.windowMs ?? INBOX_WINDOW_MS
   const floor = now - windowMs
 
@@ -540,12 +550,14 @@ export function deriveInboxRows(input: {
       // server, and core re-arms a FAILED job per session, so 再試行 reaches
       // the same door again. The reason stays the SERVER's (the more specific
       // fact about what went wrong); only the affordance comes back.
+      const named = reasonFromJobError(s.jobLastError)
       rows.push({
         ...base,
         state: 'failed',
         // The SAME mapping PipelineErrorCard uses — one honest string for the
-        // one error core names, generic for everything else.
-        reason: reasonFromJobError(s.jobLastError),
+        // one error core names, generic for everything else (and the generic
+        // one explained by a warning fact when there is one — PR-7).
+        reason: named === 'genericFailure' ? fallbackFailureReason(s) : named,
         canRetry: !!take || s.serverAudio === 'object',
         // The flag means "the save comes from the SERVER", so it is set only
         // when this device holds nothing — a take on the device still routes
@@ -565,7 +577,7 @@ export function deriveInboxRows(input: {
       // genuinely heals it (the in-tab pipeline writes the record itself), so
       // the affordance stays. Upgrade path if this is ever seen in the field:
       // a core-side "re-mint the job" verb, or hiding retry on the thin arm.
-      rows.push({ ...base, state: 'failed', reason: failedReason(s.recordingSessionId), canRetry: !!take })
+      rows.push({ ...base, state: 'failed', reason: fallbackFailureReason(s), canRetry: !!take })
       continue
     }
 
@@ -615,7 +627,7 @@ export function deriveInboxRows(input: {
     rows.push(
       now - startedAt <= SESSION_UNSETTLED_GRACE_MS
         ? { ...base, state: 'processing', reason: 'unsettled' }
-        : { ...base, state: 'failed', reason: failedReason(s.recordingSessionId) },
+        : { ...base, state: 'failed', reason: fallbackFailureReason(s) },
     )
   }
 

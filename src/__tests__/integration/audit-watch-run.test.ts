@@ -172,10 +172,12 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     expect(result.list).toEqual([])
     expect(auditMock).not.toHaveBeenCalled()
     const client = (newSynqedClient as jest.Mock).mock.results[0].value
-    // One target-scoped dedupe read for THIS candidate, never retried — the
-    // other call on this mock is step (b)'s category-wide storm page walk.
+    // One target-scoped dedupe read for THIS candidate, never retried — plus
+    // (recording hole PR-7) the inbox read's ONE warning-fact read for the
+    // same failed session. The other call on this mock is step (b)'s
+    // category-wide storm page walk.
     const targetScoped = (client.audit.list as jest.Mock).mock.calls.filter(([a]) => 'target_id' in a)
-    expect(targetScoped).toHaveLength(1)
+    expect(targetScoped).toHaveLength(2)
   })
 
   it('a budget already past its deadline returns immediately, truncated, nothing processed', async () => {
