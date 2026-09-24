@@ -280,7 +280,7 @@ export const AUDITED_CORES: {
   // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
   // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a
   // server-named take reserves nothing and files no row — with
-  // RECORDING_SWITCHES.bindUnboundUploads OFF (ships ON since 2026-09-24); ON, that arm files a
+  // RECORDING_SWITCHES.bindUnboundUploads OFF (ships OFF (on 2026-09-24, off again 2026-09-25)); ON, that arm files a
   // row through startRecordingSessionWithClient (session-mint.ts), which
   // carries no audit() and is NOT covered by auditTakeNamed — the row is
   // covered the same way recordings.session.mint's is

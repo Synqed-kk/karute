@@ -76,7 +76,7 @@ async function requireOwnPath(path: string): Promise<void> {
  * it signs anything (see mintTakeUploadUrl).
  *
  * NO STORE any more (fix round 7) — true with RECORDING_SWITCHES.bindUnboundUploads
- * OFF (ships ON since 2026-09-24): the mint never creates a row, so it has none to place;
+ * OFF (ships OFF (on 2026-09-24, off again 2026-09-25)): the mint never creates a row, so it has none to place;
  * startRecordingSession is the one door that mints, and it is where a take's
  * store comes from. Same deletion finalizeTake took in fix round 4. With the
  * switch ON, the mint's own server-named arm creates a row too (through
