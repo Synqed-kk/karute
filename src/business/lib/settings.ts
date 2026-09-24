@@ -130,7 +130,7 @@ export function accessFor(role: string, rules: AccessRules): SettingsAccess {
  *  `self` = 「個人スコープ、権限ゲートなし」 (fable-settings-colors.html's own
  *  comment, and the same shape as 自分の音声登録). A self section is the reader's
  *  own preference: nobody's permission is involved, so no permission can hide it. */
-export type SectionScope = 'store' | 'self'
+export type SectionScope = 'store' | 'self' | 'business'
 
 export interface RailEntry {
   id: string
@@ -138,8 +138,10 @@ export interface RailEntry {
   group: string
   label: string
   scope: SectionScope
-  /** The capability a STORE section needs, or null when canon itself says the
-   *  page is open to everyone. Ignored entirely for `self`. */
+  /** The capability a STORE (or BUSINESS) section needs, or null when canon
+   *  itself says the page is open to everyone. Ignored entirely for `self`.
+   *  ⚖ A1b — `business` = ONE value for the whole business: gated by `needs`
+   *  like a store section, but it needs no store in the lens (R3). */
   needs: Capability | null
 }
 
@@ -180,6 +182,9 @@ export const RAIL: readonly RailEntry[] = [
   { id: 'coaching', group: 'Karute設定', label: 'コーチング', scope: 'store', needs: 'settings.manage' },
   { id: 'sync', group: 'Karute設定', label: '予約同期', scope: 'store', needs: 'settings.manage' },
   { id: 'reserve-acceptance', group: 'Reserve設定', label: 'Reserve 受付', scope: 'store', needs: 'settings.manage' },
+  // ⚖ A1b (R2/R3) — the Reserve card's colour: one value per business, the same
+  // capability as its two neighbours, and it renders under every lens.
+  { id: 'reserve-card-look', group: 'Reserve設定', label: 'カードの見た目', scope: 'business', needs: 'settings.manage' },
   { id: 'notifications', group: 'Reserve設定', label: '通知', scope: 'store', needs: 'settings.manage' },
   // canon gates スタッフ管理 on staff.manage OR staff.invite; the room takes the
   // stricter of the two it can express, which is the one the matrix edits with.
@@ -202,6 +207,12 @@ export const RAIL: readonly RailEntry[] = [
  *  reader whose gate is shut) and the rail itself. The id is named once, here,
  *  beside the entry it belongs to. */
 export const BOOKING_GUARD_ID = 'booking-guard'
+
+/** ⚖ A1b — カードの見た目 also renders itself (`ReserveCardLookSection`), and
+ *  its one value rides the room's own values map under this id, so 変更 n件,
+ *  the dot and 保存する count and commit it like any other control. */
+export const CARD_LOOK_ID = 'reserve-card-look'
+export const CARD_COLOR_ID = 'reserve-card-look.color'
 
 export type SectionGate = 'open' | 'no-rights'
 
@@ -636,6 +647,16 @@ export interface SettingsSection {
    *  shows one; nothing is chosen in JS, so there is no hydration to get wrong.
    *  `undefined` on every section whose lead points at nothing. */
   leadNarrow?: string
+  /** ⚖ A1b — カードの見た目 only: what its own component renders. `value` is the
+   *  business's stored colour (#RRGGBB) or null; `palette` is the curated 12. */
+  cardLook?: {
+    businessName: string
+    storeLine: string
+    address?: string
+    scopeLabel: string
+    value: string | null
+    palette: ReadonlyArray<{ order: number; name: string; hex: string }>
+  }
   blocks: SettingsBlock[]
   aside: { title: string; lines: Array<{ label: string; value: string }>; note: string } | null
   /** `local` = this section's values round-trip through the reader's own
@@ -799,7 +820,8 @@ export function sameValue(a: RowValue | undefined, b: RowValue | undefined): boo
 
 /** Every control id a section holds, in render order. */
 export function controlIdsOf(section: SettingsSection): string[] {
-  return section.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls.map((c) => c.id)))
+  const ids = section.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls.map((c) => c.id)))
+  return section.cardLook ? [...ids, CARD_COLOR_ID] : ids
 }
 
 // ── ⚖ S17 STEP 1 — FIND BY TYPING, AND THE INDEX IS THE PAGE'S OWN DATA ─────
