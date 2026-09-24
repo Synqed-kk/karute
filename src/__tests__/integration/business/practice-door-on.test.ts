@@ -345,7 +345,9 @@ describe('(2b) role labels — the Business vocabulary, from the rulebook', () =
     const { props } = await settingsProps({ locale: 'ja' })
     expect(props.roleLabel).toBe('スタッフ')
     expect(settingsAccessFor(props.roleLabel, rulebook).has('settings.manage')).toBe(false)
-    const needsManage = RAIL.filter((e) => e.scope === 'store' && e.needs === 'settings.manage').map((e) => e.id)
+    // ⚖ A1b — every GATED section, store or business: `!== 'self'` is what `scope === 'store'` meant here.
+    const needsManage = RAIL.filter((e) => e.scope !== 'self' && e.needs === 'settings.manage').map((e) => e.id)
+    expect(needsManage).toContain('reserve-card-look')
     expect(needsManage.length).toBeGreaterThan(0)
     for (const id of needsManage) expect(props.sections.find((x) => x.id === id)?.gate).toBe('no-rights')
   })
@@ -607,5 +609,54 @@ describe('(12) PR-2b — the register plane under ON is neutral, never fixture m
     expect({ refunds: day.register.refunds, cash_difference: day.register.cash_difference }).toEqual({ refunds: 0, cash_difference: 0 })
     const res = await data.readReservationPlanes(STORE.tokyo)
     expect({ refunds: res.register.refunds, cash_difference: res.register.cash_difference }).toEqual({ refunds: 0, cash_difference: 0 })
+  })
+})
+
+describe('⚖ A1b — カードの見た目 under ON: the colour comes from org settings through the door, one per business', () => {
+  const orgWith = (settings: Record<string, unknown>) => ({ business_id: TENANT, name: 'Dev Salon', settings, created_at: 'x', updated_at: 'x' })
+  const look = async (store?: string) => (await settingsProps({ locale: 'ja', store })).props.sections.find((s) => s.id === 'reserve-card-look')!
+
+  it.each([
+    ['#1c2247', '#1C2247'],
+    ['#1C2247', '#1C2247'],
+    ['#285643', '#285643'], // legacy, off-palette: passes through untouched (contract §8)
+    ['red', null],
+    ['#FFF', null],
+    ['#1C2247AA', null],
+    [' #1C2247', null],
+    [null, null],
+    [{}, null],
+  ])('reserve_card_color %j → %j', async (stored, want) => {
+    withReads().orgSettingsGet.mockResolvedValue(orgWith({ reserve_card_color: stored }))
+    expect(await data.readReserveCardColor()).toBe(want)
+  })
+
+  it('no key, or no org row at all → null', async () => {
+    withReads().orgSettingsGet.mockResolvedValue(orgWith({}))
+    expect(await data.readReserveCardColor()).toBeNull()
+    withReads({ orgName: null })
+    expect(await data.readReserveCardColor()).toBeNull()
+  })
+
+  it('R3 — the same value under every lens and in the all-stores view; the section never becomes 店舗を選んでください', async () => {
+    const spy = withReads()
+    spy.orgSettingsGet.mockResolvedValue(orgWith({ reserve_card_color: '#00304c' }))
+    for (const store of [STORE.tokyo, STORE.yokohama]) {
+      const s = await look(store)
+      expect({ store, gate: s.gate, kicker: s.kicker, value: s.cardLook?.value }).toEqual({ store, gate: 'open', kicker: 'Reserve設定', value: '#00304C' })
+    }
+    spy.storesList.mockResolvedValue({ stores: [] }) // the owner sees no store: the all-stores view
+    const { props } = await settingsProps({ locale: 'ja' })
+    expect(props.lensLabel).toBe('すべての店舗')
+    const all = props.sections.find((s) => s.id === 'reserve-card-look')!
+    expect({ gate: all.gate, kicker: all.kicker, value: all.cardLook?.value, storeLine: all.cardLook?.storeLine, address: 'address' in all.cardLook! })
+      .toEqual({ gate: 'open', kicker: 'Reserve設定', value: '#00304C', storeLine: '', address: false })
+  })
+
+  it('another business is refused before any read — nothing of it can reach the payload', async () => {
+    const spy = withReads()
+    as(LOGIN.owner, null, '00000000-0000-4000-8000-00000000dead')
+    await expect(settingsProps({ locale: 'ja' })).rejects.toThrow(PracticeTenantMismatch)
+    expect(spy.orgSettingsGet).not.toHaveBeenCalled()
   })
 })
