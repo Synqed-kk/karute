@@ -31,7 +31,7 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
 import { bedSecuredProof } from '@/business/lib/fixtures-today'
-import { storeSample } from '@/business/lib/practice-door/sample-facade'
+import { isMarked, storeSample } from '@/business/lib/practice-door/sample-facade'
 import {
   defaultStoreId,
   listAppointments,
@@ -58,9 +58,12 @@ import {
   coursesFitForDay,
   dayBookings,
   dayTotals,
+  decisionTitle,
   hhmm,
   laneMinutes,
   openDecisions,
+  sourceLine,
+  sourceWord,
   utilization,
   yen,
   type BoardBooking,
@@ -186,6 +189,10 @@ export default async function TodayPage({
   // `capabilitiesByStore` below still needs for every store option regardless
   // of clamping. `wordsByStore` (the prop every lane indexes) narrows this on
   // a clamped board (next line's own comment); this internal map does not.
+  // ⚖ PR-3 — THE DOOR IS ON (the facade's `isMarked`, never `state === 'sample'`):
+  // this board's SAMPLE planes — the decision cards, their counts, the 勤務不可
+  // strip — carry the 「サンプル」 mark. Switch OFF: false, and no prop is added.
+  const marked = storeOptions.some((s) => isMarked(storeSample(s.id)))
   const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
     storeOptions.map((s) => [s.id, wordsForStore(s.business_type, storeSample(s.id).words)]),
   )
@@ -382,13 +389,6 @@ export default async function TodayPage({
   // ── J: decision cards ─────────────────────────────────────────────────────
   const hqSpread = Math.round(((planes.pricingRule.hq_max - planes.pricingRule.hq_min) / planes.pricingRule.hq_min) * 100)
 
-  function decisionTitle(kind: string, b: BoardBooking | undefined, slotStart: number | null): string {
-    if (kind === 'レジ') return `${b?.customerName ?? 'お客様'}様の精算を完了する`
-    if (kind === 'Reserve販売') return `${slotStart == null ? '' : hhmm(slotStart)}の安全な1枠を販売する`
-    if (kind === '担当不在') return `${b ? hhmm(b.startMinute) : ''} ${b?.customerName ?? 'お客様'}様の担当不在に対応する`
-    return `${b ? hhmm(b.startMinute) : ''} ${b?.customerName ?? 'お客様'}様へ担当変更案を送る`
-  }
-
   const cards: DecisionCard[] = planes.decisions.map((d) => {
     const b = d.appointment_id ? bookingById.get(d.appointment_id) : undefined
     const slot = d.sell_slot_id ? slotById.get(d.sell_slot_id) : undefined
@@ -423,7 +423,9 @@ export default async function TodayPage({
       meta: `${b.timeRange} / ${b.menuName}`,
       status,
       statusTone,
-      source: `${b.source} / ${b.displayNo}`,
+      // ⚖ PR-3 — the enum prints as its word, and an empty number is omitted
+      // (no dangling 「/」); a value outside the six prints raw.
+      source: sourceLine(b.source, b.displayNo),
       facts: [
         // ⚖ FIX ROUND 1 (blind lens 3 F5) — the 個室のみ tag on the inspector too.
         // The card, the inspector and the accessible name described one booking
@@ -454,7 +456,7 @@ export default async function TodayPage({
         // is the impossible-state guard (a private-tagged booking on a
         // no-private-class store — unreachable until N3/N4 build the upstream
         // gate; pinned never-hit on this fixture).
-        ['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
+        ['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${sourceWord(b.source.split(' ')[0])}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],
@@ -732,6 +734,7 @@ export default async function TodayPage({
     inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,
     incident,
     cards,
+    ...(marked ? { marked: true as const } : {}),
     cases,
     kpi: {
       count: `${totals.count}件`,

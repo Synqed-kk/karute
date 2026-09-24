@@ -746,3 +746,15 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     expect(spy.orgSettingsGet).not.toHaveBeenCalled()
   })
 })
+
+describe('(12) PR-3 — 今日の運営 marks its SAMPLE planes under the door', () => {
+  it.each([['twin 東京', STORE.tokyo], ['Dev Salon (none)', STORE.devSalon]])('%s: the board carries marked; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store) => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
+    const props = (el as unknown as { props: Record<string, unknown> }).props
+    expect(props.marked).toBe(true)
+    const json = JSON.stringify(props)
+    expect(json).not.toContain('様様')
+    expect(json).not.toMatch(/(MANUAL|QUICKRESERVE|SYNQED_RESERVE|SALON_BOARD|HOT_PEPPER|OTHER) \//)
+  })
+})

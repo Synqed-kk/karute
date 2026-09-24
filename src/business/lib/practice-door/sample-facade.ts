@@ -81,6 +81,11 @@ export type StoreSample =
   | { state: 'sample'; words: WordOverride | null; dials: StoreDials | null; marked: boolean }
   | { state: 'no-sample-policy'; storeId: string; words: null; dials: null }
 
+/** ⚖ PR-3 — THE ONE READ of 「is the practice door ON for this store」 off a
+ *  `storeSample` answer: `marked`, or the no-sample-policy state (which exists
+ *  only under the switch). Never `state === 'sample'` — that is also OFF. */
+export const isMarked = (s: StoreSample): boolean => s.state === 'no-sample-policy' || s.marked
+
 /** The per-store SAMPLE words + dials the three bypass sites read (today/page,
  *  settings-props, store-policy-props). OFF: exactly the two calls those sites
  *  made — including defaultKindOf's throw on an unknown id (OFF is

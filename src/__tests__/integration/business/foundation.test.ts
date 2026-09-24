@@ -348,7 +348,8 @@ describe('the fixture data door', () => {
       // pocket formula written in this file is exactly what the import prevents;
       // canon-logic is pure (its own inventory above is `['./pricing']`), so
       // nothing about this reaches a door or the clock.
-      'src/business/lib/today-board.ts': ['./canon-logic/availability', './clock', './fixtures', './fixtures-today'],
+      // ⚖ PR-3 — SOURCE_WORD + decisionTitle's copy: Business's own string home (a JSON module, no imports).
+      'src/business/lib/today-board.ts': ['./canon-logic/availability', './clock', './fixtures', './fixtures-today', '@/business/i18n'],
       // A2 fix (Greptile round 1B addendum) — `shiftWarningOf`'s overage half
       // reads real instants (`jstMidnight`/`jstMinuteOfDay`) rather than bare
       // minute-of-day numbers, the same reason `data.ts`/`today-board.ts` above
@@ -475,6 +476,8 @@ describe('the fixture data door', () => {
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
         '../../BusinessSessionEdits',
+        // ⚖ PR-3 — the 「サンプル」 mark's strings (Business's string home, a JSON module).
+        '@/business/i18n',
         '../../BusinessTopbar',
         // ⚖ D-10 · D-12 · ROUND 2 (2026-09-13) — the bed-aware sales layer, wired
         // HERE for the reason `./honest-held` is: this is where the publication

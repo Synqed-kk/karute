@@ -57,6 +57,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // ⚖ Liam 8/23 — the guided tour is EVERY Business page's now, so the engine this
 // board was written against moved to one shared home. Same functions, same
 // behaviour, new address; nothing about this room's tour changed with it.
+import { businessStrings } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
@@ -738,6 +739,10 @@ export interface TodayProps {
     caseId: string | null
   } | null
   cards: DecisionCard[]
+  /** ⚖ PR-3 — the practice door is ON: the decision cards, the two counts built
+   *  from them and the 勤務不可 strip are SAMPLE planes and carry the 「サンプル」
+   *  mark. Absent (never `false`) with the switch OFF. */
+  marked?: true
   cases: Record<string, InspectorCase>
   kpi: { count: string; revenue: string; utilization: string; note: string }
   hold: { summary: string; checks: string[]; bookingId: string } | null
@@ -1093,6 +1098,17 @@ interface GuardAdvice {
    *  own, which is exactly flag 41's: it dies with every ending. */
   attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
+
+/** ⚖ PR-3 — the 「サンプル」 mark on this board. A LABEL, not a control: the
+ *  decision card around it is itself the button, so the chip explains itself
+ *  through the room's ?-tour (`data-guide`), the way every element here does.
+ *  ONE token (the shell sheet's `.sample-mark`), ONE string home. */
+const SAMPLE_MARK = businessStrings.sampleMark
+const sampleChip = (
+  <span className="sample-mark" data-guide-title={SAMPLE_MARK.popLabel} data-guide={`${SAMPLE_MARK.popLine1}${SAMPLE_MARK.popLine2}`}>
+    {SAMPLE_MARK.chip}
+  </span>
+)
 
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
@@ -8718,11 +8734,11 @@ export function TodayScreen(props: TodayProps) {
           <b>{ops.cashDifference}</b>
         </div>
         <button className="register-cell act" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>未解決</span>
+          <span>未解決{props.marked && sampleChip}</span>
           <b className="warn">{unresolved}件</b>
         </button>
         <button className="register-cell ops-decisions" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>次に決めること</span>
+          <span>次に決めること{props.marked && sampleChip}</span>
           <b>{unresolved}件</b>
         </button>
         <div className="ops-right">
@@ -9429,6 +9445,7 @@ export function TodayScreen(props: TodayProps) {
           data-guide="いま起きている問題と、対応がどこまで進んだかを示します。"
         >
           <div className="incident-main">
+            {props.marked && sampleChip}
             <span className="incident-icon" aria-hidden="true">!</span>
             <span>
               <strong>{props.incident.staffName}さん、本日{props.incident.from}以降は勤務不可</strong>
@@ -9474,6 +9491,7 @@ export function TodayScreen(props: TodayProps) {
       >
         <div className="section-head">
           <strong id="decisionTitle">次に決めること</strong>
+          {props.marked && sampleChip}
           <div className="section-tools">
             <span>根拠・期限・次の操作がある判断だけを表示</span>
             <button className="btn text" type="button" onClick={() => listRef.current?.showModal()}>判断と閉店阻害</button>
@@ -9482,7 +9500,7 @@ export function TodayScreen(props: TodayProps) {
         <div className="decision-grid">
           {openCards.map((c) => (
             <button
-              className={`decision-card${c.urgent ? ' urgent' : ''}`}
+              className={`decision-card${c.urgent ? ' urgent' : ''}${props.marked ? ' is-sample' : ''}`}
               type="button"
               key={c.id}
               aria-current={selected === c.id}
@@ -9494,6 +9512,7 @@ export function TodayScreen(props: TodayProps) {
               </span>
               <h2>{c.title}</h2>
               <p>{c.detail}</p>
+              {props.marked && sampleChip}
               <span className="decision-evidence">
                 {c.evidence.map(([k, v]) => <span key={k}>{k} <b>{v}</b></span>)}
               </span>

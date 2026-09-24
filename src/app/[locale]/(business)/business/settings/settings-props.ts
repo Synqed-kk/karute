@@ -61,7 +61,7 @@ import {
 } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { boardNow, closedWeekday, operatingHours, opsConfig, storeBookingPolicy } from '@/business/lib/fixtures-today'
-import { sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
+import { isMarked, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
 import { countWord, GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
 import {
@@ -191,11 +191,9 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     ? await Promise.all([listStaff(lens), listMenus(lens), listResources(lens)])
     : [[], [], []]
 
-  // ⚖ PR-3 — THE MARK KEYS ON THE DOOR BEING ON, never on `state === 'sample'`
-  // (which is also every switch-OFF answer): the facade's own `marked`, or its
-  // no-sample-policy state, which exists only under the switch.
-  const facade = clamped ? storeSample(storeId!) : null
-  const marked = facade !== null && (facade.state === 'no-sample-policy' || facade.marked)
+  // ⚖ PR-3 — THE MARK KEYS ON THE DOOR BEING ON (the facade's `isMarked`),
+  // never on `state === 'sample'`, which is also every switch-OFF answer.
+  const marked = clamped && isMarked(storeSample(storeId!))
 
   const ctx: Ctx = {
     storeId: clamped ? storeId! : null,

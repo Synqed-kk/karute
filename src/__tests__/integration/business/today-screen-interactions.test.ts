@@ -11715,6 +11715,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "} from '@/business/lib/canon-logic/drag-rules'",
     "} from '@/business/lib/canon-logic/pricing'",
     "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",
+    "import { businessStrings } from '@/business/i18n'",
     "import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'",
     // ⚖ S17 fix round 5 · G2 (D-44) — the ONE home every link into 設定 is built
     // by. Pure, no imports of its own, reached for the 保護ルール chip and nothing
@@ -13197,7 +13198,7 @@ describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged 
     const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
     // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #29's tag word is now resolved
     // from the booking's own store (see today-board.test.ts's sibling pin).
-    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${sourceWord(b.source.split(' ')[0])}`],")
   })
 
   it('claim 4 — the bed-row drop is silent for the blank item: no room stop, floor never hard or hard-room', async () => {
@@ -15276,5 +15277,17 @@ describe('⚖ D-53 (c) R1 — N0 source-text pin: needsUnit, the seam, the order
     expect(capAt).toBeGreaterThan(-1)
     expect(emissionAt).toBeLessThan(continueAt)
     expect(continueAt).toBeLessThan(capAt)
+  })
+})
+
+// ⚖ PR-3 — THE 「サンプル」 LABEL IS UNREACHABLE WITH THE SWITCH OFF: every place the
+// screen draws it is gated on `props.marked` (absent unless the practice door is ON),
+// and a card carries `is-sample` on the same gate.
+describe('⚖ PR-3 — the board’s sample label is gated on the door', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  it('every sampleChip use is `{props.marked && sampleChip}`, and there are five (two counts, 勤務不可, the decision head, each card)', () => {
+    const uses = SRC.match(/\{[^{}]*sampleChip\}/g) ?? []
+    expect(uses).toEqual(Array(5).fill('{props.marked && sampleChip}'))
+    expect(SRC).toContain("${props.marked ? ' is-sample' : ''}")
   })
 })
