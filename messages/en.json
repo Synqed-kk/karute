@@ -3688,5 +3688,10 @@
     "retry": "Reload",
     "retrying": "Reloading…",
     "logout": "Log out"
+  },
+  "removedStaff": {
+    "title": "This account can no longer be used",
+    "body": "Your manager has removed this account from the staff list, so customer and karute details are not shown. Please log out. If you think this is a mistake, contact your manager.",
+    "logout": "Log out"
   }
 }
