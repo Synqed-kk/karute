@@ -76,7 +76,8 @@ const listKaruteRecords = jest.fn(async (): Promise<{ karute_records: KaruteRow[
 }))
 const fakeClient = {
   recordingJobs: { enqueue: jobsEnqueue, getByRecordingSession },
-  stores: { get: storesGet },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { get: storesGet, list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: staffStoresGet },
   customers: { get: customerGet },
   packs: { listPacks },

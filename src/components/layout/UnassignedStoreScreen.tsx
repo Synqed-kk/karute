@@ -29,6 +29,23 @@ export function UnassignedStoreScreen({
   onRecheck?: () => Promise<void>
 } = {}) {
   const t = useTranslations('unassignedStore')
+  return (
+    <StoreGateScreen
+      copy={{ title: t('title'), body: t('body'), recheck: t('checkAgain'), rechecking: t('checking'), logout: t('logout') }}
+      onRecheck={onRecheck}
+    />
+  )
+}
+
+/** The shell's full-screen gate LAYOUT, shared by this screen and
+ *  StoreOutageScreen (Round 2): same look, each with its own words. */
+export function StoreGateScreen({
+  copy,
+  onRecheck,
+}: {
+  copy: { title: string; body: string; recheck: string; rechecking: string; logout: string }
+  onRecheck?: () => Promise<void>
+}) {
   const locale = useLocale()
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
@@ -71,10 +88,10 @@ export function UnassignedStoreScreen({
           <Store className="size-5 text-muted-foreground" aria-hidden />
         </div>
         <h1 className="text-lg font-semibold tracking-tight text-foreground">
-          {t('title')}
+          {copy.title}
         </h1>
         <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
-          {t('body')}
+          {copy.body}
         </p>
         <button
           type="button"
@@ -82,7 +99,7 @@ export function UnassignedStoreScreen({
           disabled={busy}
           className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-60"
         >
-          {checking ? t('checking') : t('checkAgain')}
+          {checking ? copy.rechecking : copy.recheck}
         </button>
         <button
           type="button"
@@ -91,7 +108,7 @@ export function UnassignedStoreScreen({
           className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
         >
           <LogOut className="size-4" aria-hidden />
-          {t('logout')}
+          {copy.logout}
         </button>
       </div>
     </main>

@@ -23,10 +23,10 @@ import { actorIsUnassigned } from './store-gate'
  * Degrades gracefully across the rollout:
  *   - After the RBAC migration: use the rich `permission_role` + `permissions`
  *     (per-staff overrides) columns.
- *   - Before it (or if those columns aren't present yet): derive the preset from
- *     the existing `display_role` (which mirrors the synqed role). The owner
- *     therefore keeps full power either way — applying the migration changes no
- *     one's effective access until someone is explicitly customized.
+ *   - Before it (those columns missing — Postgres 42703 only): derive the preset
+ *     from the existing `display_role` (which mirrors the synqed role). The
+ *     owner therefore keeps full power either way.
+ * Any OTHER read failure REJECTS (Round 2) — an outage, never a permission.
  */
 export const getMyCapabilities = cache(async (): Promise<Set<Capability>> => {
   const uid = await getCurrentUserStaffId()
@@ -67,18 +67,29 @@ export async function capabilitiesForUser(
     .eq('id', uid)
     .maybeSingle()
 
-  if (!error && data) {
-    role = data.permission_role
-      ? (data.permission_role as PermissionRole)
-      : synqedRoleToPreset(data.display_role)
-    override = (data.permissions as string[] | null) ?? null
-  } else {
-    const { data: base } = await service
+  // Round 2, 2026-09-24, D-S16-4 / D-S17-2 (discussed, default): only the
+  // missing pre-migration columns (42703) take the display_role preset. Any
+  // other error THROWS — the stale role re-armed a demoted ex-ADMIN (S15 C3b),
+  // and an empty set would send an owner to the unassigned screen.
+  if (error && error.code !== '42703') {
+    throw new AppApiError('upstream_unavailable', 'Permission lookup failed')
+  }
+  if (error) {
+    const { data: base, error: baseError } = await service
       .from('profiles')
       .select('display_role')
       .eq('id', uid)
       .maybeSingle()
+    if (baseError) throw new AppApiError('upstream_unavailable', 'Permission lookup failed')
     role = synqedRoleToPreset(base?.display_role)
+  } else if (!data) {
+    // No row: nothing is vouched for (was the preset of undefined: practitioner).
+    return new Set<Capability>()
+  } else {
+    role = data.permission_role
+      ? (data.permission_role as PermissionRole)
+      : synqedRoleToPreset(data.display_role)
+    override = (data.permissions as string[] | null) ?? null
   }
 
   const caps = effectiveCapabilities(role, override)

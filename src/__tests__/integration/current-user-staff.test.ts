@@ -138,14 +138,16 @@ describe('getCurrentUserStaffId', () => {
     expect(await getCurrentUserStaffId()).toBeNull()
   })
 
-  it('returns null when getBusinessId fails (orphan auth, no profile)', async () => {
-    // Auth row exists but the profile row that scopes them to a business is
-    // missing — getStaffList returns [] and the resolver falls through to null.
+  // Round 2 (2026-09-24, D-S16-4) — INVERTED: getStaffList no longer turns
+  // a failure into [] (which read as "not on the roster"). An auth row with no
+  // business membership never reaches the roster read at all: getBusinessId
+  // refuses it, and that refusal propagates.
+  it('REJECTS when getBusinessId fails (orphan auth, no profile) — never a silent null', async () => {
     scenario.authUser = { id: 'user-a' }
     scenario.businessProfile = null
     scenario.staffProfiles = []
 
-    expect(await getCurrentUserStaffId()).toBeNull()
+    await expect(getCurrentUserStaffId()).rejects.toMatchObject({ code: 'membership_inactive' })
   })
 
   it('does not read any cookie while resolving — the old active_staff_id path is dead', async () => {

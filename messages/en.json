@@ -3681,5 +3681,12 @@
     "checkAgain": "Check again",
     "checking": "Checking…",
     "logout": "Log out"
+  },
+  "storeOutage": {
+    "title": "Couldn't load your store",
+    "body": "Customer and karute details stay hidden until your store assignment can be confirmed. This screen reloads automatically — please wait a moment.",
+    "retry": "Reload",
+    "retrying": "Reloading…",
+    "logout": "Log out"
   }
 }

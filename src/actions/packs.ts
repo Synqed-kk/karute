@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { can } from '@/lib/auth/require-permission'
 import {
   removeRedemption,
   updatePackStatus,
@@ -166,11 +166,20 @@ export async function dismissVisitReconcileAction(input: {
   return result
 }
 
-export async function undoRedemptionAction(redemptionId: string): Promise<{ ok: boolean }> {
+export async function undoRedemptionAction(
+  redemptionId: string,
+): Promise<{ ok: boolean; error?: string }> {
   if (!redemptionId) return { ok: false }
   // WHO undid the burn — recorded on the redemption row (removed_by) so the
-  // undo is auditable without a join.
-  const staffId = await getCurrentUserStaffId().catch(() => null)
+  // undo is auditable without a join. An outage (the identity read failed) is
+  // not an anonymous undo: refuse, never write removed_by: null (Round 2,
+  // 2026-09-24, D-S16-4, discussed, default).
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch {
+    return { ok: false, error: 'write failed' }
+  }
   const result = await removeRedemption(redemptionId, staffId)
   if (result.ok) revalidateProfile()
   return result
@@ -214,11 +223,10 @@ export async function dismissPackAlertAction(input: {
   reason?: string
 }): Promise<{ ok: boolean; error?: string }> {
   if (!input.customerId) return { ok: false, error: 'customerId required' }
-  try {
-    await requireCapability('alerts.manage')
-  } catch {
-    return { ok: false, error: 'forbidden' }
-  }
+  // An outage (the capability read failed) is not a permission answer (Round 2).
+  const allowed = await can('alerts.manage').catch(() => null)
+  if (allowed === null) return { ok: false, error: 'write failed' }
+  if (!allowed) return { ok: false, error: 'forbidden' }
   const { getSynqedClient } = await import('@/lib/synqed/client')
   // getSynqedClient() unguarded here would THROW the whole server action on a
   // transient session/DB failure — PackAlertsCard awaits with no try/catch

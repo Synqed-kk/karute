@@ -11,7 +11,7 @@
 
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebActorId } from '@/lib/audit-web'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { can } from '@/lib/auth/require-permission'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getBusinessId, getCurrentAccessToken } from '@/lib/staff'
 import {
@@ -64,11 +64,10 @@ async function openDiscardDoor(): Promise<
   | { ok: true; synqed: ReturnType<typeof newSynqedClient>; actor: DiscardRecordingActor }
   | { ok: false; result: DiscardRecordingResult }
 > {
-  try {
-    await requireCapability('records.write')
-  } catch {
-    return { ok: false, result: { ok: false, error: 'forbidden' } }
-  }
+  // An outage (the capability read failed) is not a permission answer (Round 2).
+  const allowed = await can('records.write').catch(() => null)
+  if (allowed === null) return { ok: false, result: { ok: false, error: 'failed' } }
+  if (!allowed) return { ok: false, result: { ok: false, error: 'forbidden' } }
 
   try {
     const businessId = await getBusinessId()

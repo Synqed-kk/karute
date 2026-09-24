@@ -5,9 +5,11 @@
  *   - no viewAll + empty staff_stores → floating staff, no clamp
  *   - no viewAll + assigned stores → clamped to that set; the cookie picks among
  *     them, an out-of-scope / unset cookie falls back to the first assigned store
- *   - the assignment LOOKUP failing (getStaffStoresStrict → null) sets
- *     degraded:true but leaves storeId/viewAll/allowedStoreIds identical to a
- *     genuine empty assignment (F-A) — only the menu-write clamp reads it
+ *   - the assignment LOOKUP failing (getStaffStoresStrict → null), or the
+ *     gate's verdict coming back `unknown`, REACHES NO STORE: storeId null,
+ *     allowedStoreIds [], degraded:true (Round 2, 2026-09-24, D-S16-4 —
+ *     supersedes the F-A "reads ignore degraded" shape)
+ *   - resolveShellGate: unassigned / outage / ok, and an outage is never blank
  */
 import type { Capability } from '@/lib/auth/permissions'
 
@@ -18,14 +20,24 @@ jest.mock('@/actions/stores', () => ({
   getPrimaryStoreId: jest.fn(),
   getStaffStoresStrict: jest.fn(),
 }))
+// The gate's ONE resolution, stubbed: its own two core reads are pinned in
+// unassigned-gate-matrix.test.ts. Default = floating (a readable single-store
+// business), set per test below.
+jest.mock('@/lib/auth/store-gate', () => ({
+  ...jest.requireActual('@/lib/auth/store-gate'),
+  actorStoreVerdict: jest.fn(),
+  actorIsUnassigned: jest.fn(),
+}))
 
 import {
   resolveStoreScope,
+  resolveShellGate,
   viewerScopeForActs,
   menuStoresForScope,
   staffWriteInScope,
   customerLensFor,
 } from '@/lib/auth/store-scope'
+import { actorIsUnassigned, actorStoreVerdict } from '@/lib/auth/store-gate'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
@@ -35,12 +47,16 @@ const mockStaffId = getCurrentUserStaffId as jest.Mock
 const mockActive = getActiveStoreId as jest.Mock
 const mockPrimary = getPrimaryStoreId as jest.Mock
 const mockStores = getStaffStoresStrict as jest.Mock
+const mockVerdict = actorStoreVerdict as jest.Mock
+const mockUnassigned = actorIsUnassigned as jest.Mock
 
 const caps = (...c: Capability[]) => new Set<Capability>(c)
 
 beforeEach(() => {
   jest.clearAllMocks()
   mockStaffId.mockResolvedValue('staff-1')
+  mockVerdict.mockResolvedValue('unclamped')
+  mockUnassigned.mockResolvedValue(false)
 })
 
 // The web twin of the facade clamp's invariant, and the thing every
@@ -50,7 +66,7 @@ beforeEach(() => {
 // a null storeId would silently read business-wide — the RBAC clamp failing
 // OPEN. `activeStore && allowed.includes(activeStore) ? activeStore :
 // allowed[0]` is the whole guarantee; drop the `allowed[0]` arm and these go red.
-describe('resolveStoreScope — clamped ⇒ storeId non-null (fail-open invariant)', () => {
+describe('resolveStoreScope — clamped ⇒ storeId non-null, EXCEPT degraded (storeId null, reach no store)', () => {
   it('holds when the cookie is UNSET', async () => {
     mockCaps.mockResolvedValue(caps())
     mockActive.mockResolvedValue(null)
@@ -85,7 +101,7 @@ describe('resolveStoreScope — clamped ⇒ storeId non-null (fail-open invarian
 // here now, so the broken case has ONE answer, and it fails CLOSED: blind, not
 // business-wide. Same posture as listAllCustomers' guard (list-all.ts:56).
 describe('customerLensFor — the cached-customer-list store lens', () => {
-  it('unclamped (viewAll / floating / degraded) → undefined = business-wide', () => {
+  it('unclamped (viewAll / floating) → undefined = business-wide', () => {
     expect(customerLensFor({ storeId: 'store-A', allowedStoreIds: null })).toBeUndefined()
     expect(customerLensFor({ storeId: null, allowedStoreIds: null })).toBeUndefined()
   })
@@ -98,6 +114,10 @@ describe('customerLensFor — the cached-customer-list store lens', () => {
 
   it('clamped with a NULL storeId → null (BLIND), never business-wide', () => {
     expect(customerLensFor({ storeId: null, allowedStoreIds: ['store-A'] })).toBeNull()
+  })
+
+  it('a scope that reaches no store (unassigned, or degraded since Round 2) → null (BLIND)', () => {
+    expect(customerLensFor({ storeId: null, allowedStoreIds: [] })).toBeNull()
   })
 })
 
@@ -178,16 +198,67 @@ describe('resolveStoreScope', () => {
     expect((await resolveStoreScope()).storeId).toBe('store-A')
   })
 
-  it('the assignment lookup FAILING (null) sets degraded:true, same storeId/viewAll/allowedStoreIds as a genuine empty assignment', async () => {
+  // Round 2, 2026-09-24, D-S16-4 (discussed, default) — INVERTED from the
+  // F-A shape (degraded used to keep the floating, business-wide scope).
+  it('the assignment lookup FAILING (null) → degraded, and it reaches NO store', async () => {
     mockCaps.mockResolvedValue(caps('customers.view'))
     mockActive.mockResolvedValue('store-A')
     mockStores.mockResolvedValue(null)
     expect(await resolveStoreScope()).toEqual({
-      storeId: 'store-A',
+      storeId: null,
       viewAll: false,
-      allowedStoreIds: null,
+      allowedStoreIds: [],
       degraded: true,
     })
+    // Unknown is never the unassigned answer: the gate is never even asked.
+    expect(mockVerdict).not.toHaveBeenCalled()
+  })
+
+  it('a caller the roster cannot place (staffId null) → the same degraded, reach-no-store shape', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockStaffId.mockResolvedValue(null)
+    mockActive.mockResolvedValue('store-A')
+    expect(await resolveStoreScope()).toEqual({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: [],
+      degraded: true,
+    })
+    expect(mockStores).not.toHaveBeenCalled()
+  })
+
+  it('an empty assignment whose verdict is UNKNOWN (store list unreadable) → degraded, reach no store', async () => {
+    mockCaps.mockResolvedValue(caps('customers.view'))
+    mockActive.mockResolvedValue('store-A')
+    mockStores.mockResolvedValue([])
+    mockVerdict.mockResolvedValue('unknown')
+    expect(await resolveStoreScope()).toEqual({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: [],
+      degraded: true,
+    })
+  })
+
+  it('an empty assignment whose verdict is UNASSIGNED → reach no store, NOT degraded', async () => {
+    mockCaps.mockResolvedValue(caps('customers.view'))
+    mockActive.mockResolvedValue('store-A')
+    mockStores.mockResolvedValue([])
+    mockVerdict.mockResolvedValue('unassigned')
+    expect(await resolveStoreScope()).toEqual({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: [],
+      degraded: false,
+    })
+  })
+
+  it('stores.viewAll is untouched by an assignment outage (the assignment is never read)', async () => {
+    mockCaps.mockResolvedValue(caps('stores.viewAll'))
+    mockActive.mockResolvedValue('store-A')
+    mockStores.mockResolvedValue(null)
+    expect((await resolveStoreScope()).degraded).toBe(false)
+    expect(mockStores).not.toHaveBeenCalled()
   })
 
   it('a genuinely empty assignment (floating staff) still resolves degraded:false', async () => {
@@ -353,5 +424,44 @@ describe('viewerScopeForActs — the act doors’ scope', () => {
   it('a THROWN resolve → [] , never null — the arm M23 mutates', async () => {
     mockCaps.mockRejectedValue(new Error('core down'))
     await expect(viewerScopeForActs()).resolves.toEqual([])
+  })
+})
+
+// ── THE WEB FRONT GATE, whole (Round 2, 2026-09-24, D-S16-4) ────────────────
+// What (app)/layout.tsx renders before any read: the unassigned screen, the
+// outage screen, or the shell. An outage is never the shell (no data) and
+// never the unassigned screen (a staffing fact is not an outage).
+describe('resolveShellGate', () => {
+  it('an UNASSIGNED actor → unassigned', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockUnassigned.mockResolvedValue(true)
+    await expect(resolveShellGate()).resolves.toBe('unassigned')
+  })
+
+  it('a DEGRADED scope (assignment unreadable) → outage', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockActive.mockResolvedValue('store-A')
+    mockStores.mockResolvedValue(null)
+    await expect(resolveShellGate()).resolves.toBe('outage')
+  })
+
+  it('a THROWN roster read (getCurrentUserStaffId rejects) → outage, never the shell', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockStaffId.mockRejectedValue(new Error('roster read failed'))
+    await expect(resolveShellGate()).resolves.toBe('outage')
+  })
+
+  it('a healthy clamped actor → ok', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockActive.mockResolvedValue('store-A')
+    mockStores.mockResolvedValue(['store-A'])
+    await expect(resolveShellGate()).resolves.toBe('ok')
+  })
+
+  it('a stores.viewAll holder during an assignment outage → ok (never blanked)', async () => {
+    mockCaps.mockResolvedValue(caps('stores.viewAll'))
+    mockActive.mockResolvedValue('store-A')
+    mockStores.mockResolvedValue(null)
+    await expect(resolveShellGate()).resolves.toBe('ok')
   })
 })

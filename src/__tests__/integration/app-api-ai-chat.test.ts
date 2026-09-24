@@ -57,7 +57,9 @@ const storesGet = jest.fn(async (id: string) => {
 })
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
-  stores: { get: storesGet },
+  // One store: a floating caller is the single-store carve-out (unclamped).
+  // The list must be READABLE — an unreadable one is `unknown` and refused.
+  stores: { get: storesGet, list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: staffStoresGet },
   customers: { list: jest.fn(async () => ({ customers: [] })) },
 }

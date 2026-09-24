@@ -438,8 +438,11 @@ async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
  */
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   const { getMyCapabilities, ensureCapability } = await import('@/lib/auth/require-permission')
+  // An outage (the capability read failed) is not a permission answer (Round 2).
+  const caps = await getMyCapabilities().catch(() => null)
+  if (!caps) return { error: 'Unknown error' }
   try {
-    ensureCapability(await getMyCapabilities(), 'settings.manage')
+    ensureCapability(caps, 'settings.manage')
   } catch {
     return { error: 'You do not have permission to change settings.' }
   }

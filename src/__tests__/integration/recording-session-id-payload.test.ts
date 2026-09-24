@@ -107,7 +107,14 @@ const customers = {
 }
 
 jest.mock('@synqed-kk/client', () => ({
-  SynqedClient: jest.fn().mockImplementation(() => ({ karuteRecords, appointments, customers })),
+  // A healthy core roster (no profile-less teammates): a FAILED roster read
+  // now throws instead of degrading to profiles-only (Round 2).
+  SynqedClient: jest.fn().mockImplementation(() => ({
+    karuteRecords,
+    appointments,
+    customers,
+    staff: { list: async () => ({ staff: [] }) },
+  })),
 }))
 
 import { saveKaruteRecord, saveKaruteRecordInline } from '@/actions/karute'

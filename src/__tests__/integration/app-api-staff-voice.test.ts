@@ -56,6 +56,8 @@ const staffStoresGet = jest.fn(async (id: string) => ({ store_ids: storeAssignme
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn((_businessId: string) => ({
     staffStores: { get: (id: string) => staffStoresGet(id) },
+    // One store: floating = the single-store carve-out (readable list required).
+    stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   })),
 }))
 

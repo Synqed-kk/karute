@@ -63,7 +63,8 @@ jest.mock('@/lib/audit', () => ({
 const assignedStores = { current: [] as string[] }
 const fakeClient = {
   orgSettings: {},
-  stores: {},
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: jest.fn(async () => ({ store_ids: assignedStores.current })) },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)

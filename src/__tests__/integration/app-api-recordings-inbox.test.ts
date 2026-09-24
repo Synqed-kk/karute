@@ -121,7 +121,8 @@ const fakeClient = {
       }> => ({ events: [], total: 0, page: 1, page_size: 200 }),
     ),
   },
-  stores: { get: storesGet },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { get: storesGet, list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: staffStoresGet },
   audit: { list: auditList },
 }
