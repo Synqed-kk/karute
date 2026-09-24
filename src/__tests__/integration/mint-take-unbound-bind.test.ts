@@ -218,13 +218,17 @@ describe('switch ON — the server-named take gets a row on the key it was signe
 
   it('logs ONE bare line on a bind, none when kept unbound (the post-flip watch)', async () => {
     const logged = jest.spyOn(console, 'info').mockImplementation(() => {})
-    // A create that settles to today's answer (storage could not say) — no line.
-    info.mockImplementationOnce(async () => ({ data: null, error: { message: 'boom', status: 500 } }))
-    await expect(mint()).resolves.toMatchObject({ recordingSessionId: null })
-    expect(warned).toContain('[mint-take-url] unbound upload kept unbound: create answered upstream')
-    expect(logged).not.toHaveBeenCalled()
-    await mint()
-    expect(logged.mock.calls).toEqual([['[mint-take-url] unbound upload bound']])
+    try {
+      // A create that settles to today's answer (storage could not say) — no line.
+      info.mockImplementationOnce(async () => ({ data: null, error: { message: 'boom', status: 500 } }))
+      await expect(mint()).resolves.toMatchObject({ recordingSessionId: null })
+      expect(warned).toContain('[mint-take-url] unbound upload kept unbound: create answered upstream')
+      expect(logged).not.toHaveBeenCalled()
+      await mint()
+      expect(logged.mock.calls).toEqual([['[mint-take-url] unbound upload bound']])
+    } finally {
+      logged.mockRestore()
+    }
   })
 
   it.each([
