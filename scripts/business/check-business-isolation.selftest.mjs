@@ -77,9 +77,13 @@ assert.throws(
 // ── The lock-3 door (⚖ Liam 9/24, R-A2-15) ──────────────────────────────────
 const POLICY_PATH = 'src/lib/audit-policy.ts'
 const LEDGER_PATH = 'docs/audit-weakening-ledger.md'
-const POLICY = readFileSync(join(root, POLICY_PATH), 'utf8')
-const LEDGER = readFileSync(join(root, LEDGER_PATH), 'utf8')
 const TERRITORY_FILE = 'src/business/lib/practice-door/door.ts'
+// The checkout's own audit-policy.ts minus PR-2's entry once it has landed (the
+// write branch, then main): every fixture appends to a base that does not hold
+// it yet, so case 8 stays PR-2's first landing on any checkout (case 36: one
+// entry per file::call).
+const POLICY = withoutLanded(readFileSync(join(root, POLICY_PATH), 'utf8'))
+const LEDGER = readFileSync(join(root, LEDGER_PATH), 'utf8')
 
 /** The registry array literal `name` (unwrapping `as const`) + its declaration. */
 function registry(text, name) {
@@ -92,6 +96,14 @@ function registry(text, name) {
     }
   }
   throw new Error(`fixture: ${name} not found`)
+}
+function withoutLanded(text) {
+  const landed = registry(text, 'SDK_WRITE_ALLOWLIST').arr.elements.find(
+    (e) => e.getText().includes(`file: '${TERRITORY_FILE}'`) && e.getText().includes("call: 'orgSettings.upsert'"),
+  )
+  if (!landed) return text
+  assert.equal(text[landed.end], ',', "fixture: PR-2's landed entry ends '},'")
+  return text.slice(0, landed.pos) + text.slice(landed.end + 1)
 }
 /** Append `entry` as the array's new last element — a pure insertion before its `]`. */
 function append(text, name, entry) {
@@ -391,4 +403,50 @@ assert.throws(() => run('src/lib/foo.ts\n', ['--bogus']), (err) => err.status ==
 assert.throws(() => run(`${TERRITORY_FILE}\n${POLICY_PATH}\n`), (err) => err.status === 1 && /could not be read/.test(err.stderr))
 assert.match(run(`${POLICY_PATH}\n`), /not a Business PR/)
 
-console.log('✓ business isolation gate selftest: 35 cases green')
+// ── one entry per CP8 key (blind read finding 5): `file` / `file::call` ──────
+const PR2_KEY = `${TERRITORY_FILE}::orgSettings.upsert`
+const WIDENED = entry(
+  `    file: '${TERRITORY_FILE}',\n    call: 'orgSettings.upsert',\n    symbols: ['writeReserveCardColor', 'someOtherWriter'],\n    justification: 'x',\n    dated: '2026-09-25',`,
+)
+const dupRed = (base, head, name, key) => {
+  const why = checkAuditPolicyShape(base, head, territory)
+  assert.ok(
+    why?.startsWith(`clause (c): ${name} new entry #`) && why.includes(`repeats the key '${key}'`),
+    `expected clause (c) one-entry-per-key on '${key}', got ${JSON.stringify(why)}`,
+  )
+}
+
+// 36. RED (clause 2c) — a second door.ts::orgSettings.upsert entry, `symbols`
+//     widened, on a base that already holds PR-2's grant.
+dupRed(PR2_POLICY, append(PR2_POLICY, 'SDK_WRITE_ALLOWLIST', WIDENED), 'SDK_WRITE_ALLOWLIST', PR2_KEY)
+
+// 37. RED (clause 2c) — two new entries under one key in the same PR (SDK and RAW).
+dupRed(POLICY, append(PR2_POLICY, 'SDK_WRITE_ALLOWLIST', WIDENED), 'SDK_WRITE_ALLOWLIST', PR2_KEY)
+const RAW = entry(`    file: 'src/app/api/business/x/route.ts',\n    call: 't.insert',\n    symbols: ['POST'],\n    justification: 'x',\n    dated: '2026-09-25',`)
+dupRed(POLICY, append(append(POLICY, 'RAW_SUPABASE_WRITE_ALLOWLIST', RAW), 'RAW_SUPABASE_WRITE_ALLOWLIST', RAW), 'RAW_SUPABASE_WRITE_ALLOWLIST', 'src/app/api/business/x/route.ts::t.insert')
+
+// 38. RED (clause 2c) — a duplicate AUDITED_CORES `file` (its key is the file alone).
+dupRed(coresAndRaw, append(coresAndRaw, 'AUDITED_CORES', entry(`    file: '${TERRITORY_FILE}',\n    symbols: ['someOtherWriter'],`)), 'AUDITED_CORES', TERRITORY_FILE)
+
+// 39. GREEN — the allowlist key is file::call, not file: the same file with
+//     another call is a new grant.
+assert.equal(
+  checkAuditPolicyShape(PR2_POLICY, append(PR2_POLICY, 'SDK_WRITE_ALLOWLIST', WIDENED.replace("call: 'orgSettings.upsert'", "call: 'orgSettings.delete'")), territory),
+  null,
+)
+
+// 40. RED (clause 3, the tail — stress mutant h) — the LAST base line deleted:
+//     head's lines are a strict prefix of base's, so only the after-loop check
+//     sees it.
+const tailCut = LEDGER.replace(/\n[^\n]*\n?$/, '')
+assert.ok(LEDGER.startsWith(tailCut) && tailCut.length < LEDGER.length, 'fixture: the ledger has a last line to cut')
+assert.equal(
+  checkLedgerAppend(LEDGER, tailCut, territory),
+  `clause 3: base ledger line ${tailCut.split('\n').length + 1} was deleted or edited (append-only)`,
+)
+
+// 41. RED (clause 3) — the last base line edited by one byte.
+const lastAt = tailCut.length + 1 // the last line's first byte
+ledgerRed(LEDGER.slice(0, lastAt) + (LEDGER[lastAt] === 'x' ? 'y' : 'x') + LEDGER.slice(lastAt + 1))
+
+console.log('✓ business isolation gate selftest: 41 cases green')

@@ -17,6 +17,7 @@
 //     entries appended, each a plain object literal of literal values whose
 //     `file` is inside territory; no new AUDIT_ACTIONS member (R-A2-16); and
 //     CP8's own parser must still read the head.
+//     One entry per CP8 key (`file` / `file::call`): widening a grant is owner-routed (base entries never change).
 //   - docs/audit-weakening-ledger.md — base lines unchanged and in order; new
 //     lines only; each new entry's key names a territory file.
 // Everything else outside territory stays refused exactly as before: Karute
@@ -158,6 +159,16 @@ export function checkAuditPolicyShape(baseText, headText, territory) {
     for (let i = b.length; i < h.length; i++) {
       const why = newEntryProblem(h[i], territory)
       if (why) return `clause (c): ${name} new entry #${i + 1} ${why}`
+    }
+    // …and files under a key no earlier entry holds — CP8's Map key (`file` /
+    // `file::call`), so a second entry can never shadow or widen a grant's
+    // `symbols`. CP8 unreadable → no keys here; (e) refuses below.
+    const cores = name === 'AUDITED_CORES'
+    const keys = ((cores ? parseAuditedCores(headText) : parseAllowlist(headText, name)) ?? []).map((e) =>
+      cores ? e.file : `${e.file}::${e.call}`,
+    )
+    for (let i = b.length; i < keys.length; i++) {
+      if (keys.indexOf(keys[i]) < i) return `clause (c): ${name} new entry #${i + 1} repeats the key '${keys[i]}' (one entry per key)`
     }
   }
   // (e) CP8 must still read the head with its own parser.
