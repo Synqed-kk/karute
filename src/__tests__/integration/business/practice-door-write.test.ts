@@ -187,8 +187,9 @@ describe('⚖ A2 — the one writer: data.writeReserveCardColor → door', () =>
 
 // ── the route (R-A2-13): PUT /api/business/card-color ─────────────────────────────────────────
 const HOST = 'business.example.test'
-function put(opts: { origin?: string | null; site?: string; host?: string; expected?: string | null; body?: string } = {}) {
+function put(opts: { origin?: string | null; site?: string; host?: string; forwarded?: string; expected?: string | null; body?: string } = {}) {
   const headers: Record<string, string> = { 'content-type': 'application/json', host: opts.host ?? HOST }
+  if (opts.forwarded) headers['x-forwarded-host'] = opts.forwarded
   const origin = opts.origin === undefined ? `https://${HOST}` : opts.origin
   if (origin !== null) headers.origin = origin
   if (opts.site) headers['sec-fetch-site'] = opts.site
@@ -218,10 +219,15 @@ describe('⚖ A2 — the route: strict same-origin, 409 on the wrong business, e
     ['no Origin, cross-site fetch', { origin: null, site: 'cross-site' }],
     ['a malformed Origin', { origin: 'not a url' }],
     ['no Host to compare against', { host: '' }],
+    ['Origin = a spoofed X-Forwarded-Host, the Host differs', { origin: 'https://evil.example', forwarded: 'evil.example' }],
   ])('403 — refused before admission or the door (%s)', async (_label, opts) => {
     expect(await answer(await put(opts as Parameters<typeof put>[0]))).toEqual({ status: 403, body: { ok: false, reason: 'forbidden' } })
     expect(admission).not.toHaveBeenCalled()
     expect(mockCore.upsert).not.toHaveBeenCalled()
+  })
+
+  it('200 — the Host the server received decides: Origin = Host passes with a foreign X-Forwarded-Host present', async () => {
+    expect(await answer(await put({ forwarded: 'evil.example' }))).toEqual({ status: 200, body: { ok: true, color: KON } })
   })
 
   it.each([
