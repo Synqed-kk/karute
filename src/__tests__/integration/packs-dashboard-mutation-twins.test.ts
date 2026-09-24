@@ -33,6 +33,7 @@ jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
 jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: jest.fn(async () => 's1') }))
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
+  can: jest.fn(async () => true),
 }))
 const getSynqedClient = jest.fn(async () => ({}) as never)
 jest.mock('@/lib/synqed/client', () => ({
@@ -44,6 +45,25 @@ import {
   logCustomerContactAction,
   dismissPackAlertAction,
 } from '@/actions/packs'
+import { can } from '@/lib/auth/require-permission'
+
+// Round 2 (2026-09-24): an OUTAGE is not a permission answer.
+it('dismissPackAlertAction: a capability read that FAILS → "write failed", never "forbidden"', async () => {
+  ;(can as jest.Mock).mockRejectedValueOnce(new Error('roster read failed'))
+  await expect(dismissPackAlertAction({ customerId: 'c1' })).resolves.toEqual({
+    ok: false,
+    error: 'write failed',
+  })
+  expect(getSynqedClient).not.toHaveBeenCalled()
+})
+
+it('control: a real denial is still "forbidden"', async () => {
+  ;(can as jest.Mock).mockResolvedValueOnce(false)
+  await expect(dismissPackAlertAction({ customerId: 'c1' })).resolves.toEqual({
+    ok: false,
+    error: 'forbidden',
+  })
+})
 
 describe('server-action wrappers: getSynqedClient() rejection degrades gracefully, never throws', () => {
   beforeEach(() => {
