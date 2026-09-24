@@ -19,6 +19,9 @@
 // core-reach.ts's ONE pinned `upsert.bind(` line is green, a copy of it is over
 // budget, any other bound write in core-reach.ts or in any other territory file
 // is a plain finding, every verb is caught, and a split `.x\n.bind(` too.
+// Cases 18a–18d pin that a pinned string in a COMMENT never exempts a widened
+// call (Greptile P1, 9/25): the exemption must cover the flagged occurrence on
+// the comment-stripped line.
 
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs'
@@ -300,8 +303,33 @@ write('src/business/screens/Read.tsx', 'const g = h.get.bind(h)\n// never h.upse
 assert.deepEqual(scanDataAccess(root), [])
 clear('src/business/screens')
 
+// 18. RED — the writer widened, the one-key pinned text only in a comment
+//     (Greptile P1, 9/25): a trailing //, a /* */ on the line above, the same
+//     two at ≤ 120 characters (the old line-text match exempted those), and a
+//     widened call with the pinned text in a string beside it (the string's own
+//     hit is covered; the real call's is not).
+const PIN = 'orgSettings.upsert({ settings: { reserve_card_color: next } })'
+const WIDE = "  const saved = await writer.orgSettings.upsert({ settings: { reserve_card_color: next, business_type: 'x' } })"
+for (const [label, src, line] of [
+  ['18a trailing //', `${WIDE} // ${PIN}\n`, 1],
+  ['18b /* */ on the line above', `  /* ${PIN} */\n${WIDE}\n`, 2],
+  ['18c short, trailing //', `const s = await w.upsert({settings:{x:1}}) // ${PIN}\n`, 1],
+  ['18d short, /* */ first', `/* ${PIN} */ const s = await w.upsert({settings:{x:1}})\n`, 1],
+]) {
+  write(writerPath, src)
+  const f = scanDataAccess(root)
+  assert.equal(f.length, 1, `${label}: expected the widened call flagged, got ${JSON.stringify(f)}`)
+  assert.equal(f[0].label, 'write call .upsert(', label)
+  assert.equal(f[0].line, line, label)
+}
+write(writerPath, `const p = '${PIN}'; await w.upsert({settings:{x:1}})\n`)
+const inString = scanDataAccess(root)
+assert.equal(inString.length, 1, `expected only the real call flagged, got ${JSON.stringify(inString)}`)
+assert.equal(inString[0].label, 'write call .upsert(')
+clear('src/business/lib')
+
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 30 cases green')
+console.log('✓ business data-access guard selftest: 35 cases green')

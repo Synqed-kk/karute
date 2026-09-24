@@ -142,9 +142,9 @@ const CALL_PATTERNS = [
 ]
 
 // Known-legal exceptions. Same contract as check-dark-interactive's ALLOW:
-// exact path + label + a `match` substring the flagged line must contain + a
-// `count` budget, so a pinned string copied onto a new line fails the whole
-// entry closed.
+// exact path + label + a `match` string that must cover the flagged occurrence
+// on the comment-stripped line + a `count` budget, so a pinned string copied
+// onto a new line fails the whole entry closed.
 const ALLOW = [
   {
     path: 'src/app/[locale]/(business)/business/today/today-interactions.ts',
@@ -262,28 +262,38 @@ export function scanDataAccess(rootDir, allow = ALLOW) {
     const rel = relative(rootDir, file).split(sep).join('/')
     const srcLines = readFileSync(file, 'utf8').split('\n')
     const code = stripComments(srcLines.join('\n'))
+    const codeLines = code.split('\n')
     // Territory files are small — counting newlines per match is cheap enough.
     const lineOf = (index) => code.slice(0, index).split('\n').length
 
     const hits = []
+    const hit = (index, label) =>
+      hits.push({ line: lineOf(index), col: index - (code.lastIndexOf('\n', index - 1) + 1), label })
     for (const re of IMPORT_FORMS) {
       re.lastIndex = 0
       for (let m = re.exec(code); m; m = re.exec(code)) {
         const rule = FORBIDDEN_SPECIFIER.find((r) => r.scope(rel) && r.test(m[1]))
-        if (rule) hits.push({ line: lineOf(m.index), label: rule.label })
+        if (rule) hit(m.index, rule.label)
       }
     }
     for (const { re, label, scope } of CALL_PATTERNS) {
       if (!scope(rel)) continue
       re.lastIndex = 0
-      for (let m = re.exec(code); m; m = re.exec(code)) hits.push({ line: lineOf(m.index), label })
+      for (let m = re.exec(code); m; m = re.exec(code)) hit(m.index, label)
     }
 
-    for (const { line, label } of hits) {
+    for (const { line, col, label } of hits) {
       const text = (srcLines[line - 1] ?? '').trim().slice(0, 120)
-      const entry = allow.find(
-        (a) => a.path === rel && a.label === label && a.match.some((m) => text.includes(m)),
-      )
+      // The exemption is the flagged occurrence ITSELF: a pinned string on the
+      // comment-stripped line whose span covers the hit (Greptile P1, 9/25). A
+      // pinned string in a comment is blanked, and one elsewhere on the line
+      // never covers a widened call beside it.
+      const at = codeLines[line - 1] ?? ''
+      const covers = (m) => {
+        for (let i = at.indexOf(m); i !== -1; i = at.indexOf(m, i + 1)) if (i <= col && col < i + m.length) return true
+        return false
+      }
+      const entry = allow.find((a) => a.path === rel && a.label === label && a.match.some(covers))
       if (!entry) {
         findings.push({ rel, line, label, text })
         continue
