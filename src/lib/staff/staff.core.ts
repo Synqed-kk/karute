@@ -159,12 +159,27 @@ export async function updateStaffCore(
   // route through the synqed client. Passing a profiles.id to
   // synqed.staff.update was the "SynqedError: Staff not found" 500 on save.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: profile } = await (service as any)
+  const { data: profile, error: profileErr } = await (service as any)
     .from('profiles')
-    .select('id')
+    .select('id, display_role')
     .eq('id', id)
     .eq('customer_id', businessId)
     .maybeSingle()
+  // Fail CLOSED on a failed lookup, exactly as deleteStaffCore does: a null
+  // `profile` from an error would read as "no profile row" and skip the owner
+  // guard below.
+  if (profileErr) {
+    throw new AppApiError('upstream_unavailable', 'staff profile lookup failed')
+  }
+
+  // The OWNER row is edited by the owner only — refused here, before ANY write,
+  // on both doors (web `noPermission`, facade 403). Without it any staff.manage
+  // holder could rename the owner to `_system_removed_…`, which the identity
+  // seam then refuses: the owner locked out of their own business. A null
+  // actor never equals an id, so it is refused too.
+  if (profile?.display_role === 'owner' && deps.actorId !== id) {
+    throw new AppApiError('forbidden', 'only the owner can edit the owner row')
+  }
 
   if (profile) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

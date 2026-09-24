@@ -3,9 +3,11 @@
 // (updateStaffCore / deleteStaffCore, src/lib/staff/staff.core.ts).
 //
 // Gate: 'staff.manage' for both — matches web's own can('staff.manage')
-// gate on updateStaff/deleteStaff. The owner guard lives in deleteStaffCore
-// (it throws AppApiError('forbidden') for the owner row before any write),
-// next to the synqed SDK's own last-member/attributed-records guard.
+// gate on updateStaff/deleteStaff. The owner guard lives in BOTH cores:
+// deleteStaffCore refuses the owner row outright (next to the synqed SDK's own
+// last-member/attributed-records guard), updateStaffCore refuses it unless the
+// actor IS the owner — each throws AppApiError('forbidden') before any write,
+// and both handlers below pass it through as 403.
 //
 // Business-result passthrough: updateStaffCore/deleteStaffCore's own
 // { ok: true } | { error } result rides the 2xx body VERBATIM — same
