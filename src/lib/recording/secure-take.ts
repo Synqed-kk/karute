@@ -280,6 +280,57 @@ export async function secureTake(
 }
 
 /**
+ * THE IN-TAB FALLBACK'S ATTACH (S33 option D): put this take's audio on its
+ * OWN row, under its OWN key, through the doors secureTake already knocks on —
+ * never a new row for a recording that has one. Answers the finalized key, or
+ * null, and then the caller falls back to today's unbound door. Never throws.
+ *
+ * ⚖ STORED BYTES WIN WHENEVER THE STORE HOLDS ANY (S33 R2). The in-memory
+ * blob is every chunk the recorder captured (global-recorder onstop); the
+ * store holds only what flushed, and a failed segment write leaves it a
+ * SHORTER prefix. The key is write-once and every later drain sends the STORED
+ * bytes, so sending the in-memory ones while the store holds any would race
+ * them into a terminal size_mismatch. A take the store holds therefore goes
+ * through secureTake (same bytes, same single-flight); the in-memory blob is
+ * sent only when the store has no bytes for this take.
+ *
+ * No discardPending check: bytes are never gated on what a surface may show
+ * (take-store's drain note) — a discard is a mark, and its audio is kept.
+ */
+export async function ensureAudioOnServer(
+  port: RecordingPipelinePort,
+  takeId: string,
+  blob: Blob,
+  recordingSessionId: string | null,
+  durationSeconds?: number,
+): Promise<string | null> {
+  try {
+    // ponytail: reads the whole stored take once more just to ask "any bytes?"
+    // — fallback-only; a segment count read if this ever shows up in a profile.
+    const stored = await loadTakeBlob(takeId)
+    if (stored && stored.size > 0) {
+      await secureTake(port, takeId)
+      return (await readTakeSecureMeta(takeId))?.finalizedPath ?? null
+    }
+    const meta = await readTakeSecureMeta(takeId)
+    const session = meta?.recordingSessionId ?? recordingSessionId
+    // No row to attach to, no honest duration for finalize, or nothing to send.
+    if (!session || durationSeconds === undefined || blob.size === 0) return null
+    if (inFlight.has(takeId)) return null
+    inFlight.add(takeId)
+    try {
+      const mimeType = meta?.mimeType || blob.type || DEFAULT_MIME
+      return await secureBlob(port, blob, takeId, session, mimeType, durationSeconds)
+    } finally {
+      inFlight.delete(takeId)
+    }
+  } catch (err) {
+    console.warn('[secure-take] fallback attach failed:', err)
+    return null
+  }
+}
+
+/**
  * The mint → PUT → finalize tail, for bytes whose session is already settled
  * (lifted out of secureTake unchanged, S33). Answers the finalized key, or
  * null on a settled refusal — which it has already recorded on the take.

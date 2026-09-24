@@ -159,7 +159,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
               stagedTake: opts.stagedTake ?? null,
               ...(blob.type ? { mimeType: blob.type } : {}),
             }
-          : { stagedFor: null },
+          : { stagedFor: null, ...(opts?.attachOutcome ? { attachOutcome: opts.attachOutcome } : {}) },
       ),
     })
     if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)

@@ -82,7 +82,7 @@ import {
   composeTakeKey,
   parseRecordingKey,
 } from '@/lib/recording/key-grammar'
-import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
+import { UploadUrlMintSchema, type AttachOutcome } from '@/lib/app-api/record-schemas'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   assertRecorderOwnsRow,
@@ -197,6 +197,9 @@ export interface MintTakeUrlInput {
    *  or seqs (the schema refuses it). */
   customerId?: string | null
   appointmentId?: string | null
+  /** Why an in-tab fallback reached the SERVER-named arm (S33) — see
+   *  record-schemas.ts. 'attach_failed' never creates a row. */
+  attachOutcome?: AttachOutcome | null
 }
 
 export type MintTakeUrlResult =

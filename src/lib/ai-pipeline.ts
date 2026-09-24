@@ -7,6 +7,8 @@ import {
   readTakeTranscript,
   stampTakeTranscript,
 } from '@/lib/karute/take-store'
+import { ensureAudioOnServer } from '@/lib/recording/secure-take'
+import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
 /**
@@ -103,6 +105,11 @@ async function withTranscribeLock<T>(key: string, fn: () => Promise<T>): Promise
 export type PipelineContext = {
   customerName?: string | null
   sessionDate?: string | null
+  /** The recorder's session for this take (global-pipeline's context), for a
+   *  take the store no longer holds — the store's own stamp wins when present. */
+  recordingSessionId?: string | null
+  /** The recorder's measured length, so the fallback attach can finalize. */
+  durationSeconds?: number
 }
 
 export async function runAIPipeline(
@@ -145,8 +152,32 @@ export async function runAIPipeline(
   // and remembers it; null (the phone, whose cohort is empty by construction)
   // leaves this exactly as it was.
   const meta = takeId ? await readTakeSecureMeta(takeId) : null
-  const finalizedPath =
+  let finalizedPath =
     takeId && meta ? await ensureFinalizedPath(takeId, meta, recordingPort) : null
+  // ⚖ THE FALLBACK, IN ORDER (S33 option D). No finalized key yet:
+  //   1. ATTACH — the take's audio onto its OWN row under its OWN key
+  //      (ensureAudioOnServer: the stored bytes via secureTake, else this blob);
+  //   2. that failed but the recording HAS a row → today's unbound door,
+  //      marked 'attach_failed', which never creates a row (either switch);
+  //   3. no session known at all → today's unbound door, marked 'no_session'.
+  // The STAGED door is not a fallback: no transcribe door reads a `stg/` key
+  // (S33 R1 — ports/recording-port.ts:507, v1/ai/transcribe/route.ts:50).
+  let attachOutcome: AttachOutcome | null = null
+  if (!finalizedPath) {
+    if (takeId)
+      finalizedPath = await ensureAudioOnServer(
+        recordingPort,
+        takeId,
+        audioBlob,
+        meta?.recordingSessionId ?? ctx.recordingSessionId ?? null,
+        ctx.durationSeconds,
+      )
+    // Re-read: the attach may have minted the take's row itself (secureTake).
+    const known =
+      (takeId ? (await readTakeSecureMeta(takeId))?.recordingSessionId : null) ??
+      ctx.recordingSessionId
+    if (!finalizedPath) attachOutcome = known ? 'attach_failed' : 'no_session'
+  }
   // ⚖ THE SAME OBJECT IS NEVER PAID FOR TWICE (recording hole PR-2). The
   // transcribe door cannot tell a repeat (a take key carries no session id, and
   // core has no by-path read), so the device that holds the take remembers: a
@@ -161,6 +192,7 @@ export async function runAIPipeline(
     const { body: transcribeBody } = await recordingPort.prepareTranscription(
       audioBlob,
       finalizedPath,
+      attachOutcome ? { attachOutcome } : undefined,
     )
 
     const transcribeRes = await fetchWithRetry(() =>
