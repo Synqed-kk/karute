@@ -263,6 +263,24 @@ async function main() {
   assert.equal(fz.t.packs.filter((x) => x.notes === `テストデータ [${k0.key}]`).length, 1, 'no row at all: the pack is made once')
   assert.equal(fz.t.appts.filter((x) => x.notes === `テストデータ [${ab.key}]`).length, 1, 'no row at all: the booking is made once')
 
+  // Manifest lost, core rows survive: a fresh manifest finds every loader row by its notes/tag — 0 new rows, no clash
+  // skip, 0 409s — including a pack whose note is the old bare 「テストデータ」 (the shape of the 12 live packs) —
+  // and records their ids again, so the id-first rule holds from the next run on.
+  const fl = fakeCore()
+  const mA = empty()
+  assert.equal(await apply(fl.core, opts(mA)), 0)
+  fl.t.packs.find((x) => x.id === mA.stores[STORE].created.packs![k0.key])!.notes = 'テストデータ'
+  const [packsA, apptsA] = [fl.t.packs.length, fl.t.appts.length]
+  const mB = empty()
+  assert.equal(await apply(fl.core, opts(mB)), 0)
+  assert.equal(mB.runs[0].created.packs, undefined, 'lost manifest: no new pack (the bare-note one included)')
+  assert.equal(mB.runs[0].created.appointments, undefined, 'lost manifest: no new booking')
+  assert.deepEqual([fl.t.packs.length, fl.t.appts.length], [packsA, apptsA], 'lost manifest: 0 new rows')
+  assert.deepEqual(mB.runs[0].conflicts409, [])
+  assert.deepEqual([...mB.runs[0].skipped].sort(), binLines, 'lost manifest: every booking found by its tag (no clash skip)')
+  assert.deepEqual(mB.stores[STORE].created.appointments, mA.stores[STORE].created.appointments, 'the recovery re-learns the booking ids')
+  assert.deepEqual(mB.stores[STORE].created.packs, mA.stores[STORE].created.packs, 'the recovery re-learns the pack ids')
+
   // A 409 is recorded, never retried, and exits 4; 5xx is retried, 409 is not.
   const c409 = fakeCore({ fail409: true })
   const m409 = empty()
