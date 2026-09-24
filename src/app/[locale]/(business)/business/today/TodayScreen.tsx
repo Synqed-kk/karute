@@ -9123,7 +9123,7 @@ export function TodayScreen(props: TodayProps) {
                         <i className="cat" style={{ '--cat': '#2f8f8f' } as React.CSSProperties} />回数券
                         <i className="cat" style={{ '--cat': '#3f3f46' } as React.CSSProperties} />VIP
                       </span>
-                      <b>左端の色＝店舗カテゴリー / 状態の色は変更できません</b>
+                      <b>左端の色＝予約カテゴリー / 色は変更できません</b>
                     </div>
 
                     <div className="pop-divider" role="presentation" />
