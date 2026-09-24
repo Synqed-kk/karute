@@ -92,6 +92,14 @@ jobs:
         run: |
           npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/count-baseline.test.ts
 
+      - name: Test-world fill loader selftest (fake core, no network)
+        # Pins the fill loader: the planner is deterministic and a later
+        # date only ADDS days; no practitioner or bed is double-booked; any
+        # other business is REFUSED (2) before a write; a second run creates
+        # 0; a 409 exits 4; no delete call, no import of the seeder guard.
+        run: |
+          npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/fill.test.ts
+
       - name: Thin bundle gate (size budget + purchase exclusion)
         # The gate breached silently for weeks because it only ran by hand
         # (packet-09 F-1: the breach masked a §1.5 purchase-code leak).
