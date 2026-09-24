@@ -9,7 +9,7 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { createPackActionWithClient } from '@/actions/packs'
+import { createPackActionWithClient } from '@/lib/packs/packs.core'
 import {
   proveCustomerInBusiness,
   requireIdempotencyKey,

@@ -1,6 +1,6 @@
 // Facade: staff update + delete (design-parity packet 12 §S4a). Single-
 // source: both routes call the SAME cores the web actions call
-// (updateStaffCore / deleteStaffCore, src/actions/staff.ts).
+// (updateStaffCore / deleteStaffCore, src/lib/staff/staff.core.ts).
 //
 // Gate: 'staff.manage' for both — matches web's own can('staff.manage')
 // gate on updateStaff/deleteStaff. The owner guard lives in deleteStaffCore
@@ -32,7 +32,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { SynqedError } from '@synqed-kk/client'
-import { updateStaffCore, deleteStaffCore } from '@/actions/staff'
+import { updateStaffCore, deleteStaffCore } from '@/lib/staff/staff.core'
 import { staffProfileSchema } from '@/lib/validations/staff'
 
 /** Only core's REAL not-found maps to 404 (an unknown/foreign staff id is a

@@ -180,8 +180,8 @@ export function buildSessionsListScreen(args: {
   // Project records into KaruteListItem shape
   const items: KaruteListItem[] = records.map((r) => {
     // Karute rows carry core's staff_id VERBATIM, and the writers are mixed:
-    // the recording pipeline (and the appointment-staff save fallback) stamp
-    // the SYNQED staff id, while web/facade interactive saves stamp the
+    // the recording pipeline stamps the SYNQED staff id, while web/facade
+    // interactive saves stamp the
     // profile id (Liam field report 7/24: pipeline records rendered 担当
     // "Unknown" and escaped the 自分/担当 filters). Same boundary translation
     // as appointments (by-date.ts): synqed ids map to the profile id every

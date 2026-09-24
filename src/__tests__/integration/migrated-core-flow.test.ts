@@ -184,8 +184,7 @@ describe('Migrated core flow — customers + karute + entries', () => {
   it('saveKaruteRecord attributes to the signed-in RECORDER, not the booking staff', async () => {
     // The customer is booked under another staff ('appt-staff-xyz'), but the
     // record must save under the RECORDER (TEST_STAFF_PROFILE_ID) — covering /
-    // staff swaps. The staff-attribution fallback never fetches the appointment
-    // when the recorder is known, but it's still fetched ONCE for store_id (the
+    // staff swaps. The appointment is fetched ONCE, for store_id only (the
     // booking's store is the truth of where the session happened).
     const apptClient = { get: jest.fn().mockResolvedValue({ staff_id: 'appt-staff-xyz', store_id: 'store-9' }) }
     const { getSynqedClient } = await import('@/lib/synqed/client')
@@ -211,7 +210,7 @@ describe('Migrated core flow — customers + karute + entries', () => {
     expect(apptClient.get).toHaveBeenCalledTimes(1) // fetched once, for store_id only
   })
 
-  it('saveKaruteRecord falls back to the appointment staff when the recorder has no staff identity', async () => {
+  it('saveKaruteRecord refuses a recorder with no staff identity — never the appointment staff (web = facade, #990)', async () => {
     const { getCurrentUserStaffId } = await import('@/lib/staff')
     ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce(null)
     const apptClient = { get: jest.fn().mockResolvedValue({ staff_id: 'appt-staff-xyz' }) }
@@ -221,9 +220,7 @@ describe('Migrated core flow — customers + karute + entries', () => {
       appointments: apptClient,
       karuteRecords,
     })
-    karuteRecords.create.mockResolvedValue({ id: 'karute-3' })
-
-    await saveKaruteRecord({
+    const result = await saveKaruteRecord({
       customerId: 'cust-1',
       transcript: 't',
       summary: 's',
@@ -231,8 +228,8 @@ describe('Migrated core flow — customers + karute + entries', () => {
       appointmentId: 'appt-1',
     })
 
-    expect(apptClient.get).toHaveBeenCalledWith('appt-1')
-    const arg = karuteRecords.create.mock.calls[karuteRecords.create.mock.calls.length - 1][0]
-    expect(arg.staff_id).toBe('appt-staff-xyz')
+    expect(result).toEqual({ error: 'No staff identity for the signed-in user.' })
+    expect(apptClient.get).not.toHaveBeenCalled()
+    expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 })

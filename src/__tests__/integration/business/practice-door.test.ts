@@ -22,6 +22,8 @@ import { businessProfiles } from '@/business/lib/fixtures-settings'
 import * as door from '@/business/lib/practice-door/door'
 import * as data from '@/business/lib/data'
 import { renderNow as clockRenderNow } from '@/business/lib/clock'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const U = 'FB44DD68-4AF7-44B0-8CC7-4EE10C54491D'
 const u = U.toLowerCase()
@@ -236,6 +238,12 @@ describe('the generated registry', () => {
         expect(profiles).toContain(policy.business_type)
       }
     }
+    // …and the reverse: 設定's D1 gate reads "is this store a twin?" from the
+    // registry (sampleSelfId) but takes the dials from this policy, so a
+    // registry-only twin would bring 店舗を選んでください back under ON silently.
+    for (const uuid of twinStores) {
+      expect({ uuid, policy: samplePolicyFor(uuid) }).toEqual({ uuid, policy: { kind: 'twin', fixtureStoreId: fixtureIdOf('stores', uuid) } })
+    }
   })
 })
 
@@ -330,5 +338,64 @@ describe('the data.ts seam', () => {
       expect(data.defaultStoreId(undefined, stores)).toBe(stores[0].id)
       expect(data.defaultStoreId(STORE_B, stores)).toBe(STORE_B)
     }
+  })
+})
+
+describe('PR-2b — the rooms read ROW data only through the door', () => {
+  const ROOMS = join(process.cwd(), 'src/app/[locale]/(business)')
+  /** Core holds these: a room takes them from data.ts, never from a fixtures module. */
+  const ROW_NAMES = new Set(['business', 'menus', 'staff', 'stores', 'reserveSync', 'resources'])
+  const isFixtures = (spec: string) => /(^|\/)fixtures(-[\w-]+)?$/.test(spec)
+  const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  /** Every VALUE a file takes from a fixtures module (`file: name`); a form whose
+   *  names cannot be read off the statement (namespace, `export *`, dynamic,
+   *  require) is reported whole, so it can never slip a ROW name past the pin. */
+  function fixtureValues(file: string, src: string): string[] {
+    const code = strip(src)
+    const out: string[] = []
+    // A default binding may stand before the braces (`import def, { menus } from …`).
+    for (const m of code.matchAll(/\b(?:import|export)\s+(type\s+)?(?:\w+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+      if (m[1] || !isFixtures(m[3])) continue
+      for (const spec of m[2].split(',')) {
+        const name = spec.trim()
+        if (name !== '' && !name.startsWith('type ')) out.push(`${file}: ${name.split(/\s+as\s+/)[0]}`)
+      }
+    }
+    for (const m of code.matchAll(/\bimport\s+\*\s+as\s+\w+\s+from\s*['"]([^'"]+)['"]/g)) if (isFixtures(m[1])) out.push(`${file}: * namespace`)
+    for (const m of code.matchAll(/\bexport\s+\*\s+(?:as\s+\w+\s+)?from\s*['"]([^'"]+)['"]/g)) if (isFixtures(m[1])) out.push(`${file}: * namespace`)
+    for (const m of code.matchAll(/\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]/g)) if (isFixtures(m[1])) out.push(`${file}: * dynamic`)
+    return out
+  }
+  const forbidden = (taken: string[]) => taken.filter((t) => ROW_NAMES.has(t.split(': ')[1]) || t.includes(': * '))
+
+  it('the scan catches every import form and passes the honest ones', () => {
+    for (const decoy of [
+      "import { menus } from '@/business/lib/fixtures'",
+      "import {\n  analyticsPolicy,\n  staff as roster,\n} from '@/business/lib/fixtures'",
+      "import { type FixtureMenu, resources } from '@/business/lib/fixtures-today'",
+      "export { stores } from '../../../business/lib/fixtures'",
+      "import { business, reserveSync } from '@/business/lib/fixtures'",
+      "import * as fx from '@/business/lib/fixtures'",
+      "const fx = await import('@/business/lib/fixtures')",
+      "import def, { menus } from '@/business/lib/fixtures'",
+      "export * from '@/business/lib/fixtures'",
+      "export * as fx from '../../../business/lib/fixtures-today'",
+    ]) expect({ decoy, caught: forbidden(fixtureValues('decoy', decoy)).length > 0 }).toEqual({ decoy, caught: true })
+    for (const honest of [
+      "import type { FixtureStaff } from '@/business/lib/fixtures'",
+      "// import { menus } from '@/business/lib/fixtures'",
+      "import { staffCards, type FixtureAppointment } from '@/business/lib/fixtures'",
+      "import { menus } from '@/business/lib/menu-catalog'",
+      "export * from '@/business/lib/menu-catalog'",
+    ]) expect({ honest, caught: forbidden(fixtureValues('honest', honest)) }).toEqual({ honest, caught: [] })
+  })
+
+  it('no room file imports business | menus | staff | stores | reserveSync | resources from a fixtures module', () => {
+    const files = (readdirSync(ROOMS, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f))
+    expect(files.length).toBeGreaterThan(20)
+    const taken = files.flatMap((f) => fixtureValues(f, readFileSync(join(ROOMS, f), 'utf8')))
+    // The scan is reading real imports: the rooms' OTHER fixture reads (staffCards, bedSecuredProof …) are seen.
+    expect(taken.length).toBeGreaterThan(0)
+    expect(forbidden(taken)).toEqual([])
   })
 })

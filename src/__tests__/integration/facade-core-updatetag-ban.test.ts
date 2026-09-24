@@ -14,8 +14,23 @@
 // updateTag would slip through; today every such shared writer is itself
 // route-imported (writeOrgSettingsBlobWithClient), so the direct scan covers
 // the seam. Extend to a call graph only if that stops being true.
+//
+// PLUS every server-only module the security moves took route-imported cores
+// INTO (SERVER_ONLY_MODULES — the same list server-action-surface.test.ts
+// reads): those cores are no longer under @/actions/*, so the scan above can't
+// see them. Whole file, comments ignored (comments are not AST nodes): the
+// scan below flags any `ts.Identifier` or `ts.StringLiteral` node whose text
+// is exactly 'updateTag', not just a direct-call or `.property`-call shape —
+// so a direct call, a namespace `.updateTag()` access, a bracket access
+// (`c['updateTag']()`), an aliased import's `propertyName`
+// (`import { updateTag as ut } from 'next/cache'`), and an indirect call
+// (`(0, updateTag)()`) are all caught the same way a direct call is.
+// Guarantee: no identifier or string literal named updateTag exists anywhere
+// in these modules, so aliasing cannot hide one.
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import ts from 'typescript'
+import { SERVER_ONLY_MODULES } from './server-action-surface.data'
 
 const ROOT = join(process.cwd(), 'src/app/api/app/v1')
 
@@ -92,7 +107,11 @@ describe('facade-imported action cores never call updateTag (Server-Action-only)
   const imports = actionImports(routeFiles(ROOT))
 
   it('finds route→action imports to scan', () => {
-    expect(imports.size).toBeGreaterThan(20)
+    // A parser-sanity floor, not a coverage count: it drops each time cores
+    // leave '@/actions/*' for a server-only module (scanned whole-file below).
+    // 2026-09-23 (PKT-SEC-CORES-D4): 20 → 10, the six pack cores' routes now
+    // import from src/lib/packs/packs.core.ts, leaving 16 route→action imports.
+    expect(imports.size).toBeGreaterThan(10)
   })
 
   it('route files import actions modules ONLY in the form this scan parses', () => {
@@ -134,5 +153,19 @@ describe('facade-imported action cores never call updateTag (Server-Action-only)
     // A name this scan can't resolve is a hole in the guard, not a pass.
     expect(missing).toEqual([])
     expect(offenders).toEqual([])
+  })
+
+  it.each(SERVER_ONLY_MODULES)('server-only core module %s contains no updateTag identifier, string literal or template literal, aliased or not', (file) => {
+    const src = readFileSync(join(process.cwd(), file), 'utf8')
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true)
+    const hits: string[] = []
+    const visit = (node: ts.Node) => {
+      if ((ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && node.text === 'updateTag') {
+        hits.push(`line ${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sf)
+    expect(hits).toEqual([])
   })
 })

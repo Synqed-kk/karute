@@ -199,9 +199,9 @@ describe('saveKaruteRecord — staff attribution', () => {
       { id: 'user-a', full_name: 'Ada', customer_id: 'biz-1', pin_hash: null },
     ]
     // The appointment is owned by a different staff member, but the record must
-    // save under the RECORDER (covering / swaps / off-schedule) — the staff
-    // fallback never fetches it. It's still fetched ONCE for store_id (the
-    // booking's store is the truth of where the session happened).
+    // save under the RECORDER (covering / swaps / off-schedule). It's fetched
+    // ONCE, for store_id only (the booking's store is the truth of where the
+    // session happened).
     appointments.get.mockResolvedValue({ staff_id: 'other-staff', store_id: 'store-9' })
     karuteRecords.create.mockResolvedValue({ id: 'kr-2' })
 
@@ -223,9 +223,9 @@ describe('saveKaruteRecord — staff attribution', () => {
     expect(appointments.get).toHaveBeenCalledTimes(1)
   })
 
-  it("falls back to the appointment's staff_id only when the signer has no staff row", async () => {
-    // Orphaned signer recording against a booking — rather than failing, attribute
-    // to the appointment's staff so the record is never lost.
+  it("refuses a signer with no staff row even on a booking — never the appointment's staff_id (web = facade, #990)", async () => {
+    // Orphaned signer (removed from the roster, auth session alive) recording
+    // against a booking: the booking's staff is never stamped in their place.
     scenario.authUser = { id: 'user-orphan' }
     scenario.businessProfile = { customer_id: 'biz-1' }
     scenario.staffProfiles = [
@@ -234,7 +234,7 @@ describe('saveKaruteRecord — staff attribution', () => {
     appointments.get.mockResolvedValue({ staff_id: 'other-staff' })
     karuteRecords.create.mockResolvedValue({ id: 'kr-2b' })
 
-    await saveKaruteRecord({
+    const result = await saveKaruteRecord({
       customerId: 'cust-1',
       transcript: 't',
       summary: 's',
@@ -242,13 +242,9 @@ describe('saveKaruteRecord — staff attribution', () => {
       appointmentId: 'appt-1',
     })
 
-    expect(appointments.get).toHaveBeenCalledWith('appt-1')
-    expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        staff_id: 'other-staff',
-        appointment_id: 'appt-1',
-      }),
-    )
+    expect(result).toEqual({ error: expect.stringMatching(/staff identity/i) })
+    expect(appointments.get).not.toHaveBeenCalled()
+    expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 
   it('never reads a cookie during the save path', async () => {

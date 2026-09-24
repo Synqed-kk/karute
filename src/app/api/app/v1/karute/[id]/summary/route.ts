@@ -1,7 +1,7 @@
 // Facade: whole-summary karute edit (edit-layer W2 summary half — the
 // 詳細記録 pencil, ⚖ Liam 7/29: one pencil, whole-section edit). Writes the
 // edited_summary overlay via the SAME WithClient core the web action uses
-// (src/actions/karute.ts) — ai_summary is never touched. No CAS on this
+// (src/lib/karute/karute.core.ts) — ai_summary is never touched. No CAS on this
 // path (core's record update has no expected_version); every change is
 // preserved as a record-level lineage row core-side.
 
@@ -13,7 +13,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
-import { updateKaruteDetailSummaryWithClient } from '@/actions/karute'
+import { updateKaruteDetailSummaryWithClient } from '@/lib/karute/karute.core'
 
 export const runtime = 'nodejs'
 

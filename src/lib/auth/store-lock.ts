@@ -28,7 +28,7 @@ import { AppApiError } from '@/lib/app-api/errors'
  * Does a store-scoped RECORD (its own `store_id`, not a roster the actor is
  * picking from) fall outside the actor's clamp? Same predicate class as
  * customerLensFor/menuStoresForScope (store-scope.ts) — pure, no I/O. Born as karute
- * reassign's R3-1 source-store clamp (src/actions/karute.ts,
+ * reassign's R3-1 source-store clamp (src/lib/karute/karute.core.ts,
  * PACKET-F4-FIXROUND3-2026-09-02.md): a clamped actor must be refused a
  * WRITE (or a roster/picker) keyed off a record that itself sits in a store
  * they're not assigned to, independent of whatever destination the caller
@@ -93,7 +93,7 @@ export interface RecordStoreScope {
  * one store must never be able to change another store's records, even by
  * direct call, even when the screen hides them).
  *
- * The record-side half of ensureReassignStoreScope (src/actions/karute.ts),
+ * The record-side half of ensureReassignStoreScope (src/lib/karute/karute.core.ts),
  * lifted here so every by-id write door spells the refusal ONCE: the predicate
  * is sourceStoreOutOfScope just above, and the two error shapes are the ones
  * that door already shipped —

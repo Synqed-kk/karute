@@ -32,7 +32,6 @@ import {
   opsConfig,
   pricingRule,
   recoverySteps,
-  register,
   sellSlots,
   shifts,
   staffListPrice,
@@ -189,7 +188,7 @@ function blockPieces(row: CoreAppointment): Array<[number, FixtureBlock]> {
 }
 
 /** The one read behind blocks-by-day: every row of [from, to] (JST days,
- *  inclusive) for the lens — the BLOCKs grouped by day, the BOOKINGs as rows.
+ *  inclusive) for the lens — the BLOCKs grouped by day.
  *  The query starts a day EARLY so an overnight block begun on from−1 still
  *  reaches `from` (its from−1 piece is dropped by the key filter). */
 async function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
@@ -201,7 +200,6 @@ async function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
   const keys = [...new Set(pieces.map(([k]) => k))]
   return {
     blocksByDay: new Map(keys.map((k) => [k, pieces.filter(([p]) => p === k).map(([, b]) => b)])),
-    bookings: rows.filter((r) => r.kind === 'BOOKING' && jstDayKey(r.starts_at) >= range.from && jstDayKey(r.starts_at) <= range.to),
   }
 }
 
@@ -425,19 +423,6 @@ export async function listBlocksByDay(lens: StoreLens, range: DayRange): Promise
 
 // ── SAMPLE (through the facade) ────────────────────────────────────────────
 
-/** heldInLens's reading over the LIVE bookings: a held transaction is drawn
- *  only when the booking it names is among today's live rows (join-miss = not
- *  drawn, §4 — under EVERY lens, viewAll included: a twin pointing at a booking
- *  core no longer holds must not put a 端末保持 row on a money surface), and a
- *  store lens additionally needs that booking in its own store. */
-function heldIn<T extends { appointment_id: string }>(held: T[], lens: StoreLens, live: CoreAppointment[]): T[] {
-  const id = lensStore(lens)
-  return held.filter((h) => {
-    const booking = live.find((a) => a.id === h.appointment_id)
-    return booking !== undefined && (!id || booking.store_id === id)
-  })
-}
-
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
   const actor = await practiceActor()
   const open = sampleRows(decisions.filter((d) => d.state === 'open'), null)
@@ -480,9 +465,16 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     blocks: day.blocksByDay.get(dayKey) ?? [],
     sellSlots: clamp(sampleRows(sellSlots, null), lens),
     decisions: clamp(sampleRows(today ? decisions : [], null), lens),
-    register: today
-      ? { ...register, terminal_held: heldIn(sampleFor(register.terminal_held, null), lens, day.bookings) }
-      : { ...register, refunds: 0, cash_difference: 0, terminal_held: [] },
+    // SAMPLE contract: no register in core yet — neutral, never fixture money.
+    // Named field by field, never a spread of the fixture plane, so a fixture
+    // refund can never be subtracted from a live 純売上 (LIVE-PROOF M-A) and a
+    // fixture terminal_held can never print 「端末保持 1件 / ¥6,600」 or a 閉店阻害
+    // row against a live twin booking (FE-1).
+    register: {
+      cash_difference: 0,
+      refunds: 0,
+      terminal_held: [],
+    },
     pricingRule,
     recoverySteps: [...recoverySteps],
   }
@@ -491,9 +483,6 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
 export async function readReservationPlanes(lens: StoreLens) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
-  const todayKey = jstDayKey(renderNow())
-  // The held rows resolve against today's LIVE bookings, under every lens.
-  const live = (await dayRows(actor, lens, { from: todayKey, to: todayKey })).bookings
   return {
     reservations: sampleFor(reservations, null),
     auditTrail: sampleKeys('appointments', auditTrail), // keyed by appointment id → live twins
@@ -505,7 +494,9 @@ export async function readReservationPlanes(lens: StoreLens) {
     staffQualifications: sampleKeys('staff', staffQualifications),
     absence: clamp(sampleRows([absence], null), lens)[0] ?? null,
     sellSlots: clamp(sampleRows(sellSlots, null), lens),
-    register: { ...register, terminal_held: heldIn(sampleFor(register.terminal_held, null), lens, live) },
+    // SAMPLE contract: no register in core yet — neutral, never fixture money,
+    // terminal_held included (as readDayPlanes).
+    register: { cash_difference: 0, refunds: 0, terminal_held: [] },
   }
 }
 

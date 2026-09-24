@@ -5,11 +5,15 @@
 // Usage:
 //   npx tsx --env-file=.env scripts/seed-booking-data.ts
 //
+// Refuses (exit 2) unless SYNQED_CORE_URL is a LOCAL core — see
+// scripts/lib/core-target-guard.ts. It deletes data; never the shared core.
+//
 // Idempotent: customers are created fresh each run (test data, fine to
 // accumulate). Appointments are scattered across today's business hours.
 
 import { createClient } from '@supabase/supabase-js'
 import { SynqedClient } from '@synqed-kk/client'
+import { assertLocalCoreTarget } from './lib/core-target-guard'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -43,6 +47,14 @@ function todayAt(hour: number, minute = 0): Date {
 }
 
 async function main() {
+  // FIRST: this script deletes every appointment + customer it finds. Refuse
+  // any core that is not local before a client exists or a request goes out.
+  try {
+    assertLocalCoreTarget(SYNQED_URL)
+  } catch (e) {
+    console.error((e as Error).message)
+    process.exit(2)
+  }
   if (!SUPABASE_URL || !SERVICE_KEY || !SYNQED_URL || !SYNQED_KEY) {
     console.error('Missing env vars (SUPABASE_URL/SERVICE_ROLE_KEY/SYNQED_CORE_URL/SYNQED_CORE_API_KEY)')
     process.exit(1)

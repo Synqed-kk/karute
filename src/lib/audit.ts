@@ -376,7 +376,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // has no path param, so the target id comes from ctx.auditTargetId.
   'karute.manualCreate': { kind: 'mutation', category: 'karute', action: 'karute.manual_create', targetType: 'karute' },
   // karute.save is NOT a row here (deliberately, packet 30 §3): it logs at
-  // the shared choke point createOrUpdateKaruteRecord (src/actions/karute.ts)
+  // the shared choke point createOrUpdateKaruteRecord (src/lib/karute/karute.core.ts)
   // instead — that ONE emit covers the web save actions AND this facade
   // route. A row here would double-log every facade save. Deny-default doc
   // rule readers: do not add 'karute.save' to this map.
@@ -461,10 +461,14 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // settings.permissions_change, settings.staff_stores_change). Same
   // reasoning as stores.create/update above — a rule here would double-log
   // every facade write.
-  'staff.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#createStaffCore' },
-  'staff.update': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#updateStaffCore' },
-  'staff.delete': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#deleteStaffCore' },
-  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#uploadStaffAvatarCore' },
+  // The four staff cores moved to a server-only module (PKT-SEC-CORES-D5,
+  // 2026-09-23) — same writers, same rows, new home. Ledgered: map:staff.create
+  // / map:staff.update / map:staff.delete / map:staff.uploadAvatar in
+  // docs/audit-weakening-ledger.md.
+  'staff.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#createStaffCore' },
+  'staff.update': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#updateStaffCore' },
+  'staff.delete': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#deleteStaffCore' },
+  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#uploadStaffAvatarCore' },
   'permissions.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/permissions.ts#setStaffPermissionsCore' },
   'staffStores.set': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/lib/stores/stores.core.ts#setStaffStoresCore' },
   // PIN + voice + invites (design-parity packet 12 §S4b): setStaffPinCore/
@@ -490,7 +494,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'sync.run': { kind: 'mutation', category: 'settings', action: 'settings.sync_run_now', targetType: 'business' },
   // karute.entry_edit is NOT a row here (deliberately, edit-layer W2 PR-B
   // fleet round — same doctrine as karute.save above): it logs at the shared
-  // choke point updateKaruteDetailEntryWithClient (src/actions/karute.ts)
+  // choke point updateKaruteDetailEntryWithClient (src/lib/karute/karute.core.ts)
   // instead — that ONE emit covers the web action AND this facade route
   // ('karute.entry.update'). A row here would double-log every facade edit.
   // Deny-default doc rule readers: do not add 'karute.entry.update' to this map.
@@ -810,7 +814,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // deleteRecordingSessionWithClient, so one cleanup writes one row. A
   // 'mutation' row here would double-log every facade discard.
   'recordings.session.delete': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient' },
-  'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord' },
   // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
   // design D6). Same doctrine as the writers above: the shared body
   // (setRecordingSharedWithClient, src/lib/recording/share.ts) alone knows
@@ -859,12 +863,12 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // for the first time; same doctrine as the standing comments earlier in
   // this file (do not remove those comments — this is the map row they were
   // always describing).
-  'karute.save': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
-  'karute.entry.update': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/actions/karute.ts#updateKaruteDetailEntryWithClient' },
+  'karute.save': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord' },
+  'karute.entry.update': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/lib/karute/karute.core.ts#updateKaruteDetailEntryWithClient' },
   // karute.summary_edit follows the identical choke-point doctrine: the ONE
   // emit lives in updateKaruteDetailSummaryWithClient and covers the web action AND
   // this facade route. Do not add a live row for 'karute.summary.update'.
-  'karute.summary.update': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/actions/karute.ts#updateKaruteDetailSummaryWithClient' },
+  'karute.summary.update': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/lib/karute/karute.core.ts#updateKaruteDetailSummaryWithClient' },
 }
 
 // ── Out-of-facade route decisions (contract §2.3/§2.5, PR-M4) ───────────

@@ -16,7 +16,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readCustomerRaw } from '@/lib/app-api/karute-facade'
-import { getCustomerKaruteRecordsWithClient } from '@/actions/karute'
+import { getCustomerKaruteRecordsWithClient } from '@/lib/karute/karute.core'
 import { getBodyPredictionWithClient } from '@/lib/karute/ai-body-prediction'
 
 export const runtime = 'nodejs'

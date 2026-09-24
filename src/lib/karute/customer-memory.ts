@@ -196,7 +196,7 @@ export async function addStaffMemoryItem(input: {
  *  is already soft-deleted / errored). The id-addressed mutations below run on
  *  the RLS-BYPASSING service client and filter only by `id`, so the action
  *  layer MUST resolve the owning customer and confirm the caller's business
- *  owns it before mutating (see callerOwnsMemoryItem in actions/memory.ts).
+ *  owns it before mutating (see ownsMemoryItemWithClient in lib/customers/memory.core.ts).
  *  Without that, a raw item id from another business is editable cross-tenant. */
 export async function getMemoryItemCustomerId(id: string): Promise<string | null> {
   try {

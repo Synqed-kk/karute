@@ -12,7 +12,7 @@ import { ownerHandReach } from '@/lib/auth/recording-acl'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { relearnCustomerMemoryWithClient } from '@/actions/memory'
+import { relearnCustomerMemoryWithClient } from '@/lib/customers/memory.core'
 import { featureAllowedForBusiness } from '@/lib/subscription/feature-gate'
 import {
   proveCustomerInBusiness,

@@ -1,0 +1,150 @@
+{
+ "source": "Synqed-kk/reserve src/lib/satin-material.ts @ c2a9f9543187bff689307e22a6fcfa29f02a5215, run under node",
+ "emittedBy": "scripts/business/reserve-card-parity/run.mjs",
+ "satinVars": {
+  "#1C2247": {
+   "--satin-low": "rgb(11 17 53)",
+   "--satin-high": "rgb(25 39 121)",
+   "--satin-body": "rgb(15 23 72)",
+   "--satin-shoulder": "rgb(19 29 91)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(18 28 87)"
+  },
+  "#00304C": {
+   "--satin-low": "rgb(0 47 74)",
+   "--satin-high": "rgb(0 107 169)",
+   "--satin-body": "rgb(0 64 101)",
+   "--satin-shoulder": "rgb(0 80 127)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(0 77 122)"
+  },
+  "#1F3D33": {
+   "--satin-low": "rgb(12 41 32)",
+   "--satin-high": "rgb(28 95 73)",
+   "--satin-body": "rgb(17 56 43)",
+   "--satin-shoulder": "rgb(21 71 55)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(20 68 52)"
+  },
+  "#2D4722": {
+   "--satin-low": "rgb(24 49 13)",
+   "--satin-high": "rgb(55 113 31)",
+   "--satin-body": "rgb(33 67 18)",
+   "--satin-shoulder": "rgb(42 85 23)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(40 81 22)"
+  },
+  "#26282B": {
+   "--satin-low": "rgb(15 17 20)",
+   "--satin-high": "rgb(34 39 46)",
+   "--satin-body": "rgb(20 23 27)",
+   "--satin-shoulder": "rgb(26 29 34)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(25 28 33)"
+  },
+  "#4A2E22": {
+   "--satin-low": "rgb(52 25 13)",
+   "--satin-high": "rgb(120 58 31)",
+   "--satin-body": "rgb(71 34 18)",
+   "--satin-shoulder": "rgb(90 43 23)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(86 41 22)"
+  },
+  "#6B1F2B": {
+   "--satin-low": "rgb(86 12 24)",
+   "--satin-high": "rgb(197 28 55)",
+   "--satin-body": "rgb(117 17 33)",
+   "--satin-shoulder": "rgb(148 21 41)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(142 20 39)"
+  },
+  "#3B2A4F": {
+   "--satin-low": "rgb(33 17 53)",
+   "--satin-high": "rgb(76 38 121)",
+   "--satin-body": "rgb(45 23 72)",
+   "--satin-shoulder": "rgb(57 29 91)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(55 27 87)"
+  },
+  "#EDE6D6": {
+   "--satin-low": "rgb(185 179 167)",
+   "--satin-high": "rgb(240 234 221)",
+   "--satin-body": "rgb(200 195 182)",
+   "--satin-shoulder": "rgb(216 210 197)",
+   "--satin-ink": "#18221b",
+   "--satin-base": "rgb(212 207 194)"
+  },
+  "#F2F4F3": {
+   "--satin-low": "rgb(189 190 190)",
+   "--satin-high": "rgb(244 246 245)",
+   "--satin-body": "rgb(204 206 205)",
+   "--satin-shoulder": "rgb(220 221 221)",
+   "--satin-ink": "#18221b",
+   "--satin-base": "rgb(216 218 217)"
+  },
+  "#F1D9DC": {
+   "--satin-low": "rgb(188 169 172)",
+   "--satin-high": "rgb(243 223 226)",
+   "--satin-body": "rgb(203 184 187)",
+   "--satin-shoulder": "rgb(219 199 202)",
+   "--satin-ink": "#18221b",
+   "--satin-base": "rgb(216 196 199)"
+  },
+  "#D7E6F2": {
+   "--satin-low": "rgb(168 179 189)",
+   "--satin-high": "rgb(221 234 244)",
+   "--satin-body": "rgb(183 195 204)",
+   "--satin-shoulder": "rgb(198 210 220)",
+   "--satin-ink": "#18221b",
+   "--satin-base": "rgb(195 207 216)"
+  },
+  "#285643": {
+   "--satin-low": "rgb(16 61 42)",
+   "--satin-high": "rgb(32 122 85)",
+   "--satin-body": "rgb(20 78 54)",
+   "--satin-shoulder": "rgb(25 95 66)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(24 91 64)"
+  },
+  "#9A5137": {
+   "--satin-low": "rgb(118 47 22)",
+   "--satin-high": "rgb(179 76 35)",
+   "--satin-body": "rgb(135 55 25)",
+   "--satin-shoulder": "rgb(152 63 29)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(148 61 28)"
+  },
+  "#2563EB": {
+   "--satin-low": "rgb(15 75 207)",
+   "--satin-high": "rgb(22 114 170)",
+   "--satin-body": "rgb(17 86 197)",
+   "--satin-shoulder": "rgb(19 97 186)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(19 95 189)"
+  },
+  "#808080": {
+   "--satin-low": "rgb(146 146 146)",
+   "--satin-high": "rgb(148 148 148)",
+   "--satin-body": "rgb(147 147 147)",
+   "--satin-shoulder": "rgb(147 147 147)",
+   "--satin-ink": "#18221b",
+   "--satin-base": "rgb(147 147 147)"
+  },
+  "#FFFFFF": {
+   "--satin-low": "rgb(199 199 199)",
+   "--satin-high": "rgb(255 255 255)",
+   "--satin-body": "rgb(215 215 215)",
+   "--satin-shoulder": "rgb(230 230 230)",
+   "--satin-ink": "#18221b",
+   "--satin-base": "rgb(227 227 227)"
+  },
+  "#000000": {
+   "--satin-low": "rgb(0 0 0)",
+   "--satin-high": "rgb(0 0 0)",
+   "--satin-body": "rgb(0 0 0)",
+   "--satin-shoulder": "rgb(0 0 0)",
+   "--satin-ink": "#f5f7ef",
+   "--satin-base": "rgb(0 0 0)"
+  }
+ }
+}

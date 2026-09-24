@@ -14,7 +14,7 @@ import {
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 import { cleanNameToken } from '@/lib/karute/prompt-fragments'
 import { effectiveSummary } from '@/lib/karute/effective-summary'
-import { getCustomerKaruteRecords, getCustomerKaruteRecordsWithClient } from '@/actions/karute'
+import { getCustomerKaruteRecords, getCustomerKaruteRecordsWithClient } from '@/lib/karute/karute.core'
 import { getBodyPrediction, getBodyPredictionWithClient } from '@/lib/karute/ai-body-prediction'
 import { getCustomerMemory } from '@/lib/karute/customer-memory'
 import type { MemoryItem } from '@/lib/karute/memory-types'

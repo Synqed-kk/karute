@@ -30,7 +30,7 @@ jest.mock('@synqed-kk/client', () => ({
   },
 }))
 
-import { deleteStaffCore } from '@/actions/staff'
+import { deleteStaffCore } from '@/lib/staff/staff.core'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 
 const table = () => [

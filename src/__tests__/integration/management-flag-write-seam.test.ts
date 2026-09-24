@@ -122,7 +122,8 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: async () => fakeClient,
 }))
 
-import { updateStaff, updateStaffCore } from '@/actions/staff'
+import { updateStaff } from '@/actions/staff'
+import { updateStaffCore } from '@/lib/staff/staff.core'
 import { PATCH } from '@/app/api/app/v1/staff/[id]/route'
 
 // The core only ever touches synqed.staff.update on the synqed-only branch,

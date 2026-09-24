@@ -1,9 +1,10 @@
 // A NEW STAFF CARD, BORN IN A STORE (⚖ Liam 2026-09-16).
 //
 // One home for the whole "store at creation" rule, shared by the TWO doors that
-// mint a staff card: the 追加 button (actions/staff.ts → createStaffCore) and a
-// FRESH invite (lib/invites/invites.core.ts → createInviteCore, which now makes
-// the card up front so accept only attaches the login).
+// mint a staff card: the 追加 button's createStaff (→
+// lib/staff/staff.core.ts#createStaffCore) and a FRESH invite
+// (lib/invites/invites.core.ts → createInviteCore, which now makes the card up
+// front so accept only attaches the login).
 //
 // It lives here, not inside actions/staff.ts, for a load-bearing reason: the
 // /join page's pre-auth bundle is held down to the `invite` message namespace

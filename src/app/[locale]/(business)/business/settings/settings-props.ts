@@ -33,8 +33,17 @@
 // the screen holds no clock and no formatter.
 
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
-import { defaultStoreId, listStoreOptions, readShellIdentity, renderNow, type StoreLens } from '@/business/lib/data'
-import { business, menus, reserveSync, staff, stores } from '@/business/lib/fixtures'
+import { jstSlotEnd } from '@/business/lib/clock'
+import {
+  defaultStoreId,
+  listMenus,
+  listResources,
+  listStaff,
+  listStoreOptions,
+  readShellIdentity,
+  renderNow,
+  type StoreLens,
+} from '@/business/lib/data'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import {
   AUDIT_CATEGORIES,
@@ -48,8 +57,8 @@ import {
   type StoreDials,
 } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
-import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
-import { storeSample } from '@/business/lib/practice-door/sample-facade'
+import { boardNow, closedWeekday, operatingHours, opsConfig, storeBookingPolicy } from '@/business/lib/fixtures-today'
+import { sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
 import { countWord, GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
 import {
   accessFor,
@@ -151,7 +160,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   const now = renderNow()
   // The operator is the DOOR's (the admitted person under the practice switch;
   // the fixture operator when it is off) — never the fixture read directly.
-  const { operator } = await readShellIdentity()
+  const { business, operator, reserveSyncedAt } = await readShellIdentity()
   const role = world?.role ?? operator.role
   const access = accessFor(role, rulebook)
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
@@ -161,10 +170,27 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   // are fetched by id and no other store's row is ever in the payload (⚖ 8/17).
   const dials = world?.dials !== undefined ? world.dials : clamped ? storeSample(storeId!).dials : null
 
+  // ⚖ PR-2b — THE ROOM'S ROWS COME THROUGH THE DOOR (data.ts), never a fixture
+  // list: under the practice switch they are core's live rows for this store.
+  // Read for a clamped store only — a storeless lens has no roster to show, and
+  // under the switch the door refuses `{ viewAll }` to an actor without that right.
+  const [staff, menus, resources] = clamped
+    ? await Promise.all([listStaff(lens), listMenus(lens), listResources(lens)])
+    : [[], [], []]
+
   const ctx: Ctx = {
     storeId: clamped ? storeId! : null,
     lensLabel,
     dials,
+    businessName: business.name,
+    stores: storeOptions,
+    staff,
+    menus,
+    resources,
+    // 「最終同期は…分前」 — ONE TRUTH for the last sync: the shell's own stamp,
+    // measured against the board's moment it was set before (data.ts / door.ts
+    // `readShellIdentity`), never the wall clock.
+    syncMinutesAgo: Math.round((Date.parse(jstSlotEnd(0, 0, boardNow, 0, now)) - Date.parse(reserveSyncedAt)) / 60_000),
     words,
     businessType: selectedStore?.business_type ?? null,
     wordOverride: selectedStore ? storeSample(selectedStore.id).words : null,
@@ -259,6 +285,13 @@ interface Ctx {
   storeId: string | null
   lensLabel: string
   dials: StoreDials | null
+  /** ⚖ PR-2b — ROW data, read through the door (see `settingsProps`). */
+  businessName: string
+  stores: Awaited<ReturnType<typeof listStoreOptions>>
+  staff: Awaited<ReturnType<typeof listStaff>>
+  menus: Awaited<ReturnType<typeof listMenus>>
+  resources: Awaited<ReturnType<typeof listResources>>
+  syncMinutesAgo: number
   words: ResourceWords
   businessType: string | null
   wordOverride: WordOverride | null
@@ -401,8 +434,47 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
   }
 
   if (entry.scope === 'self') return myDisplay(base)
-  if (ctx.dials === null) return noStore(base, entry)
+  // ⚖ PR-2b — WHO STILL GETS 「店舗を選んでください」. No store in the lens: as
+  // before. A store with no dials splits on the facade's live→fixture map:
+  // switch OFF, every store is its own fixture self, so a fixture store without
+  // dials (STORE_C, or a test world's `dials: null`) keeps its pinned boundary;
+  // switch ON, a live store with no fixture twin (La Estro, Dev Salon…) gets
+  // null and takes the live-rows path — its ROW data renders and every SAMPLE
+  // part says サンプル設定なし.
+  if (ctx.dials === null && (ctx.storeId === null || sampleSelfId('stores', ctx.storeId) !== null)) return noStore(base, entry)
   return storeSection(base, entry, ctx, ctx.dials)
+}
+
+/** ⚖ PR-2b — the one placeholder for a SAMPLE value a store has no sample
+ *  policy for (DESIGN-PRACTICE-DOOR.md §4's own term; PR-3 designs the copy). */
+const SAMPLE_NONE = 'サンプル設定なし'
+
+/** A section that holds SAMPLE values only, on a store with no sample policy. */
+function noSample(base: SectionBase, entry: RailEntry): SettingsSection {
+  return { ...base, kicker: entry.group, title: entry.label, lead: SAMPLE_NONE, blocks: [], aside: null, persist: null }
+}
+
+/** ⚖ PR-2b — a person's SAMPLE settings, found through their fixture self
+ *  (switch OFF: the id itself). null = none: no dials, or a live person with no
+ *  fixture twin. */
+function sampleSettingsOf(d: StoreDials | null, staffId: string) {
+  const self = sampleSelfId('staff', staffId)
+  return d !== null && self !== null ? (d.staffSettings[self] ?? null) : null
+}
+
+/** ⚖ PR-2b — THE ROSTER IS THE READER'S (`listStaff`: core's people under the
+ *  practice switch). The SAMPLE dial that used to BE the roster now only fixes
+ *  the ORDER, through each person's fixture self, so switch OFF prints exactly
+ *  the rows it printed; people the dial does not know (a live person with no
+ *  twin) follow in the reader's order.
+ *  ponytail: indexOf per compare — rosters are tens of people. */
+function rosterIn(people: Ctx['staff'], dial: Record<string, unknown> | undefined): Ctx['staff'] {
+  const keys = Object.keys(dial ?? {})
+  const rank = (id: string) => {
+    const i = keys.indexOf(sampleSelfId('staff', id) ?? '')
+    return i === -1 ? keys.length : i
+  }
+  return [...people].sort((a, b) => rank(a.id) - rank(b.id))
 }
 
 type SectionBase = Pick<SettingsSection, 'id' | 'group' | 'label' | 'scope' | 'gate' | 'boundaryLine'>
@@ -484,7 +556,9 @@ function myDisplay(base: SectionBase): SettingsSection {
 
 // ── the store sections ──────────────────────────────────────────────────────
 
-function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDials): SettingsSection {
+function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDials | null): SettingsSection {
+  // ⚖ PR-2b — sections with ROW data (and 予約と確保, which reads no dial) render
+  // with or without sample dials; every other section holds SAMPLE values only.
   switch (entry.id) {
     case 'store-hours':
       return storeHours(base, ctx, d)
@@ -494,12 +568,19 @@ function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDia
       return services(base, ctx, d)
     case 'people-equipment':
       return peopleEquipment(base, ctx, d)
+    case 'pricing-points':
+      return pricingPoints(base, ctx, d)
+    case 'staff':
+      return staffAdmin(base, ctx, d)
+    case 'business-structure':
+      return businessStructure(base, ctx, d)
+  }
+  if (d === null) return noSample(base, entry)
+  switch (entry.id) {
     case 'payments':
       return payments(base, ctx, d)
     case 'customer-contact':
       return customerContact(base, ctx, d)
-    case 'pricing-points':
-      return pricingPoints(base, ctx, d)
     case 'ai':
       return aiSettings(base, ctx, d)
     case 'recording':
@@ -512,8 +593,6 @@ function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDia
       return reserveAcceptance(base, ctx, d)
     case 'notifications':
       return notifications(base, ctx, d)
-    case 'staff':
-      return staffAdmin(base, ctx, d)
     case 'integrations':
       return integrations(base, ctx, d)
     case 'data-io':
@@ -525,19 +604,12 @@ function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDia
     case 'colors':
       return colors(base, ctx, d)
     default:
-      // Unreachable while RAIL and this switch agree — and the suite proves they
-      // do, section by section, rather than trusting the comment. 事業構成 and
-      // 契約・請求 never arrive here because both are gated shut above.
-      return businessSection(base, entry, ctx, d)
+      // 契約・請求 — the one entry with no case of its own: built, and reachable
+      // only for the role canon gives it (the demo persona never opens it, and a
+      // section nobody in the demo can open still has to be a real page for the
+      // role that can). 事業構成 never arrives here: the first switch takes it.
+      return billing(base, ctx, d)
   }
-}
-
-/** 事業構成 and 契約・請求 — built, and reachable only for the role canon gives
- *  them. They are in this arm because the demo persona never opens them, and a
- *  section nobody in the demo can open still has to be a real page for the role
- *  that can. */
-function businessSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDials): SettingsSection {
-  return entry.id === 'billing' ? billing(base, ctx, d) : businessStructure(base, ctx, d)
 }
 
 // ── 予約と確保 ──────────────────────────────────────────────────────────────
@@ -609,22 +681,31 @@ const WEEKDAYS: Array<[number, string]> = [
   [1, '月'], [2, '火'], [3, '水'], [4, '木'], [5, '金'], [6, '土'], [0, '日'],
 ]
 
-function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
+function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
+  const head = {
+    ...base,
+    kicker: '店舗運営',
+    title: '店舗情報・営業時間',
+    lead: 'お店の基本情報と、いつ営業しているかの設定です。営業時間はReserveの予約枠の土台になり、ボードの操作の刻みもここで決めます。',
+  }
+  const infoNote = '予約ページ・アプリに表示される基本情報です。'
+  const nameRow = row('store-hours.row-name', '店舗名', 'お客様に表示される名称です。', [
+    txt('store-hours.name', '店舗名', ctx.lensLabel, { required: true, maxLength: 40 }),
+  ], { scopeLabel: STORE_SCOPE })
+  // ⚖ PR-2b — the store's NAME is its live row; every other value here is SAMPLE.
+  if (d === null) {
+    return { ...head, blocks: [block('store-hours.info', '店舗情報', infoNote, [nameRow], { facts: [SAMPLE_NONE] })], aside: null, persist: null }
+  }
   const p = storeBookingPolicy
   // ⚖ C1 — the plane boundary, and the ONE place the seven days come into being.
   const fallbackWindow = { open: hhmm(operatingHours.open), close: hhmm(operatingHours.close) }
   const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWeekday)
   const closedName = `${WEEKDAYS.find(([n]) => n === closedWeekday)?.[1] ?? ''}曜`
   return {
-    ...base,
-    kicker: '店舗運営',
-    title: '店舗情報・営業時間',
-    lead: 'お店の基本情報と、いつ営業しているかの設定です。営業時間はReserveの予約枠の土台になり、ボードの操作の刻みもここで決めます。',
+    ...head,
     blocks: [
-      block('store-hours.info', '店舗情報', '予約ページ・アプリに表示される基本情報です。', [
-        row('store-hours.row-name', '店舗名', 'お客様に表示される名称です。', [
-          txt('store-hours.name', '店舗名', ctx.lensLabel, { required: true, maxLength: 40 }),
-        ], { scopeLabel: STORE_SCOPE }),
+      block('store-hours.info', '店舗情報', infoNote, [
+        nameRow,
         row('store-hours.row-address', '住所', '予約確認と地図の表示に使われます。', [
           txt('store-hours.address', '住所', d.profile.address, { maxLength: 80 }),
         ], { scopeLabel: STORE_SCOPE }),
@@ -855,33 +936,46 @@ function isoDay(d: Date): string {
 
 // ── 提供内容 ────────────────────────────────────────────────────────────────
 
-function services(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  const own = menus.filter((m) => m.store_id === ctx.storeId || m.store_id === null)
-  const priceOf = new Map(own.map((m) => [m.id, m.price]))
+function services(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
+  const own = ctx.menus.filter((m) => m.store_id === ctx.storeId || m.store_id === null)
+  // ⚖ PR-2b — a ticket names its menu by FIXTURE id, so the live prices are keyed
+  // by each menu's fixture self (switch OFF: its own id) — the twin's live price
+  // answers rather than nothing (LIVE-PROOF M-C's 「最低価格 ¥0」).
+  const priceOf = new Map(own.map((m) => [sampleSelfId('menus', m.id) ?? m.id, m.price]))
+  // 表示 is SAMPLE, found through the same fixture self; undefined = no sample value.
+  const visibleOf = (menuId: string): boolean | undefined => {
+    const self = sampleSelfId('menus', menuId)
+    return d !== null && self !== null ? d.menuVisible[self] : undefined
+  }
+  const tickets = d?.tickets ?? []
   return {
     ...base,
     kicker: '店舗運営',
     title: '提供内容',
     lead: 'お店が提供するメニューと、回数券の整合の確認です。金額そのものは料金・ポイントで設定します。',
     blocks: [
-      block('services.menus', 'カテゴリーとメニュー', 'Reserveの予約ページに出すメニューです。オフにすると、お客様の予約ページからは選べなくなります（過去の記録には影響しません）。', own.map((m) =>
-        row(`services.row-${m.id}`, m.name, '', [
-          sw(`services.visible-${m.id}`, `${m.name}をReserveに表示`, '表示', '非表示', d.menuVisible[m.id] ?? true),
+      block('services.menus', 'カテゴリーとメニュー', 'Reserveの予約ページに出すメニューです。オフにすると、お客様の予約ページからは選べなくなります（過去の記録には影響しません）。', own.map((m) => {
+        const visible = visibleOf(m.id)
+        return row(`services.row-${m.id}`, m.name, '', [
+          visible === undefined
+            ? ro(`services.visible-${m.id}`, `${m.name}をReserveに表示`, SAMPLE_NONE)
+            : sw(`services.visible-${m.id}`, `${m.name}をReserveに表示`, '表示', '非表示', visible),
         ], {
           meta: [minutesLabel(m.duration_minutes), yen(m.price), m.store_id === null ? '全店舗' : STORE_SCOPE],
-        })), {
+        })
+      }), {
         facts: ['メニューの追加はこれから用意します。いまある内容の表示・非表示はここで切り替えられます。'],
         links: [{ label: '金額の設定は料金・ポイントで', sectionId: 'pricing-points' }],
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 0))}（メニューの表示を変更）`,
       }),
-      block('services.tickets', '回数券の整合', '回数券の単価が、いまの最低価格を上回っていないかの確認です。上回っていると、回数券より空き時間帯の直接予約のほうがお得になってしまいます。', d.tickets.map((t, i) =>
+      block('services.tickets', '回数券の整合', '回数券の単価が、いまの最低価格を上回っていないかの確認です。上回っていると、回数券より空き時間帯の直接予約のほうがお得になってしまいます。', tickets.map((t, i) =>
         row(`services.row-ticket-${i}`, t.name, '', [
           num(`services.ticket-${i}`, `${t.name}の単価`, t.unitPrice, 500, 100000, 100, '円'),
         ], {
           meta: [`対象メニューの最低価格 ${yen(floorPriceOf(priceOf.get(t.menuId) ?? 0))}`, t.unitPrice > floorPriceOf(priceOf.get(t.menuId) ?? 0) ? '要確認' : '問題なし'],
         })), {
-        facts: d.tickets.length === 0 ? ['この店舗では回数券を使っていません。'] : [],
-        preview: d.tickets.length === 0 ? null : { template: 'いまの単価は{services.ticket-0}です。最低価格を上回ると、この行の右に「要確認」が出ます。' },
+        facts: d === null ? [SAMPLE_NONE] : tickets.length === 0 ? ['この店舗では回数券を使っていません。'] : [],
+        preview: tickets.length === 0 ? null : { template: 'いまの単価は{services.ticket-0}です。最低価格を上回ると、この行の右に「要確認」が出ます。' },
       }),
       block('services.new-client', '新規のお客様の所要時間', '問診を含めた予約枠の長さです。この長さが、スキマガードが守る新規枠の長さになります。', [
         // ⚖ S17 — ONE RULE ONE HOME. The 60/75/90/120 select here could name 120,
@@ -917,10 +1011,9 @@ const floorPriceOf = (listPrice: number) => Math.round((listPrice * 0.7) / 10) *
 
 // ── 人・設備 ────────────────────────────────────────────────────────────────
 
-function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  const nameOf = new Map(staff.map((s) => [s.id, s.full_name]))
-  const roster = Object.keys(d.staffActive)
-  const beds = resources.filter((r) => r.store_id === ctx.storeId)
+function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
+  const roster = rosterIn(ctx.staff, d?.staffActive)
+  const beds = ctx.resources.filter((r) => r.store_id === ctx.storeId)
   const override = ctx.wordOverride
   const turnoverControl = '{name}の{turnoverName}時間'
   const turnoverFact = '{turnoverName}時間を0分にすると、前の予約の終了時刻から次の予約を入れられます。'
@@ -956,12 +1049,18 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         links: [{ label: '業種プロファイルはAI設定で', sectionId: 'ai' }],
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（業種を変更）`,
       })] : []),
-      block('people.staff', 'スタッフ', 'この店舗で働く人の稼働状態です。役職と権限はスタッフ管理で扱います。', roster.map((id) =>
-        row(`people.row-${id}`, nameOf.get(id) ?? id, '', [
-          sw(`people.active-${id}`, `${nameOf.get(id) ?? id}を稼働にする`, '稼働', '休止', d.staffActive[id]),
+      block('people.staff', 'スタッフ', 'この店舗で働く人の稼働状態です。役職と権限はスタッフ管理で扱います。', roster.map((p) => {
+        const settings = sampleSettingsOf(d, p.id)
+        return row(`people.row-${p.id}`, p.full_name, '', [
+          // ⚖ PR-2b — 稼働 is ROW data, keyed by the row's OWN id: switch OFF that
+          // id is the fixture id, so the fixture toggle answers; ON it is a live
+          // uuid no dial holds, and the reader (core's is_active) lists only
+          // active people — a fixture 休止 never speaks for a live person.
+          sw(`people.active-${p.id}`, `${p.full_name}を稼働にする`, '稼働', '休止', d?.staffActive[p.id] ?? true),
         ], {
-          meta: [roleLabelOf(d.staffSettings[id]?.preset ?? 'practitioner')],
-        })), {
+          meta: [settings === null ? SAMPLE_NONE : roleLabelOf(settings.preset)],
+        })
+      }), {
         facts: ['休止にすると、その人の予約枠はボードにもReserveにも出なくなります。すでに入っている予約は残ります。'],
         links: [{ label: '役職と権限はスタッフ管理で', sectionId: 'staff' }],
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（稼働状態を変更）`,
@@ -1149,14 +1248,33 @@ function customerContact(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
 
 // ── 料金・ポイント ──────────────────────────────────────────────────────────
 
-function pricingPoints(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  const own = menus.filter((m) => m.store_id === ctx.storeId || m.store_id === null)
-  const target = ctx.storeId !== null ? (salesTargets[ctx.storeId] ?? 0) : 0
-  return {
+function pricingPoints(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
+  const own = ctx.menus.filter((m) => m.store_id === ctx.storeId || m.store_id === null)
+  // ⚖ PR-2b — the target plane is keyed by FIXTURE store id, so it is read through
+  // the store's fixture self (switch OFF: the id itself), never by the live id.
+  const self = ctx.storeId !== null ? sampleSelfId('stores', ctx.storeId) : null
+  const target = self !== null ? (salesTargets[self] ?? 0) : 0
+  const head = {
     ...base,
     kicker: '料金',
     title: '料金・ポイント',
     lead: 'メニューごとの最低・最高価格と、前払ポイント制の設定です。時間帯ごとの実際の価格は、予約の実績から毎晩自動で計算されます。',
+  }
+  // The bands are the live menus' own prices (ROW); every other block here is SAMPLE.
+  const floorFact = '最低価格を定価の−30%より下げることはできません。改装やスタッフの入れ替えのあとは、実績からの学び直しをお願いできます。'
+  const bands = block('pricing.bands', 'メニューごとの価格', '最低価格は割引の下限、最高価格は定価です。時間帯ごとの価格はこの間で自動で決まります。', own.map((m) =>
+    row(`pricing.row-${m.id}`, m.name, '', [
+      num(`pricing.lo-${m.id}`, `${m.name}の最低価格`, floorPriceOf(m.price), Math.round(m.price * 0.5), m.price, 10, '円'),
+      num(`pricing.hi-${m.id}`, `${m.name}の最高価格`, m.price, Math.round(m.price * 0.5), Math.round(m.price * 1.2), 10, '円'),
+    ], {
+      meta: [`安全範囲 ${yen(floorPriceOf(m.price))}〜${yen(Math.round(m.price * 1.1))}`],
+    })), {
+    facts: d === null ? [floorFact, SAMPLE_NONE] : [floorFact],
+    audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 0))}（最低価格を変更）`,
+  })
+  if (d === null) return { ...head, blocks: [bands], aside: null, persist: null }
+  return {
+    ...head,
     blocks: [
       block('pricing.dynamic', '動的価格', '空いている時間を安く、人気の時間を定価で売る仕組みです。公開価格はどの窓口でも同じです。', [
         row('pricing.row-dyn', '動的価格を使う', 'オフにすると、すべての時間帯が定価で公開されます。', [
@@ -1182,16 +1300,7 @@ function pricingPoints(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSect
         facts: ['動的価格をオンにしているあいだ、予約ページの価格表示は隠せません（法とお客様への誠実さのためです）。'],
         links: [{ label: '再計算中に価格を隠す設定はReserve受付で', sectionId: 'reserve-acceptance' }],
       }),
-      block('pricing.bands', 'メニューごとの価格', '最低価格は割引の下限、最高価格は定価です。時間帯ごとの価格はこの間で自動で決まります。', own.map((m) =>
-        row(`pricing.row-${m.id}`, m.name, '', [
-          num(`pricing.lo-${m.id}`, `${m.name}の最低価格`, floorPriceOf(m.price), Math.round(m.price * 0.5), m.price, 10, '円'),
-          num(`pricing.hi-${m.id}`, `${m.name}の最高価格`, m.price, Math.round(m.price * 0.5), Math.round(m.price * 1.2), 10, '円'),
-        ], {
-          meta: [`安全範囲 ${yen(floorPriceOf(m.price))}〜${yen(Math.round(m.price * 1.1))}`],
-        })), {
-        facts: ['最低価格を定価の−30%より下げることはできません。改装やスタッフの入れ替えのあとは、実績からの学び直しをお願いできます。'],
-        audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 0))}（最低価格を変更）`,
-      }),
+      bands,
       block('pricing.points', 'ポイント制（前払）', 'お客様が金額をチャージし（1pt＝1円）、どの時間帯にも公開価格で使えます。空いている時間帯を選ぶほど回数が増えます。', [
         row('pricing.row-points', 'ポイント制を使う', '有効にすると新しい回数券の販売は止まります。すでにお持ちの回数券は引き続き使えます。', [
           sw('pricing.points', 'ポイント制を使う', '使う', '使わない', d.pointsEnabled),
@@ -1570,7 +1679,6 @@ function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 // ── 予約同期 ────────────────────────────────────────────────────────────────
 
 function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  void ctx
   return {
     ...base,
     kicker: 'Karute設定',
@@ -1579,7 +1687,7 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     blocks: [
       block('sync.status', '同期の状態', 'Reserveとの予約同期のいまの状態です。', [], {
         facts: [
-          `最終同期は${reserveSync.minutes_ago}分前、同期元はReserveです。いまのところ正常です。`,
+          `最終同期は${ctx.syncMinutesAgo}分前、同期元はReserveです。いまのところ正常です。`,
           '次の自動同期は、下の間隔と稼働時間帯に従って行われます。',
         ],
       }),
@@ -1635,7 +1743,7 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     aside: {
       title: 'いまの状態',
       lines: [
-        { label: '最終同期', value: `${reserveSync.minutes_ago}分前` },
+        { label: '最終同期', value: `${ctx.syncMinutesAgo}分前` },
         { label: '同期元', value: 'Reserve' },
         { label: '取りこぼし', value: '停止中の変更は次の同期でまとめて取り込みます' },
       ],
@@ -2037,9 +2145,9 @@ const channelsOf = (v: { app: boolean; mail: boolean } | undefined): string[] =>
 
 // ── スタッフ管理 ────────────────────────────────────────────────────────────
 
-function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  const nameOf = new Map(staff.map((s) => [s.id, s.full_name]))
-  const roster = Object.keys(d.staffSettings)
+function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
+  const roster = rosterIn(ctx.staff, d?.staffSettings)
+  const first = roster[0]
   // ⚖ S17 · C7 — THE GRID RENDERS FROM THE RULEBOOK. Both lists are Karute's
   // own, mirrored with their cites in `fixtures-settings.rulebook`; at the
   // reconnect they are replaced by `PermissionClient.rulebook()` and nothing
@@ -2054,13 +2162,16 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
     title: 'スタッフ管理',
     lead: '誰が何をできるかの設定です。役職を選ぶと権限がまとめて切り替わり、そのあと個別に調整できます。',
     blocks: [
-      block('staff.roster', 'スタッフ一覧', '役職と、その人ができることです。役職はひな形で、下の一覧で個別に足し引きできます。', roster.map((id) => {
-        const s = d.staffSettings[id]
+      block('staff.roster', 'スタッフ一覧', '役職と、その人ができることです。役職はひな形で、下の一覧で個別に足し引きできます。', roster.map((p) => {
+        const s = sampleSettingsOf(d, p.id)
+        const name = p.full_name
+        // ⚖ PR-2b — a person the reader lists but no sample dial knows still
+        // appears; only their SAMPLE settings say サンプル設定なし.
+        if (s === null) return row(`staff.row-${p.id}`, name, '', [ro(`staff.preset-${p.id}`, `${name}の役職`, SAMPLE_NONE)])
         const granted = s.caps.length > 0 ? s.caps : [...(rulebook.grants[s.preset] ?? [])]
-        const name = nameOf.get(id) ?? id
-        return row(`staff.row-${id}`, name, '', [
-          sel(`staff.preset-${id}`, `${name}の役職`, presetOpts, s.preset),
-          chips(`staff.caps-${id}`, `${name}ができること`, capOpts, granted, undefined, true),
+        return row(`staff.row-${p.id}`, name, '', [
+          sel(`staff.preset-${p.id}`, `${name}の役職`, presetOpts, s.preset),
+          chips(`staff.caps-${p.id}`, `${name}ができること`, capOpts, granted, undefined, true),
         ], {
           meta: [s.pin ? '暗証番号 設定済み' : '暗証番号 未設定', s.voice ? '音声登録 済み' : '音声登録 なし'],
           // ⚖ C7 / F1 / F6 — the wire's rulebook defines NINE role keys
@@ -2093,7 +2204,9 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           { label: '氏名と稼働は人・設備で', sectionId: 'people-equipment' },
           { label: '音声登録は録音設定で', sectionId: 'recording' },
         ],
-        preview: { template: `いま${nameOf.get(roster[0]) ?? ''}さんは{staff.preset-${roster[0]}}で、できることは{staff.caps-${roster[0]}}です。` },
+        preview: first !== undefined && sampleSettingsOf(d, first.id) !== null
+          ? { template: `いま${first.full_name}さんは{staff.preset-${first.id}}で、できることは{staff.caps-${first.id}}です。` }
+          : null,
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（権限を更新）`,
       }),
       block('staff.invite', '招待', 'まだ参加していない人に、参加のご案内を送ります。', [
@@ -2124,7 +2237,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
             '設定ページごとの権限 — いまは「設定の変更」ひとつで、すべての設定ページをまとめて開いています。',
           ],
         },
-        facts: [
+        facts: d === null ? [SAMPLE_NONE] : [
           `いま「置けない」場所に置けるのは ${storeBookingPolicy.overridePolicy.roles.join('・')} です。`,
           `人件費を見られるのは ${shiftsPolicy.laborCostRoles.join('・')} です。`,
           `売上分析を店舗全体で見られるのは ${analyticsPolicy.viewRoles.join('・')} です。`,
@@ -2137,8 +2250,8 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
       lines: [
         { label: '設定の権限', value: 'ひとつだけ（ページごとには分かれていません）' },
         { label: '上書きの権限', value: '権限の一覧に項目がありません' },
-        { label: '人件費を見られる役職', value: shiftsPolicy.laborCostRoles.join('・') },
-        { label: '売上分析を見られる役職', value: analyticsPolicy.viewRoles.join('・') },
+        { label: '人件費を見られる役職', value: d === null ? SAMPLE_NONE : shiftsPolicy.laborCostRoles.join('・') },
+        { label: '売上分析を見られる役職', value: d === null ? SAMPLE_NONE : analyticsPolicy.viewRoles.join('・') },
       ],
       note: '役職はひな形です。役職を選んだあと、その人だけできることを足したり外したりできます。',
     },
@@ -2453,14 +2566,16 @@ function colors(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
  *  So 会社名 · 代表 · 法人格 keep their OWN keys (`companyName`,
  *  `representative`, `companyForm` in `fixtures-settings`), all NO WIRE, and
  *  they stay read-only-until-reconnect exactly as built. Registry ⑨. */
-function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
+function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
   return {
     ...base,
     kicker: '店舗運営',
     title: '事業構成',
     lead: '事業体としての基本情報と、運営する店舗の一覧です。日々の運営の設定はそれぞれのカテゴリーで行います。',
     blocks: [
-      block('org.entity', '事業体', '契約の主体の基本情報です。請求書と契約書に使われます。', [
+      // ⚖ PR-2b — 会社名・代表・法人格 are SAMPLE (they are not core's org name — see
+      // above); the business's NAME and its STORES below are ROW data, through the door.
+      block('org.entity', '事業体', '契約の主体の基本情報です。請求書と契約書に使われます。', d === null ? [] : [
         row('org.row-company', '会社名', '請求書・契約書に使われる正式名称です。', [
           txt('org.company', '会社名', d.companyName, { required: true, maxLength: 60 }),
         ], { scopeLabel: BUSINESS_SCOPE }),
@@ -2470,14 +2585,14 @@ function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         row('org.row-form', '法人格', '設立の形です。', [
           ro('org.form', '法人格', d.companyForm),
         ], { scopeLabel: BUSINESS_SCOPE }),
-      ], {
+      ], d === null ? { facts: [SAMPLE_NONE] } : {
         facts: ['代表と法人番号の変更は、本人確認のうえサポートが承ります（この画面からは変更できません）。'],
         audit: `最終変更: ${ctx.operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -34))}（会社名の表記を修正）`,
       }),
-      block('org.stores', '店舗', `${business.name}が運営する店舗の一覧です。ほかの店舗の設定はここからは変更できません。`, [], {
+      block('org.stores', '店舗', `${ctx.businessName}が運営する店舗の一覧です。ほかの店舗の設定はここからは変更できません。`, [], {
         table: {
           head: ['店舗', 'この店舗', ''],
-          rows: stores.map((s) => ({
+          rows: ctx.stores.map((s) => ({
             cells: [s.name, s.id === ctx.storeId ? 'いま見ている店舗' : '—', s.id === ctx.storeId ? '' : '設定は店舗を切り替えてから'],
             tags: [],
           })),
@@ -2485,14 +2600,14 @@ function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         facts: ['新しい店舗の開設はサポートまでご連絡ください。既存の店舗の設定は店舗ごとに独立しています。'],
       }),
       block('org.brand', 'ブランド・本部', 'この事業の運営の範囲についての情報です。', [], {
-        facts: [`${stores.length}店舗の運営のため、価格帯とポイント制はこの事業のオーナー権限で管理します。本部による一括の管理は使っていません。`],
+        facts: [`${ctx.stores.length}店舗の運営のため、価格帯とポイント制はこの事業のオーナー権限で管理します。本部による一括の管理は使っていません。`],
       }),
     ],
     aside: {
       title: 'この設定について',
       lines: [
-        { label: '事業体', value: d.companyName },
-        { label: '店舗数', value: people(stores.length).replace('名', '店舗') },
+        { label: '事業体', value: d?.companyName ?? SAMPLE_NONE },
+        { label: '店舗数', value: people(ctx.stores.length).replace('名', '店舗') },
         { label: '代表の変更', value: 'サポートが承ります' },
       ],
       note: '店舗ごとの設定は、左上の店舗の切替でその店舗に移ってから変更します。',

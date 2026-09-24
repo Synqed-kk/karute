@@ -94,8 +94,9 @@ export function storeSample(storeId: string): StoreSample {
 }
 
 /** The REVERSE of `sampleFor` — the one place a LIVE id is turned into its
- *  FIXTURE twin, used only to attach a SAMPLE plane's rows to the admitted
- *  person (their takes, their カルテ scope). OFF: the id is already a fixture id
+ *  FIXTURE twin, used only to attach a SAMPLE plane's rows to a live row: the
+ *  admitted person (their takes, their カルテ scope), and 設定's store, roster
+ *  and menus (PR-2b). OFF: the id is already a fixture id
  *  and passes through unchanged. ON: the twin, or null when there is none — no
  *  twin, no sample attached (honest), never a borrowed person. */
 export function sampleSelfId(kind: TwinKind, liveId: string | null): string | null {

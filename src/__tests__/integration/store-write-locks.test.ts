@@ -61,11 +61,13 @@ import {
   updateAppointmentCore,
   deleteAppointmentCore,
 } from '@/lib/appointments/mutations'
+// The three karute cores left src/actions/karute.ts for the server-only
+// module (PKT-SEC-CORES-D2, 2026-09-23); the web wrappers they back stayed.
 import {
   createOrUpdateKaruteRecord,
   updateKaruteDetailEntryWithClient,
   updateKaruteDetailSummaryWithClient,
-} from '@/actions/karute'
+} from '@/lib/karute/karute.core'
 
 // The five scopes every door must answer the same way.
 const VIEW_ALL = { viewAll: true, allowedStoreIds: null }
