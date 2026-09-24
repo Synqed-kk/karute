@@ -4219,10 +4219,18 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(LOOK_CODE).toContain('role="radio"')
     expect(LOOK_CODE).toContain('aria-checked={i === checked}')
     expect(LOOK_CODE).toContain('aria-label={c.name}')
-    expect(LOOK_CODE).toContain('tabIndex={i === Math.max(checked, 0) ? 0 : -1}')
+    // ⚖ Greptile #1015 — the ONE tab stop follows FOCUS, not the checked swatch: an arrow moves focus and the
+    // stop (ArrowRight from 紺 → the stop is 藍) while the check stays on 紺 — arrows never pick.
+    expect(LOOK_CODE).toContain('const [focusAt, setFocusAt] = useState(() => Math.max(checked, 0))')
+    expect(LOOK_CODE).toContain('tabIndex={i === focusAt ? 0 : -1}')
+    expect(LOOK_CODE).toContain('onFocus={() => setFocusAt(i)}')
+    const onKeyBody = LOOK_CODE.slice(LOOK_CODE.indexOf('const onKey = '), LOOK_CODE.indexOf('const onPhoneClick'))
+    expect(onKeyBody).toContain('setFocusAt(next)')
+    expect(onKeyBody).not.toMatch(/pick\(|onPick\(/)
+    expect(LOOK_CODE).toContain('aria-checked={i === checked}')
     // a legacy value checks nothing (findIndex → -1), and a pick shows the Home card
     expect(LOOK_CODE).toContain('const checked = look.palette.findIndex((c) => c.hex === shown)')
-    expect(LOOK_CODE).toMatch(/onPick\(hex\)\s*\n\s*setView\('home'\)/)
+    expect(LOOK_CODE).toMatch(/onPick\(hex\)\s*\n\s*setFocusAt\(i\)\s*\n\s*setView\('home'\)/)
   })
 
   it('one card drawing, one colour math, a picture screen readers skip, no second save story', () => {

@@ -68,6 +68,9 @@ export function ReserveCardLookSection({
   const shown = value === '' ? null : value
   const state = cardLookState(shown, look.palette)
   const checked = look.palette.findIndex((c) => c.hex === shown)
+  // The roving tab stop FOLLOWS FOCUS (Greptile #1015): arrows move focus and the stop with it, and only a
+  // click / Space / Enter picks — browsing must not dirty the save bar. It starts on the checked swatch.
+  const [focusAt, setFocusAt] = useState(() => Math.max(checked, 0))
   const swatchRefs = useRef<Array<HTMLButtonElement | null>>([])
 
   // The view switch cross-fades on the room's ONE spring (never a second easing); reduced motion lands at once.
@@ -109,14 +112,16 @@ export function ReserveCardLookSection({
     return () => ro.disconnect()
   }, [])
 
-  const pick = (hex: string) => {
+  const pick = (hex: string, i: number) => {
     onPick(hex)
+    setFocusAt(i)
     setView('home') // mock M21: a pick shows the Home card
   }
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
     const next = nextSwatch(e.key, i, look.palette.length)
     if (next === null) return
     e.preventDefault()
+    setFocusAt(next)
     swatchRefs.current[next]?.focus()
   }
   // Pointer shortcuts on the picture itself (mock M43): the big card opens the store page, the cover's
@@ -151,10 +156,11 @@ export function ReserveCardLookSection({
             role="radio"
             aria-checked={i === checked}
             aria-label={c.name}
-            tabIndex={i === Math.max(checked, 0) ? 0 : -1}
+            tabIndex={i === focusAt ? 0 : -1}
             className={`st-swatch cl-swatch${i === checked ? ' is-on' : ''}`}
-            onClick={() => pick(c.hex)}
+            onClick={() => pick(c.hex, i)}
             onKeyDown={(e) => onKey(e, i)}
+            onFocus={() => setFocusAt(i)}
           >
             {/* the button is neutral chrome; the colour is CONTENT inside it (no colour-filled control) */}
             <span className="cl-swatch__fill" aria-hidden="true" style={satin(c.hex)}>
