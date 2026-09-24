@@ -214,7 +214,7 @@ describe('⚖ A2 — the one writer: data.writeReserveCardColor → door', () =>
 
 // ── the route (R-A2-13): PUT /api/business/card-color ─────────────────────────────────────────
 const HOST = 'business.example.test'
-function put(opts: { origin?: string | null; site?: string; host?: string; forwarded?: string; expected?: string | null; body?: string } = {}) {
+function put(opts: { origin?: string | null; site?: string; host?: string; forwarded?: string; expected?: string | null; body?: string; scheme?: 'http' | 'https' } = {}) {
   const headers: Record<string, string> = { 'content-type': 'application/json', host: opts.host ?? HOST }
   if (opts.forwarded) headers['x-forwarded-host'] = opts.forwarded
   const origin = opts.origin === undefined ? `https://${HOST}` : opts.origin
@@ -222,7 +222,7 @@ function put(opts: { origin?: string | null; site?: string; host?: string; forwa
   if (opts.site) headers['sec-fetch-site'] = opts.site
   const expected = opts.expected === undefined ? TENANT : opts.expected
   if (expected !== null) headers['x-expected-business'] = expected
-  return PUT(new Request(`https://${HOST}/api/business/card-color`, { method: 'PUT', headers, body: opts.body ?? JSON.stringify({ color: KON }) }))
+  return PUT(new Request(`${opts.scheme ?? 'https'}://${HOST}/api/business/card-color`, { method: 'PUT', headers, body: opts.body ?? JSON.stringify({ color: KON }) }))
 }
 const answer = async (r: Response) => ({ status: r.status, body: await r.json() })
 
@@ -247,10 +247,18 @@ describe('⚖ A2 — the route: strict same-origin, 409 on the wrong business, e
     ['a malformed Origin', { origin: 'not a url' }],
     ['no Host to compare against', { host: '' }],
     ['Origin = a spoofed X-Forwarded-Host, the Host differs', { origin: 'https://evil.example', forwarded: 'evil.example' }],
+    ['an http:// Origin for an https request to the same host (G9)', { origin: `http://${HOST}` }],
+    ['an https:// Origin for an http request to the same host (G9)', { origin: `https://${HOST}`, scheme: 'http' }],
   ])('403 — refused before admission or the door (%s)', async (_label, opts) => {
     expect(await answer(await put(opts as Parameters<typeof put>[0]))).toEqual({ status: 403, body: { ok: false, reason: 'forbidden' } })
     expect(admission).not.toHaveBeenCalled()
     expect(mockCore.upsert).not.toHaveBeenCalled()
+  })
+
+  it('200 — G9: the Origin’s scheme + host match the request’s own (https and http alike)', async () => {
+    expect((await put({ origin: `https://${HOST}` })).status).toBe(200)
+    withReads()
+    expect((await put({ origin: `http://${HOST}`, scheme: 'http' })).status).toBe(200)
   })
 
   it('200 — the Host the server received decides: Origin = Host passes with a foreign X-Forwarded-Host present', async () => {

@@ -10,15 +10,16 @@ const STATUS = { forbidden: 403, tenant: 409, invalid: 400, core: 503 } as const
 type Reason = keyof typeof STATUS
 const refuse = (reason: Reason) => Response.json({ ok: false, reason }, { status: STATUS[reason] })
 
-/** Strict same-origin. With an Origin header, it must name the `host` this server received — never
- *  `x-forwarded-host`, which the client can send. Without one, only `Sec-Fetch-Site: same-origin`
- *  passes. Neither → refused. */
+/** Strict same-origin. With an Origin header, it must name this request's own scheme and the `host`
+ *  this server received — never `x-forwarded-host`, which the client can send. The scheme is the one
+ *  Next resolved for this request (`req.url`), so an http:// Origin never passes for an https request.
+ *  Without an Origin, only `Sec-Fetch-Site: same-origin` passes. Neither → refused. */
 function sameOrigin(req: Request): boolean {
   const origin = req.headers.get('origin')
   const host = req.headers.get('host') ?? ''
   if (origin !== null) {
     try {
-      return host !== '' && new URL(origin).host === host
+      return host !== '' && new URL(origin).origin === `${new URL(req.url).protocol}//${host}`
     } catch {
       return false
     }
