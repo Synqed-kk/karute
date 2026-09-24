@@ -26,6 +26,7 @@ import { reachesNoStore } from '@/lib/auth/store-gate'
 import { redirect } from 'next/navigation'
 import { UnassignedStoreScreen } from '@/components/layout/UnassignedStoreScreen'
 import { StoreOutageScreen } from '@/components/layout/StoreOutageScreen'
+import { RemovedStaffScreen } from '@/components/layout/RemovedStaffScreen'
 
 export default async function DashboardLayout({
   children,
@@ -64,7 +65,10 @@ export default async function DashboardLayout({
   //
   // Round 2 (2026-09-24, D-S16-4, discussed, default): a store, roster or
   // permission read that FAILED gets the outage screen — no data, never blank.
+  // Round 3 leg 1 (D-S19-1, lead): a person a manager REMOVED from the business
+  // gets their own screen first — sign-out only, never the retrying outage.
   const gate = await resolveShellGate()
+  if (gate === 'removed') return <RemovedStaffScreen />
   if (gate === 'unassigned') return <UnassignedStoreScreen />
   if (gate === 'outage') return <StoreOutageScreen />
 

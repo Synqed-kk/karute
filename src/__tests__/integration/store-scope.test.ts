@@ -10,11 +10,14 @@
  *     allowedStoreIds [], degraded:true (Round 2, 2026-09-24, D-S16-4 —
  *     supersedes the F-A "reads ignore degraded" shape)
  *   - resolveShellGate: unassigned / outage / ok, and an outage is never blank
+ *   - resolveShellGate: a REMOVED membership (getBusinessId → membership_inactive)
+ *     → removed, read FIRST; any other identity throw → outage (Round 3 leg 1,
+ *     D-S19-1, lead)
  */
 import type { Capability } from '@/lib/auth/permissions'
 
 jest.mock('@/lib/auth/require-permission', () => ({ getMyCapabilities: jest.fn() }))
-jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: jest.fn() }))
+jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: jest.fn(), getBusinessId: jest.fn() }))
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(),
   getPrimaryStoreId: jest.fn(),
@@ -39,11 +42,13 @@ import {
 } from '@/lib/auth/store-scope'
 import { actorIsUnassigned, actorStoreVerdict } from '@/lib/auth/store-gate'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { AppApiError } from '@/lib/app-api/errors'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 
 const mockCaps = getMyCapabilities as jest.Mock
 const mockStaffId = getCurrentUserStaffId as jest.Mock
+const mockBusinessId = getBusinessId as jest.Mock
 const mockActive = getActiveStoreId as jest.Mock
 const mockPrimary = getPrimaryStoreId as jest.Mock
 const mockStores = getStaffStoresStrict as jest.Mock
@@ -55,6 +60,8 @@ const caps = (...c: Capability[]) => new Set<Capability>(c)
 beforeEach(() => {
   jest.clearAllMocks()
   mockStaffId.mockResolvedValue('staff-1')
+  // A live member by default — the shell gate's membership probe (Round 3).
+  mockBusinessId.mockResolvedValue('business-1')
   mockVerdict.mockResolvedValue('unclamped')
   mockUnassigned.mockResolvedValue(false)
 })
@@ -463,5 +470,33 @@ describe('resolveShellGate', () => {
     mockActive.mockResolvedValue('store-A')
     mockStores.mockResolvedValue(null)
     await expect(resolveShellGate()).resolves.toBe('ok')
+  })
+
+  // ── Round 3 leg 1 (2026-09-24, D-S19-1, lead): the membership FACT first ──
+  it('P1 a REMOVED member (getBusinessId → membership_inactive) → removed, and no store read starts', async () => {
+    mockBusinessId.mockRejectedValue(
+      new AppApiError('membership_inactive', 'No active business membership for this user'),
+    )
+    // Even a roster that would say "unassigned" never gets asked: removed wins.
+    mockUnassigned.mockResolvedValue(true)
+    await expect(resolveShellGate()).resolves.toBe('removed')
+    // viewerIsUnassigned + resolveStoreScope sit in this module, so the probe's
+    // short-circuit is proven at the seams they would have read.
+    expect(mockStaffId).not.toHaveBeenCalled()
+    expect(mockCaps).not.toHaveBeenCalled()
+    expect(mockUnassigned).not.toHaveBeenCalled()
+    expect(mockStores).not.toHaveBeenCalled()
+  })
+
+  it('P2 a FAILED membership lookup (upstream_unavailable) → outage, never removed', async () => {
+    mockBusinessId.mockRejectedValue(
+      new AppApiError('upstream_unavailable', 'Business membership lookup failed'),
+    )
+    await expect(resolveShellGate()).resolves.toBe('outage')
+  })
+
+  it('P3 any other identity throw (a plain Error) → outage, never removed', async () => {
+    mockBusinessId.mockRejectedValue(new Error('boom'))
+    await expect(resolveShellGate()).resolves.toBe('outage')
   })
 })

@@ -79,6 +79,9 @@ jest.mock('@/components/layout/UnassignedStoreScreen', () => ({
 jest.mock('@/components/layout/StoreOutageScreen', () => ({
   StoreOutageScreen: 'StoreOutageScreen',
 }))
+jest.mock('@/components/layout/RemovedStaffScreen', () => ({
+  RemovedStaffScreen: 'RemovedStaffScreen',
+}))
 jest.mock('@/providers/session-provider', () => ({ SessionProvider: 'SessionProvider' }))
 jest.mock('@/lib/notifications/context', () => ({ NotificationsProvider: 'Notifications' }))
 jest.mock('@/lib/notifications/derive', () => ({
@@ -100,7 +103,8 @@ jest.mock('@/actions/org-settings', () => ({ getOrgSettings: jest.fn(async () =>
 
 import { viewerIsUnassigned } from '@/lib/auth/store-scope'
 import DashboardLayout from '@/app/[locale]/(app)/layout'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { AppApiError } from '@/lib/app-api/errors'
 import { getStaffStoresStrict } from '@/actions/stores'
 import { buildNotificationFeed } from '@/lib/notifications/derive'
 
@@ -190,6 +194,30 @@ describe('an unreadable store or roster → the outage screen, nothing else', ()
     const el = (await render()) as { type: unknown }
     expect(el.type).not.toBe('StoreOutageScreen')
     expect(el.type).not.toBe('UnassignedStoreScreen')
+  })
+})
+
+// Round 3 leg 1 (2026-09-24, D-S19-1/2, lead): a person a manager REMOVED
+// (getBusinessId → membership_inactive) gets the removed screen — driven through
+// the REAL layout, so deleting its 'removed' branch goes red here (tsc cannot
+// see it: the layout's if-chain is not exhaustive).
+describe('a removed member → the removed screen, nothing else', () => {
+  it('membership_inactive → RemovedStaffScreen, even for an unassigned shape; no wave read', async () => {
+    ;(getBusinessId as jest.Mock).mockRejectedValueOnce(
+      new AppApiError('membership_inactive', 'No active business membership for this user'),
+    )
+    const el = (await render()) as { type: unknown }
+    expect(el.type).toBe('RemovedStaffScreen')
+    expect(getStaffList).not.toHaveBeenCalled()
+    expect(buildNotificationFeed).not.toHaveBeenCalled()
+  })
+
+  it('a FAILED membership lookup (upstream_unavailable) → StoreOutageScreen, never removed', async () => {
+    ;(getBusinessId as jest.Mock).mockRejectedValueOnce(
+      new AppApiError('upstream_unavailable', 'Business membership lookup failed'),
+    )
+    const el = (await render()) as { type: unknown }
+    expect(el.type).toBe('StoreOutageScreen')
   })
 })
 

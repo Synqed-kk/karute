@@ -18,6 +18,7 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 import { actorIsUnassigned, actorStoreVerdict } from './store-gate'
+import { AppApiError } from '@/lib/app-api/errors'
 
 export interface StoreScope {
   /** The store_id to filter store-scoped reads by. null = no store filter
@@ -529,14 +530,27 @@ export async function viewerIsUnassigned(): Promise<boolean> {
 
 /**
  * THE WEB FRONT GATE, whole — what (app)/layout.tsx renders before any read:
- * 'unassigned' (⚖ Liam 2026-09-16) · 'outage' — a degraded scope or ANY thrown
- * identity / capability / roster / assignment read: an honest retrying screen,
- * no data, never blank (Round 2, 2026-09-24, D-S16-4, discussed, default) ·
- * 'ok'. The unassigned FACT is checked first so it is never shown as an
- * outage. resolveStoreScope is React-memoized: the layout's later call reuses
- * this resolution.
+ *   'removed'    — the membership FACT: getBusinessId refused this person with
+ *                  membership_inactive (no profile row, no business, or a
+ *                  `_system_removed_` row — the facade's 403 for the same three).
+ *                  A manager removed them; a reload cannot change it, so the
+ *                  screen offers sign-out only (Round 3 leg 1, D-S19-1, lead).
+ *   'unassigned' — ⚖ Liam 2026-09-16.
+ *   'outage'     — a degraded scope or ANY other thrown identity / capability /
+ *                  roster / assignment read: an honest retrying screen, no data,
+ *                  never blank (Round 2, 2026-09-24, D-S16-4, discussed, default).
+ *   'ok'.
+ * The membership probe runs FIRST, so a removed person is never shown as
+ * unassigned or as an outage; the unassigned FACT is checked next, so it is
+ * never shown as an outage. getBusinessId and resolveStoreScope are
+ * React-memoized: the probe and the layout's later calls reuse one resolution.
  */
-export async function resolveShellGate(): Promise<'unassigned' | 'outage' | 'ok'> {
+export async function resolveShellGate(): Promise<'removed' | 'unassigned' | 'outage' | 'ok'> {
+  try {
+    await getBusinessId()
+  } catch (err) {
+    return err instanceof AppApiError && err.code === 'membership_inactive' ? 'removed' : 'outage'
+  }
   try {
     if (await viewerIsUnassigned()) return 'unassigned'
     const scope = await resolveStoreScope()
