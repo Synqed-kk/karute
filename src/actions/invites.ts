@@ -178,9 +178,10 @@ export async function listInvites(): Promise<InviteRow[] | null> {
     const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
     const actorId = await resolveWebActorId()
-    // A THROWN lens, or any failed read, collapses the WHOLE list to null
-    // (could not load) through the catch below, where the facade drops only
-    // the row it could not judge. Both fail closed.
+    // Any read that fails before the core call answers null (could not load)
+    // through the catch below. listInvitesWithClient still catches its own
+    // list and lens failures and answers [] (invites.core.ts); the facade
+    // drops only the row it could not judge. Both fail closed.
     return await listInvitesWithClient(
       synqed,
       await memberEmailsForBusiness(businessId),

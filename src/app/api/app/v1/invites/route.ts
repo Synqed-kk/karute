@@ -64,7 +64,7 @@ export const GET = facadeHandler('invite.list', async (ctx) => {
   try {
     selfStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
   } catch (err) {
-    console.error('[invite.list] roster read failed — answering empty like the web list', err)
+    console.error('[invite.list] roster read failed — answering empty (web now answers null on an outage — phone parity queued)', err)
     return ok(ctx, { invites: [] })
   }
   if (!selfStaffId) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
