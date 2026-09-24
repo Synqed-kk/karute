@@ -15,6 +15,10 @@
 // Cases 16a–16d pin the ONE write exemption (⚖ Liam 9/24, A2): the exact
 // card-colour line in door.ts is green, a copy of it is over budget, any other
 // .upsert( in door.ts is a plain finding, and the same line elsewhere is too.
+// Cases 17a–17f pin the bound-write-method rule (⚖ Liam 9/24, R-A2-15 §5):
+// core-reach.ts's ONE pinned `upsert.bind(` line is green, a copy of it is over
+// budget, any other bound write in core-reach.ts or in any other territory file
+// is a plain finding, every verb is caught, and a split `.x\n.bind(` too.
 
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs'
@@ -247,8 +251,57 @@ assert.equal(writerWrongPath[0].label, 'write call .upsert(')
 assert.equal(writerWrongPath[0].rel, 'src/business/lib/data.ts')
 clear('src/business/lib')
 
+// 17a. GREEN — core-reach.ts's ONE bound write method, PR-2's exact line
+//      (R-A2-7), under the DEFAULT allow.
+const reachPath = 'src/business/lib/practice-door/core-reach.ts'
+const bindLine = '  return { orgSettings: { upsert: client.orgSettings.upsert.bind(client.orgSettings) } }\n'
+write(reachPath, bindLine)
+assert.deepEqual(scanDataAccess(root), [])
+
+// 17b. RED — a second copy of the pinned line in core-reach.ts: 2 > 1.
+write(reachPath, bindLine + bindLine)
+const bindOverBudget = scanDataAccess(root)
+assert.equal(bindOverBudget.length, 2, `expected 2 over-budget findings, got ${JSON.stringify(bindOverBudget)}`)
+assert.ok(bindOverBudget.every((f) => f.label === 'allowlist over budget (2 > 1 pinned)'))
+
+// 17c. RED — any OTHER bound write in core-reach.ts is a plain finding (the
+//      match is the exact orgSettings handle, not any upsert.bind).
+write(reachPath, bindLine + '  const w = client.customers.upsert.bind(client.customers)\n')
+const bindOther = scanDataAccess(root)
+assert.equal(bindOther.length, 1, `expected the second bind flagged, got ${JSON.stringify(bindOther)}`)
+assert.equal(bindOther[0].label, 'bound write method .X.bind(')
+assert.equal(bindOther[0].line, 2)
+clear(reachPath)
+
+// 17d. RED — `.delete.bind(` in another territory file; PR-2's exact line in
+//      another territory file (the exemption is path-exact).
+write('src/business/lib/data.ts', 'export const del = client.customers.delete.bind(client.customers)\n')
+const bindDelete = scanDataAccess(root)
+assert.equal(bindDelete.length, 1, `expected .delete.bind( flagged, got ${JSON.stringify(bindDelete)}`)
+assert.equal(bindDelete[0].label, 'bound write method .X.bind(')
+write('src/business/lib/data.ts', bindLine)
+const bindWrongPath = scanDataAccess(root)
+assert.equal(bindWrongPath.length, 1, `expected the pinned line flagged at the wrong path, got ${JSON.stringify(bindWrongPath)}`)
+assert.equal(bindWrongPath[0].rel, 'src/business/lib/data.ts')
+clear('src/business/lib')
+
+// 17e. RED — every write verb, including a whitespace/newline-split
+//      `.x\n  .bind (` (the regex spans it; the finding is on the verb's line).
+const verbs = ['insert', 'update', 'upsert', 'delete', 'rpc', 'create', 'save', 'set']
+write('src/business/screens/Bound.tsx', verbs.map((v) => `const b_${v} = h.${v}.bind(h)`).join('\n') + '\nconst split = h.upsert\n  .bind (h)\n')
+const bindVerbs = scanDataAccess(root)
+assert.equal(bindVerbs.length, verbs.length + 1, `expected every verb flagged, got ${JSON.stringify(bindVerbs)}`)
+assert.ok(bindVerbs.every((f) => f.label === 'bound write method .X.bind('))
+assert.equal(bindVerbs.at(-1).line, verbs.length + 1)
+clear('src/business/screens')
+
+// 17f. GREEN — a read method bound, and prose about `.upsert.bind(`, are not writes.
+write('src/business/screens/Read.tsx', 'const g = h.get.bind(h)\n// never h.upsert.bind(h) here\n')
+assert.deepEqual(scanDataAccess(root), [])
+clear('src/business/screens')
+
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 24 cases green')
+console.log('✓ business data-access guard selftest: 30 cases green')

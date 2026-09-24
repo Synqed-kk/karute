@@ -14,6 +14,13 @@
 //      anything, by construction. ONE named exception since 2026-09-24 (⚖ Liam
 //      9/24, A2): the Reserve card colour's one guarded line in
 //      src/business/lib/practice-door/door.ts — see ALLOW.
+//      A write method handed out BOUND — `.upsert.bind(`, any of the write
+//      verbs below — is the same reach without the `(` right after the name,
+//      so it is banned on its own (⚖ Liam 9/24, R-A2-15 §5; LOCK3 coldread
+//      Finding 2). ONE named exception: core-reach.ts's write-only handle
+//      `client.orgSettings.upsert.bind(client.orgSettings)` (R-A2-7), count 1
+//      — see ALLOW. Known ceiling: `.call(` / `.apply(`, bracket access and
+//      a plain-variable alias before `.bind(` still need AST alias tracking.
 //   3. Supabase / service-client READS are legal in EXACTLY two lock files,
 //      src/business/lib/grants.ts and src/business/lib/admission.ts, so the
 //      workspace-grant lock stays real config, not a fixture. Everywhere else
@@ -126,6 +133,12 @@ const CALL_PATTERNS = [
   { re: /\.upsert\s*\(/g, label: 'write call .upsert(', scope: EVERYWHERE },
   { re: /\.delete\s*\(/g, label: 'write call .delete(', scope: EVERYWHERE },
   { re: /\.rpc\s*\(/g, label: 'write call .rpc(', scope: EVERYWHERE },
+  // A bound write method is the same reach, one step removed (R-A2-15 §5).
+  {
+    re: /\.(insert|update|upsert|delete|rpc|create|save|set)\s*\.\s*bind\s*\(/g,
+    label: 'bound write method .X.bind(',
+    scope: EVERYWHERE,
+  },
 ]
 
 // Known-legal exceptions. Same contract as check-dark-interactive's ALLOW:
@@ -162,6 +175,15 @@ const ALLOW = [
     match: ['orgSettings.upsert({ settings: { reserve_card_color: next } })'],
     count: 1,
     reason: '⚖ Liam 9/24 A2 (CONTRACT-CARD-LOOK §5, RULINGS R3): the ONE Business writer — one key, palette-or-null, settings.manage, admitted tenant only, read-before-write, one PUT',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['client.orgSettings.upsert.bind(client.orgSettings)'],
+    count: 1,
+    reason:
+      '⚖ R-A2-7 (orgSettingsWriterFor: a write-only { orgSettings: { upsert } } handle, the two tenant throws before the client is built) + ' +
+      'R-A2-15(5) (Liam 9/24 「go」): the ONE bound write method in territory, feeding door.ts\'s one pinned writer line',
   },
 ]
 
