@@ -9027,7 +9027,7 @@ export function TodayScreen(props: TodayProps) {
                 </button>
                 {pop === 'fields' && (
                   <div className="fields-pop" ref={fieldsPopRef}>
-                    <strong>予約カードの表示項目（店舗設定）</strong>
+                    <strong>予約カードの表示項目（自分の表示）</strong>
                     <label><input type="checkbox" checked={showTime} onChange={() => setShowTime((v) => !v)} /> 時間・メニュー</label>
                     <label><input type="checkbox" checked={showTicket} onChange={() => setShowTicket((v) => !v)} /> チケット・価格</label>
                     <label><input type="checkbox" checked={showSlotPrice} onChange={() => setShowSlotPrice((v) => !v)} /> 空き枠の価格（Reserve動的価格ON時）</label>
@@ -9052,7 +9052,7 @@ export function TodayScreen(props: TodayProps) {
                       <input type="checkbox" checked={showNametags} onChange={() => setShowNametags((v) => !v)} /> 種類の名札
                     </label>
 
-                    <strong>販売可能枠の表示（店舗設定・業種プロファイルが初期値）</strong>
+                    <strong>販売可能枠の表示（自分の表示）</strong>
                     <div className="density-seg" role="group" aria-label="販売可能枠の表示">
                       {([['tint', '淡色表示'], ['drag', 'ドラッグ時のみ'], ['off', '非表示']] as const).map(([k, label]) => (
                         <button key={k} type="button" aria-pressed={sellMode === k} onClick={() => setSellMode(k)}>{label}</button>
@@ -9061,7 +9061,7 @@ export function TodayScreen(props: TodayProps) {
                     {/* ⚖ Liam flag 27: canon's degrade caption (:1809) is GONE with
                         the valve that raised it — a note explaining why the board
                         stopped honouring the setting has nothing left to explain. */}
-                    <span>お客様名は常に表示 / 全ボード共通の店舗設定</span>
+                    <span>お客様名は常に表示</span>
 
                     <div className="pop-divider" role="presentation" />
                     <strong>スキマガードの配置ガイド（自分の表示）</strong>
@@ -9117,7 +9117,7 @@ export function TodayScreen(props: TodayProps) {
                       <span className="packed"><i />詰め込み</span>
                       <span className="gapfill"><i />スキマ枠</span>
                       {guardOn && <span className="guard"><i />スキマガード</span>}
-                      <span className="cat-legend" aria-label="店舗設定の予約カテゴリー色">
+                      <span className="cat-legend" aria-label="予約カテゴリー色">
                         <i className="cat" style={{ '--cat': '#3d7ab8' } as React.CSSProperties} />新規
                         <i className="cat" style={{ '--cat': '#8a63b8' } as React.CSSProperties} />再来
                         <i className="cat" style={{ '--cat': '#2f8f8f' } as React.CSSProperties} />回数券
