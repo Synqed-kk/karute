@@ -447,6 +447,22 @@ describe('both deliberate-discard chokepoints go through the gate', () => {
     expect(mockAwaitSession).not.toHaveBeenCalled()
   })
 
+  // ⚖ S34, piece 3 — a run that ADOPTED the row the server made for it carries
+  // that id in its context (global-pipeline.ts adoptRecordingSession), so the
+  // 破棄 keys on it and never asks for a second one.
+  it('T6 a run that adopted its row: the 破棄 keys on that row and never re-mints', async () => {
+    mockPipelineState = 'review'
+    mockCtxSessionId = 'sess-adopted'
+    await renderPage()
+    await tapDiscard('review-discard')
+    await writeReason()
+    await confirmReason()
+
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    expect(mockDiscardWithReason.mock.calls[0][0]).toMatchObject({ recordingSessionId: 'sess-adopted' })
+    expect(mockRetryMint).not.toHaveBeenCalled()
+  })
+
   it('the reason text reaches the server verbatim, trimmed', async () => {
     await renderPage()
     await tapDiscard('discard')

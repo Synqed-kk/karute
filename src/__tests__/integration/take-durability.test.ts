@@ -892,6 +892,20 @@ describe('listOwnTakes carries secureError (piece r prerequisite)', () => {
   })
 })
 
+// ⚖ S34, piece 3 — the adoption guard. ai-pipeline adopts a row the server
+// minted through stampTakeSession, and it is THIS guard that keeps a take that
+// already names a row from being re-pointed at the minted one.
+describe('stampTakeSession — the first stamp wins (S34 T3)', () => {
+  it('a take that names row A is never re-stamped with a minted row X', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(await stampTakeSession(takeId, 'sess-A')).toBe(true)
+    expect(await stampTakeSession(takeId, 'sess-minted-X')).toBe(false)
+    expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-A')
+  })
+})
+
 describe('detachTakeFromRecordedSession (piece r)', () => {
   it('clears recordingSessionId, secureError and lastSecureAttemptAt on a TERMINALLY-refused take', async () => {
     const takeId = await startAndSettle()

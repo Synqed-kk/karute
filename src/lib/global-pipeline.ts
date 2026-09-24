@@ -288,6 +288,17 @@ class GlobalPipeline {
     this.notify()
   }
 
+  /** ⚖ S34, piece 3 — the row the server minted for THIS run's take, adopted
+   *  by ai-pipeline. Fills a context that names no session (the save, the 破棄
+   *  and the status surfaces all read it here) and never overwrites one; a
+   *  superseded run's late adoption is dropped. The row carries the audio now,
+   *  so the "stays on this device" notice stands down with it. */
+  adoptRecordingSession(runId: number, recordingSessionId: string) {
+    if (runId !== this.runId || !this.context || this.context.recordingSessionId) return
+    this.context = { ...this.context, recordingSessionId, serverRowMissing: false }
+    this.notify()
+  }
+
   private blob: Blob | null = null
   private listeners = new Set<Listener>()
   /**
@@ -412,6 +423,9 @@ class GlobalPipeline {
           sessionDate,
           recordingSessionId: this.context.recordingSessionId,
           durationSeconds: this.context.duration,
+          customerId: this.context.appointmentCustomerId,
+          appointmentId: this.context.appointmentId,
+          onSessionAdopted: (id) => this.adoptRecordingSession(runId, id),
         },
       )
       if (runId !== this.runId) return

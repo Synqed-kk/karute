@@ -32,6 +32,11 @@ const markTakeFinalized = jest.fn(async (_takeId: string, path: string) => {
   if (store.meta) store.meta = { ...store.meta, finalizedAt: 1, finalizedPath: path }
 })
 const markTakeSecureError = jest.fn(async (_takeId: string, _code: string) => {})
+const stampTakeSession = jest.fn(async (_takeId: string, session: string) => {
+  if (!store.meta || store.meta.recordingSessionId) return false
+  store.meta = { ...store.meta, recordingSessionId: session }
+  return true
+})
 jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: async () => (store.meta ? { ...store.meta } : null),
   loadTakeBlob: async () => store.blob,
@@ -42,7 +47,9 @@ jest.mock('@/lib/karute/take-store', () => ({
   markTakeFinalized: (id: string, path: string) => markTakeFinalized(id, path),
   markTakeSecureError: (id: string, code: string) => markTakeSecureError(id, code),
   markTakeStartBoundAttempted: async () => {},
-  stampTakeSession: async () => true,
+  // First stamp wins — the shape of take-store's own guard (ts:616-621; the
+  // real guard is pinned in take-durability.test.ts, S34 T3).
+  stampTakeSession: (id: string, session: string) => stampTakeSession(id, session),
   TERMINAL_SECURE_ERRORS: new Set(['reserved_elsewhere', 'exists', 'size_mismatch']),
 }))
 
@@ -73,6 +80,8 @@ const startSession = jest.fn(async () => null)
 const prepareTranscription = jest.fn(async (_blob: Blob, finalizedPath: string | null, _opts?: unknown) => ({
   body: { path: finalizedPath ?? 'app_biz-1_server-named.webm' },
   path: finalizedPath ?? 'app_biz-1_server-named.webm',
+  // Switch OFF: the server names no row.
+  recordingSessionId: null as string | null,
 }))
 jest.mock('@/lib/ports/recording-port', () => ({
   getRecordingPipelinePort: () => ({
@@ -87,10 +96,11 @@ jest.mock('@/lib/ports/recording-port', () => ({
 const put = jest.fn(async (_url: string, _init: { body: Blob }) => ({ ok: true, status: 200 }) as Response)
 global.fetch = put as unknown as typeof fetch
 
-import { runAIPipeline } from '@/lib/ai-pipeline'
+import { runAIPipeline, type PipelineContext } from '@/lib/ai-pipeline'
+import { globalPipeline } from '@/lib/global-pipeline'
 
 const memory = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
-const run = (ctx: { recordingSessionId?: string | null; durationSeconds?: number } = {}) =>
+const run = (ctx: PipelineContext = {}) =>
   runAIPipeline(memory, TAKE, 'ja', () => {}, { durationSeconds: 42, ...ctx })
 
 beforeEach(() => {
@@ -177,5 +187,128 @@ describe('t4 — a discardPending take is still secured (bytes are never gated)'
     expect(mintTakeUrl).toHaveBeenCalledWith(TAKE, 'audio/webm', SESSION)
     expect(markTakeFinalized).toHaveBeenCalledWith(TAKE, TAKE_KEY)
     expect(prepareTranscription).toHaveBeenCalledWith(memory, TAKE_KEY, undefined)
+  })
+})
+
+// ── ⚖ S34, piece 3 — THE FALLBACK ADOPTS THE ROW THE SERVER MADE ─────────────
+// With the switch ON, the unbound door creates a row for a take that had none
+// and answers its id; the pipeline stamps it on the take and tells the run's
+// context — which is what the save (ProcessingIndicator.tsx:147, ReviewScreen
+// via RecordPageView.tsx:3213) and the 破棄 (RecordPageView.tsx:1317-1318) read.
+describe('S34 — the fallback adopts the row the server made', () => {
+  const MINTED_ROW = '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b'
+  const NO_SESSION_TAKE = { mimeType: 'audio/webm', durationMs: 42_000, startedAt: 0, updatedAt: 1 }
+  const serverNames = (id: string | null) =>
+    prepareTranscription.mockImplementationOnce(async () => ({
+      body: { path: 'app_biz-1_server-named.webm' },
+      path: 'app_biz-1_server-named.webm',
+      recordingSessionId: id,
+    }))
+  const adoptLog = (adopted: boolean) =>
+    ['[ai-pipeline] adopted minted session', { takeId: TAKE, adopted }] as const
+  let info: jest.SpyInstance
+  beforeEach(() => {
+    info = jest.spyOn(console, 'info').mockImplementation(() => {})
+  })
+  afterEach(() => globalPipeline.reset())
+
+  it('T1 no_session + a minted row → the take carries it and the run is told', async () => {
+    store.meta = { ...NO_SESSION_TAKE }
+    serverNames(MINTED_ROW)
+    const onSessionAdopted = jest.fn()
+    await run({ onSessionAdopted })
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'no_session' })
+    expect(store.meta?.recordingSessionId).toBe(MINTED_ROW)
+    expect(onSessionAdopted).toHaveBeenCalledWith(MINTED_ROW)
+    expect(info).toHaveBeenCalledWith(...adoptLog(true))
+  })
+
+  it('T1 through the real pipeline: the context the save and the 破棄 read names the adopted row', async () => {
+    store.meta = { ...NO_SESSION_TAKE }
+    serverNames(MINTED_ROW)
+    globalPipeline.start(memory, {
+      locale: 'ja',
+      customers: [],
+      takeId: TAKE,
+      duration: 42,
+      recordingSessionId: null,
+      serverRowMissing: true,
+    })
+    for (let i = 0; i < 50 && globalPipeline.state === 'processing'; i++)
+      await new Promise((r) => setTimeout(r, 0))
+    expect(globalPipeline.state).toBe('review')
+    // RecordPageView.tsx:1318 (破棄) and :3213 / ProcessingIndicator.tsx:147 (save) read exactly this.
+    expect(globalPipeline.context?.recordingSessionId).toBe(MINTED_ROW)
+    // …and the "audio stays on this device" notice stands down: the row holds it now.
+    expect(globalPipeline.context?.serverRowMissing).toBe(false)
+    expect(store.meta?.recordingSessionId).toBe(MINTED_ROW)
+  })
+
+  it('the run context is never overwritten, and a superseded run’s adoption is dropped', () => {
+    globalPipeline.start(memory, { locale: 'ja', customers: [], recordingSessionId: SESSION })
+    globalPipeline.adoptRecordingSession(globalPipeline.runId, MINTED_ROW)
+    expect(globalPipeline.context?.recordingSessionId).toBe(SESSION)
+    const stale = globalPipeline.runId
+    globalPipeline.start(memory, { locale: 'ja', customers: [] })
+    globalPipeline.adoptRecordingSession(stale, MINTED_ROW)
+    expect(globalPipeline.context?.recordingSessionId).toBeUndefined()
+  })
+
+  it('T2 switch OFF: the server names no row → nothing stamped, nobody told, no log', async () => {
+    store.meta = { ...NO_SESSION_TAKE }
+    const onSessionAdopted = jest.fn()
+    await run({ onSessionAdopted })
+    expect(prepareTranscription.mock.calls).toEqual([[memory, null, { attachOutcome: 'no_session' }]])
+    expect(stampTakeSession).not.toHaveBeenCalled()
+    expect(store.meta?.recordingSessionId).toBeUndefined()
+    expect(onSessionAdopted).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalledWith('[ai-pipeline] adopted minted session', expect.anything())
+  })
+
+  it('T3 attach_failed: the take names A, the server returns X anyway → A stays, adopted:false', async () => {
+    store.meta = { recordingSessionId: SESSION, mimeType: 'audio/webm', durationMs: 42_000, startedAt: 0, updatedAt: 1 }
+    store.blob = new Blob(['stored'], { type: 'audio/webm' })
+    mintTakeUrl.mockResolvedValueOnce({ error: 'reserved_elsewhere' })
+    serverNames(MINTED_ROW)
+    const onSessionAdopted = jest.fn()
+    await run({ onSessionAdopted })
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'attach_failed' })
+    // The store's own guard is what refuses (first stamp wins).
+    expect(stampTakeSession).toHaveBeenCalledWith(TAKE, MINTED_ROW)
+    expect(store.meta?.recordingSessionId).toBe(SESSION)
+    expect(onSessionAdopted).not.toHaveBeenCalled()
+    expect(info).toHaveBeenCalledWith(...adoptLog(false))
+  })
+
+  it('T3 the run context names A (the store lost the take) → refused before the store is asked', async () => {
+    finalizeTake.mockResolvedValueOnce({ error: 'size_mismatch' })
+    serverNames(MINTED_ROW)
+    const onSessionAdopted = jest.fn()
+    await run({ recordingSessionId: SESSION, onSessionAdopted })
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'attach_failed' })
+    expect(stampTakeSession).not.toHaveBeenCalled()
+    expect(onSessionAdopted).not.toHaveBeenCalled()
+    expect(info).toHaveBeenCalledWith(...adoptLog(false))
+  })
+
+  it('T5 no_session hands the port the visit; attach_failed hands none', async () => {
+    await run({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(prepareTranscription).toHaveBeenLastCalledWith(memory, null, {
+      attachOutcome: 'no_session',
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+    })
+    finalizeTake.mockResolvedValueOnce({ error: 'size_mismatch' })
+    await run({ recordingSessionId: SESSION, customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(prepareTranscription.mock.calls.at(-1)?.[2]).toStrictEqual({ attachOutcome: 'attach_failed' })
+  })
+
+  it('no take at all (the store never held it): the run is told, nothing is stamped', async () => {
+    serverNames(MINTED_ROW)
+    const onSessionAdopted = jest.fn()
+    await runAIPipeline(memory, null, 'ja', () => {}, { onSessionAdopted })
+    expect(stampTakeSession).not.toHaveBeenCalled()
+    expect(onSessionAdopted).toHaveBeenCalledWith(MINTED_ROW)
+    expect(info).toHaveBeenCalledWith('[ai-pipeline] adopted minted session', { takeId: null, adopted: true })
   })
 })
