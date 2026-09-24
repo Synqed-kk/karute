@@ -281,6 +281,7 @@ export type FacadeEndpointKey =
   | 'orgSettings.update'
   | 'permissions.get'
   | 'permissions.update'
+  | 'recordings.captureWarning'
   | 'recordings.discard'
   | 'recordings.discards.list'
   | 'recordings.discards.transcript'
@@ -784,6 +785,9 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // generic hook would emit on every 2xx — including the soft refusals and the
   // idempotent no-op this route deliberately returns in a 2xx body.
   'recordings.finalize': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/finalize-take.ts#finalizeTakeWithClient' },
+  // Same doctrine (recording hole PR-7): the ONE recording.capture_warned emit
+  // lives at the shared choke point, which alone knows whether a row was filed.
+  'recordings.captureWarning': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/capture-warning.ts#recordCaptureWarningWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
   // The SAME job, entered from the 録音履歴 row instead of from a device that
   // just uploaded (build 23 slice ③) — so the same skip, for the same reason:

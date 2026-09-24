@@ -2603,6 +2603,7 @@
           "capture_finalized": "Recording audio saved",
           "capture_resumed": "Recording audio restored on the server",
           "capture_unlinked": "Recording audio not linked to a record",
+          "capture_warned": "Recording warning shown to staff",
           "discard": "Discarded recording",
           "karute_missing": "Recording never became a karute",
           "no_sessions_today": "No recording sessions today",
