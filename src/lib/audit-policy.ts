@@ -77,6 +77,7 @@ export const AUDIT_ACTIONS = [
   'recording.capture_finalized',
   'recording.capture_resumed',
   'recording.capture_unlinked',
+  'recording.capture_warned',
   'recording.discard',
   'recording.karute_missing',
   'recording.no_sessions_today',
@@ -236,6 +237,10 @@ export const AUDITED_CORES: {
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The capture-warning choke point (recording hole PR-7) — makes NO SDK write
+  // at all (one recordings.get for the owner check), so it needs no
+  // SDK_WRITE_ALLOWLIST row; its one emit is the recording.capture_warned row.
+  { file: 'src/lib/recording/capture-warning.ts', symbols: ['recordCaptureWarningWithClient'] },
   // The nightly assembler (build 23 slice ③) — the take a dead device never
   // came back for, rebuilt from its segments. Its ONE write sits inside this
   // symbol alongside the emit — the bucket PUT (storage.recordings.upload) —

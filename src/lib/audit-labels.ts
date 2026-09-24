@@ -39,6 +39,11 @@ export function karuteMissingReasonKey(reason: unknown): string | null {
       return 'reason.empty_transcript'
     case 'genericFailure':
       return 'reason.job_failed'
+    // Recording hole PR-7: the recorder was warned during the take.
+    case 'warnedDevice':
+      return 'reason.warned_device'
+    case 'warnedServer':
+      return 'reason.warned_server'
     // Recording hole PR-1: the inbox now names the failed stage, and this
     // row copies it — same words as the worker's own transcribe_failed row.
     case 'transcriptionFailed':

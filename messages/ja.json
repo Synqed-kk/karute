@@ -823,6 +823,8 @@
         "aiFailed": "カルテを作成できませんでした（文字起こしまでは完了しています）",
         "saveFailed": "カルテを保存できませんでした（内容の作成までは完了しています）",
         "genericFailure": "この録音は保存されませんでした",
+        "warnedDevice": "この録音は保存されませんでした（録音中、端末に音声を保存できない状態でした）",
+        "warnedServer": "この録音は保存されませんでした（録音中、サーバーに音声が届いていない状態でした）",
         "localAudio": "この端末に音声が残っています（未保存）",
         "tailIncomplete": "録音が途中で終わっています（この端末に残っているところまで保存できます）",
         "serverAudio": "サーバーに音声が残っています（未保存・途中までの場合があります）",
@@ -2603,6 +2605,7 @@
           "capture_finalized": "録音の音声を保存",
           "capture_resumed": "録音の音声をサーバーで復元",
           "capture_unlinked": "録音の音声が記録に紐付かず",
+          "capture_warned": "録音中に警告を表示",
           "discard": "録音を破棄",
           "karute_missing": "カルテ未保存",
           "no_sessions_today": "本日の録音なし",
@@ -2667,6 +2670,8 @@
         "transcription_failed": "文字起こしエラー",
         "ai_failed": "AI処理エラー",
         "karute_save_failed": "カルテ保存エラー",
+        "warned_device": "端末保存の警告あり",
+        "warned_server": "サーバー送信の警告あり",
         "other": "その他"
       },
       "recording": {
