@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
 import { apply, assertOneStore, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
-import { addDays, hoursOn, jstIso, plan, type Plan } from './plan'
+import { addDays, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
 const OTHER = 'store-other'
@@ -359,6 +359,10 @@ async function main() {
   // is shared with another recipe (fill.ts matches staff by NAME business-wide); the plan is deterministic, only adds
   // days, stays inside the hours and double-books no one; and on a fake core a dry-run writes nothing, the first run
   // lands every planned row, the second writes 0, a week later only adds.
+  // The planner's preferred start per day-part comes from the day's own hours (gym 07:00–22:00, テスト東京店 10:00–19:00).
+  const prefer = (open: string, close: string) => (['am', 'pm', 'eve'] as const).map((part) => preferredStart({ open, close }, part, 60, 30))
+  assert.deepEqual(prefer('07:00', '22:00'), [420, 870, 1230], 'preferredStart: 07:00–22:00 → am 07:00 · pm 14:30 · eve 20:30')
+  assert.deepEqual(prefer('10:00', '19:00'), [600, 870, 1050], 'preferredStart: 10:00–19:00 → am 10:00 · pm 14:30 · eve 17:30')
   const types = Object.keys(registry.types).filter((t) => registry.types[t].recipe)
   assert.ok(types.length >= 3, 'every registry type with a recipe runs')
   const storeOf = new Map(types.map((t) => [t, Object.keys(registry.stores).find((id) => registry.stores[id] === t) ?? `store-${t}`]))
@@ -413,6 +417,15 @@ async function main() {
       const overflow = (q: Plan) => q.appointments.filter((a) => a.staff !== cust.get(a.member)!.staff)
       for (const q of [q1, q2]) for (const a of overflow(q)) assert.equal(r.staff.find((s) => s.name === a.staff)!.role !== 'ASSISTANT', true, `${type} ${a.key}: an ASSISTANT holds an overflow booking`)
       if (type === 'personal_gym') assert.ok(overflow(q1).length > 0, `${type}: the plan has overflow bookings`)
+      // Preferred starts follow the store's own hours: am visits early (one takes the first slot), eve visits late.
+      const starts = (part: string) => q1.appointments.filter((a) => cust.get(a.member)!.time === part).map((a) => (Date.parse(a.startsAt) - Date.parse(jstIso(a.date, 0))) / 60_000)
+      const median = (xs: number[]) => ((s) => (s[(s.length - 1) >> 1] + s[s.length >> 1]) / 2)([...xs].sort((a, b) => a - b))
+      const [am, pm, eve] = [starts('am'), starts('pm'), starts('eve')]
+      assert.ok(median(am) < median(pm) && median(pm) < median(eve), `${type}: median start am ${median(am)} < pm ${median(pm)} < eve ${median(eve)}`)
+      const days = [...new Set(q1.appointments.map((a) => a.date))].map((d) => hoursOn(r.policy.weekly_hours, d)!)
+      assert.equal(Math.min(...am), Math.min(...days.map((h) => at(h.open))), `${type}: an am visit takes the first slot of the earliest-opening day`)
+      const longest = Math.max(...r.menus.map((x) => x.duration))
+      assert.ok(Math.max(...eve) >= Math.max(...days.map((h) => at(h.close) - longest - 2 * r.counts.slotMinutes)), `${type}: an eve visit starts near closing`)
 
       const ft = fakeCore({ stores: [storeId] })
       const binned = new Set(ft.t.customers.filter((c) => c.deleted_at).map((c) => c.member_number as string))
