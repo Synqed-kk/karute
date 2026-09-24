@@ -626,3 +626,14 @@
   DELETE /api/app/v1/recordings/session/[id] file is removed). Retired on the lead's ruling
   2026-09-23: nothing deleted, soft only; the write it covered no longer exists · Fable
   (PKT-S28-PR4-RETIRE-HARD-DELETE.md; ⚖ Liam 2026-09-16 nothing deleted, soft only)
+- 2026-09-24 · SDK_WRITE_ALLOWLIST:src/lib/recording/transcript-memo.ts::storage.recordings.upload · PR-5
+  (charge once) keeps the provider's answer for one audio object in one language at
+  trc/<audio key>.<locale>.json, so the same audio is never paid for twice. The write
+  (writeTranscriptMemo) is a side-effect of an ALREADY-AUDITED paid call: its one caller,
+  runMeteredTranscription, reaches it only after the provider answered, and every door files
+  its own recording.transcribe receipt for that same call (web auditWeb, facade hook row,
+  job/from_session/discard via the meter's auditTranscriptionReceipt) — the write precedes it by
+  one call-frame and never throws. ⚖ 8/17 doc law keeps the transcript content out of audit
+  details, which is what the object holds. upsert:false: create-only beside the audio, never a
+  replace or a delete · Opus 5.5 builder on Fable's S29 fix-round ruling
+  (PKT-S29-PR5-CHARGE-ONCE.md; recorder fix plan v3 §6 row 3)

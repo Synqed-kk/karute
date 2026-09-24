@@ -623,6 +623,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-14',
   },
   {
+    file: 'src/lib/recording/transcript-memo.ts',
+    call: 'storage.recordings.upload',
+    symbols: ['writeTranscriptMemo'],
+    justification:
+      "PR-5 (charge once): the durable memo of a transcription the meter has ALREADY PAID FOR — a side-effect of an already-audited call, not an act of its own. Its one caller is runMeteredTranscription (src/lib/ai/transcribe.ts), and only after the provider answered, i.e. only on a PAID call; every door files its own recording.transcribe receipt row for that same call (web: the route's auditWeb; facade: the hook's FACADE_AUDIT_MAP['ai.transcribe'] row; job/from_session/discard: the meter's auditTranscriptionReceipt), which the write precedes by one call-frame and never prevents — writeTranscriptMemo never throws. A second row here would double-count one act, and ⚖ 8/17 doc law keeps the CONTENT (the transcript itself) out of any audit detail, which is exactly what this call stores. upsert:false: it can only create a `trc/` object beside the audio, never replace or delete one.",
+    dated: '2026-09-24',
+  },
+  {
     file: 'src/lib/customers/customers.core.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
