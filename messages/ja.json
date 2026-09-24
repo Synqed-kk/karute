@@ -3242,6 +3242,7 @@
     "setNewPin": "{name}の新しいPINを設定",
     "confirmPin": "PINを確認",
     "pinsDoNotMatch": "PINが一致しません。もう一度お試しください。",
+    "pinChangeFailed": "PINの設定を変更できませんでした。もう一度お試しください。",
     "pinUpdated": "{name}のPINを更新しました",
     "pinSet": "{name}のPINを設定しました",
     "pinRemoved": "{name}のPINを解除しました",

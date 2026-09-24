@@ -3242,6 +3242,7 @@
     "setNewPin": "Set new PIN for {name}",
     "confirmPin": "Confirm PIN",
     "pinsDoNotMatch": "PINs do not match. Try again.",
+    "pinChangeFailed": "The PIN setting could not be changed. Try again.",
     "pinUpdated": "PIN updated for {name}",
     "pinSet": "PIN set for {name}",
     "pinRemoved": "PIN removed for {name}",
