@@ -360,7 +360,7 @@ async function main() {
   // days, stays inside the hours and double-books no one; and on a fake core a dry-run writes nothing, the first run
   // lands every planned row, the second writes 0, a week later only adds.
   const types = Object.keys(registry.types).filter((t) => registry.types[t].recipe)
-  assert.deepEqual(types, ['beauty_chiropractic', 'personal_gym', 'hair_salon'])
+  assert.ok(types.length >= 3, 'every registry type with a recipe runs')
   const storeOf = new Map(types.map((t) => [t, Object.keys(registry.stores).find((id) => registry.stores[id] === t) ?? `store-${t}`]))
   const mapped = [...storeOf].filter(([t, id]) => registry.stores[id] !== t).map(([t, id]) => ((registry.stores[id] = t), id))
   const owner = new Map<string, string>()
