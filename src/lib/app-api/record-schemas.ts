@@ -232,6 +232,19 @@ export const FinalizeTakeSchema = z
   })
   .strict()
 
+// ── Capture warning (recording hole PR-7) — "the recorder was shown the
+// at-risk notice". Same id validators as the finalize schema above (both ride
+// into a core URL path or an audit row). `reason` is exactly the two sides the
+// phone can blame; `warnedAt` is the phone's own ISO stamp of the raise.
+export const CaptureWarningSchema = z
+  .object({
+    recordingSessionId: z.string().uuid(),
+    takeId: z.string().uuid(),
+    reason: z.enum(['device', 'server']),
+    warnedAt: z.iso.datetime(),
+  })
+  .strict()
+
 // ── Transcribe (Decision 2) — a STORAGE PATH, never a URL. ───────────────────
 export const TranscribeSchema = z
   .object({

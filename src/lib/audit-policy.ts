@@ -77,6 +77,7 @@ export const AUDIT_ACTIONS = [
   'recording.capture_finalized',
   'recording.capture_resumed',
   'recording.capture_unlinked',
+  'recording.capture_warned',
   'recording.discard',
   'recording.karute_missing',
   'recording.no_sessions_today',
@@ -236,6 +237,10 @@ export const AUDITED_CORES: {
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The capture-warning choke point (recording hole PR-7) — makes NO SDK write
+  // at all (one recordings.get for the owner check), so it needs no
+  // SDK_WRITE_ALLOWLIST row; its one emit is the recording.capture_warned row.
+  { file: 'src/lib/recording/capture-warning.ts', symbols: ['recordCaptureWarningWithClient'] },
   // The nightly assembler (build 23 slice ③) — the take a dead device never
   // came back for, rebuilt from its segments. Its ONE write sits inside this
   // symbol alongside the emit — the bucket PUT (storage.recordings.upload) —
@@ -621,6 +626,14 @@ export const SDK_WRITE_ALLOWLIST: {
     justification:
       "The D13 typed write wrapper (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design D6/D13) — SDK 1.34's UpdateRecordingInput predates the shared_at/shared_by_staff_id columns, so this is the one place the untyped cast happens. The write itself sits one level below the emit: setRecordingSharedWithClient (src/lib/recording/share.ts, AUDITED_CORES via its own emitShareAudit helper) awaits this call and then, on its ONE writing branch, calls emitShareAudit — recording.share/recording.unshare — which dominates its own return. A second row here would double-count one act; this file stays audit-free by design, the exact same shape as discard.ts#stampRecordingDuration above (a write in a sibling helper, dominated by an emit one call-frame away, not lexically inside it).",
     dated: '2026-09-14',
+  },
+  {
+    file: 'src/lib/recording/transcript-memo.ts',
+    call: 'storage.recordings.upload',
+    symbols: ['writeTranscriptMemo'],
+    justification:
+      "PR-5 (charge once): the durable memo of a transcription the meter has ALREADY PAID FOR — a side-effect of an already-audited call, not an act of its own. Its one caller is runMeteredTranscription (src/lib/ai/transcribe.ts), and only after the provider answered, i.e. only on a PAID call; every door files its own recording.transcribe receipt row for that same call (web: the route's auditWeb; facade: the hook's FACADE_AUDIT_MAP['ai.transcribe'] row; job/from_session/discard: the meter's auditTranscriptionReceipt), which the write precedes by one call-frame and never prevents — writeTranscriptMemo never throws. A second row here would double-count one act, and ⚖ 8/17 doc law keeps the CONTENT (the transcript itself) out of any audit detail, which is exactly what this call stores. Create-only (upsert:false) except the one repair case: when the read before the call PROVED the existing `trc/` object corrupt (not a v1 memo), the paid answer replaces that garbage — unless a re-read immediately before the write finds that another caller has already repaired it, in which case that memo is left standing. A readable memo is never replaced, and nothing is ever deleted.",
+    dated: '2026-09-24',
   },
   {
     file: 'src/lib/customers/customers.core.ts',

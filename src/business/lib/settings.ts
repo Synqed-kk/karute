@@ -622,9 +622,6 @@ export interface SettingsCollection {
 
 export interface SettingsSection {
   id: string
-  group: string
-  label: string
-  scope: SectionScope
   gate: SectionGate
   boundaryLine: string | null
   kicker: string
@@ -674,7 +671,6 @@ export interface RailRow {
 
 export interface SettingsProps {
   dateline: string
-  lensLabel: string
   /** ⚖ S17 fix round 4 · H3 — TWO FORMS, BECAUSE THE PAGE HAS TWO SHAPES.
    *
    *  The subtitle said 「左の一覧から…右にその中身が出ます」 at EVERY width, and
@@ -707,7 +703,6 @@ export interface SettingsProps {
   demoSaveLine: string
   selfSaveLine: string
   boundaryFallback: string
-  roleLabel: string
   /** ⚖ S17 fix round 5 · G3 — WHO IS READING, as an id.
    *
    *  The one section that really saves (自分の表示設定) writes to this browser,
@@ -715,7 +710,7 @@ export interface SettingsProps {
    *  The row it writes is keyed by this id, so two staff signing in on one
    *  machine keep two sets of preferences instead of overwriting each other's.
    *
-   *  An ID, never `roleLabel` and never a name: a rename must not lose somebody
+   *  An ID, never a name: a rename must not lose somebody
    *  their own settings, and two people with one name are two people. `null` =
    *  this render resolved nobody, and the screen then stores NOTHING — see
    *  `prefsKey`. */

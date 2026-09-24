@@ -17,6 +17,12 @@ import { INBOX_WINDOW_MS } from '@/lib/recordings/inbox'
 import { findNoSessionsToday } from '@/lib/audit-watch/find-no-sessions-today'
 
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn() }))
+// Storage says "nothing there" (recording hole PR-7's t10). Only a row that
+// names a take ever reaches these probes — every other fixture here names none.
+jest.mock('@/lib/recording/take-audio', () => ({ resolveTakeAudio: async () => 'absent' }))
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => ({ storage: { from: () => ({ list: async () => ({ data: [], error: null }) }) } }),
+}))
 
 // Fix round 3, finding 2 CONTRACT pin: wraps the REAL implementation (every
 // other test's behavior is untouched) just to record what run.ts calls it
@@ -174,8 +180,38 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     const client = (newSynqedClient as jest.Mock).mock.results[0].value
     // One target-scoped dedupe read for THIS candidate, never retried — the
     // other call on this mock is step (b)'s category-wide storm page walk.
+    // 2, not 1, since PR-7 fix round 2 (R2-1): this row has NO pointer, so the
+    // inbox's warning read now asks it once (same call shape) before the dedupe read.
     const targetScoped = (client.audit.list as jest.Mock).mock.calls.filter(([a]) => 'target_id' in a)
-    expect(targetScoped).toHaveLength(1)
+    expect(targetScoped).toHaveLength(2)
+  })
+
+  it('t10 (PR-7): a session the recorder was warned about is written with the warned reason, not the generic one', async () => {
+    const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+    const client = makeClient({
+      existingRows: [{ id: 'w1', action: 'recording.capture_warned', detail: { reason: 'device', take_id: TAKE } }],
+    })
+    const [row] = (await client.recordings.list()).recordings
+    Object.assign(client.recordings, {
+      list: jest.fn(async () => ({
+        recordings: [{ ...row, audio_storage_path: `app_biz-1_${TAKE}.webm` }],
+        total: 1,
+      })),
+    })
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
+    expect(result).toMatchObject({
+      candidates: 1,
+      written: 1,
+      list: [{ action: 'recording.karute_missing', targetId: 'sess-old', reason: 'warnedDevice' }],
+    })
+    expect(auditMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'recording.karute_missing',
+        targetId: 'sess-old',
+        detail: expect.objectContaining({ reason: 'warnedDevice' }),
+      }),
+    )
   })
 
   it('a budget already past its deadline returns immediately, truncated, nothing processed', async () => {

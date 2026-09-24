@@ -19,6 +19,8 @@ import {
 import { AppApiError } from '@/lib/app-api/errors'
 import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
 import { audit } from '@/lib/audit'
+import { composeTranscriptKey } from '@/lib/recording/key-grammar'
+import { readTranscriptMemo, writeTranscriptMemo } from '@/lib/recording/transcript-memo'
 import type { OrgSettings } from '@/actions/org-settings'
 
 /**
@@ -217,6 +219,11 @@ async function runTranscription(params: {
 // Every door that spends a yen at the provider goes through the ONE wrapper
 // below, which does five things in this order:
 //
+//   0. (PR-5, charge once) when the door holds the audio's storage key, reads the
+//      durable memo of a PAID answer for that audio in that language FIRST —
+//      a hit answers from it with no ceiling asked, no reserve, no provider and
+//      no ledger row; a miss falls through to 1–5 below, and a paid answer is
+//      written back after 3 (src/lib/recording/transcript-memo.ts);
 //   1. asks core's per-business AI ledger (`consume('transcribe')`) BEFORE the
 //      call — hourly request count + the ROLLING 24 h cost cap;
 //   2. RESERVES an estimate of this recording's cost in that same ledger, and
@@ -351,6 +358,11 @@ export interface TranscriptionMeter {
   attempt?: number | null
   rescued?: boolean
   requestId?: string
+  /** The storage key of the audio this call transcribes, when the caller holds
+   *  one; null/absent = no memo, pay as today (PR-5, charge once). The grammar
+   *  is the fence: a key that is not this business's take or rescue composes
+   *  no memo key, and the call pays exactly as it did before. */
+  audioKey?: string | null
 }
 
 /** A duration is usable only when it is a real, positive number of seconds. */
@@ -382,6 +394,9 @@ export interface TranscriptionReceipt {
   cents_reserved: number
   /** false = the money was spent and the ledger is short by the true-up. */
   debit_recorded: boolean
+  /** true = answered from the durable memo: no provider call, no ceiling
+   *  consumed, no ledger row (PR-5, charge once). false on every paid call. */
+  replayed: boolean
 }
 
 /** THE RECEIPT — ids and numbers only, never a word of the transcript. Private
@@ -471,6 +486,39 @@ export async function runMeteredTranscription(
   meter: TranscriptionMeter,
   params: Parameters<typeof runTranscription>[0],
 ): Promise<{ result: Record<string, unknown>; receipt: TranscriptionReceipt }> {
+  // ── THE MEMO, BEFORE ANYTHING THAT COSTS (PR-5, charge once) ──────────────
+  // Read ahead of the ceiling too: a replay spends nothing, so it must not
+  // spend the hourly count either. Keyed by (business, audio, language) and
+  // NOTHING else — not the voice reference, the diarization toggle, the
+  // keyterms or the caller — so a replay returns the first paid answer even
+  // after those change. One audio = one charge; that is the ruling, not a bug.
+  //
+  // ⚖ AND TWO CALLERS AT ONCE CAN BOTH PAY (Greptile, ruled a bounded ceiling).
+  // Two callers that both miss before either provider answers each pay once —
+  // exactly what every call did before PR-5; the loser's write meets the
+  // duplicate refusal and the first copy stands. The doors that matter (an
+  // in-tab save then the job door; a reload) are sequential, so the live
+  // exposure is a double-submit. Upgrade path: a create-only lease object with
+  // a TTL, on Liam's word — not built here, because a stuck lease would block
+  // paying at all.
+  const memoKey = composeTranscriptKey(meter.businessId, meter.audioKey, params.locale)?.key ?? null
+  const memoRead = memoKey === null ? null : await readTranscriptMemo(memoKey)
+  if (memoRead?.state === 'hit') {
+    const receipt: TranscriptionReceipt = {
+      duration_seconds: memoRead.memo.duration_seconds,
+      cost_cents: 0,
+      cents_reserved: 0,
+      debit_recorded: true,
+      replayed: true,
+    }
+    // The same three-door rule as the paid path below: the row shows the door
+    // ran and paid nothing.
+    if (meter.door === 'job' || meter.door === 'from_session' || meter.door === 'discard') {
+      auditTranscriptionReceipt(meter, receipt)
+    }
+    return { result: memoRead.memo.result, receipt }
+  }
+
   try {
     await enforceAiRateLimitWithClient(meter.synqed, 'transcribe')
   } catch (err) {
@@ -537,6 +585,35 @@ export async function runMeteredTranscription(
     cents_reserved: reserveCents,
     debit_recorded:
       delta > 0 ? await reportTranscriptionUsageWithClient(meter.synqed, delta) : true,
+    replayed: false,
+  }
+
+  // The provider answered, so the money is spent whether or not the true-up
+  // landed — remember the answer so this audio is never paid for again.
+  // Best-effort: writeTranscriptMemo never throws.
+  // A PROVEN-corrupt memo is replaced by this answer; any other state writes
+  // create-only, so a readable memo is never overwritten by the normal path.
+  //
+  // ⚖ AND A REPAIR YIELDS TO ANOTHER CALLER'S (Greptile rounds 2–3). The first
+  // read proved garbage; the re-check only asks whether someone else has
+  // already replaced it while we paid — a hit yields (ours is for the same
+  // audio in the same language, and the caller still gets it), anything else
+  // repairs; an upsert onto nothing simply creates. Whatever lands between the
+  // re-check and the upsert is another PAID answer, never garbage.
+  if (memoKey !== null) {
+    const again = memoRead?.state === 'corrupt' ? await readTranscriptMemo(memoKey) : null
+    if (again?.state !== 'hit') {
+      await writeTranscriptMemo(
+        memoKey,
+        {
+          v: 1,
+          result,
+          duration_seconds: receipt.duration_seconds,
+          written_at: new Date().toISOString(),
+        },
+        { repair: memoRead?.state === 'corrupt' },
+      )
+    }
   }
 
   // ONE receipt per call. The two interactive routes already emit their own

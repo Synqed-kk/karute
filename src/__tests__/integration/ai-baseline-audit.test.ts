@@ -645,12 +645,14 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     // FOUR detail keys since fix round 4: the ledger is written BEFORE the
     // provider runs, so the row carries what was RESERVED as well as what the
     // call actually cost — and `debit_recorded` still says whether the ledger
-    // ended up holding the whole of it.
+    // ended up holding the whole of it. FIVE since PR-5 (charge once):
+    // `replayed` is false on a call that paid, as this one did.
     expect(auditWeb.mock.calls[0][0].detail).toEqual({
       duration_seconds: expect.any(Number),
       cost_cents: expect.any(Number),
       cents_reserved: expect.any(Number),
       debit_recorded: true,
+      replayed: false,
     })
   })
 
@@ -684,12 +686,14 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     // FOUR detail keys since fix round 4: the ledger is written BEFORE the
     // provider runs, so the row carries what was RESERVED as well as what the
     // call actually cost — and `debit_recorded` still says whether the ledger
-    // ended up holding the whole of it.
+    // ended up holding the whole of it. FIVE since PR-5 (charge once):
+    // `replayed` is false on a call that paid, as this one did.
     expect(auditWeb.mock.calls[0][0].detail).toEqual({
       duration_seconds: expect.any(Number),
       cost_cents: expect.any(Number),
       cents_reserved: expect.any(Number),
       debit_recorded: true,
+      replayed: false,
     })
   })
 

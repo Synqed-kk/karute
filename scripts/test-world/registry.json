@@ -21,12 +21,36 @@
     "personal_gym": {
       "label": "パーソナルジム",
       "sections": ["stores", "storePolicies", "staff", "staffStores", "resources", "menus", "customers", "appointments", "karuteRecords"],
-      "recipe": null
+      "recipe": {
+        "staff": 5,
+        "resources": 3,
+        "menus": 8,
+        "customers": 30,
+        "packs": 0,
+        "pastDays": 90,
+        "futureDays": 14,
+        "slotMinutes": 30,
+        "cancelShare": 0.08,
+        "noShowShare": 0.02,
+        "karuteShare": 0.8
+      }
     },
     "hair_salon": {
       "label": "ヘアサロン",
       "sections": ["stores", "storePolicies", "staff", "staffStores", "resources", "menus", "customers", "appointments", "packs", "karuteRecords"],
-      "recipe": null
+      "recipe": {
+        "staff": 6,
+        "resources": 4,
+        "menus": 17,
+        "customers": 30,
+        "packs": 6,
+        "pastDays": 90,
+        "futureDays": 14,
+        "slotMinutes": 30,
+        "cancelShare": 0.08,
+        "noShowShare": 0.02,
+        "karuteShare": 0.6
+      }
     }
   },
   "stores": {

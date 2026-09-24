@@ -349,8 +349,10 @@ describe('(2b) role labels — the Business vocabulary, from the rulebook', () =
   it('settings under ON: a practitioner reads as スタッフ and every settings.manage section is closed', async () => {
     as(LOGIN.perry)
     const { props } = await settingsProps({ locale: 'ja' })
-    expect(props.roleLabel).toBe('スタッフ')
-    expect(settingsAccessFor(props.roleLabel, rulebook).has('settings.manage')).toBe(false)
+    // The role word reaches the page only through each closed section's boundary sentence.
+    const closed = props.sections.filter((s) => s.gate === 'no-rights')
+    expect(closed.length).toBeGreaterThan(0)
+    for (const s of closed) expect(s.boundaryLine).toContain('スタッフの権限では開けません')
     // ⚖ A1b — every GATED section, store or business: `!== 'self'` is what `scope === 'store'` meant here.
     const needsManage = RAIL.filter((e) => e.scope !== 'self' && e.needs === 'settings.manage').map((e) => e.id)
     expect(needsManage).toContain('reserve-card-look')
@@ -598,8 +600,8 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     spy.resourcesList.mockClear()
     spy.staffStoresList.mockClear()
     const { props } = await settingsProps({ locale: 'ja' })
-    expect(props.lensLabel).toBe('すべての店舗')
-    const open = props.sections.filter((s) => s.scope === 'store' && s.gate === 'open')
+    expect(props.dateline.endsWith('/ すべての店舗')).toBe(true)
+    const open = props.sections.filter((s) => RAIL.find((e) => e.id === s.id)!.scope === 'store' && s.gate === 'open')
     expect(open.length).toBeGreaterThan(0)
     expect(open.every((s) => s.kicker === '店舗を選んでください')).toBe(true)
     expect(spy.menusList).not.toHaveBeenCalled()
@@ -653,7 +655,7 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     }
     spy.storesList.mockResolvedValue({ stores: [] }) // the owner sees no store: the all-stores view
     const { props } = await settingsProps({ locale: 'ja' })
-    expect(props.lensLabel).toBe('すべての店舗')
+    expect(props.dateline.endsWith('/ すべての店舗')).toBe(true)
     const all = props.sections.find((s) => s.id === 'reserve-card-look')!
     expect({ gate: all.gate, kicker: all.kicker, value: all.cardLook?.value, storeLine: all.cardLook?.storeLine, address: 'address' in all.cardLook! })
       .toEqual({ gate: 'open', kicker: 'Reserve設定', value: '#00304C', storeLine: '', address: false })
