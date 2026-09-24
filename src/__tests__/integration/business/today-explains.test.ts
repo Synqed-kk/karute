@@ -1521,11 +1521,15 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     // THE PANEL'S LABELS SAY WHAT THE BOARD DOES. Every dial on it is this
     // viewer's own useState — no store setting, no business-type profile —
     // and the category colours are literal hexes, so no label names 店舗設定.
+    // The legend colours BOOKING categories (bookingCategory(), today-board.ts),
+    // never store categories, so no label says 店舗カテゴリー.
     expect(fields).toContain('<strong>予約カードの表示項目（自分の表示）</strong>')
     expect(fields).toContain('<strong>販売可能枠の表示（自分の表示）</strong>')
     expect(fields).toContain('<span>お客様名は常に表示</span>')
     expect(fields).toContain('aria-label="予約カテゴリー色"')
-    for (const lie of ['予約カードの表示項目（店舗設定）', '販売可能枠の表示（店舗設定・業種プロファイルが初期値）', '全ボード共通の店舗設定', '店舗設定の予約カテゴリー色']) {
+    // THE CAPTION names what the swatches are (予約カテゴリー, the aria's noun) and says both colour sets are fixed on this tip.
+    expect(fields).toContain('<b>左端の色＝予約カテゴリー / 色は変更できません</b>')
+    for (const lie of ['予約カードの表示項目（店舗設定）', '販売可能枠の表示（店舗設定・業種プロファイルが初期値）', '全ボード共通の店舗設定', '店舗設定の予約カテゴリー色', '店舗カテゴリー']) {
       expect(SRC).not.toContain(lie)
       expect(fields).not.toContain(lie)
     }

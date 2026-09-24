@@ -98,7 +98,8 @@ export async function createStaff(data: StaffProfileInput): Promise<CreateStaffR
   // silently become able to place a new hire in 代官山. `[]` refuses every
   // store instead. This is the file's own sibling convention (staffWriteInScope
   // returns false on degraded) and what the facade twin already does by
-  // throwing. A WRITE fails closed on an unknown; only the read plane doesn't.
+  // throwing. Both planes fail closed on an unknown now: the read plane joined
+  // in Round 2, 2026-09-24, D-S16-4 (discussed, default).
   // ⚖ FOLD ROUND 3 (fresh-eyes F6) — and a THROW is the same unknown. Every
   // other risky call in this action is guarded; this one was not, so a core
   // blip turned a hire into an unhandled Server Action error (message stripped

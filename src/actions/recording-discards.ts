@@ -501,8 +501,10 @@ export async function listDiscardReasonsWithClient(
 /** The WEB door onto the twin above: the cookie identity's `staff.manage`
  *  gate, its business id, and the ok/error union the section branches on. */
 export async function listDiscardReasons(): Promise<ListDiscardReasonsResult> {
+  // An outage (the capability read failed) is not a permission answer (Round 2).
+  const caps = await getMyCapabilities().catch(() => null)
+  if (!caps) return { ok: false, error: 'failed' }
   try {
-    const caps = await getMyCapabilities()
     ensureCapability(caps, 'staff.manage')
   } catch {
     return { ok: false, error: 'forbidden' }
@@ -615,8 +617,10 @@ export async function getDiscardTranscriptWithClient(
 export async function getDiscardTranscript(
   recordingSessionId: string,
 ): Promise<GetDiscardTranscriptResult> {
+  // An outage (the capability read failed) is not a permission answer (Round 2).
+  const caps = await getMyCapabilities().catch(() => null)
+  if (!caps) return { ok: false, error: 'failed' }
   try {
-    const caps = await getMyCapabilities()
     ensureCapability(caps, 'staff.manage')
   } catch {
     return { ok: false, error: 'forbidden' }

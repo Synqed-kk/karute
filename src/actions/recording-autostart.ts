@@ -28,8 +28,11 @@ export async function setRecordingAutostart(
   storeId: string,
   enabled: boolean,
 ): Promise<SetRecordingAutostartResult> {
+  // An outage (the capability read failed) is not a permission answer (Round 2).
+  const caps = await getMyCapabilities().catch(() => null)
+  if (!caps) return { ok: false, error: 'failed' }
   try {
-    ensureCapability(await getMyCapabilities(), 'settings.manage')
+    ensureCapability(caps, 'settings.manage')
   } catch {
     return { ok: false, error: 'forbidden' }
   }

@@ -69,6 +69,14 @@ const InboxSessionSchema = z.object({
    *  idiom above: an old baked bundle's payload without this key parses fine,
    *  and the fold treats absence as `false` — door closed. */
   sameDay: z.boolean().nullish(),
+  /** Recording hole PR-7 — the side the recorder was WARNED about during the
+   *  take ('device' | 'server'), attached by inbox-read.ts only to sessions a
+   *  server-only fold would call genericFailure. A code, never text or a
+   *  path. A PLAIN STRING, the `serverAudio` idiom: the fold narrows it with
+   *  `===`, and `nullish` keeps every payload without it valid. Baked phones
+   *  read the body with a cast (thin/ports/actions.vite.ts
+   *  listRecordingsInbox), so an older bundle carries it and ignores it. */
+  captureWarning: z.string().nullish(),
 })
 
 export const RecordingsInboxDTO = z.object({

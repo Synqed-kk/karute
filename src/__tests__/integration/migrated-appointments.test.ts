@@ -92,6 +92,15 @@ jest.mock('@/lib/synqed/client', () => ({
     packs,
   })),
 }))
+// Capability seam: these cases are not about permissions, so the caller holds
+// them. (They used to pass on a permission read that FAILED against the test
+// Supabase URL and silently granted the practitioner preset — the S15 C3b
+// fail-open, which now rejects. Round 2.)
+jest.mock('@/lib/auth/require-permission', () => ({
+  ...jest.requireActual('@/lib/auth/require-permission'),
+  can: jest.fn(async () => true),
+  requireCapability: jest.fn(async () => undefined),
+}))
 // Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
 // resolved scope is viewAll. The PREDICATE is untouched — it lives in the pure
 // src/lib/auth/store-lock.ts, which nothing here mocks — so a lock deleted

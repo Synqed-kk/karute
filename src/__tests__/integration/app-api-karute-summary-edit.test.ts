@@ -72,6 +72,8 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => ({
     karuteRecords: { get: (id: string) => get(id), update },
     staffStores: { get: staffStoresGet },
+    // One store: floating = the single-store carve-out (readable list required).
+    stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   }),
 }))
 

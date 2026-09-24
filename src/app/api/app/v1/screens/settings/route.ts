@@ -28,10 +28,11 @@
 // — it falls out of the store clamp this route runs regardless, at no extra
 // cost.
 //
-// FAILURE CONTRACT: staff roster / org settings read failures → 502. NOT
-// page parity — the web page's getStaffList() catches its own read error and
-// degrades to [] (same deliberate facade-family rule as every other
-// screens/* route: see the profile route's identical note).
+// FAILURE CONTRACT: staff roster / org settings read failures → 502. Page
+// parity since Round 2 (2026-09-24, D-S16-4, discussed, default): the web
+// page's getStaffList() throws on the same failure rather than degrading to
+// [] (same facade-family rule as every other screens/* route: see the
+// profile route's identical note).
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'

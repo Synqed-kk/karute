@@ -110,7 +110,8 @@ const recordingsGet = jest.fn(async (_id: string) => REC_ROW.current)
 const fakeClient = {
   staffStores: { get: (id: string) => staffStoresGet(id) },
   recordings: { get: (id: string) => recordingsGet(id) },
-  stores: { get: jest.fn(async () => ({ id: 'store-a' })) },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { get: jest.fn(async () => ({ id: 'store-a' })), list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   karuteRecords: {
     get: (id: string) => recGet(id),
     addEntry,

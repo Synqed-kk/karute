@@ -11,13 +11,17 @@ import type { Capability } from '@/lib/auth/permissions'
 const synqedError = (status: number, message: string) =>
   Object.assign(new Error(message), { name: 'SynqedError', status })
 
-type Stores = { get: (id: string) => Promise<unknown> }
+type Stores = {
+  get: (id: string) => Promise<unknown>
+  list: () => Promise<{ stores: { id: string }[] }>
+}
 type StaffStores = { get: (id: string) => Promise<{ store_ids: string[] }> }
 
 function synqedWith(opts: {
   ownStores?: string[] // stores that belong to this tenant (stores.get resolves)
   assignment?: string[] | Error // staffStores.get result, or an error to throw
   storeLookupError?: Error // stores.get failure override (transient classes)
+  storeListError?: Error // stores.list failure (the gate's store COUNT unreadable)
 }) {
   const own = new Set(opts.ownStores ?? [])
   const stores: Stores = {
@@ -29,6 +33,10 @@ function synqedWith(opts: {
           // Core's definitive answer for a store outside this business —
           // the SDK's typed error, not a bare Error (the clamp classifies).
           : Promise.reject(synqedError(404, 'not found')),
+    list: () =>
+      opts.storeListError
+        ? Promise.reject(opts.storeListError)
+        : Promise.resolve({ stores: [...own].map((id) => ({ id })) }),
   }
   const staffStores: StaffStores = {
     get: () =>
@@ -168,6 +176,28 @@ describe('store clamp', () => {
     const synqed = synqedWith({ ownStores: ['store-A'], assignment: [] })
     const r = await resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: null })
     expect(r).toEqual({ storeId: null, allowedStoreIds: null })
+  })
+
+  // Round 2, 2026-09-24, D-S16-4 (discussed, default): an empty assignment
+  // whose store COUNT cannot be read is `unknown` — nobody can say it is the
+  // single-store carve-out — so it fails closed like a failed assignment
+  // lookup, and WITHOUT the store_header marker (never wipes a good pin).
+  it('FAILS CLOSED when the assignment is empty and the store list is UNREADABLE (unknown, not floating)', async () => {
+    const synqed = synqedWith({ ownStores: ['store-A'], assignment: [], storeListError: new Error('core down') })
+    await expect(
+      resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: null }),
+    ).rejects.toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED, detail: undefined })
+    // …and the write door (resolveWriteStoreScope) refuses the same way.
+    await expect(
+      resolveWriteStoreScope({ synqed, authUserId: AUTH, capabilities: caps(), selfStaffId: AUTH }),
+    ).rejects.toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+  })
+
+  it('…a client with no stores port at all is the same unknown', async () => {
+    const synqed = { staffStores: { get: async () => ({ store_ids: [] }) }, stores: {} } as never
+    await expect(
+      resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: null }),
+    ).rejects.toMatchObject({ code: 'store_forbidden', detail: undefined })
   })
 
   it('stores.viewAll ranges freely within the tenant (but store-id still tenant-checked)', async () => {

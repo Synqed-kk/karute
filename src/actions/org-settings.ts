@@ -19,6 +19,12 @@ import {
 import type { ThemeColors } from '@/lib/theme'
 import { DEFAULT_THEME_COLORS } from '@/lib/theme'
 
+/** ⚖ A2 (R-A2-2) — settings keys SYNQED Business owns and writes itself, one key per PUT.
+ *  Karute's whole-snapshot writer below never sends them back from its read: core merges a
+ *  one-key PUT, so leaving a key out keeps it, and replaying a stale read would revert it.
+ *  Not exported — a 'use server' module may export async functions only. */
+const BUSINESS_OWNED_SETTINGS_KEYS = ['reserve_card_color'] as const
+
 export type RecordingDisclosureMode = 'A' | 'B' | 'C'
 export type AudioSource = 'phone' | 'bluetooth' | 'wired'
 export type AIVoiceStyle = 'formal' | 'polite' | 'friendly'
@@ -341,6 +347,9 @@ export async function writeOrgSettingsBlobWithClient(
     // Merge with existing settings so partial updates don't wipe other fields
     const existing = await synqed.orgSettings.get()
     const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>
+    const replayed = Object.fromEntries(
+      Object.entries(existingSettings).filter(([key]) => !(BUSINESS_OWNED_SETTINGS_KEYS as readonly string[]).includes(key)),
+    )
 
     // salon_name maps to the top-level `name` column; everything else lives in
     // the settings JSON
@@ -377,7 +386,7 @@ export async function writeOrgSettingsBlobWithClient(
 
     await synqed.orgSettings.upsert({
       ...(salon_name !== undefined ? { name: salon_name } : {}),
-      settings: { ...existingSettings, ...rest },
+      settings: { ...replayed, ...rest },
     })
 
     // No cache invalidation here: updateTag is Server-Action-only (throws from
@@ -438,8 +447,11 @@ async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
  */
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   const { getMyCapabilities, ensureCapability } = await import('@/lib/auth/require-permission')
+  // An outage (the capability read failed) is not a permission answer (Round 2).
+  const caps = await getMyCapabilities().catch(() => null)
+  if (!caps) return { error: 'Unknown error' }
   try {
-    ensureCapability(await getMyCapabilities(), 'settings.manage')
+    ensureCapability(caps, 'settings.manage')
   } catch {
     return { error: 'You do not have permission to change settings.' }
   }
