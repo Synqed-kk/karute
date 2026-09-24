@@ -114,6 +114,9 @@ const LITERAL_ONLY_CATEGORY = {
   // Literal-only by construction: no endpoint reaches it, only the cron.
   'recording.capture_resumed': 'recording',
   'recording.capture_unlinked': 'recording',
+  // Choke emit: src/lib/recording/capture-warning.ts#recordCaptureWarningWithClient
+  // (facade key recordings.captureWarning is a skip row — same doctrine).
+  'recording.capture_warned': 'recording',
   'recording.discard': 'recording',
   // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
   // its own emitShareAudit helper) — the recorder's own share toggle (⚖ Liam

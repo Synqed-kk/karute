@@ -40,7 +40,7 @@ export interface StaffMemberBasic {
 // verified token. Plain lib module (NOT 'use server') — exporting this adds
 // no client-invocable action endpoint.
 export const staffListByBusiness = unstable_cache(
-  async (businessId: string): Promise<StaffMember[]> => staffListCore(businessId, false),
+  staffListCore,
   // Staff onboarding is a once-in-a-while admin event, not a per-session
   // thing — every karute mutation that changes a staff row (create/update/
   // delete/avatar upload in src/actions/staff.ts) already calls
@@ -54,31 +54,23 @@ export const staffListByBusiness = unstable_cache(
 )
 
 /**
- * Throwing sibling of {@link staffListByBusiness} for the BFF facade (packet 05
- * fix round 1): the SAME read + mapping, but a profiles query error OR a
- * synqed-core roster fetch failure THROWS instead of resolving []. The facade
- * must never ship a schema-legal 200 with an empty staffList / 'Unknown' names
- * because a staff read silently failed — upstream failure is a classified 502
- * (packet-03 failure contract; listSynqedKaruteRowsOrThrow precedent). Web
- * callers keep the graceful cached version above, INCLUDING its partial
- * degradation (synqed-core failure → profiles-only roster) — which is why both
- * share staffListCore with a flag rather than the graceful one delegating
- * through a single try/catch (that would collapse profiles-only into []).
- * Uncached: facade requests pay one DB read each (roster reads are cheap; the
- * unstable_cache layer stays a web concern).
+ * The UNCACHED twin of {@link staffListByBusiness} for the BFF facade (packet
+ * 05 fix round 1): same read + mapping; facade requests pay one DB read each.
+ *
+ * Both THROW on a profiles or core roster failure (Round 2, 2026-09-24,
+ * D-S16-4). The web one used to resolve `[]` / profiles-only INSIDE
+ * unstable_cache, so a blip was cached for 24 h and every staff id went null.
+ * A rejection is never cached: Next's unstable_cache writes only after the
+ * callback resolves. An outage is never an empty roster.
  */
 export async function staffListByBusinessOrThrow(
   businessId: string,
 ): Promise<StaffMember[]> {
-  return staffListCore(businessId, true)
+  return staffListCore(businessId)
 }
 
-/** Shared roster assembly — `orThrow` picks the facade (throwing) or web
- *  (graceful, degrade-to-partial) failure behavior on BOTH internal reads. */
-async function staffListCore(
-  businessId: string,
-  orThrow: boolean,
-): Promise<StaffMember[]> {
+/** Shared roster assembly — throws on a failure of EITHER internal read. */
+async function staffListCore(businessId: string): Promise<StaffMember[]> {
   const service = createServiceClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (service as any)
@@ -89,11 +81,7 @@ async function staffListCore(
     .not('full_name', 'ilike', '_system_%')
     .order('full_name', { ascending: true })
 
-  if (error) {
-    if (orThrow) throw new Error(`staff profiles read failed: ${error.message}`)
-    console.error('[getStaffList] Supabase error:', error.message)
-    return []
-  }
+  if (error) throw new Error(`staff profiles read failed: ${error.message}`)
 
   const profileStaff = (data ?? []).map(
     ({
@@ -123,7 +111,7 @@ async function staffListCore(
   // profile row, matched on the same user_id / email link the staff-map
   // resolver uses. synqed-core stays the authoritative write target; profiles
   // remain the canonical id + enrichment source for signed-up staff.
-  const synqedOnly = await synqedStaffWithoutProfile(businessId, profileStaff, orThrow)
+  const synqedOnly = await synqedStaffWithoutProfile(businessId, profileStaff)
   return [...profileStaff, ...synqedOnly]
 }
 
@@ -133,8 +121,8 @@ async function staffListCore(
  * two-tier link the staff-map resolver uses: synqed `user_id` → profile id
  * (canonical), then email (case-insensitive) fallback.
  *
- * Degrades to [] when synqed-core env is absent or the fetch fails, so the
- * roster falls back to profiles-only rather than erroring. Mapped to the same
+ * [] when synqed-core env is absent (not a failure); a FAILED fetch throws —
+ * profiles-only would silently drop every not-yet-signed-up teammate. Same
  * StaffMember shape as the profile rows; `id` is the synqed staff id (these
  * staff have no profile id until signup) and `has_pin` is false (PIN lives in
  * the Supabase profile, which doesn't exist for them yet).
@@ -142,7 +130,6 @@ async function staffListCore(
 async function synqedStaffWithoutProfile(
   businessId: string,
   profileStaff: StaffMember[],
-  orThrow = false,
 ): Promise<StaffMember[]> {
   const baseUrl = process.env.SYNQED_CORE_URL
   const apiKey = process.env.SYNQED_CORE_API_KEY
@@ -189,15 +176,16 @@ async function synqedStaffWithoutProfile(
         isManagement: false,
       })) as StaffMember[]
   } catch (err) {
-    if (orThrow) throw err
     console.error('[getStaffList] synqed-core roster fetch failed:', err)
-    return []
+    throw err
   }
 }
 
 /**
  * Returns all staff profiles ordered alphabetically by full_name.
- * Returns an empty array on error (safe to render empty list).
+ * THROWS on any failure — business id, profiles or core roster (Round 2). An
+ * unauthenticated page caller never gets here: the (app) layout's session
+ * check redirects to /login first.
  *
  * Two layers of caching:
  *   - React `cache()` dedupes within a single request — the (app)/ layout
@@ -210,14 +198,9 @@ async function synqedStaffWithoutProfile(
  * The two layers compose: per-request dedup avoids redundant lookups inside
  * one render; cross-request cache avoids redundant DB hits across renders.
  */
-export const getStaffList = cache(async (): Promise<StaffMember[]> => {
-  try {
-    const businessId = await getBusinessId()
-    return await staffListByBusiness(businessId)
-  } catch {
-    return []
-  }
-})
+export const getStaffList = cache(async (): Promise<StaffMember[]> =>
+  staffListByBusiness(await getBusinessId()),
+)
 
 /**
  * Returns a single staff profile by ID within the caller's business, or null.
@@ -252,9 +235,12 @@ export async function getStaffById(id: string): Promise<StaffMemberBasic | null>
  * Resolves the staff identity for the currently authenticated user.
  *
  * Looks up the staff row in this tenant whose `id` matches `auth.uid()` — every
- * user gets exactly one staff identity per business, seeded at signup. Returns
- * null if the user has no staff row (e.g. they were removed but their auth
- * session is still alive).
+ * user gets exactly one staff identity per business, seeded at signup.
+ *
+ * `null` = no session, or a live session the roster does not contain. An
+ * OUTAGE rejects — shown as an outage, never as "removed" (Round 2; S10
+ * follow-up (c)). A `_system_removed_` profile never reaches the roster read:
+ * getBusinessId refuses it (membership_inactive), which also rejects.
  *
  * Save flows must read staff_id from here — never accept it from client input,
  * never trust a cookie. Replaces the old cookie-backed active-staff pattern,

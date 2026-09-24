@@ -14,14 +14,14 @@
 // still runs so a bogus store-id header is rejected 403 like every other
 // screens route, not silently ignored.
 //
-// FAILURE CONTRACT: staff roster / org settings read failures → 502. NOT
-// page parity — the web page's getStaffList() catches its own read error and
-// degrades to [] (a facade read failing here does NOT mean the web page
-// would have crashed too). This is the deliberate facade-family rule
-// instead, same as every other screens/* route (dashboard/appointments/
-// record/etc.): a load-bearing screen read that silently degraded to an
-// empty/wrong roster would be a worse failure for a Bearer client with no
-// user watching a partial page render — throw → classified 502.
+// FAILURE CONTRACT: staff roster / org settings read failures → 502. Page
+// parity since Round 2 (2026-09-24, D-S16-4, discussed, default): the web
+// page's getStaffList() no longer degrades to [] — it throws on the same
+// failure. Same facade-family rule as every other screens/* route
+// (dashboard/appointments/record/etc.): a load-bearing screen read that
+// silently degraded to an empty/wrong roster would be a worse failure for a
+// Bearer client with no user watching a partial page render — throw →
+// classified 502.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'

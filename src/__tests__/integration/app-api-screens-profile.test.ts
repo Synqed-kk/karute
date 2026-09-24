@@ -42,7 +42,8 @@ jest.mock('@/actions/org-settings', () => ({
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const storesGet = jest.fn(async () => ({}))
 const fakeClient = {
-  stores: { get: storesGet },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { get: storesGet, list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: staffStoresGet },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)

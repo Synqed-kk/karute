@@ -50,6 +50,8 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // row and files a durable audit row. A just-terminated staffer must not
   // reach it on the local fast-path.
   'recordings.finalize',
+  // 録音の警告 (recording hole PR-7) — files a staff-attributed audit row.
+  'recordings.captureWarning',
   // 新規顧客 create (both doors) — a durable customer-PII write, the same
   // class as customer.update above.
   'customer.create',

@@ -33,6 +33,7 @@ export const RECORDING_SWITCHES = {
    *     audit line (audit.ts `recordings.uploadUrl` entry's coveredBy names
    *     only the client-named write; audit-policy.ts's mint-take-url block).
    *     Either accept the session.mint-style coverage (karute save) in the
-   *     flip PR's body or add an emitter first. */
+   *     flip PR's body or add an emitter first.
+   *  Flipped ON 2026-09-24, back OFF 2026-09-25 on Liam's word: the ON arm leaves an undismissable 復元可能 row after every successful fallback save (all clients) and lets a discarded take resurface — cold read COLD-READ-S32-VERDICTS.md (outside the repo). Re-flip only after the stray/discard fix lands. */
   bindUnboundUploads: false,
 } as const

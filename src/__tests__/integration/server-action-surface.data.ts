@@ -132,6 +132,7 @@ export const PUBLIC_ACTIONS: Record<string, string[]> = {
   ],
   'src/actions/recordings.ts': [
     'finalizeTake',
+    'recordCaptureWarning',
     'startRecordingSession',
   ],
   'src/actions/recovery.ts': [

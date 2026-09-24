@@ -164,6 +164,8 @@ const fakeClient = {
   recordingDiscards: new ThisSensitiveDiscardClient(discardCreate, discardList),
   recordings: { update: recordingUpdate, get: recordingsGet },
   staffStores: { get: jest.fn(async () => ({ store_ids: assignedStores.current })) },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
 }
 
 // forwardToCore's own dynamically-imported client (the durable WRITE).
@@ -203,6 +205,7 @@ jest.mock('@/lib/auth/require-permission', () => {
     capabilitiesForUser: jest.fn(async () => capabilities.current),
     getMyCapabilities: jest.fn(async () => capabilities.current),
     requireCapability: jest.fn(async (cap: string) => actual.ensureCapability(capabilities.current, cap)),
+    can: jest.fn(async (cap: string) => capabilities.current.has(cap)),
   }
 })
 
@@ -1067,6 +1070,21 @@ describe('jobState', () => {
 })
 
 // ── The chokepoint's own attribution guard (SF-6) ──────────────────────────
+
+// Round 2 (2026-09-24): an OUTAGE is not a permission answer.
+describe('the web door: a capability read that FAILS is `failed`, never `forbidden`', () => {
+  it.each(['receipt-only', 'with-reason'] as const)('%s door', async (door) => {
+    const { can } = await import('@/lib/auth/require-permission')
+    ;(can as jest.Mock).mockRejectedValueOnce(new Error('roster read failed'))
+    const res =
+      door === 'receipt-only'
+        ? await discardRecordingReceipt(SYSTEM_VALID)
+        : await discardRecordingWithReason(WITH_REASON)
+    expect(res).toEqual({ ok: false, error: 'failed' })
+    expect(discardCreate).not.toHaveBeenCalled()
+    expect(auditLog).not.toHaveBeenCalled()
+  })
+})
 
 describe('an unattributable receipt is refused before any read or write', () => {
   it.each([

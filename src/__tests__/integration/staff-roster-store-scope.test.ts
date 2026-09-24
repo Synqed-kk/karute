@@ -20,6 +20,11 @@
  *   - the app-shell switch drawer keeps the helper's fail-OPEN fallback,
  *     because profile switching on a shared device must survive a glitch
  * The asymmetry is the ruling; both halves are pinned below.
+ *
+ * Round 2 (2026-09-24, D-S16-4, discussed, default) supersedes the drawer half
+ * for a degraded / thrown SCOPE: the layout now renders the outage screen
+ * instead of the shell, so no drawer ships. The helper's own fallback (an
+ * unavailable assignment MAP for a readable scope) is unchanged.
  */
 jest.mock('next/cache', () => ({
   unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
@@ -114,6 +119,7 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getActiveStoreId, getStaffStoresStrict, listStoresWithHours } from '@/actions/stores'
 import DashboardLayout from '@/app/[locale]/(app)/layout'
+import { StoreOutageScreen } from '@/components/layout/StoreOutageScreen'
 import SettingsPage from '@/app/[locale]/(app)/settings/page'
 
 const GINZA = 'store-ginza'
@@ -326,14 +332,17 @@ describe('roster seams (server → client)', () => {
     ])
   })
 
-  it('staff-switch drawer is UNAFFECTED by a degraded scope (keeps the fallback)', async () => {
+  // Round 2 (2026-09-24, D-S16-4, discussed, default) — SUPERSEDES the 8/18
+  // drawer fallback for this case: a degraded scope renders the outage screen
+  // INSTEAD of the shell, so no drawer (and no roster) ships at all.
+  it('a degraded scope: the shell is replaced by the outage screen — no drawer, no roster shipped', async () => {
     degradedActor()
-    const el = await DashboardLayout({
+    const el = (await DashboardLayout({
       children: null,
       params: Promise.resolve({ locale: 'ja' }),
-    })
-    const data = propsWith(el, 'data')?.data as { staffList: { id: string }[] }
-    expect(ids(data.staffList)).toEqual(ids(roster))
+    })) as { type: unknown }
+    expect(el.type).toBe(StoreOutageScreen)
+    expect(propsWith(el, 'data')).toBeNull()
   })
 
   it('設定→スタッフ list goes BLIND when resolveStoreScope THREW (scope null, not just degraded) — SELF ONLY', async () => {
@@ -404,13 +413,14 @@ describe('roster seams (server → client)', () => {
     })
   })
 
-  it('staff-switch drawer is UNAFFECTED when resolveStoreScope THREW (keeps the fallback)', async () => {
+  // Round 2 — same supersession: a THROWN scope read is the outage screen.
+  it('resolveStoreScope THREW: the shell is replaced by the outage screen — no drawer, no roster shipped', async () => {
     unreadableScope()
-    const el = await DashboardLayout({
+    const el = (await DashboardLayout({
       children: null,
       params: Promise.resolve({ locale: 'ja' }),
-    })
-    const data = propsWith(el, 'data')?.data as { staffList: { id: string }[] }
-    expect(ids(data.staffList)).toEqual(ids(roster))
+    })) as { type: unknown }
+    expect(el.type).toBe(StoreOutageScreen)
+    expect(propsWith(el, 'data')).toBeNull()
   })
 })

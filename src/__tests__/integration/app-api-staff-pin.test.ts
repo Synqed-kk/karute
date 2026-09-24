@@ -56,7 +56,12 @@ const removePin = jest.fn(async () => undefined)
 // against.
 let storeAssignments: Record<string, string[]> = {}
 const staffStoresGet = jest.fn(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
-const fakeClient = { staff: { setPin, removePin }, staffStores: { get: staffStoresGet } }
+const fakeClient = {
+  staff: { setPin, removePin },
+  staffStores: { get: staffStoresGet },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
+}
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: (businessId: string) => newSynqedClient(businessId),

@@ -9,7 +9,11 @@ import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import type { StoreInput } from '@/lib/validations/store'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
-import { actorIsUnassigned, STORE_UNASSIGNED_DENIAL } from '@/lib/auth/store-gate'
+import {
+  actorStoreVerdict,
+  STORE_SCOPE_UNVERIFIED_DENIAL,
+  STORE_UNASSIGNED_DENIAL,
+} from '@/lib/auth/store-gate'
 // The six client-threaded cores left this file for a server-only module
 // (PKT-SEC-CORES-B2, 2026-09-23): every runtime export here is a
 // browser-callable server action with no authentication of its own, and these
@@ -138,10 +142,19 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
   // store they're assigned to — otherwise the cookie would be a back door around
   // the store-scoped reads (lib/auth/store-scope). Cross-store roles and floating
   // staff (empty staff_stores = works everywhere) are unaffected.
-  const caps = await getMyCapabilities()
+  //
+  // Round 2, 2026-09-24, D-S16-4 (discussed, default): anything that could not
+  // be READ — the capability or roster read (an outage), the assignment lookup,
+  // or a caller the roster cannot place — pins nothing, with the unverified
+  // answer (never a silent rejection: both switchers show `error` inline). It
+  // used to fall through and set the cookie to ANY store; the read plane now
+  // reaches no store in the same case, and the pin must not disagree with it.
+  const caps = await getMyCapabilities().catch(() => null)
+  if (!caps) return { error: STORE_SCOPE_UNVERIFIED_DENIAL }
   if (!caps.has('stores.viewAll')) {
-    const uid = await getCurrentUserStaffId()
+    const uid = await getCurrentUserStaffId().catch(() => null)
     const allowed = uid ? await getStaffStoresStrict(uid) : null
+    if (!uid || allowed === null) return { error: STORE_SCOPE_UNVERIFIED_DENIAL }
     if (allowed && allowed.length > 0 && !allowed.includes(storeId)) {
       return { error: 'You can only view a store you are assigned to.' }
     }
@@ -150,9 +163,13 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
     // read as "floating, pin anything" — the strict twin keeps the failure
     // apart (null above) so only a GENUINE empty assignment reaches the gate,
     // which is then answered by the gate's ONE resolution, memoized alongside
-    // the capability seam's.
-    if (allowed && allowed.length === 0 && uid && (await actorIsUnassigned(uid))) {
-      return { error: STORE_UNASSIGNED_DENIAL }
+    // the capability seam's; `unknown` pins nothing (Round 2 fold, Greptile G1).
+    if (allowed && allowed.length === 0 && uid) {
+      const verdict = await actorStoreVerdict(uid)
+      if (verdict === 'unassigned') return { error: STORE_UNASSIGNED_DENIAL }
+      // `unknown` (or two reads that disagree) never pins: the read plane reaches
+      // no store in this state (store-scope.ts), and the pin must not disagree.
+      if (verdict !== 'unclamped') return { error: STORE_SCOPE_UNVERIFIED_DENIAL }
     }
   }
 

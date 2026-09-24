@@ -17,12 +17,14 @@ import { staffStoresOverlap } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
-import { actorIsUnassigned } from './store-gate'
+import { actorIsUnassigned, actorStoreVerdict } from './store-gate'
+import { AppApiError } from '@/lib/app-api/errors'
 
 export interface StoreScope {
   /** The store_id to filter store-scoped reads by. null = no store filter
-   *  (only when the business has no stores at all / the lookup failed —
-   *  an unset cookie resolves to the primary store, matching the switcher). */
+   *  (only when the business has no stores at all — an unset cookie resolves
+   *  to the primary store, matching the switcher) — or, with
+   *  `allowedStoreIds: []`, the viewer reaches no store. */
   storeId: string | null
   /** True when the viewer may see every store (owner / manager / SV). */
   viewAll: boolean
@@ -33,19 +35,20 @@ export interface StoreScope {
    *  There is no separate `unassigned` flag: one truth, read through
    *  `reachesNoStore` (lib/auth/store-gate.ts), so the two can never drift. */
   allowedStoreIds: string[] | null
-  /** True when a non-viewAll actor's staff_stores assignment LOOKUP FAILED —
-   *  never a genuine empty assignment (⚖ Liam 2026-08-17, F-A). An auth id the
-   *  roster can't place at all (getCurrentUserStaffId → null) is the same
-   *  failed lookup: there is no assignment to read, so nothing is vouched for.
-   *  Reads ignore
-   *  this field entirely (storeId/allowedStoreIds above are computed exactly
-   *  as they always were, failure or not); only the menu-write clamp
-   *  (storeScopeError, src/actions/menus.ts) fails closed on it, refusing a
-   *  write it can't actually vouch for. Always false under viewAll (the
-   *  assignment is never consulted) and false for a confirmed floating or
-   *  clamped staff. */
+  /** True when a non-viewAll actor's store assignment could NOT BE READ — the
+   *  lookup failed, the gate's verdict is `unknown`, or the roster cannot place
+   *  this auth id (getCurrentUserStaffId → null). Never a genuine empty
+   *  assignment. A degraded scope REACHES NO STORE (`storeId: null,
+   *  allowedStoreIds: []`) on reads and writes alike — Round 2, 2026-09-24,
+   *  D-S16-4 (discussed, default), superseding the 8/17 F-A "reads ignore
+   *  degraded" convention. The flag tells it apart from the unassigned `[]`:
+   *  resolveShellGate shows the outage screen for it. Always false under
+   *  viewAll. */
   degraded: boolean
 }
+
+/** An unreadable assignment: no store at all (a fresh array per call). */
+const unreadableScope = (): StoreScope => ({ storeId: null, viewAll: false, allowedStoreIds: [], degraded: true })
 
 /**
  * Resolve the signed-in user's store scope.
@@ -58,6 +61,8 @@ export interface StoreScope {
  *   - no viewAll + has stores   → clamped: the cookie picks among the user's own
  *                                  stores; an out-of-scope / unset cookie falls
  *                                  back to their first assigned store.
+ *   - no viewAll + unreadable   → degraded: reaches NO store (`[]`), until the
+ *                                  assignment can be read again (Round 2).
  *
  * React cache(): layout + page + nested loaders resolve the scope ~5× in one
  * request (measured on the 予約 render, 2026-07-30 speed pass) — for a
@@ -85,16 +90,12 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
     }
   }
 
-  // null = the lookup ITSELF failed (getStaffStoresStrict, F-A) — kept apart
-  // from a genuine empty assignment ([]) so the write clamp can fail closed
-  // on the former while every value below stays identical to today either
-  // way (a failure folds into the same "no stores" branch a real empty
-  // assignment already took). An unresolvable staffId is that same failure,
-  // one step earlier: the auth id was never placed in the roster, so no
-  // assignment was read — never a genuine empty.
-  const lookup = staffId ? await getStaffStoresStrict(staffId) : null
-  const degraded = lookup === null
-  const allowed = lookup ?? []
+  // An unplaceable caller (no staffId) or a FAILED lookup (null, never a
+  // genuine empty) reaches NO store — the facade's posture (store-clamp.ts
+  // throws store_forbidden). Round 2, 2026-09-24, D-S16-4 (discussed, default).
+  if (!staffId) return unreadableScope()
+  const allowed = await getStaffStoresStrict(staffId)
+  if (allowed === null) return unreadableScope()
   if (allowed.length === 0) {
     // ⚖ Liam 2026-09-16 — THE FLIP. A GENUINE empty assignment in a business
     // with ≥2 stores is no longer "works in every store": it is a staff member
@@ -102,18 +103,20 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
     // one. The verdict comes from the gate's ONE resolution — the same memo the
     // capability seam and the app shell's front gate read, so the three can
     // never disagree, and the extra store-count call happens at most once per
-    // request and ONLY on this branch. A DEGRADED lookup is excluded here as
-    // well as inside the verdict: unknown is never unassigned.
-    if (staffId && !degraded && (await actorIsUnassigned(staffId))) {
+    // request and ONLY on this branch.
+    const verdict = await actorStoreVerdict(staffId)
+    if (verdict === 'unassigned') {
       return { storeId: null, viewAll: false, allowedStoreIds: [], degraded: false }
     }
+    // `unknown` (or two reads that disagree) never widens: reach no store.
+    if (verdict !== 'unclamped') return unreadableScope()
     // Floating staff (assigned to no specific store) = works in every store,
     // per the staff_stores convention. Same unset-cookie default as above.
     return {
       storeId: activeStore ?? (await getPrimaryStoreId()),
       viewAll: false,
       allowedStoreIds: null,
-      degraded,
+      degraded: false,
     }
   }
 
@@ -149,15 +152,15 @@ export async function viewerScopeForActs(): Promise<readonly string[] | null> {
  * three cached-list call sites (予約 page, 録音 page, screens/appointments route)
  * each spelled inline as `clamped ? storeId : undefined`:
  *
- *   `undefined` → business-wide (viewAll / floating / degraded — the read plane
- *                 ignores `degraded` by the shipped F-A convention)
+ *   `undefined` → business-wide (viewAll / floating)
  *   a store id  → that store's server-filtered lens
- *   `null`      → BLIND: the caller ships an EMPTY list.
+ *   `null`      → BLIND: the caller ships an EMPTY list (a viewer who reaches
+ *                 no store: unassigned, or degraded since Round 2).
  *
  * Structural argument so both resolvers fit: web's StoreScope above and the
  * facade's ClampedStore (src/lib/app-api/store-clamp.ts).
  *
- * ponytail: the `null` arm is dead code in production and must stay that way —
+ * ponytail: for a viewer WITH stores the `null` arm is dead and must stay so —
  * it backstops the invariant "clamped ⇒ storeId non-null" (resolveStoreScope
  * returns `activeStore ?? allowed[0]`, resolveStoreForRequest returns
  * `requestedStoreId ?? assigned[0]`; both pinned by tests). If that ever broke,
@@ -166,9 +169,9 @@ export async function viewerScopeForActs(): Promise<readonly string[] | null> {
  * wrong-but-safe; another branch's customers are not. Same posture as
  * listAllCustomers' guard (src/lib/customers/list-all.ts:56), and `null` is not
  * assignable to the cached readers' `storeId?: string`, so tsc makes every call
- * site answer for it. Upgrade path if a legitimate "clamped with no store" case
- * ever appears: it doesn't — that combination is a clamp the caller could not
- * name.
+ * site answer for it. The one legitimate "clamped with no store" case — a
+ * viewer who reaches NO store (unassigned, or degraded since Round 2) — gets
+ * exactly this BLIND answer.
  */
 export function customerLensFor(scope: {
   storeId: string | null
@@ -522,5 +525,37 @@ export async function viewerIsUnassigned(): Promise<boolean> {
     // renders exactly as it does today and the layers beneath it (which each
     // have their own fail-closed posture) stay in charge.
     return false
+  }
+}
+
+/**
+ * THE WEB FRONT GATE, whole — what (app)/layout.tsx renders before any read:
+ *   'removed'    — the membership FACT: getBusinessId refused this person with
+ *                  membership_inactive (no profile row, no business, or a
+ *                  `_system_removed_` row — the facade's 403 for the same three).
+ *                  A manager removed them; a reload cannot change it, so the
+ *                  screen offers sign-out only (Round 3 leg 1, D-S19-1, lead).
+ *   'unassigned' — ⚖ Liam 2026-09-16.
+ *   'outage'     — a degraded scope or ANY other thrown identity / capability /
+ *                  roster / assignment read: an honest retrying screen, no data,
+ *                  never blank (Round 2, 2026-09-24, D-S16-4, discussed, default).
+ *   'ok'.
+ * The membership probe runs FIRST, so a removed person is never shown as
+ * unassigned or as an outage; the unassigned FACT is checked next, so it is
+ * never shown as an outage. getBusinessId and resolveStoreScope are
+ * React-memoized: the probe and the layout's later calls reuse one resolution.
+ */
+export async function resolveShellGate(): Promise<'removed' | 'unassigned' | 'outage' | 'ok'> {
+  try {
+    await getBusinessId()
+  } catch (err) {
+    return err instanceof AppApiError && err.code === 'membership_inactive' ? 'removed' : 'outage'
+  }
+  try {
+    if (await viewerIsUnassigned()) return 'unassigned'
+    const scope = await resolveStoreScope()
+    return scope.degraded ? 'outage' : 'ok'
+  } catch {
+    return 'outage'
   }
 }

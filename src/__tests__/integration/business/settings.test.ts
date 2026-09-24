@@ -72,6 +72,7 @@ import {
   hhmm,
   labelOfValue,
   longestOpenDayMin,
+  minutesLabel,
   PREFS_DEFAULT,
   previewTemplate,
   RAIL,
@@ -92,10 +93,13 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
-import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
+// ③ — the ¥ unit the Reserve 受付 fact prints; imported, never typed, so the
+// pin below follows the constant rather than restating it.
+import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
 // `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
 // (A2 turned the row into a select of two STATES plus a free minute field).
@@ -405,7 +409,7 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     const props = await room({ role: 'スタッフ' })
     for (const section of props.sections) {
       if (section.gate === 'open') continue
-      expect({ id: section.id, blocks: section.blocks.length, aside: section.aside }).toEqual({ id: section.id, blocks: 0, aside: null })
+      expect({ id: section.id, blocks: section.blocks.length }).toEqual({ id: section.id, blocks: 0 })
     }
     // Not one guardrail or store value from a gated section reaches a reader who
     // may read none of them.
@@ -625,8 +629,6 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
         const substance = s.blocks.reduce((n, b) => n + b.rows.length + b.facts.length + (b.list ? 1 : 0) + (b.table ? 1 : 0), 0)
         expect({ role, id: s.id, blocks: s.blocks.length > 0 }).toEqual({ role, id: s.id, blocks: true })
         expect({ role, id: s.id, substance: substance >= 2 }).toEqual({ role, id: s.id, substance: true })
-        // Liam 2026-09-23: 人・設備's aside was never rendered — removed, so it alone may carry none.
-        if (s.id !== 'people-equipment') expect({ role, id: s.id, aside: s.aside !== null }).toEqual({ role, id: s.id, aside: true })
         void rows
       }
     }
@@ -1429,12 +1431,16 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     for (const r of trioRows(props)) {
       const states = typeof r.trio!.businessType === 'string' && r.trio!.businessType.length > 0
       expect({ id: r.id, statesOne: states }).toEqual({ id: r.id, statesOne: RULED.includes(r.id) })
-      if (states) expect({ id: r.id, real: r.trio!.businessType!.startsWith('業種による初期値:') }).toEqual({ id: r.id, real: true })
+      if (states) expect({ id: r.id, real: r.trio!.businessType!.startsWith(BUSINESS_TYPE_NOTE_PREFIX) }).toEqual({ id: r.id, real: true })
     }
     // …and the null sentence is gone from the WHOLE payload, not just from the
     // rows this test walked.
     expect(JSON.stringify(props)).not.toContain('業種による初期値の決まりはありません')
     expect(PROPS_CODE).not.toContain('業種による初期値の決まりはありません')
+    // one home: the prefix literal lives only in the constant
+    expect(PROPS_CODE.split(BUSINESS_TYPE_NOTE_PREFIX).length).toBe(2)
+    // the wording itself: a regression of the constant to the old promise goes red here
+    expect(BUSINESS_TYPE_NOTE_PREFIX).toBe('業種による違い: ')
     // The screen renders the line CONDITIONALLY, so a future row that omits it
     // cannot print an empty bullet.
     // ⚖ S17 STEP 1 — RE-PINNED AT ITS NEW HOME. The three lines did not change
@@ -2002,7 +2008,6 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
       // nothing, which is worse than no guard at all.
       if (world === 'manager') {
         for (const [shape, sample] of [
-          ['a trace-card value', 'ひとつだけ（二か所には持ちません）'],
           ['a row scope label', '事業全体'],
           // ⚖ S17 FOLD — the old sample (予約の移動単位) was a control that moved
           // to 予約と確保. The shape is what matters, so the sample is another
@@ -2822,16 +2827,10 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(labelOfValue(cutoffCtrl, '0')).toBe('締め切らない')
   })
 
-  it('⚖ D-33 R2 — the aside\'s gap-fill line reads the zero state, one spelling with the row\'s own zeroLabel', async () => {
-    const props = await room({ store: STORE_A })
-    const asideLineOf = (p: SettingsProps, label: string) =>
-      sectionOf(p, 'reserve-acceptance').aside!.lines.find((l) => l.label === label)!.value
-    // (a) at the fixture (gapFillMinMin: 30) the line is byte-unchanged.
-    expect(asideLineOf(props, 'スキマ枠')).toBe('30分以上・10%引き')
-
-    // (b) under the suite's opsConfig override door with gapFillMinMin: 0 the
-    // aside reads the row's own zero label alone — no discount clause for a
-    // slot that is not sold.
+  it('⚖ D-33 R2 — the gap-fill row\'s zeroLabel reads the zero state, one spelling', async () => {
+    // Under the suite's opsConfig override door with gapFillMinMin: 0 the row
+    // reads its own zero label alone — no discount clause for a slot that is
+    // not sold.
     jest.doMock('@/business/lib/fixtures-today', () => {
       const actual = jest.requireActual('@/business/lib/fixtures-today')
       return { ...actual, opsConfig: { ...actual.opsConfig, gapFillMinMin: 0 } }
@@ -2842,16 +2841,20 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     })
     jest.dontMock('@/business/lib/fixtures-today')
     const props0 = (await mod0.settingsProps({ locale: 'ja', store: STORE_A })).props
-    const aside0 = asideLineOf(props0, 'スキマ枠')
-    // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
-    expect(aside0).toBe('販売なし')
-    expect(aside0).not.toContain('0分')
-    expect(aside0).not.toContain('%引き')
-
-    // (c) the row's own zeroLabel and the aside's zero value are the SAME
-    // string, read through the two payload paths — not a typed literal twice.
     const gapfillCtrl0 = controlOf(props0, 'reserve.gapfill').control
-    expect(gapfillCtrl0.kind === 'number' ? gapfillCtrl0.zeroLabel : undefined).toBe(aside0)
+    const zero0 = gapfillCtrl0.kind === 'number' ? gapfillCtrl0.zeroLabel : undefined
+    // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
+    expect(zero0).toBe('販売なし')
+    expect(zero0).not.toContain('0分')
+    expect(zero0).not.toContain('%引き')
+  })
+
+  it('③ — the two Reserve 受付 facts render from the code\'s own constants', async () => {
+    const props = await room({ store: STORE_A })
+    const facts = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!.facts
+    expect(facts).toContain(`受付できるのは営業時間の範囲内だけです。価格は時間帯ごとの価格を分単位で按分し、¥${PRICE_UNIT_YEN}単位で表示します。`)
+    const grid = facts.map((f) => /^お客様が選べる開始時刻の(.+)きざみは、今日の運営のお客様向け表示が読む値です。$/.exec(f)).find(Boolean)
+    expect(grid?.[1]).toBe(minutesLabel(opsConfig.reserveStartGridMin))
   })
 
   it('⚖ D-31/D-32 F4 §B — each zero-capable row’s description states what 0 means, verbatim', async () => {
@@ -3971,7 +3974,6 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
       expect(c.control).not.toHaveProperty('required')
     }
     expect(Object.keys(words.words!.copy.problems).sort()).toEqual(['bar', 'empty', 'full', 'length', 'pair', 'reserved', 'space', 'trim'])
-    expect(section.aside).toBeNull()
     expect(wordsSentences(words.words!, seedOf(props), labelOfValue(typeControl.control, typeControl.value)).example)
       .toBe(section.blocks.find((b) => b.id === 'people.equipment')!.facts[0])
     const added = section.blocks.filter((b) => ['people.business-type', 'people.words'].includes(b.id))
@@ -4031,11 +4033,10 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     expect(sectionOf(props, 'people-equipment').blocks).toEqual([])
   })
 
-  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks and no aside', async () => {
+  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks', async () => {
     const props = await withoutStores(true)
     const section = sectionOf(props, 'people-equipment')
     expect(section.blocks.map((b) => b.id)).toEqual(['people.staff', 'people.equipment', 'people.room-policy', 'people.shifts'])
-    expect(section.aside).toBeNull()
   })
 
   it('S29 — no stores (no business type) keeps the 設備・枠 title and its 台数 note byte-for-byte', async () => {

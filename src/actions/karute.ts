@@ -860,9 +860,10 @@ export interface KaruteRevealCandidate {
  *     karute at another branch still has none HERE, so they still reveal.
  *   - customers.enrichment() is BUSINESS-WIDE by declaration and is BANNED
  *     for this check; only a direct store-scoped karuteRecords.list qualifies.
- * `degraded` scope is intentionally NOT special-cased here (store-scope.ts's
- * own doc: reads ignore it, only a WRITE clamp fails closed on it — this is
- * a pure read, same posture as the sessions screen / page reads).
+ * A `degraded` scope needs no special case here: since Round 2 (2026-09-24,
+ * D-S16-4) resolveStoreScope shapes it as `allowedStoreIds: []` with a null
+ * storeId, which the clamp-with-no-store guard below answers with no
+ * candidate — never an unscoped search.
  */
 export async function revealNoKaruteCustomer(
   query: string,

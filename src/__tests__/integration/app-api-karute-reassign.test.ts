@@ -95,7 +95,8 @@ jest.mock('@/lib/synqed/client', () => ({
     customers: { get: customersGet, list: customersList, listPhotos: customersListPhotos },
     packs: { listRedemptions: packsListRedemptions },
     staffStores: { get: staffStoresGet },
-    stores: { get: jest.fn(async (id: string) => ({ id })) },
+    // One store: floating = the single-store carve-out (readable list required).
+    stores: { get: jest.fn(async (id: string) => ({ id })), list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   }),
 }))
 

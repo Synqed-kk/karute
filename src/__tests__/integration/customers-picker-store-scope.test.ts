@@ -7,9 +7,9 @@
  * store-clamped by construction. The facade twin lives in
  * app-api-screens-appointments.test.ts.
  *
- * Reads ignore `degraded` (shipped F-A convention, store-scope.ts) — the
- * menus-picker sibling's fail-closed blindness is the WRITE-offer posture and
- * is deliberately NOT copied here.
+ * A degraded scope (an unreadable assignment) reaches no store since Round 2
+ * (2026-09-24, D-S16-4, discussed, default): resolveStoreScope shapes it as
+ * `allowedStoreIds: []` with a null storeId, and the combobox ships EMPTY.
  *
  * Same harness as menus-picker-store-scope.test.ts: the page is invoked as the
  * plain async function it is and its element tree is read — no render.
@@ -143,10 +143,12 @@ describe('予約 picker customer scope (web page)', () => {
     expect(await pickerCustomers()).toEqual(ALL)
   })
 
-  it('a degraded assignment lookup stays business-wide — reads ignore F-A', async () => {
+  // Round 2 — INVERTED (the F-A "reads ignore degraded" shape is gone).
+  it('a degraded assignment lookup reaches NO store — an EMPTY combobox, never business-wide', async () => {
     resolveStoreScope.mockResolvedValue({
-      storeId: MINE, viewAll: false, allowedStoreIds: null, degraded: true,
+      storeId: null, viewAll: false, allowedStoreIds: [], degraded: true,
     })
-    expect(await pickerCustomers()).toEqual(ALL)
+    expect(await pickerCustomers()).toEqual([])
+    expect(getCachedCustomerList).not.toHaveBeenCalled()
   })
 })

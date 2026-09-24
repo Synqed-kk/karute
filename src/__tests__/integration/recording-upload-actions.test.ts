@@ -311,13 +311,18 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
   // Fix round 4: a take the SERVER names is a fresh uuid nobody could have
   // claimed, so it binds to no row — core is never touched, and the client is
   // told there is no session to stamp.
-  it('a server-named take reserves NOTHING — no core read, no core write', async () => {
-    const res = await mintOk()
-    expect(res.recordingSessionId).toBeNull()
-    expect(get).not.toHaveBeenCalled()
-    expect(create).not.toHaveBeenCalled()
-    expect(update).not.toHaveBeenCalled()
-    expect(info).not.toHaveBeenCalled()
+  it('a server-named take reserves NOTHING — no core read, no core write (switch OFF)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', false)
+    try {
+      const res = await mintOk()
+      expect(res.recordingSessionId).toBeNull()
+      expect(get).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+      expect(update).not.toHaveBeenCalled()
+      expect(info).not.toHaveBeenCalled()
+    } finally {
+      off.restore()
+    }
   })
 
   it('gates on records.write BEFORE minting anything — a denial settles, never throws', async () => {
@@ -603,10 +608,15 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     expectNoBinding()
   })
 
-  it('NEVER creates a row, on any path — one door mints, and it is not this one', async () => {
-    await mintOk(named)
-    await mintOk()
-    expect(create).not.toHaveBeenCalled()
+  it('NEVER creates a row, on any path — one door mints, and it is not this one (switch OFF)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', false)
+    try {
+      await mintOk(named)
+      await mintOk()
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      off.restore()
+    }
   })
 
   // H1 (round 5): the web door has no schema of its own — mintTakeUploadUrl is

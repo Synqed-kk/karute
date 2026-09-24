@@ -20,12 +20,13 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { canReadAuditLog } from '@/lib/auth/audit-read'
 
 import { createClient } from '@/lib/supabase/server'
-import { listStores, getActiveStoreId } from '@/actions/stores'
-import { resolveStoreScope, viewerStaffRoster } from '@/lib/auth/store-scope'
+import { listStores } from '@/actions/stores'
+import { resolveShellGate, resolveStoreScope, viewerStaffRoster } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import { redirect } from 'next/navigation'
-import { viewerIsUnassigned } from '@/lib/auth/store-scope'
 import { UnassignedStoreScreen } from '@/components/layout/UnassignedStoreScreen'
+import { StoreOutageScreen } from '@/components/layout/StoreOutageScreen'
+import { RemovedStaffScreen } from '@/components/layout/RemovedStaffScreen'
 
 export default async function DashboardLayout({
   children,
@@ -61,13 +62,21 @@ export default async function DashboardLayout({
   // It costs no extra round trip in the steady state: the staff id and the
   // capability set it resolves are React-memoized and every surface below
   // reads the same two answers (see actorIsUnassigned).
-  if (await viewerIsUnassigned()) return <UnassignedStoreScreen />
+  //
+  // Round 2 (2026-09-24, D-S16-4, discussed, default): a store, roster or
+  // permission read that FAILED gets the outage screen — no data, never blank.
+  // Round 3 leg 1 (D-S19-1, lead): a person a manager REMOVED from the business
+  // gets their own screen first — sign-out only, never the retrying outage.
+  const gate = await resolveShellGate()
+  if (gate === 'removed') return <RemovedStaffScreen />
+  if (gate === 'unassigned') return <UnassignedStoreScreen />
+  if (gate === 'outage') return <StoreOutageScreen />
 
-  // RBAC store scope — resolved ONCE, shared by the switcher AND the
-  // notification feed (the feed must read through the same clamped lens as
-  // every other store-scoped surface — see #465).
-  const storeScopePromise = resolveStoreScope().catch(() => null)
-  const [staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores, activeStore, storeScope] = await Promise.all([
+  // RBAC store scope — resolved ONCE (memoized; the gate just resolved it),
+  // shared by the switcher AND the notification feed (the feed must read
+  // through the same clamped lens as every other store-scoped surface — #465).
+  const storeScope = await resolveStoreScope()
+  const [staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores] = await Promise.all([
     getStaffList(),
     getCurrentUserStaffId(),
     getOrgSettings(),
@@ -80,16 +89,14 @@ export default async function DashboardLayout({
     // seeded here the same way the dashboard seeds packAlerts into its card.
     // Best-effort: a failure degrades to an empty feed (bell shows no badge),
     // never blocks the app shell.
-    Promise.all([getBusinessId(), storeScopePromise, getMyCapabilities().catch(() => null)])
-      .then(([businessId, scope, caps]) =>
-        // Fail CLOSED on scope-resolution failure (scope === null): an empty
-        // feed, never an unfiltered business-wide one. A RESOLVED scope with
-        // storeId null (business has no stores) keeps the unfiltered feed.
-        // scope.storeId null = "no filter" inside every derived read, so an
-        // actor who reaches NO store gets an empty bell, not the business's
-        // (⚖ Liam 2026-09-16; census §7).
-        scope && !reachesNoStore(scope)
-          ? buildNotificationFeed(businessId, locale, scope.storeId, {
+    Promise.all([getBusinessId(), getMyCapabilities().catch(() => null)])
+      .then(([businessId, caps]) =>
+        // A RESOLVED scope with storeId null (business has no stores) keeps
+        // the unfiltered feed. scope.storeId null = "no filter" inside every
+        // derived read, so an actor who reaches NO store gets an empty bell,
+        // not the business's (⚖ Liam 2026-09-16; census §7).
+        !reachesNoStore(storeScope)
+          ? buildNotificationFeed(businessId, locale, storeScope.storeId, {
               // The 監査ログ rule (audit.view AND stores.viewAll) — the only
               // viewers whose bell carries recording failures. Fails closed.
               viewerCanViewAudit: caps ? canReadAuditLog(caps) : false,
@@ -97,21 +104,17 @@ export default async function DashboardLayout({
           : [],
       )
       .catch(() => []),
-    // Multi-store header switcher data (best-effort; [] / null → switcher hides).
+    // Multi-store header switcher data (best-effort; [] → switcher hides).
     listStores().catch(() => []),
-    getActiveStoreId().catch(() => null),
-    // Which stores the switcher offers (a branch-restricted staff only sees
-    // their own) + which is active.
-    storeScopePromise,
   ])
 
   // A branch-restricted staff (storeScope.allowedStoreIds set) only sees their
-  // own store(s) in the switcher; the clamp also picks the active store. Cross-
-  // store viewers (or a failed scope resolve) keep the full list + raw cookie.
-  const visibleStores = storeScope?.allowedStoreIds
+  // own store(s) in the switcher — `[]` lists none; the clamp also picks the
+  // active store. Cross-store viewers keep the full list.
+  const visibleStores = storeScope.allowedStoreIds
     ? stores.filter((s) => storeScope.allowedStoreIds!.includes(s.id))
     : stores
-  const switcherActiveStore = storeScope ? storeScope.storeId : activeStore
+  const switcherActiveStore = storeScope.storeId
 
   // Roster the session ships to the client (staff-switch drawer): a clamped
   // staff sees only their own store(s)' staff + themselves; cross-store

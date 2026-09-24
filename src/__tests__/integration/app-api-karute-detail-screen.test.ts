@@ -157,7 +157,8 @@ const fakeClient = {
   karuteOutcomes: { get: outcomeGet },
   recordings: { get: (id: string) => recordingsGet(id) },
   staffStores: { get: (id: string) => staffStoresGet(id) },
-  stores: { get: jest.fn(async () => ({ id: 'store-b' })) },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { get: jest.fn(async () => ({ id: 'store-b' })), list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   fetch: (path: string) => rawKaruteFetch(path),
   // Forwards the call's own options through — fix round 2's pagination tests
   // (piece 4 below) key their per-page fixtures off `opts.page`, which a

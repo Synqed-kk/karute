@@ -26,7 +26,7 @@
 // schema's field-pair rule — 400 without it).
 //
 // FIX PLAN v3 PR-2. A SERVER-named body can create one, but only with
-// RECORDING_SWITCHES.bindUnboundUploads ON (it ships OFF): the take's row, born
+// RECORDING_SWITCHES.bindUnboundUploads ON (it ships OFF (on 2026-09-24, off again 2026-09-25)): the take's row, born
 // on the key just signed. That row needs a store, so this door resolves one the
 // session door's way (session/route.ts:130-165) — lazily, inside
 // `bindIdentity`, which only that ON arm calls, and with every refusal or blip
@@ -78,7 +78,7 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   // ONLY a body that NAMES A SESSION pays for an identity UP FRONT — a
   // client-named take (which reserves a row) and, since fix round 7, a staged
   // copy (which reserves nothing but is bound to a session the SAME staff rule
-  // has to clear). With RECORDING_SWITCHES.bindUnboundUploads OFF (ships OFF),
+  // has to clear). With RECORDING_SWITCHES.bindUnboundUploads OFF (ships OFF (on 2026-09-24, off again 2026-09-25)),
   // a server-named mint stays byte-identical to before this round: no roster
   // read, and therefore none of its failure modes on the hot record-start
   // path. With the switch ON, a server-named mint still pays nothing up front
