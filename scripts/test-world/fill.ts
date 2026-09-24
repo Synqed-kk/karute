@@ -197,7 +197,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     // A foreign booking at the same customer + start is never adopted: it either clashes (skipped below) or the loader
     // makes its own tagged one beside it.
     const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
-    const mine = new Map<string, { id: string; status: string }>()
+    const mine = new Map<string, { id: string; status: string; customer_id: string | null }>()
     for (const a of window) {
       const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
       if (tag && a.store_id === storeId) mine.set(tag, a)
@@ -217,6 +217,8 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
       if (!cid || !sid || !rid || !mid) return void run.skipped.push(`appointments ${a.key}: missing customer/staff/bed/menu`)
       const have = mine.get(a.key)
+      // a booking staff reassigned to another customer is no longer ours: skipped, never written against
+      if (have && have.customer_id !== cid) return void run.skipped.push(`appointments ${a.key}: booking ${have.id} now belongs to another customer`)
       if (have) {
         if (!dry) (st.created.appointments ??= {})[a.key] = have.id
         return void apptRow.set(a.key, have)

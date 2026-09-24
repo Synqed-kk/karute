@@ -283,6 +283,23 @@ async function main() {
   assert.deepEqual(mB.stores[STORE].created.appointments, mA.stores[STORE].created.appointments, 'the recovery re-learns the booking ids')
   assert.deepEqual(mB.stores[STORE].created.packs, mA.stores[STORE].created.packs, 'the recovery re-learns the pack ids')
 
+  // A loader booking staff reassigned to another customer (its tag cleared too) is no longer ours: the re-run skips it
+  // with one line — no new booking, no karute or burn written against it, every other key unchanged.
+  const fg = fakeCore()
+  const mg = empty()
+  assert.equal(await apply(fg.core, opts(mg)), 0)
+  const rb = fg.t.appts.find((x) => x.id === mg.stores[STORE].created.appointments![ab.key])!
+  Object.assign(rb, { customer_id: 'someone-else', notes: null })
+  const onRb = () => [fg.t.karutes.filter((k) => k.appointment_id === rb.id).length, fg.t.burns.filter((b) => b.appointment_id === rb.id).length]
+  const [rbBefore, gWrites, gAppts, gIds] = [onRb(), fg.stats.writes, fg.t.appts.length, { ...mg.stores[STORE].created.appointments }]
+  assert.deepEqual(rbBefore, [1, 1], 'run A put one karute and one burn on the booking')
+  assert.equal(await apply(fg.core, opts(mg)), 0)
+  assert.deepEqual([...mg.runs[1].skipped].sort(), [...binLines, `appointments ${ab.key}: booking ${rb.id} now belongs to another customer`].sort(), 'a reassigned booking is skipped with one line')
+  assert.equal(fg.t.appts.length, gAppts, 'reassigned: no new booking')
+  assert.deepEqual(onRb(), rbBefore, 'reassigned: no karute or burn beyond run A\'s')
+  assert.equal(fg.stats.writes, gWrites, 'reassigned: 0 new rows overall')
+  assert.deepEqual(mg.stores[STORE].created.appointments, gIds, 'the manifest is left as it is')
+
   // A 409 is recorded, never retried, and exits 4; 5xx is retried, 409 is not.
   const c409 = fakeCore({ fail409: true })
   const m409 = empty()
