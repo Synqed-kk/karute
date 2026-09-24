@@ -113,14 +113,11 @@ export function rng(seed: string): () => number {
   }
 }
 
-/** Who may take an overflow visit (the customer's own 担当 is busy): every role but ASSISTANT (the 受付). */
-export const canTreat = (s: { role: StaffRole }) => s.role !== 'ASSISTANT'
-
 /** The minute a customer of that day-part prefers, from the day's own hours: am = opening, pm = the middle of the day
- *  (on the slot grid), eve = the last start that leaves one slot before closing. No fixed clock times. */
+ *  (the sort picks the nearest real start), eve = the last start that leaves one slot before closing. No fixed clock times. */
 export function preferredStart(h: { open: string; close: string }, part: 'am' | 'pm' | 'eve', duration: number, slot: number): number {
   const [open, close] = [mins(h.open), mins(h.close)]
-  return part === 'am' ? open : part === 'pm' ? Math.floor((open + close) / 2 / slot) * slot : close - duration - slot
+  return part === 'am' ? open : part === 'pm' ? (open + close) / 2 : close - duration - slot
 }
 
 export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: WeeklyHours }, today: string, epoch: string): Plan {
@@ -171,8 +168,9 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
       for (let s = mins(h.open); s + m.duration <= mins(h.close); s += n.slotMinutes) starts.push(s)
       const want = preferredStart(h, c.time, m.duration, n.slotMinutes)
       starts.sort((a, b) => Math.abs(a - want) - Math.abs(b - want) || a - b)
-      // weights drawn for every other card BEFORE the role filter: the same r() count as before keeps the bed picks stable
-      const others = recipe.staff.filter((s) => s.name !== c.staff).map((s) => ({ s, w: r() })).filter((x) => canTreat(x.s)).sort((a, b) => a.w - b.w).map((x) => x.s.name)
+      // weights drawn for every other card BEFORE the role filter: the same r() count as before keeps the bed picks stable;
+      // the 受付 (ASSISTANT) never takes an overflow visit; the customer's own 担当 may be anyone
+      const others = recipe.staff.filter((s) => s.name !== c.staff).map((s) => ({ s, w: r() })).filter((x) => x.s.role !== 'ASSISTANT').sort((a, b) => a.w - b.w).map((x) => x.s.name)
       const beds = recipe.resources.filter((x) => x.room_class === 'private' || !m.private).map((x) => ({ x, w: Number(x.room_class === 'private') + r() })).sort((a, b) => a.w - b.w).map((b) => b.x) // private room last
       let slot: { s: number; staff: string; bed: string } | undefined
       for (const s of starts) {
