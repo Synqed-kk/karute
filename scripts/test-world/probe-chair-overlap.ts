@@ -5,7 +5,9 @@
 // A = HS-0001, chair 1, 11:00–12:30 リタッチカラー, then B = HS-0002, chair 2, 11:30–12:00 シャンプー＆ブロー, SAME stylist (the recipe's
 // first STYLIST), on the first open day from tomorrow when the stylist and both chairs are free 11:00–13:00 (else A clashes with a
 // fill booking and proves nothing). A 409 on B is the finding. Both rows stay; nothing is deleted. Same pin as fill.ts.
-// Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (never printed). Exit: 0 ok, a 409 included · 1 other error · 2 REFUSED.
+// Keys and notes carry the probe day, so a rerun on another day books afresh instead of replaying an old booking.
+// Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (never printed). Exit: 0 ok, a 409 on B included · 1 other error · 2 REFUSED ·
+// 3 inconclusive (A was not created, so B proves nothing).
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { jstToday, loadRecipe, registry } from './fill'
@@ -37,14 +39,14 @@ async function main(): Promise<number> {
   console.log(`probe day ${day} · stylist ${stylist.name} · chairs ${r.resources[0].name} / ${r.resources[1].name}`)
   let madeA = false
   for (const [k, member, chair, menuName, from, to] of [['A', 'HS-0001', c1, 'リタッチカラー', 660, 750], ['B', 'HS-0002', c2, 'シャンプー＆ブロー', 690, 720]] as const) {
-    if (k === 'B' && !madeA) return (console.log('B status skipped id - message A was not created: the probe proves nothing'), 0)
+    if (k === 'B' && !madeA) return (console.log('B status skipped id - message A was not created: inconclusive'), 3)
     const menu = need(menus.find((m) => m.name === menuName), menuName)
     const customer = need(customers.find((c) => c.member_number === member), member)
     try {
       const row = await core.appointments.create({
         customer_id: customer.id, staff_id: stylist.id, store_id: store, menu_id: menu.id, resource_id: chair, starts_at: jstIso(day, from), ends_at: jstIso(day, to), duration_minutes: to - from,
-        booked_price_amount: menu.price_list_amount, booked_price_currency: 'JPY', status: 'SCHEDULED', source: 'MANUAL', title: null, notes: `テストデータ [tw:probe:hair_salon:${k}]`,
-      }, { idempotencyKey: `test-world:probe:${k}` })
+        booked_price_amount: menu.price_list_amount, booked_price_currency: 'JPY', status: 'SCHEDULED', source: 'MANUAL', title: null, notes: `テストデータ [tw:probe:hair_salon:${day}:${k}]`,
+      }, { idempotencyKey: `test-world:probe:${day}:${k}` })
       madeA ||= k === 'A'
       console.log(`${k} status created id ${row.id} message -`)
     } catch (e) {
