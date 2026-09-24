@@ -179,8 +179,11 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     await pool(p.packs, async (k) => {
       const cid = custId.get(k.member)
       if (!cid) return void run.skipped.push(`packs ${k.key}: ${binned.has(k.member) ? `customer ${k.member} is in the bin` : 'no customer'}`)
-      // Only a pack the loader made (notes start テストデータ) is ours — a pack sold by hand is never adopted or burnt.
-      const have = dry && cid.startsWith('dry:') ? undefined : (await read(() => core.packs.listPacks(cid))).find((x) => x.kind === 'pack' && x.purchase_round === 1 && (x.notes ?? '').startsWith('テストデータ'))
+      // ours = the id this loader recorded, else the notes/tag (a staff edit of the notes must not make a second row).
+      // A pack sold by hand (no recorded id, no テストデータ note) is never adopted or burnt.
+      const rec = st.created.packs?.[k.key]
+      const list = dry && cid.startsWith('dry:') ? undefined : await read(() => core.packs.listPacks(cid))
+      const have = list?.find((x) => x.id === rec) ?? list?.find((x) => x.kind === 'pack' && x.purchase_round === 1 && (x.notes ?? '').startsWith('テストデータ'))
       const id = have?.id ?? (await write('packs', k.key, () => core.packs.createPack({
         customer_id: cid, kind: 'pack', pack_size: k.size, unit_price: k.unitPrice, total_price: k.unitPrice * k.size, purchase_round: 1,
         purchased_at: k.purchasedOn, source: 'manual', notes: `テストデータ [${k.key}]`, created_by: staffId.get(k.staff) ?? null,
@@ -188,13 +191,18 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (id) packId.set(k.key, id)
     })
 
-    // Appointments: ours are found by the fill tag in the notes only. A foreign booking at the same customer + start is
-    // never adopted: it either clashes (skipped below) or the loader makes its own tagged one beside it.
+    // ours = the id this loader recorded, else the notes/tag (a staff edit of the notes must not make a second row).
+    // A foreign booking at the same customer + start is never adopted: it either clashes (skipped below) or the loader
+    // makes its own tagged one beside it.
     const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
     const mine = new Map<string, { id: string; status: string }>()
     for (const a of window) {
       const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
       if (tag && a.store_id === storeId) mine.set(tag, a)
+    }
+    for (const [key, id] of Object.entries(st.created.appointments ?? {})) {
+      const a = window.find((x) => x.id === id && x.store_id === storeId)
+      if (a) mine.set(key, a) // the recorded id wins over a tag match for the same key
     }
     // A CANCELLED / NO_SHOW booking frees its slot — the app's own rule (isTerminalStatus, src/lib/appointments/status.ts).
     const clash = (a: Plan['appointments'][number], sid: string, rid: string) => {

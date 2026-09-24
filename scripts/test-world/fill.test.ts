@@ -218,6 +218,51 @@ async function main() {
   assert.equal(own.length, 1, 'the loader made its own tagged booking')
   assert.equal(fd.t.karutes.filter((k) => k.appointment_id === own[0].id).length, 1, 'the karute sits on the loader\'s own booking')
 
+  // Ours = the id this loader recorded, else the notes/tag: a staff edit of the notes never makes a second row.
+  // (a) Core refuses every burn once (400); staff then change the pack's note → the re-run finds the pack by its
+  // recorded id, makes no second one, and the burns land on it.
+  const fn = fakeCore()
+  const mn = empty()
+  const addRedemption = fn.core.packs.addRedemption
+  Object.assign(fn.core.packs, { addRedemption: async () => Promise.reject(Object.assign(new Error('refused'), { status: 400 })) })
+  assert.equal(await apply(fn.core, opts(mn)), 1)
+  Object.assign(fn.core.packs, { addRedemption })
+  const pk = fn.t.packs.find((x) => x.id === mn.stores[STORE].created.packs![k0.key])!
+  pk.notes = 'メモ'
+  assert.equal(await apply(fn.core, opts(mn)), 0)
+  assert.equal(mn.runs[1].created.packs ?? 0, 0, 'an edited pack note: the re-run makes no second pack')
+  assert.deepEqual(fn.t.packs.filter((x) => x.customer_id === pk.customer_id).map((x) => x.id), [pk.id], 'one pack on the customer')
+  assert.equal(fn.t.burns.filter((b) => b.pack_id === pk.id).length, k0.redeem.length, 'every burn lands on the recorded pack')
+  // (b) Staff clear a loader booking's note (its tag is gone) → the re-run finds it by its recorded id: no second
+  // booking, no clash skip, its karute and burn stay on it.
+  const fb = fakeCore()
+  const mb = empty()
+  assert.equal(await apply(fb.core, opts(mb)), 0)
+  const bk = fb.t.appts.find((x) => x.id === mb.stores[STORE].created.appointments![ab.key])!
+  bk.notes = null
+  assert.equal(await apply(fb.core, opts(mb)), 0)
+  assert.equal(mb.runs[1].created.appointments ?? 0, 0, 'an untagged booking: the re-run makes no second booking')
+  assert.deepEqual([...mb.runs[1].skipped].sort(), binLines, 'a booking whose tag was edited away is still ours (no clash skip)')
+  assert.equal(fb.t.appts.length, p1.appointments.length - binnedOnly(p1.appointments).length)
+  assert.equal(fb.t.karutes.filter((k) => k.appointment_id === bk.id).length, 1, 'its karute stays on it')
+  assert.equal(fb.t.burns.filter((b) => b.appointment_id === bk.id).length, 1, 'its burn stays on it')
+  // (c) A recorded id that no longer exists: the notes/tag match still finds the row (0 writes); with no row either,
+  // the row is made once — never a throw.
+  const fc = fakeCore()
+  const mc = empty()
+  assert.equal(await apply(fc.core, opts(mc)), 0)
+  mc.stores[STORE].created.packs![k0.key] = 'gone-pack'
+  mc.stores[STORE].created.appointments![ab.key] = 'gone-appt'
+  const fcWrites = fc.stats.writes
+  assert.equal(await apply(fc.core, opts(mc)), 0)
+  assert.equal(fc.stats.writes, fcWrites, 'a gone recorded id falls through to the notes/tag match: 0 writes')
+  const fz = fakeCore()
+  const mz = empty()
+  mz.stores[STORE] = { type: recipe.id, epoch: TODAY, weeklyHours: recipe.policy.weekly_hours, created: { packs: { [k0.key]: 'gone-pack' }, appointments: { [ab.key]: 'gone-appt' } } }
+  assert.equal(await apply(fz.core, opts(mz)), 0)
+  assert.equal(fz.t.packs.filter((x) => x.notes === `テストデータ [${k0.key}]`).length, 1, 'no row at all: the pack is made once')
+  assert.equal(fz.t.appts.filter((x) => x.notes === `テストデータ [${ab.key}]`).length, 1, 'no row at all: the booking is made once')
+
   // A 409 is recorded, never retried, and exits 4; 5xx is retried, 409 is not.
   const c409 = fakeCore({ fail409: true })
   const m409 = empty()
