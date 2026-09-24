@@ -60,14 +60,16 @@ export const jstToday = (now = new Date()) => new Date(now.getTime() + 9 * 3_600
 const statusOf = (e: unknown) => (e as { status?: number } | null)?.status
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-/** 429 / 5xx retried with backoff, 5 retries at most; reads also retry a dropped connection. Never a 409. */
-export async function withRetry<T>(fn: () => Promise<T>, write: boolean, wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<T> {
+/** Retried with backoff, 5 retries at most, never a 409. A read: 429 / 5xx / a dropped connection. A keyed write (sent
+ *  with an idempotencyKey — core replays it): 429 / 5xx. An unkeyed create: 429 only — a 5xx may come after the commit,
+ *  and a resend would make a second row; it is recorded as an error and the next run heals it by natural key. */
+export async function withRetry<T>(fn: () => Promise<T>, write: false | 'keyed' | 'unkeyed', wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn()
     } catch (e) {
       const s = statusOf(e)
-      if (attempt >= 5 || !(s === 429 || (s ?? 0) >= 500 || (s === undefined && !write))) throw e
+      if (attempt >= 5 || !(s === 429 || (write !== 'unkeyed' && (s ?? 0) >= 500) || (s === undefined && !write))) throw e
       await wait(500 * 2 ** attempt)
     }
   }
@@ -115,7 +117,9 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     if (dry) return { id: `dry:${key}` } as T & { id?: string }
     try {
       sent++
-      const row = (await withRetry(fn, true, o.wait)) as T & { id?: string }
+      // appointments.create and packs.addRedemption are the only creates the SDK takes an idempotencyKey on.
+      const keyed = section === 'appointments' || section === 'redemptions'
+      const row = (await withRetry(fn, keyed ? 'keyed' : 'unkeyed', o.wait)) as T & { id?: string }
       if (row?.id) ((st.created[section] ??= {})[key] = row.id)
       return row
     } catch (e) {

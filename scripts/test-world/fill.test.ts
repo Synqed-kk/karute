@@ -224,11 +224,29 @@ async function main() {
   assert.equal(await apply(c409.core, opts(m409)), 4)
   assert.ok(m409.runs[0].conflicts409.length > 0 && m409.runs[0].conflicts409[0].startsWith('appointments '))
   let calls = 0
-  await assert.rejects(withRetry(async () => { calls++; throw conflict('x') }, true, async () => {}))
+  await assert.rejects(withRetry(async () => { calls++; throw conflict('x') }, 'keyed', async () => {}))
   assert.equal(calls, 1, '409 never retried')
   calls = 0
-  assert.equal(await withRetry(async () => { if (++calls < 3) throw Object.assign(new Error('busy'), { status: 503 }); return 'ok' }, true, async () => {}), 'ok')
+  assert.equal(await withRetry(async () => { if (++calls < 3) throw Object.assign(new Error('busy'), { status: 503 }); return 'ok' }, 'keyed', async () => {}), 'ok')
   assert.equal(calls, 3, '5xx retried')
+
+  // One 503 on the first customer create and on the first booking create: the keyed booking is resent (1 row), the
+  // unkeyed customer is not (0 rows, 1 error line, exit 1) — and the next run heals it by member number.
+  const f5 = fakeCore()
+  const busy = Object.assign(new Error('busy'), { status: 503 })
+  const failed = new Map<unknown, Record<string, unknown>>() // api → the input its one 503 answered
+  for (const api of [f5.core.customers, f5.core.appointments] as unknown as Record<string, unknown>[]) {
+    const real = api.create as (i: Record<string, unknown>, ...a: unknown[]) => Promise<unknown>
+    api.create = async (i: Record<string, unknown>, ...a: unknown[]) => (failed.has(api) ? real(i, ...a) : (failed.set(api, i), Promise.reject(busy)))
+  }
+  const m5 = empty()
+  assert.equal(await apply(f5.core, opts(m5)), 1)
+  const lost = failed.get(f5.core.customers)!.member_number
+  assert.deepEqual(m5.runs[0].errors, [`customers ${lost}: busy`], 'one error line: the unkeyed create')
+  assert.equal(f5.t.customers.filter((c) => c.member_number === lost).length, 0, 'an unkeyed create is never resent after a 5xx')
+  assert.equal(f5.t.appts.filter((a) => a.notes === failed.get(f5.core.appointments)!.notes).length, 1, 'a keyed create is resent after a 5xx: 1 row')
+  assert.equal(await apply(f5.core, opts(m5)), 0)
+  assert.equal(f5.t.customers.filter((c) => c.member_number === lost).length, 1, 'the re-run makes the lost customer once')
 
   // (d) static: the loader has no delete call and never imports the deleting seeder's guard.
   for (const file of ['fill.ts', 'plan.ts', 'recipes/beauty_chiropractic.ts']) {
