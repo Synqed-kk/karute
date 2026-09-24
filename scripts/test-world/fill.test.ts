@@ -201,6 +201,20 @@ async function main() {
   assert.equal(fp.t.burns.filter((b) => b.pack_id === 'foreign-pack').length, 0, 'the hand-sold pack gets no redemption')
   assert.equal(fp.t.burns.filter((b) => b.pack_id === ownPacks[0].id).length, k0.redeem.length, 'every planned burn lands on the loader\'s own pack')
 
+  // An untagged COMPLETED booking of a recipe customer at a planned start (other card, other bed) is never adopted:
+  // it gets no karute and no burn; the loader makes its own tagged booking beside it.
+  const kb = p1.karutes.find((kr) => kr.member !== 'BC-0003' && p1.packs.some((k) => k.redeem.includes(kr.key)))!
+  const ab = p1.appointments.find((a) => a.key === kb.key)!
+  const fd = fakeCore()
+  fd.t.customers.push({ id: 'pre2', name: 'x', member_number: ab.member })
+  fd.t.appts.push({ id: 'foreign-done', store_id: STORE, customer_id: 'pre2', staff_id: 'dev', resource_id: 'foreign-bed', starts_at: ab.startsAt, ends_at: ab.endsAt, occupied_until: null, notes: null, status: 'COMPLETED' })
+  assert.equal(await apply(fd.core, opts(empty())), 0)
+  assert.equal(fd.t.karutes.filter((k) => k.appointment_id === 'foreign-done').length, 0, 'no karute on a foreign booking')
+  assert.equal(fd.t.burns.filter((b) => b.appointment_id === 'foreign-done').length, 0, 'no burn on a foreign booking')
+  const own = fd.t.appts.filter((x) => x.notes === `テストデータ [${ab.key}]`)
+  assert.equal(own.length, 1, 'the loader made its own tagged booking')
+  assert.equal(fd.t.karutes.filter((k) => k.appointment_id === own[0].id).length, 1, 'the karute sits on the loader\'s own booking')
+
   // A 409 is recorded, never retried, and exits 4; 5xx is retried, 409 is not.
   const c409 = fakeCore({ fail409: true })
   const m409 = empty()
