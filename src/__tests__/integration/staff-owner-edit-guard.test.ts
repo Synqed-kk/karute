@@ -185,6 +185,25 @@ it('a manager editing a NON-owner row is untouched by the guard', async () => {
   expect(updatePayloads).toEqual([expect.objectContaining({ full_name: '別名' })])
 })
 
+// The reserved-name rule on its own: a NON-owner row, where the owner guard
+// has nothing to say — both doors still refuse a system-row name, any case.
+it.each(['_system_x', '_SYSTEM_x'])('a manager naming a NON-owner row %j is refused on both doors', async (name) => {
+  row = { id: 'staff-9', customer_id: 'business-1', full_name: '山田', display_role: 'stylist' }
+  const body = { ...CLEAN, name }
+  expect(await updateStaff('staff-9', body)).toEqual({ error: expect.any(String) })
+  const res = await PATCH(
+    new Request('https://s/api/app/v1/staff/staff-9', {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${bearer()}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ id: 'staff-9' }) },
+  )
+  expect(res.status).toBe(400)
+  expect(updatePayloads).toHaveLength(0)
+  expect(fakeClient.staff.update).not.toHaveBeenCalled()
+})
+
 describe('a failed profile lookup fails CLOSED — no write on either door', () => {
   beforeEach(() => {
     lookupError = { message: 'db down' }

@@ -1,7 +1,18 @@
 import { z } from 'zod'
 
+/** Names reserved for system rows: the roster hides `full_name ILIKE
+ *  '_system_%'` and the identity seam refuses `_system_removed_`, so a person
+ *  given one drops off the roster or is locked out. Case-insensitive like the
+ *  ILIKE; each schema tests the TRIMMED value. The one home — both name writers
+ *  (this schema and inviteSchema) import it. */
+export const RESERVED_STAFF_NAME = /^_system_/i
+
 export const staffProfileSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100, 'Name is too long'),
+  name: z
+    .string()
+    .min(1, 'Name is required')
+    .max(100, 'Name is too long')
+    .refine((v) => !RESERVED_STAFF_NAME.test(v.trim())),
   position: z.string().max(100),
   email: z.string(),
   phone: z.string().max(20),
