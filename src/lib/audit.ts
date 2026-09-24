@@ -854,9 +854,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // row: both emits live at this one endpoint's one choke point.
   // coveredBy = the client-named write only. The switch-ON server-named arm
   // (RECORDING_SWITCHES.bindUnboundUploads, ships OFF (on 2026-09-24, off again 2026-09-25)) files a row with NO
-  // audit of its own — same coverage as recordings.session.mint above (karute
-  // save). check-audit-weakening.mjs cannot see this; re-read this line before
-  // the flip (recording-switches.ts condition 5).
+  // audit of its own, and today NO karute save targets it either (no client
+  // adopts the id it returns). What IS covered as of S33: an upload whose
+  // recording already has a row never reaches that create ('attach_failed'),
+  // and every server-named upload is counted per business by the
+  // `[mint-take-url] unbound upload` log line. check-audit-weakening.mjs cannot
+  // see this; re-read this line before any re-flip (recording-switches.ts
+  // condition 5).
   'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now

@@ -282,10 +282,10 @@ export const AUDITED_CORES: {
   // server-named take reserves nothing and files no row — with
   // RECORDING_SWITCHES.bindUnboundUploads OFF (ships OFF (on 2026-09-24, off again 2026-09-25)); ON, that arm files a
   // row through startRecordingSessionWithClient (session-mint.ts), which
-  // carries no audit() and is NOT covered by auditTakeNamed — the row is
-  // covered the same way recordings.session.mint's is
-  // (karute.core.ts#createOrUpdateKaruteRecord at save; inbox 復元可能/失敗 until
-  // then), see audit.ts's map entry) and carries no audit() of its own, so
+  // carries no audit() and is NOT covered by auditTakeNamed — nor by a karute
+  // save yet, since no client adopts that row's id; it shows only as an inbox
+  // 復元可能/失敗 row, and an upload whose recording already has a row never
+  // reaches it (S33 'attach_failed'), see audit.ts's map entry) and carries no audit() of its own, so
   // CP7's registry-reality cross-check (exported symbols only) can never
   // require this entry — recording-upload-actions.test.ts pins it directly
   // instead.

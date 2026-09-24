@@ -1,7 +1,7 @@
 /**
  * ⚖ THE SERVER-NAMED UPLOAD GETS A ROW (fix plan v3 PR-2), behind
- * RECORDING_SWITCHES.bindUnboundUploads — ON since 2026-09-24 (shipped OFF);
- * both states stay pinned below.
+ * RECORDING_SWITCHES.bindUnboundUploads — it ships OFF (on 2026-09-24, off
+ * again 2026-09-25); both states stay pinned below.
  *
  * With the switch OFF the upload door answers exactly as it always did: a
  * server-named take is signed and bound to no row, and nothing new is read.
