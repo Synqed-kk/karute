@@ -1058,7 +1058,11 @@ export function RecordPageView({
   // built for is solved by naming the row correctly instead of destroying it.
   //
   // The SYSTEM/abandoned cleanup is RETIRED too (2026-09-24): nothing in the
-  // app hard-deletes a recording row; a discarded session stays a grayed row.
+  // app hard-deletes a recording row. A STAFF discard (a reason in core's
+  // discard ledger) renders as a grayed 破棄済み row; an abandoned session
+  // simply stays and is NOT grayed — with no record, job, take or server audio
+  // behind it, the inbox reads it 処理中 for SESSION_UNSETTLED_GRACE_MS (3 h),
+  // then 失敗 (lib/recordings/inbox.ts).
 
   /** `keepTake` (A2-2): the take has been stamped `discardPending` and its audio
    *  is owed to the discard record, so this arm hands no take id on to be

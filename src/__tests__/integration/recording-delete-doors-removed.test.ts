@@ -303,7 +303,8 @@ describe('what REPLACED them', () => {
   // ⚖ NOTHING DELETED, SOFT ONLY (PR-4, 2026-09-24). session-cleanup was the
   // app's ONLY hard delete of a recording row. It is gone with its three doors
   // (web action, facade DELETE route, thin wrapper) and NOTHING replaced it: a
-  // discarded session stays as a grayed 破棄済み row. Deleted, not emptied — and
+  // staff discard stays as a grayed 破棄済み row, and an abandoned session simply
+  // stays, NOT grayed (処理中, then 失敗 after the grace). Deleted, not emptied — and
   // neither shape of that delete may come back anywhere in src/ or thin/.
   // Comment lines are skipped (store-clamp.ts's prose names both the session
   // route and DELETE), and test files are skipped, this one included. The
