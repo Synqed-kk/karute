@@ -371,6 +371,7 @@ async function main() {
       const storeId = storeOf.get(type)!
       const ctxT = { storeId, weeklyHours: r.policy.weekly_hours }
       const [staffNames, menuNames] = [new Set(r.staff.map((s) => s.name)), new Set(r.menus.map((x) => x.name))]
+      assert.equal(new Set(r.customers.map((c) => c.member)).size, r.customers.length, `${type}: member numbers are unique inside the recipe`)
       assert.ok(menuNames.has(r.firstMenu), `${type}: firstMenu is a menu`)
       for (const c of r.customers) assert.ok(staffNames.has(c.staff) && menuNames.has(c.menu) && menuNames.has(c.alt), `${type} ${c.member}: 担当 and menus are in the recipe`)
       for (const k of r.packs) assert.ok(r.customers.some((c) => c.member === k.member), `${type}: pack holder ${k.member} is a customer`)
