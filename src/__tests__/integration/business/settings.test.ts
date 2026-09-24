@@ -93,7 +93,7 @@ import {
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
-import { cardLookState, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
+import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
@@ -4207,6 +4207,13 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(nextSwatch('End', 2, 12)).toBe(11)
     expect(nextSwatch('Tab', 2, 12)).toBeNull()
     expect(nextSwatch('Enter', 2, 12)).toBeNull() // Enter/Space = the button's own click = a pick
+    // R-A1b-1 — the phone scales DOWN to a narrow column, never up, and an unlaid column keeps 1:1
+    expect(fitScale(500, 393)).toBe(1)
+    expect(fitScale(393, 393)).toBe(1)
+    expect(fitScale(289, 393)).toBeCloseTo(0.7354, 4)
+    expect(fitScale(0, 393)).toBe(1)
+    expect(fitScale(-5, 393)).toBe(1)
+    expect(LOOK_CODE).toContain('const scale = fitScale(strip.clientWidth)')
     // …and the markup that carries it: one radiogroup, radios with names and state, one tab stop.
     expect(LOOK_CODE).toContain('role="radiogroup" aria-labelledby="clPickHead"')
     expect(LOOK_CODE).toContain('role="radio"')

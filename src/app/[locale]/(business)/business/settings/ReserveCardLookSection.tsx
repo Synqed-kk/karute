@@ -42,6 +42,12 @@ export function nextSwatch(key: string, i: number, n: number): number | null {
   return null
 }
 
+/** The phone's paint scale in a column `stripWidth` wide: never above 1:1 (a strip wider than a phone
+ *  must not blow the card up), and a column not laid out yet (≤ 0) keeps 1:1. */
+export function fitScale(stripWidth: number, phoneW = PHONE_W): number {
+  return stripWidth <= 0 ? 1 : Math.min(1, stripWidth / phoneW)
+}
+
 const satin = (hex: string) => satinVars(hex) as CSSProperties
 
 export function ReserveCardLookSection({
@@ -90,7 +96,7 @@ export function ReserveCardLookSection({
     const strip = stripRef.current, phone = phoneRef.current
     if (!strip || !phone) return
     const fit = () => {
-      const scale = Math.min(1, strip.clientWidth / PHONE_W)
+      const scale = fitScale(strip.clientWidth)
       strip.classList.toggle('is-scaled', scale < 1)
       // 1:1 carries NO transform at all (the unset var leaves `transform` at none), so the proven pixels stand
       if (scale === 1) { strip.style.removeProperty('--cl-scale'); strip.style.removeProperty('--cl-h'); return }
