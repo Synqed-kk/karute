@@ -4182,7 +4182,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(sectionDirty(s, picked, seed)).toBe(true)
     expect(changedCount(s, picked, { ...picked })).toBe(0) // commitSection copies values into the baseline
     expect(SCREEN_CODE).toContain("if (section.cardLook) out[CARD_COLOR_ID] = section.cardLook.value ?? ''")
-    expect(SCREEN_CODE).toContain('onPick={(hex) => setValue(CARD_COLOR_ID, hex)}')
+    expect(SCREEN_CODE).toMatch(/onPick=\{\(hex\) => \{[^}]*setValue\(CARD_COLOR_ID, hex\)/) // G7: the pick also clears an old refusal
     expect(SCREEN_CODE).toContain('roomSave(section)')
   })
 

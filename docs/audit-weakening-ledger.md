@@ -640,3 +640,4 @@
   (Greptile rounds 2–3); a readable memo is never replaced, nothing is ever deleted · Opus 5.5
   builder on Fable's S29 fix-round ruling
   (PKT-S29-PR5-CHARGE-ONCE.md; recorder fix plan v3 §6 row 3)
+- 2026-09-24 · SDK_WRITE_ALLOWLIST:src/business/lib/practice-door/door.ts::orgSettings.upsert · the Business card-colour writer (A2): one key, palette-or-null, settings.manage, read-before-write; server log line per write, core audit row = R5 later · Fable 5.1 (lead, R-A2-4/R-A2-11) under the 7/27 parity rule · Liam's 9/24 fence yes · Liam is told before the merge word · core audit row = R5

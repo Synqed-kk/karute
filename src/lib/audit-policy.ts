@@ -980,6 +980,14 @@ export const SDK_WRITE_ALLOWLIST: {
       'Internal create-on-miss side effect of resolving a profiles.id to a synqed staff.id for an FK the booking flow needs — not a user-initiated "add staff" action; no facade/web action surface triggers this directly.',
     dated: '2026-07-27',
   },
+  {
+    file: 'src/business/lib/practice-door/door.ts',
+    call: 'orgSettings.upsert',
+    symbols: ['writeReserveCardColor'],
+    justification:
+      'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). ⚖ Liam 9/24 A2 (PKT-A2-CORE-WRITE R-A2-4/R-A2-11): one structured server log line per real write; a core audit row is R5 (later).',
+    dated: '2026-09-24',
+  },
 ]
 
 // ── RAW_SUPABASE_WRITE_ALLOWLIST ─────────────────────────────────────────────

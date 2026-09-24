@@ -325,7 +325,9 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
       // ⚖ A1b — `../reserve-card/card-color`: the card colour's ONE normaliser (the
       // port's boundary), so the door's `readReserveCardColor` never grows a second.
-      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', './actor', './registry', './sample-facade'],
+      // ⚖ A2 (Liam 9/24) — the ONE writer: `../reserve-card/palette` (the 12 it accepts), `./switch` (OFF has
+      // no writer) and a LAZY `./core-reach` (the write-only org-settings handle; the OFF path never loads it).
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-facade', './switch'],
       'src/business/lib/fixtures.ts': ['./clock'],
       // ⚖ D-15/D-24 (B2) — `./canon-logic/pricing` JOINED this inventory,
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
@@ -836,7 +838,12 @@ describe('the fixture data door', () => {
         './settings-props',
         './settings.css',
         '@/business/lib/admission',
+        // ⚖ A2 — `practiceDoorOn()`: カードの見た目's real save is offered only while the door is ON.
+        '@/business/lib/data',
       ],
+      // ⚖ A2 (Liam 9/24, R-A2-13) — the ONE Business write route: admission (the expected business) and the
+      // data seam, nothing else.
+      'src/app/api/business/card-color/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       'src/app/[locale]/(business)/business/settings/settings-props.ts': [
         // ⚖ S17 FOLD (A1) — ONE ASSEMBLY. 予約と確保's payload is built by the
         // section's own props file and handed through this one, so the route and
@@ -1208,23 +1215,56 @@ describe('the fixture data door', () => {
   })
 
   // §7 — FORBIDDEN ON THE READ PATH. Comment lines stripped first, as specifiersOf does.
-  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call', () => {
-    const FORBIDDEN = [
-      'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
-      '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
-      '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
-    ]
-    const files = readdirSync(join(ROOT, PRACTICE_DOOR)).filter((n) => n.endsWith('.ts'))
-    expect(files).toContain('door.ts')
+  // ⚖ A2 (Liam 9/24, R-A2-8) — the jest twin of the scanner's ONE write entry: door.ts only, the exact
+  // one-key line, once. Every other mutator token stays forbidden everywhere in the folder, door.ts included.
+  const WRITER = { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 }
+  const DOOR_FORBIDDEN = [
+    'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
+    '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
+    '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
+  ]
+  function doorHits(sources: Array<[string, string]>): string[] {
     const hits: string[] = []
-    for (const name of files) {
-      const code = readFileSync(join(ROOT, PRACTICE_DOOR, name), 'utf8')
+    for (const [name, src] of sources) {
+      let code = src
         .split('\n')
         .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
         .join('\n')
-      for (const bad of FORBIDDEN) if (code.includes(bad)) hits.push(`${name}: ${bad}`)
+      if (name === WRITER.file) {
+        const uses = code.split(WRITER.line).length - 1
+        if (uses > WRITER.count) hits.push(`${name}: the writer line ×${uses} > ${WRITER.count}`)
+        code = code.split(WRITER.line).join('') // only the exact line's text is exempt, never its neighbours
+      }
+      for (const bad of DOOR_FORBIDDEN) if (code.includes(bad)) hits.push(`${name}: ${bad}`)
     }
-    expect(hits).toEqual([])
+    return hits
+  }
+  const doorSources = (): Array<[string, string]> =>
+    readdirSync(join(ROOT, PRACTICE_DOOR))
+      .filter((n) => n.endsWith('.ts'))
+      .map((n) => [n, readFileSync(join(ROOT, PRACTICE_DOOR, n), 'utf8')])
+
+  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call but the ONE writer line', () => {
+    const sources = doorSources()
+    expect(sources.map(([n]) => n)).toContain('door.ts')
+    expect(sources.find(([n]) => n === WRITER.file)![1]).toContain(WRITER.line)
+    expect(doorHits(sources)).toEqual([])
+  })
+
+  it('the writer exemption fails closed: a second copy in door.ts, another upsert in door.ts, or the line elsewhere', () => {
+    const line = `  const saved = await writer.orgSettings.upsert({ settings: { reserve_card_color: next } })\n`
+    expect(doorHits([['door.ts', line]])).toEqual([])
+    expect(doorHits([['door.ts', line + line]])).toEqual(['door.ts: the writer line ×2 > 1'])
+    expect(doorHits([['door.ts', line + 'await x.orgSettings.upsert({ settings: {} })\n']])).toEqual(['door.ts: .upsert('])
+    expect(doorHits([['actor.ts', line]])).toEqual(['actor.ts: .upsert('])
+    expect(doorHits([['core-reach.ts', line]])).toEqual(['core-reach.ts: .upsert('])
+  })
+
+  it('R-A2-7: the one bound mutator is core-reach.ts’s `upsert.bind(` — once, and nowhere else in practice-door/', () => {
+    const binds = doorSources().flatMap(([name, src]) =>
+      [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
+    )
+    expect(binds).toEqual(['core-reach.ts: upsert.bind('])
   })
 })
 
