@@ -1004,7 +1004,7 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSe
  *  `clampPriceInputs` (HQ's 最低価格 floor) and `gapFillFloorTotal`; neither
  *  reads this constant. */
 const TICKET_FLOOR_RATIO = 0.7
-const floorPriceOf = (listPrice: number) => Math.round((listPrice * TICKET_FLOOR_RATIO) / 10) * 10
+const floorPriceOf = (listPrice: number) => Math.round((listPrice * TICKET_FLOOR_RATIO) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
 
 // ── 人・設備 ────────────────────────────────────────────────────────────────
 
