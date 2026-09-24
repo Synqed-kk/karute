@@ -253,13 +253,22 @@ describe('deriveInboxRows — the warned reasons', () => {
 // ── The inbox READ: which sessions are asked, and what a blip does ──────────
 const READ_NOW = new Date('2026-09-11T04:00:00.000Z')
 const iso = (msAgo: number) => new Date(READ_NOW.getTime() - msAgo).toISOString()
-const rec = (id: string, msAgo: number) => ({
+/** Two takes of ONE session: A was recorded (and warned about) first, then a
+ *  retake B moved the row's pointer to itself. */
+const TAKE_A = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+const TAKE_B = TAKE
+const keyOf = (takeId: string) => `app_${BIZ}_${takeId}.webm`
+const rec = (id: string, msAgo: number, audio_storage_path: string | null = keyOf(TAKE_B)) => ({
   id,
   customer_id: 'cust-1',
   staff_id: 'staff-1',
   duration_seconds: 300,
-  audio_storage_path: null,
+  audio_storage_path,
   created_at: iso(msAgo),
+})
+const warned = (takeId: string, reason: string) => ({
+  action: 'recording.capture_warned',
+  detail: { reason, warned_at: WARNED_AT, take_id: takeId },
 })
 const OLD_MS = SESSION_UNSETTLED_GRACE_MS + 60 * MIN
 const auditList = jest.fn(async (_opts: unknown): Promise<{ events: unknown[]; total: number }> => ({
@@ -288,7 +297,16 @@ const readClient = {
   recordingDiscards: { list: jest.fn(async () => ({ events: [], total: 0, page: 1, page_size: 200 })) },
   audit: { list: auditList },
 } as unknown as Parameters<typeof readRecordingsInbox>[0]['synqed']
-const read = () => readRecordingsInbox({ synqed: readClient, staffId: 'staff-1', businessId: BIZ, now: READ_NOW })
+// Storage answers "nothing there": the failed row stays failed, never 復元可能.
+const read = () =>
+  readRecordingsInbox({
+    synqed: readClient,
+    staffId: 'staff-1',
+    businessId: BIZ,
+    now: READ_NOW,
+    takeAudioProbe: async () => 'absent',
+    segmentsProbe: async () => false,
+  })
 const byId = (sessions: InboxServerSession[]) => Object.fromEntries(sessions.map((s) => [s.recordingSessionId, s]))
 
 describe('readRecordingsInbox — the warning fact', () => {
@@ -296,8 +314,8 @@ describe('readRecordingsInbox — the warning fact', () => {
     auditList.mockResolvedValueOnce({
       events: [
         { action: 'recording.karute_missing', detail: {} },
-        { action: 'recording.capture_warned', detail: { reason: 'server' } },
-        { action: 'recording.capture_warned', detail: { reason: 'device' } },
+        warned(TAKE_B, 'server'),
+        warned(TAKE_B, 'device'),
       ],
       total: 3,
     })
@@ -326,10 +344,30 @@ describe('readRecordingsInbox — the warning fact', () => {
 
   it('t5: a detail reason this build does not know attaches nothing', async () => {
     auditList.mockResolvedValueOnce({
-      events: [{ action: 'recording.capture_warned', detail: { reason: 'network' } }],
+      events: [warned(TAKE_B, 'network')],
       total: 1,
     })
     expect('captureWarning' in byId(await read())['sess-failed']).toBe(false)
+  })
+
+  it('t11: take A was warned, the RETAKE B failed with no fact of its own → generic; a fact for B → warned', async () => {
+    auditList.mockResolvedValueOnce({ events: [warned(TAKE_A, 'server'), warned(TAKE_A, 'device')], total: 2 })
+    expect('captureWarning' in byId(await read())['sess-failed']).toBe(false)
+
+    auditList.mockResolvedValueOnce({
+      events: [warned(TAKE_A, 'server'), warned(TAKE_B, 'device'), warned(TAKE_A, 'device')],
+      total: 3,
+    })
+    expect(byId(await read())['sess-failed'].captureWarning).toBe('device')
+  })
+
+  it('t11: a failed row whose pointer names no take is never asked — nothing to match a fact to', async () => {
+    ;(readClient.recordings.list as jest.Mock).mockResolvedValueOnce({
+      recordings: [rec('sess-failed', OLD_MS, null)],
+      total: 1,
+    })
+    await read()
+    expect(auditList).not.toHaveBeenCalled()
   })
 
   it('t7: the list call throws → no field, logged, the read still returns every session (row stays genericFailure)', async () => {

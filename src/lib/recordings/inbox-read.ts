@@ -500,7 +500,7 @@ export async function readRecordingsInbox({
     })
   }
 
-  await attachCaptureWarnings(synqed, rows, now.getTime())
+  await attachCaptureWarnings(synqed, rows, pointerBySession, businessId, now.getTime())
 
   return fillCustomerNames(rows, businessId)
 }
@@ -513,17 +513,34 @@ export async function readRecordingsInbox({
  * when there are none. The fact rides the session as `captureWarning`, and
  * every fold downstream (the screen's, the cron's) names it.
  *
+ * ⚖ THE FACT MUST BE ABOUT THIS ROW'S TAKE (fix round 1, Greptile P1). A
+ * session can be retaken, and a RETAKE moves the row's pointer to the new
+ * take (see deriveServerAudio's note), so a warning filed for take A says
+ * nothing about why take B failed. The row's own take is the one its storage
+ * POINTER names — parsed here, locally, and never put on the wire — and only
+ * a fact whose `detail.take_id` is that take counts. A row whose pointer names
+ * no take (null, staged, another tenant's) cannot be matched, so it is not
+ * asked at all.
+ *
  * A read that throws is not an answer: the session keeps no field (today's
  * generic line), the miss is logged, and the inbox still returns.
  */
 async function attachCaptureWarnings(
   synqed: Pick<SynqedClient, 'audit'>,
   rows: InboxServerSession[],
+  /** sessionId → the row's storage POINTER (readRecordingsInbox's local map). */
+  pointerBySession: ReadonlyMap<string, string>,
+  businessId: string,
   nowMs: number,
 ): Promise<void> {
-  const failed = deriveInboxRows({ sessions: rows, takes: [], now: nowMs })
-    .filter((r) => r.reason === 'genericFailure' && r.recordingSessionId)
-    .map((r) => r.recordingSessionId as string)
+  const takeIdBySession = new Map<string, string>()
+  for (const r of deriveInboxRows({ sessions: rows, takes: [], now: nowMs })) {
+    if (r.reason !== 'genericFailure' || !r.recordingSessionId) continue
+    const pointer = pointerBySession.get(r.recordingSessionId)
+    const parsed = pointer ? parseRecordingKey(pointer, businessId) : null
+    if (parsed?.kind === 'take') takeIdBySession.set(r.recordingSessionId, parsed.takeId)
+  }
+  const failed = [...takeIdBySession.keys()]
   if (failed.length > MAX_WARNING_READS) {
     console.warn(
       `[recordings-inbox] ${failed.length - MAX_WARNING_READS} oldest failed sessions ` +
@@ -545,8 +562,13 @@ async function attachCaptureWarnings(
             page_size: WARNING_PAGE_SIZE,
           })
           // Newest first (the SDK's own contract), so the first match is the
-          // latest raise. Only the two known codes are carried.
-          const fact = res.events.find((e) => e.action === 'recording.capture_warned')
+          // latest raise ON THIS ROW'S TAKE. Only the two known codes are carried.
+          const takeId = takeIdBySession.get(id)
+          const fact = res.events.find(
+            (e) =>
+              e.action === 'recording.capture_warned' &&
+              (e.detail as { take_id?: unknown } | null | undefined)?.take_id === takeId,
+          )
           const reason = (fact?.detail as { reason?: unknown } | null | undefined)?.reason
           const row = byId.get(id)
           if (row && (reason === 'device' || reason === 'server')) row.captureWarning = reason

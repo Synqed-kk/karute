@@ -42,6 +42,7 @@ type RecordingRow = {
   staff_id: string
   duration_seconds: number | null
   created_at: string
+  audio_storage_path?: string | null
 }
 type KaruteRow = { id: string; recording_session_id: string | null; staff_id: string }
 // SDK shape (recording-discards.d.ts's RecordingDiscardEvent) isn't a public
@@ -400,11 +401,19 @@ describe('GET recordings/inbox — the join', () => {
   it('PR-7: a warned 失敗 session ships ONE more key, captureWarning — a code, never text', async () => {
     // Past the 3h grace, no job, no record: the server-only fold calls it
     // genericFailure, so its warning fact is asked for (and only its).
+    const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
     recordingRows.current = [
-      { id: 'sess-mine', customer_id: 'cust-1', staff_id: 'auth-user-1', duration_seconds: 1380, created_at: nowIso(300) },
+      {
+        id: 'sess-mine',
+        customer_id: 'cust-1',
+        staff_id: 'auth-user-1',
+        duration_seconds: 1380,
+        created_at: nowIso(300),
+        audio_storage_path: `app_business-1_${TAKE}.webm`,
+      },
     ]
     auditList.mockResolvedValueOnce({
-      events: [{ action: 'recording.capture_warned', detail: { reason: 'device', warned_at: 'x', take_id: 'y' } }],
+      events: [{ action: 'recording.capture_warned', detail: { reason: 'device', warned_at: 'x', take_id: TAKE } }],
       total: 1,
     })
     const res = await GET(req(), noRoute)

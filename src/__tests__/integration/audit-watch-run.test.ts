@@ -17,6 +17,12 @@ import { INBOX_WINDOW_MS } from '@/lib/recordings/inbox'
 import { findNoSessionsToday } from '@/lib/audit-watch/find-no-sessions-today'
 
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn() }))
+// Storage says "nothing there" (recording hole PR-7's t10). Only a row that
+// names a take ever reaches these probes — every other fixture here names none.
+jest.mock('@/lib/recording/take-audio', () => ({ resolveTakeAudio: async () => 'absent' }))
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => ({ storage: { from: () => ({ list: async () => ({ data: [], error: null }) }) } }),
+}))
 
 // Fix round 3, finding 2 CONTRACT pin: wraps the REAL implementation (every
 // other test's behavior is untouched) just to record what run.ts calls it
@@ -172,20 +178,27 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     expect(result.list).toEqual([])
     expect(auditMock).not.toHaveBeenCalled()
     const client = (newSynqedClient as jest.Mock).mock.results[0].value
-    // One target-scoped dedupe read for THIS candidate, never retried — plus
-    // (recording hole PR-7) the inbox read's ONE warning-fact read for the
-    // same failed session. The other call on this mock is step (b)'s
-    // category-wide storm page walk.
+    // One target-scoped dedupe read for THIS candidate, never retried — the
+    // other call on this mock is step (b)'s category-wide storm page walk.
+    // (Recording hole PR-7's warning read never asks this row: its pointer
+    // names no take, so no fact could be matched to it — see t10 for one that does.)
     const targetScoped = (client.audit.list as jest.Mock).mock.calls.filter(([a]) => 'target_id' in a)
-    expect(targetScoped).toHaveLength(2)
+    expect(targetScoped).toHaveLength(1)
   })
 
   it('t10 (PR-7): a session the recorder was warned about is written with the warned reason, not the generic one', async () => {
-    ;(newSynqedClient as jest.Mock).mockReturnValue(
-      makeClient({
-        existingRows: [{ id: 'w1', action: 'recording.capture_warned', detail: { reason: 'device' } }],
-      }),
-    )
+    const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+    const client = makeClient({
+      existingRows: [{ id: 'w1', action: 'recording.capture_warned', detail: { reason: 'device', take_id: TAKE } }],
+    })
+    const [row] = (await client.recordings.list()).recordings
+    Object.assign(client.recordings, {
+      list: jest.fn(async () => ({
+        recordings: [{ ...row, audio_storage_path: `app_biz-1_${TAKE}.webm` }],
+        total: 1,
+      })),
+    })
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
     const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
     expect(result).toMatchObject({
       candidates: 1,
