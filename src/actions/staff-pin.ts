@@ -65,14 +65,13 @@ async function nonSelfPinDenial(
  *  2026-09-25). */
 async function resolvePinWriteActor(
   targetStaffId: string,
-  failedKey: 'pinSetFailed' | 'pinRemoveFailed',
 ): Promise<{ actingStaffId: string | null; denied: string | null } | { error: string }> {
   try {
     const actingStaffId = await getCurrentUserStaffId()
     const denied = await nonSelfPinDenial(targetStaffId, actingStaffId)
     return { actingStaffId, denied }
   } catch {
-    return { error: (await getTranslations('pin'))(failedKey) }
+    return { error: (await getTranslations('pin'))('pinChangeFailed') }
   }
 }
 
@@ -134,7 +133,7 @@ export async function setStaffPinCore(
  */
 export async function setStaffPin(staffId: string, pin: string): Promise<{ error?: string }> {
   // Non-self PIN writes: capability + store scope, BEFORE the core call.
-  const actor = await resolvePinWriteActor(staffId, 'pinSetFailed')
+  const actor = await resolvePinWriteActor(staffId)
   if ('error' in actor) return actor
   const { actingStaffId, denied } = actor
   if (denied) return { error: denied }
@@ -202,7 +201,7 @@ export async function removeStaffPinCore(
  */
 export async function removeStaffPin(staffId: string): Promise<{ error?: string }> {
   // Same non-self gate as setStaffPin — removing a PIN is the same authority.
-  const actor = await resolvePinWriteActor(staffId, 'pinRemoveFailed')
+  const actor = await resolvePinWriteActor(staffId)
   if ('error' in actor) return actor
   const { actingStaffId, denied } = actor
   if (denied) return { error: denied }
