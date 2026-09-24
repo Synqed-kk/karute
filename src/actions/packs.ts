@@ -36,6 +36,18 @@ const revalidateProfile = () =>
 export async function createPackAction(
   input: CreatePackActionInput,
 ): Promise<{ ok: boolean; error?: string }> {
+  // An outage (the identity read failed) is not an anonymous purchase: refuse,
+  // never write created_by: null (Round 3 leg 2, 2026-09-25, D-S16-4,
+  // discussed, default). A resolved null is refused too (D-S20-1, lead): a
+  // pack purchase carries the staff who made it, the way the contact/alert
+  // cores already refuse an unknown actor.
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch {
+    return { ok: false, error: 'write failed' }
+  }
+  if (!staffId) return { ok: false, error: 'no staff identity' }
   const { getSynqedClient } = await import('@/lib/synqed/client')
   // getSynqedClient() unguarded here would THROW the whole server action on a
   // transient session/DB failure — RecordPageView's onResolve now runs this
@@ -43,13 +55,10 @@ export async function createPackAction(
   // an unguarded throw here would still surface as a rejected promise, and
   // must degrade to the SAME { ok: false } contract every other guarded
   // action in this file uses, not an uncaught rejection.
-  const [synqed, staffId] = await Promise.all([
-    getSynqedClient().catch((err) => {
-      console.warn('[packs] synqed client init failed:', err)
-      return null
-    }),
-    getCurrentUserStaffId().catch(() => null),
-  ])
+  const synqed = await getSynqedClient().catch((err) => {
+    console.warn('[packs] synqed client init failed:', err)
+    return null
+  })
   if (!synqed) return { ok: false, error: 'write failed' }
   const result = await createPackActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
@@ -84,6 +93,18 @@ export async function setPackStatusAction(
 export async function redeemSessionAction(
   input: RedeemSessionActionInput,
 ): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
+  // An outage (the identity read failed) is not an anonymous burn: refuse,
+  // never write created_by: null (Round 3 leg 2, 2026-09-25, D-S16-4,
+  // discussed, default). A resolved null is refused too (D-S20-1, lead): a
+  // burn carries the staff who made it, the way the contact/alert cores
+  // already refuse an unknown actor.
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch {
+    return { ok: false, error: 'write failed' }
+  }
+  if (!staffId) return { ok: false, error: 'no staff identity' }
   const { getSynqedClient } = await import('@/lib/synqed/client')
   // getSynqedClient() unguarded here would THROW the whole server action on a
   // transient session/DB failure — RecordPageView's onResolve now runs this
@@ -91,13 +112,10 @@ export async function redeemSessionAction(
   // unguarded throw here would still surface as a rejected promise, and must
   // degrade to the SAME { ok: false } contract every other guarded action in
   // this file uses, not an uncaught rejection.
-  const [synqed, staffId] = await Promise.all([
-    getSynqedClient().catch((err) => {
-      console.warn('[packs] synqed client init failed:', err)
-      return null
-    }),
-    getCurrentUserStaffId().catch(() => null),
-  ])
+  const synqed = await getSynqedClient().catch((err) => {
+    console.warn('[packs] synqed client init failed:', err)
+    return null
+  })
   if (!synqed) return { ok: false, error: 'write failed' }
   const result = await redeemSessionActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
@@ -147,19 +165,26 @@ export async function dismissVisitReconcileAction(input: {
   appointmentId?: string | null
   visitDay: string
 }): Promise<{ ok: boolean }> {
+  // An outage (the identity read failed) is not an anonymous dismissal:
+  // refuse, never stamp dismissed_by 'unknown' for it (Round 3 leg 2,
+  // 2026-09-25, D-S16-4, discussed, default). A resolved null keeps the
+  // core's deliberate 'unknown' tolerance.
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch {
+    return { ok: false }
+  }
   const { getSynqedClient } = await import('@/lib/synqed/client')
   // getSynqedClient() unguarded here would THROW the whole server action on a
   // transient session/DB failure — ReconcileStrip awaits with no try/catch
   // (stranded spinner, no toast). Catch to null and degrade to the SAME
   // { ok: false } origin/main produced when the old cookie fn's internal
   // try/catch swallowed this exact failure.
-  const [synqed, staffId] = await Promise.all([
-    getSynqedClient().catch((err) => {
-      console.warn('[packs] synqed client init failed:', err)
-      return null
-    }),
-    getCurrentUserStaffId().catch(() => null),
-  ])
+  const synqed = await getSynqedClient().catch((err) => {
+    console.warn('[packs] synqed client init failed:', err)
+    return null
+  })
   if (!synqed) return { ok: false }
   const result = await dismissVisitReconcileActionWithClient(synqed, staffId, input)
   if (result.ok) revalidatePath('/dashboard')
@@ -193,19 +218,25 @@ export async function logCustomerContactAction(input: {
   channel: ContactChannel
   note?: string
 }): Promise<{ ok: boolean; error?: string }> {
+  // An outage (the identity read failed) is not an anonymous contact: refuse,
+  // never let it reach the core as a null actor (Round 3 leg 2, 2026-09-25,
+  // D-S16-4, discussed, default). A resolved null is the core's to refuse.
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch {
+    return { ok: false, error: 'write failed' }
+  }
   const { getSynqedClient } = await import('@/lib/synqed/client')
   // getSynqedClient() unguarded here would THROW the whole server action on a
   // transient session/DB failure — PackAlertsCard awaits with no try/catch
   // (stranded spinner, no toast). Catch to null and degrade to the SAME
   // { ok:false, error:'write failed' } origin/main produced when the old
   // cookie fn's internal try/catch swallowed this exact failure.
-  const [synqed, staffId] = await Promise.all([
-    getSynqedClient().catch((err) => {
-      console.warn('[packs] synqed client init failed:', err)
-      return null
-    }),
-    getCurrentUserStaffId().catch(() => null),
-  ])
+  const synqed = await getSynqedClient().catch((err) => {
+    console.warn('[packs] synqed client init failed:', err)
+    return null
+  })
   if (!synqed) return { ok: false, error: 'write failed' }
   const result = await logCustomerContactActionWithClient(synqed, staffId, input)
   if (result.ok) {
@@ -227,19 +258,26 @@ export async function dismissPackAlertAction(input: {
   const allowed = await can('alerts.manage').catch(() => null)
   if (allowed === null) return { ok: false, error: 'write failed' }
   if (!allowed) return { ok: false, error: 'forbidden' }
+  // An outage (the identity read failed) is not an anonymous dismissal:
+  // refuse, never let it reach the core as a null actor (Round 3 leg 2,
+  // 2026-09-25, D-S16-4, discussed, default). A resolved null is the core's
+  // to refuse.
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch {
+    return { ok: false, error: 'write failed' }
+  }
   const { getSynqedClient } = await import('@/lib/synqed/client')
   // getSynqedClient() unguarded here would THROW the whole server action on a
   // transient session/DB failure — PackAlertsCard awaits with no try/catch
   // (stranded spinner, no toast). Catch to null and degrade to the SAME
   // { ok:false, error:'write failed' } origin/main produced when the old
   // cookie fn's internal try/catch swallowed this exact failure.
-  const [synqed, staffId] = await Promise.all([
-    getSynqedClient().catch((err) => {
-      console.warn('[packs] synqed client init failed:', err)
-      return null
-    }),
-    getCurrentUserStaffId().catch(() => null),
-  ])
+  const synqed = await getSynqedClient().catch((err) => {
+    console.warn('[packs] synqed client init failed:', err)
+    return null
+  })
   if (!synqed) return { ok: false, error: 'write failed' }
   const result = await dismissPackAlertActionWithClient(synqed, staffId, input)
   if (result.ok) {
@@ -252,8 +290,20 @@ export async function dismissPackAlertAction(input: {
 export async function setLifecycleAction(
   input: SetLifecycleActionInput,
 ): Promise<{ ok: boolean }> {
+  // An outage (the identity read failed) is not an anonymous lifecycle change:
+  // refuse, never write updated_by: null (Round 3 leg 2, 2026-09-25, D-S16-4,
+  // discussed, default). A resolved null is refused too (D-S20-1, lead): a
+  // lifecycle change carries the staff who made it, the way the contact/alert
+  // cores already refuse an unknown actor.
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch {
+    return { ok: false }
+  }
+  if (!staffId) return { ok: false }
   const { getSynqedClient } = await import('@/lib/synqed/client')
-  const [synqed, staffId] = await Promise.all([getSynqedClient(), getCurrentUserStaffId().catch(() => null)])
+  const synqed = await getSynqedClient()
   const result = await setLifecycleActionWithClient(synqed, staffId, input)
   if (!result.ok) return { ok: false }
   revalidateProfile()
