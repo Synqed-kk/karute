@@ -75,7 +75,10 @@ export function sampleKeys<V>(kind: TwinKind, record: Record<string, V>): Record
 }
 
 export type StoreSample =
-  | { state: 'sample'; words: WordOverride | null; dials: StoreDials | null }
+  /** `marked` = the door is ON, so what this plane shows sits beside live rows
+   *  and must say it is sample (PR-3's 「サンプル」 mark). OFF it is false on
+   *  every call: `state: 'sample'` alone is also the OFF answer, never the signal. */
+  | { state: 'sample'; words: WordOverride | null; dials: StoreDials | null; marked: boolean }
   | { state: 'no-sample-policy'; storeId: string; words: null; dials: null }
 
 /** The per-store SAMPLE words + dials the three bypass sites read (today/page,
@@ -84,12 +87,12 @@ export type StoreSample =
  *  byte-identical, not "improved"). ON: by the store's sample policy; a live
  *  uuid never throws. */
 export function storeSample(storeId: string): StoreSample {
-  if (practiceTenant() === null) return { state: 'sample', words: defaultKindOf(storeId).words, dials: storeDials[storeId] ?? null }
+  if (practiceTenant() === null) return { state: 'sample', words: defaultKindOf(storeId).words, dials: storeDials[storeId] ?? null, marked: false }
   const policy = samplePolicyFor(storeId)
   if (policy.kind === 'twin') {
-    return { state: 'sample', words: defaultKindOf(policy.fixtureStoreId).words, dials: storeDials[policy.fixtureStoreId] ?? null }
+    return { state: 'sample', words: defaultKindOf(policy.fixtureStoreId).words, dials: storeDials[policy.fixtureStoreId] ?? null, marked: true }
   }
-  if (policy.kind === 'named') return { state: 'sample', words: null, dials: null }
+  if (policy.kind === 'named') return { state: 'sample', words: null, dials: null, marked: true }
   return { state: 'no-sample-policy', storeId, words: null, dials: null }
 }
 

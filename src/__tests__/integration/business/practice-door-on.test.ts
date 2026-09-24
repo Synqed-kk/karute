@@ -36,7 +36,7 @@ import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
 import { attachSample, sampleKeys, sampleRows, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf } from '@/business/lib/practice-door/registry'
-import { customers, STORE_A, STORE_C } from '@/business/lib/fixtures'
+import { customers, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import { defaultKindOf, register, staffQualifications } from '@/business/lib/fixtures-today'
 import { jstDayKey } from '@/business/lib/clock'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
@@ -482,14 +482,23 @@ describe('(4)–(8) walls, identity, paging, errors', () => {
 describe('(9) storeSample — the three bypass sites’ one read', () => {
   it('OFF: exactly defaultKindOf + storeDials, including the throw', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect(storeSample(STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A] })
+    expect(storeSample(STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: false })
     expect(() => storeSample('nope')).toThrow('Missing default kind for store nope')
   })
   it('ON: by sample policy; a live uuid never throws', () => {
-    expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A] })
-    expect(storeSample(STORE.laEstro)).toEqual({ state: 'sample', words: null, dials: null })
+    expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true })
+    expect(storeSample(STORE.laEstro)).toEqual({ state: 'sample', words: null, dials: null, marked: true })
     expect(storeSample(STORE.devSalon)).toEqual({ state: 'no-sample-policy', storeId: STORE.devSalon, words: null, dials: null })
     expect(storeSample('nope')).toEqual({ state: 'no-sample-policy', storeId: 'nope', words: null, dials: null })
+  })
+  // ⚖ PR-3 — the mark keys on the door being ON, never on `state === 'sample'`
+  // (which is also every OFF answer).
+  it('PR-3 marked: OFF false on every fixture store; ON true on a twin; ON + none policy is its own state', () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    for (const id of [STORE_A, STORE_B]) expect(storeSample(id)).toMatchObject({ state: 'sample', marked: false })
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+    expect(storeSample(STORE.devSalon).state).toBe('no-sample-policy')
   })
 })
 
