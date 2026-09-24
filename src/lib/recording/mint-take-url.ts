@@ -945,13 +945,15 @@ export async function mintTakeUploadUrl(
         ? await bindServerNamedTake(synqed, actor, input, takeId, mimeType, signed)
         : { ...signed, recordingSessionId: null }
     // The per-business count of in-tab fallbacks (S33) — ids and flags only,
-    // never a customer and never a key.
-    console.info('[mint-take-url] unbound upload', {
-      businessId,
-      attachOutcome: input.attachOutcome ?? null,
-      switchOn: RECORDING_SWITCHES.bindUnboundUploads,
-      bound: 'recordingSessionId' in minted && Boolean(minted.recordingSessionId),
-    })
+    // never a customer and never a key. Counted only when an upload is really
+    // handed out: the ON arm's `exists` answers an error (settleUnboundBind).
+    if (!('error' in minted))
+      console.info('[mint-take-url] unbound upload', {
+        businessId,
+        attachOutcome: input.attachOutcome ?? null,
+        switchOn: RECORDING_SWITCHES.bindUnboundUploads,
+        bound: 'recordingSessionId' in minted && Boolean(minted.recordingSessionId),
+      })
     return minted
   }
 
