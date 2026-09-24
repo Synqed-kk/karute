@@ -161,6 +161,12 @@ export interface RecordingPipelinePort {
    * is its own blob's — the one fact a caller who never held the recording
    * cannot produce. Any other answer throws and the take stays unstaged, which
    * is what keeps ⚖ 9/3 true: no staffer action can erase a recording.
+   *
+   * ⚖ …AND IT ANSWERS THE ROW THE MINT NAMED (S34, piece 3). `recordingSessionId`
+   * is the mint's own answer — with RECORDING_SWITCHES.bindUnboundUploads ON,
+   * the row the server-named arm just created for this upload — so the caller
+   * can ADOPT it (ai-pipeline.ts). null when nothing was minted (the finalized
+   * path) or the server named no row (switch OFF, an older server).
    */
   prepareTranscription(
     blob: Blob,
@@ -170,8 +176,12 @@ export interface RecordingPipelinePort {
       stagedTake?: string | null
       /** The unbound fallback only (S33): why the take's own row was not used. */
       attachOutcome?: AttachOutcome | null
+      /** The visit, sent with `attachOutcome` only (S34): what a row the
+       *  server-named arm creates is born carrying. */
+      customerId?: string | null
+      appointmentId?: string | null
     },
-  ): Promise<{ body: Record<string, unknown>; path: string }>
+  ): Promise<{ body: Record<string, unknown>; path: string; recordingSessionId: string | null }>
   /**
    * The finalized KEY this take's audio was sealed under — composed, never
    * looked up (capture pipeline PR4 fix round 7).
@@ -461,6 +471,7 @@ export const webRecordingPort: RecordingPipelinePort = {
     // the unchanged tenant fence (mintRecordingReadUrl → requireOwnPath), and
     // the object stays exactly where it is — nothing deletes recording audio.
     let path = finalizedPath
+    let recordingSessionId: string | null = null
     if (!path) {
       // The fallback, for a take the store never held (see the port's doc).
       // Byte-for-byte the staging this arm always did, minus its delete —
@@ -479,10 +490,15 @@ export const webRecordingPort: RecordingPipelinePort = {
               mimeType: blob.type || undefined,
             }
           : opts?.attachOutcome
-            ? { attachOutcome: opts.attachOutcome }
+            ? {
+                attachOutcome: opts.attachOutcome,
+                ...(opts.customerId ? { customerId: opts.customerId } : {}),
+                ...(opts.appointmentId ? { appointmentId: opts.appointmentId } : {}),
+              }
             : undefined,
       )
       if ('error' in minted) throw new Error('could not mint an upload URL')
+      recordingSessionId = minted.recordingSessionId ?? null
       // ⚖ ADOPT ONLY WHAT IS OUR OWN BYTE LENGTH (fix round 2). The door signed
       // nothing because the object is already there; the ONLY reading of that
       // which is safe is "this is the copy we PUT, whose markTakeStaged was
@@ -512,11 +528,11 @@ export const webRecordingPort: RecordingPipelinePort = {
     // reads `path` and lets the discard action sign its own URL from it. So the
     // body is empty here, deliberately: there is no audio URL a staged copy can
     // honestly carry through this door.
-    if (opts?.stagedFor) return { body: {}, path }
+    if (opts?.stagedFor) return { body: {}, path, recordingSessionId }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
     const { url: audioUrl } = await mintRecordingReadUrl(path)
-    return { body: { audioUrl }, path }
+    return { body: { audioUrl }, path, recordingSessionId }
   },
   async finalizedKey(takeId, mimeType) {
     const { recordingFinalizedKey } = await uploadActions()

@@ -123,7 +123,8 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key, so the facade is simply handed that path — and it deletes
     // nothing when it is done, because the finalized object is evidence.
-    if (finalizedPath) return { body: { path: finalizedPath }, path: finalizedPath }
+    if (finalizedPath)
+      return { body: { path: finalizedPath }, path: finalizedPath, recordingSessionId: null }
 
     // The fallback, for a take the store never held (see the port's doc):
     // byte-for-byte the staging this arm always did.
@@ -159,7 +160,16 @@ export const viteRecordingPort: RecordingPipelinePort = {
               stagedTake: opts.stagedTake ?? null,
               ...(blob.type ? { mimeType: blob.type } : {}),
             }
-          : { stagedFor: null, ...(opts?.attachOutcome ? { attachOutcome: opts.attachOutcome } : {}) },
+          : {
+              stagedFor: null,
+              ...(opts?.attachOutcome
+                ? {
+                    attachOutcome: opts.attachOutcome,
+                    ...(opts.customerId ? { customerId: opts.customerId } : {}),
+                    ...(opts.appointmentId ? { appointmentId: opts.appointmentId } : {}),
+                  }
+                : {}),
+            },
       ),
     })
     if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
@@ -173,7 +183,11 @@ export const viteRecordingPort: RecordingPipelinePort = {
       url?: string
       contentType: string
       existingSize?: number | null
+      recordingSessionId?: unknown
     }
+    // The row the mint named (S34) — absent from an older server's answer.
+    const recordingSessionId =
+      typeof minted.recordingSessionId === 'string' ? minted.recordingSessionId : null
 
     // ⚖ ADOPT ONLY WHAT IS OUR OWN BYTE LENGTH (fix round 2). The door signed
     // nothing because the object is ALREADY at this key — and since packet B
@@ -185,7 +199,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // mint again — one small JSON call per mount, no upload, nothing released.
     if ('existingSize' in minted && minted.existingSize !== undefined) {
       if (minted.existingSize !== blob.size) throw new Error('staged copy mismatch')
-      return { body: { path: minted.path }, path: minted.path }
+      return { body: { path: minted.path }, path: minted.path, recordingSessionId }
     }
     if (!minted.url) throw new Error('Upload URL failed (no url)')
 
@@ -221,7 +235,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 
     // 3. Transcribe by PATH.
-    return { body: { path: minted.path }, path: minted.path }
+    return { body: { path: minted.path }, path: minted.path, recordingSessionId }
   },
   // ⚖ NULL, AND THE COHORT IS EMPTY BY CONSTRUCTION (PR4 fix round 7). The
   // backfill this answers exists for takes finalized by slice THREE's code and

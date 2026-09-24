@@ -38,6 +38,7 @@ jest.mock('@/lib/ports/recording-port', () => ({
     prepareTranscription: async (_blob: Blob, finalizedPath: string | null) => ({
       body: { path: finalizedPath ?? 'app_biz-1_staged-9.webm' },
       path: finalizedPath ?? 'app_biz-1_staged-9.webm',
+      recordingSessionId: null,
     }),
     finalizedKey: async () => null,
   }),

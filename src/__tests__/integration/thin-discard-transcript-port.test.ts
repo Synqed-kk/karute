@@ -263,6 +263,61 @@ describe('the flag flip — the fix itself', () => {
     },
   )
 
+  // ⚖ S34, piece 3 — the phone's fallback answers the row the mint named (the
+  // facade echoes the mint's whole result), and a no-row fallback sends the
+  // visit. An older server's answer has no field at all → null.
+  describe('the minted row (S34)', () => {
+    const upload = (extra: Record<string, unknown>) => {
+      const apiFetch = port(async () =>
+        json({ path: 'app_business-1_x.webm', url: 'https://up/', contentType: 'audio/webm', ...extra }),
+      )
+      global.fetch = jest.fn(
+        async () => ({ ok: true, status: 200 }) as unknown as Response,
+      ) as unknown as typeof fetch
+      return apiFetch
+    }
+
+    it('T4 answers recordingSessionId from the mint JSON', async () => {
+      upload({ recordingSessionId: 'rs-minted' })
+      const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+      })
+      expect(r.recordingSessionId).toBe('rs-minted')
+    })
+
+    it.each([
+      ['null', { recordingSessionId: null }],
+      ['absent (a build-28-era answer)', {}],
+    ])('T4 %s in the JSON → null', async (_label, extra) => {
+      upload(extra)
+      const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), null)
+      expect(r.recordingSessionId).toBeNull()
+    })
+
+    it('T4 null on the finalized path — nothing was minted', async () => {
+      const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), 'app_business-1_t.webm')
+      expect(r.recordingSessionId).toBeNull()
+    })
+
+    it('T5 no_session carries the visit; attach_failed carries none', async () => {
+      const apiFetch = upload({})
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+        customerId: 'cust-1',
+        appointmentId: 'appt-1',
+      })
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'attach_failed',
+      })
+      const bodies = apiFetch.mock.calls.map(([, init]) => (init as RequestInit).body)
+      expect(bodies[0]).toBe(
+        JSON.stringify({ stagedFor: null, attachOutcome: 'no_session', customerId: 'cust-1', appointmentId: 'appt-1' }),
+      )
+      // Byte-identical to S33's body (ai-pipeline hands the visit on no_session only).
+      expect(bodies[1]).toBe(JSON.stringify({ stagedFor: null, attachOutcome: 'attach_failed' }))
+    })
+  })
+
   // ⚖ AND BOTH LEGS CARRY A DEADLINE (slice five fix round 3, F7). A phone that
   // walks out of signal STALLS its sockets rather than failing them, and a hung
   // staged leg is held in runDiscardTranscript's module-level `inFlight` set
