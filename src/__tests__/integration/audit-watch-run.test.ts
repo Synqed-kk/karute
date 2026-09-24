@@ -180,6 +180,27 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     expect(targetScoped).toHaveLength(2)
   })
 
+  it('t10 (PR-7): a session the recorder was warned about is written with the warned reason, not the generic one', async () => {
+    ;(newSynqedClient as jest.Mock).mockReturnValue(
+      makeClient({
+        existingRows: [{ id: 'w1', action: 'recording.capture_warned', detail: { reason: 'device' } }],
+      }),
+    )
+    const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
+    expect(result).toMatchObject({
+      candidates: 1,
+      written: 1,
+      list: [{ action: 'recording.karute_missing', targetId: 'sess-old', reason: 'warnedDevice' }],
+    })
+    expect(auditMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'recording.karute_missing',
+        targetId: 'sess-old',
+        detail: expect.objectContaining({ reason: 'warnedDevice' }),
+      }),
+    )
+  })
+
   it('a budget already past its deadline returns immediately, truncated, nothing processed', async () => {
     const result = await watchOneBusiness('biz-1', NOW, 'write', Date.now() - 1)
     expect(result).toEqual({

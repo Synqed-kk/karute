@@ -14,6 +14,8 @@
  */
 const auditFn = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
+jest.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }))
+jest.mock('@/lib/customers/cached', () => ({ getCachedCustomerListFor: async () => [] }))
 
 import en from '../../../messages/en.json'
 import ja from '../../../messages/ja.json'
@@ -28,6 +30,7 @@ import {
   type InboxServerSession,
   type InboxLocalTake,
 } from '@/lib/recordings/inbox'
+import { readRecordingsInbox } from '@/lib/recordings/inbox-read'
 import { karuteMissingReasonKey } from '@/lib/audit-labels'
 import { TAKE_UUID_FIXTURE as TAKE } from './helpers/recording-key-fixtures'
 
@@ -244,6 +247,103 @@ describe('deriveInboxRows — the warned reasons', () => {
 
   it('t6: a value this build does not know is read as absent (the plain-string DTO idiom)', () => {
     expect(rowOf(foldWith('network' as never), 'past-grace').reason).toBe('genericFailure')
+  })
+})
+
+// ── The inbox READ: which sessions are asked, and what a blip does ──────────
+const READ_NOW = new Date('2026-09-11T04:00:00.000Z')
+const iso = (msAgo: number) => new Date(READ_NOW.getTime() - msAgo).toISOString()
+const rec = (id: string, msAgo: number) => ({
+  id,
+  customer_id: 'cust-1',
+  staff_id: 'staff-1',
+  duration_seconds: 300,
+  audio_storage_path: null,
+  created_at: iso(msAgo),
+})
+const OLD_MS = SESSION_UNSETTLED_GRACE_MS + 60 * MIN
+const auditList = jest.fn(async (_opts: unknown): Promise<{ events: unknown[]; total: number }> => ({
+  events: [],
+  total: 0,
+}))
+const readClient = {
+  recordings: {
+    list: jest.fn(async () => ({
+      recordings: [rec('sess-saved', OLD_MS), rec('sess-running', OLD_MS), rec('sess-failed', OLD_MS)],
+      total: 3,
+    })),
+  },
+  karuteRecords: {
+    list: jest.fn(async () => ({
+      karute_records: [{ id: 'rec-1', recording_session_id: 'sess-saved' }],
+      total: 1,
+    })),
+  },
+  recordingJobs: {
+    getByRecordingSession: jest.fn(async (id: string) => {
+      if (id === 'sess-running') return { status: 'RUNNING', last_error: null }
+      throw Object.assign(new Error('no job'), { status: 404 })
+    }),
+  },
+  recordingDiscards: { list: jest.fn(async () => ({ events: [], total: 0, page: 1, page_size: 200 })) },
+  audit: { list: auditList },
+} as unknown as Parameters<typeof readRecordingsInbox>[0]['synqed']
+const read = () => readRecordingsInbox({ synqed: readClient, staffId: 'staff-1', businessId: BIZ, now: READ_NOW })
+const byId = (sessions: InboxServerSession[]) => Object.fromEntries(sessions.map((s) => [s.recordingSessionId, s]))
+
+describe('readRecordingsInbox — the warning fact', () => {
+  it('t5: three sessions, one failed → exactly ONE audit.list, for that session, and only it carries the fact', async () => {
+    auditList.mockResolvedValueOnce({
+      events: [
+        { action: 'recording.karute_missing', detail: {} },
+        { action: 'recording.capture_warned', detail: { reason: 'server' } },
+        { action: 'recording.capture_warned', detail: { reason: 'device' } },
+      ],
+      total: 3,
+    })
+    const sessions = byId(await read())
+    expect(auditList).toHaveBeenCalledTimes(1)
+    expect(auditList).toHaveBeenCalledWith({
+      target_type: 'recording',
+      target_id: 'sess-failed',
+      category: 'recording',
+      page_size: 50,
+    })
+    // Newest first: the first capture_warned row is the latest raise.
+    expect(sessions['sess-failed'].captureWarning).toBe('server')
+    expect('captureWarning' in sessions['sess-saved']).toBe(false)
+    expect('captureWarning' in sessions['sess-running']).toBe(false)
+  })
+
+  it('t5: no failed candidate → zero audit.list calls', async () => {
+    ;(readClient.recordings.list as jest.Mock).mockResolvedValueOnce({
+      recordings: [rec('sess-saved', OLD_MS), rec('sess-running', OLD_MS)],
+      total: 2,
+    })
+    await read()
+    expect(auditList).not.toHaveBeenCalled()
+  })
+
+  it('t5: a detail reason this build does not know attaches nothing', async () => {
+    auditList.mockResolvedValueOnce({
+      events: [{ action: 'recording.capture_warned', detail: { reason: 'network' } }],
+      total: 1,
+    })
+    expect('captureWarning' in byId(await read())['sess-failed']).toBe(false)
+  })
+
+  it('t7: the list call throws → no field, logged, the read still returns every session (row stays genericFailure)', async () => {
+    auditList.mockRejectedValueOnce(Object.assign(new Error('core down'), { status: 503 }))
+    const sessions = await read()
+    expect(sessions).toHaveLength(3)
+    const failed = byId(sessions)['sess-failed']
+    expect('captureWarning' in failed).toBe(false)
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('warning-fact read failed for sess-failed'),
+      expect.anything(),
+    )
+    const rows = deriveInboxRows({ sessions, takes: [], now: READ_NOW.getTime() })
+    expect(rows.find((r) => r.recordingSessionId === 'sess-failed')?.reason).toBe('genericFailure')
   })
 })
 
