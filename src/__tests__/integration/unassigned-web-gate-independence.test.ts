@@ -76,6 +76,9 @@ jest.mock('@/lib/supabase/server', () => ({
 jest.mock('@/components/layout/UnassignedStoreScreen', () => ({
   UnassignedStoreScreen: 'UnassignedStoreScreen',
 }))
+jest.mock('@/components/layout/StoreOutageScreen', () => ({
+  StoreOutageScreen: 'StoreOutageScreen',
+}))
 jest.mock('@/providers/session-provider', () => ({ SessionProvider: 'SessionProvider' }))
 jest.mock('@/lib/notifications/context', () => ({ NotificationsProvider: 'Notifications' }))
 jest.mock('@/lib/notifications/derive', () => ({
@@ -97,7 +100,8 @@ jest.mock('@/actions/org-settings', () => ({ getOrgSettings: jest.fn(async () =>
 
 import { viewerIsUnassigned } from '@/lib/auth/store-scope'
 import DashboardLayout from '@/app/[locale]/(app)/layout'
-import { getStaffList } from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getStaffStoresStrict } from '@/actions/stores'
 import { buildNotificationFeed } from '@/lib/notifications/derive'
 
 const render = () =>
@@ -153,6 +157,39 @@ describe('…and it still refuses to fire on every other shape', () => {
   it('a thrown capability read never takes the shell down', async () => {
     mockCapabilities.mockRejectedValue(new Error('caps read failed'))
     expect(await viewerIsUnassigned()).toBe(false)
+  })
+})
+
+// Round 2 (2026-09-24, D-S16-4, discussed, default): a store / roster read
+// that FAILED gets the outage screen — no data, never a blank shell — and,
+// like the unassigned screen, before any of the wave's reads start.
+describe('an unreadable store or roster → the outage screen, nothing else', () => {
+  it('the assignment lookup FAILED (degraded) → StoreOutageScreen, no wave read', async () => {
+    fixture.assignment = ['store-ginza'] // not unassigned — the lookup itself fails below
+    ;(getStaffStoresStrict as jest.Mock).mockResolvedValueOnce(null)
+    const el = (await render()) as { type: unknown }
+    expect(el.type).toBe('StoreOutageScreen')
+    expect(getStaffList).not.toHaveBeenCalled()
+    expect(buildNotificationFeed).not.toHaveBeenCalled()
+  })
+
+  it('the roster read REJECTED (an outage) → StoreOutageScreen, never the shell', async () => {
+    ;(getCurrentUserStaffId as jest.Mock).mockRejectedValue(new Error('roster read failed'))
+    try {
+      const el = (await render()) as { type: unknown }
+      expect(el.type).toBe('StoreOutageScreen')
+      expect(getStaffList).not.toHaveBeenCalled()
+    } finally {
+      ;(getCurrentUserStaffId as jest.Mock).mockResolvedValue('profile-self')
+    }
+  })
+
+  it('control: an assigned actor whose reads succeed gets the shell', async () => {
+    fixture.assignment = ['store-ginza']
+    ;(getStaffStoresStrict as jest.Mock).mockResolvedValueOnce(['store-ginza'])
+    const el = (await render()) as { type: unknown }
+    expect(el.type).not.toBe('StoreOutageScreen')
+    expect(el.type).not.toBe('UnassignedStoreScreen')
   })
 })
 
