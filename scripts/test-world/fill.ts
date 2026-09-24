@@ -247,7 +247,14 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   log(`${dry ? 'would create' : 'created'}: ${JSON.stringify(run.created)} · writes sent: ${sent}`)
   run.skipped.forEach((l) => log(`skipped: ${l}`))
   ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
-  if (o.readBack) (await readBack(core, storeId, p)).forEach((r) => log(r.join(' | ')))
+  // The read-back is a diagnostic: its failure never changes the exit code.
+  if (o.readBack) {
+    try {
+      (await withRetry(() => readBack(core, storeId, p), false, o.wait)).forEach((r) => log(r.join(' | ')))
+    } catch (e) {
+      log(`read-back failed (writes unaffected): ${message(e)}`)
+    }
+  }
   return run.conflicts409.length ? 4 : run.errors.length ? 1 : 0
 }
 

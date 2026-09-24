@@ -248,6 +248,13 @@ async function main() {
   assert.equal(await apply(f5.core, opts(m5)), 0)
   assert.equal(f5.t.customers.filter((c) => c.member_number === lost).length, 1, 'the re-run makes the lost customer once')
 
+  // The read-back failing (core down after the writes) never changes the exit code.
+  const fr = fakeCore()
+  Object.assign(fr.core.staffStores, { counts: async () => Promise.reject(busy) }) // counts() is read by the read-back only
+  const lines: string[] = []
+  assert.equal(await apply(fr.core, { ...opts(empty()), readBack: true, log: (l: string) => void lines.push(l) }), 0, 'a failed read-back keeps exit 0')
+  assert.ok(lines.includes('read-back failed (writes unaffected): busy'), lines.join('\n'))
+
   // (d) static: the loader has no delete call and never imports the deleting seeder's guard.
   for (const file of ['fill.ts', 'plan.ts', 'recipes/beauty_chiropractic.ts']) {
     const src = readFileSync(join(__dirname, file), 'utf8')
