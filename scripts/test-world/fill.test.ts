@@ -190,6 +190,17 @@ async function main() {
   assert.notEqual(a0.member, 'BC-0003')
   assert.equal(fo.t.appts.length, p1.appointments.length - binnedOnly(p1.appointments).length, 'the foreign booking + every planned one but the clashing one and the binned customer\'s')
 
+  // A 回数券 sold by hand (round 1, no loader note) is never adopted: the loader makes its own and burns only that.
+  const k0 = p1.packs.find((k) => k.member !== 'BC-0003' && k.redeem.length > 0)!
+  const fp = fakeCore()
+  fp.t.customers.push({ id: 'pre', name: 'x', member_number: k0.member })
+  fp.t.packs.push({ id: 'foreign-pack', customer_id: 'pre', kind: 'pack', purchase_round: 1, notes: null })
+  assert.equal(await apply(fp.core, opts(empty())), 0)
+  const ownPacks = fp.t.packs.filter((x) => x.customer_id === 'pre' && x.id !== 'foreign-pack')
+  assert.deepEqual(ownPacks.map((x) => x.notes), [`テストデータ [${k0.key}]`], 'the loader made its own pack beside the hand-sold one')
+  assert.equal(fp.t.burns.filter((b) => b.pack_id === 'foreign-pack').length, 0, 'the hand-sold pack gets no redemption')
+  assert.equal(fp.t.burns.filter((b) => b.pack_id === ownPacks[0].id).length, k0.redeem.length, 'every planned burn lands on the loader\'s own pack')
+
   // A 409 is recorded, never retried, and exits 4; 5xx is retried, 409 is not.
   const c409 = fakeCore({ fail409: true })
   const m409 = empty()

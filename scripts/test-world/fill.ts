@@ -173,10 +173,11 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   await pool(p.packs, async (k) => {
     const cid = custId.get(k.member)
     if (!cid) return void run.skipped.push(`packs ${k.key}: ${binned.has(k.member) ? `customer ${k.member} is in the bin` : 'no customer'}`)
-    const have = dry && cid.startsWith('dry:') ? undefined : (await read(() => core.packs.listPacks(cid))).find((x) => x.kind === 'pack' && x.purchase_round === 1)
+    // Only a pack the loader made (notes start テストデータ) is ours — a pack sold by hand is never adopted or burnt.
+    const have = dry && cid.startsWith('dry:') ? undefined : (await read(() => core.packs.listPacks(cid))).find((x) => x.kind === 'pack' && x.purchase_round === 1 && (x.notes ?? '').startsWith('テストデータ'))
     const id = have?.id ?? (await write('packs', k.key, () => core.packs.createPack({
       customer_id: cid, kind: 'pack', pack_size: k.size, unit_price: k.unitPrice, total_price: k.unitPrice * k.size, purchase_round: 1,
-      purchased_at: k.purchasedOn, source: 'manual', notes: 'テストデータ', created_by: staffId.get(k.staff) ?? null,
+      purchased_at: k.purchasedOn, source: 'manual', notes: `テストデータ [${k.key}]`, created_by: staffId.get(k.staff) ?? null,
     })))?.id
     if (id) packId.set(k.key, id)
   })
