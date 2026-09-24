@@ -44,7 +44,7 @@ import { settingsProps } from '@/app/[locale]/(business)/business/settings/setti
 import { recordingProps } from '@/app/[locale]/(business)/business/recording/recording-props'
 import { karuteProps } from '@/app/[locale]/(business)/business/karute/karute-props'
 import {
-  APT, AKARI, ASSIGNMENTS, CARD, KOBAYASHI, LOGIN, MENU, STAFF, STORE, TENANT, membership, recordedReads,
+  APT, AKARI, ASSIGNMENTS, CARD, KOBAYASHI, LOGIN, MENU, STAFF, STORE, STORES, TENANT, membership, recordedReads,
   type RecordedOptions,
 } from './practice-door-recorded'
 
@@ -651,6 +651,17 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     const all = props.sections.find((s) => s.id === 'reserve-card-look')!
     expect({ gate: all.gate, kicker: all.kicker, value: all.cardLook?.value, storeLine: all.cardLook?.storeLine, address: 'address' in all.cardLook! })
       .toEqual({ gate: 'open', kicker: 'Reserve設定', value: '#00304C', storeLine: '', address: false })
+  })
+
+  it('K11 — ON: the cover address is the door’s own store record, never the fixture twin’s', async () => {
+    const spy = withReads()
+    spy.storesList.mockResolvedValue({ stores: STORES.map((s) => (s.id === STORE.tokyo ? { ...s, address: '東京都港区実在1-2-3' } : s)) })
+    expect(await data.readStoreAddress(STORE.tokyo)).toBe('東京都港区実在1-2-3')
+    expect((await look(STORE.tokyo)).cardLook!.address).toBe('東京都港区実在1-2-3')
+    // 横浜 is a fixture TWIN with a sample address in its dials; core holds none → omitted, never the fixture's
+    expect(storeSample(STORE.yokohama).dials?.profile.address).toBeTruthy() // the value the old source printed
+    expect(await data.readStoreAddress(STORE.yokohama)).toBeNull()
+    expect('address' in (await look(STORE.yokohama)).cardLook!).toBe(false)
   })
 
   it('another business is refused before any read — nothing of it can reach the payload', async () => {

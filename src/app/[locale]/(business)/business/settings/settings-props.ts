@@ -42,6 +42,7 @@ import {
   listStoreOptions,
   readReserveCardColor,
   readShellIdentity,
+  readStoreAddress,
   renderNow,
   type StoreLens,
 } from '@/business/lib/data'
@@ -165,6 +166,10 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   const { business, operator, reserveSyncedAt } = await readShellIdentity()
   // ⚖ A1b — ONE value per business, read once and never with a store (R3).
   const cardColor = await readReserveCardColor()
+  // ⚖ A1b · K11 — the card shows the lens store, else the first store; its address is that
+  // store's own (the door's record under ON, the fixture's sample under OFF), none → omitted.
+  const cardStore = storeOptions.find((s) => s.id === storeId) ?? storeOptions[0]
+  const cardAddress = cardStore ? await readStoreAddress(cardStore.id) : null
   const role = world?.role ?? operator.role
   const access = accessFor(role, rulebook)
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
@@ -202,6 +207,8 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     now,
     operator,
     cardColor,
+    cardStore,
+    cardAddress,
   }
 
   const sections = RAIL.map((entry) => buildSection(entry, ctx))
@@ -306,6 +313,9 @@ interface Ctx {
   operator: { name: string; role: string; staff_id: string }
   /** ⚖ A1b — the business's Reserve card colour (readReserveCardColor). */
   cardColor: string | null
+  /** ⚖ A1b · K11 — the store the card shows, and its own address (readStoreAddress). */
+  cardStore: Ctx['stores'][number] | undefined
+  cardAddress: string | null
 }
 
 const opts = (pairs: Array<[string, string]>): ControlOption[] => pairs.map(([value, label]) => ({ value, label }))
@@ -1799,9 +1809,6 @@ const RESERVE_PREVIEW_DISCOUNT = '対象のスキマ枠は{reserve.gapdisc}引�
 // door's own read (A2 is the write). The card shows the lens store — or the
 // first store — as its branch line; the colour is the same under every lens.
 function reserveCardLook(base: SectionBase, ctx: Ctx): SettingsSection {
-  const shown = ctx.stores.find((s) => s.id === ctx.storeId) ?? ctx.stores[0]
-  // ⚖ K11 — the address 店舗情報 prints for that store; none = the port's own no-address shape.
-  const address = shown ? storeSample(shown.id).dials?.profile.address : undefined
   return {
     ...base,
     kicker: 'Reserve設定',
@@ -1810,8 +1817,8 @@ function reserveCardLook(base: SectionBase, ctx: Ctx): SettingsSection {
     guide: 'お客様がReserveのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
     cardLook: {
       businessName: ctx.businessName,
-      storeLine: shown?.name ?? '',
-      ...(address ? { address } : {}),
+      storeLine: ctx.cardStore?.name ?? '',
+      ...(ctx.cardAddress ? { address: ctx.cardAddress } : {}),
       scopeLabel: BUSINESS_SCOPE,
       value: ctx.cardColor,
       palette: PALETTE,

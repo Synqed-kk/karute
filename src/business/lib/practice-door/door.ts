@@ -404,6 +404,13 @@ export async function readReserveCardColor(): Promise<string | null> {
   return normalizeCardColor(org?.settings?.reserve_card_color)
 }
 
+/** ⚖ A1b · K11 — LIVE: the store's own address, from the door's own core store record (null = none). */
+export async function readStoreAddress(lens: string): Promise<string | null> {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  return actor.visible.find((s) => s.id === lens)?.address ?? null
+}
+
 export async function listResources(lens: StoreLens): Promise<FixtureResource[]> {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)

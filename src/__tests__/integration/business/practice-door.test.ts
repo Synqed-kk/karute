@@ -315,10 +315,11 @@ const DOOR_READERS = [
   'readUnresolvedCounts', 'listResources', 'listShiftsByDay', 'listAbsenceByDay', 'listBlocksByDay',
   'readDayPlanes', 'readReservationPlanes', 'readAnalyticsPlanes', 'listStaff', 'readStaffStores',
   'readReserveCardColor', // ⚖ A1b — the business's Reserve card colour (no lens)
+  'readStoreAddress', // ⚖ A1b · K11 — the store's own address (lens first)
 ] as const
 
 describe('the door', () => {
-  it('exports exactly the seventeen readers', () => {
+  it('exports exactly the eighteen readers', () => {
     expect(Object.keys(door).sort()).toEqual([...DOOR_READERS].sort())
   })
 })

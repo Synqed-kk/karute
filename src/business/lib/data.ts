@@ -51,6 +51,7 @@ import {
   staffMix,
 } from './fixtures-analytics'
 import { auditTrail, reservations } from './fixtures-reservations'
+import { storeDials } from './fixtures-settings'
 import {
   absence,
   blocks,
@@ -231,6 +232,15 @@ export async function readShellIdentity(): Promise<{
 export async function readReserveCardColor(): Promise<string | null> {
   if (practiceTenant() !== null) return door.readReserveCardColor()
   return null
+}
+
+/** ⚖ A1b · K11 — the store's address as the Reserve card's cover prints it; null = none
+ *  (the cover then shows Reserve's own no-address shape). ON: the door's own store record.
+ *  OFF: the play-phase store's SAMPLE address — the same 店舗情報 dial the 設定 room shows. */
+export async function readStoreAddress(lens: string): Promise<string | null> {
+  if (practiceTenant() !== null) return door.readStoreAddress(lens)
+  assertLens(lens)
+  return storeDials[lens]?.profile.address ?? null
 }
 
 export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {

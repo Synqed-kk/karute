@@ -310,7 +310,9 @@ describe('the fixture data door', () => {
       // reconciled by taking a side — the inventory mirrors reality or it is
       // worth nothing.
       // PR-2: `react` left with `renderNow` (now in ./clock, re-exported).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', './practice-door/door', './practice-door/switch'],
+      // ⚖ A1b · K11 — `./fixtures-settings`: OFF, a store's address is its SAMPLE 店舗情報 dial
+      // (`readStoreAddress`); ON it is the door's own core store record.
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.
