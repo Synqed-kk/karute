@@ -653,9 +653,11 @@
    393/440), THE PHONE PANS INSIDE THIS STRIP — never the page, never a scale.
    Nothing inside it is focusable, so the clip hides no ring. The phone's own
    type is the port's: it resets what the room hands down (reserve-card.css),
-   and `overflow-wrap` — the room's `anywhere`, not Reserve's — is reset here. */
+   and the two inherited values it does not name are reset HERE, at the host:
+   `overflow-wrap` (the room's `anywhere`) and `color-scheme` (the shell's
+   `light`) — Reserve's page carries neither (in-room parity, computed style). */
 .biz .pg-settings .cl-strip { overflow-x: auto; overscroll-behavior-x: contain; }
-.biz .pg-settings .cl-phone { width: 393px; overflow-wrap: normal; }
+.biz .pg-settings .cl-phone { width: 393px; overflow-wrap: normal; color-scheme: normal; }
 
 /* a switch, with a thumb that rides the same spring */
 .biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
