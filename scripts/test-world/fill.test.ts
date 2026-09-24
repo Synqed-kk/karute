@@ -158,6 +158,17 @@ async function main() {
   assert.deepEqual(dh.stats.policy?.weekly_hours, recipe.policy.weekly_hours, 'the loader set the recipe hours')
   assert.equal(dhCode, 0)
 
+  // A foreign booking (no fill tag) already holds the first planned slot's practitioner: skipped up front, no 409.
+  const a0 = p1.appointments[0]
+  const fo = fakeCore()
+  const staffCard = fo.t.staff.find((x) => x.name === a0.staff)!.id
+  fo.t.appts.push({ id: 'foreign-appt', store_id: STORE, customer_id: 'foreign', staff_id: staffCard, resource_id: null, starts_at: a0.startsAt, ends_at: a0.endsAt, occupied_until: null, notes: null, status: 'SCHEDULED' })
+  const mfo = empty()
+  assert.equal(await apply(fo.core, opts(mfo)), 0)
+  assert.deepEqual(mfo.runs[0].skipped.filter((l) => /overlaps existing booking/.test(l)), [`appointments ${a0.key}: overlaps existing booking foreign-appt`])
+  assert.deepEqual(mfo.runs[0].conflicts409, [])
+  assert.equal(fo.t.appts.length, p1.appointments.length, 'the foreign booking + every planned one but the clashing one')
+
   // A 409 is recorded, never retried, and exits 4; 5xx is retried, 409 is not.
   const c409 = fakeCore({ fail409: true })
   const m409 = empty()
