@@ -12,7 +12,7 @@ const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
 const OTHER = 'store-other'
 const TODAY = '2026-09-24'
 type Row = Record<string, unknown> & { id: string }
-type Q = { page?: number; page_size?: number; store_id?: string; from?: string; to?: string }
+type Q = { page?: number; page_size?: number; store_id?: string; from?: string; to?: string; include_deleted?: boolean }
 const paged = (key: string, rows: unknown[], { page = 1, page_size = 20 }: Q = {}) => {
   const size = Math.min(page_size, 50)
   return { [key]: rows.slice((page - 1) * size, page * size), page, page_size: size, total: rows.length }
@@ -35,6 +35,8 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
     t.staff.push({ id: `st-${i}`, name, email: null })
     if (i > 0) t.links.set(`st-${i}`, i === 3 ? [OTHER, STORE] : i === 4 ? [OTHER] : [STORE])
   }
+  // A recipe customer Liam put in the bin: listed only with include_deleted, like core.
+  t.customers.push({ id: 'binned', name: '伊藤 恵', member_number: 'BC-0003', deleted_at: '2026-09-01T00:00:00Z' })
   const overlaps = (a: Row, b: Record<string, unknown>) =>
     Date.parse(a.starts_at as string) < Date.parse(b.ends_at as string) && Date.parse(b.starts_at as string) < Date.parse(a.ends_at as string)
   const core = {
@@ -51,7 +53,7 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
     },
     resources: { list: async () => ({ resources: t.resources }), create: async (i: Record<string, unknown>) => add(t.resources, i) },
     menus: { list: async () => ({ menus: t.menus }), create: async (i: Record<string, unknown>) => add(t.menus, i) },
-    customers: { list: async (q: Q) => paged('customers', t.customers, q), create: async (i: Record<string, unknown>) => add(t.customers, i) },
+    customers: { list: async (q: Q) => paged('customers', t.customers.filter((c) => q.include_deleted || !c.deleted_at), q), create: async (i: Record<string, unknown>) => add(t.customers, i) },
     packs: {
       listPacks: async (cid: string) => t.packs.filter((p) => p.customer_id === cid),
       createPack: async (i: Record<string, unknown>) => add(t.packs, i),
@@ -131,6 +133,8 @@ async function main() {
   assert.deepEqual(f.t.links.get('st-4'), [OTHER, STORE], 'this store is ADDED to a staff member working elsewhere')
   assert.equal(f.t.links.get('st-0'), undefined, 'a practitioner of every store is never narrowed to one')
   assert.equal(m.stores[STORE].epoch, TODAY)
+  assert.deepEqual(f.t.customers.filter((c) => c.member_number === 'BC-0003').map((c) => c.id), ['binned'], 'a binned customer is never re-created')
+  assert.equal(m.runs[0].created.customers, 29)
   assert.equal(await apply(f.core, opts(m)), 0)
   assert.equal(f.stats.writes, first, 'second run: 0 writes')
   assert.equal(m.runs.length, 2)
