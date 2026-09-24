@@ -16,7 +16,7 @@
  * (a grayed 破棄済み row off the same ledger) instead of destroying it. The
  * orphan problem is solved by naming the row correctly, not by deleting it.
  *
- * The web action itself is retired outright as of the hard-delete rollback
+ * The web action itself is retired outright as of the hard-delete retirement
  * (2026-09-24) — `deleteRecordingSession` no longer exists on
  * `@/actions/recordings` at all. This file keeps only the source-level pin:
  * RecordPageView never imports or calls it, so no path through this
