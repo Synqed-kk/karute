@@ -403,6 +403,9 @@ export async function transcribeAndPersistDiscardWithClient(
         customerId: recording?.customer_id ?? null,
         staffId,
         takeId: parsedAudio && 'takeId' in parsedAudio ? parsedAudio.takeId : null,
+        // A take or rescue shares its memo with every other door; a STAGED
+        // claim composes no memo key (outside PR-5's shape) and pays as before.
+        audioKey: audioPath,
       },
       {
         audio: { url: signed.signedUrl },

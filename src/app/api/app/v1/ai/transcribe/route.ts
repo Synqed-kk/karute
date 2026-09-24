@@ -87,9 +87,16 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
 
   // staffId: selfStaffId, already resolved above (voice reference) — never a
   // second lookup. This door names a storage path, never a customer, so the
-  // meter carries no customerId.
+  // meter carries no customerId. audioKey: the same tenant-proven path, so a
+  // take this door (or any other) already paid for is answered from its memo.
   const { result, receipt } = await runMeteredTranscription(
-    { synqed, businessId: ctx.identity.businessId, door: 'app', staffId: selfStaffId },
+    {
+      synqed,
+      businessId: ctx.identity.businessId,
+      door: 'app',
+      staffId: selfStaffId,
+      audioKey: path,
+    },
     {
       audio: { url: signed.signedUrl },
       locale: parsed.data.locale === 'en' ? 'en' : 'ja',
@@ -103,8 +110,8 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   )
   // The spend wall's numbers ride the hook's OWN recording.transcribe row
   // (FACADE_AUDIT_MAP['ai.transcribe']) rather than a second one from the
-  // meter: one call, one receipt. Five keys with staff_id, still well inside
-  // the hook's cap of 8. The receipt is server-side only — the client is
+  // meter: one call, one receipt. Six keys with staff_id (PR-5 added
+  // `replayed`), still well inside the hook's cap of 8. The receipt is server-side only — the client is
   // answered with `result`, the provider body, exactly as before.
   // staff_id: selfStaffId, already resolved above — never a second lookup.
   // This door names a storage path, never a customer, so no customer_id key.
