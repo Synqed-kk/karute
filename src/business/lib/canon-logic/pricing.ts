@@ -39,6 +39,11 @@ export const DENSITY_CEILING = 12
  *  (`readMinutes(raw, ceiling) ?? DEFAULT_SELL_SLOT_MIN`). */
 export const DEFAULT_SELL_SLOT_MIN = 60
 
+/** The yen unit a gap-fill / packed-session price is rounded to (canon's
+ *  `/ 10) * 10`). Named because the settings page prints it in words — the
+ *  Reserve 受付 fact renders `¥${PRICE_UNIT_YEN}単位` from here. */
+export const PRICE_UNIT_YEN = 10
+
 /** canon's ¥ formatter (`money`, :2736) — same output as the board's `yen`. */
 export const money = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`
 
@@ -154,14 +159,14 @@ export function gapFillPrice(listPrice: number, startMin: number, endMin: number
   const raw = gapFillRawTotal(listPrice, startMin, endMin, frame, depth)
   const discounted = raw * (1 - discountPct / 100)
   const floor = gapFillFloorTotal(listPrice, endMin - startMin, frame)
-  return Math.round(Math.max(discounted, floor) / 10) * 10
+  return Math.round(Math.max(discounted, floor) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
 }
 
 /** canon `packedPrice` (:5024): full price, no discount, no clamp — and the
  *  same tripwire canon keeps, because "structurally always above the floor"
  *  is only true while the depth cap holds. */
 export function packedPrice(listPrice: number, startMin: number, endMin: number, frame: PriceFrame, depth: number): number {
-  const price = Math.round(gapFillRawTotal(listPrice, startMin, endMin, frame, depth) / 10) * 10
+  const price = Math.round(gapFillRawTotal(listPrice, startMin, endMin, frame, depth) / PRICE_UNIT_YEN) * PRICE_UNIT_YEN
   const floor = gapFillFloorTotal(listPrice, endMin - startMin, frame)
   if (price < floor) {
     throw new Error(

@@ -1022,8 +1022,15 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSe
   }
 }
 
-/** 割引の上限は定価の−30%（canon-logic/pricing.ts の CURVE_MAX_DIP と同じ床）。 */
-const floorPriceOf = (listPrice: number) => Math.round((listPrice * 0.7) / 10) * 10
+/** 回数券の最低価格 = 定価 × TICKET_FLOOR_RATIO, rounded to ¥10: the ticket's
+ *  floor sits 30% under the list price, and the services.tickets fact prints
+ *  that 30% from this ratio. It is NOT `CURVE_MAX_DIP` (canon-logic/pricing.ts),
+ *  which is the time curve's deepest dip, 1 − min(SELL_CURVE) = 1 − 0.85 = 0.15.
+ *  canon-logic/pricing.ts types its own 0.7 for the same −30% shape in
+ *  `clampPriceInputs` (HQ's 最低価格 floor) and `gapFillFloorTotal`; neither
+ *  reads this constant. */
+const TICKET_FLOOR_RATIO = 0.7
+const floorPriceOf = (listPrice: number) => Math.round((listPrice * TICKET_FLOOR_RATIO) / 10) * 10
 
 // ── 人・設備 ────────────────────────────────────────────────────────────────
 
