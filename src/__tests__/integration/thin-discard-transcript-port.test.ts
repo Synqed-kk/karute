@@ -239,6 +239,30 @@ describe('the flag flip — the fix itself', () => {
     expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null })
   })
 
+  // ⚖ …AND IT SAYS WHY IT IS UNBOUND (S33). The in-tab fallback reaches this
+  // body only after attaching to the take's own row failed or no row was known;
+  // the mint's switch arm reads the reason so a recording that HAS a row never
+  // gets a second one. Exactly the field, only when given.
+  it.each(['attach_failed', 'no_session'] as const)(
+    'the in-tab fallback carries attachOutcome %s on the unbound body',
+    async (attachOutcome) => {
+      const apiFetch = port(async () =>
+        json({ path: 'app_business-1_x.webm', url: 'https://up/', contentType: 'audio/webm' }),
+      )
+      global.fetch = jest.fn(
+        async () => ({ ok: true, status: 200 }) as unknown as Response,
+      ) as unknown as typeof fetch
+
+      await viteRecordingPort.prepareTranscription(new Blob(['a'], { type: 'audio/mp4' }), null, {
+        stagedFor: null,
+        attachOutcome,
+      })
+
+      const [, init] = apiFetch.mock.calls[0] as [string, RequestInit]
+      expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null, attachOutcome })
+    },
+  )
+
   // ⚖ AND BOTH LEGS CARRY A DEADLINE (slice five fix round 3, F7). A phone that
   // walks out of signal STALLS its sockets rather than failing them, and a hung
   // staged leg is held in runDiscardTranscript's module-level `inFlight` set
