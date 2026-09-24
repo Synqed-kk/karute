@@ -111,11 +111,16 @@ const MAX_AUDIO_PROBES = MAX_JOB_PROBES
 const MAX_DISCARD_PAGES = 20
 
 /** Recording hole PR-7 — at most this many failed sessions are asked for a
- *  warning fact per read, newest first (the fold's own order).
- *  ponytail: past the cap the OLDEST failed rows keep the generic 失敗 line —
- *  honest, just unexplained. Upgrade path: an `action` filter on core's
- *  ListAuditOptions (CORE-19 item 2) would make this one call per read. */
-const MAX_WARNING_READS = 50
+ *  warning fact per read, newest first (the fold's own order), and the whole
+ *  lookup gets WARNING_DEADLINE_MS before the read moves on without it
+ *  (fix round 1, Greptile P1: the inbox and the audit-watch cron both wait on
+ *  this read, and the cron's 30 s reserve never budgeted for it).
+ *  ponytail: the ceiling is 20 per-session audit reads, six at a time, 2 s
+ *  total — past either, the OLDEST (or slowest) failed rows keep the generic
+ *  失敗 line: honest, just unexplained. Upgrade path: an `action` filter on
+ *  core's ListAuditOptions (CORE-19 item 2) makes this ONE call per read. */
+const MAX_WARNING_READS = 20
+const WARNING_DEADLINE_MS = 2_000
 /** One page of the session's `recording`-category rows — the audit-watch
  *  dedupe read's own shape and size (run.ts isNewCandidate). */
 const WARNING_PAGE_SIZE = 50
@@ -281,6 +286,9 @@ export interface InboxReadDeps {
    *  them; both defaults are the constants. */
   maxJobProbes?: number
   maxAudioProbes?: number
+  /** The warning lookup's deadline (PR-7 fix round 1), overridable ONLY so a
+   *  test need not wait 2 s. Production never passes it. */
+  warningDeadlineMs?: number
 }
 
 /**
@@ -328,6 +336,7 @@ export async function readRecordingsInbox({
   takeAudioProbe = probeTakeAudio,
   maxJobProbes = MAX_JOB_PROBES,
   maxAudioProbes = MAX_AUDIO_PROBES,
+  warningDeadlineMs = WARNING_DEADLINE_MS,
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
 
@@ -500,7 +509,7 @@ export async function readRecordingsInbox({
     })
   }
 
-  await attachCaptureWarnings(synqed, rows, pointerBySession, businessId, now.getTime())
+  await attachCaptureWarnings(synqed, rows, pointerBySession, businessId, now.getTime(), warningDeadlineMs)
 
   return fillCustomerNames(rows, businessId)
 }
@@ -523,7 +532,12 @@ export async function readRecordingsInbox({
  * asked at all.
  *
  * A read that throws is not an answer: the session keeps no field (today's
- * generic line), the miss is logged, and the inbox still returns.
+ * generic line), the miss is logged, and the inbox still returns. So is one
+ * that has not answered by the DEADLINE: answers are collected aside and
+ * applied once, when the lookup finishes or the deadline passes — whichever is
+ * first — so a late answer can never change a row after this read returned,
+ * and no new read starts after the deadline. (recording-port.ts has a
+ * withDeadline, but it lives in the client port's module graph.)
  */
 async function attachCaptureWarnings(
   synqed: Pick<SynqedClient, 'audit'>,
@@ -532,6 +546,7 @@ async function attachCaptureWarnings(
   pointerBySession: ReadonlyMap<string, string>,
   businessId: string,
   nowMs: number,
+  deadlineMs: number,
 ): Promise<void> {
   const takeIdBySession = new Map<string, string>()
   for (const r of deriveInboxRows({ sessions: rows, takes: [], now: nowMs })) {
@@ -548,11 +563,14 @@ async function attachCaptureWarnings(
     )
   }
   const asks = failed.slice(0, MAX_WARNING_READS)
-  const byId = new Map(rows.map((r) => [r.recordingSessionId, r]))
+  if (asks.length === 0) return
+  const found = new Map<string, 'device' | 'server'>()
+  let settled = 0
+  let stopped = false
   let next = 0
-  await Promise.all(
+  const lookup = Promise.all(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, asks.length) }, async () => {
-      for (let i = next++; i < asks.length; i = next++) {
+      for (let i = next++; !stopped && i < asks.length; i = next++) {
         const id = asks[i]
         try {
           const res = await synqed.audit.list({
@@ -570,14 +588,35 @@ async function attachCaptureWarnings(
               (e.detail as { take_id?: unknown } | null | undefined)?.take_id === takeId,
           )
           const reason = (fact?.detail as { reason?: unknown } | null | undefined)?.reason
-          const row = byId.get(id)
-          if (row && (reason === 'device' || reason === 'server')) row.captureWarning = reason
+          if (reason === 'device' || reason === 'server') found.set(id, reason)
         } catch (err) {
           console.warn(`[recordings-inbox] warning-fact read failed for ${id}:`, err)
+        } finally {
+          settled++
         }
       }
     }),
   )
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const inTime = await Promise.race([
+    lookup.then(() => true),
+    new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), deadlineMs)
+    }),
+  ])
+  clearTimeout(timer)
+  if (!inTime) {
+    stopped = true
+    console.warn(
+      `[recordings-inbox] warning-fact lookup past ${deadlineMs} ms — ` +
+        `${asks.length - settled} failed sessions left generic`,
+    )
+  }
+  const byId = new Map(rows.map((r) => [r.recordingSessionId, r]))
+  for (const [id, reason] of found) {
+    const row = byId.get(id)
+    if (row) row.captureWarning = reason
+  }
 }
 
 /**

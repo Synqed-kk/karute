@@ -370,6 +370,26 @@ describe('readRecordingsInbox — the warning fact', () => {
     expect(auditList).not.toHaveBeenCalled()
   })
 
+  it('t12: a list call that never answers cannot hold the read — it returns by the deadline, row generic, one log line', async () => {
+    auditList.mockImplementationOnce(() => new Promise(() => {}))
+    const started = Date.now()
+    const sessions = await readRecordingsInbox({
+      synqed: readClient,
+      staffId: 'staff-1',
+      businessId: BIZ,
+      now: READ_NOW,
+      takeAudioProbe: async () => 'absent',
+      segmentsProbe: async () => false,
+      warningDeadlineMs: 50,
+    })
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(sessions).toHaveLength(3)
+    expect('captureWarning' in byId(sessions)['sess-failed']).toBe(false)
+    expect(console.warn).toHaveBeenCalledWith(
+      '[recordings-inbox] warning-fact lookup past 50 ms — 1 failed sessions left generic',
+    )
+  }, 2_000)
+
   it('t7: the list call throws → no field, logged, the read still returns every session (row stays genericFailure)', async () => {
     auditList.mockRejectedValueOnce(Object.assign(new Error('core down'), { status: 503 }))
     const sessions = await read()
