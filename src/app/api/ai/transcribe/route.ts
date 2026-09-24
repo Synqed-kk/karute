@@ -11,6 +11,8 @@ import {
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
 import { auditWeb } from '@/lib/audit-web'
+import { can } from '@/lib/auth/require-permission'
+import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 
 export const maxDuration = 300
 
@@ -36,6 +38,24 @@ function isAllowedAudioUrl(raw: unknown): boolean {
     return u.protocol === 'https:' && u.host === allowedHost
   } catch {
     return false
+  }
+}
+
+/**
+ * The storage key a signed READ url names — the shape the web recording port's
+ * own mint produces (mintRecordingReadUrl → createSignedUrl:
+ * `/storage/v1/object/sign/recordings/<key>?token=…`). Null for any other
+ * shape. It is the transcript memo's IDENTITY only (PR-5): whether the memo is
+ * used at all is decided below, never by this parse.
+ */
+function storageKeyFromAudioUrl(raw: string): string | null {
+  try {
+    const m = /^\/storage\/v1\/object\/(?:sign|authenticated)\/recordings\/(.+)$/.exec(
+      new URL(raw).pathname,
+    )
+    return m ? decodeURIComponent(m[1]) : null
+  } catch {
+    return null
   }
 }
 
@@ -113,7 +133,22 @@ export async function POST(request: Request) {
       if (!isAllowedAudioUrl(audioUrl)) {
         return NextResponse.json({ error: 'Invalid audioUrl' }, { status: 400 })
       }
-      const { result: body, receipt } = await runMeteredTranscription(meter, {
+      // ⚖ THE MEMO ON THIS ARM IS GATED (PR-5, S29 ruling). A replay answers
+      // without Deepgram fetching the URL, so the URL's token — the only proof
+      // this arm otherwise has that the caller may read the audio — is never
+      // checked. The memo is therefore granted only where it grants nothing the
+      // facade twin does not: the caller's own tenant's TAKE (the row-pointer
+      // fence — the key is a client's claim) AND records.write. Either false, or
+      // the capability read failing, → no memo, and this pays exactly as before.
+      // No new refusal here: that this route asks no records.write at all is an
+      // existing gap, recorded, not fixed in PR-5.
+      const urlKey = storageKeyFromAudioUrl(audioUrl)
+      const audioKey =
+        isOwnRecordingKey(urlKey, meter.businessId) &&
+        (await can('records.write').catch(() => false))
+          ? urlKey
+          : null
+      const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey }, {
         audio: { url: audioUrl },
         locale: (loc ?? 'ja') === 'en' ? 'en' : 'ja',
         diarize,

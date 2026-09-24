@@ -330,6 +330,10 @@ jest.mock('@/lib/auth/require-permission', () => {
     ...actual,
     capabilitiesForUser: jest.fn(async () => new Set(['records.write'])),
     getMyCapabilities: jest.fn(async () => new Set(['records.write'])),
+    // The web route's cookie-side capability read (PR-5 gates its memo on it).
+    // Replaced, not spread: the real `can` closes over the REAL
+    // getMyCapabilities, so overriding that export above would not reach it.
+    can: jest.fn(async () => true),
   }
 })
 jest.mock('@/lib/app-api/customer-facade', () => ({
@@ -353,6 +357,7 @@ import { POST as facadeTranscribePOST } from '@/app/api/app/v1/ai/transcribe/rou
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { runMeteredTranscription } from '@/lib/ai/transcribe'
+import { can } from '@/lib/auth/require-permission'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
 
 const OWN_KEY = conformingKey('biz-1')
@@ -409,6 +414,10 @@ beforeEach(() => {
   })
   listSegments.mockResolvedValue({ segments: [] })
   memoStore.clear()
+  // Reset, for the same reason as consume: the t2c rows whose key fails the
+  // grammar never reach `can`, and their queued answer must not leak.
+  ;(can as jest.Mock).mockReset()
+  ;(can as jest.Mock).mockResolvedValue(true)
 })
 
 // ── t3 — the cents ──────────────────────────────────────────────────────────
@@ -964,6 +973,103 @@ describe('the web route (cookie door)', () => {
     // the other three doors.
     expect(auditWeb).toHaveBeenCalledWith(expect.objectContaining({ severity: 'warning' }))
     errorLog.mockRestore()
+  })
+
+  // ── ⚖ THE WEB JSON ARM'S MEMO IS GATED (PR-5, S29 ruling) ────────────────
+  // A replay answers without Deepgram fetching the URL, so the token is never
+  // checked: the memo is granted only for the caller's own tenant's TAKE and
+  // only with records.write — nothing wider than the facade twin grants.
+  const OWN_TAKE = conformingKey('business-1')
+  /** The web recording port's REAL shape: mintRecordingReadUrl → createSignedUrl
+   *  (storage-js 2.99.1: `${url}/storage/v1` + `/object/sign/<bucket>/<key>?token=`). */
+  const signedUrl = (key: string, route = 'object/sign/recordings') =>
+    `https://test-local.supabase.co/storage/v1/${route}/${key}?token=t0k3n`
+
+  it('t2b records.write + own take: the web door pays, then the job door on the same key pays NOTHING — one charge', async () => {
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+    expect(res.status).toBe(200)
+    expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), {
+      contentType: 'application/json',
+      upsert: false,
+    })
+
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        business_id: 'business-1',
+        payload: { ...baseJob.payload, audio_path: OWN_TAKE },
+      })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+    expect(consume).toHaveBeenCalledTimes(1)
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({
+      door: 'job',
+      cost_cents: 0,
+      replayed: true,
+    })
+  })
+
+  it.each([
+    ['WITHOUT records.write, own take', false, () => OWN_TAKE],
+    ['with records.write, another tenant’s take', true, () => conformingKey('biz-2')],
+    ['with records.write, own RESCUE (take-only fence)', true, () => rescueKey('business-1')],
+  ])('t2c %s → no memo read, no memo write, and it pays', async (_label, holds, key) => {
+    ;(can as jest.Mock).mockResolvedValueOnce(holds)
+    // A memo already sits at the key this call would compose — a gate that
+    // leaked would answer from it instead of paying.
+    memoStore.set(
+      `trc/${key()}.ja.json`,
+      JSON.stringify({ v: 1, result: { transcript: 'leak' }, duration_seconds: 1, written_at: '' }),
+    )
+
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(key()), locale: 'ja' }))
+
+    expect(res.status).toBe(200)
+    expect((await res.json()).transcript).toBe('こんにちは')
+    expect(storageDownload).not.toHaveBeenCalled()
+    expect(storageUpload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+  })
+
+  it('t2c the capability read FAILS → no memo, and it still pays (no new refusal)', async () => {
+    ;(can as jest.Mock).mockRejectedValueOnce(new Error('profile read down'))
+
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+
+    expect(res.status).toBe(200)
+    expect(storageDownload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['the real producer’s shape', signedUrl(OWN_TAKE), `trc/${OWN_TAKE}.ja.json`],
+    [
+      'a percent-encoded key (decoded before the grammar reads it)',
+      signedUrl(OWN_TAKE.replace('.webm', '%2Ewebm')),
+      `trc/${OWN_TAKE}.ja.json`,
+    ],
+    ['a public/ route', signedUrl(OWN_TAKE, 'object/public/recordings'), null],
+    ['another bucket', signedUrl(OWN_TAKE, 'object/sign/avatars'), null],
+    ['no bucket segment at all', `https://test-local.supabase.co/storage/v1/object/sign/${OWN_TAKE}`, null],
+  ])('t10 the URL → key parse: %s', async (_label, audioUrl, memoRead) => {
+    const res = await webTranscribePOST(post({ audioUrl, locale: 'ja' }))
+
+    expect(res.status).toBe(200)
+    if (memoRead === null) expect(storageDownload).not.toHaveBeenCalled()
+    else expect(storageDownload).toHaveBeenCalledWith(memoRead)
+  })
+
+  it('t10 a non-URL never reaches the parse — the SSRF guard answers 400 first, nothing read', async () => {
+    const res = await webTranscribePOST(post({ audioUrl: 'not a url', locale: 'ja' }))
+
+    expect(res.status).toBe(400)
+    expect(storageDownload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
   })
 })
 
