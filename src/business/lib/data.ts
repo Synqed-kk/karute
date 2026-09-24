@@ -240,6 +240,12 @@ export function practiceDoorOn(): boolean {
   return practiceTenant() !== null
 }
 
+/** ⚖ A2 · G5 — may the admitted operator save the card colour (core's sheet, `settings.manage`)?
+ *  The page asks only while the door is ON; OFF answers false (no writer). */
+export async function readCanManageCardColor(): Promise<boolean> {
+  return door.readCanManageCardColor()
+}
+
 /** ⚖ A2 (Liam 9/24) — the ONE Business write: the business's Reserve card colour, through the door.
  *  OFF has no writer — the door answers 'tenant' before anything else. */
 export async function writeReserveCardColor(next: string | null): Promise<door.WriteCardColorResult> {

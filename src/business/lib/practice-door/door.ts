@@ -419,6 +419,24 @@ export async function readReserveCardColor(): Promise<string | null> {
   return normalizeCardColor(org?.settings?.reserve_card_color)
 }
 
+/** ⚖ A2 · G5 — ONE truth for 「may this operator save the card colour」: core's own answer sheet. */
+const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
+
+/** LIVE: may the admitted operator save the card colour? The page asks so the screen never offers a
+ *  保存する the writer would refuse. Never throws to the page: another business → false; any other
+ *  failure → false, logged. OFF → false (no writer). */
+export async function readCanManageCardColor(): Promise<boolean> {
+  if (practiceTenant() === null) return false
+  const reach = await import('./core-reach') // lazy, like the writer
+  try {
+    return canManageSettings(await practiceActor())
+  } catch (e) {
+    if (e instanceof reach.PracticeTenantMismatch) return false
+    console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
+    return false
+  }
+}
+
 export type WriteCardColorResult =
   | { ok: true; color: string | null }
   | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core' }
@@ -441,7 +459,7 @@ export async function writeReserveCardColor(next: string | null): Promise<WriteC
     console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
     return { ok: false, reason: 'core' }
   }
-  if (!actor.sheet.capabilities.includes('settings.manage')) return { ok: false, reason: 'forbidden' }
+  if (!canManageSettings(actor)) return { ok: false, reason: 'forbidden' }
   try {
     const before = (await orgSettingsOf(actor))?.settings?.reserve_card_color ?? null
     if (normalizeCardColor(before) === next) return { ok: true, color: next }

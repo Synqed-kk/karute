@@ -174,6 +174,27 @@ describe('⚖ A2 — the one writer: data.writeReserveCardColor → door', () =>
     expect(mockCore.upsert).not.toHaveBeenCalled()
   })
 
+  it('G5 — readCanManageCardColor is the writer’s own check: owner yes, the manager without settings.manage no', async () => {
+    expect(await data.readCanManageCardColor()).toBe(true)
+    as(LOGIN.goro)
+    expect(await data.readCanManageCardColor()).toBe(false)
+    expect(await data.writeReserveCardColor(KON)).toEqual({ ok: false, reason: 'forbidden' }) // the two agree
+  })
+
+  it('G5 — readCanManageCardColor never throws to the page: another business / a failed read / OFF → false', async () => {
+    as(LOGIN.owner, '00000000-0000-4000-8000-00000000dead')
+    expect(await data.readCanManageCardColor()).toBe(false)
+    expect(error).not.toHaveBeenCalled()
+    as(LOGIN.owner)
+    withReads().answerSheet.mockRejectedValue(new Error('boom'))
+    expect(await data.readCanManageCardColor()).toBe(false)
+    expect(error).toHaveBeenCalledWith('[business card colour] core did not answer:', 'boom')
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const spy = withReads()
+    expect(await data.readCanManageCardColor()).toBe(false)
+    for (const fn of Object.values(spy)) expect(fn).not.toHaveBeenCalled()
+  })
+
   it('switch OFF → tenant: no writer, nothing called, and the page offers no real save', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     const spy = withReads()
@@ -296,6 +317,11 @@ describe('⚖ A2 — the screen speaks the route’s contract (source pin; the c
     expect(SCREEN).toContain("headers: { 'content-type': 'application/json', 'x-expected-business': card.businessId },")
     expect(SCREEN).toContain('body: JSON.stringify({ color: next }),')
   })
+  it('G5 — core’s sheet says no (canSave false): the card section renders no 保存する and its foot is the forbidden line', () => {
+    expect(SCREEN).toContain('type CardSave = { businessId: string; canSave: boolean }')
+    expect(SCREEN).toContain('{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}')
+    expect(SCREEN).toContain('{props.saveCardColor?.canSave === false ? null : roomSave(section)}')
+  })
   it('the JP lines are JP-COPY-A2-FINAL’s, byte for byte, by id', () => {
     for (const line of [
       "'色は事業全体の設定として保存され、お客様が次にReserveのお店ページを開くと表示されます。' // save.note.card",
@@ -311,10 +337,16 @@ describe('⚖ A2 — the screen speaks the route’s contract (source pin; the c
 describe('⚖ A2 — the page', () => {
   const render = () => SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({}) })
 
-  it('page.tsx ON: the screen is told the ADMITTED business (the route’s X-Expected-Business), nothing else', async () => {
+  it('page.tsx ON: the screen is told the ADMITTED business (the route’s X-Expected-Business) and core’s yes', async () => {
     expect(data.practiceDoorOn()).toBe(true)
     const el = await render()
-    expect(el.props.saveCardColor).toEqual({ businessId: TENANT })
+    expect(el.props.saveCardColor).toEqual({ businessId: TENANT, canSave: true })
+  })
+
+  it('page.tsx ON, a sheet without settings.manage (G5): canSave false — the screen offers no save the writer would refuse', async () => {
+    as(LOGIN.goro)
+    const el = await render()
+    expect(el.props.saveCardColor).toEqual({ businessId: TENANT, canSave: false })
   })
 
   it('page.tsx OFF: no save action reaches the screen — today’s page-local commit', async () => {

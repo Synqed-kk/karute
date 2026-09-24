@@ -32,7 +32,7 @@
 //    — the type note is printed beside the row, and the suite pins that.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { practiceDoorOn } from '@/business/lib/data'
+import { practiceDoorOn, readCanManageCardColor } from '@/business/lib/data'
 import { SettingsScreen } from './SettingsScreen'
 import { settingsProps } from './settings-props'
 import './settings.css'
@@ -62,7 +62,8 @@ export default async function SettingsPage({
   // the resolved lens resets both, which is what a shop expects when it changes
   // which store it is looking at.
   // ⚖ A2 — OFF: no prop, today's page-local commit byte for byte. ON: the one real save, for the
-  // ADMITTED business (the route's X-Expected-Business check compares against it).
-  const saveCardColor = practiceDoorOn() ? { businessId: admitted.businessId } : undefined
+  // ADMITTED business (the route's X-Expected-Business check compares against it), and whether core's
+  // sheet lets this operator save at all (G5: the writer's own check, asked once — no 保存する it would refuse).
+  const saveCardColor = practiceDoorOn() ? { businessId: admitted.businessId, canSave: await readCanManageCardColor() } : undefined
   return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} />
 }

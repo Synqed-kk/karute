@@ -283,7 +283,7 @@ export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProp
 /** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
  *  practice door is ON; absent = today's page-local commit, and nothing is ever sent. */
 type CardSaveReason = 'forbidden' | 'tenant' | 'invalid' | 'core'
-type CardSave = { businessId: string }
+type CardSave = { businessId: string; canSave: boolean }
 const CARD_SAVE_URL = '/api/business/card-color'
 const CARD_SAVE_REASONS: ReadonlyArray<CardSaveReason> = ['forbidden', 'tenant', 'invalid', 'core']
 
@@ -1246,12 +1246,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
               reduced={reduced}
               render={(slots) =>
                 columnAnd(
-                  <div className="st-main">{slots.main}<p className="st-foot">{props.saveCardColor ? CARD_SAVE_NOTE : props.demoSaveLine}</p></div>,
+                  <div className="st-main">{slots.main}<p className="st-foot">{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}</p></div>,
                   sideNode(
                     [],
                     slots.preview,
                     <>
-                      {roomSave(section)}
+                      {/* ⚖ G5 — core's sheet says no: no 保存する to press; the foot says why. */}
+                      {props.saveCardColor?.canSave === false ? null : roomSave(section)}
                       {cardFail && <p className="st-act-error" role="alert">{CARD_SAVE_FAIL[cardFail]}</p>}
                     </>,
                     () => false,
