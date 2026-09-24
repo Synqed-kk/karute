@@ -433,6 +433,16 @@ describe('S33 attachOutcome — the ON arm creates only when no row is known', (
         spy.mockRestore()
       }
     })
+    it('a mint that hands out NO upload is not counted (the ON arm’s `exists`)', async () => {
+      const spy = jest.spyOn(console, 'info').mockImplementation(() => {})
+      try {
+        info.mockImplementation(async () => ({ data: { size: 9 }, error: null }))
+        await expect(mint({ attachOutcome: 'no_session' })).resolves.toEqual({ error: 'upstream' })
+        expect(countLines(spy)).toEqual([])
+      } finally {
+        spy.mockRestore()
+      }
+    })
   })
 
   describe('switch OFF', () => {
