@@ -435,7 +435,7 @@ async function main() {
   }
 
   // (d) static: the loader has no delete call and never imports the deleting seeder's guard.
-  for (const file of ['fill.ts', 'plan.ts', ...readdirSync(join(__dirname, 'recipes')).map((f) => `recipes/${f}`)]) {
+  for (const file of ['fill.ts', 'plan.ts', 'create-store.ts', ...readdirSync(join(__dirname, 'recipes')).map((f) => `recipes/${f}`)]) {
     const src = readFileSync(join(__dirname, file), 'utf8')
     assert.doesNotMatch(src, /\.delete\(|remove\(|destroy\(|\.update\(|\.patch\(/, `${file}: no delete or update call`)
     assert.doesNotMatch(src, /(from\s+|require\(\s*|import\(\s*)['"][^'"]*core-target-guard/, `${file}: does not import core-target-guard`)
