@@ -213,9 +213,9 @@ const createSignedUrl = jest.fn(async () => ({
 // The bucket as the memo sees it: one map, cleared before every test. A `trc/`
 // key that is not in it answers storage's real NoSuchKey shape (HTTP 400, body
 // statusCode '404', 'Object not found' — take-binding.ts#isStorageNotFound); a
-// second upload of the same key answers the duplicate refusal, because the memo
-// is written upsert:false. Every other key keeps the answer this suite always
-// gave, so no pre-PR-5 test sees a different bucket.
+// second upload of the same key answers the duplicate refusal unless it asks
+// to upsert (the memo's corrupt-object repair). Every other key keeps the
+// answer this suite always gave, so no pre-PR-5 test sees a different bucket.
 const memoStore = new Map<string, string>()
 const storageDownload = jest.fn(async (key: string) => {
   if (!key.startsWith('trc/')) return { data: null, error: { message: 'none' } }
@@ -226,8 +226,7 @@ const storageDownload = jest.fn(async (key: string) => {
 })
 const storageUpload = jest.fn(
   async (key: string, body: string, opts?: { upsert?: boolean; contentType?: string }) => {
-    void opts
-    if (memoStore.has(key)) {
+    if (memoStore.has(key) && !opts?.upsert) {
       return { data: null, error: { statusCode: '409', message: 'The resource already exists' } }
     }
     memoStore.set(key, body)
@@ -1891,15 +1890,95 @@ describe('charge once — the durable transcript memo', () => {
     warn.mockRestore()
   })
 
-  it('a memo that is not a v1 memo is a MISS — the call pays, with one warn', async () => {
+  // ⚖ A CORRUPT MEMO IS REPAIRED (Greptile round). Proven garbage — the object
+  // came back and is not a v1 memo — is the one thing the next PAID answer may
+  // replace; after that the audio is charged once again, forever.
+  it.each([
+    ['a body that is not JSON', '{not json'],
+    ['a v2 memo', JSON.stringify({ v: 2, result: {}, duration_seconds: 1 })],
+    ['a v1 memo with no result', JSON.stringify({ v: 1, duration_seconds: 1 })],
+    ['a v1 memo with a string duration', JSON.stringify({ v: 1, result: {}, duration_seconds: '1' })],
+  ])('t12 %s is CORRUPT → the call pays, the memo is REPAIRED (upsert:true), and the next call replays free', async (_label, body) => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    memoStore.set(memoKey(AUDIO), JSON.stringify({ v: 2, result: {}, duration_seconds: 1 }))
+    memoStore.set(memoKey(AUDIO), body)
+
+    const first = await call(AUDIO)
+
+    expect(first.receipt.replayed).toBe(false)
+    expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
+      contentType: 'application/json',
+      upsert: true,
+    })
+    // One warn: the corrupt read. The repair itself lands silently.
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain('transcript-memo.corrupt')
+
+    const second = await call(AUDIO)
+
+    expect(second.receipt.replayed).toBe(true)
+    expect(second.result).toEqual(first.result)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('t12 a READABLE memo is never replaced — a hit writes nothing at all', async () => {
+    const good = JSON.stringify({ v: 1, result: { transcript: 'first' }, duration_seconds: 7, written_at: '' })
+    memoStore.set(memoKey(AUDIO), good)
+
+    const res = await call(AUDIO)
+
+    expect(res.result).toEqual({ transcript: 'first' })
+    expect(storageUpload).not.toHaveBeenCalled()
+    expect(memoStore.get(memoKey(AUDIO))).toBe(good)
+  })
+
+  it('t12 an UNREADABLE memo (a storage error, not proven garbage) pays, and writes create-only — the object stands', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const good = JSON.stringify({ v: 1, result: { transcript: 'first' }, duration_seconds: 7, written_at: '' })
+    memoStore.set(memoKey(AUDIO), good)
+    storageDownload.mockResolvedValueOnce({ data: null, error: { status: 500, message: 'storage down' } } as never)
 
     const res = await call(AUDIO)
 
     expect(res.receipt.replayed).toBe(false)
-    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalledTimes(1)
+    expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
+      contentType: 'application/json',
+      upsert: false,
+    })
+    expect(memoStore.get(memoKey(AUDIO))).toBe(good)
+    warn.mockRestore()
+  })
+
+  // ⚖ THE CONCURRENT-CALLERS CEILING, NAMED (Greptile round, ruled bounded).
+  // Both callers miss before either provider answers, so each pays once —
+  // what every call did before PR-5 — and the loser's write meets the
+  // duplicate refusal: ONE memo object, and no warn.
+  it('t13 two interleaved callers both miss → two charges, ONE memo, the loser’s write silent, both answered', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    let release!: (r: DeepgramTranscribeResult) => void
+    transcribeUrlWithDeepgram.mockImplementationOnce(
+      () => new Promise<DeepgramTranscribeResult>((resolve) => (release = resolve)),
+    )
+
+    const first = call(AUDIO)
+    // Hold the first call INSIDE the provider until the second has read the memo.
+    while (transcribeUrlWithDeepgram.mock.calls.length < 1) await new Promise(setImmediate)
+    const second = await call(AUDIO)
+    release({ ...deepgramResult, transcript: 'first caller' })
+    const firstRes = await first
+
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(2)
+    expect(recordUsage).toHaveBeenCalledTimes(2)
+    expect(storageDownload).toHaveBeenCalledTimes(2)
+    expect(storageUpload).toHaveBeenCalledTimes(2)
+    expect(memoStore.size).toBe(1)
+    // The second caller answered first, so its copy is the one that stands.
+    expect(JSON.parse(memoStore.get(memoKey(AUDIO))!).result.transcript).toBe('こんにちは')
+    expect(firstRes.result.transcript).toBe('first caller')
+    expect(second.result.transcript).toBe('こんにちは')
+    expect(firstRes.receipt.replayed).toBe(false)
+    expect(second.receipt.replayed).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 })

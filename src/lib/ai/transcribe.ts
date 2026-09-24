@@ -492,24 +492,31 @@ export async function runMeteredTranscription(
   // NOTHING else — not the voice reference, the diarization toggle, the
   // keyterms or the caller — so a replay returns the first paid answer even
   // after those change. One audio = one charge; that is the ruling, not a bug.
+  //
+  // ⚖ AND TWO CALLERS AT ONCE CAN BOTH PAY (Greptile, ruled a bounded ceiling).
+  // Two callers that both miss before either provider answers each pay once —
+  // exactly what every call did before PR-5; the loser's write meets the
+  // duplicate refusal and the first copy stands. The doors that matter (an
+  // in-tab save then the job door; a reload) are sequential, so the live
+  // exposure is a double-submit. Upgrade path: a create-only lease object with
+  // a TTL, on Liam's word — not built here, because a stuck lease would block
+  // paying at all.
   const memoKey = composeTranscriptKey(meter.businessId, meter.audioKey, params.locale)?.key ?? null
-  if (memoKey !== null) {
-    const memo = await readTranscriptMemo(memoKey)
-    if (memo !== null) {
-      const receipt: TranscriptionReceipt = {
-        duration_seconds: memo.duration_seconds,
-        cost_cents: 0,
-        cents_reserved: 0,
-        debit_recorded: true,
-        replayed: true,
-      }
-      // The same three-door rule as the paid path below: the row shows the
-      // door ran and paid nothing.
-      if (meter.door === 'job' || meter.door === 'from_session' || meter.door === 'discard') {
-        auditTranscriptionReceipt(meter, receipt)
-      }
-      return { result: memo.result, receipt }
+  const memoRead = memoKey === null ? null : await readTranscriptMemo(memoKey)
+  if (memoRead?.state === 'hit') {
+    const receipt: TranscriptionReceipt = {
+      duration_seconds: memoRead.memo.duration_seconds,
+      cost_cents: 0,
+      cents_reserved: 0,
+      debit_recorded: true,
+      replayed: true,
     }
+    // The same three-door rule as the paid path below: the row shows the door
+    // ran and paid nothing.
+    if (meter.door === 'job' || meter.door === 'from_session' || meter.door === 'discard') {
+      auditTranscriptionReceipt(meter, receipt)
+    }
+    return { result: memoRead.memo.result, receipt }
   }
 
   try {
@@ -584,13 +591,19 @@ export async function runMeteredTranscription(
   // The provider answered, so the money is spent whether or not the true-up
   // landed — remember the answer so this audio is never paid for again.
   // Best-effort: writeTranscriptMemo never throws.
+  // A PROVEN-corrupt memo is replaced by this answer; any other state writes
+  // create-only, so a readable memo is never overwritten.
   if (memoKey !== null) {
-    await writeTranscriptMemo(memoKey, {
-      v: 1,
-      result,
-      duration_seconds: receipt.duration_seconds,
-      written_at: new Date().toISOString(),
-    })
+    await writeTranscriptMemo(
+      memoKey,
+      {
+        v: 1,
+        result,
+        duration_seconds: receipt.duration_seconds,
+        written_at: new Date().toISOString(),
+      },
+      { repair: memoRead?.state === 'corrupt' },
+    )
   }
 
   // ONE receipt per call. The two interactive routes already emit their own

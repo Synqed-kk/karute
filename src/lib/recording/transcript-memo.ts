@@ -18,58 +18,79 @@ export type TranscriptMemo = {
   written_at: string
 }
 
+/** What the read found. `corrupt` is PROVEN garbage — the object came back and
+ *  its body is not a v1 memo — and is the one state the next paid write may
+ *  replace; a storage error or a throw is only a `miss`, because an object we
+ *  could not read may be perfectly good. */
+export type TranscriptMemoRead =
+  | { state: 'hit'; memo: TranscriptMemo }
+  | { state: 'miss' }
+  | { state: 'corrupt' }
+
 /**
- * The remembered answer, or null — and null is a MISS, which means the caller
- * PAYS: a memo we cannot read is a charge we cannot prove, so we never pretend
- * one was made. A missing object is the ordinary first call and is silent;
- * anything else (a storage error, a throw, a body that is not a v1 memo) warns
- * once, with the status only — never the key, which is the business + take id.
+ * The remembered answer. Anything but a hit means the caller PAYS: a memo we
+ * cannot read is a charge we cannot prove, so we never pretend one was made. A
+ * missing object is the ordinary first call and is silent; anything else (a
+ * storage error, a throw, a body that is not a v1 memo) warns once, with the
+ * status only — never the key, which is the business + take id.
  *
- * ponytail: a memo that exists but is unreadable or corrupt reads as a miss
- * forever — upsert:false means the write below never repairs it — so every
- * call for that audio pays. Upgrade path: a repair write on a parse failure,
- * on Liam's word.
+ * A corrupt object is repaired by the next paid answer (writeTranscriptMemo's
+ * `repair`); a readable one is never replaced.
  */
-export async function readTranscriptMemo(key: string): Promise<TranscriptMemo | null> {
+export async function readTranscriptMemo(key: string): Promise<TranscriptMemoRead> {
+  let body: string
   try {
     const { data, error } = await createServiceClient().storage.from('recordings').download(key)
     if (error) {
       if (!isStorageNotFound(error)) warnStorageUnknown('transcript-memo.read', error)
-      return null
+      return { state: 'miss' }
     }
     if (!data) {
       warnStorageUnknown('transcript-memo.read', null)
-      return null
+      return { state: 'miss' }
     }
-    const memo = JSON.parse(await data.text()) as Partial<TranscriptMemo> | null
-    if (
-      memo?.v !== 1 ||
-      !memo.result ||
-      typeof memo.result !== 'object' ||
-      typeof memo.duration_seconds !== 'number'
-    ) {
-      warnStorageUnknown('transcript-memo.corrupt', null)
-      return null
-    }
-    return memo as TranscriptMemo
+    body = await data.text()
   } catch (err) {
     warnStorageUnknown('transcript-memo.read', err)
-    return null
+    return { state: 'miss' }
   }
+  let memo: Partial<TranscriptMemo> | null
+  try {
+    memo = JSON.parse(body) as Partial<TranscriptMemo> | null
+  } catch {
+    memo = null
+  }
+  if (
+    memo?.v !== 1 ||
+    !memo.result ||
+    typeof memo.result !== 'object' ||
+    typeof memo.duration_seconds !== 'number'
+  ) {
+    warnStorageUnknown('transcript-memo.corrupt', null)
+    return { state: 'corrupt' }
+  }
+  return { state: 'hit', memo: memo as TranscriptMemo }
 }
 
 /**
  * Remember a PAID answer. Best-effort, and it NEVER throws: the money is already
  * spent and the caller already holds the result, so a memo that cannot land
  * costs only the next call's charge — it must never cost this call its answer.
- * A duplicate refusal is two doors that paid in the same moment: the first copy
- * stands, and that is silent.
+ *
+ * `repair` is true only when the read before this call PROVED the object
+ * corrupt; then, and only then, the write replaces it. Otherwise it is
+ * create-only, and a duplicate refusal is two doors that paid in the same
+ * moment: the first copy stands, and that is silent.
  */
-export async function writeTranscriptMemo(key: string, memo: TranscriptMemo): Promise<void> {
+export async function writeTranscriptMemo(
+  key: string,
+  memo: TranscriptMemo,
+  opts: { repair: boolean },
+): Promise<void> {
   try {
     const { error } = await createServiceClient()
       .storage.from('recordings')
-      .upload(key, JSON.stringify(memo), { contentType: 'application/json', upsert: false })
+      .upload(key, JSON.stringify(memo), { contentType: 'application/json', upsert: opts.repair })
     if (error && !isDuplicateRefusal(error)) warnStorageUnknown('transcript-memo.write', error)
   } catch (err) {
     warnStorageUnknown('transcript-memo.write', err)
