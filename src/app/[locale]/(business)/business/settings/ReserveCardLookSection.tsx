@@ -153,13 +153,15 @@ export function ReserveCardLookSection({
             aria-label={c.name}
             tabIndex={i === Math.max(checked, 0) ? 0 : -1}
             className={`st-swatch cl-swatch${i === checked ? ' is-on' : ''}`}
-            style={satin(c.hex)}
             onClick={() => pick(c.hex)}
             onKeyDown={(e) => onKey(e, i)}
           >
-            {i === checked && (
-              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            )}
+            {/* the button is neutral chrome; the colour is CONTENT inside it (no colour-filled control) */}
+            <span className="cl-swatch__fill" aria-hidden="true" style={satin(c.hex)}>
+              {i === checked && (
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              )}
+            </span>
           </button>
         ))}
       </div>

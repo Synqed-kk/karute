@@ -643,8 +643,16 @@
 .biz .pg-settings .cl-dot { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--line); border-radius: 999px; background: var(--satin-base); }
 .biz .pg-settings .cl-swatches { display: grid; grid-template-columns: repeat(4, max-content); gap: 10px; margin-top: 12px; }
 .biz .pg-settings .cl-swatch {
-  width: 36px; height: 36px; border-radius: 999px;
-  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 2px; border-radius: 999px;
+  display: inline-flex; background: transparent;
+}
+/* The colour is CONTENT, never the control's own fill (no colour-filled
+   interactive element — 墨 would make the button itself near-black): a round
+   fill inset 2px inside the neutral button, with a hairline so 白 / 生成り /
+   桜 / 空色 still read on the white block; the check sits on it in its ink. */
+.biz .pg-settings .cl-swatch__fill {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 999px;
   background: var(--satin-base); color: var(--satin-ink);
 }
 .biz .pg-settings .cl-preview { max-width: 393px; }

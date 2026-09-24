@@ -4231,6 +4231,12 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(LOOK_CODE).toContain('className="cl-phone" ref={phoneRef} aria-hidden="true"')
     expect(LOOK_CODE).toContain('satinVars(hex)')
     expect(LOOK_CODE).not.toMatch(/linear-gradient|radial-gradient/)
+    // ⚖ no colour-filled control (Greptile #1015): the swatch BUTTON is neutral chrome, the colour is a fill inside it
+    expect(LOOK_CODE).toContain('<span className="cl-swatch__fill" aria-hidden="true" style={satin(c.hex)}>')
+    const swatchRule = CSS_CODE.match(/\.biz \.pg-settings \.cl-swatch \{([^}]*)\}/)![1]
+    expect(swatchRule).toContain('background: transparent')
+    expect(swatchRule).not.toMatch(/satin/)
+    expect(CSS_CODE).toMatch(/\.cl-swatch__fill \{[^}]*border: 1px solid var\(--line\)[^}]*background: var\(--satin-base\)/)
     for (const banned of ['元に戻す', '反映されます', 'type="color"', '<input']) expect({ banned, found: LOOK_CODE.includes(banned) }).toEqual({ banned, found: false })
     expect(PROPS_CODE).not.toContain('.upsert(')
   })
