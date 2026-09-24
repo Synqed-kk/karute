@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, loadRecipe, withRetry, type FillCore, type Manifest } from './fill'
+import { apply, assertOneStore, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
 import { addDays, hoursOn, jstIso, plan, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -209,8 +209,18 @@ async function main() {
     assert.doesNotMatch(src, /(from\s+|require\(\s*|import\(\s*)['"][^'"]*core-target-guard/, `${file}: does not import core-target-guard`)
   }
 
-  // One recipe = one store (grep-pinned: the registry is read at import, so a test cannot remap it).
-  assert.match(readFileSync(join(__dirname, 'fill.ts'), 'utf8'), /must map exactly one store/, 'fill.ts refuses a type mapped to more than one store')
+  // One recipe = one store: the guard itself, and apply calling it (a second store mapped to the type, removed again).
+  assert.throws(() => assertOneStore({ a: 'x', b: 'x' }, 'x'), /must map exactly one store/)
+  assert.doesNotThrow(() => assertOneStore({ a: 'x' }, 'x'))
+  assert.throws(() => assertOneStore({}, 'x'), /must map exactly one store/)
+  const twice = fakeCore()
+  registry.stores['store-second-of-type'] = recipe.id
+  try {
+    await assert.rejects(apply(twice.core, opts(empty())), /must map exactly one store/)
+  } finally {
+    delete registry.stores['store-second-of-type']
+  }
+  assert.equal(twice.stats.writes, 0, 'a type mapped to two stores gets no write')
 
   console.log('✓ fill: all assertions passed')
 }

@@ -50,6 +50,11 @@ export async function loadRecipe(id: string): Promise<Recipe> {
   return { ...mod.recipe, id, counts }
 }
 
+/** One recipe = one store: a recipe's member numbers and keys belong to exactly one store in registry.json. */
+export function assertOneStore(stores: Record<string, string>, type: string): void {
+  if (Object.values(stores).filter((t) => t === type).length !== 1) throw new Error(`type ${type} must map exactly one store in registry.json (one recipe = one store; a second store of a type needs its own recipe and member-number series)`)
+}
+
 export const jstToday = (now = new Date()) => new Date(now.getTime() + 9 * 3_600_000).toISOString().slice(0, 10)
 const statusOf = (e: unknown) => (e as { status?: number } | null)?.status
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -89,7 +94,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     return 2
   }
   if (registry.stores[storeId] !== recipe.id) throw new Error(`store ${storeId} is not mapped to ${recipe.id} in registry.json`)
-  if (Object.values(registry.stores).filter((t) => t === recipe.id).length !== 1) throw new Error(`type ${recipe.id} must map exactly one store in registry.json (one recipe = one store; a second store of a type needs its own recipe and member-number series)`)
+  assertOneStore(registry.stores, recipe.id)
   const { stores } = await read(() => core.stores.list())
   if (!stores.some((s) => s.id === storeId)) throw new Error(`store ${storeId} is not in core`)
   const dev = cards.find((s) => s.email?.toLowerCase() === DEV_EMAIL)!
