@@ -131,8 +131,18 @@ async function main() {
   assert.equal(await apply(f.core, opts(m)), 0)
   const first = f.stats.writes
   assert.ok(first > 400, `first run fills (${first} writes)`)
-  assert.equal(f.t.appts.length, p1.appointments.length, 'every planned booking landed (core-like 409s: none)')
-  assert.equal(f.t.karutes.length, p1.karutes.length)
+  // The binned BC-0003 gets nothing new: its 回数券 and bookings are skipped with a line each, never made on the binned id.
+  const binnedOnly = <T extends { member: string }>(xs: T[]) => xs.filter((x) => x.member === 'BC-0003')
+  const binLines = [
+    ...binnedOnly(p1.packs).map((k) => `packs ${k.key}: customer BC-0003 is in the bin`),
+    ...binnedOnly(p1.appointments).map((a) => `appointments ${a.key}: customer BC-0003 is in the bin`),
+  ].sort()
+  assert.ok(binnedOnly(p1.packs).length === 1 && binnedOnly(p1.appointments).length > 0, 'the recipe gives BC-0003 a 回数券 and bookings')
+  assert.deepEqual([...m.runs[0].skipped].sort(), binLines, 'skipped = exactly the binned customer\'s 回数券 and bookings')
+  assert.ok(m.runs[0].skipped.every((l) => l.endsWith('is in the bin')))
+  assert.ok(!f.t.packs.some((x) => x.customer_id === 'binned') && !f.t.appts.some((x) => x.customer_id === 'binned'), 'nothing is made on a binned customer')
+  assert.equal(f.t.appts.length, p1.appointments.length - binnedOnly(p1.appointments).length, 'every planned booking but the binned customer\'s landed (core-like 409s: none)')
+  assert.equal(f.t.karutes.length, p1.karutes.length - binnedOnly(p1.karutes).length)
   // Idempotency keys: one per booking / burn, built from its own fill tag (a constant key would make core drop all but one).
   const tagOf = (r: Row) => /\[(tw:[^\]]+)\]/.exec(r.notes as string)![1]
   const apptKeys = f.t.appts.map((a) => a.idempotencyKey)
@@ -153,11 +163,11 @@ async function main() {
   assert.equal(f.stats.writes, first, 'second run: 0 writes')
   assert.equal(m.runs.length, 2)
   assert.ok(Object.values(m.runs[1].created).every((x) => x === 0), JSON.stringify(m.runs[1].created))
-  assert.deepEqual(m.runs[1].skipped, [], 'a re-run finds its own rows by key (never mistakes them for foreign bookings)')
+  assert.deepEqual([...m.runs[1].skipped].sort(), binLines, 'a re-run finds its own rows by key (never mistakes them for foreign bookings)')
   // A week later: only the new days, no booking twice.
   assert.equal(await apply(f.core, opts(m, addDays(TODAY, 7))), 0)
   assert.equal(new Set(f.t.appts.map((a) => `${a.customer_id}|${a.starts_at}`)).size, f.t.appts.length, 'no duplicate booking after the top-up')
-  assert.equal(f.t.appts.length, p2.appointments.length)
+  assert.equal(f.t.appts.length, p2.appointments.length - binnedOnly(p2.appointments).length)
 
   // A default policy may echo platform hours: the snapshot is still the recipe's hours, the ones the loader sets.
   const nine = Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, { open: '09:00', close: '18:00' }]))
@@ -177,7 +187,8 @@ async function main() {
   assert.equal(await apply(fo.core, opts(mfo)), 0)
   assert.deepEqual(mfo.runs[0].skipped.filter((l) => /overlaps existing booking/.test(l)), [`appointments ${a0.key}: overlaps existing booking foreign-appt`])
   assert.deepEqual(mfo.runs[0].conflicts409, [])
-  assert.equal(fo.t.appts.length, p1.appointments.length, 'the foreign booking + every planned one but the clashing one')
+  assert.notEqual(a0.member, 'BC-0003')
+  assert.equal(fo.t.appts.length, p1.appointments.length - binnedOnly(p1.appointments).length, 'the foreign booking + every planned one but the clashing one and the binned customer\'s')
 
   // A 409 is recorded, never retried, and exits 4; 5xx is retried, 409 is not.
   const c409 = fakeCore({ fail409: true })

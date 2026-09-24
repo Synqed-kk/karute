@@ -150,10 +150,13 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     if (row?.id) menuOf.set(x.name, row.id)
   })
 
-  // include_deleted: a customer Liam put in the bin stays there, never re-created.
+  // include_deleted: a customer Liam put in the bin stays there — never re-created, and gets no new 回数券 or booking.
   const all = await read(() => pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 })))
-  const custId = new Map(all.filter((c) => c.member_number).map((c) => [c.member_number!, c.id]))
-  await pool(p.customers.filter((c) => !custId.has(c.member)), async (c) => {
+  // SDK skew: core sends deleted_at on these rows, the SDK's Customer type does not declare it (same cast as customers.core.ts).
+  const inBin = (c: object) => !!(c as { deleted_at?: string | null }).deleted_at
+  const binned = new Set(all.filter((c) => c.member_number && inBin(c)).map((c) => c.member_number!))
+  const custId = new Map(all.filter((c) => c.member_number && !inBin(c)).map((c) => [c.member_number!, c.id]))
+  await pool(p.customers.filter((c) => !custId.has(c.member) && !binned.has(c.member)), async (c) => {
     const row = await write('customers', c.member, () => core.customers.create({
       name: c.name, furigana: c.kana, gender: c.gender, date_of_birth: c.birth, occupation: c.occupation, phone: c.phone, email: c.email,
       member_number: c.member, notes: c.memo, assigned_staff_id: staffId.get(c.staff) ?? null, has_ticket_pack: recipe.packs.some((x) => x.member === c.member),
@@ -164,7 +167,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const packId = new Map<string, string>()
   await pool(p.packs, async (k) => {
     const cid = custId.get(k.member)
-    if (!cid) return void run.skipped.push(`packs ${k.key}: no customer`)
+    if (!cid) return void run.skipped.push(`packs ${k.key}: ${binned.has(k.member) ? `customer ${k.member} is in the bin` : 'no customer'}`)
     const have = dry && cid.startsWith('dry:') ? undefined : (await read(() => core.packs.listPacks(cid))).find((x) => x.kind === 'pack' && x.purchase_round === 1)
     const id = have?.id ?? (await write('packs', k.key, () => core.packs.createPack({
       customer_id: cid, kind: 'pack', pack_size: k.size, unit_price: k.unitPrice, total_price: k.unitPrice * k.size, purchase_round: 1,
@@ -188,6 +191,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const apptRow = new Map<string, { id: string; status: string }>()
   await pool(p.appointments, async (a) => {
     const [cid, sid, rid, mid] = [custId.get(a.member), staffId.get(a.staff), resId.get(a.resource), menuOf.get(a.menu)]
+    if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
     if (!cid || !sid || !rid || !mid) return void run.skipped.push(`appointments ${a.key}: missing customer/staff/bed/menu`)
     const have = mine.get(a.key) ?? mine.get(`${cid}|${Date.parse(a.startsAt)}`)
     if (have) return void apptRow.set(a.key, have)
@@ -215,8 +219,9 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   })
   const dateOf = new Map(p.appointments.map((a) => [a.key, a.date]))
   await pool(p.packs, async (k) => {
-    const [pid, cid] = [packId.get(k.key), custId.get(k.member)!]
+    const pid = packId.get(k.key)
     if (!pid) return
+    const cid = custId.get(k.member)! // a pack id is only set for a customer that exists
     const burnt = pid.startsWith('dry:') ? new Set<string>() : new Set((await read(() => core.packs.listRedemptions(cid))).map((r) => `${r.pack_id}|${r.redeemed_on}`))
     for (const key of k.redeem) {
       const aid = done(key)
