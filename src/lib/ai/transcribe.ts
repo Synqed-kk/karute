@@ -592,18 +592,29 @@ export async function runMeteredTranscription(
   // landed — remember the answer so this audio is never paid for again.
   // Best-effort: writeTranscriptMemo never throws.
   // A PROVEN-corrupt memo is replaced by this answer; any other state writes
-  // create-only, so a readable memo is never overwritten.
+  // create-only, so a readable memo is never overwritten by the normal path.
+  //
+  // ⚖ AND A REPAIR RE-CHECKS THE OBJECT FIRST (Greptile round 2). Another caller
+  // that read the same garbage may have repaired it while we paid: a hit now
+  // means its answer stands and we write nothing — ours is for the same audio
+  // in the same language, and the caller still gets it. The re-check shrinks
+  // the overwrite window to the instant between this read and the upsert, and
+  // whatever lands in that instant is another PAID answer: nothing legible is
+  // ever replaced by garbage.
   if (memoKey !== null) {
-    await writeTranscriptMemo(
-      memoKey,
-      {
-        v: 1,
-        result,
-        duration_seconds: receipt.duration_seconds,
-        written_at: new Date().toISOString(),
-      },
-      { repair: memoRead?.state === 'corrupt' },
-    )
+    const again = memoRead?.state === 'corrupt' ? await readTranscriptMemo(memoKey) : null
+    if (again?.state !== 'hit') {
+      await writeTranscriptMemo(
+        memoKey,
+        {
+          v: 1,
+          result,
+          duration_seconds: receipt.duration_seconds,
+          written_at: new Date().toISOString(),
+        },
+        { repair: again?.state === 'corrupt' },
+      )
+    }
   }
 
   // ONE receipt per call. The two interactive routes already emit their own

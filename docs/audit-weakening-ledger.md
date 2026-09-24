@@ -635,6 +635,8 @@
   job/from_session/discard via the meter's auditTranscriptionReceipt) — the write precedes it by
   one call-frame and never throws. ⚖ 8/17 doc law keeps the transcript content out of audit
   details, which is what the object holds. Create-only (upsert:false) except the one repair case
-  (Greptile round): an object the read PROVED corrupt is replaced by the paid answer; a readable
-  memo is never replaced, nothing is ever deleted · Opus 5.5 builder on Fable's S29 fix-round ruling
+  (Greptile round): an object the read PROVED corrupt is replaced by the paid answer, and only if
+  a re-read immediately before the write still finds it corrupt (Greptile round 2: a memo another
+  caller repaired meanwhile is left standing); a readable memo is never replaced, nothing is ever
+  deleted · Opus 5.5 builder on Fable's S29 fix-round ruling
   (PKT-S29-PR5-CHARGE-ONCE.md; recorder fix plan v3 §6 row 3)

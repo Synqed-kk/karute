@@ -1909,9 +1909,10 @@ describe('charge once — the durable transcript memo', () => {
       contentType: 'application/json',
       upsert: true,
     })
-    // One warn: the corrupt read. The repair itself lands silently.
-    expect(warn).toHaveBeenCalledTimes(1)
-    expect(String(warn.mock.calls[0][0])).toContain('transcript-memo.corrupt')
+    // Two warns, both the corrupt read — the first, and the re-check right
+    // before the repair (Greptile round 2). The repair itself lands silently.
+    expect(warn).toHaveBeenCalledTimes(2)
+    for (const [line] of warn.mock.calls) expect(String(line)).toContain('transcript-memo.corrupt')
 
     const second = await call(AUDIO)
 
@@ -1946,6 +1947,72 @@ describe('charge once — the durable transcript memo', () => {
       upsert: false,
     })
     expect(memoStore.get(memoKey(AUDIO))).toBe(good)
+    warn.mockRestore()
+  })
+
+  // ⚖ A REPAIR RE-CHECKS THE OBJECT FIRST (Greptile round 2). Two callers that
+  // both read the SAME garbage both pay; the one that writes second must not
+  // clobber the first one's repair. The second read, right before the write,
+  // decides: a hit is left standing, still-garbage is repaired, missing is
+  // written create-only.
+  const CORRUPT = '{not json'
+  const OTHER = JSON.stringify({ v: 1, result: { transcript: 'other caller' }, duration_seconds: 9, written_at: '' })
+
+  it('t14a corrupt → pay → the re-check finds ANOTHER caller’s repair → no write; our answer returned, theirs stands', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    memoStore.set(memoKey(AUDIO), CORRUPT)
+    // While we pay, the other caller's repair lands.
+    transcribeUrlWithDeepgram.mockImplementationOnce(async () => {
+      memoStore.set(memoKey(AUDIO), OTHER)
+      return deepgramResult
+    })
+
+    const res = await call(AUDIO)
+
+    expect(res.result.transcript).toBe('こんにちは')
+    expect(res.receipt.replayed).toBe(false)
+    expect(storageDownload).toHaveBeenCalledTimes(2)
+    expect(storageUpload).not.toHaveBeenCalled()
+    expect(memoStore.get(memoKey(AUDIO))).toBe(OTHER)
+    warn.mockRestore()
+  })
+
+  it('t14b corrupt → pay → the re-check finds it STILL corrupt → repaired once, upsert:true', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    memoStore.set(memoKey(AUDIO), CORRUPT)
+
+    await call(AUDIO)
+
+    expect(storageDownload).toHaveBeenCalledTimes(2)
+    expect(storageUpload).toHaveBeenCalledTimes(1)
+    expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
+      contentType: 'application/json',
+      upsert: true,
+    })
+    expect(JSON.parse(memoStore.get(memoKey(AUDIO))!).v).toBe(1)
+    warn.mockRestore()
+  })
+
+  it('t14c corrupt → pay → the re-check says MISSING → written create-only, upsert:false', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    memoStore.set(memoKey(AUDIO), CORRUPT)
+    // The re-check (the next download after the provider answers) says not found.
+    transcribeUrlWithDeepgram.mockImplementationOnce(async () => {
+      storageDownload.mockResolvedValueOnce({
+        data: null,
+        error: { status: 400, statusCode: '404', message: 'Object not found' },
+      })
+      return deepgramResult
+    })
+
+    await call(AUDIO)
+
+    expect(storageDownload).toHaveBeenCalledTimes(2)
+    expect(storageUpload).toHaveBeenCalledTimes(1)
+    expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
+      contentType: 'application/json',
+      upsert: false,
+    })
     warn.mockRestore()
   })
 
