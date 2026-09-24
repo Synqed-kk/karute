@@ -53,6 +53,16 @@ export type StaffCreateDeps = StaffWriteDeps & {
   creatorAllowedStoreIds: readonly string[] | null
 }
 
+/** The owner test both staff guards below use — the codebase's own rule
+ *  (targetIsOwner / callerIsOwner in src/actions/permissions.ts): display_role
+ *  compared lower-cased, OR permission_role exactly 'owner'. Either signal alone
+ *  makes the row the owner's. */
+function isOwnerRow(
+  profile: { display_role?: string | null; permission_role?: string | null } | null | undefined,
+): boolean {
+  return (profile?.display_role ?? '').toLowerCase() === 'owner' || profile?.permission_role === 'owner'
+}
+
 // Look up an existing Supabase profile by email WITHIN this business. Returns
 // its id (which equals auth.users.id) when found, else null. Lets createStaff
 // seed synqed staff.user_id at insert time when the teammate already has an
@@ -161,7 +171,7 @@ export async function updateStaffCore(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: profile, error: profileErr } = await (service as any)
     .from('profiles')
-    .select('id, display_role')
+    .select('id, display_role, permission_role')
     .eq('id', id)
     .eq('customer_id', businessId)
     .maybeSingle()
@@ -177,7 +187,7 @@ export async function updateStaffCore(
   // holder could rename the owner to `_system_removed_…`, which the identity
   // seam then refuses: the owner locked out of their own business. A null
   // actor never equals an id, so it is refused too.
-  if ((profile?.display_role ?? '').toLowerCase() === 'owner' && deps.actorId !== id) {
+  if (isOwnerRow(profile) && deps.actorId !== id) {
     throw new AppApiError('forbidden', 'only the owner can edit the owner row')
   }
 
@@ -245,7 +255,7 @@ export async function deleteStaffCore(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: profile, error: profileErr } = await (service as any)
     .from('profiles')
-    .select('id, full_name, display_role')
+    .select('id, full_name, display_role, permission_role')
     .eq('id', id)
     .eq('customer_id', businessId)
     .maybeSingle()
@@ -267,7 +277,7 @@ export async function deleteStaffCore(
   // the rename + ban below would then lock the whole business out. The
   // message is dev-facing: each door already maps a throw to its own answer
   // (facade 403 forbidden, web `noPermission`).
-  if ((profile?.display_role ?? '').toLowerCase() === 'owner') {
+  if (isOwnerRow(profile)) {
     throw new AppApiError('forbidden', 'the owner row cannot be removed')
   }
 

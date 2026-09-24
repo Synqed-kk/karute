@@ -981,7 +981,7 @@ describe('accept refuses a reserved (system-row) name', () => {
     business_id: 'business-1', expires_at: null,
   }
 
-  it.each(['_system_x', '_SYSTEM_x', '  _system_x'])('%j → the name-required error, no account, no profile write', async (name) => {
+  it.each(['_system_x', '_SYSTEM_x', '  _system_x', '1system2alice', 'xSYSTEMy'])('%j → the name-required error, no account, no profile write', async (name) => {
     const c = core({ invites: [{ ...invite }], cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: null }] })
     install(c.api, 'user-a')
 

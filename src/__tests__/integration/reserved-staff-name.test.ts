@@ -6,7 +6,9 @@ import { inviteSchema } from '@/lib/validations/invite'
 // refuses `_system_removed_`, so a staff name carrying the prefix drops the
 // person off the roster or locks them out. Both name writers refuse it: the
 // staff edit/add schema and the invite schema (a fresh invite names the card).
-const RESERVED = ['_system_x', '_SYSTEM_x', '_System_removed_北野', '  _system_x']
+// The roster's ILIKE treats `_` as a one-character wildcard, so the family is
+// wider than the literal prefix: any char + "system" + any char.
+const RESERVED = ['_system_x', '_SYSTEM_x', '_System_removed_北野', '  _system_x', '1system2alice', 'xSYSTEMy', 'Asystemic']
 const staff = (name: string) => ({ name, position: '', email: '', phone: '' })
 const invite = (name?: string) => ({ email: 'new@example.com', role: 'STYLIST', name })
 
@@ -19,8 +21,14 @@ describe('reserved staff names', () => {
     expect(inviteSchema.safeParse(invite(name)).success).toBe(false)
   })
 
+  it('the staff schema also refuses what the filter sees as stored: a leading space or newline + "system" + a char', () => {
+    for (const name of [' systemX', '\nsystemX']) {
+      expect(staffProfileSchema.safeParse(staff(name)).success).toBe(false)
+    }
+  })
+
   it('an ordinary name still passes both — including one that merely CONTAINS the word', () => {
-    for (const name of ['北野 太郎', 'system_admin', 'Mika _system_']) {
+    for (const name of ['北野 太郎', 'system_admin', 'Mika _system_', 'システム太郎', 'system', '_system', 'Systematic']) {
       expect(staffProfileSchema.safeParse(staff(name)).success).toBe(true)
       expect(inviteSchema.safeParse(invite(name)).success).toBe(true)
     }
@@ -28,8 +36,9 @@ describe('reserved staff names', () => {
     expect(inviteSchema.safeParse(invite(undefined)).success).toBe(true)
   })
 
-  it('one home: the rule is the case-insensitive prefix', () => {
+  it('one home: the rule is the case-insensitive wildcard family', () => {
     expect(RESERVED_STAFF_NAME.flags).toContain('i')
     expect(RESERVED_STAFF_NAME.test('_SyStEm_')).toBe(true)
+    expect(RESERVED_STAFF_NAME.test('1system2alice')).toBe(true)
   })
 })

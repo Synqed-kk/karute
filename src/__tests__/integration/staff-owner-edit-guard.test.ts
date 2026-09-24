@@ -126,6 +126,40 @@ it('control: deleteStaff on the owner row is REFUSED (the delete guard, unchange
   expect(updatePayloads).toHaveLength(0)
 })
 
+// Either owner signal alone is the owner — the codebase's own rule
+// (actions/permissions.ts): display_role lower-cased, OR permission_role.
+describe("an owner row known only by permission_role 'owner' is still the owner", () => {
+  beforeEach(() => {
+    row = { ...OWNER, display_role: null, permission_role: 'owner' }
+  })
+
+  it('deleteStaff → noPermission, nothing written', async () => {
+    expect(await deleteStaff('owner-1')).toEqual({ error: 'noPermission' })
+    expect(updatePayloads).toHaveLength(0)
+  })
+
+  it('a manager renaming it to a CLEAN name → web noPermission, facade 403, nothing written', async () => {
+    expect(await updateStaff('owner-1', CLEAN)).toEqual({ error: 'noPermission' })
+    const res = await patchOwner(CLEAN)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'forbidden' })
+    expect(updatePayloads).toHaveLength(0)
+  })
+
+  it('the owner editing their OWN row is allowed', async () => {
+    caller = 'owner-1'
+    expect(await updateStaff('owner-1', CLEAN)).toBeUndefined()
+    expect(updatePayloads).toEqual([expect.objectContaining({ full_name: '別名' })])
+  })
+})
+
+it("display_role 'owner' with permission_role null is still refused (web + facade)", async () => {
+  row = { ...OWNER, permission_role: null }
+  expect(await updateStaff('owner-1', CLEAN)).toEqual({ error: 'noPermission' })
+  expect((await patchOwner(CLEAN)).status).toBe(403)
+  expect(updatePayloads).toHaveLength(0)
+})
+
 // The role is compared lower-cased, like every other owner check: a row
 // carrying 'OWNER' (older data, a hand edit) must not slip either guard.
 describe("an owner row stored as 'OWNER' is still the owner", () => {
