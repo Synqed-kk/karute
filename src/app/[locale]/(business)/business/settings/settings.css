@@ -649,15 +649,29 @@
 }
 .biz .pg-settings .cl-preview { max-width: 393px; }
 .biz .pg-settings .cl-preview .sp-seg { margin-bottom: 12px; }
-/* ⚠ WHERE THE COLUMN IS NARROWER THAN A PHONE (the shell's 76px icon rail at
-   393/440), THE PHONE PANS INSIDE THIS STRIP — never the page, never a scale.
-   Nothing inside it is focusable, so the clip hides no ring. The phone's own
-   type is the port's: it resets what the room hands down (reserve-card.css),
-   and the two inherited values it does not name are reset HERE, at the host:
+/* ⚖ R-A1b-1b — THE STRIP IS A SCROLL CONTAINER AT 1:1, AND IT NEVER SCROLLS.
+   A 393px phone in a 393px strip has nothing to pan. The pair below is there to
+   give the card its own paint layer: that is how Reserve's own page paints it
+   (the card sits in a scrolling page), and without it Chrome draws the rounded
+   corners' edge pixels a shade differently from Reserve's.
+   WHERE THE COLUMN IS NARROWER THAN A PHONE (the shell's 76px icon rail at
+   393/440), THE PHONE SCALES DOWN TO FIT and `is-scaled` turns the scroller into
+   a clip — never a pan, and nothing is cut, because the scaled card fits the
+   strip. A transform, not `zoom`: the layout stays 393px, so the port's own
+   measure effects see Reserve's geometry. `--cl-scale` / `--cl-h` and the class
+   are set by one ResizeObserver in the section (min(1, strip ÷ 393); the
+   phone's height × that), so the strip's height follows the painted card. The phone's own type
+   is the port's: it resets what the room hands down (reserve-card.css), and the
+   two inherited values it does not name are reset HERE, at the host:
    `overflow-wrap` (the room's `anywhere`) and `color-scheme` (the shell's
    `light`) — Reserve's page carries neither (in-room parity, computed style). */
-.biz .pg-settings .cl-strip { overflow-x: auto; overscroll-behavior-x: contain; }
-.biz .pg-settings .cl-phone { width: 393px; overflow-wrap: normal; color-scheme: normal; }
+.biz .pg-settings .cl-strip { height: var(--cl-h, auto); overflow-x: auto; overscroll-behavior-x: contain; }
+.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }
+.biz .pg-settings .cl-phone {
+  width: 393px; overflow-wrap: normal; color-scheme: normal;
+  /* no fallback on purpose: unset (every column ≥ 393px) = no transform at all */
+  transform: scale(var(--cl-scale)); transform-origin: top left;
+}
 
 /* a switch, with a thumb that rides the same spring */
 .biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }

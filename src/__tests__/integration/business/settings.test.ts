@@ -3596,11 +3596,12 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
 
     // ⚠ NO HORIZONTAL AXIS ANYWHERE except the ② strip's own jump run, which is
     // a one-line chip scroller and says so by removing the vertical one — and
-    // (⚖ A1b) カードの見た目's phone strip: the card is 393px, never scaled, so
-    // where the column is narrower (393/440 beside the shell's icon rail) the
-    // PHONE pans, never the page. It holds nothing focusable.
+    // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip, a scroll container in
+    // bytes that never scrolls: a 393px phone in a 393px strip, there for the
+    // card's own paint layer; narrower, it scales and `.is-scaled` clips instead.
     const xOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-x:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
     expect(xOwners).toEqual(['.biz .pg-settings .cl-strip', '.biz .pg-settings .st-jump-list'])
+    expect(CSS_CODE).toContain('.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }')
     expect(CSS_CODE).toMatch(/\.st-jump-list \{[^}]*overflow-x: auto; overflow-y: hidden/)
   })
 

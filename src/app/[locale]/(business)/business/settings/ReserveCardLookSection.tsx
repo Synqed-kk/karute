@@ -24,6 +24,8 @@ export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの色', 'Re
 
 /** The stand-in the preview paints when no colour is set (note.empty.preview says so). */
 const STAND_IN = '#1C2247'
+/** Reserve's phone width: the preview is laid out at exactly this, and only ever scaled DOWN to fit. */
+const PHONE_W = 393
 
 /** Which state line a value earns (contract §8): nothing set · one of the 12 · a colour set outside them. */
 export function cardLookState(value: string | null, palette: Look['palette']): 'empty' | 'set' | 'legacy' {
@@ -77,6 +79,29 @@ export function ReserveCardLookSection({
     fade.current?.jump(Number.isFinite(live) && live < 1 ? live : 0)
     fade.current?.set(1)
   }, [view])
+
+  // ⚖ R-A1b-1 — a column narrower than the phone (the shell's icon rail at 393/440) SCALES the phone down
+  // to fit: never a pan, never a clip. The layout stays 393px, so the port's own measure effects see
+  // Reserve's geometry; only the paint shrinks, and the strip's height follows so the notes never overlap.
+  // `is-scaled` (toggled here, in the same frame as the vars) swaps the strip's 1:1 scroller for a clip;
+  // React never rewrites this element's static className, so the toggle stands. Runs both ways on resize.
+  const stripRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const strip = stripRef.current, phone = phoneRef.current
+    if (!strip || !phone) return
+    const fit = () => {
+      const scale = Math.min(1, strip.clientWidth / PHONE_W)
+      strip.classList.toggle('is-scaled', scale < 1)
+      // 1:1 carries NO transform at all (the unset var leaves `transform` at none), so the proven pixels stand
+      if (scale === 1) { strip.style.removeProperty('--cl-scale'); strip.style.removeProperty('--cl-h'); return }
+      strip.style.setProperty('--cl-scale', String(scale))
+      strip.style.setProperty('--cl-h', `${phone.offsetHeight * scale}px`)
+    }
+    const ro = new ResizeObserver(fit) // the strip's width and the phone's height (the view switch)
+    ro.observe(strip)
+    ro.observe(phone)
+    return () => ro.disconnect()
+  }, [])
 
   const pick = (hex: string) => {
     onPick(hex)
@@ -150,9 +175,8 @@ export function ReserveCardLookSection({
         <button type="button" className={view === 'home' ? 'on' : undefined} aria-pressed={view === 'home'} onClick={() => setView('home')}>ホーム</button>
         <button type="button" className={view === 'store' ? 'on' : undefined} aria-pressed={view === 'store'} onClick={() => setView('store')}>お店ページ</button>
       </div>
-      {/* ⚠ TRUE PHONE SIZE, NEVER SCALED: the phone is 393px wide at every width; where the column is
-          narrower (the shell's icon rail at 393/440) it pans inside this strip, never the page. */}
-      <div className="cl-strip">
+      {/* TRUE PHONE SIZE wherever the column holds 393px; narrower, the same 393px phone is scaled to fit. */}
+      <div className="cl-strip" ref={stripRef}>
         <div className="cl-phone" ref={phoneRef} aria-hidden="true" onClick={onPhoneClick}>
           <ReserveCardPreview name={look.businessName} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
         </div>
