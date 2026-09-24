@@ -528,8 +528,13 @@ export async function readRecordingsInbox({
  * nothing about why take B failed. The row's own take is the one its storage
  * POINTER names — parsed here, locally, and never put on the wire — and only
  * a fact whose `detail.take_id` is that take counts. A row whose pointer names
- * no take (null, staged, another tenant's) cannot be matched, so it is not
- * asked at all.
+ * something other than this tenant's take (staged, rescue, another tenant's)
+ * cannot be matched, so it is not asked at all.
+ *
+ * ⚖ …BUT A SESSION WITH NO POINTER AT ALL IS ASKED (fix round 2, Greptile
+ * R2-1). It never bound a take, so there is no take for a fact to mismatch —
+ * and "the upload never arrived" is exactly the failure a warning explains.
+ * For it the NEWEST capture_warned row counts, whatever its take_id.
  *
  * A read that throws is not an answer: the session keeps no field (today's
  * generic line), the miss is logged, and the inbox still returns. So is one
@@ -548,11 +553,17 @@ async function attachCaptureWarnings(
   nowMs: number,
   deadlineMs: number,
 ): Promise<void> {
-  const takeIdBySession = new Map<string, string>()
+  /** sessionId → the row's own take id, or null for a session that never
+   *  bound one (no pointer: any take's fact counts). */
+  const takeIdBySession = new Map<string, string | null>()
   for (const r of deriveInboxRows({ sessions: rows, takes: [], now: nowMs })) {
     if (r.reason !== 'genericFailure' || !r.recordingSessionId) continue
     const pointer = pointerBySession.get(r.recordingSessionId)
-    const parsed = pointer ? parseRecordingKey(pointer, businessId) : null
+    if (pointer === undefined) {
+      takeIdBySession.set(r.recordingSessionId, null)
+      continue
+    }
+    const parsed = parseRecordingKey(pointer, businessId)
     if (parsed?.kind === 'take') takeIdBySession.set(r.recordingSessionId, parsed.takeId)
   }
   const failed = [...takeIdBySession.keys()]
@@ -580,12 +591,14 @@ async function attachCaptureWarnings(
             page_size: WARNING_PAGE_SIZE,
           })
           // Newest first (the SDK's own contract), so the first match is the
-          // latest raise ON THIS ROW'S TAKE. Only the two known codes are carried.
+          // latest raise ON THIS ROW'S TAKE (any take, for an unbound session).
+          // Only the two known codes are carried.
           const takeId = takeIdBySession.get(id)
           const fact = res.events.find(
             (e) =>
               e.action === 'recording.capture_warned' &&
-              (e.detail as { take_id?: unknown } | null | undefined)?.take_id === takeId,
+              (takeId === null ||
+                (e.detail as { take_id?: unknown } | null | undefined)?.take_id === takeId),
           )
           const reason = (fact?.detail as { reason?: unknown } | null | undefined)?.reason
           if (reason === 'device' || reason === 'server') found.set(id, reason)

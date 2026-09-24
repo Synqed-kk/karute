@@ -361,13 +361,45 @@ describe('readRecordingsInbox — the warning fact', () => {
     expect(byId(await read())['sess-failed'].captureWarning).toBe('device')
   })
 
-  it('t11: a failed row whose pointer names no take is never asked — nothing to match a fact to', async () => {
+  // R2-1 (fix round 2) reverses the old "no pointer → never asked" pin: a
+  // session that never bound a take has no take for a fact to mismatch.
+  it('t13 (R2-1): a failed session with NO pointer is asked, and its newest fact counts whatever the take_id', async () => {
     ;(readClient.recordings.list as jest.Mock).mockResolvedValueOnce({
       recordings: [rec('sess-failed', OLD_MS, null)],
       total: 1,
     })
-    await read()
-    expect(auditList).not.toHaveBeenCalled()
+    auditList.mockResolvedValueOnce({ events: [warned(TAKE_A, 'server'), warned(TAKE_B, 'device')], total: 2 })
+    const sessions = byId(await read())
+    expect(auditList).toHaveBeenCalledTimes(1)
+    expect(auditList).toHaveBeenCalledWith(expect.objectContaining({ target_id: 'sess-failed' }))
+    expect(sessions['sess-failed'].captureWarning).toBe('server')
+  })
+
+  it.each([
+    ['a staged copy', `stg/${BIZ}_${SESSION}_${TAKE_A}.webm`],
+    ['a rescue key', `rsc/${keyOf(TAKE_B)}`],
+    ["another tenant's take", `app_biz-2_${TAKE_B}.webm`],
+  ])('t13 (R2-1): a failed row whose pointer is %s (not this tenant\'s take) is never asked — stays generic', async (_label, pointer) => {
+    ;(readClient.recordings.list as jest.Mock).mockResolvedValueOnce({
+      recordings: [rec('sess-failed', OLD_MS, pointer)],
+      total: 1,
+    })
+    // Its own list mock (a queued once-value would outlive clearAllMocks), so
+    // a fact IS there to find — only the pointer fence keeps it unasked.
+    const factList = jest.fn(async (_opts: unknown) => ({ events: [warned(TAKE_B, 'device')], total: 1 }))
+    const sessions = await readRecordingsInbox({
+      synqed: { ...readClient, audit: { list: factList } } as unknown as typeof readClient,
+      staffId: 'staff-1',
+      businessId: BIZ,
+      now: READ_NOW,
+      takeAudioProbe: async () => 'absent',
+      segmentsProbe: async () => false,
+    })
+    expect(factList).not.toHaveBeenCalled()
+    const failed = byId(sessions)['sess-failed']
+    expect('captureWarning' in failed).toBe(false)
+    const rows = deriveInboxRows({ sessions, takes: [], now: READ_NOW.getTime() })
+    expect(rows.find((r) => r.recordingSessionId === 'sess-failed')?.reason).toBe('genericFailure')
   })
 
   it('t12: a list call that never answers cannot hold the read — it returns by the deadline, row generic, one log line', async () => {

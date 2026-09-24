@@ -180,10 +180,10 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     const client = (newSynqedClient as jest.Mock).mock.results[0].value
     // One target-scoped dedupe read for THIS candidate, never retried — the
     // other call on this mock is step (b)'s category-wide storm page walk.
-    // (Recording hole PR-7's warning read never asks this row: its pointer
-    // names no take, so no fact could be matched to it — see t10 for one that does.)
+    // 2, not 1, since PR-7 fix round 2 (R2-1): this row has NO pointer, so the
+    // inbox's warning read now asks it once (same call shape) before the dedupe read.
     const targetScoped = (client.audit.list as jest.Mock).mock.calls.filter(([a]) => 'target_id' in a)
-    expect(targetScoped).toHaveLength(1)
+    expect(targetScoped).toHaveLength(2)
   })
 
   it('t10 (PR-7): a session the recorder was warned about is written with the warned reason, not the generic one', async () => {
