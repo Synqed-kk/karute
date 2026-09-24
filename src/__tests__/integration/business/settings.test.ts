@@ -4302,6 +4302,28 @@ describe('⚖ PR-3 — the preview board is a DISPLAY EXAMPLE (X-1), at every sw
   })
 })
 
+// ⚖ PR-3 — THE MARK'S WORDS, VERBATIM from the mock (mocks/pr3/tools/build.py STRINGS,
+// native pass folded §v2). An emptied or reworded string here is a mark that says
+// nothing, so every one is pinned.
+describe('⚖ PR-3 — the mark’s strings are the mock’s, verbatim', () => {
+  it('sampleMark.* + settings.typeUnset + settings.pvNoteExample', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { businessStrings } = require('@/business/i18n') as typeof import('@/business/i18n')
+    expect(businessStrings.sampleMark).toEqual({
+      chip: 'サンプル',
+      chipLabel: 'サンプル — 説明を開く',
+      markNote: 'この内容はサンプルです。実データはまだつながっていません。',
+      popLabel: 'サンプルについて',
+      popLine1: 'この印は、見本の内容を表示しているところに付きます。この店舗の実データではありません。',
+      popLine2: 'この店舗の実データがつながると、印は外れ、実際の内容に置き換わります。',
+      noneHead: 'この店舗にサンプルデータはありません',
+      noneText: 'この店舗の実データがつながると、ここに表示されます。',
+    })
+    expect(businessStrings.settings.typeUnset).toBe('未設定')
+    expect(businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')
+  })
+})
+
 describe('⚖ PR-3 — switch OFF: no mark, no card, no placeholder', () => {
   it.each([['STORE_A', STORE_A], ['STORE_B', STORE_B], ['STORE_C', STORE_C], ['all stores', undefined]])('%s', async (_label, store) => {
     delete process.env.BUSINESS_PRACTICE_TENANT
