@@ -23,6 +23,12 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
   }
 })
 
+// ⚖ A1b · P2-2 — the card's two reads, wrapped (same functions) so a test can see whether they ran at all.
+jest.mock('@/business/lib/data', () => {
+  const actual = jest.requireActual('@/business/lib/data')
+  return { ...actual, readReserveCardColor: jest.fn(actual.readReserveCardColor), readStoreAddress: jest.fn(actual.readStoreAddress) }
+})
+
 import * as data from '@/business/lib/data'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
@@ -44,7 +50,7 @@ import { settingsProps } from '@/app/[locale]/(business)/business/settings/setti
 import { recordingProps } from '@/app/[locale]/(business)/business/recording/recording-props'
 import { karuteProps } from '@/app/[locale]/(business)/business/karute/karute-props'
 import {
-  APT, AKARI, ASSIGNMENTS, CARD, KOBAYASHI, LOGIN, MENU, STAFF, STORE, TENANT, membership, recordedReads,
+  APT, AKARI, ASSIGNMENTS, CARD, KOBAYASHI, LOGIN, MENU, STAFF, STORE, STORES, TENANT, membership, recordedReads,
   type RecordedOptions,
 } from './practice-door-recorded'
 
@@ -345,7 +351,9 @@ describe('(2b) role labels — the Business vocabulary, from the rulebook', () =
     const { props } = await settingsProps({ locale: 'ja' })
     expect(props.roleLabel).toBe('スタッフ')
     expect(settingsAccessFor(props.roleLabel, rulebook).has('settings.manage')).toBe(false)
-    const needsManage = RAIL.filter((e) => e.scope === 'store' && e.needs === 'settings.manage').map((e) => e.id)
+    // ⚖ A1b — every GATED section, store or business: `!== 'self'` is what `scope === 'store'` meant here.
+    const needsManage = RAIL.filter((e) => e.scope !== 'self' && e.needs === 'settings.manage').map((e) => e.id)
+    expect(needsManage).toContain('reserve-card-look')
     expect(needsManage.length).toBeGreaterThan(0)
     for (const id of needsManage) expect(props.sections.find((x) => x.id === id)?.gate).toBe('no-rights')
   })
@@ -607,5 +615,88 @@ describe('(12) PR-2b — the register plane under ON is neutral, never fixture m
     expect({ refunds: day.register.refunds, cash_difference: day.register.cash_difference }).toEqual({ refunds: 0, cash_difference: 0 })
     const res = await data.readReservationPlanes(STORE.tokyo)
     expect({ refunds: res.register.refunds, cash_difference: res.register.cash_difference }).toEqual({ refunds: 0, cash_difference: 0 })
+  })
+})
+
+describe('⚖ A1b — カードの見た目 under ON: the colour comes from org settings through the door, one per business', () => {
+  const orgWith = (settings: Record<string, unknown>) => ({ business_id: TENANT, name: 'Dev Salon', settings, created_at: 'x', updated_at: 'x' })
+  const look = async (store?: string) => (await settingsProps({ locale: 'ja', store })).props.sections.find((s) => s.id === 'reserve-card-look')!
+
+  it.each([
+    ['#1c2247', '#1C2247'],
+    ['#1C2247', '#1C2247'],
+    ['#285643', '#285643'], // legacy, off-palette: passes through untouched (contract §8)
+    ['red', null],
+    ['#FFF', null],
+    ['#1C2247AA', null],
+    [' #1C2247', null],
+    [null, null],
+    [{}, null],
+  ])('reserve_card_color %j → %j', async (stored, want) => {
+    withReads().orgSettingsGet.mockResolvedValue(orgWith({ reserve_card_color: stored }))
+    expect(await data.readReserveCardColor()).toBe(want)
+  })
+
+  it('no key, or no org row at all → null', async () => {
+    withReads().orgSettingsGet.mockResolvedValue(orgWith({}))
+    expect(await data.readReserveCardColor()).toBeNull()
+    withReads({ orgName: null })
+    expect(await data.readReserveCardColor()).toBeNull()
+  })
+
+  it('R3 — the same value under every lens and in the all-stores view; the section never becomes 店舗を選んでください', async () => {
+    const spy = withReads()
+    spy.orgSettingsGet.mockResolvedValue(orgWith({ reserve_card_color: '#00304c' }))
+    for (const store of [STORE.tokyo, STORE.yokohama]) {
+      const s = await look(store)
+      expect({ store, gate: s.gate, kicker: s.kicker, value: s.cardLook?.value }).toEqual({ store, gate: 'open', kicker: 'Reserve設定', value: '#00304C' })
+    }
+    spy.storesList.mockResolvedValue({ stores: [] }) // the owner sees no store: the all-stores view
+    const { props } = await settingsProps({ locale: 'ja' })
+    expect(props.lensLabel).toBe('すべての店舗')
+    const all = props.sections.find((s) => s.id === 'reserve-card-look')!
+    expect({ gate: all.gate, kicker: all.kicker, value: all.cardLook?.value, storeLine: all.cardLook?.storeLine, address: 'address' in all.cardLook! })
+      .toEqual({ gate: 'open', kicker: 'Reserve設定', value: '#00304C', storeLine: '', address: false })
+  })
+
+  it('K11 — ON: the cover address is the door’s own store record, never the fixture twin’s', async () => {
+    const spy = withReads()
+    spy.storesList.mockResolvedValue({ stores: STORES.map((s) => (s.id === STORE.tokyo ? { ...s, address: '東京都港区実在1-2-3' } : s)) })
+    expect(await data.readStoreAddress(STORE.tokyo)).toBe('東京都港区実在1-2-3')
+    expect((await look(STORE.tokyo)).cardLook!.address).toBe('東京都港区実在1-2-3')
+    // 横浜 is a fixture TWIN with a sample address in its dials; core holds none → omitted, never the fixture's
+    expect(storeSample(STORE.yokohama).dials?.profile.address).toBeTruthy() // the value the old source printed
+    expect(await data.readStoreAddress(STORE.yokohama)).toBeNull()
+    expect('address' in (await look(STORE.yokohama)).cardLook!).toBe(false)
+  })
+
+  it('P2-2 — ONE org-settings read per 設定 render: the shell’s name and the card colour share it', async () => {
+    const spy = withReads()
+    const colour = data.readReserveCardColor as jest.Mock
+    colour.mockClear()
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.sections.find((s) => s.id === 'reserve-card-look')!.gate).toBe('open')
+    expect(colour).toHaveBeenCalledTimes(1)
+    expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('P2-2 — a reader the card’s gate shuts out: the colour and the address are never read', async () => {
+    as(LOGIN.perry)
+    const spy = withReads()
+    const colour = data.readReserveCardColor as jest.Mock, address = data.readStoreAddress as jest.Mock
+    colour.mockClear()
+    address.mockClear()
+    const { props } = await settingsProps({ locale: 'ja' })
+    expect(props.sections.find((s) => s.id === 'reserve-card-look')!.gate).toBe('no-rights')
+    expect(colour).not.toHaveBeenCalled()
+    expect(address).not.toHaveBeenCalled()
+    expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1) // the shell's own (the business name)
+  })
+
+  it('another business is refused before any read — nothing of it can reach the payload', async () => {
+    const spy = withReads()
+    as(LOGIN.owner, null, '00000000-0000-4000-8000-00000000dead')
+    await expect(settingsProps({ locale: 'ja' })).rejects.toThrow(PracticeTenantMismatch)
+    expect(spy.orgSettingsGet).not.toHaveBeenCalled()
   })
 })
