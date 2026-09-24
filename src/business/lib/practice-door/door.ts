@@ -374,6 +374,18 @@ export async function listVisits(
   ).sort(newestFirst)
 }
 
+/** ⚖ A1b · P2-2 — ONE org-settings read per admitted actor, shared by every reader that needs the
+ *  document (the shell's business name, the Reserve card colour — 設定 asked three times per render).
+ *  The once-promise lives on the actor's own bound reads: one binding per actor, and practiceActor() is
+ *  React-cache()d per request, so readers in one render share the answer and a new request never sees
+ *  an old one. A symbol slot rather than a WeakMap: this folder's fence bans the `.set(` token outright
+ *  (foundation.test.ts, the mutator list), and a cache is no reason to weaken a core-write fence. */
+const ORG_ONCE = Symbol('org-settings, once per actor')
+function orgSettingsOf(actor: PracticeActor) {
+  const reads: PracticeActor['reads'] & { [ORG_ONCE]?: ReturnType<PracticeActor['reads']['orgSettingsGet']> } = actor.reads
+  return (reads[ORG_ONCE] ??= reads.orgSettingsGet())
+}
+
 export async function readShellIdentity(): Promise<{
   business: { name: string; storeCount: number }
   operator: { name: string; mark: string; role: string; staff_id: string }
@@ -381,7 +393,7 @@ export async function readShellIdentity(): Promise<{
 }> {
   const actor = await practiceActor()
   const now = renderNow()
-  const org = await actor.reads.orgSettingsGet()
+  const org = await orgSettingsOf(actor)
   return {
     // FOLD F-1: the count of stores THIS actor may see, never the tenant total.
     business: { name: org?.name ?? '', storeCount: actor.visible.length },
@@ -400,7 +412,7 @@ export async function readShellIdentity(): Promise<{
  *  null / absent / malformed → null (contract §2, §6 — Reserve reads it the same way). */
 export async function readReserveCardColor(): Promise<string | null> {
   const actor = await practiceActor()
-  const org = await actor.reads.orgSettingsGet()
+  const org = await orgSettingsOf(actor)
   return normalizeCardColor(org?.settings?.reserve_card_color)
 }
 

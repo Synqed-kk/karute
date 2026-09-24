@@ -23,6 +23,12 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
   }
 })
 
+// ⚖ A1b · P2-2 — the card's two reads, wrapped (same functions) so a test can see whether they ran at all.
+jest.mock('@/business/lib/data', () => {
+  const actual = jest.requireActual('@/business/lib/data')
+  return { ...actual, readReserveCardColor: jest.fn(actual.readReserveCardColor), readStoreAddress: jest.fn(actual.readStoreAddress) }
+})
+
 import * as data from '@/business/lib/data'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
@@ -662,6 +668,29 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     expect(storeSample(STORE.yokohama).dials?.profile.address).toBeTruthy() // the value the old source printed
     expect(await data.readStoreAddress(STORE.yokohama)).toBeNull()
     expect('address' in (await look(STORE.yokohama)).cardLook!).toBe(false)
+  })
+
+  it('P2-2 — ONE org-settings read per 設定 render: the shell’s name and the card colour share it', async () => {
+    const spy = withReads()
+    const colour = data.readReserveCardColor as jest.Mock
+    colour.mockClear()
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.sections.find((s) => s.id === 'reserve-card-look')!.gate).toBe('open')
+    expect(colour).toHaveBeenCalledTimes(1)
+    expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('P2-2 — a reader the card’s gate shuts out: the colour and the address are never read', async () => {
+    as(LOGIN.perry)
+    const spy = withReads()
+    const colour = data.readReserveCardColor as jest.Mock, address = data.readStoreAddress as jest.Mock
+    colour.mockClear()
+    address.mockClear()
+    const { props } = await settingsProps({ locale: 'ja' })
+    expect(props.sections.find((s) => s.id === 'reserve-card-look')!.gate).toBe('no-rights')
+    expect(colour).not.toHaveBeenCalled()
+    expect(address).not.toHaveBeenCalled()
+    expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1) // the shell's own (the business name)
   })
 
   it('another business is refused before any read — nothing of it can reach the payload', async () => {

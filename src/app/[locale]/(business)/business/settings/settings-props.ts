@@ -66,6 +66,7 @@ import { countWord, GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceW
 import {
   accessFor,
   BOOKING_GUARD_ID,
+  CARD_LOOK_ID,
   clampCoachingFloor,
   COACHING_FLOOR_MAX,
   COACHING_FLOOR_MIN,
@@ -164,14 +165,16 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   // The operator is the DOOR's (the admitted person under the practice switch;
   // the fixture operator when it is off) — never the fixture read directly.
   const { business, operator, reserveSyncedAt } = await readShellIdentity()
-  // ⚖ A1b — ONE value per business, read once and never with a store (R3).
-  const cardColor = await readReserveCardColor()
-  // ⚖ A1b · K11 — the card shows the lens store, else the first store; its address is that
-  // store's own (the door's record under ON, the fixture's sample under OFF), none → omitted.
-  const cardStore = storeOptions.find((s) => s.id === storeId) ?? storeOptions[0]
-  const cardAddress = cardStore ? await readStoreAddress(cardStore.id) : null
   const role = world?.role ?? operator.role
   const access = accessFor(role, rulebook)
+  // ⚖ A1b — カードの見た目's two reads, made only for a reader its own gate lets in (P2-2):
+  // the business's ONE colour, never with a store (R3; the door shares the shell's org-settings
+  // read), and — K11 — the address of the store the card shows (the lens store, else the first):
+  // the door's own record under ON, the fixture's sample under OFF, none → omitted.
+  const cardStore = storeOptions.find((s) => s.id === storeId) ?? storeOptions[0]
+  const [cardColor, cardAddress] = gateOf(sectionById(CARD_LOOK_ID)!, access) === 'open'
+    ? await Promise.all([readReserveCardColor(), cardStore ? readStoreAddress(cardStore.id) : null])
+    : [null, null]
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
 
