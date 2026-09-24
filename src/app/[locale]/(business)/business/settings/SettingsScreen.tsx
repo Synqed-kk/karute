@@ -75,6 +75,7 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
+import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSection'
 import {
   isIntegerTextAtLeast,
   StorePolicySection,
@@ -86,6 +87,8 @@ import {
   addToCollection,
   blockDirty,
   BOOKING_GUARD_ID,
+  CARD_COLOR_ID,
+  CARD_LOOK_ID,
   hitOf,
   blockingError,
   changedCount,
@@ -151,7 +154,7 @@ const HEAD_GUIDE_NARROW =
  *  exactly the way the scroll-spy asks for its anchors, so 予約と確保 is one
  *  special case in this file rather than two. */
 const termsFor = (id: string): readonly string[] | undefined =>
-  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : undefined)
+  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === CARD_LOOK_ID ? CARD_LOOK_HEADINGS : undefined)
 
 const DENSITY_ID = 'my-display.density'
 const EMPHASIS_ID = 'my-display.emphasis'
@@ -188,6 +191,8 @@ function seedOf(props: SettingsProps): Record<string, RowValue> {
   const out: Record<string, RowValue> = {}
   for (const section of props.sections) {
     for (const b of section.blocks) for (const r of b.rows) for (const c of r.controls) out[c.id] = c.value
+    // ⚖ A1b — カードの見た目's one value ('' = nothing set), so the save bar counts and commits it.
+    if (section.cardLook) out[CARD_COLOR_ID] = section.cardLook.value ?? ''
   }
   return out
 }
@@ -943,6 +948,41 @@ export function SettingsScreen(props: SettingsScreenProps) {
     </>
   )
 
+  /** THE ROOM'S SAVE BAR, one copy for every section that uses it (⚖ A1b: カードの見た目 too). */
+  const roomSave = (section: SettingsSection) =>
+    /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
+       already saved, in this browser, the moment it is pressed.
+       Printing 保存する under it would ask a reader to commit
+       something nobody else can see. */
+    section.persist === 'local' ? (
+      <p className="st-save-state" role="status">
+        {committed[section.id]
+          ? `✓ この端末に保存しました ${props.saveStampTime}`
+          : '押すとすぐ保存されます'}
+      </p>
+    ) : (
+      <>
+        <div className="st-save-line">
+          <span className={`st-save-count${changed === 0 ? ' is-none' : ''}`} role="status">
+            {blocked ??
+              (changed > 0
+                ? `変更した設定 ${changed}件`
+                : committed[section.id]
+                  ? `✓ 保存しました ${props.saveStampTime}`
+                  : '変更はありません')}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="st-save"
+          disabled={!dirty || blocked !== null}
+          onClick={() => commitSection(section)}
+        >
+          保存する
+        </button>
+      </>
+    )
+
   const sideNode = (
     jump: ReadonlyArray<{ id: string; title: string }>,
     card: ReactNode,
@@ -1141,6 +1181,21 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 )
               }
             />
+          ) : section.cardLook ? (
+            // ⚖ A1b — カードの見た目 renders itself, like 予約と確保, but on the ROOM's save bar:
+            // its one value lives in `values`, so the count, the rise and 保存する are the room's own.
+            <ReserveCardLookSection
+              look={section.cardLook}
+              value={String(values[CARD_COLOR_ID] ?? '')}
+              onPick={(hex) => setValue(CARD_COLOR_ID, hex)}
+              reduced={reduced}
+              render={(slots) =>
+                columnAnd(
+                  <div className="st-main">{slots.main}<p className="st-foot">{props.demoSaveLine}</p></div>,
+                  sideNode([], slots.preview, roomSave(section), () => false, changed > 0),
+                )
+              }
+            />
           ) : (
             columnAnd(
               <div className="st-main">
@@ -1186,38 +1241,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
               sideNode(
                 section.blocks.map((b) => ({ id: b.id, title: wordsRoomBlock(section, b.id, values)?.title ?? b.title })),
                 null,
-                /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
-                   already saved, in this browser, the moment it is pressed.
-                   Printing 保存する under it would ask a reader to commit
-                   something nobody else can see. */
-                section.persist === 'local' ? (
-                  <p className="st-save-state" role="status">
-                    {committed[section.id]
-                      ? `✓ この端末に保存しました ${props.saveStampTime}`
-                      : '押すとすぐ保存されます'}
-                  </p>
-                ) : (
-                  <>
-                    <div className="st-save-line">
-                      <span className={`st-save-count${changed === 0 ? ' is-none' : ''}`} role="status">
-                        {blocked ??
-                          (changed > 0
-                            ? `変更した設定 ${changed}件`
-                            : committed[section.id]
-                              ? `✓ 保存しました ${props.saveStampTime}`
-                              : '変更はありません')}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="st-save"
-                      disabled={!dirty || blocked !== null}
-                      onClick={() => commitSection(section)}
-                    >
-                      保存する
-                    </button>
-                  </>
-                ),
+                roomSave(section),
                 (id) => {
                   const b = section.blocks.find((x) => x.id === id)
                   return b !== undefined && blockDirty(b, values, saved, listRows, savedRows)
