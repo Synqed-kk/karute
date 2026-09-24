@@ -218,14 +218,16 @@ describe('switch ON — the server-named take gets a row on the key it was signe
 
   it('logs ONE bare line on a bind, none when kept unbound (the post-flip watch)', async () => {
     const logged = jest.spyOn(console, 'info').mockImplementation(() => {})
+    // The bound line only — S33's per-upload count line is pinned on its own below.
+    const bound = () => logged.mock.calls.filter((c) => c[0] === '[mint-take-url] unbound upload bound')
     try {
       // A create that settles to today's answer (storage could not say) — no line.
       info.mockImplementationOnce(async () => ({ data: null, error: { message: 'boom', status: 500 } }))
       await expect(mint()).resolves.toMatchObject({ recordingSessionId: null })
       expect(warned).toContain('[mint-take-url] unbound upload kept unbound: create answered upstream')
-      expect(logged).not.toHaveBeenCalled()
+      expect(bound()).toEqual([])
       await mint()
-      expect(logged.mock.calls).toEqual([['[mint-take-url] unbound upload bound']])
+      expect(bound()).toEqual([['[mint-take-url] unbound upload bound']])
     } finally {
       logged.mockRestore()
     }
@@ -376,5 +378,84 @@ describe('the schema — attribution rides only on a server-named take', () => {
   it('null is not supplied — { customerId: null, appointmentId: null } alone is accepted', async () => {
     const res = await mintPOST(jreq(auth, { customerId: null, appointmentId: null }), noRoute)
     expect(res.status).toBe(200)
+  })
+})
+
+// ⚖ S33 — a recording that HAS a row never gets a second one. The in-tab
+// fallback says why it reached this arm; 'attach_failed' stays unbound in BOTH
+// switch states, 'no_session' and an absent field keep the switch's answer.
+describe('S33 attachOutcome — the ON arm creates only when no row is known', () => {
+  const countLines = (spy: jest.SpyInstance) =>
+    spy.mock.calls.filter((c) => c[0] === '[mint-take-url] unbound upload')
+
+  describe('switch ON', () => {
+    forceSwitch(true)
+
+    it('t2: attach_failed → signed, unbound, NO create, no identity read', async () => {
+      const res = await mint({ attachOutcome: 'attach_failed' })
+      expect(res).toMatchObject({ path: expect.stringMatching(SERVER_KEY), recordingSessionId: null })
+      expect(recordingsCreate).not.toHaveBeenCalled()
+      expect(bindIdentity).not.toHaveBeenCalled()
+    })
+
+    it('t2 (phone door): the facade accepts the field and creates nothing', async () => {
+      const res = await mintPOST(jreq({ ...auth, 'store-id': 'store-1' }, { stagedFor: null, attachOutcome: 'attach_failed' }), noRoute)
+      expect(res.status).toBe(200)
+      expect((await res.json()).recordingSessionId).toBeNull()
+      expect(recordingsCreate).not.toHaveBeenCalled()
+    })
+
+    it('t2b: no_session → the existing bound behaviour, unchanged', async () => {
+      const res = await mint({ attachOutcome: 'no_session', customerId: 'cust-1' })
+      expect(res).toMatchObject({ recordingSessionId: 'sess-new' })
+      expect(recordingsCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('t2c: field absent (an older client) → creates as before', async () => {
+      await expect(mint()).resolves.toMatchObject({ recordingSessionId: 'sess-new' })
+      expect(recordingsCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('t6: ONE count line per upload — businessId, outcome, switch, bound — never a customer or a key', async () => {
+      const spy = jest.spyOn(console, 'info').mockImplementation(() => {})
+      try {
+        const bound = await mint({ attachOutcome: 'no_session', customerId: 'cust-9', appointmentId: 'appt-9' })
+        const kept = await mint({ attachOutcome: 'attach_failed' })
+        const lines = countLines(spy)
+        expect(lines).toEqual([
+          ['[mint-take-url] unbound upload', { businessId: 'business-1', attachOutcome: 'no_session', switchOn: true, bound: true }],
+          ['[mint-take-url] unbound upload', { businessId: 'business-1', attachOutcome: 'attach_failed', switchOn: true, bound: false }],
+        ])
+        const printed = JSON.stringify(lines)
+        for (const secret of ['cust-9', 'appt-9', 'sess-new', 'path' in bound ? bound.path : 'x', 'path' in kept ? kept.path : 'x'])
+          expect(printed).not.toContain(secret)
+      } finally {
+        spy.mockRestore()
+      }
+    })
+  })
+
+  describe('switch OFF', () => {
+    forceSwitch(false)
+
+    it('t2: attach_failed → no create; the count line still fires', async () => {
+      const spy = jest.spyOn(console, 'info').mockImplementation(() => {})
+      try {
+        await expect(mint({ attachOutcome: 'attach_failed' })).resolves.toMatchObject({ recordingSessionId: null })
+        expect(recordingsCreate).not.toHaveBeenCalled()
+        expect(countLines(spy)).toEqual([
+          ['[mint-take-url] unbound upload', { businessId: 'business-1', attachOutcome: 'attach_failed', switchOn: false, bound: false }],
+        ])
+      } finally {
+        spy.mockRestore()
+      }
+    })
+  })
+
+  it('the field rides only on a server-named body', async () => {
+    await expect(mint({ takeId: TAKE, mimeType: 'audio/webm', recordingSessionId: SESSION, attachOutcome: 'attach_failed' })).resolves.toEqual({
+      error: 'bad_input',
+    })
+    await expect(mint({ attachOutcome: 'something_else' })).resolves.toEqual({ error: 'bad_input' })
   })
 })
