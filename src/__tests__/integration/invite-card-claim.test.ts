@@ -16,6 +16,7 @@
 
 import { acceptInvite } from '@/actions/invites'
 import { createInviteCore } from '@/lib/invites/invites.core'
+import { ROLE_PRESETS } from '@/lib/auth/permissions'
 
 const CORE = { url: 'https://core.test', key: 'test-key' }
 
@@ -85,7 +86,8 @@ jest.mock('@/lib/supabase/service', () => ({
 import { audit } from '@/lib/audit'
 import { auditWeb } from '@/lib/audit-web'
 
-const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
+// The inviter holds the full owner preset — the role cap is pinned in invite-role-cap.test.ts.
+const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null, callerCapabilities: new Set(ROLE_PRESETS.owner) }
 
 interface InviteFixture {
   id: string

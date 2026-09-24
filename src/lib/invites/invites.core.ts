@@ -19,8 +19,10 @@ import { audit, auditDurable } from '@/lib/audit'
 import {
   INVITE_ALREADY_PENDING,
   INVITE_NAME_REQUIRED,
+  INVITE_ROLE_EXCEEDS_CALLER,
   STAFF_CREATE_FAILED,
 } from '@/lib/auth/store-gate'
+import { ROLE_PRESETS, synqedRoleToPreset, type Capability } from '@/lib/auth/permissions'
 import {
   createAndPlaceStaffCard,
   STAFF_CARD_LEFT_BEHIND,
@@ -57,6 +59,10 @@ type InviteWriteDeps = {
 export type InviteCreateDeps = InviteWriteDeps & {
   /** REQUIRED on purpose: `null` = EXPLICITLY unclamped; omitted is not unclamped (see lib/staff/new-card.ts). */
   creatorAllowedStoreIds: readonly string[] | null
+  /** The inviter's own effective capabilities — enforces "you can only invite
+   *  into a role whose preset you hold yourself", the same shape and rule as
+   *  PermissionsWriteDeps.callerCapabilities. Absent = refused. */
+  callerCapabilities: Set<Capability>
 }
 
 export interface InviteRow {
@@ -158,6 +164,18 @@ export async function createInviteCore(
   input: InviteInput,
 ): Promise<{ token: string; storeUnknown?: true } | { error: string }> {
   const { email, role, staffId } = input
+
+  // Hold what you grant, before ANY read or write. Accepting the invite seeds
+  // the person with the role's FULL preset (synqedRoleToPreset → ROLE_PRESETS),
+  // so the inviter must hold every capability in it — for all three roles:
+  // ADMIN = the manager preset, STYLIST adds records.write over ASSISTANT.
+  // Creation only: an invite already minted is not re-checked at accept (the
+  // 7-day TTL bounds that gap).
+  const held = deps.callerCapabilities
+  if (!held || ROLE_PRESETS[synqedRoleToPreset(role)].some((c) => !held.has(c))) {
+    return { error: INVITE_ROLE_EXCEEDS_CALLER }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 

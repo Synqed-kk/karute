@@ -12,7 +12,7 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import {
   createInviteCore,
@@ -23,7 +23,7 @@ import {
   type InviteClient,
 } from '@/lib/invites/invites.core'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
-import { synqedRoleToPreset } from '@/lib/auth/permissions'
+import { synqedRoleToPreset, type Capability } from '@/lib/auth/permissions'
 import { inviteSchema, type InviteInput, type InviteRole } from '@/lib/validations/invite'
 
 // Type ALIAS, not an `export type { … }` re-export: Next's 'use server'
@@ -127,6 +127,9 @@ export async function createInvite(
   }
   const invitedBy = await getCurrentUserStaffId().catch(() => null)
   const actorId = await resolveWebActorId()
+  // The inviter's own capabilities for the core's hold-what-you-grant check
+  // (the setStaffPermissions twin). Unreadable = the empty set = refused.
+  const callerCapabilities = await getMyCapabilities().catch(() => new Set<Capability>())
   // ⚖ Liam 2026-09-16: a fresh invite mints the card, so the same
   // creator-subset rule the 追加 door applies has to reach this door too.
   // ⚖ Liam 2026-09-16 (fold round 2, F7): `degraded ? [] : allowedStoreIds`.
@@ -151,6 +154,7 @@ export async function createInvite(
       source: 'web',
       requestId: crypto.randomUUID(),
       creatorAllowedStoreIds: allowedStoreIds,
+      callerCapabilities,
     },
     invitedBy,
     parsed.data,

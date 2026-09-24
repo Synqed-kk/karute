@@ -28,7 +28,8 @@ jest.mock('@synqed-kk/client', () => ({
 jest.mock('@/lib/auth/require-permission', () => ({
   can: jest.fn(async () => true),
   requireCapability: jest.fn(async () => {}),
-  getMyCapabilities: jest.fn(async () => new Set(['staff.manage'])),
+  // + the practitioner preset a STYLIST invite seeds (hold what you grant).
+  getMyCapabilities: jest.fn(async () => new Set(['staff.manage', 'records.write', 'customers.view', 'customers.manage', 'bookings.manage'])),
 }))
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ viewAll: false, degraded: false, allowedStoreIds: null })),

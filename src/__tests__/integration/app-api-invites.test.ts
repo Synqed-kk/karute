@@ -24,7 +24,10 @@ jest.mock('@synqed-kk/client', () => ({
   SynqedError: class extends Error {},
 }))
 
-const mockCapabilities = jest.fn(async () => new Set(['staff.invite']))
+// The inviter also holds the practitioner preset every STYLIST invite below
+// seeds (hold what you grant — the role cap itself is invite-role-cap.test.ts).
+const INVITER = ['staff.invite', 'records.write', 'customers.view', 'customers.manage', 'bookings.manage']
+const mockCapabilities = jest.fn(async () => new Set(INVITER))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
@@ -144,7 +147,7 @@ const deleteReq = (id: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockCapabilities.mockResolvedValue(new Set(['staff.invite']))
+  mockCapabilities.mockResolvedValue(new Set(INVITER))
   staffListByBusinessOrThrow.mockResolvedValue([
     { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner' },
   ])
@@ -439,7 +442,7 @@ describe("re-invites are clamped to the caller's stores", () => {
   })
 
   it('stores.viewAll → passes, the assignment is never consulted', async () => {
-    mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'stores.viewAll']))
+    mockCapabilities.mockResolvedValue(new Set([...INVITER, 'stores.viewAll']))
     storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
     const res = await reinvite()
     expect(res.status).toBe(201)

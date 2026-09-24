@@ -42,6 +42,9 @@ export function InviteStaffDialog({
   // editor shows for the same clamp. This dialog renders inside the settings
   // pick, which already carries the namespace.
   const tSettings = useTranslations('settings')
+  // Only for the role-cap refusal — the same copy every staff door answers a
+  // missing permission with.
+  const tCommon = useTranslations('common')
   const locale = useLocale()
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState('')
@@ -135,6 +138,7 @@ export function InviteStaffDialog({
       // error, i.e. nothing readable.
       else if (res.error === 'STAFF_CREATE_FAILED') setError(t('inviteCardCreateFailed'))
       else if (res.error === 'STAFF_CARD_LEFT_BEHIND') setError(tSettings('staffCardLeftBehind'))
+      else if (res.error === 'INVITE_ROLE_EXCEEDS_CALLER') setError(tCommon('noPermission'))
       else setError(res.error)
       return
     }
@@ -161,7 +165,13 @@ export function InviteStaffDialog({
     // Same machine code, same copy as the create half — a re-invite the actor
     // may not touch must say why, not fail silently.
     if ('error' in res) {
-      setError(res.error === 'STORE_SCOPE_DENIED' ? tSettings('staffStoreScopeDenied') : res.error)
+      setError(
+        res.error === 'STORE_SCOPE_DENIED'
+          ? tSettings('staffStoreScopeDenied')
+          : res.error === 'INVITE_ROLE_EXCEEDS_CALLER'
+            ? tCommon('noPermission')
+            : res.error,
+      )
       return
     }
     setError(null)
