@@ -131,7 +131,6 @@ export const PUBLIC_ACTIONS: Record<string, string[]> = {
     'listRecordingsInbox',
   ],
   'src/actions/recordings.ts': [
-    'deleteRecordingSession', // UNSURE: no production caller found through this export.
     'finalizeTake',
     'startRecordingSession',
   ],

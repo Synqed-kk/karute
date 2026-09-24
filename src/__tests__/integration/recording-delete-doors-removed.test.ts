@@ -19,16 +19,15 @@ import { join, sep } from 'node:path'
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8')
 
-/** Source with comment lines dropped — every one of these files EXPLAINS the
- *  door it lost, and prose naming a delete is not a delete. */
-const code = (rel: string) =>
-  read(rel)
-    .split('\n')
-    .filter((l) => {
-      const t = l.trim()
-      return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*')
-    })
-    .join('\n')
+/** A line that is code, not a comment line — every one of these files EXPLAINS
+ *  the door it lost, and prose naming a delete is not a delete. */
+const isCode = (l: string) => {
+  const t = l.trim()
+  return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*')
+}
+
+/** Source with comment lines dropped. */
+const code = (rel: string) => read(rel).split('\n').filter(isCode).join('\n')
 
 /** EVERY non-test source file under src/ — the census's reach for a rule that
  *  has to hold in the whole app, not only in the files this suite names. */
@@ -301,12 +300,36 @@ describe('what REPLACED them', () => {
     expect(code('src/lib/recordings/inbox.ts')).toContain('strandedTakes')
   })
 
-  it('session cleanup refuses a row whose audio still exists', () => {
-    const src = code('src/lib/recording/session-cleanup.ts')
-    // The POINTER is no longer the question — every born-reserved row has one.
-    expect(src).toContain("if (row.status !== 'RECORDING')")
-    expect(src).toContain('await objectExists(row.audio_storage_path)')
-    expect(src).toContain("return { error: 'has_audio' }")
+  // ⚖ NOTHING DELETED, SOFT ONLY (PR-4, 2026-09-24). session-cleanup was the
+  // app's ONLY hard delete of a recording row. It is gone with its three doors
+  // (web action, facade DELETE route, thin wrapper) and NOTHING replaced it: a
+  // discarded session stays as a grayed 破棄済み row. Deleted, not emptied — and
+  // neither shape of that delete may come back anywhere in src/ or thin/.
+  // Comment lines are skipped (store-clamp.ts's prose names both the session
+  // route and DELETE); the needles are concatenated so this file never matches
+  // itself. ponytail: a string census — an AST walk if it ever false-positives.
+  it('no recording row is hard-deleted anywhere — the cleanup and its doors are gone', () => {
+    for (const rel of [
+      'src/lib/recording/session-cleanup.ts',
+      'src/app/api/app/v1/recordings/session/[id]/route.ts',
+    ]) {
+      expect([rel, existsSync(join(process.cwd(), rel))]).toEqual([rel, false])
+    }
+
+    const DELETE_CALL = 'recordings' + '.delete('
+    const SESSION_PATH = '/recordings/' + 'session/'
+    const offenders: string[] = []
+    for (const rel of [...srcFiles(), ...thinFiles()]) {
+      if (/\.(test|spec)\.|\.d\.ts$/.test(rel)) continue
+      const lines = read(rel).split('\n')
+      const at = (hit: (l: string) => boolean) =>
+        lines.flatMap((l, i) => (isCode(l) && hit(l) ? [`${rel}:${i + 1}`] : []))
+      offenders.push(...at((l) => l.includes(DELETE_CALL)))
+      const pathLines = at((l) => l.includes(SESSION_PATH))
+      const deleteLines = at((l) => /\bDELETE\b/.test(l))
+      if (pathLines.length > 0 && deleteLines.length > 0) offenders.push(...pathLines, ...deleteLines)
+    }
+    expect(offenders).toEqual([])
   })
 
   it('the mint never defaults a CLIENT-NAMED take’s container', () => {
