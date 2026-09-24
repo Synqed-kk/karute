@@ -25,6 +25,7 @@ import {
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset, type Capability } from '@/lib/auth/permissions'
 import { inviteSchema, type InviteInput, type InviteRole } from '@/lib/validations/invite'
+import { RESERVED_STAFF_NAME } from '@/lib/validations/staff'
 
 // Type ALIAS, not an `export type { … }` re-export: Next's 'use server'
 // transform registers every export NAME as a server reference at runtime, and
@@ -296,7 +297,8 @@ export async function acceptInvite(
     return { error: 'Password must be at least 8 characters.' }
   }
   const name = fullName.trim()
-  if (!name) return { error: 'Your name is required.' }
+  // A system-row name counts as no name: the roster hides `ILIKE '_system_%'`.
+  if (!name || RESERVED_STAFF_NAME.test(name)) return { error: 'Your name is required.' }
   // One id for every audit row this single accept-invite call can produce
   // (the happy path plus its two best-effort failure branches below).
   const requestId = crypto.randomUUID()

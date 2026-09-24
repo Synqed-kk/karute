@@ -967,3 +967,35 @@ describe('rollback failure is a recovery state, not a clean undo (R3)', () => {
     expect(rows()[0].detail).toMatchObject({ rollback_failed: true, stranded_user_id: 'user-a', banned: false, profile_neutralised: false })
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The third name writer: the invitee types their own name at /join. A
+// system-row name would hide an active staffer from the roster (the
+// `ILIKE '_system_%'` filter), so it is refused like an empty one — before any
+// account or profile write.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('accept refuses a reserved (system-row) name', () => {
+  const invite = {
+    id: 'inv-A', token: 'token-A', email: 'aoi@test.com', role: 'STYLIST', status: 'pending',
+    invited_staff_id: 'card-aoi', created_at: '2026-09-01T09:00:00Z',
+    business_id: 'business-1', expires_at: null,
+  }
+
+  it.each(['_system_x', '_SYSTEM_x', '  _system_x'])('%j → the name-required error, no account, no profile write', async (name) => {
+    const c = core({ invites: [{ ...invite }], cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: null }] })
+    install(c.api, 'user-a')
+
+    expect(await acceptInvite('token-A', 'password123', name, 'ja')).toEqual({ error: 'Your name is required.' })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+    expect(mockProfileUpdate).not.toHaveBeenCalled()
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+  })
+
+  it('an ordinary name is still accepted and written', async () => {
+    const c = core({ invites: [{ ...invite }], cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: null }] })
+    install(c.api, 'user-a')
+
+    expect(await acceptInvite('token-A', 'password123', '葵', 'ja')).toBeUndefined()
+    expect(mockProfileUpdate).toHaveBeenCalledWith(expect.objectContaining({ full_name: '葵' }))
+  })
+})
