@@ -12,7 +12,7 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
-import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import {
   createInviteCore,
@@ -165,21 +165,22 @@ export async function createInvite(
   return result
 }
 
-/** Owner action: list this business's pending invites. */
-export async function listInvites(): Promise<InviteRow[]> {
+/** Owner action: list this business's pending invites. `null` = could not load. */
+export async function listInvites(): Promise<InviteRow[] | null> {
+  let allowed: boolean
   try {
-    await requireCapability('staff.invite')
+    allowed = await can('staff.invite')
   } catch {
-    return []
+    return null // permission read failed — an outage, never "no invites"
   }
+  if (!allowed) return [] // a denied viewer sees no invites — today's contract, unchanged
   try {
     const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
     const actorId = await resolveWebActorId()
-    // A THROWN lens collapses the WHOLE list to [] through the catch below
-    // (fresh invites included), where the facade drops only the row it could
-    // not judge. Both fail closed; the shapes differ because web's action
-    // contract is "degrade to []" and the facade's is per-row.
+    // A THROWN lens, or any failed read, collapses the WHOLE list to null
+    // (could not load) through the catch below, where the facade drops only
+    // the row it could not judge. Both fail closed.
     return await listInvitesWithClient(
       synqed,
       await memberEmailsForBusiness(businessId),
@@ -187,7 +188,7 @@ export async function listInvites(): Promise<InviteRow[]> {
       actorId,
     )
   } catch {
-    return []
+    return null
   }
 }
 
