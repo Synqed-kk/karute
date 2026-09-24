@@ -72,6 +72,7 @@ import {
   hhmm,
   labelOfValue,
   longestOpenDayMin,
+  minutesLabel,
   PREFS_DEFAULT,
   previewTemplate,
   RAIL,
@@ -96,6 +97,9 @@ import { settingsProps } from '@/app/[locale]/(business)/business/settings/setti
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
+// ③ — the ¥ unit the Reserve 受付 fact prints; imported, never typed, so the
+// pin below follows the constant rather than restating it.
+import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
 // `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
 // (A2 turned the row into a select of two STATES plus a free minute field).
@@ -2839,6 +2843,14 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(zero0).toBe('販売なし')
     expect(zero0).not.toContain('0分')
     expect(zero0).not.toContain('%引き')
+  })
+
+  it('③ — the two Reserve 受付 facts render from the code\'s own constants', async () => {
+    const props = await room({ store: STORE_A })
+    const facts = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!.facts
+    expect(facts).toContain(`受付できるのは営業時間の範囲内だけです。価格は時間帯ごとの価格を分単位で按分し、¥${PRICE_UNIT_YEN}単位で表示します。`)
+    const grid = facts.map((f) => /^お客様が選べる開始時刻の(.+)きざみは、今日の運営のお客様向け表示が読む値です。$/.exec(f)).find(Boolean)
+    expect(grid?.[1]).toBe(minutesLabel(opsConfig.reserveStartGridMin))
   })
 
   it('⚖ D-31/D-32 F4 §B — each zero-capable row’s description states what 0 means, verbatim', async () => {

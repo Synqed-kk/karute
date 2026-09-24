@@ -2245,7 +2245,7 @@ function dataIo(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
             }
           : null,
         facts: [`最後の書き出し: ${d.lastExport}`, '書き出しの操作は記録に残ります。'],
-        links: [{ label: '録音の書き出しは録音設定で', sectionId: 'recording' }],
+        links: [{ label: '録音の書き出しの決まりは録音設定で', sectionId: 'recording' }],
       }),
       block('io.intake', '取り込み', 'ファイルを選んで、内容を確認してから取り込みます。', [], {
         flag: '準備中',
