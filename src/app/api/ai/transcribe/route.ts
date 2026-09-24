@@ -149,6 +149,9 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await audioFile.arrayBuffer())
     const mimeType = audioFile.type || 'audio/webm'
 
+    // ⚖ NO MEMO ON THIS ARM (PR-5, ruled): these bytes are no stored object and
+    // carry no key, and naming them (a content hash) would be a key shape the
+    // plan never ruled. The meter gets no audioKey, so this pays exactly as before.
     const { result: body, receipt } = await runMeteredTranscription(meter, {
       audio: { buffer, mimeType },
       locale: locale === 'en' ? 'en' : 'ja',
