@@ -407,6 +407,12 @@ async function main() {
           }
         }
       }
+      // Overflow (a visit away from the customer's own 担当) never lands on the 受付 (ASSISTANT); the role is checked here
+      // directly, not through the planner's canTreat. The gym has overflow, so the check is not vacuous.
+      const cust = new Map(r.customers.map((c) => [c.member, c]))
+      const overflow = (q: Plan) => q.appointments.filter((a) => a.staff !== cust.get(a.member)!.staff)
+      for (const q of [q1, q2]) for (const a of overflow(q)) assert.equal(r.staff.find((s) => s.name === a.staff)!.role !== 'ASSISTANT', true, `${type} ${a.key}: an ASSISTANT holds an overflow booking`)
+      if (type === 'personal_gym') assert.ok(overflow(q1).length > 0, `${type}: the plan has overflow bookings`)
 
       const ft = fakeCore({ stores: [storeId] })
       const binned = new Set(ft.t.customers.filter((c) => c.deleted_at).map((c) => c.member_number as string))

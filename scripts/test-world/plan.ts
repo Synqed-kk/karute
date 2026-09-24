@@ -113,6 +113,9 @@ export function rng(seed: string): () => number {
   }
 }
 
+/** Who may take an overflow visit (the customer's own 担当 is busy): every role but ASSISTANT (the 受付). */
+export const canTreat = (s: { role: StaffRole }) => s.role !== 'ASSISTANT'
+
 const PREFERRED = { am: 600, pm: 780, eve: 990 } // 10:00 · 13:00 · 16:30
 
 export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: WeeklyHours }, today: string, epoch: string): Plan {
@@ -162,7 +165,8 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
       const starts: number[] = []
       for (let s = mins(h.open); s + m.duration <= mins(h.close); s += n.slotMinutes) starts.push(s)
       starts.sort((a, b) => Math.abs(a - PREFERRED[c.time]) - Math.abs(b - PREFERRED[c.time]) || a - b)
-      const others = recipe.staff.filter((s) => s.name !== c.staff).map((s) => ({ s: s.name, w: r() })).sort((a, b) => a.w - b.w).map((x) => x.s)
+      // weights drawn for every other card BEFORE the role filter: the same r() count as before keeps the bed picks stable
+      const others = recipe.staff.filter((s) => s.name !== c.staff).map((s) => ({ s, w: r() })).filter((x) => canTreat(x.s)).sort((a, b) => a.w - b.w).map((x) => x.s.name)
       const beds = recipe.resources.filter((x) => x.room_class === 'private' || !m.private).map((x) => ({ x, w: Number(x.room_class === 'private') + r() })).sort((a, b) => a.w - b.w).map((b) => b.x) // private room last
       let slot: { s: number; staff: string; bed: string } | undefined
       for (const s of starts) {
