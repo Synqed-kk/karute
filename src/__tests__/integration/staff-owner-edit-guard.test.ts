@@ -126,6 +126,27 @@ it('control: deleteStaff on the owner row is REFUSED (the delete guard, unchange
   expect(updatePayloads).toHaveLength(0)
 })
 
+// The role is compared lower-cased, like every other owner check: a row
+// carrying 'OWNER' (older data, a hand edit) must not slip either guard.
+describe("an owner row stored as 'OWNER' is still the owner", () => {
+  beforeEach(() => {
+    row = { ...OWNER, display_role: 'OWNER' }
+  })
+
+  it('deleteStaff → noPermission, nothing written', async () => {
+    expect(await deleteStaff('owner-1')).toEqual({ error: 'noPermission' })
+    expect(updatePayloads).toHaveLength(0)
+  })
+
+  it('a manager renaming it to a CLEAN name → web noPermission, facade 403, nothing written', async () => {
+    expect(await updateStaff('owner-1', CLEAN)).toEqual({ error: 'noPermission' })
+    const res = await patchOwner(CLEAN)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'forbidden' })
+    expect(updatePayloads).toHaveLength(0)
+  })
+})
+
 // The exploit itself. Refused on BOTH doors, whichever layer answers first
 // (the reserved-name rule or the owner guard) — nothing is written and the
 // owner is still admitted by the REAL identity seam.

@@ -165,13 +165,7 @@ export function InviteStaffDialog({
     // Same machine code, same copy as the create half — a re-invite the actor
     // may not touch must say why, not fail silently.
     if ('error' in res) {
-      setError(
-        res.error === 'STORE_SCOPE_DENIED'
-          ? tSettings('staffStoreScopeDenied')
-          : res.error === 'INVITE_ROLE_EXCEEDS_CALLER'
-            ? tCommon('noPermission')
-            : res.error,
-      )
+      setError(res.error === 'STORE_SCOPE_DENIED' ? tSettings('staffStoreScopeDenied') : res.error)
       return
     }
     setError(null)

@@ -177,7 +177,7 @@ export async function updateStaffCore(
   // holder could rename the owner to `_system_removed_…`, which the identity
   // seam then refuses: the owner locked out of their own business. A null
   // actor never equals an id, so it is refused too.
-  if (profile?.display_role === 'owner' && deps.actorId !== id) {
+  if ((profile?.display_role ?? '').toLowerCase() === 'owner' && deps.actorId !== id) {
     throw new AppApiError('forbidden', 'only the owner can edit the owner row')
   }
 
@@ -267,7 +267,7 @@ export async function deleteStaffCore(
   // the rename + ban below would then lock the whole business out. The
   // message is dev-facing: each door already maps a throw to its own answer
   // (facade 403 forbidden, web `noPermission`).
-  if (profile?.display_role === 'owner') {
+  if ((profile?.display_role ?? '').toLowerCase() === 'owner') {
     throw new AppApiError('forbidden', 'the owner row cannot be removed')
   }
 
