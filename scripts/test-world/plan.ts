@@ -144,7 +144,6 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
 
   // 2. Slots, day by day: one booking per staff and per bed per slot, inside the day's hours.
   const appointments: PlannedAppointment[] = []
-  const firstOf = new Map<string, number>()
   for (let d = 0; d <= span; d++) {
     const date = addDays(from, d)
     const h = hoursOn(hours, date)
@@ -177,7 +176,6 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
       }
       if (!slot) continue // a full day: this visit is not planned (same answer on every run)
       for (let i = 0; i < cells; i++) for (const who of [slot.staff, slot.bed]) busy.add(`${who}@${slot.s + i * n.slotMinutes}`)
-      if (!firstOf.has(c.member)) firstOf.set(c.member, appointments.length)
       appointments.push({
         key: `tw:${id}:${c.member}:${date}`, member: c.member, staff: slot.staff, resource: slot.bed, menu: m.name, date,
         startsAt: jstIso(date, slot.s), endsAt: jstIso(date, slot.s + m.duration), duration: m.duration, price: m.price, status,
@@ -196,7 +194,7 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
     if (rng(`${a.key}|karute`)() < n.karuteShare) {
       const r = rng(`${a.key}|text`)
       const entries = recipe.karute({
-        customer: c, menu: a.menu, date: a.date, first: c.isNew && appointments[firstOf.get(a.member)!] === a,
+        customer: c, menu: a.menu, date: a.date, first: c.isNew && history.length === 0,
         prev: prev ? { date: prev.date, menu: prev.menu } : null, pick: (xs) => xs[Math.floor(r() * xs.length)],
       })
       karutes.push({ key: a.key, member: a.member, staff: a.staff, menu: a.menu, date: a.date, duration: a.duration, entries })
