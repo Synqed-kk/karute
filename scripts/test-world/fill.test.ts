@@ -255,6 +255,23 @@ async function main() {
   assert.equal(await apply(fr.core, { ...opts(empty()), readBack: true, log: (l: string) => void lines.push(l) }), 0, 'a failed read-back keeps exit 0')
   assert.ok(lines.includes('read-back failed (writes unaffected): busy'), lines.join('\n'))
 
+  // A first run that throws before any write leaves no epoch behind; once a write was sent, the epoch stays.
+  const badRead = Object.assign(new Error('bad request'), { status: 400 })
+  const fs0 = fakeCore()
+  Object.assign(fs0.core.stores, { list: async () => Promise.reject(badRead) })
+  const ms0 = empty()
+  await assert.rejects(apply(fs0.core, opts(ms0)), /bad request/)
+  assert.equal(ms0.stores[STORE], undefined, 'stores.list failed: no epoch')
+  for (const [policy, sentWrites] of [['custom', 0], ['default', 1]] as const) {
+    const fe = fakeCore() // a custom policy needs no write; a default one gets storePolicies.set first
+    if (policy === 'custom') fe.stats.policy = { source: 'custom', weekly_hours: recipe.policy.weekly_hours }
+    Object.assign(fe.core.staffStores, { get: async () => Promise.reject(badRead) }) // the first read after the entry is made
+    const me = empty()
+    await assert.rejects(apply(fe.core, opts(me)), /bad request/)
+    assert.equal(fe.stats.writes, sentWrites)
+    assert.equal(me.stores[STORE]?.epoch, sentWrites ? TODAY : undefined, `${policy} policy, ${sentWrites} write(s) before the throw`)
+  }
+
   // (d) static: the loader has no delete call and never imports the deleting seeder's guard.
   for (const file of ['fill.ts', 'plan.ts', 'recipes/beauty_chiropractic.ts']) {
     const src = readFileSync(join(__dirname, file), 'utf8')

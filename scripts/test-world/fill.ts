@@ -129,133 +129,140 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     }
   }
 
-  const p = plan(recipe, { storeId, weeklyHours: st.weeklyHours }, today, st.epoch)
-  if (policy.source === 'default')
-    await write('storePolicies', storeId, () => core.storePolicies.set(storeId, { weekly_hours: recipe.policy.weekly_hours, acting_staff_id: dev.id }))
+  try {
+    const p = plan(recipe, { storeId, weeklyHours: st.weeklyHours }, today, st.epoch)
+    if (policy.source === 'default')
+      await write('storePolicies', storeId, () => core.storePolicies.set(storeId, { weekly_hours: recipe.policy.weekly_hours, acting_staff_id: dev.id }))
 
-  const staffId = new Map<string, string>()
-  for (const s of p.staff) {
-    const have = cards.find((c) => c.name === s.name)
-    const id = have?.id ?? (await write('staff', s.name, () => core.staff.create({ name: s.name, role: s.role, is_active: true })))?.id
-    if (!id) continue
-    staffId.set(s.name, id)
-    const cur = have ? (await read(() => core.staffStores.get(id))).store_ids : []
-    // An empty list already means "every store": only a non-empty list without this store gets it ADDED.
-    if (!have || (cur.length && !cur.includes(storeId))) await write('staffStores', s.name, () => core.staffStores.set(id, [...cur, storeId]))
-  }
-
-  const resId = new Map((await read(() => core.resources.list({ store_id: storeId }))).resources.map((r) => [r.name, r.id]))
-  await pool(p.resources.filter((r) => !resId.has(r.name)), async (r) => {
-    const row = await write('resources', r.name, () => core.resources.create({ store_id: storeId, ...r }))
-    if (row?.id) resId.set(r.name, row.id)
-  })
-
-  const menuOf = new Map((await read(() => core.menus.list())).menus.filter((x) => x.store_id === storeId).map((x) => [x.name, x.id]))
-  await pool(p.menus.filter((x) => !menuOf.has(x.name)), async (x) => {
-    const row = await write('menus', x.name, () => core.menus.create({
-      store_id: storeId, name: x.name, duration_minutes: x.duration, price_list_amount: x.price, currency: 'JPY', tax_included: true,
-      category: x.category, nomination_allowed: x.nomination, online_visible: true, active: true, required_room_class: x.private ? 'private' : null,
-      display_order: p.menus.indexOf(x),
-    }))
-    if (row?.id) menuOf.set(x.name, row.id)
-  })
-
-  // include_deleted: a customer Liam put in the bin stays there — never re-created, and gets no new 回数券 or booking.
-  const all = await read(() => pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 })))
-  // SDK skew: core sends deleted_at on these rows, the SDK's Customer type does not declare it (same cast as customers.core.ts).
-  const inBin = (c: object) => !!(c as { deleted_at?: string | null }).deleted_at
-  const binned = new Set(all.filter((c) => c.member_number && inBin(c)).map((c) => c.member_number!))
-  const custId = new Map(all.filter((c) => c.member_number && !inBin(c)).map((c) => [c.member_number!, c.id]))
-  await pool(p.customers.filter((c) => !custId.has(c.member) && !binned.has(c.member)), async (c) => {
-    const row = await write('customers', c.member, () => core.customers.create({
-      name: c.name, furigana: c.kana, gender: c.gender, date_of_birth: c.birth, occupation: c.occupation, phone: c.phone, email: c.email,
-      member_number: c.member, notes: c.memo, assigned_staff_id: staffId.get(c.staff) ?? null, has_ticket_pack: recipe.packs.some((x) => x.member === c.member),
-    }))
-    if (row?.id) custId.set(c.member, row.id)
-  })
-
-  const packId = new Map<string, string>()
-  await pool(p.packs, async (k) => {
-    const cid = custId.get(k.member)
-    if (!cid) return void run.skipped.push(`packs ${k.key}: ${binned.has(k.member) ? `customer ${k.member} is in the bin` : 'no customer'}`)
-    // Only a pack the loader made (notes start テストデータ) is ours — a pack sold by hand is never adopted or burnt.
-    const have = dry && cid.startsWith('dry:') ? undefined : (await read(() => core.packs.listPacks(cid))).find((x) => x.kind === 'pack' && x.purchase_round === 1 && (x.notes ?? '').startsWith('テストデータ'))
-    const id = have?.id ?? (await write('packs', k.key, () => core.packs.createPack({
-      customer_id: cid, kind: 'pack', pack_size: k.size, unit_price: k.unitPrice, total_price: k.unitPrice * k.size, purchase_round: 1,
-      purchased_at: k.purchasedOn, source: 'manual', notes: `テストデータ [${k.key}]`, created_by: staffId.get(k.staff) ?? null,
-    })))?.id
-    if (id) packId.set(k.key, id)
-  })
-
-  // Appointments: ours are found by the fill tag in the notes only. A foreign booking at the same customer + start is
-  // never adopted: it either clashes (skipped below) or the loader makes its own tagged one beside it.
-  const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
-  const mine = new Map<string, { id: string; status: string }>()
-  for (const a of window) {
-    const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
-    if (tag && a.store_id === storeId) mine.set(tag, a)
-  }
-  // A CANCELLED / NO_SHOW booking frees its slot — the app's own rule (isTerminalStatus, src/lib/appointments/status.ts).
-  const clash = (a: Plan['appointments'][number], sid: string, rid: string) => {
-    const [start, end] = [Date.parse(a.startsAt), Date.parse(a.endsAt) + p.resources.find((r) => r.name === a.resource)!.cleanup_minutes * 60_000]
-    return window.find((x: Appointment) => !isTerminalStatus(x.status) && Date.parse(x.starts_at) < end && start < Date.parse(x.occupied_until ?? x.ends_at) && (x.staff_id === sid || x.resource_id === rid))
-  }
-  const apptRow = new Map<string, { id: string; status: string }>()
-  await pool(p.appointments, async (a) => {
-    const [cid, sid, rid, mid] = [custId.get(a.member), staffId.get(a.staff), resId.get(a.resource), menuOf.get(a.menu)]
-    if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
-    if (!cid || !sid || !rid || !mid) return void run.skipped.push(`appointments ${a.key}: missing customer/staff/bed/menu`)
-    const have = mine.get(a.key)
-    if (have) return void apptRow.set(a.key, have)
-    const other = clash(a, sid, rid)
-    if (other) return void run.skipped.push(`appointments ${a.key}: overlaps existing booking ${other.id}`)
-    const row = await write('appointments', a.key, () => core.appointments.create({
-      customer_id: cid, staff_id: sid, store_id: storeId, menu_id: mid, resource_id: rid, starts_at: a.startsAt, ends_at: a.endsAt,
-      duration_minutes: a.duration, booked_price_amount: a.price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
-      title: null, notes: `テストデータ [${a.key}]`,
-    }, { idempotencyKey: `test-world:${a.key}` }))
-    if (row?.id) apptRow.set(a.key, { id: row.id, status: (row as { status?: string }).status ?? a.status })
-  })
-
-  // Karutes and 回数券 burns only for bookings that are COMPLETED in core (a top-up never closes a booking out).
-  const done = (key: string) => (apptRow.get(key)?.status === 'COMPLETED' ? apptRow.get(key)!.id : null)
-  const karuted = new Set((await read(() => pageAll('karute_records', (page) => core.karuteRecords.list({ store_id: storeId, page, page_size: 200 })))).map((k) => k.appointment_id))
-  await pool(p.karutes, async (k) => {
-    const aid = done(k.key)
-    if (!aid || karuted.has(aid)) return
-    await write('karuteRecords', k.key, () => core.karuteRecords.create({
-      customer_id: custId.get(k.member)!, store_id: storeId, staff_id: staffId.get(k.staff)!, appointment_id: aid, status: 'APPROVED',
-      ai_summary: k.entries.map((l) => `【${l.label}】${l.text}`).join('\n'), service: k.menu, duration_minutes: k.duration, session_date: k.date,
-      entries: k.entries.map((l, i) => ({ category: l.category, content: l.text, sort_order: i, is_manual: true })),
-    }))
-  })
-  const dateOf = new Map(p.appointments.map((a) => [a.key, a.date]))
-  await pool(p.packs, async (k) => {
-    const pid = packId.get(k.key)
-    if (!pid) return
-    const cid = custId.get(k.member)! // a pack id is only set for a customer that exists
-    const burnt = pid.startsWith('dry:') ? new Set<string>() : new Set((await read(() => core.packs.listRedemptions(cid))).map((r) => `${r.pack_id}|${r.redeemed_on}`))
-    for (const key of k.redeem) {
-      const aid = done(key)
-      if (!aid || burnt.has(`${pid}|${dateOf.get(key)}`)) continue
-      await write('redemptions', key, () => core.packs.addRedemption({
-        pack_id: pid, customer_id: cid, redeemed_on: dateOf.get(key)!, appointment_id: aid, source: 'manual', created_by: staffId.get(k.staff) ?? null,
-      }, { idempotencyKey: `test-world:${key}:redeem` }))
+    const staffId = new Map<string, string>()
+    for (const s of p.staff) {
+      const have = cards.find((c) => c.name === s.name)
+      const id = have?.id ?? (await write('staff', s.name, () => core.staff.create({ name: s.name, role: s.role, is_active: true })))?.id
+      if (!id) continue
+      staffId.set(s.name, id)
+      const cur = have ? (await read(() => core.staffStores.get(id))).store_ids : []
+      // An empty list already means "every store": only a non-empty list without this store gets it ADDED.
+      if (!have || (cur.length && !cur.includes(storeId))) await write('staffStores', s.name, () => core.staffStores.set(id, [...cur, storeId]))
     }
-  })
 
-  log(`${dry ? 'would create' : 'created'}: ${JSON.stringify(run.created)} · writes sent: ${sent}`)
-  run.skipped.forEach((l) => log(`skipped: ${l}`))
-  ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
-  // The read-back is a diagnostic: its failure never changes the exit code.
-  if (o.readBack) {
-    try {
-      (await withRetry(() => readBack(core, storeId, p), false, o.wait)).forEach((r) => log(r.join(' | ')))
-    } catch (e) {
-      log(`read-back failed (writes unaffected): ${message(e)}`)
+    const resId = new Map((await read(() => core.resources.list({ store_id: storeId }))).resources.map((r) => [r.name, r.id]))
+    await pool(p.resources.filter((r) => !resId.has(r.name)), async (r) => {
+      const row = await write('resources', r.name, () => core.resources.create({ store_id: storeId, ...r }))
+      if (row?.id) resId.set(r.name, row.id)
+    })
+
+    const menuOf = new Map((await read(() => core.menus.list())).menus.filter((x) => x.store_id === storeId).map((x) => [x.name, x.id]))
+    await pool(p.menus.filter((x) => !menuOf.has(x.name)), async (x) => {
+      const row = await write('menus', x.name, () => core.menus.create({
+        store_id: storeId, name: x.name, duration_minutes: x.duration, price_list_amount: x.price, currency: 'JPY', tax_included: true,
+        category: x.category, nomination_allowed: x.nomination, online_visible: true, active: true, required_room_class: x.private ? 'private' : null,
+        display_order: p.menus.indexOf(x),
+      }))
+      if (row?.id) menuOf.set(x.name, row.id)
+    })
+
+    // include_deleted: a customer Liam put in the bin stays there — never re-created, and gets no new 回数券 or booking.
+    const all = await read(() => pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 })))
+    // SDK skew: core sends deleted_at on these rows, the SDK's Customer type does not declare it (same cast as customers.core.ts).
+    const inBin = (c: object) => !!(c as { deleted_at?: string | null }).deleted_at
+    const binned = new Set(all.filter((c) => c.member_number && inBin(c)).map((c) => c.member_number!))
+    const custId = new Map(all.filter((c) => c.member_number && !inBin(c)).map((c) => [c.member_number!, c.id]))
+    await pool(p.customers.filter((c) => !custId.has(c.member) && !binned.has(c.member)), async (c) => {
+      const row = await write('customers', c.member, () => core.customers.create({
+        name: c.name, furigana: c.kana, gender: c.gender, date_of_birth: c.birth, occupation: c.occupation, phone: c.phone, email: c.email,
+        member_number: c.member, notes: c.memo, assigned_staff_id: staffId.get(c.staff) ?? null, has_ticket_pack: recipe.packs.some((x) => x.member === c.member),
+      }))
+      if (row?.id) custId.set(c.member, row.id)
+    })
+
+    const packId = new Map<string, string>()
+    await pool(p.packs, async (k) => {
+      const cid = custId.get(k.member)
+      if (!cid) return void run.skipped.push(`packs ${k.key}: ${binned.has(k.member) ? `customer ${k.member} is in the bin` : 'no customer'}`)
+      // Only a pack the loader made (notes start テストデータ) is ours — a pack sold by hand is never adopted or burnt.
+      const have = dry && cid.startsWith('dry:') ? undefined : (await read(() => core.packs.listPacks(cid))).find((x) => x.kind === 'pack' && x.purchase_round === 1 && (x.notes ?? '').startsWith('テストデータ'))
+      const id = have?.id ?? (await write('packs', k.key, () => core.packs.createPack({
+        customer_id: cid, kind: 'pack', pack_size: k.size, unit_price: k.unitPrice, total_price: k.unitPrice * k.size, purchase_round: 1,
+        purchased_at: k.purchasedOn, source: 'manual', notes: `テストデータ [${k.key}]`, created_by: staffId.get(k.staff) ?? null,
+      })))?.id
+      if (id) packId.set(k.key, id)
+    })
+
+    // Appointments: ours are found by the fill tag in the notes only. A foreign booking at the same customer + start is
+    // never adopted: it either clashes (skipped below) or the loader makes its own tagged one beside it.
+    const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
+    const mine = new Map<string, { id: string; status: string }>()
+    for (const a of window) {
+      const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
+      if (tag && a.store_id === storeId) mine.set(tag, a)
     }
+    // A CANCELLED / NO_SHOW booking frees its slot — the app's own rule (isTerminalStatus, src/lib/appointments/status.ts).
+    const clash = (a: Plan['appointments'][number], sid: string, rid: string) => {
+      const [start, end] = [Date.parse(a.startsAt), Date.parse(a.endsAt) + p.resources.find((r) => r.name === a.resource)!.cleanup_minutes * 60_000]
+      return window.find((x: Appointment) => !isTerminalStatus(x.status) && Date.parse(x.starts_at) < end && start < Date.parse(x.occupied_until ?? x.ends_at) && (x.staff_id === sid || x.resource_id === rid))
+    }
+    const apptRow = new Map<string, { id: string; status: string }>()
+    await pool(p.appointments, async (a) => {
+      const [cid, sid, rid, mid] = [custId.get(a.member), staffId.get(a.staff), resId.get(a.resource), menuOf.get(a.menu)]
+      if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
+      if (!cid || !sid || !rid || !mid) return void run.skipped.push(`appointments ${a.key}: missing customer/staff/bed/menu`)
+      const have = mine.get(a.key)
+      if (have) return void apptRow.set(a.key, have)
+      const other = clash(a, sid, rid)
+      if (other) return void run.skipped.push(`appointments ${a.key}: overlaps existing booking ${other.id}`)
+      const row = await write('appointments', a.key, () => core.appointments.create({
+        customer_id: cid, staff_id: sid, store_id: storeId, menu_id: mid, resource_id: rid, starts_at: a.startsAt, ends_at: a.endsAt,
+        duration_minutes: a.duration, booked_price_amount: a.price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
+        title: null, notes: `テストデータ [${a.key}]`,
+      }, { idempotencyKey: `test-world:${a.key}` }))
+      if (row?.id) apptRow.set(a.key, { id: row.id, status: (row as { status?: string }).status ?? a.status })
+    })
+
+    // Karutes and 回数券 burns only for bookings that are COMPLETED in core (a top-up never closes a booking out).
+    const done = (key: string) => (apptRow.get(key)?.status === 'COMPLETED' ? apptRow.get(key)!.id : null)
+    const karuted = new Set((await read(() => pageAll('karute_records', (page) => core.karuteRecords.list({ store_id: storeId, page, page_size: 200 })))).map((k) => k.appointment_id))
+    await pool(p.karutes, async (k) => {
+      const aid = done(k.key)
+      if (!aid || karuted.has(aid)) return
+      await write('karuteRecords', k.key, () => core.karuteRecords.create({
+        customer_id: custId.get(k.member)!, store_id: storeId, staff_id: staffId.get(k.staff)!, appointment_id: aid, status: 'APPROVED',
+        ai_summary: k.entries.map((l) => `【${l.label}】${l.text}`).join('\n'), service: k.menu, duration_minutes: k.duration, session_date: k.date,
+        entries: k.entries.map((l, i) => ({ category: l.category, content: l.text, sort_order: i, is_manual: true })),
+      }))
+    })
+    const dateOf = new Map(p.appointments.map((a) => [a.key, a.date]))
+    await pool(p.packs, async (k) => {
+      const pid = packId.get(k.key)
+      if (!pid) return
+      const cid = custId.get(k.member)! // a pack id is only set for a customer that exists
+      const burnt = pid.startsWith('dry:') ? new Set<string>() : new Set((await read(() => core.packs.listRedemptions(cid))).map((r) => `${r.pack_id}|${r.redeemed_on}`))
+      for (const key of k.redeem) {
+        const aid = done(key)
+        if (!aid || burnt.has(`${pid}|${dateOf.get(key)}`)) continue
+        await write('redemptions', key, () => core.packs.addRedemption({
+          pack_id: pid, customer_id: cid, redeemed_on: dateOf.get(key)!, appointment_id: aid, source: 'manual', created_by: staffId.get(k.staff) ?? null,
+        }, { idempotencyKey: `test-world:${key}:redeem` }))
+      }
+    })
+
+    log(`${dry ? 'would create' : 'created'}: ${JSON.stringify(run.created)} · writes sent: ${sent}`)
+    run.skipped.forEach((l) => log(`skipped: ${l}`))
+    ;[...run.conflicts409, ...run.errors].forEach((l) => log(`FAILED: ${l}`))
+    // The read-back is a diagnostic: its failure never changes the exit code.
+    if (o.readBack) {
+      try {
+        (await withRetry(() => readBack(core, storeId, p), false, o.wait)).forEach((r) => log(r.join(' | ')))
+      } catch (e) {
+        log(`read-back failed (writes unaffected): ${message(e)}`)
+      }
+    }
+    return run.conflicts409.length ? 4 : run.errors.length ? 1 : 0
+  } catch (e) {
+    // A first run that failed before any write leaves no epoch behind (no row exists on its dates yet);
+    // once a write was sent, the epoch stays — rows may exist on those dates.
+    if (!prior && sent === 0) delete m.stores[storeId]
+    throw e
   }
-  return run.conflicts409.length ? 4 : run.errors.length ? 1 : 0
 }
 
 /** What core holds for this store now, per section, beside the plan (reads only). */
