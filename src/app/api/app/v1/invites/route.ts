@@ -55,11 +55,13 @@ export const GET = facadeHandler('invite.list', async (ctx) => {
   // still alive — reads no pending invite (email + role). A roster caller is
   // unaffected.
   //
-  // Outage arm only: a roster READ failure answers the same empty list the
-  // web's listInvites answers (src/actions/invites.ts, its outer catch →
-  // `return []`), byte-identical to this route's normal empty result below
-  // (`{ invites: [] }`). Nothing is read on the caller's behalf on that path.
-  // A roster that reads fine and cannot place the caller stays the 403.
+  // Outage arm only: a roster READ failure answers `{ invites: [] }` — this
+  // route's OWN swallow, byte-identical to a normal empty result (phone
+  // parity is a queued phone leg, route + port together). Nothing is read on
+  // the caller's behalf on that path. A failed LIST read is no longer
+  // swallowed anywhere: listInvitesWithClient throws, so it answers an error
+  // status here and null on the web. A roster that reads fine and cannot
+  // place the caller stays the 403.
   let selfStaffId: string | null
   try {
     selfStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
