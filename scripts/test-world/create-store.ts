@@ -7,7 +7,7 @@
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, Refused } from './count-baseline'
 
 const args = process.argv.slice(2)
-const flag = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
+const flag = (name: string) => { const v = args.includes(name) ? args[args.indexOf(name) + 1] : undefined; return v?.startsWith('--') ? undefined : v }
 
 async function main(): Promise<number> {
   const [name, address, phone] = [flag('--name'), flag('--address'), flag('--phone')]
