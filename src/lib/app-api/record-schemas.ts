@@ -200,7 +200,7 @@ export const UploadUrlMintSchema = z
     message: 'each seq may appear once — a segment key is minted once',
     path: ['seqs'],
   })
-  .refine((v) => !((v.customerId || v.appointmentId) && (v.takeId || v.stagedFor || v.seqs)), {
+  .refine((v) => !((v.customerId != null || v.appointmentId != null) && (v.takeId || v.stagedFor || v.seqs)), {
     message: 'customerId and appointmentId ride only on a server-named take',
     path: ['customerId'],
   })

@@ -83,6 +83,7 @@ import {
   parseRecordingKey,
 } from '@/lib/recording/key-grammar'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   assertRecorderOwnsRow,
   isJobOwnedStatus,
@@ -709,8 +710,8 @@ async function bindServerNamedTake(
   let who: { staffId: string; storeId: string } | null
   try {
     who = await actor.bindIdentity()
-  } catch {
-    return keptUnbound('identity lookup threw')
+  } catch (err) {
+    return keptUnbound(`identity lookup threw: ${describeUnknownThrow(err).errMessage}`)
   }
   if (!who) return keptUnbound('no staff or no store')
   let result: StartRecordingSessionResult
@@ -724,8 +725,8 @@ async function bindServerNamedTake(
       mimeType,
       storeId: who.storeId,
     })
-  } catch {
-    return keptUnbound('session create threw')
+  } catch (err) {
+    return keptUnbound(`session create threw: ${describeUnknownThrow(err).errMessage}`)
   }
   // `exists` is settled below, not warned as kept: its link is withheld.
   if (result && 'error' in result && result.error !== 'exists') {

@@ -235,7 +235,27 @@ describe('switch ON — the server-named take gets a row on the key it was signe
     const res = await mint()
     expect(Object.keys(res).sort()).toEqual(TODAY_KEYS)
     expect(res).toMatchObject({ recordingSessionId: null })
-    expect(warned).toContain('[mint-take-url] unbound upload kept unbound: session create threw')
+    // The reason survives, bounded (describeUnknownThrow) — never bare.
+    expect(warned).toContain('[mint-take-url] unbound upload kept unbound: session create threw: core 503')
+  })
+
+  it('the identity lookup throws → today’s answer, and the warn keeps why', async () => {
+    bindIdentity.mockRejectedValue(new Error('roster down'))
+    const res = await mint()
+    expect(Object.keys(res).sort()).toEqual(TODAY_KEYS)
+    expect(res).toMatchObject({ recordingSessionId: null })
+    expect(recordingsCreate).not.toHaveBeenCalled()
+    expect(warned).toContain('[mint-take-url] unbound upload kept unbound: identity lookup threw: roster down')
+  })
+
+  it('a 1,000-char thrown message is cut to 200 chars (+ the helper’s … marker)', async () => {
+    const long = 'core down '.repeat(100)
+    recordingsCreate.mockRejectedValue(new Error(long))
+    await mint()
+    const prefix = '[mint-take-url] unbound upload kept unbound: session create threw: '
+    const line = warned.find((w) => w.startsWith(prefix))
+    expect(line).toBeDefined()
+    expect(line!.slice(prefix.length)).toBe(`${long.slice(0, 200)}…`)
   })
 
   it('the sign fails → an error, and nothing is looked up or created', async () => {
@@ -322,6 +342,8 @@ describe('the schema — attribution rides only on a server-named take', () => {
     ['customerId with seqs', { ...named, seqs: [0], customerId: 'cust-1' }],
     ['a customerId past its bound', { customerId: 'x'.repeat(201) }],
     ['a take id without a session (unchanged)', { takeId: TAKE, mimeType: 'audio/mp4' }],
+    ['an EMPTY customerId with a takeId', { ...named, customerId: '' }],
+    ['an EMPTY appointmentId with a stagedFor', { stagedFor: SESSION, appointmentId: '' }],
   ])('%s → 400', async (_label, body) => {
     const res = await mintPOST(jreq(auth, body), noRoute)
     expect(res.status).toBe(400)
@@ -330,6 +352,11 @@ describe('the schema — attribution rides only on a server-named take', () => {
 
   it('attribution on a server-named body is accepted', async () => {
     const res = await mintPOST(jreq(auth, { customerId: 'cust-1', appointmentId: null }), noRoute)
+    expect(res.status).toBe(200)
+  })
+
+  it('null is not supplied — { customerId: null, appointmentId: null } alone is accepted', async () => {
+    const res = await mintPOST(jreq(auth, { customerId: null, appointmentId: null }), noRoute)
     expect(res.status).toBe(200)
   })
 })
