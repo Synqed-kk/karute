@@ -76,6 +76,8 @@ export async function staffAddAllowed(): Promise<{
     const synqed = await getSynqedClient()
     return await staffAddAllowedWithClient(synqed, businessId, async () => (await getStaffList()).length)
   } catch {
+    // The roster count now THROWS on an outage (Round 2, S17); a billing limit
+    // stays open by its documented design — a cap, not an authorization gate.
     return { allowed: true, count: 0, limit: 'unlimited' }
   }
 }
