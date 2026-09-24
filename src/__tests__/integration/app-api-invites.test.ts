@@ -6,8 +6,8 @@
 // caller-supplied · the plan gate (staffAddAllowedWithClient) skips for
 // re-invites (staffId present) · exactly one staff.invite_create/
 // staff.invite_revoke audit row per successful write, ids-only detail ·
-// a failed LIST read answers 500 internal (the shared core throws); a failed
-// ROSTER read answers 200 empty — this route's own swallow, phone parity queued.
+// a failed LIST read and a failed ROSTER read both answer 500 internal (the
+// throw reaches facadeHandler) — never a false empty list.
 import { createHmac } from 'node:crypto'
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
@@ -225,16 +225,18 @@ describe('GET /api/app/v1/invites', () => {
     expect(invitesList).not.toHaveBeenCalled()
   })
 
-  it('the roster READ fails → 200 empty — this route\'s own roster swallow, phone parity queued; the invites list never read', async () => {
+  it('the roster READ fails → 500 internal, never a false empty list; the invites list never read', async () => {
     staffListByBusinessOrThrow.mockRejectedValueOnce(new Error('profiles down'))
-    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const res = await GET(getReq(), noParams)
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ invites: [] })
+      expect(res.status).toBe(500)
+      const body = await res.json()
+      expect(body).not.toHaveProperty('invites')
+      expect(body.error).toMatchObject({ code: 'internal' })
       expect(invitesList).not.toHaveBeenCalled()
     } finally {
-      err.mockRestore()
+      warn.mockRestore()
     }
   })
 
