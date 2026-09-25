@@ -9,7 +9,7 @@ import { practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings, orgSettingsOf } from './door'
 import { renderNow } from '../clock'
-import { BOOKING_PALETTE, bookingColorsFor, type BookingColors } from '../booking-colors'
+import { BOOKING_PALETTE, bookingColorsFor, bookingColorsKeyFor, type BookingColors } from '../booking-colors'
 
 export type WriteBookingColorsResult =
   | { ok: true; colors: BookingColors }
@@ -41,11 +41,13 @@ function bookingColorsInput(colors: unknown): BookingColors | null {
  *  from writeReserveCardColor. OFF has no writer. Only the four board categories, each a BOOKING_PALETTE hex,
  *  checked before any core call. `settings.manage` on core's own sheet, AND the store must be one this
  *  operator may see — `actor.visible`, the same list the 設定 page offers (listStoreOptions; ⚖ 8/17 store
- *  isolation), so a key the actor cannot see is never written. Core merges only TOP-LEVEL keys
- *  (org-settings.service.ts:50), so the whole `booking_colors` map is sent: every other store's entry passes
- *  through untouched, raw. A stored value that is not a map is never overwritten (⚖ 9/16 nothing deleted).
- *  Read-before-write: an entry that already holds exactly these four sends nothing. A core failure is
- *  reported, never swallowed or retried. */
+ *  isolation), so a key the actor cannot see is never written. ⚖ PKT-S41 R-S41-1 (Liam 9/25 A): the store's
+ *  four live under ITS OWN key `booking_colors:<storeId>`, sent ALONE — core merges only TOP-LEVEL keys
+ *  (org-settings.service.ts:50), so no other store's key is read for the write or touched by it. The legacy
+ *  `booking_colors` map is never written or inspected here (read-only fallback, never removed). A stored
+ *  per-store value that is not a colour set is never overwritten (⚖ 9/16 nothing deleted). Read-before-write:
+ *  a key that already holds exactly these four sends nothing. A core failure is reported, never swallowed or
+ *  retried. */
 export async function writeBookingColors(storeId: string, colors: unknown): Promise<WriteBookingColorsResult> {
   if (practiceTenant() === null) return { ok: false, reason: 'tenant' }
   const next = bookingColorsInput(colors)
@@ -62,21 +64,21 @@ export async function writeBookingColors(storeId: string, colors: unknown): Prom
   if (!canManageSettings(actor)) return { ok: false, reason: 'forbidden' }
   if (!visibleIds(actor).includes(storeId)) return { ok: false, reason: 'forbidden' }
   try {
-    const raw: unknown = (await orgSettingsOf(actor))?.settings?.booking_colors ?? null
-    if (raw !== null && !plainObject(raw)) {
-      console.error('[business booking colours] stored booking_colors is not a map; refusing to overwrite')
+    const key = bookingColorsKeyFor(storeId)
+    const settings: Record<string, unknown> | null = (await orgSettingsOf(actor))?.settings ?? null
+    const before: unknown = (settings !== null && Object.prototype.hasOwnProperty.call(settings, key) ? settings[key] : undefined) ?? null
+    if (before !== null && !plainObject(before)) {
+      console.error(`[business booking colours] stored ${key} is not a colour set; refusing to overwrite`)
       return { ok: false, reason: 'core' }
     }
-    const map: Record<string, unknown> = raw ?? {}
-    const before = Object.prototype.hasOwnProperty.call(map, storeId) ? map[storeId] : null
-    // Equal = the resolver already answers these four AND the raw entry holds exactly them (lowercase).
+    // Equal = the stored key holds exactly these four (lowercase) AND the resolver already answers them.
     const same = plainObject(before) && Object.keys(before).length === BOOKING_KEYS.length && BOOKING_KEYS.every((k) => before[k] === next[k])
-    if (same && BOOKING_KEYS.every((k) => bookingColorsFor(storeId, raw)[k] === next[k])) return { ok: true, colors: next }
+    if (same && BOOKING_KEYS.every((k) => bookingColorsFor(storeId, settings)[k] === next[k])) return { ok: true, colors: next }
     const writer = reach.orgSettingsWriterFor({ businessId: actor.businessId })
-    // ponytail: read-modify-write of ONE key — two saves for DIFFERENT stores of one business in the same instant can lose one store's entry (core merges top-level keys only); upgrade = a core-side nested merge or per-store keys.
-    const saved = await writer.orgSettings.upsert({ settings: { booking_colors: { ...map, [storeId]: next } } })
-    const out = bookingColorsFor(storeId, saved?.settings?.booking_colors)
-    console.info('[business booking colours]', JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, old: before, new: out, at: renderNow().toISOString() }))
+    // one key per store: core merges top-level keys, so another store's save in the same instant is untouched (⚖ Liam 9/25 A)
+    const saved = await writer.orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })
+    const out = bookingColorsFor(storeId, saved?.settings)
+    console.info('[business booking colours]', JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, key, old: before, new: out, at: renderNow().toISOString() }))
     return { ok: true, colors: out }
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
