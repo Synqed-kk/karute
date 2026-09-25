@@ -45,6 +45,10 @@ jest.mock('@/lib/audit-web', () => ({
   resolveWebAuditContext: jest.fn(async () => ({ actorId: 'actor-1', businessId: 'biz-1' })),
 }))
 jest.mock('@/lib/synqed/staff-pager', () => ({ listAllCoreStaff: jest.fn(async () => []) }))
+// P4g reaches staff.ts's lazy SDK import. Jest cannot load the ESM-only SDK
+// there (a SyntaxError), so a stub client stands in; the roster read itself is
+// listAllCoreStaff above.
+jest.mock('@synqed-kk/client', () => ({ SynqedClient: class { staff = {} } }))
 jest.mock('@/lib/karute/outcome', () => ({ setKaruteOutcome: jest.fn(async () => ({})) }))
 // The REAL consent cores, wrapped so a pin can see whether they ran.
 jest.mock('@/lib/customers/customers.core', () => {
@@ -120,6 +124,7 @@ import { presetCapabilities } from '@/lib/auth/permissions'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { grantCustomerConsentWithClient, revokeCustomerConsentWithClient } from '@/lib/customers/customers.core'
 
@@ -318,6 +323,45 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     expect(coreTargetReads).not.toHaveBeenCalled()
     expect(serviceUpdate).not.toHaveBeenCalled()
     expectOneBoundedOutageLine('[permissions] pre-core read failed (roster)')
+  })
+
+  // D-S26-1 (fold F2): the synqed-core roster fetch sits in the same roster wave
+  // (staffListCore → synqedStaffWithoutProfile), so a CORE outage must reach the
+  // gate's catch as the same typed outage, never as its raw message. Seam:
+  // listAllCoreStaff (mocked at the top of this file) rejects at staff.ts's
+  // await; the real SDK import and client construction run.
+  it('P4g REAL gate, synqed-core roster fetch fails → { error: THE FAILURE LINE } from the gate, never the raw message', async () => {
+    gate.mockImplementation(realRequireCapability)
+    const coreRoster = listAllCoreStaff as unknown as jest.Mock
+    coreRoster.mockRejectedValueOnce(new TypeError('fetch failed'))
+    const env = { url: process.env.SYNQED_CORE_URL, key: process.env.SYNQED_CORE_API_KEY }
+    process.env.SYNQED_CORE_URL = 'http://core.test'
+    process.env.SYNQED_CORE_API_KEY = 'test-key'
+    // Assigning undefined to process.env stores the STRING 'undefined' — delete instead.
+    const restoreEnv = () => {
+      if (env.url === undefined) delete process.env.SYNQED_CORE_URL
+      else process.env.SYNQED_CORE_URL = env.url
+      if (env.key === undefined) delete process.env.SYNQED_CORE_API_KEY
+      else process.env.SYNQED_CORE_API_KEY = env.key
+    }
+    const res = await setStaffPermissions(TARGET_STAFF, ROLE, CAPS).finally(restoreEnv)
+    expect(coreRoster).toHaveBeenCalledTimes(1) // the reject came from the roster await, not the import
+    expect(res).toEqual({ error: FAILURE_LINE })
+    expect(JSON.stringify(res)).not.toContain('fetch failed')
+    expect(staffWriteInScope).not.toHaveBeenCalled()
+    expect(coreTargetReads).not.toHaveBeenCalled()
+    expect(serviceUpdate).not.toHaveBeenCalled()
+    // The source's one bounded line (describeUnknownThrow shape: no Error, no stack)…
+    const source = logsStartingWith('[getStaffList] synqed-core roster fetch failed:')
+    expect(source).toHaveLength(1)
+    expect(source[0]).toHaveLength(2)
+    expect(source[0][1]).not.toBeInstanceOf(Error)
+    expect(source[0][1]).toEqual({ errName: 'TypeError', errMessage: 'fetch failed' })
+    // …and the gate catch's one typed line; nothing else logged.
+    const action = logsStartingWith('[permissions] pre-core read failed (roster)')
+    expect(action).toHaveLength(1)
+    expect(action[0][1]).toEqual({ errName: 'AppApiError', errStatus: 502, errMessage: 'synqed-core roster fetch failed' })
+    expect(consoleError).toHaveBeenCalledTimes(2)
   })
 
   // A real denial is a plain Error (require-permission.ts :120) — its answer
