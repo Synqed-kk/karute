@@ -2,6 +2,7 @@ import { Entry } from '@/types/ai'
 import { getDataPort } from '@/lib/ports/data-port'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import {
+  adoptTakeSession,
   ensureFinalizedPath,
   readTakeSecureMeta,
   readTakeTranscript,
@@ -110,6 +111,38 @@ export type PipelineContext = {
   recordingSessionId?: string | null
   /** The recorder's measured length, so the fallback attach can finalize. */
   durationSeconds?: number
+  /** The visit (global-pipeline's appointmentCustomerId / appointmentId), sent
+   *  on the 'no_session' fallback only — what a row the mint creates carries. */
+  customerId?: string | null
+  appointmentId?: string | null
+  /** Told the row this run ADOPTED (S34), so the run's own context — what the
+   *  save, the 破棄 and the status surfaces read — names it too. */
+  onSessionAdopted?: (recordingSessionId: string) => void
+}
+
+/**
+ * ⚖ THE ROW THE SERVER MADE FOR THIS TAKE IS THIS TAKE'S ROW (S34, piece 3).
+ * With RECORDING_SWITCHES.bindUnboundUploads ON, the unbound door creates a
+ * row for a take that had none and answers its id. Adopted ONLY where nothing
+ * names a session yet — not the run's context, and not the take (adoptTakeSession
+ * refuses a take that already carries one): the first stamp wins, so a row the
+ * recording already has is never swapped for this one. The adopted take is
+ * SECURED at `path` in the same write — its audio is on that row now, so no
+ * drain retries it under its own key (Greptile #1039). Switch OFF → the server
+ * answers null and this is never called.
+ */
+async function adoptMintedSession(
+  takeId: string | null,
+  recordingSessionId: string,
+  path: string,
+  ctx: PipelineContext,
+): Promise<void> {
+  const adopted =
+    !ctx.recordingSessionId &&
+    (takeId ? await adoptTakeSession(takeId, recordingSessionId, path) : true)
+  if (adopted) ctx.onSessionAdopted?.(recordingSessionId)
+  // Ids and a flag only — never a customer, never a key.
+  console.info('[ai-pipeline] adopted minted session', { takeId, adopted })
 }
 
 export async function runAIPipeline(
@@ -189,11 +222,17 @@ export async function runAIPipeline(
     if (stored && stored.finalizedPath === finalizedPath && stored.locale === locale) {
       return stored.response
     }
-    const { body: transcribeBody } = await recordingPort.prepareTranscription(
-      audioBlob,
-      finalizedPath,
-      attachOutcome ? { attachOutcome } : undefined,
-    )
+    const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
+      await recordingPort.prepareTranscription(
+        audioBlob,
+        finalizedPath,
+        attachOutcome === 'no_session'
+          ? { attachOutcome, customerId: ctx.customerId, appointmentId: ctx.appointmentId }
+          : attachOutcome
+            ? { attachOutcome }
+            : undefined,
+      )
+    if (minted) await adoptMintedSession(takeId, minted, mintedPath, ctx)
 
     const transcribeRes = await fetchWithRetry(() =>
       getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {

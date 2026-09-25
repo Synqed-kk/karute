@@ -60,6 +60,10 @@ describe('globalPipeline prompt-anchor ctx', () => {
     expect(mockCalls[0].ctx).toEqual({
       customerName: '鈴木 太郎',
       sessionDate: localToday(),
+      // S34: the visit rides along for the 'no_session' fallback, and the run
+      // is told any row it adopts.
+      customerId: 'c-2',
+      onSessionAdopted: expect.any(Function),
     })
   })
 

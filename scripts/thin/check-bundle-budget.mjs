@@ -2127,7 +2127,9 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Ceiling = measured + 600 = 2,164,448 B.
 //
 // raised 2026-09-25, PR #1037 (recording fallback attaches to the take's own row): merged tree origin/main 419f77e58 + e68539214 = 140,406 + 1,087,228 + 937,800 = 2,165,434 B (986 B over); main alone 2,164,397 B → the PR adds 1,037 B; ceiling = 2,164,448 + 1,037 + 1,024 = 2,166,509 B.
-const BUDGET_BYTES = 2_166_509
+//
+// raised 2026-09-25, PR #1039 (the in-tab fallback adopts the row the server made — S34 piece 3): merged tree origin/main df86b6e3b + 41f20dcb2 = 140,406 + 1,088,486 + 937,800 = 2,166,692 B (183 B over); main alone 2,165,434 B → the PR adds 1,258 B (piece 3 adoption +1,065 · O1/O2 finalize mark +193); ceiling = 2,165,434 + 1,258 + 1,024 = 2,167,716 B.
+const BUDGET_BYTES = 2_167_716
 let dir
 try {
   dir = readdirSync(DIST)

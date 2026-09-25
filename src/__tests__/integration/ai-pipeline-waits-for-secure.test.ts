@@ -58,6 +58,7 @@ const prepareTranscription = jest.fn(
   async (_blob: Blob, finalizedPath: string | null) => ({
     body: { path: finalizedPath ?? 'app_biz-1_staged-9.webm' },
     path: finalizedPath ?? 'app_biz-1_staged-9.webm',
+    recordingSessionId: null as string | null,
   }),
 )
 /** The backfill door (PR4 fix round 7) — web composes the key server-side, thin
@@ -91,6 +92,7 @@ beforeEach(() => {
   prepareTranscription.mockImplementation(async (_blob, finalizedPath) => ({
     body: { path: finalizedPath ?? 'app_biz-1_staged-9.webm' },
     path: finalizedPath ?? 'app_biz-1_staged-9.webm',
+    recordingSessionId: null,
   }))
 })
 
