@@ -1,0 +1,316 @@
+/**
+ * A roster OUTAGE answers the web action's OWN failure shape (Round 3 leg 6,
+ * 2026-09-25).
+ *
+ * grantCustomerConsent / revokeCustomerConsent / updateKaruteOutcome /
+ * setStaffPermissions read the roster chain before their try, so the typed
+ * roster outage (staff.ts: AppApiError('upstream_unavailable', 'staff profiles
+ * read failed')) REJECTED the action: a consent dialog, the outcome dialog or
+ * the permissions sheet got nothing it could print. Now the throw logs one
+ * bounded line and resolves the failure shape with common.somethingWentWrong
+ * — the line the web clients already print for a transport failure — and the
+ * core never runs.
+ *
+ * Lesson 83: the outage is thrown by PRODUCTION code. @/lib/staff is the real
+ * module (getCurrentUserStaffId → getStaffList → getBusinessId →
+ * resolveUserId); only the SOURCES it reads are mocked — the supabase clients.
+ */
+jest.mock('next/cache', () => ({
+  unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
+  revalidatePath: jest.fn(),
+  revalidateTag: jest.fn(),
+  updateTag: jest.fn(),
+}))
+// ns.key, so a pin can see WHICH namespace the line came from.
+jest.mock('next-intl/server', () => ({
+  getTranslations: jest.fn(async (ns: string) => (key: string) => `${ns}.${key}`),
+}))
+// The gate is a pass-through for the H-4 hunk pins; P4d hands it back to the
+// REAL one. getMyCapabilities stays real (it reads the real roster chain).
+jest.mock('@/lib/auth/require-permission', () => ({
+  ...jest.requireActual<typeof import('@/lib/auth/require-permission')>('@/lib/auth/require-permission'),
+  requireCapability: jest.fn(async () => {}),
+}))
+jest.mock('@/lib/auth/store-scope', () => ({
+  ...jest.requireActual<typeof import('@/lib/auth/store-scope')>('@/lib/auth/store-scope'),
+  resolveStoreScope: jest.fn(async () => ({ viewAll: true, degraded: false, allowedStoreIds: null })),
+  staffWriteInScope: jest.fn(async () => true),
+}))
+jest.mock('@/lib/audit-store-lock', () => ({ ensureRecordStoreInScopeAudited: jest.fn() }))
+jest.mock('@/lib/audit', () => ({ audit: jest.fn(), auditDurable: jest.fn(async () => true) }))
+jest.mock('@/lib/audit-web', () => ({
+  auditWeb: jest.fn(async () => {}),
+  resolveWebActorId: jest.fn(async () => 'actor-1'),
+  resolveWebBusinessId: jest.fn(async () => 'biz-1'),
+  resolveWebAuditContext: jest.fn(async () => ({ actorId: 'actor-1', businessId: 'biz-1' })),
+}))
+jest.mock('@/lib/synqed/staff-pager', () => ({ listAllCoreStaff: jest.fn(async () => []) }))
+jest.mock('@/lib/karute/outcome', () => ({ setKaruteOutcome: jest.fn(async () => ({})) }))
+// The REAL consent cores, wrapped so a pin can see whether they ran.
+jest.mock('@/lib/customers/customers.core', () => {
+  const actual = jest.requireActual<typeof import('@/lib/customers/customers.core')>('@/lib/customers/customers.core')
+  return {
+    ...actual,
+    grantCustomerConsentWithClient: jest.fn(actual.grantCustomerConsentWithClient),
+    revokeCustomerConsentWithClient: jest.fn(actual.revokeCustomerConsentWithClient),
+  }
+})
+jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedClient: jest.fn() }))
+
+// ── the sources the real roster chain reads ──────────────────────────────────
+jest.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({
+    auth: {
+      getSession: async () => ({ data: { session: null } }),
+      getUser: async () => ({ data: { user: { id: 'actor-1' } } }),
+    },
+  }),
+}))
+const ROSTER_ROW = {
+  id: 'actor-1', full_name: 'Owner', created_at: '2026-01-01T00:00:00Z', display_role: 'owner', position: null,
+  email: null, phone: null, avatar_url: null, pin_hash: null, customer_id: 'biz-1', is_management: false,
+}
+// A distinctive PostgREST message: it may reach the SOURCE's server log only.
+const DB_TEXT = 'PGRST-SECRET-42 connection refused'
+const ROSTER_DOWN = { data: null, error: { message: DB_TEXT, code: 'PGRST000' } }
+let rosterRead: { data: unknown; error: unknown } = { data: [ROSTER_ROW], error: null }
+// setStaffPermissionsCore lives in permissions.ts itself: its first read (the
+// target row) and its write are how a pin sees that it ran.
+const coreTargetReads = jest.fn()
+const serviceUpdate = jest.fn()
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => {
+    let cols = ''
+    const chain: Record<string, unknown> = {}
+    for (const m of ['eq', 'ilike', 'not', 'in']) chain[m] = () => chain
+    chain.select = (c: string) => {
+      cols = c
+      return chain
+    }
+    // businessIdForUser's membership read.
+    chain.single = async () => ({ data: { customer_id: 'biz-1', full_name: 'Owner' }, error: null })
+    // staffListCore's profiles read (the one staff.ts :92 wraps).
+    chain.order = async () => rosterRead
+    chain.maybeSingle = async () => {
+      if (cols.startsWith('id,')) {
+        coreTargetReads()
+        return { data: { id: 'staff-T', display_role: 'stylist', permission_role: 'practitioner', permissions: null }, error: null }
+      }
+      // capabilitiesForUser: the caller is the owner.
+      return { data: { display_role: 'owner', permission_role: 'owner', permissions: null }, error: null }
+    }
+    chain.update = (v: unknown) => {
+      serviceUpdate(v)
+      return { eq: () => ({ eq: async () => ({ error: null }) }) }
+    }
+    return { from: () => chain }
+  },
+}))
+
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { grantCustomerConsent, revokeCustomerConsent } from '@/actions/customers'
+import { updateKaruteOutcome } from '@/actions/karute-outcome'
+import { setStaffPermissions } from '@/actions/permissions'
+import { presetCapabilities } from '@/lib/auth/permissions'
+import { requireCapability } from '@/lib/auth/require-permission'
+import { staffWriteInScope } from '@/lib/auth/store-scope'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { setKaruteOutcome } from '@/lib/karute/outcome'
+import { grantCustomerConsentWithClient, revokeCustomerConsentWithClient } from '@/lib/customers/customers.core'
+
+const gate = requireCapability as unknown as jest.Mock
+const synqedClient = getSynqedClient as unknown as jest.Mock
+const realRequireCapability = jest.requireActual<typeof import('@/lib/auth/require-permission')>(
+  '@/lib/auth/require-permission',
+).requireCapability
+
+const CUSTOMER = 'cust-MARK-1'
+const KARUTE = 'karute-MARK-2'
+const TARGET_STAFF = 'staff-T'
+const INPUTS = [CUSTOMER, KARUTE, TARGET_STAFF]
+const FAILURE_LINE = 'common.somethingWentWrong'
+const ROSTER_THROW_LOG = { errName: 'AppApiError', errStatus: 502, errMessage: 'staff profiles read failed' }
+
+const grantConsent = jest.fn(async () => ({ id: 'consent-1' }))
+const revokeConsent = jest.fn(async () => undefined)
+const karuteGet = jest.fn(async () => ({ id: KARUTE, store_id: null, customer_id: CUSTOMER }))
+
+let consoleError: jest.SpyInstance
+beforeEach(() => {
+  jest.clearAllMocks()
+  consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+  rosterRead = { data: [ROSTER_ROW], error: null }
+  gate.mockImplementation(async () => {})
+  synqedClient.mockResolvedValue({
+    customers: { grantConsent, revokeConsent },
+    karuteRecords: { get: karuteGet },
+  })
+})
+afterEach(() => consoleError.mockRestore())
+
+const SOURCE_LOG = '[getStaffList] staff profiles read failed'
+const logsStartingWith = (prefix: string) => consoleError.mock.calls.filter((c) => String(c[0]).startsWith(prefix))
+
+/** One bounded action line (describeUnknownThrow shape, never the raw error),
+ *  no input and no database text in it; nothing else logged but the source's. */
+function expectOneBoundedOutageLine(prefix: string) {
+  const lines = logsStartingWith(prefix)
+  expect(lines).toHaveLength(1)
+  expect(lines[0]).toHaveLength(2)
+  expect(lines[0][1]).not.toBeInstanceOf(Error)
+  expect(lines[0][1]).toEqual(ROSTER_THROW_LOG)
+  for (const arg of lines[0]) {
+    for (const secret of [...INPUTS, DB_TEXT]) {
+      expect(String(arg)).not.toContain(secret)
+      expect(JSON.stringify(arg) ?? '').not.toContain(secret)
+    }
+  }
+  // The rest are the SOURCE's own line (staff.ts :91), never another.
+  for (const c of consoleError.mock.calls) {
+    expect(String(c[0]).startsWith(prefix) || String(c[0]).startsWith(SOURCE_LOG)).toBe(true)
+  }
+  expect(logsStartingWith(SOURCE_LOG).length).toBeGreaterThanOrEqual(1)
+}
+
+function expectNotTheWrongLines(res: { error?: string }) {
+  expect(res.error).not.toBe('staff profiles read failed')
+  expect(res.error).not.toBe('karute record not found')
+  expect(res.error).not.toContain(DB_TEXT)
+}
+
+describe('THE FAILURE LINE exists in both locales (the key the web clients print)', () => {
+  it('common.somethingWentWrong is in ja.json and en.json', () => {
+    for (const locale of ['ja', 'en']) {
+      const messages = JSON.parse(readFileSync(join(process.cwd(), 'messages', `${locale}.json`), 'utf8'))
+      expect(typeof messages.common.somethingWentWrong).toBe('string')
+      expect(messages.common.somethingWentWrong.length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('P1 grantCustomerConsent — a roster outage resolves the failure shape', () => {
+  it('P1a roster source throws → { ok: false, error: THE FAILURE LINE }, core never runs', async () => {
+    rosterRead = ROSTER_DOWN
+    const res = await grantCustomerConsent(CUSTOMER, { method: 'VERBAL' })
+    expect(res).toEqual({ ok: false, error: FAILURE_LINE })
+    expectNotTheWrongLines(res)
+    expect(grantCustomerConsentWithClient).not.toHaveBeenCalled()
+    expect(grantConsent).not.toHaveBeenCalled()
+    expectOneBoundedOutageLine('[customers] pre-core read failed (roster)')
+  })
+
+  it('P1b happy path unchanged', async () => {
+    const res = await grantCustomerConsent(CUSTOMER, { method: 'VERBAL' })
+    expect(res).toEqual({ ok: true, consent: { id: 'consent-1' } })
+    expect(grantCustomerConsentWithClient).toHaveBeenCalledWith(expect.anything(), CUSTOMER, 'actor-1', 'VERBAL')
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
+  it('P1c a RESOLVED null staff id keeps today\'s answer (not the outage)', async () => {
+    rosterRead = { data: [], error: null }
+    const res = await grantCustomerConsent(CUSTOMER)
+    expect(res).toEqual({ ok: false, error: 'No staff identity for the signed-in user.' })
+    expect(grantCustomerConsentWithClient).not.toHaveBeenCalled()
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+})
+
+describe('P2 revokeCustomerConsent — a roster outage resolves the failure shape', () => {
+  it('P2a roster source throws → { ok: false, error: THE FAILURE LINE }, core never runs', async () => {
+    rosterRead = ROSTER_DOWN
+    const res = await revokeCustomerConsent(CUSTOMER)
+    expect(res).toEqual({ ok: false, error: FAILURE_LINE })
+    expectNotTheWrongLines(res)
+    expect(revokeCustomerConsentWithClient).not.toHaveBeenCalled()
+    expect(revokeConsent).not.toHaveBeenCalled()
+    expectOneBoundedOutageLine('[customers] pre-core read failed (roster)')
+  })
+
+  it('P2b happy path unchanged', async () => {
+    const res = await revokeCustomerConsent(CUSTOMER)
+    expect(res).toEqual({ ok: true })
+    expect(revokeCustomerConsentWithClient).toHaveBeenCalledWith(expect.anything(), CUSTOMER, 'actor-1')
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
+  it('P2c a RESOLVED null staff id keeps today\'s answer (not the outage)', async () => {
+    rosterRead = { data: [], error: null }
+    const res = await revokeCustomerConsent(CUSTOMER)
+    expect(res).toEqual({ ok: false, error: 'No staff identity for the signed-in user.' })
+    expect(revokeCustomerConsentWithClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('P3 updateKaruteOutcome — a roster outage resolves the failure shape', () => {
+  const OUTCOME = { status: 'success' as const }
+
+  it('P3a roster source throws → { error: THE FAILURE LINE }, never not-found, core never runs', async () => {
+    rosterRead = ROSTER_DOWN
+    const res = await updateKaruteOutcome(KARUTE, OUTCOME)
+    expect(res).toEqual({ error: FAILURE_LINE })
+    expectNotTheWrongLines(res)
+    expect(setKaruteOutcome).not.toHaveBeenCalled()
+    expect(karuteGet).not.toHaveBeenCalled() // answered before the record read
+    expectOneBoundedOutageLine('[karute-outcome] pre-core read failed (roster)')
+  })
+
+  it('P3b happy path unchanged', async () => {
+    const res = await updateKaruteOutcome(KARUTE, OUTCOME)
+    expect(res).toEqual({})
+    expect(setKaruteOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karuteRecordId: KARUTE, customerId: CUSTOMER, status: 'success', decidedBy: 'actor-1' }),
+    )
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
+  // Documented, not changed (the resolved-null line is queued, not this leg).
+  it('P3c a RESOLVED null staff id follows today\'s path — the write runs with decidedBy: null', async () => {
+    rosterRead = { data: [], error: null }
+    const res = await updateKaruteOutcome(KARUTE, OUTCOME)
+    expect(res).toEqual({})
+    expect(setKaruteOutcome).toHaveBeenCalledWith(expect.objectContaining({ decidedBy: null }))
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+})
+
+describe('P4 setStaffPermissions — a pre-core read outage resolves the failure shape', () => {
+  const ROLE = 'practitioner' as const
+  const CAPS = presetCapabilities(ROLE)
+
+  it('P4a roster source throws after the gate → { error: THE FAILURE LINE }, core never runs', async () => {
+    rosterRead = ROSTER_DOWN
+    const res = await setStaffPermissions(TARGET_STAFF, ROLE, CAPS)
+    expect(res).toEqual({ error: FAILURE_LINE })
+    expectNotTheWrongLines(res as { error?: string })
+    expect(staffWriteInScope).not.toHaveBeenCalled()
+    expect(coreTargetReads).not.toHaveBeenCalled()
+    expect(serviceUpdate).not.toHaveBeenCalled()
+    expectOneBoundedOutageLine('[permissions] pre-core read failed (roster)')
+  })
+
+  it('P4b happy path unchanged', async () => {
+    const res = await setStaffPermissions(TARGET_STAFF, ROLE, CAPS)
+    expect(res).toEqual({ ok: true })
+    expect(staffWriteInScope).toHaveBeenCalledWith({ targetStaffId: TARGET_STAFF, actorId: 'actor-1' })
+    expect(coreTargetReads).toHaveBeenCalledTimes(1)
+    expect(serviceUpdate).toHaveBeenCalledWith({ permission_role: ROLE, permissions: null })
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
+  // KNOWN GAP, reported — not changed (the packet fences the gate's catch
+  // :293–297). The REAL gate reads the same roster chain FIRST (requireCapability
+  // → can → getMyCapabilities → getCurrentUserStaffId), so a roster outage that
+  // is already down when the action starts is answered by the gate's own catch
+  // with the English fixed line, before the new try. This pin records today's
+  // answer so a later fix of the gate turns it red on purpose.
+  it('P4d KNOWN GAP: with the REAL gate, an outage already down at the gate answers the gate\'s English line', async () => {
+    gate.mockImplementation(realRequireCapability)
+    rosterRead = ROSTER_DOWN
+    const res = await setStaffPermissions(TARGET_STAFF, ROLE, CAPS)
+    expect(res).toEqual({ error: 'staff profiles read failed' })
+    expect(logsStartingWith('[permissions] pre-core read failed')).toHaveLength(0)
+    expect(coreTargetReads).not.toHaveBeenCalled()
+    expect(serviceUpdate).not.toHaveBeenCalled()
+  })
+})
