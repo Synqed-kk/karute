@@ -485,6 +485,7 @@ export function RecordPageView({
     stream,
     startedAt,
     overrun,
+    captureWarning,
     autoStopped,
     target,
     takeId: activeTakeId,
@@ -3420,6 +3421,14 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
+      {/* PR-6 — the recorder's yellow notice, live takes only: this phone
+          cannot save (device) or the server is not receiving (server). Words
+          only — no control, no pop-up, no dismiss; it clears on recovery. */}
+      {(recState === 'recording' || recState === 'paused') && captureWarning && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
+          {captureWarning === 'device' ? t('deviceSaveUnavailable') : t('serverSendStalled')}
+        </p>
+      )}
       {/* UPDATE 25 GROUP A, piece d2 — a run whose session id never resolved.
           Quiet, non-blocking: the karute still saves, but the audio stays on
           this device only. Never a dialog, never a toast-only surface — the
