@@ -678,6 +678,31 @@
   .biz .topbar .sync { display: none; }
 }
 
+/* ═══ ⚖ PR-3 — the 「サンプル」 mark + the no-sample-policy card ═══
+   ONE token for both rooms that draw it (設定, 今日の運営), so it lives in the
+   shell sheet. Amber = the shell's own --amber / --amber-soft with the
+   .attn.amber hairline (#f1cba9) — a light wash, never a black fill. Text is
+   13px (the ≥13px law for new elements). No motion of its own: 設定's chip opens
+   its explanation on the room's Collapse (makeSpring). */
+.biz .sample-mark {
+  flex: none; display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px;
+  border: 1px solid #f1cba9; border-radius: 999px; background: var(--amber-soft); color: var(--amber);
+  font: inherit; font-size: 13px; font-weight: 600; line-height: 1.4; white-space: nowrap;
+}
+.biz button.sample-mark { cursor: pointer; }
+.biz button.sample-mark:hover, .biz button.sample-mark[aria-expanded="true"] { background: #f8e2c6; border-color: #e8bd8e; }
+.biz button.sample-mark:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.biz .sample-mark-note { margin: 4px 0 0; color: var(--amber); font-size: 13px; line-height: 1.7; }
+.biz .sample-mark-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; }
+.biz .sample-mark-line > .sample-mark-note { margin: 0; }
+.biz .sample-mark-line > :last-child { flex-basis: 100%; }
+.biz .sample-pop { margin-top: 6px; max-width: 66ch; padding: 10px 14px; border: 1px solid #f3dcc2; border-radius: 9px; background: #fff; }
+.biz .sample-pop p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.75; }
+.biz .sample-pop p + p { margin-top: 6px; color: var(--ink-3); }
+.biz .no-sample { margin-top: 9px; padding: 12px 14px; border: 1px solid #f3dcc2; border-radius: 9px; background: #fdf7ef; }
+.biz .no-sample b { display: block; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.5; }
+.biz .no-sample p { margin: 3px 0 0; max-width: 66ch; color: var(--ink-2); font-size: 13px; line-height: 1.75; }
+
 @media (prefers-reduced-motion: reduce) {
   .biz *, .biz *::before, .biz *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
