@@ -153,7 +153,8 @@ const every = (state: PlaneState) => Object.fromEntries(PLANE_KEYS.map((k) => [k
 
 /** The practice business's planes. Every one is SAMPLE today (CONTRACT-MAP). */
 export const PRACTICE_PLANES: Readonly<Record<PlaneKey, PlaneState>> = every('sample')
-/** The later one-line flip, per live store × plane — here and nowhere else. */
+/** The later one-line flip, per live store × plane — here and nowhere else.
+ *  Flip a plane to live ONLY in the change that connects its read: the mark follows this table, the data follows the read (closures + bookingPolicy in PLANE_MAP_SAYS_LIVE are the open case, PR-4). */
 export const STORE_PLANE_OVERRIDES: Record<string, Partial<Record<PlaneKey, PlaneState>>> = {}
 const ALL_LIVE: Readonly<Record<PlaneKey, PlaneState>> = every('live')
 
@@ -206,6 +207,8 @@ export const PLANE_LABEL = {
   menuVisible: ['表示・非表示'],
   // 回数券の整合 — the rows ARE the store's 回数券 (the 最低価格 beside each is the live menu's).
   tickets: ['回数券'],
+  // ブランド・本部's own fact line: 「…本部による一括の管理は使っていません。」 (the store count before it is live).
+  company: ['本部による一括の管理'],
 } as const satisfies Partial<Record<PlaneKey, readonly string[]>>
 export type LabeledPlaneKey = keyof typeof PLANE_LABEL
 

@@ -595,9 +595,11 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     for (const word of ['住所', '電話番号', '店舗写真']) expect(src).toContain(`'store-hours.row-${{ 住所: 'address', 電話番号: 'phone', 店舗写真: 'photo' }[word]}', '${word}'`)
     expect(src).toContain('いまある内容の表示・非表示はここで切り替えられます。')
     expect(src).toContain("block('services.tickets', '回数券の整合'")
+    expect(src).toContain('本部による一括の管理は使っていません。')
     expect(PLANE_LABEL.storeProfile).toEqual(['住所', '電話番号', '店舗写真'])
     expect(PLANE_LABEL.menuVisible).toEqual(['表示・非表示'])
     expect(PLANE_LABEL.tickets).toEqual(['回数券'])
+    expect(PLANE_LABEL.company).toEqual(['本部による一括の管理'])
   })
   it('V4-3 — the sample history credits the fixture operator, never the admitted person', () => {
     expect(historyOperatorName()).toBe(operator.name)
@@ -685,7 +687,7 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     expect(sec(props, 'booking-guard').sample).toEqual({ form: 'part', labels: ['予約と確保の設定'] }) // F2 — block-less
     // ⚖ §v3 V3-8 — 業種 (no core field yet) and the 本部 sentence are sample and say so.
     expect(blockOf(props, 'people-equipment', 'people.business-type').sample).toEqual({ form: 'whole' })
-    expect(blockOf(props, 'business-structure', 'org.brand').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'business-structure', 'org.brand').sample).toEqual({ form: 'part', labels: ['本部による一括の管理'] }) // §v5 V5-2 — the store count is live
     // ⚖ §v4 V4-3 — the sample history credits the fixture operator, never the signed-in person.
     const audits = everyBlock(props).map((b) => b.audit).filter((a): a is string => a !== null)
     expect(audits.length).toBeGreaterThan(5)

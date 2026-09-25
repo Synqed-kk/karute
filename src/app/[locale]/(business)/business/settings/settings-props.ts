@@ -2603,8 +2603,8 @@ function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials | null): S
         facts: ['新しい店舗の開設はサポートまでご連絡ください。既存の店舗の設定は店舗ごとに独立しています。'],
       }),
       block('org.brand', 'ブランド・本部', 'この事業の運営の範囲についての情報です。', [], {
-        // ⚖ PR-3 §v3 V3-8 — the sentence about 本部 is the sample company's, not this business's.
-        sample: ctx.sampleWhole('company'),
+        // ⚖ §v5 V5-2 — the store count is live; only the 本部 claim is the sample company's (part form, the field's own words).
+        sample: ctx.samplePart('company'),
         facts: [`${ctx.stores.length}店舗の運営のため、価格帯とポイント制はこの事業のオーナー権限で管理します。本部による一括の管理は使っていません。`],
       }),
     ],
