@@ -479,6 +479,13 @@ function requestPersistentStorage(): void {
  * gate): no signed-in user → false, nothing written. Returns false on any
  * failure so the recorder disables persistence for this take (fail-open to
  * memory-only capture).
+ *
+ * ⚖ `add`, NEVER `put` (S36 PR-1). The recorder now calls this a second time
+ * for a take that is already recording — its revive, when the row is absent.
+ * `put` would REPLACE a row that exists after all: another staffer's take
+ * under the same id, or this take's own row that a failed read merely hid,
+ * with its `lastSeq` reset to −1 over segments already on disk. `add` refuses
+ * any existing row, so a create can only ever make a row that was not there.
  */
 export async function createTake(
   meta: Omit<TakeMeta, 'ownerUid' | 'updatedAt' | 'lastSeq'>,
@@ -495,7 +502,7 @@ export async function createTake(
       updatedAt: meta.startedAt,
       lastSeq: -1,
     }
-    await req(db.transaction(TAKES, 'readwrite').objectStore(TAKES).put(row))
+    await req(db.transaction(TAKES, 'readwrite').objectStore(TAKES).add(row))
     return true
   } catch (err) {
     console.error('[take-store] createTake failed:', err)
