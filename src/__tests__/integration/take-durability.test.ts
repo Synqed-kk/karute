@@ -5934,6 +5934,28 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(segPuts.map((p) => p.seq)).toEqual([0])
   })
 
+  it('MB6 a signed-out take sends nothing from memory, even from a tick inside the stop\'s gap', async () => {
+    mockUid = null
+    await startAndSettle()
+    pushN(50)
+    await tick()
+    expect(segPuts.map((p) => p.seq)).toEqual([0])
+    // A real recorder's stop EVENT is a task, not a call: a tick can land
+    // between the sign-out and it. The gap is opened by deferring the event.
+    const rec = FakeMediaRecorder.last!
+    const onstop = rec.onstop!
+    rec.stop = () => {
+      rec.state = 'inactive'
+    }
+    mockUid = 'staff-A' // the web wipe runs before signOut: the session is still live
+    globalRecorder.abandon()
+    pushN(50) // a full segment in memory, and the timer has not been cleared yet
+    await tick()
+    expect(segPuts.map((p) => p.seq)).toEqual([0])
+    onstop()
+    await drain(400)
+  })
+
   it('MB5 seqs already on disk go up from memory byte for byte, continuous with what the server has', async () => {
     mockStartRecordingSession.mockImplementation(async () => null) // no session yet: nothing uploads
     const takeId = await startAndSettle()
