@@ -908,6 +908,23 @@ describe('adoptTakeSession — the first stamp wins (S34 T3)', () => {
     expect(meta?.finalizedAt).toBeUndefined()
     expect(meta?.finalizedPath).toBeUndefined()
   })
+
+  // …and a finalized key is never replaced (fresh eyes, final-tip finding 4):
+  // a take already secured under its OWN key, even with no session stamped,
+  // is not re-pointed at a minted key.
+  it('T9 a take finalized under its own key is left byte-identical', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const OWN_KEY = `app_biz-1_${takeId}.webm`
+    await markTakeFinalized(takeId, OWN_KEY)
+    const before = { ...(takes().get(JSON.stringify(takeId)) as object) }
+    expect(before).toMatchObject({ finalizedPath: OWN_KEY, finalizedAt: expect.any(Number) })
+    expect((before as { recordingSessionId?: string | null }).recordingSessionId).toBeFalsy()
+
+    expect(await adoptTakeSession(takeId, 'sess-minted-X', 'app_biz-1_server-named.webm')).toBe(false)
+    expect(takes().get(JSON.stringify(takeId))).toEqual(before)
+  })
 })
 
 describe('detachTakeFromRecordedSession (piece r)', () => {
