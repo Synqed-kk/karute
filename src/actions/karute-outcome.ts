@@ -1,13 +1,14 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { getTranslations } from 'next-intl/server'
 import { auditWeb, resolveWebAuditContext } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
-import { AppApiError } from '@/lib/app-api/errors'
+import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /**
@@ -26,7 +27,14 @@ export async function updateKaruteOutcome(
   karuteRecordId: string,
   outcome: SessionOutcome,
 ): Promise<{ error?: string }> {
-  const staffId = await getCurrentUserStaffId()
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch (err) {
+    // Round 3 leg 6 (2026-09-25): a roster outage answers the action's own failure shape, never a rejection.
+    console.error('[karute-outcome] pre-core read failed (roster):', describeUnknownThrow(err))
+    return { error: (await getTranslations('common'))('somethingWentWrong') }
+  }
   let customerId: string
   try {
     const synqed = await getSynqedClient()
