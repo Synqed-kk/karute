@@ -7,7 +7,7 @@ import { CANCEL_REASON_SAME_DAY_CONTACT, CANCEL_REASONS, NO_SHOW_REASON_NO_CONTA
 import { DEV_SALON_BUSINESS_ID, Refused } from './count-baseline'
 import { loadRecipe, registry, storeCtx, type Manifest } from './fill'
 import { addDays, bookingNotes, hoursOn, isNominated, jstIso, plan, slotStep, type Plan, type Recipe } from './plan'
-import { planStore, realism, revert, type Ledger, type RealismCore } from './realism'
+import { planStore, realism, revert, type Fields, type Ledger, type RealismCore } from './realism'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f' // beauty_chiropractic in registry.json
 const [EPOCH, TODAY] = ['2026-09-18', '2026-09-26']
@@ -293,9 +293,44 @@ async function pass() {
   assert.ok(paired.length > 3 && paired.every((c) => c.set.status_reason === CANCEL_REASON_SAME_DAY_CONTACT), `burnt cancels: ${paired.map((c) => c.set.status_reason)}`)
 }
 
+// ── the apply's write-time guards ────────────────────────────────────────────────────────────────
+/** A dry-run, then --apply with its hash; onLedger runs after the plan, before the first write. */
+async function dryThenApply(w: Awaited<ReturnType<typeof world>>, f: ReturnType<typeof fakeCore>, onLedger: (l: Ledger) => void = () => {}) {
+  const lines: string[] = []
+  const ledgers: Ledger[] = []
+  const opts = { manifest: w.manifest, manifestPath: null, stores: [STORE], now: NOW, apply: false, repairForeign: false, log: (l: string) => void lines.push(l), saveLedger: (l: Ledger) => { ledgers.push(clone(l)); onLedger(l) } }
+  assert.equal(await realism(f.core, opts), 0)
+  const hash = /plan hash ([0-9a-f]{16})/.exec(lines.join('\n'))![1]
+  lines.length = 0
+  const code = await realism(f.core, { ...opts, apply: true, expect: hash })
+  return { code, lines, ledger: ledgers[0] }
+}
+
+async function writeTime() {
+  // A row a person edits between the plan and its write: skipped with one line, never overwritten; the others are
+  // written; the ledger keeps its entry (revert's same() then leaves the row alone).
+  const w = await world()
+  const f = fakeCore(w.rows, { karuted: w.karuted, burns: w.burns })
+  let target = ''
+  const a = await dryThenApply(w, f, (l) => {
+    target = l.changes.find((c) => c.set.notes !== undefined && !c.set.status)!.id
+    w.rows.find((r) => r.id === target)!.notes = 'スタッフが書き換えたメモ'
+  })
+  assert.ok(a.lines.includes(`skipped (changed since the plan): ${target}`), a.lines.slice(-3).join('\n'))
+  assert.equal(w.rows.find((r) => r.id === target)!.notes, 'スタッフが書き換えたメモ', 'the edit a person made is kept')
+  assert.equal(f.stats.writes, a.ledger.changes.length - 1, 'every other row written')
+  for (const c of a.ledger.changes) {
+    if (c.id === target) continue
+    const r = w.rows.find((x) => x.id === c.id)!
+    for (const k of Object.keys(c.set) as (keyof Fields)[]) assert.equal(r[k], c.set[k], `${c.id}: ${k} written`)
+  }
+  assert.ok(a.ledger.changes.some((c) => c.id === target), 'the ledger keeps the entry')
+}
+
 async function main() {
   await planner()
   await pass()
+  await writeTime()
   console.log('✓ realism: all assertions passed')
 }
 

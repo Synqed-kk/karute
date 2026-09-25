@@ -21,7 +21,8 @@
 //     --manifest <path> --apply --expect <hash> [same flags]            exactly that plan: ledger first, then the writes
 //     --revert <ledger> [--manifest <path>]                             back to the ledger's old values
 // DRY-RUN IS THE DEFAULT. --apply recomputes the plan and refuses unless its hash is the dry-run's; the ledger
-// <manifest dir>/ledger/realism-<ts>.json (row, field, old, new) is written BEFORE the first write. --revert restores
+// <manifest dir>/ledger/realism-<ts>.json (row, field, old, new) is written BEFORE the first write; each row is read
+// again at its write and skipped with one line if it no longer holds the plan's old values. --revert restores
 // every field on rows that still hold the ledger's new value; a row changed since is left alone with one line.
 // Status writes carry no acting_staff_id: the cancel sheet's 「操作」 line (who + when) stays empty, as on a crawl-set
 // row, rather than stamping today on a June booking. Core's own audit (status_source STAFF, status_set_at,
@@ -52,6 +53,8 @@ const jstDate = (iso: string) => new Date(Date.parse(iso) + 9 * 3_600_000).toISO
 const loaderSet = (a: Appointment) => a.status_set_by == null || (a.status_reason ?? '').startsWith('テストデータ')
 /** Seeded order: the same rows, the same pick, on every run (the rate sampler). */
 const seeded = <T extends { id: string }>(xs: T[], seed: string) => xs.map((x) => ({ x, w: rng(`${seed}|${x.id}`)() })).sort((a, b) => a.w - b.w).map((y) => y.x)
+/** Every field of f holds on the row as read (apply's and revert's check before a write). */
+const same = (a: Appointment, f: Fields) => (Object.keys(f) as (keyof Fields)[]).every((k) => a[k] === f[k])
 
 export interface StoreInput {
   recipe: Recipe
@@ -246,9 +249,12 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
   if (o.expect !== hash) return (log(`REFUSED: the plan's hash is ${hash}, not --expect ${o.expect ?? '(none)'} — re-run the dry-run and read it`), 3)
 
   o.saveLedger({ businessId: DEV_SALON_BUSINESS_ID, at: o.now.toISOString(), planHash: hash, manifest: o.manifestPath, changes, realismFrom })
-  let failed = 0
+  let [failed, skipped] = [0, 0]
   for (const c of changes) {
     try {
+      // read again at the write: a person may have changed the row since the plan (the ledger keeps it; revert's same() leaves it)
+      const a = await withRetry(() => core.appointments.get(c.id), false, o.wait)
+      if (!same(a, c.old)) { skipped++; log(`skipped (changed since the plan): ${c.id}`); continue }
       await withRetry(() => core.appointments.update(c.id, c.set), 'keyed', o.wait) // a field set is safe to resend
     } catch (e) {
       failed++
@@ -256,7 +262,7 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
     }
   }
   for (const r of realismFrom) o.manifest.stores[r.store].realismFrom = r.new
-  log(`mode: apply · written ${changes.length - failed} of ${changes.length} · failed ${failed}`)
+  log(`mode: apply · written ${changes.length - failed - skipped} of ${changes.length} · failed ${failed} · skipped ${skipped}`)
   return failed ? 1 : 0
 }
 
@@ -275,7 +281,6 @@ export async function revert(core: Pick<RealismCore, 'orgSettings' | 'staff' | '
     if (a.business_id !== DEV_SALON_BUSINESS_ID || a.store_id !== c.store || !registry.stores[c.store]) return (log(`REFUSED: booking ${c.id} is not in managed store ${c.store} of the Dev Salon`), 2)
     rows.set(c.id, a)
   }
-  const same = (a: Appointment, f: Fields) => (Object.keys(f) as (keyof Fields)[]).every((k) => a[k] === f[k])
   let [done, failed] = [0, 0]
   for (const c of [...l.changes].reverse()) {
     const a = rows.get(c.id)!
