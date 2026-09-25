@@ -68,7 +68,19 @@ async function storeScopeError(targetId: string): Promise<string | null> {
 
 export async function createStaff(data: StaffProfileInput): Promise<CreateStaffResult> {
   const t = await getTranslations('common')
-  if (!(await can('staff.invite'))) return { error: t('noPermission') }
+  // Round 3 leg 7b (D-S28-1): the gate's own THROW settles too — a typed core
+  // outage/defect answers the failure line, anything else this action's own
+  // generic arm (its getSynqedClient catch below). The try holds the can() call only.
+  let allowed: boolean
+  try {
+    allowed = await can('staff.invite')
+  } catch (err) {
+    const line = await coreFailureLine(err, '[createStaff]')
+    if (line) return { error: line }
+    console.error('[createStaff]', err)
+    return { error: t('somethingWentWrong') }
+  }
+  if (!allowed) return { error: t('noPermission') }
   const parsed = staffProfileSchema.safeParse(data)
   if (!parsed.success) {
     return { error: parsed.error.issues.map((e) => e.message).join(', ') }
@@ -148,7 +160,16 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
   const t = await getTranslations('common')
   // editing a staff record = managing staff (Greptile #159). Returned, not
   // thrown, so a frontdesk who reaches this (stale UI) sees a clean message.
-  if (!(await can('staff.manage'))) return { error: t('noPermission') }
+  let allowed: boolean
+  try {
+    allowed = await can('staff.manage')
+  } catch (err) {
+    const line = await coreFailureLine(err, '[updateStaff]')
+    if (line) return { error: line }
+    console.error('[updateStaff]', err)
+    return { error: t('somethingWentWrong') }
+  }
+  if (!allowed) return { error: t('noPermission') }
   // Actor store scope BEFORE any core call — a refused edit touches nothing.
   const denied = await storeScopeError(id)
   if (denied) return { error: denied }
@@ -205,7 +226,16 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
  */
 export async function deleteStaff(id: string): Promise<StaffActionResult> {
   const t = await getTranslations('common')
-  if (!(await can('staff.manage'))) return { error: t('noPermission') } // owner + manager
+  let allowed: boolean
+  try {
+    allowed = await can('staff.manage')
+  } catch (err) {
+    const line = await coreFailureLine(err, '[deleteStaff]')
+    if (line) return { error: line }
+    console.error('[deleteStaff]', err)
+    return { error: t('somethingWentWrong') }
+  }
+  if (!allowed) return { error: t('noPermission') } // owner + manager
   // Actor store scope BEFORE any core call — a refused delete touches nothing.
   const denied = await storeScopeError(id)
   if (denied) return { error: denied }
