@@ -26,9 +26,15 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
   const counts: Record<string, [planned: number, written: number]> = { COMPLETED: [0, 0], CANCELLED: [0, 0], NO_SHOW: [0, 0] }
   const skipped: string[] = []
   let failed = 0
+  // fill.ts's rule for "ours": the manifest's recorded id wins over a tag; with no recorded id, a tag on 2+ bookings is ambiguous
+  const tagOf = (r: { notes: string | null }) => /\[(tw:[^\]]+)\]/.exec(r.notes ?? '')?.[1]
+  const seen = new Map<string, number>()
+  for (const t of window.map(tagOf)) if (t) seen.set(t, (seen.get(t) ?? 0) + 1)
   for (const r of window) {
-    const tag = /\[(tw:[^\]]+)\]/.exec(r.notes ?? '')?.[1]
+    const tag = tagOf(r)
     if (!tag || r.store_id !== storeId || r.status !== 'SCHEDULED' || Date.parse(r.starts_at) >= now.getTime()) continue
+    const rec = st.created?.appointments?.[tag]
+    if (rec ? rec !== r.id : seen.get(tag)! > 1) { skipped.push(`appointments ${tag}: booking ${r.id} ${rec ? 'is not the booking the manifest records for this key' : `carries a tag seen on ${seen.get(tag)} bookings`}, left alone`); continue }
     const a = planned.get(tag)
     if (!a || a.status === 'SCHEDULED') { skipped.push(`appointments ${tag}: booking ${r.id} is ${a ? 'still SCHEDULED in the plan' : 'not in the plan'}, left alone`); continue }
     if (r.customer_id !== custId.get(a.member)) { skipped.push(`appointments ${tag}: booking ${r.id}'s customer differs from the planned customer, left alone`); continue }
