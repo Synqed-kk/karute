@@ -474,6 +474,24 @@ export const CATEGORY_LABEL: Record<BookingCategory, string> = {
   vip: 'VIP',
 }
 
+/** 予約の色分け — ONE HOME for the four category colours. page.tsx reads the business's org settings
+ *  `booking_colors` (per store) and hands each store's result to TodayScreen; PR-2's 設定 save writes it. */
+export type BookingColors = Record<BookingCategory, string>
+/** The board's colours as shipped before any store saved its own (= today.css `.event[data-cat=…] { --cat }`). */
+export const BOOKING_COLOR_DEFAULTS: BookingColors = { new: '#3d7ab8', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }
+const HEX6 = /^#[0-9a-f]{6}$/i
+/** `raw` = the business's org-settings `booking_colors` value, shape unknown ({ [storeId]: { new, repeat, ticket, vip } } when saved by PR-2). Per key: a `#rrggbb` string (case-insensitive, returned lowercase) or the default. Anything else (null, non-object, unknown store, bad hex) → the default for that key. */
+export function bookingColorsFor(storeId: string | null, raw: unknown): BookingColors {
+  const own = (o: unknown, k: string): unknown =>
+    o !== null && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) ? (o as Record<string, unknown>)[k] : undefined
+  const saved = storeId === null ? undefined : own(raw, storeId)
+  const pick = (k: BookingCategory) => {
+    const v = own(saved, k)
+    return typeof v === 'string' && HEX6.test(v) ? v.toLowerCase() : BOOKING_COLOR_DEFAULTS[k]
+  }
+  return { new: pick('new'), repeat: pick('repeat'), ticket: pick('ticket'), vip: pick('vip') }
+}
+
 /** Every booking on the day, with the joins the board needs and its category
  *  resolved. `onBoard` is the absence rule; the row itself always exists. */
 export function dayBookings(input: BuildInput): BoardBooking[] {
