@@ -52,10 +52,11 @@ export interface RecordingTarget {
 // auto-saved recording can still upload. A forgotten 3-4h recording would
 // otherwise be both too big to save AND a total loss of the session.
 //
-// NOTE: this only covers a recording the OS keeps alive (e.g. phone on the
-// counter, screen on). A pocketed/locked phone still SUSPENDS capture (a
-// native background-audio concern); what take-store persistence guarantees is
-// that whatever WAS captured before the suspension/kill is recoverable.
+// NOTE: a locked or pocketed phone KEEPS recording (⚖ field-proven): the
+// iPhone shell declares `UIBackgroundModes: audio` (ios/App/App/Info.plist),
+// and Android records through a foreground service in its local wrap. So these
+// nets cover those recordings too. What take-store persistence guarantees is
+// that whatever WAS captured before a kill is recoverable.
 const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
 const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (~43 MB, keeps blob < 50 MB cap)
 const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
