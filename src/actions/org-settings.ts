@@ -19,11 +19,12 @@ import {
 import type { ThemeColors } from '@/lib/theme'
 import { DEFAULT_THEME_COLORS } from '@/lib/theme'
 
-/** ⚖ A2 (R-A2-2) — settings keys SYNQED Business owns and writes itself, one key per PUT.
+/** ⚖ A2 (R-A2-2) + ⚖ PKT-S38 R5 — settings keys SYNQED Business owns and writes itself, one key per
+ *  PUT: `reserve_card_color` (カードの見た目) and `booking_colors` (予約の色分け, per store).
  *  Karute's whole-snapshot writer below never sends them back from its read: core merges a
  *  one-key PUT, so leaving a key out keeps it, and replaying a stale read would revert it.
  *  Not exported — a 'use server' module may export async functions only. */
-const BUSINESS_OWNED_SETTINGS_KEYS = ['reserve_card_color'] as const
+const BUSINESS_OWNED_SETTINGS_KEYS = ['reserve_card_color', 'booking_colors'] as const
 
 export type RecordingDisclosureMode = 'A' | 'B' | 'C'
 export type AudioSource = 'phone' | 'bluetooth' | 'wired'

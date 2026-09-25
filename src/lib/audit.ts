@@ -1082,4 +1082,13 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       "Business card colour (org settings' reserve_card_color, one key, palette-or-null, settings.manage) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule, R-A2-11); one structured server log line per real write (R-A2-4); core audit row = R5 (later).",
     dated: '2026-09-24',
   },
+  // ⚖ PKT-S38 R4 (Liam 9/25 「make it work」) — SYNQED Business's 予約の色分け save, the card route's twin: same
+  // class as Karute's own org-settings writer (unaudited by design, the 7/27 parity rule); one org-settings key
+  // through the practice door, one structured server log line per real write. Core audit row = R5 (later).
+  'business/booking-colors': {
+    kind: 'skip',
+    justification:
+      "Business booking colours (org settings' booking_colors, the per-store map, closed palette, settings.manage + a store the operator may see) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule); one structured server log line per real write; core audit row = R5 (later).",
+    dated: '2026-09-25',
+  },
 }
