@@ -219,6 +219,10 @@ class GlobalRecorder {
    *  null otherwise, and whenever RECORDING_SWITCHES.captureWarningNotice is
    *  OFF. Decided by capture-warning-detect.ts on the flush tick. */
   captureWarning: CaptureWarning | null = null
+  /** The flush tick's notice read while it is out (PR-6 fix 2, gr thread 2):
+   *  that read's own mark, so only it clears it — a read the next start()
+   *  left behind can never clear the new take's. null = none out. */
+  private evaluatingCaptureWarning: object | null = null
   /** Customer/appointment the recording is BOUND to, captured at start(). The
    *  single source of truth for what the save attaches to — immune to nav drift.
    *  Survives stop→complete; cleared only on discard(). */
@@ -634,13 +638,21 @@ class GlobalRecorder {
 
   /** ⚖ THE YELLOW NOTICE, ON THE FLUSH TICK (PR-6). Reads, never writes the
    *  take: a meta that cannot be read, or a take that moved on while it was
-   *  read, is no verdict and leaves the notice as it is. */
+   *  read, is no verdict and leaves the notice as it is.
+   *
+   *  ⚖ ONE READ AT A TIME (PR-6 fix 2, gr thread 2). A tick whose read is
+   *  still out skips its own: two reads in flight can answer out of order, and
+   *  the older one — a server verdict from before the catch-up — would then
+   *  put back a notice the newer one had cleared, and file a fact for it. */
   private async evaluateCaptureWarning() {
     if (!RECORDING_SWITCHES.captureWarningNotice) return
+    if (this.evaluatingCaptureWarning) return
     const p = this.persist
     const takeId = this.takeId
     const live = () => this.persist === p && (this.state === 'recording' || this.state === 'paused')
     if (!takeId || p.abandoned || !live()) return
+    const read = {}
+    this.evaluatingCaptureWarning = read
     try {
       const meta = await this.readLiveUploadMeta(p, takeId)
       if (!meta || !live()) return
@@ -657,6 +669,8 @@ class GlobalRecorder {
       )
     } catch {
       // A store that throws is no verdict either.
+    } finally {
+      if (this.evaluatingCaptureWarning === read) this.evaluatingCaptureWarning = null
     }
   }
 
@@ -1012,6 +1026,8 @@ class GlobalRecorder {
     this.overrun = false
     this.autoStopped = false
     this.captureWarning = null
+    // The belt: a read the last take left out never holds this one's tick.
+    this.evaluatingCaptureWarning = null
     this.target = opts?.target ?? null
     this.recordingSessionId = null
 

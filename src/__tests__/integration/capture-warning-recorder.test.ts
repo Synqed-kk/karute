@@ -629,3 +629,60 @@ describe('PR-6 fix 2 — Greptile thread 1: every reason a take shows is filed o
     expect(facts().map((f) => f.reason)).toEqual(['device', 'server'])
   })
 })
+
+describe('PR-6 fix 2 — Greptile thread 2: one notice read at a time', () => {
+  const BEHIND: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: 30 }
+  const CAUGHT_UP: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 12, lastSeq: 12 }
+
+  it('a read still out when the next tick comes: that tick is skipped, the read that was out applies once, and the tick after reads fresh', async () => {
+    await startLive()
+    await tick(11) // 55 s
+    expect(globalRecorder.captureWarning).toBeNull()
+    const slow = deferred<UploadMeta | null>()
+    mockReadTakeUploadMeta.mockImplementationOnce(() => slow.promise)
+    await tick() // 60 s: the read is out
+    const reads = mockReadTakeUploadMeta.mock.calls.length
+    await tick() // 65 s: skipped — no second read while the first is out
+    expect(mockReadTakeUploadMeta).toHaveBeenCalledTimes(reads)
+    expect(globalRecorder.captureWarning).toBeNull()
+
+    const v = globalRecorder.version
+    slow.resolve(BEHIND)
+    await drain()
+    expect(globalRecorder.captureWarning).toBe('server')
+    expect(globalRecorder.version).toBe(v + 1)
+    expect(facts().map((f) => f.reason)).toEqual(['server'])
+
+    mockRowMeta = CAUGHT_UP
+    await tick() // 70 s: a fresh read, and its answer stands
+    expect(mockReadTakeUploadMeta).toHaveBeenCalledTimes(reads + 1)
+    expect(globalRecorder.captureWarning).toBeNull()
+    expect(facts()).toHaveLength(1)
+  })
+
+  it('a stale server read can never land after a fresh one saw recovery — no notice put back, no fact filed', async () => {
+    await startLive()
+    await tick(11) // 55 s
+    expect(globalRecorder.captureWarning).toBeNull()
+    const out: ReturnType<typeof deferred<UploadMeta | null>>[] = []
+    mockReadTakeUploadMeta.mockImplementation(() => {
+      const d = deferred<UploadMeta | null>()
+      out.push(d)
+      return d.promise
+    })
+    try {
+      await tick() // 60 s: a read goes out
+      await tick() // 65 s: the tick a second read would have gone out on
+      // Whatever reads are out: the NEWEST sees the server caught up, every
+      // older one answers with what it saw before the catch-up.
+      out[out.length - 1].resolve(CAUGHT_UP)
+      await drain()
+      for (const d of out.slice(0, -1)) d.resolve(BEHIND)
+      await drain()
+      expect(globalRecorder.captureWarning).toBeNull()
+      expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+    } finally {
+      mockReadTakeUploadMeta.mockImplementation(async () => mockRowMeta)
+    }
+  })
+})
