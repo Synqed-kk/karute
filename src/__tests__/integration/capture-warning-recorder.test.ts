@@ -46,10 +46,10 @@ Object.defineProperty(navigator, 'mediaDevices', {
   value: { getUserMedia: async () => ({ getTracks: () => [] }) },
 })
 
-const mockStartRecordingSession = jest.fn(
-  async (_input?: unknown): Promise<{ id: string } | null> => ({ id: 'rs-1' }),
-)
-const mockRecordCaptureWarning = jest.fn(async (_input: unknown): Promise<unknown> => ({ ok: true }))
+const mockStartRecordingSession = jest.fn<Promise<{ id: string } | null>, [unknown?]>(async () => ({
+  id: 'rs-1',
+}))
+const mockRecordCaptureWarning = jest.fn<Promise<unknown>, [unknown]>(async () => ({ ok: true }))
 jest.mock('@/actions/recordings', () => ({
   startRecordingSession: (input: unknown) => mockStartRecordingSession(input),
   recordCaptureWarning: (input: unknown) => mockRecordCaptureWarning(input),
@@ -60,8 +60,8 @@ type UploadMeta = { recordingSessionId: string | null; mimeType: string; uploade
 let mockRowMeta: UploadMeta | null = null
 let mockCreateOk = true
 let mockAppendOk = true
-const mockReadTakeUploadMeta = jest.fn(async (_takeId: string) => mockRowMeta)
-const mockIsTakeHeldByAnother = jest.fn(async (_takeId: string) => false)
+const mockReadTakeUploadMeta = jest.fn<Promise<UploadMeta | null>, [string]>(async () => mockRowMeta)
+const mockIsTakeHeldByAnother = jest.fn<Promise<boolean>, [string]>(async () => false)
 jest.mock('@/lib/karute/take-store', () => ({
   createTake: async () => mockCreateOk,
   appendTakeSegment: async () => mockAppendOk,
