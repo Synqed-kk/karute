@@ -41,13 +41,13 @@ async function main() {
   const startedToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime())
   assert.ok(want.length > 5 && want.some((w) => w.input.status !== 'COMPLETED') && startedToday.length > 0, 'the fixture: stale rows of more than one status, a booking started today')
 
-  const fake = (business = DEV_SALON_BUSINESS_ID) => {
-    const [calls, reads] = [[] as { id: string; input: unknown }[], { appts: 0 }]
+  const fake = (business = DEV_SALON_BUSINESS_ID, failId = '') => {
+    const [calls, reads] = [[] as { id: string; input: unknown }[], { org: 0, appts: 0 }]
     const core = {
-      orgSettings: { get: async () => ({ business_id: business }) },
+      orgSettings: { get: async () => (reads.org++, { business_id: business }) },
       staff: { list: async (q: Q) => paged('staff', [{ id: 'dev', email: 'dev@karute.test' }], q) },
       customers: { list: async (q: Q) => paged('customers', [...recipe.customers.map((c) => ({ id: `c-${c.member}`, member_number: c.member })), binned], q) },
-      appointments: { list: async (q: Q) => (reads.appts++, paged('appointments', rows, q)), update: async (id: string, input: unknown) => (calls.push({ id, input }), {}) },
+      appointments: { list: async (q: Q) => (reads.appts++, paged('appointments', rows, q)), update: async (id: string, input: unknown) => (id === failId ? Promise.reject(new Error('busy')) : (calls.push({ id, input }), {})) },
     }
     return { core: core as unknown as FillCore, calls, reads }
   }
@@ -76,10 +76,16 @@ async function main() {
   assert.deepEqual([ap.code, head(ap.lines)], [0, table('apply', true)], '(b) apply: written = planned per status')
   assert.equal(dry.calls.length, 0, '(a) dry-run: 0 update calls')
   assert.deepEqual([dry.code, head(dry.lines)], [0, table('dry-run', false)], '(a) dry-run: the table with the planned counts')
+  const o = await run(true, fake(DEV_SALON_BUSINESS_ID, owned.id))
+  const n0 = want.filter((w) => w.input.status === owned.want).length
+  assert.deepEqual([o.code, byId(o.calls), o.lines.filter((l) => l.startsWith('FAILED: ') || l.startsWith(`${owned.want}: `))], [1, byId(want.filter((w) => w.id !== owned.id)), [`FAILED: appointments ${owned.key}: booking ${owned.id}: busy`, `${owned.want}: planned ${n0} · written ${n0 - 1}`]], '(o) a rejected write: a FAILED line, planned not written, exit 1, every other row still written')
 
   const wrong = fake('00000000-0000-0000-0000-000000000000')
   await assert.rejects(closeOut(wrong.core, STORE, m, NOW, true, () => {}), /not the Dev Salon/, '(g) another business: refused (throws)')
   assert.deepEqual([wrong.reads.appts, wrong.calls.length], [0, 0], '(g) another business: no booking read, 0 writes')
+  const alien = fake()
+  await assert.rejects(closeOut(alien.core, STORE, { ...m, businessId: '00000000-0000-0000-0000-000000000000' }, NOW, true, () => {}), /not a Dev Salon manifest/, '(g) a manifest of another business: refused')
+  assert.deepEqual([alien.reads.org, alien.reads.appts, alien.calls.length], [0, 0, 0], '(g) a manifest of another business: refused before any read, 0 writes')
   const moved = fake()
   await assert.rejects(closeOut(moved.core, STORE, { ...m, stores: { [STORE]: { ...m.stores[STORE], type: 'hair_salon' } } }, NOW, true, () => {}), /manifest type hair_salon ≠ registry type beauty_chiropractic/, '(n) manifest type ≠ registry type: refused')
   assert.deepEqual([moved.reads.appts, moved.calls.length], [0, 0], '(n) manifest type ≠ registry type: no booking read, 0 writes')
