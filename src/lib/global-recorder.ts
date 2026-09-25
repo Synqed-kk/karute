@@ -656,9 +656,14 @@ class GlobalRecorder {
     if (!takeId || p.abandoned || !live()) return
     const read = {}
     this.evaluatingCaptureWarning = read
+    // Which door the meta comes from (PR-6 fix 3): memory's counts are not the
+    // server's history, so the detector reads them only for a segment error.
+    // Storage that came back while memory's meta was out would hand those
+    // counts to the row's rules — no verdict; the next tick reads the row.
+    const fromMemory = p.disabled
     try {
       const meta = await this.readLiveUploadMeta(p, takeId)
-      if (!meta || !live()) return
+      if (!meta || !live() || (fromMemory && !p.disabled)) return
       this.setCaptureWarning(
         computeCaptureWarning({
           recordedMs: this.recordedMs(),

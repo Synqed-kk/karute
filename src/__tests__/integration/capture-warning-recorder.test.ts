@@ -774,3 +774,122 @@ describe('PR-6 fix 2 — Greptile thread 3 (verified, pinned): a row refusal is 
     }
   })
 })
+
+describe('PR-6 fix 3 — FIX E: storage dying after healthy uploading is the device notice\'s, never a false server', () => {
+  const recordedMsOf = () => (globalRecorder as unknown as { recordedMs(): number }).recordedMs()
+
+  /** 90 s of healthy recording: a segment a tick, and the row's server cursor
+   *  keeping up with every one of them. */
+  async function ninetySecondsHealthy() {
+    const takeId = await startLive()
+    for (let i = 0; i < 18; i++) {
+      FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+      await tick()
+      expect(globalRecorder.captureWarning).toBeNull()
+      const s = persistOf().seq - 1
+      mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: s, lastSeq: s }
+    }
+    expect(persistOf().seq).toBe(18)
+    return takeId
+  }
+
+  /** Storage goes and cannot be won back (segments are on disk, the row
+   *  cannot be read): the refusing flush's tick, then the revive's first try. */
+  async function storageDies() {
+    mockAppendOk = false
+    mockCreateOk = false
+    FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['y']) })
+    await tick() // the flush refuses
+    expect(persistOf().disabled).toBe(true)
+    await tick() // the revive's first try: the outage's clock starts
+    const since = persistOf().revive.since
+    expect(since).toBe(Date.now())
+    return since
+  }
+
+  it('(1) inside the 15 s grace the field is null — memory\'s −1 cursor is not "nothing on the server" — and no fact; at 15 s → device, one device fact', async () => {
+    const takeId = await ninetySecondsHealthy()
+    const since = await storageDies()
+    expect(recordedMsOf()).toBeGreaterThanOrEqual(60_000)
+    expect(globalRecorder.captureWarning).toBeNull()
+    await tick(2) // ten seconds into the grace
+    expect(globalRecorder.captureWarning).toBeNull()
+    await drain()
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+
+    await tick() // fifteen
+    expect(Date.now() - since).toBe(15_000)
+    expect(globalRecorder.captureWarning).toBe('device')
+    await tick(3)
+    await drain()
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
+    ])
+  })
+
+  it('(2) storage off and memory\'s own pump gets a terminal refusal → server inside the grace, device at 15 s outranks it; one server fact, one device fact', async () => {
+    // Memory's pump: the door refuses this take for good on its first ask.
+    mockPumpSegments.mockImplementation(async (...args: unknown[]) => {
+      const [, , opts] = args as [unknown, string, { source?: SegmentSource } | undefined]
+      if (opts?.source) await opts.source.markError('forbidden')
+    })
+    try {
+      const takeId = await ninetySecondsHealthy()
+      const since = await storageDies() // memory's pump first asks on this tick
+      await tick() // the tick after that one ask
+      expect(Date.now() - since).toBe(5_000)
+      expect(globalRecorder.captureWarning).toBe('server')
+      await tick() // ten
+      expect(globalRecorder.captureWarning).toBe('server')
+      await tick() // fifteen
+      expect(globalRecorder.captureWarning).toBe('device')
+      await tick(3)
+      expect(globalRecorder.captureWarning).toBe('device')
+      await drain()
+      expect(facts()).toEqual([
+        { recordingSessionId: 'rs-1', takeId, reason: 'server', warnedAt: expect.any(String) },
+        { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
+      ])
+    } finally {
+      mockPumpSegments.mockImplementation(async () => {})
+    }
+  })
+
+  it('(3) storage on, nothing on the server in 60 s → server (the row\'s rule, unchanged)', async () => {
+    await startLive()
+    await tick(11)
+    expect(globalRecorder.captureWarning).toBeNull()
+    await tick()
+    expect(persistOf().disabled).toBe(false)
+    expect(globalRecorder.captureWarning).toBe('server')
+  })
+
+  it('storage comes back while memory\'s meta is out: no verdict from memory\'s counts — no false server, no fact; the next tick reads the row', async () => {
+    mockCreateOk = false // storage off from the start: no seq written
+    const takeId = await startLive()
+    await tick(4) // 20 s: fifteen after the revive's first try
+    expect(globalRecorder.captureWarning).toBe('device')
+    await tick(11) // 75 s: tries went out at 5, 10, 20, 40 s — the next is due at 80 s
+    expect(persistOf().disabled).toBe(true)
+
+    // The 80 s tick: memory's meta read hangs on its held-by-another check
+    // while the revive wins the row and the catch-up lands behind it.
+    mockCreateOk = true
+    mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 1, lastSeq: 1 }
+    const held = deferred<boolean>()
+    mockIsTakeHeldByAnother.mockImplementationOnce(() => held.promise)
+    for (let i = 0; i < 60; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    await tick() // 80 s
+    expect(persistOf().disabled).toBe(false)
+    expect(recordedMsOf()).toBeGreaterThanOrEqual(60_000)
+    held.resolve(false) // memory's meta: its cursor −1, 80 s recorded
+    await drain()
+    expect(globalRecorder.captureWarning).toBe('device')
+    await tick() // 85 s: the row, caught up
+    expect(globalRecorder.captureWarning).toBeNull()
+    await drain()
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
+    ])
+  })
+})

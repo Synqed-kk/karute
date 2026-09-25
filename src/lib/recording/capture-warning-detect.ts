@@ -32,13 +32,15 @@ export function computeCaptureWarning(input: {
   /** The recorder's own recorded duration (paused time excluded) — the one
    *  the overrun guard reads. */
   recordedMs: number
-  /** The take's storage is off (global-recorder's `p.disabled`). */
+  /** The take's storage is off (global-recorder's `p.disabled`) — and so the
+   *  meta below is memory's, not the row's. */
   disabled: boolean
   /** When the revive FIRST tried in this outage (global-recorder's
    *  `p.revive.since`); 0 = it has not tried. Not `p.revive.at`, which is when
    *  the NEXT try is due. */
   reviveAt: number
-  /** Highest seq the server has (a contiguous prefix); -1 = none. */
+  /** Highest seq the server has (a contiguous prefix); -1 = none. The row's;
+   *  while storage is off, only what memory's own pump has sent. */
   uploadedSeq: number
   /** Highest seq written (the row's, or memory's while storage is off). */
   lastSeq: number
@@ -49,6 +51,15 @@ export function computeCaptureWarning(input: {
   if (input.disabled && input.reviveAt > 0 && input.now - input.reviveAt >= DEVICE_GRACE_MS) {
     return 'device'
   }
+  // ⚖ WHILE STORAGE IS OFF THE COUNTS SAY NOTHING (PR-6 fix 3). The meta is
+  // memory's then, and memory's cursor is not the server's history for the
+  // take: its `uploadedSeq` starts at −1 and moves only with what memory's own
+  // pump sends, so a take that uploaded healthily for minutes before storage
+  // died would read "nothing on the server" / "far behind" at once — a false
+  // 'server' and a false fact. The outage is `device`'s to speak for, after
+  // its 15 s grace; until then only a terminal refusal memory's own pump
+  // received counts. The two count rules below read the row only.
+  if (input.disabled) return input.segmentError ? 'server' : null
   if (
     (input.recordedMs >= SERVER_SILENT_MS && input.uploadedSeq < 0) ||
     input.lastSeq - input.uploadedSeq >= SEGMENTS_BEHIND ||

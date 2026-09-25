@@ -104,3 +104,36 @@ describe('computeCaptureWarning — the thresholds', () => {
     expect(computeCaptureWarning({ ...bad, disabled: false, uploadedSeq: 19 })).toBeNull()
   })
 })
+
+describe('computeCaptureWarning — PR-6 fix 3: while storage is off, only a terminal refusal says server', () => {
+  /** Memory's meta after storage died on a take that uploaded healthily: its
+   *  own cursor never moved (−1), 30 segments held, two minutes recorded —
+   *  both count rules would say server if they read it. */
+  const memoryAfterHealthyUploads = {
+    ...healthy,
+    disabled: true,
+    recordedMs: 120_000,
+    uploadedSeq: -1,
+    lastSeq: 30,
+  }
+
+  it('(1) inside the 15 s grace the counts say nothing → null; at 15 s → device', () => {
+    expect(computeCaptureWarning({ ...memoryAfterHealthyUploads, reviveAt: 0 })).toBeNull()
+    expect(computeCaptureWarning({ ...memoryAfterHealthyUploads, reviveAt: NOW - 14_999 })).toBeNull()
+    expect(computeCaptureWarning({ ...memoryAfterHealthyUploads, reviveAt: NOW - 15_000 })).toBe('device')
+  })
+
+  it('(2) a terminal refusal memory\'s own pump received → server inside the grace; device outranks it at 15 s', () => {
+    const refused = { ...memoryAfterHealthyUploads, segmentError: 'forbidden' }
+    expect(computeCaptureWarning({ ...refused, reviveAt: 0 })).toBe('server')
+    expect(computeCaptureWarning({ ...refused, reviveAt: NOW - 14_999 })).toBe('server')
+    expect(computeCaptureWarning({ ...refused, reviveAt: NOW - 15_000 })).toBe('device')
+  })
+
+  it('(3) storage on, nothing uploaded in 60 s → server (the row\'s rules, unchanged)', () => {
+    expect(
+      computeCaptureWarning({ ...healthy, disabled: false, recordedMs: 60_000, uploadedSeq: -1, lastSeq: 11 }),
+    ).toBe('server')
+    expect(computeCaptureWarning({ ...healthy, disabled: false, uploadedSeq: 3, lastSeq: 21 })).toBe('server')
+  })
+})
