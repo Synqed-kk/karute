@@ -82,6 +82,8 @@ afterEach(() => consoleError.mockRestore())
 // Mirrors invite-read-outage.test.ts: no logged argument carries the input.
 function expectLogCarriesNoInput() {
   for (const call of consoleError.mock.calls) {
+    // Bounded one-line description (describeUnknownThrow), never the raw error.
+    expect(call[1]).not.toBeInstanceOf(Error)
     for (const arg of call) {
       for (const secret of SECRETS) {
         expect(String(arg)).not.toContain(secret)

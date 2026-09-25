@@ -125,6 +125,8 @@ function expectOutageAnswer(res: unknown) {
   expect(invitesCreate).not.toHaveBeenCalled()
   expect(consoleError).toHaveBeenCalledTimes(1)
   expect(outageLogs()).toHaveLength(1)
+  // Bounded one-line description (describeUnknownThrow), never the raw error.
+  expect(outageLogs()[0][1]).not.toBeInstanceOf(Error)
   // ids only: the invitee's email never reaches the log.
   for (const arg of consoleError.mock.calls[0]) {
     expect(String(arg)).not.toContain(INVITE.email)

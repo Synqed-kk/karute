@@ -10,6 +10,7 @@
 import { revalidatePath } from 'next/cache'
 import { getLocale } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import type { MemoryItem } from '@/lib/karute/memory-types'
 // The six WithClient cores live in a server-only module (PKT-SEC-CORES-D3,
 // 2026-09-23): every runtime export of this 'use server' file is a
@@ -42,7 +43,7 @@ export async function addMemoryItemAction(input: {
   try {
     reads = await Promise.all([getSynqedClient(), getBusinessId()])
   } catch (err) {
-    console.error('[memory] pre-core read failed:', err)
+    console.error('[memory] pre-core read failed:', describeUnknownThrow(err))
     return { ok: false }
   }
   const [synqed, businessId] = reads
@@ -94,7 +95,7 @@ export async function relearnCustomerMemoryAction(
       canUseDevRegen(),
     ])
   } catch (err) {
-    console.error('[memory] pre-core read failed:', err)
+    console.error('[memory] pre-core read failed:', describeUnknownThrow(err))
     return { ok: false, items: 0 }
   }
   const [synqed, businessId, locale, planAllowed, regenAllowed] = reads
@@ -124,7 +125,7 @@ export async function upsertPassportFieldAction(input: {
       getOrgSettings().catch(() => null),
     ])
   } catch (err) {
-    console.error('[memory] pre-core read failed:', err)
+    console.error('[memory] pre-core read failed:', describeUnknownThrow(err))
     return { ok: false }
   }
   const [synqed, businessId, orgSettings] = reads
