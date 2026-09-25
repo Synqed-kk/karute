@@ -258,7 +258,8 @@ export interface StoreDials {
    *  room ships the lever and the retrofit follows. */
   uiLanguage: string
   karuteLanguage: string
-  /** 予約の色分け — booking category → palette key. */
+  /** 予約の色分け — booking category (new · repeat · ticket · vip) → a BOOKING_PALETTE hex; a missing
+   *  category shows the board's default. */
   bookingColors: Record<string, string>
   /** 色・テーマ — the family's own token names → this store's hex. */
   colorTokens: Record<string, string>
@@ -387,7 +388,9 @@ const ginza: StoreDials = {
   ],
   uiLanguage: 'ja',
   karuteLanguage: 'ja',
-  bookingColors: { new: 'blue', repeat: 'teal', renewal: 'purple', pack: 'pink', vip: 'navy' },
+  // ⚖ PKT-S38 R6 — no saved colours: the dial seeds the board's four defaults (BOOKING_COLOR_DEFAULTS), the
+  // same answer a live store with no `booking_colors` entry gets. Spelled nowhere here (this plane has one import).
+  bookingColors: {},
   colorTokens: {
     '--commit-bg': '#2563eb',
     '--select-bg': '#eef2ff',
@@ -449,19 +452,6 @@ export const connectorCatalog: ReadonlyArray<{ id: string; name: string; note: s
   { id: 'accounting', name: '会計ソフト連携', note: '売上データを会計ソフトへ書き出します。' },
   { id: 'messaging', name: 'メッセージ配信', note: '予約確認・リマインドを外部のメッセージサービスへ送ります。' },
   { id: 'booking-site', name: '外部予約サイト連携', note: '他の予約サイトからの予約を取り込みます。' },
-]
-
-/** 予約の色分け — the palette a store may pick from. The STATUS colours
- *  (確定・要対応・停止) are deliberately NOT here: they are the family's own
- *  safety rule and no store may repaint them. */
-export const bookingPalette: ReadonlyArray<{ value: string; label: string; hex: string }> = [
-  { value: 'blue', label: '青', hex: '#3b6fd4' },
-  { value: 'teal', label: '青緑', hex: '#2b8a8a' },
-  { value: 'purple', label: '紫', hex: '#7a5bd4' },
-  { value: 'pink', label: '桃', hex: '#c25a8f' },
-  { value: 'navy', label: '紺', hex: '#3f4a7d' },
-  { value: 'brown', label: '茶', hex: '#8a6a4f' },
-  { value: 'gray', label: '灰', hex: '#8a8a93' },
 ]
 
 /** 色・テーマ — what each editable token PAINTS, in the reader's own words.

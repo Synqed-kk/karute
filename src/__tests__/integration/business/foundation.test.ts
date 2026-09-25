@@ -348,7 +348,11 @@ describe('the fixture data door', () => {
       // pocket formula written in this file is exactly what the import prevents;
       // canon-logic is pure (its own inventory above is `['./pricing']`), so
       // nothing about this reaches a door or the clock.
-      'src/business/lib/today-board.ts': ['./canon-logic/availability', './clock', './fixtures', './fixtures-today'],
+      // ⚖ PKT-S38 R2 — `./booking-colors`: the four defaults, the closed palette and the resolver moved to an
+      // import-free leaf the practice door can import; today-board re-exports them (no call site moved).
+      'src/business/lib/today-board.ts': ['./booking-colors', './canon-logic/availability', './clock', './fixtures', './fixtures-today'],
+      // ⚖ PKT-S38 R2 — the leaf's EMPTY inventory is its fence: the door imports it, so it may import nothing.
+      'src/business/lib/booking-colors.ts': [],
       // A2 fix (Greptile round 1B addendum) — `shiftWarningOf`'s overage half
       // reads real instants (`jstMidnight`/`jstMinuteOfDay`) rather than bare
       // minute-of-day numbers, the same reason `data.ts`/`today-board.ts` above
@@ -855,6 +859,8 @@ describe('the fixture data door', () => {
         // ③ — PRICE_UNIT_YEN, the ¥ unit the Reserve 受付 fact prints from the
         // same constant gapFillPrice and packedPrice round to.
         '@/business/lib/canon-logic/pricing',
+        // ⚖ PKT-S38 R2/R6 — 予約の色分け's closed palette + the board's four defaults (one home).
+        '@/business/lib/booking-colors',
         // ⚖ PR-2b — `jstSlotEnd` for 「最終同期は…分前」 off the shell's own sync
         // stamp; and `@/business/lib/fixtures` LEFT: the room's stores, staff,
         // menus and business now come through `@/business/lib/data`.
