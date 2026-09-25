@@ -1519,17 +1519,24 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     const pop = fields.slice(fields.indexOf('<strong>予約カードの表示項目（自分の表示）</strong>'))
     expect(pop.indexOf('種類の名札')).toBeGreaterThan(pop.indexOf('空き枠の価格'))
     // THE PANEL'S LABELS SAY WHAT THE BOARD DOES. Every dial on it is this
-    // viewer's own useState — no store setting, no business-type profile —
-    // and the category colours are literal hexes, so no label names 店舗設定.
+    // viewer's own useState — no store setting, no business-type profile. The
+    // legend swatches and the card stripes read the store's `bookingColors` map
+    // (resolver `bookingColorsFor`, today-board.ts; defaults = today.css's four),
+    // yet no label names 店舗設定: nothing saves that map until the dial's save (PR-2).
     // The legend colours BOOKING categories (bookingCategory(), today-board.ts),
     // never store categories, so no label says 店舗カテゴリー.
     expect(fields).toContain('<strong>予約カードの表示項目（自分の表示）</strong>')
     expect(fields).toContain('<strong>販売可能枠の表示（自分の表示）</strong>')
     expect(fields).toContain('<span>お客様名は常に表示</span>')
     expect(fields).toContain('aria-label="予約カテゴリー色"')
-    // THE CAPTION names what the swatches are (予約カテゴリー, the aria's noun) and says both colour sets are fixed on this tip.
-    expect(fields).toContain('<b>左端の色＝予約カテゴリー / 色は変更できません</b>')
-    for (const lie of ['予約カードの表示項目（店舗設定）', '販売可能枠の表示（店舗設定・業種プロファイルが初期値）', '全ボード共通の店舗設定', '店舗設定の予約カテゴリー色', '店舗カテゴリー']) {
+    // THE CAPTION names what the swatches are (予約カテゴリー, the aria's noun) and nothing
+    // more: 「色は変更できません」 is retired (the colours are per store now) and the
+    // affirmative half waits for the real save, so neither claim is on this tip.
+    expect(fields).toContain('<b>左端の色＝予約カテゴリー</b>')
+    // ONE HOME for the four hexes (`BOOKING_COLOR_DEFAULTS`, today-board.ts). SRC is the RAW
+    // file, comments included, so a hex typed back even inside a comment is red too.
+    for (const hex of ['#3d7ab8', '#8a63b8', '#2f8f8f', '#3f3f46']) expect(SRC.toLowerCase()).not.toContain(hex)
+    for (const lie of ['予約カードの表示項目（店舗設定）', '販売可能枠の表示（店舗設定・業種プロファイルが初期値）', '全ボード共通の店舗設定', '店舗設定の予約カテゴリー色', '店舗カテゴリー', '色は変更できません', 'CAT_COLOR']) {
       expect(SRC).not.toContain(lie)
       expect(fields).not.toContain(lie)
     }

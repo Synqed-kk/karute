@@ -419,6 +419,14 @@ export async function readReserveCardColor(): Promise<string | null> {
   return normalizeCardColor(org?.settings?.reserve_card_color)
 }
 
+/** LIVE: org settings' `booking_colors` (予約の色分け, per store) through the same read, RAW —
+ *  `bookingColorsFor` (today-board.ts) is the one place that resolves it. */
+export async function readBookingColors(): Promise<unknown> {
+  const actor = await practiceActor()
+  const org = await orgSettingsOf(actor)
+  return org?.settings?.booking_colors ?? null
+}
+
 /** ⚖ A2 · G5 — ONE truth for 「may this operator save the card colour」: core's own answer sheet. */
 const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
 

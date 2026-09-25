@@ -60,7 +60,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type Hours } from '@/business/lib/today-board'
+import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -593,6 +593,11 @@ export interface TodayProps {
   /** The CHROME store's own capabilities (same rule as `words` above) — what
    *  `blockKinds` and the 「休憩・清掃」-shaped example pairs gate on. */
   caps: { privateClass: boolean; turnover: boolean }
+  /** 予約の色分け — every store's four category colours, resolved ONCE in page.tsx
+   *  (`bookingColorsFor`, today-board.ts); `''` = no store. This screen only indexes it. */
+  bookingColors: Record<string, BookingColors>
+  /** booking id (`BoardItem.caseId`) → its store: page.tsx's `storeOfBooking`, as data. */
+  storeByCase: Record<string, string>
   dayOffset: number
   dayLabel: string
   /** THE MONTH THE CALENDAR OPENS ON — the shown day's own year/month, in JST,
@@ -8471,8 +8476,15 @@ export function TodayScreen(props: TodayProps) {
     )
   }
 
+  // 予約の色分け — a category's `--cat` off its STORE's own four (`props.bookingColors`,
+  // `''` = no store). No map → no inline var, and today.css's hex paints as before.
+  const catVar = (store: string | null | undefined, cat: string | null | undefined): React.CSSProperties | undefined => {
+    const hex = cat ? (props.bookingColors[store ?? ''] ?? props.bookingColors[''])?.[cat as BookingCategory] : undefined
+    return hex ? ({ '--cat': hex } as React.CSSProperties) : undefined
+  }
+
   function renderItem(item: BoardItem, lane: BoardLane) {
-    const style = { '--x': `${item.x}%`, '--w': `${item.w}%` } as React.CSSProperties
+    const style = { '--x': `${item.x}%`, '--w': `${item.w}%`, ...catVar(props.storeByCase[item.caseId ?? ''], item.category) } as React.CSSProperties
     const settledHere = item.caseId != null && settled.includes(item.caseId)
     const state =
       item.kind !== 'booking'
@@ -9118,12 +9130,12 @@ export function TodayScreen(props: TodayProps) {
                       <span className="gapfill"><i />スキマ枠</span>
                       {guardOn && <span className="guard"><i />スキマガード</span>}
                       <span className="cat-legend" aria-label="予約カテゴリー色">
-                        <i className="cat" style={{ '--cat': '#3d7ab8' } as React.CSSProperties} />新規
-                        <i className="cat" style={{ '--cat': '#8a63b8' } as React.CSSProperties} />再来
-                        <i className="cat" style={{ '--cat': '#2f8f8f' } as React.CSSProperties} />回数券
-                        <i className="cat" style={{ '--cat': '#3f3f46' } as React.CSSProperties} />VIP
+                        <i className="cat" style={catVar(props.store, 'new')} />新規
+                        <i className="cat" style={catVar(props.store, 'repeat')} />再来
+                        <i className="cat" style={catVar(props.store, 'ticket')} />回数券
+                        <i className="cat" style={catVar(props.store, 'vip')} />VIP
                       </span>
-                      <b>左端の色＝予約カテゴリー / 色は変更できません</b>
+                      <b>左端の色＝予約カテゴリー</b>
                     </div>
 
                     <div className="pop-divider" role="presentation" />
@@ -9265,7 +9277,7 @@ export function TodayScreen(props: TodayProps) {
                     <div
                       className="park-chip"
                       key={chip.id}
-                      style={chip.category ? ({ '--cat': CAT_COLOR[chip.category] } as React.CSSProperties) : undefined}
+                      style={catVar(chip.home.store, chip.category)}
                       onPointerDown={(e) => onChipPointerDown(e, chip.id)}
                       onPointerMove={onChipPointerMove}
                       onPointerUp={onChipPointerUp}
@@ -10246,7 +10258,7 @@ export function TodayScreen(props: TodayProps) {
           }}
           aria-hidden="true"
           data-cat={proxy.kind === 'chip' ? (proxy.category ?? undefined) : (proxy.item.category ?? undefined)}
-          style={{ width: proxy.w, height: proxy.h }}
+          style={{ width: proxy.w, height: proxy.h, ...(proxy.kind === 'chip' ? catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category) : catVar(props.storeByCase[proxy.item.caseId ?? ''], proxy.item.category)) }}
         >
           {proxy.kind === 'chip' ? (
             <>
@@ -10361,8 +10373,6 @@ export function TodayScreen(props: TodayProps) {
 
 /** canon `renderGapGuardPolicySummary` (:5938). */
 const POLICY_WORD: Record<'off' | 'standard' | 'strict', string> = { off: 'オフ', standard: '標準', strict: '厳格' }
-
-const CAT_COLOR: Record<string, string> = { new: '#3d7ab8', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }
 
 /** L4 新規予約を作成 — canon's two-column dialog: the steps on the left, the
  *  ticket that assembles itself on the right. Confirming puts a real card on
