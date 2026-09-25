@@ -373,28 +373,50 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     expect(consoleError).toHaveBeenCalledTimes(2)
   })
 
-  // D-S26-3 (fold F3): only the roster READ is an outage. A client that cannot
-  // be constructed is a deployment defect and rejects raw, never as a 502.
-  it('P4h a failed SDK client construction is NOT typed as an outage — it rejects raw', async () => {
+  // D-S26-3/4 (folds F3/F4): only the roster READ is an outage. A client that
+  // cannot be constructed is a deployment defect: typed 'internal' (500), a
+  // FIXED message, the detail on cause — never a 502, never the raw message.
+  async function withBrokenClient<T>(act: () => Promise<T>): Promise<T> {
     const env = { url: process.env.SYNQED_CORE_URL, key: process.env.SYNQED_CORE_API_KEY }
     process.env.SYNQED_CORE_URL = 'http://core.test'
     process.env.SYNQED_CORE_API_KEY = 'test-key'
     mockSdk.constructError = new Error('bad client config')
-    const err = await getStaffList().then(
-      () => 'resolved',
-      (e: unknown) => e,
-    ).finally(() => {
+    return act().finally(() => {
       mockSdk.constructError = null
       if (env.url === undefined) delete process.env.SYNQED_CORE_URL
       else process.env.SYNQED_CORE_URL = env.url
       if (env.key === undefined) delete process.env.SYNQED_CORE_API_KEY
       else process.env.SYNQED_CORE_API_KEY = env.key
     })
-    expect(err).toBeInstanceOf(Error)
+  }
+  const CLIENT_LOG = '[getStaffList] synqed-core client unavailable:'
+
+  it('P4h a failed SDK client construction → typed internal, fixed message, detail on cause — never an outage', async () => {
+    const err = await withBrokenClient(() => getStaffList().then(() => 'resolved', (e: unknown) => e))
+    expect(err).toMatchObject({
+      name: 'AppApiError',
+      code: 'internal',
+      message: 'synqed-core client unavailable',
+      cause: { message: 'bad client config' },
+    })
     expect(err).not.toMatchObject({ code: 'upstream_unavailable' })
-    expect((err as Error).message).toBe('bad client config')
     expect(listAllCoreStaff).not.toHaveBeenCalled()
+    const lines = logsStartingWith(CLIENT_LOG)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toHaveLength(2)
+    expect(lines[0][1]).not.toBeInstanceOf(Error)
+    expect(lines[0][1]).toEqual({ errName: 'Error', errMessage: 'bad client config' })
     expect(logsStartingWith('[getStaffList] synqed-core roster fetch failed:')).toHaveLength(0)
+  })
+
+  it('P4i REAL gate, SDK client construction fails → the FIXED line, never the raw detail, core never runs', async () => {
+    gate.mockImplementation(realRequireCapability)
+    const res = await withBrokenClient(() => setStaffPermissions(TARGET_STAFF, ROLE, CAPS))
+    expect(res).toEqual({ error: 'synqed-core client unavailable' })
+    expect(JSON.stringify(res)).not.toContain('bad client config')
+    expect(logsStartingWith('[permissions] pre-core read failed')).toHaveLength(0)
+    expect(staffWriteInScope).not.toHaveBeenCalled()
+    expect(serviceUpdate).not.toHaveBeenCalled()
   })
 
   // A real denial is a plain Error (require-permission.ts :120) — its answer
