@@ -1235,10 +1235,11 @@ describe('the fixture data door', () => {
   // §7 — FORBIDDEN ON THE READ PATH. Comment lines stripped first, as specifiersOf does.
   // ⚖ A2 (Liam 9/24, R-A2-8) — the jest twin of the scanner's write entries: door.ts only, each exact
   // one-key line, once. Every other mutator token stays forbidden everywhere in the folder, door.ts included.
-  // ⚖ PKT-S38 R8 (Liam 9/25 「make it work」) + R-S39-1 — the second writer: 予約の色分け's whole-map line, in its own file.
+  // ⚖ PKT-S38 R8 (Liam 9/25 「make it work」) + R-S39-1 — the second writer, in its own file; ⚖ PKT-S41 R-S41-1
+  // (Liam 9/25 A): its line sends ONE key per store (`booking_colors:<storeId>`), never the shared map.
   const WRITERS = [
     { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 },
-    { file: 'door-booking-colors.ts', line: 'orgSettings.upsert({ settings: { booking_colors: { ...map, [storeId]: next } } })', count: 1 },
+    { file: 'door-booking-colors.ts', line: 'orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })', count: 1 },
   ]
   const DOOR_FORBIDDEN = [
     'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
@@ -1282,10 +1283,12 @@ describe('the fixture data door', () => {
     expect(doorHits([['actor.ts', line]])).toEqual(['actor.ts: .upsert('])
     expect(doorHits([['core-reach.ts', line]])).toEqual(['core-reach.ts: .upsert('])
     // ⚖ PKT-S38 — the second writer's line fails closed the same way, and never covers the first.
-    const line2 = `  const saved = await writer.orgSettings.upsert({ settings: { booking_colors: { ...map, [storeId]: next } } })\n`
+    const line2 = `  const saved = await writer.orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })\n`
     expect(doorHits([['door-booking-colors.ts', line2]])).toEqual([])
     expect(doorHits([['door-booking-colors.ts', line2 + line2]])).toEqual(['door-booking-colors.ts: the writer line ×2 > 1'])
-    expect(doorHits([['door-booking-colors.ts', line2.replace('...map, ', '')]])).toEqual(['door-booking-colors.ts: .upsert('])
+    // the retired shared-map line is no longer exempt, nor is a bare legacy key
+    expect(doorHits([['door-booking-colors.ts', line2.replace('[bookingColorsKeyFor(storeId)]: next', 'booking_colors: { ...map, [storeId]: next }')]])).toEqual(['door-booking-colors.ts: .upsert('])
+    expect(doorHits([['door-booking-colors.ts', line2.replace('[bookingColorsKeyFor(storeId)]', 'booking_colors')]])).toEqual(['door-booking-colors.ts: .upsert('])
     expect(doorHits([['door-booking-colors.ts', line + line2]])).toEqual(['door-booking-colors.ts: .upsert(']) // the card line never moves here
     expect(doorHits([['door.ts', line + line2]])).toEqual(['door.ts: .upsert(']) // …nor the booking line back into door.ts
     expect(doorHits([['actor.ts', line2]])).toEqual(['actor.ts: .upsert('])

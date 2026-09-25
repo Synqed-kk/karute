@@ -97,7 +97,7 @@ import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(busine
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
-import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE } from '@/business/lib/booking-colors'
+import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/business/lib/booking-colors'
 // ③ — the ¥ unit the Reserve 受付 fact prints; imported, never typed, so the
 // pin below follows the constant rather than restating it.
 import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
@@ -4294,10 +4294,12 @@ describe('⚖ PKT-S38 R6 — 予約の色分け speaks the board’s four, from 
 })
 
 describe('⚖ PKT-S38 R7 — the live colours reach ONLY a reader 言語・表示 lets in (a shut gate ships nothing, G1)', () => {
-  const live = { raw: { [STORE_A]: { new: '#3b6fd4', repeat: '#7a5bd4', ticket: '#c25a8f', vip: '#3f4a7d' } } }
+  // ⚖ PKT-S41 — the door's raw subset: the store's own `booking_colors:<storeId>` key.
+  const FOUR = { new: '#3b6fd4', repeat: '#7a5bd4', ticket: '#c25a8f', vip: '#3f4a7d' }
+  const live = { raw: { [bookingColorsKeyFor(STORE_A)]: FOUR } }
   it('open gate: the lens store’s four are resolved and seed the dial; a shut gate: null, and the section carries no rows', async () => {
     const open = await settingsProps({ locale: 'ja', store: STORE_A, bookingColors: live })
-    expect(open.bookingColors).toEqual(live.raw[STORE_A])
+    expect(open.bookingColors).toEqual(FOUR)
     const shut = await settingsProps({ locale: 'ja', store: STORE_A, bookingColors: live, world: { role: 'スタッフ' } })
     expect(sectionOf(shut.props, 'language-display').gate).not.toBe('open')
     expect(shut.bookingColors).toBeNull()

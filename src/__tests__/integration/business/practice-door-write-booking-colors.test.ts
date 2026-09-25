@@ -2,6 +2,8 @@
  * ⚖ PKT-S38 R3/R4 (Liam 9/25 「make it work」) — 予約の色分け's writer and route, mirrored from
  * practice-door-write.test.ts (the card-colour writer). Same recorded answer set (no network), same core-reach
  * mock: both guards' throws kept exactly, and a mock write-only handle so every core call is visible here.
+ * ⚖ PKT-S41 R-S41-1 (Liam 9/25 A) — ONE KEY PER STORE: a save sends `booking_colors:<storeId>` alone; the legacy
+ * `booking_colors` map is a read-only fallback, never written, never a refusal reason for the write.
  */
 
 // The SDK ships raw ESM this jest setup does not transform (same stub as practice-door.test.ts).
@@ -25,7 +27,7 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
 import * as data from '@/business/lib/data'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE } from '@/business/lib/booking-colors'
+import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/business/lib/booking-colors'
 import { PUT } from '@/app/api/business/booking-colors/route'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import { bookingColorsOf, putBookingColors } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
@@ -54,10 +56,18 @@ let stored: Record<string, unknown> = {}
 const coreRow = (settings: Record<string, unknown>) => ({ business_id: TENANT, name: 'Dev Salon', settings, created_at: 'x', updated_at: 'y' })
 
 const S = STORE.tokyo
+const K = bookingColorsKeyFor
 const hexOf = (label: string) => BOOKING_PALETTE.find((c) => c.label === label)!.hex
 const PICK = { new: hexOf('青'), repeat: hexOf('紫'), ticket: hexOf('桃'), vip: hexOf('紺') }
-/** Another store's entry and a junk entry: both must pass through byte-equal. */
+/** A LEGACY map holding another store's entry and a junk entry: never sent, never changed by a save. */
 const OTHERS = { [STORE.yokohama]: { new: '#8a8a93', repeat: '#8A8A93', ticket: 'navy', vip: '#8a8a93' }, junk: [1, 'two', { three: 3 }] }
+/** Core's own shallow top-level merge (org-settings.service.ts:50), STATEFUL: every PUT lands in `stored`. */
+const coreMerges = () => {
+  mockCore.upsert = jest.fn(async (input: { settings: Record<string, unknown> }) => {
+    stored = { ...stored, ...input.settings }
+    return coreRow(stored)
+  })
+}
 
 const saved = process.env.BUSINESS_PRACTICE_TENANT
 let info: jest.SpyInstance
@@ -85,30 +95,65 @@ const seed = (settings: Record<string, unknown>) => {
 }
 
 describe('⚖ PKT-S38 R3 — the second writer: data.writeBookingColors → door', () => {
-  it('happy path: EXACTLY one PUT of { settings: { booking_colors: { [store]: four } } } and core’s answer comes back', async () => {
+  it('happy path: EXACTLY one PUT of { settings: { [\'booking_colors:\' + store]: four } } — nothing else — and core’s answer comes back', async () => {
     expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: true, colors: PICK })
-    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { booking_colors: { [S]: PICK } } }]])
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { ['booking_colors:' + S]: PICK } }]])
+    expect(Object.keys((mockCore.upsert.mock.calls[0][0] as { settings: object }).settings)).toEqual(['booking_colors:' + S])
     expect(mockCore.writerFor).toHaveBeenCalledWith({ businessId: TENANT })
     expect(info).toHaveBeenCalledTimes(1)
     expect(info.mock.calls[0][0]).toBe('[business booking colours]')
     expect(JSON.parse(info.mock.calls[0][1] as string)).toEqual({
-      business_id: TENANT, actor: CARD.owner, store_id: S, old: null, new: PICK, at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+      business_id: TENANT, actor: CARD.owner, store_id: S, key: 'booking_colors:' + S, old: null, new: PICK, at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     })
   })
 
-  it('every other store’s entry (and a junk entry) passes through UNTOUCHED, byte-equal — core replaces the whole key', async () => {
+  it('the LEGACY map (another store’s entry + a junk entry) is never sent and stays BYTE-IDENTICAL after a save', async () => {
     seed({ business_type: 'beauty', booking_colors: OTHERS })
+    coreMerges()
+    const legacyBefore = JSON.stringify(stored.booking_colors)
     expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: true, colors: PICK })
-    const sent = mockCore.upsert.mock.calls[0][0] as { settings: { booking_colors: Record<string, unknown> } }
-    expect(Object.keys(sent.settings)).toEqual(['booking_colors'])
-    expect(sent).toEqual({ settings: { booking_colors: { ...OTHERS, [S]: PICK } } })
-    for (const k of Object.keys(OTHERS)) expect(JSON.stringify(sent.settings.booking_colors[k])).toBe(JSON.stringify((OTHERS as Record<string, unknown>)[k]))
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: PICK } }]])
+    expect(JSON.stringify(stored.booking_colors)).toBe(legacyBefore)
+    expect(stored).toEqual({ business_type: 'beauty', booking_colors: OTHERS, [K(S)]: PICK })
+  })
+
+  it('THE RACE (Greptile T1 on #1049): two stores save in the same instant — both reads land before either write — and BOTH keys survive', async () => {
+    seed({ business_type: 'beauty', booking_colors: { [STORE.yokohama]: BOOKING_COLOR_DEFAULTS } })
+    coreMerges()
+    const PICK_Y = { new: hexOf('桃'), repeat: hexOf('茶'), ticket: hexOf('青緑'), vip: hexOf('灰') }
+    // Both reads answer the state BEFORE either write (the same instant), and are held until both saves are in flight.
+    const beforeEither = coreRow({ ...stored })
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let reads = 0
+    const spy = withReads(stored)
+    spy.orgSettingsGet.mockImplementation(async () => {
+      reads += 1
+      await gate
+      return beforeEither
+    })
+    const tokyo = data.writeBookingColors(S, PICK)
+    const yokohama = data.writeBookingColors(STORE.yokohama, PICK_Y)
+    for (let i = 0; i < 50; i += 1) await new Promise((r) => setTimeout(r, 0))
+    expect(reads).toBeGreaterThanOrEqual(1) // the reads are held (the mock client's once-per-actor slot may share one)…
+    expect(mockCore.upsert).not.toHaveBeenCalled() // …and neither save has written
+    release()
+    expect(await Promise.all([tokyo, yokohama])).toEqual([{ ok: true, colors: PICK }, { ok: true, colors: PICK_Y }])
+    expect(mockCore.upsert).toHaveBeenCalledTimes(2)
+    for (const [call] of mockCore.upsert.mock.calls) expect(Object.keys((call as { settings: object }).settings)).toHaveLength(1)
+    // neither store's save was lost: each resolves to its own four from what core now holds
+    expect(bookingColorsFor(S, stored)).toEqual(PICK)
+    expect(bookingColorsFor(STORE.yokohama, stored)).toEqual(PICK_Y)
+    expect(stored[K(S)]).toEqual(PICK)
+    expect(stored[K(STORE.yokohama)]).toEqual(PICK_Y)
+    expect(stored.booking_colors).toEqual({ [STORE.yokohama]: BOOKING_COLOR_DEFAULTS }) // legacy untouched
+    expect(stored.business_type).toBe('beauty')
   })
 
   it('uppercase palette hexes are accepted and sent lowercase', async () => {
     const upper = { new: PICK.new.toUpperCase(), repeat: PICK.repeat.toUpperCase(), ticket: PICK.ticket, vip: PICK.vip.toUpperCase() }
     expect(await data.writeBookingColors(S, upper)).toEqual({ ok: true, colors: PICK })
-    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { booking_colors: { [S]: PICK } } }]])
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: PICK } }]])
   })
 
   it('every one of the eleven is accepted, for every category', async () => {
@@ -120,8 +165,8 @@ describe('⚖ PKT-S38 R3 — the second writer: data.writeBookingColors → door
     expect(mockCore.upsert).toHaveBeenCalledTimes(11)
   })
 
-  it('equal value (the entry already holds exactly these four, lowercase) → no PUT, no audit line', async () => {
-    const spy = seed({ booking_colors: { ...OTHERS, [S]: { ...PICK } } })
+  it('equal value (the store’s own key already holds exactly these four, lowercase) → no PUT, no audit line', async () => {
+    const spy = seed({ booking_colors: { ...OTHERS, [S]: { ...PICK } }, [K(S)]: { ...PICK } })
     expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: true, colors: PICK })
     expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
     expect(mockCore.writerFor).not.toHaveBeenCalled()
@@ -133,10 +178,16 @@ describe('⚖ PKT-S38 R3 — the second writer: data.writeBookingColors → door
     ['stored uppercase', { ...PICK, new: PICK.new.toUpperCase() }],
     ['stored with an extra key', { ...PICK, renewal: '#7a5bd4' }],
     ['stored with a key missing', { new: PICK.new, repeat: PICK.repeat, ticket: PICK.ticket }],
-  ])('not exactly equal (%s) → the four are sent, the entry is replaced by exactly them', async (_label, entry) => {
-    seed({ booking_colors: { [S]: entry } })
+  ])('not exactly equal (%s) → the four are sent, the store’s key is replaced by exactly them', async (_label, entry) => {
+    seed({ [K(S)]: entry })
     expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: true, colors: PICK })
-    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { booking_colors: { [S]: PICK } } }]])
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: PICK } }]])
+  })
+
+  it('the legacy entry alone already holds these four → still ONE PUT of the store’s own key (the legacy map is not the write’s truth)', async () => {
+    seed({ booking_colors: { [S]: { ...PICK } } })
+    expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: true, colors: PICK })
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: PICK } }]])
   })
 
   it.each([
@@ -144,17 +195,29 @@ describe('⚖ PKT-S38 R3 — the second writer: data.writeBookingColors → door
     ['a string', 'blue'],
     ['a number', 7],
     ['a boolean', true],
-  ])('a stored booking_colors that is not a map (%s) → core, logged, and NOTHING is overwritten', async (_label, raw) => {
-    seed({ booking_colors: raw })
+  ])('the store’s own key holding something that is not a colour set (%s) → core, logged, and NOTHING is overwritten', async (_label, raw) => {
+    seed({ [K(S)]: raw })
     expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: false, reason: 'core' })
     expect(mockCore.upsert).not.toHaveBeenCalled()
-    expect(error).toHaveBeenCalledWith('[business booking colours] stored booking_colors is not a map; refusing to overwrite')
+    expect(error).toHaveBeenCalledWith(`[business booking colours] stored booking_colors:${S} is not a colour set; refusing to overwrite`)
   })
 
-  it('a stored null is an absent key: the map starts empty', async () => {
-    seed({ booking_colors: null })
+  it.each([
+    ['an array', ['#3b6fd4']],
+    ['a string', 'blue'],
+    ['a number', 7],
+  ])('a LEGACY booking_colors that is not a map (%s) no longer blocks the save: one PUT of the store’s key, the legacy value untouched', async (_label, raw) => {
+    seed({ booking_colors: raw })
+    coreMerges()
     expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: true, colors: PICK })
-    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { booking_colors: { [S]: PICK } } }]])
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: PICK } }]])
+    expect(stored.booking_colors).toEqual(raw)
+  })
+
+  it('a stored null under the store’s key is an absent key: the four are sent', async () => {
+    seed({ [K(S)]: null, booking_colors: null })
+    expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: true, colors: PICK })
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: PICK } }]])
   })
 
   it.each([
@@ -192,6 +255,7 @@ describe('⚖ PKT-S38 R3 — the second writer: data.writeBookingColors → door
     ['toString', 'toString'],
     ['an inactive store of this business', STORE.closed],
     ['a store of another business', '11111111-2222-4333-8444-555555555555'],
+    ['the all-stores lens', 'all-stores'],
   ])('a store the operator cannot see (%s) → forbidden, no read of the colours, no PUT', async (_label, id) => {
     const spy = withReads()
     expect(await data.writeBookingColors(id, PICK)).toEqual({ ok: false, reason: 'forbidden' })
@@ -206,7 +270,7 @@ describe('⚖ PKT-S38 R3 — the second writer: data.writeBookingColors → door
     expect(mockCore.upsert).not.toHaveBeenCalled()
     withReads().answerSheet.mockResolvedValue({ ...SHEETS[CARD.goro], capabilities: ['customers.view', 'settings.manage'] })
     expect(await data.writeBookingColors(S, PICK)).toEqual({ ok: true, colors: PICK })
-    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { booking_colors: { [S]: PICK } } }]])
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: PICK } }]])
   })
 
   it('forbidden: an operator whose sheet lacks settings.manage → forbidden, no read of the colours, no PUT', async () => {
@@ -258,7 +322,30 @@ describe('⚖ PKT-S38 R3 — the second writer: data.writeBookingColors → door
 
   it('the defaults are palette members: saving them for a store is a real, normal save', async () => {
     expect(await data.writeBookingColors(S, { ...BOOKING_COLOR_DEFAULTS })).toEqual({ ok: true, colors: BOOKING_COLOR_DEFAULTS })
-    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { booking_colors: { [S]: BOOKING_COLOR_DEFAULTS } } }]])
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: BOOKING_COLOR_DEFAULTS } }]])
+  })
+})
+
+describe('⚖ PKT-S41 — the door hands back exactly the colour keys the leaf names (door.ts spells them; this pins them together)', () => {
+  it('readBookingColors → the legacy map + every per-store key, values untouched (same references), and nothing else', async () => {
+    const legacy = { [S]: PICK }
+    const tokyo = { ...PICK }
+    const yokohama = { ...BOOKING_COLOR_DEFAULTS }
+    seed({
+      business_type: 'beauty', reserve_card_color: '#1C2247', booking_colors_note: 'a Karute key sharing the stem', 'x-booking_colors:1': 1,
+      booking_colors: legacy, [K(S)]: tokyo, [K(STORE.yokohama)]: yokohama,
+    })
+    const got = (await data.readBookingColors()) as Record<string, unknown>
+    expect(Object.keys(got).sort()).toEqual(['booking_colors', K(S), K(STORE.yokohama)].sort())
+    expect(got.booking_colors).toBe(legacy)
+    expect(got[K(S)]).toBe(tokyo)
+    expect(got[K(STORE.yokohama)]).toBe(yokohama)
+  })
+  it('no colour key at all → an empty subset; the settings absent → null', async () => {
+    seed({ business_type: 'beauty' })
+    expect(await data.readBookingColors()).toEqual({})
+    withReads().orgSettingsGet.mockResolvedValue(null)
+    expect(await data.readBookingColors()).toBeNull()
   })
 })
 
@@ -279,7 +366,7 @@ const answer = async (r: Response) => ({ status: r.status, body: await r.json() 
 describe('⚖ PKT-S38 R4 — the route: the card route’s twin, body exactly { storeId, colors }', () => {
   it('200: the admitted business, same origin, { storeId, colors } → the door → core’s answer', async () => {
     expect(await answer(await put())).toEqual({ status: 200, body: { ok: true, colors: PICK } })
-    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { booking_colors: { [S]: PICK } } }]])
+    expect(mockCore.upsert.mock.calls).toEqual([[{ settings: { [K(S)]: PICK } }]])
   })
 
   it('200 for Sec-Fetch-Site: same-origin when the browser sent no Origin', async () => {
@@ -336,10 +423,10 @@ describe('⚖ PKT-S38 R4 — the route: the card route’s twin, body exactly { 
     expect(mockCore.upsert).not.toHaveBeenCalled()
   })
 
-  it('503 — core failed (reported, not swallowed); 503 — a stored value that is not a map', async () => {
+  it('503 — core failed (reported, not swallowed); 503 — the store’s key holds something that is not a colour set', async () => {
     mockCore.upsert.mockRejectedValueOnce(new Error('503 from core'))
     expect(await answer(await put())).toEqual({ status: 503, body: { ok: false, reason: 'core' } })
-    seed({ booking_colors: 'blue' })
+    seed({ [K(S)]: 'blue' })
     expect(await answer(await put())).toEqual({ status: 503, body: { ok: false, reason: 'core' } })
     expect(mockCore.upsert).toHaveBeenCalledTimes(1)
   })
@@ -387,6 +474,13 @@ describe('⚖ PKT-S38 R7 — the page: 予約の色分け is live while the door
     expect(dialOf(await render(STORE.yokohama))).toEqual(BOOKING_COLOR_DEFAULTS)
   })
 
+  it('ON, the store’s own key AND a legacy entry: the own key seeds the dial (present wins whole)', async () => {
+    seed({ booking_colors: { [S]: BOOKING_COLOR_DEFAULTS }, [K(S)]: PICK })
+    expect(dialOf(await render())).toEqual(PICK)
+    seed({ booking_colors: { [S]: BOOKING_COLOR_DEFAULTS }, [K(S)]: PICK })
+    expect(dialOf(await render(STORE.yokohama))).toEqual(BOOKING_COLOR_DEFAULTS)
+  })
+
   it('ON, a sheet without settings.manage: canSave false — the SAME answer as the card colour (one sheet read)', async () => {
     as(LOGIN.goro)
     const spy = withReads()
@@ -417,10 +511,10 @@ describe('⚖ PKT-S38 R7 — the page: 予約の色分け is live while the door
     expect(await answer(await put())).toEqual({ status: 200, body: { ok: true, colors: PICK } })
     withReads().orgSettingsGet.mockImplementation(async () => coreRow(stored)) // the next request
     expect(dialOf(await render())).toEqual(PICK)
-    expect(bookingColorsFor(S, stored.booking_colors)).toEqual(PICK)
-    expect(bookingColorsFor(STORE.yokohama, stored.booking_colors)).toEqual(BOOKING_COLOR_DEFAULTS)
+    expect(bookingColorsFor(S, stored)).toEqual(PICK)
+    expect(bookingColorsFor(STORE.yokohama, stored)).toEqual(BOOKING_COLOR_DEFAULTS)
     expect(stored.business_type).toBe('beauty')
-    expect(await data.readBookingColors()).toEqual({ [STORE.yokohama]: BOOKING_COLOR_DEFAULTS, [S]: PICK })
+    expect(await data.readBookingColors()).toEqual({ booking_colors: { [STORE.yokohama]: BOOKING_COLOR_DEFAULTS }, [K(S)]: PICK })
   })
 })
 
