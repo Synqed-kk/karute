@@ -44,6 +44,7 @@ interface Registry {
   types: Record<string, { label: string; sections: string[]; recipe: Recipe['counts'] | null; realism?: Realism }>
   stores: Record<string, string>
   slotMinutes: Record<string, number>
+  cancelReasons: Record<string, number>
 }
 
 export const registry: Registry = JSON.parse(readFileSync(join(__dirname, 'registry.json'), 'utf8'))

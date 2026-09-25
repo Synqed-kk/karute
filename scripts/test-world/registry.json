@@ -84,6 +84,12 @@
     "c33e4c43-bc3b-4470-ac22-aa60fecdabe3": 30,
     "0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c": 30
   },
+  "$cancelReasons": "The share of each cancel reason (src/lib/appointments/status.ts CANCEL_REASONS) on a loader CANCELLED booking with no 回数券 burn; one with a burn always carries cancel-same-day-contact (the only cancel reason a burn may pair with).",
+  "cancelReasons": {
+    "cancel-advance-contact": 0.7,
+    "cancel-same-day-contact": 0.2,
+    "cancel-salon-initiated": 0.1
+  },
   "stores": {
     "aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f": "beauty_chiropractic",
     "c33e4c43-bc3b-4470-ac22-aa60fecdabe3": "personal_gym",
