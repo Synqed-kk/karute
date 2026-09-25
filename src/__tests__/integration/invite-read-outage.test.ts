@@ -105,7 +105,7 @@ import { createInvite } from '@/actions/invites'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { createInviteCore } from '@/lib/invites/invites.core'
-import { AppApiError } from '@/lib/app-api/errors'
+import { AppApiError, errorBody, toAppApiError } from '@/lib/app-api/errors'
 
 const staffId = getCurrentUserStaffId as unknown as jest.Mock
 const myCaps = getMyCapabilities as unknown as jest.Mock
@@ -230,12 +230,40 @@ describe('createInvite — an outage at the permission gate is an outage too (fo
 describe('createInvite — a roster outage inside the gate is an outage too (fold G2)', () => {
   beforeEach(() => gate.mockImplementation(realRequireCapability))
 
-  it('P9 the roster profiles read fails → STAFF_CREATE_FAILED, core never runs', async () => {
-    staffId.mockImplementation(
-      jest.requireActual<typeof import('@/lib/staff')>('@/lib/staff').getCurrentUserStaffId,
-    )
-    rosterRead = { data: null, error: { message: 'boom' } }
-    expectOutageAnswer(await createInvite(INVITE))
+  // A distinctive PostgREST message: it must reach the SERVER log at the source
+  // and nothing the caller sees (D-S24-2).
+  const DB_TEXT = 'PGRST-SECRET-42 connection refused'
+  const realStaff = () => jest.requireActual<typeof import('@/lib/staff')>('@/lib/staff')
+
+  it('P9 the roster profiles read fails → STAFF_CREATE_FAILED, core never runs, no database text out', async () => {
+    staffId.mockImplementation(realStaff().getCurrentUserStaffId)
+    rosterRead = { data: null, error: { message: DB_TEXT, code: 'PGRST000' } }
+    const res = await createInvite(INVITE)
+    expect(res).toEqual({ error: 'STAFF_CREATE_FAILED' })
+    expect(core).not.toHaveBeenCalled()
+    expect(invitesCreate).not.toHaveBeenCalled()
     expect(myCaps).not.toHaveBeenCalled() // refused at the gate, before the try
+    // The outage line: one, bounded, no database text, no email.
+    expect(outageLogs()).toHaveLength(1)
+    expect(outageLogs()[0][1]).not.toBeInstanceOf(Error)
+    for (const arg of outageLogs()[0]) {
+      for (const secret of ['PGRST-SECRET-42', INVITE.email]) {
+        expect(String(arg)).not.toContain(secret)
+        expect(JSON.stringify(arg) ?? '').not.toContain(secret)
+      }
+    }
+    // The database detail stays in the SERVER log — once, at the source.
+    const rosterLogs = consoleError.mock.calls.filter((c) => String(c[0]).startsWith('[getStaffList] staff profiles read failed'))
+    expect(rosterLogs).toHaveLength(1)
+    expect(String(rosterLogs[0][1])).toContain('PGRST-SECRET-42')
+    expect(consoleError).toHaveBeenCalledTimes(2)
+  })
+
+  it('P9b the facade maps the same throw to 502 with a FIXED message, never database text', async () => {
+    rosterRead = { data: null, error: { message: DB_TEXT, code: 'PGRST000' } }
+    const thrown = await realStaff().staffListByBusinessOrThrow('biz-1').catch((e: unknown) => e)
+    const apiErr = toAppApiError(thrown) // what facadeHandler does with an escaping throw
+    expect(apiErr.status).toBe(502)
+    expect(errorBody(apiErr)).toEqual({ error: { code: 'upstream_unavailable', message: 'staff profiles read failed' } })
   })
 })
