@@ -47,8 +47,16 @@ jest.mock('@/lib/audit-web', () => ({
 jest.mock('@/lib/synqed/staff-pager', () => ({ listAllCoreStaff: jest.fn(async () => []) }))
 // P4g reaches staff.ts's lazy SDK import. Jest cannot load the ESM-only SDK
 // there (a SyntaxError), so a stub client stands in; the roster read itself is
-// listAllCoreStaff above.
-jest.mock('@synqed-kk/client', () => ({ SynqedClient: class { staff = {} } }))
+// listAllCoreStaff above. P4h makes its construction throw.
+const mockSdk = { constructError: null as Error | null }
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: class {
+    staff = {}
+    constructor() {
+      if (mockSdk.constructError) throw mockSdk.constructError
+    }
+  },
+}))
 jest.mock('@/lib/karute/outcome', () => ({ setKaruteOutcome: jest.fn(async () => ({})) }))
 // The REAL consent cores, wrapped so a pin can see whether they ran.
 jest.mock('@/lib/customers/customers.core', () => {
@@ -120,6 +128,7 @@ import { join } from 'node:path'
 import { grantCustomerConsent, revokeCustomerConsent } from '@/actions/customers'
 import { updateKaruteOutcome } from '@/actions/karute-outcome'
 import { setStaffPermissions } from '@/actions/permissions'
+import { getStaffList } from '@/lib/staff'
 import { presetCapabilities } from '@/lib/auth/permissions'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { staffWriteInScope } from '@/lib/auth/store-scope'
@@ -362,6 +371,30 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     expect(action).toHaveLength(1)
     expect(action[0][1]).toEqual({ errName: 'AppApiError', errStatus: 502, errMessage: 'synqed-core roster fetch failed' })
     expect(consoleError).toHaveBeenCalledTimes(2)
+  })
+
+  // D-S26-3 (fold F3): only the roster READ is an outage. A client that cannot
+  // be constructed is a deployment defect and rejects raw, never as a 502.
+  it('P4h a failed SDK client construction is NOT typed as an outage — it rejects raw', async () => {
+    const env = { url: process.env.SYNQED_CORE_URL, key: process.env.SYNQED_CORE_API_KEY }
+    process.env.SYNQED_CORE_URL = 'http://core.test'
+    process.env.SYNQED_CORE_API_KEY = 'test-key'
+    mockSdk.constructError = new Error('bad client config')
+    const err = await getStaffList().then(
+      () => 'resolved',
+      (e: unknown) => e,
+    ).finally(() => {
+      mockSdk.constructError = null
+      if (env.url === undefined) delete process.env.SYNQED_CORE_URL
+      else process.env.SYNQED_CORE_URL = env.url
+      if (env.key === undefined) delete process.env.SYNQED_CORE_API_KEY
+      else process.env.SYNQED_CORE_API_KEY = env.key
+    })
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toMatchObject({ code: 'upstream_unavailable' })
+    expect((err as Error).message).toBe('bad client config')
+    expect(listAllCoreStaff).not.toHaveBeenCalled()
+    expect(logsStartingWith('[getStaffList] synqed-core roster fetch failed:')).toHaveLength(0)
   })
 
   // A real denial is a plain Error (require-permission.ts :120) — its answer
