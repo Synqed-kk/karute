@@ -15,6 +15,7 @@ import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { STAFF_CREATE_FAILED } from '@/lib/auth/store-gate'
+import { AppApiError } from '@/lib/app-api/errors'
 import {
   createInviteCore,
   isNewestLiveInviteForCard,
@@ -82,6 +83,14 @@ export async function createInvite(
   try {
     businessId = await requireInviteBusiness()
   } catch (e) {
+    // Round 3 leg 5 fold (2026-09-25, Greptile P1 on #1040): the gate rides the
+    // same memoised roster read as the try below, so an OUTAGE surfaces here
+    // first. Typed upstream_unavailable = outage → the create-failed line;
+    // a denial / removed membership / no session keeps today's answer.
+    if (e instanceof AppApiError && e.code === 'upstream_unavailable') {
+      console.error('[createInvite] pre-core read failed (permission gate / business):', e)
+      return { error: STAFF_CREATE_FAILED }
+    }
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 

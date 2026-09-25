@@ -24,7 +24,11 @@ jest.mock('@synqed-kk/client', () => ({
   SynqedClient: class {},
   SynqedError: class extends Error {},
 }))
+// The gate is a no-op for P1–P4; P5–P8 hand requireCapability back to the
+// REAL one, whose internal can → getMyCapabilities chain reads the profile
+// through the service mock below (the throw happens inside the gate).
 jest.mock('@/lib/auth/require-permission', () => ({
+  ...jest.requireActual<typeof import('@/lib/auth/require-permission')>('@/lib/auth/require-permission'),
   can: jest.fn(async () => true),
   requireCapability: jest.fn(async () => {}),
   getMyCapabilities: jest.fn(),
@@ -47,11 +51,13 @@ jest.mock('@/lib/audit-web', () => ({
 jest.mock('@/lib/subscription/feature-gate', () => ({
   staffAddAllowed: jest.fn(async () => ({ allowed: true })),
 }))
+// The gate's profile read (P5–P8 only; null = the core's empty member lookup).
+let gateProfileRead: { data: unknown; error: unknown } | null = null
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const chain: Record<string, unknown> = {}
     for (const m of ['select', 'eq', 'ilike']) chain[m] = () => chain
-    ;(chain as { maybeSingle: unknown }).maybeSingle = async () => ({ data: null })
+    ;(chain as { maybeSingle: unknown }).maybeSingle = async () => gateProfileRead ?? { data: null }
     return { from: () => chain }
   },
 }))
@@ -80,13 +86,19 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { createInvite } from '@/actions/invites'
-import { getCurrentUserStaffId } from '@/lib/staff'
-import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { createInviteCore } from '@/lib/invites/invites.core'
+import { AppApiError } from '@/lib/app-api/errors'
 
 const staffId = getCurrentUserStaffId as unknown as jest.Mock
 const myCaps = getMyCapabilities as unknown as jest.Mock
 const core = createInviteCore as unknown as jest.Mock
+const gate = requireCapability as unknown as jest.Mock
+const businessId = getBusinessId as unknown as jest.Mock
+const realRequireCapability = jest.requireActual<typeof import('@/lib/auth/require-permission')>(
+  '@/lib/auth/require-permission',
+).requireCapability
 
 // Every capability a STYLIST invite seeds (hold what you grant).
 const FULL = new Set(['staff.manage', 'records.write', 'customers.view', 'customers.manage', 'bookings.manage'])
@@ -98,6 +110,9 @@ beforeEach(() => {
   consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
   staffId.mockResolvedValue('actor-1')
   myCaps.mockResolvedValue(FULL)
+  gateProfileRead = null
+  gate.mockImplementation(async () => {})
+  businessId.mockResolvedValue('biz-1')
 })
 afterEach(() => consoleError.mockRestore())
 
@@ -147,6 +162,44 @@ describe('createInvite — a thrown pre-core read is an outage (D-S23-1)', () =>
     expect(core.mock.calls[0][2]).toEqual(expect.objectContaining({ callerCapabilities: FULL }))
     expect(invitesCreate).toHaveBeenCalledTimes(1)
     // The core's own fixture-path notes may log; the outage line must not.
+    expect(outageLogs()).toHaveLength(0)
+  })
+})
+
+// Greptile P1 on #1040: requireInviteBusiness() runs FIRST and rides the same
+// memoised roster/permission read, so a real outage surfaces at the gate —
+// never reaching the try above. The gate here is the REAL requireCapability.
+describe('createInvite — an outage at the permission gate is an outage too (fold G1)', () => {
+  const OWNER_ROW = { data: { display_role: 'owner', permission_role: 'owner', permissions: null }, error: null }
+  beforeEach(() => gate.mockImplementation(realRequireCapability))
+
+  it('P5 the gate\'s permission read fails → STAFF_CREATE_FAILED, core never runs', async () => {
+    gateProfileRead = { data: null, error: { code: '08006', message: 'connection failure' } }
+    expectOutageAnswer(await createInvite(INVITE))
+    expect(myCaps).not.toHaveBeenCalled() // refused at the gate, before the try
+  })
+
+  it('P6 a real denial keeps today\'s answer, byte-identical', async () => {
+    // senior: sees every store (no assignment read) but holds no staff.invite.
+    gateProfileRead = { data: { display_role: 'STYLIST', permission_role: 'senior', permissions: null }, error: null }
+    const res = await createInvite(INVITE)
+    expect(res).toEqual({ error: 'You do not have permission to perform this action.' })
+    expect(core).not.toHaveBeenCalled()
+    expect(outageLogs()).toHaveLength(0)
+  })
+
+  it('P7 the business read fails (upstream_unavailable) → STAFF_CREATE_FAILED, core never runs', async () => {
+    gateProfileRead = OWNER_ROW
+    businessId.mockRejectedValue(new AppApiError('upstream_unavailable', 'Business membership lookup failed'))
+    expectOutageAnswer(await createInvite(INVITE))
+  })
+
+  it('P8 a removed membership keeps today\'s answer', async () => {
+    gateProfileRead = OWNER_ROW
+    businessId.mockRejectedValue(new AppApiError('membership_inactive', 'No active business membership for this user'))
+    const res = await createInvite(INVITE)
+    expect(res).toEqual({ error: 'No active business membership for this user' })
+    expect(core).not.toHaveBeenCalled()
     expect(outageLogs()).toHaveLength(0)
   })
 })
