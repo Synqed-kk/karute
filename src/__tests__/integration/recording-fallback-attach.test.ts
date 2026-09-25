@@ -97,7 +97,7 @@ jest.mock('@/lib/ports/recording-port', () => ({
 const put = jest.fn(async (_url: string, _init: { body: Blob }) => ({ ok: true, status: 200 }) as Response)
 global.fetch = put as unknown as typeof fetch
 
-import { runAIPipeline, type PipelineContext } from '@/lib/ai-pipeline'
+import { runAIPipeline, takeLengthSeconds, type PipelineContext } from '@/lib/ai-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 
 const memory = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
@@ -218,7 +218,8 @@ describe('S34 — the fallback adopts the row the server made', () => {
     serverNames(MINTED_ROW)
     const onSessionAdopted = jest.fn()
     await run({ onSessionAdopted })
-    expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'no_session' })
+    // S35 C1: the take's 42 s stop stamp rides along — the row is born with it.
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'no_session', durationSeconds: 42 })
     expect(store.meta?.recordingSessionId).toBe(MINTED_ROW)
     // …and SECURED at the key just PUT on that row, in the same write (Greptile #1039).
     expect(adoptTakeSession).toHaveBeenCalledWith(TAKE, MINTED_ROW, 'app_biz-1_server-named.webm')
@@ -263,7 +264,7 @@ describe('S34 — the fallback adopts the row the server made', () => {
     store.meta = { ...NO_SESSION_TAKE }
     const onSessionAdopted = jest.fn()
     await run({ onSessionAdopted })
-    expect(prepareTranscription.mock.calls).toEqual([[memory, null, { attachOutcome: 'no_session' }]])
+    expect(prepareTranscription.mock.calls).toEqual([[memory, null, { attachOutcome: 'no_session', durationSeconds: 42 }]])
     expect(adoptTakeSession).not.toHaveBeenCalled()
     expect(store.meta?.recordingSessionId).toBeUndefined()
     expect(onSessionAdopted).not.toHaveBeenCalled()
@@ -333,5 +334,56 @@ describe('S34 — the fallback adopts the row the server made', () => {
     expect(adoptTakeSession).not.toHaveBeenCalled()
     expect(onSessionAdopted).toHaveBeenCalledWith(MINTED_ROW)
     expect(info).toHaveBeenCalledWith('[ai-pipeline] adopted minted session', { takeId: null, adopted: true })
+  })
+})
+
+// ── ⚖ S35 C1 — THE ROW THE SERVER MAKES IS BORN WITH ITS LENGTH ──────────────
+// That row is never finalized, so the 'no_session' body carries what finalize
+// writes on a row that had one from the start: the take's stop stamp in whole
+// seconds (finalize-take.ts floors it). The server half is pinned in
+// mint-take-unbound-bind.test.ts; the two ports in recording-port-web-upload
+// and thin-discard-transcript-port.
+describe('S35 C1 — the no_session fallback sends the take length', () => {
+  const lastOpts = () => prepareTranscription.mock.calls.at(-1)?.[2] as Record<string, unknown>
+
+  it('T1 a 63,400 ms stop stamp → durationSeconds 63, beside the visit', async () => {
+    store.meta = { mimeType: 'audio/webm', durationMs: 63_400, startedAt: 0, updatedAt: 1 }
+    await run({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(lastOpts()).toEqual({ attachOutcome: 'no_session', customerId: 'cust-1', appointmentId: 'appt-1', durationSeconds: 63 })
+  })
+
+  it.each([
+    ['0', 0],
+    ['NaN', NaN],
+    ['absent (the stop never stamped)', undefined],
+  ])('T2 durationMs %s → no length is sent, never a made-up 0', async (_label, durationMs) => {
+    store.meta = { mimeType: 'audio/webm', durationMs, startedAt: 0, updatedAt: 1 }
+    await run()
+    expect(lastOpts().attachOutcome).toBe('no_session')
+    expect(lastOpts().durationSeconds).toBeUndefined()
+  })
+
+  it('T2 no take at all → no length', async () => {
+    await runAIPipeline(memory, null, 'ja', () => {}, { durationSeconds: 42 })
+    expect(lastOpts()).toEqual({ attachOutcome: 'no_session' })
+    expect(lastOpts().durationSeconds).toBeUndefined()
+  })
+
+  it('T4 a recording that HAS a row never sends it: attach_failed, and the finalized path', async () => {
+    store.meta = { recordingSessionId: SESSION, mimeType: 'audio/webm', durationMs: 63_400, startedAt: 0, updatedAt: 1 }
+    store.blob = new Blob(['stored'], { type: 'audio/webm' })
+    mintTakeUrl.mockResolvedValueOnce({ error: 'reserved_elsewhere' })
+    await run()
+    expect(lastOpts()).toStrictEqual({ attachOutcome: 'attach_failed' })
+    store.meta = { recordingSessionId: SESSION, mimeType: 'audio/webm', durationMs: 63_400, startedAt: 0, updatedAt: 1 }
+    await run()
+    expect(prepareTranscription).toHaveBeenLastCalledWith(memory, TAKE_KEY, undefined)
+  })
+
+  it('takeLengthSeconds — whole seconds, floored as finalize floors them; nothing honest → undefined', () => {
+    expect(takeLengthSeconds(63_400)).toBe(63)
+    expect(takeLengthSeconds(63_900)).toBe(63)
+    expect(takeLengthSeconds(1_000)).toBe(1)
+    for (const v of [undefined, 0, 999, -5_000, NaN, Infinity]) expect(takeLengthSeconds(v)).toBeUndefined()
   })
 })

@@ -209,6 +209,28 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
     expect(res).toEqual({ id: 'session-1' })
   })
 
+  // ⚖ S35 C1 — only the server-named mint may give a row its birth length
+  // (session-mint.ts's own `born` argument). This door spreads its
+  // caller-supplied argument into the create's input, so a length there must
+  // never reach the row.
+  it('a durationSeconds in the argument never reaches the create (S35 C1)', async () => {
+    await startRecordingSession({
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+      takeId: TAKE,
+      mimeType: 'audio/webm',
+      durationSeconds: 63,
+    } as never)
+    expect(recordingsCreate).toHaveBeenCalledWith({
+      staff_id: 'staff-1',
+      customer_id: 'cust-1',
+      appointment_id: 'appt-1',
+      store_id: 'store-1',
+      audio_storage_path: KEY,
+      status: 'UPLOADING',
+    })
+  })
+
   it('takes the tenant prefix from the COOKIE session, never from the argument', async () => {
     getBusinessId.mockResolvedValueOnce('biz-9')
     await startRecordingSession({ customerId: null, appointmentId: null, takeId: TAKE, mimeType: 'audio/mp4' })

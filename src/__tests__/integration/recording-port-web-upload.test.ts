@@ -461,6 +461,36 @@ describe('webRecordingPort.prepareTranscription — the minted row (S34)', () =>
   })
 })
 
+// ⚖ S35 C1 — a no-row fallback also sends the take's length: what the row the
+// server makes is born with (ai-pipeline's takeLengthSeconds builds it).
+describe('webRecordingPort.prepareTranscription — the take length (S35 C1)', () => {
+  it('T7 no_session carries durationSeconds beside the visit', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null, {
+      attachOutcome: 'no_session',
+      customerId: 'cust-1',
+      durationSeconds: 63,
+    })
+    expect(mintRecordingUploadUrl.mock.calls.at(-1)?.[0]).toStrictEqual({
+      attachOutcome: 'no_session',
+      customerId: 'cust-1',
+      durationSeconds: 63,
+    })
+  })
+
+  it('T2 no length → the field is not sent', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null, { attachOutcome: 'no_session', durationSeconds: undefined })
+    expect(mintRecordingUploadUrl.mock.calls.at(-1)?.[0]).toStrictEqual({ attachOutcome: 'no_session' })
+  })
+
+  it('T4 the finalized path mints nothing, whatever it is handed', async () => {
+    await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm', {
+      attachOutcome: 'no_session',
+      durationSeconds: 63,
+    })
+    expect(mintRecordingUploadUrl).not.toHaveBeenCalled()
+  })
+})
+
 describe('webRecordingPort.finalizedKey', () => {
   it('asks the composing action and answers its key verbatim', async () => {
     await expect(webRecordingPort.finalizedKey('take-9', 'audio/mp4')).resolves.toBe(
