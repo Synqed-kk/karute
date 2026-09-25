@@ -1,7 +1,7 @@
 // The ONE switch registry for the recording lane — the recording copy of
 // src/lib/appointments/booking-switches.ts. Plain constants — no env, no
 // settings read: a flip is a one-line server PR through the normal gate, needs
-// no phone bake, and both states are pinned by tests. Every switch is honest
+// no phone bake when the switch is server-side (it flips with the deploy; a CLIENT-side switch — today `captureWarningNotice` — reaches the phone only with its next bake), and both states are pinned by tests. Every switch is honest
 // when OFF: nothing it gates half-runs.
 export const RECORDING_SWITCHES = {
   /** A server-named upload (the in-tab fallback, and an old phone's copy of a
