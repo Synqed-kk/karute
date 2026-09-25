@@ -503,7 +503,7 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
   })
   // ⚖ PR-3 — the mark keys on the door being ON, never on `state === 'sample'`
   // (which is also every OFF answer).
-  it('PR-3 marked: OFF false on every fixture store; ON true on a twin; ON + none policy is its own state', () => {
+  it('PR-3 marked: OFF false on every fixture store; ON true on a twin and on a borrower (V4-2)', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     for (const id of [STORE_A, STORE_B]) expect(storeSample(id)).toMatchObject({ state: 'sample', marked: false })
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
@@ -862,11 +862,15 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
 })
 
 describe('(12) PR-3 — 今日の運営 marks its SAMPLE planes under the door', () => {
-  it.each([['twin 東京', STORE.tokyo], ['Dev Salon (none)', STORE.devSalon]])('%s: the board carries marked; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store) => {
+  it.each([['twin 東京', STORE.tokyo], ['Dev Salon (borrows 東京)', STORE.devSalon]])('%s: the board carries its marks; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store) => {
     const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
     const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
     const props = (el as unknown as { props: Record<string, unknown> }).props
-    expect(props.marked).toBe(true)
+    // ⚖ §v3 — the grid head names its planes (D2 order); the decisions + 勤務不可 marks are whole.
+    expect(props.boardMark).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+    expect(props.decisionsMark).toEqual({ form: 'whole' })
+    expect(props.absenceMark).toEqual({ form: 'whole' })
+    expect(props).not.toHaveProperty('marked')
     const json = JSON.stringify(props)
     expect(json).not.toContain('様様')
     expect(json).not.toMatch(/(MANUAL|QUICKRESERVE|SYNQED_RESERVE|SALON_BOARD|HOT_PEPPER|OTHER) \//)

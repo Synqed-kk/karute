@@ -1815,17 +1815,18 @@
 .biz .decision-evidence { display: flex; gap: 10px; color: var(--ink-3); font-size: 12px; white-space: nowrap; }
 .biz .decision-evidence b { color: var(--ink); font-variant-numeric: tabular-nums; }
 /* ⚖ PR-3 — the 「サンプル」 mark (the shell's token) on this board's SAMPLE
-   planes. On a card it takes its own column LEFT of the evidence, so it stays
-   on screen at every width; in a head it sits beside the title (in 勤務不可's
-   strip it is the FIRST child, drawn last by `order`, so the strip's own
+   planes: ONE per region (§v3 V3-6) — the grid head, the 次に決めること head,
+   the 勤務不可 strip, and a count cell only when its count is above 0; never on
+   a card or a lane. In a head it sits beside the title (in 勤務不可's strip it
+   is the FIRST child, drawn last by `order`, so the strip's own
    `> span:last-child > span` sub-line rule still finds its sub-line). The
-   room's head and count-cell `span` rules (0,3,1: 11–12.5px grey) would
-   shrink it, so its ink and 13px are restated at 0,4,0. */
-.biz .decision-card.is-sample { grid-template-columns: minmax(150px, auto) minmax(0, auto) minmax(0, 1fr) auto auto; }
+   room's head and count-cell `span` rules (0,3,1: 11–12.5px grey, block) would
+   shrink it, so its ink, 13px and inline box are restated at 0,4,0. */
 .biz .section-head > .sample-mark { margin-right: auto; }
 .biz .incident-main > .sample-mark { order: 3; }
-.biz .page-today :is(.section-head, .register-cell, .incident-main) .sample-mark { color: var(--amber); font-size: 13px; font-weight: 600; }
+.biz .page-today :is(.section-head, .register-cell, .incident-main, .board-head) .sample-mark { display: inline-flex; margin-top: 0; color: var(--amber); font-size: 13px; font-weight: 600; }
 .biz .page-today .register-cell .sample-mark { min-height: 20px; margin-left: 6px; padding: 0 8px; }
+.biz .page-today .board-mark-note { margin: 0; padding: 0 16px 8px; }
 .biz .kpi-strip { display: flex; flex-wrap: wrap; }
 
 .biz .decision-rows { border: 1px solid var(--card); border-radius: 10px; overflow: hidden; }

@@ -11715,7 +11715,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "} from '@/business/lib/canon-logic/drag-rules'",
     "} from '@/business/lib/canon-logic/pricing'",
     "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",
-    "import { businessStrings } from '@/business/i18n'",
+    "import { businessStrings, sampleMarkLines } from '@/business/i18n'",
     "import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'",
     // ⚖ S17 fix round 5 · G2 (D-44) — the ONE home every link into 設定 is built
     // by. Pure, no imports of its own, reached for the 保護ルール chip and nothing
@@ -15281,13 +15281,26 @@ describe('⚖ D-53 (c) R1 — N0 source-text pin: needsUnit, the seam, the order
 })
 
 // ⚖ PR-3 — THE 「サンプル」 LABEL IS UNREACHABLE WITH THE SWITCH OFF: every place the
-// screen draws it is gated on `props.marked` (absent unless the practice door is ON),
-// and a card carries `is-sample` on the same gate.
-describe('⚖ PR-3 — the board’s sample label is gated on the door', () => {
+// screen draws it is gated on a mark prop (absent unless the practice door is ON and
+// the plane is sample). ⚖ §v3 V3-6 — ONE per region: the grid head, the decision
+// head, the 勤務不可 strip, and the two count cells only above 0; never a card.
+describe('⚖ PR-3 — the board’s sample label is gated on the door, one per region', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
-  it('every sampleChip use is `{props.marked && sampleChip}`, and there are five (two counts, 勤務不可, the decision head, each card)', () => {
-    const uses = SRC.match(/\{[^{}]*sampleChip\}/g) ?? []
-    expect(uses).toEqual(Array(5).fill('{props.marked && sampleChip}'))
-    expect(SRC).toContain("${props.marked ? ' is-sample' : ''}")
+  it('every sampleChip use is gated on its own mark prop, and there are five', () => {
+    const uses = SRC.match(/\{[^{}]*sampleChip\([^()]*\)\}/g) ?? []
+    expect(uses.sort()).toEqual([
+      '{props.absenceMark && sampleChip(props.absenceMark)}',
+      '{props.boardMark && sampleChip(props.boardMark)}',
+      '{props.decisionsMark && sampleChip(props.decisionsMark)}',
+      '{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}',
+      '{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}',
+    ])
+    expect(SRC).toContain('{props.boardMark && <p className="sample-mark-note board-mark-note">{sampleMarkLines(props.boardMark).note}</p>}')
+    expect(SRC).not.toContain('is-sample')
+    expect(SRC).not.toContain('props.marked')
+  })
+  it('a decision card carries no chip (the card is a <button>; its section head carries the mark)', () => {
+    const card = SRC.slice(SRC.indexOf('<div className="decision-grid">'), SRC.indexOf('<div className="decision-grid">') + 2000)
+    expect(card).not.toContain('sampleChip')
   })
 })

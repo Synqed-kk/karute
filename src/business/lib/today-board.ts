@@ -429,7 +429,8 @@ export function decisionTitle(kind: string, b: Pick<BoardBooking, 'customerName'
   const name = b?.customerName
   if (kind === 'レジ') return name ? `${name}様の精算を完了する` : t.titleCheckout
   if (kind === 'Reserve販売') return `${slotStart == null ? '' : hhmm(slotStart)}の安全な1枠を販売する`
-  const at = `${b ? hhmm(b.startMinute) : ''} `
+  // ⚖ §v3 V3-9 — the time and its space only when there is a booking: no leading space.
+  const at = b ? `${hhmm(b.startMinute)} ` : ''
   if (kind === '担当不在') return at + (name ? `${name}様の担当不在に対応する` : t.titleAbsent)
   return at + (name ? `${name}様へ担当変更案を送る` : t.titleHandover)
 }

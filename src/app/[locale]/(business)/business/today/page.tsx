@@ -31,7 +31,7 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
 import { bedSecuredProof } from '@/business/lib/fixtures-today'
-import { isMarked, storeSample } from '@/business/lib/practice-door/sample-facade'
+import { samplePart, sampleWhole, storeSample } from '@/business/lib/practice-door/sample-facade'
 import {
   defaultStoreId,
   listAppointments,
@@ -189,10 +189,15 @@ export default async function TodayPage({
   // `capabilitiesByStore` below still needs for every store option regardless
   // of clamping. `wordsByStore` (the prop every lane indexes) narrows this on
   // a clamped board (next line's own comment); this internal map does not.
-  // ⚖ PR-3 — THE DOOR IS ON (the facade's `isMarked`, never `state === 'sample'`):
-  // this board's SAMPLE planes — the decision cards, their counts, the 勤務不可
-  // strip — carry the 「サンプル」 mark. Switch OFF: false, and no prop is added.
-  const marked = storeOptions.some((s) => isMarked(storeSample(s.id)))
+  // ⚖ PR-3 §v3 — THE MARKS ARE THE PLANE TABLE'S (the facade's readers), for the
+  // stores this board shows. The board grid: ONE head mark naming the sample
+  // planes it paints (シフトと休み・販売可能枠・営業時間), never one per lane. The
+  // decisions: ONE section mark (the cards carry none). 勤務不可: its strip's
+  // own. Switch OFF every reader answers nothing and no prop is added.
+  const markStores = clamped ? [storeId!] : storeOptions.map((s) => s.id)
+  const boardMark = samplePart(markStores, 'shifts', 'absence', 'sellSlots', 'operatingHours')
+  const decisionsMark = sampleWhole(markStores, 'decisions')
+  const absenceMark = sampleWhole(markStores, 'absence', 'recoverySteps')
   const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
     storeOptions.map((s) => [s.id, wordsForStore(s.business_type, storeSample(s.id).words)]),
   )
@@ -734,7 +739,9 @@ export default async function TodayPage({
     inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,
     incident,
     cards,
-    ...(marked ? { marked: true as const } : {}),
+    ...(boardMark ? { boardMark } : {}),
+    ...(decisionsMark ? { decisionsMark } : {}),
+    ...(absenceMark ? { absenceMark } : {}),
     cases,
     kpi: {
       count: `${totals.count}件`,

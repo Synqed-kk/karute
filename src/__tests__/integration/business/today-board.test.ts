@@ -1623,7 +1623,9 @@ describe('⚖ PR-3 — SOURCE_WORD / sourceLine / decisionTitle', () => {
     expect(tb.decisionTitle('担当不在', b, null)).toBe('10:00 見本 あかり様の担当不在に対応する')
     expect(tb.decisionTitle('担当変更', b, null)).toBe('10:00 見本 あかり様へ担当変更案を送る')
     expect(tb.decisionTitle('レジ', undefined, null)).toBe('お客様の精算を完了する')
-    expect(tb.decisionTitle('担当不在', undefined, null).trim()).toBe('お客様の担当不在に対応する')
+    // ⚖ §v3 V3-9 — no booking, no time and no leading space.
+    expect(tb.decisionTitle('担当不在', undefined, null)).toBe('お客様の担当不在に対応する')
+    expect(tb.decisionTitle('担当変更', undefined, null)).toBe('お客様へ担当変更案を送る')
     expect(tb.decisionTitle('担当変更', { customerName: '', startMinute: 600 }, null)).toBe('10:00 お客様へ担当変更案を送る')
     expect(tb.decisionTitle('Reserve販売', undefined, 780)).toBe('13:00の安全な1枠を販売する')
     for (const k of ['レジ', '担当不在', '担当変更']) expect(tb.decisionTitle(k, undefined, null)).not.toContain('様様')
