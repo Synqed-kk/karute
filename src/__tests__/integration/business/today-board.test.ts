@@ -56,6 +56,7 @@ import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { money } from '@/business/lib/canon-logic/pricing'
 import {
   availableMinutes,
+  BOOKING_COLOR_DEFAULTS,
   bookingCategory,
   buildLanes,
   dayBookings,
@@ -439,6 +440,25 @@ describe('今日の運営 screen', () => {
   it('gates itself: a denied session 404s the page, not just the layout', async () => {
     supabase.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: null }, error: null }) } })
     await expect(board()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  /** 予約の色分け — WHAT THE PAGE HANDS THE SCREEN. The screen only indexes
+   *  `bookingColors` (no renderer here, so its `--cat` sites are text-pinned in
+   *  today-explains.test.ts), which makes the page's half the one to execute:
+   *  the `''` entry a no-store view falls back to (= the defaults), an entry for
+   *  every store option, and one for every booking's store the screen will look
+   *  up through `storeByCase`. Nothing saves a colour yet, so every entry is the
+   *  defaults. */
+  it('予約の色分け — the props carry the \'\' entry, every store option, and every booking\'s store', async () => {
+    const p = await board(STORE_A)
+    const keys = Object.keys(p.bookingColors)
+    expect(p.bookingColors['']).toEqual(BOOKING_COLOR_DEFAULTS)
+    const options = await data.listStoreOptions()
+    expect(options.length).toBeGreaterThan(0)
+    for (const o of options) expect(keys).toContain(o.id)
+    expect(Object.keys(p.storeByCase).length).toBeGreaterThan(0)
+    for (const store of Object.values(p.storeByCase)) expect(keys).toContain(store)
+    for (const k of keys) expect(p.bookingColors[k]).toEqual(BOOKING_COLOR_DEFAULTS)
   })
 
   /** ⚖ ROOM RULE, FIX ROUND 1 (L2 N2) — THE TWO FACTS, EXECUTED ON THE REAL BOARD.

@@ -491,6 +491,13 @@ export function bookingColorsFor(storeId: string | null, raw: unknown): BookingC
   }
   return { new: pick('new'), repeat: pick('repeat'), ticket: pick('ticket'), vip: pick('vip') }
 }
+/** The ONE lookup the board paints with (TodayScreen's `catVar` wraps it in `--cat`): `map` = page.tsx's
+ *  per-store map, a store with no entry takes `''`'s. No category / no entry / an unknown category → undefined. */
+export function bookingColorHex(map: Record<string, BookingColors>, store: string | null | undefined, cat: string | null | undefined): string | undefined {
+  if (!cat) return undefined
+  const colors = map[store ?? ''] ?? map['']
+  return colors !== undefined && Object.prototype.hasOwnProperty.call(colors, cat) ? colors[cat as BookingCategory] : undefined
+}
 
 /** Every booking on the day, with the joins the board needs and its category
  *  resolved. `onBoard` is the absence rule; the row itself always exists. */

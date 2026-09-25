@@ -12,9 +12,12 @@
 //   (b) the resolver's closed shape: per key a `#rrggbb` (any case, returned
 //       lowercase) or that key's default; anything else falls back per key.
 //   (c) it never throws, whatever the stored value is.
+//   (d) `bookingColorHex` — the ONE lookup the board paints with (TodayScreen's
+//       `catVar` only wraps it in `--cat`): the store's own entry, else `''`'s,
+//       else nothing, so today.css's hex paints.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { BOOKING_COLOR_DEFAULTS, bookingColorsFor, type BookingColors } from '@/business/lib/today-board'
+import { BOOKING_COLOR_DEFAULTS, bookingColorHex, bookingColorsFor, type BookingColors } from '@/business/lib/today-board'
 
 const SAVED: BookingColors = { new: '#112233', repeat: '#445566', ticket: '#778899', vip: '#aabbcc' }
 const KEYS = ['new', 'repeat', 'ticket', 'vip']
@@ -96,5 +99,31 @@ describe('(c) never throws', () => {
   })
   it('the null-prototype saved map still resolves', () => {
     expect(bookingColorsFor('store-1', bare)).toEqual(SAVED)
+  })
+})
+
+describe('(d) bookingColorHex — the store\'s own entry, else \'\', else nothing', () => {
+  const MAP: Record<string, BookingColors> = { '': BOOKING_COLOR_DEFAULTS, 'store-1': SAVED }
+  const CATS = KEYS as Array<keyof BookingColors>
+  it.each(CATS)('store present → that store\'s hex (%s)', (cat) => {
+    expect(bookingColorHex(MAP, 'store-1', cat)).toBe(SAVED[cat])
+  })
+  it.each(CATS)('store absent from the map → the \'\' entry (%s)', (cat) => {
+    expect(bookingColorHex(MAP, 'store-2', cat)).toBe(BOOKING_COLOR_DEFAULTS[cat])
+  })
+  it.each(CATS)('store null / undefined → the \'\' entry (%s)', (cat) => {
+    expect(bookingColorHex(MAP, null, cat)).toBe(BOOKING_COLOR_DEFAULTS[cat])
+    expect(bookingColorHex(MAP, undefined, cat)).toBe(BOOKING_COLOR_DEFAULTS[cat])
+  })
+  it('no \'\' entry and the store absent → undefined', () => {
+    for (const cat of CATS) {
+      expect(bookingColorHex({ 'store-1': SAVED }, 'store-2', cat)).toBeUndefined()
+      expect(bookingColorHex({ 'store-1': SAVED }, null, cat)).toBeUndefined()
+    }
+  })
+  it('no category, or one the map does not carry → undefined', () => {
+    for (const cat of [null, undefined, '', 'other', 'toString', 'constructor', '__proto__']) {
+      expect(bookingColorHex(MAP, 'store-1', cat)).toBeUndefined()
+    }
   })
 })

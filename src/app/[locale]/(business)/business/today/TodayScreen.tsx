@@ -60,7 +60,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
+import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -8476,10 +8476,10 @@ export function TodayScreen(props: TodayProps) {
     )
   }
 
-  // 予約の色分け — a category's `--cat` off its STORE's own four (`props.bookingColors`,
-  // `''` = no store). No map → no inline var, and today.css's hex paints as before.
+  // 予約の色分け — a category's `--cat` off its STORE's own four (`bookingColorHex`, today-board.ts;
+  // `''` = no store). No hex → no inline var, and today.css's hex paints as before.
   const catVar = (store: string | null | undefined, cat: string | null | undefined): React.CSSProperties | undefined => {
-    const hex = cat ? (props.bookingColors[store ?? ''] ?? props.bookingColors[''])?.[cat as BookingCategory] : undefined
+    const hex = bookingColorHex(props.bookingColors, store, cat)
     return hex ? ({ '--cat': hex } as React.CSSProperties) : undefined
   }
 

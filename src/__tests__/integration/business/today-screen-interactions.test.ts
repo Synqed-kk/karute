@@ -11725,7 +11725,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // ⚖ FRAME-SEAM (2026-09-12) — `type Hours` joins it: `handBoardFor` is a
     // module-level exported pure function now (the re-landing rule, spelled once
     // so the strip can ask it too) and its signature names the day's hours.
-    "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'",
+    "import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'",
     // ⚖ two entries below are split with `+` at the SAME runtime value —
     // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
     // `from '…'` across every file in its own territory, this test file
