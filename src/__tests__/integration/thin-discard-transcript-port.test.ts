@@ -294,6 +294,19 @@ describe('the flag flip — the fix itself', () => {
       expect(r.recordingSessionId).toBeNull()
     })
 
+    // Only a string is a row id — anything else the JSON carries is not adopted.
+    it.each([
+      ['a number', 123],
+      ['an object', {}],
+      ['true', true],
+    ])('T4 a non-string truthy value (%s) → null', async (_label, value) => {
+      upload({ recordingSessionId: value })
+      const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+      })
+      expect(r.recordingSessionId).toBeNull()
+    })
+
     it('T4 null on the finalized path — nothing was minted', async () => {
       const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), 'app_business-1_t.webm')
       expect(r.recordingSessionId).toBeNull()
