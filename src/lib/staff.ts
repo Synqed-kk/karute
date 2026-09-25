@@ -185,8 +185,12 @@ async function synqedStaffWithoutProfile(
         isManagement: false,
       })) as StaffMember[]
   } catch (err) {
-    console.error('[getStaffList] synqed-core roster fetch failed:', err)
-    throw err
+    // Round 3 leg 6 F2 (2026-09-25, D-S26-1): a failed synqed-core roster fetch is
+    // an upstream outage like the profiles read above — typed so the gate catches
+    // (D-S25-1) can tell it from a denial, with a FIXED message to the wire; the
+    // core detail stays on `cause` and in this one bounded log (lesson 85).
+    console.error('[getStaffList] synqed-core roster fetch failed:', describeUnknownThrow(err))
+    throw new AppApiError('upstream_unavailable', 'synqed-core roster fetch failed', undefined, err)
   }
 }
 
