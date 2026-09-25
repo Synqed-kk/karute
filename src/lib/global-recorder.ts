@@ -516,9 +516,9 @@ class GlobalRecorder {
             ...p.born,
             recordingSessionId: recordingSessionId ?? p.born.recordingSessionId,
           }))
-      if (!whole) return
-      p.disabled = false
-      p.revive = { tries: 0, at: 0 }
+      // The ladder is reset by the next append that LANDS, not here: a store
+      // that reads but refuses writes (a full disk) keeps backing off.
+      if (whole) p.disabled = false
     })
   }
 
@@ -582,6 +582,7 @@ class GlobalRecorder {
           }
           p.seq = seq + 1
           p.count = count
+          p.revive.tries = 0
         }
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
         // forget off the persist queue: the pump has its own single-flight and
