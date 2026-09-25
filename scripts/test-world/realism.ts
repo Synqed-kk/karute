@@ -80,7 +80,6 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
     if (a.store_id !== storeId) throw new Refused(`booking ${a.id} belongs to store ${a.store_id}, not ${storeId}`)
   }
   const planned = new Map(i.plan.appointments.map((a) => [a.key, a]))
-  const pool = new Set(recipe.requests.map((l) => l.text))
   const seen = new Map<string, number>()
   for (const a of i.rows) { const t = TAG.exec(a.notes ?? '')?.[1]; if (t) seen.set(t, (seen.get(t) ?? 0) + 1) }
   const held: string[] = []
@@ -89,12 +88,11 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
     const tag = TAG.exec(a.notes ?? '')?.[1]
     const p = tag ? planned.get(tag) : undefined
     const bare = `テストデータ [${tag}]`
-    const body = (a.notes ?? '').startsWith(`${bare}\n`) ? a.notes!.slice(bare.length + 1) : null
     const why = !tag ? `not a loader booking (source ${a.source})`
       : seen.get(tag)! > 1 ? `its tag ${tag} is on ${seen.get(tag)} bookings`
       : !p ? `${tag} is not in the plan`
       : a.customer_id !== i.custId.get(p.member) ? `its customer differs from the planned customer (${p.member})`
-      : a.notes !== bare && !(body && pool.has(body)) ? 'its notes were edited by hand'
+      : a.notes !== bare && a.notes !== bookingNotes(p) ? 'its notes were edited by hand' // any text but the plan's own line
       : null
     if (why) {
       const dur = a.duration_minutes != null ? '' : i.repairForeign ? ' — but its null duration_minutes is set to the booked span (--repair-foreign)'

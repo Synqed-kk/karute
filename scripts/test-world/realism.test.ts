@@ -292,6 +292,23 @@ async function pass() {
   const cancels = w2.rows.filter((r) => r.status === 'CANCELLED' && r.status_set_by == null).map((r) => r.id)
   const paired = planStore({ ...input, rows: w2.rows, karuted: new Set(), burnt: new Set(cancels) }).changes.filter((c) => c.set.status === 'CANCELLED' && cancels.includes(c.id))
   assert.ok(paired.length > 3 && paired.every((c) => c.set.status_reason === CANCEL_REASON_SAME_DAY_CONTACT), `burnt cancels: ${paired.map((c) => c.set.status_reason)}`)
+
+  // A ご要望 a person typed is theirs even when it is a pool phrase: only the bare tag or the plan's own line for the key
+  // (what this script and fill.ts write) is the loader's to rewrite; any other text → held, left alone.
+  const w3 = await world()
+  const pk = new Map(w3.p.appointments.map((a) => [`a-${a.key}`, a]))
+  const free = w3.rows.filter((r) => pk.has(r.id) && r !== w3.edited && r !== w3.human)
+  const [asked, unasked, kept] = [free.find((r) => pk.get(r.id)!.request)!, free.find((r) => !pk.get(r.id)!.request)!, free.filter((r) => pk.get(r.id)!.request)[1]]
+  const poolLine = (r: Appointment) => w3.recipe.requests.map((l) => l.text).find((t) => t !== pk.get(r.id)!.request)!
+  asked.notes = `テストデータ [${pk.get(asked.id)!.key}]\n${poolLine(asked)}` // a pool phrase, not the plan's for this key
+  unasked.notes = `テストデータ [${pk.get(unasked.id)!.key}]\n${poolLine(unasked)}` // a pool phrase where the plan has none
+  kept.notes = bookingNotes(pk.get(kept.id)!) // the plan's own line: still the loader's
+  const c3 = planStore({ ...input, recipe: w3.recipe, plan: w3.p, rows: w3.rows, karuted: w3.karuted, burnt: new Set() })
+  for (const r of [asked, unasked]) {
+    assert.ok(c3.held.includes(`${r.id}: its notes were edited by hand, left alone`), `${r.id}: a pool phrase a person typed is held`)
+    assert.ok(!c3.changes.some((c) => c.id === r.id), `${r.id}: no change`)
+  }
+  assert.ok(!c3.held.some((l) => l.startsWith(`${kept.id}:`)) && !c3.changes.some((c) => c.id === kept.id && c.set.notes !== undefined), 'the plan\'s own line stays the loader\'s')
 }
 
 // ── the apply's write-time guards ────────────────────────────────────────────────────────────────
