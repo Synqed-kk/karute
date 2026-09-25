@@ -24,7 +24,9 @@
 // <manifest dir>/ledger/realism-<ts>.json (row, field, old, new) is written BEFORE the first write; each row is read
 // again at its write and skipped with one line if it no longer holds the plan's old values. --revert restores
 // every field on rows that still hold the ledger's new value, each read again at its write; a row changed since is left
-// alone with one line.
+// alone with one line. After an unclean apply (a failed write or a skipped row): to undo this attempt, --revert its
+// ledger · a retry writes its own ledger for the remainder only — revert the newest first, then this one (nothing
+// chains them).
 // Status writes carry no acting_staff_id: the cancel sheet's 「操作」 line (who + when) stays empty, as on a crawl-set
 // row, rather than stamping today on a June booking. Core's own audit (status_source STAFF, status_set_at,
 // cancelled_at, the status history) records every write, and --revert does not rewind it.
@@ -180,7 +182,7 @@ export interface RealismOpts {
   expect?: string
   repairForeign: boolean
   log: (l: string) => void
-  saveLedger: (l: Ledger) => void
+  saveLedger: (l: Ledger) => string // writes the ledger, returns its path
   wait?: (ms: number) => Promise<unknown>
 }
 
@@ -249,7 +251,7 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
   if (!o.apply) return (log('mode: dry-run (nothing written). Apply exactly this plan: --apply --expect ' + hash), 0)
   if (o.expect !== hash) return (log(`REFUSED: the plan's hash is ${hash}, not --expect ${o.expect ?? '(none)'} — re-run the dry-run and read it`), 3)
 
-  o.saveLedger({ businessId: DEV_SALON_BUSINESS_ID, at: o.now.toISOString(), planHash: hash, manifest: o.manifestPath, changes, realismFrom })
+  const ledgerPath = o.saveLedger({ businessId: DEV_SALON_BUSINESS_ID, at: o.now.toISOString(), planHash: hash, manifest: o.manifestPath, changes, realismFrom })
   let [failed, skipped] = [0, 0]
   for (const c of changes) {
     try {
@@ -265,7 +267,10 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
   // realismFrom moves only on a clean apply (the CLI saves the manifest only when it changed)
   const clean = failed === 0 && skipped === 0
   if (clean) for (const r of realismFrom) o.manifest.stores[r.store].realismFrom = r.new
-  else if (realismFrom.length) log(`manifest realismFrom NOT advanced (${failed} failed / ${skipped} skipped) — fix, re-run the dry-run, apply again`)
+  else {
+    if (realismFrom.length) log(`manifest realismFrom NOT advanced (${failed} failed / ${skipped} skipped) — fix, re-run the dry-run, apply again`)
+    log(`to undo this attempt: --revert ${ledgerPath} · a retry writes its own ledger for the remainder only — revert the newest first, then this one`)
+  }
   log(`mode: apply · written ${changes.length - failed - skipped} of ${changes.length} · failed ${failed} · skipped ${skipped}`)
   return clean ? 0 : 1
 }
@@ -343,6 +348,7 @@ if (process.argv[1]?.endsWith('realism.ts')) {
           const file = join(dir, `realism-${l.at.replace(/[:.]/g, '-')}.json`)
           writeFileSync(file, JSON.stringify(l, null, 1) + '\n', { flag: 'wx' })
           console.log(`ledger: ${file}`)
+          return file
         },
       })
     } finally {

@@ -171,7 +171,7 @@ async function pass() {
   const f = fakeCore(w.rows, { karuted: w.karuted, burns: w.burns })
   const opts = (extra: Partial<Parameters<typeof realism>[1]> = {}) => ({
     manifest: w.manifest, manifestPath: null, stores: [STORE], now: NOW, apply: false, repairForeign: false, log: (l: string) => void lines.push(l),
-    saveLedger: (l: Ledger) => void ledgers.push({ l: clone(l), writesBefore: f.stats.writes }), ...extra,
+    saveLedger: (l: Ledger) => (ledgers.push({ l: clone(l), writesBefore: f.stats.writes }), 'ledger/realism-pass.json'), ...extra,
   })
   const hashOf = () => /plan hash ([0-9a-f]{16})/.exec(lines.join('\n'))![1]
 
@@ -319,11 +319,13 @@ async function pass() {
 }
 
 // ── the apply's write-time guards ────────────────────────────────────────────────────────────────
+const LEDGER = 'ledger/realism-2026-09-26T03-00-00-000Z.json' // the path saveLedger reports
+const UNDO = `to undo this attempt: --revert ${LEDGER} · a retry writes its own ledger for the remainder only — revert the newest first, then this one`
 /** A dry-run, then --apply with its hash; onLedger runs after the plan, before the first write. */
 async function dryThenApply(w: Awaited<ReturnType<typeof world>>, f: ReturnType<typeof fakeCore>, onLedger: (l: Ledger) => void = () => {}) {
   const lines: string[] = []
   const ledgers: Ledger[] = []
-  const opts = { manifest: w.manifest, manifestPath: null, stores: [STORE], now: NOW, apply: false, repairForeign: false, log: (l: string) => void lines.push(l), saveLedger: (l: Ledger) => { ledgers.push(clone(l)); onLedger(l) } }
+  const opts = { manifest: w.manifest, manifestPath: null, stores: [STORE], now: NOW, apply: false, repairForeign: false, log: (l: string) => void lines.push(l), saveLedger: (l: Ledger) => { ledgers.push(clone(l)); onLedger(l); return LEDGER } }
   assert.equal(await realism(f.core, opts), 0)
   const hash = /plan hash ([0-9a-f]{16})/.exec(lines.join('\n'))![1]
   lines.length = 0
@@ -353,6 +355,7 @@ async function writeTime() {
   assert.equal(a.code, 1, 'a skipped row → exit 1')
   assert.equal(w.manifest.stores[STORE].realismFrom, undefined, 'a skipped row → realismFrom not advanced')
   assert.ok(a.lines.includes('manifest realismFrom NOT advanced (0 failed / 1 skipped) — fix, re-run the dry-run, apply again'), a.lines.slice(-3).join('\n'))
+  assert.ok(a.lines.includes(UNDO), `an unclean apply names its ledger: ${a.lines.slice(-3).join('\n')}`)
 
   // One failed write: realismFrom stays where it was — the manifest is unchanged, so the CLI's finally writes nothing — exit 1.
   const wb = await world()
@@ -365,11 +368,13 @@ async function writeTime() {
   assert.equal(JSON.stringify(wb.manifest), before, 'realismFrom not advanced: the manifest is byte-equal')
   assert.ok(b.lines.includes(`FAILED: ${fo.failOn}: core refused the write`))
   assert.ok(b.lines.includes('manifest realismFrom NOT advanced (1 failed / 0 skipped) — fix, re-run the dry-run, apply again'), b.lines.slice(-3).join('\n'))
+  assert.ok(b.lines.includes(UNDO), `a failed write names its ledger: ${b.lines.slice(-3).join('\n')}`)
   assert.equal(fb.stats.writes, b.ledger.changes.length - 1, 'the other rows are written')
   // fixed, the dry-run re-run and applied again: now it advances
   fo.failOn = undefined
   const again = await dryThenApply(wb, fb)
   assert.equal(again.code, 0, again.lines.join('\n'))
+  assert.ok(!again.lines.some((l) => l.startsWith('to undo this attempt')), 'a clean apply prints no undo line')
   assert.equal(wb.manifest.stores[STORE].realismFrom, addDays(TODAY, 15), 'a clean apply advances realismFrom')
 
   // Revert reads each row again at its write: a row a person edits after revert's fence read (here, while the first row
