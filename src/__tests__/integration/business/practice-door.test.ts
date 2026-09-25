@@ -23,7 +23,7 @@ import { PRACTICE_REGISTRY } from '@/business/lib/practice-door/registry.generat
 import { fixtureIdOf, liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
 import { sampleFor, sampleSelfId } from '@/business/lib/practice-door/sample-facade'
 import { appointments, customers, menus, staff, stores, STORE_A, STORE_B } from '@/business/lib/fixtures'
-import { businessProfiles } from '@/business/lib/fixtures-settings'
+import { businessProfiles, storeDials } from '@/business/lib/fixtures-settings'
 import * as door from '@/business/lib/practice-door/door'
 import * as data from '@/business/lib/data'
 import { renderNow as clockRenderNow } from '@/business/lib/clock'
@@ -239,31 +239,37 @@ describe('the generated registry', () => {
     }
     expect(new Set(entries.map(([, v]) => v)).size).toBe(entries.length)
   })
-  it('the store sample policy is the three declared uuids and none for everything else', () => {
+  // ⚖ PR-3 §v4 V4-2 — every practice store resolves to a fixture plane WITH dials.
+  it('the store sample policy names the seven practice stores; everything else takes STORE_A — never none', () => {
     expect(Object.keys(STORE_SAMPLE_POLICY).sort()).toEqual([
+      '0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c',
+      '5a171878-4faa-4512-ba07-17ca4e20ab9e',
       '8696b856-11ab-4879-9290-bef40b03ea66',
       '8ac43a4b-7763-4a10-9f73-a662085460af',
+      'a1a26517-33c0-4e73-9ea2-e56e98d99c6f',
       'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f',
+      'c33e4c43-bc3b-4470-ac22-aa60fecdabe3',
     ])
     expect(samplePolicyFor('aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f')).toEqual({ kind: 'twin', fixtureStoreId: STORE_A })
     expect(samplePolicyFor('8ac43a4b-7763-4a10-9f73-a662085460af')).toEqual({ kind: 'twin', fixtureStoreId: STORE_B })
-    expect(samplePolicyFor('8696b856-11ab-4879-9290-bef40b03ea66')).toEqual({
-      kind: 'named', business_type: 'esthetic_salon', words: null, dials: null,
-    })
-    expect(samplePolicyFor('5a171878-0000-0000-0000-000000000000')).toEqual({ kind: 'none' })
-    expect(samplePolicyFor('')).toEqual({ kind: 'none' })
+    expect(samplePolicyFor('8696b856-11ab-4879-9290-bef40b03ea66')).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
+    expect(samplePolicyFor('c33e4c43-bc3b-4470-ac22-aa60fecdabe3')).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'personal_gym' })
+    expect(samplePolicyFor('0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c')).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'hair_salon' })
+    for (const id of ['5a171878-4faa-4512-ba07-17ca4e20ab9e', 'a1a26517-33c0-4e73-9ea2-e56e98d99c6f', '5a171878-0000-0000-0000-000000000000', '', 'toString']) {
+      expect(samplePolicyFor(id)).toEqual({ kind: 'twin', fixtureStoreId: STORE_A })
+    }
     const twinStores = Object.values(PRACTICE_REGISTRY.twins.stores) as string[]
-    const addendum = Object.values(PRACTICE_REGISTRY.addendumStores) as string[]
     const profiles = businessProfiles.map((p) => p.value as string)
     for (const [uuid, policy] of Object.entries(STORE_SAMPLE_POLICY)) {
-      if (policy.kind === 'twin') {
-        expect(twinStores).toContain(uuid)
-        expect(liveIdOf('stores', policy.fixtureStoreId)).toBe(uuid)
-      }
-      if (policy.kind === 'named') {
-        expect(addendum).toContain(uuid)
-        expect(profiles).toContain(policy.business_type)
-      }
+      expect(policy.kind).toBe('twin')
+      if (policy.kind !== 'twin') continue
+      // The plane is ALWAYS a fixture store with dials (STORE_C has none — F-4).
+      expect([STORE_A, STORE_B]).toContain(policy.fixtureStoreId)
+      expect(storeDials[policy.fixtureStoreId]).toBeTruthy()
+      if (policy.business_type !== undefined) expect(profiles).toContain(policy.business_type)
+      // A registry twin maps back to exactly its own fixture store; a borrower is no twin.
+      if (twinStores.includes(uuid)) expect(liveIdOf('stores', policy.fixtureStoreId)).toBe(uuid)
+      else expect(fixtureIdOf('stores', uuid)).toBeNull()
     }
     // …and the reverse: 設定's D1 gate reads "is this store a twin?" from the
     // registry (sampleSelfId) but takes the dials from this policy, so a

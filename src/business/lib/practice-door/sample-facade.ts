@@ -110,7 +110,7 @@ export function storeSample(storeId: string): StoreSample {
     const planes = planesOf(storeId)
     return { state: 'sample', words: defaultKindOf(policy.fixtureStoreId).words, dials: storeDials[policy.fixtureStoreId] ?? null, marked: anySample(planes), planes }
   }
-  if (policy.kind === 'named') return { state: 'sample', words: null, dials: null, marked: true, planes: planesOf(storeId) }
+  // `none` is REAL mode's (a practice store always resolves to a twin, V4-2).
   return { state: 'no-sample-policy', storeId, words: null, dials: null }
 }
 

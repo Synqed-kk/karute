@@ -26,7 +26,7 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
 // ⚖ A1b · P2-2 — the card's two reads, wrapped (same functions) so a test can see whether they ran at all.
 jest.mock('@/business/lib/data', () => {
   const actual = jest.requireActual('@/business/lib/data')
-  return { ...actual, readReserveCardColor: jest.fn(actual.readReserveCardColor), readStoreAddress: jest.fn(actual.readStoreAddress) }
+  return { ...actual, readReserveCardColor: jest.fn(actual.readReserveCardColor), readStoreAddress: jest.fn(actual.readStoreAddress), listStoreOptions: jest.fn(actual.listStoreOptions) }
 })
 
 import { readFileSync } from 'node:fs'
@@ -40,7 +40,7 @@ import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, sampleKeys,
   samplePart, sampleRows, sampleSelfId, sampleWhole, STORE_PLANE_OVERRIDES, storeSample,
 } from '@/business/lib/practice-door/sample-facade'
-import { liveIdOf } from '@/business/lib/practice-door/registry'
+import { liveIdOf, samplePolicyFor } from '@/business/lib/practice-door/registry'
 import { customers, operator, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import { defaultKindOf, register, staffQualifications } from '@/business/lib/fixtures-today'
 import { jstDayKey } from '@/business/lib/clock'
@@ -106,8 +106,9 @@ describe('(1) OWNER — viewAll', () => {
   it('listStoreOptions: the 5 active stores in core order, typed by sample policy', async () => {
     const opts = await data.listStoreOptions()
     expect(ids(opts)).toEqual([STORE.devSalon, STORE.devGinza, STORE.tokyo, STORE.yokohama, STORE.laEstro])
-    expect(opts.map((s) => s.business_type)).toEqual(['', '', 'beauty_chiropractic', 'massage', 'esthetic_salon'])
-    expect(opts.map((s) => s.default_kind_id)).toEqual(['', '', 'k-a', 'k-b', ''])
+    // ⚖ PR-3 V4-2 — every practice store takes a plane: a borrower shows its plane's 業種 unless it names its own.
+    expect(opts.map((s) => s.business_type)).toEqual(['beauty_chiropractic', 'beauty_chiropractic', 'beauty_chiropractic', 'massage', 'esthetic_salon'])
+    expect(opts.map((s) => s.default_kind_id)).toEqual(['k-a', 'k-a', 'k-a', 'k-b', 'k-a'])
     expect(opts.map((s) => s.name)).toEqual(['Dev Salon', 'Dev 銀座', 'テスト東京店', 'テスト横浜店', 'La Estro Test Store'])
   })
 
@@ -311,8 +312,9 @@ describe('(1) OWNER — viewAll', () => {
     expect(keys.every((k) => /^[0-9a-f-]{36}$/.test(k))).toBe(true)
     expect(keys.some((k) => k.startsWith('apt-'))).toBe(false)
     expect((await data.readAnalyticsPlanes(STORE.tokyo)).target).toBe(2000000)
-    expect((await data.readAnalyticsPlanes(STORE.laEstro)).target).toBe(0)
-    expect((await data.readAnalyticsPlanes(VIEW_ALL)).target).toBe(2800000)
+    // ⚖ PR-3 V4-2 — a borrower's target is its plane's (every practice store is filled in).
+    expect((await data.readAnalyticsPlanes(STORE.laEstro)).target).toBe(2000000)
+    expect((await data.readAnalyticsPlanes(VIEW_ALL)).target).toBe(4 * 2000000 + 800000)
   })
 })
 
@@ -493,9 +495,11 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
   })
   it('ON: by sample policy; a live uuid never throws', () => {
     expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
-    expect(storeSample(STORE.laEstro)).toEqual({ state: 'sample', words: null, dials: null, marked: true, planes: PRACTICE_PLANES })
-    expect(storeSample(STORE.devSalon)).toEqual({ state: 'no-sample-policy', storeId: STORE.devSalon, words: null, dials: null })
-    expect(storeSample('nope')).toEqual({ state: 'no-sample-policy', storeId: 'nope', words: null, dials: null })
+    // ⚖ PR-3 V4-2 — every practice store (and any id the table does not name) takes a plane WITH dials.
+    const onA = { state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES }
+    expect(storeSample(STORE.laEstro)).toEqual(onA)
+    expect(storeSample(STORE.devSalon)).toEqual(onA)
+    expect(storeSample('nope')).toEqual(onA)
   })
   // ⚖ PR-3 — the mark keys on the door being ON, never on `state === 'sample'`
   // (which is also every OFF answer).
@@ -504,7 +508,37 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
     for (const id of [STORE_A, STORE_B]) expect(storeSample(id)).toMatchObject({ state: 'sample', marked: false })
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
     expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
-    expect(storeSample(STORE.devSalon).state).toBe('no-sample-policy')
+    expect(storeSample(STORE.devSalon)).toMatchObject({ state: 'sample', marked: true })
+  })
+  // ⚖ PR-3 §v4 V4-2 — ⚠1/⚠2: no practice store is empty, no id answers `none`.
+  const SEVEN = {
+    devSalon: '5a171878-4faa-4512-ba07-17ca4e20ab9e', devGinza: 'a1a26517-33c0-4e73-9ea2-e56e98d99c6f',
+    tokyo: 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f', yokohama: '8ac43a4b-7763-4a10-9f73-a662085460af',
+    laEstro: '8696b856-11ab-4879-9290-bef40b03ea66', gym: 'c33e4c43-bc3b-4470-ac22-aa60fecdabe3',
+    jiyugaoka: '0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c',
+  }
+  it('(a) every practice store + the fallback: dials non-null, words = its plane\'s own (the fixture kinds carry null words)', () => {
+    for (const id of [...Object.values(SEVEN), 'not-in-the-table']) {
+      const s = storeSample(id)
+      expect({ id, state: s.state, dials: s.dials !== null }).toEqual({ id, state: 'sample', dials: true })
+      const fixture = samplePolicyFor(id)
+      expect(fixture.kind).toBe('twin')
+      if (fixture.kind === 'twin') {
+        expect(s.words).toBe(defaultKindOf(fixture.fixtureStoreId).words)
+        expect(s.dials).toBe(storeDials[fixture.fixtureStoreId])
+      }
+    }
+  })
+  it('(b) an unknown uuid under ON: sample, dials non-null, marked', () => {
+    expect(storeSample('11111111-2222-4333-8444-555555555555')).toMatchObject({ state: 'sample', dials: storeDials[STORE_A], marked: true })
+  })
+  it('(c) no-sample-policy is unreachable under ON — the seven + three random uuids', () => {
+    const random = ['0f0f0f0f-1e1e-4d2d-8c3c-4b4b4b4b4b4b', 'ffffffff-ffff-4fff-bfff-ffffffffffff', '12345678-9abc-4def-8123-456789abcdef']
+    for (const id of [...Object.values(SEVEN), ...random]) expect({ id, state: storeSample(id).state }).toEqual({ id, state: 'sample' })
+  })
+  it('(d) La Estro keeps its 業種 (esthetic_salon) while its dials are STORE_A\'s', async () => {
+    expect(samplePolicyFor(SEVEN.laEstro)).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
+    expect(storeSample(SEVEN.laEstro).dials).toBe(storeDials[STORE_A])
   })
 })
 
@@ -661,48 +695,43 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     }
   })
 
+  // ⚖ PR-3 §v4 V4-2 — PRACTICE MODE = EVERYTHING FILLED IN: a store that is not an
+  // exact twin borrows a fixture plane, so it shows the same filled page a twin does.
   it.each([
-    ['La Estro (named)', STORE.laEstro],
-    ['Dev Salon (none)', STORE.devSalon],
-  ])('%s: never 店舗を選んでください; live rows render and every SAMPLE part is the no-sample card', async (_label, store) => {
+    ['La Estro (borrows 東京, keeps esthetic_salon)', STORE.laEstro],
+    ['Dev Salon (borrows 東京)', STORE.devSalon],
+  ])('%s: never 店舗を選んでください, never a no-sample card; live rows render and every SAMPLE block is filled and marked', async (_label, store) => {
     const { props } = await settingsProps({ locale: 'ja', store })
     expect(props.sections.filter((s) => s.kicker === '店舗を選んでください')).toEqual([])
     const people = blockOf(props, 'people-equipment', 'people.staff').rows
     expect(people.map((r) => r.id)).toEqual(ids(await data.listStaff(store)).map((id) => `people.row-${id}`))
     expect(people.length).toBeGreaterThan(0)
-    expect(people.every((r) => r.controls[0].value === true && r.meta.length === 0)).toBe(true)
     const menuRows = blockOf(props, 'services', 'services.menus').rows
     expect(menuRows.map((r) => r.id)).toEqual(ids(await data.listMenus(store)).map((id) => `services.row-${id}`))
-    expect(menuRows.every((r) => r.controls.length === 0 && r.meta.length > 0)).toBe(true) // live facts, no sample switch
-    for (const [sid, bid] of [['services', 'services.menus'], ['services', 'services.tickets'], ['business-structure', 'org.entity'], ['people-equipment', 'people.staff'], ['pricing-points', 'pricing.bands'], ['staff', 'staff.roster'], ['staff', 'staff.gaps'], ['store-hours', 'store-hours.info']]) {
-      expect({ bid, sampleNone: blockOf(props, sid, bid).sampleNone, sample: blockOf(props, sid, bid).sample }).toEqual({ bid, sampleNone: true, sample: undefined })
+    expect(everyBlock(props).filter((b) => b.sampleNone)).toEqual([])
+    expect(props.sections.filter((x) => x.sampleNone)).toEqual([])
+    for (const [sid, bid] of [['services', 'services.tickets'], ['business-structure', 'org.entity'], ['store-hours', 'store-hours.hours'], ['audit-log', 'audit.rows'], ['payments', 'payments.methods']]) {
+      expect({ bid, filled: blockOf(props, sid, bid).sampleNone === undefined, marked: blockOf(props, sid, bid).sample !== undefined }).toEqual({ bid, filled: true, marked: true })
     }
-    expect(blockOf(props, 'services', 'services.tickets').facts).toEqual([])
-    expect(blockOf(props, 'business-structure', 'org.entity').facts).toEqual([])
-    expect(blockOf(props, 'business-structure', 'org.entity').rows).toEqual([])
+    expect(blockOf(props, 'business-structure', 'org.entity').rows.length).toBe(3)
+    expect(blockOf(props, 'audit-log', 'audit.rows').table!.rows.length).toBeGreaterThan(0)
     expect(blockOf(props, 'business-structure', 'org.stores').table!.rows).toHaveLength(5)
-    const pay = sec(props, 'payments')
-    expect({ kicker: pay.kicker, lead: pay.lead, blocks: pay.blocks, sampleNone: pay.sampleNone }).toEqual({
-      kicker: RAIL.find((e) => e.id === 'payments')!.group,
-      lead: 'レジで受け取れる支払い方法と、締めのときの現金の扱いです。ポイント制の有効・無効は料金・ポイントで設定します。', // its own lead, kept
-      blocks: [],
-      sampleNone: true,
-    })
-    expect(sec(props, 'audit-log')).toMatchObject({ lead: '誰が・いつ・何を変えたかの記録です。表示だけで、ここから編集はできません。', blocks: [], sampleNone: true })
-    // no SAMPLE block is drawn for a store with no sample plane; 予約と確保 still reads fixture planes, so it keeps its mark
-    expect(everyBlock(props).filter((b) => b.sample)).toEqual([])
-    expect(sec(props, 'booking-guard').sample).toBe(true)
+    expect(sec(props, 'booking-guard').sample).toBeTruthy()
     expect(JSON.stringify(props)).not.toContain('サンプル設定なし')
-    expect(sec(props, 'booking-guard').kicker).toBe('店舗運営')
+    expect(JSON.stringify(props)).not.toContain('現在準備中です')
   })
 
   it('PR-3 業種: a store whose type is \'\' shows 「未設定」 selected and never choosable; a typed store has no such option', async () => {
-    const dev = (await settingsProps({ locale: 'ja', store: STORE.devSalon })).props
-    const c = controlOf(dev, 'people.type')
+    // V4-2 leaves no practice store untyped, so the '' store is made here: the D10 path stays pinned for a store with no 業種.
+    const real = await data.listStoreOptions()
+    ;(data.listStoreOptions as jest.Mock).mockResolvedValueOnce(real.map((s) => (s.id === STORE.devSalon ? { ...s, business_type: '' } : s)))
+    const c = controlOf((await settingsProps({ locale: 'ja', store: STORE.devSalon })).props, 'people.type')
     expect(c.value).toBe('')
     expect(c.control.kind === 'select' && c.control.options[0]).toEqual({ value: '', label: '未設定', disabled: true })
     const t = controlOf((await settingsProps({ locale: 'ja', store: STORE.tokyo })).props, 'people.type')
     expect(t.control.kind === 'select' && t.control.options.some((o) => o.value === '')).toBe(false)
+    const dev = controlOf((await settingsProps({ locale: 'ja', store: STORE.devSalon })).props, 'people.type')
+    expect(dev.value).toBe('beauty_chiropractic')
   })
 
   it('viewAll (an actor with no visible store): open store sections keep 店舗を選んでください, and no row reader is asked — the door would refuse the lens', async () => {
