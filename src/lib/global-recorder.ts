@@ -5,12 +5,15 @@ import type { RecordingResult } from '@/hooks/use-media-recorder'
 import { startRecordingSession } from '@/actions/recordings'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
-import { pumpSegments } from '@/lib/recording/segment-uploader'
+import { pumpSegments, type SegmentSource } from '@/lib/recording/segment-uploader'
 import {
   appendTakeSegment,
   clearTakeHeartbeat,
   createTake,
   deleteTake,
+  isTakeHeldByAnother,
+  markSegmentError,
+  markSegmentsUploaded,
   markTakeStartBoundAttempted,
   markTakeStopPending,
   markTakeTailIncomplete,
@@ -52,10 +55,11 @@ export interface RecordingTarget {
 // auto-saved recording can still upload. A forgotten 3-4h recording would
 // otherwise be both too big to save AND a total loss of the session.
 //
-// NOTE: this only covers a recording the OS keeps alive (e.g. phone on the
-// counter, screen on). A pocketed/locked phone still SUSPENDS capture (a
-// native background-audio concern); what take-store persistence guarantees is
-// that whatever WAS captured before the suspension/kill is recoverable.
+// NOTE: a locked or pocketed iPhone KEEPS recording (⚖ field-proven): the
+// iPhone shell declares `UIBackgroundModes: audio` (ios/App/App/Info.plist).
+// This repo has no Android target, so nothing here is asserted about one. These
+// nets cover those recordings too. What take-store persistence guarantees is
+// that whatever WAS captured before a kill is recoverable.
 const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
 const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (~43 MB, keeps blob < 50 MB cap)
 const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
@@ -66,6 +70,25 @@ const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording ti
 // capture: any failure disables the layer for this take and recording
 // continues memory-only exactly as before.
 const TAKE_FLUSH_MS = 5_000
+
+// ⚖ ONE APPEND IS AT MOST ONE NORMAL SEGMENT (S36 PR-1): one TAKE_FLUSH_MS
+// tick of the recorder's 100 ms timeslice (`recorder.start(100)` below). A
+// flush after storage was off — the revive's catch-up — would otherwise write
+// every chunk held in memory as ONE blob: after an eight-minute outage a
+// multi-MB IndexedDB write and a segment far past the pump's per-PUT floor. A
+// chunk count, not a length of anything the salon sets.
+const SEGMENT_MAX_CHUNKS = 50
+
+// ⚖ THE REVIVE'S WAIT AFTER EACH FAILED TRY (S36 PR-1), the last one repeating
+// while the take records. On the flush tick, so each is at least one tick.
+// retry backoff, not a product length — see NO-HARDCODED-DURATIONS ruling 9/13
+const REVIVE_BACKOFF_MS = [5_000, 10_000, 20_000, 40_000]
+
+// ⚖ AND A FAILED SESSION MINT IS ASKED AGAIN (S36 PR-1): how long after the
+// start — then after each retry — the next one waits; four retries, then the
+// save/discard-time retry is what is left, as before.
+// retry backoff, not a product length — see NO-HARDCODED-DURATIONS ruling 9/13
+const SESSION_RETRY_MS = [30_000, 60_000, 120_000, 240_000]
 
 // How long any caller waits on the session-id mint before giving up. Shared by
 // awaitRecordingSessionId and the retry below so "bounded the same way" is a
@@ -135,7 +158,42 @@ type TakePersist = {
    *  gone). On the take's own object, like everything else here, so a start()
    *  landing behind a logout cannot reach into the abandoned take's leg. */
   abandoned: boolean
+  /** ⚖ THE ROW THIS TAKE WAS BORN WITH (S36 PR-1) — exactly what start()
+   *  handed createTake, so a revive that finds no row re-creates THIS take's
+   *  row and no other. null on the idle object, which has no take. */
+  born: Parameters<typeof createTake>[0] | null
+  /** The revive's own backoff: failed tries so far, and when the next is due. */
+  revive: { tries: number; at: number }
+  /** The session retry's: retries so far, and when the last one (or the take's
+   *  start) went out. */
+  mint: { tries: number; at: number }
+  /** ⚖ WHERE EACH SEQ ON DISK ENDS (S36 PR-1b) — `ends[k]` is the chunk count
+   *  once seq k was written, so memory can rebuild seq k byte for byte (the
+   *  memory uploader, below) while the store cannot be read. */
+  ends: number[]
+  /** …and while storage is off, what the SERVER has of this take from memory:
+   *  the same fact as the row's `uploadedSeq` (a contiguous prefix storage
+   *  ACCEPTED), held here because the row cannot be written — and written
+   *  onto it by the revive. Never read once the row is live again. */
+  uploadedSeq: number
+  /** …and the row's `segmentError`, the same way: a terminal door answer. */
+  segmentError?: string
 }
+
+/** A take's persistence state before anything has happened to it — and the
+ *  idle recorder's, which holds no take at all. */
+const newPersist = (): TakePersist => ({
+  chunks: [],
+  seq: 0,
+  count: 0,
+  disabled: false,
+  abandoned: false,
+  born: null,
+  revive: { tries: 0, at: 0 },
+  mint: { tries: 0, at: Date.now() },
+  ends: [],
+  uploadedSeq: -1,
+})
 
 class GlobalRecorder {
   state: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
@@ -176,7 +234,7 @@ class GlobalRecorder {
    *  exactly this). start() and discard() REPLACE this object; the old take's
    *  tasks keep the old one, and nothing they read can be changed by anything
    *  but their own writes. */
-  private persist: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
+  private persist: TakePersist = newPersist()
   private persistTimer: ReturnType<typeof setInterval> | null = null
   private persistQueue: Promise<void> = Promise.resolve()
   /** Takes this recorder STOPPED but has not finished securing (fix round 14,
@@ -330,6 +388,7 @@ class GlobalRecorder {
         (this.state === 'recording' || this.state === 'paused')
       )
         this.queueHeartbeat(this.takeId)
+      this.recoverTake()
       this.flushTake()
     }, TAKE_FLUSH_MS)
     document.addEventListener('visibilitychange', this.handleVisibilityHidden)
@@ -398,6 +457,157 @@ class GlobalRecorder {
     this.securingBeatTimer = null
   }
 
+  /** ⚖ THE TAKE WINS ITS STORAGE BACK (S36 PR-1). A write that loses latches
+   *  `p.disabled` (a failed create, a flush that refused), and until now that
+   *  was the take's last word: memory-only for the rest of the recording, and
+   *  nothing reached the server until 停止 — if the app was still open then.
+   *  So on this tick, while recording or paused, the live take asks again,
+   *  backing off REVIVE_BACKOFF_MS. Queued, never awaited: capture never waits
+   *  on it. A signed-out take is never revived (slice five, D4). */
+  private recoverTake() {
+    const p = this.persist
+    const takeId = this.takeId
+    if (!takeId || p.abandoned || !(this.state === 'recording' || this.state === 'paused')) return
+    const now = Date.now()
+    if (p.disabled && now >= p.revive.at) {
+      p.revive.at = now + REVIVE_BACKOFF_MS[Math.min(p.revive.tries++, REVIVE_BACKOFF_MS.length - 1)]
+      void this.queueRevive(p, takeId, this.recordingSessionId, false)
+    }
+    // ⚖ …AND THE ROW GETS ITS SESSION (S36 PR-1). The recorder can hold an id
+    // its row never got: the mint's own stamp, or createTake's re-stamp, lost
+    // its write. The pump sends nothing for a row with no session. First
+    // write wins, so this can only fill an empty field.
+    // ponytail: one owner-gated read-modify-write per tick for a row that
+    // already has it (refused before the put) — the heartbeat's own cost.
+    const sid = this.recordingSessionId
+    if (sid && !p.disabled) void this.queueTakeWrite(() => stampTakeSession(takeId, sid))
+    // ⚖ …AND A TAKE WITH NO SESSION ASKS FOR ONE (S36 PR-1). The start-mint
+    // runs once; when it failed, nothing asked again until the save or the
+    // discard, so the pump had no row to send a single segment against for
+    // the whole recording. A mint still in flight is merely slow, never
+    // doubled. The retry is the existing one: one bound create per take
+    // (`startBoundAttempted`), then the argument-less start.
+    if (
+      !sid &&
+      !this.recordingSessionMintInFlight &&
+      p.mint.tries < SESSION_RETRY_MS.length &&
+      now - p.mint.at >= SESSION_RETRY_MS[p.mint.tries]
+    ) {
+      p.mint = { tries: p.mint.tries + 1, at: now }
+      void this.retryRecordingSessionMint()
+    }
+  }
+
+  /** The revive itself — ahead of whatever flush is queued behind it, which
+   *  then writes everything memory holds (the catch-up).
+   *
+   *  It re-enables ONLY when the disk holds exactly what the recorder thinks it
+   *  does, read through the store's own owner gate:
+   *   · the row is THIS staffer's and ends at the recorder's last seq → it was
+   *     only the writes that failed, and the next seq follows on; or
+   *   · there is no row, and no segment was ever written → the row is created
+   *     now, with `add` (take-store), from the take's own birth meta — so a row
+   *     that exists after all, another staffer's included, is never replaced.
+   *  Anything else stays memory-only: a row that is someone else's, or one
+   *  that vanished after segments were written (they went with it — a new row
+   *  over the rest would seal a SHORT copy under the take's immutable key at
+   *  the stop, gr's first rule). A failed try leaves nothing behind.
+   *
+   *  `atStop` is the stop leg's own try, for the take it is stopping. Every
+   *  other try belongs to the take the recorder still holds (`this.persist ===
+   *  p`), so a take discarded while recording is never re-created behind it. */
+  private queueRevive(
+    p: TakePersist,
+    takeId: string,
+    recordingSessionId: string | null,
+    atStop: boolean,
+  ): Promise<void> {
+    return this.queueTakeWrite(async () => {
+      if (!p.disabled || p.abandoned || !p.born || (!atStop && this.persist !== p)) return
+      const meta = await readTakeSecureMeta(takeId)
+      const whole = meta
+        ? meta.lastSeq === p.seq - 1
+        : p.seq === 0 &&
+          (await createTake({
+            ...p.born,
+            recordingSessionId: recordingSessionId ?? p.born.recordingSessionId,
+          }))
+      // The ladder is reset by the next append that LANDS, not here: a store
+      // that reads but refuses writes (a full disk) keeps backing off.
+      if (!whole) return
+      p.disabled = false
+      // ⚖ WHAT MEMORY ALREADY SENT GOES ON THE ROW AS SENT (S36 PR-1b, MU-2),
+      // before the catch-up behind this writes those seqs to disk — so the
+      // store's pump starts after them and never sends one twice. Monotone
+      // (take-store), so a row that already knew more keeps it.
+      if (p.uploadedSeq >= 0) await markSegmentsUploaded(takeId, p.uploadedSeq)
+      // One door, one answer (S38 fix): the terminal refusal memory got is the
+      // row's too, or the store's pump would ask that door once more.
+      if (p.segmentError) await markSegmentError(takeId, p.segmentError)
+    })
+  }
+
+  /**
+   * ⚖ THE UPLOAD KEEPS WORKING FROM MEMORY (S36 PR-1b; Liam 9/25 「the upload
+   * keeps working from memory」). While this take's storage is off and not yet
+   * revived, the SAME segment pump sends it — the same mint, the same PUTs, the
+   * same backoff — reading its bytes from the chunks the recorder is holding
+   * instead of the row (segment-uploader's SegmentSource). An app killed before
+   * 停止 then loses at most the segment still filling, not everything after the
+   * last flush that landed.
+   *
+   * THE SEGMENTS ARE THE ONES THE STORE WILL HOLD. A seq already on disk is
+   * rebuilt from `ends`, byte for byte. A seq past it is the next
+   * SEGMENT_MAX_CHUNKS chunks, and only once they are ALL in — exactly what
+   * the revive's catch-up writes for that seq — so a seq sent from memory and
+   * the same seq on disk later can never be two different blobs under one
+   * immutable key. The segment still filling waits for the next tick. The stop
+   * is unchanged, and for a take whose row was never created it secures
+   * nothing (secureTake finds no row and returns): that take's whole blob goes
+   * up with the karute save (ensureAudioOnServer). The ceiling: a row-less take
+   * killed after 停止 but before the save keeps on the server only its full
+   * memory segments; the filling tail stays in memory.
+   *
+   * OWNER-GATED like every read of a take: only the take this recorder still
+   * holds, never a signed-out one, and never one whose row is another
+   * staffer's. Memory is kept exactly as it always was (the whole take, until
+   * the stop hands it on) — this only reads chunks that are there anyway.
+   */
+  private memorySegments(p: TakePersist, takeId: string): SegmentSource {
+    const filled = () => p.seq - 1 + Math.floor((p.chunks.length - p.count) / SEGMENT_MAX_CHUNKS)
+    return {
+      readUploadMeta: async () => {
+        if (!p.disabled || p.abandoned || this.persist !== p || !p.born) return null
+        if (await isTakeHeldByAnother(takeId)) return null
+        return {
+          recordingSessionId: this.recordingSessionId,
+          mimeType: p.born.mimeType,
+          uploadedSeq: p.uploadedSeq,
+          lastSeq: filled(),
+          segmentError: p.segmentError,
+        }
+      },
+      listSegmentsAfter: async (afterSeq, limit) => {
+        const out: { seq: number; blob: Blob }[] = []
+        for (let seq = afterSeq + 1; seq <= filled() && out.length < limit; seq++) {
+          const from = seq < p.seq ? (p.ends[seq - 1] ?? 0) : p.count + (seq - p.seq) * SEGMENT_MAX_CHUNKS
+          const to = seq < p.seq ? p.ends[seq] : from + SEGMENT_MAX_CHUNKS
+          out.push({ seq, blob: new Blob(p.chunks.slice(from, to)) })
+        }
+        return out
+      },
+      markUploaded: async (seq) => {
+        p.uploadedSeq = Math.max(p.uploadedSeq, seq)
+        // The revive copied the mark it saw; a run in flight across the revive
+        // lands after it, and the row must learn it too (monotone, never back).
+        if (!p.disabled) await markSegmentsUploaded(takeId, seq)
+      },
+      markError: async (code) => {
+        p.segmentError = code
+      },
+    }
+  }
+
   /** Flush chunks not yet on disk as one segment. Serialized via the queue;
    *  fire-and-forget — MUST never block or throw into the capture path.
    *
@@ -423,27 +633,55 @@ class GlobalRecorder {
     // own state and this take's own id (fix round 20).
     const p = this.persist
     const takeId = this.takeId
-    if (p.disabled || !takeId) return Promise.resolve(false)
+    // `p.disabled` is asked INSIDE the queue only (S36 PR-1): a revive queued
+    // ahead of this flush may re-enable the take before it runs — the stop's
+    // own last try above all, whose tail this is.
+    if (!takeId) return Promise.resolve(false)
     const flushed = this.persistQueue
       .then(async () => {
         // Re-read inside the queued task, because an EARLIER flush of THIS take
         // may have disabled persistence — the only writer `p` has.
-        if (p.disabled) return false
-        const pending = p.chunks.slice(p.count)
-        if (pending.length === 0) return true
-        const seq = p.seq
-        const count = p.count + pending.length
-        // ⚖ THE STAMP RIDES THIS WRITE (fix round 18, AG3). The stop's own
-        // duration goes into the SAME transaction as the tail bytes, so the
-        // fact that the take is complete cannot lose on its own — see AG1.
-        const ok = await appendTakeSegment(takeId, seq, new Blob(pending), stampDurationMs)
-        if (!ok) {
-          // ponytail: fail-open to memory-only — capture continues as today.
-          p.disabled = true
+        if (p.disabled) {
+          // …but the server still gets it, from memory (S36 PR-1b, see
+          // memorySegments). Never from the stop's own flush: the stop is
+          // unchanged — a take WITH a row is secured whole by it; a row-less
+          // take's blob goes up with the karute save (see memorySegments'
+          // docblock).
+          if (stampDurationMs === undefined)
+            void pumpSegments(getRecordingPipelinePort(), takeId, {
+              source: this.memorySegments(p, takeId),
+            })
           return false
         }
-        p.seq = seq + 1
-        p.count = count
+        // Everything not yet on disk, read ONCE: chunks that arrive while these
+        // appends run belong to the next flush.
+        const end = p.chunks.length
+        if (p.count === end) return true
+        // ⚖ …IN SEGMENTS OF AT MOST SEGMENT_MAX_CHUNKS, SEQS CONSECUTIVE (S36
+        // PR-1). An ordinary tick is one pass of this loop; a catch-up is many.
+        while (p.count < end) {
+          const seq = p.seq
+          const count = Math.min(end, p.count + SEGMENT_MAX_CHUNKS)
+          // ⚖ THE STAMP RIDES THIS WRITE (fix round 18, AG3). The stop's own
+          // duration goes into the SAME transaction as the tail bytes, so the
+          // fact that the take is complete cannot lose on its own — see AG1.
+          // The LAST append only: the one that makes the disk whole.
+          const ok = await appendTakeSegment(
+            takeId,
+            seq,
+            new Blob(p.chunks.slice(p.count, count)),
+            count === end ? stampDurationMs : undefined,
+          )
+          if (!ok) {
+            // ponytail: fail-open to memory-only — capture continues as today.
+            p.disabled = true
+            return false
+          }
+          p.seq = seq + 1
+          p.count = count
+          p.ends.push(count)
+          p.revive = { tries: 0, at: 0 }
+        }
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
         // forget off the persist queue: the pump has its own single-flight and
         // its own per-PUT deadlines, so this cannot pile up and the queue never
@@ -744,7 +982,7 @@ class GlobalRecorder {
     // therefore behind us, and cannot leave the callbacks writing into an
     // object the recorder no longer publishes) and synchronous from here to
     // `armTakePersistence`, so nothing can flush against a half-named take.
-    const p: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
+    const p = newPersist()
     this.persist = p
 
     recorder.ondataavailable = (e) => {
@@ -798,6 +1036,18 @@ class GlobalRecorder {
         // left for anyone to seal. Taken BEFORE flushTake(), so no drain in
         // this runtime can read the gap either. (AA1 — securingTakeIds.)
         this.holdTakeForSecuring(takeId)
+        // ⚖ ONE LAST REVIVE, AHEAD OF EVERYTHING THE STOP WRITES (S36 PR-1).
+        // Queued before the first act below and the tail flush, so a take
+        // whose storage comes back here is written WHOLE (the catch-up) and
+        // secured by this leg like any other; one that does not come back is
+        // exactly today's memory-only stop. Queued ALWAYS (S38 fix): whether
+        // the take needs it is asked INSIDE the queue, after every earlier
+        // flush of this take has settled — as the first act below asks its own
+        // question. A flush queued before the stop can still fail after this
+        // line runs; a check made here would miss it and leave the tail short.
+        // A healthy take, or a signed-out one, meets the revive's own first
+        // check and nothing is read or written.
+        void this.queueRevive(p, takeId, this.recordingSessionId, true)
         // ⚖ …AND THE STOP ITSELF GOES ON THE ROW FIRST (fix round 17). Both
         // defences above die with this page: the hold is a Set in memory and
         // the beat stops being written the moment nothing is beating it. Every
@@ -1063,7 +1313,8 @@ class GlobalRecorder {
     // this take with its own row, and a mint that answers after this line
     // (every ordinary one) would leave the take carrying nothing.
     this.recordingSessionMintTakeUnknown = false
-    void createTake({
+    // Kept on the take (S36 PR-1): its revive re-creates exactly this row.
+    p.born = {
       takeId,
       target: this.target,
       recordingSessionId: this.recordingSessionId,
@@ -1076,7 +1327,8 @@ class GlobalRecorder {
       // than stamped after the mint answers, because the failure this exists
       // for is the one that never answers.
       ...(reserve ? { startBoundAttempted: true } : {}),
-    }).then((ok) => {
+    }
+    void createTake(p.born).then((ok) => {
       if (!ok) {
         // No `this.takeId === takeId` guard any more (fix round 20): this is
         // THIS take's own verdict on its own row, and a create that answers
@@ -1391,7 +1643,7 @@ class GlobalRecorder {
     // whatever it already queued (fix round 20) — a timer flush queued before
     // this reset still writes ITS chunks under ITS id, rather than finding
     // the array emptied and reporting a tail it never wrote.
-    this.persist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
+    this.persist = newPersist()
     if (this.recorder && this.recorder.state !== 'inactive') {
       // Stop without triggering onstop result. (A no-op from onstop's own tail:
       // the recorder is already inactive by the time it fires.)

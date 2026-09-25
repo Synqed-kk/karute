@@ -13,6 +13,7 @@ import { chooseStaffToLink } from '@/lib/invites/link'
 import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { STAFF_CREATE_FAILED } from '@/lib/auth/store-gate'
 import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
@@ -87,7 +88,9 @@ export async function createInvite(
     // same memoised roster read as the try below, so an OUTAGE surfaces here
     // first. Typed upstream_unavailable = outage → the create-failed line;
     // a denial / removed membership / no session keeps today's answer.
-    if (e instanceof AppApiError && e.code === 'upstream_unavailable') {
+    // Round 3 leg 7 (D-S27-7): a typed client defect (internal) is the same
+    // failure to staff — the same code.
+    if (e instanceof AppApiError && (e.code === 'upstream_unavailable' || e.code === 'internal')) {
       console.error('[createInvite] pre-core read failed (permission gate / business):', describeUnknownThrow(e))
       return { error: STAFF_CREATE_FAILED }
     }
@@ -218,7 +221,7 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   try {
     await requireCapability('staff.invite')
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+    return { error: (await coreFailureLine(e, '[invites]')) ?? (e instanceof Error ? e.message : 'Not allowed') }
   }
 
   let synqed: InviteClient

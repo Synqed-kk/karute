@@ -422,10 +422,16 @@ function req<T>(r: IDBRequest<T>): Promise<T> {
 let dbPromise: Promise<IDBDatabase | null> | null = null
 
 /** Open (once). Resolves null when IndexedDB is unavailable or the open
- *  fails — every caller treats null as "layer disabled". */
+ *  fails — every caller treats null as "layer disabled".
+ *
+ *  ⚖ …AND A FAILED OPEN IS NOT CACHED (S36 PR-1). Only a CONNECTION is kept.
+ *  A null used to be held for the whole page life, so one blocked or failed
+ *  open at the first flush left every take on the page memory-only however
+ *  long the recording ran — and the recorder's revive could never reach a
+ *  store that had come back. The next call opens again. */
 function openDb(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve) => {
+  const opening: Promise<IDBDatabase | null> = new Promise((resolve) => {
     try {
       if (typeof indexedDB === 'undefined') return resolve(null)
       const open = indexedDB.open(DB_NAME, 1)
@@ -447,7 +453,11 @@ function openDb(): Promise<IDBDatabase | null> {
       resolve(null)
     }
   })
-  return dbPromise
+  dbPromise = opening
+  void opening.then((db) => {
+    if (!db && dbPromise === opening) dbPromise = null
+  })
+  return opening
 }
 
 let persistRequested = false
@@ -469,6 +479,13 @@ function requestPersistentStorage(): void {
  * gate): no signed-in user → false, nothing written. Returns false on any
  * failure so the recorder disables persistence for this take (fail-open to
  * memory-only capture).
+ *
+ * ⚖ `add`, NEVER `put` (S36 PR-1). The recorder now calls this a second time
+ * for a take that is already recording — its revive, when the row is absent.
+ * `put` would REPLACE a row that exists after all: another staffer's take
+ * under the same id, or this take's own row that a failed read merely hid,
+ * with its `lastSeq` reset to −1 over segments already on disk. `add` refuses
+ * any existing row, so a create can only ever make a row that was not there.
  */
 export async function createTake(
   meta: Omit<TakeMeta, 'ownerUid' | 'updatedAt' | 'lastSeq'>,
@@ -485,7 +502,7 @@ export async function createTake(
       updatedAt: meta.startedAt,
       lastSeq: -1,
     }
-    await req(db.transaction(TAKES, 'readwrite').objectStore(TAKES).put(row))
+    await req(db.transaction(TAKES, 'readwrite').objectStore(TAKES).add(row))
     return true
   } catch (err) {
     console.error('[take-store] createTake failed:', err)
@@ -1040,6 +1057,29 @@ export async function readTakeUploadMeta(takeId: string): Promise<Pick<
     lastSeq: meta.lastSeq,
     finalizedAt: meta.finalizedAt,
     segmentError: meta.segmentError,
+  }
+}
+
+/** ⚖ IS THIS TAKE'S ROW SOMEBODY ELSE'S? (S36 PR-1b) — the memory uploader's
+ *  owner gate. Every other read here answers null for "gone" and "not yours"
+ *  alike; this one must tell them apart, because a take whose row is gone is
+ *  still this recorder's own capture, and one whose row is a colleague's is
+ *  not — its audio must never go up under the staffer signed in now. True
+ *  only when a row exists and the signed-in uid is not its owner (nobody
+ *  signed in counts: no owner to confirm). A store that cannot answer says
+ *  false: the recorder's own live take is the only one it can be asking for. */
+export async function isTakeHeldByAnother(takeId: string): Promise<boolean> {
+  try {
+    const db = await openDb()
+    if (!db) return false
+    const uid = await currentUserId()
+    const meta = (await req(db.transaction(TAKES).objectStore(TAKES).get(takeId))) as
+      | TakeMeta
+      | undefined
+    return !!meta && meta.ownerUid !== uid
+  } catch (err) {
+    console.error('[take-store] isTakeHeldByAnother failed:', err)
+    return false
   }
 }
 

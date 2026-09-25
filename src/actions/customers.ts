@@ -4,6 +4,7 @@ import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { auditWeb } from '@/lib/audit-web'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { getCurrentUserStaffId } from '@/lib/staff'
@@ -325,7 +326,7 @@ export async function deleteCustomerPhoto(
   } catch (err) {
     return {
       success: false as const,
-      error: err instanceof Error ? err.message : 'Unknown error',
+      error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error'),
     }
   }
 }
@@ -522,6 +523,6 @@ export async function searchCustomersCompanyWide(
       .map((r) => ({ ...r, other_store: otherStoreFor(r.id) }))
     return { options, karute_number_unavailable: karuteNumberUnavailable, remote_more: remoteMore }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }

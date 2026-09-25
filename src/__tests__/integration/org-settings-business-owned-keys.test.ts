@@ -3,6 +3,8 @@
  * Business owns. Core merges a one-key PUT, so a key left out is kept; a key replayed from a
  * read taken before Business's save would silently revert Business's colour.
  * ⚖ PKT-S38 R5 — and 予約の色分け's `booking_colors` the same way.
+ * ⚖ PKT-S41 R-S41-1 (Liam 9/25 A) — and its one-key-per-store `booking_colors:<storeId>` keys: the PREFIX
+ * is Business-owned, so a store id this suite never names is never replayed either.
  */
 jest.mock('next/cache', () => ({
   unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
@@ -30,10 +32,12 @@ function clientReading(initial: Record<string, unknown>, core: 'merge' | 'replac
   return { upsert, get, client: { orgSettings: { get, upsert } } as unknown as Parameters<typeof writeOrgSettingsBlobWithClient>[0] }
 }
 
-/** ⚖ PKT-S38 R5 — every key Business owns: the card colour (A2) and 予約の色分け's per-store map. */
+/** ⚖ PKT-S38 R5 + PKT-S41 — every key Business owns: the card colour (A2), 予約の色分け's legacy per-store map
+ *  (read-only now, never removed) and its one-key-per-store shape (テスト東京店's key). */
 const BUSINESS_OWNED: Array<[string, unknown]> = [
   ['reserve_card_color', '#1C2247'],
   ['booking_colors', { 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f': { new: '#3b6fd4', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' } }],
+  ['booking_colors:aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f', { new: '#3b6fd4', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }],
 ]
 
 describe("Karute's org-settings writer and Business-owned keys", () => {
@@ -57,10 +61,25 @@ describe("Karute's org-settings writer and Business-owned keys", () => {
     })
   })
 
-  it('a read holding BOTH Business keys: the PUT carries neither', async () => {
+  it('a read holding ALL THREE Business keys: the PUT carries none of them', async () => {
     const { upsert, client } = clientReading({ business_type: 'beauty', ...Object.fromEntries(BUSINESS_OWNED) })
     await writeOrgSettingsBlobWithClient(client, { recording_disclosure_mode: 'B' })
     expect(upsert.mock.calls[0][0]).toEqual({ settings: { business_type: 'beauty', recording_disclosure_mode: 'B' } })
+  })
+
+  it('a per-store key for a DIFFERENT store id (テスト横浜店) is never replayed either: the prefix, not the literal', async () => {
+    const yokohama = 'booking_colors:8ac43a4b-7763-4a10-9f73-a662085460af'
+    const four = { new: '#7a5bd4', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }
+    const { upsert, client } = clientReading({ business_type: 'beauty', [yokohama]: four })
+    await writeOrgSettingsBlobWithClient(client, { recording_disclosure_mode: 'B' })
+    expect(upsert.mock.calls[0][0]).toEqual({ settings: { business_type: 'beauty', recording_disclosure_mode: 'B' } })
+    expect((await client.orgSettings.get())?.settings).toEqual({ business_type: 'beauty', [yokohama]: four, recording_disclosure_mode: 'B' })
+  })
+
+  it('the prefix is exactly `booking_colors:` — a key that only shares the stem (no colon) still replays', async () => {
+    const { upsert, client } = clientReading({ business_type: 'beauty', booking_colors_note: 'karute' })
+    await writeOrgSettingsBlobWithClient(client, { recording_disclosure_mode: 'B' })
+    expect(upsert.mock.calls[0][0]).toEqual({ settings: { business_type: 'beauty', booking_colors_note: 'karute', recording_disclosure_mode: 'B' } })
   })
 
   it('the fix relies on core MERGING: under a whole-object replace the omitted colour would be gone', async () => {
