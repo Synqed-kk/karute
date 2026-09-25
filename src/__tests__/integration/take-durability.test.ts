@@ -5956,6 +5956,24 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     await drain(400)
   })
 
+  it('MB7 a TERMINAL door answer stops the memory pump the way it stops the store\'s — no re-ask every tick', async () => {
+    mockUid = null
+    await startAndSettle()
+    mintSegmentUrls.mockImplementationOnce(async (_t, _m, _rs, seqs) => {
+      minted.push(...seqs)
+      return { error: 'not_reserved' }
+    })
+    pushN(50)
+    await tick()
+    expect(minted).toEqual([0])
+    for (let i = 0; i < 6; i++) {
+      pushN(50)
+      await tick()
+    }
+    expect(minted).toEqual([0]) // stopped, as segmentError stops the row's pump
+    expect(segPuts).toEqual([])
+  })
+
   it('MB5 seqs already on disk go up from memory byte for byte, continuous with what the server has', async () => {
     mockStartRecordingSession.mockImplementation(async () => null) // no session yet: nothing uploads
     const takeId = await startAndSettle()
