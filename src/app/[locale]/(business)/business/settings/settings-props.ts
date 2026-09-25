@@ -1015,7 +1015,9 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSe
           meta: [minutesLabel(m.duration_minutes), yen(m.price), m.store_id === null ? '全店舗' : STORE_SCOPE],
         })
       }), {
-        sample: d === null ? undefined : ctx.samplePart('menuVisible'), sampleNone: d === null,
+        // ⚖ FIX-1a (V3-3) — the part mark fires only when some row actually draws the
+        // sample 表示 switch; a borrowing store's untwinned menus draw none.
+        sample: d === null ? undefined : (own.some((m) => visibleOf(m.id) !== undefined) ? ctx.samplePart('menuVisible') : undefined), sampleNone: d === null,
         facts: [
           'メニューの追加はこれから用意します。いまある内容の表示・非表示はここで切り替えられます。',
           'ここに並ぶメニューと所要時間は、予約作成とレジが使っているメニュー一覧と同じです。',
@@ -2229,7 +2231,9 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           source: `カルテと同じ権限の一覧です（役職を選ぶとひな形どおりに入り、そのあと1つずつ足し引きできます）。コアの権限表には役職の種類が${rulebook.roles.length + rulebook.unadoptedRoleKeys.length}つあり、いまカルテが使っているのは${rulebook.roles.length}つです。残る${rulebook.unadoptedRoleKeys.length}つは、まだ名前も権限のひな形も用意されていません。`,
         })
       }), {
-        sample: d === null ? undefined : ctx.samplePart('staffSettings'), sampleNone: d === null,
+        // ⚖ FIX-1a (V3-3) — the part mark fires only when some row actually draws the
+        // sample 役職 controls; a borrowing store's untwinned people show a name only.
+        sample: d === null ? undefined : (roster.some((p) => sampleSettingsOf(d, p.id) !== null) ? ctx.samplePart('staffSettings') : undefined), sampleNone: d === null,
         facts: [
           // ⚖ 8/25 — a number says WHAT it counts, and both are DERIVED from the
           // rulebook so a nineteenth capability cannot ship beside a page still

@@ -733,8 +733,33 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     expect(blockOf(props, 'audit-log', 'audit.rows').table!.rows.length).toBeGreaterThan(0)
     expect(blockOf(props, 'business-structure', 'org.stores').table!.rows).toHaveLength(5)
     expect(sec(props, 'booking-guard').sample).toBeTruthy()
+    // ⚖ FIX-1a (V3-3) — a part mark only where some row draws the sample part. No borrowed
+    // person has twin settings, so the roster names nothing; the 全店舗 menu IS twinned
+    // (registry menu-06), so its 表示 switch draws here and the menus mark stays.
+    const roster = blockOf(props, 'staff', 'staff.roster')
+    expect(roster.rows.every((r) => r.controls.length === 0)).toBe(true)
+    expect(roster.sample).toBeUndefined()
+    const menus = blockOf(props, 'services', 'services.menus')
+    expect(menus.rows.filter((r) => r.controls.length > 0).map((r) => r.id)).toEqual([`services.row-${MENU.zenten}`])
+    expect(menus.sample).toEqual({ form: 'part', labels: ['表示・非表示'] })
     expect(JSON.stringify(props)).not.toContain('サンプル設定なし')
     expect(JSON.stringify(props)).not.toContain('現在準備中です')
+  })
+
+  it('FIX-1a (V3-3): a borrower whose menus have no twin draws no 表示 switch, so the menus block carries no mark', async () => {
+    // The 全店舗 menu is the only twinned menu a borrower lists; without it no row draws the switch.
+    const spy = withReads()
+    const all = spy.menusList.getMockImplementation()!
+    spy.menusList.mockImplementation(async (q: unknown) => {
+      const r = await all(q)
+      return { ...r, menus: r.menus.filter((m: { store_id: string | null }) => m.store_id !== null) }
+    })
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.laEstro })
+    const menus = blockOf(props, 'services', 'services.menus')
+    expect(menus.rows.map((r) => r.id)).toEqual([`services.row-${MENU.body}`])
+    expect(menus.rows.every((r) => r.controls.length === 0)).toBe(true)
+    expect(menus.sample).toBeUndefined()
+    expect(menus.sampleNone).toBeUndefined()
   })
 
   it('PR-3 業種: a store whose type is \'\' shows 「未設定」 selected and never choosable; a typed store has no such option', async () => {
