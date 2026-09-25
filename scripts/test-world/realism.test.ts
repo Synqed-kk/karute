@@ -1,9 +1,9 @@
 // Runnable check (no framework, no network), same command as ci.yml:
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/realism.test.ts
-// The planner's realism: the per-store step.
+// The planner's realism: the per-store step, the realismFrom cut (rhythm, 指名).
 import assert from 'node:assert/strict'
 import { loadRecipe, registry, storeCtx } from './fill'
-import { hoursOn, jstIso, plan, slotStep, type Plan, type Recipe } from './plan'
+import { addDays, hoursOn, isNominated, jstIso, plan, slotStep, type Plan, type Recipe } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f' // beauty_chiropractic in registry.json
 const [EPOCH, TODAY] = ['2026-09-18', '2026-09-26']
@@ -39,6 +39,40 @@ async function planner() {
   for (const bad of [0, -30, 7.5, 541]) assert.throws(() => slotStep(hours, bad), /slotMinutes/, `step ${bad} refused`)
   assert.equal(slotStep(hours, 540), 540, 'the whole 10:00–19:00 day is a (strange but) valid step')
 
+  // realismFrom: every day before it is exactly the old plan; from it, the rhythm, 指名 and a later today only adding.
+  const until = addDays(TODAY, 120) // a long horizon so every type shows several rhythm visits
+  for (const type of Object.keys(registry.types)) {
+    const t = await loadRecipe(type)
+    const c0 = { storeId: `store-${type}`, weeklyHours: t.policy.weekly_hours }
+    const cut = addDays(TODAY, 15)
+    const [old, neu] = [plan(t, c0, until, EPOCH), plan(t, { ...c0, realismFrom: cut }, until, EPOCH)]
+    assert.deepEqual(neu.appointments.filter((a) => a.date < cut), old.appointments.filter((a) => a.date < cut), `${type}: nothing before realismFrom moves`)
+    const later = plan(t, { ...c0, realismFrom: cut }, addDays(until, 7), EPOCH)
+    const next = new Map(later.appointments.map((a) => [a.key, a]))
+    for (const a of neu.appointments.filter((x) => x.date < until)) assert.deepEqual(next.get(a.key), a, `${type}: the past never shifts after the cut: ${a.key}`)
+    onGrid(t, neu, 30)
+    const [lo, hi] = t.realism!.rhythmDays
+    const j = t.realism!.rhythmJitter
+    const gaps: number[] = []
+    for (const c of t.customers) {
+      const days = neu.appointments.filter((a) => a.member === c.member).map((a) => a.date)
+      const after = days.filter((d) => d >= cut)
+      if (after.length) assert.ok(c.every || days.length === 1, `${type} ${c.member}: a one-visit customer came back`)
+      for (let k = 1; k < days.length; k++) if (days[k - 1] >= cut) gaps.push((Date.parse(days[k]) - Date.parse(days[k - 1])) / 86_400_000)
+      // 指名 continuity: a nominating customer's 指名 visits (a menu that takes 指名) are all with their own 担当
+      const own = neu.appointments.filter((a) => a.member === c.member && a.date >= cut && t.menus.find((m) => m.name === a.menu)!.nomination)
+      if (isNominated(t, c.member)) assert.ok(own.every((a) => a.staff === c.staff), `${type} ${c.member}: a 指名 visit went to someone else`)
+    }
+    const after = gaps.filter((g) => g < 5 * hi) // a visit dropped on a full day doubles one gap
+    const median = [...after].sort((a, b) => a - b)[after.length >> 1]
+    assert.ok(gaps.length > t.customers.length / 2, `${type}: ${gaps.length} rhythm gaps`)
+    assert.ok(Math.min(...gaps) >= lo - j && median >= lo - j && median <= hi + j + 2, `${type}: rhythm gaps min ${Math.min(...gaps)} median ${median} vs [${lo}, ${hi}] ± ${j}`)
+    const free = t.customers.filter((c) => c.every && !isNominated(t, c.member))
+    assert.ok(free.some((c) => new Set(neu.appointments.filter((a) => a.member === c.member && a.date >= cut).map((a) => a.staff)).size > 1), `${type}: フリー customers meet more than one staffer after the cut`)
+    const nominated = t.customers.filter((c) => isNominated(t, c.member)).length / t.customers.length
+    assert.ok(Math.abs(nominated - t.realism!.nominatedShare) <= 0.2, `${type}: ${nominated} of customers nominate vs ${t.realism!.nominatedShare}`)
+
+  }
 }
 
 async function main() {
