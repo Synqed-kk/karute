@@ -490,6 +490,11 @@ export interface SettingsRow {
   source?: string
 }
 
+/** ⚖ PR-3 §v3 — what a 「サンプル」 mark says (V3-3): `whole` = this content is
+ *  sample; `part` = only the named parts are (the labels, already in the words a
+ *  reader sees). Built by the sample facade's plane readers, never by hand. */
+export type SampleMark = { form: 'whole' } | { form: 'part'; labels: string[] }
+
 export interface SettingsBlock {
   id: string
   title: string
@@ -499,7 +504,8 @@ export interface SettingsBlock {
   /** ⚖ PR-3 — the practice door is ON and this block shows SAMPLE values
    *  (dials or a fixture-only plane): the 「サンプル」 chip beside `flag` and the
    *  note line under the lead. Absent (never `false`) everywhere else, so the
-   *  switch-OFF payload is byte-identical. */
+   *  switch-OFF payload is byte-identical. ⚖ §v3 — its FORM: `whole` (every
+   *  value is sample) or `part` (live rows + named sample parts). */
   sample?: true
   /** ⚖ PR-3 — the store has no sample plane for this block's SAMPLE part: the
    *  designed card where the bare 「サンプル設定なし」 used to print. */
@@ -669,7 +675,8 @@ export interface SettingsSection {
   /** ⚖ PR-3 — the section-level forms of `SettingsBlock.sample` / `.sampleNone`:
    *  a block-less section whose dials are SAMPLE (予約と確保), and a
    *  SAMPLE-only section on a store with no sample plane (zero blocks → the
-   *  card in the body slot, the lead kept). */
+   *  card in the body slot, the lead kept). ⚖ §v3 V3-6 — a section's mark is
+   *  the ONLY mark in it: its blocks draw none (the renderer's rule). */
   sample?: true
   sampleNone?: true
   /** `local` = this section's values round-trip through the reader's own

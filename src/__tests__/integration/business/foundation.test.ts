@@ -321,7 +321,9 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/registry-manifest.ts': [],
       'src/business/lib/practice-door/registry.generated.ts': [],
       'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
-      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures-settings', '../fixtures-today', '../resource-words', './registry', './switch'],
+      // ⚖ PR-3 §v3 — the plane table: the mark's labels (Business's string home), the
+      // fixture operator the sample history credits (V4-3), and the mark's TYPE.
+      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures', '../fixtures-settings', '../fixtures-today', '../resource-words', '../settings', './registry', './switch', '@/business/i18n'],
       'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
       // ⚖ A1b — `../reserve-card/card-color`: the card colour's ONE normaliser (the
       // port's boundary), so the door's `readReserveCardColor` never grows a second.

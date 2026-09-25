@@ -29,14 +29,19 @@ jest.mock('@/business/lib/data', () => {
   return { ...actual, readReserveCardColor: jest.fn(actual.readReserveCardColor), readStoreAddress: jest.fn(actual.readStoreAddress) }
 })
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import * as data from '@/business/lib/data'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
-import { attachSample, sampleKeys, sampleRows, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
+import {
+  attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, sampleKeys,
+  samplePart, sampleRows, sampleSelfId, sampleWhole, STORE_PLANE_OVERRIDES, storeSample,
+} from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf } from '@/business/lib/practice-door/registry'
-import { customers, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
+import { customers, operator, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import { defaultKindOf, register, staffQualifications } from '@/business/lib/fixtures-today'
 import { jstDayKey } from '@/business/lib/clock'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
@@ -482,12 +487,13 @@ describe('(4)–(8) walls, identity, paging, errors', () => {
 describe('(9) storeSample — the three bypass sites’ one read', () => {
   it('OFF: exactly defaultKindOf + storeDials, including the throw', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect(storeSample(STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: false })
+    const allLive = Object.fromEntries(Object.keys(PRACTICE_PLANES).map((k) => [k, 'live']))
+    expect(storeSample(STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: false, planes: allLive })
     expect(() => storeSample('nope')).toThrow('Missing default kind for store nope')
   })
   it('ON: by sample policy; a live uuid never throws', () => {
-    expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true })
-    expect(storeSample(STORE.laEstro)).toEqual({ state: 'sample', words: null, dials: null, marked: true })
+    expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
+    expect(storeSample(STORE.laEstro)).toEqual({ state: 'sample', words: null, dials: null, marked: true, planes: PRACTICE_PLANES })
     expect(storeSample(STORE.devSalon)).toEqual({ state: 'no-sample-policy', storeId: STORE.devSalon, words: null, dials: null })
     expect(storeSample('nope')).toEqual({ state: 'no-sample-policy', storeId: 'nope', words: null, dials: null })
   })
@@ -499,6 +505,69 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
     expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
     expect(storeSample(STORE.devSalon).state).toBe('no-sample-policy')
+  })
+})
+
+describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', () => {
+  afterEach(() => {
+    for (const k of Object.keys(STORE_PLANE_OVERRIDES)) delete STORE_PLANE_OVERRIDES[k]
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+  })
+  const BOARD = ['shifts', 'absence', 'sellSlots', 'operatingHours'] as const
+  it('every plane is SAMPLE for the practice business today, and `marked` IS 「some plane is sample」', () => {
+    expect(Object.values(PRACTICE_PLANES).every((s) => s === 'sample')).toBe(true)
+    const s = storeSample(STORE.tokyo)
+    expect(s.state === 'sample' && s.marked === Object.values(s.planes).some((p) => p === 'sample')).toBe(true)
+  })
+  it('OFF: no mark from either reader, on any store; the planes read all live', () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    for (const id of [STORE_A, STORE_B]) {
+      expect(sampleWhole(id, 'auditLog')).toBeUndefined()
+      expect(samplePart(id, ...BOARD)).toBeUndefined()
+      const s = storeSample(id)
+      expect(s.state === 'sample' && Object.values(s.planes).every((p) => p === 'live')).toBe(true)
+    }
+  })
+  it('F-6 — no store in view (a storeless 設定 / an empty list): no mark, never a storeSample call', () => {
+    expect(sampleWhole(null, 'auditLog')).toBeUndefined()
+    expect(samplePart(null, 'staffActive')).toBeUndefined()
+    expect(sampleWhole([], 'decisions')).toBeUndefined()
+  })
+  it('ON: whole form; part form names its planes by the native-pass labels, deduped (shifts + absence = ONE label), in order', () => {
+    expect(sampleWhole(STORE.tokyo, 'auditLog')).toEqual({ form: 'whole' })
+    expect(samplePart(STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+    expect(samplePart(STORE.tokyo, 'staffActive')).toEqual({ form: 'part', labels: ['稼働状態'] })
+  })
+  it('flipping ONE plane live for ONE store removes that plane and nothing else; a plane still sample elsewhere in view keeps it', () => {
+    STORE_PLANE_OVERRIDES[STORE.tokyo] = { operatingHours: 'live' }
+    expect(sampleWhole(STORE.tokyo, 'operatingHours')).toBeUndefined()
+    expect(samplePart(STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠'] })
+    expect(sampleWhole(STORE.tokyo, 'shifts')).toEqual({ form: 'whole' })
+    expect(sampleWhole(STORE.yokohama, 'operatingHours')).toEqual({ form: 'whole' })
+    expect(sampleWhole([STORE.tokyo, STORE.yokohama], 'operatingHours')).toEqual({ form: 'whole' })
+    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+    STORE_PLANE_OVERRIDES[STORE.tokyo] = Object.fromEntries(Object.keys(PRACTICE_PLANES).map((k) => [k, 'live']))
+    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: false })
+    expect(samplePart(STORE.tokyo, ...BOARD)).toBeUndefined()
+    expect(planesOf('toString')).toEqual(PRACTICE_PLANES)
+  })
+  it('every plane names its CONTRACT-MAP row (the lane harness reads the map against this table)', () => {
+    expect(Object.keys(PLANE_ROW).sort()).toEqual(Object.keys(PRACTICE_PLANES).sort())
+    expect(Object.values(PLANE_ROW).every((r) => r.length > 0)).toBe(true)
+    expect(PLANE_MAP_SAYS_LIVE.every((k) => k in PLANE_ROW)).toBe(true)
+  })
+  it('a borrowed label is the field\'s OWN on-screen name, verbatim from the block that prints it', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/settings/settings-props.ts'), 'utf8')
+    for (const word of ['住所', '電話番号', '店舗写真']) expect(src).toContain(`'store-hours.row-${{ 住所: 'address', 電話番号: 'phone', 店舗写真: 'photo' }[word]}', '${word}'`)
+    expect(src).toContain('いまある内容の表示・非表示はここで切り替えられます。')
+    expect(src).toContain("block('services.tickets', '回数券の整合'")
+    expect(PLANE_LABEL.storeProfile).toEqual(['住所', '電話番号', '店舗写真'])
+    expect(PLANE_LABEL.menuVisible).toEqual(['表示・非表示'])
+    expect(PLANE_LABEL.tickets).toEqual(['回数券'])
+  })
+  it('V4-3 — the sample history credits the fixture operator, never the admitted person', () => {
+    expect(historyOperatorName()).toBe(operator.name)
+    expect(historyOperatorName()).toBe('見本 あずさ')
   })
 })
 
