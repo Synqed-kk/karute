@@ -166,8 +166,9 @@ type TakePersist = {
    *  row and no other. null on the idle object, which has no take. */
   born: Parameters<typeof createTake>[0] | null
   /** The revive's own backoff: failed tries so far, and when the next is due
-   *  — plus when this ladder's FIRST try went out (0 = none yet), the clock
-   *  the PR-6 notice reads (capture-warning-detect.ts). */
+   *  — plus when this OUTAGE's first try went out (0 = none yet), the clock
+   *  the PR-6 notice reads (capture-warning-detect.ts). A partial recovery
+   *  keeps it: only a catch-up that lands whole clears it (flushTake). */
   revive: { tries: number; at: number; since: number }
   /** The session retry's: retries so far, and when the last one (or the take's
    *  start) went out. */
@@ -489,7 +490,9 @@ class GlobalRecorder {
     if (!takeId || p.abandoned || !(this.state === 'recording' || this.state === 'paused')) return
     const now = Date.now()
     if (p.disabled && now >= p.revive.at) {
-      if (p.revive.tries === 0) p.revive.since = now
+      // The outage's clock starts at its first try and runs until a catch-up
+      // lands whole — not at the first try after a partial one (PR-6 fix 2).
+      if (p.revive.since === 0) p.revive.since = now
       p.revive.at = now + REVIVE_BACKOFF_MS[Math.min(p.revive.tries++, REVIVE_BACKOFF_MS.length - 1)]
       void this.queueRevive(p, takeId, this.recordingSessionId, false)
     }
@@ -792,8 +795,17 @@ class GlobalRecorder {
           p.seq = seq + 1
           p.count = count
           p.ends.push(count)
-          p.revive = { tries: 0, at: 0, since: 0 }
+          p.revive.tries = 0
+          p.revive.at = 0
         }
+        // ⚖ THE CATCH-UP LANDED WHOLE (PR-6 fix 2, gr thread 4): storage is on
+        // and everything memory held when this flush read it is on disk. Only
+        // here does the outage's clock clear — an append that lands and a later
+        // one that refuses is a partial recovery, and the outage it is part of
+        // keeps its first try, so a store that flaps write by write cannot
+        // restart the notice's 15 s for ever. (The backoff above still resets
+        // per landed append, as it always has.)
+        p.revive.since = 0
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
         // forget off the persist queue: the pump has its own single-flight and
         // its own per-PUT deadlines, so this cannot pile up and the queue never

@@ -62,9 +62,10 @@ let mockCreateOk = true
 let mockAppendOk = true
 const mockReadTakeUploadMeta = jest.fn<Promise<UploadMeta | null>, [string]>(async () => mockRowMeta)
 const mockIsTakeHeldByAnother = jest.fn<Promise<boolean>, [string]>(async () => false)
+const mockAppendTakeSegment = jest.fn<Promise<boolean>, unknown[]>(async () => mockAppendOk)
 jest.mock('@/lib/karute/take-store', () => ({
   createTake: async () => mockCreateOk,
-  appendTakeSegment: async () => mockAppendOk,
+  appendTakeSegment: (...args: unknown[]) => mockAppendTakeSegment(...args),
   deleteTake: async () => {},
   isTakeHeldByAnother: (takeId: string) => mockIsTakeHeldByAnother(takeId),
   markSegmentError: async () => {},
@@ -98,7 +99,7 @@ const tick = async (n = 1) => {
   }
 }
 const persistOf = () =>
-  (globalRecorder as unknown as { persist: { disabled: boolean; revive: { since: number } } }).persist
+  (globalRecorder as unknown as { persist: { disabled: boolean; seq: number; revive: { since: number } } }).persist
 
 function deferred<T>() {
   let resolve!: (v: T) => void
@@ -536,7 +537,7 @@ describe('PR-6 — the four pins the fresh-eyes mutants found missing (FRESH-S39
     expect(globalRecorder.captureWarning).toBe('server')
   })
 
-  it('N7: a SECOND outage after storage came back gets its own 15 s — the device clock restarts at its first try and never fires at once', async () => {
+  it('N7 / fix 2 (gr thread 4): after a COMPLETE recovery — the catch-up lands every segment memory held — a SECOND outage gets its own 15 s from its own first try, never at once', async () => {
     mockCreateOk = false // storage off from the start: no row, no seq written
     await startLive()
     await tick() // 5 s: the first outage's first try
@@ -544,11 +545,15 @@ describe('PR-6 — the four pins the fresh-eyes mutants found missing (FRESH-S39
     expect(firstSince).toBeGreaterThan(0)
 
     // Storage comes back: the 10 s try creates the row, and the catch-up
-    // behind it lands this chunk — the append that resets the ladder.
+    // behind it writes what memory held — sixty chunks, TWO segments — and
+    // both land. That is the recovery completing, and only it clears the clock.
     mockCreateOk = true
-    mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 0, lastSeq: 0 }
-    FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 1, lastSeq: 1 }
+    for (let i = 0; i < 60; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
     await tick() // 10 s
+    expect(persistOf().disabled).toBe(false)
+    expect(persistOf().seq).toBe(2)
+    expect(persistOf().revive.since).toBe(0)
     await tick() // 15 s
     expect(persistOf().disabled).toBe(false)
     expect(globalRecorder.captureWarning).toBeNull()
@@ -684,5 +689,35 @@ describe('PR-6 fix 2 — Greptile thread 2: one notice read at a time', () => {
     } finally {
       mockReadTakeUploadMeta.mockImplementation(async () => mockRowMeta)
     }
+  })
+})
+
+describe('PR-6 fix 2 — Greptile thread 4: a partial recovery keeps the outage clock', () => {
+  it('the first catch-up append lands, the second refuses, storage is off again: the device notice fires 15 s after the ORIGINAL first try — the clock never restarts', async () => {
+    mockCreateOk = false // storage off from the start: no row, no seq written
+    await startLive()
+    await tick() // 5 s: the outage's first try
+    const firstSince = persistOf().revive.since
+    expect(firstSince).toBeGreaterThan(0)
+
+    // Storage comes back for one write only: the 10 s try creates the row, the
+    // catch-up's first segment lands and its second refuses. The row cannot
+    // be won back after that (a seq is on disk, the row cannot be read).
+    mockCreateOk = true
+    mockAppendTakeSegment.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    for (let i = 0; i < 60; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    await tick() // 10 s
+    expect(mockAppendTakeSegment).toHaveBeenCalledTimes(2)
+    expect(persistOf().seq).toBe(1)
+    expect(persistOf().disabled).toBe(true)
+    expect(persistOf().revive.since).toBe(firstSince)
+    mockAppendOk = false
+
+    await tick() // 15 s: the next try — ten seconds into the outage, not a new one
+    expect(persistOf().revive.since).toBe(firstSince)
+    expect(globalRecorder.captureWarning).toBeNull()
+    await tick() // 20 s: fifteen after the ORIGINAL first try
+    expect(Date.now() - firstSince).toBe(15_000)
+    expect(globalRecorder.captureWarning).toBe('device')
   })
 })
