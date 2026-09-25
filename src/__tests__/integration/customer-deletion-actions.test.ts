@@ -168,3 +168,28 @@ describe('cancelCustomerDeletion', () => {
     expect(customers.update).not.toHaveBeenCalled()
   })
 })
+
+// ── Both doors file the same act at the same tier (severity rider) ─────────
+// The web door sets severity inside emitDeletionAudit; the phone door reads
+// it off FACADE_AUDIT_MAP, which logFacadeAudit forwards verbatim (pinned per
+// live row, and hardcoded for this pair, in facade-audit.test.ts). This is
+// the link between the two: the RUN web value against the map the facade
+// emits from — so a flip on either side, or a dropped row severity, is red.
+describe('web ↔ facade severity parity — the 30-day deletion pair', () => {
+  // '@/lib/audit' is mocked to a bare { audit } above; the real map lives here.
+  const { FACADE_AUDIT_MAP } = jest.requireActual<typeof import('@/lib/audit')>('@/lib/audit')
+
+  it.each([
+    ['customer.deletion.schedule', scheduleCustomerDeletion, null],
+    ['customer.deletion.cancel', cancelCustomerDeletion, new Date(Date.now() - 2 * 86_400_000).toISOString()],
+  ] as const)('%s files at the same severity as the web action', async (facadeKey, action, deletedAt) => {
+    customers.get.mockResolvedValue({ id: 'cus-1', deleted_at: deletedAt })
+
+    await action('cus-1')
+
+    expect(audit).toHaveBeenCalledTimes(1)
+    const webSeverity = audit.mock.calls[0][0].severity
+    expect(webSeverity).toBeDefined()
+    expect(FACADE_AUDIT_MAP[facadeKey].severity).toBe(webSeverity)
+  })
+})
