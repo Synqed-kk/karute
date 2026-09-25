@@ -1,6 +1,6 @@
 {
   "$comment": "The test-world TYPE registry (not CORE-30's business registry): which business type each Dev Salon test store plays, and what the fill loader (fill.ts) creates for it. The stores map moves to stores.business_type when CORE-26 lands. Type ids = BusinessProfileKey values in src/business/lib/fixtures-settings.ts. One recipe = one store: a type must map exactly one store here; a second store of a type needs its own recipe and member-number series.",
-  "$realism": "Per type, what realism.ts and the planner's days from a store's realismFrom (manifest) on follow: nominatedShare = share of customers who 指名 their 担当 (kept on every later visit); cancelShare / noShowShare = past loader bookings that end CANCELLED / NO_SHOW (reasons: cancelReasons below; 無断 = no-contact only); futureCancels = [min, max] future bookings per store already cancelled (事前連絡); rhythmDays = [min, max] days between a customer's visits (their own cadence clamped into it), rhythmJitter = ± days per visit.",
+  "$realism": "Per type, what realism.ts and the planner's days from a store's realismFrom (manifest) on follow: requestShare = share of bookings that carry a ご要望 line (recipes/<type>.ts requests); nominatedShare = share of customers who 指名 their 担当 (kept on every later visit); cancelShare / noShowShare = past loader bookings that end CANCELLED / NO_SHOW (reasons: cancelReasons below; 無断 = no-contact only); futureCancels = [min, max] future bookings per store already cancelled (事前連絡); rhythmDays = [min, max] days between a customer's visits (their own cadence clamped into it), rhythmJitter = ± days per visit.",
   "types": {
     "beauty_chiropractic": {
       "label": "美容整体",
@@ -18,6 +18,7 @@
         "karuteShare": 0.6
       },
       "realism": {
+        "requestShare": 0.7,
         "nominatedShare": 0.7,
         "cancelShare": 0.05,
         "noShowShare": 0.02,
@@ -42,6 +43,7 @@
         "karuteShare": 0.8
       },
       "realism": {
+        "requestShare": 0.55,
         "nominatedShare": 0.6,
         "cancelShare": 0.06,
         "noShowShare": 0.03,
@@ -66,6 +68,7 @@
         "karuteShare": 0.6
       },
       "realism": {
+        "requestShare": 0.6,
         "nominatedShare": 0.5,
         "cancelShare": 0.08,
         "noShowShare": 0.02,

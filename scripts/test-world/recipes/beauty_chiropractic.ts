@@ -1,7 +1,7 @@
 // 美容整体 — the fill data for a beauty-chiropractic test store (テスト東京店). DATA only: the loader
 // (fill.ts) reads it by type id; the counts it must match live in registry.json. Every person, phone
 // and address here is invented: phones are 090-0000-xxxx, mail is @example.jp, memos end 「テストデータ」.
-import type { KaruteCtx, KaruteLine, RecipeCustomer, RecipeData } from '../plan'
+import type { KaruteCtx, KaruteLine, RecipeCustomer, RecipeData, RequestLine } from '../plan'
 
 const FIRST = '初回カウンセリング＋施術 90分'
 const ZENSHIN = '全身整体 60分'
@@ -133,6 +133,30 @@ function karute({ customer, menu, first, prev, pick }: KaruteCtx): KaruteLine[] 
   return lines
 }
 
+// ご要望 — what customers type into the booking form's 「ご要望 / メモ」 box (Reserve's own hint: 「特に気になる症状、痛み、
+// お悩みなどご記入ください。」). Short, polite, the customer's own words; a real form is often left empty (registry requestShare).
+const REQUESTS: RequestLine[] = [
+  { text: '初めて伺います。問診票は当日の記入で大丈夫でしょうか。', first: true },
+  { text: '初めてです。肩こりと腰痛の両方を相談したいです。', first: true, themes: ['katakori', 'youtsu'] },
+  { text: '肩こりと首の張りがつらく、夕方になると頭痛も出ます。', themes: ['katakori', 'jiritsu'] },
+  { text: 'デスクワークで右肩が特に張っています。肩まわりを重点的にお願いします。', themes: ['katakori'] },
+  { text: '腰痛がひどく、朝起き上がるときに痛みます。', themes: ['youtsu'] },
+  { text: '長時間座っていると腰が重くなります。腰を中心にお願いします。', themes: ['youtsu', 'kotsuban'] },
+  { text: '骨盤のゆがみが気になります。左右で脚の長さが違う気がします。', themes: ['kotsuban', 'shisei'] },
+  { text: '猫背を直したいです。普段の姿勢の癖も見ていただけると助かります。', themes: ['shisei'] },
+  { text: '階段の上り下りで右ひざが痛みます。', themes: ['hiza'] },
+  { text: '寝つきが悪く、疲れが抜けません。リラックスできる施術を希望します。', themes: ['jiritsu'] },
+  { text: '顔のむくみとフェイスラインが気になります。', themes: ['kogao'] },
+  { text: '産後の骨盤まわりのケアをお願いします。', themes: ['sango'] },
+  { text: '授乳中です。うつ伏せが長いとつらいので、ご配慮いただけると助かります。', themes: ['sango'] },
+  { text: '以前ぎっくり腰をしたことがあります。', themes: ['youtsu'] },
+  { text: '強い刺激が苦手なので、やさしめでお願いします。' },
+  { text: '強めの圧が好みです。' },
+  { text: '前回の施術後、だいぶ楽になりました。今回も同じ内容でお願いします。', first: false },
+  { text: '前回と同じ先生でお願いします。', first: false, nominated: true },
+  { text: '担当の方はどなたでも大丈夫です。', nominated: false },
+]
+
 export const recipe: RecipeData = {
   policy: {
     // 火曜定休, 10:00–19:00 (the hours the Reserve pin for this store already shows).
@@ -162,6 +186,7 @@ export const recipe: RecipeData = {
   ],
   firstMenu: FIRST,
   customers,
+  requests: REQUESTS,
   // 回数券: bought at the Nth completed visit (atVisit), used from that visit on.
   packs: [
     { member: 'BC-0001', size: 10, unitPrice: 6600, atVisit: 4 },

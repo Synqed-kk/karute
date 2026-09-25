@@ -9,7 +9,7 @@
 // REALISM (registry.json `realism`, per type): from the store's `realismFrom` date on (the manifest; realism.ts
 // sets it past the last day any run has planned, so no existing row moves) a customer returns on the type's rhythm,
 // a 指名 customer only ever books their 担当, and past visits end cancelled / no-show at the type's rates. Before that
-// date the plan is exactly what it always was.
+// date the plan is exactly what it always was. Every booking's ご要望 line (requestFor) is a function of its key.
 import type { AppointmentStatus, EntryCategory, StaffRole, WeeklyHours } from '@synqed-kk/client'
 
 export interface Counts {
@@ -47,12 +47,21 @@ export interface RecipeCustomer {
 
 /** registry.json `types.<id>.realism` — see its $realism note. */
 export interface Realism {
+  requestShare: number
   nominatedShare: number
   cancelShare: number
   noShowShare: number
   futureCancels: [number, number]
   rhythmDays: [number, number]
   rhythmJitter: number
+}
+
+/** One ご要望 line a customer types into the booking form. Unset conditions fit every booking. */
+export interface RequestLine {
+  text: string
+  first?: boolean // true: only the customer's first visit ever · false: only a return visit
+  themes?: string[] // only customers of these themes (RecipeCustomer.theme)
+  nominated?: boolean // true: only a 指名 visit (booked with their own 担当) · false: only a フリー visit
 }
 
 export interface KaruteCtx {
@@ -78,6 +87,7 @@ export interface RecipeData {
   firstMenu: string
   customers: RecipeCustomer[]
   packs: { member: string; size: number; unitPrice: number; atVisit: number }[]
+  requests: RequestLine[] // the ご要望 pool (12–20 lines), born native in the register of a booking form
   karute(ctx: KaruteCtx): KaruteLine[] // 3–6 lines: 主訴 · 経過 · 施術内容 · 申し送り …
 }
 export type Recipe = RecipeData & { id: string; counts: Counts; realism?: Realism }
@@ -94,6 +104,7 @@ export interface PlannedAppointment {
   duration: number
   price: number
   status: AppointmentStatus
+  request: string | null // the customer's ご要望 line (null = the form was left empty)
 }
 export interface Plan {
   window: { from: string; to: string }
@@ -139,6 +150,20 @@ export function slotStep(hours: WeeklyHours, slot = DEFAULT_SLOT_MINUTES): numbe
 
 /** Does this customer 指名 their 担当? Decided once per customer, so a customer who nominated keeps the same staffer. */
 export const isNominated = (recipe: Recipe, member: string) => !!recipe.realism && rng(`${recipe.id}|nominated|${member}`)() < recipe.realism.nominatedShare
+
+/** The ご要望 line of one booking (a function of its key): null for the share of forms left empty. */
+export function requestFor(recipe: Recipe, c: RecipeCustomer, key: string, first: boolean, nominated: boolean): string | null {
+  if (!recipe.realism) return null
+  const r = rng(`${key}|request`)
+  if (r() >= recipe.realism.requestShare) return null
+  const fits = recipe.requests.filter((l) => (l.first ?? first) === first && (!l.themes || l.themes.includes(c.theme)) && (l.nominated ?? nominated) === nominated)
+  // a customer mostly writes about their own concern: a line of their theme weighs 3, a line anyone could write 1
+  let u = r() * fits.reduce((n, l) => n + (l.themes ? 3 : 1), 0)
+  return fits.find((l) => (u -= l.themes ? 3 : 1) < 0)?.text ?? null
+}
+
+/** A loader booking's notes: the tag first (every reader matches /\[(tw:[^\]]+)\]/ or '[tw:'), then the ご要望 line. */
+export const bookingNotes = (a: Pick<PlannedAppointment, 'key' | 'request'>) => `テストデータ [${a.key}]${a.request ? `\n${a.request}` : ''}`
 
 /** The minute a customer of that day-part prefers, from the day's own hours: am = opening, pm = the middle of the day
  *  (the sort picks the nearest real start), eve = the last start that leaves one slot before closing. No fixed clock times. */
@@ -212,7 +237,8 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
     const realDay = d >= cut
     for (const { c, k } of byDay.get(d) ?? []) {
       const r = rng(`${id}|${c.member}|${date}`)
-      const m = menu(k === 0 && c.isNew ? recipe.firstMenu : r() < 0.75 ? c.menu : c.alt)
+      const first = k === 0 && c.isNew
+      const m = menu(first ? recipe.firstMenu : r() < 0.75 ? c.menu : c.alt)
       const u = r()
       const [noShow, cancel] = realDay ? [real!.noShowShare, real!.cancelShare] : [n.noShowShare, n.cancelShare]
       const status: AppointmentStatus = date >= today ? 'SCHEDULED' : u < noShow ? 'NO_SHOW' : u < noShow + cancel ? 'CANCELLED' : 'COMPLETED'
@@ -241,9 +267,11 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
       }
       if (!slot) continue // a full day: this visit is not planned (same answer on every run)
       for (let i = 0; i < cells; i++) for (const who of [slot.staff, slot.bed]) busy.add(`${who}@${slot.s + i * step}`)
+      const key = `tw:${id}:${c.member}:${date}`
       appointments.push({
-        key: `tw:${id}:${c.member}:${date}`, member: c.member, staff: slot.staff, resource: slot.bed, menu: m.name, date,
+        key, member: c.member, staff: slot.staff, resource: slot.bed, menu: m.name, date,
         startsAt: jstIso(date, slot.s), endsAt: jstIso(date, slot.s + m.duration), duration: m.duration, price: m.price, status,
+        request: requestFor(recipe, c, key, first, nominated && slot.staff === c.staff),
       })
     }
   }

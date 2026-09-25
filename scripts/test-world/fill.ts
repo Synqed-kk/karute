@@ -26,7 +26,7 @@ import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
-import { addDays, hoursOn, jstIso, plan, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { addDays, bookingNotes, hoursOn, jstIso, plan, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
 
 export type FillCore = Pick<
   SynqedClient,
@@ -237,7 +237,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       const row = await write('appointments', a.key, () => core.appointments.create({
         customer_id: cid, staff_id: sid, store_id: storeId, menu_id: mid, resource_id: rid, starts_at: a.startsAt, ends_at: a.endsAt,
         duration_minutes: a.duration, booked_price_amount: a.price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
-        title: null, notes: `テストデータ [${a.key}]`,
+        title: null, notes: bookingNotes(a),
       }, { idempotencyKey: `test-world:${a.key}` }))
       if (row?.id) apptRow.set(a.key, { id: row.id, status: (row as { status?: string }).status ?? a.status })
     })

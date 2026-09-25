@@ -1,12 +1,13 @@
 // Runnable check (no framework, no network), same command as ci.yml:
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/realism.test.ts
-// The planner's realism: the per-store step, the realismFrom cut (rhythm, 指名).
+// The planner's realism: the per-store step, the realismFrom cut (rhythm, 指名), the ご要望 pools.
 import assert from 'node:assert/strict'
 import { loadRecipe, registry, storeCtx } from './fill'
-import { addDays, hoursOn, isNominated, jstIso, plan, slotStep, type Plan, type Recipe } from './plan'
+import { addDays, bookingNotes, hoursOn, isNominated, jstIso, plan, slotStep, type Plan, type Recipe } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f' // beauty_chiropractic in registry.json
 const [EPOCH, TODAY] = ['2026-09-18', '2026-09-26']
+const TAG = /\[(tw:[^\]]+)\]/ // fill.ts / close-out.ts's own regex
 const at = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
 const startMin = (a: Plan['appointments'][number]) => (Date.parse(a.startsAt) - Date.parse(jstIso(a.date, 0))) / 60_000
 
@@ -72,6 +73,25 @@ async function planner() {
     const nominated = t.customers.filter((c) => isNominated(t, c.member)).length / t.customers.length
     assert.ok(Math.abs(nominated - t.realism!.nominatedShare) <= 0.2, `${type}: ${nominated} of customers nominate vs ${t.realism!.nominatedShare}`)
 
+    // ご要望: a pool of 12–20 native lines; the share of filled forms ≈ requestShare; conditions hold; the tag stays first.
+    assert.ok(t.requests.length >= 12 && t.requests.length <= 20, `${type}: ${t.requests.length} request lines`)
+    for (const l of t.requests) assert.doesNotMatch(l.text, /[A-Za-z]/, `${type}: no English in 「${l.text}」`)
+    const filled = old.appointments.filter((a) => a.request).length / old.appointments.length
+    assert.ok(Math.abs(filled - t.realism!.requestShare) <= 0.1, `${type}: ${filled.toFixed(2)} of bookings carry a request vs ${t.realism!.requestShare}`)
+    const byText = new Map(t.requests.map((l) => [l.text, l]))
+    const firstOf = new Map<string, string>() // member → key of their earliest booking
+    for (const a of old.appointments) if (!firstOf.has(a.member)) firstOf.set(a.member, a.key)
+    for (const a of old.appointments) {
+      const c = t.customers.find((x) => x.member === a.member)!
+      const l = a.request ? byText.get(a.request)! : null
+      const firstVisit = c.isNew && a.menu === t.firstMenu && firstOf.get(a.member) === a.key
+      if (l?.first === true) assert.ok(c.isNew && a.menu === t.firstMenu, `${type} ${a.key}: 「${l.text}」 on a return visit`)
+      if (l?.first === false) assert.ok(!firstVisit, `${type} ${a.key}: 「${l.text}」 on a first visit`)
+      if (l?.themes) assert.ok(l.themes.includes(c.theme), `${type} ${a.key}: 「${l.text}」 is not ${c.theme}'s concern`)
+      if (l?.nominated) assert.equal(a.staff, c.staff, `${type} ${a.key}: a 指名 line on a visit with someone else`)
+      assert.equal(TAG.exec(bookingNotes(a))?.[1], a.key, 'the tag reader still finds the key')
+      assert.ok(bookingNotes(a).includes('[tw:') && bookingNotes(a).startsWith(`テストデータ [${a.key}]`))
+    }
   }
 }
 
