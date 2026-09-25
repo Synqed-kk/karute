@@ -432,3 +432,152 @@ describe('PR-6 — the fact, once per raise', () => {
     warn.mockRestore()
   })
 })
+
+describe('PR-6 — the four pins the fresh-eyes mutants found missing (FRESH-S39-PR6 N2 · N3 · N6 · N7)', () => {
+  /** A row meta that WOULD raise 'server' for any live take: 31 segments
+   *  written, not one on the server. */
+  const BEHIND: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: 30 }
+
+  it('N2: a meta read that settles after the take STOPPED is no verdict — the stopped take gets no notice and files no fact', async () => {
+    await startLive()
+    await tick(11) // 55 s
+    expect(globalRecorder.captureWarning).toBeNull()
+    const slow = deferred<UploadMeta | null>()
+    mockReadTakeUploadMeta.mockImplementationOnce(() => slow.promise)
+    await tick() // 60 s: the tick's read is out and has not answered
+    expect(globalRecorder.captureWarning).toBeNull()
+
+    globalRecorder.stop()
+    await drain()
+    expect(globalRecorder.state).toBe('recorded')
+    slow.resolve(BEHIND)
+    await drain()
+    expect(globalRecorder.captureWarning).toBeNull()
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+  })
+
+  it('N2: …and one that settles after the NEXT take started never lands on it — no notice, no fact against the new take', async () => {
+    await startLive()
+    await tick(11)
+    const slow = deferred<UploadMeta | null>()
+    mockReadTakeUploadMeta.mockImplementationOnce(() => slow.promise)
+    await tick() // 60 s: take A's read is out
+    globalRecorder.stop()
+    await drain()
+    const takeB = await startLive()
+    expect(globalRecorder.state).toBe('recording')
+    expect(globalRecorder.takeId).toBe(takeB)
+
+    slow.resolve(BEHIND) // A's late verdict
+    await drain()
+    expect(globalRecorder.captureWarning).toBeNull()
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+    // B's own tick still reads B's own row, and B is healthy.
+    await tick()
+    expect(globalRecorder.captureWarning).toBeNull()
+  })
+
+  it('N3: the same reason raised twice before the first fact has answered files ONE fact — the mark goes on before the send, not after it', async () => {
+    const pending = deferred<unknown>()
+    mockRecordCaptureWarning.mockImplementationOnce(() => pending.promise)
+    const takeId = await startLive()
+    await tick(12) // 60 s: raised, the fact is out and has not answered
+    expect(globalRecorder.captureWarning).toBe('server')
+    expect(mockRecordCaptureWarning).toHaveBeenCalledTimes(1)
+
+    // The notice flaps inside the send's window: clears, then the same reason again.
+    mockRowMeta = { ...mockRowMeta!, uploadedSeq: 11, lastSeq: 11 }
+    await tick()
+    expect(globalRecorder.captureWarning).toBeNull()
+    mockRowMeta = { ...mockRowMeta!, uploadedSeq: -1, lastSeq: 30 }
+    await tick()
+    expect(globalRecorder.captureWarning).toBe('server')
+    expect(mockRecordCaptureWarning).toHaveBeenCalledTimes(1)
+
+    pending.resolve({ ok: true })
+    await drain()
+    await tick(3)
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-1', takeId, reason: 'server', warnedAt: expect.any(String) },
+    ])
+  })
+
+  it('N3: …and while the fact waits for its session, a flap of the same reason still leaves ONE fact when the id lands', async () => {
+    const slow = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slow.promise)
+    const takeId = await startLive()
+    await tick(12)
+    expect(globalRecorder.captureWarning).toBe('server')
+    mockRowMeta = { ...mockRowMeta!, uploadedSeq: 11, lastSeq: 11 }
+    await tick()
+    expect(globalRecorder.captureWarning).toBeNull()
+    mockRowMeta = { ...mockRowMeta!, uploadedSeq: -1, lastSeq: 30 }
+    await tick()
+    expect(globalRecorder.captureWarning).toBe('server')
+    expect(globalRecorder.recordingSessionId).toBeNull()
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+
+    slow.resolve({ id: 'rs-late' })
+    await drain()
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-late', takeId, reason: 'server', warnedAt: expect.any(String) },
+    ])
+  })
+
+  it('N6: a fresh row whose uploadedSeq was never written (undefined, exactly as the store returns it) reads as "nothing on the server" — 60 s recorded → server, not ~90 s later at 18 behind', async () => {
+    // take-store.ts: TakeMeta.uploadedSeq is optional until the first
+    // markSegmentsUploaded patch, and readTakeUploadMeta passes it through.
+    // Twelve segments written by 60 s — twelve behind, under the 18 rule.
+    mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: undefined, lastSeq: 11 }
+    await startLive()
+    await tick(11) // 55 s
+    expect(globalRecorder.captureWarning).toBeNull()
+    await tick() // 60 s
+    expect(globalRecorder.captureWarning).toBe('server')
+  })
+
+  it('N7: a SECOND outage after storage came back gets its own 15 s — the device clock restarts at its first try and never fires at once', async () => {
+    mockCreateOk = false // storage off from the start: no row, no seq written
+    await startLive()
+    await tick() // 5 s: the first outage's first try
+    const firstSince = persistOf().revive.since
+    expect(firstSince).toBeGreaterThan(0)
+
+    // Storage comes back: the 10 s try creates the row, and the catch-up
+    // behind it lands this chunk — the append that resets the ladder.
+    mockCreateOk = true
+    mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 0, lastSeq: 0 }
+    FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    await tick() // 10 s
+    await tick() // 15 s
+    expect(persistOf().disabled).toBe(false)
+    expect(globalRecorder.captureWarning).toBeNull()
+    await tick() // 20 s
+    expect(globalRecorder.captureWarning).toBeNull()
+
+    // The second outage: the next write refuses. That tick's meta read is slow
+    // — it settles after the refusing flush turned storage off, and before the
+    // next tick's first try — 20 s after the FIRST outage's first try.
+    mockAppendOk = false
+    FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['y']) })
+    const slow = deferred<UploadMeta | null>()
+    mockReadTakeUploadMeta.mockImplementationOnce(() => slow.promise)
+    await tick() // 25 s
+    expect(persistOf().disabled).toBe(true)
+    slow.resolve(mockRowMeta)
+    await drain()
+    expect(Date.now() - firstSince).toBeGreaterThanOrEqual(15_000)
+    expect(globalRecorder.captureWarning).toBeNull()
+
+    await tick() // 30 s: the second outage's first try
+    const secondSince = persistOf().revive.since
+    expect(secondSince).toBe(Date.now())
+    expect(secondSince).toBeGreaterThan(firstSince)
+    expect(globalRecorder.captureWarning).toBeNull()
+    await tick(2) // 40 s: ten seconds after it
+    expect(globalRecorder.captureWarning).toBeNull()
+    await tick() // 45 s: fifteen after it
+    expect(Date.now() - secondSince).toBe(15_000)
+    expect(globalRecorder.captureWarning).toBe('device')
+  })
+})
