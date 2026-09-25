@@ -87,6 +87,13 @@ const SEGMENT_MAX_CHUNKS = 50
 // retry backoff, not a product length — see NO-HARDCODED-DURATIONS ruling 9/13
 const REVIVE_BACKOFF_MS = [5_000, 10_000, 20_000, 40_000]
 
+// How long the PR-6 notice waits on one meta read before it is no verdict
+// (PR-6 fix 3): under the TAKE_FLUSH_MS tick, so a read that never answers (a
+// hung IndexedDB, a lookup that never returns) is let go before the next
+// tick's and can never freeze the notice. A detection bound, not a length a
+// salon sets.
+const NOTICE_READ_DEADLINE_MS = 4_000
+
 // ⚖ AND A FAILED SESSION MINT IS ASKED AGAIN (S36 PR-1): how long after the
 // start — then after each retry — the next one waits; four retries, then the
 // save/discard-time retry is what is left, as before.
@@ -222,8 +229,9 @@ class GlobalRecorder {
   captureWarning: CaptureWarning | null = null
   /** The flush tick's notice read while it is out (PR-6 fix 2, gr thread 2):
    *  that read's own mark, so only it clears it — a read the next start()
-   *  left behind can never clear the new take's. null = none out. */
-  private evaluatingCaptureWarning: object | null = null
+   *  left behind can never clear the new take's. null = none out. `end` lets
+   *  go of it at once, deadline timer and all (PR-6 fix 3). */
+  private evaluatingCaptureWarning: { end: () => void } | null = null
   /** Customer/appointment the recording is BOUND to, captured at start(). The
    *  single source of truth for what the save attaches to — immune to nav drift.
    *  Survives stop→complete; cleared only on discard(). */
@@ -646,7 +654,10 @@ class GlobalRecorder {
    *  ⚖ ONE READ AT A TIME (PR-6 fix 2, gr thread 2). A tick whose read is
    *  still out skips its own: two reads in flight can answer out of order, and
    *  the older one — a server verdict from before the catch-up — would then
-   *  put back a notice the newer one had cleared, and file a fact for it. */
+   *  put back a notice the newer one had cleared, and file a fact for it.
+   *  Since fix 3 a read is let go at NOTICE_READ_DEADLINE_MS, before the next
+   *  tick is due; the skip stays for a tick that fires inside that window (a
+   *  throttled timer catching up). */
   private async evaluateCaptureWarning() {
     if (!RECORDING_SWITCHES.captureWarningNotice) return
     if (this.evaluatingCaptureWarning) return
@@ -654,7 +665,7 @@ class GlobalRecorder {
     const takeId = this.takeId
     const live = () => this.persist === p && (this.state === 'recording' || this.state === 'paused')
     if (!takeId || p.abandoned || !live()) return
-    const read = {}
+    const read = { end: () => {} }
     this.evaluatingCaptureWarning = read
     // Which door the meta comes from (PR-6 fix 3): memory's counts are not the
     // server's history, so the detector reads them only for a segment error.
@@ -662,7 +673,21 @@ class GlobalRecorder {
     // counts to the row's rules — no verdict; the next tick reads the row.
     const fromMemory = p.disabled
     try {
-      const meta = await this.readLiveUploadMeta(p, takeId)
+      // ⚖ A READ THAT NEVER ANSWERS IS LET GO (PR-6 fix 3): at the deadline —
+      // or at once, on a stop, discard or next start — the race answers null,
+      // no verdict, and the finally below frees the next tick to read fresh.
+      // The race has settled by then, so an answer that comes later is never
+      // seen: `meta` is the deadline's null, and nothing else holds the read.
+      const meta = await Promise.race([
+        this.readLiveUploadMeta(p, takeId),
+        new Promise<null>((resolve) => {
+          const deadline = setTimeout(() => resolve(null), NOTICE_READ_DEADLINE_MS)
+          read.end = () => {
+            clearTimeout(deadline)
+            resolve(null)
+          }
+        }),
+      ])
       if (!meta || !live() || (fromMemory && !p.disabled)) return
       this.setCaptureWarning(
         computeCaptureWarning({
@@ -678,8 +703,17 @@ class GlobalRecorder {
     } catch {
       // A store that throws is no verdict either.
     } finally {
+      // Its timer never outlives the read.
+      read.end()
       if (this.evaluatingCaptureWarning === read) this.evaluatingCaptureWarning = null
     }
+  }
+
+  /** Lets go of the notice read that is out, if any (PR-6 fix 3): a stop, a
+   *  discard or the next start() never leaves its deadline timer running. */
+  private endCaptureWarningRead() {
+    this.evaluatingCaptureWarning?.end()
+    this.evaluatingCaptureWarning = null
   }
 
   /** Subscribers hear only a change — and every reason a take shows is filed
@@ -1044,7 +1078,7 @@ class GlobalRecorder {
     this.autoStopped = false
     this.captureWarning = null
     // The belt: a read the last take left out never holds this one's tick.
-    this.evaluatingCaptureWarning = null
+    this.endCaptureWarningRead()
     this.target = opts?.target ?? null
     this.recordingSessionId = null
 
@@ -1140,6 +1174,7 @@ class GlobalRecorder {
       this.startedAt = null
       // The notice speaks for a live take only (PR-6).
       this.captureWarning = null
+      this.endCaptureWarningRead()
       micStream.getTracks().forEach(t => t.stop())
       this.stream = null
       // Final tail flush (onstop fires after the last ondataavailable). The
@@ -1793,6 +1828,7 @@ class GlobalRecorder {
     this.overrun = false
     this.autoStopped = false
     this.captureWarning = null
+    this.endCaptureWarningRead()
     this.target = null
     this.abandonRecordingSessionMint()
     this.state = 'idle'

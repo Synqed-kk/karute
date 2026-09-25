@@ -645,8 +645,15 @@ describe('PR-6 fix 2 — Greptile thread 1: every reason a take shows is filed o
 describe('PR-6 fix 2 — Greptile thread 2: one notice read at a time', () => {
   const BEHIND: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: 30 }
   const CAUGHT_UP: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 12, lastSeq: 12 }
+  /** A second evaluation while a read is out. Since fix 3 a read is let go at
+   *  4 s, before the next 5 s tick, so only a tick that fires inside that
+   *  window (a throttled timer catching up) can meet one — this is that tick. */
+  const evaluateNow = async () => {
+    void (globalRecorder as unknown as { evaluateCaptureWarning(): Promise<void> }).evaluateCaptureWarning()
+    await drain()
+  }
 
-  it('a read still out when the next tick comes: that tick is skipped, the read that was out applies once, and the tick after reads fresh', async () => {
+  it('a read still out when another evaluation comes: that one is skipped, the read that was out applies once, and the tick after reads fresh', async () => {
     await startLive()
     await tick(11) // 55 s
     expect(globalRecorder.captureWarning).toBeNull()
@@ -654,7 +661,8 @@ describe('PR-6 fix 2 — Greptile thread 2: one notice read at a time', () => {
     mockReadTakeUploadMeta.mockImplementationOnce(() => slow.promise)
     await tick() // 60 s: the read is out
     const reads = mockReadTakeUploadMeta.mock.calls.length
-    await tick() // 65 s: skipped — no second read while the first is out
+    await jest.advanceTimersByTimeAsync(2_000) // 62 s: inside its deadline
+    await evaluateNow() // skipped — no second read while the first is out
     expect(mockReadTakeUploadMeta).toHaveBeenCalledTimes(reads)
     expect(globalRecorder.captureWarning).toBeNull()
 
@@ -666,7 +674,7 @@ describe('PR-6 fix 2 — Greptile thread 2: one notice read at a time', () => {
     expect(facts().map((f) => f.reason)).toEqual(['server'])
 
     mockRowMeta = CAUGHT_UP
-    await tick() // 70 s: a fresh read, and its answer stands
+    await tick() // 65 s: a fresh read, and its answer stands
     expect(mockReadTakeUploadMeta).toHaveBeenCalledTimes(reads + 1)
     expect(globalRecorder.captureWarning).toBeNull()
     expect(facts()).toHaveLength(1)
@@ -684,9 +692,11 @@ describe('PR-6 fix 2 — Greptile thread 2: one notice read at a time', () => {
     })
     try {
       await tick() // 60 s: a read goes out
-      await tick() // 65 s: the tick a second read would have gone out on
+      await jest.advanceTimersByTimeAsync(2_000) // 62 s: inside its deadline
+      await evaluateNow() // the evaluation a second read would have gone out on
       // Whatever reads are out: the NEWEST sees the server caught up, every
-      // older one answers with what it saw before the catch-up.
+      // older one answers with what it saw before the catch-up — all of them
+      // inside the first one's deadline.
       out[out.length - 1].resolve(CAUGHT_UP)
       await drain()
       for (const d of out.slice(0, -1)) d.resolve(BEHIND)
@@ -891,5 +901,74 @@ describe('PR-6 fix 3 — FIX E: storage dying after healthy uploading is the dev
     expect(facts()).toEqual([
       { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
     ])
+  })
+})
+
+describe('PR-6 fix 3 — FIX F: a read that never answers never freezes the notice', () => {
+  const BEHIND: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: 30 }
+  const CAUGHT_UP: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 12, lastSeq: 12 }
+
+  it('a read that never answers is let go at 4 s: the next tick still reads, and its answer sets the field', async () => {
+    await startLive()
+    await tick(11) // 55 s
+    mockReadTakeUploadMeta.mockImplementationOnce(() => new Promise<UploadMeta | null>(() => {}))
+    await tick() // 60 s: the read is out, and never answers
+    expect(globalRecorder.captureWarning).toBeNull()
+    const reads = mockReadTakeUploadMeta.mock.calls.length
+    await tick() // 65 s: let go at 64 s — this tick reads fresh
+    expect(mockReadTakeUploadMeta).toHaveBeenCalledTimes(reads + 1)
+    expect(globalRecorder.captureWarning).toBe('server')
+    await drain()
+    expect(facts().map((f) => f.reason)).toEqual(['server'])
+  })
+
+  it('a read that answers after its deadline sets nothing — no notice, no change heard, no fact; the next tick\'s read is the one that stands', async () => {
+    await startLive()
+    await tick(11) // 55 s
+    const slow = deferred<UploadMeta | null>()
+    mockReadTakeUploadMeta.mockImplementationOnce(() => slow.promise)
+    await tick() // 60 s: the read is out
+    await jest.advanceTimersByTimeAsync(3_999)
+    await drain()
+    const v = globalRecorder.version
+    await jest.advanceTimersByTimeAsync(1) // 64 s: the deadline wins
+    await drain()
+    slow.resolve(BEHIND) // too late
+    await drain()
+    expect(globalRecorder.captureWarning).toBeNull()
+    expect(globalRecorder.version).toBe(v)
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+
+    mockRowMeta = CAUGHT_UP
+    await jest.advanceTimersByTimeAsync(1_000) // 65 s
+    await drain()
+    expect(globalRecorder.captureWarning).toBeNull()
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+  })
+
+  it('a stop or a discard lets go of a read that is out at once — its deadline timer never outlives them', async () => {
+    const setSpy = jest.spyOn(globalThis, 'setTimeout')
+    const clearSpy = jest.spyOn(globalThis, 'clearTimeout')
+    try {
+      for (const end of [() => globalRecorder.stop(), () => globalRecorder.discard()]) {
+        globalRecorder.discard()
+        await startLive()
+        await tick(11)
+        mockReadTakeUploadMeta.mockImplementationOnce(() => new Promise<UploadMeta | null>(() => {}))
+        setSpy.mockClear()
+        clearSpy.mockClear()
+        await tick() // the read is out, its deadline armed
+        const armed = setSpy.mock.calls.findIndex(([, ms]) => ms === 4_000)
+        expect(armed).toBeGreaterThanOrEqual(0)
+        const deadline = setSpy.mock.results[armed].value
+        expect(clearSpy).not.toHaveBeenCalledWith(deadline)
+        end()
+        expect(clearSpy).toHaveBeenCalledWith(deadline)
+        expect((globalRecorder as unknown as { evaluatingCaptureWarning: unknown }).evaluatingCaptureWarning).toBeNull()
+      }
+    } finally {
+      setSpy.mockRestore()
+      clearSpy.mockRestore()
+    }
   })
 })
