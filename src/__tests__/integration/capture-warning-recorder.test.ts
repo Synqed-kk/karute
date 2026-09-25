@@ -581,3 +581,51 @@ describe('PR-6 — the four pins the fresh-eyes mutants found missing (FRESH-S39
     expect(globalRecorder.captureWarning).toBe('device')
   })
 })
+
+describe('PR-6 fix 2 — Greptile thread 1: every reason a take shows is filed once', () => {
+  it('device → server (storage back, the server still stalled) files the server fact once; a later server → device files nothing new', async () => {
+    mockCreateOk = false // storage off from the start
+    const takeId = await startLive()
+    await tick(4) // 20 s: fifteen after the revive's first try
+    expect(globalRecorder.captureWarning).toBe('device')
+    await drain()
+    expect(facts().map((f) => f.reason)).toEqual(['device'])
+
+    // The revive's tries go out at 5, 10, 20, 40, 80 s. Storage stays off
+    // through the 40 s one; the 80 s one wins it back — past 60 s recorded,
+    // with the server 31 segments behind, so no reading on the way can say
+    // null: the notice goes straight from device to server.
+    await tick(4) // 40 s
+    expect(persistOf().disabled).toBe(true)
+    mockCreateOk = true
+    mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: 30 }
+    FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    const seen: (string | null)[] = []
+    for (let i = 0; i < 9; i++) {
+      await tick() // …85 s
+      seen.push(globalRecorder.captureWarning)
+    }
+    expect(persistOf().disabled).toBe(false)
+    expect(globalRecorder.captureWarning).toBe('server')
+    expect(seen).not.toContain(null)
+    await drain()
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
+      { recordingSessionId: 'rs-1', takeId, reason: 'server', warnedAt: expect.any(String) },
+    ])
+    await tick(3)
+    expect(facts()).toHaveLength(2)
+
+    // Storage goes again and the revive cannot win it back (a seq is on disk
+    // and the row cannot be read): server → device, already filed.
+    mockAppendOk = false
+    FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['y']) })
+    await tick()
+    expect(persistOf().disabled).toBe(true)
+    await tick(4)
+    expect(globalRecorder.captureWarning).toBe('device')
+    await tick(3)
+    await drain()
+    expect(facts().map((f) => f.reason)).toEqual(['device', 'server'])
+  })
+})

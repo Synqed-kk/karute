@@ -660,13 +660,17 @@ class GlobalRecorder {
     }
   }
 
-  /** Subscribers hear only a change — and a RAISE (null → a reason, or
-   *  server → device) files the fact. */
+  /** Subscribers hear only a change — and every reason a take shows is filed
+   *  once (PR-6 fix 2, gr thread 1). Any change to a reason files it, device →
+   *  server included: storage back, the server still stalled, is a notice
+   *  staff see and must have its record. The take's `warned` set is what
+   *  stops a repeat — device → server → device files device once, server
+   *  once. */
   private setCaptureWarning(next: CaptureWarning | null) {
     const prev = this.captureWarning
     if (next === prev) return
     this.captureWarning = next
-    if (next && (prev === null || next === 'device')) this.fileCaptureWarning(next)
+    if (next) this.fileCaptureWarning(next)
     this.notify()
   }
 
