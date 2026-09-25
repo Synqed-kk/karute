@@ -324,6 +324,9 @@ const BOOKING_KEYS = ['new', 'repeat', 'ticket', 'vip'] as const
 /** The dial's four swatches → the route's `colors` (control id `lang.color-<category>`). */
 export const bookingColorsOf = (values: Record<string, RowValue>): Record<string, string> =>
   Object.fromEntries(BOOKING_KEYS.map((k) => [k, String(values[`lang.color-${k}`] ?? '')]))
+/** Greptile T2 (PKT-S40-FIX-1) — the same four colours, category by category (nothing to send). */
+export const sameBookingColors = (a: Record<string, string>, b: Record<string, string>): boolean =>
+  BOOKING_KEYS.every((k) => a[k] === b[k])
 
 /** The route's answer → the room's: core's four on 200, else one of the four reasons (the card route's
  *  own set); anything the room cannot read (a network failure, a 404, a body that is not the route's) is 'core'. */
@@ -345,6 +348,12 @@ export async function putBookingColors(save: BookingSave, colors: Record<string,
   } catch {
     return { ok: false, reason: 'core' }
   }
+}
+/** Greptile T2 (PKT-S40-FIX-1) — 保存する's send: the four picked equal the four last saved → null and NO
+ *  request (the caller still commits the section locally); otherwise the PUT. */
+export async function sendBookingColors(save: BookingSave, values: Record<string, RowValue>, saved: Record<string, RowValue>): Promise<Awaited<ReturnType<typeof putBookingColors>> | null> {
+  const picked = bookingColorsOf(values)
+  return sameBookingColors(picked, bookingColorsOf(saved)) ? null : putBookingColors(save, picked)
 }
 /** The save's lines, in the card colour's own shape (builder-authored; PR-3 owns further dial copy). */
 const BOOKING_SAVE_NOTE = '色はこの店舗の設定として保存され、次に「今日の運営」を開くとボードに表示されます。'
@@ -617,15 +626,19 @@ export function SettingsScreen(props: SettingsScreenProps) {
     if (bookingSaving.current) return
     bookingSaving.current = true
     setBookingFail(null)
-    const result = await putBookingColors(save, bookingColorsOf(values))
+    const result = await sendBookingColors(save, values, saved)
     bookingSaving.current = false
+    if (result === null) {
+      commitSection(target) // Greptile T2: the four unchanged → no PUT, the section commits locally
+      return
+    }
     if (!result.ok) {
       setBookingFail(result.reason)
       return
     }
     commitSection(target)
     setSaved((prev) => ({ ...prev, ...Object.fromEntries(BOOKING_KEYS.map((k) => [`lang.color-${k}`, result.colors[k]])) }))
-  }, [values, commitSection])
+  }, [values, saved, commitSection])
 
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */
