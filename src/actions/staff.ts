@@ -5,6 +5,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getTranslations } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import { can, requireCapability } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { STAFF_STORE_REQUIRED } from '@/lib/auth/store-gate'
 import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
@@ -239,7 +240,7 @@ export async function uploadStaffAvatar(
   try {
     await requireCapability('staff.manage') // changing a staff avatar = managing staff (Greptile #159)
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+    return { error: (await coreFailureLine(e, '[staff]')) ?? (e instanceof Error ? e.message : 'Not allowed') }
   }
   // Actor store scope BEFORE any core call — a refused upload touches nothing.
   const denied = await storeScopeError(staffId)
