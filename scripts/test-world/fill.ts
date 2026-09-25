@@ -217,8 +217,8 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
       if (!cid || !sid || !rid || !mid) return void run.skipped.push(`appointments ${a.key}: missing customer/staff/bed/menu`)
       const have = mine.get(a.key)
-      // a booking staff reassigned to another customer is no longer ours: skipped, never written against
-      if (have && have.customer_id !== cid) return void run.skipped.push(`appointments ${a.key}: booking ${have.id} now belongs to another customer`)
+      // the booking's customer differs from the planned customer: the loader leaves it alone, never written against
+      if (have && have.customer_id !== cid) return void run.skipped.push(`appointments ${a.key}: booking ${have.id}'s customer differs from the planned customer, left alone`)
       if (have) {
         if (!dry) (st.created.appointments ??= {})[a.key] = have.id
         return void apptRow.set(a.key, have)

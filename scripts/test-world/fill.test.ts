@@ -294,7 +294,7 @@ async function main() {
   const [rbBefore, gWrites, gAppts, gIds] = [onRb(), fg.stats.writes, fg.t.appts.length, { ...mg.stores[STORE].created.appointments }]
   assert.deepEqual(rbBefore, [1, 1], 'run A put one karute and one burn on the booking')
   assert.equal(await apply(fg.core, opts(mg)), 0)
-  assert.deepEqual([...mg.runs[1].skipped].sort(), [...binLines, `appointments ${ab.key}: booking ${rb.id} now belongs to another customer`].sort(), 'a reassigned booking is skipped with one line')
+  assert.deepEqual([...mg.runs[1].skipped].sort(), [...binLines, `appointments ${ab.key}: booking ${rb.id}'s customer differs from the planned customer, left alone`].sort(), 'a reassigned booking is skipped with one line')
   assert.equal(fg.t.appts.length, gAppts, 'reassigned: no new booking')
   assert.deepEqual(onRb(), rbBefore, 'reassigned: no karute or burn beyond run A\'s')
   assert.equal(fg.stats.writes, gWrites, 'reassigned: 0 new rows overall')
