@@ -8,6 +8,9 @@
 // Every lensed reader first checks the lens against the actor's visible stores
 // (§3). A core error propagates — never an empty list (§7). Nothing here writes,
 // except the ONE guarded writer (A2, Liam 9/24): `writeReserveCardColor`, one key, one PUT.
+// The second guarded writer, 予約の色分け's `writeBookingColors` (PKT-S38, Liam 9/25), lives in
+// ./door-booking-colors.ts (R-S39-1: one allowlist entry per file::call); it reads through
+// `orgSettingsOf` and `canManageSettings`, exported here for it and nothing else.
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
@@ -384,7 +387,7 @@ export async function listVisits(
  *  an old one. A symbol slot rather than a WeakMap: this folder's fence bans the `.set(` token outright
  *  (foundation.test.ts, the mutator list), and a cache is no reason to weaken a core-write fence. */
 const ORG_ONCE = Symbol('org-settings, once per actor')
-function orgSettingsOf(actor: PracticeActor) {
+export function orgSettingsOf(actor: PracticeActor) {
   const reads: PracticeActor['reads'] & { [ORG_ONCE]?: ReturnType<PracticeActor['reads']['orgSettingsGet']> } = actor.reads
   return (reads[ORG_ONCE] ??= reads.orgSettingsGet())
 }
@@ -428,7 +431,7 @@ export async function readBookingColors(): Promise<unknown> {
 }
 
 /** ⚖ A2 · G5 — ONE truth for 「may this operator save the card colour」: core's own answer sheet. */
-const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
+export const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
 
 /** LIVE: may the admitted operator save the card colour? The page asks so the screen never offers a
  *  保存する the writer would refuse. Never throws to the page: another business → false; any other

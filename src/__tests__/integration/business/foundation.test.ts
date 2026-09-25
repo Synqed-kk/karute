@@ -312,7 +312,12 @@ describe('the fixture data door', () => {
       // PR-2: `react` left with `renderNow` (now in ./clock, re-exported).
       // ⚖ A1b · K11 — `./fixtures-settings`: OFF, a store's address is its SAMPLE 店舗情報 dial
       // (`readStoreAddress`); ON it is the door's own core store record.
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/switch'],
+      // ⚖ R-S39-1 — `./practice-door/door-booking-colors`: 予約の色分け's writer, door.ts's sibling (its own allowlist key).
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/switch'],
+      // ⚖ R-S39-1 — the second writer's file: the actor and the switch (OFF has no writer), door.ts's two exported
+      // helpers (the once-per-actor org read, the one settings.manage truth), the clock (the audit line's time),
+      // the import-free palette leaf (never today-board.ts, which would bring the fixtures), and a LAZY ./core-reach.
+      'src/business/lib/practice-door/door-booking-colors.ts': ['../booking-colors', '../clock', './actor', './core-reach', './door', './switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.
@@ -848,6 +853,8 @@ describe('the fixture data door', () => {
       // ⚖ A2 (Liam 9/24, R-A2-13) — the ONE Business write route: admission (the expected business) and the
       // data seam, nothing else.
       'src/app/api/business/card-color/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
+      // ⚖ PKT-S38 R4 — 予約の色分け's route, the card route's twin: admission and the data seam, nothing else.
+      'src/app/api/business/booking-colors/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       'src/app/[locale]/(business)/business/settings/settings-props.ts': [
         // ⚖ S17 FOLD (A1) — ONE ASSEMBLY. 予約と確保's payload is built by the
         // section's own props file and handed through this one, so the route and
@@ -1207,23 +1214,32 @@ describe('the fixture data door', () => {
     expect(resolveFile('src/business/lib/data.js')).toBe('src/business/lib/data.ts')
   })
 
-  it('one importer each: data.ts alone imports the door, core-reach.ts alone names the core client factory', () => {
+  // ⚖ R-S39-1 (lead ruling on PKT-S38 D4) — the door's sibling writer file imports door.ts for its two exported
+  // helpers; it is itself imported by data.ts alone. Nothing else in territory reaches either.
+  it('one importer each: data.ts alone imports the door (plus its sibling writer file), core-reach.ts alone names the core client factory', () => {
     const doorImporters: string[] = []
+    const siblingImporters: string[] = []
     const factoryImporters: string[] = []
     for (const file of territoryFiles()) {
       for (const spec of specifiersOf(file)) {
         if (resolveSpec(spec, file) === `${PRACTICE_DOOR}/door`) doorImporters.push(file)
+        if (resolveSpec(spec, file) === `${PRACTICE_DOOR}/door-booking-colors`) siblingImporters.push(file)
         if (spec === '@/lib/synqed/client') factoryImporters.push(file)
       }
     }
-    expect(doorImporters).toEqual(['src/business/lib/data.ts'])
+    expect(doorImporters.sort()).toEqual(['src/business/lib/data.ts', `${PRACTICE_DOOR}/door-booking-colors.ts`])
+    expect(siblingImporters).toEqual(['src/business/lib/data.ts'])
     expect(factoryImporters).toEqual([`${PRACTICE_DOOR}/core-reach.ts`])
   })
 
   // §7 — FORBIDDEN ON THE READ PATH. Comment lines stripped first, as specifiersOf does.
-  // ⚖ A2 (Liam 9/24, R-A2-8) — the jest twin of the scanner's ONE write entry: door.ts only, the exact
+  // ⚖ A2 (Liam 9/24, R-A2-8) — the jest twin of the scanner's write entries: door.ts only, each exact
   // one-key line, once. Every other mutator token stays forbidden everywhere in the folder, door.ts included.
-  const WRITER = { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 }
+  // ⚖ PKT-S38 R8 (Liam 9/25 「make it work」) + R-S39-1 — the second writer: 予約の色分け's whole-map line, in its own file.
+  const WRITERS = [
+    { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 },
+    { file: 'door-booking-colors.ts', line: 'orgSettings.upsert({ settings: { booking_colors: { ...map, [storeId]: next } } })', count: 1 },
+  ]
   const DOOR_FORBIDDEN = [
     'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
     '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
@@ -1236,7 +1252,8 @@ describe('the fixture data door', () => {
         .split('\n')
         .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
         .join('\n')
-      if (name === WRITER.file) {
+      for (const WRITER of WRITERS) {
+        if (name !== WRITER.file) continue
         const uses = code.split(WRITER.line).length - 1
         if (uses > WRITER.count) hits.push(`${name}: the writer line ×${uses} > ${WRITER.count}`)
         code = code.split(WRITER.line).join('') // only the exact line's text is exempt, never its neighbours
@@ -1250,10 +1267,10 @@ describe('the fixture data door', () => {
       .filter((n) => n.endsWith('.ts'))
       .map((n) => [n, readFileSync(join(ROOT, PRACTICE_DOOR, n), 'utf8')])
 
-  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call but the ONE writer line', () => {
+  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call but the TWO writer lines', () => {
     const sources = doorSources()
     expect(sources.map(([n]) => n)).toContain('door.ts')
-    expect(sources.find(([n]) => n === WRITER.file)![1]).toContain(WRITER.line)
+    for (const WRITER of WRITERS) expect(sources.find(([n]) => n === WRITER.file)![1]).toContain(WRITER.line)
     expect(doorHits(sources)).toEqual([])
   })
 
@@ -1264,8 +1281,18 @@ describe('the fixture data door', () => {
     expect(doorHits([['door.ts', line + 'await x.orgSettings.upsert({ settings: {} })\n']])).toEqual(['door.ts: .upsert('])
     expect(doorHits([['actor.ts', line]])).toEqual(['actor.ts: .upsert('])
     expect(doorHits([['core-reach.ts', line]])).toEqual(['core-reach.ts: .upsert('])
+    // ⚖ PKT-S38 — the second writer's line fails closed the same way, and never covers the first.
+    const line2 = `  const saved = await writer.orgSettings.upsert({ settings: { booking_colors: { ...map, [storeId]: next } } })\n`
+    expect(doorHits([['door-booking-colors.ts', line2]])).toEqual([])
+    expect(doorHits([['door-booking-colors.ts', line2 + line2]])).toEqual(['door-booking-colors.ts: the writer line ×2 > 1'])
+    expect(doorHits([['door-booking-colors.ts', line2.replace('...map, ', '')]])).toEqual(['door-booking-colors.ts: .upsert('])
+    expect(doorHits([['door-booking-colors.ts', line + line2]])).toEqual(['door-booking-colors.ts: .upsert(']) // the card line never moves here
+    expect(doorHits([['door.ts', line + line2]])).toEqual(['door.ts: .upsert(']) // …nor the booking line back into door.ts
+    expect(doorHits([['actor.ts', line2]])).toEqual(['actor.ts: .upsert('])
   })
 
+  // ⚖ PKT-S38 R8 — still ONE bind, now with two callers: door.ts writeReserveCardColor and writeBookingColors,
+  // both through orgSettingsWriterFor.
   it('R-A2-7: the one bound mutator is core-reach.ts’s `upsert.bind(` — once, and nowhere else in practice-door/', () => {
     const binds = doorSources().flatMap(([name, src]) =>
       [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
