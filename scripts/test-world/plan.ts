@@ -5,6 +5,11 @@
 // the end is today + futureDays. A customer's visits are a function of the customer alone (start day,
 // cadence, seeded jitter), and a day's slots depend only on that day's visits — so a later `today` only
 // ADDS days (the weekly top-up): the past never shifts, no date ever plans a second row.
+//
+// REALISM (registry.json `realism`, per type): from the store's `realismFrom` date on (the manifest; realism.ts
+// sets it past the last day any run has planned, so no existing row moves) a customer returns on the type's rhythm,
+// a 指名 customer only ever books their 担当, and past visits end cancelled / no-show at the type's rates. Before that
+// date the plan is exactly what it always was. Every booking's ご要望 line (requestFor) is a function of its key.
 import type { AppointmentStatus, EntryCategory, StaffRole, WeeklyHours } from '@synqed-kk/client'
 
 export interface Counts {
@@ -15,7 +20,6 @@ export interface Counts {
   packs: number
   pastDays: number
   futureDays: number
-  slotMinutes: number
   cancelShare: number
   noShowShare: number
   karuteShare: number
@@ -41,6 +45,25 @@ export interface RecipeCustomer {
   theme: string // the karute text's thread
 }
 
+/** registry.json `types.<id>.realism` — see its $realism note. */
+export interface Realism {
+  requestShare: number
+  nominatedShare: number
+  cancelShare: number
+  noShowShare: number
+  futureCancels: [number, number]
+  rhythmDays: [number, number]
+  rhythmJitter: number
+}
+
+/** One ご要望 line a customer types into the booking form. Unset conditions fit every booking. */
+export interface RequestLine {
+  text: string
+  first?: boolean // true: only the customer's first visit ever · false: only a return visit
+  themes?: string[] // only customers of these themes (RecipeCustomer.theme)
+  nominated?: boolean // true: only a 指名 visit (booked with their own 担当) · false: only a フリー visit
+}
+
 export interface KaruteCtx {
   customer: RecipeCustomer
   menu: string
@@ -64,9 +87,10 @@ export interface RecipeData {
   firstMenu: string
   customers: RecipeCustomer[]
   packs: { member: string; size: number; unitPrice: number; atVisit: number }[]
+  requests: RequestLine[] // the ご要望 pool (12–20 lines), born native in the register of a booking form
   karute(ctx: KaruteCtx): KaruteLine[] // 3–6 lines: 主訴 · 経過 · 施術内容 · 申し送り …
 }
-export type Recipe = RecipeData & { id: string; counts: Counts }
+export type Recipe = RecipeData & { id: string; counts: Counts; realism?: Realism }
 
 export interface PlannedAppointment {
   key: string
@@ -80,6 +104,7 @@ export interface PlannedAppointment {
   duration: number
   price: number
   status: AppointmentStatus
+  request: string | null // the customer's ご要望 line (null = the form was left empty)
 }
 export interface Plan {
   window: { from: string; to: string }
@@ -113,6 +138,33 @@ export function rng(seed: string): () => number {
   }
 }
 
+/** The store's booking step: minutes between bookable starts, counted from the day's opening. Refused: not a positive whole
+ *  number, or longer than the store's longest open day (no second start could exist anywhere). */
+// ponytail: 30 until core ships CORE-10 booking_step_min, then read it from the store
+export const DEFAULT_SLOT_MINUTES = 30
+export function slotStep(hours: WeeklyHours, slot = DEFAULT_SLOT_MINUTES): number {
+  const span = Math.max(...WEEKDAY.map((d) => (hours[d] ? mins(hours[d]!.close) - mins(hours[d]!.open) : 0)))
+  if (!Number.isInteger(slot) || slot <= 0 || slot > span) throw new Error(`slotMinutes ${slot}: must be a whole number of minutes from 1 to the store's longest open day (${span})`)
+  return slot
+}
+
+/** Does this customer 指名 their 担当? Decided once per customer, so a customer who nominated keeps the same staffer. */
+export const isNominated = (recipe: Recipe, member: string) => !!recipe.realism && rng(`${recipe.id}|nominated|${member}`)() < recipe.realism.nominatedShare
+
+/** The ご要望 line of one booking (a function of its key): null for the share of forms left empty. */
+export function requestFor(recipe: Recipe, c: RecipeCustomer, key: string, first: boolean, nominated: boolean): string | null {
+  if (!recipe.realism) return null
+  const r = rng(`${key}|request`)
+  if (r() >= recipe.realism.requestShare) return null
+  const fits = recipe.requests.filter((l) => (l.first ?? first) === first && (!l.themes || l.themes.includes(c.theme)) && (l.nominated ?? nominated) === nominated)
+  // a customer mostly writes about their own concern: a line of their theme weighs 3, a line anyone could write 1
+  let u = r() * fits.reduce((n, l) => n + (l.themes ? 3 : 1), 0)
+  return fits.find((l) => (u -= l.themes ? 3 : 1) < 0)?.text ?? null
+}
+
+/** A loader booking's notes: the tag first (every reader matches /\[(tw:[^\]]+)\]/ or '[tw:'), then the ご要望 line. */
+export const bookingNotes = (a: Pick<PlannedAppointment, 'key' | 'request'>) => `テストデータ [${a.key}]${a.request ? `\n${a.request}` : ''}`
+
 /** The minute a customer of that day-part prefers, from the day's own hours: am = opening, pm = the middle of the day
  *  (the sort picks the nearest real start), eve = the last start that leaves one slot before closing. No fixed clock times. */
 export function preferredStart(h: { open: string; close: string }, part: 'am' | 'pm' | 'eve', duration: number, slot: number): number {
@@ -120,29 +172,53 @@ export function preferredStart(h: { open: string; close: string }, part: 'am' | 
   return part === 'am' ? open : part === 'pm' ? (open + close) / 2 : close - duration - slot
 }
 
-export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: WeeklyHours }, today: string, epoch: string): Plan {
+export interface StoreCtx {
+  storeId: string
+  weeklyHours: WeeklyHours
+  slotMinutes?: number // registry.json slotMinutes[storeId]; absent = DEFAULT_SLOT_MINUTES
+  realismFrom?: string // the manifest's; absent = the plan as it always was
+}
+
+export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: string): Plan {
   const { id, counts: n } = recipe
   for (const k of ['staff', 'resources', 'menus', 'customers', 'packs'] as const)
     if (recipe[k].length !== n[k]) throw new Error(`recipe ${id}: ${k} has ${recipe[k].length} rows, registry says ${n[k]}`)
   const hours = store.weeklyHours
   if (!WEEKDAY.some((d) => hours[d])) throw new Error('the store has no open weekday')
+  const step = slotStep(hours, store.slotMinutes)
   const from = addDays(epoch, -n.pastDays)
   const to = addDays(today, n.futureDays)
   const span = (utc(to) - utc(from)) / DAY
   const menu = (name: string) => recipe.menus.find((m) => m.name === name) ?? fail(`menu ${name} not in recipe ${id}`)
   const cleanup = Math.max(...recipe.resources.map((r) => r.cleanup_minutes))
+  const real = recipe.realism
+  if (store.realismFrom && !real) throw new Error(`recipe ${id}: realismFrom is set but registry.json has no realism block for it`)
+  const cut = store.realismFrom ? (utc(store.realismFrom) - utc(from)) / DAY : Infinity // first day of realism planning
 
-  // 1. Visits: customer → days (closed days roll to the next open day).
+  // 1. Visits: customer → days (closed days roll to the next open day). Before the cut: the customer's own cadence,
+  // exactly as always. From the cut: the type's rhythm (their cadence clamped into it, ± jitter per visit).
   const byDay = new Map<number, { c: RecipeCustomer; k: number }[]>()
   for (const c of recipe.customers) {
     const r = rng(`${id}|visits|${c.member}`)
     const jitter = c.every ? Math.max(1, Math.floor(c.every / 5)) : 0
-    for (let k = 0, last = -1; k === 0 || c.every; k++) {
+    const add = (day: number, k: number) => byDay.set(day, [...(byDay.get(day) ?? []), { c, k }])
+    let [k, last] = [0, -1]
+    for (; k === 0 || c.every; k++) {
       let day = c.start + k * (c.every ?? 0) + (k ? Math.round((r() * 2 - 1) * jitter) : 0)
       day = Math.max(day, last + 1)
       while (!hoursOn(hours, addDays(from, day))) day++
+      if (day > span || (k > 0 && day >= cut)) break
+      add(day, k)
+      last = day
+    }
+    if (!c.every || !real || cut > span || last < 0) continue // last < 0: the customer has not started yet
+    const rr = rng(`${id}|rhythm|${c.member}`)
+    const every = Math.min(Math.max(c.every, real.rhythmDays[0]), real.rhythmDays[1])
+    for (; ; k++) {
+      let day = Math.max(last + every + Math.round((rr() * 2 - 1) * real.rhythmJitter), cut, last + 1) // never before the cut
+      while (!hoursOn(hours, addDays(from, day))) day++
       if (day > span) break
-      byDay.set(day, [...(byDay.get(day) ?? []), { c, k }])
+      add(day, k)
       last = day
     }
   }
@@ -155,26 +231,33 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
     if (!h) continue
     const busy = new Set<string>()
     const free = (who: string, start: number, cells: number) => {
-      for (let i = 0; i < cells; i++) if (busy.has(`${who}@${start + i * n.slotMinutes}`)) return false
+      for (let i = 0; i < cells; i++) if (busy.has(`${who}@${start + i * step}`)) return false
       return true
     }
+    const realDay = d >= cut
     for (const { c, k } of byDay.get(d) ?? []) {
       const r = rng(`${id}|${c.member}|${date}`)
-      const m = menu(k === 0 && c.isNew ? recipe.firstMenu : r() < 0.75 ? c.menu : c.alt)
+      const first = k === 0 && c.isNew
+      const m = menu(first ? recipe.firstMenu : r() < 0.75 ? c.menu : c.alt)
       const u = r()
-      const status: AppointmentStatus = date >= today ? 'SCHEDULED' : u < n.noShowShare ? 'NO_SHOW' : u < n.noShowShare + n.cancelShare ? 'CANCELLED' : 'COMPLETED'
-      const cells = Math.ceil((m.duration + cleanup) / n.slotMinutes) // the bed is reset before the next guest
+      const [noShow, cancel] = realDay ? [real!.noShowShare, real!.cancelShare] : [n.noShowShare, n.cancelShare]
+      const status: AppointmentStatus = date >= today ? 'SCHEDULED' : u < noShow ? 'NO_SHOW' : u < noShow + cancel ? 'CANCELLED' : 'COMPLETED'
+      const cells = Math.ceil((m.duration + cleanup) / step) // the bed is reset before the next guest
       const starts: number[] = []
-      for (let s = mins(h.open); s + m.duration <= mins(h.close); s += n.slotMinutes) starts.push(s)
-      const want = preferredStart(h, c.time, m.duration, n.slotMinutes)
+      for (let s = mins(h.open); s + m.duration <= mins(h.close); s += step) starts.push(s)
+      const want = preferredStart(h, c.time, m.duration, step)
       starts.sort((a, b) => Math.abs(a - want) - Math.abs(b - want) || a - b)
       // weights drawn for every other card BEFORE the role filter: the same r() count as before keeps the bed picks stable;
       // the 受付 (ASSISTANT) never takes an overflow visit; the customer's own 担当 may be anyone
       const others = recipe.staff.filter((s) => s.name !== c.staff).map((s) => ({ s, w: r() })).filter((x) => x.s.role !== 'ASSISTANT').sort((a, b) => a.w - b.w).map((x) => x.s.name)
       const beds = recipe.resources.filter((x) => x.room_class === 'private' || !m.private).map((x) => ({ x, w: Number(x.room_class === 'private') + r() })).sort((a, b) => a.w - b.w).map((b) => b.x) // private room last
+      // From the cut: a 指名 visit (a nominating customer, a menu that takes 指名) waits for their 担当 — no one else;
+      // a フリー visit goes to whoever the seeded order puts first, their 担当 included.
+      const nominated = isNominated(recipe, c.member) && m.nomination
+      const pool = !realDay ? [c.staff, ...others] : nominated ? [c.staff] : [c.staff, ...others].map((s) => ({ s, w: r() })).sort((a, b) => a.w - b.w).map((x) => x.s)
       let slot: { s: number; staff: string; bed: string } | undefined
       for (const s of starts) {
-        for (const staff of [c.staff, ...others]) {
+        for (const staff of pool) {
           if (!free(staff, s, cells)) continue
           const bed = beds.find((b) => free(b.name, s, cells))
           if (bed) slot = { s, staff, bed: bed.name }
@@ -183,10 +266,12 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
         if (slot) break
       }
       if (!slot) continue // a full day: this visit is not planned (same answer on every run)
-      for (let i = 0; i < cells; i++) for (const who of [slot.staff, slot.bed]) busy.add(`${who}@${slot.s + i * n.slotMinutes}`)
+      for (let i = 0; i < cells; i++) for (const who of [slot.staff, slot.bed]) busy.add(`${who}@${slot.s + i * step}`)
+      const key = `tw:${id}:${c.member}:${date}`
       appointments.push({
-        key: `tw:${id}:${c.member}:${date}`, member: c.member, staff: slot.staff, resource: slot.bed, menu: m.name, date,
+        key, member: c.member, staff: slot.staff, resource: slot.bed, menu: m.name, date,
         startsAt: jstIso(date, slot.s), endsAt: jstIso(date, slot.s + m.duration), duration: m.duration, price: m.price, status,
+        request: requestFor(recipe, c, key, first, nominated && slot.staff === c.staff),
       })
     }
   }

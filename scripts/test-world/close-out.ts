@@ -12,7 +12,7 @@
 // Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (values are never printed). Exit: 0 ok · 1 error, REFUSED or a failed write.
 import { existsSync, readFileSync } from 'node:fs'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll } from './count-baseline'
-import { jstToday, loadRecipe, registry, type FillCore, type Manifest } from './fill'
+import { jstToday, loadRecipe, registry, storeCtx, type FillCore, type Manifest } from './fill'
 import { addDays, jstIso, plan } from './plan'
 
 export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'customers' | 'appointments'>, storeId: string, m: Manifest, now: Date, apply: boolean, log: (l: string) => void): Promise<number> {
@@ -21,7 +21,7 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
   const [type, st, today] = [registry.stores[storeId], m.stores[storeId], jstToday(now)]
   if (!type || !st) throw new Error(`store ${storeId} is not in registry.json or not in the manifest`)
   if (st.type !== type) throw new Error(`store ${storeId}: manifest type ${st.type} ≠ registry type ${type}`) // else the keys would not match
-  const p = plan(await loadRecipe(type), { storeId, weeklyHours: st.weeklyHours }, today, st.epoch)
+  const p = plan(await loadRecipe(type), storeCtx(storeId, st), today, st.epoch)
   const planned = new Map(p.appointments.map((a) => [a.key, a]))
   const all = await pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 }))
   const custId = new Map(all.filter((c) => c.member_number && !(c as { deleted_at?: string | null }).deleted_at).map((c) => [c.member_number!, c.id]))

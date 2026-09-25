@@ -4,7 +4,7 @@
 // STORE: テスト恵比寿ジム · 東京都渋谷区恵比寿1-0-0 テストビル3F · 03-0000-2000
 // Trainers carry the STYLIST role: it is core's only practitioner role (StaffRole = OWNER | ADMIN | STYLIST | ASSISTANT).
 // Monthly memberships / 月会費 have no core home yet (CORE-35): nothing here stands in for a plan — no packs either.
-import type { KaruteCtx, KaruteLine, RecipeCustomer, RecipeData } from '../plan'
+import type { KaruteCtx, KaruteLine, RecipeCustomer, RecipeData, RequestLine } from '../plan'
 
 const TAIKEN = '体験トレーニング 60分'
 const PT60 = 'パーソナルトレーニング 60分'
@@ -162,6 +162,29 @@ function karute({ customer: c, menu, date, first, prev, pick }: KaruteCtx): Karu
   return lines
 }
 
+// ご要望 — what customers type into the booking form's 「ご要望 / メモ」 box: 目標, 体験希望, 気になる部位, 運動歴, the day's
+// condition. Short, polite, the customer's own words; a real form is often left empty (registry requestShare).
+const REQUESTS: RequestLine[] = [
+  { text: '体験トレーニングを希望します。運動はほとんどしていません。', first: true },
+  { text: '体験を希望します。学生時代は運動部でしたが、10年以上ブランクがあります。', first: true, themes: ['kinryoku', 'kyogi'] },
+  { text: '入会を検討しています。料金プランの説明もお願いします。', first: true },
+  { text: '体重を落としたいです。食事のアドバイスもいただけると嬉しいです。', themes: ['diet'] },
+  { text: 'お腹まわりを中心に引き締めたいです。', themes: ['diet'] },
+  { text: '少しずつ体重が落ちてきました。今日もよろしくお願いします。', first: false, themes: ['diet'] },
+  { text: 'ベンチプレスのフォームを見ていただきたいです。', themes: ['kinryoku'] },
+  { text: '下半身を中心に鍛えたいです。', themes: ['kinryoku', 'kyogi'] },
+  { text: '大会が近いので、瞬発力を高めるメニューを希望します。', themes: ['kyogi'] },
+  { text: '猫背と巻き肩を直したいです。', themes: ['shisei'] },
+  { text: '腰に不安があるので、負担の少ないメニューでお願いします。', themes: ['kenko', 'shisei'] },
+  { text: 'ひざに痛みがあります。スクワットは控えめにしてください。', themes: ['kenko', 'diet'] },
+  { text: '産後の体型を戻したいです。子どもを預けての来店なので、時間どおりに終われると助かります。', themes: ['sango'] },
+  { text: '前回のトレーニングで脚が筋肉痛です。今日は上半身中心でお願いします。', first: false },
+  { text: '仕事の都合で少し遅れるかもしれません。その場合はご連絡します。' },
+  { text: '寝不足ぎみなので、軽めのメニューでお願いします。', first: false },
+  { text: '前回と同じトレーナーの方でお願いします。', first: false, nominated: true },
+  { text: 'トレーナーの方はどなたでも構いません。', nominated: false },
+]
+
 export const recipe: RecipeData = {
   policy: {
     // 年中無休, 07:00–22:00.
@@ -191,6 +214,7 @@ export const recipe: RecipeData = {
   ],
   firstMenu: TAIKEN,
   customers,
+  requests: REQUESTS,
   packs: [],
   karute,
 }
