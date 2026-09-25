@@ -358,6 +358,8 @@ export interface ControlOption {
   label: string
   /** A colour swatch's own paint. Only `swatch` uses it. */
   hex?: string
+  /** ⚖ PR-3 — a select's unset state (「未設定」): shown selected, never choosable. */
+  disabled?: true
 }
 
 export type ControlKind =
@@ -488,12 +490,26 @@ export interface SettingsRow {
   source?: string
 }
 
+/** ⚖ PR-3 §v3 — what a 「サンプル」 mark says (V3-3): `whole` = this content is
+ *  sample; `part` = only the named parts are (the labels, already in the words a
+ *  reader sees). Built by the sample facade's plane readers, never by hand. */
+export type SampleMark = { form: 'whole' } | { form: 'part'; labels: string[] }
+
 export interface SettingsBlock {
   id: string
   title: string
   note: string
   /** 準備中 / 適用範囲: 組織全体 / 本部設定 — canon's own block-head chip. */
   flag?: string
+  /** ⚖ PR-3 — the practice door is ON and this block shows SAMPLE values
+   *  (dials or a fixture-only plane): the 「サンプル」 chip beside `flag` and the
+   *  note line under the lead. Absent (never `false`) everywhere else, so the
+   *  switch-OFF payload is byte-identical. ⚖ §v3 — its FORM: `whole` (every
+   *  value is sample) or `part` (live rows + named sample parts). */
+  sample?: SampleMark
+  /** ⚖ PR-3 — the store has no sample plane for this block's SAMPLE part: the
+   *  designed card where the bare 「サンプル設定なし」 used to print. */
+  sampleNone?: true
   /** ⚖ S17 STEP 1 — the ONE block whose rows are a WEEK rather than a list.
    *
    *  営業時間 is seven rows that all answer the same three questions (営業する ·
@@ -656,6 +672,13 @@ export interface SettingsSection {
     palette: ReadonlyArray<{ order: number; name: string; hex: string }>
   }
   blocks: SettingsBlock[]
+  /** ⚖ PR-3 — the section-level forms of `SettingsBlock.sample` / `.sampleNone`:
+   *  a block-less section whose dials are SAMPLE (予約と確保), and a
+   *  SAMPLE-only section on a store with no sample plane (zero blocks → the
+   *  card in the body slot, the lead kept). ⚖ §v3 V3-6 — a section's mark is
+   *  the ONLY mark in it: its blocks draw none (the renderer's rule). */
+  sample?: SampleMark
+  sampleNone?: true
   /** `local` = this section's values round-trip through the reader's own
    *  browser, which is 自分の表示設定 and nothing else. */
   persist: 'local' | null
