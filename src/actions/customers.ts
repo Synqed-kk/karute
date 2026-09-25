@@ -75,7 +75,17 @@ async function customerWriteDenied(): Promise<string> {
 }
 
 export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
-  if (!(await can('customers.manage'))) {
+  // Round 3 leg 7b (D-S28-1): the gate's own THROW settles too — the same answer
+  // as this file's leg-7 sibling (deleteCustomerPhoto's catch): a typed core
+  // outage/defect is the failure line, anything else its own message. The try
+  // holds the can() call only; the denial stays below it.
+  let allowed: boolean
+  try {
+    allowed = await can('customers.manage')
+  } catch (err) {
+    return { success: false, error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+  }
+  if (!allowed) {
     return { success: false, error: await customerWriteDenied() }
   }
   const synqed = await getSynqedClient()
@@ -106,7 +116,13 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
 /** The WEB door onto its twin in lib/customers/customers.core.ts — same
  *  wrapper duties as createCustomer. */
 export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
-  if (!(await can('customers.manage'))) {
+  let allowed: boolean
+  try {
+    allowed = await can('customers.manage')
+  } catch (err) {
+    return { success: false, error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+  }
+  if (!allowed) {
     return { success: false, error: await customerWriteDenied() }
   }
   const synqed = await getSynqedClient()
@@ -138,7 +154,13 @@ export async function updateCustomer(
   id: string,
   input: CustomerFormInput | Record<string, unknown>,
 ): Promise<ActionResult> {
-  if (!(await can('customers.manage'))) {
+  let allowed: boolean
+  try {
+    allowed = await can('customers.manage')
+  } catch (err) {
+    return { success: false, error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+  }
+  if (!allowed) {
     return { success: false, error: await customerWriteDenied() }
   }
   const synqed = await getSynqedClient()
