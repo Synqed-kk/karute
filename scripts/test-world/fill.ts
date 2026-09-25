@@ -26,7 +26,7 @@ import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
-import { addDays, hoursOn, jstIso, plan, type Plan, type Recipe, type RecipeData } from './plan'
+import { addDays, hoursOn, jstIso, plan, type Plan, type Recipe, type RecipeData, type StoreCtx } from './plan'
 
 export type FillCore = Pick<
   SynqedClient,
@@ -39,7 +39,11 @@ export interface Manifest {
   stores: Record<string, { type: string; epoch: string; weeklyHours: WeeklyHours; created: Partial<Record<Section, Record<string, string>>> }>
   runs: Run[]
 }
-interface Registry { types: Record<string, { label: string; sections: string[]; recipe: Recipe['counts'] | null }>; stores: Record<string, string> }
+interface Registry {
+  types: Record<string, { label: string; sections: string[]; recipe: Recipe['counts'] | null }>
+  stores: Record<string, string>
+  slotMinutes: Record<string, number>
+}
 
 export const registry: Registry = JSON.parse(readFileSync(join(__dirname, 'registry.json'), 'utf8'))
 
@@ -50,6 +54,9 @@ export async function loadRecipe(id: string): Promise<Recipe> {
   const mod = (await import(`./recipes/${id}`)) as { recipe: RecipeData }
   return { ...mod.recipe, id, counts }
 }
+
+/** What plan() needs of one store: its hours snapshot (manifest) and booking step (registry.json). */
+export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours }): StoreCtx => ({ storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId] })
 
 /** One recipe = one store: a recipe's member numbers and keys belong to exactly one store in registry.json. */
 export function assertOneStore(stores: Record<string, string>, type: string): void {
@@ -130,7 +137,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   }
 
   try {
-    const p = plan(recipe, { storeId, weeklyHours: st.weeklyHours }, today, st.epoch)
+    const p = plan(recipe, storeCtx(storeId, st), today, st.epoch)
     if (policy.source === 'default')
       await write('storePolicies', storeId, () => core.storePolicies.set(storeId, { weekly_hours: recipe.policy.weekly_hours, acting_staff_id: dev.id }))
 
@@ -339,7 +346,7 @@ if (process.argv[1]?.endsWith('fill.ts')) {
         const r = await loadRecipe(t)
         const st = m.stores[storeId]
         const hours = st?.weeklyHours ?? r.policy.weekly_hours
-        console.log(storeId, t, JSON.stringify(summarize(plan(r, { storeId, weeklyHours: hours }, today, st?.epoch ?? today), today, hours), null, 1))
+        console.log(storeId, t, JSON.stringify(summarize(plan(r, storeCtx(storeId, { weeklyHours: hours }), today, st?.epoch ?? today), today, hours), null, 1))
       }
       return 0
     }

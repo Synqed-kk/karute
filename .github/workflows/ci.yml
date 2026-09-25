@@ -99,9 +99,11 @@ jobs:
         # 0; a 409 exits 4; no delete call, no import of the seeder guard.
         # close-out: dry-run writes nothing; only tagged + SCHEDULED + past +
         # owned rows get plan()'s status; another business is refused.
+        # realism: the per-store step (snapping, closed days, the hours edge).
         run: |
           npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/fill.test.ts
           npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/close-out.test.ts
+          npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/realism.test.ts
 
       - name: Thin bundle gate (size budget + purchase exclusion)
         # The gate breached silently for weeks because it only ran by hand

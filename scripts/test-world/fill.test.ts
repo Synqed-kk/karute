@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
 import { apply, assertOneStore, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
-import { addDays, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
+import { addDays, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
 const OTHER = 'store-other'
@@ -430,7 +430,7 @@ async function main() {
       const days = [...new Set(q1.appointments.map((a) => a.date))].map((d) => hoursOn(r.policy.weekly_hours, d)!)
       assert.equal(Math.min(...am), Math.min(...days.map((h) => at(h.open))), `${type}: an am visit takes the first slot of the earliest-opening day`)
       const longest = Math.max(...r.menus.map((x) => x.duration))
-      assert.ok(Math.max(...eve) >= Math.max(...days.map((h) => at(h.close) - longest - 2 * r.counts.slotMinutes)), `${type}: an eve visit starts near closing`)
+      assert.ok(Math.max(...eve) >= Math.max(...days.map((h) => at(h.close) - longest - 2 * DEFAULT_SLOT_MINUTES)), `${type}: an eve visit starts near closing`)
       // ...and per visit: every am visit starts before its own day's midpoint, every eve visit at or after it (pm sits on it).
       for (const q of [q1, q2]) for (const a of q.appointments) {
         const [part, h] = [cust.get(a.member)!.time, hoursOn(r.policy.weekly_hours, a.date)!]

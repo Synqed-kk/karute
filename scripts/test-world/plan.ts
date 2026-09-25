@@ -15,7 +15,6 @@ export interface Counts {
   packs: number
   pastDays: number
   futureDays: number
-  slotMinutes: number
   cancelShare: number
   noShowShare: number
   karuteShare: number
@@ -113,6 +112,16 @@ export function rng(seed: string): () => number {
   }
 }
 
+/** The store's booking step: minutes between bookable starts, counted from the day's opening. Refused: not a positive whole
+ *  number, or longer than the store's longest open day (no second start could exist anywhere). */
+// ponytail: 30 until core ships CORE-10 booking_step_min, then read it from the store
+export const DEFAULT_SLOT_MINUTES = 30
+export function slotStep(hours: WeeklyHours, slot = DEFAULT_SLOT_MINUTES): number {
+  const span = Math.max(...WEEKDAY.map((d) => (hours[d] ? mins(hours[d]!.close) - mins(hours[d]!.open) : 0)))
+  if (!Number.isInteger(slot) || slot <= 0 || slot > span) throw new Error(`slotMinutes ${slot}: must be a whole number of minutes from 1 to the store's longest open day (${span})`)
+  return slot
+}
+
 /** The minute a customer of that day-part prefers, from the day's own hours: am = opening, pm = the middle of the day
  *  (the sort picks the nearest real start), eve = the last start that leaves one slot before closing. No fixed clock times. */
 export function preferredStart(h: { open: string; close: string }, part: 'am' | 'pm' | 'eve', duration: number, slot: number): number {
@@ -120,12 +129,19 @@ export function preferredStart(h: { open: string; close: string }, part: 'am' | 
   return part === 'am' ? open : part === 'pm' ? (open + close) / 2 : close - duration - slot
 }
 
-export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: WeeklyHours }, today: string, epoch: string): Plan {
+export interface StoreCtx {
+  storeId: string
+  weeklyHours: WeeklyHours
+  slotMinutes?: number // registry.json slotMinutes[storeId]; absent = DEFAULT_SLOT_MINUTES
+}
+
+export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: string): Plan {
   const { id, counts: n } = recipe
   for (const k of ['staff', 'resources', 'menus', 'customers', 'packs'] as const)
     if (recipe[k].length !== n[k]) throw new Error(`recipe ${id}: ${k} has ${recipe[k].length} rows, registry says ${n[k]}`)
   const hours = store.weeklyHours
   if (!WEEKDAY.some((d) => hours[d])) throw new Error('the store has no open weekday')
+  const step = slotStep(hours, store.slotMinutes)
   const from = addDays(epoch, -n.pastDays)
   const to = addDays(today, n.futureDays)
   const span = (utc(to) - utc(from)) / DAY
@@ -155,7 +171,7 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
     if (!h) continue
     const busy = new Set<string>()
     const free = (who: string, start: number, cells: number) => {
-      for (let i = 0; i < cells; i++) if (busy.has(`${who}@${start + i * n.slotMinutes}`)) return false
+      for (let i = 0; i < cells; i++) if (busy.has(`${who}@${start + i * step}`)) return false
       return true
     }
     for (const { c, k } of byDay.get(d) ?? []) {
@@ -163,10 +179,10 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
       const m = menu(k === 0 && c.isNew ? recipe.firstMenu : r() < 0.75 ? c.menu : c.alt)
       const u = r()
       const status: AppointmentStatus = date >= today ? 'SCHEDULED' : u < n.noShowShare ? 'NO_SHOW' : u < n.noShowShare + n.cancelShare ? 'CANCELLED' : 'COMPLETED'
-      const cells = Math.ceil((m.duration + cleanup) / n.slotMinutes) // the bed is reset before the next guest
+      const cells = Math.ceil((m.duration + cleanup) / step) // the bed is reset before the next guest
       const starts: number[] = []
-      for (let s = mins(h.open); s + m.duration <= mins(h.close); s += n.slotMinutes) starts.push(s)
-      const want = preferredStart(h, c.time, m.duration, n.slotMinutes)
+      for (let s = mins(h.open); s + m.duration <= mins(h.close); s += step) starts.push(s)
+      const want = preferredStart(h, c.time, m.duration, step)
       starts.sort((a, b) => Math.abs(a - want) - Math.abs(b - want) || a - b)
       // weights drawn for every other card BEFORE the role filter: the same r() count as before keeps the bed picks stable;
       // the 受付 (ASSISTANT) never takes an overflow visit; the customer's own 担当 may be anyone
@@ -183,7 +199,7 @@ export function plan(recipe: Recipe, store: { storeId: string; weeklyHours: Week
         if (slot) break
       }
       if (!slot) continue // a full day: this visit is not planned (same answer on every run)
-      for (let i = 0; i < cells; i++) for (const who of [slot.staff, slot.bed]) busy.add(`${who}@${slot.s + i * n.slotMinutes}`)
+      for (let i = 0; i < cells; i++) for (const who of [slot.staff, slot.bed]) busy.add(`${who}@${slot.s + i * step}`)
       appointments.push({
         key: `tw:${id}:${c.member}:${date}`, member: c.member, staff: slot.staff, resource: slot.bed, menu: m.name, date,
         startsAt: jstIso(date, slot.s), endsAt: jstIso(date, slot.s + m.duration), duration: m.duration, price: m.price, status,

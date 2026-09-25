@@ -12,7 +12,6 @@
         "packs": 12,
         "pastDays": 90,
         "futureDays": 14,
-        "slotMinutes": 30,
         "cancelShare": 0.08,
         "noShowShare": 0.02,
         "karuteShare": 0.6
@@ -29,7 +28,6 @@
         "packs": 0,
         "pastDays": 90,
         "futureDays": 14,
-        "slotMinutes": 30,
         "cancelShare": 0.08,
         "noShowShare": 0.02,
         "karuteShare": 0.8
@@ -46,12 +44,17 @@
         "packs": 6,
         "pastDays": 90,
         "futureDays": 14,
-        "slotMinutes": 30,
         "cancelShare": 0.08,
         "noShowShare": 0.02,
         "karuteShare": 0.6
       }
     }
+  },
+  "$slotMinutes": "Per store: the minutes between bookable starts, counted from the day's opening (any positive whole number up to the store's longest open day). A store not listed plays 30 until core ships CORE-10's per-store booking_step_min.",
+  "slotMinutes": {
+    "aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f": 30,
+    "c33e4c43-bc3b-4470-ac22-aa60fecdabe3": 30,
+    "0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c": 30
   },
   "stores": {
     "aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f": "beauty_chiropractic",
