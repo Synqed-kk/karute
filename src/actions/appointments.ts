@@ -6,6 +6,7 @@ import { revalidatePath, updateTag } from 'next/cache'
 import type { Appointment, AppointmentSource } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
@@ -501,7 +502,7 @@ export async function deleteAppointment(appointmentId: string) {
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -562,7 +563,7 @@ export async function updateAppointment(
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -624,7 +625,7 @@ export async function cancelAppointment(
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -666,7 +667,7 @@ export async function restoreAppointment(
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -711,7 +712,7 @@ export async function markNoShowAppointment(
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 

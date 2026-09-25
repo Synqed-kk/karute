@@ -331,7 +331,7 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(coreTargetReads).not.toHaveBeenCalled()
     expect(serviceUpdate).not.toHaveBeenCalled()
-    expectOneBoundedOutageLine('[permissions] pre-core read failed (roster)')
+    expectOneBoundedOutageLine('[permissions] typed synqed-core failure (upstream_unavailable)')
   })
 
   // D-S26-1 (fold F2): the synqed-core roster fetch sits in the same roster wave
@@ -367,7 +367,7 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     expect(source[0][1]).not.toBeInstanceOf(Error)
     expect(source[0][1]).toEqual({ errName: 'TypeError', errMessage: 'fetch failed' })
     // …and the gate catch's one typed line; nothing else logged.
-    const action = logsStartingWith('[permissions] pre-core read failed (roster)')
+    const action = logsStartingWith('[permissions] typed synqed-core failure (upstream_unavailable)')
     expect(action).toHaveLength(1)
     expect(action[0][1]).toEqual({ errName: 'AppApiError', errStatus: 502, errMessage: 'synqed-core roster fetch failed' })
     expect(consoleError).toHaveBeenCalledTimes(2)
@@ -412,9 +412,12 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
   it('P4i REAL gate, SDK client construction fails → the FIXED line, never the raw detail, core never runs', async () => {
     gate.mockImplementation(realRequireCapability)
     const res = await withBrokenClient(() => setStaffPermissions(TARGET_STAFF, ROLE, CAPS))
-    expect(res).toEqual({ error: 'synqed-core client unavailable' })
+    // Round 3 leg 7 (D-S27-2): the client defect answers the failure line; the
+    // log line's code keeps it apart from an outage.
+    expect(res).toEqual({ error: FAILURE_LINE })
     expect(JSON.stringify(res)).not.toContain('bad client config')
-    expect(logsStartingWith('[permissions] pre-core read failed')).toHaveLength(0)
+    expect(logsStartingWith('[permissions] typed synqed-core failure (internal)')).toHaveLength(1)
+    expect(logsStartingWith('[permissions] typed synqed-core failure (upstream_unavailable)')).toHaveLength(0)
     expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(serviceUpdate).not.toHaveBeenCalled()
   })

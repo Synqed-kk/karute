@@ -13,6 +13,7 @@ import {
 } from '@/lib/karute/karute-window'
 import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
 import { can, requireCapability } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope, customerLensFor, storeStaffIdSet } from '@/lib/auth/store-scope'
@@ -273,7 +274,7 @@ export async function saveKaruteRecord(
       })
     }
   } catch (err) {
-    if (err instanceof AppApiError) return { error: err.message, code: err.code }
+    if (err instanceof AppApiError) return { error: (await coreFailureLine(err, '[karute]')) ?? err.message, code: err.code }
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 
@@ -394,7 +395,7 @@ export async function saveKaruteRecordInline(
     updateTag('dashboard')
     return { id }
   } catch (err) {
-    if (err instanceof AppApiError) return { error: err.message, code: err.code }
+    if (err instanceof AppApiError) return { error: (await coreFailureLine(err, '[karute]')) ?? err.message, code: err.code }
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 }
@@ -466,7 +467,7 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
 
     return { success: true }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -552,7 +553,7 @@ export async function reassignKaruteCustomer(
       photoCount: result.photoCount,
     }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -606,7 +607,7 @@ export async function listReassignCustomerOptions(
         .map((c) => ({ id: c.id, name: c.name, furigana: c.furigana, phone: c.phone })),
     }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -669,7 +670,7 @@ export async function createManualKaruteRecord(input: {
     if ('error' in result) return result
     recordId = result.id
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unexpected error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unexpected error') }
   }
 
   // Audit (packet PR B2 §2): the WEB "+ 新規カルテ" door was genuinely
@@ -767,7 +768,7 @@ export async function updateKaruteDetailEntry(
     if ('validationError' in result) return { error: result.validationError }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -807,7 +808,7 @@ export async function updateKaruteDetailSummary(
     if ('validationError' in result) return { error: result.validationError }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -830,7 +831,7 @@ export async function listEntryEditHistory(
     const businessId = await getBusinessId()
     return await listEntryEditHistoryWithClient(synqed, businessId, recordId)
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -902,7 +903,7 @@ export async function revealNoKaruteCustomer(
     }
     return { candidate: null }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -1039,6 +1040,6 @@ export async function loadKaruteWindow(input: {
       hasMore: window.hasMore,
     }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }

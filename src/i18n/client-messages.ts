@@ -52,12 +52,15 @@ export const PAGE_PICKS = {
     'voiceEnrollment',
   ],
   coaching: ['coaching'],
-  dataExport: ['dataExport'],
+  // Round 3 leg 7: reached server-side via coreFailureLine (org-settings / invites); the closure check walks into actions.
+  dataExport: ['common', 'dataExport'],
   dataImport: ['dataImport'],
-  welcome: ['welcome'],
+  // Round 3 leg 7: reached server-side via coreFailureLine (org-settings / invites); the closure check walks into actions.
+  welcome: ['common', 'welcome'],
   landing: ['landing', 'localeToggle'],
   authPages: ['auth', 'localeToggle'],
-  join: ['invite'],
+  // Round 3 leg 7: reached server-side via coreFailureLine (org-settings / invites); the closure check walks into actions.
+  join: ['common', 'invite'],
 } as const
 
 type Tree = Record<string, unknown>

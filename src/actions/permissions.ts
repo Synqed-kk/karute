@@ -9,7 +9,8 @@ import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permiss
 import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { resolveWebActorId } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
-import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import {
   PERMISSION_ROLES,
   ROLE_PRESETS,
@@ -111,7 +112,7 @@ export async function getStaffPermissions(
   try {
     await requireCapability('staff.manage')
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+    return { error: (await coreFailureLine(e, '[permissions]')) ?? (e instanceof Error ? e.message : 'Not allowed') }
   }
   const businessId = await getBusinessId()
   return getStaffPermissionsCore(businessId, staffId)
@@ -294,12 +295,8 @@ export async function setStaffPermissions(
   try {
     await requireCapability('staff.manage')
   } catch (e) {
-    // Round 3 leg 6 (D-S25-1): the gate reads the roster first — a TYPED outage answers the failure line, never the English fixed message; a denial keeps its own answer.
-    if (e instanceof AppApiError && e.code === 'upstream_unavailable') {
-      console.error('[permissions] pre-core read failed (roster):', describeUnknownThrow(e))
-      return { error: (await getTranslations('common'))('somethingWentWrong') }
-    }
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+    // Round 3 leg 6/7 (D-S25-1, D-S27-1/2): the gate reads the roster first — a TYPED synqed-core failure (outage or client defect) answers the failure line, never the English fixed message; a denial keeps its own answer.
+    return { error: (await coreFailureLine(e, '[permissions]')) ?? (e instanceof Error ? e.message : 'Not allowed') }
   }
 
   let businessId: string

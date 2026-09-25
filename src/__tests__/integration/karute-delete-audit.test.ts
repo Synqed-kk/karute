@@ -15,7 +15,15 @@ jest.mock('next/cache', () => ({
   updateTag: jest.fn(),
 }))
 jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
-jest.mock('next-intl/server', () => ({ getLocale: async () => 'ja' }))
+// getTranslations reads the REAL ja dictionary (Round 3 leg 7: a typed core
+// failure answers common.somethingWentWrong through coreFailureLine).
+jest.mock('next-intl/server', () => {
+  const ja = jest.requireActual<Record<string, Record<string, unknown>>>('../../../messages/ja.json')
+  return {
+    getLocale: async () => 'ja',
+    getTranslations: async (ns: string) => (key: string) => ja[ns]?.[key],
+  }
+})
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
   getDefaultStoreId: jest.fn(async () => null),
@@ -170,7 +178,9 @@ describe('karute.delete — deleteKaruteRecord emits exactly once, success-only'
     // missing id and an out-of-store refusal read IDENTICALLY here. A
     // status-less throw is classified as an upstream failure, not a 404 —
     // deliberately, and core's raw message no longer reaches the client.
-    expect(result).toEqual({ error: 'karute read failed' })
+    // Round 3 leg 7 (D-S27-8): a TYPED core failure anywhere in the action's
+    // catch answers the failure line, never the internal English sentence.
+    expect(result).toEqual({ error: 'エラーが発生しました。' })
     expect(karuteRecordsDelete).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
   })

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { auditWeb } from '@/lib/audit-web'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { requireCapability, getMyCapabilities } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -289,7 +290,7 @@ export async function regenerateKaruteEntries(
     })
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[regenerate]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -337,7 +338,7 @@ export async function updateKaruteSummary(
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[regenerate]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -595,7 +596,7 @@ export async function regenerateKarute(karuteRecordId: string): Promise<Regenera
     })
     return result
   } catch (err) {
-    if (err instanceof AppApiError) return { error: err.message }
+    if (err instanceof AppApiError) return { error: (await coreFailureLine(err, '[regenerate]')) ?? err.message }
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
