@@ -75,6 +75,11 @@ const TAKE_FLUSH_MS = 5_000
 // chunk count, not a length of anything the salon sets.
 const SEGMENT_MAX_CHUNKS = 50
 
+// ⚖ THE REVIVE'S WAIT AFTER EACH FAILED TRY (S36 PR-1), the last one repeating
+// while the take records. On the flush tick, so each is at least one tick.
+// retry backoff, not a product length — see NO-HARDCODED-DURATIONS ruling 9/13
+const REVIVE_BACKOFF_MS = [5_000, 10_000, 20_000, 40_000]
+
 // How long any caller waits on the session-id mint before giving up. Shared by
 // awaitRecordingSessionId and the retry below so "bounded the same way" is a
 // fact rather than two literals that can drift apart.
@@ -143,7 +148,25 @@ type TakePersist = {
    *  gone). On the take's own object, like everything else here, so a start()
    *  landing behind a logout cannot reach into the abandoned take's leg. */
   abandoned: boolean
+  /** ⚖ THE ROW THIS TAKE WAS BORN WITH (S36 PR-1) — exactly what start()
+   *  handed createTake, so a revive that finds no row re-creates THIS take's
+   *  row and no other. null on the idle object, which has no take. */
+  born: Parameters<typeof createTake>[0] | null
+  /** The revive's own backoff: failed tries so far, and when the next is due. */
+  revive: { tries: number; at: number }
 }
+
+/** A take's persistence state before anything has happened to it — and the
+ *  idle recorder's, which holds no take at all. */
+const newPersist = (): TakePersist => ({
+  chunks: [],
+  seq: 0,
+  count: 0,
+  disabled: false,
+  abandoned: false,
+  born: null,
+  revive: { tries: 0, at: 0 },
+})
 
 class GlobalRecorder {
   state: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
@@ -184,7 +207,7 @@ class GlobalRecorder {
    *  exactly this). start() and discard() REPLACE this object; the old take's
    *  tasks keep the old one, and nothing they read can be changed by anything
    *  but their own writes. */
-  private persist: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
+  private persist: TakePersist = newPersist()
   private persistTimer: ReturnType<typeof setInterval> | null = null
   private persistQueue: Promise<void> = Promise.resolve()
   /** Takes this recorder STOPPED but has not finished securing (fix round 14,
@@ -338,6 +361,7 @@ class GlobalRecorder {
         (this.state === 'recording' || this.state === 'paused')
       )
         this.queueHeartbeat(this.takeId)
+      this.recoverTake()
       this.flushTake()
     }, TAKE_FLUSH_MS)
     document.addEventListener('visibilitychange', this.handleVisibilityHidden)
@@ -406,6 +430,64 @@ class GlobalRecorder {
     this.securingBeatTimer = null
   }
 
+  /** ⚖ THE TAKE WINS ITS STORAGE BACK (S36 PR-1). A write that loses latches
+   *  `p.disabled` (a failed create, a flush that refused), and until now that
+   *  was the take's last word: memory-only for the rest of the recording, and
+   *  nothing reached the server until 停止 — if the app was still open then.
+   *  So on this tick, while recording or paused, the live take asks again,
+   *  backing off REVIVE_BACKOFF_MS. Queued, never awaited: capture never waits
+   *  on it. A signed-out take is never revived (slice five, D4). */
+  private recoverTake() {
+    const p = this.persist
+    const takeId = this.takeId
+    if (!takeId || p.abandoned || !(this.state === 'recording' || this.state === 'paused')) return
+    const now = Date.now()
+    if (p.disabled && now >= p.revive.at) {
+      p.revive.at = now + REVIVE_BACKOFF_MS[Math.min(p.revive.tries++, REVIVE_BACKOFF_MS.length - 1)]
+      void this.queueRevive(p, takeId, this.recordingSessionId, false)
+    }
+  }
+
+  /** The revive itself — ahead of whatever flush is queued behind it, which
+   *  then writes everything memory holds (the catch-up).
+   *
+   *  It re-enables ONLY when the disk holds exactly what the recorder thinks it
+   *  does, read through the store's own owner gate:
+   *   · the row is THIS staffer's and ends at the recorder's last seq → it was
+   *     only the writes that failed, and the next seq follows on; or
+   *   · there is no row, and no segment was ever written → the row is created
+   *     now, with `add` (take-store), from the take's own birth meta — so a row
+   *     that exists after all, another staffer's included, is never replaced.
+   *  Anything else stays memory-only: a row that is someone else's, or one
+   *  that vanished after segments were written (they went with it — a new row
+   *  over the rest would seal a SHORT copy under the take's immutable key at
+   *  the stop, gr's first rule). A failed try leaves nothing behind.
+   *
+   *  `atStop` is the stop leg's own try, for the take it is stopping. Every
+   *  other try belongs to the take the recorder still holds (`this.persist ===
+   *  p`), so a take discarded while recording is never re-created behind it. */
+  private queueRevive(
+    p: TakePersist,
+    takeId: string,
+    recordingSessionId: string | null,
+    atStop: boolean,
+  ): Promise<void> {
+    return this.queueTakeWrite(async () => {
+      if (!p.disabled || p.abandoned || !p.born || (!atStop && this.persist !== p)) return
+      const meta = await readTakeSecureMeta(takeId)
+      const whole = meta
+        ? meta.lastSeq === p.seq - 1
+        : p.seq === 0 &&
+          (await createTake({
+            ...p.born,
+            recordingSessionId: recordingSessionId ?? p.born.recordingSessionId,
+          }))
+      if (!whole) return
+      p.disabled = false
+      p.revive = { tries: 0, at: 0 }
+    })
+  }
+
   /** Flush chunks not yet on disk as one segment. Serialized via the queue;
    *  fire-and-forget — MUST never block or throw into the capture path.
    *
@@ -431,7 +513,10 @@ class GlobalRecorder {
     // own state and this take's own id (fix round 20).
     const p = this.persist
     const takeId = this.takeId
-    if (p.disabled || !takeId) return Promise.resolve(false)
+    // `p.disabled` is asked INSIDE the queue only (S36 PR-1): a revive queued
+    // ahead of this flush may re-enable the take before it runs — the stop's
+    // own last try above all, whose tail this is.
+    if (!takeId) return Promise.resolve(false)
     const flushed = this.persistQueue
       .then(async () => {
         // Re-read inside the queued task, because an EARLIER flush of THIS take
@@ -764,7 +849,7 @@ class GlobalRecorder {
     // therefore behind us, and cannot leave the callbacks writing into an
     // object the recorder no longer publishes) and synchronous from here to
     // `armTakePersistence`, so nothing can flush against a half-named take.
-    const p: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
+    const p = newPersist()
     this.persist = p
 
     recorder.ondataavailable = (e) => {
@@ -818,6 +903,13 @@ class GlobalRecorder {
         // left for anyone to seal. Taken BEFORE flushTake(), so no drain in
         // this runtime can read the gap either. (AA1 — securingTakeIds.)
         this.holdTakeForSecuring(takeId)
+        // ⚖ ONE LAST REVIVE, AHEAD OF EVERYTHING THE STOP WRITES (S36 PR-1).
+        // Queued before the first act below and the tail flush, so a take
+        // whose storage comes back here is written WHOLE (the catch-up) and
+        // secured by this leg like any other; one that does not come back is
+        // exactly today's memory-only stop. Never for a signed-out take.
+        if (p.disabled && !p.abandoned)
+          void this.queueRevive(p, takeId, this.recordingSessionId, true)
         // ⚖ …AND THE STOP ITSELF GOES ON THE ROW FIRST (fix round 17). Both
         // defences above die with this page: the hold is a Set in memory and
         // the beat stops being written the moment nothing is beating it. Every
@@ -1083,7 +1175,8 @@ class GlobalRecorder {
     // this take with its own row, and a mint that answers after this line
     // (every ordinary one) would leave the take carrying nothing.
     this.recordingSessionMintTakeUnknown = false
-    void createTake({
+    // Kept on the take (S36 PR-1): its revive re-creates exactly this row.
+    p.born = {
       takeId,
       target: this.target,
       recordingSessionId: this.recordingSessionId,
@@ -1096,7 +1189,8 @@ class GlobalRecorder {
       // than stamped after the mint answers, because the failure this exists
       // for is the one that never answers.
       ...(reserve ? { startBoundAttempted: true } : {}),
-    }).then((ok) => {
+    }
+    void createTake(p.born).then((ok) => {
       if (!ok) {
         // No `this.takeId === takeId` guard any more (fix round 20): this is
         // THIS take's own verdict on its own row, and a create that answers
@@ -1411,7 +1505,7 @@ class GlobalRecorder {
     // whatever it already queued (fix round 20) — a timer flush queued before
     // this reset still writes ITS chunks under ITS id, rather than finding
     // the array emptied and reporting a tail it never wrote.
-    this.persist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
+    this.persist = newPersist()
     if (this.recorder && this.recorder.state !== 'inactive') {
       // Stop without triggering onstop result. (A no-op from onstop's own tail:
       // the recorder is already inactive by the time it fires.)
