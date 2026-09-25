@@ -200,6 +200,9 @@ export interface MintTakeUrlInput {
   /** Why an in-tab fallback reached the SERVER-named arm (S33) — see
    *  record-schemas.ts. 'attach_failed' never creates a row. */
   attachOutcome?: AttachOutcome | null
+  /** The take's length in whole seconds (S35 C1) — see record-schemas.ts.
+   *  Written only onto the row the server-named arm creates. */
+  durationSeconds?: number
 }
 
 export type MintTakeUrlResult =
@@ -698,7 +701,7 @@ async function signUpload(
 async function bindServerNamedTake(
   synqed: Core,
   actor: MintTakeActor,
-  input: { customerId?: string | null; appointmentId?: string | null },
+  input: { customerId?: string | null; appointmentId?: string | null; durationSeconds?: number },
   takeId: string,
   mimeType: string,
   signed: SignedUpload,
@@ -717,15 +720,21 @@ async function bindServerNamedTake(
   if (!who) return keptUnbound('no staff or no store')
   let result: StartRecordingSessionResult
   try {
-    result = await startRecordingSessionWithClient(synqed, {
-      customerId: input.customerId ?? null,
-      appointmentId: input.appointmentId ?? null,
-      selfStaffId: who.staffId,
-      businessId: actor.businessId,
-      takeId,
-      mimeType,
-      storeId: who.storeId,
-    })
+    result = await startRecordingSessionWithClient(
+      synqed,
+      {
+        customerId: input.customerId ?? null,
+        appointmentId: input.appointmentId ?? null,
+        selfStaffId: who.staffId,
+        businessId: actor.businessId,
+        takeId,
+        mimeType,
+        storeId: who.storeId,
+      },
+      // S35 C1: born with the length finalize writes on a row that had one
+      // from the start (finalize-take.ts) — this row is never finalized.
+      { durationSeconds: input.durationSeconds },
+    )
   } catch (err) {
     return keptUnbound(`session create threw: ${describeUnknownThrow(err).errMessage}`)
   }
