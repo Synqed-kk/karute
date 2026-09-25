@@ -174,9 +174,12 @@ type TakePersist = {
   born: Parameters<typeof createTake>[0] | null
   /** The revive's own backoff: failed tries so far, and when the next is due
    *  — plus when this OUTAGE's first try went out (0 = none yet), the clock
-   *  the PR-6 notice reads (capture-warning-detect.ts). A partial recovery
-   *  keeps it: only a catch-up that lands whole clears it (flushTake). */
-  revive: { tries: number; at: number; since: number }
+   *  the PR-6 notice reads (capture-warning-detect.ts), and memory's upload
+   *  cursor (`uploadedSeq`, below) at that same instant (−1 = none yet), so
+   *  the notice can tell a segment memory landed IN THIS OUTAGE from one it
+   *  landed in an earlier one (PR-6 fix 6). A partial recovery keeps both:
+   *  only a catch-up that lands whole clears them (flushTake). */
+  revive: { tries: number; at: number; since: number; uploadedAtOutage: number }
   /** The session retry's: retries so far, and when the last one (or the take's
    *  start) went out. */
   mint: { tries: number; at: number }
@@ -205,7 +208,7 @@ const newPersist = (): TakePersist => ({
   disabled: false,
   abandoned: false,
   born: null,
-  revive: { tries: 0, at: 0, since: 0 },
+  revive: { tries: 0, at: 0, since: 0, uploadedAtOutage: -1 },
   mint: { tries: 0, at: Date.now() },
   ends: [],
   uploadedSeq: -1,
@@ -500,7 +503,12 @@ class GlobalRecorder {
     if (p.disabled && now >= p.revive.at) {
       // The outage's clock starts at its first try and runs until a catch-up
       // lands whole — not at the first try after a partial one (PR-6 fix 2).
-      if (p.revive.since === 0) p.revive.since = now
+      // Memory's cursor is taken at the same instant: what memory lands past
+      // it is this outage's (PR-6 fix 6).
+      if (p.revive.since === 0) {
+        p.revive.since = now
+        p.revive.uploadedAtOutage = p.uploadedSeq
+      }
       p.revive.at = now + REVIVE_BACKOFF_MS[Math.min(p.revive.tries++, REVIVE_BACKOFF_MS.length - 1)]
       void this.queueRevive(p, takeId, this.recordingSessionId, false)
     }
@@ -697,8 +705,12 @@ class GlobalRecorder {
           uploadedSeq: meta.uploadedSeq ?? -1,
           lastSeq: meta.lastSeq,
           segmentError: meta.segmentError,
-          // What staff see now — the detector's one hold (PR-6 fix 4) reads it.
+          // What staff see now — the detector's one hold (PR-6 fix 4) reads it,
+          // and ends it once memory lands a segment in THIS outage (PR-6 fix
+          // 6): past the cursor it had when the outage's clock started, never
+          // just past −1 — the cursor is per take and never goes back.
           previous: this.captureWarning,
+          memoryLandedThisOutage: p.revive.since > 0 && p.uploadedSeq > p.revive.uploadedAtOutage,
           now: Date.now(),
         }),
       )
@@ -845,8 +857,10 @@ class GlobalRecorder {
         // one that refuses is a partial recovery, and the outage it is part of
         // keeps its first try, so a store that flaps write by write cannot
         // restart the notice's 15 s for ever. (The backoff above still resets
-        // per landed append, as it always has.)
+        // per landed append, as it always has.) Memory's cursor at the
+        // outage's start goes with it (PR-6 fix 6).
         p.revive.since = 0
+        p.revive.uploadedAtOutage = -1
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
         // forget off the persist queue: the pump has its own single-flight and
         // its own per-PUT deadlines, so this cannot pile up and the queue never

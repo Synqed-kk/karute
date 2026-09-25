@@ -60,6 +60,8 @@ type UploadMeta = { recordingSessionId: string | null; mimeType: string; uploade
 let mockRowMeta: UploadMeta | null = null
 let mockCreateOk = true
 let mockAppendOk = true
+/** What the revive's owner-gated read of the row answers; null = no row. */
+let mockSecureMeta: { lastSeq: number } | null = null
 const mockReadTakeUploadMeta = jest.fn<Promise<UploadMeta | null>, [string]>(async () => mockRowMeta)
 const mockIsTakeHeldByAnother = jest.fn<Promise<boolean>, [string]>(async () => false)
 const mockAppendTakeSegment = jest.fn<Promise<boolean>, unknown[]>(async () => mockAppendOk)
@@ -75,7 +77,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   markTakeStartBoundAttempted: async () => {},
   markTakeStopPending: async () => {},
   markTakeTailIncomplete: async () => {},
-  readTakeSecureMeta: async () => null,
+  readTakeSecureMeta: async () => mockSecureMeta,
   readTakeUploadMeta: (takeId: string) => mockReadTakeUploadMeta(takeId),
   stampTakeDuration: async () => {},
   stampTakeSession: async () => true,
@@ -106,7 +108,11 @@ const tick = async (n = 1) => {
   }
 }
 const persistOf = () =>
-  (globalRecorder as unknown as { persist: { disabled: boolean; seq: number; revive: { since: number } } }).persist
+  (
+    globalRecorder as unknown as {
+      persist: { disabled: boolean; seq: number; uploadedSeq: number; revive: { since: number; uploadedAtOutage: number } }
+    }
+  ).persist
 
 function deferred<T>() {
   let resolve!: (v: T) => void
@@ -133,6 +139,7 @@ beforeEach(async () => {
   mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: -1 }
   mockCreateOk = true
   mockAppendOk = true
+  mockSecureMeta = null
   globalRecorder.discard()
   await drain()
 })
@@ -1018,6 +1025,8 @@ describe('PR-6 fix 5 — FIX H (gr thread 4108277708): the held server notice en
         await tick() // 70 s: the revive's first try; memory's pump is handed memory
         const since = persistOf().revive.since
         expect(since).toBe(Date.now())
+        // Memory's cursor as this outage's clock started (PR-6 fix 6): none yet.
+        expect(persistOf().revive.uploadedAtOutage).toBe(-1)
         expect(memory.source).not.toBeNull()
         await tick() // 75 s: memory has landed nothing — the hold stands
         expect(globalRecorder.captureWarning).toBe('server')
@@ -1047,6 +1056,154 @@ describe('PR-6 fix 5 — FIX H (gr thread 4108277708): the held server notice en
           { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
         ])
         expect(heard.filter((v, i) => v !== heard[i - 1])).toEqual([null, 'device'])
+      } finally {
+        off()
+      }
+    } finally {
+      mockPumpSegments.mockImplementation(async () => {})
+    }
+  })
+})
+
+describe('PR-6 fix 6 — FIX I (gr thread 4108401327): the hold ends on memory landing a segment IN THIS OUTAGE — a second outage of one take holds too', () => {
+  it('outage 1 (server stalled): memory lands seq 0 → null → storage back, the catch-up lands whole → the row says server again → outage 2: the hold ENGAGES (server stays, no blink) though memory\'s cursor is 0 → memory lands seq 1 → null → device at 15 s → storage back, the clock and the cursor clear', async () => {
+    // Memory's pump: the source the recorder hands it is kept, so the test can
+    // land a PUT through it exactly as the real pump does (list after the
+    // cursor, then markUploaded the contiguous prefix).
+    const memory: { source: SegmentSource | null } = { source: null }
+    mockPumpSegments.mockImplementation(async (...args: unknown[]) => {
+      const [, , opts] = args as [unknown, string, { source?: SegmentSource } | undefined]
+      if (opts?.source) memory.source = opts.source
+    })
+    const chunks = (n: number) => {
+      for (let i = 0; i < n; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    }
+    try {
+      const takeId = await startLive()
+      await tick(12) // 60 s recorded, nothing on the server: the row says server
+      expect(persistOf().disabled).toBe(false)
+      expect(globalRecorder.captureWarning).toBe('server')
+
+      // ── OUTAGE 1. Storage goes with one full segment (50 chunks) in memory,
+      // none of it on disk, and the row cannot be made yet.
+      mockAppendOk = false
+      mockCreateOk = false
+      chunks(50)
+      await tick() // 65 s: the flush refuses
+      expect(persistOf().disabled).toBe(true)
+      expect(persistOf().seq).toBe(0)
+      expect(globalRecorder.captureWarning).toBe('server')
+      await tick() // 70 s: the first try — the clock starts, memory's cursor taken with it
+      const since1 = persistOf().revive.since
+      expect(since1).toBe(Date.now())
+      expect(persistOf().revive.uploadedAtOutage).toBe(-1)
+      expect(memory.source).not.toBeNull()
+      expect(globalRecorder.captureWarning).toBe('server')
+
+      // Memory's pump lands seq 0.
+      const [seg0] = await memory.source!.listSegmentsAfter(-1, 1)
+      expect(seg0.seq).toBe(0)
+      await memory.source!.markUploaded(seg0.seq)
+      expect(persistOf().uploadedSeq).toBe(0)
+      await tick() // 75 s: the second try still fails; memory landed in this outage → null
+      expect(persistOf().disabled).toBe(true)
+      expect(globalRecorder.captureWarning).toBeNull()
+      await tick() // 80 s
+      expect(globalRecorder.captureWarning).toBeNull()
+
+      // Storage comes back at the 85 s try: the row is made and the catch-up
+      // writes seq 0 — whole. Memory's read on that tick is held until the
+      // revive and the catch-up have landed, so it answers after storage came
+      // back: no verdict from memory's counts (fix 3), never a device at the
+      // 15 s mark the try coincides with.
+      mockCreateOk = true
+      mockAppendOk = true
+      mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 0, lastSeq: 0 }
+      const heldRead = deferred<boolean>()
+      mockIsTakeHeldByAnother.mockImplementationOnce(() => heldRead.promise)
+      await tick() // 85 s
+      expect(persistOf().disabled).toBe(false)
+      expect(persistOf().seq).toBe(1)
+      // ⚖ The catch-up landed whole: the clock AND the cursor taken with it clear.
+      expect(persistOf().revive.since).toBe(0)
+      expect(persistOf().revive.uploadedAtOutage).toBe(-1)
+      heldRead.resolve(false)
+      await drain()
+      expect(globalRecorder.captureWarning).toBeNull()
+      await tick() // 90 s: the row, caught up
+      expect(globalRecorder.captureWarning).toBeNull()
+
+      const heard: (string | null)[] = []
+      const off = globalRecorder.subscribe(() => heard.push(globalRecorder.captureWarning))
+      try {
+        // The server stalls again: eighteen segments written (seqs 1–18), the
+        // server still has only seq 0 — the row says server.
+        chunks(18 * 50)
+        mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 0, lastSeq: 18 }
+        await tick() // 95 s
+        await drain(300)
+        expect(persistOf().seq).toBe(19)
+        expect(globalRecorder.captureWarning).toBe('server')
+
+        // ── OUTAGE 2. Storage goes again — for good in this test: segments are
+        // on disk and the row cannot be read back, so the revive never wins.
+        // Memory's cursor is 0 from outage 1: the cursor alone would say "the
+        // server is receiving" and blink the notice off (the thread's case).
+        mockAppendOk = false
+        memory.source = null
+        chunks(1)
+        const seen: (string | null)[] = []
+        await tick() // 100 s: the flush refuses
+        expect(persistOf().disabled).toBe(true)
+        expect(persistOf().uploadedSeq).toBe(0)
+        seen.push(globalRecorder.captureWarning)
+        await tick() // 105 s: outage 2's first try — its own clock, its own cursor
+        const since2 = persistOf().revive.since
+        expect(since2).toBe(Date.now())
+        expect(since2).toBeGreaterThan(since1)
+        expect(persistOf().revive.uploadedAtOutage).toBe(0)
+        expect(memory.source).not.toBeNull()
+        seen.push(globalRecorder.captureWarning)
+        await tick() // 110 s: memory has landed nothing in THIS outage
+        seen.push(globalRecorder.captureWarning)
+        // The hold ENGAGED: server throughout, not one null.
+        expect(seen).toEqual(['server', 'server', 'server'])
+
+        // Memory's pump lands seq 1 — the first segment of this outage.
+        const [seg1] = await memory.source!.listSegmentsAfter(persistOf().uploadedSeq, 1)
+        expect(seg1.seq).toBe(1)
+        await memory.source!.markUploaded(seg1.seq)
+        expect(persistOf().uploadedSeq).toBe(1)
+        expect(globalRecorder.captureWarning).toBe('server') // only the tick decides
+        await tick() // 115 s: the hold is over, no device yet
+        expect(Date.now() - since2).toBe(10_000)
+        expect(globalRecorder.captureWarning).toBeNull()
+
+        await tick() // 120 s: fifteen after outage 2's first try, storage still off
+        expect(persistOf().disabled).toBe(true)
+        expect(Date.now() - since2).toBe(15_000)
+        expect(globalRecorder.captureWarning).toBe('device')
+
+        // Storage comes back from outage 2 as well: the row reads back ending
+        // at seq 18, so the 140 s try (tries at 105, 110, 120, 140 s) wins and
+        // the catch-up writes seq 19 — whole. Outage 2's clock AND the cursor
+        // taken with it (0) clear, so a third outage starts from its own.
+        mockSecureMeta = { lastSeq: 18 }
+        mockAppendOk = true
+        mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 19, lastSeq: 19 }
+        await tick(4) // 140 s
+        expect(persistOf().disabled).toBe(false)
+        expect(persistOf().seq).toBe(20)
+        expect(persistOf().revive.since).toBe(0)
+        expect(persistOf().revive.uploadedAtOutage).toBe(-1)
+        await tick() // 145 s: the row, caught up
+        expect(globalRecorder.captureWarning).toBeNull()
+        await drain()
+        expect(facts()).toEqual([
+          { recordingSessionId: 'rs-1', takeId, reason: 'server', warnedAt: expect.any(String) },
+          { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
+        ])
+        expect(heard.filter((v, i) => v !== heard[i - 1])).toEqual(['server', null, 'device', null])
       } finally {
         off()
       }

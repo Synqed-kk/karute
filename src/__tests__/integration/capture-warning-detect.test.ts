@@ -22,6 +22,7 @@ const healthy = {
   lastSeq: 11,
   segmentError: null,
   previous: null,
+  memoryLandedThisOutage: false,
   now: NOW,
 }
 
@@ -175,29 +176,77 @@ describe('computeCaptureWarning — PR-6 fix 4 (gr thread 4108115336): a server 
 
 describe('computeCaptureWarning — PR-6 fix 5 (gr thread 4108277708): the hold ends on memory\'s first landed segment', () => {
   /** Memory's meta inside a storage outage, the notice already saying server
-   *  and the grace not over: only memory's own cursor varies below. */
+   *  and the grace not over: only whether memory has landed a segment in this
+   *  outage varies below (fix 6 moved the test from memory's cursor to that). */
   const held = {
     ...healthy,
     disabled: true,
     reviveAt: NOW - 5_000,
     recordedMs: 120_000,
+    uploadedSeq: -1,
     lastSeq: 30,
     previous: 'server' as const,
   }
 
-  it('(1) memory has landed nothing (its cursor −1) → server (still held)', () => {
-    expect(computeCaptureWarning({ ...held, uploadedSeq: -1 })).toBe('server')
+  it('(1) memory has landed nothing in this outage → server (still held)', () => {
+    expect(computeCaptureWarning({ ...held, memoryLandedThisOutage: false })).toBe('server')
   })
 
-  it('(2) memory\'s pump has landed seq 0 (its cursor 0) → null: the server is receiving, the hold is over', () => {
-    expect(computeCaptureWarning({ ...held, uploadedSeq: 0 })).toBeNull()
-    expect(computeCaptureWarning({ ...held, uploadedSeq: 0, reviveAt: 0 })).toBeNull()
-    // …and device still outranks at 15 s, cursor or not.
-    expect(computeCaptureWarning({ ...held, uploadedSeq: 0, reviveAt: NOW - 15_000 })).toBe('device')
+  it('(2) memory\'s pump has landed a segment in this outage → null: the server is receiving, the hold is over', () => {
+    expect(computeCaptureWarning({ ...held, uploadedSeq: 0, memoryLandedThisOutage: true })).toBeNull()
+    // …and device still outranks at 15 s, landed or not.
+    expect(
+      computeCaptureWarning({ ...held, uploadedSeq: 0, memoryLandedThisOutage: true, reviveAt: NOW - 15_000 }),
+    ).toBe('device')
   })
 
   it('(3) a terminal refusal memory\'s own pump received → server, however far its cursor got', () => {
-    expect(computeCaptureWarning({ ...held, uploadedSeq: 3, segmentError: 'forbidden' })).toBe('server')
-    expect(computeCaptureWarning({ ...held, uploadedSeq: 3, segmentError: 'forbidden', previous: null })).toBe('server')
+    expect(
+      computeCaptureWarning({ ...held, uploadedSeq: 3, segmentError: 'forbidden', memoryLandedThisOutage: true }),
+    ).toBe('server')
+    expect(
+      computeCaptureWarning({
+        ...held,
+        uploadedSeq: 3,
+        segmentError: 'forbidden',
+        memoryLandedThisOutage: true,
+        previous: null,
+      }),
+    ).toBe('server')
+  })
+})
+
+describe('computeCaptureWarning — PR-6 fix 6 (gr thread 4108401327): the hold ends on memory landing a segment IN THIS OUTAGE, not on its cursor', () => {
+  /** A SECOND outage of one take: memory landed seqs 0–4 in an earlier one,
+   *  so its cursor is 4 before this outage lands anything — the notice says
+   *  server (the row, just before storage died), the grace not over. */
+  const secondOutage = {
+    ...healthy,
+    disabled: true,
+    reviveAt: NOW - 5_000,
+    recordedMs: 300_000,
+    uploadedSeq: 4,
+    lastSeq: 40,
+    previous: 'server' as const,
+  }
+
+  it('(1) storage off, the notice says server, memory has landed nothing in THIS outage → server (held), its old cursor notwithstanding', () => {
+    expect(computeCaptureWarning({ ...secondOutage, memoryLandedThisOutage: false })).toBe('server')
+    // …and before this outage's clock has started.
+    expect(computeCaptureWarning({ ...secondOutage, reviveAt: 0, memoryLandedThisOutage: false })).toBe('server')
+  })
+
+  it('(2) …memory lands a segment in this outage → null', () => {
+    expect(computeCaptureWarning({ ...secondOutage, uploadedSeq: 5, memoryLandedThisOutage: true })).toBeNull()
+  })
+
+  it('(3) a terminal refusal memory\'s own pump received → server, landed or not, held or not', () => {
+    for (const memoryLandedThisOutage of [false, true]) {
+      for (const previous of ['server', null, 'device'] as const) {
+        expect(
+          computeCaptureWarning({ ...secondOutage, segmentError: 'forbidden', memoryLandedThisOutage, previous }),
+        ).toBe('server')
+      }
+    }
   })
 })
