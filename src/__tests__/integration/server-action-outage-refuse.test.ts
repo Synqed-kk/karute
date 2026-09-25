@@ -331,7 +331,7 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(coreTargetReads).not.toHaveBeenCalled()
     expect(serviceUpdate).not.toHaveBeenCalled()
-    expectOneBoundedOutageLine('[permissions] pre-core read failed (upstream_unavailable)')
+    expectOneBoundedOutageLine('[permissions] typed synqed-core failure (upstream_unavailable)')
   })
 
   // D-S26-1 (fold F2): the synqed-core roster fetch sits in the same roster wave
@@ -367,7 +367,7 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     expect(source[0][1]).not.toBeInstanceOf(Error)
     expect(source[0][1]).toEqual({ errName: 'TypeError', errMessage: 'fetch failed' })
     // …and the gate catch's one typed line; nothing else logged.
-    const action = logsStartingWith('[permissions] pre-core read failed (upstream_unavailable)')
+    const action = logsStartingWith('[permissions] typed synqed-core failure (upstream_unavailable)')
     expect(action).toHaveLength(1)
     expect(action[0][1]).toEqual({ errName: 'AppApiError', errStatus: 502, errMessage: 'synqed-core roster fetch failed' })
     expect(consoleError).toHaveBeenCalledTimes(2)
@@ -416,8 +416,8 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     // log line's code keeps it apart from an outage.
     expect(res).toEqual({ error: FAILURE_LINE })
     expect(JSON.stringify(res)).not.toContain('bad client config')
-    expect(logsStartingWith('[permissions] pre-core read failed (internal)')).toHaveLength(1)
-    expect(logsStartingWith('[permissions] pre-core read failed (upstream_unavailable)')).toHaveLength(0)
+    expect(logsStartingWith('[permissions] typed synqed-core failure (internal)')).toHaveLength(1)
+    expect(logsStartingWith('[permissions] typed synqed-core failure (upstream_unavailable)')).toHaveLength(0)
     expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(serviceUpdate).not.toHaveBeenCalled()
   })

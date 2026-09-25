@@ -135,7 +135,7 @@ const PROBE_LOG = {
 
 interface Site {
   fn: string
-  /** The site's log tag: its (a)/(b) line starts `${tag} pre-core read failed (${code}):`. */
+  /** The site's log tag: its (a)/(b) line starts `${tag} typed synqed-core failure (${code}):`. */
   tag: string
   call: () => Promise<unknown>
   /** The site's own result shape around the error string. */
@@ -308,7 +308,13 @@ describe.each(SITES)('$fn — a gate catch through the REAL gate', (site) => {
     const code = site.carriesCode ? PROBE_CODE[probe] : undefined
     return (site.wrap ?? ((error: string) => ({ error })))(expectedError(probe), code)
   }
-  const outageLog = (probe: 'a' | 'b') => site.outageLog ?? `${site.tag} pre-core read failed (${PROBE_CODE[probe]}):`
+  const outageLog = (probe: 'a' | 'b') => site.outageLog ?? `${site.tag} typed synqed-core failure (${PROBE_CODE[probe]}):`
+  // (c)/(d) log neither the helper's line nor a site's own failure line (createInvite).
+  const expectNoFailureLog = () => {
+    for (const label of ['typed synqed-core failure', 'pre-core read failed']) {
+      expect(logsStartingWith(`${site.tag} ${label}`)).toHaveLength(0)
+    }
+  }
 
   it.each(['a', 'b'] as const)(
     '(%s) typed synqed-core failure → the failure line, one bounded log carrying the code',
@@ -326,12 +332,12 @@ describe.each(SITES)('$fn — a gate catch through the REAL gate', (site) => {
   it('(c) empty capability set → today\'s denial, byte-for-byte', async () => {
     arm('c')
     expect(await site.call()).toEqual(expectedResult('c'))
-    expect(logsStartingWith(`${site.tag} pre-core read failed`)).toHaveLength(0)
+    expectNoFailureLog()
   })
 
   it('(d) membership_inactive → today\'s answer, byte-for-byte', async () => {
     arm('d')
     expect(await site.call()).toEqual(expectedResult('d'))
-    expect(logsStartingWith(`${site.tag} pre-core read failed`)).toHaveLength(0)
+    expectNoFailureLog()
   })
 })

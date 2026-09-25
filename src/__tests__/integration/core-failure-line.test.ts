@@ -56,7 +56,7 @@ describe('the two typed synqed-core codes answer the line, one log carrying the 
     expect(FAILURE_LINE).toBe('エラーが発生しました。')
     expect(consoleError).toHaveBeenCalledTimes(1)
     expect(consoleError.mock.calls[0]).toEqual([
-      `[t] pre-core read failed (${code}):`,
+      `[t] typed synqed-core failure (${code}):`,
       { errName: 'AppApiError', errStatus: STATUS[code], errMessage: 'x' },
     ])
   })
