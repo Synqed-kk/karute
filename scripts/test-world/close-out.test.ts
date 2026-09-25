@@ -24,20 +24,20 @@ async function main() {
     starts_at: a.startsAt, notes: `テストデータ [${a.key}]` as string | null, status: a.date >= EPOCH ? 'SCHEDULED' : a.status,
   }))
   const stale = rows.filter((r) => r.date >= EPOCH && r.date < TODAY) // made SCHEDULED at the epoch, their day now past
-  const [future, untagged, done, foreign, ghost, twin, owned] = stale
+  const [future, untagged, done, foreign, ghost, twin, elsewhere, owned] = stale
   future.starts_at = jstIso(addDays(TODAY, 3), 600) // staff moved it on: still SCHEDULED, tagged, the plan says it is over
   untagged.notes = null // staff cleared the note
   done.status = 'CANCELLED' // staff closed it in Business
   foreign.customer_id = 'someone-else'
   const binned = { id: 'binned-cust', member_number: ghost.customer_id.slice(2), deleted_at: '2026-09-20T00:00:00Z' } // in the bin, same member number
   ghost.customer_id = binned.id
+  elsewhere.store_id = 'store-other' // another store's booking: its tag is unique in the window and not recorded here
   // the manifest records every loader booking's id but twin's; copy and twinCopy copy a tag (same store, customer, day)
-  m.stores[STORE].created.appointments = Object.fromEntries(rows.filter((r) => r !== twin).map((r) => [r.key, r.id]))
-  const other = { ...owned, id: 'other-store-row', store_id: 'store-other' } // same tag + customer, another store
+  m.stores[STORE].created.appointments = Object.fromEntries(rows.filter((r) => r !== twin && r !== elsewhere).map((r) => [r.key, r.id]))
   const probe = { ...owned, id: 'probe-row', key: 'tw:probe:beauty_chiropractic:2026-09-20:A', notes: 'テストデータ [tw:probe:beauty_chiropractic:2026-09-20:A]' }
   const [copy, twinCopy] = [{ ...owned, id: 'copy-row' }, { ...twin, id: 'twin-row' }]
-  rows.push(other, probe, copy, twinCopy)
-  const want = stale.slice(6).map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
+  rows.push(probe, copy, twinCopy)
+  const want = stale.slice(7).map((r) => ({ id: r.id, input: { status: r.want, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' } }))
   const startedToday = rows.filter((r) => r.date === TODAY && Date.parse(r.starts_at) < NOW.getTime())
   assert.ok(want.length > 5 && want.some((w) => w.input.status !== 'COMPLETED') && startedToday.length > 0, 'the fixture: stale rows of more than one status, a booking started today')
 
@@ -64,7 +64,7 @@ async function main() {
   assert.ok(terminal.length > 10 && !ap.calls.some((c) => terminal.includes(c.id)), '(e) COMPLETED / CANCELLED / NO_SHOW rows are untouched')
   assert.deepEqual(ap.lines.filter((l) => l.includes(foreign.id)), [`skipped: appointments ${foreign.key}: booking ${foreign.id}'s customer differs from the planned customer, left alone`], '(f) a customer-mismatch row is skipped with one line')
   assert.ok(!touched(foreign.id), '(f) a customer-mismatch row is untouched')
-  assert.ok(!touched(other.id), '(i) a tagged SCHEDULED past row of another store is untouched')
+  assert.ok(!touched(elsewhere.id), '(i) a tagged SCHEDULED past row of another store is untouched')
   const only = (id: string) => [touched(id), ap.lines.filter((l) => l.includes(id))]
   assert.deepEqual(only(ghost.id), [false, [`skipped: appointments ${ghost.key}: booking ${ghost.id}'s customer differs from the planned customer, left alone`]], '(j) a row on a binned customer of the planned member number: a mismatch line, no write')
   assert.deepEqual(only(probe.id), [false, [`skipped: appointments ${probe.key}: booking ${probe.id} is not in the plan, left alone`]], '(k) a tag not in the plan: one skipped line, no write')
