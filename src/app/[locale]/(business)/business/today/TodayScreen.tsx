@@ -9501,7 +9501,7 @@ export function TodayScreen(props: TodayProps) {
       >
         <div className="section-head">
           <strong id="decisionTitle">次に決めること</strong>
-          {props.decisionsMark && sampleChip(props.decisionsMark)}
+          {props.decisionsMark && openCards.length > 0 && sampleChip(props.decisionsMark)}
           <div className="section-tools">
             <span>根拠・期限・次の操作がある判断だけを表示</span>
             <button className="btn text" type="button" onClick={() => listRef.current?.showModal()}>判断と閉店阻害</button>

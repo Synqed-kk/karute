@@ -15291,7 +15291,7 @@ describe('⚖ PR-3 — the board’s sample label is gated on the door, one per 
     expect(uses.sort()).toEqual([
       '{props.absenceMark && sampleChip(props.absenceMark)}',
       '{props.boardMark && sampleChip(props.boardMark)}',
-      '{props.decisionsMark && sampleChip(props.decisionsMark)}',
+      '{props.decisionsMark && openCards.length > 0 && sampleChip(props.decisionsMark)}',
       '{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}',
       '{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}',
     ])
