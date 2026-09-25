@@ -435,6 +435,7 @@ import {
   stampTakeDuration,
   stampTakeOutcome,
   stampTakeSession,
+  adoptTakeSession,
   TERMINAL_SECURE_ERRORS,
   writeTakeHeartbeat,
 } from '@/lib/karute/take-store'
@@ -895,14 +896,17 @@ describe('listOwnTakes carries secureError (piece r prerequisite)', () => {
 // ⚖ S34, piece 3 — the adoption guard. ai-pipeline adopts a row the server
 // minted through stampTakeSession, and it is THIS guard that keeps a take that
 // already names a row from being re-pointed at the minted one.
-describe('stampTakeSession — the first stamp wins (S34 T3)', () => {
-  it('a take that names row A is never re-stamped with a minted row X', async () => {
+describe('adoptTakeSession — the first stamp wins (S34 T3)', () => {
+  it('a take that names row A is never re-stamped with a minted row X — and gets no finalized mark', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
     expect(await stampTakeSession(takeId, 'sess-A')).toBe(true)
-    expect(await stampTakeSession(takeId, 'sess-minted-X')).toBe(false)
-    expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-A')
+    expect(await adoptTakeSession(takeId, 'sess-minted-X', 'app_biz-1_server-named.webm')).toBe(false)
+    const meta = await readTakeSecureMeta(takeId)
+    expect(meta?.recordingSessionId).toBe('sess-A')
+    expect(meta?.finalizedAt).toBeUndefined()
+    expect(meta?.finalizedPath).toBeUndefined()
   })
 })
 
@@ -1822,6 +1826,39 @@ describe('secure at stop', () => {
 
   const lastFinalized = () =>
     finalizeTake.mock.calls.at(-1)![0] as { durationSeconds: number }
+
+  // ⚖ S34, piece 3 — Greptile #1039 (「Adoption blocks take recovery」). A take
+  // that ADOPTED the row the server made for its fallback upload is secured at
+  // that upload's key in the same write, so the drain never retries it under
+  // its own key — which row X, pointing at the server-named key, could only
+  // refuse as `reserved_elsewhere` (terminal → a take for a human).
+  it('T7 an adopted take with bytes still in the store: the drain uploads NOTHING', async () => {
+    const takeId = await stoppedOwedTake()
+    const X = 'rs-adopted-X'
+    const SERVER_NAMED = 'app_biz-1_server-named-uuid.webm'
+    // What the real mint answers for this take's own key on row X.
+    mintTakeUrl.mockImplementation(async (_t, _m, session) => {
+      order.push('mint')
+      return session === X ? { error: 'reserved_elsewhere' } : { error: 'bad_input' }
+    })
+    expect(metaOf(takeId).recordingSessionId).toBeFalsy()
+    expect(await listOwnStoppedUnsecuredTakeIds(true)).toEqual([takeId])
+
+    expect(await adoptTakeSession(takeId, X, SERVER_NAMED)).toBe(true)
+
+    // The drain: its worklist, then secureTake itself on this take.
+    expect(await listOwnStoppedUnsecuredTakeIds(true)).toEqual([])
+    order.length = 0
+    await secureTake(port(), takeId)
+    expect(order).toEqual([])
+    expect(finalizeTake).not.toHaveBeenCalled()
+    expect(metaOf(takeId).secureError).toBeUndefined()
+    expect(metaOf(takeId).recordingSessionId).toBe(X)
+    expect(metaOf(takeId).finalizedPath).toBe(SERVER_NAMED)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    // The bytes are still on the device — the save's settle is what releases them.
+    expect((await loadTakeBlob(takeId))?.size).toBeGreaterThan(0)
+  })
 
   it('onstop: `recorded` renders synchronously, the tail flush is awaited, THEN the take is uploaded', async () => {
     const takeId = await startAndSettle()

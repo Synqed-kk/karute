@@ -32,9 +32,9 @@ const markTakeFinalized = jest.fn(async (_takeId: string, path: string) => {
   if (store.meta) store.meta = { ...store.meta, finalizedAt: 1, finalizedPath: path }
 })
 const markTakeSecureError = jest.fn(async (_takeId: string, _code: string) => {})
-const stampTakeSession = jest.fn(async (_takeId: string, session: string) => {
-  if (!store.meta || store.meta.recordingSessionId) return false
-  store.meta = { ...store.meta, recordingSessionId: session }
+const adoptTakeSession = jest.fn(async (_takeId: string, session: string, path: string) => {
+  if (!store.meta || store.meta.recordingSessionId || store.meta.finalizedAt) return false
+  store.meta = { ...store.meta, recordingSessionId: session, finalizedAt: 1, finalizedPath: path }
   return true
 })
 jest.mock('@/lib/karute/take-store', () => ({
@@ -47,9 +47,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   markTakeFinalized: (id: string, path: string) => markTakeFinalized(id, path),
   markTakeSecureError: (id: string, code: string) => markTakeSecureError(id, code),
   markTakeStartBoundAttempted: async () => {},
-  // First stamp wins — the shape of take-store's own guard (ts:616-621; the
-  // real guard is pinned in take-durability.test.ts, S34 T3).
-  stampTakeSession: (id: string, session: string) => stampTakeSession(id, session),
+  // First stamp wins, and the take is secured at the minted key in the same
+  // write — the shape of take-store's adoptTakeSession (the real one is pinned
+  // in take-durability.test.ts, S34 T3/T7).
+  adoptTakeSession: (id: string, session: string, path: string) => adoptTakeSession(id, session, path),
   TERMINAL_SECURE_ERRORS: new Set(['reserved_elsewhere', 'exists', 'size_mismatch']),
 }))
 
@@ -219,6 +220,10 @@ describe('S34 — the fallback adopts the row the server made', () => {
     await run({ onSessionAdopted })
     expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'no_session' })
     expect(store.meta?.recordingSessionId).toBe(MINTED_ROW)
+    // …and SECURED at the key just PUT on that row, in the same write (Greptile #1039).
+    expect(adoptTakeSession).toHaveBeenCalledWith(TAKE, MINTED_ROW, 'app_biz-1_server-named.webm')
+    expect(store.meta?.finalizedPath).toBe('app_biz-1_server-named.webm')
+    expect(store.meta?.finalizedAt).toEqual(expect.any(Number))
     expect(onSessionAdopted).toHaveBeenCalledWith(MINTED_ROW)
     expect(info).toHaveBeenCalledWith(...adoptLog(true))
   })
@@ -259,7 +264,7 @@ describe('S34 — the fallback adopts the row the server made', () => {
     const onSessionAdopted = jest.fn()
     await run({ onSessionAdopted })
     expect(prepareTranscription.mock.calls).toEqual([[memory, null, { attachOutcome: 'no_session' }]])
-    expect(stampTakeSession).not.toHaveBeenCalled()
+    expect(adoptTakeSession).not.toHaveBeenCalled()
     expect(store.meta?.recordingSessionId).toBeUndefined()
     expect(onSessionAdopted).not.toHaveBeenCalled()
     expect(info).not.toHaveBeenCalledWith('[ai-pipeline] adopted minted session', expect.anything())
@@ -273,9 +278,10 @@ describe('S34 — the fallback adopts the row the server made', () => {
     const onSessionAdopted = jest.fn()
     await run({ onSessionAdopted })
     expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'attach_failed' })
-    // The store's own guard is what refuses (first stamp wins).
-    expect(stampTakeSession).toHaveBeenCalledWith(TAKE, MINTED_ROW)
+    // The store's own guard is what refuses (first stamp wins) — and nothing is marked.
+    expect(adoptTakeSession).toHaveBeenCalledWith(TAKE, MINTED_ROW, 'app_biz-1_server-named.webm')
     expect(store.meta?.recordingSessionId).toBe(SESSION)
+    expect(store.meta?.finalizedPath).toBeUndefined()
     expect(onSessionAdopted).not.toHaveBeenCalled()
     expect(info).toHaveBeenCalledWith(...adoptLog(false))
   })
@@ -286,7 +292,24 @@ describe('S34 — the fallback adopts the row the server made', () => {
     const onSessionAdopted = jest.fn()
     await run({ recordingSessionId: SESSION, onSessionAdopted })
     expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'attach_failed' })
-    expect(stampTakeSession).not.toHaveBeenCalled()
+    expect(adoptTakeSession).not.toHaveBeenCalled()
+    expect(onSessionAdopted).not.toHaveBeenCalled()
+    expect(info).toHaveBeenCalledWith(...adoptLog(false))
+  })
+
+  it('T8 adoption refused (the run context is keyed) → the store take gets NO finalized mark', async () => {
+    // The store holds a session-less take whose attach failed (no row could be
+    // minted for it), while the run's context names A; the server returns X anyway.
+    store.meta = { ...NO_SESSION_TAKE }
+    store.blob = new Blob(['stored'], { type: 'audio/webm' })
+    serverNames(MINTED_ROW)
+    const onSessionAdopted = jest.fn()
+    await run({ recordingSessionId: SESSION, onSessionAdopted })
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'attach_failed' })
+    expect(adoptTakeSession).not.toHaveBeenCalled()
+    expect(store.meta?.recordingSessionId).toBeUndefined()
+    expect(store.meta?.finalizedAt).toBeUndefined()
+    expect(store.meta?.finalizedPath).toBeUndefined()
     expect(onSessionAdopted).not.toHaveBeenCalled()
     expect(info).toHaveBeenCalledWith(...adoptLog(false))
   })
@@ -307,7 +330,7 @@ describe('S34 — the fallback adopts the row the server made', () => {
     serverNames(MINTED_ROW)
     const onSessionAdopted = jest.fn()
     await runAIPipeline(memory, null, 'ja', () => {}, { onSessionAdopted })
-    expect(stampTakeSession).not.toHaveBeenCalled()
+    expect(adoptTakeSession).not.toHaveBeenCalled()
     expect(onSessionAdopted).toHaveBeenCalledWith(MINTED_ROW)
     expect(info).toHaveBeenCalledWith('[ai-pipeline] adopted minted session', { takeId: null, adopted: true })
   })

@@ -740,6 +740,26 @@ export async function markTakeFinalized(takeId: string, finalizedPath: string): 
   })
 }
 
+/** ⚖ S34, piece 3 — the take ADOPTS the row the server made for its in-tab
+ *  fallback upload, and that upload IS the take's secured audio: the bytes
+ *  were just PUT at `finalizedPath`, the key that row was born reserved on.
+ *  So the session and markTakeFinalized's own mark land in ONE transaction —
+ *  the drain, secureTake and the segment pump all stop on `finalizedAt`, and
+ *  none of them ever tries this take again under its own key (which row X
+ *  could only refuse, terminally). First stamp wins, as in stampTakeSession,
+ *  and a finalized key is never replaced: false = not adopted, nothing written. */
+export async function adoptTakeSession(
+  takeId: string,
+  recordingSessionId: string,
+  finalizedPath: string,
+): Promise<boolean> {
+  return patchTakeMeta(
+    takeId,
+    { recordingSessionId, finalizedAt: Date.now(), finalizedPath, secureError: undefined },
+    (meta) => !meta.recordingSessionId && !meta.finalizedAt,
+  )
+}
+
 /** Capture pipeline PR4: this take's discard transcript is SETTLED — the words
  *  landed, or were deliberately not kept. The sweep's stop condition, in place
  *  of the deleteTake that used to be it. */
