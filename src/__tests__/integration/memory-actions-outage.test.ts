@@ -37,31 +37,36 @@ import * as cores from '@/lib/customers/memory.core'
 const businessId = getBusinessId as unknown as jest.Mock
 const synqedClient = getSynqedClient as unknown as jest.Mock
 const CLIENT = { customers: {} }
+// Distinctive input values: none may ride into the outage log (ids-only).
+const CUSTOMER = 'cust-SECRET-1'
+const ADD = { customerId: CUSTOMER, category: 'goal' as const, label: 'label-SECRET', detail: 'detail-SECRET' }
+const PASSPORT = { customerId: CUSTOMER, fieldKey: 'k', value: 'value-SECRET' }
+const SECRETS = [CUSTOMER, 'label-SECRET', 'detail-SECRET', 'value-SECRET']
 
 const CASES = [
   {
     name: 'addMemoryItemAction',
-    run: () => addMemoryItemAction({ customerId: 'c1', category: 'goal', label: 'x' }),
+    run: () => addMemoryItemAction(ADD),
     core: cores.addMemoryItemWithClient as unknown as jest.Mock,
     fail: { ok: false },
     happy: { ok: true },
-    happyCall: [CLIENT, 'biz-1', { customerId: 'c1', category: 'goal', label: 'x' }],
+    happyCall: [CLIENT, 'biz-1', ADD],
   },
   {
     name: 'relearnCustomerMemoryAction',
-    run: () => relearnCustomerMemoryAction('c1'),
+    run: () => relearnCustomerMemoryAction(CUSTOMER),
     core: cores.relearnCustomerMemoryWithClient as unknown as jest.Mock,
     fail: { ok: false, items: 0 },
     happy: { ok: true, items: 3 },
-    happyCall: [CLIENT, { businessId: 'biz-1', locale: 'ja', planAllowed: true, regenAllowed: true }, 'c1'],
+    happyCall: [CLIENT, { businessId: 'biz-1', locale: 'ja', planAllowed: true, regenAllowed: true }, CUSTOMER],
   },
   {
     name: 'upsertPassportFieldAction',
-    run: () => upsertPassportFieldAction({ customerId: 'c1', fieldKey: 'k', value: 'v' }),
+    run: () => upsertPassportFieldAction(PASSPORT),
     core: cores.upsertPassportFieldWithClient as unknown as jest.Mock,
     fail: { ok: false },
     happy: { ok: true },
-    happyCall: [CLIENT, 'biz-1', 'salon', { customerId: 'c1', fieldKey: 'k', value: 'v' }],
+    happyCall: [CLIENT, 'biz-1', 'salon', PASSPORT],
   },
 ]
 
@@ -74,12 +79,25 @@ beforeEach(() => {
 })
 afterEach(() => consoleError.mockRestore())
 
+// Mirrors invite-read-outage.test.ts: no logged argument carries the input.
+function expectLogCarriesNoInput() {
+  for (const call of consoleError.mock.calls) {
+    for (const arg of call) {
+      for (const secret of SECRETS) {
+        expect(String(arg)).not.toContain(secret)
+        expect(JSON.stringify(arg) ?? '').not.toContain(secret)
+      }
+    }
+  }
+}
+
 describe.each(CASES)('$name — a thrown pre-core read resolves the failure shape', (c) => {
   it('getBusinessId throws → failure shape, core never runs', async () => {
     businessId.mockRejectedValue(new Error('core down'))
     await expect(c.run()).resolves.toEqual(c.fail)
     expect(c.core).not.toHaveBeenCalled()
     expect(consoleError).toHaveBeenCalledTimes(1)
+    expectLogCarriesNoInput()
   })
 
   it('getSynqedClient throws → failure shape, core never runs', async () => {
@@ -87,6 +105,7 @@ describe.each(CASES)('$name — a thrown pre-core read resolves the failure shap
     await expect(c.run()).resolves.toEqual(c.fail)
     expect(c.core).not.toHaveBeenCalled()
     expect(consoleError).toHaveBeenCalledTimes(1)
+    expectLogCarriesNoInput()
   })
 
   it('happy path unchanged', async () => {
