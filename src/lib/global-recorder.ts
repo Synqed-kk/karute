@@ -582,7 +582,7 @@ class GlobalRecorder {
           }
           p.seq = seq + 1
           p.count = count
-          p.revive.tries = 0
+          p.revive = { tries: 0, at: 0 }
         }
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
         // forget off the persist queue: the pump has its own single-flight and
