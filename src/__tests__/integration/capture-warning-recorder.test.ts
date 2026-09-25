@@ -339,6 +339,43 @@ describe('PR-6 — the fact, once per raise', () => {
     expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
   })
 
+  it('a stopped take still waiting for its session never files against the NEXT take\'s id (start()\'s mint lands before it names its take)', async () => {
+    const slowA = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slowA.promise)
+    await startLive()
+    await tick(12)
+    expect(globalRecorder.captureWarning).toBe('server')
+    globalRecorder.stop()
+    await drain()
+    expect(globalRecorder.state).toBe('recorded')
+
+    // The next start(): its mint answers while the mic prompt is still up —
+    // the singleton's field holds B's id, and A's take is still the one held.
+    let grant!: () => void
+    const realGum = navigator.mediaDevices.getUserMedia
+    ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = () =>
+      new Promise((resolve) => {
+        grant = () => resolve({ getTracks: () => [] })
+      })
+    try {
+      mockStartRecordingSession.mockImplementation(async () => ({ id: 'rs-B' }))
+      const starting = globalRecorder.start({ target: TARGET })
+      await drain()
+      expect(globalRecorder.recordingSessionId).toBe('rs-B')
+      expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+
+      grant()
+      await starting
+      await drain()
+    } finally {
+      grant()
+      ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = realGum
+    }
+    slowA.resolve({ id: 'rs-A' })
+    await drain()
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+  })
+
   it('a notice that clears and re-raises with the SAME reason files nothing new; device after server files once more', async () => {
     const takeId = await startLive()
     await tick(12)

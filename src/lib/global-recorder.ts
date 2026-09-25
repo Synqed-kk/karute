@@ -694,7 +694,9 @@ class GlobalRecorder {
     if (this.recordingSessionId) return send(this.recordingSessionId)
     const off = this.subscribe(() => {
       if (this.persist !== p) return off()
-      if (!this.recordingSessionId) return
+      // Not an id the NEXT start() minted before naming its take — that one
+      // lands on this field while this take is still held (mintStampTakeId).
+      if (!this.recordingSessionId || this.recordingSessionMintTakeUnknown) return
       off()
       send(this.recordingSessionId)
     })
