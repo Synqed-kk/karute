@@ -80,6 +80,12 @@ const SEGMENT_MAX_CHUNKS = 50
 // retry backoff, not a product length — see NO-HARDCODED-DURATIONS ruling 9/13
 const REVIVE_BACKOFF_MS = [5_000, 10_000, 20_000, 40_000]
 
+// ⚖ AND A FAILED SESSION MINT IS ASKED AGAIN (S36 PR-1): how long after the
+// start — then after each retry — the next one waits; four retries, then the
+// save/discard-time retry is what is left, as before.
+// retry backoff, not a product length — see NO-HARDCODED-DURATIONS ruling 9/13
+const SESSION_RETRY_MS = [30_000, 60_000, 120_000, 240_000]
+
 // How long any caller waits on the session-id mint before giving up. Shared by
 // awaitRecordingSessionId and the retry below so "bounded the same way" is a
 // fact rather than two literals that can drift apart.
@@ -154,6 +160,9 @@ type TakePersist = {
   born: Parameters<typeof createTake>[0] | null
   /** The revive's own backoff: failed tries so far, and when the next is due. */
   revive: { tries: number; at: number }
+  /** The session retry's: retries so far, and when the last one (or the take's
+   *  start) went out. */
+  mint: { tries: number; at: number }
 }
 
 /** A take's persistence state before anything has happened to it — and the
@@ -166,6 +175,7 @@ const newPersist = (): TakePersist => ({
   abandoned: false,
   born: null,
   revive: { tries: 0, at: 0 },
+  mint: { tries: 0, at: Date.now() },
 })
 
 class GlobalRecorder {
@@ -454,6 +464,21 @@ class GlobalRecorder {
     // already has it (refused before the put) — the heartbeat's own cost.
     const sid = this.recordingSessionId
     if (sid && !p.disabled) void this.queueTakeWrite(() => stampTakeSession(takeId, sid))
+    // ⚖ …AND A TAKE WITH NO SESSION ASKS FOR ONE (S36 PR-1). The start-mint
+    // runs once; when it failed, nothing asked again until the save or the
+    // discard, so the pump had no row to send a single segment against for
+    // the whole recording. A mint still in flight is merely slow, never
+    // doubled. The retry is the existing one: one bound create per take
+    // (`startBoundAttempted`), then the argument-less start.
+    if (
+      !sid &&
+      !this.recordingSessionMintInFlight &&
+      p.mint.tries < SESSION_RETRY_MS.length &&
+      now - p.mint.at >= SESSION_RETRY_MS[p.mint.tries]
+    ) {
+      p.mint = { tries: p.mint.tries + 1, at: now }
+      void this.retryRecordingSessionMint()
+    }
   }
 
   /** The revive itself — ahead of whatever flush is queued behind it, which
