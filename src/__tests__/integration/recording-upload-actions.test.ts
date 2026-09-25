@@ -573,6 +573,16 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     )
   })
 
+  // ⚖ S35 C1 — the take length rides ONLY onto a row the server-named arm
+  // creates. A take that already HAS its row is finalized, and finalize writes
+  // its length (finalize-take.ts) — so here it is ignored, never refused.
+  it('T4 (S35 C1) a take that HAS its row ignores a length — the reservation write is unchanged', async () => {
+    const res = await mintOk({ ...named, durationSeconds: 63 })
+    expect(update).toHaveBeenCalledWith(SESSION, { audio_storage_path: OWN, status: 'UPLOADING' })
+    expect(create).not.toHaveBeenCalled()
+    expect(res.recordingSessionId).toBe(SESSION)
+  })
+
   // HOTFIX 2026-09-05: this retry now takes the ALREADY-THERE arm. The object
   // is at this row's own reserved key, and a non-upsert sign would be refused
   // by storage — so the door answers the size instead of a URL. Everything the

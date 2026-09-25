@@ -329,6 +329,28 @@ describe('the flag flip — the fix itself', () => {
       // Byte-identical to S33's body (ai-pipeline hands the visit on no_session only).
       expect(bodies[1]).toBe(JSON.stringify({ stagedFor: null, attachOutcome: 'attach_failed' }))
     })
+
+    it('T7 (S35 C1) no_session carries the take length; none without one; the finalized path mints nothing', async () => {
+      const apiFetch = upload({})
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+        customerId: 'cust-1',
+        durationSeconds: 63,
+      })
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+        durationSeconds: undefined,
+      })
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), 'app_business-1_t.webm', {
+        attachOutcome: 'no_session',
+        durationSeconds: 63,
+      })
+      const bodies = apiFetch.mock.calls.map(([, init]) => (init as RequestInit).body)
+      expect(bodies).toEqual([
+        JSON.stringify({ stagedFor: null, attachOutcome: 'no_session', customerId: 'cust-1', durationSeconds: 63 }),
+        JSON.stringify({ stagedFor: null, attachOutcome: 'no_session' }),
+      ])
+    })
   })
 
   // ⚖ AND BOTH LEGS CARRY A DEADLINE (slice five fix round 3, F7). A phone that

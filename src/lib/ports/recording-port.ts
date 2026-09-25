@@ -180,6 +180,9 @@ export interface RecordingPipelinePort {
        *  server-named arm creates is born carrying. */
       customerId?: string | null
       appointmentId?: string | null
+      /** The take's length in whole seconds, sent with 'no_session' only
+       *  (S35 C1): what that row is born carrying — see takeLengthSeconds. */
+      durationSeconds?: number
     },
   ): Promise<{ body: Record<string, unknown>; path: string; recordingSessionId: string | null }>
   /**
@@ -494,6 +497,7 @@ export const webRecordingPort: RecordingPipelinePort = {
                 attachOutcome: opts.attachOutcome,
                 ...(opts.customerId ? { customerId: opts.customerId } : {}),
                 ...(opts.appointmentId ? { appointmentId: opts.appointmentId } : {}),
+                ...(opts.durationSeconds ? { durationSeconds: opts.durationSeconds } : {}),
               }
             : undefined,
       )

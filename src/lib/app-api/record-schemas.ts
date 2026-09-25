@@ -163,6 +163,7 @@ export const AttachOutcomeSchema = z.enum(['no_session', 'attach_failed'])
 export type AttachOutcome = z.infer<typeof AttachOutcomeSchema>
 export const MAX_SEGMENT_SEQ = 999_999
 export const MAX_SEGMENT_BATCH = 60
+const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().uuid().nullish(),
@@ -178,6 +179,12 @@ export const UploadUrlMintSchema = z
     customerId: z.string().max(MAX_ID_CHARS).nullish(),
     appointmentId: z.string().max(MAX_ID_CHARS).nullish(),
     attachOutcome: AttachOutcomeSchema.nullish(),
+    // How long the take ran (S35 C1), for the row the 'no_session' fallback's
+    // ON arm creates — the value finalize would have written. Whole seconds,
+    // because core's create takes an int (validations/recording.ts). Anything
+    // else is dropped, never refused: a row born without a length is honest,
+    // and an odd number must never cost the upload. Read by that arm alone.
+    durationSeconds: z.number().int().positive().max(MAX_TAKE_SECONDS).optional().catch(undefined),
   })
   .strict()
   .refine((v) => !(v.takeId && v.stagedFor), {
@@ -232,7 +239,6 @@ export const UploadUrlMintSchema = z
 // row is a finalize for a take this server never bound.
 // The two numbers get ceilings for the same reason: durationSeconds is WRITTEN
 // onto the core row, and a take of zero bytes is not a take at all.
-const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
 const MAX_TAKE_BYTES = 2 * 1024 * 1024 * 1024
 export const FinalizeTakeSchema = z
   .object({
