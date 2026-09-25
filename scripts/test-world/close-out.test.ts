@@ -80,6 +80,9 @@ async function main() {
   const wrong = fake('00000000-0000-0000-0000-000000000000')
   await assert.rejects(closeOut(wrong.core, STORE, m, NOW, true, () => {}), /not the Dev Salon/, '(g) another business: refused (throws)')
   assert.deepEqual([wrong.reads.appts, wrong.calls.length], [0, 0], '(g) another business: no booking read, 0 writes')
+  const moved = fake()
+  await assert.rejects(closeOut(moved.core, STORE, { ...m, stores: { [STORE]: { ...m.stores[STORE], type: 'hair_salon' } } }, NOW, true, () => {}), /manifest type hair_salon ≠ registry type beauty_chiropractic/, '(n) manifest type ≠ registry type: refused')
+  assert.deepEqual([moved.reads.appts, moved.calls.length], [0, 0], '(n) manifest type ≠ registry type: no booking read, 0 writes')
 
   const src = readFileSync(join(__dirname, 'close-out.ts'), 'utf8')
   assert.equal(src.split('.update(').length, 2, '(h) close-out.ts: exactly one .update( call')

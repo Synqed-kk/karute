@@ -18,6 +18,7 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
   await assertDevSalon(core) // a Refused throws: exit 1 before any booking is read
   const [type, st, today] = [registry.stores[storeId], m.stores[storeId], jstToday(now)]
   if (!type || !st) throw new Error(`store ${storeId} is not in registry.json or not in the manifest`)
+  if (st.type !== type) throw new Error(`store ${storeId}: manifest type ${st.type} ≠ registry type ${type}`) // else the keys would not match
   const p = plan(await loadRecipe(type), { storeId, weeklyHours: st.weeklyHours }, today, st.epoch)
   const planned = new Map(p.appointments.map((a) => [a.key, a]))
   const all = await pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 }))
