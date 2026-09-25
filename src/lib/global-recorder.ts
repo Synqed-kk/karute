@@ -637,7 +637,9 @@ class GlobalRecorder {
         if (p.disabled) {
           // …but the server still gets it, from memory (S36 PR-1b, see
           // memorySegments). Never from the stop's own flush: the stop is
-          // unchanged, and the whole take is its.
+          // unchanged — a take WITH a row is secured whole by it; a row-less
+          // take's blob goes up with the karute save (see memorySegments'
+          // docblock).
           if (stampDurationMs === undefined)
             void pumpSegments(getRecordingPipelinePort(), takeId, {
               source: this.memorySegments(p, takeId),
