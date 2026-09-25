@@ -222,9 +222,13 @@ async function pass() {
   const planned = new Map(w.p.appointments.map((a) => [`a-${a.key}`, a]))
   const owned = w.rows.filter((r) => planned.has(r.id) && r !== w.edited)
   const past = owned.filter((r) => planned.get(r.id)!.date < TODAY)
-  const count = (s: string) => past.filter((r) => r.status === s).length
-  assert.equal(count('CANCELLED'), Math.round(real.cancelShare * past.length), 'past cancel rate')
-  assert.equal(count('NO_SHOW'), Math.round(real.noShowShare * past.length), 'past no-show rate')
+  const count = (s: string, rs: Appointment[] = past) => rs.filter((r) => r.status === s).length
+  const pastBefore = before.filter((b) => past.some((r) => r.id === b.id))
+  // up to the rate, never down to it: a row above the target stays (fill.ts karutes only planned-COMPLETED rows)
+  assert.equal(count('CANCELLED'), Math.max(Math.round(real.cancelShare * past.length), count('CANCELLED', pastBefore)), 'past cancel rate')
+  assert.equal(count('NO_SHOW'), Math.max(Math.round(real.noShowShare * past.length), count('NO_SHOW', pastBefore)), 'past no-show rate')
+  assert.ok(count('CANCELLED', pastBefore) > Math.round(real.cancelShare * past.length), 'the world starts above the cancel target (not vacuous)')
+  assert.ok(!ledger.changes.some((c) => c.set.status === 'COMPLETED'), 'no change ever sets COMPLETED')
   const future = owned.filter((r) => planned.get(r.id)!.date > TODAY && r.status === 'CANCELLED').length
   assert.ok(future >= real.futureCancels[0] && future <= real.futureCancels[1], `future cancels ${future}`)
   const burnt = new Set([...w.burns.values()].flat())
@@ -233,7 +237,7 @@ async function pass() {
     if (r.status === 'NO_SHOW' && r.status_set_by == null) assert.equal(r.status_reason, NO_SHOW_REASON_NO_CONTACT, `${r.id}: 無断 = no contact`)
     if (r.status === 'CANCELLED') assert.ok((CANCEL_REASONS as readonly string[]).includes(r.status_reason!), `${r.id}: a cancel code`)
     if (r.status === 'CANCELLED' && burnt.has(r.id)) assert.equal(r.status_reason, CANCEL_REASON_SAME_DAY_CONTACT, `${r.id}: a burnt cancel is same-day contact`)
-    if (r.status !== was.status && r.status !== 'COMPLETED') assert.ok(!w.karuted.has(r.id) && !burnt.has(r.id), `${r.id}: a booking with a karute or a burn was cancelled`)
+    if (r.status !== was.status) assert.ok(!w.karuted.has(r.id) && !burnt.has(r.id), `${r.id}: a booking with a karute or a burn was cancelled`)
     assert.equal(r.status_set_by, was.status_set_by, `${r.id}: no acting staff stamped`)
     assert.equal(r.notes, bookingNotes(planned.get(r.id)!), `${r.id}: tag first, then the ご要望 line`)
     assert.equal(TAG.exec(r.notes!)?.[1], planned.get(r.id)!.key, 'fill / close-out still find the tag')
@@ -279,7 +283,7 @@ async function pass() {
   const input = { recipe: w2.recipe, storeId: STORE, plan: w2.p, custId: new Map(w2.rows.map((r) => [r.customer_id!.slice(2), r.customer_id!])), today: TODAY, lastPlanned: TODAY, realismFrom: null, repairForeign: false }
   const allDone = clone(w2.rows).map((r) => (r.status === 'CANCELLED' || r.status === 'NO_SHOW' ? { ...r, status: 'COMPLETED' as const } : r))
   const ids = new Set(allDone.map((r) => r.id))
-  const pastMoves = (o: ReturnType<typeof planStore>) => o.changes.filter((c) => c.set.status && c.old.status === 'COMPLETED' && c.set.status !== 'COMPLETED')
+  const pastMoves = (o: ReturnType<typeof planStore>) => o.changes.filter((c) => c.set.status && c.old.status === 'COMPLETED')
   assert.ok(pastMoves(planStore({ ...input, rows: allDone, karuted: new Set(), burnt: new Set() })).length > 0, 'the rates need moves (not vacuous)')
   assert.deepEqual(pastMoves(planStore({ ...input, rows: allDone, karuted: ids, burnt: new Set() })), [], 'no booking with a karute is cancelled or marked no-show')
   assert.deepEqual(pastMoves(planStore({ ...input, rows: allDone, karuted: new Set(), burnt: ids })), [], 'no booking with a burn is cancelled or marked no-show')

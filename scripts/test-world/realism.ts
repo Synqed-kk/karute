@@ -4,8 +4,8 @@
 //   · notes — the tag stays first (every reader: /\[(tw:[^\]]+)\]/ or '[tw:'), the booking's ご要望 line follows on the
 //     next line (plan.ts requestFor: a function of the key, so fill.ts writes the same line on the rows it makes later)
 //   · status — past bookings reach the type's cancel / no-show rates (registry.json realism): a COMPLETED one with no
-//     karute and no 回数券 burn becomes CANCELLED / NO_SHOW, or a loader-set CANCELLED / NO_SHOW one whose slot is still
-//     free goes back to COMPLETED; the future holds 1–2 per store cancelled with advance contact
+//     karute and no 回数券 burn becomes CANCELLED / NO_SHOW (never the reverse); the future holds 1–2 per store
+//     cancelled with advance contact
 //   · status_reason — ⚖ the 7/10 taxonomy: every loader CANCELLED carries a cancel code (a burnt one: same-day contact,
 //     the only cancel reason a burn may pair with), every NO_SHOW no-show-no-contact (無断 = no contact, by definition)
 //   · the manifest's realismFrom — the first day plan() follows the realism recipe (rhythm, 指名, rates): the day after
@@ -35,7 +35,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Appointment, AppointmentStatus } from '@synqed-kk/client'
 import {
-  CANCEL_REASON_ADVANCE_CONTACT, CANCEL_REASON_SAME_DAY_CONTACT, CANCEL_REASONS, isTerminalStatus, NO_SHOW_REASON_NO_CONTACT,
+  CANCEL_REASON_ADVANCE_CONTACT, CANCEL_REASON_SAME_DAY_CONTACT, CANCEL_REASONS, NO_SHOW_REASON_NO_CONTACT,
 } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { jstToday, loadRecipe, registry, storeCtx, withRetry, type FillCore, type Manifest } from './fill'
@@ -48,8 +48,6 @@ export interface Ledger { businessId: string; at: string; planHash: string; mani
 
 const TAG = /\[(tw:[^\]]+)\]/
 const jstDate = (iso: string) => new Date(Date.parse(iso) + 9 * 3_600_000).toISOString().slice(0, 10)
-const overlaps = (a: Appointment, b: Appointment) =>
-  Date.parse(a.starts_at) < Date.parse(b.occupied_until ?? b.ends_at) && Date.parse(b.starts_at) < Date.parse(a.occupied_until ?? a.ends_at)
 /** A status the loader (fill's create, close-out) or this script set — never one a person set in the app. */
 const loaderSet = (a: Appointment) => a.status_set_by == null || (a.status_reason ?? '').startsWith('テストデータ')
 /** Seeded order: the same rows, the same pick, on every run (the rate sampler). */
@@ -107,27 +105,17 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
   const next = new Map<string, Fields>(i.rows.map((a) => [a.id, { status: a.status, status_reason: a.status_reason }]))
   const statusOf = (a: Appointment) => next.get(a.id)!.status!
   const move = (a: Appointment, status: AppointmentStatus) => next.set(a.id, { status, status_reason: a.status_reason })
-  const free = (a: Appointment) => !i.rows.some((o) => o.id !== a.id && !isTerminalStatus(statusOf(o)) && overlaps(a, o) && ((a.staff_id && o.staff_id === a.staff_id) || (a.resource_id && o.resource_id === a.resource_id)))
   const past = owned.filter(({ a, p }) => p.date < today && ['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(a.status)).map((x) => x.a)
   const moved = new Set<string>()
   for (const [status, share] of [['NO_SHOW', real.noShowShare], ['CANCELLED', real.cancelShare]] as const) {
     const target = Math.round(share * past.length)
     const have = past.filter((a) => statusOf(a) === status)
-    if (have.length < target) {
-      const can = past.filter((a) => statusOf(a) === 'COMPLETED' && !moved.has(a.id) && loaderSet(a) && !i.karuted.has(a.id) && !i.burnt.has(a.id))
-      for (const a of seeded(can, `${storeId}|${status}`).slice(0, target - have.length)) {
-        move(a, status)
-        moved.add(a.id)
-      }
-    } else {
-      let over = have.length - target
-      for (const a of seeded(have.filter(loaderSet), `${storeId}|restore|${status}`)) {
-        if (over === 0) break
-        if (!free(a)) { held.push(`${a.id}: stays ${status} — its slot is taken now`); continue }
-        move(a, 'COMPLETED')
-        moved.add(a.id)
-        over--
-      }
+    // Above the target stays above: never back to COMPLETED — fill.ts karutes only planned-COMPLETED rows, so a restored
+    // visit would show in Karute as a lost karute (⚖ never lose a karute).
+    const can = past.filter((a) => statusOf(a) === 'COMPLETED' && !moved.has(a.id) && loaderSet(a) && !i.karuted.has(a.id) && !i.burnt.has(a.id))
+    for (const a of seeded(can, `${storeId}|${status}`).slice(0, Math.max(0, target - have.length))) {
+      move(a, status)
+      moved.add(a.id)
     }
   }
   const [lo, hi] = real.futureCancels
@@ -138,7 +126,7 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
   const cancelledAhead = new Set(seeded(advance, `${storeId}|future`).slice(0, Math.max(0, futureTarget - futureHave)).map((a) => a.id))
   for (const a of advance) if (cancelledAhead.has(a.id)) move(a, 'CANCELLED')
 
-  // Reasons (⚖ taxonomy), on every loader-set row whose next status is terminal; a move back to COMPLETED clears it.
+  // Reasons (⚖ taxonomy), on every loader-set row whose next status is terminal.
   const mix = Object.entries(registry.cancelReasons)
   for (const { a } of owned) {
     const n = next.get(a.id)!
@@ -150,7 +138,7 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
         : cancelledAhead.has(a.id) ? CANCEL_REASON_ADVANCE_CONTACT
         : valid && a.status === 'CANCELLED' ? a.status_reason
         : ((u) => mix.find(([, w]) => (u -= w) < 0)?.[0] ?? mix[0][0])(rng(`${storeId}|reason|${a.id}`)())
-    } else if (n.status !== a.status) n.status_reason = null
+    }
   }
 
   const changes: Change[] = []
