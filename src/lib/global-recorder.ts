@@ -67,6 +67,14 @@ const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording ti
 // continues memory-only exactly as before.
 const TAKE_FLUSH_MS = 5_000
 
+// ⚖ ONE APPEND IS AT MOST ONE NORMAL SEGMENT (S36 PR-1): one TAKE_FLUSH_MS
+// tick of the recorder's 100 ms timeslice (`recorder.start(100)` below). A
+// flush after storage was off — the revive's catch-up — would otherwise write
+// every chunk held in memory as ONE blob: after an eight-minute outage a
+// multi-MB IndexedDB write and a segment far past the pump's per-PUT floor. A
+// chunk count, not a length of anything the salon sets.
+const SEGMENT_MAX_CHUNKS = 50
+
 // How long any caller waits on the session-id mint before giving up. Shared by
 // awaitRecordingSessionId and the retry below so "bounded the same way" is a
 // fact rather than two literals that can drift apart.
@@ -429,21 +437,33 @@ class GlobalRecorder {
         // Re-read inside the queued task, because an EARLIER flush of THIS take
         // may have disabled persistence — the only writer `p` has.
         if (p.disabled) return false
-        const pending = p.chunks.slice(p.count)
-        if (pending.length === 0) return true
-        const seq = p.seq
-        const count = p.count + pending.length
-        // ⚖ THE STAMP RIDES THIS WRITE (fix round 18, AG3). The stop's own
-        // duration goes into the SAME transaction as the tail bytes, so the
-        // fact that the take is complete cannot lose on its own — see AG1.
-        const ok = await appendTakeSegment(takeId, seq, new Blob(pending), stampDurationMs)
-        if (!ok) {
-          // ponytail: fail-open to memory-only — capture continues as today.
-          p.disabled = true
-          return false
+        // Everything not yet on disk, read ONCE: chunks that arrive while these
+        // appends run belong to the next flush.
+        const end = p.chunks.length
+        if (p.count === end) return true
+        // ⚖ …IN SEGMENTS OF AT MOST SEGMENT_MAX_CHUNKS, SEQS CONSECUTIVE (S36
+        // PR-1). An ordinary tick is one pass of this loop; a catch-up is many.
+        while (p.count < end) {
+          const seq = p.seq
+          const count = Math.min(end, p.count + SEGMENT_MAX_CHUNKS)
+          // ⚖ THE STAMP RIDES THIS WRITE (fix round 18, AG3). The stop's own
+          // duration goes into the SAME transaction as the tail bytes, so the
+          // fact that the take is complete cannot lose on its own — see AG1.
+          // The LAST append only: the one that makes the disk whole.
+          const ok = await appendTakeSegment(
+            takeId,
+            seq,
+            new Blob(p.chunks.slice(p.count, count)),
+            count === end ? stampDurationMs : undefined,
+          )
+          if (!ok) {
+            // ponytail: fail-open to memory-only — capture continues as today.
+            p.disabled = true
+            return false
+          }
+          p.seq = seq + 1
+          p.count = count
         }
-        p.seq = seq + 1
-        p.count = count
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
         // forget off the persist queue: the pump has its own single-flight and
         // its own per-PUT deadlines, so this cannot pile up and the queue never
