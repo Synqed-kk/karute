@@ -181,9 +181,9 @@ const ALLOW = [
     // ⚖ R-S39-1 — the second writer lives in its own file (one allowlist key per file::call).
     // Double-quoted, same reason as the entry above.
     label: "write call .upsert(",
-    match: ['orgSettings.upsert({ settings: { booking_colors: { ...map, [storeId]: next } } })'],
+    match: ['orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })'],
     count: 1,
-    reason: "⚖ Liam 9/25 「make it work」 (PKT-S38-COLORS-PR2 R3/R8): the second Business writer, 予約の色分け — one key (the whole per-store map, core merges top-level keys only), closed palette, settings.manage + a store the operator may see, admitted tenant only, read-before-write, one PUT",
+    reason: "⚖ Liam 9/25 「make it work」 (PKT-S38-COLORS-PR2 R3/R8) + ⚖ Liam 9/25 A (PKT-S41 R-S41-1): the second Business writer, 予約の色分け — one key PER STORE (`booking_colors:<storeId>`, core merges top-level keys → no cross-store race), closed palette, settings.manage + a store the operator may see, admitted tenant only, read-before-write, one PUT",
   },
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
