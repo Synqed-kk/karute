@@ -52,9 +52,9 @@ export interface RecordingTarget {
 // auto-saved recording can still upload. A forgotten 3-4h recording would
 // otherwise be both too big to save AND a total loss of the session.
 //
-// NOTE: a locked or pocketed phone KEEPS recording (⚖ field-proven): the
-// iPhone shell declares `UIBackgroundModes: audio` (ios/App/App/Info.plist),
-// and Android records through a foreground service in its local wrap. So these
+// NOTE: a locked or pocketed iPhone KEEPS recording (⚖ field-proven): the
+// iPhone shell declares `UIBackgroundModes: audio` (ios/App/App/Info.plist).
+// This repo has no Android target, so nothing here is asserted about one. These
 // nets cover those recordings too. What take-store persistence guarantees is
 // that whatever WAS captured before a kill is recoverable.
 const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
