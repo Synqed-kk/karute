@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import type { Appointment } from '@synqed-kk/client'
 import { CANCEL_REASON_SAME_DAY_CONTACT, CANCEL_REASONS, NO_SHOW_REASON_NO_CONTACT } from '../../src/lib/appointments/status'
-import { DEV_SALON_BUSINESS_ID } from './count-baseline'
+import { DEV_SALON_BUSINESS_ID, Refused } from './count-baseline'
 import { loadRecipe, registry, storeCtx, type Manifest } from './fill'
 import { addDays, bookingNotes, hoursOn, isNominated, jstIso, plan, slotStep, type Plan, type Recipe } from './plan'
 import { planStore, realism, revert, type Ledger, type RealismCore } from './realism'
@@ -187,6 +187,10 @@ async function pass() {
   const abroad = clone(w.rows)
   abroad.push({ ...abroad[0], id: 'abroad', store_id: 'store-other', business_id: 'x' })
   assert.equal(await realism(fakeCore(abroad).core, opts()), 2)
+  // the store check on its own: the Dev Salon's business id, another store (the list never returns it; planStore refuses it)
+  const elsewhere = [...clone(w.rows), { ...clone(w.rows[0]), id: 'elsewhere', store_id: 'store-other' }]
+  assert.throws(() => planStore({ recipe: w.recipe, storeId: STORE, plan: w.p, rows: elsewhere, custId: new Map(), karuted: new Set(), burnt: new Set(), today: TODAY, lastPlanned: TODAY, realismFrom: null, repairForeign: false }),
+    (e: Error) => e instanceof Refused && e.message === `booking elsewhere belongs to store store-other, not ${STORE}`, 'a Dev Salon row of another store → REFUSED, naming the store')
   assert.equal(lk.stats.writes + f.stats.writes, 0, 'refused before any write')
   assert.equal(ledgers.length, 0)
 
