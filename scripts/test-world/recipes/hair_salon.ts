@@ -4,7 +4,7 @@
 // STORE: テスト自由が丘店 · 東京都目黒区自由が丘2-0-0 テストビル2F · 03-0000-3000
 // Stylist ranks, 指名料 and menu add-ons have no core home yet (CORE-25 · CORE-38): nothing here stands in for them.
 // No シャンプー台: the planner may seat any menu on any standard resource, so a shampoo station would get cuts.
-import type { KaruteCtx, KaruteLine, RecipeCustomer, RecipeData } from '../plan'
+import type { KaruteCtx, KaruteLine, RecipeCustomer, RecipeData, RequestLine } from '../plan'
 
 const FIRST = '初回カウンセリング＋カット'
 const CUT = 'カット'
@@ -195,6 +195,29 @@ function karute({ customer: c, menu, date, first, prev, pick }: KaruteCtx): Karu
   return lines
 }
 
+// ご要望 — what customers type into the booking form's 「ご要望 / メモ」 box: メニューの組み合わせ, なりたいスタイル (写真持参 /
+// 前回と同じ), 指名の有無, 頭皮・アレルギー. Short, polite, the customer's own words; a real form is often left empty.
+const REQUESTS: RequestLine[] = [
+  { text: '初めて伺います。カラーは2か月前にほかのお店でしています。', first: true, themes: ['color', 'gray', 'damage'] },
+  { text: '初めてです。なりたい髪型の写真を持っていきます。', first: true },
+  { text: 'カットとカラーをお願いします。少し明るめのブラウンにしたいです。', themes: ['color'] },
+  { text: '前回のカラーが気に入ったので、同じ色でお願いします。', first: false, themes: ['color', 'gray'] },
+  { text: '根元の白髪が気になってきたので、リタッチをお願いします。', themes: ['gray'] },
+  { text: '白髪染めで頭皮がかぶれたことがあります。刺激の少ない薬剤でお願いします。', themes: ['gray'] },
+  { text: '毛先の傷みが気になります。トリートメントも一緒にお願いします。', themes: ['damage', 'color'] },
+  { text: '髪を伸ばしているので、長さはあまり変えずに傷んだところだけ切ってください。', themes: ['damage', 'straight'] },
+  { text: 'サイドと襟足を短めに、全体をすっきりさせてください。', themes: ['mens', 'short'] },
+  { text: '仕事柄、短くしすぎないようにお願いします。', themes: ['mens'] },
+  { text: '毛先に動きが出るようにパーマをかけたいです。', themes: ['perm'] },
+  { text: 'くせが強く、雨の日に広がるので縮毛矯正をお願いします。', themes: ['straight'] },
+  { text: '肩につくくらいまでばっさり切りたいです。写真を持っていきます。', themes: ['short'] },
+  { text: '結婚式に参列するので、ヘアセットをお願いします。', themes: ['set'] },
+  { text: '前回と同じ感じでお願いします。', first: false },
+  { text: 'ヘアカラーでしみやすいので、頭皮の保護をお願いします。', themes: ['color', 'gray'] },
+  { text: '前回担当してくださった方でお願いします。', first: false, nominated: true },
+  { text: 'スタイリストの指名はありません。', nominated: false },
+]
+
 export const recipe: RecipeData = {
   policy: {
     // 火曜定休, 10:00–20:00.
@@ -234,6 +257,7 @@ export const recipe: RecipeData = {
   ],
   firstMenu: FIRST,
   customers,
+  requests: REQUESTS,
   // 回数券: bought at the Nth completed visit (atVisit); the loader burns one on each completed visit from then on,
   // whatever that visit's menu. So a ticket goes ONLY to a customer who books nothing but its service (menu and alt
   // both that service). メンズカット5回券 ×5 (MENS / MENS) · トリートメント5回券 ×1 (HS-0013, CUTTR / TR — both

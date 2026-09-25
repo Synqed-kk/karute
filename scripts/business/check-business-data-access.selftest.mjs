@@ -22,6 +22,10 @@
 // Cases 18a–18d pin that a pinned string in a COMMENT never exempts a widened
 // call (Greptile P1, 9/25): the exemption must cover the flagged occurrence on
 // the comment-stripped line.
+// Cases 19a–19d pin the SECOND write exemption (⚖ Liam 9/25 A, R-S41-1,
+// Greptile P2 on #1051): 予約の色分け's one-key-per-store line in
+// door-booking-colors.ts is green, the retired shared-map line is a plain
+// finding, a copy is over budget, and a near-miss computed key is a finding.
 
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs'
@@ -328,8 +332,37 @@ assert.equal(inString.length, 1, `expected only the real call flagged, got ${JSO
 assert.equal(inString[0].label, 'write call .upsert(')
 clear('src/business/lib')
 
+// 19a. The SECOND Business writer, 予約の色分け (⚖ Liam 9/25 A, R-S41-1): one
+//      settings key PER STORE, a computed key, in its own file. The exact line
+//      the writer ships, once, is green under the DEFAULT allow.
+const colorsPath = 'src/business/lib/practice-door/door-booking-colors.ts'
+const colorsLine = '    const saved = await writer.orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })\n'
+write(colorsPath, colorsLine)
+assert.deepEqual(scanDataAccess(root), [])
+
+// 19b. RED — the RETIRED shared-map line (a read-modify-write of every store's
+//      colours, the cross-store race) is a plain finding, not the pinned write.
+write(colorsPath, '    const saved = await writer.orgSettings.upsert({ settings: { booking_colors: { ...map, [storeId]: next } } })\n')
+const colorsRetired = scanDataAccess(root)
+assert.equal(colorsRetired.length, 1, `expected the shared-map write flagged, got ${JSON.stringify(colorsRetired)}`)
+assert.equal(colorsRetired[0].label, 'write call .upsert(')
+assert.equal(colorsRetired[0].rel, colorsPath)
+
+// 19c. RED — a second copy of the exact line: 2 > 1 — fails CLOSED.
+write(colorsPath, colorsLine + colorsLine)
+const colorsOverBudget = scanDataAccess(root)
+assert.equal(colorsOverBudget.length, 2, `expected 2 over-budget findings, got ${JSON.stringify(colorsOverBudget)}`)
+assert.ok(colorsOverBudget.every((f) => f.label === 'allowlist over budget (2 > 1 pinned)'))
+
+// 19d. RED — a near miss: a computed key that is not bookingColorsKeyFor(storeId).
+write(colorsPath, '    const saved = await writer.orgSettings.upsert({ settings: { [key]: next } })\n')
+const colorsNearMiss = scanDataAccess(root)
+assert.equal(colorsNearMiss.length, 1, `expected the near-miss write flagged, got ${JSON.stringify(colorsNearMiss)}`)
+assert.equal(colorsNearMiss[0].label, 'write call .upsert(')
+clear('src/business/lib')
+
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 35 cases green')
+console.log('✓ business data-access guard selftest: 39 cases green')

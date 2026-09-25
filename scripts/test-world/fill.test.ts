@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
 import { apply, assertOneStore, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
-import { addDays, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
+import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
 const OTHER = 'store-other'
@@ -216,7 +216,7 @@ async function main() {
   assert.equal(await apply(fd.core, opts(empty())), 0)
   assert.equal(fd.t.karutes.filter((k) => k.appointment_id === 'foreign-done').length, 0, 'no karute on a foreign booking')
   assert.equal(fd.t.burns.filter((b) => b.appointment_id === 'foreign-done').length, 0, 'no burn on a foreign booking')
-  const own = fd.t.appts.filter((x) => x.notes === `テストデータ [${ab.key}]`)
+  const own = fd.t.appts.filter((x) => x.notes === bookingNotes(ab))
   assert.equal(own.length, 1, 'the loader made its own tagged booking')
   assert.equal(fd.t.karutes.filter((k) => k.appointment_id === own[0].id).length, 1, 'the karute sits on the loader\'s own booking')
 
@@ -263,7 +263,7 @@ async function main() {
   mz.stores[STORE] = { type: recipe.id, epoch: TODAY, weeklyHours: recipe.policy.weekly_hours, created: { packs: { [k0.key]: 'gone-pack' }, appointments: { [ab.key]: 'gone-appt' } } }
   assert.equal(await apply(fz.core, opts(mz)), 0)
   assert.equal(fz.t.packs.filter((x) => x.notes === `テストデータ [${k0.key}]`).length, 1, 'no row at all: the pack is made once')
-  assert.equal(fz.t.appts.filter((x) => x.notes === `テストデータ [${ab.key}]`).length, 1, 'no row at all: the booking is made once')
+  assert.equal(fz.t.appts.filter((x) => x.notes === bookingNotes(ab)).length, 1, 'no row at all: the booking is made once')
 
   // Manifest lost, core rows survive: a fresh manifest finds every loader row by its notes/tag — 0 new rows, no clash
   // skip, 0 409s — including a pack whose note is the old bare 「テストデータ」 (the shape of the 12 live packs) —
@@ -430,7 +430,7 @@ async function main() {
       const days = [...new Set(q1.appointments.map((a) => a.date))].map((d) => hoursOn(r.policy.weekly_hours, d)!)
       assert.equal(Math.min(...am), Math.min(...days.map((h) => at(h.open))), `${type}: an am visit takes the first slot of the earliest-opening day`)
       const longest = Math.max(...r.menus.map((x) => x.duration))
-      assert.ok(Math.max(...eve) >= Math.max(...days.map((h) => at(h.close) - longest - 2 * r.counts.slotMinutes)), `${type}: an eve visit starts near closing`)
+      assert.ok(Math.max(...eve) >= Math.max(...days.map((h) => at(h.close) - longest - 2 * DEFAULT_SLOT_MINUTES)), `${type}: an eve visit starts near closing`)
       // ...and per visit: every am visit starts before its own day's midpoint, every eve visit at or after it (pm sits on it).
       for (const q of [q1, q2]) for (const a of q.appointments) {
         const [part, h] = [cust.get(a.member)!.time, hoursOn(r.policy.weekly_hours, a.date)!]

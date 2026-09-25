@@ -26,7 +26,7 @@ import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
-import { addDays, hoursOn, jstIso, plan, type Plan, type Recipe, type RecipeData } from './plan'
+import { addDays, bookingNotes, hoursOn, jstIso, plan, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
 
 export type FillCore = Pick<
   SynqedClient,
@@ -36,20 +36,30 @@ type Section = 'storePolicies' | 'staff' | 'staffStores' | 'resources' | 'menus'
 interface Run { at: string; type: string; store: string; today: string; created: Partial<Record<Section, number>>; skipped: string[]; conflicts409: string[]; errors: string[] }
 export interface Manifest {
   businessId: string
-  stores: Record<string, { type: string; epoch: string; weeklyHours: WeeklyHours; created: Partial<Record<Section, Record<string, string>>> }>
+  // realismFrom: set by realism.ts --apply — the first day the plan follows the type's realism recipe (see plan.ts)
+  stores: Record<string, { type: string; epoch: string; weeklyHours: WeeklyHours; realismFrom?: string; created: Partial<Record<Section, Record<string, string>>> }>
   runs: Run[]
 }
-interface Registry { types: Record<string, { label: string; sections: string[]; recipe: Recipe['counts'] | null }>; stores: Record<string, string> }
+interface Registry {
+  types: Record<string, { label: string; sections: string[]; recipe: Recipe['counts'] | null; realism?: Realism }>
+  stores: Record<string, string>
+  slotMinutes: Record<string, number>
+  cancelReasons: Record<string, number>
+}
 
 export const registry: Registry = JSON.parse(readFileSync(join(__dirname, 'registry.json'), 'utf8'))
 
-/** The recipe for a registry type: data from recipes/<id>.ts, counts from registry.json. */
+/** The recipe for a registry type: data from recipes/<id>.ts, counts and realism values from registry.json. */
 export async function loadRecipe(id: string): Promise<Recipe> {
   const counts = registry.types[id]?.recipe
   if (!/^[a-z_]+$/.test(id) || !counts) throw new Error(`type ${id} has no recipe in registry.json`)
   const mod = (await import(`./recipes/${id}`)) as { recipe: RecipeData }
-  return { ...mod.recipe, id, counts }
+  return { ...mod.recipe, id, counts, realism: registry.types[id].realism }
 }
+
+/** What plan() needs of one store: its hours snapshot (manifest), booking step (registry.json) and realismFrom (manifest). */
+export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string }): StoreCtx =>
+  ({ storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], realismFrom: st.realismFrom })
 
 /** One recipe = one store: a recipe's member numbers and keys belong to exactly one store in registry.json. */
 export function assertOneStore(stores: Record<string, string>, type: string): void {
@@ -130,7 +140,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   }
 
   try {
-    const p = plan(recipe, { storeId, weeklyHours: st.weeklyHours }, today, st.epoch)
+    const p = plan(recipe, storeCtx(storeId, st), today, st.epoch)
     if (policy.source === 'default')
       await write('storePolicies', storeId, () => core.storePolicies.set(storeId, { weekly_hours: recipe.policy.weekly_hours, acting_staff_id: dev.id }))
 
@@ -228,7 +238,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       const row = await write('appointments', a.key, () => core.appointments.create({
         customer_id: cid, staff_id: sid, store_id: storeId, menu_id: mid, resource_id: rid, starts_at: a.startsAt, ends_at: a.endsAt,
         duration_minutes: a.duration, booked_price_amount: a.price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
-        title: null, notes: `テストデータ [${a.key}]`,
+        title: null, notes: bookingNotes(a),
       }, { idempotencyKey: `test-world:${a.key}` }))
       if (row?.id) apptRow.set(a.key, { id: row.id, status: (row as { status?: string }).status ?? a.status })
     })
@@ -339,7 +349,7 @@ if (process.argv[1]?.endsWith('fill.ts')) {
         const r = await loadRecipe(t)
         const st = m.stores[storeId]
         const hours = st?.weeklyHours ?? r.policy.weekly_hours
-        console.log(storeId, t, JSON.stringify(summarize(plan(r, { storeId, weeklyHours: hours }, today, st?.epoch ?? today), today, hours), null, 1))
+        console.log(storeId, t, JSON.stringify(summarize(plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom }), today, st?.epoch ?? today), today, hours), null, 1))
       }
       return 0
     }
