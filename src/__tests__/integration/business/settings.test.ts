@@ -4292,3 +4292,19 @@ describe('⚖ PKT-S38 R6 — 予約の色分け speaks the board’s four, from 
     for (const p of BOOKING_PALETTE) expect(p.hex).toMatch(/^#[0-9a-f]{6}$/)
   })
 })
+
+describe('⚖ PKT-S38 R7 — the live colours reach ONLY a reader 言語・表示 lets in (a shut gate ships nothing, G1)', () => {
+  const live = { raw: { [STORE_A]: { new: '#3b6fd4', repeat: '#7a5bd4', ticket: '#c25a8f', vip: '#3f4a7d' } } }
+  it('open gate: the lens store’s four are resolved and seed the dial; a shut gate: null, and the section carries no rows', async () => {
+    const open = await settingsProps({ locale: 'ja', store: STORE_A, bookingColors: live })
+    expect(open.bookingColors).toEqual(live.raw[STORE_A])
+    const shut = await settingsProps({ locale: 'ja', store: STORE_A, bookingColors: live, world: { role: 'スタッフ' } })
+    expect(sectionOf(shut.props, 'language-display').gate).not.toBe('open')
+    expect(shut.bookingColors).toBeNull()
+    expect(JSON.stringify(shut.props)).not.toContain('#c25a8f')
+  })
+  it('no live input (door OFF) → null', async () => {
+    expect((await settingsProps({ locale: 'ja', store: STORE_A })).bookingColors).toBeNull()
+  })
+})
+

@@ -27,6 +27,11 @@ import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE } from '@/business/lib/booking-colors'
 import { PUT } from '@/app/api/business/booking-colors/route'
+import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
+import { bookingColorsOf, putBookingColors } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
+import { bookingColorsFor } from '@/business/lib/today-board'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { CARD, LOGIN, SHEETS, STORE, TENANT, recordedReads } from './practice-door-recorded'
 
 const mockCore: { reads: CoreReads; upsert: jest.Mock; writerFor: jest.Mock } = {
@@ -351,3 +356,118 @@ describe('⚖ PKT-S38 R4 — the route: the card route’s twin, body exactly { 
     expect(mockCore.upsert).not.toHaveBeenCalled()
   })
 })
+
+// ── the page + the screen (R7) ───────────────────────────────────────────────────────────────
+type El = { props: { saveBookingColors?: unknown; saveCardColor?: unknown; sections: Array<{ id: string; lead: string; blocks: Array<{ id: string; rows: Array<{ controls: Array<{ id: string; value: unknown }> }> }> }> } }
+const render = async (store: string = S) =>
+  (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section: 'language-display' }) })) as unknown as El
+const langOf = (el: El) => el.props.sections.find((x) => x.id === 'language-display')!
+const dialOf = (el: El) =>
+  Object.fromEntries(langOf(el).blocks.find((b) => b.id === 'lang.colors')!.rows.flatMap((r) => r.controls).map((c) => [c.id.replace('lang.color-', ''), c.value]))
+
+describe('⚖ PKT-S38 R7 — the page: 予約の色分け is live while the door is ON', () => {
+  it('ON, no key: the lens store gets the dial seeded with the four defaults, and the save prop (the admitted business, the store, canSave, colors)', async () => {
+    const el = await render()
+    expect(el.props.saveBookingColors).toEqual({ businessId: TENANT, storeId: S, canSave: true, colors: BOOKING_COLOR_DEFAULTS })
+    expect(dialOf(el)).toEqual(BOOKING_COLOR_DEFAULTS)
+    // テスト東京店 has a fixture twin (store-test-ginza): its sample language rows stay, the colours are live
+    expect(langOf(el).blocks.map((b) => b.id)).toEqual(['lang.language', 'lang.colors'])
+    // a live store with NO fixture twin (Dev Salon): ONLY the colours block; the rest keeps サンプル設定なし
+    const bare = await render(STORE.devSalon)
+    expect(langOf(bare).blocks.map((b) => b.id)).toEqual(['lang.colors'])
+    expect(langOf(bare).lead).toBe('サンプル設定なし')
+    expect(dialOf(bare)).toEqual(BOOKING_COLOR_DEFAULTS)
+    expect(bare.props.saveBookingColors).toEqual({ businessId: TENANT, storeId: STORE.devSalon, canSave: true, colors: BOOKING_COLOR_DEFAULTS })
+  })
+
+  it('ON, a saved map: the lens store’s dial is seeded with ITS saved four; another store keeps the defaults', async () => {
+    seed({ booking_colors: { [S]: PICK } })
+    expect(dialOf(await render())).toEqual(PICK)
+    seed({ booking_colors: { [S]: PICK } })
+    expect(dialOf(await render(STORE.yokohama))).toEqual(BOOKING_COLOR_DEFAULTS)
+  })
+
+  it('ON, a sheet without settings.manage: canSave false — the SAME answer as the card colour (one sheet read)', async () => {
+    as(LOGIN.goro)
+    const spy = withReads()
+    const el = await render()
+    expect(el.props.saveBookingColors).toEqual({ businessId: TENANT, storeId: S, canSave: false, colors: BOOKING_COLOR_DEFAULTS })
+    expect(el.props.saveCardColor).toEqual({ businessId: TENANT, canSave: false })
+    void spy
+    // the page asks core's sheet ONCE (readCanManageCardColor) and hands the same answer to both saves
+    const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/settings/page.tsx'), 'utf8')
+    expect(PAGE.match(/readCanManageCardColor\(\)/g)).toHaveLength(1)
+    expect(PAGE).toContain('canSave: saveCardColor.canSave, colors: bookingColors }')
+  })
+
+  it('OFF: no save prop and no core read — the dial is the sample plane, seeded from the fixture store', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const spy = withReads()
+    const el = await render('store-ginza')
+    expect(el.props.saveBookingColors).toBeUndefined()
+    for (const fn of Object.values(spy)) expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('P6 — after a save through the route, a FRESH render (a new request = a new client and org read) seeds the saved four; the board resolves them for that store only', async () => {
+    seed({ business_type: 'beauty', booking_colors: { [STORE.yokohama]: BOOKING_COLOR_DEFAULTS } })
+    mockCore.upsert = jest.fn(async (input: { settings: Record<string, unknown> }) => {
+      stored = { ...stored, ...input.settings } // core's shallow merge
+      return coreRow(stored)
+    })
+    expect(await answer(await put())).toEqual({ status: 200, body: { ok: true, colors: PICK } })
+    withReads().orgSettingsGet.mockImplementation(async () => coreRow(stored)) // the next request
+    expect(dialOf(await render())).toEqual(PICK)
+    expect(bookingColorsFor(S, stored.booking_colors)).toEqual(PICK)
+    expect(bookingColorsFor(STORE.yokohama, stored.booking_colors)).toEqual(BOOKING_COLOR_DEFAULTS)
+    expect(stored.business_type).toBe('beauty')
+    expect(await data.readBookingColors()).toEqual({ [STORE.yokohama]: BOOKING_COLOR_DEFAULTS, [S]: PICK })
+  })
+})
+
+describe('⚖ PKT-S38 R7 — the screen speaks the route’s contract', () => {
+  const SAVE = { businessId: TENANT, storeId: S, canSave: true, colors: BOOKING_COLOR_DEFAULTS }
+  const realFetch = global.fetch
+  afterEach(() => { global.fetch = realFetch })
+  const reply = (status: number, body: unknown) => { const f = jest.fn(async () => new Response(JSON.stringify(body), { status })); global.fetch = f as unknown as typeof fetch; return f }
+
+  it('bookingColorsOf reads the dial’s four swatches (control ids lang.color-<category>)', () => {
+    expect(bookingColorsOf({ 'lang.color-new': PICK.new, 'lang.color-repeat': PICK.repeat, 'lang.color-ticket': PICK.ticket, 'lang.color-vip': PICK.vip, 'lang.ui': 'ja' })).toEqual(PICK)
+  })
+
+  it('PUT /api/business/booking-colors with X-Expected-Business and exactly { storeId, colors }; 200 → core’s four', async () => {
+    const f = reply(200, { ok: true, colors: PICK })
+    expect(await putBookingColors(SAVE, PICK)).toEqual({ ok: true, colors: PICK })
+    expect(f.mock.calls).toEqual([['/api/business/booking-colors', { method: 'PUT', headers: { 'content-type': 'application/json', 'x-expected-business': TENANT }, body: JSON.stringify({ storeId: S, colors: PICK }) }]])
+  })
+
+  it.each([
+    [403, { ok: false, reason: 'forbidden' }, 'forbidden'],
+    [409, { ok: false, reason: 'tenant' }, 'tenant'],
+    [400, { ok: false, reason: 'invalid' }, 'invalid'],
+    [503, { ok: false, reason: 'core' }, 'core'],
+    [404, '<html>', 'core'],
+    [200, { ok: true, colors: { new: PICK.new } }, 'core'],
+    [500, { ok: false, reason: 'surprise' }, 'core'],
+  ])('%s %j → %s', async (status, body, reason) => {
+    reply(status as number, body)
+    expect(await putBookingColors(SAVE, PICK)).toEqual({ ok: false, reason })
+  })
+
+  it('a network failure → core', async () => {
+    global.fetch = jest.fn(async () => { throw new Error('offline') }) as unknown as typeof fetch
+    expect(await putBookingColors(SAVE, PICK)).toEqual({ ok: false, reason: 'core' })
+  })
+
+  const SCREEN = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx'), 'utf8')
+  it('source pins: 保存する routes 言語・表示 to the real save only with the prop; canSave false → no 保存する + the forbidden foot; a pick / section change clears an old refusal', () => {
+    expect(SCREEN).toContain("const LANG_SECTION_ID = 'language-display'")
+    expect(SCREEN).toContain(': section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}')
+    expect(SCREEN).toContain('const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined')
+    expect(SCREEN).toContain('{liveColors.canSave === false ? null : roomSave(section)}')
+    expect(SCREEN).toContain('<p className="st-foot">{liveColors.canSave ? BOOKING_SAVE_NOTE : BOOKING_SAVE_FAIL.forbidden}</p>')
+    expect(SCREEN).toContain('{bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}')
+    expect(SCREEN).toContain('onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}')
+    expect(SCREEN.match(/setBookingFail\(null\)/g)).toHaveLength(4) // the save itself, a pick, openSection, backToList
+  })
+})
+
