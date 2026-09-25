@@ -5512,6 +5512,39 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     expect(segmentOf(nextTakeId, 0)).toBeUndefined()
   })
 
+  it('T13 a flush queued before the stop that fails AFTER it still gets the stop\'s revive: the take ends whole', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(takeId).lastSeq).toBe(0)
+
+    // The next tick's flush is QUEUED, not run; its segment write will throw
+    // on every try (T4's fixture), and the store works again after that.
+    pushChunk('bbb')
+    jest.advanceTimersByTime(5_000)
+    failNextSegmentWrites = 3
+    const stopped = persistOf()
+    expect(stopped.disabled).toBe(false) // healthy at the stop instant…
+    globalRecorder.stop()
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
+
+    expect(failNextSegmentWrites).toBe(0) // …the queued flush failed after it
+    expect(stopped.disabled).toBe(false) // the stop's revive re-opened it
+    expect(stopped).toMatchObject({ seq: 2 })
+    expect(metaOf(takeId).lastSeq).toBe(1) // = seq − 1: the row is whole
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbTAIL'.length)
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(order.indexOf('put')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('put')).toBeLessThan(order.indexOf('finalize'))
+    expect(putBodies.at(-1)?.size).toBe('aaabbbTAIL'.length)
+  })
+
   it('T4 a THROWN append is retried and then revived through its own row; a row that SETTLES missing after segments is never re-created', async () => {
     // Thrown: three refusals inside one append, then a store that works.
     const takeId = await startAndSettle()

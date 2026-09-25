@@ -942,9 +942,14 @@ class GlobalRecorder {
         // Queued before the first act below and the tail flush, so a take
         // whose storage comes back here is written WHOLE (the catch-up) and
         // secured by this leg like any other; one that does not come back is
-        // exactly today's memory-only stop. Never for a signed-out take (the
-        // revive's own first check).
-        if (p.disabled) void this.queueRevive(p, takeId, this.recordingSessionId, true)
+        // exactly today's memory-only stop. Queued ALWAYS (S38 fix): whether
+        // the take needs it is asked INSIDE the queue, after every earlier
+        // flush of this take has settled — as the first act below asks its own
+        // question. A flush queued before the stop can still fail after this
+        // line runs; a check made here would miss it and leave the tail short.
+        // A healthy take, or a signed-out one, meets the revive's own first
+        // check and nothing is read or written.
+        void this.queueRevive(p, takeId, this.recordingSessionId, true)
         // ⚖ …AND THE STOP ITSELF GOES ON THE ROW FIRST (fix round 17). Both
         // defences above die with this page: the hold is a Set in memory and
         // the beat stops being written the moment nothing is beating it. Every
