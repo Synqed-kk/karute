@@ -154,8 +154,18 @@ async function synqedStaffWithoutProfile(
   // Lazy import so this module's graph doesn't eagerly pull in the
   // synqed-core ESM client — keeps it out of any caller (and test) that
   // never reaches the enrichment path (e.g. when synqed env is unset).
-  const { SynqedClient } = await import('@synqed-kk/client')
-  const client = new SynqedClient({ baseUrl, apiKey, businessId })
+  let client
+  try {
+    const { SynqedClient } = await import('@synqed-kk/client')
+    client = new SynqedClient({ baseUrl, apiKey, businessId })
+  } catch (err) {
+    // Round 3 leg 6 F4 (2026-09-25, D-S26-4): a failed SDK import or client
+    // construction is a deployment defect, not an outage: typed 'internal', a
+    // fixed message, the detail on cause + one bounded log — never a 502, never
+    // a raw message to a caller.
+    console.error('[getStaffList] synqed-core client unavailable:', describeUnknownThrow(err))
+    throw new AppApiError('internal', 'synqed-core client unavailable', undefined, err)
+  }
   let staff
   try {
     // ⚖ R1-7 (E33, the 201st): paged to exhaustion. One page of 200 silently
@@ -167,9 +177,8 @@ async function synqedStaffWithoutProfile(
     // read is an upstream outage like the profiles read above — typed so the
     // gate catches (D-S25-1) can tell it from a denial, with a FIXED message to
     // the wire; the core detail stays on `cause` and in this one bounded log
-    // (lesson 85). Only the roster read is an upstream outage; a failed SDK
-    // import or client construction throws raw as before — a deployment defect
-    // must not read as a 502.
+    // (lesson 85). Only the roster read is an upstream outage; the SDK import
+    // and client construction have their own catch above.
     console.error('[getStaffList] synqed-core roster fetch failed:', describeUnknownThrow(err))
     throw new AppApiError('upstream_unavailable', 'synqed-core roster fetch failed', undefined, err)
   }
