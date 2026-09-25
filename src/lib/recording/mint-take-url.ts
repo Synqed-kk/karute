@@ -701,7 +701,7 @@ async function signUpload(
 async function bindServerNamedTake(
   synqed: Core,
   actor: MintTakeActor,
-  input: { customerId?: string | null; appointmentId?: string | null },
+  input: { customerId?: string | null; appointmentId?: string | null; durationSeconds?: number },
   takeId: string,
   mimeType: string,
   signed: SignedUpload,
@@ -720,15 +720,21 @@ async function bindServerNamedTake(
   if (!who) return keptUnbound('no staff or no store')
   let result: StartRecordingSessionResult
   try {
-    result = await startRecordingSessionWithClient(synqed, {
-      customerId: input.customerId ?? null,
-      appointmentId: input.appointmentId ?? null,
-      selfStaffId: who.staffId,
-      businessId: actor.businessId,
-      takeId,
-      mimeType,
-      storeId: who.storeId,
-    })
+    result = await startRecordingSessionWithClient(
+      synqed,
+      {
+        customerId: input.customerId ?? null,
+        appointmentId: input.appointmentId ?? null,
+        selfStaffId: who.staffId,
+        businessId: actor.businessId,
+        takeId,
+        mimeType,
+        storeId: who.storeId,
+      },
+      // S35 C1: born with the length finalize writes on a row that had one
+      // from the start (finalize-take.ts) — this row is never finalized.
+      { durationSeconds: input.durationSeconds },
+    )
   } catch (err) {
     return keptUnbound(`session create threw: ${describeUnknownThrow(err).errMessage}`)
   }
