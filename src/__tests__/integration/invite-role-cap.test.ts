@@ -169,7 +169,11 @@ describe('the breaker reproduction, inverted — the clamped staff.invite holder
   it('WEB: unreadable capabilities refuse (fail closed)', async () => {
     callerCaps = new Set(ROLE_PRESETS.owner)
     capsUnreadable = true
-    expect(await createInvite(fresh('ASSISTANT'))).toEqual(REFUSED)
+    // Still refused before anything is written — but a THROWN read is an
+    // outage, answered with the dialog's create-failed code, never the
+    // permission line (Round 3 leg 5, 2026-09-25, D-S23-1).
+    expect(await createInvite(fresh('ASSISTANT'))).toEqual({ error: 'STAFF_CREATE_FAILED' })
+    expect(mintCard).not.toHaveBeenCalled()
     expect(invitesCreate).not.toHaveBeenCalled()
   })
 })
