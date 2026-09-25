@@ -25,6 +25,10 @@ import { DEFAULT_THEME_COLORS } from '@/lib/theme'
  *  one-key PUT, so leaving a key out keeps it, and replaying a stale read would revert it.
  *  Not exported — a 'use server' module may export async functions only. */
 const BUSINESS_OWNED_SETTINGS_KEYS = ['reserve_card_color', 'booking_colors'] as const
+/** ⚖ PKT-S41 R-S41-1 (Liam 9/25 A) — and every key that STARTS with one of these: 予約の色分け keeps one
+ *  top-level key per store (`booking_colors:<storeId>`), so Karute never replays any of them either.
+ *  Karute's own literal (this module may not import Business); the Business leaf pins its twin. */
+const BUSINESS_OWNED_SETTINGS_KEY_PREFIXES = ['booking_colors:'] as const
 
 export type RecordingDisclosureMode = 'A' | 'B' | 'C'
 export type AudioSource = 'phone' | 'bluetooth' | 'wired'
@@ -349,7 +353,11 @@ export async function writeOrgSettingsBlobWithClient(
     const existing = await synqed.orgSettings.get()
     const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>
     const replayed = Object.fromEntries(
-      Object.entries(existingSettings).filter(([key]) => !(BUSINESS_OWNED_SETTINGS_KEYS as readonly string[]).includes(key)),
+      Object.entries(existingSettings).filter(
+        ([key]) =>
+          !(BUSINESS_OWNED_SETTINGS_KEYS as readonly string[]).includes(key) &&
+          !BUSINESS_OWNED_SETTINGS_KEY_PREFIXES.some((prefix) => key.startsWith(prefix)),
+      ),
     )
 
     // salon_name maps to the top-level `name` column; everything else lives in
