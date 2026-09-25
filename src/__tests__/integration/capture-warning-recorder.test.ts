@@ -15,8 +15,12 @@
 import { renderHook, act } from '@testing-library/react'
 
 class FakeMediaRecorder {
+  static last: FakeMediaRecorder | null = null
   static isTypeSupported() {
     return true
+  }
+  constructor() {
+    FakeMediaRecorder.last = this
   }
   ondataavailable: ((e: { data: Blob }) => void) | null = null
   onstop: (() => void) | null = null
@@ -55,11 +59,12 @@ jest.mock('@/actions/recordings', () => ({
 type UploadMeta = { recordingSessionId: string | null; mimeType: string; uploadedSeq?: number; lastSeq: number; segmentError?: string }
 let mockRowMeta: UploadMeta | null = null
 let mockCreateOk = true
+let mockAppendOk = true
 const mockReadTakeUploadMeta = jest.fn(async (_takeId: string) => mockRowMeta)
 const mockIsTakeHeldByAnother = jest.fn(async (_takeId: string) => false)
 jest.mock('@/lib/karute/take-store', () => ({
   createTake: async () => mockCreateOk,
-  appendTakeSegment: async () => true,
+  appendTakeSegment: async () => mockAppendOk,
   deleteTake: async () => {},
   isTakeHeldByAnother: (takeId: string) => mockIsTakeHeldByAnother(takeId),
   markSegmentError: async () => {},
@@ -95,6 +100,13 @@ const tick = async (n = 1) => {
 const persistOf = () =>
   (globalRecorder as unknown as { persist: { disabled: boolean; revive: { since: number } } }).persist
 
+function deferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((r) => (resolve = r))
+  return { promise, resolve }
+}
+const facts = () => mockRecordCaptureWarning.mock.calls.map(([input]) => input as Record<string, unknown>)
+
 const TARGET = { customerId: 'cust-1', customerName: 'C', karuteNumber: null, appointmentId: null }
 
 async function startLive() {
@@ -112,6 +124,7 @@ beforeEach(async () => {
   mockRecordCaptureWarning.mockImplementation(async () => ({ ok: true }))
   mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: -1 }
   mockCreateOk = true
+  mockAppendOk = true
   globalRecorder.discard()
   await drain()
 })
@@ -258,5 +271,127 @@ describe('PR-6 — the switch', () => {
     expect(globalRecorder.captureWarning).toBeNull()
     expect(mockIsTakeHeldByAnother).not.toHaveBeenCalled()
     expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+  })
+})
+
+describe('PR-6 — the fact, once per raise', () => {
+  it('a raise files ONE fact with the take, the session, the reason and an ISO stamp — and a notice that stays up files nothing more', async () => {
+    const takeId = await startLive()
+    await tick(12)
+    expect(globalRecorder.captureWarning).toBe('server')
+    await drain()
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-1', takeId, reason: 'server', warnedAt: expect.any(String) },
+    ])
+    expect(new Date(facts()[0].warnedAt as string).toISOString()).toBe(facts()[0].warnedAt)
+    await tick(6)
+    expect(facts()).toHaveLength(1)
+  })
+
+  it('no session at the raise: the fact waits, then goes exactly once when the id lands', async () => {
+    const slow = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slow.promise)
+    const takeId = await startLive()
+    await tick(12)
+    expect(globalRecorder.captureWarning).toBe('server')
+    expect(globalRecorder.recordingSessionId).toBeNull()
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+
+    slow.resolve({ id: 'rs-late' })
+    await drain()
+    expect(globalRecorder.recordingSessionId).toBe('rs-late')
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-late', takeId, reason: 'server', warnedAt: expect.any(String) },
+    ])
+    await tick(4)
+    expect(facts()).toHaveLength(1)
+  })
+
+  it('…and when the id comes from the session RETRY (the first mint failed), the waiting fact rides it', async () => {
+    // Every mint fails until the recorder's own 90 s retry (the start-mint is
+    // two calls — the born-reserved create and its step back — then 30 s, 90 s).
+    let landed = false
+    mockStartRecordingSession.mockImplementation(async () => (landed ? { id: 'rs-retry' } : null))
+    const takeId = await startLive()
+    await tick(12) // 60 s: raised, no session
+    expect(globalRecorder.captureWarning).toBe('server')
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+    landed = true
+    await tick(6) // 90 s: the second retry
+    expect(globalRecorder.recordingSessionId).toBe('rs-retry')
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-retry', takeId, reason: 'server', warnedAt: expect.any(String) },
+    ])
+  })
+
+  it('a take discarded before any session takes its waiting fact with it — the next take never carries it', async () => {
+    const slowA = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slowA.promise)
+    await startLive()
+    await tick(12)
+    expect(globalRecorder.captureWarning).toBe('server')
+    globalRecorder.discard()
+    mockStartRecordingSession.mockImplementation(async () => ({ id: 'rs-B' }))
+    await startLive()
+    slowA.resolve({ id: 'rs-A' })
+    await drain()
+    expect(globalRecorder.recordingSessionId).toBe('rs-B')
+    expect(mockRecordCaptureWarning).not.toHaveBeenCalled()
+  })
+
+  it('a notice that clears and re-raises with the SAME reason files nothing new; device after server files once more', async () => {
+    const takeId = await startLive()
+    await tick(12)
+    expect(globalRecorder.captureWarning).toBe('server')
+    mockRowMeta = { ...mockRowMeta!, uploadedSeq: 11, lastSeq: 11 }
+    await tick()
+    expect(globalRecorder.captureWarning).toBeNull()
+    mockRowMeta = { ...mockRowMeta!, uploadedSeq: -1, lastSeq: 30 }
+    await tick()
+    expect(globalRecorder.captureWarning).toBe('server')
+    await drain()
+    expect(facts().map((f) => f.reason)).toEqual(['server'])
+
+    // Storage goes: a segment write refuses, the revive cannot win it back.
+    mockAppendOk = false
+    mockCreateOk = false
+    FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    await tick()
+    expect(persistOf().disabled).toBe(true)
+    await tick(4)
+    expect(globalRecorder.captureWarning).toBe('device')
+    await drain()
+    expect(facts()).toEqual([
+      { recordingSessionId: 'rs-1', takeId, reason: 'server', warnedAt: expect.any(String) },
+      { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
+    ])
+    await tick(6)
+    expect(facts()).toHaveLength(2)
+  })
+
+  it('a fact that fails is logged, never retried, and never touches the recording', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockRecordCaptureWarning.mockImplementation(async () => {
+      throw new Error('offline')
+    })
+    await startLive()
+    await tick(12)
+    await drain()
+    expect(mockRecordCaptureWarning).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('[global-recorder] capture warning not filed:', expect.any(Error))
+    await tick(6)
+    expect(mockRecordCaptureWarning).toHaveBeenCalledTimes(1)
+    expect(globalRecorder.state).toBe('recording')
+    expect(globalRecorder.captureWarning).toBe('server')
+
+    // A settled refusal is logged the same way.
+    warn.mockClear()
+    globalRecorder.discard()
+    mockRecordCaptureWarning.mockImplementation(async () => ({ error: 'failed' }))
+    await startLive()
+    await tick(12)
+    await drain()
+    expect(warn).toHaveBeenCalledWith('[global-recorder] capture warning not filed:', 'failed')
+    warn.mockRestore()
   })
 })

@@ -2,7 +2,7 @@
 
 import { recordingAudioConstraints } from '@/lib/recording-constraints'
 import type { RecordingResult } from '@/hooks/use-media-recorder'
-import { startRecordingSession } from '@/actions/recordings'
+import { recordCaptureWarning, startRecordingSession } from '@/actions/recordings'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
 import { pumpSegments, type SegmentSource } from '@/lib/recording/segment-uploader'
@@ -183,6 +183,9 @@ type TakePersist = {
   uploadedSeq: number
   /** …and the row's `segmentError`, the same way: a terminal door answer. */
   segmentError?: string
+  /** The PR-6 notice reasons this take has filed (or queued) a fact for — at
+   *  most one fact per take per reason, however often the notice flaps. */
+  warned: Set<CaptureWarning>
 }
 
 /** A take's persistence state before anything has happened to it — and the
@@ -198,6 +201,7 @@ const newPersist = (): TakePersist => ({
   mint: { tries: 0, at: Date.now() },
   ends: [],
   uploadedSeq: -1,
+  warned: new Set(),
 })
 
 class GlobalRecorder {
@@ -656,11 +660,44 @@ class GlobalRecorder {
     }
   }
 
-  /** Subscribers hear only a change. */
+  /** Subscribers hear only a change — and a RAISE (null → a reason, or
+   *  server → device) files the fact. */
   private setCaptureWarning(next: CaptureWarning | null) {
-    if (next === this.captureWarning) return
+    const prev = this.captureWarning
+    if (next === prev) return
     this.captureWarning = next
+    if (next && (prev === null || next === 'device')) this.fileCaptureWarning(next)
     this.notify()
+  }
+
+  /** ⚖ THE FACT (PR-6 §6) through PR-7's door — `recordCaptureWarning`, the
+   *  web action, or on the phone its facade twin (thin/ports/actions.vite.ts).
+   *  At most once per take per reason. With no session yet it waits for THIS
+   *  take's own and is sent the moment it lands, once; it goes with the take
+   *  (a discard, the next start) if none ever does — the door has nothing to
+   *  file it against. Best-effort telemetry: one attempt, a failure is logged,
+   *  and nothing here touches capture. */
+  private fileCaptureWarning(reason: CaptureWarning) {
+    const p = this.persist
+    const takeId = this.takeId
+    if (!takeId || p.warned.has(reason)) return
+    p.warned.add(reason)
+    const warnedAt = new Date().toISOString()
+    const send = (recordingSessionId: string) => {
+      void Promise.resolve()
+        .then(() => recordCaptureWarning({ recordingSessionId, takeId, reason, warnedAt }))
+        .then((res) => {
+          if (res && 'error' in res) console.warn('[global-recorder] capture warning not filed:', res.error)
+        })
+        .catch((err) => console.warn('[global-recorder] capture warning not filed:', err))
+    }
+    if (this.recordingSessionId) return send(this.recordingSessionId)
+    const off = this.subscribe(() => {
+      if (this.persist !== p) return off()
+      if (!this.recordingSessionId) return
+      off()
+      send(this.recordingSessionId)
+    })
   }
 
   /** Flush chunks not yet on disk as one segment. Serialized via the queue;

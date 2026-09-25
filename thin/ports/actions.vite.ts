@@ -1400,6 +1400,28 @@ export const setStaffStores = facadeSetStaffStores
 export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
 
+// PR-6 — "the recorder was shown the at-risk notice": the phone's call into
+// PR-7's facade door (src/app/api/app/v1/recordings/capture-warning), the twin
+// of the web action. NEVER THROWS: the fact is best-effort telemetry the
+// recorder fires and forgets, so every failure settles to one answer.
+export const recordCaptureWarning = async (input: {
+  recordingSessionId: string
+  takeId: string
+  reason: 'device' | 'server'
+  warnedAt: string
+}): Promise<{ ok: true } | { error: 'bad_input' | 'forbidden' | 'not_found' | 'failed' }> => {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/capture-warning', idemPost(input))
+    if (res.status === 403) return { error: 'forbidden' }
+    if (res.status === 400) return { error: 'bad_input' }
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (res.ok && body?.ok === true) return { ok: true }
+    return { error: res.ok && (body?.error === 'not_found' || body?.error === 'bad_input') ? body.error : 'failed' }
+  } catch {
+    return { error: 'failed' }
+  }
+}
+
 // P5-A (⚖ 8/17) — the written-reason discard. Same endpoint the receipt-only
 // shape uses; the presence of `reason` is what routes it to the door that
 // writes the core discard row first (src/app/api/app/v1/recordings/discard).
