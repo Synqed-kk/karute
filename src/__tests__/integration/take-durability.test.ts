@@ -6039,4 +6039,27 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(later.map(([t, , , seqs]) => [t, seqs])).toEqual([[nextTakeId, [0]]])
     expect(segPuts).toEqual([{ seq: 0, size: 50 }])
   })
+
+  it('MB9 a terminal refusal memory got goes on the row at the revive — the store\'s pump never asks that door again', async () => {
+    mockUid = null
+    const takeId = await startAndSettle()
+    mintSegmentUrls.mockImplementationOnce(async (_t, _m, _rs, seqs) => {
+      minted.push(...seqs)
+      return { error: 'not_reserved' }
+    })
+    pushN(50)
+    await tick() // the memory pump mints seq 0; the door refuses for good
+    expect(minted).toEqual([0])
+    expect(persistOf()).toMatchObject({ disabled: true, segmentError: 'not_reserved' })
+
+    mockUid = 'staff-A' // the store answers again: this tick revives the take
+    pushN(50)
+    await tick()
+    expect(persistOf().disabled).toBe(false)
+    pushN(50) // …and a further flush, store-backed now
+    await tick()
+    expect(minted).toEqual([0]) // zero mints since the refusal, from either source
+    expect(segPuts).toEqual([])
+    expect(metaOf(takeId)).toMatchObject({ lastSeq: 2, segmentError: 'not_reserved' })
+  })
 })

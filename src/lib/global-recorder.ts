@@ -12,6 +12,7 @@ import {
   createTake,
   deleteTake,
   isTakeHeldByAnother,
+  markSegmentError,
   markSegmentsUploaded,
   markTakeStartBoundAttempted,
   markTakeStopPending,
@@ -540,6 +541,9 @@ class GlobalRecorder {
       // store's pump starts after them and never sends one twice. Monotone
       // (take-store), so a row that already knew more keeps it.
       if (p.uploadedSeq >= 0) await markSegmentsUploaded(takeId, p.uploadedSeq)
+      // One door, one answer (S38 fix): the terminal refusal memory got is the
+      // row's too, or the store's pump would ask that door once more.
+      if (p.segmentError) await markSegmentError(takeId, p.segmentError)
     })
   }
 
