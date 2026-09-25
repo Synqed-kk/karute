@@ -81,7 +81,10 @@ async function staffListCore(businessId: string): Promise<StaffMember[]> {
     .not('full_name', 'ilike', '_system_%')
     .order('full_name', { ascending: true })
 
-  if (error) throw new Error(`staff profiles read failed: ${error.message}`)
+  // Round 3 leg 5 G2 (2026-09-25, D-S24-1): a failed roster read is an upstream
+  // outage — typed like its sibling membership read (businessIdForUser), so a
+  // caller can tell it from a denial. Same message text.
+  if (error) throw new AppApiError('upstream_unavailable', `staff profiles read failed: ${error.message}`)
 
   const profileStaff = (data ?? []).map(
     ({

@@ -37,7 +37,10 @@ jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ viewAll: true, degraded: false, allowedStoreIds: null })),
   staffWriteInScope: jest.fn(async () => true),
 }))
+// The real module underneath (P9 hands getCurrentUserStaffId back to the REAL
+// one, whose internal getStaffList reads the roster through the service mock).
 jest.mock('@/lib/staff', () => ({
+  ...jest.requireActual<typeof import('@/lib/staff')>('@/lib/staff'),
   getBusinessId: jest.fn(async () => 'biz-1'),
   resolveUserId: jest.fn(async () => 'actor-1'),
   getCurrentUserStaffId: jest.fn(),
@@ -53,11 +56,24 @@ jest.mock('@/lib/subscription/feature-gate', () => ({
 }))
 // The gate's profile read (P5–P8 only; null = the core's empty member lookup).
 let gateProfileRead: { data: unknown; error: unknown } | null = null
+// The roster's profiles read (P9 only; staffListCore awaits `.order(…)`).
+let rosterRead: { data: unknown; error: unknown } | null = null
+jest.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({
+    auth: {
+      getSession: async () => ({ data: { session: null } }),
+      getUser: async () => ({ data: { user: { id: 'actor-1' } } }),
+    },
+  }),
+}))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const chain: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'ilike']) chain[m] = () => chain
+    for (const m of ['select', 'eq', 'ilike', 'not']) chain[m] = () => chain
     ;(chain as { maybeSingle: unknown }).maybeSingle = async () => gateProfileRead ?? { data: null }
+    // businessIdForUser's membership read (real getStaffList → getBusinessId).
+    ;(chain as { single: unknown }).single = async () => ({ data: { customer_id: 'biz-1', full_name: 'Owner' }, error: null })
+    ;(chain as { order: unknown }).order = async () => rosterRead ?? { data: [], error: null }
     return { from: () => chain }
   },
 }))
@@ -111,6 +127,7 @@ beforeEach(() => {
   staffId.mockResolvedValue('actor-1')
   myCaps.mockResolvedValue(FULL)
   gateProfileRead = null
+  rosterRead = null
   gate.mockImplementation(async () => {})
   businessId.mockResolvedValue('biz-1')
 })
@@ -203,5 +220,22 @@ describe('createInvite — an outage at the permission gate is an outage too (fo
     expect(res).toEqual({ error: 'No active business membership for this user' })
     expect(core).not.toHaveBeenCalled()
     expect(outageLogs()).toHaveLength(0)
+  })
+})
+
+// D-S24-1: the ROSTER read (getStaffList's profiles query) is the same class of
+// outage as its sibling membership read — typed upstream_unavailable at the
+// source, so the gate can tell it from a denial. Real getCurrentUserStaffId →
+// real getStaffList → the profiles query errors; the gate is the real one.
+describe('createInvite — a roster outage inside the gate is an outage too (fold G2)', () => {
+  beforeEach(() => gate.mockImplementation(realRequireCapability))
+
+  it('P9 the roster profiles read fails → STAFF_CREATE_FAILED, core never runs', async () => {
+    staffId.mockImplementation(
+      jest.requireActual<typeof import('@/lib/staff')>('@/lib/staff').getCurrentUserStaffId,
+    )
+    rosterRead = { data: null, error: { message: 'boom' } }
+    expectOutageAnswer(await createInvite(INVITE))
+    expect(myCaps).not.toHaveBeenCalled() // refused at the gate, before the try
   })
 })
