@@ -557,8 +557,12 @@ class GlobalRecorder {
    * SEGMENT_MAX_CHUNKS chunks, and only once they are ALL in — exactly what
    * the revive's catch-up writes for that seq — so a seq sent from memory and
    * the same seq on disk later can never be two different blobs under one
-   * immutable key. The segment still filling waits for the next tick, or for
-   * the stop, which is unchanged: the whole take is the stop's.
+   * immutable key. The segment still filling waits for the next tick. The stop
+   * is unchanged, and for a take whose row was never created it secures
+   * nothing (secureTake finds no row and returns): that take's whole blob goes
+   * up with the karute save (ensureAudioOnServer). The ceiling: a row-less take
+   * killed after 停止 but before the save keeps on the server only its full
+   * memory segments; the filling tail stays in memory.
    *
    * OWNER-GATED like every read of a take: only the take this recorder still
    * holds, never a signed-out one, and never one whose row is another
