@@ -260,10 +260,15 @@ class FakeIDB {
     return {
       objectStore: (n: string) => {
         const s = this.stores.get(n)!
-        return {
-          put: (row: Row) =>
+        /** `put`, and — S36 PR-1 — `add`, which is `put` that refuses a key
+         *  already in the store, the way IndexedDB's own ConstraintError does. */
+        const write = (row: Row, adding: boolean) =>
             new FakeRequest(
               abortOnError(() => {
+                if (adding && s.data.has(s.keyOf(row)))
+                  throw Object.assign(new Error('Key already exists (test)'), {
+                    name: 'ConstraintError',
+                  })
                 if (failWrites) throw new Error('idb write failure (test)')
                 if (n === SEGMENTS_STORE && failNextSegmentWrites > 0) {
                   failNextSegmentWrites--
@@ -311,7 +316,10 @@ class FakeIDB {
                   n === TAKES_STORE &&
                   (row as { durationMs?: number }).durationMs !== undefined) ||
                 parkCreate(n, row),
-            ),
+            )
+        return {
+          put: (row: Row) => write(row, false),
+          add: (row: Row) => write(row, true),
           get: (key: unknown) => new FakeRequest(() => s.data.get(norm(key))),
           getAll: (range?: FakeKeyRange) =>
             new FakeRequest(() => {
@@ -4714,7 +4722,9 @@ describe('secure at stop', () => {
       expect(metaOf(takeId).lastSeq).toBe(1) // two flushes landed: bytes on disk
 
       // …then a flush loses every try, and the recorder latches memory-only.
-      failNextSegmentWrites = 3
+      // The store STAYS refusing segments (S36 PR-1): one that came back would
+      // be revived on the next tick and written whole, which is not this case.
+      failNextSegmentWrites = Infinity
       pushChunk('ccc')
       await jest.advanceTimersByTimeAsync(5_000)
       await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
@@ -4722,6 +4732,7 @@ describe('secure at stop', () => {
       expect(metaOf(takeId).lastSeq).toBe(1) // …and the next flush writes nothing
       pushChunk('ddd')
       await jest.advanceTimersByTimeAsync(5_000)
+      await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
       await drain(200)
       expect(metaOf(takeId).lastSeq).toBe(1) // p.disabled — memory-only from here
 
@@ -5322,5 +5333,444 @@ describe('segments while recording — when the recorder pumps', () => {
     expect(
       (takes().get(JSON.stringify(takeId)) as { finalizedAt?: number }).finalizedAt,
     ).toEqual(expect.any(Number))
+  })
+})
+
+/**
+ * ⚖ S36 PR-1 — THE TAKE RECOVERS ITS OWN STORAGE (FIX-PLAN v3 §3; the test list
+ * of FIX-PLAN-v2 §6 PR-1). A write that loses latches the take memory-only; the
+ * recorder now asks again on its own flush tick, and once more at the stop, and
+ * writes what memory holds in normal-sized segments when the store is back.
+ */
+describe('S36 PR-1 — the take recovers its own storage', () => {
+  const metaOf = (takeId: string) =>
+    takes().get(JSON.stringify(takeId)) as {
+      ownerUid: string
+      lastSeq: number
+      recordingSessionId?: string | null
+      durationMs?: number
+      tailIncomplete?: boolean
+      finalizedAt?: number
+    }
+  /** The recorder's own verdict on its take — private, read here because it is
+   *  the one thing the revive decides, and the owner gates behind it would hide
+   *  a wrong decision from every row. */
+  const persistOf = () =>
+    (globalRecorder as unknown as { persist: { disabled: boolean } }).persist
+  const segmentOf = (takeId: string, seq: number) =>
+    (segments().get(JSON.stringify([takeId, seq])) as { blob: Blob } | undefined)?.blob
+  const takeMeta = (takeId: string) => ({
+    takeId,
+    target: TARGET,
+    recordingSessionId: null,
+    mimeType: 'audio/webm',
+    startedAt: Date.now(),
+  })
+
+  it('T1 a failed open is not kept: the next call opens again', async () => {
+    const idb = globalThis as unknown as { indexedDB: { open: (...a: unknown[]) => unknown } }
+    const realOpen = idb.indexedDB.open
+    let refusals = 1
+    idb.indexedDB.open = (...args: unknown[]) => {
+      if (refusals-- <= 0) return realOpen(...args)
+      const failing = { error: new Error('open refused (test)'), onerror: null as null | (() => void) }
+      queueMicrotask(() => failing.onerror?.())
+      return failing
+    }
+    try {
+      // A FRESH module, so its connection cache starts empty — the one this
+      // file shares was filled by the first test.
+      let store!: typeof import('@/lib/karute/take-store')
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        store = require('@/lib/karute/take-store')
+      })
+      expect(await store.createTake(takeMeta('t1-first'))).toBe(false)
+      expect(await store.createTake(takeMeta('t1-second'))).toBe(true)
+      expect(metaOf('t1-second').ownerUid).toBe('staff-A')
+    } finally {
+      idb.indexedDB.open = realOpen
+    }
+  })
+
+  it('T7 createTake on a row that already exists is refused, and the row is untouched', async () => {
+    expect(await createTake(takeMeta('t7'))).toBe(true)
+    expect(await appendTakeSegment('t7', 0, new Blob(['aaa']))).toBe(true)
+    expect(await createTake(takeMeta('t7'))).toBe(false)
+    expect(metaOf('t7').lastSeq).toBe(0) // not reset to −1 over the segment on disk
+    mockUid = 'staff-B'
+    expect(await createTake(takeMeta('t7'))).toBe(false) // …nor taken over by a colleague
+    expect(metaOf('t7').ownerUid).toBe('staff-A')
+  })
+
+  it('T2 a take whose create failed at the start is revived, and seq 0 carries the start', async () => {
+    mockUid = null // the create at start finds nobody signed in
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(takes().size).toBe(0) // memory-only; the tick's revive found nobody either
+    expect(persistOf().disabled).toBe(true)
+
+    mockUid = 'staff-A'
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(persistOf().disabled).toBe(false)
+    expect(metaOf(takeId)).toMatchObject({ ownerUid: 'staff-A', lastSeq: 0 })
+    expect(segmentOf(takeId, 0)?.size).toBe('aaabbb'.length)
+    // …and the next tick is an ordinary flush again.
+    pushChunk('ccc')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(takeId).lastSeq).toBe(1)
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbccc'.length)
+  })
+
+  it('T3 300 s held only in memory → ~60 segments of at most 50 chunks, seqs consecutive, the stamp on the last only', async () => {
+    mockUid = null // storage never answers for the whole five minutes
+    const takeId = await startAndSettle()
+    for (let tick = 0; tick < 60; tick++) {
+      for (let i = 0; i < 50; i++) pushChunk('x') // 5 s of the recorder's 100 ms chunks
+      await jest.advanceTimersByTimeAsync(5_000)
+    }
+    await drain(200)
+    expect(takes().size).toBe(0)
+
+    mockUid = 'staff-A' // …and it is back at the stop
+    globalRecorder.stop()
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
+
+    // 3,000 chunks + the TAIL: sixty full segments and the tail's own.
+    expect(metaOf(takeId).lastSeq).toBe(60)
+    for (let seq = 0; seq < 60; seq++) expect(segmentOf(takeId, seq)?.size).toBe(50)
+    expect(segmentOf(takeId, 60)?.size).toBe('TAIL'.length)
+    expect(stampWrites).toEqual([60]) // exactly one write carried the stamp: the last
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(putBodies.at(-1)?.size).toBe(3_000 + 'TAIL'.length) // secured WHOLE
+  })
+
+  it('T6 the stop-time revive reaches secureTake: the take is secured whole, not flagged', async () => {
+    mockUid = null
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    pushChunk('bbb')
+    await drain(200)
+    expect(takes().size).toBe(0)
+
+    mockUid = 'staff-A' // back between two ticks: only the stop can revive it
+    globalRecorder.stop()
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
+
+    expect(order).toEqual(expect.arrayContaining(['put', 'finalize']))
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(putBodies.at(-1)?.size).toBe('aaabbbTAIL'.length)
+  })
+
+  it('T12 the stop revives ITS OWN take even when the next recording has already started', async () => {
+    mockUid = null
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    pushChunk('bbb')
+    await drain(200)
+    expect(takes().size).toBe(0)
+
+    mockUid = 'staff-A' // back by the stop: only the stop can revive it
+    const stopped = persistOf()
+    globalRecorder.stop() // queues the stop's revive, behind the stop's own beat write
+    // 停止 then 録音 at once: the next start replaces `this.persist` past its
+    // mic await, before the queued revive has run — so the revive meets a
+    // recorder that has moved on (FE1 F1: the `!atStop` leg of its guard).
+    await globalRecorder.start({ target: TARGET })
+    const next = persistOf()
+    const nextTakeId = globalRecorder.takeId!
+    expect(next).not.toBe(stopped)
+    expect(nextTakeId).not.toBe(takeId)
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
+
+    // The stopped take: revived, written whole, secured whole.
+    expect(stopped.disabled).toBe(false)
+    expect(metaOf(takeId)).toMatchObject({ ownerUid: 'staff-A', lastSeq: 0 })
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(order.indexOf('put')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('put')).toBeLessThan(order.indexOf('finalize'))
+    expect(putBodies.at(-1)?.size).toBe('aaabbbTAIL'.length)
+    // …and the new take's own state is untouched by any of it.
+    expect(persistOf()).toBe(next)
+    expect(next).toMatchObject({ disabled: false, seq: 0, count: 0 })
+    expect(metaOf(nextTakeId)).toMatchObject({ ownerUid: 'staff-A', lastSeq: -1 })
+    expect(segmentOf(nextTakeId, 0)).toBeUndefined()
+  })
+
+  it('T13 a flush queued before the stop that fails AFTER it still gets the stop\'s revive: the take ends whole', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(takeId).lastSeq).toBe(0)
+
+    // The next tick's flush is QUEUED, not run; its segment write will throw
+    // on every try (T4's fixture), and the store works again after that.
+    pushChunk('bbb')
+    jest.advanceTimersByTime(5_000)
+    failNextSegmentWrites = 3
+    const stopped = persistOf()
+    expect(stopped.disabled).toBe(false) // healthy at the stop instant…
+    globalRecorder.stop()
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
+
+    expect(failNextSegmentWrites).toBe(0) // …the queued flush failed after it
+    expect(stopped.disabled).toBe(false) // the stop's revive re-opened it
+    expect(stopped).toMatchObject({ seq: 2 })
+    expect(metaOf(takeId).lastSeq).toBe(1) // = seq − 1: the row is whole
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbTAIL'.length)
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(order.indexOf('put')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('put')).toBeLessThan(order.indexOf('finalize'))
+    expect(putBodies.at(-1)?.size).toBe('aaabbbTAIL'.length)
+  })
+
+  it('T4 a THROWN append is retried and then revived through its own row; a row that SETTLES missing after segments is never re-created', async () => {
+    // Thrown: three refusals inside one append, then a store that works.
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    failNextSegmentWrites = 3
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    await drain(200)
+    expect(failNextSegmentWrites).toBe(0) // all three tries were spent on it
+    expect(persistOf().disabled).toBe(true)
+    expect(metaOf(takeId).lastSeq).toBe(0)
+    pushChunk('ccc')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(persistOf().disabled).toBe(false) // the row is ours and ends at seq 0
+    expect(metaOf(takeId).lastSeq).toBe(1)
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbccc'.length)
+
+    // Settled: the row is simply gone — no try is retried, and a new row over
+    // the segments that went with it would be a SHORT copy at the stop.
+    takes().delete(JSON.stringify(takeId))
+    for (const key of [...segments().keys()]) if (key.includes(takeId)) segments().delete(key)
+    failNextSegmentWrites = 1 // armed, and never reached: a settled answer writes nothing
+    pushChunk('ddd')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(persistOf().disabled).toBe(true)
+    expect(failNextSegmentWrites).toBe(1)
+    failNextSegmentWrites = 0
+    await jest.advanceTimersByTimeAsync(60_000)
+    await drain(200)
+    expect(persistOf().disabled).toBe(true)
+    expect(takes().has(JSON.stringify(takeId))).toBe(false)
+  })
+
+  describe('T5 another staffer\'s row, or a signed-out take, is never revived', () => {
+    it('a colleague signed in mid-recording: the row stays the owner\'s and the take stays memory-only', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      mockUid = 'staff-B'
+      pushChunk('bbb')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+      expect(persistOf().disabled).toBe(true) // the owner gate refused the flush
+      for (let i = 0; i < 6; i++) {
+        pushChunk('b')
+        await jest.advanceTimersByTimeAsync(5_000)
+        await drain(200)
+        expect(persistOf().disabled).toBe(true)
+      }
+      expect(metaOf(takeId)).toMatchObject({ ownerUid: 'staff-A', lastSeq: 0 })
+    })
+
+    it('…and before the first flush, the colleague\'s create is refused rather than taking the row', async () => {
+      const takeId = await startAndSettle()
+      mockUid = 'staff-B'
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000) // flush refused → latched
+      await drain(200)
+      pushChunk('bbb')
+      await jest.advanceTimersByTimeAsync(5_000) // revive: no row of B's, seq 0 → add refused
+      await drain(200)
+      expect(persistOf().disabled).toBe(true)
+      expect(metaOf(takeId)).toMatchObject({ ownerUid: 'staff-A', lastSeq: -1 })
+    })
+
+    it('…and with nobody to confirm as its owner, the row is not re-opened — even though a write would land', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      failNextSegmentWrites = 3 // a flush loses every try → latched
+      pushChunk('bbb')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+      await drain(200)
+      expect(persistOf().disabled).toBe(true)
+      // The session store now answers null. The flush itself only COMPARES a
+      // uid (fix round 3), so a take re-opened here WOULD write — which is why
+      // the revive's own owner-gated read is the check that has to hold.
+      mockUid = null
+      for (let i = 0; i < 4; i++) {
+        pushChunk('c')
+        await jest.advanceTimersByTimeAsync(5_000)
+        await drain(200)
+      }
+      expect(persistOf().disabled).toBe(true)
+      expect(metaOf(takeId).lastSeq).toBe(0)
+      // …and the owner signing back in is what re-opens it, whole.
+      mockUid = 'staff-A'
+      await jest.advanceTimersByTimeAsync(40_000)
+      await drain(200)
+      expect(persistOf().disabled).toBe(false)
+      expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbcccc'.length)
+    })
+
+    it('a signed-out take gets no revive at its stop', async () => {
+      mockUid = null
+      await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+      // The web wipe runs before signOut, so the store could answer here.
+      mockUid = 'staff-A'
+      globalRecorder.abandon()
+      await drain(400)
+      await jest.advanceTimersByTimeAsync(50)
+      await drain(400)
+      expect(takes().size).toBe(0)
+      expect(order).toEqual([])
+    })
+  })
+
+  it('T10 the revive waits longer while writes keep failing (5/10/20/40 s), and starts over once one lands', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('a')
+    await jest.advanceTimersByTimeAsync(5_000) // t=5: seq 0 lands
+    const REFUSALS = 1_000
+    failNextSegmentWrites = REFUSALS // a store that reads but refuses segments (a full disk)
+    const tick = async () => {
+      pushChunk('b')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+      await drain(200)
+    }
+    await tick() // t≈10: the flush loses all three tries → latched
+    expect(REFUSALS - failNextSegmentWrites).toBe(3)
+    for (let i = 0; i < 12; i++) await tick() // t≈15…70
+    // Revives at 15, 20, 30 and 50 only — each a catch-up that loses three
+    // tries. A revive on every tick would have spent 36.
+    expect(REFUSALS - failNextSegmentWrites).toBe(3 + 4 * 3)
+    expect(metaOf(takeId).lastSeq).toBe(0)
+
+    failNextSegmentWrites = 0 // the disk is back
+    for (let i = 0; i < 5; i++) await tick() // the next revive is due at 90
+    expect(persistOf().disabled).toBe(false)
+    const landed = metaOf(takeId).lastSeq
+    expect(landed).toBeGreaterThan(0)
+
+    failNextSegmentWrites = 3 // one more blip → latched again…
+    await tick()
+    expect(persistOf().disabled).toBe(true)
+    await tick() // …and the very next tick revives it: the wait started over
+    expect(persistOf().disabled).toBe(false)
+    expect(metaOf(takeId).lastSeq).toBeGreaterThan(landed)
+  })
+
+  it('T11 a row that disagrees with the recorder about where the disk ends is not re-opened', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    failNextSegmentWrites = 3
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    await drain(200)
+    expect(persistOf().disabled).toBe(true)
+    // The row says the disk holds a seq this recorder never wrote.
+    takes().set(JSON.stringify(takeId), { ...metaOf(takeId), lastSeq: 4 })
+    for (let i = 0; i < 4; i++) {
+      pushChunk('c')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+    }
+    expect(persistOf().disabled).toBe(true)
+    expect(segmentOf(takeId, 1)).toBeUndefined() // nothing written over or beside it
+  })
+
+  it('T8 a failed start-mint is asked again at 30/60/120/240 s — four times, one bound create kept', async () => {
+    await startAndSettle() // the default start-mint answers null
+    await drain(200)
+    // The start's bound create, and its one step back (fix round 9).
+    expect(mockStartRecordingSession).toHaveBeenCalledTimes(2)
+    const callsAfter = async (ms: number) => {
+      await jest.advanceTimersByTimeAsync(ms)
+      await drain(200)
+      return mockStartRecordingSession.mock.calls.length
+    }
+    expect(await callsAfter(25_000)).toBe(2)
+    expect(await callsAfter(5_000)).toBe(3) // 30 s
+    expect(await callsAfter(55_000)).toBe(3)
+    expect(await callsAfter(5_000)).toBe(4) // +60 s
+    expect(await callsAfter(120_000)).toBe(5) // +120 s
+    expect(await callsAfter(240_000)).toBe(6) // +240 s
+    expect(await callsAfter(600_000)).toBe(6) // and then no more
+    // The start sent the bound pair; every retry is the argument-less start.
+    expect(mockStartRecordingSession.mock.calls[0][0]).toMatchObject({ takeId: expect.any(String) })
+    for (const [input] of mockStartRecordingSession.mock.calls.slice(1))
+      expect(input).not.toHaveProperty('takeId')
+  })
+
+  it('T8b a mint still in flight is waited for, never doubled — and a retry that lands stamps the row', async () => {
+    let answer!: (v: { id: string } | null) => void
+    mockStartRecordingSession.mockReturnValueOnce(new Promise((r) => (answer = r)))
+    const takeId = await startAndSettle()
+    await jest.advanceTimersByTimeAsync(60_000)
+    await drain(200)
+    expect(mockStartRecordingSession).toHaveBeenCalledTimes(1) // slow, not failed
+    answer(null) // …now it failed, and its own step back fails too
+    await drain(200)
+    expect(mockStartRecordingSession).toHaveBeenCalledTimes(2)
+    mockStartRecordingSession.mockImplementation(async () => ({ id: 'rs-retried' }))
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(mockStartRecordingSession).toHaveBeenCalledTimes(3)
+    expect(globalRecorder.recordingSessionId).toBe('rs-retried')
+    expect(metaOf(takeId).recordingSessionId).toBe('rs-retried')
+  })
+
+  it('T9 an id the recorder holds but its row never got is re-stamped on the next tick', async () => {
+    let answer!: (v: { id: string } | null) => void
+    mockStartRecordingSession.mockReturnValueOnce(new Promise((r) => (answer = r)))
+    const takeId = await startAndSettle()
+    failWrites = true // the mint's own stamp loses every try
+    answer({ id: 'rs-held' })
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    await drain(200)
+    expect(globalRecorder.recordingSessionId).toBe('rs-held')
+    expect(metaOf(takeId).recordingSessionId).toBeNull()
+
+    failWrites = false
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(takeId).recordingSessionId).toBe('rs-held')
   })
 })
