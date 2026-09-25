@@ -469,3 +469,100 @@ describe('S33 attachOutcome — the ON arm creates only when no row is known', (
     await expect(mint({ attachOutcome: 'something_else' })).resolves.toEqual({ error: 'bad_input' })
   })
 })
+
+// ⚖ S35 C1 — the row the ON arm creates is never finalized, so it is born with
+// the take's length: the SAME state finalize leaves a row that had one from the
+// start in (duration_seconds set, status UPLOADING). Anything but a whole,
+// positive number of seconds is dropped — never refused — and the OFF arm
+// creates nothing, whatever the body carries.
+describe('S35 C1 — the server-made row is born with the take length', () => {
+  const bornWith = (path: string, extra: Record<string, unknown> = {}) => ({
+    staff_id: 'auth-user-1',
+    customer_id: 'cust-1',
+    appointment_id: null,
+    store_id: 'store-1',
+    audio_storage_path: path,
+    status: 'UPLOADING',
+    ...extra,
+  })
+
+  describe('switch ON', () => {
+    forceSwitch(true)
+
+    it('T1 no_session + durationSeconds 63 → the create carries duration_seconds 63, status UPLOADING', async () => {
+      const res = await mint({ attachOutcome: 'no_session', customerId: 'cust-1', durationSeconds: 63 })
+      if (!('url' in res)) throw new Error('expected a signed answer')
+      expect(res.recordingSessionId).toBe('sess-new')
+      expect(recordingsCreate).toHaveBeenCalledTimes(1)
+      expect(recordingsCreate.mock.calls[0][0]).toStrictEqual(bornWith(res.path, { duration_seconds: 63 }))
+    })
+
+    it('T1 (phone door): the facade body carries it onto the create', async () => {
+      const res = await mintPOST(
+        jreq({ ...auth, 'store-id': 'store-1' }, { stagedFor: null, attachOutcome: 'no_session', customerId: 'cust-1', durationSeconds: 63 }),
+        noRoute,
+      )
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.recordingSessionId).toBe('sess-new')
+      expect(recordingsCreate.mock.calls[0][0]).toStrictEqual(bornWith(body.path, { duration_seconds: 63 }))
+    })
+
+    it('T3 an old client (no field) → the create is exactly as before, no duration_seconds key', async () => {
+      const res = await mint({ attachOutcome: 'no_session', customerId: 'cust-1' })
+      if (!('url' in res)) throw new Error('expected a signed answer')
+      expect(recordingsCreate.mock.calls[0][0]).toStrictEqual(bornWith(res.path))
+    })
+
+    it.each([
+      ['0', 0],
+      ['negative', -3],
+      ['a fraction', 1.5],
+      ['NaN', NaN],
+      ['Infinity', Infinity],
+      ['a string', '63'],
+      ['null', null],
+      ['past a day', 86_401],
+    ])('T2/T5 web door, %s → dropped: the mint still binds, the row has no length', async (_label, durationSeconds) => {
+      const res = await mint({ attachOutcome: 'no_session', customerId: 'cust-1', durationSeconds } as never)
+      if (!('url' in res)) throw new Error(`expected a signed answer, got ${JSON.stringify(res)}`)
+      expect(res.recordingSessionId).toBe('sess-new')
+      expect(recordingsCreate.mock.calls[0][0]).toStrictEqual(bornWith(res.path))
+    })
+
+    it.each([
+      ['a string', '63'],
+      ['negative', -3],
+      ['a fraction', 1.5],
+      ['null', null],
+      ['huge', 1e12],
+      ['true', true],
+    ])('T5 phone door, %s → 200, dropped, still bound', async (_label, durationSeconds) => {
+      const res = await mintPOST(
+        jreq({ ...auth, 'store-id': 'store-1' }, { stagedFor: null, attachOutcome: 'no_session', customerId: 'cust-1', durationSeconds }),
+        noRoute,
+      )
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.recordingSessionId).toBe('sess-new')
+      expect(recordingsCreate.mock.calls[0][0]).toStrictEqual(bornWith(body.path))
+    })
+
+    it('attach_failed carrying a length still creates nothing', async () => {
+      await expect(mint({ attachOutcome: 'attach_failed', durationSeconds: 63 })).resolves.toMatchObject({ recordingSessionId: null })
+      expect(recordingsCreate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('switch OFF', () => {
+    forceSwitch(false)
+
+    it('T6 the OFF arm reads nothing and creates nothing, whatever the body carries', async () => {
+      const res = await mint({ attachOutcome: 'no_session', customerId: 'cust-1', durationSeconds: 63 })
+      expect(res).toMatchObject({ path: expect.stringMatching(SERVER_KEY), recordingSessionId: null })
+      expect(Object.keys(res).sort()).toEqual(TODAY_KEYS)
+      expect(bindIdentity).not.toHaveBeenCalled()
+      expect(recordingsCreate).not.toHaveBeenCalled()
+    })
+  })
+})

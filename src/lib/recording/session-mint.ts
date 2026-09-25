@@ -125,6 +125,12 @@ export async function startRecordingSessionWithClient(
      *  keeps `| null` because the core column and every pre-③ row still do. */
     storeId: string | null
   },
+  /** ⚖ S35 C1 — the take's length in whole seconds, from the server-named
+   *  mint alone (mint-take-url.ts#bindServerNamedTake): that row is never
+   *  finalized, so it is born with what finalize would write. Its own argument,
+   *  never an `input` field, because the web start action spreads its
+   *  caller-supplied argument into `input`. */
+  born: { durationSeconds?: number } = {},
 ): Promise<StartRecordingSessionResult> {
   // THE FENCES, composed BEFORE anything is created: a key this server would
   // refuse must never leave a row behind for the client to inherit, and a
@@ -165,7 +171,7 @@ export async function startRecordingSessionWithClient(
   // below — moved AFTER staff resolution, fix round 12 — now only ever runs
   // for a call that is actually going to mint, never as an existence oracle
   // for a caller who was never getting a row either way.
-  let reservation: { audio_storage_path: string; status: 'UPLOADING' } | undefined
+  let reservation: { audio_storage_path: string; status: 'UPLOADING'; duration_seconds?: number } | undefined
   if (composed) {
     // THE FENCE the mint has and this door didn't (fix round 11, fresh-eyes #7
     // P2): refuse BEFORE any row is created, exactly like the mint's own
@@ -178,7 +184,11 @@ export async function startRecordingSessionWithClient(
     // UPLOADING, the status the mint's own reservation writes: the take's bytes
     // are on their way and nothing owns this row yet — there is no job to
     // preserve a status for, the row is one call old.
-    reservation = { audio_storage_path: composed.key, status: 'UPLOADING' }
+    reservation = {
+      audio_storage_path: composed.key,
+      status: 'UPLOADING',
+      ...(born.durationSeconds ? { duration_seconds: born.durationSeconds } : {}),
+    }
   }
 
   // THE STORE RIDES ALONG (slice three ③). Two questions, two answers:

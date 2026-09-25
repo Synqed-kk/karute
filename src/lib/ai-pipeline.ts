@@ -121,6 +121,18 @@ export type PipelineContext = {
 }
 
 /**
+ * ⚖ THE ROW THE SERVER MAKES IS BORN WITH ITS LENGTH (S35 C1). That row is
+ * never finalized, so it carries what finalize writes on a row that had one
+ * from the start: the take's stop stamp in whole seconds, floored as
+ * finalize-take.ts floors it. No honest length (no take, no stamp, under a
+ * second) → undefined and the field is not sent: never a made-up 0.
+ */
+export function takeLengthSeconds(durationMs: number | undefined): number | undefined {
+  const seconds = Math.floor((durationMs ?? NaN) / 1000)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined
+}
+
+/**
  * ⚖ THE ROW THE SERVER MADE FOR THIS TAKE IS THIS TAKE'S ROW (S34, piece 3).
  * With RECORDING_SWITCHES.bindUnboundUploads ON, the unbound door creates a
  * row for a take that had none and answers its id. Adopted ONLY where nothing
@@ -227,7 +239,12 @@ export async function runAIPipeline(
         audioBlob,
         finalizedPath,
         attachOutcome === 'no_session'
-          ? { attachOutcome, customerId: ctx.customerId, appointmentId: ctx.appointmentId }
+          ? {
+              attachOutcome,
+              customerId: ctx.customerId,
+              appointmentId: ctx.appointmentId,
+              durationSeconds: takeLengthSeconds(meta?.durationMs),
+            }
           : attachOutcome
             ? { attachOutcome }
             : undefined,
