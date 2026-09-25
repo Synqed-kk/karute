@@ -10,8 +10,8 @@
 //     the only cancel reason a burn may pair with), every NO_SHOW no-show-no-contact (無断 = no contact, by definition)
 //   · the manifest's realismFrom — the first day plan() follows the realism recipe (rhythm, 指名, rates): the day after
 //     the last one any run has planned, so no existing booking moves
-//   · duration_minutes — a null one → the booked span, only with --repair-foreign (every null in these stores is a
-//     SYNQED Reserve booking: Reserve's create sends no duration_minutes — its defect, not the loader's)
+//   · duration_minutes — a null one → the booked span, only with --repair-foreign and never on a MANUAL booking (Karute's
+//     own create always sends one; Reserve's create sends no duration_minutes — its defect, not the loader's)
 // Never: a delete; a row of another business or store; a status a person set (status_set_by present, other than
 // close-out's); a booking whose notes a person edited; staff_id (core refuses a staffless BOOKING and has no 指名 field);
 // menu_id (core's update takes none).
@@ -95,7 +95,8 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
       : a.notes !== bare && a.notes !== bookingNotes(p) ? 'its notes were edited by hand' // any text but the plan's own line
       : null
     if (why) {
-      const dur = a.duration_minutes != null ? '' : i.repairForeign ? ' — but its null duration_minutes is set to the booked span (--repair-foreign)'
+      const dur = a.duration_minutes != null ? '' : a.source === 'MANUAL' ? ' — its duration_minutes is null (a MANUAL booking: --repair-foreign leaves it)'
+        : i.repairForeign ? ' — but its null duration_minutes is set to the booked span (--repair-foreign)'
         : ' — its duration_minutes is null (SYNQED Reserve\'s create sends none); --repair-foreign sets the booked span'
       held.push(`${a.id}: ${why}, left alone${dur}`)
       continue
@@ -144,7 +145,7 @@ export function planStore(i: StoreInput): { changes: Change[]; held: string[]; o
   }
 
   const changes: Change[] = []
-  const repair = new Set(i.repairForeign ? i.rows.map((a) => a.id) : owned.map((x) => x.a.id))
+  const repair = new Set([...owned.map((x) => x.a.id), ...(i.repairForeign ? i.rows.filter((a) => a.source !== 'MANUAL').map((a) => a.id) : [])])
   const pOf = new Map(owned.map(({ a, p }) => [a.id, p]))
   for (const a of i.rows) {
     const [p, n] = [pOf.get(a.id), next.get(a.id)!]

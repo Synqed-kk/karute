@@ -309,6 +309,13 @@ async function pass() {
     assert.ok(!c3.changes.some((c) => c.id === r.id), `${r.id}: no change`)
   }
   assert.ok(!c3.held.some((l) => l.startsWith(`${kept.id}:`)) && !c3.changes.some((c) => c.id === kept.id && c.set.notes !== undefined), 'the plan\'s own line stays the loader\'s')
+
+  // --repair-foreign never sets a MANUAL booking's null duration (Karute's own create always sends one): held, one line.
+  const manual = { ...clone(w2.reserve), id: 'manual-row', notes: '電話で予約', source: 'MANUAL' as const }
+  const d = planStore({ ...input, rows: [...clone(w2.rows), manual], karuted: w2.karuted, burnt: new Set(), repairForeign: true })
+  assert.ok(!d.changes.some((c) => c.id === 'manual-row'), 'a MANUAL booking\'s duration is not set')
+  assert.ok(d.held.includes('manual-row: not a loader booking (source MANUAL), left alone — its duration_minutes is null (a MANUAL booking: --repair-foreign leaves it)'), d.held.join('\n'))
+  assert.deepEqual(d.changes.find((c) => c.id === 'reserve-row')?.set, { duration_minutes: 90 }, 'the Reserve booking still is')
 }
 
 // ── the apply's write-time guards ────────────────────────────────────────────────────────────────
