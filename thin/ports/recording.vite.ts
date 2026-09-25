@@ -167,6 +167,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
                     attachOutcome: opts.attachOutcome,
                     ...(opts.customerId ? { customerId: opts.customerId } : {}),
                     ...(opts.appointmentId ? { appointmentId: opts.appointmentId } : {}),
+                    ...(opts.durationSeconds ? { durationSeconds: opts.durationSeconds } : {}),
                   }
                 : {}),
             },
