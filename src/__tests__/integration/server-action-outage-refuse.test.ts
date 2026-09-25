@@ -25,8 +25,8 @@ jest.mock('next/cache', () => ({
 jest.mock('next-intl/server', () => ({
   getTranslations: jest.fn(async (ns: string) => (key: string) => `${ns}.${key}`),
 }))
-// The gate is a pass-through for the H-4 hunk pins; P4d hands it back to the
-// REAL one. getMyCapabilities stays real (it reads the real roster chain).
+// The gate is a pass-through for the H-4 hunk pins; P4d–P4f hand it back to
+// the REAL one. getMyCapabilities stays real (it reads the real roster chain).
 jest.mock('@/lib/auth/require-permission', () => ({
   ...jest.requireActual<typeof import('@/lib/auth/require-permission')>('@/lib/auth/require-permission'),
   requireCapability: jest.fn(async () => {}),
@@ -74,6 +74,10 @@ const ROSTER_ROW = {
 const DB_TEXT = 'PGRST-SECRET-42 connection refused'
 const ROSTER_DOWN = { data: null, error: { message: DB_TEXT, code: 'PGRST000' } }
 let rosterRead: { data: unknown; error: unknown } = { data: [ROSTER_ROW], error: null }
+const MEMBER_OK = { data: { customer_id: 'biz-1', full_name: 'Owner' }, error: null }
+let membershipRead: { data: unknown; error: unknown } = MEMBER_OK
+const OWNER_CAPS_ROW = { display_role: 'owner', permission_role: 'owner', permissions: null }
+let callerCapsRow: Record<string, unknown> = OWNER_CAPS_ROW
 // setStaffPermissionsCore lives in permissions.ts itself: its first read (the
 // target row) and its write are how a pin sees that it ran.
 const coreTargetReads = jest.fn()
@@ -88,7 +92,7 @@ jest.mock('@/lib/supabase/service', () => ({
       return chain
     }
     // businessIdForUser's membership read.
-    chain.single = async () => ({ data: { customer_id: 'biz-1', full_name: 'Owner' }, error: null })
+    chain.single = async () => membershipRead
     // staffListCore's profiles read (the one staff.ts :92 wraps).
     chain.order = async () => rosterRead
     chain.maybeSingle = async () => {
@@ -96,8 +100,8 @@ jest.mock('@/lib/supabase/service', () => ({
         coreTargetReads()
         return { data: { id: 'staff-T', display_role: 'stylist', permission_role: 'practitioner', permissions: null }, error: null }
       }
-      // capabilitiesForUser: the caller is the owner.
-      return { data: { display_role: 'owner', permission_role: 'owner', permissions: null }, error: null }
+      // capabilitiesForUser: the caller (the owner unless a pin says otherwise).
+      return { data: callerCapsRow, error: null }
     }
     chain.update = (v: unknown) => {
       serviceUpdate(v)
@@ -141,6 +145,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
   rosterRead = { data: [ROSTER_ROW], error: null }
+  membershipRead = MEMBER_OK
+  callerCapsRow = OWNER_CAPS_ROW
   gate.mockImplementation(async () => {})
   synqedClient.mockResolvedValue({
     customers: { grantConsent, revokeConsent },
@@ -298,19 +304,45 @@ describe('P4 setStaffPermissions — a pre-core read outage resolves the failure
     expect(consoleError).not.toHaveBeenCalled()
   })
 
-  // KNOWN GAP, reported — not changed (the packet fences the gate's catch
-  // :293–297). The REAL gate reads the same roster chain FIRST (requireCapability
-  // → can → getMyCapabilities → getCurrentUserStaffId), so a roster outage that
-  // is already down when the action starts is answered by the gate's own catch
-  // with the English fixed line, before the new try. This pin records today's
-  // answer so a later fix of the gate turns it red on purpose.
-  it('P4d KNOWN GAP: with the REAL gate, an outage already down at the gate answers the gate\'s English line', async () => {
+  // D-S25-1 (fold F1): the REAL gate reads the same roster chain FIRST
+  // (requireCapability → can → getMyCapabilities → getCurrentUserStaffId), so
+  // an outage already down when the action starts surfaces in the gate's
+  // catch. A TYPED outage there answers the failure line too.
+  it('P4d REAL gate, roster source down → { error: THE FAILURE LINE } from the gate, core never runs', async () => {
     gate.mockImplementation(realRequireCapability)
     rosterRead = ROSTER_DOWN
     const res = await setStaffPermissions(TARGET_STAFF, ROLE, CAPS)
-    expect(res).toEqual({ error: 'staff profiles read failed' })
-    expect(logsStartingWith('[permissions] pre-core read failed')).toHaveLength(0)
+    expect(res).toEqual({ error: FAILURE_LINE })
+    expectNotTheWrongLines(res as { error?: string })
+    expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(coreTargetReads).not.toHaveBeenCalled()
+    expect(serviceUpdate).not.toHaveBeenCalled()
+    expectOneBoundedOutageLine('[permissions] pre-core read failed (roster)')
+  })
+
+  // A real denial is a plain Error (require-permission.ts :120) — its answer
+  // is today's, byte-for-byte (value taken from origin/main's code).
+  it('P4e REAL gate, roster up, caller lacks staff.manage → today\'s denial, unchanged', async () => {
+    expect(presetCapabilities('practitioner')).not.toContain('staff.manage')
+    gate.mockImplementation(realRequireCapability)
+    callerCapsRow = { display_role: 'stylist', permission_role: 'practitioner', permissions: null }
+    const res = await setStaffPermissions(TARGET_STAFF, ROLE, CAPS)
+    expect(res).toEqual({ error: 'You do not have permission to perform this action.' })
+    expect(logsStartingWith('[permissions] pre-core read failed')).toHaveLength(0)
+    expect(staffWriteInScope).not.toHaveBeenCalled()
+    expect(serviceUpdate).not.toHaveBeenCalled()
+  })
+
+  // P4e's denial is not an AppApiError, so this is the one that proves the
+  // discriminator: a NON-outage AppApiError from the gate (a removed
+  // membership, staff.ts :345) keeps today's message.
+  it('P4f REAL gate, a non-outage AppApiError (membership_inactive) → today\'s message, unchanged', async () => {
+    gate.mockImplementation(realRequireCapability)
+    membershipRead = { data: null, error: { code: 'PGRST116', message: 'no rows' } }
+    const res = await setStaffPermissions(TARGET_STAFF, ROLE, CAPS)
+    expect(res).toEqual({ error: 'No active business membership for this user' })
+    expect(logsStartingWith('[permissions] pre-core read failed')).toHaveLength(0)
+    expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(serviceUpdate).not.toHaveBeenCalled()
   })
 })
