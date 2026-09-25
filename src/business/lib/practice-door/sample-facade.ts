@@ -176,7 +176,7 @@ export const PLANE_ROW: Readonly<Record<PlaneKey, string>> = {
   bookingGuard: 'overridePolicy.lockedOut', menuVisible: 'menuVisible[menuId]', tickets: 'tickets[].name',
   staffActive: 'staffActive[staffId]', businessType: 'FixtureStore.business_type', pay: 'payCash',
   cashTolerance: 'cashTolerance', winBack: 'winBackDays', company: 'companyName',
-  dynamicPricing: 'dynamicPricing', points: 'pointsEnabled', salesTarget: 'salesTargets[storeId]',
+  dynamicPricing: 'dynamicPricing', points: 'pointsEnabled', salesTarget: 'target',
   ai: 'aiSummaryLength', aiProfile: 'businessProfile', recordingPolicy: 'recordingConsentRequired',
   voice: 'voiceStatus', coaching: 'coachingEnabled', sync: 'syncIntervalMin',
   bookingPolicy: 'bookingOpenDays', priceLock: 'priceLockDuringRecalc', notify: 'notify[event].app',
