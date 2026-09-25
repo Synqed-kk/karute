@@ -461,6 +461,44 @@ describe('今日の運営 screen', () => {
     for (const k of keys) expect(p.bookingColors[k]).toEqual(BOOKING_COLOR_DEFAULTS)
   })
 
+  /** …and a SAVED map arrives. The pin above holds even if the door's read always
+   *  answered null, so here the read answers STORE_A's own four: that entry is
+   *  exactly them, and every other entry, `''` included, stays the defaults.
+   *  `jest.spyOn(data, 'readBookingColors')` cannot patch the module's export
+   *  (「Cannot redefine property」), so this is boardWithOpsConfig's pattern below:
+   *  a doMock'd module, an isolated import of the page, and the mock undone after. */
+  it('予約の色分け — a saved map for STORE_A reaches its entry; every other entry stays the defaults', async () => {
+    const SAVED = { new: '#112233', repeat: '#445566', ticket: '#778899', vip: '#aabbcc' }
+    jest.doMock('@/business/lib/data', () => ({ ...jest.requireActual('@/business/lib/data'), readBookingColors: async () => ({ [STORE_A]: SAVED }) }))
+    let pageMod!: typeof import('@/app/[locale]/(business)/business/today/page')
+    let screenMod!: typeof import('@/app/[locale]/(business)/business/today/TodayScreen')
+    try {
+      await jest.isolateModulesAsync(async () => {
+        pageMod = await import('@/app/[locale]/(business)/business/today/page')
+        screenMod = await import('@/app/[locale]/(business)/business/today/TodayScreen')
+      })
+    } finally {
+      jest.dontMock('@/business/lib/data')
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const find = (node: any): TodayProps | null => {
+      if (!node || typeof node !== 'object') return null
+      if (node.type === screenMod.TodayScreen) return node.props
+      const kids = node.props?.children
+      for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+        const hit = find(kid)
+        if (hit) return hit
+      }
+      return null
+    }
+    const p = find(await pageMod.default({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE_A }) }))!
+    expect(p.bookingColors[STORE_A]).toEqual(SAVED)
+    expect(p.bookingColors['']).toEqual(BOOKING_COLOR_DEFAULTS)
+    const others = Object.keys(p.bookingColors).filter((k) => k !== STORE_A && k !== '')
+    expect(others.length).toBeGreaterThan(0)
+    for (const k of others) expect(p.bookingColors[k]).toEqual(BOOKING_COLOR_DEFAULTS)
+  })
+
   /** ⚖ ROOM RULE, FIX ROUND 1 (L2 N2) — THE TWO FACTS, EXECUTED ON THE REAL BOARD.
    *
    *  The whole round's claim is that the room need is a fact about the BOOKING

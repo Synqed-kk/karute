@@ -8477,14 +8477,15 @@ export function TodayScreen(props: TodayProps) {
   }
 
   // 予約の色分け — a category's `--cat` off its STORE's own four (`bookingColorHex`, today-board.ts;
-  // `''` = no store). No hex → no inline var, and today.css's hex paints as before.
+  // `''` = no store). A card outside `storeByCase` (made on this board this session) is this
+  // board's store. No hex → no inline var, and today.css's hex paints as before.
   const catVar = (store: string | null | undefined, cat: string | null | undefined): React.CSSProperties | undefined => {
     const hex = bookingColorHex(props.bookingColors, store, cat)
     return hex ? ({ '--cat': hex } as React.CSSProperties) : undefined
   }
 
   function renderItem(item: BoardItem, lane: BoardLane) {
-    const style = { '--x': `${item.x}%`, '--w': `${item.w}%`, ...catVar(props.storeByCase[item.caseId ?? ''], item.category) } as React.CSSProperties
+    const style = { '--x': `${item.x}%`, '--w': `${item.w}%`, ...catVar(props.storeByCase[item.caseId ?? ''] ?? props.store, item.category) } as React.CSSProperties
     const settledHere = item.caseId != null && settled.includes(item.caseId)
     const state =
       item.kind !== 'booking'
@@ -10258,7 +10259,7 @@ export function TodayScreen(props: TodayProps) {
           }}
           aria-hidden="true"
           data-cat={proxy.kind === 'chip' ? (proxy.category ?? undefined) : (proxy.item.category ?? undefined)}
-          style={{ width: proxy.w, height: proxy.h, ...(proxy.kind === 'chip' ? catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category) : catVar(props.storeByCase[proxy.item.caseId ?? ''], proxy.item.category)) }}
+          style={{ width: proxy.w, height: proxy.h, ...(proxy.kind === 'chip' ? catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category) : catVar(props.storeByCase[proxy.item.caseId ?? ''] ?? props.store, proxy.item.category)) }}
         >
           {proxy.kind === 'chip' ? (
             <>

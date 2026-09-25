@@ -1542,6 +1542,9 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     // blanks comments, so a copy parked in a comment does not count — and the
     // lookup itself is pure and unit-pinned (`bookingColorHex`, booking-colors.test.ts).
     // The wrapper is pinned whole, so an early return slipped inside it is red too.
+    // The card and the proxy's card fall back to `props.store`: a card outside the
+    // join (made on this board this session) is this store's — pinned by text only,
+    // since the fallback lives in the screen.
     const CODE = codeOnly(SRC)
     expect(CODE).toContain([
       "  const catVar = (store: string | null | undefined, cat: string | null | undefined): React.CSSProperties | undefined => {",
@@ -1556,10 +1559,10 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
       "                        <i className=\"cat\" style={catVar(props.store, 'vip')} />VIP",
     ].join('\n'))
     for (const site of [
-      "...catVar(props.storeByCase[item.caseId ?? ''], item.category) } as React.CSSProperties",
+      "...catVar(props.storeByCase[item.caseId ?? ''] ?? props.store, item.category) } as React.CSSProperties",
       "style={catVar(chip.home.store, chip.category)}",
       "catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category)",
-      "catVar(props.storeByCase[proxy.item.caseId ?? ''], proxy.item.category)",
+      "catVar(props.storeByCase[proxy.item.caseId ?? ''] ?? props.store, proxy.item.category)",
     ]) expect(CODE).toContain(site)
     for (const lie of ['予約カードの表示項目（店舗設定）', '販売可能枠の表示（店舗設定・業種プロファイルが初期値）', '全ボード共通の店舗設定', '店舗設定の予約カテゴリー色', '店舗カテゴリー', '色は変更できません', 'CAT_COLOR']) {
       expect(SRC).not.toContain(lie)

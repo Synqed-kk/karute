@@ -484,10 +484,13 @@ export default async function TodayPage({
   // member's store LIST was a proxy that answers wrong for a person who
   // works in two stores.
   const storeOfBooking = new Map(appointments.map((a) => [a.id, a.store_id]))
-  // 予約の色分け — the card's store is THIS join (by `BoardItem.caseId`), so the
-  // screen gets it as a plain map, plus every store's four colours resolved ONCE
-  // here (`bookingColorsFor`); `''` = no store (viewAll's legend) = the defaults.
-  const storeByCase = Object.fromEntries([...storeOfBooking].filter((e): e is [string, string] => e[1] != null))
+  // 予約の色分け — the card's store is THIS join (by `BoardItem.caseId` = the
+  // shown day's `bookings` ids, the rows `cases` is built from), so the screen gets
+  // it as a plain map, plus every store's four colours resolved ONCE here
+  // (`bookingColorsFor`); `''` = no store (viewAll's legend) = the defaults.
+  const storeByCase = Object.fromEntries(
+    bookings.map((b) => [b.id, storeOfBooking.get(b.id)]).filter((e): e is [string, string] => e[1] != null),
+  )
   const bookingColors: Record<string, BookingColors> = Object.fromEntries(
     ['', ...new Set([...storeOptions.map((s) => s.id), ...Object.values(storeByCase)])].map((id) => [id, bookingColorsFor(id || null, bookingColorsRaw)]),
   )
