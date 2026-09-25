@@ -69,6 +69,8 @@ jest.mock('@/lib/karute/take-store', () => ({
   deleteTake: async () => {},
   isTakeHeldByAnother: (takeId: string) => mockIsTakeHeldByAnother(takeId),
   markSegmentError: async () => {},
+  // The one code thread 3's pin uses — a member of the real set (take-store.ts).
+  TERMINAL_SECURE_ERRORS: new Set(['forbidden']),
   markSegmentsUploaded: async () => {},
   markTakeStartBoundAttempted: async () => {},
   markTakeStopPending: async () => {},
@@ -80,11 +82,16 @@ jest.mock('@/lib/karute/take-store', () => ({
   writeTakeHeartbeat: async () => {},
   clearTakeHeartbeat: async () => {},
 }))
-jest.mock('@/lib/recording/segment-uploader', () => ({ pumpSegments: async () => {} }))
+/** A no-op by default; thread 3's pin below runs the REAL pump for memory. */
+const mockPumpSegments = jest.fn<Promise<void>, unknown[]>(async () => {})
+jest.mock('@/lib/recording/segment-uploader', () => ({
+  pumpSegments: (...args: unknown[]) => mockPumpSegments(...args),
+}))
 jest.mock('@/lib/recording/secure-take', () => ({ secureTake: async () => {} }))
 jest.mock('@/lib/ports/recording-port', () => ({ getRecordingPipelinePort: () => ({}) }))
 
 import { globalRecorder } from '@/lib/global-recorder'
+import type { SegmentSource } from '@/lib/recording/segment-uploader'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
@@ -719,5 +726,51 @@ describe('PR-6 fix 2 — Greptile thread 4: a partial recovery keeps the outage 
     await tick() // 20 s: fifteen after the ORIGINAL first try
     expect(Date.now() - firstSince).toBe(15_000)
     expect(globalRecorder.captureWarning).toBe('device')
+  })
+})
+
+describe('PR-6 fix 2 — Greptile thread 3 (verified, pinned): a row refusal is not hidden once storage dies', () => {
+  it('storage dies after the ROW took a terminal refusal: the real pump asks the door once more from memory, the refusal lands on memory, and the server notice is back on the next tick — no 60 s / 18-behind wait, one fact', async () => {
+    type Pump = typeof import('@/lib/recording/segment-uploader')
+    const real = jest.requireActual<Pump>('@/lib/recording/segment-uploader')
+    real.__resetSegmentPumpState()
+    const mint = jest.fn(async () => ({ error: 'forbidden' as const }))
+    const memoryRuns: number[] = []
+    mockPumpSegments.mockImplementation(async (...args: unknown[]) => {
+      const [, takeId, opts] = args as [unknown, string, { source?: SegmentSource } | undefined]
+      // The store pump stays a no-op here (its own file proves it); memory's
+      // runs are the real one, against a door that refuses as it did before.
+      if (!opts?.source) return
+      memoryRuns.push(Date.now())
+      await real.pumpSegments({ mintSegmentUrls: mint } as unknown as Parameters<Pump['pumpSegments']>[0], takeId, opts)
+    })
+    try {
+      await startLive()
+      // 5 s: seq 0 lands, and the ROW says the door refused this take for good.
+      FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['a']) })
+      mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: 0, segmentError: 'forbidden' }
+      await tick()
+      expect(globalRecorder.captureWarning).toBe('server')
+
+      // 10 s: storage dies. From here the notice reads memory, which never
+      // saw the row's refusal — under 60 s recorded and 18 behind.
+      mockAppendOk = false
+      mockCreateOk = false
+      FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['b']) })
+      await tick()
+      expect(persistOf().disabled).toBe(true)
+
+      await tick() // 15 s: the first flush with storage off — memory's first pump run
+      expect(memoryRuns).toHaveLength(1)
+      expect(mint).toHaveBeenCalledTimes(1)
+      await tick() // 20 s: the tick after that one attempt
+      expect(globalRecorder.captureWarning).toBe('server')
+      expect(Date.now() - memoryRuns[0]).toBe(5_000)
+      await drain()
+      expect(facts().map((f) => f.reason)).toEqual(['server'])
+    } finally {
+      mockPumpSegments.mockImplementation(async () => {})
+      real.__resetSegmentPumpState()
+    }
   })
 })
