@@ -1060,6 +1060,29 @@ export async function readTakeUploadMeta(takeId: string): Promise<Pick<
   }
 }
 
+/** ⚖ IS THIS TAKE'S ROW SOMEBODY ELSE'S? (S36 PR-1b) — the memory uploader's
+ *  owner gate. Every other read here answers null for "gone" and "not yours"
+ *  alike; this one must tell them apart, because a take whose row is gone is
+ *  still this recorder's own capture, and one whose row is a colleague's is
+ *  not — its audio must never go up under the staffer signed in now. True
+ *  only when a row exists and the signed-in uid is not its owner (nobody
+ *  signed in counts: no owner to confirm). A store that cannot answer says
+ *  false: the recorder's own live take is the only one it can be asking for. */
+export async function isTakeHeldByAnother(takeId: string): Promise<boolean> {
+  try {
+    const db = await openDb()
+    if (!db) return false
+    const uid = await currentUserId()
+    const meta = (await req(db.transaction(TAKES).objectStore(TAKES).get(takeId))) as
+      | TakeMeta
+      | undefined
+    return !!meta && meta.ownerUid !== uid
+  } catch (err) {
+    console.error('[take-store] isTakeHeldByAnother failed:', err)
+    return false
+  }
+}
+
 /** R-B3: stamp the 結果 answer onto the take so recovery restores it instead of
  *  re-asking.
  *
