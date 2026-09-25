@@ -235,8 +235,9 @@ export async function readReserveCardColor(): Promise<string | null> {
   return null
 }
 
-/** 予約の色分け — org settings `booking_colors`, RAW (one value per business, keyed by store inside);
- *  `bookingColorsFor` (today-board.ts) resolves it. OFF answers null → every store gets the defaults. */
+/** 予約の色分け — the business's org-settings colour keys, RAW: the legacy `booking_colors` map (read-only) and one
+ *  `booking_colors:<storeId>` key per store (⚖ PKT-S41); `bookingColorsFor` (booking-colors.ts) resolves them.
+ *  OFF answers null → every store gets the defaults. */
 export async function readBookingColors(): Promise<unknown> {
   if (practiceTenant() !== null) return door.readBookingColors()
   return null

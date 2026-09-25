@@ -1,7 +1,8 @@
-// 予約の色分け (⚖ PKT-S38 R1/R2) — ONE HOME for the board's four category colours, the closed palette a
-// store picks them from, and the per-store resolver. IMPORT-FREE on purpose: the practice door's writer
-// checks a save against BOOKING_PALETTE, and the door may not reach ./fixtures or ./fixtures-today
-// through today-board.ts. today-board.ts re-exports all of it, so no existing import moves.
+// 予約の色分け (⚖ PKT-S38 R1/R2 + PKT-S41 R-S41-1) — ONE HOME for the board's four category colours, the closed
+// palette a store picks them from, the org-settings keys they live under, and the per-store resolver.
+// IMPORT-FREE on purpose: the practice door's writer checks a save against BOOKING_PALETTE, and the door may
+// not reach ./fixtures or ./fixtures-today through today-board.ts. today-board.ts re-exports the palette and
+// the resolver, so no existing import moves.
 
 /** The board's four booking categories (today-board.ts `BookingCategory`) → one colour each. */
 export type BookingColors = { new: string; repeat: string; ticket: string; vip: string }
@@ -24,11 +25,37 @@ export const BOOKING_PALETTE: ReadonlyArray<{ hex: string; label: string }> = [
   { hex: '#8a8a93', label: '灰' },
 ]
 const HEX6 = /^#[0-9a-f]{6}$/i
-/** `raw` = the business's org-settings `booking_colors` value, shape unknown ({ [storeId]: { new, repeat, ticket, vip } } when saved by PR-2). Per key: a `#rrggbb` string (case-insensitive, returned lowercase) or the default. Anything else (null, non-object, unknown store, bad hex) → the default for that key. */
+
+/** ⚖ PKT-S41 R-S41-1 (Liam 9/25 A) — THE KEYS. Every store keeps its four under ITS OWN top-level org-settings key,
+ *  `booking_colors:<storeId>` = `{ new, repeat, ticket, vip }`: the practice door's writer sends that one key alone,
+ *  and core merges top-level keys (synqed-core org-settings.service.ts:50), so two stores saving in the same instant
+ *  never touch each other. `booking_colors` = the LEGACY per-store map (`{ [storeId]: four }`), read as a fallback
+ *  only: never written, never emptied, never removed (⚖ 9/16 nothing deleted). Karute's settings writer
+ *  (src/actions/org-settings.ts) carries its own copy of the prefix; each side pins its own literal. */
+export const BOOKING_COLORS_KEY = 'booking_colors'
+export const BOOKING_COLORS_KEY_PREFIX = 'booking_colors:'
+export function bookingColorsKeyFor(storeId: string): string {
+  return `${BOOKING_COLORS_KEY_PREFIX}${storeId}`
+}
+
+/** A plain object: no array, and its prototype is null or SOME realm's Object.prototype (the writer's own test). */
+const plainObject = (v: unknown): v is Record<string, unknown> => {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
+  const proto: unknown = Object.getPrototypeOf(v)
+  return proto === null || Object.getPrototypeOf(proto) === null
+}
+
+/** `raw` = the business's org settings, or just their 予約の色分け keys (the door hands that subset: `booking_colors`
+ *  and every `booking_colors:<storeId>`); only those keys are read. Per store, PRESENT WINS WHOLE: the store's own
+ *  key, when it holds a plain object, answers ALONE; else the legacy map's entry for the store; else the defaults —
+ *  never a blend of the two. Per key: a `#rrggbb` string (case-insensitive, returned lowercase) or that key's
+ *  default. Anything else (null, non-object, unknown store, bad hex) → the default for that key; `storeId` null →
+ *  the four defaults. Own properties only; never throws. */
 export function bookingColorsFor(storeId: string | null, raw: unknown): BookingColors {
   const own = (o: unknown, k: string): unknown =>
     o !== null && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) ? (o as Record<string, unknown>)[k] : undefined
-  const saved = storeId === null ? undefined : own(raw, storeId)
+  const perStore = storeId === null ? undefined : own(raw, bookingColorsKeyFor(storeId))
+  const saved = storeId === null ? undefined : plainObject(perStore) ? perStore : own(own(raw, BOOKING_COLORS_KEY), storeId)
   const pick = (k: keyof BookingColors) => {
     const v = own(saved, k)
     return typeof v === 'string' && HEX6.test(v) ? v.toLowerCase() : BOOKING_COLOR_DEFAULTS[k]

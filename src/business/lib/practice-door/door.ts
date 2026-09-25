@@ -422,12 +422,16 @@ export async function readReserveCardColor(): Promise<string | null> {
   return normalizeCardColor(org?.settings?.reserve_card_color)
 }
 
-/** LIVE: org settings' `booking_colors` (予約の色分け, per store) through the same read, RAW —
- *  `bookingColorsFor` (today-board.ts) is the one place that resolves it. */
-export async function readBookingColors(): Promise<unknown> {
+/** LIVE: 予約の色分け's org-settings keys through the same read, RAW — every own key that IS `booking_colors`
+ *  (the legacy per-store map, read-only) or STARTS WITH `booking_colors:` (one key per store, ⚖ PKT-S41 R-S41-1),
+ *  values untouched; no other key leaves the door. null when the settings are absent. The key names' one home is
+ *  booking-colors.ts (door.ts does not import it; the writer suite pins this filter to its keys), and
+ *  `bookingColorsFor` there is the one place that resolves them. */
+export async function readBookingColors(): Promise<Record<string, unknown> | null> {
   const actor = await practiceActor()
-  const org = await orgSettingsOf(actor)
-  return org?.settings?.booking_colors ?? null
+  const settings: unknown = (await orgSettingsOf(actor))?.settings
+  if (settings === null || settings === undefined || typeof settings !== 'object') return null
+  return Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'booking_colors' || key.startsWith('booking_colors:')))
 }
 
 /** ⚖ A2 · G5 — ONE truth for 「may this operator save the card colour」: core's own answer sheet. */

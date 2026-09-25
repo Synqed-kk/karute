@@ -130,7 +130,8 @@ export interface SettingsPropsInput {
     role?: string
     dials?: StoreDials | null
   }
-  /** ⚖ PKT-S38 R7 — 予約の色分け's LIVE value: org settings `booking_colors`, RAW, read ONCE by page.tsx while
+  /** ⚖ PKT-S38 R7 — 予約の色分け's LIVE value: the org-settings colour keys (PKT-S41: one `booking_colors:<storeId>`
+   *  per store + the legacy `booking_colors` map), RAW, read ONCE by page.tsx while
    *  the practice door is ON. Absent = door OFF: the dial stays the sample plane, byte for byte. */
   bookingColors?: { raw: unknown }
 }

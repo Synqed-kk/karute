@@ -477,8 +477,9 @@ export const CATEGORY_LABEL: Record<BookingCategory, string> = {
 
 /** 予約の色分け — ONE HOME for the four category colours, the closed palette and the per-store resolver:
  *  `./booking-colors` (import-free, so the practice door's writer checks a save against the same palette
- *  without reaching the fixtures — ⚖ PKT-S38 R2). page.tsx reads the business's org settings
- *  `booking_colors` (per store) and hands each store's result to TodayScreen; 設定's save writes it.
+ *  without reaching the fixtures — ⚖ PKT-S38 R2). page.tsx reads the business's colour keys (one
+ *  `booking_colors:<storeId>` per store, the legacy `booking_colors` map as a fallback — ⚖ PKT-S41) and hands
+ *  each store's result to TodayScreen; 設定's save writes the store's own key.
  *  Re-exported here so every existing import keeps its path. */
 export { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsFor, type BookingColors } from './booking-colors'
 /** The ONE lookup the board paints with (TodayScreen's `catVar` wraps it in `--cat`): `map` = page.tsx's
