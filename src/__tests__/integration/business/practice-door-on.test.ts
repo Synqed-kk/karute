@@ -676,7 +676,7 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     // ⚖ §v3 V3-3 — its FORM: whole where every value is sample; part (named) over live rows.
     expect(blockOf(props, 'audit-log', 'audit.rows').sample).toEqual({ form: 'whole' })
     expect(blockOf(props, 'business-structure', 'org.entity').sample).toEqual({ form: 'whole' })
-    expect(blockOf(props, 'people-equipment', 'people.staff').sample).toEqual({ form: 'part', labels: ['稼働状態'] })
+    expect(blockOf(props, 'people-equipment', 'people.staff').sample).toEqual({ form: 'part', labels: ['役職と表示'] }) // §v5 V5-1 — the role echo, never the live 稼働
     expect(blockOf(props, 'staff', 'staff.roster').sample).toEqual({ form: 'part', labels: ['役職と表示'] })
     expect(blockOf(props, 'store-hours', 'store-hours.info').sample).toEqual({ form: 'part', labels: ['住所', '電話番号', '店舗写真'] })
     expect(blockOf(props, 'store-hours', 'store-hours.hours').sample).toEqual({ form: 'whole' })
@@ -739,6 +739,8 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     const roster = blockOf(props, 'staff', 'staff.roster')
     expect(roster.rows.every((r) => r.controls.length === 0)).toBe(true)
     expect(roster.sample).toBeUndefined()
+    // ⚖ §v5 V5-1 — 人・設備's スタッフ: 稼働 is live and no row echoes a twin role, so no mark.
+    expect(blockOf(props, 'people-equipment', 'people.staff').sample).toBeUndefined()
     const menus = blockOf(props, 'services', 'services.menus')
     expect(menus.rows.filter((r) => r.controls.length > 0).map((r) => r.id)).toEqual([`services.row-${MENU.zenten}`])
     expect(menus.sample).toEqual({ form: 'part', labels: ['表示・非表示'] })

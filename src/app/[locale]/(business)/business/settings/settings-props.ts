@@ -1136,7 +1136,10 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): Set
           meta: settings === null ? [] : [roleLabelOf(settings.preset)],
         })
       }), {
-        sample: d === null ? undefined : ctx.samplePart('staffActive'), sampleNone: d === null,
+        // ⚖ §v5 V5-1 — the 稼働 switch is LIVE under the door (see the row comment), so it
+        // is never marked; the block's sample content is the role echo in `meta`, from the
+        // staffSettings plane, present only where a row has twin settings.
+        sample: d === null ? undefined : (roster.some((p) => sampleSettingsOf(d, p.id) !== null) ? ctx.samplePart('staffSettings') : undefined), sampleNone: d === null,
         facts: ['休止にすると、その人の予約枠はボードにもReserveにも出なくなります。すでに入っている予約は残ります。'],
         links: [{ label: '役職と権限はスタッフ管理で', sectionId: 'staff' }],
         audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（稼働状態を変更）`,
