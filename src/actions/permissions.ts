@@ -9,7 +9,7 @@ import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permiss
 import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { resolveWebActorId } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
-import { describeUnknownThrow } from '@/lib/app-api/errors'
+import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   PERMISSION_ROLES,
   ROLE_PRESETS,
@@ -294,6 +294,11 @@ export async function setStaffPermissions(
   try {
     await requireCapability('staff.manage')
   } catch (e) {
+    // Round 3 leg 6 (D-S25-1): the gate reads the roster first — a TYPED outage answers the failure line, never the English fixed message; a denial keeps its own answer.
+    if (e instanceof AppApiError && e.code === 'upstream_unavailable') {
+      console.error('[permissions] pre-core read failed (roster):', describeUnknownThrow(e))
+      return { error: (await getTranslations('common'))('somethingWentWrong') }
+    }
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
