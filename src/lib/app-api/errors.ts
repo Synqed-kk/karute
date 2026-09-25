@@ -111,7 +111,8 @@ export function toAppApiError(err: unknown): AppApiError {
 const LINE_TERMINATOR_RE = new RegExp(`[\r\n${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`)
 
 /** Sanitised, bounded one-line description of an unclassified thrown value —
- *  read only by `logFacadeError` (handler.ts), never by `errorBody`. Never the
+ *  for SERVER logs only — `logFacadeError` (handler.ts) and the web actions'
+ *  outage catches — never `errorBody`. Never the
  *  stack, never `cause.cause`. TOTAL (fix round 2, MUST-1a): every property
  *  read/coercion below sits inside ONE try — a hostile shape (a throwing
  *  `message`/`status` getter, a throwing `toString`, a non-string `name` that

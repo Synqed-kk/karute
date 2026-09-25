@@ -3,7 +3,7 @@ import { unstable_cache } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
-import { AppApiError } from '@/lib/app-api/errors'
+import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 
 export interface StaffMember {
@@ -81,7 +81,16 @@ async function staffListCore(businessId: string): Promise<StaffMember[]> {
     .not('full_name', 'ilike', '_system_%')
     .order('full_name', { ascending: true })
 
-  if (error) throw new Error(`staff profiles read failed: ${error.message}`)
+  // Round 3 leg 5 G2/G3 (2026-09-25, D-S24-1/2): a failed roster read is an
+  // upstream outage — typed like its sibling membership read (businessIdForUser)
+  // so a caller can tell it from a denial, with a FIXED message: errorBody sends
+  // it to the phone. The database detail stays in the server log and on cause.
+  if (error) {
+    // Bounded + masked (G4): the PostgREST error may be a plain object, so the
+    // sanitizer gets an Error carrying its message.
+    console.error('[getStaffList] staff profiles read failed:', describeUnknownThrow(new Error(error.message)))
+    throw new AppApiError('upstream_unavailable', 'staff profiles read failed', undefined, error)
+  }
 
   const profileStaff = (data ?? []).map(
     ({
