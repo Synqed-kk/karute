@@ -119,7 +119,7 @@ function fakeCore(rows: Appointment[], o: { business?: string; karuted?: Set<str
     packs: { listRedemptions: async (cid: string) => (o.burns?.get(cid) ?? []).map((id) => ({ pack_id: 'p', redeemed_on: '2026-07-01', appointment_id: id })) },
     appointments: {
       list: async (q: { store_id?: string; page?: number; page_size?: number }) => paged('appointments', rows.filter((a) => !q.store_id || a.store_id === q.store_id || a.business_id !== DEV_SALON_BUSINESS_ID), q),
-      get: async (id: string) => rows.find((a) => a.id === id)!,
+      get: async (id: string) => clone(rows.find((a) => a.id === id)!), // a fresh object on every read, as core's JSON is
       update: async (id: string, input: Record<string, unknown>) => {
         if (id === o.failOn) throw Object.assign(new Error('core refused the write'), { status: 400 })
         for (const k of Object.keys(input)) if (!UPDATE_KEYS.has(k)) throw Object.assign(new Error(`unknown key ${k}`), { status: 400 })
@@ -371,6 +371,30 @@ async function writeTime() {
   const again = await dryThenApply(wb, fb)
   assert.equal(again.code, 0, again.lines.join('\n'))
   assert.equal(wb.manifest.stores[STORE].realismFrom, addDays(TODAY, 15), 'a clean apply advances realismFrom')
+
+  // Revert reads each row again at its write: a row a person edits after revert's fence read (here, while the first row
+  // is written back) is left alone with the existing line — the fresh read decides, not the fence read; the others revert.
+  const wr = await world()
+  const fr = fakeCore(wr.rows, { karuted: wr.karuted, burns: wr.burns })
+  const r = await dryThenApply(wr, fr)
+  assert.equal(r.code, 0, r.lines.join('\n'))
+  const late = r.ledger.changes.slice(0, -1).find((c) => c.set.notes !== undefined && !c.set.status)! // not the first written back
+  const { update } = fr.core.appointments
+  let backs = 0
+  fr.core.appointments.update = async (id, input) => {
+    const out = await update(id, input)
+    if (!backs++) wr.rows.find((x) => x.id === late.id)!.notes = 'スタッフが書き換えたメモ'
+    return out
+  }
+  const rl: string[] = []
+  assert.equal(await revert(fr.core, r.ledger, wr.manifest, (l) => void rl.push(l)), 0, rl.join('\n'))
+  assert.ok(rl.includes(`changed since the ledger, left alone: ${late.id}`), rl.slice(-3).join('\n'))
+  assert.equal(wr.rows.find((x) => x.id === late.id)!.notes, 'スタッフが書き換えたメモ', 'the edit made during the revert is kept')
+  assert.equal(backs, r.ledger.changes.length - 1, 'every other row written back')
+  for (const c of r.ledger.changes) {
+    if (c.id === late.id) continue
+    for (const k of Object.keys(c.old) as (keyof Fields)[]) assert.equal(wr.rows.find((x) => x.id === c.id)![k], c.old[k], `${c.id}: ${k} reverted`)
+  }
 }
 
 async function main() {

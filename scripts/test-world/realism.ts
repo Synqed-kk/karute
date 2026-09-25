@@ -23,7 +23,8 @@
 // DRY-RUN IS THE DEFAULT. --apply recomputes the plan and refuses unless its hash is the dry-run's; the ledger
 // <manifest dir>/ledger/realism-<ts>.json (row, field, old, new) is written BEFORE the first write; each row is read
 // again at its write and skipped with one line if it no longer holds the plan's old values. --revert restores
-// every field on rows that still hold the ledger's new value; a row changed since is left alone with one line.
+// every field on rows that still hold the ledger's new value, each read again at its write; a row changed since is left
+// alone with one line.
 // Status writes carry no acting_staff_id: the cancel sheet's 「操作」 line (who + when) stays empty, as on a crawl-set
 // row, rather than stamping today on a June booking. Core's own audit (status_source STAFF, status_set_at,
 // cancelled_at, the status history) records every write, and --revert does not rewind it.
@@ -269,7 +270,8 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
   return clean ? 0 : 1
 }
 
-/** Back to the ledger's old values, on rows that still hold its new ones (every row read and fenced before any write). */
+/** Back to the ledger's old values, on rows that still hold its new ones (every row read and fenced before any write, then
+ *  read again at its own write: the fresh row decides). */
 export async function revert(core: Pick<RealismCore, 'orgSettings' | 'staff' | 'appointments'>, l: Ledger, manifest: Manifest | null, log: (l: string) => void, wait?: (ms: number) => Promise<unknown>): Promise<number> {
   if (l.businessId !== DEV_SALON_BUSINESS_ID) return (log('REFUSED: the ledger is not a Dev Salon ledger'), 2)
   try {
@@ -278,18 +280,17 @@ export async function revert(core: Pick<RealismCore, 'orgSettings' | 'staff' | '
     if (!(e instanceof Refused)) throw e
     return (log(`REFUSED: ${e.message}`), 2)
   }
-  const rows = new Map<string, Appointment>()
   for (const c of l.changes) {
     const a = await withRetry(() => core.appointments.get(c.id), false, wait)
     if (a.business_id !== DEV_SALON_BUSINESS_ID || a.store_id !== c.store || !registry.stores[c.store]) return (log(`REFUSED: booking ${c.id} is not in managed store ${c.store} of the Dev Salon`), 2)
-    rows.set(c.id, a)
   }
   let [done, failed] = [0, 0]
   for (const c of [...l.changes].reverse()) {
-    const a = rows.get(c.id)!
-    if (same(a, c.old)) { log(`already back: ${c.id}`); continue }
-    if (!same(a, c.set)) { log(`changed since the ledger, left alone: ${c.id}`); continue }
     try {
+      // read again at the write: a person may have changed the row since the fence read above (the fresh row decides)
+      const a = await withRetry(() => core.appointments.get(c.id), false, wait)
+      if (same(a, c.old)) { log(`already back: ${c.id}`); continue }
+      if (!same(a, c.set)) { log(`changed since the ledger, left alone: ${c.id}`); continue }
       await withRetry(() => core.appointments.update(c.id, c.old), 'keyed', wait)
       done++
     } catch (e) {
