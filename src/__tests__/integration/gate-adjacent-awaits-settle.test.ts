@@ -260,11 +260,13 @@ describe('C mintRecordingReadUrl — settles like mintRecordingUploadUrl (D-S29-
     armGate(probe)
     await expect(mintRecordingReadUrl(OWN)).resolves.toStrictEqual({ error: 'upstream' })
     expect(warnedFailed()).toHaveLength(1)
-    // The probe really was the typed gate throw (not some other failure).
-    expect(warnedFailed()[0][1]).toMatchObject({
-      name: 'AppApiError',
-      code: probe === 'a' ? 'upstream_unavailable' : 'internal',
-    })
+    // The probe really was the typed gate throw, and the log carries only the
+    // BOUNDED shape (D-S24-2): name + status + masked first line — never the
+    // Error itself, whose cause/stack can carry raw DB text.
+    const logged = warnedFailed()[0][1]
+    expect(logged).toMatchObject({ errName: 'AppApiError', errStatus: probe === 'a' ? 502 : 500 })
+    expect(logged).not.toBeInstanceOf(Error)
+    expect(Object.keys(logged as object)).toEqual(expect.not.arrayContaining(['cause', 'stack']))
     expect(mockStorage.createSignedUrl).not.toHaveBeenCalled()
     expect(helperLines()).toHaveLength(0)
   })

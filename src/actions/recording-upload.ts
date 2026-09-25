@@ -24,6 +24,7 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { composeTakeKey, isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import {
   mintSegmentUploadUrls,
@@ -131,7 +132,7 @@ export async function mintRecordingUploadUrl(
       input,
     )
   } catch (err) {
-    console.warn('[mintRecordingUploadUrl] failed:', err)
+    console.warn('[mintRecordingUploadUrl] failed:', describeUnknownThrow(err))
     return { error: 'upstream' }
   }
 }
@@ -279,7 +280,8 @@ export async function mintRecordingReadUrl(
     if (error || !data?.signedUrl) return { error: 'upstream' }
     return { url: data.signedUrl }
   } catch (err) {
-    console.warn('[mintRecordingReadUrl] failed:', err)
+    // Bounded log (D-S24-2, Greptile S29 P2): never the whole error, whose cause can carry raw DB text.
+    console.warn('[mintRecordingReadUrl] failed:', describeUnknownThrow(err))
     return { error: 'upstream' }
   }
 }
