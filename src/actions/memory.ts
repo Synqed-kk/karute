@@ -35,7 +35,17 @@ export async function addMemoryItemAction(input: {
   detail?: string | null
 }): Promise<{ ok: boolean }> {
   const { getSynqedClient } = await import('@/lib/synqed/client')
-  const [synqed, businessId] = await Promise.all([getSynqedClient(), getBusinessId().catch(() => null)])
+  // Round 3 leg 5 (2026-09-25): a THROWN client/business read answers the
+  // action's own failure shape, never a rejection the card's bare await
+  // leaves stuck — and never a business_id: null write. Same in the two below.
+  let reads
+  try {
+    reads = await Promise.all([getSynqedClient(), getBusinessId()])
+  } catch (err) {
+    console.error('[memory] pre-core read failed:', err)
+    return { ok: false }
+  }
+  const [synqed, businessId] = reads
   const result = await addMemoryItemWithClient(synqed, businessId, input)
   if (result.ok) revalidateProfile()
   return result
@@ -74,13 +84,20 @@ export async function relearnCustomerMemoryAction(
     import('@/lib/subscription/feature-gate'),
   ])
   const { canUseDevRegen } = await import('@/actions/dev-tools')
-  const [synqed, businessId, locale, planAllowed, regenAllowed] = await Promise.all([
-    getSynqedClient(),
-    getBusinessId().catch(() => null),
-    getLocale(),
-    featureAllowed('customerMemoryAutoExtract'),
-    canUseDevRegen(),
-  ])
+  let reads
+  try {
+    reads = await Promise.all([
+      getSynqedClient(),
+      getBusinessId(),
+      getLocale(),
+      featureAllowed('customerMemoryAutoExtract'),
+      canUseDevRegen(),
+    ])
+  } catch (err) {
+    console.error('[memory] pre-core read failed:', err)
+    return { ok: false, items: 0 }
+  }
+  const [synqed, businessId, locale, planAllowed, regenAllowed] = reads
   const result = await relearnCustomerMemoryWithClient(
     synqed,
     { businessId, locale, planAllowed, regenAllowed },
@@ -99,11 +116,18 @@ export async function upsertPassportFieldAction(input: {
     import('@/lib/synqed/client'),
     import('@/actions/org-settings'),
   ])
-  const [synqed, businessId, orgSettings] = await Promise.all([
-    getSynqedClient(),
-    getBusinessId().catch(() => null),
-    getOrgSettings().catch(() => null),
-  ])
+  let reads
+  try {
+    reads = await Promise.all([
+      getSynqedClient(),
+      getBusinessId(),
+      getOrgSettings().catch(() => null),
+    ])
+  } catch (err) {
+    console.error('[memory] pre-core read failed:', err)
+    return { ok: false }
+  }
+  const [synqed, businessId, orgSettings] = reads
   const result = await upsertPassportFieldWithClient(synqed, businessId, orgSettings?.business_type, input)
   if (result.ok) revalidateProfile()
   return result
