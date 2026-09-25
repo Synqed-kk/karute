@@ -32,7 +32,7 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
   // fill.ts's rule for "ours": the manifest's recorded id wins over a tag; with no recorded id, a tag on 2+ bookings is ambiguous
   const tagOf = (r: { notes: string | null }) => /\[(tw:[^\]]+)\]/.exec(r.notes ?? '')?.[1]
   const seen = new Map<string, number>()
-  for (const t of window.map(tagOf)) if (t) seen.set(t, (seen.get(t) ?? 0) + 1)
+  for (const t of window.filter((r) => r.store_id === storeId).map(tagOf)) if (t) seen.set(t, (seen.get(t) ?? 0) + 1) // this store only
   for (const r of window) {
     const tag = tagOf(r)
     if (!tag || r.store_id !== storeId || r.status !== 'SCHEDULED' || Date.parse(r.starts_at) >= now.getTime()) continue
