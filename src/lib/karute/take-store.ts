@@ -422,10 +422,16 @@ function req<T>(r: IDBRequest<T>): Promise<T> {
 let dbPromise: Promise<IDBDatabase | null> | null = null
 
 /** Open (once). Resolves null when IndexedDB is unavailable or the open
- *  fails — every caller treats null as "layer disabled". */
+ *  fails — every caller treats null as "layer disabled".
+ *
+ *  ⚖ …AND A FAILED OPEN IS NOT CACHED (S36 PR-1). Only a CONNECTION is kept.
+ *  A null used to be held for the whole page life, so one blocked or failed
+ *  open at the first flush left every take on the page memory-only however
+ *  long the recording ran — and the recorder's revive could never reach a
+ *  store that had come back. The next call opens again. */
 function openDb(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve) => {
+  const opening: Promise<IDBDatabase | null> = new Promise((resolve) => {
     try {
       if (typeof indexedDB === 'undefined') return resolve(null)
       const open = indexedDB.open(DB_NAME, 1)
@@ -447,7 +453,11 @@ function openDb(): Promise<IDBDatabase | null> {
       resolve(null)
     }
   })
-  return dbPromise
+  dbPromise = opening
+  void opening.then((db) => {
+    if (!db && dbPromise === opening) dbPromise = null
+  })
+  return opening
 }
 
 let persistRequested = false
