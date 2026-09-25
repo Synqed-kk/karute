@@ -112,7 +112,12 @@ describe('C3a inverted — a failed roster read is never cached, never []', () =
 
   it('one transient CORE roster error → rejects too (never a silent profiles-only roster); then recovers', async () => {
     core.errorsLeft = 1
-    await expect(getStaffList()).rejects.toThrow('core roster timeout')
+    await expect(getStaffList()).rejects.toMatchObject({
+      name: 'AppApiError',
+      code: 'upstream_unavailable',
+      message: 'synqed-core roster fetch failed',
+      cause: { message: 'core roster timeout' },
+    })
     expect((await getStaffList()).map((s) => s.id)).toEqual(['u1'])
   })
 
