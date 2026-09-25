@@ -446,6 +446,14 @@ class GlobalRecorder {
       p.revive.at = now + REVIVE_BACKOFF_MS[Math.min(p.revive.tries++, REVIVE_BACKOFF_MS.length - 1)]
       void this.queueRevive(p, takeId, this.recordingSessionId, false)
     }
+    // ⚖ …AND THE ROW GETS ITS SESSION (S36 PR-1). The recorder can hold an id
+    // its row never got: the mint's own stamp, or createTake's re-stamp, lost
+    // its write. The pump sends nothing for a row with no session. First
+    // write wins, so this can only fill an empty field.
+    // ponytail: one owner-gated read-modify-write per tick for a row that
+    // already has it (refused before the put) — the heartbeat's own cost.
+    const sid = this.recordingSessionId
+    if (sid && !p.disabled) void this.queueTakeWrite(() => stampTakeSession(takeId, sid))
   }
 
   /** The revive itself — ahead of whatever flush is queued behind it, which
