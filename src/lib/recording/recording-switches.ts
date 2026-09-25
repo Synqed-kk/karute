@@ -42,6 +42,6 @@ export const RECORDING_SWITCHES = {
    *  state — mint-take-url.ts, the `if (!input.takeId)` arm.
    *  Flipped ON 2026-09-24, back OFF 2026-09-25 on Liam's word: the ON arm leaves an undismissable 復元可能 row after every successful fallback save (all clients) and lets a discarded take resurface — cold read COLD-READ-S32-VERDICTS.md (outside the repo). Re-flip only after the stray/discard fix lands. */
   bindUnboundUploads: false,
-  /** The recorder's yellow notice (PR-6): during a recording, tell staff this phone cannot save (audio goes straight to the server) or the server is not receiving (audio is kept on the phone), and file one `recording.capture_warned` fact per raise. Default ON, 2026-09-26. OFF = PR-6 never computes, never renders, never writes the fact — pre-PR-6 behaviour exactly. Client code: a flip reaches the phone with its next bake. */
+  /** The recorder's yellow notice (PR-6): during a recording, tell staff this phone cannot save (audio goes straight to the server) or the server is not receiving (audio is kept on the phone), and file one `recording.capture_warned` fact per reason a take shows. Default ON, 2026-09-26. OFF = PR-6 never computes, never renders, never writes the fact — pre-PR-6 behaviour exactly. Client code: a flip reaches the phone with its next bake. */
   captureWarningNotice: true,
 } as const
