@@ -673,11 +673,27 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     // 予約同期: the shell's own stamp, 12 minutes before the board's moment
     expect(blockOf(props, 'sync', 'sync.status').facts[0]).toMatch(/^最終同期は12分前/)
     // ⚖ PR-3 — the mark: SAMPLE blocks carry it, ROW blocks never; a twin has no no-sample card.
-    expect(blockOf(props, 'audit-log', 'audit.rows').sample).toBe(true)
-    expect(blockOf(props, 'business-structure', 'org.entity').sample).toBe(true)
-    expect(blockOf(props, 'people-equipment', 'people.staff').sample).toBe(true) // mixed: live names, sample 役職
-    expect(sec(props, 'booking-guard').sample).toBe(true) // block-less; fixture planes for every store
-    for (const [sid, bid] of [['business-structure', 'org.stores'], ['business-structure', 'org.brand'], ['audit-log', 'audit.filter'], ['people-equipment', 'people.equipment'], ['pricing-points', 'pricing.bands']]) {
+    // ⚖ §v3 V3-3 — its FORM: whole where every value is sample; part (named) over live rows.
+    expect(blockOf(props, 'audit-log', 'audit.rows').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'business-structure', 'org.entity').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'people-equipment', 'people.staff').sample).toEqual({ form: 'part', labels: ['稼働状態'] })
+    expect(blockOf(props, 'staff', 'staff.roster').sample).toEqual({ form: 'part', labels: ['役職と表示'] })
+    expect(blockOf(props, 'store-hours', 'store-hours.info').sample).toEqual({ form: 'part', labels: ['住所', '電話番号', '店舗写真'] })
+    expect(blockOf(props, 'store-hours', 'store-hours.hours').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'services', 'services.menus').sample).toEqual({ form: 'part', labels: ['表示・非表示'] })
+    expect(blockOf(props, 'services', 'services.tickets').sample).toEqual({ form: 'part', labels: ['回数券'] })
+    expect(sec(props, 'booking-guard').sample).toEqual({ form: 'part', labels: ['予約と確保の設定'] }) // F2 — block-less
+    // ⚖ §v3 V3-8 — 業種 (no core field yet) and the 本部 sentence are sample and say so.
+    expect(blockOf(props, 'people-equipment', 'people.business-type').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'business-structure', 'org.brand').sample).toEqual({ form: 'whole' })
+    // ⚖ §v4 V4-3 — the sample history credits the fixture operator, never the signed-in person.
+    const audits = everyBlock(props).map((b) => b.audit).filter((a): a is string => a !== null)
+    expect(audits.length).toBeGreaterThan(5)
+    expect(audits.every((a) => a.startsWith('最終変更: 見本 あずさ ・'))).toBe(true)
+    // ⚖ §v3 V3-5 — the dateline drops サンプルデータ under the door (the topbar names the practice world).
+    expect(props.dateline).not.toContain('サンプルデータ')
+    expect(props.dateline.endsWith(' / テスト東京店')).toBe(true)
+    for (const [sid, bid] of [['business-structure', 'org.stores'], ['audit-log', 'audit.filter'], ['people-equipment', 'people.equipment'], ['pricing-points', 'pricing.bands']]) {
       expect(blockOf(props, sid, bid)).not.toHaveProperty('sample')
     }
     expect(everyBlock(props).filter((b) => b.sampleNone)).toEqual([])

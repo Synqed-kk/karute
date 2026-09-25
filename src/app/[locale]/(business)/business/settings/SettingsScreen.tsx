@@ -71,7 +71,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
-import { businessStrings } from '@/business/i18n'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
@@ -119,6 +119,7 @@ import {
   type RailRow,
   type RowControl,
   type RowValue,
+  type SampleMark as SampleMarkForm,
   type SettingsBlock,
   type SettingsProps,
   type SettingsRow,
@@ -978,7 +979,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           )}
         </p>
       )}
-      {section.sample && <SampleMark id={`st-mark-${section.id}`} reduced={reduced} />}
+      {section.sample && <SampleMark mark={section.sample} id={`st-mark-${section.id}`} reduced={reduced} />}
     </div>
   )
 
@@ -1583,7 +1584,7 @@ function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: 
 
 const MARK = businessStrings.sampleMark
 
-function MarkChip({ open, controls, onToggle }: { open: boolean; controls: string; onToggle: () => void }) {
+function MarkChip({ mark, open, controls, onToggle }: { mark: SampleMarkForm; open: boolean; controls: string; onToggle: () => void }) {
   return (
     <button
       type="button"
@@ -1592,7 +1593,7 @@ function MarkChip({ open, controls, onToggle }: { open: boolean; controls: strin
       aria-controls={controls}
       aria-label={MARK.chipLabel}
       data-guide-title={MARK.popLabel}
-      data-guide={`${MARK.popLine1}${MARK.popLine2}`}
+      data-guide={`${sampleMarkLines(mark).pop1}${MARK.popLine2}`}
       onClick={onToggle}
       onKeyDown={(e) => {
         if (e.key === 'Escape' && open) {
@@ -1606,14 +1607,16 @@ function MarkChip({ open, controls, onToggle }: { open: boolean; controls: strin
   )
 }
 
-/** The note line, and under it the chip's explanation on `Collapse`. */
-function MarkNote({ id, open, reduced }: { id: string; open: boolean; reduced: boolean }) {
+/** The note line, and under it the chip's explanation on `Collapse`. ⚖ §v3 V3-3 —
+ *  both say the mark's FORM: the whole block, or only its named parts. */
+function MarkNote({ mark, id, open, reduced }: { mark: SampleMarkForm; id: string; open: boolean; reduced: boolean }) {
+  const lines = sampleMarkLines(mark)
   return (
     <>
-      <p className="sample-mark-note">{MARK.markNote}</p>
+      <p className="sample-mark-note">{lines.note}</p>
       <Collapse open={open} id={id} reduced={reduced}>
         <div className="sample-pop" role="note" aria-label={MARK.popLabel}>
-          <p>{MARK.popLine1}</p>
+          <p>{lines.pop1}</p>
           <p>{MARK.popLine2}</p>
         </div>
       </Collapse>
@@ -1621,13 +1624,14 @@ function MarkNote({ id, open, reduced }: { id: string; open: boolean; reduced: b
   )
 }
 
-/** A block-less section's mark (予約と確保): chip + note on one line under the lead. */
-function SampleMark({ id, reduced }: { id: string; reduced: boolean }) {
+/** A section's mark (予約と確保): chip + note on one line under the lead. ⚖ §v3
+ *  V3-6 — it is the section's ONLY mark: its blocks draw none (see `Block`). */
+function SampleMark({ mark, id, reduced }: { mark: SampleMarkForm; id: string; reduced: boolean }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="sample-mark-line">
-      <MarkChip open={open} controls={id} onToggle={() => setOpen((o) => !o)} />
-      <MarkNote id={id} open={open} reduced={reduced} />
+      <MarkChip mark={mark} open={open} controls={id} onToggle={() => setOpen((o) => !o)} />
+      <MarkNote mark={mark} id={id} open={open} reduced={reduced} />
     </div>
   )
 }
@@ -1682,6 +1686,9 @@ function Block({
   reduced: boolean
 }) {
   const [markOpen, setMarkOpen] = useState(false)
+  // ⚖ PR-3 §v3 V3-6 — ONE RULE, ONE HOME: under a marked section its blocks carry
+  // no mark of their own (the section's chip already says it).
+  const mark = section.sample ? undefined : seed.sample
   const roomBlock = wordsRoomBlock(section, seed.id, values)
   const block: SettingsBlock = roomBlock === null ? seed : { ...seed, ...(roomBlock.title === undefined ? {} : { title: roomBlock.title }), ...(roomBlock.note === undefined ? {} : { note: roomBlock.note }) }
   const rows = block.table === null ? block.table : filterTable(block, values)
@@ -1710,11 +1717,11 @@ function Block({
             jump has to move the caret as well as the page, or a keyboard reader
             presses 「営業時間」 and is still standing in the list. */}
         <h3 id={`st-blkh-${block.id}`} tabIndex={-1}>{block.title}</h3>
-        {block.sample && <MarkChip open={markOpen} controls={`st-mark-${block.id}`} onToggle={() => setMarkOpen((o) => !o)} />}
+        {mark && <MarkChip mark={mark} open={markOpen} controls={`st-mark-${block.id}`} onToggle={() => setMarkOpen((o) => !o)} />}
         {block.flag && <span className="st-flag is-soon">{block.flag}</span>}
       </div>
       {block.note && <p className="st-block-note">{block.note}</p>}
-      {block.sample && <MarkNote id={`st-mark-${block.id}`} open={markOpen} reduced={reduced} />}
+      {mark && <MarkNote mark={mark} id={`st-mark-${block.id}`} open={markOpen} reduced={reduced} />}
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.layout === 'week' ? (

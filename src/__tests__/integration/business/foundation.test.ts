@@ -875,6 +875,8 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
         '@/business/lib/practice-door/sample-facade',
+        // ⚖ PR-3 §v3 V3-5 — the dateline drops サンプルデータ under the door (the switch itself, read once).
+        '@/business/lib/practice-door/switch',
         // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
         '@/business/lib/reserve-card/palette',
         '@/business/lib/resource-words',

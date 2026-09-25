@@ -506,7 +506,7 @@ export interface SettingsBlock {
    *  note line under the lead. Absent (never `false`) everywhere else, so the
    *  switch-OFF payload is byte-identical. ⚖ §v3 — its FORM: `whole` (every
    *  value is sample) or `part` (live rows + named sample parts). */
-  sample?: true
+  sample?: SampleMark
   /** ⚖ PR-3 — the store has no sample plane for this block's SAMPLE part: the
    *  designed card where the bare 「サンプル設定なし」 used to print. */
   sampleNone?: true
@@ -677,7 +677,7 @@ export interface SettingsSection {
    *  SAMPLE-only section on a store with no sample plane (zero blocks → the
    *  card in the body slot, the lead kept). ⚖ §v3 V3-6 — a section's mark is
    *  the ONLY mark in it: its blocks draw none (the renderer's rule). */
-  sample?: true
+  sample?: SampleMark
   sampleNone?: true
   /** `local` = this section's values round-trip through the reader's own
    *  browser, which is 自分の表示設定 and nothing else. */

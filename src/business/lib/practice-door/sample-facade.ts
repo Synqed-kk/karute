@@ -132,7 +132,7 @@ export type PlaneKey =
   | 'storeProfile' | 'closures' | 'opsConfig' | 'bookingGuard' | 'menuVisible' | 'tickets'
   | 'staffActive' | 'businessType' | 'pay' | 'cashTolerance' | 'winBack' | 'company'
   // 設定 — 料金・ポイント / Karute / Reserve
-  | 'dynamicPricing' | 'points' | 'pricingRule' | 'ai' | 'aiProfile' | 'recordingPolicy' | 'voice'
+  | 'dynamicPricing' | 'points' | 'salesTarget' | 'ai' | 'aiProfile' | 'recordingPolicy' | 'voice'
   | 'coaching' | 'sync' | 'bookingPolicy' | 'priceLock' | 'notify'
   // 設定 — 組織・管理
   | 'staffSettings' | 'rolePolicy' | 'connectors' | 'export' | 'auditLog' | 'language'
@@ -144,7 +144,7 @@ const PLANE_KEYS: readonly PlaneKey[] = [
   'operatingHours', 'shifts', 'absence', 'sellSlots', 'decisions', 'recoverySteps',
   'storeProfile', 'closures', 'opsConfig', 'bookingGuard', 'menuVisible', 'tickets',
   'staffActive', 'businessType', 'pay', 'cashTolerance', 'winBack', 'company',
-  'dynamicPricing', 'points', 'pricingRule', 'ai', 'aiProfile', 'recordingPolicy', 'voice',
+  'dynamicPricing', 'points', 'salesTarget', 'ai', 'aiProfile', 'recordingPolicy', 'voice',
   'coaching', 'sync', 'bookingPolicy', 'priceLock', 'notify',
   'staffSettings', 'rolePolicy', 'connectors', 'export', 'auditLog', 'language',
   'bookingColors', 'colorTokens', 'billing',
@@ -176,7 +176,7 @@ export const PLANE_ROW: Readonly<Record<PlaneKey, string>> = {
   bookingGuard: 'overridePolicy.lockedOut', menuVisible: 'menuVisible[menuId]', tickets: 'tickets[].name',
   staffActive: 'staffActive[staffId]', businessType: 'FixtureStore.business_type', pay: 'payCash',
   cashTolerance: 'cashTolerance', winBack: 'winBackDays', company: 'companyName',
-  dynamicPricing: 'dynamicPricing', points: 'pointsEnabled', pricingRule: 'pricingRule.base',
+  dynamicPricing: 'dynamicPricing', points: 'pointsEnabled', salesTarget: 'salesTargets[storeId]',
   ai: 'aiSummaryLength', aiProfile: 'businessProfile', recordingPolicy: 'recordingConsentRequired',
   voice: 'voiceStatus', coaching: 'coachingEnabled', sync: 'syncIntervalMin',
   bookingPolicy: 'bookingOpenDays', priceLock: 'priceLockDuringRecalc', notify: 'notify[event].app',

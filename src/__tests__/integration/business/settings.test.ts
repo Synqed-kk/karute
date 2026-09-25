@@ -3831,11 +3831,13 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
   // which the builders emit only when true (so a switch-OFF payload never has them).
   it('PR-3: chip + note on `block.sample`, the card on `block.sampleNone` / `section.sampleNone`, the section mark on `section.sample`', () => {
     for (const gate of [
-      '{block.sample && <MarkChip ',
-      '{block.sample && <MarkNote ',
+      '{mark && <MarkChip mark={mark} ',
+      '{mark && <MarkNote mark={mark} ',
       '{block.sampleNone && <NoSample />}',
       '{section.sampleNone && <NoSample />}',
-      '{section.sample && <SampleMark ',
+      '{section.sample && <SampleMark mark={section.sample} ',
+      // ⚖ §v3 V3-6 — a marked section's blocks carry no mark of their own: ONE rule, here.
+      'const mark = section.sample ? undefined : seed.sample',
     ]) expect(SCREEN_CODE.split(gate).length - 1).toBe(1)
     expect(SCREEN_CODE.match(/<(MarkChip|MarkNote|NoSample|SampleMark)\b/g)).toHaveLength(7) // the five gated + SampleMark's own chip + note
   })
@@ -4318,6 +4320,13 @@ describe('⚖ PR-3 — the mark’s strings are the mock’s, verbatim', () => {
       popLine2: 'この店舗の実データがつながると、印は外れ、実際の内容に置き換わります。',
       noneHead: 'この店舗にサンプルデータはありません',
       noneText: 'この店舗の実データがつながると、ここに表示されます。',
+      // ⚖ §v3 — the part form, the labels and the practice topbar (tools/build.py STRINGS, native-passed).
+      markNotePart: '{部分}はサンプルです。実データはまだつながっていません。',
+      popLine1Part: '{部分}は見本の内容です。この店舗の実データではありません。',
+      part: { staffActive: '稼働状態', staffSettings: '役職と表示', operatingHours: '営業時間', shiftsAbsence: 'シフトと休み', sellSlots: '販売可能枠', bookingGuard: '予約と確保の設定' },
+      partJoin: '、',
+      topNote: '練習用の事業',
+      topNoteLabel: '練習用の事業 — 実在の店舗の予約・お客様ではありません',
     })
     expect(businessStrings.settings.typeUnset).toBe('未設定')
     expect(businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')
