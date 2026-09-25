@@ -13,7 +13,7 @@ export const BOOKING_COLOR_DEFAULTS: BookingColors = { new: '#3d7ab8', repeat: '
 export const BOOKING_PALETTE: ReadonlyArray<{ hex: string; label: string }> = [
   { hex: BOOKING_COLOR_DEFAULTS.new, label: '藍' },
   { hex: BOOKING_COLOR_DEFAULTS.repeat, label: '藤紫' },
-  { hex: BOOKING_COLOR_DEFAULTS.ticket, label: '碧' },
+  { hex: BOOKING_COLOR_DEFAULTS.ticket, label: '浅葱' },
   { hex: BOOKING_COLOR_DEFAULTS.vip, label: '墨' },
   { hex: '#3b6fd4', label: '青' },
   { hex: '#2b8a8a', label: '青緑' },

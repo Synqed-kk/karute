@@ -4287,7 +4287,7 @@ describe('⚖ PKT-S38 R6 — 予約の色分け speaks the board’s four, from 
   })
   it('the palette: the four defaults first (new, repeat, ticket, vip), eleven distinct lowercase hexes, eleven distinct labels', () => {
     expect(BOOKING_PALETTE.slice(0, 4).map((p) => p.hex)).toEqual([BOOKING_COLOR_DEFAULTS.new, BOOKING_COLOR_DEFAULTS.repeat, BOOKING_COLOR_DEFAULTS.ticket, BOOKING_COLOR_DEFAULTS.vip])
-    expect(BOOKING_PALETTE.map((p) => p.label)).toEqual(['藍', '藤紫', '碧', '墨', '青', '青緑', '紫', '桃', '紺', '茶', '灰'])
+    expect(BOOKING_PALETTE.map((p) => p.label)).toEqual(['藍', '藤紫', '浅葱', '墨', '青', '青緑', '紫', '桃', '紺', '茶', '灰'])
     expect(new Set(BOOKING_PALETTE.map((p) => p.hex)).size).toBe(11)
     for (const p of BOOKING_PALETTE) expect(p.hex).toMatch(/^#[0-9a-f]{6}$/)
   })
