@@ -320,12 +320,13 @@ async function pass() {
 
 // ── the apply's write-time guards ────────────────────────────────────────────────────────────────
 const LEDGER = 'ledger/realism-2026-09-26T03-00-00-000Z.json' // the path saveLedger reports
-const UNDO = `to undo this attempt: --revert ${LEDGER} · a retry writes its own ledger for the remainder only — revert the newest first, then this one`
+const MANIFEST = 'test-worlds/manifest.json' // the apply's --manifest: the undo line must name it (revert rewinds realismFrom only with it)
+const UNDO = `to undo this attempt: --revert ${LEDGER} --manifest ${MANIFEST} · a retry writes its own ledger for the remainder only — revert the newest first, then this one`
 /** A dry-run, then --apply with its hash; onLedger runs after the plan, before the first write. */
 async function dryThenApply(w: Awaited<ReturnType<typeof world>>, f: ReturnType<typeof fakeCore>, onLedger: (l: Ledger) => void = () => {}) {
   const lines: string[] = []
   const ledgers: Ledger[] = []
-  const opts = { manifest: w.manifest, manifestPath: null, stores: [STORE], now: NOW, apply: false, repairForeign: false, log: (l: string) => void lines.push(l), saveLedger: (l: Ledger) => { ledgers.push(clone(l)); onLedger(l); return LEDGER } }
+  const opts = { manifest: w.manifest, manifestPath: MANIFEST, stores: [STORE], now: NOW, apply: false, repairForeign: false, log: (l: string) => void lines.push(l), saveLedger: (l: Ledger) => { ledgers.push(clone(l)); onLedger(l); return LEDGER } }
   assert.equal(await realism(f.core, opts), 0)
   const hash = /plan hash ([0-9a-f]{16})/.exec(lines.join('\n'))![1]
   lines.length = 0

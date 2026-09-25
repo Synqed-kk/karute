@@ -25,8 +25,8 @@
 // again at its write and skipped with one line if it no longer holds the plan's old values. --revert restores
 // every field on rows that still hold the ledger's new value, each read again at its write; a row changed since is left
 // alone with one line. After an unclean apply (a failed write or a skipped row): to undo this attempt, --revert its
-// ledger · a retry writes its own ledger for the remainder only — revert the newest first, then this one (nothing
-// chains them).
+// ledger --manifest the same manifest · a retry writes its own ledger for the remainder only — revert the newest first,
+// then this one (nothing chains them).
 // Status writes carry no acting_staff_id: the cancel sheet's 「操作」 line (who + when) stays empty, as on a crawl-set
 // row, rather than stamping today on a June booking. Core's own audit (status_source STAFF, status_set_at,
 // cancelled_at, the status history) records every write, and --revert does not rewind it.
@@ -269,7 +269,7 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
   if (clean) for (const r of realismFrom) o.manifest.stores[r.store].realismFrom = r.new
   else {
     if (realismFrom.length) log(`manifest realismFrom NOT advanced (${failed} failed / ${skipped} skipped) — fix, re-run the dry-run, apply again`)
-    log(`to undo this attempt: --revert ${ledgerPath} · a retry writes its own ledger for the remainder only — revert the newest first, then this one`)
+    log(`to undo this attempt: --revert ${ledgerPath} --manifest ${o.manifestPath ?? '<manifest>'} · a retry writes its own ledger for the remainder only — revert the newest first, then this one`)
   }
   log(`mode: apply · written ${changes.length - failed - skipped} of ${changes.length} · failed ${failed} · skipped ${skipped}`)
   return clean ? 0 : 1
