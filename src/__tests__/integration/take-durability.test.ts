@@ -5382,6 +5382,7 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
       // file shares was filled by the first test.
       let store!: typeof import('@/lib/karute/take-store')
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         store = require('@/lib/karute/take-store')
       })
       expect(await store.createTake(takeMeta('t1-first'))).toBe(false)
