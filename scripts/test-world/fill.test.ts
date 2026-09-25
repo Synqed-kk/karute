@@ -472,6 +472,9 @@ async function main() {
     assert.doesNotMatch(src, /(from\s+|require\(\s*|import\(\s*)['"][^'"]*core-target-guard/, `${file}: does not import core-target-guard`)
   }
 
+  // Every registry store id is a whole core uuid (a truncated one passed every other check).
+  for (const id of Object.keys(registry.stores)) assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, `registry store id ${id}: 8-4-4-4-12 lowercase hex`)
+
   // One recipe = one store: the guard itself, and apply calling it (a second store mapped to the type, removed again).
   assert.throws(() => assertOneStore({ a: 'x', b: 'x' }, 'x'), /must map exactly one store/)
   assert.doesNotThrow(() => assertOneStore({ a: 'x' }, 'x'))
