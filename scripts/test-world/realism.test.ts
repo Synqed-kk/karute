@@ -103,7 +103,7 @@ async function planner() {
 
 // ── realism.ts on a fake core ────────────────────────────────────────────────────────────────────
 const UPDATE_KEYS = new Set(['customer_id', 'staff_id', 'starts_at', 'ends_at', 'duration_minutes', 'title', 'notes', 'status', 'status_reason', 'acting_staff_id', 'resource_id']) // core's .strict() schema
-function fakeCore(rows: Appointment[], o: { business?: string; karuted?: Set<string>; burns?: Map<string, string[]> } = {}) {
+function fakeCore(rows: Appointment[], o: { business?: string; karuted?: Set<string>; burns?: Map<string, string[]>; failOn?: string } = {}) {
   const stats = { writes: 0 }
   const paged = (key: string, xs: unknown[], q: { page?: number; page_size?: number }) => {
     const [page, size] = [q.page ?? 1, Math.min(q.page_size ?? 20, 50)]
@@ -121,6 +121,7 @@ function fakeCore(rows: Appointment[], o: { business?: string; karuted?: Set<str
       list: async (q: { store_id?: string; page?: number; page_size?: number }) => paged('appointments', rows.filter((a) => !q.store_id || a.store_id === q.store_id || a.business_id !== DEV_SALON_BUSINESS_ID), q),
       get: async (id: string) => rows.find((a) => a.id === id)!,
       update: async (id: string, input: Record<string, unknown>) => {
+        if (id === o.failOn) throw Object.assign(new Error('core refused the write'), { status: 400 })
         for (const k of Object.keys(input)) if (!UPDATE_KEYS.has(k)) throw Object.assign(new Error(`unknown key ${k}`), { status: 400 })
         stats.writes++
         const a = rows.find((x) => x.id === id)!
@@ -325,6 +326,27 @@ async function writeTime() {
     for (const k of Object.keys(c.set) as (keyof Fields)[]) assert.equal(r[k], c.set[k], `${c.id}: ${k} written`)
   }
   assert.ok(a.ledger.changes.some((c) => c.id === target), 'the ledger keeps the entry')
+  assert.equal(a.code, 1, 'a skipped row → exit 1')
+  assert.equal(w.manifest.stores[STORE].realismFrom, undefined, 'a skipped row → realismFrom not advanced')
+  assert.ok(a.lines.includes('manifest realismFrom NOT advanced (0 failed / 1 skipped) — fix, re-run the dry-run, apply again'), a.lines.slice(-3).join('\n'))
+
+  // One failed write: realismFrom stays where it was — the manifest is unchanged, so the CLI's finally writes nothing — exit 1.
+  const wb = await world()
+  const fo: { karuted: Set<string>; burns: Map<string, string[]>; failOn?: string } = { karuted: wb.karuted, burns: wb.burns }
+  const fb = fakeCore(wb.rows, fo)
+  const before = JSON.stringify(wb.manifest)
+  const b = await dryThenApply(wb, fb, (l) => void (fo.failOn = l.changes[0].id))
+  assert.equal(b.ledger.realismFrom.length, 1, 'the plan advances realismFrom (not vacuous)')
+  assert.equal(b.code, 1, b.lines.slice(-3).join('\n'))
+  assert.equal(JSON.stringify(wb.manifest), before, 'realismFrom not advanced: the manifest is byte-equal')
+  assert.ok(b.lines.includes(`FAILED: ${fo.failOn}: core refused the write`))
+  assert.ok(b.lines.includes('manifest realismFrom NOT advanced (1 failed / 0 skipped) — fix, re-run the dry-run, apply again'), b.lines.slice(-3).join('\n'))
+  assert.equal(fb.stats.writes, b.ledger.changes.length - 1, 'the other rows are written')
+  // fixed, the dry-run re-run and applied again: now it advances
+  fo.failOn = undefined
+  const again = await dryThenApply(wb, fb)
+  assert.equal(again.code, 0, again.lines.join('\n'))
+  assert.equal(wb.manifest.stores[STORE].realismFrom, addDays(TODAY, 15), 'a clean apply advances realismFrom')
 }
 
 async function main() {

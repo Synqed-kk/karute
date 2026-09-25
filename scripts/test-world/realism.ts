@@ -30,7 +30,8 @@
 // Pin (fill.ts's): the client is built on the hard Dev Salon id; assertDevSalon before any booking is read; the
 // manifest and ledger must be Dev Salon's; only registry.json stores; a row of another business or store = REFUSED
 // before any write. Env: SYNQED_CORE_URL, SYNQED_CORE_API_KEY (never printed).
-// Exit: 0 ok · 1 error or a failed write · 2 REFUSED · 3 the plan's hash is not --expect.
+// Exit: 0 ok · 1 error, a failed write or a skipped row (realismFrom then not advanced) · 2 REFUSED · 3 the plan's hash
+// is not --expect.
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -261,9 +262,12 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
       log(`FAILED: ${c.id}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
-  for (const r of realismFrom) o.manifest.stores[r.store].realismFrom = r.new
+  // realismFrom moves only on a clean apply (the CLI saves the manifest only when it changed)
+  const clean = failed === 0 && skipped === 0
+  if (clean) for (const r of realismFrom) o.manifest.stores[r.store].realismFrom = r.new
+  else if (realismFrom.length) log(`manifest realismFrom NOT advanced (${failed} failed / ${skipped} skipped) — fix, re-run the dry-run, apply again`)
   log(`mode: apply · written ${changes.length - failed - skipped} of ${changes.length} · failed ${failed} · skipped ${skipped}`)
-  return failed ? 1 : 0
+  return clean ? 0 : 1
 }
 
 /** Back to the ledger's old values, on rows that still hold its new ones (every row read and fenced before any write). */
@@ -342,7 +346,7 @@ if (process.argv[1]?.endsWith('realism.ts')) {
         },
       })
     } finally {
-      if (JSON.stringify(m) !== before) writeFileSync(path!, JSON.stringify(m, null, 1) + '\n') // only an apply sets realismFrom
+      if (JSON.stringify(m) !== before) writeFileSync(path!, JSON.stringify(m, null, 1) + '\n') // only a clean apply sets realismFrom
     }
   }
   main().then((code) => process.exit(code), (e) => (console.error('realism failed:', e instanceof Error ? e.message : String(e)), process.exit(1)))
