@@ -177,6 +177,15 @@ const ALLOW = [
     reason: '⚖ Liam 9/24 A2 (CONTRACT-CARD-LOOK §5, RULINGS R3): the ONE Business writer — one key, palette-or-null, settings.manage, admitted tenant only, read-before-write, one PUT',
   },
   {
+    path: 'src/business/lib/practice-door/door-booking-colors.ts',
+    // ⚖ R-S39-1 — the second writer lives in its own file (one allowlist key per file::call).
+    // Double-quoted, same reason as the entry above.
+    label: "write call .upsert(",
+    match: ['orgSettings.upsert({ settings: { booking_colors: { ...map, [storeId]: next } } })'],
+    count: 1,
+    reason: "⚖ Liam 9/25 「make it work」 (PKT-S38-COLORS-PR2 R3/R8): the second Business writer, 予約の色分け — one key (the whole per-store map, core merges top-level keys only), closed palette, settings.manage + a store the operator may see, admitted tenant only, read-before-write, one PUT",
+  },
+  {
     path: 'src/business/lib/practice-door/core-reach.ts',
     label: 'bound write method .X.bind(',
     match: ['client.orgSettings.upsert.bind(client.orgSettings)'],

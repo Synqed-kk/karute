@@ -8,6 +8,7 @@
     "e2e/business/"
   ],
   "writers": [
-    { "file": "src/business/lib/practice-door/door.ts", "call": "orgSettings.upsert", "symbol": "writeReserveCardColor" }
+    { "file": "src/business/lib/practice-door/door.ts", "call": "orgSettings.upsert", "symbol": "writeReserveCardColor" },
+    { "file": "src/business/lib/practice-door/door-booking-colors.ts", "call": "orgSettings.upsert", "symbol": "writeBookingColors" }
   ]
 }
