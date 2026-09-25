@@ -392,6 +392,8 @@ describe('the fixture data door', () => {
         './business-shell.css',
         '@/business/lib/admission',
         '@/business/lib/data',
+        // ⚖ PR-3 §v3 V3-5 — the topbar's one door-aware prop, read on the server.
+        '@/business/lib/practice-door/switch',
         'react',
       ],
       // スタッフ・シフト's staged edits, above the screen for the same reason
@@ -406,7 +408,8 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/BusinessSidebar.tsx': ['next/link', 'next/navigation', 'react'],
-      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', 'next/navigation', 'react'],
+      // ⚖ PR-3 §v3 V3-5 — the practice note's words (Business's string home, a JSON module).
+      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', '@/business/i18n', 'next/navigation', 'react'],
       'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
       'src/business/lib/grants.ts': ['@/lib/supabase/service'],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
