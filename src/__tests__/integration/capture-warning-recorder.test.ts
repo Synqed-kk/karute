@@ -775,6 +775,9 @@ describe('PR-6 fix 2 — Greptile thread 3 (verified, pinned): a row refusal is 
       expect(mint).toHaveBeenCalledTimes(1)
       await tick() // 20 s: the tick after that one attempt
       expect(globalRecorder.captureWarning).toBe('server')
+      // Since fix 4 the hold alone would keep this 'server' up (it was up
+      // when storage died), so the refusal is pinned where it lands: memory.
+      expect((persistOf() as unknown as { segmentError?: string | null }).segmentError).toBe('forbidden')
       expect(Date.now() - memoryRuns[0]).toBe(5_000)
       await drain()
       expect(facts().map((f) => f.reason)).toEqual(['server'])
@@ -901,6 +904,79 @@ describe('PR-6 fix 3 — FIX E: storage dying after healthy uploading is the dev
     expect(facts()).toEqual([
       { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
     ])
+  })
+})
+
+describe('PR-6 fix 4 — FIX G (gr thread 4108115336): a server notice already up is held through a storage outage\'s grace', () => {
+  it('server stalled (the row) → storage dies → the field STAYS server through the grace, no null heard, no new fact → device at 15 s, one device fact → storage back, the row caught up → null', async () => {
+    const takeId = await startLive()
+    await tick(12) // 60 s recorded, nothing on the server: the row says server
+    expect(persistOf().disabled).toBe(false)
+    expect(globalRecorder.captureWarning).toBe('server')
+    await drain()
+    expect(facts().map((f) => f.reason)).toEqual(['server'])
+
+    // Every value subscribers hear from here on.
+    const heard: (string | null)[] = []
+    const off = globalRecorder.subscribe(() => heard.push(globalRecorder.captureWarning))
+    try {
+      // Storage goes, and the revive cannot win it back yet (no segment on
+      // disk, the row cannot be made).
+      mockAppendOk = false
+      mockCreateOk = false
+      FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['y']) })
+      await tick() // 65 s: the flush refuses
+      expect(persistOf().disabled).toBe(true)
+      expect(globalRecorder.captureWarning).toBe('server')
+      const rowReads = mockReadTakeUploadMeta.mock.calls.length
+      await tick() // 70 s: the revive's first try — the outage's clock starts
+      const since = persistOf().revive.since
+      expect(since).toBe(Date.now())
+
+      // The grace: memory is read (not the row), memory has no refusal of its
+      // own and its counts say nothing — the notice staff are reading stays.
+      const seen: (string | null)[] = [globalRecorder.captureWarning]
+      for (let i = 0; i < 2; i++) {
+        await tick() // 75 s, 80 s
+        seen.push(globalRecorder.captureWarning)
+      }
+      expect(seen).toEqual(['server', 'server', 'server'])
+      expect(mockReadTakeUploadMeta.mock.calls.length).toBe(rowReads)
+      expect(mockIsTakeHeldByAnother).toHaveBeenCalled()
+      await drain()
+      expect(facts().map((f) => f.reason)).toEqual(['server'])
+
+      await tick() // 85 s: fifteen after the first try
+      expect(Date.now() - since).toBe(15_000)
+      expect(globalRecorder.captureWarning).toBe('device')
+      await tick(3)
+      expect(globalRecorder.captureWarning).toBe('device')
+      await drain()
+      expect(facts()).toEqual([
+        { recordingSessionId: 'rs-1', takeId, reason: 'server', warnedAt: expect.any(String) },
+        { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
+      ])
+
+      // Storage comes back: the 105 s try (tries at 70, 75, 85, 105 s) makes
+      // the row, the catch-up writes the one segment memory held, and the
+      // row says the server has it.
+      mockCreateOk = true
+      mockAppendOk = true
+      mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 0, lastSeq: 0 }
+      await tick() // 105 s
+      expect(persistOf().disabled).toBe(false)
+      await tick() // 110 s: the row, caught up — the hold is over
+      expect(globalRecorder.captureWarning).toBeNull()
+      await tick(2)
+      expect(globalRecorder.captureWarning).toBeNull()
+      await drain()
+      expect(facts()).toHaveLength(2)
+      // Heard: server held (nothing), then device, then null — never a null
+      // between server and device.
+      expect(heard.filter((v, i) => v !== heard[i - 1])).toEqual(['device', null])
+    } finally {
+      off()
+    }
   })
 })
 

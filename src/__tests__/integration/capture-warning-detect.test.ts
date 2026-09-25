@@ -21,6 +21,7 @@ const healthy = {
   uploadedSeq: 10,
   lastSeq: 11,
   segmentError: null,
+  previous: null,
   now: NOW,
 }
 
@@ -135,5 +136,39 @@ describe('computeCaptureWarning — PR-6 fix 3: while storage is off, only a ter
       computeCaptureWarning({ ...healthy, disabled: false, recordedMs: 60_000, uploadedSeq: -1, lastSeq: 11 }),
     ).toBe('server')
     expect(computeCaptureWarning({ ...healthy, disabled: false, uploadedSeq: 3, lastSeq: 21 })).toBe('server')
+  })
+})
+
+describe('computeCaptureWarning — PR-6 fix 4 (gr thread 4108115336): a server notice already up is held while storage is off', () => {
+  /** Memory's meta inside a storage outage: its cursor −1, 30 segments held,
+   *  two minutes recorded, no refusal of its own — and the grace not over. */
+  const outage = {
+    ...healthy,
+    disabled: true,
+    reviveAt: NOW - 5_000,
+    recordedMs: 120_000,
+    uploadedSeq: -1,
+    lastSeq: 30,
+  }
+
+  it('(1) storage off, the notice already says server, no segment error → server (held)', () => {
+    expect(computeCaptureWarning({ ...outage, previous: 'server' })).toBe('server')
+    expect(computeCaptureWarning({ ...outage, previous: 'server', reviveAt: 0 })).toBe('server')
+    expect(computeCaptureWarning({ ...outage, previous: 'server', reviveAt: NOW - 14_999 })).toBe('server')
+  })
+
+  it('(2) storage off, nothing up, no segment error → null (fix 3 unchanged); a device notice is not held as server', () => {
+    expect(computeCaptureWarning({ ...outage, previous: null })).toBeNull()
+    expect(computeCaptureWarning({ ...outage, previous: 'device', reviveAt: 0 })).toBeNull()
+  })
+
+  it('(3) storage off, the notice says server, the device rule met → device (the hold ends by device)', () => {
+    expect(computeCaptureWarning({ ...outage, previous: 'server', reviveAt: NOW - 15_000 })).toBe('device')
+  })
+
+  it('(4) storage back, the notice says server, the row caught up → null (the hold ends by the row\'s truth); the row still behind → server', () => {
+    const back = { ...outage, disabled: false, reviveAt: 0, previous: 'server' as const }
+    expect(computeCaptureWarning({ ...back, uploadedSeq: 30, lastSeq: 30 })).toBeNull()
+    expect(computeCaptureWarning({ ...back, uploadedSeq: 3, lastSeq: 30 })).toBe('server')
   })
 })

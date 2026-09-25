@@ -697,6 +697,8 @@ class GlobalRecorder {
           uploadedSeq: meta.uploadedSeq ?? -1,
           lastSeq: meta.lastSeq,
           segmentError: meta.segmentError,
+          // What staff see now — the detector's one hold (PR-6 fix 4) reads it.
+          previous: this.captureWarning,
           now: Date.now(),
         }),
       )

@@ -8,7 +8,8 @@
 //   · 'server' — the server is not receiving it, so the audio is being kept
 //     on the phone and sent later.
 // `device` outranks `server`, and nothing latches: the answer is null the
-// moment neither holds, so the notice clears on recovery.
+// moment neither holds, so the notice clears on recovery. (One bounded hold,
+// inside a storage outage only — PR-6 fix 4, below.)
 //
 // These are DETECTION THRESHOLDS, not lengths a salon chooses — constants, not
 // settings (NO-HARDCODED-DURATIONS covers staff-chosen lengths only).
@@ -46,6 +47,9 @@ export function computeCaptureWarning(input: {
   lastSeq: number
   /** A terminal answer that stopped the segment pump for this take. */
   segmentError: string | null | undefined
+  /** What the notice shows right now (the recorder's `captureWarning`). Read
+   *  by the one hold below, and nowhere else. */
+  previous: CaptureWarning | null
   now: number
 }): CaptureWarning | null {
   if (input.disabled && input.reviveAt > 0 && input.now - input.reviveAt >= DEVICE_GRACE_MS) {
@@ -59,7 +63,15 @@ export function computeCaptureWarning(input: {
   // 'server' and a false fact. The outage is `device`'s to speak for, after
   // its 15 s grace; until then only a terminal refusal memory's own pump
   // received counts. The two count rules below read the row only.
-  if (input.disabled) return input.segmentError ? 'server' : null
+  //
+  // ⚖ …AND A SERVER NOTICE ALREADY UP IS HELD (PR-6 fix 4, gr thread
+  // 4108115336). The server was stalled a moment ago and memory cannot say
+  // otherwise, so the notice staff are reading stays — it never blinks off
+  // for the grace and then comes back as a different one. This is the ONLY
+  // hold in the detector: it lives only inside a storage outage, and it ends
+  // by `device` (the 15 s rule above outranks it) or by the row's truth on
+  // return (storage on, the count rules below clear or keep it).
+  if (input.disabled) return input.segmentError || input.previous === 'server' ? 'server' : null
   if (
     (input.recordedMs >= SERVER_SILENT_MS && input.uploadedSeq < 0) ||
     input.lastSeq - input.uploadedSeq >= SEGMENTS_BEHIND ||
