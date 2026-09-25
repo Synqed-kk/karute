@@ -56,6 +56,7 @@ import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { money } from '@/business/lib/canon-logic/pricing'
 import {
   availableMinutes,
+  BOOKING_COLOR_DEFAULTS,
   bookingCategory,
   buildLanes,
   dayBookings,
@@ -439,6 +440,63 @@ describe('今日の運営 screen', () => {
   it('gates itself: a denied session 404s the page, not just the layout', async () => {
     supabase.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: null }, error: null }) } })
     await expect(board()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  /** 予約の色分け — WHAT THE PAGE HANDS THE SCREEN. The screen only indexes
+   *  `bookingColors` (no renderer here, so its `--cat` sites are text-pinned in
+   *  today-explains.test.ts), which makes the page's half the one to execute:
+   *  the `''` entry a no-store view falls back to (= the defaults), an entry for
+   *  every store option, and one for every booking's store the screen will look
+   *  up through `storeByCase`. Nothing saves a colour yet, so every entry is the
+   *  defaults. */
+  it('予約の色分け — the props carry the \'\' entry, every store option, and every booking\'s store', async () => {
+    const p = await board(STORE_A)
+    const keys = Object.keys(p.bookingColors)
+    expect(p.bookingColors['']).toEqual(BOOKING_COLOR_DEFAULTS)
+    const options = await data.listStoreOptions()
+    expect(options.length).toBeGreaterThan(0)
+    for (const o of options) expect(keys).toContain(o.id)
+    expect(Object.keys(p.storeByCase).length).toBeGreaterThan(0)
+    for (const store of Object.values(p.storeByCase)) expect(keys).toContain(store)
+    for (const k of keys) expect(p.bookingColors[k]).toEqual(BOOKING_COLOR_DEFAULTS)
+  })
+
+  /** …and a SAVED map arrives. The pin above holds even if the door's read always
+   *  answered null, so here the read answers STORE_A's own four: that entry is
+   *  exactly them, and every other entry, `''` included, stays the defaults.
+   *  `jest.spyOn(data, 'readBookingColors')` cannot patch the module's export
+   *  (「Cannot redefine property」), so this is boardWithOpsConfig's pattern below:
+   *  a doMock'd module, an isolated import of the page, and the mock undone after. */
+  it('予約の色分け — a saved map for STORE_A reaches its entry; every other entry stays the defaults', async () => {
+    const SAVED = { new: '#112233', repeat: '#445566', ticket: '#778899', vip: '#aabbcc' }
+    jest.doMock('@/business/lib/data', () => ({ ...jest.requireActual('@/business/lib/data'), readBookingColors: async () => ({ [STORE_A]: SAVED }) }))
+    let pageMod!: typeof import('@/app/[locale]/(business)/business/today/page')
+    let screenMod!: typeof import('@/app/[locale]/(business)/business/today/TodayScreen')
+    try {
+      await jest.isolateModulesAsync(async () => {
+        pageMod = await import('@/app/[locale]/(business)/business/today/page')
+        screenMod = await import('@/app/[locale]/(business)/business/today/TodayScreen')
+      })
+    } finally {
+      jest.dontMock('@/business/lib/data')
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const find = (node: any): TodayProps | null => {
+      if (!node || typeof node !== 'object') return null
+      if (node.type === screenMod.TodayScreen) return node.props
+      const kids = node.props?.children
+      for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+        const hit = find(kid)
+        if (hit) return hit
+      }
+      return null
+    }
+    const p = find(await pageMod.default({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE_A }) }))!
+    expect(p.bookingColors[STORE_A]).toEqual(SAVED)
+    expect(p.bookingColors['']).toEqual(BOOKING_COLOR_DEFAULTS)
+    const others = Object.keys(p.bookingColors).filter((k) => k !== STORE_A && k !== '')
+    expect(others.length).toBeGreaterThan(0)
+    for (const k of others) expect(p.bookingColors[k]).toEqual(BOOKING_COLOR_DEFAULTS)
   })
 
   /** ⚖ ROOM RULE, FIX ROUND 1 (L2 N2) — THE TWO FACTS, EXECUTED ON THE REAL BOARD.

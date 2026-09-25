@@ -1519,17 +1519,52 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     const pop = fields.slice(fields.indexOf('<strong>予約カードの表示項目（自分の表示）</strong>'))
     expect(pop.indexOf('種類の名札')).toBeGreaterThan(pop.indexOf('空き枠の価格'))
     // THE PANEL'S LABELS SAY WHAT THE BOARD DOES. Every dial on it is this
-    // viewer's own useState — no store setting, no business-type profile —
-    // and the category colours are literal hexes, so no label names 店舗設定.
+    // viewer's own useState — no store setting, no business-type profile. The
+    // legend swatches and the card stripes read the store's `bookingColors` map
+    // (resolver `bookingColorsFor`, today-board.ts; defaults = today.css's four),
+    // yet no label names 店舗設定: nothing saves that map until the dial's save (PR-2).
     // The legend colours BOOKING categories (bookingCategory(), today-board.ts),
     // never store categories, so no label says 店舗カテゴリー.
     expect(fields).toContain('<strong>予約カードの表示項目（自分の表示）</strong>')
     expect(fields).toContain('<strong>販売可能枠の表示（自分の表示）</strong>')
     expect(fields).toContain('<span>お客様名は常に表示</span>')
     expect(fields).toContain('aria-label="予約カテゴリー色"')
-    // THE CAPTION names what the swatches are (予約カテゴリー, the aria's noun) and says both colour sets are fixed on this tip.
-    expect(fields).toContain('<b>左端の色＝予約カテゴリー / 色は変更できません</b>')
-    for (const lie of ['予約カードの表示項目（店舗設定）', '販売可能枠の表示（店舗設定・業種プロファイルが初期値）', '全ボード共通の店舗設定', '店舗設定の予約カテゴリー色', '店舗カテゴリー']) {
+    // THE CAPTION names what the swatches are (予約カテゴリー, the aria's noun) and nothing
+    // more: 「色は変更できません」 is retired (the colours are per store now) and the
+    // affirmative half waits for the real save, so neither claim is on this tip.
+    expect(fields).toContain('<b>左端の色＝予約カテゴリー</b>')
+    // ONE HOME for the four hexes (`BOOKING_COLOR_DEFAULTS`, today-board.ts). SRC is the RAW
+    // file, comments included, so a hex typed back even inside a comment is red too.
+    for (const hex of ['#3d7ab8', '#8a63b8', '#2f8f8f', '#3f3f46']) expect(SRC.toLowerCase()).not.toContain(hex)
+    // THE MAP REACHES THE CSS. The screen has no renderer in this suite (its own
+    // :2127 rule, today-screen-interactions.test.ts), so the sites that turn the
+    // store's `bookingColors` into an inline `--cat` are pinned as CODE — `codeOnly`
+    // blanks comments, so a copy parked in a comment does not count — and the
+    // lookup itself is pure and unit-pinned (`bookingColorHex`, booking-colors.test.ts).
+    // The wrapper is pinned whole, so an early return slipped inside it is red too.
+    // The card and the proxy's card fall back to `props.store`: a card outside the
+    // join (made on this board this session) is this store's — pinned by text only,
+    // since the fallback lives in the screen.
+    const CODE = codeOnly(SRC)
+    expect(CODE).toContain([
+      "  const catVar = (store: string | null | undefined, cat: string | null | undefined): React.CSSProperties | undefined => {",
+      "    const hex = bookingColorHex(props.bookingColors, store, cat)",
+      "    return hex ? ({ '--cat': hex } as React.CSSProperties) : undefined",
+      "  }",
+    ].join('\n'))
+    expect(CODE).toContain([
+      "                        <i className=\"cat\" style={catVar(props.store, 'new')} />新規",
+      "                        <i className=\"cat\" style={catVar(props.store, 'repeat')} />再来",
+      "                        <i className=\"cat\" style={catVar(props.store, 'ticket')} />回数券",
+      "                        <i className=\"cat\" style={catVar(props.store, 'vip')} />VIP",
+    ].join('\n'))
+    for (const site of [
+      "...catVar(props.storeByCase[item.caseId ?? ''] ?? props.store, item.category) } as React.CSSProperties",
+      "style={catVar(chip.home.store, chip.category)}",
+      "catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category)",
+      "catVar(props.storeByCase[proxy.item.caseId ?? ''] ?? props.store, proxy.item.category)",
+    ]) expect(CODE).toContain(site)
+    for (const lie of ['予約カードの表示項目（店舗設定）', '販売可能枠の表示（店舗設定・業種プロファイルが初期値）', '全ボード共通の店舗設定', '店舗設定の予約カテゴリー色', '店舗カテゴリー', '色は変更できません', 'CAT_COLOR']) {
       expect(SRC).not.toContain(lie)
       expect(fields).not.toContain(lie)
     }

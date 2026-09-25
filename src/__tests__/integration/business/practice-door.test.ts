@@ -344,12 +344,13 @@ const DOOR_READERS = [
   'readReserveCardColor', // ⚖ A1b — the business's Reserve card colour (no lens)
   'readStoreAddress', // ⚖ A1b · K11 — the store's own address (lens first)
   'readCanManageCardColor', // ⚖ A2 · G5 — may this operator save the card colour (core's sheet)
+  'readBookingColors', // 予約の色分け — org settings `booking_colors`, raw (no lens; today's board reads it)
 ] as const
 /** ⚖ A2 (Liam 9/24) — the ONE writer beside them. */
 const DOOR_WRITERS = ['writeReserveCardColor'] as const
 
 describe('the door', () => {
-  it('exports exactly the nineteen readers and the one writer', () => {
+  it('exports exactly the twenty readers and the one writer', () => {
     expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, ...DOOR_WRITERS].sort())
   })
 })

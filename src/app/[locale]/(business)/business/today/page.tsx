@@ -43,6 +43,7 @@ import {
   listBlocksByDay,
   listShiftsByDay,
   listStoreOptions,
+  readBookingColors,
   readDayPlanes,
   readShellIdentity,
   readStaffStores,
@@ -52,6 +53,7 @@ import {
 import {
   absenceForDay,
   blocksForDay,
+  bookingColorsFor,
   buildLanes,
   coursesFitForDay,
   dayBookings,
@@ -62,6 +64,7 @@ import {
   utilization,
   yen,
   type BoardBooking,
+  type BookingColors,
   type BuildInput,
 } from '@/business/lib/today-board'
 import { canReleaseHeld, clampCalendarTight, overrideLevelFor, storeHasBeds, type CalendarWindowDay } from './today-interactions'
@@ -149,7 +152,7 @@ export default async function TodayPage({
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
   const to = new Date(now.getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
-  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay] =
+  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay, bookingColorsRaw] =
     await Promise.all([
     listCustomers(lens),
     listAppointments(lens, { from, to }),
@@ -169,6 +172,8 @@ export default async function TodayPage({
     // above it: a staff block is occupied time and the count must not disagree
     // with what the placement rail already refuses.
     listBlocksByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    // 予約の色分け — the business's raw per-store map; resolved below, beside `storeOfBooking`.
+    readBookingColors(),
   ])
   const staffStores = await readStaffStores(lens)
 
@@ -479,6 +484,16 @@ export default async function TodayPage({
   // member's store LIST was a proxy that answers wrong for a person who
   // works in two stores.
   const storeOfBooking = new Map(appointments.map((a) => [a.id, a.store_id]))
+  // 予約の色分け — the card's store is THIS join (by `BoardItem.caseId` = the
+  // shown day's `bookings` ids, the rows `cases` is built from), so the screen gets
+  // it as a plain map, plus every store's four colours resolved ONCE here
+  // (`bookingColorsFor`); `''` = no store (viewAll's legend) = the defaults.
+  const storeByCase = Object.fromEntries(
+    bookings.map((b) => [b.id, storeOfBooking.get(b.id)]).filter((e): e is [string, string] => e[1] != null),
+  )
+  const bookingColors: Record<string, BookingColors> = Object.fromEntries(
+    ['', ...new Set([...storeOptions.map((s) => s.id), ...Object.values(storeByCase)])].map((id) => [id, bookingColorsFor(id || null, bookingColorsRaw)]),
+  )
   const cases: Record<string, InspectorCase> = {}
   bookings.forEach((b, i) => {
     // ⚖ D-53 (c) R2 + (g) — the booking's own store's axis (`storeHasBeds`'s
@@ -571,6 +586,8 @@ export default async function TodayPage({
     words,
     genericWords,
     caps: chromeCaps,
+    bookingColors,
+    storeByCase,
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),
     // The month the calendar popover opens on. It is a FACT ABOUT THE SHOWN
