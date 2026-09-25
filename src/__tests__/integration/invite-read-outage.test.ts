@@ -255,7 +255,10 @@ describe('createInvite — a roster outage inside the gate is an outage too (fol
     // The database detail stays in the SERVER log — once, at the source.
     const rosterLogs = consoleError.mock.calls.filter((c) => String(c[0]).startsWith('[getStaffList] staff profiles read failed'))
     expect(rosterLogs).toHaveLength(1)
-    expect(String(rosterLogs[0][1])).toContain('PGRST-SECRET-42')
+    // Bounded shape (describeUnknownThrow), never the raw database value.
+    expect(typeof rosterLogs[0][1]).toBe('object')
+    expect(rosterLogs[0][1]).not.toBeInstanceOf(Error)
+    expect(rosterLogs[0][1]).toEqual({ errName: 'Error', errMessage: expect.stringContaining('PGRST-SECRET-42') })
     expect(consoleError).toHaveBeenCalledTimes(2)
   })
 
