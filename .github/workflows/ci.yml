@@ -97,8 +97,11 @@ jobs:
         # date only ADDS days; no practitioner or bed is double-booked; any
         # other business is REFUSED (2) before a write; a second run creates
         # 0; a 409 exits 4; no delete call, no import of the seeder guard.
+        # close-out: dry-run writes nothing; only tagged + SCHEDULED + past +
+        # owned rows get plan()'s status; another business is refused.
         run: |
           npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/fill.test.ts
+          npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/close-out.test.ts
 
       - name: Thin bundle gate (size budget + purchase exclusion)
         # The gate breached silently for weeks because it only ran by hand
