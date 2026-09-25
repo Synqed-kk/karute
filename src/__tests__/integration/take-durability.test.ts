@@ -5473,6 +5473,45 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     expect(putBodies.at(-1)?.size).toBe('aaabbbTAIL'.length)
   })
 
+  it('T12 the stop revives ITS OWN take even when the next recording has already started', async () => {
+    mockUid = null
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    pushChunk('bbb')
+    await drain(200)
+    expect(takes().size).toBe(0)
+
+    mockUid = 'staff-A' // back by the stop: only the stop can revive it
+    const stopped = persistOf()
+    globalRecorder.stop() // queues the stop's revive, behind the stop's own beat write
+    // 停止 then 録音 at once: the next start replaces `this.persist` past its
+    // mic await, before the queued revive has run — so the revive meets a
+    // recorder that has moved on (FE1 F1: the `!atStop` leg of its guard).
+    await globalRecorder.start({ target: TARGET })
+    const next = persistOf()
+    const nextTakeId = globalRecorder.takeId!
+    expect(next).not.toBe(stopped)
+    expect(nextTakeId).not.toBe(takeId)
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
+
+    // The stopped take: revived, written whole, secured whole.
+    expect(stopped.disabled).toBe(false)
+    expect(metaOf(takeId)).toMatchObject({ ownerUid: 'staff-A', lastSeq: 0 })
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(order.indexOf('put')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('put')).toBeLessThan(order.indexOf('finalize'))
+    expect(putBodies.at(-1)?.size).toBe('aaabbbTAIL'.length)
+    // …and the new take's own state is untouched by any of it.
+    expect(persistOf()).toBe(next)
+    expect(next).toMatchObject({ disabled: false, seq: 0, count: 0 })
+    expect(metaOf(nextTakeId)).toMatchObject({ ownerUid: 'staff-A', lastSeq: -1 })
+    expect(segmentOf(nextTakeId, 0)).toBeUndefined()
+  })
+
   it('T4 a THROWN append is retried and then revived through its own row; a row that SETTLES missing after segments is never re-created', async () => {
     // Thrown: three refusals inside one append, then a store that works.
     const takeId = await startAndSettle()
