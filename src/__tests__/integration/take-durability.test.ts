@@ -6062,4 +6062,39 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(segPuts).toEqual([])
     expect(metaOf(takeId)).toMatchObject({ lastSeq: 2, segmentError: 'not_reserved' })
   })
+
+  it('MB10 a memory upload that lands AFTER the revive writes its mark on the row — the store\'s pump never asks for that seq again', async () => {
+    mockUid = null
+    const takeId = await startAndSettle()
+    pushN(50)
+    await tick() // memory sends seq 0; the revive's first try fails
+    expect(persistOf().uploadedSeq).toBe(0)
+
+    // seq 1's PUT is held in flight across the revive.
+    let releasePut!: () => void
+    const held = new Promise<void>((resolve) => (releasePut = resolve))
+    const put = putMock.getMockImplementation()!
+    putMock.mockImplementationOnce(async (url, init) => {
+      await held
+      return put(url, init)
+    })
+    pushN(50)
+    await tick() // the revive fails again (next try in 10 s); memory mints seq 1, its PUT held
+    expect(minted).toEqual([0, 1])
+    mockUid = 'staff-A'
+    await tick() // no revive yet; the memory flush joins the held run (single-flight)
+    await tick() // the revive: the row gets uploadedSeq 0; the catch-up writes seqs 0-1
+    expect(persistOf().disabled).toBe(false)
+    expect(metaOf(takeId)).toMatchObject({ lastSeq: 1, uploadedSeq: 0 })
+    const mintsAtRevive = minted.length
+
+    releasePut() // seq 1 lands, after the revive
+    await drain(300)
+    const rowAfterLanding = metaOf(takeId)?.uploadedSeq
+    pushN(50)
+    await tick() // a store-backed flush: seq 2
+    expect(minted.slice(mintsAtRevive)).toEqual([2]) // seq 1 never asked for again
+    expect(rowAfterLanding).toBe(1)
+    expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2])
+  })
 })

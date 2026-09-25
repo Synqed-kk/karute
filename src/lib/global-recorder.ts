@@ -598,6 +598,9 @@ class GlobalRecorder {
       },
       markUploaded: async (seq) => {
         p.uploadedSeq = Math.max(p.uploadedSeq, seq)
+        // The revive copied the mark it saw; a run in flight across the revive
+        // lands after it, and the row must learn it too (monotone, never back).
+        if (!p.disabled) await markSegmentsUploaded(takeId, seq)
       },
       markError: async (code) => {
         p.segmentError = code
