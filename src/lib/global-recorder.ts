@@ -12,6 +12,7 @@ import {
   createTake,
   deleteTake,
   isTakeHeldByAnother,
+  markSegmentsUploaded,
   markTakeStartBoundAttempted,
   markTakeStopPending,
   markTakeTailIncomplete,
@@ -532,7 +533,13 @@ class GlobalRecorder {
           }))
       // The ladder is reset by the next append that LANDS, not here: a store
       // that reads but refuses writes (a full disk) keeps backing off.
-      if (whole) p.disabled = false
+      if (!whole) return
+      p.disabled = false
+      // ⚖ WHAT MEMORY ALREADY SENT GOES ON THE ROW AS SENT (S36 PR-1b, MU-2),
+      // before the catch-up behind this writes those seqs to disk — so the
+      // store's pump starts after them and never sends one twice. Monotone
+      // (take-store), so a row that already knew more keeps it.
+      if (p.uploadedSeq >= 0) await markSegmentsUploaded(takeId, p.uploadedSeq)
     })
   }
 
