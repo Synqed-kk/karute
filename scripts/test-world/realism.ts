@@ -269,7 +269,7 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
   if (clean) for (const r of realismFrom) o.manifest.stores[r.store].realismFrom = r.new
   else {
     if (realismFrom.length) log(`manifest realismFrom NOT advanced (${failed} failed / ${skipped} skipped) — fix, re-run the dry-run, apply again`)
-    log(`to undo this attempt: --revert ${ledgerPath} --manifest ${o.manifestPath ?? '<manifest>'} · a retry writes its own ledger for the remainder only — revert the newest first, then this one`)
+    log(`to undo this attempt: --revert "${ledgerPath}" --manifest "${o.manifestPath ?? '<manifest>'}" · a retry writes its own ledger for the remainder only — revert the newest first, then this one`)
   }
   log(`mode: apply · written ${changes.length - failed - skipped} of ${changes.length} · failed ${failed} · skipped ${skipped}`)
   return clean ? 0 : 1
