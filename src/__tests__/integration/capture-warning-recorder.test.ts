@@ -980,6 +980,82 @@ describe('PR-6 fix 4 — FIX G (gr thread 4108115336): a server notice already u
   })
 })
 
+describe('PR-6 fix 5 — FIX H (gr thread 4108277708): the held server notice ends on memory\'s first landed segment', () => {
+  it('server stalled (the row) → storage dies → held server → memory\'s pump lands seq 0 → null on the next tick, no device yet, no new fact → device at 15 s, one device fact', async () => {
+    // Memory's pump: the source the recorder hands it is kept, so the test can
+    // land a PUT through it exactly as the real pump does (list after the
+    // cursor, then markUploaded the contiguous prefix).
+    const memory: { source: SegmentSource | null } = { source: null }
+    mockPumpSegments.mockImplementation(async (...args: unknown[]) => {
+      const [, , opts] = args as [unknown, string, { source?: SegmentSource } | undefined]
+      if (opts?.source) memory.source = opts.source
+    })
+    try {
+      const takeId = await startLive()
+      // 60 s: a segment written each tick, not one on the server — the row
+      // says server.
+      for (let i = 0; i < 12; i++) {
+        FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+        mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: i }
+        await tick()
+      }
+      expect(persistOf().disabled).toBe(false)
+      expect(persistOf().seq).toBe(12)
+      expect(globalRecorder.captureWarning).toBe('server')
+      await drain()
+      expect(facts().map((f) => f.reason)).toEqual(['server'])
+
+      const heard: (string | null)[] = []
+      const off = globalRecorder.subscribe(() => heard.push(globalRecorder.captureWarning))
+      try {
+        // Storage goes, for good in this test: segments are on disk and the
+        // row cannot be read back, so the revive never wins it.
+        mockAppendOk = false
+        mockCreateOk = false
+        FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['y']) })
+        await tick() // 65 s: the flush refuses
+        expect(persistOf().disabled).toBe(true)
+        await tick() // 70 s: the revive's first try; memory's pump is handed memory
+        const since = persistOf().revive.since
+        expect(since).toBe(Date.now())
+        expect(memory.source).not.toBeNull()
+        await tick() // 75 s: memory has landed nothing — the hold stands
+        expect(globalRecorder.captureWarning).toBe('server')
+
+        // Memory's pump lands seq 0 between ticks: the server is receiving.
+        const [seg] = await memory.source!.listSegmentsAfter(-1, 1)
+        expect(seg.seq).toBe(0)
+        await memory.source!.markUploaded(seg.seq)
+        expect((persistOf() as unknown as { uploadedSeq: number }).uploadedSeq).toBe(0)
+        expect(globalRecorder.captureWarning).toBe('server') // only the tick decides
+
+        await tick() // 80 s: the next tick — the hold is over, no device yet
+        expect(Date.now() - since).toBe(10_000)
+        expect(globalRecorder.captureWarning).toBeNull()
+        await drain()
+        expect(facts().map((f) => f.reason)).toEqual(['server'])
+
+        await tick() // 85 s: fifteen after the first try, storage still off
+        expect(persistOf().disabled).toBe(true)
+        expect(Date.now() - since).toBe(15_000)
+        expect(globalRecorder.captureWarning).toBe('device')
+        await tick(2)
+        expect(globalRecorder.captureWarning).toBe('device')
+        await drain()
+        expect(facts()).toEqual([
+          { recordingSessionId: 'rs-1', takeId, reason: 'server', warnedAt: expect.any(String) },
+          { recordingSessionId: 'rs-1', takeId, reason: 'device', warnedAt: expect.any(String) },
+        ])
+        expect(heard.filter((v, i) => v !== heard[i - 1])).toEqual([null, 'device'])
+      } finally {
+        off()
+      }
+    } finally {
+      mockPumpSegments.mockImplementation(async () => {})
+    }
+  })
+})
+
 describe('PR-6 fix 3 — FIX F: a read that never answers never freezes the notice', () => {
   const BEHIND: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: -1, lastSeq: 30 }
   const CAUGHT_UP: UploadMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 12, lastSeq: 12 }

@@ -69,9 +69,15 @@ export function computeCaptureWarning(input: {
   // otherwise, so the notice staff are reading stays — it never blinks off
   // for the grace and then comes back as a different one. This is the ONLY
   // hold in the detector: it lives only inside a storage outage, and it ends
-  // by `device` (the 15 s rule above outranks it) or by the row's truth on
-  // return (storage on, the count rules below clear or keep it).
-  if (input.disabled) return input.segmentError || input.previous === 'server' ? 'server' : null
+  // by `device` (the 15 s rule above outranks it), by the row's truth on
+  // return (storage on, the count rules below clear or keep it), or by
+  // memory's first landed segment (PR-6 fix 5, gr thread 4108277708): memory's
+  // cursor leaves −1 only when its own pump lands a PUT (global-recorder's
+  // `markUploaded`), so `uploadedSeq >= 0` means the server IS receiving
+  // again — held past that, the notice would say what is no longer true.
+  if (input.disabled) {
+    return input.segmentError || (input.previous === 'server' && input.uploadedSeq < 0) ? 'server' : null
+  }
   if (
     (input.recordedMs >= SERVER_SILENT_MS && input.uploadedSeq < 0) ||
     input.lastSeq - input.uploadedSeq >= SEGMENTS_BEHIND ||

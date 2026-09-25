@@ -172,3 +172,32 @@ describe('computeCaptureWarning — PR-6 fix 4 (gr thread 4108115336): a server 
     expect(computeCaptureWarning({ ...back, uploadedSeq: 3, lastSeq: 30 })).toBe('server')
   })
 })
+
+describe('computeCaptureWarning — PR-6 fix 5 (gr thread 4108277708): the hold ends on memory\'s first landed segment', () => {
+  /** Memory's meta inside a storage outage, the notice already saying server
+   *  and the grace not over: only memory's own cursor varies below. */
+  const held = {
+    ...healthy,
+    disabled: true,
+    reviveAt: NOW - 5_000,
+    recordedMs: 120_000,
+    lastSeq: 30,
+    previous: 'server' as const,
+  }
+
+  it('(1) memory has landed nothing (its cursor −1) → server (still held)', () => {
+    expect(computeCaptureWarning({ ...held, uploadedSeq: -1 })).toBe('server')
+  })
+
+  it('(2) memory\'s pump has landed seq 0 (its cursor 0) → null: the server is receiving, the hold is over', () => {
+    expect(computeCaptureWarning({ ...held, uploadedSeq: 0 })).toBeNull()
+    expect(computeCaptureWarning({ ...held, uploadedSeq: 0, reviveAt: 0 })).toBeNull()
+    // …and device still outranks at 15 s, cursor or not.
+    expect(computeCaptureWarning({ ...held, uploadedSeq: 0, reviveAt: NOW - 15_000 })).toBe('device')
+  })
+
+  it('(3) a terminal refusal memory\'s own pump received → server, however far its cursor got', () => {
+    expect(computeCaptureWarning({ ...held, uploadedSeq: 3, segmentError: 'forbidden' })).toBe('server')
+    expect(computeCaptureWarning({ ...held, uploadedSeq: 3, segmentError: 'forbidden', previous: null })).toBe('server')
+  })
+})
