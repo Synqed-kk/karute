@@ -127,13 +127,14 @@ export async function listMenus(): Promise<{ menus: Menu[] } | { error: string }
   // Round 3 leg 7b (D-S28-1): the gate's own THROW settles too — a typed core
   // outage/defect answers the failure line, anything else this function's own
   // catch text. The try holds the can() call only; the denial stays below it.
-  let allowed: boolean
+  // (Named canManage here, not allowed: the store filter below owns that name.)
+  let canManage: boolean
   try {
-    allowed = await can('menus.manage')
+    canManage = await can('menus.manage')
   } catch (e) {
     return { error: (await coreFailureLine(e, '[menus]')) ?? `Could not load menus: ${reason(e)}` }
   }
-  if (!allowed) return { error: DENIED }
+  if (!canManage) return { error: DENIED }
   try {
     const { synqed } = await menuContext()
     const { menus } = await synqed.menus.list()
