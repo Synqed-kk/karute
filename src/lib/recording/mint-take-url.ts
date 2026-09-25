@@ -200,6 +200,9 @@ export interface MintTakeUrlInput {
   /** Why an in-tab fallback reached the SERVER-named arm (S33) — see
    *  record-schemas.ts. 'attach_failed' never creates a row. */
   attachOutcome?: AttachOutcome | null
+  /** The take's length in whole seconds (S35 C1) — see record-schemas.ts.
+   *  Written only onto the row the server-named arm creates. */
+  durationSeconds?: number
 }
 
 export type MintTakeUrlResult =
