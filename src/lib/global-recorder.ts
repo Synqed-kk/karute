@@ -5,12 +5,13 @@ import type { RecordingResult } from '@/hooks/use-media-recorder'
 import { startRecordingSession } from '@/actions/recordings'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
-import { pumpSegments } from '@/lib/recording/segment-uploader'
+import { pumpSegments, type SegmentSource } from '@/lib/recording/segment-uploader'
 import {
   appendTakeSegment,
   clearTakeHeartbeat,
   createTake,
   deleteTake,
+  isTakeHeldByAnother,
   markTakeStartBoundAttempted,
   markTakeStopPending,
   markTakeTailIncomplete,
@@ -164,6 +165,17 @@ type TakePersist = {
   /** The session retry's: retries so far, and when the last one (or the take's
    *  start) went out. */
   mint: { tries: number; at: number }
+  /** ⚖ WHERE EACH SEQ ON DISK ENDS (S36 PR-1b) — `ends[k]` is the chunk count
+   *  once seq k was written, so memory can rebuild seq k byte for byte (the
+   *  memory uploader, below) while the store cannot be read. */
+  ends: number[]
+  /** …and while storage is off, what the SERVER has of this take from memory:
+   *  the same fact as the row's `uploadedSeq` (a contiguous prefix storage
+   *  ACCEPTED), held here because the row cannot be written — and written
+   *  onto it by the revive. Never read once the row is live again. */
+  uploadedSeq: number
+  /** …and the row's `segmentError`, the same way: a terminal door answer. */
+  segmentError?: string
 }
 
 /** A take's persistence state before anything has happened to it — and the
@@ -177,6 +189,8 @@ const newPersist = (): TakePersist => ({
   born: null,
   revive: { tries: 0, at: 0 },
   mint: { tries: 0, at: Date.now() },
+  ends: [],
+  uploadedSeq: -1,
 })
 
 class GlobalRecorder {
@@ -522,6 +536,60 @@ class GlobalRecorder {
     })
   }
 
+  /**
+   * ⚖ THE UPLOAD KEEPS WORKING FROM MEMORY (S36 PR-1b; Liam 9/25 「the upload
+   * keeps working from memory」). While this take's storage is off and not yet
+   * revived, the SAME segment pump sends it — the same mint, the same PUTs, the
+   * same backoff — reading its bytes from the chunks the recorder is holding
+   * instead of the row (segment-uploader's SegmentSource). An app killed before
+   * 停止 then loses at most the segment still filling, not everything after the
+   * last flush that landed.
+   *
+   * THE SEGMENTS ARE THE ONES THE STORE WILL HOLD. A seq already on disk is
+   * rebuilt from `ends`, byte for byte. A seq past it is the next
+   * SEGMENT_MAX_CHUNKS chunks, and only once they are ALL in — exactly what
+   * the revive's catch-up writes for that seq — so a seq sent from memory and
+   * the same seq on disk later can never be two different blobs under one
+   * immutable key. The segment still filling waits for the next tick, or for
+   * the stop, which is unchanged: the whole take is the stop's.
+   *
+   * OWNER-GATED like every read of a take: only the take this recorder still
+   * holds, never a signed-out one, and never one whose row is another
+   * staffer's. Memory is kept exactly as it always was (the whole take, until
+   * the stop hands it on) — this only reads chunks that are there anyway.
+   */
+  private memorySegments(p: TakePersist, takeId: string): SegmentSource {
+    const filled = () => p.seq - 1 + Math.floor((p.chunks.length - p.count) / SEGMENT_MAX_CHUNKS)
+    return {
+      readUploadMeta: async () => {
+        if (!p.disabled || p.abandoned || this.persist !== p || !p.born) return null
+        if (await isTakeHeldByAnother(takeId)) return null
+        return {
+          recordingSessionId: this.recordingSessionId,
+          mimeType: p.born.mimeType,
+          uploadedSeq: p.uploadedSeq,
+          lastSeq: filled(),
+          segmentError: p.segmentError,
+        }
+      },
+      listSegmentsAfter: async (afterSeq, limit) => {
+        const out: { seq: number; blob: Blob }[] = []
+        for (let seq = afterSeq + 1; seq <= filled() && out.length < limit; seq++) {
+          const from = seq < p.seq ? (p.ends[seq - 1] ?? 0) : p.count + (seq - p.seq) * SEGMENT_MAX_CHUNKS
+          const to = seq < p.seq ? p.ends[seq] : from + SEGMENT_MAX_CHUNKS
+          out.push({ seq, blob: new Blob(p.chunks.slice(from, to)) })
+        }
+        return out
+      },
+      markUploaded: async (seq) => {
+        p.uploadedSeq = Math.max(p.uploadedSeq, seq)
+      },
+      markError: async (code) => {
+        p.segmentError = code
+      },
+    }
+  }
+
   /** Flush chunks not yet on disk as one segment. Serialized via the queue;
    *  fire-and-forget — MUST never block or throw into the capture path.
    *
@@ -555,7 +623,16 @@ class GlobalRecorder {
       .then(async () => {
         // Re-read inside the queued task, because an EARLIER flush of THIS take
         // may have disabled persistence — the only writer `p` has.
-        if (p.disabled) return false
+        if (p.disabled) {
+          // …but the server still gets it, from memory (S36 PR-1b, see
+          // memorySegments). Never from the stop's own flush: the stop is
+          // unchanged, and the whole take is its.
+          if (stampDurationMs === undefined)
+            void pumpSegments(getRecordingPipelinePort(), takeId, {
+              source: this.memorySegments(p, takeId),
+            })
+          return false
+        }
         // Everything not yet on disk, read ONCE: chunks that arrive while these
         // appends run belong to the next flush.
         const end = p.chunks.length
@@ -582,6 +659,7 @@ class GlobalRecorder {
           }
           p.seq = seq + 1
           p.count = count
+          p.ends.push(count)
           p.revive = { tries: 0, at: 0 }
         }
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
