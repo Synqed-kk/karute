@@ -5541,6 +5541,35 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
       expect(metaOf(takeId)).toMatchObject({ ownerUid: 'staff-A', lastSeq: -1 })
     })
 
+    it('…and with nobody to confirm as its owner, the row is not re-opened — even though a write would land', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      failNextSegmentWrites = 3 // a flush loses every try → latched
+      pushChunk('bbb')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+      await drain(200)
+      expect(persistOf().disabled).toBe(true)
+      // The session store now answers null. The flush itself only COMPARES a
+      // uid (fix round 3), so a take re-opened here WOULD write — which is why
+      // the revive's own owner-gated read is the check that has to hold.
+      mockUid = null
+      for (let i = 0; i < 4; i++) {
+        pushChunk('c')
+        await jest.advanceTimersByTimeAsync(5_000)
+        await drain(200)
+      }
+      expect(persistOf().disabled).toBe(true)
+      expect(metaOf(takeId).lastSeq).toBe(0)
+      // …and the owner signing back in is what re-opens it, whole.
+      mockUid = 'staff-A'
+      await jest.advanceTimersByTimeAsync(40_000)
+      await drain(200)
+      expect(persistOf().disabled).toBe(false)
+      expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbcccc'.length)
+    })
+
     it('a signed-out take gets no revive at its stop', async () => {
       mockUid = null
       await startAndSettle()
