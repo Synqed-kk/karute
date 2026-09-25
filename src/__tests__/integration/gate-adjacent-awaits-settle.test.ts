@@ -62,6 +62,14 @@ jest.mock('@synqed-kk/client', () => ({
   },
 }))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedClient: jest.fn() }))
+// getBusinessId made OBSERVABLE, not replaced: a pass-through jest.fn around the
+// REAL export, so C(c) can prove the fence never ran. The gate stays real —
+// staff.ts's own roster chain calls its getBusinessId through the module's
+// internal binding, never through this export, so it is not counted here.
+jest.mock('@/lib/staff', () => {
+  const actual = jest.requireActual<typeof import('@/lib/staff')>('@/lib/staff')
+  return { ...actual, getBusinessId: jest.fn(() => actual.getBusinessId()) }
+})
 
 // ── the sources the real roster chain reads + the storage the read door signs with ──
 jest.mock('@/lib/supabase/server', () => ({
@@ -108,6 +116,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AppApiError } from '@/lib/app-api/errors'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getBusinessId } from '@/lib/staff'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { composeTakeKey } from '@/lib/recording/key-grammar'
 import { createCustomer, createQuickCustomer, updateCustomer } from '@/actions/customers'
@@ -264,6 +273,8 @@ describe('C mintRecordingReadUrl — settles like mintRecordingUploadUrl (D-S29-
     armGate('c')
     await expect(mintRecordingReadUrl(OWN)).resolves.toStrictEqual({ error: 'forbidden' })
     expect(mockStorage.createSignedUrl).not.toHaveBeenCalled()
+    // The gate answers BEFORE the fence: the fence's first act (who is the caller's business?) never ran.
+    expect(getBusinessId).not.toHaveBeenCalled()
   })
 
   it('(g) gate TRUE, a foreign key → { error: \'forbidden\' } (terminal), storage never called', async () => {
