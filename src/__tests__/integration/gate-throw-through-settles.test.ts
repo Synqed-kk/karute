@@ -139,7 +139,7 @@ const staff = (fn: string, call: () => Promise<unknown>): Site => ({
   fn, file: 'staff', tag: `[${fn}]`, call, read: 'error', c: NO_PERMISSION_JA, d: SOMETHING_WENT_WRONG_JA,
 })
 const customers = (fn: string, call: () => Promise<unknown>): Site => ({
-  fn, file: 'customers', tag: '[customers]', call, read: 'success', c: NO_PERMISSION_JA, d: MEMBERSHIP,
+  fn, file: 'customers', tag: '[customers]', call, read: 'success', c: NO_PERMISSION_JA, d: SOMETHING_WENT_WRONG_JA,
 })
 
 // The 12 bare-gate sites of CONSUMER-PRINT Part 1 (mintRecordingReadUrl is out, D-S28-2).

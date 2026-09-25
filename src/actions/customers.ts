@@ -75,15 +75,19 @@ async function customerWriteDenied(): Promise<string> {
 }
 
 export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
-  // Round 3 leg 7b (D-S28-1): the gate's own THROW settles too — the same answer
-  // as this file's leg-7 sibling (deleteCustomerPhoto's catch): a typed core
-  // outage/defect is the failure line, anything else its own message. The try
-  // holds the can() call only; the denial stays below it.
+  // Round 3 leg 7b (D-S28-1/4): the gate's own THROW settles too — a typed core
+  // outage/defect is the failure line; anything else (a removed membership
+  // included) the translated generic, the consumer's own answer before this
+  // change (its catch printed a translated toast, never the raw sentence). The
+  // try holds the can() call only; the denial stays below it.
   let allowed: boolean
   try {
     allowed = await can('customers.manage')
   } catch (err) {
-    return { success: false, error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
   if (!allowed) {
     return { success: false, error: await customerWriteDenied() }
@@ -116,11 +120,15 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
 /** The WEB door onto its twin in lib/customers/customers.core.ts — same
  *  wrapper duties as createCustomer. */
 export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
+  // D-S28-4: the same gate-throw arm as createCustomer — the translated generic.
   let allowed: boolean
   try {
     allowed = await can('customers.manage')
   } catch (err) {
-    return { success: false, error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
   if (!allowed) {
     return { success: false, error: await customerWriteDenied() }
@@ -154,11 +162,15 @@ export async function updateCustomer(
   id: string,
   input: CustomerFormInput | Record<string, unknown>,
 ): Promise<ActionResult> {
+  // D-S28-4: the same gate-throw arm as createCustomer — the translated generic.
   let allowed: boolean
   try {
     allowed = await can('customers.manage')
   } catch (err) {
-    return { success: false, error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
   if (!allowed) {
     return { success: false, error: await customerWriteDenied() }
