@@ -6,6 +6,8 @@ import { startRecordingSession } from '@/actions/recordings'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
 import { pumpSegments, type SegmentSource } from '@/lib/recording/segment-uploader'
+import { computeCaptureWarning, type CaptureWarning } from '@/lib/recording/capture-warning-detect'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
   appendTakeSegment,
   clearTakeHeartbeat,
@@ -18,6 +20,7 @@ import {
   markTakeStopPending,
   markTakeTailIncomplete,
   readTakeSecureMeta,
+  readTakeUploadMeta,
   stampTakeDuration,
   stampTakeSession,
   writeTakeHeartbeat,
@@ -162,8 +165,10 @@ type TakePersist = {
    *  handed createTake, so a revive that finds no row re-creates THIS take's
    *  row and no other. null on the idle object, which has no take. */
   born: Parameters<typeof createTake>[0] | null
-  /** The revive's own backoff: failed tries so far, and when the next is due. */
-  revive: { tries: number; at: number }
+  /** The revive's own backoff: failed tries so far, and when the next is due
+   *  — plus when this ladder's FIRST try went out (0 = none yet), the clock
+   *  the PR-6 notice reads (capture-warning-detect.ts). */
+  revive: { tries: number; at: number; since: number }
   /** The session retry's: retries so far, and when the last one (or the take's
    *  start) went out. */
   mint: { tries: number; at: number }
@@ -189,7 +194,7 @@ const newPersist = (): TakePersist => ({
   disabled: false,
   abandoned: false,
   born: null,
-  revive: { tries: 0, at: 0 },
+  revive: { tries: 0, at: 0, since: 0 },
   mint: { tries: 0, at: Date.now() },
   ends: [],
   uploadedSeq: -1,
@@ -205,6 +210,11 @@ class GlobalRecorder {
   overrun = false
   /** True when the hard cap auto-stopped + saved the recording (UI informs staff). */
   autoStopped = false
+  /** ⚖ THE YELLOW NOTICE (PR-6): while recording or paused, 'device' = this
+   *  phone cannot save the take, 'server' = the server is not receiving it;
+   *  null otherwise, and whenever RECORDING_SWITCHES.captureWarningNotice is
+   *  OFF. Decided by capture-warning-detect.ts on the flush tick. */
+  captureWarning: CaptureWarning | null = null
   /** Customer/appointment the recording is BOUND to, captured at start(). The
    *  single source of truth for what the save attaches to — immune to nav drift.
    *  Survives stop→complete; cleared only on discard(). */
@@ -390,6 +400,7 @@ class GlobalRecorder {
         this.queueHeartbeat(this.takeId)
       this.recoverTake()
       this.flushTake()
+      void this.evaluateCaptureWarning()
     }, TAKE_FLUSH_MS)
     document.addEventListener('visibilitychange', this.handleVisibilityHidden)
   }
@@ -470,6 +481,7 @@ class GlobalRecorder {
     if (!takeId || p.abandoned || !(this.state === 'recording' || this.state === 'paused')) return
     const now = Date.now()
     if (p.disabled && now >= p.revive.at) {
+      if (p.revive.tries === 0) p.revive.since = now
       p.revive.at = now + REVIVE_BACKOFF_MS[Math.min(p.revive.tries++, REVIVE_BACKOFF_MS.length - 1)]
       void this.queueRevive(p, takeId, this.recordingSessionId, false)
     }
@@ -608,6 +620,49 @@ class GlobalRecorder {
     }
   }
 
+  /** ONE door onto the live take's upload meta (PR-6, FIX-PLAN's
+   *  `readTakeUploadMeta`): memory's while storage is off — the row is
+   *  unreadable then, and the memory uploader is what is sending — the row's
+   *  otherwise. */
+  private readLiveUploadMeta(p: TakePersist, takeId: string) {
+    return p.disabled ? this.memorySegments(p, takeId).readUploadMeta() : readTakeUploadMeta(takeId)
+  }
+
+  /** ⚖ THE YELLOW NOTICE, ON THE FLUSH TICK (PR-6). Reads, never writes the
+   *  take: a meta that cannot be read, or a take that moved on while it was
+   *  read, is no verdict and leaves the notice as it is. */
+  private async evaluateCaptureWarning() {
+    if (!RECORDING_SWITCHES.captureWarningNotice) return
+    const p = this.persist
+    const takeId = this.takeId
+    const live = () => this.persist === p && (this.state === 'recording' || this.state === 'paused')
+    if (!takeId || p.abandoned || !live()) return
+    try {
+      const meta = await this.readLiveUploadMeta(p, takeId)
+      if (!meta || !live()) return
+      this.setCaptureWarning(
+        computeCaptureWarning({
+          recordedMs: this.recordedMs(),
+          disabled: p.disabled,
+          reviveAt: p.revive.since,
+          uploadedSeq: meta.uploadedSeq ?? -1,
+          lastSeq: meta.lastSeq,
+          segmentError: meta.segmentError,
+          now: Date.now(),
+        }),
+      )
+    } catch {
+      // A store that throws is no verdict either.
+    }
+  }
+
+  /** Subscribers hear only a change. */
+  private setCaptureWarning(next: CaptureWarning | null) {
+    if (next === this.captureWarning) return
+    this.captureWarning = next
+    this.notify()
+  }
+
   /** Flush chunks not yet on disk as one segment. Serialized via the queue;
    *  fire-and-forget — MUST never block or throw into the capture path.
    *
@@ -680,7 +735,7 @@ class GlobalRecorder {
           p.seq = seq + 1
           p.count = count
           p.ends.push(count)
-          p.revive = { tries: 0, at: 0 }
+          p.revive = { tries: 0, at: 0, since: 0 }
         }
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
         // forget off the persist queue: the pump has its own single-flight and
@@ -913,6 +968,7 @@ class GlobalRecorder {
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
+    this.captureWarning = null
     this.target = opts?.target ?? null
     this.recordingSessionId = null
 
@@ -1006,6 +1062,8 @@ class GlobalRecorder {
         this.state = 'recorded'
       }
       this.startedAt = null
+      // The notice speaks for a live take only (PR-6).
+      this.captureWarning = null
       micStream.getTracks().forEach(t => t.stop())
       this.stream = null
       // Final tail flush (onstop fires after the last ondataavailable). The
@@ -1658,6 +1716,7 @@ class GlobalRecorder {
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
+    this.captureWarning = null
     this.target = null
     this.abandonRecordingSessionMint()
     this.state = 'idle'
