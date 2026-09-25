@@ -5,6 +5,7 @@ import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { auditWeb } from '@/lib/audit-web'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
 import type { CustomerOption, CustomerSearchOption } from '@/components/karute/CustomerCombobox'
@@ -347,7 +348,14 @@ export async function grantCustomerConsent(
   input: { method?: 'VERBAL' | 'WRITTEN' } = {},
 ) {
   const { getCurrentUserStaffId } = await import('@/lib/staff')
-  const staffId = await getCurrentUserStaffId()
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch (err) {
+    // Round 3 leg 6 (2026-09-25): a roster outage answers the action's own failure shape, never a rejection.
+    console.error('[customers] pre-core read failed (roster):', describeUnknownThrow(err))
+    return { ok: false as const, error: (await getTranslations('common'))('somethingWentWrong') }
+  }
   if (!staffId) {
     return {
       ok: false as const,
@@ -385,7 +393,14 @@ export async function grantCustomerConsent(
 
 export async function revokeCustomerConsent(customerId: string) {
   const { getCurrentUserStaffId } = await import('@/lib/staff')
-  const staffId = await getCurrentUserStaffId()
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch (err) {
+    // Round 3 leg 6 (2026-09-25): a roster outage answers the action's own failure shape, never a rejection.
+    console.error('[customers] pre-core read failed (roster):', describeUnknownThrow(err))
+    return { ok: false as const, error: (await getTranslations('common'))('somethingWentWrong') }
+  }
   if (!staffId) {
     return { ok: false as const, error: 'No staff identity for the signed-in user.' }
   }
