@@ -14,6 +14,8 @@ import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
+import { STAFF_CREATE_FAILED } from '@/lib/auth/store-gate'
+import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   createInviteCore,
   isNewestLiveInviteForCard,
@@ -81,6 +83,14 @@ export async function createInvite(
   try {
     businessId = await requireInviteBusiness()
   } catch (e) {
+    // Round 3 leg 5 fold (2026-09-25, Greptile P1 on #1040): the gate rides the
+    // same memoised roster read as the try below, so an OUTAGE surfaces here
+    // first. Typed upstream_unavailable = outage → the create-failed line;
+    // a denial / removed membership / no session keeps today's answer.
+    if (e instanceof AppApiError && e.code === 'upstream_unavailable') {
+      console.error('[createInvite] pre-core read failed (permission gate / business):', describeUnknownThrow(e))
+      return { error: STAFF_CREATE_FAILED }
+    }
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
@@ -126,11 +136,22 @@ export async function createInvite(
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Unknown error' }
   }
-  const invitedBy = await getCurrentUserStaffId().catch(() => null)
+  // Round 3 leg 5 (2026-09-25, D-S23-1): a THROWN roster or permission read is
+  // an outage — not "off the roster", not "no permission". Refuse with the
+  // dialog's create-failed line; never mint an invite with invited_by: null.
+  // A RESOLVED null invitedBy keeps the core's own empty-set refusal.
+  let invitedBy: string | null
+  let callerCapabilities: Set<Capability>
+  try {
+    invitedBy = await getCurrentUserStaffId()
+    // The inviter's own capabilities for the core's hold-what-you-grant check
+    // (the setStaffPermissions twin). Off the roster = the empty set = refused.
+    callerCapabilities = await getMyCapabilities()
+  } catch (err) {
+    console.error('[createInvite] pre-core read failed (roster / permission):', describeUnknownThrow(err))
+    return { error: STAFF_CREATE_FAILED }
+  }
   const actorId = await resolveWebActorId()
-  // The inviter's own capabilities for the core's hold-what-you-grant check
-  // (the setStaffPermissions twin). Unreadable = the empty set = refused.
-  const callerCapabilities = await getMyCapabilities().catch(() => new Set<Capability>())
   // ⚖ Liam 2026-09-16: a fresh invite mints the card, so the same
   // creator-subset rule the 追加 door applies has to reach this door too.
   // ⚖ Liam 2026-09-16 (fold round 2, F7): `degraded ? [] : allowedStoreIds`.
