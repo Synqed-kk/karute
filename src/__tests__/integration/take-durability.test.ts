@@ -5587,6 +5587,61 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     })
   })
 
+  it('T10 the revive waits longer while writes keep failing (5/10/20/40 s), and starts over once one lands', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('a')
+    await jest.advanceTimersByTimeAsync(5_000) // t=5: seq 0 lands
+    const REFUSALS = 1_000
+    failNextSegmentWrites = REFUSALS // a store that reads but refuses segments (a full disk)
+    const tick = async () => {
+      pushChunk('b')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+      await drain(200)
+    }
+    await tick() // t≈10: the flush loses all three tries → latched
+    expect(REFUSALS - failNextSegmentWrites).toBe(3)
+    for (let i = 0; i < 12; i++) await tick() // t≈15…70
+    // Revives at 15, 20, 30 and 50 only — each a catch-up that loses three
+    // tries. A revive on every tick would have spent 36.
+    expect(REFUSALS - failNextSegmentWrites).toBe(3 + 4 * 3)
+    expect(metaOf(takeId).lastSeq).toBe(0)
+
+    failNextSegmentWrites = 0 // the disk is back
+    for (let i = 0; i < 5; i++) await tick() // the next revive is due at 90
+    expect(persistOf().disabled).toBe(false)
+    const landed = metaOf(takeId).lastSeq
+    expect(landed).toBeGreaterThan(0)
+
+    failNextSegmentWrites = 3 // one more blip → latched again…
+    await tick()
+    expect(persistOf().disabled).toBe(true)
+    await tick() // …and the very next tick revives it: the wait started over
+    expect(persistOf().disabled).toBe(false)
+    expect(metaOf(takeId).lastSeq).toBeGreaterThan(landed)
+  })
+
+  it('T11 a row that disagrees with the recorder about where the disk ends is not re-opened', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    failNextSegmentWrites = 3
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    await drain(200)
+    expect(persistOf().disabled).toBe(true)
+    // The row says the disk holds a seq this recorder never wrote.
+    takes().set(JSON.stringify(takeId), { ...metaOf(takeId), lastSeq: 4 })
+    for (let i = 0; i < 4; i++) {
+      pushChunk('c')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+    }
+    expect(persistOf().disabled).toBe(true)
+    expect(segmentOf(takeId, 1)).toBeUndefined() // nothing written over or beside it
+  })
+
   it('T8 a failed start-mint is asked again at 30/60/120/240 s — four times, one bound create kept', async () => {
     await startAndSettle() // the default start-mint answers null
     await drain(200)
