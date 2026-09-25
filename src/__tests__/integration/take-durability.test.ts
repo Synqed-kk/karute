@@ -6008,4 +6008,35 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(new Set(segPuts.map((p) => p.seq)).size).toBe(segPuts.length) // none twice
     failNextSegmentWrites = 0
   })
+
+  it('MB8 a discarded take\'s leftover flush never uploads from memory under the next recording', async () => {
+    mockUid = null
+    const takeId = await startAndSettle()
+    pushN(50)
+    await tick()
+    expect(segPuts).toEqual([{ seq: 0, size: 50 }])
+
+    // A full segment in memory, and its flush QUEUED — not yet run — when the
+    // staffer discards. discard() replaces `this.persist` and never sets
+    // `abandoned`, so only the recorder-identity check stands between that
+    // flush and the memory pump (FE1b finding 1).
+    pushN(50)
+    jest.advanceTimersByTime(5_000)
+    globalRecorder.discard()
+    const mintsBefore = mintSegmentUrls.mock.calls.length
+    server = new Map() // the next take's storage (this fake keys by seq alone)
+    segPuts = []
+    const nextTakeId = await startAndSettle()
+    expect(nextTakeId).not.toBe(takeId)
+    pushN(50)
+    await tick()
+    await drain(300)
+
+    // The old take: nothing more asked for, nothing more sent.
+    const later = mintSegmentUrls.mock.calls.slice(mintsBefore)
+    expect(later.filter(([t]) => t === takeId)).toEqual([])
+    // The new take: its own id only, and its own first segment.
+    expect(later.map(([t, , , seqs]) => [t, seqs])).toEqual([[nextTakeId, [0]]])
+    expect(segPuts).toEqual([{ seq: 0, size: 50 }])
+  })
 })
