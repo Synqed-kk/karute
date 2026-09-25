@@ -554,7 +554,7 @@ describe('今日の運営 screen', () => {
     // booking's own store (site #29) instead of the literal '個室のみ・'; the
     // rest of this row's shape (the ternary, CATEGORY_WORD, the source split)
     // is byte-identical.
-    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${sourceWord(b.source.split(' ')[0])}`],")
     expect(PAGE).toContain("['担当・設備', `${b.staffName} / ${b.resourceName}`],")
   })
 
@@ -1575,5 +1575,59 @@ describe('⚖ R8 T2 — the terminal hold is clamped at the door', () => {
     expect((await held({ viewAll: true })).map((h) => h.appointment_id)).toEqual(
       register.terminal_held.map((h) => h.appointment_id),
     )
+  })
+})
+
+// ⚖ PR-3 — the booking's source prints as a word staff read, through ONE map,
+// and a decision card with no named booking never reads 「お客様様」.
+describe('⚖ PR-3 — SOURCE_WORD / sourceLine / decisionTitle', () => {
+  it('switch OFF: the board never carries the mark', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    for (const store of [STORE_A, STORE_B]) expect(await board(store)).not.toHaveProperty('marked')
+  })
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const tb = require('@/business/lib/today-board') as typeof import('@/business/lib/today-board')
+
+  it('the map covers exactly the client’s AppointmentSource union (read off the .d.ts, never a client import)', () => {
+    const dts = readFileSync(join(process.cwd(), 'node_modules/@synqed-kk/client/dist/types.d.ts'), 'utf8')
+    const union = /export type AppointmentSource = ([^;]+);/.exec(dts)![1]
+    const values = [...union.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]).sort()
+    expect(values).toEqual(['HOT_PEPPER', 'MANUAL', 'OTHER', 'QUICKRESERVE', 'SALON_BOARD', 'SYNQED_RESERVE'])
+    expect(Object.keys(tb.SOURCE_WORD).sort()).toEqual(values)
+  })
+
+  it.each([
+    ['MANUAL', '手動登録'],
+    ['QUICKRESERVE', 'Quick Reserve'],
+    ['SYNQED_RESERVE', 'Reserve'],
+    ['SALON_BOARD', 'サロンボード'],
+    ['HOT_PEPPER', 'ホットペッパービューティー'],
+    ['OTHER', 'その他'],
+  ])('%s → %s, with and without a number', (value, word) => {
+    expect(tb.sourceWord(value)).toBe(word)
+    expect(tb.sourceLine(value, 'R-0001')).toBe(`${word} / R-0001`)
+    expect(tb.sourceLine(value, '')).toBe(word) // no dangling 「/」
+  })
+
+  it('a value outside the six prints raw — never blank; a prototype key is not a hit', () => {
+    expect(tb.sourceWord('Reserve #357501')).toBe('Reserve #357501') // every switch-OFF fixture source
+    expect(tb.sourceLine('店頭受付 #357498', 'R-4812')).toBe('店頭受付 #357498 / R-4812')
+    expect(tb.sourceWord('constructor')).toBe('constructor')
+    expect(tb.sourceWord('')).toBe('')
+  })
+
+  it('decisionTitle: a named booking keeps 「{name}様の…」; none reads the plain noun with ONE 様', () => {
+    const b = { customerName: '見本 あかり', startMinute: 600 }
+    expect(tb.decisionTitle('レジ', b, null)).toBe('見本 あかり様の精算を完了する')
+    expect(tb.decisionTitle('担当不在', b, null)).toBe('10:00 見本 あかり様の担当不在に対応する')
+    expect(tb.decisionTitle('担当変更', b, null)).toBe('10:00 見本 あかり様へ担当変更案を送る')
+    expect(tb.decisionTitle('レジ', undefined, null)).toBe('お客様の精算を完了する')
+    // ⚖ §v3 V3-9 — no booking, no time and no leading space.
+    expect(tb.decisionTitle('担当不在', undefined, null)).toBe('お客様の担当不在に対応する')
+    expect(tb.decisionTitle('担当変更', undefined, null)).toBe('お客様へ担当変更案を送る')
+    expect(tb.decisionTitle('担当変更', { customerName: '', startMinute: 600 }, null)).toBe('10:00 お客様へ担当変更案を送る')
+    expect(tb.decisionTitle('Reserve販売', undefined, 780)).toBe('13:00の安全な1枠を販売する')
+    for (const k of ['レジ', '担当不在', '担当変更']) expect(tb.decisionTitle(k, undefined, null)).not.toContain('様様')
   })
 })

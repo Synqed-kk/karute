@@ -844,3 +844,20 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
     expect(SCREEN_CODE.indexOf('if (drawerOpen) {')).toBeLessThan(SCREEN_CODE.indexOf('if (sheetOpen) closeSheet()'))
   })
 })
+
+// ⚖ PR-3 — a customer with no member number yet: the row reads 「番号未登録」 before
+// the 「/」 (never a blank), and the detail's 顧客番号 reads 「未登録」, dimmed like
+// its 携帯番号 / メール siblings. The 新規 category chip beside the name is untouched.
+describe('⚖ PR-3 — the member-number placeholder', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { businessStrings } = require('@/business/i18n') as typeof import('@/business/i18n')
+  it('the words are the mock’s, verbatim', () => {
+    expect(businessStrings.customers.memberNoneRow).toBe('番号未登録')
+    expect(businessStrings.customers.memberNoneKv).toBe('未登録')
+  })
+  it('both print sites fall back to them, and only when the number is empty', () => {
+    expect(SCREEN_CODE).toContain("{r.no || businessStrings.customers.memberNoneRow} / {r.phone ?? '電話未登録'}")
+    expect(SCREEN_CODE).toContain("{kv('顧客番号', row.no || businessStrings.customers.memberNoneKv, !row.no)}")
+    expect(SCREEN_CODE).toContain("{r.categoryChip && <span className=\"cu-chip\">{r.categoryChip}</span>}")
+  })
+})
