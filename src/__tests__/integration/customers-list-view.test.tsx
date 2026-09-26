@@ -24,6 +24,8 @@ const mockReplace = jest.fn()
 afterEach(() => {
   mockSearch = ''
   mockReplace.mockClear()
+  // The list remembers the staff pick (karute:staffScope:customers:*).
+  window.localStorage.clear()
 })
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),

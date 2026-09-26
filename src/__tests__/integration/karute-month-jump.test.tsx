@@ -161,6 +161,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   loadKaruteWindow.mockReset()
   searchParams = new URLSearchParams()
+  // The カルテ list remembers the staff pick (karute:staffScope:records:*).
+  window.localStorage.clear()
 })
 
 describe('the month chip', () => {

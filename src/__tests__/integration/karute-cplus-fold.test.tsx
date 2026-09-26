@@ -107,6 +107,9 @@ beforeEach(() => {
   searchParams = new URLSearchParams()
   dialogProps.length = 0
   mockReplace.mockClear()
+  // The カルテ list remembers the staff pick (karute:staffScope:records:*):
+  // clear it so a pick from one test never leaks into the next (randomized order).
+  window.localStorage.clear()
 })
 
 describe('the status line is folded away (案C+)', () => {
