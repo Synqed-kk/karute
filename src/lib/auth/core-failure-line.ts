@@ -19,3 +19,23 @@ export async function coreFailureLine(e: unknown, tag: string): Promise<string |
   const { getTranslations } = await import('next-intl/server')
   return (await getTranslations('common'))('somethingWentWrong')
 }
+
+/**
+ * S33 (D-S33-1): a DIRECT SDK call (`synqed.X.Y()`) never throws an AppApiError — a non-2xx
+ * is the SDK's own SynqedError (`status` + core's own error text), a network drop a native
+ * TypeError ('fetch failed'). This maps exactly those two OUTAGE shapes onto the typed class
+ * coreFailureLine already reads, so a write catch can ask it; it produces no text. Everything
+ * else comes back as the SAME value: an SDK 4xx is core's own refusal and keeps its bytes, a
+ * plain-Error denial and every AppApiError pass through. Never widen this.
+ * SynqedError is recognised by the `name` the SDK sets (a value import would pull the ESM-only
+ * SDK into every action graph). coreFailureLine logs describeUnknownThrow(e), which never reads
+ * `cause`, so the bounded SDK detail rides the message (log-only — no caller prints it) and
+ * the original rides `cause`.
+ */
+export function classifyCoreThrow(e: unknown): unknown {
+  const sdkStatus = e instanceof Error && e.name === 'SynqedError' ? (e as { status?: unknown }).status : undefined
+  if (!(e instanceof TypeError) && !(typeof sdkStatus === 'number' && sdkStatus >= 500)) return e
+  const d = describeUnknownThrow(e)
+  const kind = d.errStatus === undefined ? d.errName : `${d.errName} ${d.errStatus}`
+  return new AppApiError('upstream_unavailable', `synqed-core call failed (${kind}): ${d.errMessage}`, undefined, e)
+}
