@@ -22,7 +22,7 @@
 //                                  scoping can layer in later)
 
 import { Button } from '@/components/ui/button'
-import { FilePlus2 } from 'lucide-react'
+import { Check, FilePlus2 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { useLocale, useTranslations } from 'next-intl'
@@ -43,6 +43,8 @@ import type { KaruteListFilter, KaruteListItem } from './types'
 import { loadKaruteWindow, revealNoKaruteCustomer } from '@/actions/karute'
 import { KARUTE_SESSION_DATE_EPOCH, karuteHasMore } from '@/lib/karute/karute-window'
 import { ymdInJst } from '@/lib/date/jst'
+import { KARUTE_SWITCHES } from '@/lib/karute/karute-switches'
+import { cn } from '@/lib/utils'
 
 interface Props {
   items: KaruteListItem[]
@@ -241,6 +243,8 @@ export function KaruteRecordListView({
   const tHead = useTranslations('karute')
   const tCommon = useTranslations('common')
   const tStaff = useTranslations('customers.list.staffFilter')
+  // The 新規 chip reuses the 顧客 list's own 「新規」 label (no new string).
+  const tCustomerFilters = useTranslations('customers.list.filters')
   const locale = useLocale()
   // URL-backed list state — back-navigation restores page + filters (same
   // pattern as the 顧客 list; search text deliberately stays local).
@@ -279,6 +283,11 @@ export function KaruteRecordListView({
           ? staffFilter
           : 'all'
   const [searchQuery, setSearchQuery] = useState('')
+  // 新規 chip (KARUTE_SWITCHES.shinkiChip, OFF): a toggle that ANDs with the
+  // state pill, the staff scope, search and month mode. React state like the
+  // month chip and the search box — no URL param.
+  const [shinkiOn, setShinkiOn] = useState(false)
+  const shinkiActive = KARUTE_SWITCHES.shinkiChip && shinkiOn
 
   // PR-2a 日付チャンク読み込み. `appended` holds ONLY the chunks さらに表示
   // pulled in; `items` stays the server-rendered first window, so a router
@@ -1141,7 +1150,7 @@ export function KaruteRecordListView({
     [sharedMode, sharedItems, monthMode, monthItems, allItems],
   )
 
-  const filtered = useMemo(() => {
+  const filteredBeforeShinki = useMemo(() => {
     // Staff scope + search — SAME function as the pill counts above
     // (applyScope), so the two can never drift apart again.
     let result = applyScope(displayItems, {
@@ -1164,6 +1173,21 @@ export function KaruteRecordListView({
 
     return result
   }, [displayItems, filter, weekCutoff, searchQuery, effectiveStaffFilter, currentStaffId])
+
+  // 新規 — only `=== true` is 新規; false and null (core did not answer) never
+  // are. The count is the rows its OWN tap reveals (⚖ 8/25): the list as it
+  // stands (state pill · staff scope · search · month/shared mode) narrowed to
+  // 新規 — so inside a month it is that month's tally. Rows, not people (fold
+  // 6: the owner's 新規数 lives on 予約).
+  // Switch OFF = the field is never read (not even for the count).
+  const shinkiRows = useMemo(
+    () =>
+      KARUTE_SWITCHES.shinkiChip
+        ? filteredBeforeShinki.filter((i) => i.companyFirstVisit === true)
+        : [],
+    [filteredBeforeShinki],
+  )
+  const filtered = shinkiActive ? shinkiRows : filteredBeforeShinki
 
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
@@ -1340,6 +1364,34 @@ export function KaruteRecordListView({
           // where 「今月」 is not the month the chip names.
           count={!serverDegraded && storeTotal !== null && !monthMode ? monthCount : null}
         />
+        {KARUTE_SWITCHES.shinkiChip && (
+          <button
+            type="button"
+            aria-pressed={shinkiOn}
+            onClick={() => setShinkiOn((on) => !on)}
+            className={cn(
+              'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
+              shinkiOn && 'border-primary bg-primary/8 text-primary hover:bg-primary/8',
+            )}
+          >
+            {shinkiOn && (
+              <Check
+                size={13}
+                className="shrink-0 animate-in fade-in zoom-in-50 duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:animate-none"
+                aria-hidden
+              />
+            )}
+            <span>{tCustomerFilters('newRecent')}</span>
+            <span
+              className={cn(
+                'text-[10px] tabular-nums',
+                shinkiOn ? 'text-primary' : 'text-muted-foreground',
+              )}
+            >
+              {shinkiRows.length}
+            </span>
+          </button>
+        )}
         {/* 担当 — ONE dropdown chip replaces the 自分/全スタッフ segment + 担当
          *  trigger (same 'all' | 'self' | staffId keys, StaffSelector's own
          *  anchored panel). Same gate the old row had. */}
