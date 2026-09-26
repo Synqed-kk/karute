@@ -310,8 +310,6 @@ export function KaruteRecordListView({
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
   const tCommon = useTranslations('common')
-  // The 新規 chip reuses the 顧客 list's own 「新規」 label (no new string).
-  const tCustomerFilters = useTranslations('customers.list.filters')
   const locale = useLocale()
   // URL-backed list state — back-navigation restores page + filters (same
   // pattern as the 顧客 list; search text deliberately stays local).
@@ -1489,7 +1487,7 @@ export function KaruteRecordListView({
                   aria-hidden
                 />
               )}
-              <span>{tCustomerFilters('newRecent')}</span>
+              <span>{t('shinki')}</span>
               <span
                 className={cn(
                   'text-[10px] tabular-nums',
