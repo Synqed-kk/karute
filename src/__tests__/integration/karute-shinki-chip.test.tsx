@@ -304,7 +304,7 @@ describe('the ✓ glide (switch ON)', () => {
 // S42 fix round — three compositions the first round left untested. Each pins
 // "the count names the 新規 rows actually on screen" in a state the earlier
 // tests never reached.
-describe('switch ON — a discarded 新規 row · a degraded read (S42)', () => {
+describe('switch ON — a discarded 新規 row · a degraded read · 共有 mode (S42)', () => {
   beforeEach(() => {
     mockSwitches.shinkiChip = true
   })
@@ -373,5 +373,44 @@ describe('switch ON — a discarded 新規 row · a degraded read (S42)', () => 
     fireEvent.click(shinkiChip())
     expect(shinkiCount()).toBe(renderedShinki(ITEMS))
     expect(visibleNames()).toEqual(['顧客 n1', '顧客 n2', '顧客 n3'])
+  })
+
+  it('共有 mode: the count equals the rendered 新規 rows in that mode, and ANDs with 担当', async () => {
+    const shared = [
+      row('s1', true, { customerName: '共有 新規' }),
+      row('s2', false, { customerName: '共有 再来' }),
+      row('s3', null, { customerName: '共有 不明' }),
+      row('s4', true, { customerName: '共有 他店員', staffId: 'staff-2', staffName: '鈴木 花子' }),
+    ]
+    loadKaruteWindow.mockImplementation(async ({ sharedOnly }: { sharedOnly?: boolean }) =>
+      sharedOnly
+        ? { items: shared, windowStart: '2026-01-01', freshSharedCount: shared.length, hasMore: false }
+        : { items: [], windowStart: '2026-01-01', hasMore: false },
+    )
+    renderList({ sharedCount: shared.length, viewerHoldsViewShared: true })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^filters\.shared/ }))
+    })
+    // The mode swapped the rows: shared ones in, the default window out.
+    expect(screen.getByText('共有 新規')).toBeInTheDocument()
+    expect(screen.queryByText('顧客 n1')).not.toBeInTheDocument()
+    expect(shinkiCount()).toBe(2) // s1 · s4 — false and null never count
+    expect(shinkiCount()).toBe(renderedShinki(shared))
+    fireEvent.click(shinkiChip())
+    expect(screen.getByText('共有 新規')).toBeInTheDocument()
+    expect(screen.getByText('共有 他店員')).toBeInTheDocument()
+    expect(screen.queryByText('共有 再来')).not.toBeInTheDocument()
+    expect(screen.queryByText('共有 不明')).not.toBeInTheDocument()
+    expect(shinkiCount()).toBe(renderedShinki(shared))
+    // Still in 共有 mode — 新規 is an AND, not an exit.
+    expect(screen.getByRole('button', { name: /^filters\.shared/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    // AND with 担当 inside the mode: 自分 leaves s1 only.
+    fireEvent.click(screen.getByRole('button', { name: /^(all|self)$/ }))
+    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    expect(shinkiCount()).toBe(1)
+    expect(shinkiCount()).toBe(renderedShinki(shared))
   })
 })
