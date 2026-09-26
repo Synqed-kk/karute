@@ -542,9 +542,10 @@ export async function listBlocksByDay(lens: StoreLens, range: DayRange): Promise
 
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
   const actor = await practiceActor()
-  const open = sampleRows(decisions.filter((d) => d.state === 'open'), null)
+  const open = decisions.filter((d) => d.state === 'open')
   const byStore: Record<string, number> = {}
-  for (const s of actor.visible) byStore[s.id] = open.filter((d) => d.store_id === s.id).length
+  // ⚖ PR-4a — per store, its OWN re-key of the open family: a borrower counts the rows it is served.
+  for (const seats of await rosterOrderOf(actor, { viewAll: true })) byStore[seats.store] = rekeyRows(open, [seats], 'attribute').length
   // A store the actor cannot see never counts.
   return { byStore, all: Object.values(byStore).reduce((a, b) => a + b, 0) }
 }
