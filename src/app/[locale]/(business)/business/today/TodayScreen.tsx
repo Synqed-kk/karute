@@ -32,7 +32,7 @@
 
 import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { businessStrings } from '@/business/i18n'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import {
   computeChecks,
   dragOrigin,
@@ -743,6 +743,15 @@ export interface TodayProps {
     caseId: string | null
   } | null
   cards: DecisionCard[]
+  /** ⚖ PR-3 §v3 — the 「サンプル」 marks, each the plane table's answer for the
+   *  planes it names; absent (never `false`) with the switch OFF or once the
+   *  plane is live. `boardMark`: the grid's ONE head mark (part form — シフトと
+   *  休み・販売可能枠・営業時間), no per-lane chip. `decisionsMark`: the 次に決める
+   *  こと section's ONE mark (cards carry none) and the count strip's, drawn only
+   *  beside a count above 0. `absenceMark`: the 勤務不可 strip's own. */
+  boardMark?: SampleMarkForm
+  decisionsMark?: SampleMarkForm
+  absenceMark?: SampleMarkForm
   cases: Record<string, InspectorCase>
   kpi: { count: string; revenue: string; utilization: string; note: string }
   hold: { summary: string; checks: string[]; bookingId: string } | null
@@ -1098,6 +1107,18 @@ interface GuardAdvice {
    *  own, which is exactly flag 41's: it dies with every ending. */
   attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
+
+/** ⚖ PR-3 — the 「サンプル」 mark on this board. A LABEL, not a control: the
+ *  decision card around it is itself the button, so the chip explains itself
+ *  through the room's ?-tour (`data-guide`), the way every element here does.
+ *  ONE token (the shell sheet's `.sample-mark`), ONE string home. */
+const SAMPLE_MARK = businessStrings.sampleMark
+type SampleMarkForm = Parameters<typeof sampleMarkLines>[0]
+const sampleChip = (mark: SampleMarkForm) => (
+  <span className="sample-mark" data-guide-title={SAMPLE_MARK.popLabel} data-guide={`${sampleMarkLines(mark).pop1}${SAMPLE_MARK.popLine2}`}>
+    {SAMPLE_MARK.chip}
+  </span>
+)
 
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
@@ -8723,11 +8744,11 @@ export function TodayScreen(props: TodayProps) {
           <b>{ops.cashDifference}</b>
         </div>
         <button className="register-cell act" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>未解決</span>
+          <span>未解決{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}</span>
           <b className="warn">{unresolved}件</b>
         </button>
         <button className="register-cell ops-decisions" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>次に決めること</span>
+          <span>次に決めること{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}</span>
           <b>{unresolved}件</b>
         </button>
         <div className="ops-right">
@@ -8888,6 +8909,7 @@ export function TodayScreen(props: TodayProps) {
                   </div>
                 )}
               </div>
+              {props.boardMark && sampleChip(props.boardMark)}
 
               {props.inStore && (
                 <div
@@ -9181,6 +9203,9 @@ export function TodayScreen(props: TodayProps) {
               </div>
             </div>
           </div>
+          {/* ⚖ PR-3 §v3 (mock tab G) — the grid head's mark names the sample planes it
+              paints in one line, under the head: never a chip per lane or per window. */}
+          {props.boardMark && <p className="sample-mark-note board-mark-note">{sampleMarkLines(props.boardMark).note}</p>}
 
           {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. The
               KEYS only exist while the store's protection policy is on, and the
@@ -9442,6 +9467,7 @@ export function TodayScreen(props: TodayProps) {
           data-guide="いま起きている問題と、対応がどこまで進んだかを示します。"
         >
           <div className="incident-main">
+            {props.absenceMark && sampleChip(props.absenceMark)}
             <span className="incident-icon" aria-hidden="true">!</span>
             <span>
               <strong>{props.incident.staffName}さん、本日{props.incident.from}以降は勤務不可</strong>
@@ -9487,6 +9513,7 @@ export function TodayScreen(props: TodayProps) {
       >
         <div className="section-head">
           <strong id="decisionTitle">次に決めること</strong>
+          {props.decisionsMark && openCards.length > 0 && sampleChip(props.decisionsMark)}
           <div className="section-tools">
             <span>根拠・期限・次の操作がある判断だけを表示</span>
             <button className="btn text" type="button" onClick={() => listRef.current?.showModal()}>判断と閉店阻害</button>

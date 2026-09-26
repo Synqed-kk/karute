@@ -357,7 +357,8 @@ describe('the fixture data door', () => {
       // nothing about this reaches a door or the clock.
       // ⚖ PKT-S38 R2 — `./booking-colors`: the four defaults, the closed palette and the resolver moved to an
       // import-free leaf the practice door can import; today-board re-exports them (no call site moved).
-      'src/business/lib/today-board.ts': ['./booking-colors', './canon-logic/availability', './clock', './fixtures', './fixtures-today'],
+      // ⚖ PR-3 — SOURCE_WORD + decisionTitle's copy: Business's own string home (a JSON module, no imports).
+      'src/business/lib/today-board.ts': ['./booking-colors', './canon-logic/availability', './clock', './fixtures', './fixtures-today', '@/business/i18n'],
       // ⚖ PKT-S38 R2 — the leaf's EMPTY inventory is its fence: the door imports it, so it may import nothing.
       'src/business/lib/booking-colors.ts': [],
       // A2 fix (Greptile round 1B addendum) — `shiftWarningOf`'s overage half
@@ -400,6 +401,8 @@ describe('the fixture data door', () => {
         './business-shell.css',
         '@/business/lib/admission',
         '@/business/lib/data',
+        // ⚖ PR-3 §v3 V3-5 — the topbar's one door-aware prop, read on the server.
+        '@/business/lib/practice-door/switch',
         'react',
       ],
       // スタッフ・シフト's staged edits, above the screen for the same reason
@@ -414,7 +417,8 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/BusinessSidebar.tsx': ['next/link', 'next/navigation', 'react'],
-      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', 'next/navigation', 'react'],
+      // ⚖ PR-3 §v3 V3-5 — the practice note's words (Business's string home, a JSON module).
+      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', '@/business/i18n', 'next/navigation', 'react'],
       'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
       'src/business/lib/grants.ts': ['@/lib/supabase/service'],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
@@ -446,6 +450,8 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': [
         './customers-props',
         './customers-row',
+        // ⚖ PR-3 — 「番号未登録」 / 「未登録」: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
         '@/business/lib/column-config',
         // ⚖ Liam 8/23 — the 画面の説明 tour's shared engine.
         '@/business/lib/guide',
@@ -560,6 +566,7 @@ describe('the fixture data door', () => {
         // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味
         // chip's text (a NEW visible string goes through it, never a literal).
         // It imports only `./ja.json`, so this arrow adds no code module below.
+        // ⚖ PR-3 (practice door) — the same arrow carries the 「サンプル」 mark's strings.
         '@/business/i18n',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
