@@ -14,7 +14,7 @@
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
-import { sampleFor, sampleKeys, sampleRows } from './sample-facade'
+import { rekeyRows, sampleFor, sampleKeys, sampleRows, type RosterSeats } from './sample-facade'
 import {
   appointments,
   customers,
@@ -232,6 +232,22 @@ async function activeStaff(actor: PracticeActor) {
   return rows.filter((s) => s.is_active !== false)
 }
 
+/** absent/empty assignments = floating: the person works in every store. */
+const worksAt = (stores: string[] | undefined, id: string): boolean => !stores || stores.length === 0 || stores.includes(id)
+
+/** ⚖ PR-4a §v7 V7-3 — each store of the lens (viewAll: every store in view) with its
+ *  active people in a STABLE order: the rows `listStaff(store)` yields, sorted by id.
+ *  Internal to the facade's `rekeyRows` (the borrower's seats), from ONE pair of staff
+ *  reads per call — never a call per store. `listStaff`'s own order stays core's. */
+async function rosterOrderOf(actor: PracticeActor, lens: StoreLens): Promise<RosterSeats[]> {
+  const rows = await activeStaff(actor)
+  const { assignments } = await actor.reads.staffStoresList()
+  return (typeof lens === 'string' ? [lens] : visibleIds(actor)).map((store) => ({
+    store,
+    roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => row.id).sort(),
+  }))
+}
+
 export async function listStaff(lens: StoreLens): Promise<FixtureStaff[]> {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
@@ -239,11 +255,7 @@ export async function listStaff(lens: StoreLens): Promise<FixtureStaff[]> {
   const { assignments } = await actor.reads.staffStoresList()
   const id = lensStore(lens)
   return rows
-    .filter((row) => {
-      if (!id) return true
-      const stores = assignments[row.id]
-      return !stores || stores.length === 0 || stores.includes(id) // absent/empty = floating
-    })
+    .filter((row) => !id || worksAt(assignments[row.id], id))
     .map((row) => ({ id: row.id, full_name: row.name, email: row.email }))
 }
 
@@ -540,7 +552,7 @@ export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, 
 export async function listShiftsByDay(lens: StoreLens, range: DayRange): Promise<Map<number, FixtureShift[]>> {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
-  const rows = sampleFor(shifts, null)
+  const rows = rekeyRows(shifts, await rosterOrderOf(actor, lens), 'identity')
   return new Map(dayKeys(range).map((k) => [k, rows]))
 }
 
@@ -549,27 +561,30 @@ export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promis
   assertLensVisible(actor, lens)
   const todayKey = jstDayKey(renderNow())
   const inRange = todayKey >= range.from && todayKey <= range.to
-  return new Map(inRange ? [[todayKey, clamp(sampleRows([absence], null), lens)[0] ?? null]] : [])
+  const row = rekeyRows(inRange ? [absence] : [], await rosterOrderOf(actor, lens), 'identity')[0] ?? null
+  return new Map(inRange ? [[todayKey, row]] : [])
 }
 
 export async function readDayPlanes(lens: StoreLens, dayKey: number) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const today = dayKey === jstDayKey(renderNow())
-  const day = await dayRows(actor, lens, { from: dayKey, to: dayKey })
+  const [day, seats] = await Promise.all([dayRows(actor, lens, { from: dayKey, to: dayKey }), rosterOrderOf(actor, lens)])
   return {
     operatingHours,
     /** JST minutes from midnight — the moment the board is showing. */
     boardNow,
-    shifts: sampleFor(shifts, null),
+    // ⚖ PR-4a §v7 V7-3 — the board's rows through the ONE re-key: an exact twin's as before,
+    // a borrower's on its own store and roster; viewAll = every store in view's own rows.
+    shifts: rekeyRows(shifts, seats, 'identity'),
     staffQualifications: sampleKeys('staff', staffQualifications),
     staffListPrice: sampleKeys('staff', staffListPrice),
     closedWeekday,
     opsConfig,
-    absence: clamp(sampleRows(today ? [absence] : [], null), lens)[0] ?? null,
+    absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null,
     blocks: day.blocksByDay.get(dayKey) ?? [],
     sellSlots: clamp(sampleRows(sellSlots, null), lens),
-    decisions: clamp(sampleRows(today ? decisions : [], null), lens),
+    decisions: rekeyRows(today ? decisions : [], seats, 'attribute'),
     // SAMPLE contract: no register in core yet — neutral, never fixture money.
     // Named field by field, never a spread of the fixture plane, so a fixture
     // refund can never be subtracted from a live 純売上 (LIVE-PROOF M-A) and a
