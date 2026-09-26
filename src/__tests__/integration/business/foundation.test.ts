@@ -566,7 +566,9 @@ describe('the fixture data door', () => {
         // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味
         // chip's text (a NEW visible string goes through it, never a literal).
         // It imports only `./ja.json`, so this arrow adds no code module below.
-        // ⚖ PR-3 (practice door) — the same arrow carries the 「サンプル」 mark's strings.
+        // ⚖ PR-3 (practice door) — the same arrow carried the 「サンプル」 mark's strings;
+        // ⚖ PR-4c §v7 V7-1 — the mark itself comes from its ONE component home.
+        '@/business/components/SampleMark',
         '@/business/i18n',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',

@@ -3835,8 +3835,8 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     const strays = [...rendered].filter((n) => !n.startsWith('st-') && !n.startsWith('is-') && !SHELL.has(n))
     expect(strays).toEqual([])
     expect([...rendered].filter((n) => n.startsWith('st-')).length).toBeGreaterThan(35)
-    // …and the component draws the shell's four mark classes and nothing else.
-    expect([...renderedIn(MARK_CODE)].sort()).toEqual(['sample-mark', 'sample-mark-line', 'sample-mark-note', 'sample-pop'])
+    // …and the component draws the shell's four mark classes and the app's own `sr-only` (the count-cell hint), nothing else.
+    expect([...renderedIn(MARK_CODE)].sort()).toEqual(['sample-mark', 'sample-mark-line', 'sample-mark-note', 'sample-pop', 'sr-only'])
   })
 
   // ⚖ PR-3 — the room draws the mark and the card ONLY off the payload's own flags,

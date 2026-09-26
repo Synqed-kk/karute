@@ -32,7 +32,8 @@
 
 import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { businessStrings, sampleMarkLines } from '@/business/i18n'
+import { MarkChip, MarkHint, MarkLabel, MarkNote, SampleMark, type SampleMarkForm } from '@/business/components/SampleMark'
+import { businessStrings } from '@/business/i18n'
 import {
   computeChecks,
   dragOrigin,
@@ -1108,18 +1109,6 @@ interface GuardAdvice {
   attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
 
-/** ⚖ PR-3 — the 「サンプル」 mark on this board. A LABEL, not a control: the
- *  decision card around it is itself the button, so the chip explains itself
- *  through the room's ?-tour (`data-guide`), the way every element here does.
- *  ONE token (the shell sheet's `.sample-mark`), ONE string home. */
-const SAMPLE_MARK = businessStrings.sampleMark
-type SampleMarkForm = Parameters<typeof sampleMarkLines>[0]
-const sampleChip = (mark: SampleMarkForm) => (
-  <span className="sample-mark" data-guide-title={SAMPLE_MARK.popLabel} data-guide={`${sampleMarkLines(mark).pop1}${SAMPLE_MARK.popLine2}`}>
-    {SAMPLE_MARK.chip}
-  </span>
-)
-
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
@@ -1705,6 +1694,8 @@ export function TodayScreen(props: TodayProps) {
    *  (ReservationsScreen holds its mover the same way, for the same reason) */
   const segSeatRef = useRef<((instant: boolean) => void) | null>(null)
   const [segReduced, setSegReduced] = useState(false)
+  /** ⚖ PR-4c §v10 V10-1 — the grid head's 「サンプル」 disclosure, open or not: its chip and its note stand apart. */
+  const [boardMarkOpen, setBoardMarkOpen] = useState(false)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     const apply = () => setSegReduced(mq.matches)
@@ -8743,14 +8734,18 @@ export function TodayScreen(props: TodayProps) {
           <span>現金差異</span>
           <b>{ops.cashDifference}</b>
         </div>
-        <button className="register-cell act" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>未解決{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}</span>
+        {/* ⚖ PR-4c — the cell IS the button: its mark is a label, and the cell is
+            described by a hidden note standing outside it. */}
+        <button className="register-cell act" type="button" aria-describedby={props.decisionsMark && unresolved > 0 ? 'ops-mark-unresolved' : undefined} onClick={() => listRef.current?.showModal()}>
+          <span>未解決{props.decisionsMark && unresolved > 0 && <MarkLabel mark={props.decisionsMark} />}</span>
           <b className="warn">{unresolved}件</b>
         </button>
-        <button className="register-cell ops-decisions" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>次に決めること{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}</span>
+        {props.decisionsMark && unresolved > 0 && <MarkHint mark={props.decisionsMark} id="ops-mark-unresolved" />}
+        <button className="register-cell ops-decisions" type="button" aria-describedby={props.decisionsMark && unresolved > 0 ? 'ops-mark-decisions' : undefined} onClick={() => listRef.current?.showModal()}>
+          <span>次に決めること{props.decisionsMark && unresolved > 0 && <MarkLabel mark={props.decisionsMark} />}</span>
           <b>{unresolved}件</b>
         </button>
+        {props.decisionsMark && unresolved > 0 && <MarkHint mark={props.decisionsMark} id="ops-mark-decisions" />}
         <div className="ops-right">
           <span className="chip ok">Reserve 正常 {ops.syncLabel}</span>
           <span className="chip warn">通知未達 {ops.undelivered}件</span>
@@ -8909,7 +8904,7 @@ export function TodayScreen(props: TodayProps) {
                   </div>
                 )}
               </div>
-              {props.boardMark && sampleChip(props.boardMark)}
+              {props.boardMark && <MarkChip mark={props.boardMark} open={boardMarkOpen} controls="board-mark" onToggle={() => setBoardMarkOpen((o) => !o)} />}
 
               {props.inStore && (
                 <div
@@ -9204,8 +9199,9 @@ export function TodayScreen(props: TodayProps) {
             </div>
           </div>
           {/* ⚖ PR-3 §v3 (mock tab G) — the grid head's mark names the sample planes it
-              paints in one line, under the head: never a chip per lane or per window. */}
-          {props.boardMark && <p className="sample-mark-note board-mark-note">{sampleMarkLines(props.boardMark).note}</p>}
+              paints in one line, under the head: never a chip per lane or per window.
+              ⚖ PR-4c §v10 V10-1 — the head row's chip's other half (one disclosure). */}
+          {props.boardMark && <div className="board-mark-note"><MarkNote mark={props.boardMark} id="board-mark" open={boardMarkOpen} reduced={segReduced} /></div>}
 
           {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. The
               KEYS only exist while the store's protection policy is on, and the
@@ -9467,7 +9463,6 @@ export function TodayScreen(props: TodayProps) {
           data-guide="いま起きている問題と、対応がどこまで進んだかを示します。"
         >
           <div className="incident-main">
-            {props.absenceMark && sampleChip(props.absenceMark)}
             <span className="incident-icon" aria-hidden="true">!</span>
             <span>
               <strong>{props.incident.staffName}さん、本日{props.incident.from}以降は勤務不可</strong>
@@ -9486,6 +9481,7 @@ export function TodayScreen(props: TodayProps) {
           <div className="incident-action">
             <button className="btn" type="button" onClick={() => setSelected(props.incident!.caseId)}>影響を確認</button>
           </div>
+          {props.absenceMark && <SampleMark mark={props.absenceMark} id="absence-mark" reduced={segReduced} />}
           <div className="incident-steps" aria-label="復旧の安全手順">
             {props.incident.steps.map((step, i) => {
               const done =
@@ -9513,12 +9509,12 @@ export function TodayScreen(props: TodayProps) {
       >
         <div className="section-head">
           <strong id="decisionTitle">次に決めること</strong>
-          {props.decisionsMark && openCards.length > 0 && sampleChip(props.decisionsMark)}
           <div className="section-tools">
             <span>根拠・期限・次の操作がある判断だけを表示</span>
             <button className="btn text" type="button" onClick={() => listRef.current?.showModal()}>判断と閉店阻害</button>
           </div>
         </div>
+        {props.decisionsMark && openCards.length > 0 && <SampleMark mark={props.decisionsMark} id="decisions-mark" reduced={segReduced} />}
         <div className="decision-grid">
           {openCards.map((c) => (
             <button

@@ -73,3 +73,18 @@ export function SampleMark({ mark, id, reduced }: { mark: SampleMarkForm; id: st
     </div>
   )
 }
+
+/** ⚖ PR-4c — the mark INSIDE an interactive ancestor (a nested button is invalid
+ *  HTML): a label, explained by the ?-tour and, for assistive tech, by `MarkHint`. */
+export function MarkLabel({ mark }: { mark: SampleMarkForm }) {
+  return (
+    <span className="sample-mark" data-guide-title={MARK.popLabel} data-guide={`${sampleMarkLines(mark).pop1}${MARK.popLine2}`}>
+      {MARK.chip}
+    </span>
+  )
+}
+
+/** …its explanation (the app's `sr-only`), OUTSIDE the ancestor its `aria-describedby` names. */
+export function MarkHint({ mark, id }: { mark: SampleMarkForm; id: string }) {
+  return <span id={id} className="sr-only">{`${sampleMarkLines(mark).pop1}${MARK.popLine2}`}</span>
+}
