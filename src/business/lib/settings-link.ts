@@ -26,11 +26,17 @@
  *  the page opens on the first section that reader may open.
  *
  *  ⚠ AND THE ORDER IS FIXED — `section` then `store` — so the two rooms that
- *  point here produce one spelling and a pin can read it. */
-export function settingsHref(locale: string, store: string | null, section?: string): string {
+ *  point here produce one spelling and a pin can read it.
+ *
+ *  `block` (PR-3 of 予約の色分け) lands ON one block of that section: the room
+ *  renders every block as `st-blk-<block id>` (SettingsScreen's `Block`),
+ *  the same anchor its jump list scrolls to, with the sticky-topbar
+ *  `scroll-margin-top` already on `.st-block`. A fragment, so the page reader is
+ *  unchanged. */
+export function settingsHref(locale: string, store: string | null, section?: string, block?: string): string {
   const q = new URLSearchParams()
   if (section) q.set('section', section)
   if (store) q.set('store', store)
   const query = q.toString()
-  return `/${locale}/business/settings${query ? `?${query}` : ''}`
+  return `/${locale}/business/settings${query ? `?${query}` : ''}${block ? `#st-blk-${block}` : ''}`
 }

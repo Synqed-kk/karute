@@ -927,6 +927,22 @@ export function SettingsScreen(props: SettingsScreenProps) {
     head?.focus({ preventScroll: true })
   }, [reduced])
 
+  /** ⚖ PR-3 of 予約の色分け — A LINK MAY LAND ON ONE BLOCK. `settingsHref`'s
+   *  `block` writes `#st-blk-<block id>`, but Next's own fragment scroll runs
+   *  before this room is on the page (measured on the 色の意味 chip: scrollY 62,
+   *  the jump list on 表示言語), so the room lands it itself, through the jump
+   *  list's own `jumpTo`. A fragment never reaches the server, so this is read in
+   *  an effect — after hydration, never in a seed. Once per mount; a fragment
+   *  that names no block of the open section is ignored. */
+  const landedRef = useRef(false)
+  useEffect(() => {
+    if (landedRef.current) return
+    landedRef.current = true
+    const hash = window.location.hash
+    const id = hash.startsWith('#st-blk-') ? hash.slice('#st-blk-'.length) : null
+    if (id !== null && blocks.some((b) => b.id === id)) jumpTo(id)
+  }, [blocks, jumpTo])
+
   const groups: string[] = []
   for (const row of props.rail) if (!groups.includes(row.group)) groups.push(row.group)
 
