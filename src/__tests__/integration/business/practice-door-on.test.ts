@@ -1036,6 +1036,16 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await board(STORE.devGinza)).cards).toEqual([])
   })
 
+  it('R4 — a borrowed decision built on a booking is refused even when it also names a served slot; the twin keeps it', async () => {
+    fxDecisions.push({ ...fxDecisions[2], id: 'dec-both', appointment_id: 'apt-26' })
+    try {
+      expect((await data.readDayPlanes(STORE.devSalon, TODAY)).decisions.map((d) => d.id)).toEqual(['dec-capacity~5a171878'])
+      expect((await data.readDayPlanes(STORE.tokyo, TODAY)).decisions.map((d) => d.id)).toContain('dec-both')
+    } finally {
+      fxDecisions.pop()
+    }
+  })
+
   it('R6 — every visible store counts exactly the open decisions it is served', async () => {
     const counts = await data.readUnresolvedCounts()
     for (const s of Object.keys(counts.byStore)) {
