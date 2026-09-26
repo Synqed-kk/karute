@@ -63,6 +63,7 @@ const item = (id: string, date: string, name = '山田 花子'): KaruteListItem 
   aiStatus: 'summarized',
   conversionStatus: 'active',
   href: `/karute/${id}`,
+  companyFirstVisit: null,
 })
 
 const listEl = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>> = {}) => (
