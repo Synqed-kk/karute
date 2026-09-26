@@ -278,7 +278,7 @@ function useNarrow(): boolean {
  *  予約と確保 gate is shut the server does not assemble it at all. `null` is not
  *  「loading」 and not 「empty」: it is the ONLY shape a reader who may not see the
  *  section is given, and the screen renders that section's own boundary for it. */
-export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave }
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave }
 
 /** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
  *  practice door is ON; absent = today's page-local commit, and nothing is ever sent. */
@@ -312,6 +312,56 @@ const CARD_SAVE_FAIL: Record<CardSaveReason, string> = {
   tenant: 'ここからはこの事業の設定を保存できないため、Reserveのカードはこれまでの色のままです。', // save.fail.tenant
   invalid: '選んだ色が12色に含まれていないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.invalid
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（Reserveのカードはこれまでの色のままです）。', // save.fail.core
+}
+
+/** ⚖ PKT-S38 R7 (Liam 9/25 「make it work」) — 予約の色分け's REAL save, mirrored from the card colour's.
+ *  page.tsx hands it over ONLY while the practice door is ON and the lens is one store; absent = today's
+ *  page-local commit, and nothing is ever sent. `colors` = the four the dial was seeded with. */
+type BookingSave = { businessId: string; storeId: string; canSave: boolean; colors: Record<string, string> }
+const BOOKING_SAVE_URL = '/api/business/booking-colors'
+const LANG_SECTION_ID = 'language-display'
+const BOOKING_KEYS = ['new', 'repeat', 'ticket', 'vip'] as const
+/** The dial's four swatches → the route's `colors` (control id `lang.color-<category>`). */
+export const bookingColorsOf = (values: Record<string, RowValue>): Record<string, string> =>
+  Object.fromEntries(BOOKING_KEYS.map((k) => [k, String(values[`lang.color-${k}`] ?? '')]))
+/** Greptile T2 (PKT-S40-FIX-1) — the same four colours, category by category (nothing to send). */
+export const sameBookingColors = (a: Record<string, string>, b: Record<string, string>): boolean =>
+  BOOKING_KEYS.every((k) => a[k] === b[k])
+
+/** The route's answer → the room's: core's four on 200, else one of the four reasons (the card route's
+ *  own set); anything the room cannot read (a network failure, a 404, a body that is not the route's) is 'core'. */
+export async function putBookingColors(save: BookingSave, colors: Record<string, string>): Promise<{ ok: true; colors: Record<string, string> } | { ok: false; reason: CardSaveReason }> {
+  try {
+    const res = await fetch(BOOKING_SAVE_URL, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
+      body: JSON.stringify({ storeId: save.storeId, colors }),
+    })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; colors?: unknown; reason?: unknown }
+    const got = answer.colors
+    if (res.ok && answer.ok === true && got !== null && typeof got === 'object' && BOOKING_KEYS.every((k) => typeof (got as Record<string, unknown>)[k] === 'string')) {
+      return { ok: true, colors: Object.fromEntries(BOOKING_KEYS.map((k) => [k, (got as Record<string, string>)[k]])) }
+    }
+    const reason = CARD_SAVE_REASONS.find((r) => r === answer.reason)
+    return { ok: false, reason: reason ?? 'core' }
+  } catch {
+    return { ok: false, reason: 'core' }
+  }
+}
+/** Greptile T2 (PKT-S40-FIX-1) — 保存する's send: the four picked equal the four last saved → null and NO
+ *  request (the caller still commits the section locally); otherwise the PUT. */
+export async function sendBookingColors(save: BookingSave, values: Record<string, RowValue>, saved: Record<string, RowValue>): Promise<Awaited<ReturnType<typeof putBookingColors>> | null> {
+  const picked = bookingColorsOf(values)
+  return sameBookingColors(picked, bookingColorsOf(saved)) ? null : putBookingColors(save, picked)
+}
+/** The save's lines, in the card colour's own shape (builder-authored; PR-3 owns further dial copy). */
+const BOOKING_SAVE_NOTE = '色はこの店舗の設定として保存され、次に「今日の運営」を開くとボードに表示されます。'
+const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
+  forbidden: '設定を変更できる権限がないため保存できず、ボードの色はこれまでのままです。',
+  tenant: 'ここからはこの事業の設定を保存できないため、ボードの色はこれまでのままです。',
+  invalid: '選んだ色が色の一覧にないため保存できず、ボードの色はこれまでのままです。',
+  core: 'いまは保存できないため、時間をおいてもう一度保存してください（ボードの色はこれまでのままです）。',
 }
 
 export function SettingsScreen(props: SettingsScreenProps) {
@@ -352,6 +402,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚖ A2 — why the last real card save did not land (null = none, or it did). */
   const [cardFail, setCardFail] = useState<CardSaveReason | null>(null)
   const cardSaving = useRef(false)
+  /** ⚖ PKT-S38 — why the last real 予約の色分け save did not land (null = none, or it did). */
+  const [bookingFail, setBookingFail] = useState<CardSaveReason | null>(null)
+  const bookingSaving = useRef(false)
   const [results, setResults] = useState<Record<string, string>>({})
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [tourIdx, setTourIdx] = useState(-1)
@@ -567,11 +620,32 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSaved((prev) => ({ ...prev, [CARD_COLOR_ID]: result.color ?? '' }))
   }, [values, commitSection])
 
+  /** ⚖ PKT-S38 R7 — 予約の色分け with the door ON: core first (the route), and the page commits ONLY on
+   *  core's yes; the baseline takes core's four, not the input echoed. The card colour's save, one for one. */
+  const saveBookingSection = useCallback(async (target: SettingsSection, save: BookingSave) => {
+    if (bookingSaving.current) return
+    bookingSaving.current = true
+    setBookingFail(null)
+    const result = await sendBookingColors(save, values, saved)
+    bookingSaving.current = false
+    if (result === null) {
+      commitSection(target) // Greptile T2: the four unchanged → no PUT, the section commits locally
+      return
+    }
+    if (!result.ok) {
+      setBookingFail(result.reason)
+      return
+    }
+    commitSection(target)
+    setSaved((prev) => ({ ...prev, ...Object.fromEntries(BOOKING_KEYS.map((k) => [`lang.color-${k}`, result.colors[k]])) }))
+  }, [values, saved, commitSection])
+
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */
   const openSection = useCallback((id: string, fromRail: boolean) => {
     if (fromRail) cameFromRef.current = id
     setCardFail(null) // G7 — the section changes (`picked` is state): an old card refusal goes with it
+    setBookingFail(null) // …and an old 予約の色分け refusal
     setPicked(id)
     setJumpPin(null)
     setInView(null)
@@ -580,6 +654,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const backToList = useCallback(() => {
     const id = cameFromRef.current
     setCardFail(null) // G7 — leaving the section clears an old card refusal
+    setBookingFail(null)
     setPicked(null)
     if (!id) return
     // The rail is only mounted again once `picked` is null, so the focus move
@@ -897,6 +972,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) ?? wordsBlockingError(section, values) : null
   const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
+  /** ⚖ PKT-S38 R7 — 言語・表示 while page.tsx has said 予約の色分け saves for real (undefined = today's render). */
+  const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined
   /** ⚖ S17 fix round 5 · G1 — 予約と確保'S PAYLOAD IS ABSENT FOR A READER WHOSE
    *  GATE IS SHUT. The server no longer assembles it (`settings-props.ts`): the
    *  roster, the named restrictions, the pricing frame and every policy value
@@ -1033,7 +1110,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           type="button"
           className="st-save"
           disabled={!dirty || blocked !== null}
-          onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : commitSection(section))}
+          onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}
         >
           保存する
         </button>
@@ -1275,7 +1352,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                     block={b}
                     section={section}
                     values={values}
-                    onChange={setValue}
+                    onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}
                     labelFor={labelFor}
                     result={results[b.id] ?? null}
                     error={actionErrors[b.id] ?? null}
@@ -1306,12 +1383,25 @@ export function SettingsScreen(props: SettingsScreenProps) {
                     and 959 the sentence was not merely low — it was gone. */}
                 {section.persist === 'local'
                   ? <p className="st-foot">{props.selfSaveLine}</p>
-                  : <p className="st-foot">{props.demoSaveLine}</p>}
+                  : liveColors
+                    ? (
+                        <>
+                          {/* ⚖ PKT-S38 — core's sheet says no: the foot says why (and there is no 保存する). */}
+                          <p className="st-foot">{liveColors.canSave ? BOOKING_SAVE_NOTE : BOOKING_SAVE_FAIL.forbidden}</p>
+                          {section.blocks.length > 1 && <p className="st-foot">{props.demoSaveLine}</p>}
+                        </>
+                      )
+                    : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
               sideNode(
                 section.blocks.map((b) => ({ id: b.id, title: wordsRoomBlock(section, b.id, values)?.title ?? b.title })),
                 null,
-                roomSave(section),
+                liveColors ? (
+                  <>
+                    {liveColors.canSave === false ? null : roomSave(section)}
+                    {bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}
+                  </>
+                ) : roomSave(section),
                 (id) => {
                   const b = section.blocks.find((x) => x.id === id)
                   return b !== undefined && blockDirty(b, values, saved, listRows, savedRows)

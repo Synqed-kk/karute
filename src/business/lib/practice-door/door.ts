@@ -8,6 +8,9 @@
 // Every lensed reader first checks the lens against the actor's visible stores
 // (§3). A core error propagates — never an empty list (§7). Nothing here writes,
 // except the ONE guarded writer (A2, Liam 9/24): `writeReserveCardColor`, one key, one PUT.
+// The second guarded writer, 予約の色分け's `writeBookingColors` (PKT-S38, Liam 9/25), lives in
+// ./door-booking-colors.ts (R-S39-1: one allowlist entry per file::call); it reads through
+// `orgSettingsOf` and `canManageSettings`, exported here for it and nothing else.
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
@@ -384,7 +387,7 @@ export async function listVisits(
  *  an old one. A symbol slot rather than a WeakMap: this folder's fence bans the `.set(` token outright
  *  (foundation.test.ts, the mutator list), and a cache is no reason to weaken a core-write fence. */
 const ORG_ONCE = Symbol('org-settings, once per actor')
-function orgSettingsOf(actor: PracticeActor) {
+export function orgSettingsOf(actor: PracticeActor) {
   const reads: PracticeActor['reads'] & { [ORG_ONCE]?: ReturnType<PracticeActor['reads']['orgSettingsGet']> } = actor.reads
   return (reads[ORG_ONCE] ??= reads.orgSettingsGet())
 }
@@ -419,16 +422,20 @@ export async function readReserveCardColor(): Promise<string | null> {
   return normalizeCardColor(org?.settings?.reserve_card_color)
 }
 
-/** LIVE: org settings' `booking_colors` (予約の色分け, per store) through the same read, RAW —
- *  `bookingColorsFor` (today-board.ts) is the one place that resolves it. */
-export async function readBookingColors(): Promise<unknown> {
+/** LIVE: 予約の色分け's org-settings keys through the same read, RAW — every own key that IS `booking_colors`
+ *  (the legacy per-store map, read-only) or STARTS WITH `booking_colors:` (one key per store, ⚖ PKT-S41 R-S41-1),
+ *  values untouched; no other key leaves the door. null when the settings are absent. The key names' one home is
+ *  booking-colors.ts (door.ts does not import it; the writer suite pins this filter to its keys), and
+ *  `bookingColorsFor` there is the one place that resolves them. */
+export async function readBookingColors(): Promise<Record<string, unknown> | null> {
   const actor = await practiceActor()
-  const org = await orgSettingsOf(actor)
-  return org?.settings?.booking_colors ?? null
+  const settings: unknown = (await orgSettingsOf(actor))?.settings
+  if (settings === null || settings === undefined || typeof settings !== 'object') return null
+  return Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'booking_colors' || key.startsWith('booking_colors:')))
 }
 
 /** ⚖ A2 · G5 — ONE truth for 「may this operator save the card colour」: core's own answer sheet. */
-const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
+export const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
 
 /** LIVE: may the admitted operator save the card colour? The page asks so the screen never offers a
  *  保存する the writer would refuse. Never throws to the page: another business → false; any other
