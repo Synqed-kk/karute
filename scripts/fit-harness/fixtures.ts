@@ -56,6 +56,7 @@ export function karuteItems(): KaruteListItem[] {
       conversionStatus: 'active',
       isDiscarded: i % 9 === 0,
       isShared: i % 6 === 0,
+      companyFirstVisit: null,
       href: `/karute/k${i}`,
     })
   }

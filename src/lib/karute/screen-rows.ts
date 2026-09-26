@@ -131,6 +131,8 @@ export function buildSessionsListScreen(args: {
     duration_minutes?: number | null
     /** D10 (PR-C, self-lighting): drives `isShared` on the projected row. */
     shared_at?: string | null
+    /** 新規 chip: core's per-row first-visit flag, passed through untouched. */
+    company_first_visit?: boolean | null
   }
 
   // mergeKaruteRows still gives us the sort (session_date ?? created_at desc)
@@ -272,6 +274,10 @@ export function buildSessionsListScreen(args: {
       conversionStatus,
       ...(r.status === 'DISCARDED' ? { isDiscarded: true } : {}),
       ...(isShared ? { isShared: true } : {}),
+      // Passed through, never derived: only a boolean core sent survives;
+      // absent/anything else = null (never 新規).
+      companyFirstVisit:
+        typeof r.company_first_visit === 'boolean' ? r.company_first_visit : null,
       href: `/karute/${r.id}`,
     }
   })

@@ -40,6 +40,7 @@ const item: KaruteListItem = {
   aiStatus: 'summarized',
   conversionStatus: 'active',
   href: '/karute/karute-1',
+  companyFirstVisit: null,
 }
 
 describe('discarded Karute row', () => {

@@ -62,6 +62,7 @@ const item = (id: string, date: string, staffId: string, over: Partial<KaruteLis
   summary: 'まとめ',
   aiStatus: 'summarized',
   conversionStatus: 'active',
+  companyFirstVisit: null,
   href: `/karute/${id}`,
   ...over,
 })
