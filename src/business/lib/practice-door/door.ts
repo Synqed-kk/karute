@@ -615,6 +615,7 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
 export async function readReservationPlanes(lens: StoreLens) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
+  const seats = await rosterOrderOf(actor, lens) // ⚖ PR-4a R5 — the same rows the board is served
   return {
     reservations: sampleFor(reservations, null),
     auditTrail: sampleKeys('appointments', auditTrail), // keyed by appointment id → live twins
@@ -622,10 +623,10 @@ export async function readReservationPlanes(lens: StoreLens) {
      *  against, the same one the board's now-line uses. */
     boardNow,
     operatingHours,
-    shifts: sampleFor(shifts, null),
-    staffQualifications: sampleKeys('staff', staffQualifications),
-    absence: clamp(sampleRows([absence], null), lens)[0] ?? null,
-    sellSlots: clamp(sampleRows(sellSlots, null), lens),
+    shifts: rekeyRows(shifts, seats, 'identity'),
+    staffQualifications: rekeyKeys(staffQualifications, seats),
+    absence: rekeyRows([absence], seats, 'identity')[0] ?? null,
+    sellSlots: rekeyRows(sellSlots, seats, 'identity'),
     // SAMPLE contract: no register in core yet — neutral, never fixture money,
     // terminal_held included (as readDayPlanes).
     register: { cash_difference: 0, refunds: 0, terminal_held: [] },
