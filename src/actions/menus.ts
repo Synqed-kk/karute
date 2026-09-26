@@ -7,6 +7,7 @@ import type { Menu } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
 import { menuSchema, menuIdSchema, menuBandError, type MenuFormInput } from '@/lib/validations/menu'
@@ -123,7 +124,17 @@ async function storeScopeError(
  *  so it shows the 全店舗 rows only. Floating staff (allowedStoreIds null)
  *  stay unclamped, and stores.viewAll returns byte-identically to before. */
 export async function listMenus(): Promise<{ menus: Menu[] } | { error: string }> {
-  if (!(await can('menus.manage'))) return { error: DENIED }
+  // Round 3 leg 7b (D-S28-1): the gate's own THROW settles too — a typed core
+  // outage/defect answers the failure line, anything else this function's own
+  // catch text. The try holds the can() call only; the denial stays below it.
+  // (Named canManage here, not allowed: the store filter below owns that name.)
+  let canManage: boolean
+  try {
+    canManage = await can('menus.manage')
+  } catch (e) {
+    return { error: (await coreFailureLine(e, '[menus]')) ?? `Could not load menus: ${reason(e)}` }
+  }
+  if (!canManage) return { error: DENIED }
   try {
     const { synqed } = await menuContext()
     const { menus } = await synqed.menus.list()
@@ -142,7 +153,13 @@ export async function listMenus(): Promise<{ menus: Menu[] } | { error: string }
 }
 
 export async function createMenu(input: MenuFormInput): Promise<{ id: string } | { error: string }> {
-  if (!(await can('menus.manage'))) return { error: DENIED }
+  let allowed: boolean
+  try {
+    allowed = await can('menus.manage')
+  } catch (e) {
+    return { error: (await coreFailureLine(e, '[menus]')) ?? `Could not create menu: ${reason(e)}` }
+  }
+  if (!allowed) return { error: DENIED }
   const parsed = menuSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues.map((i) => i.message).join(', ') }
   const band = menuBandError(parsed.data)
@@ -184,7 +201,13 @@ export async function updateMenu(
   id: string,
   input: MenuFormInput,
 ): Promise<{ ok: true } | { error: string }> {
-  if (!(await can('menus.manage'))) return { error: DENIED }
+  let allowed: boolean
+  try {
+    allowed = await can('menus.manage')
+  } catch (e) {
+    return { error: (await coreFailureLine(e, '[menus]')) ?? `Could not update menu: ${reason(e)}` }
+  }
+  if (!allowed) return { error: DENIED }
   const parsedId = menuIdSchema.safeParse(id)
   if (!parsedId.success) return { error: parsedId.error.issues.map((i) => i.message).join(', ') }
   const parsed = menuSchema.safeParse(input)
@@ -226,7 +249,13 @@ export async function updateMenu(
 
 /** 停止 — core has no delete endpoint; retiring IS active:false. */
 export async function retireMenu(id: string): Promise<{ ok: true } | { error: string }> {
-  if (!(await can('menus.manage'))) return { error: DENIED }
+  let allowed: boolean
+  try {
+    allowed = await can('menus.manage')
+  } catch (e) {
+    return { error: (await coreFailureLine(e, '[menus]')) ?? `Could not retire menu: ${reason(e)}` }
+  }
+  if (!allowed) return { error: DENIED }
   const parsedId = menuIdSchema.safeParse(id)
   if (!parsedId.success) return { error: parsedId.error.issues.map((i) => i.message).join(', ') }
   try {
@@ -258,7 +287,13 @@ export async function retireMenu(id: string): Promise<{ ok: true } | { error: st
 
 /** 再開 — the exact inverse of retireMenu. */
 export async function reactivateMenu(id: string): Promise<{ ok: true } | { error: string }> {
-  if (!(await can('menus.manage'))) return { error: DENIED }
+  let allowed: boolean
+  try {
+    allowed = await can('menus.manage')
+  } catch (e) {
+    return { error: (await coreFailureLine(e, '[menus]')) ?? `Could not reactivate menu: ${reason(e)}` }
+  }
+  if (!allowed) return { error: DENIED }
   const parsedId = menuIdSchema.safeParse(id)
   if (!parsedId.success) return { error: parsedId.error.issues.map((i) => i.message).join(', ') }
   try {

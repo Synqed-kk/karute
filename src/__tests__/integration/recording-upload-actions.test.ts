@@ -2024,6 +2024,7 @@ describe('composeSegmentKey — the segment shape, as a table', () => {
   })
 })
 
+// The door now SETTLES like its upload sibling (D-S29-1): a refusal answers { error: 'forbidden' }, never a throw.
 describe('mintRecordingReadUrl — the tenant fence', () => {
   it('signs a path under the caller’s own prefix', async () => {
     await expect(mintRecordingReadUrl(OWN)).resolves.toEqual({
@@ -2033,22 +2034,18 @@ describe('mintRecordingReadUrl — the tenant fence', () => {
   })
 
   it.each(REFUSED)('refuses %s — service-role storage is never reached', async (_label, path) => {
-    await expect(mintRecordingReadUrl(path)).rejects.toThrow(
-      'recording not found in this business',
-    )
+    await expect(mintRecordingReadUrl(path)).resolves.toStrictEqual({ error: 'forbidden' })
     expect(createSignedUrl).not.toHaveBeenCalled()
   })
 
   it('refuses a string-shaped non-string before it calls a method on it', async () => {
-    await expect(mintRecordingReadUrl(IMPOSTOR)).rejects.toThrow(
-      'recording not found in this business',
-    )
+    await expect(mintRecordingReadUrl(IMPOSTOR)).resolves.toStrictEqual({ error: 'forbidden' })
     expect(createSignedUrl).not.toHaveBeenCalled()
   })
 
   it('gates on records.write before the fence even runs', async () => {
-    requireCapability.mockRejectedValue(new Error('forbidden'))
-    await expect(mintRecordingReadUrl(OWN)).rejects.toThrow('forbidden')
+    can.mockResolvedValueOnce(false)
+    await expect(mintRecordingReadUrl(OWN)).resolves.toStrictEqual({ error: 'forbidden' })
     // The fence's first act is asking who the caller is — never asked = never ran.
     expect(getBusinessId).not.toHaveBeenCalled()
     expect(createSignedUrl).not.toHaveBeenCalled()

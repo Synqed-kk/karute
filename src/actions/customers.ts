@@ -75,10 +75,24 @@ async function customerWriteDenied(): Promise<string> {
 }
 
 export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
-  if (!(await can('customers.manage'))) {
-    return { success: false, error: await customerWriteDenied() }
+  // Round 3 leg 7b + 7c (D-S28-1/4, D-S29): the gate's own THROW and the client
+  // build's THROW both settle — a typed core outage/defect is the failure line;
+  // anything else (a removed membership included) the translated generic, the
+  // consumer's own answer before either change (its catch printed a translated
+  // toast, never the raw sentence). The try holds the gate, the denial answer
+  // and getSynqedClient(); the writer below catches its own.
+  let synqed: Awaited<ReturnType<typeof getSynqedClient>>
+  try {
+    if (!(await can('customers.manage'))) {
+      return { success: false, error: await customerWriteDenied() }
+    }
+    synqed = await getSynqedClient()
+  } catch (err) {
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
-  const synqed = await getSynqedClient()
   const result = await createCustomerWithClient(synqed, input)
   if (!result.success) return { success: false, error: result.error }
 
@@ -106,10 +120,19 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
 /** The WEB door onto its twin in lib/customers/customers.core.ts — same
  *  wrapper duties as createCustomer. */
 export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
-  if (!(await can('customers.manage'))) {
-    return { success: false, error: await customerWriteDenied() }
+  // D-S28-4 + D-S29: the same arm as createCustomer — the gate and the client build settle.
+  let synqed: Awaited<ReturnType<typeof getSynqedClient>>
+  try {
+    if (!(await can('customers.manage'))) {
+      return { success: false, error: await customerWriteDenied() }
+    }
+    synqed = await getSynqedClient()
+  } catch (err) {
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
-  const synqed = await getSynqedClient()
   const result = await createQuickCustomerWithClient(synqed, name)
   if (!result.success) return { success: false, error: result.error }
 
@@ -138,10 +161,19 @@ export async function updateCustomer(
   id: string,
   input: CustomerFormInput | Record<string, unknown>,
 ): Promise<ActionResult> {
-  if (!(await can('customers.manage'))) {
-    return { success: false, error: await customerWriteDenied() }
+  // D-S28-4 + D-S29: the same arm as createCustomer — the gate and the client build settle.
+  let synqed: Awaited<ReturnType<typeof getSynqedClient>>
+  try {
+    if (!(await can('customers.manage'))) {
+      return { success: false, error: await customerWriteDenied() }
+    }
+    synqed = await getSynqedClient()
+  } catch (err) {
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
-  const synqed = await getSynqedClient()
   const result = await updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
   if (result.success) {
     revalidatePath('/customers')

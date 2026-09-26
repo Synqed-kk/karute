@@ -93,7 +93,16 @@ export async function createAppointment(input: AppointmentInput): Promise<Create
   // requireCapability() — because this action returns the house { error } shape
   // and its callers (NewBookingDialog, AppointmentPopout) await it WITHOUT a
   // try/catch, so a thrown error would surface as an unhandled rejection.
-  if (!(await can('bookings.manage'))) {
+  // Round 3 leg 7b (D-S28-1): so the gate's own THROW settles too — a typed core
+  // outage/defect answers the failure line, anything else this action's own
+  // catch expression. The try holds the can() call only; the denial stays below.
+  let allowed: boolean
+  try {
+    allowed = await can('bookings.manage')
+  } catch (err) {
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+  }
+  if (!allowed) {
     return { error: 'You do not have permission to manage bookings.' }
   }
 

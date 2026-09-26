@@ -2,10 +2,12 @@
 
 import { recordingAudioConstraints } from '@/lib/recording-constraints'
 import type { RecordingResult } from '@/hooks/use-media-recorder'
-import { startRecordingSession } from '@/actions/recordings'
+import { recordCaptureWarning, startRecordingSession } from '@/actions/recordings'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
 import { pumpSegments, type SegmentSource } from '@/lib/recording/segment-uploader'
+import { computeCaptureWarning, type CaptureWarning } from '@/lib/recording/capture-warning-detect'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
   appendTakeSegment,
   clearTakeHeartbeat,
@@ -18,6 +20,7 @@ import {
   markTakeStopPending,
   markTakeTailIncomplete,
   readTakeSecureMeta,
+  readTakeUploadMeta,
   stampTakeDuration,
   stampTakeSession,
   writeTakeHeartbeat,
@@ -83,6 +86,13 @@ const SEGMENT_MAX_CHUNKS = 50
 // while the take records. On the flush tick, so each is at least one tick.
 // retry backoff, not a product length — see NO-HARDCODED-DURATIONS ruling 9/13
 const REVIVE_BACKOFF_MS = [5_000, 10_000, 20_000, 40_000]
+
+// How long the PR-6 notice waits on one meta read before it is no verdict
+// (PR-6 fix 3): under the TAKE_FLUSH_MS tick, so a read that never answers (a
+// hung IndexedDB, a lookup that never returns) is let go before the next
+// tick's and can never freeze the notice. A detection bound, not a length a
+// salon sets.
+const NOTICE_READ_DEADLINE_MS = 4_000
 
 // ⚖ AND A FAILED SESSION MINT IS ASKED AGAIN (S36 PR-1): how long after the
 // start — then after each retry — the next one waits; four retries, then the
@@ -162,8 +172,14 @@ type TakePersist = {
    *  handed createTake, so a revive that finds no row re-creates THIS take's
    *  row and no other. null on the idle object, which has no take. */
   born: Parameters<typeof createTake>[0] | null
-  /** The revive's own backoff: failed tries so far, and when the next is due. */
-  revive: { tries: number; at: number }
+  /** The revive's own backoff: failed tries so far, and when the next is due
+   *  — plus when this OUTAGE's first try went out (0 = none yet), the clock
+   *  the PR-6 notice reads (capture-warning-detect.ts), and memory's upload
+   *  cursor (`uploadedSeq`, below) at that same instant (−1 = none yet), so
+   *  the notice can tell a segment memory landed IN THIS OUTAGE from one it
+   *  landed in an earlier one (PR-6 fix 6). A partial recovery keeps both:
+   *  only a catch-up that lands whole clears them (flushTake). */
+  revive: { tries: number; at: number; since: number; uploadedAtOutage: number }
   /** The session retry's: retries so far, and when the last one (or the take's
    *  start) went out. */
   mint: { tries: number; at: number }
@@ -178,6 +194,9 @@ type TakePersist = {
   uploadedSeq: number
   /** …and the row's `segmentError`, the same way: a terminal door answer. */
   segmentError?: string
+  /** The PR-6 notice reasons this take has filed (or queued) a fact for — at
+   *  most one fact per take per reason, however often the notice flaps. */
+  warned: Set<CaptureWarning>
 }
 
 /** A take's persistence state before anything has happened to it — and the
@@ -189,10 +208,11 @@ const newPersist = (): TakePersist => ({
   disabled: false,
   abandoned: false,
   born: null,
-  revive: { tries: 0, at: 0 },
+  revive: { tries: 0, at: 0, since: 0, uploadedAtOutage: -1 },
   mint: { tries: 0, at: Date.now() },
   ends: [],
   uploadedSeq: -1,
+  warned: new Set(),
 })
 
 class GlobalRecorder {
@@ -205,6 +225,16 @@ class GlobalRecorder {
   overrun = false
   /** True when the hard cap auto-stopped + saved the recording (UI informs staff). */
   autoStopped = false
+  /** ⚖ THE YELLOW NOTICE (PR-6): while recording or paused, 'device' = this
+   *  phone cannot save the take, 'server' = the server is not receiving it;
+   *  null otherwise, and whenever RECORDING_SWITCHES.captureWarningNotice is
+   *  OFF. Decided by capture-warning-detect.ts on the flush tick. */
+  captureWarning: CaptureWarning | null = null
+  /** The flush tick's notice read while it is out (PR-6 fix 2, gr thread 2):
+   *  that read's own mark, so only it clears it — a read the next start()
+   *  left behind can never clear the new take's. null = none out. `end` lets
+   *  go of it at once, deadline timer and all (PR-6 fix 3). */
+  private evaluatingCaptureWarning: { end: () => void } | null = null
   /** Customer/appointment the recording is BOUND to, captured at start(). The
    *  single source of truth for what the save attaches to — immune to nav drift.
    *  Survives stop→complete; cleared only on discard(). */
@@ -390,6 +420,7 @@ class GlobalRecorder {
         this.queueHeartbeat(this.takeId)
       this.recoverTake()
       this.flushTake()
+      void this.evaluateCaptureWarning()
     }, TAKE_FLUSH_MS)
     document.addEventListener('visibilitychange', this.handleVisibilityHidden)
   }
@@ -470,6 +501,14 @@ class GlobalRecorder {
     if (!takeId || p.abandoned || !(this.state === 'recording' || this.state === 'paused')) return
     const now = Date.now()
     if (p.disabled && now >= p.revive.at) {
+      // The outage's clock starts at its first try and runs until a catch-up
+      // lands whole — not at the first try after a partial one (PR-6 fix 2).
+      // Memory's cursor is taken at the same instant: what memory lands past
+      // it is this outage's (PR-6 fix 6).
+      if (p.revive.since === 0) {
+        p.revive.since = now
+        p.revive.uploadedAtOutage = p.uploadedSeq
+      }
       p.revive.at = now + REVIVE_BACKOFF_MS[Math.min(p.revive.tries++, REVIVE_BACKOFF_MS.length - 1)]
       void this.queueRevive(p, takeId, this.recordingSessionId, false)
     }
@@ -608,6 +647,135 @@ class GlobalRecorder {
     }
   }
 
+  /** ONE door onto the live take's upload meta (PR-6, FIX-PLAN's
+   *  `readTakeUploadMeta`): memory's while storage is off — the row is
+   *  unreadable then, and the memory uploader is what is sending — the row's
+   *  otherwise. */
+  private readLiveUploadMeta(p: TakePersist, takeId: string) {
+    return p.disabled ? this.memorySegments(p, takeId).readUploadMeta() : readTakeUploadMeta(takeId)
+  }
+
+  /** ⚖ THE YELLOW NOTICE, ON THE FLUSH TICK (PR-6). Reads, never writes the
+   *  take: a meta that cannot be read, or a take that moved on while it was
+   *  read, is no verdict and leaves the notice as it is.
+   *
+   *  ⚖ ONE READ AT A TIME (PR-6 fix 2, gr thread 2). A tick whose read is
+   *  still out skips its own: two reads in flight can answer out of order, and
+   *  the older one — a server verdict from before the catch-up — would then
+   *  put back a notice the newer one had cleared, and file a fact for it.
+   *  Since fix 3 a read is let go at NOTICE_READ_DEADLINE_MS, before the next
+   *  tick is due; the skip stays for a tick that fires inside that window (a
+   *  throttled timer catching up). */
+  private async evaluateCaptureWarning() {
+    if (!RECORDING_SWITCHES.captureWarningNotice) return
+    if (this.evaluatingCaptureWarning) return
+    const p = this.persist
+    const takeId = this.takeId
+    const live = () => this.persist === p && (this.state === 'recording' || this.state === 'paused')
+    if (!takeId || p.abandoned || !live()) return
+    const read = { end: () => {} }
+    this.evaluatingCaptureWarning = read
+    // Which door the meta comes from (PR-6 fix 3): memory's counts are not the
+    // server's history, so the detector reads them only for a segment error.
+    // Storage that came back while memory's meta was out would hand those
+    // counts to the row's rules — no verdict; the next tick reads the row.
+    const fromMemory = p.disabled
+    try {
+      // ⚖ A READ THAT NEVER ANSWERS IS LET GO (PR-6 fix 3): at the deadline —
+      // or at once, on a stop, discard or next start — the race answers null,
+      // no verdict, and the finally below frees the next tick to read fresh.
+      // The race has settled by then, so an answer that comes later is never
+      // seen: `meta` is the deadline's null, and nothing else holds the read.
+      const meta = await Promise.race([
+        this.readLiveUploadMeta(p, takeId),
+        new Promise<null>((resolve) => {
+          const deadline = setTimeout(() => resolve(null), NOTICE_READ_DEADLINE_MS)
+          read.end = () => {
+            clearTimeout(deadline)
+            resolve(null)
+          }
+        }),
+      ])
+      if (!meta || !live() || (fromMemory && !p.disabled)) return
+      this.setCaptureWarning(
+        computeCaptureWarning({
+          recordedMs: this.recordedMs(),
+          disabled: p.disabled,
+          reviveAt: p.revive.since,
+          uploadedSeq: meta.uploadedSeq ?? -1,
+          lastSeq: meta.lastSeq,
+          segmentError: meta.segmentError,
+          // What staff see now — the detector's one hold (PR-6 fix 4) reads it,
+          // and ends it once memory lands a segment in THIS outage (PR-6 fix
+          // 6): past the cursor it had when the outage's clock started, never
+          // just past −1 — the cursor is per take and never goes back.
+          previous: this.captureWarning,
+          memoryLandedThisOutage: p.revive.since > 0 && p.uploadedSeq > p.revive.uploadedAtOutage,
+          now: Date.now(),
+        }),
+      )
+    } catch {
+      // A store that throws is no verdict either.
+    } finally {
+      // Its timer never outlives the read.
+      read.end()
+      if (this.evaluatingCaptureWarning === read) this.evaluatingCaptureWarning = null
+    }
+  }
+
+  /** Lets go of the notice read that is out, if any (PR-6 fix 3): a stop, a
+   *  discard or the next start() never leaves its deadline timer running. */
+  private endCaptureWarningRead() {
+    this.evaluatingCaptureWarning?.end()
+    this.evaluatingCaptureWarning = null
+  }
+
+  /** Subscribers hear only a change — and every reason a take shows is filed
+   *  once (PR-6 fix 2, gr thread 1). Any change to a reason files it, device →
+   *  server included: storage back, the server still stalled, is a notice
+   *  staff see and must have its record. The take's `warned` set is what
+   *  stops a repeat — device → server → device files device once, server
+   *  once. */
+  private setCaptureWarning(next: CaptureWarning | null) {
+    const prev = this.captureWarning
+    if (next === prev) return
+    this.captureWarning = next
+    if (next) this.fileCaptureWarning(next)
+    this.notify()
+  }
+
+  /** ⚖ THE FACT (PR-6 §6) through PR-7's door — `recordCaptureWarning`, the
+   *  web action, or on the phone its facade twin (thin/ports/actions.vite.ts).
+   *  At most once per take per reason. With no session yet it waits for THIS
+   *  take's own and is sent the moment it lands, once; it goes with the take
+   *  (a discard, the next start) if none ever does — the door has nothing to
+   *  file it against. Best-effort telemetry: one attempt, a failure is logged,
+   *  and nothing here touches capture. */
+  private fileCaptureWarning(reason: CaptureWarning) {
+    const p = this.persist
+    const takeId = this.takeId
+    if (!takeId || p.warned.has(reason)) return
+    p.warned.add(reason)
+    const warnedAt = new Date().toISOString()
+    const send = (recordingSessionId: string) => {
+      void Promise.resolve()
+        .then(() => recordCaptureWarning({ recordingSessionId, takeId, reason, warnedAt }))
+        .then((res) => {
+          if (res && 'error' in res) console.warn('[global-recorder] capture warning not filed:', res.error)
+        })
+        .catch((err) => console.warn('[global-recorder] capture warning not filed:', err))
+    }
+    if (this.recordingSessionId) return send(this.recordingSessionId)
+    const off = this.subscribe(() => {
+      if (this.persist !== p) return off()
+      // Not an id the NEXT start() minted before naming its take — that one
+      // lands on this field while this take is still held (mintStampTakeId).
+      if (!this.recordingSessionId || this.recordingSessionMintTakeUnknown) return
+      off()
+      send(this.recordingSessionId)
+    })
+  }
+
   /** Flush chunks not yet on disk as one segment. Serialized via the queue;
    *  fire-and-forget — MUST never block or throw into the capture path.
    *
@@ -680,8 +848,19 @@ class GlobalRecorder {
           p.seq = seq + 1
           p.count = count
           p.ends.push(count)
-          p.revive = { tries: 0, at: 0 }
+          p.revive.tries = 0
+          p.revive.at = 0
         }
+        // ⚖ THE CATCH-UP LANDED WHOLE (PR-6 fix 2, gr thread 4): storage is on
+        // and everything memory held when this flush read it is on disk. Only
+        // here does the outage's clock clear — an append that lands and a later
+        // one that refuses is a partial recovery, and the outage it is part of
+        // keeps its first try, so a store that flaps write by write cannot
+        // restart the notice's 15 s for ever. (The backoff above still resets
+        // per landed append, as it always has.) Memory's cursor at the
+        // outage's start goes with it (PR-6 fix 6).
+        p.revive.since = 0
+        p.revive.uploadedAtOutage = -1
         // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
         // forget off the persist queue: the pump has its own single-flight and
         // its own per-PUT deadlines, so this cannot pile up and the queue never
@@ -913,6 +1092,9 @@ class GlobalRecorder {
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
+    this.captureWarning = null
+    // The belt: a read the last take left out never holds this one's tick.
+    this.endCaptureWarningRead()
     this.target = opts?.target ?? null
     this.recordingSessionId = null
 
@@ -1006,6 +1188,9 @@ class GlobalRecorder {
         this.state = 'recorded'
       }
       this.startedAt = null
+      // The notice speaks for a live take only (PR-6).
+      this.captureWarning = null
+      this.endCaptureWarningRead()
       micStream.getTracks().forEach(t => t.stop())
       this.stream = null
       // Final tail flush (onstop fires after the last ondataavailable). The
@@ -1658,6 +1843,8 @@ class GlobalRecorder {
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
+    this.captureWarning = null
+    this.endCaptureWarningRead()
     this.target = null
     this.abandonRecordingSessionMint()
     this.state = 'idle'

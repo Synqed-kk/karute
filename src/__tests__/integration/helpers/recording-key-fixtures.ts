@@ -4,7 +4,8 @@
  *
  * The EXHAUSTIVE 16-row table stays with the fence's own suite
  * (recording-upload-actions.test.ts), where it still proves the grammar end to
- * end through requireOwnPath. These are ONE row per grammar class, so each of
+ * end through the isOwnRecordingKey check inside mintRecordingReadUrl. These are
+ * ONE row per grammar class, so each of
  * the three service-role call sites can prove it delegates to the shared helper
  * AND answers with its OWN error contract, without restating that whole table.
  *
