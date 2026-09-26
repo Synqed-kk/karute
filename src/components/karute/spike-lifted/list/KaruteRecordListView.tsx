@@ -253,6 +253,17 @@ export function KaruteRecordListView({
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
     () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
   )
+  // ONE effective staff lens (S42). 'self' needs a staff profile to narrow
+  // to: without one (a restored `?s=self` for a viewer with no profile)
+  // applyScope's self leg filters nothing, while a chip fed the raw 'self'
+  // would claim 自分 in the wash over every staff's rows. So 'self' with no
+  // currentStaffId collapses to 'all' HERE, and the list (applyScope, both
+  // calls), the 担当 chip (`selected`) and the URL writer all read this one
+  // value — they can never disagree. The raw state keeps 'self', so a viewer
+  // whose profile arrives later lands on their own rows unchanged. (Parity
+  // with the old ScopeToggle, which never offered 自分 without a self id.)
+  const effectiveStaffFilter: StaffFilterKey =
+    staffFilter === 'self' && !currentStaffId ? 'all' : staffFilter
   const [searchQuery, setSearchQuery] = useState('')
 
   // PR-2a 日付チャンク読み込み. `appended` holds ONLY the chunks さらに表示
@@ -311,11 +322,11 @@ export function KaruteRecordListView({
     else next.delete('since')
     if (filter !== 'all') next.set('f', String(filter))
     else next.delete('f')
-    if (staffFilter !== 'all') next.set('s', String(staffFilter))
+    if (effectiveStaffFilter !== 'all') next.set('s', String(effectiveStaffFilter))
     else next.delete('s')
     const qs = next.toString()
     router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
-  }, [sinceParam, filter, staffFilter, pathname, router])
+  }, [sinceParam, filter, effectiveStaffFilter, pathname, router])
   const [newKaruteOpen, setNewKaruteOpen] = useState(false)
   // Which customer the dialog should preselect — null for the top "+ 新規
   // カルテ" CTA, a candidate id when opened from the search-reveal row below.
@@ -1068,8 +1079,9 @@ export function KaruteRecordListView({
   // Same scoping the tap's own filter applies below (applyScope) — see its
   // doc comment for why this must be one function, not two copies.
   const scopedAll = useMemo(
-    () => applyScope(allItems, { staffFilter, currentStaffId, searchQuery }),
-    [allItems, staffFilter, currentStaffId, searchQuery],
+    () =>
+      applyScope(allItems, { staffFilter: effectiveStaffFilter, currentStaffId, searchQuery }),
+    [allItems, effectiveStaffFilter, currentStaffId, searchQuery],
   )
 
   const counts = useMemo(() => {
@@ -1118,7 +1130,11 @@ export function KaruteRecordListView({
   const filtered = useMemo(() => {
     // Staff scope + search — SAME function as the pill counts above
     // (applyScope), so the two can never drift apart again.
-    let result = applyScope(displayItems, { staffFilter, currentStaffId, searchQuery })
+    let result = applyScope(displayItems, {
+      staffFilter: effectiveStaffFilter,
+      currentStaffId,
+      searchQuery,
+    })
 
     // SAME predicate, SAME cutoff as the pill's count above — that identity IS
     // the ⚖ ruling (thisWeekCutoffYmd). The second copy of this arithmetic that
@@ -1133,7 +1149,7 @@ export function KaruteRecordListView({
     }
 
     return result
-  }, [displayItems, filter, weekCutoff, searchQuery, staffFilter, currentStaffId])
+  }, [displayItems, filter, weekCutoff, searchQuery, effectiveStaffFilter, currentStaffId])
 
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
@@ -1316,7 +1332,7 @@ export function KaruteRecordListView({
         {staffList.length > 0 && (
           <StaffSelector
             staffList={staffList}
-            selected={staffFilter}
+            selected={effectiveStaffFilter}
             onChange={(next) => setStaffFilter(next as StaffFilterKey)}
             scope={{
               selfStaffId: currentStaffId ?? null,

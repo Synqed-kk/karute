@@ -77,6 +77,33 @@ const MGMT_STAFF = [
   { id: 's2', name: '浜野', initials: '浜', isManagement: true },
 ]
 
+// カルテ 案C+ scope (S42): the 自分 option exists only when the viewer HAS a
+// self to narrow to — parity with the old ScopeToggle, which hid its 自分
+// segment when !selfStaffId.
+describe('StaffSelector — scope (カルテ 案C+)', () => {
+  const scope = (selfStaffId: string | null) => ({
+    selfStaffId,
+    selfLabel: '自分',
+    allLabel: '全スタッフ',
+  })
+  const openPanel = () => fireEvent.click(screen.getByRole('button', { name: '全スタッフ' }))
+
+  it('selfStaffId = null → the 自分 option is absent', () => {
+    render(<StaffSelector staffList={STAFF} selected="all" onChange={() => {}} scope={scope(null)} />)
+    openPanel()
+    const listbox = screen.getByRole('listbox')
+    expect(within(listbox).queryByRole('option', { name: '自分' })).toBeNull()
+    expect(within(listbox).getByRole('option', { name: '全スタッフ' })).toBeInTheDocument()
+  })
+
+  it('selfStaffId set → the 自分 option is offered, first', () => {
+    render(<StaffSelector staffList={STAFF} selected="all" onChange={() => {}} scope={scope('s1')} />)
+    openPanel()
+    const options = within(screen.getByRole('listbox')).getAllByRole('option')
+    expect(options[0]).toHaveAccessibleName('自分')
+  })
+})
+
 describe('StaffSelector — 経営メンバー search-reveal', () => {
   it('P-A: default (no-query) list hides a flagged member', () => {
     render(<StaffSelector staffList={MGMT_STAFF} selected="all" onChange={() => {}} />)

@@ -22,8 +22,9 @@ jest.mock('next-intl', () => ({
     params ? `${key}:${JSON.stringify(params)}` : key,
   useLocale: () => 'ja',
 }))
+const mockReplace = jest.fn()
 jest.mock('@/i18n/navigation', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), replace: mockReplace, refresh: jest.fn() }),
   usePathname: () => '/ja/karute',
   Link: ({ children, ...rest }: { children?: React.ReactNode; href?: string }) => (
     <a {...rest}>{children}</a>
@@ -105,6 +106,7 @@ const staffChip = (name: RegExp | string = /^(all|self)$/) =>
 beforeEach(() => {
   searchParams = new URLSearchParams()
   dialogProps.length = 0
+  mockReplace.mockClear()
 })
 
 describe('the status line is folded away (案C+)', () => {
@@ -232,6 +234,54 @@ describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', (
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
     expect(staffChip()).toHaveTextContent(/^self$/)
     expect(screen.queryByText('他人 二郎')).not.toBeInTheDocument()
+  })
+
+  // S42: 'self' with no staff profile is ONE lens everywhere — the list view
+  // collapses it to 'all' before the list, the chip and the URL read it.
+  describe('?s=self for a viewer with NO staff profile', () => {
+    /** Every URL the writer replaced to — its `s` param, per call. */
+    const writtenS = () =>
+      mockReplace.mock.calls.map(([u]) => new URL(String(u), 'http://x').searchParams.get('s'))
+
+    it('the chip reads 全スタッフ with no wash, every row shows, and the URL carries no `s`', () => {
+      searchParams = new URLSearchParams('s=self')
+      renderList({ staffList: STAFF, currentStaffId: null })
+      expect(staffChip()).toHaveTextContent(/^all$/)
+      expect(staffChip().className).not.toContain('bg-primary/8')
+      expect(staffChip().className).not.toContain('text-primary')
+      expect(screen.getByText('顧客 a1')).toBeInTheDocument()
+      expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+      // The dropdown agrees: 全スタッフ is the current pick, 自分 is not offered.
+      fireEvent.click(staffChip())
+      expect(screen.getByRole('option', { name: 'all' })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.queryByRole('option', { name: 'self' })).not.toBeInTheDocument()
+      const written = writtenS()
+      expect(written.length).toBeGreaterThan(0)
+      expect(written.every((v) => v === null)).toBe(true)
+    })
+
+    it('the pills count the same unnarrowed universe the list shows', () => {
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(new Date())
+      searchParams = new URLSearchParams('s=self')
+      renderList({
+        staffList: STAFF,
+        currentStaffId: null,
+        total: 2,
+        items: [
+          row('a1', { date: today }),
+          row('a2', { date: today, staffId: 'staff-2', customerName: '他人 二郎' }),
+        ],
+      })
+      expect(screen.getByRole('button', { name: /^filters\.thisWeek/ }).textContent).toBe(
+        'filters.thisWeek2',
+      )
+    })
+
+    it('control: WITH a profile the same URL keeps s=self (the probe above can fail)', () => {
+      searchParams = new URLSearchParams('s=self')
+      renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+      expect(writtenS().at(-1)).toBe('self')
+    })
   })
 
   it('the pills count AFTER the chip’s scope — 自分 moves 今週 with it', () => {
