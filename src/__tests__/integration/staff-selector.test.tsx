@@ -314,3 +314,99 @@ describe('StaffSelector — 経営メンバー search-reveal', () => {
     expect(scroller?.className).toContain('flex-1')
   })
 })
+
+// ── S44: the panel is clamped on-screen at BOTH edges (FOUND S43,
+// COLDREAD-DROPDOWN-EDGE.md). The old effect only flipped on the LEFT edge, so
+// a trigger sitting mid-row flipped to left-0 and ran the 256px panel past the
+// right edge (35px at 393 / 53px at 375 with 自分 picked). jsdom has no layout,
+// so the two boxes the effect reads are stubbed from the trigger's place.
+describe('StaffSelector — panel clamp, both edges (S44)', () => {
+  const PANEL_W = 256
+  let anchor = { left: 0, width: 0 }
+  let rectSpy: jest.SpyInstance
+  const setViewport = (w: number) =>
+    Object.defineProperty(document.documentElement, 'clientWidth', { value: w, configurable: true })
+
+  beforeEach(() => {
+    rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      // The panel measures right-anchored (its first frame): its right edge
+      // sits on the trigger wrapper's right edge.
+      if (this.getAttribute('role') === 'listbox') {
+        const right = anchor.left + anchor.width
+        return { left: right - PANEL_W, right, width: PANEL_W, top: 0, bottom: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+      }
+      return {
+        left: anchor.left,
+        right: anchor.left + anchor.width,
+        width: anchor.width,
+        top: 0,
+        bottom: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect
+    })
+  })
+  afterEach(() => {
+    rectSpy.mockRestore()
+    setViewport(0)
+  })
+
+  const finalEdges = (w: number) => {
+    const panel = screen.getByRole('listbox')
+    const flipped = panel.className.includes('left-0')
+    const m = /translateX\((-?\d+)px\)/.exec(panel.getAttribute('style') ?? '')
+    const dx = m ? Number(m[1]) : 0
+    const left = (flipped ? anchor.left : anchor.left + anchor.width - PANEL_W) + dx
+    return { left, right: left + PANEL_W, room: w - (left + PANEL_W) }
+  }
+
+  it.each([375, 393])('a mid-row trigger that flips left is shifted back inside the RIGHT edge at %ipx', (w) => {
+    setViewport(w)
+    // The S43 case: 自分 picked chip at css x 172..236.5.
+    anchor = { left: 172, width: 64 }
+    render(<StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />)
+    fireEvent.click(screen.getByText('担当'))
+    const e = finalEdges(w)
+    expect(e.left).toBeGreaterThanOrEqual(8)
+    expect(e.right).toBeLessThanOrEqual(w - 8)
+  })
+
+  it('a trigger at the right end opens right-anchored, unshifted (no regression)', () => {
+    setViewport(393)
+    anchor = { left: 300, width: 77 }
+    render(<StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />)
+    fireEvent.click(screen.getByText('担当'))
+    const panel = screen.getByRole('listbox')
+    expect(panel.className).toContain('right-0')
+    expect(panel.getAttribute('style') ?? '').not.toContain('translateX')
+  })
+
+  it('a trigger whose right edge is inside the margin is pulled left to it', () => {
+    setViewport(393)
+    anchor = { left: 330, width: 60 } // right edge 390 > 385
+    render(<StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />)
+    fireEvent.click(screen.getByText('担当'))
+    expect(finalEdges(393).right).toBe(385)
+  })
+
+  it('a far-left trigger flips left-anchored and stays inside the LEFT edge', () => {
+    setViewport(375)
+    anchor = { left: 16, width: 70 }
+    render(<StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />)
+    fireEvent.click(screen.getByText('担当'))
+    const e = finalEdges(375)
+    expect(screen.getByRole('listbox').className).toContain('left-0')
+    expect(e.left).toBe(16)
+    expect(e.right).toBeLessThanOrEqual(367)
+  })
+
+  it('the panel carries the viewport cap (both margins can always hold)', () => {
+    render(<StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />)
+    fireEvent.click(screen.getByText('担当'))
+    expect(screen.getByRole('listbox').className).toContain('max-w-[calc(100vw-1rem)]')
+  })
+})
