@@ -15,11 +15,15 @@
  * no seeded row, no 「0店舗」 caption · l rows on screen, then refresh() reads
  * null twice → the rows stay, the line shows once · m a later good read clears
  * the line · n StoreSwitcher `unavailable` → a non-interactive pill · o
- * MobileHeader threads the flag · p the flag absent + one store → null, as today.
+ * MobileHeader threads the flag · p the flag absent + one store → null, as today
+ * · q a PARTIAL outage (the with-hours read null, the plain read rows): no
+ * line, the rows repaint, and the hours already on screen stay — a plain row
+ * carries no hours, and reading that as 未設定 would let one 保存 write the
+ * business-wide week over the store's own (Greptile G1).
  *
  * RED on main: k (the fake row / the empty-state line), l (the null read
  * throws inside refresh), m (no line ever), n, o (the switcher renders null).
- * Green on main: p.
+ * Green on main: p. q is RED with refresh()'s mergeKnownHours dropped.
  */
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
@@ -64,8 +68,26 @@ jest.mock('@/components/settings/redesign/sections/stores/StoreFormDialog', () =
 jest.mock('@/components/settings/redesign/sections/stores/PlanComparisonDialog', () => ({
   PlanComparisonDialog: () => null,
 }))
+// Echoes the two props the 営業時間 editor seeds from, so a row can read what
+// the hours block of each store receives after a refresh(). `undefined` is
+// spelled out: it means "this read never asked", which the editor would take
+// as 全店共通の初期値を使用中.
 jest.mock('@/components/settings/redesign/sections/stores/StoreHoursBlock', () => ({
-  StoreHoursBlock: () => null,
+  StoreHoursBlock: ({
+    storeId,
+    weeklyHours,
+    weeklyHoursUnreadable,
+  }: {
+    storeId: string
+    weeklyHours?: unknown
+    weeklyHoursUnreadable?: boolean
+  }) => (
+    <div
+      data-testid={`hours-${storeId}`}
+      data-week={weeklyHours === undefined ? 'undefined' : JSON.stringify(weeklyHours)}
+      data-unreadable={String(weeklyHoursUnreadable)}
+    />
+  ),
 }))
 // MobileHeader's own dependencies (mobile-header.test.tsx does the same).
 jest.mock('@/lib/notifications/hooks', () => ({
@@ -103,6 +125,21 @@ const row = (id: string, name: string, isPrimary = false): StoreRow => ({
 })
 const A = row('store-a', '代官山', true)
 const B = row('store-b', '銀座')
+/** Store A's own saved week, as the with-hours read (the 設定 page's) carries it. */
+const WEEK_A: NonNullable<StoreRow['weeklyHours']> = {
+  mon: { open: '11:00', close: '20:00' },
+  tue: null,
+  wed: { open: '11:00', close: '20:00' },
+  thu: { open: '11:00', close: '20:00' },
+  fri: { open: '11:00', close: '20:00' },
+  sat: { open: '10:00', close: '19:00' },
+  sun: { open: '10:00', close: '18:00' },
+}
+/** What store `id`'s hours block received: [weeklyHours, weeklyHoursUnreadable]. */
+const hoursProps = (id: string) => {
+  const el = screen.getByTestId(`hours-${id}`)
+  return [el.getAttribute('data-week'), el.getAttribute('data-unreadable')]
+}
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -213,6 +250,66 @@ describe('StoresSection — the store list could not be read', () => {
     fireEvent.click(screen.getByText('submit-rename'))
     await waitFor(() => expect(screen.getByText('銀座 改名')).toBeInTheDocument())
     expect(screen.queryByText('listUnavailable')).toBeNull()
+  })
+
+  it('(q) a partial outage — the hours read answers null, the plain read answers rows: no line, the rows repaint, the hours on screen stay', async () => {
+    render(
+      <StoresSection
+        orgSettings={orgSettings}
+        isOwner
+        initialStores={[
+          { ...A, weeklyHours: WEEK_A, weeklyHoursUnreadable: false },
+          { ...B, weeklyHours: null, weeklyHoursUnreadable: false },
+        ]}
+        initialActiveStoreId="store-a"
+        initialEntitlement={null}
+      />,
+    )
+    expect(hoursProps('store-a')).toEqual([JSON.stringify(WEEK_A), 'false'])
+
+    // core's storePolicies read is down, stores itself is up: the with-hours
+    // door answers null, the plain door answers rows that carry NO hours.
+    listStoresWithHours.mockResolvedValue(null)
+    listStores.mockResolvedValue([A, row('store-b', '銀座 改名')])
+    fireEvent.click(screen.getAllByLabelText('edit')[1])
+    fireEvent.click(screen.getByText('submit-rename'))
+    await waitFor(() => expect(screen.getByText('銀座 改名')).toBeInTheDocument())
+    expect(listStoresWithHours).toHaveBeenCalledTimes(1)
+    expect(listStores).toHaveBeenCalledTimes(1)
+
+    // The plain read DID answer: no outage line, the rows are its rows.
+    expect(screen.queryByText('listUnavailable')).toBeNull()
+    expect(screen.getByText('代官山')).toBeInTheDocument()
+    expect(screen.getByText('storesCount {"n":2}')).toBeInTheDocument()
+    // …and the hours already shown are kept, never taken as 未設定: A keeps
+    // its saved week, B stays a KNOWN "no own week" (null, not "never asked").
+    expect(hoursProps('store-a')).toEqual([JSON.stringify(WEEK_A), 'false'])
+    expect(hoursProps('store-b')).toEqual(['null', 'false'])
+  })
+
+  it('(q) the same keeps an UNREADABLE week unreadable — a plain re-list never re-opens writes over it', async () => {
+    render(
+      <StoresSection
+        orgSettings={orgSettings}
+        isOwner
+        initialStores={[
+          { ...A, weeklyHours: null, weeklyHoursUnreadable: true },
+          { ...B, weeklyHours: null, weeklyHoursUnreadable: false },
+        ]}
+        initialActiveStoreId="store-a"
+        initialEntitlement={null}
+      />,
+    )
+    expect(hoursProps('store-a')).toEqual(['null', 'true'])
+
+    listStoresWithHours.mockResolvedValue(null)
+    listStores.mockResolvedValue([A, row('store-b', '銀座 改名')])
+    fireEvent.click(screen.getAllByLabelText('edit')[1])
+    fireEvent.click(screen.getByText('submit-rename'))
+    await waitFor(() => expect(screen.getByText('銀座 改名')).toBeInTheDocument())
+    expect(listStores).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('listUnavailable')).toBeNull()
+    expect(hoursProps('store-a')).toEqual(['null', 'true'])
   })
 
   it('a TRUE empty from a live read (no flag) still says emptyState, not the outage line', async () => {
