@@ -253,17 +253,31 @@ export function KaruteRecordListView({
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
     () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
   )
-  // ONE effective staff lens (S42). 'self' needs a staff profile to narrow
-  // to: without one (a restored `?s=self` for a viewer with no profile)
-  // applyScope's self leg filters nothing, while a chip fed the raw 'self'
-  // would claim 自分 in the wash over every staff's rows. So 'self' with no
-  // currentStaffId collapses to 'all' HERE, and the list (applyScope, both
-  // calls), the 担当 chip (`selected`) and the URL writer all read this one
-  // value — they can never disagree. The raw state keeps 'self', so a viewer
-  // whose profile arrives later lands on their own rows unchanged. (Parity
-  // with the old ScopeToggle, which never offered 自分 without a self id.)
+  // ONE effective staff lens (S42). A lens needs someone to narrow to:
+  //  - 'self' needs a staff profile — without one (a restored `?s=self` for a
+  //    viewer with no profile) applyScope's self leg filters nothing, while a
+  //    chip fed the raw 'self' would claim 自分 in the wash over every staff's
+  //    rows. (Parity with the old ScopeToggle, which never offered 自分
+  //    without a self id.)
+  //  - a staff id needs to be ON the current roster — a saved `?s=<id>` for
+  //    someone no longer in it would filter the list to nobody while the chip
+  //    (no roster entry to name) read 全スタッフ in the wash and the dropdown
+  //    marked nothing. Same reasoning as the store-switch reset below, which
+  //    clears the lens outright when the roster changes with the store.
+  // Either collapses to 'all' HERE, and the list (applyScope, both calls),
+  // the 担当 chip (`selected`) and the URL writer all read this one value —
+  // they can never disagree. The raw state keeps the pick, so a profile or a
+  // roster that arrives later narrows again unchanged.
   const effectiveStaffFilter: StaffFilterKey =
-    staffFilter === 'self' && !currentStaffId ? 'all' : staffFilter
+    staffFilter === 'all'
+      ? 'all'
+      : staffFilter === 'self'
+        ? currentStaffId
+          ? 'self'
+          : 'all'
+        : staffList.some((s) => s.id === staffFilter)
+          ? staffFilter
+          : 'all'
   const [searchQuery, setSearchQuery] = useState('')
 
   // PR-2a 日付チャンク読み込み. `appended` holds ONLY the chunks さらに表示

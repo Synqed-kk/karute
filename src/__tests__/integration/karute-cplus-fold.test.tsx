@@ -284,6 +284,61 @@ describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', (
     })
   })
 
+  // S42 F6 (Greptile on #1059): the sibling of the case above — a saved
+  // `?s=<staffId>` for someone NOT on the current roster is the same one lens.
+  describe('?s=<staffId> for someone not on the current roster', () => {
+    const writtenS = () =>
+      mockReplace.mock.calls.map(([u]) => new URL(String(u), 'http://x').searchParams.get('s'))
+
+    it('the chip reads 全スタッフ with no wash, 全スタッフ is selected, every row shows, no `s`', () => {
+      searchParams = new URLSearchParams('s=staff-9')
+      renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+      expect(staffChip()).toHaveTextContent(/^all$/)
+      expect(staffChip().className).not.toContain('bg-primary/8')
+      expect(staffChip().className).not.toContain('text-primary')
+      expect(screen.getByText('顧客 a1')).toBeInTheDocument()
+      expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+      fireEvent.click(staffChip())
+      expect(screen.getByRole('option', { name: 'all' })).toHaveAttribute('aria-selected', 'true')
+      expect(
+        screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true'),
+      ).toHaveLength(1)
+      const written = writtenS()
+      expect(written.length).toBeGreaterThan(0)
+      expect(written.every((v) => v === null)).toBe(true)
+    })
+
+    it('control: a roster id narrows, the chip names them in the wash, the URL keeps `s`', () => {
+      searchParams = new URLSearchParams('s=staff-2')
+      renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+      expect(staffChip(/鈴木 花子/).className).toContain('bg-primary/8')
+      expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+      expect(screen.queryByText('顧客 a1')).not.toBeInTheDocument()
+      expect(writtenS().at(-1)).toBe('staff-2')
+    })
+
+    it('the roster arriving later narrows again — the raw pick survived', () => {
+      searchParams = new URLSearchParams('s=staff-2')
+      const props = {
+        items: [row('a1'), row('a2', { staffId: 'staff-2', customerName: '他人 二郎' })],
+        monthCount: 26,
+        total: 312,
+        currentStaffId: 'staff-1',
+        customerOptions: [],
+      }
+      const { rerender } = render(<KaruteRecordListView {...props} staffList={[]} />)
+      // No roster yet: nobody to narrow to — every row, no `s`.
+      expect(screen.getByText('顧客 a1')).toBeInTheDocument()
+      expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+      expect(writtenS().at(-1)).toBeNull()
+      rerender(<KaruteRecordListView {...props} staffList={STAFF} />)
+      expect(staffChip(/鈴木 花子/)).toBeInTheDocument()
+      expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+      expect(screen.queryByText('顧客 a1')).not.toBeInTheDocument()
+      expect(writtenS().at(-1)).toBe('staff-2')
+    })
+  })
+
   it('the pills count AFTER the chip’s scope — 自分 moves 今週 with it', () => {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(new Date())
     renderList({
