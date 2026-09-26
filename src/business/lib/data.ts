@@ -24,6 +24,7 @@
 import { jstDayKey, jstSlotEnd, renderNow } from './clock'
 import { practiceTenant } from './practice-door/switch'
 import * as door from './practice-door/door'
+import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
 import {
   appointments,
   business,
@@ -234,8 +235,9 @@ export async function readReserveCardColor(): Promise<string | null> {
   return null
 }
 
-/** 予約の色分け — org settings `booking_colors`, RAW (one value per business, keyed by store inside);
- *  `bookingColorsFor` (today-board.ts) resolves it. OFF answers null → every store gets the defaults. */
+/** 予約の色分け — the business's org-settings colour keys, RAW: the legacy `booking_colors` map (read-only) and one
+ *  `booking_colors:<storeId>` key per store (⚖ PKT-S41); `bookingColorsFor` (booking-colors.ts) resolves them.
+ *  OFF answers null → every store gets the defaults. */
 export async function readBookingColors(): Promise<unknown> {
   if (practiceTenant() !== null) return door.readBookingColors()
   return null
@@ -257,6 +259,12 @@ export async function readCanManageCardColor(): Promise<boolean> {
  *  OFF has no writer — the door answers 'tenant' before anything else. */
 export async function writeReserveCardColor(next: string | null): Promise<door.WriteCardColorResult> {
   return door.writeReserveCardColor(next)
+}
+
+/** 予約の色分け (⚖ PKT-S38 R3) — the second Business write: one store's four booking colours, through
+ *  the door. OFF has no writer — the door answers 'tenant' before anything else. */
+export async function writeBookingColors(storeId: string, colors: unknown): Promise<WriteBookingColorsResult> {
+  return doorWriteBookingColors(storeId, colors)
 }
 
 /** ⚖ A1b · K11 — the store's address as the Reserve card's cover prints it; null = none

@@ -97,6 +97,7 @@ import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(busine
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
+import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/business/lib/booking-colors'
 // ③ — the ¥ unit the Reserve 受付 fact prints; imported, never typed, so the
 // pin below follows the constant rather than restating it.
 import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
@@ -4270,3 +4271,42 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     ]) expect({ line, present: LOOK_CODE.includes(line) }).toEqual({ line, present: true })
   })
 })
+
+describe('⚖ PKT-S38 R6 — 予約の色分け speaks the board’s four, from ONE closed palette', () => {
+  it('four rows (new · repeat · ticket · vip), eleven swatches = BOOKING_PALETTE, and a store with no saved colours seeds the board defaults', async () => {
+    for (const store of [STORE_A, STORE_B]) {
+      const block = sectionOf(await room({ store }), 'language-display').blocks.find((b) => b.id === 'lang.colors')!
+      expect(block.rows.map((r) => r.id)).toEqual(['lang.row-color-new', 'lang.row-color-repeat', 'lang.row-color-ticket', 'lang.row-color-vip'])
+      expect(block.rows.map((r) => r.label)).toEqual(['新規予約', '再来（リピート）', '回数券利用', 'VIP'])
+      const controls = block.rows.flatMap((r) => r.controls)
+      expect(controls.map((c) => [c.id, c.value])).toEqual(Object.entries(BOOKING_COLOR_DEFAULTS).map(([k, hex]) => [`lang.color-${k}`, hex]))
+      for (const c of controls) expect(c.control).toEqual({ kind: 'swatch', options: BOOKING_PALETTE.map((p) => ({ value: p.hex, label: p.label, hex: p.hex })) })
+      expect(block.note).toBe('予約の種類ごとの色です。ボードの左端の帯・点に出ます。')
+      expect(block.preview?.template).toBe('新規予約は{lang.color-new}、再来は{lang.color-repeat}、回数券は{lang.color-ticket}、VIPは{lang.color-vip}の帯で表示します。')
+    }
+  })
+  it('the palette: the four defaults first (new, repeat, ticket, vip), eleven distinct lowercase hexes, eleven distinct labels', () => {
+    expect(BOOKING_PALETTE.slice(0, 4).map((p) => p.hex)).toEqual([BOOKING_COLOR_DEFAULTS.new, BOOKING_COLOR_DEFAULTS.repeat, BOOKING_COLOR_DEFAULTS.ticket, BOOKING_COLOR_DEFAULTS.vip])
+    expect(BOOKING_PALETTE.map((p) => p.label)).toEqual(['藍', '藤紫', '浅葱', '墨', '青', '青緑', '紫', '桃', '紺', '茶', '灰'])
+    expect(new Set(BOOKING_PALETTE.map((p) => p.hex)).size).toBe(11)
+    for (const p of BOOKING_PALETTE) expect(p.hex).toMatch(/^#[0-9a-f]{6}$/)
+  })
+})
+
+describe('⚖ PKT-S38 R7 — the live colours reach ONLY a reader 言語・表示 lets in (a shut gate ships nothing, G1)', () => {
+  // ⚖ PKT-S41 — the door's raw subset: the store's own `booking_colors:<storeId>` key.
+  const FOUR = { new: '#3b6fd4', repeat: '#7a5bd4', ticket: '#c25a8f', vip: '#3f4a7d' }
+  const live = { raw: { [bookingColorsKeyFor(STORE_A)]: FOUR } }
+  it('open gate: the lens store’s four are resolved and seed the dial; a shut gate: null, and the section carries no rows', async () => {
+    const open = await settingsProps({ locale: 'ja', store: STORE_A, bookingColors: live })
+    expect(open.bookingColors).toEqual(FOUR)
+    const shut = await settingsProps({ locale: 'ja', store: STORE_A, bookingColors: live, world: { role: 'スタッフ' } })
+    expect(sectionOf(shut.props, 'language-display').gate).not.toBe('open')
+    expect(shut.bookingColors).toBeNull()
+    expect(JSON.stringify(shut.props)).not.toContain('#c25a8f')
+  })
+  it('no live input (door OFF) → null', async () => {
+    expect((await settingsProps({ locale: 'ja', store: STORE_A })).bookingColors).toBeNull()
+  })
+})
+
