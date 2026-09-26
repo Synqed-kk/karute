@@ -245,7 +245,10 @@ async function rosterOrderOf(actor: PracticeActor, lens: StoreLens): Promise<Ros
   const { assignments } = await actor.reads.staffStoresList()
   return (typeof lens === 'string' ? [lens] : visibleIds(actor)).map((store) => ({
     store,
-    roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => row.id).sort(),
+    roster: rows
+      .filter((row) => worksAt(assignments[row.id], store))
+      .map((row) => ({ id: row.id, name: row.name })) // ⚖ R9 — the seat's live name, for the borrowed free text
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
   }))
 }
 
