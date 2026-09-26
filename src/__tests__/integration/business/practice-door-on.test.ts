@@ -58,7 +58,7 @@ import { settingsProps } from '@/app/[locale]/(business)/business/settings/setti
 import { recordingProps } from '@/app/[locale]/(business)/business/recording/recording-props'
 import { karuteProps } from '@/app/[locale]/(business)/business/karute/karute-props'
 import {
-  APT, AKARI, ASSIGNMENTS, CARD, CUSTOMERS, KOBAYASHI, LOGIN, MENU, STAFF, STORE, STORES, TENANT, membership, recordedReads,
+  APPOINTMENTS, APT, AKARI, ASSIGNMENTS, CARD, CUSTOMERS, KOBAYASHI, LOGIN, MENU, STAFF, STORE, STORES, TENANT, membership, recordedReads,
   type RecordedOptions,
 } from './practice-door-recorded'
 
@@ -924,7 +924,9 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
   const ROOM_A = '00000000-0000-4000-8000-0000000000d1', ROOM_B = '00000000-0000-4000-8000-0000000000d2'
   const withRooms = () => {
     const room = (id: string, name: string) => ({ id, store_id: STORE.devSalon, name, note: null, room_class: 'standard' as const, cleanup_minutes: 0, display_order: 0, active: true, created_at: 'x', updated_at: 'x' })
-    withReads().resourcesList.mockImplementation(async (q?: { store_id?: string }) => ({ resources: q?.store_id === STORE.devSalon ? [room(ROOM_B, '個室B'), room(ROOM_A, '個室A')] : [] }))
+    const spy = withReads()
+    spy.resourcesList.mockImplementation(async (q?: { store_id?: string }) => ({ resources: q?.store_id === STORE.devSalon ? [room(ROOM_B, '個室B'), room(ROOM_A, '個室A')] : [] }))
+    return spy
   }
   const SEAT3 = ['s0', 's1', 's2']
   const shiftOf = (fixtureId: string) => fxShifts.find((s) => s.staff_id === fixtureId)!
@@ -1101,6 +1103,35 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     } finally {
       fxDecisions.pop()
     }
+  })
+
+  it('R10 — a borrowed slot is served only on a room its OWN live day shows free for the slot\'s window; the card, the count and 予約一覧 follow; 東京 untouched', async () => {
+    // Dev Salon (withRooms): slot-01 16:00–17:00 → 個室B (ROOM_B); slot-02 17:30–18:30 → 個室A (ROOM_A).
+    const jst = (hm: string) => new Date(`2026-09-14T${hm}:00+09:00`).toISOString()
+    const live = (store: string, room: string, from: string, to: string, extra: Partial<(typeof APPOINTMENTS)[number]> = {}) =>
+      ({ ...APPOINTMENTS[0], id: `00000000-0000-4000-8000-00000000${room.slice(-4)}`, store_id: store, staff_id: CARD.probe, menu_id: MENU.zenten, resource_id: room, starts_at: jst(from), ends_at: jst(to), status: 'SCHEDULED' as const, ...extra })
+    const day = async (rows: Array<(typeof APPOINTMENTS)[number]>) => {
+      const spy = withRooms()
+      const base = recordedReads().appointmentsList
+      spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+        const r = await base(q)
+        const more = rows.filter((a) => (!q?.store_id || a.store_id === q.store_id) && (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) && (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)))
+        return (q?.page ?? 1) > 1 ? r : { ...r, appointments: [...r.appointments, ...more] }
+      })
+      const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
+      const counts = await data.readUnresolvedCounts()
+      expect((await data.readReservationPlanes(STORE.devSalon)).sellSlots).toEqual(planes.sellSlots)
+      expect((await data.readDayPlanes(STORE.tokyo, TODAY)).sellSlots).toEqual(sampleRows(fxSlots, null).filter((x) => x.store_id === STORE.tokyo))
+      expect([counts.byStore[STORE.devSalon], counts.byStore[STORE.tokyo]]).toEqual([planes.decisions.length, 4]) // R6
+      return { slots: planes.sellSlots.map((x) => x.id), cards: (await board(STORE.devSalon)).cards.map((c) => c.id) }
+    }
+    const both = { slots: ['slot-01~5a171878', 'slot-02~5a171878'], cards: ['dec-capacity~5a171878'] }
+    expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00')])).toEqual(both) // adjacent, no overlap
+    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00')])).toEqual({ slots: ['slot-02~5a171878'], cards: [] })
+    expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00', { occupied_until: jst('16:10') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // core's cleanup
+    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'CANCELLED' })])).toEqual(both)
+    expect(await day([live(STORE.devSalon, ROOM_A, '18:00', '18:30', { kind: 'BLOCK', customer_id: null })])).toEqual({ slots: ['slot-01~5a171878'], cards: ['dec-capacity~5a171878'] })
+    expect(await day([live(STORE.tokyo, 'bed-02', '16:00', '17:00')])).toEqual(both) // an exact twin's room is never checked
   })
 
   it('R6 — every visible store counts exactly the open decisions it is served', async () => {
