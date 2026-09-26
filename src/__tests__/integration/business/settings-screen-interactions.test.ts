@@ -40,7 +40,7 @@ import { operator } from '@/business/lib/fixtures'
 import { rulebook } from '@/business/lib/fixtures-settings'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE } from '@/business/lib/booking-colors'
-import { sameBookingColors, sendBookingColors } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
+import { landingBlockOf, landOnBlock, sameBookingColors, sendBookingColors } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
 import {
   accessFor,
   blockingError,
@@ -1310,5 +1310,54 @@ describe('予約の色分け — 保存する sends only a real colour change (G
     expect(f).toHaveBeenCalledTimes(1)
     expect(HANDLER).toMatch(/if \(!result\.ok\) \{\s*setBookingFail\(result\.reason\)\s*return\s*\}/)
     expect(SRC_CODE).toContain('{bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Greptile P2 on #1058 (PR-3 fix round 1) — the 色の意味 chip's LANDING, RUN on real DOM nodes.
+// ⚠ NOT a mount, for the reason the block above gives (this folder's fence keeps react-dom out). The room's
+// effect is `landingBlockOf(window.location.hash, blocks)` → `jumpTo`, whose DOM half is `landOnBlock`; both
+// are run here, and the room's wiring of them is pinned in settings.test.ts (the PR-3 T3 test).
+describe('a link that names a block lands ON it — scroll + caret (Greptile P2, PR-3 fix round 1)', () => {
+  const LANG = [{ id: 'lang.language' }, { id: 'lang.colors' }]
+  const scrolled: Array<{ id: string; opts: unknown }> = []
+  const realScroll = Element.prototype.scrollIntoView
+  beforeEach(() => {
+    scrolled.length = 0
+    document.body.innerHTML = ['lang.language', 'lang.colors', 'bg.presets']
+      .map((id) => `<section id="st-blk-${id}"><h3 id="st-blkh-${id}" tabindex="-1">${id}</h3></section>`)
+      .join('')
+    Element.prototype.scrollIntoView = function (this: Element, opts?: boolean | ScrollIntoViewOptions) {
+      scrolled.push({ id: this.id, opts })
+    }
+  })
+  afterEach(() => {
+    Element.prototype.scrollIntoView = realScroll
+    document.body.innerHTML = ''
+  })
+  const land = (hash: string, blocks: ReadonlyArray<{ id: string }>, reduced = false) => {
+    const id = landingBlockOf(hash, blocks)
+    if (id !== null) landOnBlock(id, reduced)
+    return id
+  }
+
+  it('the chip\'s fragment, on the section it opens: 予約の色分け scrolls to the top and its heading takes the caret', () => {
+    expect(land('#st-blk-lang.colors', LANG)).toBe('lang.colors')
+    expect(scrolled).toEqual([{ id: 'st-blk-lang.colors', opts: { block: 'start', behavior: 'smooth' } }])
+    expect(document.activeElement?.id).toBe('st-blkh-lang.colors')
+    // …and a reader who asked for stillness gets the same landing without the slide (⚖ S17 fix round 4 · M1).
+    scrolled.length = 0
+    land('#st-blk-lang.colors', LANG, true)
+    expect(scrolled).toEqual([{ id: 'st-blk-lang.colors', opts: { block: 'start', behavior: 'auto' } }])
+  })
+
+  it('a fragment naming no block of the OPEN section lands nowhere — nothing scrolls, the caret stays put', () => {
+    // e.g. the room opened on another section (a gate the reader lacks, the P1 case) — its blocks are not 言語・表示's.
+    expect(land('#st-blk-lang.colors', [{ id: 'bg.presets' }])).toBeNull()
+    expect(land('#st-blk-nope', LANG)).toBeNull()
+    expect(land('#lang.colors', LANG)).toBeNull()
+    expect(land('', LANG)).toBeNull()
+    expect(scrolled).toEqual([])
+    expect(document.activeElement).toBe(document.body)
   })
 })

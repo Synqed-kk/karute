@@ -11,6 +11,7 @@
 
 import { usePathname, useSearchParams } from 'next/navigation'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { businessStrings } from '@/business/i18n'
 import type { ShellStore } from './BusinessSidebar'
 
 /** The topbar's primary-action slot — canon's rightmost `btn primary`
@@ -102,7 +103,12 @@ const GROUP: Record<string, string | null> = {
   'ask-ai': '記録・AI',
 }
 
-export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; syncLabel: string }) {
+/** ⚖ PR-3 §v3 V3-5 — `practice`: the practice door is ON (the layout reads the
+ *  switch on the server). The honesty chip then names the practice world
+ *  (「練習用の事業」) instead of 「サンプルデータ」 — the 「サンプル」 marks inside the
+ *  screens say which PART is sample. OFF: absent (never `false`, so the
+ *  layout's element tree is unchanged) and today's chip, byte for byte. */
+export function BusinessTopbar({ stores, syncLabel, practice }: { stores: ShellStore[]; syncLabel: string; practice?: true }) {
   const pathname = usePathname()
   const search = useSearchParams()
   const { action } = useContext(ActionSlot)
@@ -120,8 +126,8 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
         {store ? store.name : 'すべての店舗'} / <b>{leaf}</b>
       </div>
       <div className="top-actions">
-        <span className="honesty" role="note" aria-label="サンプルデータ — 実データではありません">
-          ◈ サンプルデータ
+        <span className="honesty" role="note" aria-label={practice ? businessStrings.sampleMark.topNoteLabel : 'サンプルデータ — 実データではありません'}>
+          {practice ? `◈ ${businessStrings.sampleMark.topNote}` : '◈ サンプルデータ'}
         </span>
         <span className="sync">{syncLabel}</span>
         {/* 操作履歴 has no screen and no canon client transition — disabled with
