@@ -2566,7 +2566,7 @@
    inherit rather than underline, so the rule was only a belt. That was reasoned
    from the reset and it was wrong; the page was read afterwards and it
    disagreed. This is a fix, not a belt. */
-.biz .page-today .fields-pop .chip { text-decoration: none; color: #6b7280; }
+.biz .page-today .fields-pop .chip { text-decoration: none; }
 .biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
 .biz .page-today .sell-shelf button:hover { background: var(--indigo-soft); }
 
