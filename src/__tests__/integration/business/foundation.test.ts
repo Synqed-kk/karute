@@ -566,7 +566,9 @@ describe('the fixture data door', () => {
         // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味
         // chip's text (a NEW visible string goes through it, never a literal).
         // It imports only `./ja.json`, so this arrow adds no code module below.
-        // ⚖ PR-3 (practice door) — the same arrow carries the 「サンプル」 mark's strings.
+        // ⚖ PR-3 (practice door) — the same arrow carried the 「サンプル」 mark's strings;
+        // ⚖ PR-4c §v7 V7-1 — the mark itself comes from its ONE component home.
+        '@/business/components/SampleMark',
         '@/business/i18n',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
@@ -916,12 +918,22 @@ describe('the fixture data door', () => {
         '@/business/lib/spring',
         'react',
       ],
+      // ⚖ PR-4c §v7 V7-1 — THE FIRST SHARED BUSINESS COMPONENT (src/business/components/): the 「サンプル」
+      // mark, used by 設定 and 今日の運営. Its disclosure is 設定's own `Collapse` (react + the spring only, so
+      // no cycle), its words the string home; nothing here reads data.
+      'src/business/components/SampleMark.tsx': [
+        '@/app/[locale]/(business)/business/settings/Collapse',
+        '@/business/i18n',
+        'react',
+      ],
       'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
         './Collapse',
         // ⚖ S17 FOLD (A1) — the rail renders #812's room for its 予約と確保 row.
         './StorePolicySection',
         // ⚖ A1b — …and カードの見た目's picker + ported card for its row.
         './ReserveCardLookSection',
+        // ⚖ PR-4c §v7 V7-1 — the 「サンプル」 mark's ONE component home (chip · note · the section's line).
+        '@/business/components/SampleMark',
         // ⚖ PR-3 — the 「サンプル」 mark's strings: Business's own string home (a JSON module, no imports).
         '@/business/i18n',
         '@/business/lib/guide',

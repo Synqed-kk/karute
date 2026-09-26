@@ -23,6 +23,9 @@ import { appointments, customers, STORE_A } from '@/business/lib/fixtures'
 // `other`, D-13) and the generic row, for the family-grep call sites below.
 import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { jstDayKey } from '@/business/lib/clock'
+// ⚖ PR-4c — hook-free chips called as plain functions (this folder's fence keeps react-dom out).
+import { MarkChip, MarkHint, MarkLabel } from '@/business/components/SampleMark'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import * as data from '@/business/lib/data'
 import { computeChecks, confirmCaption, type Check } from '@/business/lib/canon-logic/drag-rules'
 import {
@@ -7942,8 +7945,8 @@ describe('BATCH-10b X4 — the two copy items', () => {
     // text is the Business string home's; the screen never spells it.
     const CHIP = "<Link className=\"chip\" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>"
     // DISCLOSED PIN MOVE (catch-up to #1058 on PR-3's marks) — the ONE import from the string home
-    // also carries the 「サンプル」 mark's `sampleMarkLines`; a second import line from it would be a duplicate.
-    expect(SRC).toContain("import { businessStrings, sampleMarkLines } from '@/business/i18n'")
+    // also carried `sampleMarkLines`; ⚖ PR-4c — the mark's words ride its component home now.
+    expect(SRC).toContain("import { businessStrings } from '@/business/i18n'")
     const neutral = SRC.indexOf('<b>左端の色＝予約カテゴリー</b>')
     const chip = SRC.indexOf(CHIP)
     expect(neutral).toBeGreaterThan(-1)
@@ -11752,8 +11755,9 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'",
     // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味 chip's
     // text; named in `foundation.test.ts`'s sealed inventory with the same reason.
-    // ⚖ PR-3 (practice door) — the same one line carries the 「サンプル」 mark's strings.
-    "import { businessStrings, sampleMarkLines } from '@/business/i18n'",
+    // ⚖ PR-4c §v7 V7-1 — the mark's ONE component home (in `foundation.test.ts`'s sealed inventory).
+    "import { MarkChip, MarkHint, MarkLabel, MarkNote, SampleMark, type SampleMarkForm } from '@/business/components/SampleMark'",
+    "import { businessStrings } from '@/business/i18n'",
     "} from '@/business/lib/canon-logic/drag-rules'",
     "} from '@/business/lib/canon-logic/pricing'",
     "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",
@@ -15325,23 +15329,49 @@ describe('⚖ D-53 (c) R1 — N0 source-text pin: needsUnit, the seam, the order
 // screen draws it is gated on a mark prop (absent unless the practice door is ON and
 // the plane is sample). ⚖ §v3 V3-6 — ONE per region: the grid head, the decision
 // head, the 勤務不可 strip, and the two count cells only above 0; never a card.
+// ⚖ PR-4c — all five come from the ONE component home (focusable unless inside a button).
 describe('⚖ PR-3 — the board’s sample label is gated on the door, one per region', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
-  it('every sampleChip use is gated on its own mark prop, and there are five', () => {
-    const uses = SRC.match(/\{[^{}]*sampleChip\([^()]*\)\}/g) ?? []
-    expect(uses.sort()).toEqual([
-      '{props.absenceMark && sampleChip(props.absenceMark)}',
-      '{props.boardMark && sampleChip(props.boardMark)}',
-      '{props.decisionsMark && openCards.length > 0 && sampleChip(props.decisionsMark)}',
-      '{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}',
-      '{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}',
-    ])
-    expect(SRC).toContain('{props.boardMark && <p className="sample-mark-note board-mark-note">{sampleMarkLines(props.boardMark).note}</p>}')
-    expect(SRC).not.toContain('is-sample')
-    expect(SRC).not.toContain('props.marked')
+  it('five mark sites, each gated on its own mark prop; the grid head’s note is its chip’s other half; no mark markup of the screen’s own', () => {
+    for (const [site, count] of [
+      ['{props.decisionsMark && unresolved > 0 && <MarkLabel mark={props.decisionsMark} />}', 2],
+      ['{props.boardMark && <MarkChip mark={props.boardMark} open={boardMarkOpen} controls="board-mark" onToggle={() => setBoardMarkOpen((o) => !o)} />}', 1],
+      ['{props.boardMark && <div className="board-mark-note"><MarkNote mark={props.boardMark} id="board-mark" open={boardMarkOpen} reduced={segReduced} /></div>}', 1],
+      ['{props.absenceMark && <SampleMark mark={props.absenceMark} id="absence-mark" reduced={segReduced} />}', 1],
+      ['{props.decisionsMark && openCards.length > 0 && <SampleMark mark={props.decisionsMark} id="decisions-mark" reduced={segReduced} />}', 1],
+    ] as const) expect({ site, count: SRC.split(site).length - 1 }).toEqual({ site, count })
+    expect([SRC.match(/<(MarkChip|MarkLabel|SampleMark) /g)?.length, SRC.match(/<MarkNote /g)?.length]).toEqual([5, 1])
+    for (const gone of ['sampleChip', 'className="sample-mark', 'is-sample', 'props.marked']) expect(SRC).not.toContain(gone)
   })
-  it('a decision card carries no chip (the card is a <button>; its section head carries the mark)', () => {
+  it('(ii) a count cell is the button: its mark is a label, never a nested control, and the cell is described by the hidden note beside it', () => {
+    for (const [label, id] of [['<span>未解決{', 'ops-mark-unresolved'], ['<span>次に決めること{', 'ops-mark-decisions']]) {
+      expect(SRC.split(label).length - 1).toBe(1)
+      const at = SRC.lastIndexOf('<button className="register-cell', SRC.indexOf(label))
+      const cell = SRC.slice(at, SRC.indexOf('</button>', at))
+      expect({ id, nested: /<(MarkChip|SampleMark|button)\b/.test(cell.slice(1)) }).toEqual({ id, nested: false })
+      expect(cell).toContain(`aria-describedby={props.decisionsMark && unresolved > 0 ? '${id}' : undefined}`)
+      expect(SRC.split(`{props.decisionsMark && unresolved > 0 && <MarkHint mark={props.decisionsMark} id="${id}" />}`).length - 1).toBe(1)
+    }
+  })
+  it('(i) the focusable chip closes its open disclosure on Escape (as 設定’s does), and only then', () => {
+    const onToggle = jest.fn()
+    const stop = jest.fn()
+    const keyDown = (open: boolean, key: string) =>
+      (MarkChip({ mark: { form: 'whole' }, open, controls: 'x', onToggle }) as { props: { onKeyDown: (e: unknown) => void } }).props.onKeyDown({ key, stopPropagation: stop })
+    keyDown(true, 'Escape')
+    keyDown(false, 'Escape')
+    keyDown(true, 'Enter')
+    expect([onToggle.mock.calls.length, stop.mock.calls.length]).toEqual([1, 1])
+  })
+  it('(iii) both chip forms carry the ?-tour pair (guide.ts), the same two strings; the hint says the same explanation', () => {
+    const mark = { form: 'part' as const, labels: ['シフトと休み'] }
+    const pair = (el: unknown) => ['data-guide-title', 'data-guide'].map((k) => (el as { props: Record<string, unknown> }).props[k])
+    const want = [businessStrings.sampleMark.popLabel, `${sampleMarkLines(mark).pop1}${businessStrings.sampleMark.popLine2}`]
+    expect([pair(MarkChip({ mark, open: false, controls: 'x', onToggle: () => {} })), pair(MarkLabel({ mark }))]).toEqual([want, want])
+    expect((MarkHint({ mark, id: 'h' }) as { props: object }).props).toMatchObject({ children: want[1], className: 'sr-only' })
+  })
+  it('a decision card carries no chip (the card is a <button>; its section carries the mark)', () => {
     const card = SRC.slice(SRC.indexOf('<div className="decision-grid">'), SRC.indexOf('<div className="decision-grid">') + 2000)
-    expect(card).not.toContain('sampleChip')
+    expect(card).not.toMatch(/<(MarkChip|MarkLabel|SampleMark)\b/)
   })
 })
