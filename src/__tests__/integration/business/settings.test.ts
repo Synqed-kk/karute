@@ -3932,6 +3932,29 @@ describe('the shell one-liners, and the signposts that now really navigate', () 
     expect(SCREEN_CODE).toContain('landOnBlock(blockId, reduced)')
   })
 
+  it('⚖ R-S42-5/6 — the clearance is the page scroller\'s, one 62px default, and the popover chip wears the chip\'s own colour', () => {
+    // (a) no per-target margin anywhere in the room: margin + the scroller's padding would double the offset.
+    expect(/\.biz \.pg-settings \.st-block \{([^}]*)\}/.exec(CSS_CODE)?.[1]).not.toMatch(/scroll-margin/)
+    expect(CSS_CODE).not.toMatch(/scroll-margin-top/)
+    // (b) the document scroller's rule (the Karute room's F5-4 idiom), holding the ONLY --st-topbar default —
+    // a second default on the room root would shadow the measured value written on <html>.
+    const rule = /html:has\(\.biz \.page\.pg-settings\) \{\s*--st-topbar: (\d+)px;\s*scroll-padding-top: calc\(var\(--st-topbar\) \+ 12px\);\s*\}/.exec(CSS_CODE)
+    expect(rule?.[1]).toBe('62')
+    expect(CSS_CODE.match(/--st-topbar:/g)).toHaveLength(1)
+    // …and the screen writes the measured bar on the document element, removed on unmount.
+    expect(SCREEN_CODE).toContain('const doc = document.documentElement')
+    expect(SCREEN_CODE).toContain("const apply = () => doc.style.setProperty('--st-topbar', `${Math.round(bar.getBoundingClientRect().height)}px`)")
+    expect(SCREEN_CODE).toContain("doc.style.removeProperty('--st-topbar')")
+    // (c) the scroll-spy's fallback is ONE constant, equal to the CSS default.
+    expect(/const TOPBAR_FALLBACK_PX = (\d+)/.exec(SCREEN_CODE)?.[1]).toBe(rule?.[1])
+    expect(SCREEN_CODE.match(/\|\| TOPBAR_FALLBACK_PX\n\s*: TOPBAR_FALLBACK_PX/g)).toHaveLength(1)
+    // (d) 今日の運営's 表示 popover: the chip keeps its un-underline and no longer overrides `.biz .chip`'s --ink-3.
+    const todayCss = stripComments(read('src/app/[locale]/(business)/business/today/today.css'))
+    const pop = /\.biz \.page-today \.fields-pop \.chip \{([^}]*)\}/.exec(todayCss)?.[1]
+    expect(pop).toContain('text-decoration: none')
+    expect(pop).not.toMatch(/(^|[;\s])color\s*:/)
+  })
+
   it('⚖ PR-3 fix round 1 (Greptile P1) — the board shows its two 設定 chips to exactly the readers the room admits there', async () => {
     // The board's flag, read off page.tsx as it computes it: the room's own access, the room's own gate.
     const page = read('src/app/[locale]/(business)/business/today/page.tsx')
