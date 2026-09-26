@@ -104,16 +104,18 @@ export default async function DashboardLayout({
           : [],
       )
       .catch(() => []),
-    // Multi-store header switcher data (best-effort; [] → switcher hides).
-    listStores().catch(() => []),
+    // Multi-store header switcher data (best-effort). Round 3 leg 8a
+    // (D-S31-4): null = the list could not be read — the switcher says so,
+    // never hides as if this were a one-store salon.
+    listStores().catch(() => null),
   ])
 
   // A branch-restricted staff (storeScope.allowedStoreIds set) only sees their
   // own store(s) in the switcher — `[]` lists none; the clamp also picks the
   // active store. Cross-store viewers keep the full list.
   const visibleStores = storeScope.allowedStoreIds
-    ? stores.filter((s) => storeScope.allowedStoreIds!.includes(s.id))
-    : stores
+    ? (stores ?? []).filter((s) => storeScope.allowedStoreIds!.includes(s.id))
+    : (stores ?? [])
   const switcherActiveStore = storeScope.storeId
 
   // Roster the session ships to the client (staff-switch drawer): a clamped
@@ -164,7 +166,11 @@ export default async function DashboardLayout({
              *  view, giving every mobile screen a consistent
              *  app-chrome surface. md:hidden so the sidebar owns
              *  the chrome on desktop. */}
-            <MobileHeader stores={visibleStores} activeStoreId={switcherActiveStore} />
+            <MobileHeader
+              stores={visibleStores}
+              activeStoreId={switcherActiveStore}
+              storesUnavailable={stores === null}
+            />
             {/* No horizontal padding here — matches the spike's
              *  (app) layout which provides ZERO padding. Each page
              *  component owns its own `px-4 md:px-6` (or whatever
