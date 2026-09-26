@@ -9,7 +9,7 @@
 // actions remain one-tap.
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Search, Users } from 'lucide-react'
+import { Check, ChevronDown, Search, User, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import {
   assignStaffColors,
@@ -47,6 +47,7 @@ export function StaffSelector({
   selected,
   onChange,
   compact = false,
+  scope,
 }: {
   staffList: StaffSelectorEntry[]
   /** 'all' | 'self' | <staffId> — same model as the old pills. */
@@ -54,6 +55,12 @@ export function StaffSelector({
   onChange: (next: string) => void
   /** 予約 page: avatar + chevron only — the tightest line in the app. */
   compact?: boolean
+  /** カルテ 案C+ (⚖ Liam 9/26 「案C+ Looks good.」): this ONE chip also carries
+   *  the 自分/全スタッフ scope that CustomersStaffFilter's segment holds on the
+   *  other lists — same keys ('all' | 'self' | staffId), no new meaning. The
+   *  closed chip names the current pick; a pick that narrows the list wears
+   *  the R13 wash. Omitted = every other caller renders exactly as before. */
+  scope?: { selfStaffId: string | null; selfLabel: string; allLabel: string }
 }) {
   const t = useTranslations('staffSelector')
   const tc = useTranslations('common')
@@ -139,6 +146,7 @@ export function StaffSelector({
     onChange(next)
     setOpen(false)
   }
+  const narrowed = !!scope && selected !== 'all'
 
   // '' until they type. Typing searches the WHOLE roster (management
   // included — the reveal); an untouched box shows the default list, which
@@ -166,6 +174,7 @@ export function StaffSelector({
         className={cn(
           'inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
           active && 'pr-2',
+          narrowed && 'border-primary bg-primary/8 text-primary hover:bg-primary/8',
         )}
       >
         {active ? (
@@ -189,6 +198,8 @@ export function StaffSelector({
               {compact ? familyName(active.name) : active.name}
             </span>
           </>
+        ) : scope ? (
+          <span>{selected === 'self' ? scope.selfLabel : scope.allLabel}</span>
         ) : (
           <>
             <Users size={13} className="shrink-0 text-muted-foreground" aria-hidden />
@@ -199,6 +210,7 @@ export function StaffSelector({
           size={13}
           className={cn(
             'shrink-0 text-muted-foreground transition-transform',
+            narrowed && 'text-primary',
             open && 'rotate-180',
           )}
           aria-hidden
@@ -277,6 +289,21 @@ export function StaffSelector({
             {/* 全スタッフ is pinned only on the DEFAULT list, same rule as
              *  StaffCombobox's 指名なし row — once typing starts this is a
              *  search result, and 全スタッフ isn't something the query matched. */}
+            {!trimmedQuery && scope?.selfStaffId && (
+              <StaffRow
+                avatar={
+                  <span
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+                    aria-hidden
+                  >
+                    <User size={13} />
+                  </span>
+                }
+                label={scope.selfLabel}
+                selected={selected === 'self'}
+                onClick={() => pick('self')}
+              />
+            )}
             {!trimmedQuery && (
               <StaffRow
                 avatar={
@@ -287,8 +314,8 @@ export function StaffSelector({
                     <Users size={13} />
                   </span>
                 }
-                label={t('all')}
-                selected={!active}
+                label={scope ? scope.allLabel : t('all')}
+                selected={scope ? selected === 'all' : !active}
                 onClick={() => pick('all')}
               />
             )}
