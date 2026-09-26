@@ -41,9 +41,11 @@ export default async function SettingsPage({
     getOrgSettings(),
     // Server-fetch the store list (+ active store) so the 店舗 settings section
     // paints complete — no placeholder-then-pop-in when the second store loads.
-    // Guarded: a synqed-core hiccup here must NOT 500 the whole settings page —
-    // degrade to [] and let StoresSection fall back to its client fetch.
-    listStoresWithHours().catch(() => []),
+    // Guarded: a synqed-core hiccup here must NOT 500 the whole settings page.
+    // Round 3 leg 8a (D-S31-4): null = the list could not be read (the door's
+    // own answer, or a thrown promise) — never [], which read as "no stores"
+    // and let StoresSection fabricate a 本店 card; it says so instead.
+    listStoresWithHours().catch(() => null),
     getActiveStoreId().catch(() => null),
     getMyCapabilities().catch(() => new Set<Capability>()),
     // Same treatment for the entitlement — the plan row + add-store gate paint
@@ -96,6 +98,9 @@ export default async function SettingsPage({
   // store data at all — the 店舗 section leaked the other branch's existence +
   // customer counts to the first real restricted login.
   const canViewAllStores = caps.has('stores.viewAll')
+  // Only a viewer who would SEE the store list learns it could not be read — a
+  // viewer without stores.viewAll gets [] and no line, exactly as before.
+  const storesUnavailable = canViewAllStores && stores === null
   const canManageStaff = caps.has('staff.manage')
   const canInviteStaff = caps.has('staff.invite')
   // 監査ログ: audit.view AND stores.viewAll (PR B2 §4, canReadAuditLog) — the
@@ -128,7 +133,7 @@ export default async function SettingsPage({
   // (storeScopeError, src/actions/menus.ts), so the UI must offer nothing
   // rather than every branch's name behind a doomed edit control (Greptile
   // P1 on #707).
-  const menuStores = menuStoresForScope(storeScope, canViewAllStores, stores)
+  const menuStores = menuStoresForScope(storeScope, canViewAllStores, stores ?? [])
   // ⚖ Liam 2026-09-16 (fold round 2) — the SAME rule, for a different control:
   // which stores this actor may place a NEW staff card in. menuStoresForScope
   // already answers exactly that question (own assignment · every store for
@@ -178,7 +183,8 @@ export default async function SettingsPage({
         canManageMenus={canManageMenus}
         initialTab={initialTab}
         auditTargetId={auditTargetId}
-        initialStores={canViewAllStores ? stores : []}
+        initialStores={canViewAllStores ? (stores ?? []) : []}
+        storesUnavailable={storesUnavailable}
         menuStores={menuStores}
         assignableStores={menuStores}
         assignableActiveStoreId={assignableActiveStoreId}

@@ -23,6 +23,7 @@
 //
 // Times are JST minutes from midnight throughout (see fixtures-today.ts).
 
+import { businessStrings } from '@/business/i18n'
 import { freePockets, kPackCount } from './canon-logic/availability'
 import type { BookingColors } from './booking-colors'
 import { jstDayKey, jstMinuteOfDay } from './clock'
@@ -399,6 +400,40 @@ export interface BoardLane {
    *  person has no room class. The auto-allocator reads this and nothing else,
    *  so a bed renamed 「個室」 in its label does not silently change policy. */
   roomClass: RoomClass | null
+}
+
+/** ⚖ PR-3 — `AppointmentSource` (@synqed-kk/client dist/types.d.ts:448, six
+ *  values) → the word staff read, ONE map (the Business string home). Business
+ *  names no client path, so the union is restated here and pinned against the
+ *  .d.ts by the suite. */
+export type AppointmentSourceWord = 'MANUAL' | 'QUICKRESERVE' | 'SYNQED_RESERVE' | 'SALON_BOARD' | 'HOT_PEPPER' | 'OTHER'
+export const SOURCE_WORD: Readonly<Record<AppointmentSourceWord, string>> = businessStrings.today.source
+
+/** A source prints as its word; a value outside the six prints RAW — honest,
+ *  never blank (switch OFF every fixture source is such a value, so it prints
+ *  exactly as before). */
+export function sourceWord(source: string): string {
+  return Object.prototype.hasOwnProperty.call(SOURCE_WORD, source) ? SOURCE_WORD[source as AppointmentSourceWord] : source
+}
+
+/** The inspector's source line: the word, then the booking's own number — an
+ *  empty number is omitted, never a dangling 「/」. */
+export function sourceLine(source: string, displayNo: string): string {
+  return displayNo ? `${sourceWord(source)} / ${displayNo}` : sourceWord(source)
+}
+
+/** ⚖ PR-3 — the decision card's title. With the card's live booking and its
+ *  name: 「{name}様の…」; without one: the plain noun with ONE 様 — never
+ *  「お客様様」. */
+export function decisionTitle(kind: string, b: Pick<BoardBooking, 'customerName' | 'startMinute'> | undefined, slotStart: number | null): string {
+  const t = businessStrings.today
+  const name = b?.customerName
+  if (kind === 'レジ') return name ? `${name}様の精算を完了する` : t.titleCheckout
+  if (kind === 'Reserve販売') return `${slotStart == null ? '' : hhmm(slotStart)}の安全な1枠を販売する`
+  // ⚖ §v3 V3-9 — the time and its space only when there is a booking: no leading space.
+  const at = b ? `${hhmm(b.startMinute)} ` : ''
+  if (kind === '担当不在') return at + (name ? `${name}様の担当不在に対応する` : t.titleAbsent)
+  return at + (name ? `${name}様へ担当変更案を送る` : t.titleHandover)
 }
 
 export interface BoardBooking {

@@ -2292,6 +2292,8 @@
       "switchTo": "切り替え",
       "edit": "編集",
       "emptyState": "店舗が登録されていません。「追加」から登録してください。",
+      "listUnavailable": "店舗一覧を読み込めませんでした。しばらくしてからもう一度お試しください。",
+      "switcherUnavailable": "読込エラー",
       "activeStoreScopeNote": "店舗を切り替えると、顧客リスト・ダッシュボード・予約が選択中の店舗に絞り込まれます（店舗ごとの集計はその店舗でのイベントから算出）。カルテ一覧の完全な絞り込みは、synqed-core側のカルテ店舗フィルタの反映後に有効化されます。",
       "addStoreSubscription": {
         "freeAtLimitTitle": "店舗追加にはアップグレードが必要です",

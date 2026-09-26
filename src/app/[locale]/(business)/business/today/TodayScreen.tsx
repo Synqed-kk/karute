@@ -32,6 +32,7 @@
 
 import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import {
   computeChecks,
   dragOrigin,
@@ -701,6 +702,10 @@ export interface TodayProps {
    *  (`canReleaseHeld`), the same way `canOverride` above is: staff see the
    *  law sentence alone, managers see it with the one action beside it. */
   canReleaseHeld: boolean
+  /** ⚖ PR-3 fix round 1 (Greptile P1). May THIS reader open both 設定 sections the 表示 popover's chips
+   *  point at (予約と確保 · 言語・表示)? Answered on the server through the 設定 room's own gate, the way
+   *  `canReleaseHeld` is: a reader the room would turn away is not shown a link it would only drop. */
+  canOpenLegendSettings: boolean
   closedWeekdayLabel: string
   /** ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 月カレンダーで橙になる、あと入る予約数の上限,
    *  the store's own dial (`storeBookingPolicy.calendarTightMax`, default 2,
@@ -738,6 +743,15 @@ export interface TodayProps {
     caseId: string | null
   } | null
   cards: DecisionCard[]
+  /** ⚖ PR-3 §v3 — the 「サンプル」 marks, each the plane table's answer for the
+   *  planes it names; absent (never `false`) with the switch OFF or once the
+   *  plane is live. `boardMark`: the grid's ONE head mark (part form — シフトと
+   *  休み・販売可能枠・営業時間), no per-lane chip. `decisionsMark`: the 次に決める
+   *  こと section's ONE mark (cards carry none) and the count strip's, drawn only
+   *  beside a count above 0. `absenceMark`: the 勤務不可 strip's own. */
+  boardMark?: SampleMarkForm
+  decisionsMark?: SampleMarkForm
+  absenceMark?: SampleMarkForm
   cases: Record<string, InspectorCase>
   kpi: { count: string; revenue: string; utilization: string; note: string }
   hold: { summary: string; checks: string[]; bookingId: string } | null
@@ -1093,6 +1107,18 @@ interface GuardAdvice {
    *  own, which is exactly flag 41's: it dies with every ending. */
   attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
+
+/** ⚖ PR-3 — the 「サンプル」 mark on this board. A LABEL, not a control: the
+ *  decision card around it is itself the button, so the chip explains itself
+ *  through the room's ?-tour (`data-guide`), the way every element here does.
+ *  ONE token (the shell sheet's `.sample-mark`), ONE string home. */
+const SAMPLE_MARK = businessStrings.sampleMark
+type SampleMarkForm = Parameters<typeof sampleMarkLines>[0]
+const sampleChip = (mark: SampleMarkForm) => (
+  <span className="sample-mark" data-guide-title={SAMPLE_MARK.popLabel} data-guide={`${sampleMarkLines(mark).pop1}${SAMPLE_MARK.popLine2}`}>
+    {SAMPLE_MARK.chip}
+  </span>
+)
 
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
@@ -8718,11 +8744,11 @@ export function TodayScreen(props: TodayProps) {
           <b>{ops.cashDifference}</b>
         </div>
         <button className="register-cell act" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>未解決</span>
+          <span>未解決{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}</span>
           <b className="warn">{unresolved}件</b>
         </button>
         <button className="register-cell ops-decisions" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>次に決めること</span>
+          <span>次に決めること{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}</span>
           <b>{unresolved}件</b>
         </button>
         <div className="ops-right">
@@ -8883,6 +8909,7 @@ export function TodayScreen(props: TodayProps) {
                   </div>
                 )}
               </div>
+              {props.boardMark && sampleChip(props.boardMark)}
 
               {props.inStore && (
                 <div
@@ -9117,7 +9144,9 @@ export function TodayScreen(props: TodayProps) {
                       {/* ⚖ S17 fix round 5 · G2 — THROUGH THE ONE LINK HOME.
                           The literal dropped the locale and the store, so on
                           代官山 this chip opened 銀座's 予約と確保 (⚖ 8/17). */}
-                      <Link className="chip" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>
+                      {/* ⚖ PR-3 fix round 1 (Greptile P1) — ONLY FOR A READER THE ROOM ADMITS THERE. The
+                          sentence beside it stays for everyone; the link is hidden, never greyed. */}
+                      {props.canOpenLegendSettings && <Link className="chip" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>}
                     </div>
 
                     <div className="pop-divider" role="presentation" />
@@ -9137,6 +9166,12 @@ export function TodayScreen(props: TodayProps) {
                         <i className="cat" style={catVar(props.store, 'vip')} />VIP
                       </span>
                       <b>左端の色＝予約カテゴリー</b>
+                      {/* ⚖ PR-3 of 予約の色分け — THE AFFIRMATIVE HALF: the line above says what
+                          the four colours mean, this chip says where they change. Same shape
+                          as the 保護ルール chip above (one link home, the resolved store), and
+                          it lands ON the 予約の色分け block, which sits inside 言語・表示. */}
+                      {/* …and, like it, only for a reader 言語・表示's gate admits (Greptile P1). */}
+                      {props.canOpenLegendSettings && <Link className="chip" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>}
                     </div>
 
                     <div className="pop-divider" role="presentation" />
@@ -9168,6 +9203,9 @@ export function TodayScreen(props: TodayProps) {
               </div>
             </div>
           </div>
+          {/* ⚖ PR-3 §v3 (mock tab G) — the grid head's mark names the sample planes it
+              paints in one line, under the head: never a chip per lane or per window. */}
+          {props.boardMark && <p className="sample-mark-note board-mark-note">{sampleMarkLines(props.boardMark).note}</p>}
 
           {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. The
               KEYS only exist while the store's protection policy is on, and the
@@ -9429,6 +9467,7 @@ export function TodayScreen(props: TodayProps) {
           data-guide="いま起きている問題と、対応がどこまで進んだかを示します。"
         >
           <div className="incident-main">
+            {props.absenceMark && sampleChip(props.absenceMark)}
             <span className="incident-icon" aria-hidden="true">!</span>
             <span>
               <strong>{props.incident.staffName}さん、本日{props.incident.from}以降は勤務不可</strong>
@@ -9474,6 +9513,7 @@ export function TodayScreen(props: TodayProps) {
       >
         <div className="section-head">
           <strong id="decisionTitle">次に決めること</strong>
+          {props.decisionsMark && openCards.length > 0 && sampleChip(props.decisionsMark)}
           <div className="section-tools">
             <span>根拠・期限・次の操作がある判断だけを表示</span>
             <button className="btn text" type="button" onClick={() => listRef.current?.showModal()}>判断と閉店阻害</button>

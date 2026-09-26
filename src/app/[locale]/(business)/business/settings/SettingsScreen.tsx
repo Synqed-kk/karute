@@ -280,6 +280,33 @@ function useNarrow(): boolean {
  *  予約と確保 gate is shut the server does not assemble it at all. `null` is not
  *  「loading」 and not 「empty」: it is the ONLY shape a reader who may not see the
  *  section is given, and the screen renders that section's own boundary for it. */
+/** ⚖ PR-3 fix round 1 (Greptile P2) — THE LANDING, LIFTED SO A SUITE CAN RUN IT. This folder's import fence
+ *  keeps react-dom out, so no suite here can mount the room (the `sendBookingColors` precedent below); the
+ *  two halves of a landing live here instead and the room's effect + `jumpTo` only call them.
+ *  Which block a `#st-blk-<id>` fragment lands on: one of the OPEN section's blocks, else none. */
+export function landingBlockOf(hash: string, blocks: ReadonlyArray<{ id: string }>): string | null {
+  const id = hash.startsWith('#st-blk-') ? hash.slice('#st-blk-'.length) : null
+  return id !== null && blocks.some((b) => b.id === id) ? id : null
+}
+
+/** …and the landing itself, the jump list's own: the block scrolls to the top of the reading area and the
+ *  caret moves to its heading (⚖ keyboard reach). The heading: every block renders one; 予約と確保's two
+ *  anchors render their own (its プリセット label and its 詳細設定 summary), so one lookup serves both. */
+export function landOnBlock(blockId: string, reduced: boolean): void {
+  const head = document.getElementById(`st-blkh-${blockId}`)
+  const el = document.getElementById(`st-blk-${blockId}`)
+  /** ⚠ AND THE SCROLL OBEYS THE READER'S PREFERENCE (⚖ S17 fix round 4 · M1).
+   *  `behavior: 'smooth'` was unconditional, so a reader who asked the
+   *  platform for stillness got a 1 554px animated slide out of a jump list —
+   *  measured under `reduce`: scrollY 0 → 47 at 60ms → 1554 settled. The
+   *  sheet cannot cover it twice over: `scroll-behavior: auto !important` in
+   *  the shell is scoped to `.biz *` and the scrolling element here is the
+   *  DOCUMENT, and an explicit `behavior` argument beats the CSS property
+   *  anyway. The flag the room already holds is the answer. */
+  el?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
+  head?.focus({ preventScroll: true })
+}
+
 export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave }
 
 /** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
@@ -912,22 +939,23 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const jumpTo = useCallback((blockId: string) => {
     setJumpPin(blockId)
     setInView(blockId)
-    /** The heading a jump lands the caret on. Every block renders one; 予約と確保's
-     *  two anchors render their own (its プリセット label and its 詳細設定
-     *  summary), so one lookup serves both. */
-    const head = document.getElementById(`st-blkh-${blockId}`)
-    const el = document.getElementById(`st-blk-${blockId}`)
-    /** ⚠ AND THE SCROLL OBEYS THE READER'S PREFERENCE (⚖ S17 fix round 4 · M1).
-     *  `behavior: 'smooth'` was unconditional, so a reader who asked the
-     *  platform for stillness got a 1 554px animated slide out of a jump list —
-     *  measured under `reduce`: scrollY 0 → 47 at 60ms → 1554 settled. The
-     *  sheet cannot cover it twice over: `scroll-behavior: auto !important` in
-     *  the shell is scoped to `.biz *` and the scrolling element here is the
-     *  DOCUMENT, and an explicit `behavior` argument beats the CSS property
-     *  anyway. The flag the room already holds is the answer. */
-    el?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
-    head?.focus({ preventScroll: true })
+    landOnBlock(blockId, reduced)
   }, [reduced])
+
+  /** ⚖ PR-3 of 予約の色分け — A LINK MAY LAND ON ONE BLOCK. `settingsHref`'s
+   *  `block` writes `#st-blk-<block id>`, but Next's own fragment scroll runs
+   *  before this room is on the page (measured on the 色の意味 chip: scrollY 62,
+   *  the jump list on 表示言語), so the room lands it itself, through the jump
+   *  list's own `jumpTo`. A fragment never reaches the server, so this is read in
+   *  an effect — after hydration, never in a seed. Once per mount; a fragment
+   *  that names no block of the open section is ignored. */
+  const landedRef = useRef(false)
+  useEffect(() => {
+    if (landedRef.current) return
+    landedRef.current = true
+    const id = landingBlockOf(window.location.hash, blocks)
+    if (id !== null) jumpTo(id)
+  }, [blocks, jumpTo])
 
   const groups: string[] = []
   for (const row of props.rail) if (!groups.includes(row.group)) groups.push(row.group)
