@@ -22,8 +22,8 @@ export const KARUTE_SWITCHES = {
    *  1. Core returns `company_first_visit` on every karute list row in
    *     production — checked with one read of the Dev Salon rows, the exit
    *     shown in the flip PR.
-   *  2. The core ticket to Anthony (the per-row as-of first-visit flag) is
-   *     marked Done.
+   *  2. The core ticket to Anthony (CORE-41 — the per-row as-of first-visit
+   *     flag) is marked Done.
    *  3. The facade twin `/api/app/v1/karute/window` carries the field too.
    *  4. Fold 4 — the 顧客 tab's 新規 pill renamed/redefined so the two 新規
    *     nest instead of naming disjoint sets — has its own ruling from Liam.
