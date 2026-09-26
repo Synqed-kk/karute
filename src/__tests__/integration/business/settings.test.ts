@@ -95,6 +95,8 @@ import {
 import { settingsHref } from '@/business/lib/settings-link'
 import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
+// ⚖ PR-4c (g) — the one rule a marked section's blocks draw their chips off, lifted so this suite can run it.
+import { blockMarkOf } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
 import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/business/lib/booking-colors'
@@ -127,6 +129,8 @@ const PROPS_CODE = stripLine(stripComments(PROPS_SRC))
 const SECTION_PROPS_CODE = stripLine(stripComments(read(`${ROOM_DIR}/store-policy-props.ts`)))
 const SECTION_CODE = stripLine(stripComments(read(`${ROOM_DIR}/StorePolicySection.tsx`)))
 const SCREEN_CODE = stripLine(stripComments(SCREEN_SRC))
+/** ⚖ PR-4c §v7 V7-1 — the 「サンプル」 mark's ONE component home (chip · note · the section's line). */
+const MARK_CODE = stripLine(stripComments(read('src/business/components/SampleMark.tsx')))
 const PLANE_CODE = stripLine(stripComments(PLANE_SRC))
 
 const assemble = async (input?: { store?: string; role?: string; section?: string; dials?: null }) =>
@@ -3815,17 +3819,24 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
   })
 
   it('every class name the SCREEN renders is this room’s own, or one of the shell’s', () => {
-    const rendered = new Set<string>()
-    for (const m of SCREEN_CODE.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
-      for (const name of (m[1] ?? m[2]).replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) {
-        if (name && /^[a-z][\w-]*$/.test(name)) rendered.add(name)
+    const renderedIn = (code: string) => {
+      const rendered = new Set<string>()
+      for (const m of code.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+        for (const name of (m[1] ?? m[2]).replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) {
+          if (name && /^[a-z][\w-]*$/.test(name)) rendered.add(name)
+        }
       }
+      return rendered
     }
-    // ⚖ PR-3 — the 「サンプル」 mark is ONE token for two rooms, so it is the shell sheet's.
-    const SHELL = new Set(['page', 'pg-settings', 'btn', 'primary', 'sample-mark', 'sample-mark-note', 'sample-mark-line', 'sample-pop', 'no-sample'])
+    const rendered = renderedIn(SCREEN_CODE)
+    // ⚖ PR-3 — the 「サンプル」 mark is ONE token for two rooms, so it is the shell sheet's. ⚖ PR-4c — its chip,
+    // note and line render from the ONE component home now, so this room draws only the no-sample card itself…
+    const SHELL = new Set(['page', 'pg-settings', 'btn', 'primary', 'no-sample'])
     const strays = [...rendered].filter((n) => !n.startsWith('st-') && !n.startsWith('is-') && !SHELL.has(n))
     expect(strays).toEqual([])
     expect([...rendered].filter((n) => n.startsWith('st-')).length).toBeGreaterThan(35)
+    // …and the component draws the shell's four mark classes and nothing else.
+    expect([...renderedIn(MARK_CODE)].sort()).toEqual(['sample-mark', 'sample-mark-line', 'sample-mark-note', 'sample-pop'])
   })
 
   // ⚖ PR-3 — the room draws the mark and the card ONLY off the payload's own flags,
@@ -3837,10 +3848,28 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
       '{block.sampleNone && <NoSample />}',
       '{section.sampleNone && <NoSample />}',
       '{section.sample && <SampleMark mark={section.sample} ',
-      // ⚖ §v3 V3-6 — a marked section's blocks carry no mark of their own: ONE rule, here.
-      'const mark = section.sample ? undefined : seed.sample',
+      // ⚖ §v3 V3-6 — a marked section's blocks carry no mark of their own: ONE rule, here (⚖ PR-4c: lifted, `blockMarkOf`).
+      'const mark = blockMarkOf(section, seed)',
+      'return section.sample ? undefined : block.sample',
     ]) expect(SCREEN_CODE.split(gate).length - 1).toBe(1)
-    expect(SCREEN_CODE.match(/<(MarkChip|MarkNote|NoSample|SampleMark)\b/g)).toHaveLength(7) // the five gated + SampleMark's own chip + note
+    // ⚖ PR-4c §v7 V7-1 — the room draws the five gated tags; SampleMark's own chip + note moved with it to the ONE home.
+    expect(SCREEN_CODE.match(/<(MarkChip|MarkNote|NoSample|SampleMark)\b/g)).toHaveLength(5)
+    expect(MARK_CODE.match(/<(MarkChip|MarkNote|NoSample|SampleMark)\b/g)).toEqual(['<MarkChip', '<MarkNote'])
+    expect(SCREEN_CODE).toContain("import { MarkChip, MarkNote, SampleMark } from '@/business/components/SampleMark'")
+    expect(SCREEN_CODE).not.toMatch(/function (MarkChip|MarkNote|SampleMark)\b/)
+    for (const name of ['MarkChip', 'MarkNote', 'SampleMark']) expect(MARK_CODE.split(`export function ${name}(`).length - 1).toBe(1)
+  })
+
+  // ⚖ PR-4c (g) — 予約と確保 (the one marked section) has no blocks, so the branch had no reachable case on main;
+  // V3-6 is a rule for every future section, so both branches stay and this pins the rule the renderer draws off.
+  it('PR-4c (g): a section carrying `sample` over two marked blocks draws ONE chip (the section’s) and no block chip; without it, each block draws its own', () => {
+    const blocks = [{ sample: { form: 'whole' as const } }, { sample: { form: 'part' as const, labels: ['住所'] } }]
+    const chips = (section: { sample?: { form: 'whole' } }) => (section.sample ? 1 : 0) + blocks.filter((b) => blockMarkOf(section, b)).length
+    const marked = { sample: { form: 'whole' as const } }
+    expect(blocks.map((b) => blockMarkOf(marked, b))).toEqual([undefined, undefined])
+    expect(chips(marked)).toBe(1)
+    expect(blocks.map((b) => blockMarkOf({}, b))).toEqual([blocks[0].sample, blocks[1].sample])
+    expect(chips({})).toBe(2)
   })
 
   it('this room’s own names exist NOWHERE else in the family', () => {
