@@ -11712,6 +11712,9 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
   const SRC_FROM_LINES: readonly string[] = [
     "import Link from 'next/link'",
     "import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'",
+    // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味 chip's
+    // text; named in `foundation.test.ts`'s sealed inventory with the same reason.
+    "import { businessStrings } from '@/business/i18n'",
     "} from '@/business/lib/canon-logic/drag-rules'",
     "} from '@/business/lib/canon-logic/pricing'",
     "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",

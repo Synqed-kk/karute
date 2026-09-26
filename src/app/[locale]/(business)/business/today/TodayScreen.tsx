@@ -32,6 +32,7 @@
 
 import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { businessStrings } from '@/business/i18n'
 import {
   computeChecks,
   dragOrigin,
@@ -9137,6 +9138,11 @@ export function TodayScreen(props: TodayProps) {
                         <i className="cat" style={catVar(props.store, 'vip')} />VIP
                       </span>
                       <b>左端の色＝予約カテゴリー</b>
+                      {/* ⚖ PR-3 of 予約の色分け — THE AFFIRMATIVE HALF: the line above says what
+                          the four colours mean, this chip says where they change. Same shape
+                          as the 保護ルール chip above (one link home, the resolved store), and
+                          it lands ON the 予約の色分け block, which sits inside 言語・表示. */}
+                      <Link className="chip" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>
                     </div>
 
                     <div className="pop-divider" role="presentation" />

@@ -550,6 +550,10 @@ describe('the fixture data door', () => {
         // `./reserved-mask`, which is already on this list.
         './timed-release',
         './today-interactions',
+        // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味
+        // chip's text (a NEW visible string goes through it, never a literal).
+        // It imports only `./ja.json`, so this arrow adds no code module below.
+        '@/business/i18n',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
         '@/business/lib/canon-logic/pricing',
@@ -557,7 +561,7 @@ describe('the fixture data door', () => {
         // unchanged; only where the four functions live moved.
         '@/business/lib/guide',
         // ⚖ S17 fix round 5 · G2 (D-41) — the ONE link home, reached for the
-        // 保護ルール chip and nothing else. It is a string builder with no
+        // 保護ルール chip and (PR-3 of 予約の色分け) the 色の意味 chip, nothing else. It is a string builder with no
         // imports of its own, so this arrow adds no module to the graph below
         // it.
         // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: a TYPE-only import of
