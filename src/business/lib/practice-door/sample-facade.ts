@@ -5,7 +5,7 @@
 
 import { businessStrings } from '@/business/i18n'
 import { operator, staff } from '../fixtures'
-import { defaultKindOf } from '../fixtures-today'
+import { defaultKindOf, resources } from '../fixtures-today'
 import { storeDials, type StoreDials } from '../fixtures-settings'
 import type { WordOverride } from '../resource-words'
 import type { SampleMark } from '../settings'
@@ -87,8 +87,9 @@ export function sampleKeys<V>(kind: TwinKind, record: Record<string, V>): Record
 // `sampleFor` output; an exact twin (東京/横浜) goes through `sampleRows`
 // untouched — the positional map never applies to it.
 
-/** A store in view: its live uuid and its active people (id + live name), in `rosterOrderOf`'s order. */
-export type RosterSeats = { store: string; roster: ReadonlyArray<{ id: string; name: string }> }
+type Seat = { id: string; name: string }
+/** A store in view: its live uuid, its active people and (⚖ R8') its active rooms — id + live name, in `rosterOrderOf`'s order. */
+export type RosterSeats = { store: string; roster: ReadonlyArray<Seat>; rooms: ReadonlyArray<Seat> }
 
 /** `identity` — one real person's row (shifts, the 勤務不可 row, a 販売可能枠): no seat
  *  drops the row, never a wrap (today-board keeps only the LAST shift per staff_id,
@@ -98,9 +99,17 @@ export type RosterSeats = { store: string; roster: ReadonlyArray<{ id: string; n
 export type PersonRows = 'identity' | 'attribute'
 
 const PERSON_ORDER: readonly string[] = staff.map((p) => p.id)
-/** ⚖ R9 — a fixture person's display name in a borrowed row's free text, found in ONE pass
- *  (a seated person's own name is never re-read as another fixture person's). */
-const FIXTURE_NAME = new RegExp(staff.map((p) => p.full_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')
+/** ⚖ R9 + R8' — a fixture person's or room's name in a borrowed row's free text, found in ONE
+ *  pass (a seated person's or room's own name is never re-read as another fixture name). */
+const FIXTURE_NAME = new RegExp(
+  [...new Set([...staff.map((p) => p.full_name), ...resources.map((r) => r.name)])]
+    .sort((a, b) => b.length - a.length)
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|'),
+  'g',
+)
+/** ⚖ R8' — a borrowed slot's room: the borrowed plane's rooms (declaration order) onto the store's own, by position. */
+const ROOM = 'resource_id'
 /** A borrowed row's pointer at ANOTHER ROW OF THE SAME borrowed plane (a decision's slot):
  *  re-keyed with the row it names, so it finds the borrower's own copy. */
 const ROW_REF = ['sell_slot_id']
@@ -117,22 +126,25 @@ const twinsFirst = (seats: readonly RosterSeats[]) =>
 type BoardRow = { id?: string; store_id?: string | null; staff_id?: string | null }
 const hasStore = (row: object) => Object.prototype.hasOwnProperty.call(row, 'store_id')
 
-function rekeyStore<T extends BoardRow>(rows: readonly T[], { store, roster }: RosterSeats, persons: PersonRows, served?: (raw: T, row: T) => boolean): T[] {
+function rekeyStore<T extends BoardRow>(rows: readonly T[], { store, roster, rooms }: RosterSeats, persons: PersonRows, served?: (raw: T, row: T) => boolean): T[] {
   const borrowed = borrowedStoreOf(store)
   // An exact twin: the facade's own rewrite, then its own store's rows (a store-less shift is everyone's).
   if (borrowed === null) return sampleRows([...rows], null).filter((r) => !hasStore(r) || r.store_id === store)
-  const seatOf = (fixtureId: string): { id: string; name: string } | null | undefined => {
-    const n = PERSON_ORDER.indexOf(fixtureId)
-    if (persons === 'identity') return roster[n] // undefined = no seat → the row drops
-    return n < 0 || roster.length === 0 ? null : roster[n % roster.length]
+  const pick = (list: ReadonlyArray<Seat>, n: number): Seat | null | undefined => {
+    if (persons === 'identity') return list[n] // undefined = no seat → the row drops
+    return n < 0 || list.length === 0 ? null : list[n % list.length]
   }
+  const seatOf = (fixtureId: string) => pick(roster, PERSON_ORDER.indexOf(fixtureId))
+  const lent = resources.filter((r) => r.store_id === borrowed)
+  const roomOf = (fixtureId: string) => pick(rooms, lent.findIndex((r) => r.id === fixtureId))
   return rows.flatMap((row): T[] => {
     if (hasStore(row) && row.store_id !== borrowed) return [] // another fixture store's row: dropped, as today
     let seated = true
-    // ⚖ R9 — free text names the person SEATED at the fixture person's position (the row's own seat rule).
+    // ⚖ R9 + R8' — free text names the person / room SEATED at the fixture one's position (the row's own seat rule).
     const text = (t: string) =>
       t.replace(FIXTURE_NAME, (name) => {
-        const seat = seatOf(PERSON_ORDER[staff.findIndex((p) => p.full_name === name)])
+        const person = staff.find((p) => p.full_name === name)
+        const seat = person ? seatOf(person.id) : pick(rooms, lent.findIndex((r) => r.name === name))
         if (seat === undefined) seated = false
         return seat?.name ?? name
       })
@@ -144,11 +156,11 @@ function rekeyStore<T extends BoardRow>(rows: readonly T[], { store, roster }: R
       for (const [key, value] of Object.entries(v)) {
         if (RESERVED.includes(key)) throw new Error(`sample facade: refused key "${key}"`)
         const kind = Object.prototype.hasOwnProperty.call(FIELD_KIND, key) ? FIELD_KIND[key] : null
-        if (typeof value !== 'string' || !(kind || ROW_REF.includes(key) || (top && key === 'id'))) out[key] = walk(value, false)
+        if (typeof value !== 'string' || !(kind || key === ROOM || ROW_REF.includes(key) || (top && key === 'id'))) out[key] = walk(value, false)
         else if ((top && key === 'id') || ROW_REF.includes(key)) out[key] = `${value}~${store.slice(0, 8)}` // seven stores, seven keys
         else if (kind === 'stores') out[key] = store
-        else if (kind === 'staff') {
-          const seat = seatOf(value)
+        else if (kind === 'staff' || key === ROOM) {
+          const seat = key === ROOM ? roomOf(value) : seatOf(value)
           if (seat === undefined) seated = false
           out[key] = seat?.id ?? null
         } else out[key] = null // ⚖ R4 — a booking / customer / menu is another store's record: never pointed at

@@ -237,18 +237,22 @@ async function activeStaff(actor: PracticeActor) {
 const worksAt = (stores: string[] | undefined, id: string): boolean => !stores || stores.length === 0 || stores.includes(id)
 
 /** ⚖ PR-4a §v7 V7-3 — each store of the lens (viewAll: every store in view) with its
- *  active people in a STABLE order: the rows `listStaff(store)` yields, sorted by id.
+ *  active people in a STABLE order: the rows `listStaff(store)` yields, sorted by id —
+ *  and (⚖ R8') its active rooms, the rows `listResources(store)` reads, sorted by id.
  *  Internal to the facade's `rekeyRows` (the borrower's seats), from ONE pair of staff
  *  reads per call — never a call per store. `listStaff`'s own order stays core's. */
 async function rosterOrderOf(actor: PracticeActor, lens: StoreLens): Promise<RosterSeats[]> {
   const rows = await activeStaff(actor)
   const { assignments } = await actor.reads.staffStoresList()
-  return (typeof lens === 'string' ? [lens] : visibleIds(actor)).map((store) => ({
+  const stores = typeof lens === 'string' ? [lens] : visibleIds(actor)
+  // ⚖ R8' — each store's own active rooms: the read listResources makes, once per store.
+  const rooms = await Promise.all(stores.map((store_id) => actor.reads.resourcesList({ store_id, active: true })))
+  const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  return stores.map((store, i) => ({
     store,
-    roster: rows
-      .filter((row) => worksAt(assignments[row.id], store))
-      .map((row) => ({ id: row.id, name: row.name })) // ⚖ R9 — the seat's live name, for the borrowed free text
-      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+    // ⚖ R9 — each seat's live name, for the borrowed free text
+    roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => ({ id: row.id, name: row.name })).sort(byId),
+    rooms: rooms[i].resources.map((r) => ({ id: r.id, name: r.name })).sort(byId),
   }))
 }
 
