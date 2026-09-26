@@ -326,7 +326,9 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/registry-manifest.ts': [],
       'src/business/lib/practice-door/registry.generated.ts': [],
       'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
-      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures-settings', '../fixtures-today', '../resource-words', './registry', './switch'],
+      // ⚖ PR-3 §v3 — the plane table: the mark's labels (Business's string home), the
+      // fixture operator the sample history credits (V4-3), and the mark's TYPE.
+      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures', '../fixtures-settings', '../fixtures-today', '../resource-words', '../settings', './registry', './switch', '@/business/i18n'],
       'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
       // ⚖ A1b — `../reserve-card/card-color`: the card colour's ONE normaliser (the
       // port's boundary), so the door's `readReserveCardColor` never grows a second.
@@ -863,6 +865,8 @@ describe('the fixture data door', () => {
         // ⚡ R2 BRANCH C — the dial's mapping pair (⚖ D-11); the empty-inventory
         // fence on the seam file itself (below) is unchanged.
         './store-policy-seam',
+        // ⚖ PR-3 — 業種's 「未設定」 option label: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
         // ③ — PRICE_UNIT_YEN, the ¥ unit the Reserve 受付 fact prints from the
         // same constant gapFillPrice and packedPrice round to.
         '@/business/lib/canon-logic/pricing',
@@ -879,6 +883,8 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
         '@/business/lib/practice-door/sample-facade',
+        // ⚖ PR-3 §v3 V3-5 — the dateline drops サンプルデータ under the door (the switch itself, read once).
+        '@/business/lib/practice-door/switch',
         // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
         '@/business/lib/reserve-card/palette',
         '@/business/lib/resource-words',
@@ -900,6 +906,8 @@ describe('the fixture data door', () => {
         './StorePolicySection',
         // ⚖ A1b — …and カードの見た目's picker + ported card for its row.
         './ReserveCardLookSection',
+        // ⚖ PR-3 — the 「サンプル」 mark's strings: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/settings',
         '@/business/lib/settings-words',

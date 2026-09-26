@@ -26,17 +26,22 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
 // ⚖ A1b · P2-2 — the card's two reads, wrapped (same functions) so a test can see whether they ran at all.
 jest.mock('@/business/lib/data', () => {
   const actual = jest.requireActual('@/business/lib/data')
-  return { ...actual, readReserveCardColor: jest.fn(actual.readReserveCardColor), readStoreAddress: jest.fn(actual.readStoreAddress) }
+  return { ...actual, readReserveCardColor: jest.fn(actual.readReserveCardColor), readStoreAddress: jest.fn(actual.readStoreAddress), listStoreOptions: jest.fn(actual.listStoreOptions) }
 })
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import * as data from '@/business/lib/data'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
-import { attachSample, sampleKeys, sampleRows, sampleSelfId, storeSample } from '@/business/lib/practice-door/sample-facade'
-import { liveIdOf } from '@/business/lib/practice-door/registry'
-import { customers, STORE_A, STORE_C } from '@/business/lib/fixtures'
+import {
+  attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, sampleKeys,
+  samplePart, sampleRows, sampleSelfId, sampleWhole, STORE_PLANE_OVERRIDES, storeSample,
+} from '@/business/lib/practice-door/sample-facade'
+import { liveIdOf, samplePolicyFor } from '@/business/lib/practice-door/registry'
+import { customers, operator, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import { defaultKindOf, register, staffQualifications } from '@/business/lib/fixtures-today'
 import { jstDayKey } from '@/business/lib/clock'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
@@ -101,8 +106,9 @@ describe('(1) OWNER — viewAll', () => {
   it('listStoreOptions: the 5 active stores in core order, typed by sample policy', async () => {
     const opts = await data.listStoreOptions()
     expect(ids(opts)).toEqual([STORE.devSalon, STORE.devGinza, STORE.tokyo, STORE.yokohama, STORE.laEstro])
-    expect(opts.map((s) => s.business_type)).toEqual(['', '', 'beauty_chiropractic', 'massage', 'esthetic_salon'])
-    expect(opts.map((s) => s.default_kind_id)).toEqual(['', '', 'k-a', 'k-b', ''])
+    // ⚖ PR-3 V4-2 — every practice store takes a plane: a borrower shows its plane's 業種 unless it names its own.
+    expect(opts.map((s) => s.business_type)).toEqual(['beauty_chiropractic', 'beauty_chiropractic', 'beauty_chiropractic', 'massage', 'esthetic_salon'])
+    expect(opts.map((s) => s.default_kind_id)).toEqual(['k-a', 'k-a', 'k-a', 'k-b', 'k-a'])
     expect(opts.map((s) => s.name)).toEqual(['Dev Salon', 'Dev 銀座', 'テスト東京店', 'テスト横浜店', 'La Estro Test Store'])
   })
 
@@ -306,8 +312,9 @@ describe('(1) OWNER — viewAll', () => {
     expect(keys.every((k) => /^[0-9a-f-]{36}$/.test(k))).toBe(true)
     expect(keys.some((k) => k.startsWith('apt-'))).toBe(false)
     expect((await data.readAnalyticsPlanes(STORE.tokyo)).target).toBe(2000000)
-    expect((await data.readAnalyticsPlanes(STORE.laEstro)).target).toBe(0)
-    expect((await data.readAnalyticsPlanes(VIEW_ALL)).target).toBe(2800000)
+    // ⚖ PR-3 V4-2 — a borrower's target is its plane's (every practice store is filled in).
+    expect((await data.readAnalyticsPlanes(STORE.laEstro)).target).toBe(2000000)
+    expect((await data.readAnalyticsPlanes(VIEW_ALL)).target).toBe(4 * 2000000 + 800000)
   })
 })
 
@@ -482,14 +489,125 @@ describe('(4)–(8) walls, identity, paging, errors', () => {
 describe('(9) storeSample — the three bypass sites’ one read', () => {
   it('OFF: exactly defaultKindOf + storeDials, including the throw', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect(storeSample(STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A] })
+    const allLive = Object.fromEntries(Object.keys(PRACTICE_PLANES).map((k) => [k, 'live']))
+    expect(storeSample(STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: false, planes: allLive })
     expect(() => storeSample('nope')).toThrow('Missing default kind for store nope')
   })
   it('ON: by sample policy; a live uuid never throws', () => {
-    expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A] })
-    expect(storeSample(STORE.laEstro)).toEqual({ state: 'sample', words: null, dials: null })
-    expect(storeSample(STORE.devSalon)).toEqual({ state: 'no-sample-policy', storeId: STORE.devSalon, words: null, dials: null })
-    expect(storeSample('nope')).toEqual({ state: 'no-sample-policy', storeId: 'nope', words: null, dials: null })
+    expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
+    // ⚖ PR-3 V4-2 — every practice store (and any id the table does not name) takes a plane WITH dials.
+    const onA = { state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES }
+    expect(storeSample(STORE.laEstro)).toEqual(onA)
+    expect(storeSample(STORE.devSalon)).toEqual(onA)
+    expect(storeSample('nope')).toEqual(onA)
+  })
+  // ⚖ PR-3 — the mark keys on the door being ON, never on `state === 'sample'`
+  // (which is also every OFF answer).
+  it('PR-3 marked: OFF false on every fixture store; ON true on a twin and on a borrower (V4-2)', () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    for (const id of [STORE_A, STORE_B]) expect(storeSample(id)).toMatchObject({ state: 'sample', marked: false })
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+    expect(storeSample(STORE.devSalon)).toMatchObject({ state: 'sample', marked: true })
+  })
+  // ⚖ PR-3 §v4 V4-2 — ⚠1/⚠2: no practice store is empty, no id answers `none`.
+  const SEVEN = {
+    devSalon: '5a171878-4faa-4512-ba07-17ca4e20ab9e', devGinza: 'a1a26517-33c0-4e73-9ea2-e56e98d99c6f',
+    tokyo: 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f', yokohama: '8ac43a4b-7763-4a10-9f73-a662085460af',
+    laEstro: '8696b856-11ab-4879-9290-bef40b03ea66', gym: 'c33e4c43-bc3b-4470-ac22-aa60fecdabe3',
+    jiyugaoka: '0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c',
+  }
+  it('(a) every practice store + the fallback: dials non-null, words = its plane\'s own (the fixture kinds carry null words)', () => {
+    for (const id of [...Object.values(SEVEN), 'not-in-the-table']) {
+      const s = storeSample(id)
+      expect({ id, state: s.state, dials: s.dials !== null }).toEqual({ id, state: 'sample', dials: true })
+      const fixture = samplePolicyFor(id)
+      expect(fixture.kind).toBe('twin')
+      if (fixture.kind === 'twin') {
+        expect(s.words).toBe(defaultKindOf(fixture.fixtureStoreId).words)
+        expect(s.dials).toBe(storeDials[fixture.fixtureStoreId])
+      }
+    }
+  })
+  it('(b) an unknown uuid under ON: sample, dials non-null, marked', () => {
+    expect(storeSample('11111111-2222-4333-8444-555555555555')).toMatchObject({ state: 'sample', dials: storeDials[STORE_A], marked: true })
+  })
+  it('(c) no-sample-policy is unreachable under ON — the seven + three random uuids', () => {
+    const random = ['0f0f0f0f-1e1e-4d2d-8c3c-4b4b4b4b4b4b', 'ffffffff-ffff-4fff-bfff-ffffffffffff', '12345678-9abc-4def-8123-456789abcdef']
+    for (const id of [...Object.values(SEVEN), ...random]) expect({ id, state: storeSample(id).state }).toEqual({ id, state: 'sample' })
+  })
+  it('(d) La Estro keeps its 業種 (esthetic_salon) while its dials are STORE_A\'s', async () => {
+    expect(samplePolicyFor(SEVEN.laEstro)).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
+    expect(storeSample(SEVEN.laEstro).dials).toBe(storeDials[STORE_A])
+  })
+})
+
+describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', () => {
+  afterEach(() => {
+    for (const k of Object.keys(STORE_PLANE_OVERRIDES)) delete STORE_PLANE_OVERRIDES[k]
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+  })
+  const BOARD = ['shifts', 'absence', 'sellSlots', 'operatingHours'] as const
+  // ⚖ §v6 V6-2 — every plane but ONE: #1049 connected 予約の色分け's read (core's per-store colours), so
+  // `bookingColors` is LIVE in the practice table; every other plane stays SAMPLE.
+  it('every plane is SAMPLE for the practice business but bookingColors (LIVE, §v6 V6-2), and `marked` IS 「some plane is sample」', () => {
+    expect(Object.entries(PRACTICE_PLANES).filter(([, s]) => s !== 'sample')).toEqual([['bookingColors', 'live']])
+    expect(sampleWhole(STORE.tokyo, 'bookingColors')).toBeUndefined()
+    expect(sampleWhole(STORE.tokyo, 'language')).toEqual({ form: 'whole' })
+    const s = storeSample(STORE.tokyo)
+    expect(s.state === 'sample' && s.marked === Object.values(s.planes).some((p) => p === 'sample')).toBe(true)
+  })
+  it('OFF: no mark from either reader, on any store; the planes read all live', () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    for (const id of [STORE_A, STORE_B]) {
+      expect(sampleWhole(id, 'auditLog')).toBeUndefined()
+      expect(samplePart(id, ...BOARD)).toBeUndefined()
+      const s = storeSample(id)
+      expect(s.state === 'sample' && Object.values(s.planes).every((p) => p === 'live')).toBe(true)
+    }
+  })
+  it('F-6 — no store in view (a storeless 設定 / an empty list): no mark, never a storeSample call', () => {
+    expect(sampleWhole(null, 'auditLog')).toBeUndefined()
+    expect(samplePart(null, 'staffActive')).toBeUndefined()
+    expect(sampleWhole([], 'decisions')).toBeUndefined()
+  })
+  it('ON: whole form; part form names its planes by the native-pass labels, deduped (shifts + absence = ONE label), in order', () => {
+    expect(sampleWhole(STORE.tokyo, 'auditLog')).toEqual({ form: 'whole' })
+    expect(samplePart(STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+    expect(samplePart(STORE.tokyo, 'staffActive')).toEqual({ form: 'part', labels: ['稼働状態'] })
+  })
+  it('flipping ONE plane live for ONE store removes that plane and nothing else; a plane still sample elsewhere in view keeps it', () => {
+    STORE_PLANE_OVERRIDES[STORE.tokyo] = { operatingHours: 'live' }
+    expect(sampleWhole(STORE.tokyo, 'operatingHours')).toBeUndefined()
+    expect(samplePart(STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠'] })
+    expect(sampleWhole(STORE.tokyo, 'shifts')).toEqual({ form: 'whole' })
+    expect(sampleWhole(STORE.yokohama, 'operatingHours')).toEqual({ form: 'whole' })
+    expect(sampleWhole([STORE.tokyo, STORE.yokohama], 'operatingHours')).toEqual({ form: 'whole' })
+    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+    STORE_PLANE_OVERRIDES[STORE.tokyo] = Object.fromEntries(Object.keys(PRACTICE_PLANES).map((k) => [k, 'live']))
+    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: false })
+    expect(samplePart(STORE.tokyo, ...BOARD)).toBeUndefined()
+    expect(planesOf('toString')).toEqual(PRACTICE_PLANES)
+  })
+  it('every plane names its CONTRACT-MAP row (the lane harness reads the map against this table)', () => {
+    expect(Object.keys(PLANE_ROW).sort()).toEqual(Object.keys(PRACTICE_PLANES).sort())
+    expect(Object.values(PLANE_ROW).every((r) => r.length > 0)).toBe(true)
+    expect(PLANE_MAP_SAYS_LIVE.every((k) => k in PLANE_ROW)).toBe(true)
+  })
+  it('a borrowed label is the field\'s OWN on-screen name, verbatim from the block that prints it', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/settings/settings-props.ts'), 'utf8')
+    for (const word of ['住所', '電話番号', '店舗写真']) expect(src).toContain(`'store-hours.row-${{ 住所: 'address', 電話番号: 'phone', 店舗写真: 'photo' }[word]}', '${word}'`)
+    expect(src).toContain('いまある内容の表示・非表示はここで切り替えられます。')
+    expect(src).toContain("block('services.tickets', '回数券の整合'")
+    expect(src).toContain('本部による一括の管理は使っていません。')
+    expect(PLANE_LABEL.storeProfile).toEqual(['住所', '電話番号', '店舗写真'])
+    expect(PLANE_LABEL.menuVisible).toEqual(['表示・非表示'])
+    expect(PLANE_LABEL.tickets).toEqual(['回数券'])
+    expect(PLANE_LABEL.company).toEqual(['本部による一括の管理'])
+  })
+  it('V4-3 — the sample history credits the fixture operator, never the admitted person', () => {
+    expect(historyOperatorName()).toBe(operator.name)
+    expect(historyOperatorName()).toBe('見本 あずさ')
   })
 })
 
@@ -521,7 +639,10 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
   const blockOf = (props: Props, sectionId: string, blockId: string) => sec(props, sectionId).blocks.find((b) => b.id === blockId)!
   const controlOf = (props: Props, id: string) =>
     props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls))).find((c) => c.id === id)!
-  const SAMPLE_NONE = 'サンプル設定なし'
+  // ⚖ PR-3 — the bare 「サンプル設定なし」 is gone: a SAMPLE part with no sample
+  // plane is the block's (or the page's) `sampleNone` card, and a SAMPLE block
+  // under the door carries `sample`. Rows keep their live facts, never a placeholder.
+  const everyBlock = (props: Props) => props.sections.flatMap((x) => x.blocks)
 
   it('twin 東京: the roster is listStaff (core 稼働 beats a fixture 休止; a no-twin person appears), menus are listMenus, 事業構成 is the shell + the live stores', async () => {
     const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
@@ -533,11 +654,11 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     const mirai = liveIdOf('staff', 'p-09')!
     expect(storeDials[STORE_A].staffActive['p-09']).toBe(false) // the fixture says 休止…
     expect(controlOf(props, `people.active-${mirai}`).value).toBe(true) // …core lists her active, and core wins
-    expect(people.find((r) => r.id === `people.row-${CARD.musubi}`)!.meta).toEqual([SAMPLE_NONE])
+    expect(people.find((r) => r.id === `people.row-${CARD.musubi}`)!.meta).toEqual([]) // no twin → no sample role, and no placeholder
     expect(people.find((r) => r.id === `people.row-${CARD.azusa}`)!.meta).toEqual([rulebook.roles.find((r) => r.key === 'manager')!.label])
     // スタッフ管理
     expect(blockOf(props, 'staff', 'staff.roster').rows.map((r) => r.id).sort()).toEqual(live.map((id) => `staff.row-${id}`).sort())
-    expect(controlOf(props, `staff.preset-${CARD.musubi}`).value).toBe(SAMPLE_NONE)
+    expect(blockOf(props, 'staff', 'staff.roster').rows.find((r) => r.id === `staff.row-${CARD.musubi}`)!.controls).toEqual([])
     expect(controlOf(props, `staff.preset-${CARD.azusa}`).value).toBe('manager')
     // 提供内容: 東京's live menus + 全店舗; 表示 through the twin
     const menuRows = blockOf(props, 'services', 'services.menus').rows
@@ -557,6 +678,32 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     expect(blockOf(props, 'business-structure', 'org.brand').facts[0]).toMatch(/^5店舗の運営のため/)
     // 予約同期: the shell's own stamp, 12 minutes before the board's moment
     expect(blockOf(props, 'sync', 'sync.status').facts[0]).toMatch(/^最終同期は12分前/)
+    // ⚖ PR-3 — the mark: SAMPLE blocks carry it, ROW blocks never; a twin has no no-sample card.
+    // ⚖ §v3 V3-3 — its FORM: whole where every value is sample; part (named) over live rows.
+    expect(blockOf(props, 'audit-log', 'audit.rows').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'business-structure', 'org.entity').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'people-equipment', 'people.staff').sample).toEqual({ form: 'part', labels: ['役職と表示'] }) // §v5 V5-1 — the role echo, never the live 稼働
+    expect(blockOf(props, 'staff', 'staff.roster').sample).toEqual({ form: 'part', labels: ['役職と表示'] })
+    expect(blockOf(props, 'store-hours', 'store-hours.info').sample).toEqual({ form: 'part', labels: ['住所', '電話番号', '店舗写真'] })
+    expect(blockOf(props, 'store-hours', 'store-hours.hours').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'services', 'services.menus').sample).toEqual({ form: 'part', labels: ['表示・非表示'] })
+    expect(blockOf(props, 'services', 'services.tickets').sample).toEqual({ form: 'part', labels: ['回数券'] })
+    expect(sec(props, 'booking-guard').sample).toEqual({ form: 'part', labels: ['予約と確保の設定'] }) // F2 — block-less
+    // ⚖ §v3 V3-8 — 業種 (no core field yet) and the 本部 sentence are sample and say so.
+    expect(blockOf(props, 'people-equipment', 'people.business-type').sample).toEqual({ form: 'whole' })
+    expect(blockOf(props, 'business-structure', 'org.brand').sample).toEqual({ form: 'part', labels: ['本部による一括の管理'] }) // §v5 V5-2 — the store count is live
+    // ⚖ §v4 V4-3 — the sample history credits the fixture operator, never the signed-in person.
+    const audits = everyBlock(props).map((b) => b.audit).filter((a): a is string => a !== null)
+    expect(audits.length).toBeGreaterThan(5)
+    expect(audits.every((a) => a.startsWith('最終変更: 見本 あずさ ・'))).toBe(true)
+    // ⚖ §v3 V3-5 — the dateline drops サンプルデータ under the door (the topbar names the practice world).
+    expect(props.dateline).not.toContain('サンプルデータ')
+    expect(props.dateline.endsWith(' / テスト東京店')).toBe(true)
+    for (const [sid, bid] of [['business-structure', 'org.stores'], ['audit-log', 'audit.filter'], ['people-equipment', 'people.equipment'], ['pricing-points', 'pricing.bands']]) {
+      expect(blockOf(props, sid, bid)).not.toHaveProperty('sample')
+    }
+    expect(everyBlock(props).filter((b) => b.sampleNone)).toEqual([])
+    expect(props.sections.filter((x) => x.sampleNone)).toEqual([])
   })
 
   it('予約同期 on a wall clock 37 s past the board minute still says 12分前 — the board anchor, never the wall clock', async () => {
@@ -570,25 +717,70 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     }
   })
 
+  // ⚖ PR-3 §v4 V4-2 — PRACTICE MODE = EVERYTHING FILLED IN: a store that is not an
+  // exact twin borrows a fixture plane, so it shows the same filled page a twin does.
   it.each([
-    ['La Estro (named)', STORE.laEstro],
-    ['Dev Salon (none)', STORE.devSalon],
-  ])('%s: never 店舗を選んでください; live rows render and every SAMPLE part says サンプル設定なし', async (_label, store) => {
+    ['La Estro (borrows 東京, keeps esthetic_salon)', STORE.laEstro],
+    ['Dev Salon (borrows 東京)', STORE.devSalon],
+  ])('%s: never 店舗を選んでください, never a no-sample card; live rows render and every SAMPLE block is filled and marked', async (_label, store) => {
     const { props } = await settingsProps({ locale: 'ja', store })
     expect(props.sections.filter((s) => s.kicker === '店舗を選んでください')).toEqual([])
     const people = blockOf(props, 'people-equipment', 'people.staff').rows
     expect(people.map((r) => r.id)).toEqual(ids(await data.listStaff(store)).map((id) => `people.row-${id}`))
     expect(people.length).toBeGreaterThan(0)
-    expect(people.every((r) => r.controls[0].value === true && r.meta[0] === SAMPLE_NONE)).toBe(true)
     const menuRows = blockOf(props, 'services', 'services.menus').rows
     expect(menuRows.map((r) => r.id)).toEqual(ids(await data.listMenus(store)).map((id) => `services.row-${id}`))
-    expect(menuRows.every((r) => r.controls[0].value === SAMPLE_NONE)).toBe(true)
-    expect(blockOf(props, 'services', 'services.tickets').facts).toEqual([SAMPLE_NONE])
-    expect(blockOf(props, 'business-structure', 'org.entity').facts).toEqual([SAMPLE_NONE])
+    expect(everyBlock(props).filter((b) => b.sampleNone)).toEqual([])
+    expect(props.sections.filter((x) => x.sampleNone)).toEqual([])
+    for (const [sid, bid] of [['services', 'services.tickets'], ['business-structure', 'org.entity'], ['store-hours', 'store-hours.hours'], ['audit-log', 'audit.rows'], ['payments', 'payments.methods']]) {
+      expect({ bid, filled: blockOf(props, sid, bid).sampleNone === undefined, marked: blockOf(props, sid, bid).sample !== undefined }).toEqual({ bid, filled: true, marked: true })
+    }
+    expect(blockOf(props, 'business-structure', 'org.entity').rows.length).toBe(3)
+    expect(blockOf(props, 'audit-log', 'audit.rows').table!.rows.length).toBeGreaterThan(0)
     expect(blockOf(props, 'business-structure', 'org.stores').table!.rows).toHaveLength(5)
-    const pay = sec(props, 'payments')
-    expect({ kicker: pay.kicker, lead: pay.lead, blocks: pay.blocks }).toEqual({ kicker: RAIL.find((e) => e.id === 'payments')!.group, lead: SAMPLE_NONE, blocks: [] })
-    expect(sec(props, 'booking-guard').kicker).toBe('店舗運営')
+    expect(sec(props, 'booking-guard').sample).toBeTruthy()
+    // ⚖ FIX-1a (V3-3) — a part mark only where some row draws the sample part. No borrowed
+    // person has twin settings, so the roster names nothing; the 全店舗 menu IS twinned
+    // (registry menu-06), so its 表示 switch draws here and the menus mark stays.
+    const roster = blockOf(props, 'staff', 'staff.roster')
+    expect(roster.rows.every((r) => r.controls.length === 0)).toBe(true)
+    expect(roster.sample).toBeUndefined()
+    // ⚖ §v5 V5-1 — 人・設備's スタッフ: 稼働 is live and no row echoes a twin role, so no mark.
+    expect(blockOf(props, 'people-equipment', 'people.staff').sample).toBeUndefined()
+    const menus = blockOf(props, 'services', 'services.menus')
+    expect(menus.rows.filter((r) => r.controls.length > 0).map((r) => r.id)).toEqual([`services.row-${MENU.zenten}`])
+    expect(menus.sample).toEqual({ form: 'part', labels: ['表示・非表示'] })
+    expect(JSON.stringify(props)).not.toContain('サンプル設定なし')
+    expect(JSON.stringify(props)).not.toContain('現在準備中です')
+  })
+
+  it('FIX-1a (V3-3): a borrower whose menus have no twin draws no 表示 switch, so the menus block carries no mark', async () => {
+    // The 全店舗 menu is the only twinned menu a borrower lists; without it no row draws the switch.
+    const spy = withReads()
+    const all = spy.menusList.getMockImplementation()!
+    spy.menusList.mockImplementation(async (q: unknown) => {
+      const r = await all(q)
+      return { ...r, menus: r.menus.filter((m: { store_id: string | null }) => m.store_id !== null) }
+    })
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.laEstro })
+    const menus = blockOf(props, 'services', 'services.menus')
+    expect(menus.rows.map((r) => r.id)).toEqual([`services.row-${MENU.body}`])
+    expect(menus.rows.every((r) => r.controls.length === 0)).toBe(true)
+    expect(menus.sample).toBeUndefined()
+    expect(menus.sampleNone).toBeUndefined()
+  })
+
+  it('PR-3 業種: a store whose type is \'\' shows 「未設定」 selected and never choosable; a typed store has no such option', async () => {
+    // V4-2 leaves no practice store untyped, so the '' store is made here: the D10 path stays pinned for a store with no 業種.
+    const real = await data.listStoreOptions()
+    ;(data.listStoreOptions as jest.Mock).mockResolvedValueOnce(real.map((s) => (s.id === STORE.devSalon ? { ...s, business_type: '' } : s)))
+    const c = controlOf((await settingsProps({ locale: 'ja', store: STORE.devSalon })).props, 'people.type')
+    expect(c.value).toBe('')
+    expect(c.control.kind === 'select' && c.control.options[0]).toEqual({ value: '', label: '未設定', disabled: true })
+    const t = controlOf((await settingsProps({ locale: 'ja', store: STORE.tokyo })).props, 'people.type')
+    expect(t.control.kind === 'select' && t.control.options.some((o) => o.value === '')).toBe(false)
+    const dev = controlOf((await settingsProps({ locale: 'ja', store: STORE.devSalon })).props, 'people.type')
+    expect(dev.value).toBe('beauty_chiropractic')
   })
 
   it('viewAll (an actor with no visible store): open store sections keep 店舗を選んでください, and no row reader is asked — the door would refuse the lens', async () => {
