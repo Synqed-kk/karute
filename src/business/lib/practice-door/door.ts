@@ -244,16 +244,14 @@ const worksAt = (stores: string[] | undefined, id: string): boolean => !stores |
 async function rosterOrderOf(actor: PracticeActor, lens: StoreLens): Promise<RosterSeats[]> {
   const rows = await activeStaff(actor)
   const { assignments } = await actor.reads.staffStoresList()
-  const stores = typeof lens === 'string' ? [lens] : visibleIds(actor)
-  // ⚖ R8' — each store's own active rooms: the read listResources makes, once per store.
-  const rooms = await Promise.all(stores.map((store_id) => actor.reads.resourcesList({ store_id, active: true })))
   const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-  return stores.map((store, i) => ({
+  return Promise.all((typeof lens === 'string' ? [lens] : visibleIds(actor)).map(async (store) => ({
     store,
     // ⚖ R9 — each seat's live name, for the borrowed free text
     roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => ({ id: row.id, name: row.name })).sort(byId),
-    rooms: rooms[i].resources.map((r) => ({ id: r.id, name: r.name })).sort(byId),
-  }))
+    // ⚖ R8' — the store's own active rooms: the read listResources makes, once per store
+    rooms: (await actor.reads.resourcesList({ store_id: store, active: true })).resources.map((r) => ({ id: r.id, name: r.name })).sort(byId),
+  })))
 }
 
 export async function listStaff(lens: StoreLens): Promise<FixtureStaff[]> {
