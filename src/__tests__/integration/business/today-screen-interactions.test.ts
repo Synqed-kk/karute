@@ -7936,6 +7936,26 @@ describe('BATCH-10b X4 — the two copy items', () => {
     expect(SRC).toContain('<span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>')
   })
 
+  it('⚖ PR-3 of 予約の色分け — 色の意味 names where the colours change, through the string home and the link home', () => {
+    // T1 — the chip, whole, straight after the neutral line and still inside the
+    // legend: the SAME store's 言語・表示, landing on the 予約の色分け block. The
+    // text is the Business string home's; the screen never spells it.
+    const CHIP = "<Link className=\"chip\" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>"
+    expect(SRC).toContain("import { businessStrings } from '@/business/i18n'")
+    const neutral = SRC.indexOf('<b>左端の色＝予約カテゴリー</b>')
+    const chip = SRC.indexOf(CHIP)
+    expect(neutral).toBeGreaterThan(-1)
+    expect(chip).toBeGreaterThan(neutral)
+    expect(SRC.slice(neutral, chip).includes('</div>')).toBe(false)
+    expect(SRC.split(CHIP).length - 1).toBe(1)
+    expect(SRC).not.toContain('変更は「設定」＞予約の色分けで')
+    // T2 — the string home holds the blind-passed final line, byte-exact (15 字,
+    // no trailing 。), under the key the screen reads.
+    const ja = JSON.parse(readFileSync(join(process.cwd(), 'src/business/i18n/ja.json'), 'utf8'))
+    expect(ja.today.legend.colorsChangeAt).toBe('変更は「設定」＞予約の色分けで')
+    expect([...ja.today.legend.colorsChangeAt].length).toBe(15)
+  })
+
   it('sweep rider (ii) — the two advisory grammars are two engine FACTS, not one in two voices', () => {
     // Investigated before touching either, per the packet. They come from
     // different engine verdicts, and the difference is the whole point:

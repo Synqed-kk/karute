@@ -3886,6 +3886,29 @@ describe('the shell one-liners, and the signposts that now really navigate', () 
     expect(register).not.toContain('設定の画面はまだ準備中')
   })
 
+  it('⚖ PR-3 of 予約の色分け — the 色の意味 chip opens the SAME store\'s 言語・表示 and lands ON 予約の色分け', async () => {
+    // T3 — read off the chip as the board writes it, then DRIVEN: the section the
+    // chip names is the one the room opens by URL, and the block it names is in it
+    // under the title the chip prints (⚖ label truth).
+    const today = read('src/app/[locale]/(business)/business/today/TodayScreen.tsx')
+    const call = /settingsHref\(props\.locale, props\.store, '([^']+)', '([^']+)'\)\}>\{businessStrings\.today\.legend\.colorsChangeAt\}/.exec(today)
+    expect(call?.slice(1)).toEqual(['language-display', 'lang.colors'])
+    const [, section, block] = call!
+    for (const store of [STORE_A, STORE_B]) {
+      const props = await room({ store, section })
+      expect({ store, opening: props.openingSectionId, byUrl: props.openedByUrl }).toEqual({ store, opening: section, byUrl: true })
+      expect(sectionOf(props, section).blocks.find((b) => b.id === block)?.title).toBe('予約の色分け')
+      // …through the ONE link home, carrying the store (the G2 lesson: 代官山 never opens 銀座's room).
+      expect(settingsHref('ja', store, section, block)).toBe(`/ja/business/settings?section=${section}&store=${store}#st-blk-${block}`)
+    }
+    expect(settingsHref('ja', null, 'language-display', 'lang.colors')).toBe('/ja/business/settings?section=language-display#st-blk-lang.colors')
+    // The fragment names the anchor the room renders for every block, and the room
+    // lands it itself, once, through the jump list's own jumpTo.
+    expect(SCREEN_CODE).toContain('id={`st-blk-${block.id}`}')
+    expect(SCREEN_CODE).toContain("const id = hash.startsWith('#st-blk-') ? hash.slice('#st-blk-'.length) : null")
+    expect(SCREEN_CODE).toContain('if (id !== null && blocks.some((b) => b.id === id)) jumpTo(id)')
+  })
+
   it('⚖ S17 fix round 5 · G2 — every link into 設定 comes out of ONE home, and carries the store', () => {
     // ⚠ THE HELPER'S OWN BEHAVIOUR, driven rather than described. A resolved
     // lens rides on the URL; NO lens writes no `store=` at all, because writing
