@@ -1,10 +1,10 @@
 'use client'
 
 import { ChevronDown } from 'lucide-react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import type { CustomerStatusKey } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
-import { SegmentedFilterBar } from './SegmentedFilterBar'
+import { SegmentedFilterBar, type WidthSteps } from './SegmentedFilterBar'
 
 export type CustomerListFilterKey =
   | 'all'
@@ -67,6 +67,33 @@ const HIDE_WHEN_ZERO: ReadonlySet<CustomerListFilterKey> = new Set([
   'dormant',
 ])
 
+/** The urgent word (要対応 family) — the status that asks a person to act:
+ *  要フォロー (`needs-followup`). Step B keeps its count. */
+const CUSTOMER_URGENT: readonly CustomerListFilterKey[] = ['followup']
+
+/** ⚖ FIT BY DESIGN (04:2x): the track's width steps, per language, chosen
+ *  from the real longest labels in the app's own fonts (all four words, a
+ *  4-digit すべて, 3 digits on 要フォロー/休眠, 2 on 新規) and locked by the fit
+ *  test (scripts/fit-harness/run.mjs). Viewport px = labels + counts + 4px
+ *  label↔count + per-segment px-2 (→ px-1.5) + 38 + 4 margin:
+ *          all counts   all, tight   urgent-only   urgent, tight   slide
+ *    ja    ≥ 336        320–336      265–320       253–265         < 253
+ *    en    ≥ 385        369–385      315–369       299–315         < 299
+ *  (labels ja 136 / en 185 — Needs follow-up is 95; counts 77.7.) So every
+ *  phone width shows every count in Japanese; English tightens at 375. */
+const CUSTOMER_WORD_STEPS: Record<'ja' | 'en', WidthSteps> = {
+  ja: {
+    row: 'max-[253px]:overflow-x-auto max-[253px]:[scrollbar-width:none]',
+    item: 'min-[320px]:max-[336px]:px-1.5 min-[253px]:max-[265px]:px-1.5 max-[253px]:shrink-0',
+    count: 'max-[320px]:hidden',
+  },
+  en: {
+    row: 'max-[299px]:overflow-x-auto max-[299px]:[scrollbar-width:none]',
+    item: 'min-[369px]:max-[385px]:px-1.5 min-[299px]:max-[315px]:px-1.5 max-[299px]:shrink-0',
+    count: 'max-[369px]:hidden',
+  },
+}
+
 export function CustomersStatusFilters({
   active,
   onChange,
@@ -74,6 +101,7 @@ export function CustomersStatusFilters({
   baselineCounts,
 }: CustomersStatusFiltersProps) {
   const t = useTranslations('customers.list')
+  const locale = useLocale()
   // 案A (Liam, 7/17): segmented bar via the shared SegmentedFilterBar. Label
   // qualifiers（30日以内／90日以上）dropped for width — the biggest single
   // win; staff learn the definition once. Hide-when-zero (proposal ②) keys
@@ -90,7 +118,13 @@ export function CustomersStatusFilters({
   ).map((key) => ({ key, label: t(`filters.${key}`), count: counts[key] }))
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <SegmentedFilterBar segments={segments} active={active} onChange={onChange} />
+      <SegmentedFilterBar
+        segments={segments}
+        active={active}
+        onChange={onChange}
+        steps={CUSTOMER_WORD_STEPS[locale === 'en' ? 'en' : 'ja']}
+        urgent={CUSTOMER_URGENT}
+      />
       <div className="hidden items-center gap-2 md:inline-flex">
         <button
           type="button"

@@ -31,16 +31,21 @@ jest.mock('@/i18n/navigation', () => ({
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
     vars ? `${key}:${JSON.stringify(vars)}` : key,
+  useLocale: () => 'ja',
 }))
 
 // Stub the non-under-test leaves so we don't drag in CustomerSheet/forms,
 // next/navigation search params, or the AI chip plumbing.
+// ⚖ 顧客 TAB LOCKED 02:1x (S44): the header is the desktop title bar only —
+// the 「登録中の顧客 · 全… · N名を表示中」 line is gone, so the filtered count is
+// probed on the rendered rows instead (every case here is ≤ one 12-row page).
 jest.mock('@/components/customers/redesign/list/CustomersListHeader', () => ({
-  CustomersListHeader: ({ total, showing }: { total: number; showing: number }) => (
-    <div data-testid="header">
-      total={total} showing={showing}
-    </div>
-  ),
+  CustomersListHeader: () => <div data-testid="header" />,
+}))
+// ⚖ 顧客 TAB LOCKED 02:1x (S44): the add-person circle (CustomerSheet) now
+// sits in the search row of the view itself — stubbed like the header was.
+jest.mock('@/components/customers/CustomerSheet', () => ({
+  CustomerSheet: () => <button type="button" aria-label="newCustomer" />,
 }))
 jest.mock('@/components/customers/redesign/list/CustomerSearchInput', () => ({
   CustomerSearchInput: () => <div data-testid="search" />,
@@ -102,7 +107,9 @@ describe('CustomersListView', () => {
       />,
     )
     expect(desktopRows()).toHaveLength(5)
-    expect(screen.getByTestId('header')).toHaveTextContent('total=42 showing=5')
+    // No totals line on 顧客 any more (⚖ 02:1x) — no count reaches the header.
+    expect(screen.getByTestId('header')).toBeEmptyDOMElement()
+    expect(screen.queryByText(/statusLine/)).not.toBeInTheDocument()
   })
 
   it('slices to 12 rows per page and exposes pagination for overflow', () => {
@@ -204,9 +211,10 @@ describe('CustomersListView', () => {
         ]}
       />,
     )
-    // Open the 担当 trigger, pick staff s-1 in the sheet, then followup.
-    fireEvent.click(screen.getByText('trigger'))
-    fireEvent.click(screen.getByText('Me'))
+    // Open the staff list from the segment's chevron (⚖ STAFF CONTROL 04:5x —
+    // the separate 担当 chip is gone), pick staff s-1, then followup.
+    fireEvent.click(screen.getByRole('button', { name: 'title' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Me' }))
     fireEvent.click(screen.getByText('filters.followup'))
     const visible = desktopRows()
     expect(visible).toHaveLength(1)
@@ -325,10 +333,10 @@ describe('案D stats strip', () => {
     // counts a but not c (graduated) → 1
     const stat = screen.getByText('noBooking:{"n":1}')
     fireEvent.click(stat)
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows()).toHaveLength(1)
     // tap again clears back to all
     fireEvent.click(screen.getByText('noBooking:{"n":1}'))
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+    expect(desktopRows()).toHaveLength(3)
   })
 
   it('pack stats hide pre-import (no pack data) — 予約なし stays', () => {
@@ -491,11 +499,11 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     )
     fireEvent.click(bit(1))
     expect(bit(1)).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
+    expect(desktopRows()).toHaveLength(2)
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One', 'OneBooked'])
     fireEvent.click(bit(1))
     expect(bit(1)).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=5')
+    expect(desktopRows()).toHaveLength(5)
   })
 
   it('multi-select unions 残１+残２ (Kitano\'s「3回未満」population)', () => {
@@ -505,7 +513,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     )
     fireEvent.click(bit(1))
     fireEvent.click(bit(2))
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+    expect(desktopRows()).toHaveLength(3)
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One', 'OneBooked', 'Two'])
   })
 
@@ -518,7 +526,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     // Faceted: with 残１ on, 予約なし already recounts within 残１ (One only —
     // OneBooked has a booking) and tapping it yields exactly that count.
     fireEvent.click(screen.getByText('noBooking:{"n":1}'))
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows()).toHaveLength(1)
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
   })
 
@@ -531,7 +539,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     fireEvent.click(bit(1))
     fireEvent.click(screen.getByText('filters.all'))
     expect(bit(1)).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
+    expect(desktopRows()).toHaveLength(2)
   })
 })
 
@@ -551,13 +559,13 @@ describe('UltraCode fix round (7/17)', () => {
     // Migrated: the 残１ bit is pressed and the list shows only remaining===1.
     const bit1 = screen.getByText('packRemainingLabel1').closest('button')
     expect(bit1).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows()).toHaveLength(1)
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
     // No segment falsely active-less: すべて stays the pressed status segment.
     expect(screen.getByText('filters.all').closest('button')).toHaveAttribute('aria-pressed', 'true')
     // Tap-to-clear works — the invariant the legacy key violated.
     fireEvent.click(bit1!)
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+    expect(desktopRows()).toHaveLength(3)
   })
 
   it('a 0-count 残n bit shows the filter-no-match state, never the onboarding empty state', () => {
@@ -727,5 +735,80 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
     fireEvent.click(screen.getByText('filters.dormant'))
     fireEvent.click(bit(3))
     expect(screen.getByText('unconsumed:{"amount":"0"}')).toBeInTheDocument()
+  })
+})
+
+// ── ⚖ 顧客 TAB LOCKED 02:1x (案D) + ⚖ STAFF CONTROL 04:5x — S44 ─────────────
+describe('顧客 TAB LOCKED — one search row with the add circle, one staff control', () => {
+  const STAFF = [
+    { id: 's-1', name: 'Me', initials: 'ME' },
+    { id: 's-2', name: 'Them', initials: 'TH' },
+  ]
+  const rows = () => [
+    row({ id: 'a', name: 'Mine', preferredStaffId: 's-1' }),
+    row({ id: 'b', name: 'Theirs', preferredStaffId: 's-2' }),
+  ]
+  const renderView = () =>
+    render(
+      <CustomersListView rows={rows()} totalRegistered={2} query="" selfStaffId="s-1"
+        staffList={STAFF} assignableStaff={[]} />,
+    )
+  beforeEach(() => window.localStorage.clear())
+
+  it('order: search + add circle in ONE row → staff control → words track; no totals line', () => {
+    const { container } = renderView()
+    const search = screen.getByTestId('search')
+    const add = screen.getByRole('button', { name: 'newCustomer' })
+    // The circle shares the search field's row.
+    expect(search.parentElement!.parentElement).toBe(add.parentElement)
+    const scope = container.querySelector('[data-staff-scope]')!
+    const words = container.querySelector('[data-words-row="track"]')!
+    expect(search.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(scope.compareDocumentPosition(words) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText(/statusLine/)).not.toBeInTheDocument()
+    // The separate 担当 chip is gone: the only listbox trigger is the chevron.
+    expect(screen.queryByText('trigger')).not.toBeInTheDocument()
+  })
+
+  it('the words track keeps a count on every word at room; 要フォロー is the urgent one', () => {
+    const { container } = render(
+      <CustomersListView
+        rows={[...rows(), row({ id: 'f', name: 'Follow', status: 'needs-followup' })]}
+        totalRegistered={3} query="" selfStaffId="s-1" staffList={STAFF} assignableStaff={[]} />,
+    )
+    const urgent = [...container.querySelectorAll('[data-words-row] [data-count="urgent"]')]
+    expect(urgent.map((e) => e.closest('button')!.textContent)).toEqual(['filters.followup1'])
+    for (const e of urgent) expect(e.className).not.toMatch(/:hidden/)
+    const plain = [...container.querySelectorAll('[data-words-row] [data-count="plain"]')]
+    expect(plain.length).toBeGreaterThan(0)
+    for (const e of plain) expect(e.className).toMatch(/max-\[\d+px\]:hidden/)
+  })
+
+  it('a shared link naming a departed staffer reads 全スタッフ and shows everyone', () => {
+    mockSearch = 's=gone-9'
+    renderView()
+    expect(screen.getByRole('button', { name: /^all$/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['Mine', 'Theirs'])
+  })
+
+  it('no URL param: the remembered pick applies (karute:staffScope:customers:<viewer>)', () => {
+    window.localStorage.setItem('karute:staffScope:customers:s-1', 'self')
+    renderView()
+    expect(screen.getByRole('button', { name: /self/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['Mine'])
+  })
+
+  it('the URL param wins over the remembered pick', () => {
+    window.localStorage.setItem('karute:staffScope:customers:s-1', 'self')
+    mockSearch = 's=s-2'
+    renderView()
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['Theirs'])
+  })
+
+  it('a pick is remembered for this viewer on 顧客 only', () => {
+    renderView()
+    fireEvent.click(screen.getByRole('button', { name: /self/ }))
+    expect(window.localStorage.getItem('karute:staffScope:customers:s-1')).toBe('self')
+    expect(window.localStorage.getItem('karute:staffScope:records:s-1')).toBeNull()
   })
 })

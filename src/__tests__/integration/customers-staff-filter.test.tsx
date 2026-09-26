@@ -4,7 +4,11 @@
  * Render coverage for CustomersStaffFilter (PR 17, replay/17): the empty-state
  * null render, the self/all scope toggle (self hidden without a staff profile),
  * the per-staff pills, active state, and the "click active pill snaps back to
- * all" selection model.
+ * all" selection model. Since ⚖ STAFF CONTROL LOCKED 04:5x (S44) the row is ONE
+ * two-segment control 自分 | 全スタッフ ⌄ (StaffScopeSegment): the staff list
+ * opens from the chevron (aria-label = staffSelector.title → 'title' here),
+ * and the separate 担当 chip is gone. Its tap rule has its own suite
+ * (staff-scope-segment.test.tsx).
  */
 import { render, screen, fireEvent } from '@testing-library/react'
 
@@ -16,6 +20,8 @@ import {
   CustomersStaffFilter,
   type StaffFilterEntry,
 } from '@/components/customers/redesign/list/CustomersStaffFilter'
+
+const chevron = () => screen.getByRole('button', { name: 'title' })
 
 const staff: StaffFilterEntry[] = [
   { id: 's-1', name: 'Jon Chan', initials: 'JC' },
@@ -30,7 +36,7 @@ describe('CustomersStaffFilter', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders the toggle + 担当 trigger; staff names live in the SHEET (option D)', () => {
+  it('renders 自分 | 全スタッフ ⌄ (no 担当 chip); staff names live in the list (option D)', () => {
     render(
       <CustomersStaffFilter
         staffList={staff}
@@ -43,8 +49,8 @@ describe('CustomersStaffFilter', () => {
     expect(screen.getByText('all')).toBeInTheDocument()
     // no inline pills anymore — one chrome line
     expect(screen.queryByText('Jon Chan')).toBeNull()
-    expect(screen.getByText('trigger')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('trigger'))
+    expect(screen.queryByText('trigger')).toBeNull()
+    fireEvent.click(chevron())
     expect(screen.getByText('Jon Chan')).toBeInTheDocument()
     expect(screen.getByText('佐藤')).toBeInTheDocument()
   })
@@ -92,7 +98,7 @@ describe('CustomersStaffFilter', () => {
 
   it('emits "self" / "all" when the scope segments are clicked', () => {
     const onChange = jest.fn()
-    render(
+    const { rerender } = render(
       <CustomersStaffFilter
         staffList={staff}
         selfStaffId="s-1"
@@ -102,6 +108,10 @@ describe('CustomersStaffFilter', () => {
     )
     fireEvent.click(screen.getByText('self'))
     expect(onChange).toHaveBeenLastCalledWith('self')
+    // From 自分, the 全スタッフ label is one tap back to everyone (⚖ TAP RULE).
+    rerender(
+      <CustomersStaffFilter staffList={staff} selfStaffId="s-1" selected="self" onChange={onChange} />,
+    )
     fireEvent.click(screen.getByText('all'))
     expect(onChange).toHaveBeenLastCalledWith('all')
   })
@@ -116,7 +126,7 @@ describe('CustomersStaffFilter', () => {
         onChange={onChange}
       />,
     )
-    fireEvent.click(screen.getByText('trigger'))
+    fireEvent.click(chevron())
     fireEvent.click(screen.getByText('Jon Chan'))
     expect(onChange).toHaveBeenCalledWith('s-1')
   })
@@ -131,9 +141,11 @@ describe('CustomersStaffFilter', () => {
         onChange={onChange}
       />,
     )
-    // trigger names the active staff inline; the sheet row is the last match
-    fireEvent.click(screen.getAllByText('Jon Chan')[0])
-    fireEvent.click(screen.getAllByText('Jon Chan').at(-1)!)
+    // The label names the active staff (family name); the list row is the
+    // full name — picking it again snaps back to all.
+    expect(screen.getByText('Jon')).toBeInTheDocument()
+    fireEvent.click(chevron())
+    fireEvent.click(screen.getByRole('option', { name: 'Jon Chan' }))
     expect(onChange).toHaveBeenCalledWith('all')
   })
 
@@ -169,7 +181,7 @@ describe('CustomersStaffFilter', () => {
           onChange={jest.fn()}
         />,
       )
-      fireEvent.click(screen.getByText('trigger'))
+      fireEvent.click(chevron())
       expect(screen.getByText('Jon Chan')).toBeInTheDocument()
       expect(screen.queryByText('佐藤')).toBeNull()
     })
@@ -183,7 +195,7 @@ describe('CustomersStaffFilter', () => {
           onChange={jest.fn()}
         />,
       )
-      fireEvent.click(screen.getByText('trigger'))
+      fireEvent.click(chevron())
       fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
         target: { value: '佐' },
       })
@@ -206,7 +218,7 @@ describe('CustomersStaffFilter', () => {
       fireEvent.click(screen.getByText('self'))
       expect(onChange).toHaveBeenLastCalledWith('self')
       // But the viewer's OWN name is absent from the default staff-picker list.
-      fireEvent.click(screen.getByText('trigger'))
+      fireEvent.click(chevron())
       expect(screen.getByText('Jon Chan')).toBeInTheDocument()
       expect(screen.queryByText('佐藤')).toBeNull()
     })
