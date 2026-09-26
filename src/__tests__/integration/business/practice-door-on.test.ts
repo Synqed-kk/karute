@@ -1242,15 +1242,40 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     }
   })
 
-  it('§v9 — one per-store value moves ONE store: 横浜 (STORE_B) with its own 定休日 → 3; 東京, a borrower and the all-stores view keep the shared 1', async () => {
-    SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: 3 }
+  it('§v9 — a per-store value moves only its own plane\'s stores: 横浜 (STORE_B) its own 定休日 · 営業時間 · opsConfig; 東京 and Dev Salon (a borrower takes STORE_A\'s plane, ⚖ §v4 V4-2) STORE_A\'s 定休日; the all-stores view keeps the shared set (V9-2)', async () => {
+    const hoursB = { open: 9 * 60, close: 20 * 60 }
+    const opsB = { ...opsConfig }
+    SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: 3, operatingHours: hoursB, opsConfig: opsB }
+    SINGLETONS_BY_FIXTURE_STORE[STORE_A] = { closedWeekday: 9 }
     try {
-      expect((await data.readDayPlanes(STORE.yokohama, TODAY)).closedWeekday).toBe(3)
+      const yokohama = await data.readDayPlanes(STORE.yokohama, TODAY)
+      expect(yokohama.closedWeekday).toBe(3)
+      expect(yokohama.operatingHours).toBe(hoursB)
+      expect(yokohama.opsConfig).toBe(opsB)
+      expect((await data.readReservationPlanes(STORE.yokohama)).operatingHours).toBe(hoursB)
       expect((await data.readAnalyticsPlanes(STORE.yokohama)).closedWeekday).toBe(3)
-      expect((await data.readDayPlanes(STORE.yokohama, TODAY)).operatingHours).toBe(operatingHours) // the keys it does not name stay shared
-      expect((await data.readDayPlanes(STORE.tokyo, TODAY)).closedWeekday).toBe(1)
-      expect((await data.readDayPlanes(STORE.devSalon, TODAY)).closedWeekday).toBe(1)
-      expect((await data.readDayPlanes(VIEW_ALL, TODAY)).closedWeekday).toBe(1) // V9-2 — viewAll chooses no store
+      const tokyo = await data.readDayPlanes(STORE.tokyo, TODAY)
+      expect(tokyo.closedWeekday).toBe(9)
+      expect(tokyo.operatingHours).toBe(operatingHours) // the keys it does not name stay shared
+      expect(tokyo.opsConfig).toBe(opsConfig)
+      expect((await data.readDayPlanes(STORE.devSalon, TODAY)).closedWeekday).toBe(9)
+      const all = await data.readDayPlanes(VIEW_ALL, TODAY) // V9-2 — viewAll chooses no store, so neither entry applies
+      expect(all.closedWeekday).toBe(1)
+      expect(all.operatingHours).toBe(operatingHours)
+      expect((await data.readAnalyticsPlanes(VIEW_ALL)).closedWeekday).toBe(1)
+    } finally {
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_A]
+    }
+  })
+
+  it('§v9 — per key, never a spread: an entry whose key is present but undefined serves the shared constant itself', async () => {
+    SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: undefined }
+    try {
+      const yokohama = await data.readDayPlanes(STORE.yokohama, TODAY)
+      expect(yokohama.closedWeekday).toBe(1)
+      expect(yokohama.closedWeekday).toBe(closedWeekday)
+      expect(yokohama.operatingHours).toBe(operatingHours)
     } finally {
       delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
     }
