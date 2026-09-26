@@ -114,6 +114,10 @@ beforeEach(() => {
   mockSwitches.shinkiChip = false
   loadKaruteWindow.mockReset()
 })
+afterEach(() => {
+  jest.restoreAllMocks()
+  delete (window as { matchMedia?: unknown }).matchMedia
+})
 
 describe('KARUTE_SWITCHES.shinkiChip — the committed value', () => {
   it('is false in source (this suite only ever flips a mock)', () => {
@@ -218,5 +222,81 @@ describe('switch ON (test-only mock)', () => {
     expect(screen.queryByText('一月 不明')).not.toBeInTheDocument()
     // Still in the month (the chip names it) — 新規 is an AND, not an exit.
     expect(screen.getByRole('button', { name: /^2026年1月$/ })).toBeInTheDocument()
+  })
+})
+
+// The ✓ GLIDE (FLIP). jsdom has no layout, so getBoundingClientRect is stubbed:
+// the 担当 chip sits 20px further right once the ✓ is in the 新規 chip. What
+// is pinned: the inverse translateX is applied and then cleared back to 0
+// (transform only), will-change lives only while gliding (cleared on
+// transitionend), and under reduced motion nothing is written at all.
+describe('the ✓ glide (switch ON)', () => {
+  beforeEach(() => {
+    mockSwitches.shinkiChip = true
+  })
+
+  function armLayout() {
+    const chip = shinkiChip()
+    const staffWrap = screen.getByRole('button', { name: /^(all|self)$/ }).parentElement!
+    jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const on = chip.getAttribute('aria-pressed') === 'true'
+      const left = this === staffWrap ? (on ? 220 : 200) : 0
+      return { left, top: 0, right: left, bottom: 0, width: 0, height: 0, x: left, y: 0, toJSON: () => ({}) } as DOMRect
+    })
+    // Record every transform written to the staff chip's wrapper.
+    const writes: string[] = []
+    const style = staffWrap.style
+    let proto: object | null = Object.getPrototypeOf(style)
+    while (proto && !Object.getOwnPropertyDescriptor(proto, 'transform')) {
+      proto = Object.getPrototypeOf(proto)
+    }
+    const native = Object.getOwnPropertyDescriptor(proto!, 'transform')!
+    Object.defineProperty(style, 'transform', {
+      configurable: true,
+      get: () => native.get!.call(style),
+      set: (v: string) => {
+        writes.push(v)
+        native.set!.call(style, v)
+      },
+    })
+    return { staffWrap, writes }
+  }
+
+  it('applies the inverse translateX, then glides it back to 0; will-change only while gliding', () => {
+    renderList()
+    const { staffWrap, writes } = armLayout()
+    fireEvent.click(shinkiChip())
+    // settle-in-flight '' → Invert (from 200 to 220 = −20px) → Play ''.
+    expect(writes).toEqual(['', 'translateX(-20px)', ''])
+    expect(staffWrap.style.transform).toBe('')
+    expect(staffWrap.style.transition).toContain('transform 150ms cubic-bezier(0.23, 1, 0.32, 1)')
+    expect(staffWrap.style.willChange).toBe('transform')
+    // A bubbled transition from a child (the chevron) does NOT end the glide.
+    const child = Object.assign(new Event('transitionend', { bubbles: true }), {
+      propertyName: 'transform',
+    })
+    staffWrap.firstElementChild!.dispatchEvent(child)
+    expect(staffWrap.style.willChange).toBe('transform')
+    const own = Object.assign(new Event('transitionend'), { propertyName: 'transform' })
+    staffWrap.dispatchEvent(own)
+    expect(staffWrap.style.willChange).toBe('')
+    expect(staffWrap.style.transition).toBe('')
+  })
+
+  it('reduced motion: the chip still toggles, and no transform is ever written', () => {
+    window.matchMedia = ((q: string) => ({
+      matches: q.includes('prefers-reduced-motion'),
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia
+    renderList()
+    const { staffWrap, writes } = armLayout()
+    fireEvent.click(shinkiChip())
+    expect(shinkiChip()).toHaveAttribute('aria-pressed', 'true')
+    expect(writes).toEqual([])
+    expect(staffWrap.style.willChange).toBe('')
   })
 })

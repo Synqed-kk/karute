@@ -287,6 +287,68 @@ export function KaruteRecordListView({
   const [shinkiOn, setShinkiOn] = useState(false)
   const shinkiActive = KARUTE_SWITCHES.shinkiChip && shinkiOn
 
+  // The ✓ GLIDE (⚖ mock build = same motion — MOCK-SHINKI-v1 D26): the ✓
+  // popping into the 新規 chip widens it, and the chip's own words and every
+  // chip to its right would otherwise JUMP. FLIP instead — First is measured in
+  // the tap handler (the on-screen value, so a tap mid-glide starts from where
+  // things are), Last here after the commit, Invert = translateX(first − last),
+  // Play = transition back to 0 on the ✓'s own 150ms curve. Transform only (the
+  // compositor), will-change only while gliding, nothing under reduced motion.
+  // A chip that wrapped to another line (its top moved) simply lands — never a
+  // diagonal slide.
+  const shinkiRef = useRef<HTMLButtonElement>(null)
+  const shinkiWordsRef = useRef<HTMLSpanElement>(null)
+  const glideFirst = useRef<Map<HTMLElement, DOMRect> | null>(null)
+  const glideEnd = useRef(new WeakMap<HTMLElement, () => void>())
+  function glideTargets(): HTMLElement[] {
+    const out: HTMLElement[] = shinkiWordsRef.current ? [shinkiWordsRef.current] : []
+    for (let el = shinkiRef.current?.nextElementSibling; el; el = el.nextElementSibling) {
+      if (el instanceof HTMLElement) out.push(el)
+    }
+    return out
+  }
+  function toggleShinki() {
+    const reduce =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    glideFirst.current = reduce
+      ? null
+      : new Map(glideTargets().map((el) => [el, el.getBoundingClientRect()]))
+    setShinkiOn((on) => !on)
+  }
+  useLayoutEffect(() => {
+    const first = glideFirst.current
+    glideFirst.current = null
+    if (!first) return
+    for (const [el, from] of first) {
+      // Settle any glide in flight so Last is the LAYOUT position.
+      glideEnd.current.get(el)?.()
+      el.style.transition = 'none'
+      el.style.transform = ''
+      const to = el.getBoundingClientRect()
+      const dx = from.left - to.left
+      if (Math.abs(dx) < 0.5 || Math.abs(from.top - to.top) > 0.5) continue
+      el.style.transform = `translateX(${dx}px)`
+      el.style.willChange = 'transform'
+      void el.offsetWidth
+      el.style.transition = 'transform 150ms cubic-bezier(0.23, 1, 0.32, 1)'
+      el.style.transform = ''
+      const timer = setTimeout(() => end(), 250)
+      const onEnd = (e: TransitionEvent) => {
+        if (e.target === el && e.propertyName === 'transform') end()
+      }
+      const end = () => {
+        clearTimeout(timer)
+        el.removeEventListener('transitionend', onEnd)
+        el.style.willChange = ''
+        el.style.transition = ''
+        glideEnd.current.delete(el)
+      }
+      el.addEventListener('transitionend', onEnd)
+      glideEnd.current.set(el, end)
+    }
+  }, [shinkiOn])
+
   // PR-2a 日付チャンク読み込み. `appended` holds ONLY the chunks さらに表示
   // pulled in; `items` stays the server-rendered first window, so a router
   // refresh keeps the newest rows fresh instead of freezing a client snapshot.
@@ -1364,9 +1426,10 @@ export function KaruteRecordListView({
         />
         {KARUTE_SWITCHES.shinkiChip && (
           <button
+            ref={shinkiRef}
             type="button"
             aria-pressed={shinkiOn}
-            onClick={() => setShinkiOn((on) => !on)}
+            onClick={toggleShinki}
             className={cn(
               'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
               shinkiOn && 'border-primary bg-primary/8 text-primary hover:bg-primary/8',
@@ -1379,14 +1442,17 @@ export function KaruteRecordListView({
                 aria-hidden
               />
             )}
-            <span>{t('shinki')}</span>
-            <span
-              className={cn(
-                'text-[10px] tabular-nums',
-                shinkiOn ? 'text-primary' : 'text-muted-foreground',
-              )}
-            >
-              {shinkiRows.length}
+            {/* Words + count move as ONE unit when the ✓ arrives (the glide). */}
+            <span ref={shinkiWordsRef} className="inline-flex items-center gap-1.5">
+              <span>{t('shinki')}</span>
+              <span
+                className={cn(
+                  'text-[10px] tabular-nums',
+                  shinkiOn ? 'text-primary' : 'text-muted-foreground',
+                )}
+              >
+                {shinkiRows.length}
+              </span>
             </span>
           </button>
         )}
