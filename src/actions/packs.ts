@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { can } from '@/lib/auth/require-permission'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   removeRedemption,
   updatePackStatus,
@@ -303,7 +304,15 @@ export async function setLifecycleAction(
   }
   if (!staffId) return { ok: false }
   const { getSynqedClient } = await import('@/lib/synqed/client')
-  const synqed = await getSynqedClient()
+  // Round 3 leg 7d (2026-09-26): the client build settles like the five siblings
+  // above — { ok: false }, the chip's own toast, never a rejection that strands its
+  // busy flag. The log is the bounded shape (D-S30-2): an AppApiError's cause can
+  // carry raw DB text, so it is never logged whole.
+  const synqed = await getSynqedClient().catch((err) => {
+    console.warn('[packs] synqed client init failed:', describeUnknownThrow(err))
+    return null
+  })
+  if (!synqed) return { ok: false }
   const result = await setLifecycleActionWithClient(synqed, staffId, input)
   if (!result.ok) return { ok: false }
   revalidateProfile()
