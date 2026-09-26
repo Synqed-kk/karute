@@ -117,7 +117,17 @@ export type SessionsScreenDTOType = z.infer<typeof SessionsScreenDTO>
  * has aged out of the field — tracked in the lane queue, owner Liam's release
  * call. At that point this schema absorbs the base one and the split goes away.
  */
+/** The windowed (release-18+) item: the base item PLUS the 新規 chip's
+ *  `companyFirstVisit`. Windowed-only so the release-17 bare body stays
+ *  byte-identical (the base schema strips the key there). `.catch(null)`:
+ *  missing on the wire (an older server) or anything but a boolean = null —
+ *  never 新規, never a failed screen parse. */
+const KaruteListItemWindowedDTO = KaruteListItemDTO.extend({
+  companyFirstVisit: z.boolean().nullable().catch(null),
+})
+
 export const SessionsScreenWindowedDTO = SessionsScreenDTO.extend({
+  items: z.array(KaruteListItemWindowedDTO),
   /** Separate from total: discarded rows never inflate active-record pills. */
   discardedCount: z.number().default(0),
   /** Is there store history older than `windowStart` still unloaded?

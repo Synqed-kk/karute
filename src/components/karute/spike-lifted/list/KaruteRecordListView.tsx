@@ -22,7 +22,7 @@
 //                                  scoping can layer in later)
 
 import { Button } from '@/components/ui/button'
-import { FilePlus2 } from 'lucide-react'
+import { Check, FilePlus2 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { useLocale, useTranslations } from 'next-intl'
@@ -43,6 +43,8 @@ import type { KaruteListFilter, KaruteListItem } from './types'
 import { loadKaruteWindow, revealNoKaruteCustomer } from '@/actions/karute'
 import { KARUTE_SESSION_DATE_EPOCH, karuteHasMore } from '@/lib/karute/karute-window'
 import { ymdInJst } from '@/lib/date/jst'
+import { KARUTE_SWITCHES } from '@/lib/karute/karute-switches'
+import { cn } from '@/lib/utils'
 
 interface Props {
   items: KaruteListItem[]
@@ -279,6 +281,73 @@ export function KaruteRecordListView({
           ? staffFilter
           : 'all'
   const [searchQuery, setSearchQuery] = useState('')
+  // 新規 chip (KARUTE_SWITCHES.shinkiChip, OFF): a toggle that ANDs with the
+  // state pill, the staff scope, search and month mode. React state like the
+  // month chip and the search box — no URL param.
+  const [shinkiOn, setShinkiOn] = useState(false)
+  const shinkiActive = KARUTE_SWITCHES.shinkiChip && shinkiOn
+
+  // The ✓ GLIDE (⚖ mock build = same motion — MOCK-SHINKI-v1 D26): the ✓
+  // popping into the 新規 chip widens it, and the chip's own words and every
+  // chip to its right would otherwise JUMP. FLIP instead — First is measured in
+  // the tap handler (the on-screen value, so a tap mid-glide starts from where
+  // things are), Last here after the commit, Invert = translateX(first − last),
+  // Play = transition back to 0 on the ✓'s own 150ms curve. Transform only (the
+  // compositor), will-change only while gliding, nothing under reduced motion.
+  // A chip that wrapped to another line (its top moved) simply lands — never a
+  // diagonal slide.
+  const shinkiRef = useRef<HTMLButtonElement>(null)
+  const shinkiWordsRef = useRef<HTMLSpanElement>(null)
+  const glideFirst = useRef<Map<HTMLElement, DOMRect> | null>(null)
+  const glideEnd = useRef(new WeakMap<HTMLElement, () => void>())
+  function glideTargets(): HTMLElement[] {
+    const out: HTMLElement[] = shinkiWordsRef.current ? [shinkiWordsRef.current] : []
+    for (let el = shinkiRef.current?.nextElementSibling; el; el = el.nextElementSibling) {
+      if (el instanceof HTMLElement) out.push(el)
+    }
+    return out
+  }
+  function toggleShinki() {
+    const reduce =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    glideFirst.current = reduce
+      ? null
+      : new Map(glideTargets().map((el) => [el, el.getBoundingClientRect()]))
+    setShinkiOn((on) => !on)
+  }
+  useLayoutEffect(() => {
+    const first = glideFirst.current
+    glideFirst.current = null
+    if (!first) return
+    for (const [el, from] of first) {
+      // Settle any glide in flight so Last is the LAYOUT position.
+      glideEnd.current.get(el)?.()
+      el.style.transition = 'none'
+      el.style.transform = ''
+      const to = el.getBoundingClientRect()
+      const dx = from.left - to.left
+      if (Math.abs(dx) < 0.5 || Math.abs(from.top - to.top) > 0.5) continue
+      el.style.transform = `translateX(${dx}px)`
+      el.style.willChange = 'transform'
+      void el.offsetWidth
+      el.style.transition = 'transform 150ms cubic-bezier(0.23, 1, 0.32, 1)'
+      el.style.transform = ''
+      const timer = setTimeout(() => end(), 250)
+      const onEnd = (e: TransitionEvent) => {
+        if (e.target === el && e.propertyName === 'transform') end()
+      }
+      const end = () => {
+        clearTimeout(timer)
+        el.removeEventListener('transitionend', onEnd)
+        el.style.willChange = ''
+        el.style.transition = ''
+        glideEnd.current.delete(el)
+      }
+      el.addEventListener('transitionend', onEnd)
+      glideEnd.current.set(el, end)
+    }
+  }, [shinkiOn])
 
   // PR-2a 日付チャンク読み込み. `appended` holds ONLY the chunks さらに表示
   // pulled in; `items` stays the server-rendered first window, so a router
@@ -1141,7 +1210,7 @@ export function KaruteRecordListView({
     [sharedMode, sharedItems, monthMode, monthItems, allItems],
   )
 
-  const filtered = useMemo(() => {
+  const filteredBeforeShinki = useMemo(() => {
     // Staff scope + search — SAME function as the pill counts above
     // (applyScope), so the two can never drift apart again.
     let result = applyScope(displayItems, {
@@ -1164,6 +1233,21 @@ export function KaruteRecordListView({
 
     return result
   }, [displayItems, filter, weekCutoff, searchQuery, effectiveStaffFilter, currentStaffId])
+
+  // 新規 — only `=== true` is 新規; false and null (core did not answer) never
+  // are. The count is the rows its OWN tap reveals (⚖ 8/25): the list as it
+  // stands (state pill · staff scope · search · month/shared mode) narrowed to
+  // 新規 — so inside a month it is that month's tally. Rows, not people (fold
+  // 6: the owner's 新規数 lives on 予約).
+  // Switch OFF = the field is never read (not even for the count).
+  const shinkiRows = useMemo(
+    () =>
+      KARUTE_SWITCHES.shinkiChip
+        ? filteredBeforeShinki.filter((i) => i.companyFirstVisit === true)
+        : [],
+    [filteredBeforeShinki],
+  )
+  const filtered = shinkiActive ? shinkiRows : filteredBeforeShinki
 
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
@@ -1340,6 +1424,38 @@ export function KaruteRecordListView({
           // where 「今月」 is not the month the chip names.
           count={!serverDegraded && storeTotal !== null && !monthMode ? monthCount : null}
         />
+        {KARUTE_SWITCHES.shinkiChip && (
+          <button
+            ref={shinkiRef}
+            type="button"
+            aria-pressed={shinkiOn}
+            onClick={toggleShinki}
+            className={cn(
+              'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
+              shinkiOn && 'border-primary bg-primary/8 text-primary hover:bg-primary/8',
+            )}
+          >
+            {shinkiOn && (
+              <Check
+                size={13}
+                className="shrink-0 animate-in fade-in zoom-in-50 duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:animate-none"
+                aria-hidden
+              />
+            )}
+            {/* Words + count move as ONE unit when the ✓ arrives (the glide). */}
+            <span ref={shinkiWordsRef} className="inline-flex items-center gap-1.5">
+              <span>{t('shinki')}</span>
+              <span
+                className={cn(
+                  'text-[10px] tabular-nums',
+                  shinkiOn ? 'text-primary' : 'text-muted-foreground',
+                )}
+              >
+                {shinkiRows.length}
+              </span>
+            </span>
+          </button>
+        )}
         {/* 担当 — ONE dropdown chip replaces the 自分/全スタッフ segment + 担当
          *  trigger (same 'all' | 'self' | staffId keys, StaffSelector's own
          *  anchored panel). Same gate the old row had. */}

@@ -72,6 +72,7 @@ function row(id: string, over: Partial<KaruteListItem> = {}): KaruteListItem {
     aiStatus: 'summarized',
     conversionStatus: 'active',
     href: `/karute/${id}`,
+    companyFirstVisit: null,
     ...over,
   }
 }

@@ -29,6 +29,12 @@ export interface KaruteListRow {
    *  row until then — never defaulted, so downstream isShared derivation
    *  (screen-rows.ts) stays honestly false. */
   shared_at?: string | null
+  /** 新規 chip (KARUTE_SWITCHES.shinkiChip): core's per-row answer to "was
+   *  this, as of the karute's JST day, the customer's first visit anywhere in
+   *  the business?" — computed IN CORE (the core ticket). true / false as
+   *  core sent it; null when core did not send a boolean (old core, or
+   *  unknown). The app never derives it. */
+  company_first_visit?: boolean | null
 }
 
 /**
@@ -85,6 +91,7 @@ export async function listSynqedKaruteRowsOrThrow(
       service?: string | null
       duration_minutes?: number | null
       shared_at?: string | null
+      company_first_visit?: unknown
     }
     return {
       id: r.id,
@@ -100,6 +107,8 @@ export async function listSynqedKaruteRowsOrThrow(
       service: extra.service ?? null,
       duration_minutes: extra.duration_minutes ?? null,
       shared_at: extra.shared_at ?? null,
+      company_first_visit:
+        typeof extra.company_first_visit === 'boolean' ? extra.company_first_visit : null,
     }
   })
 }
@@ -253,6 +262,7 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
       service?: string | null
       duration_minutes?: number | null
       shared_at?: string | null
+      company_first_visit?: unknown
     }
     return {
       id: r.id,
@@ -268,6 +278,8 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
       service: extra.service ?? null,
       duration_minutes: extra.duration_minutes ?? null,
       shared_at: extra.shared_at ?? null,
+      company_first_visit:
+        typeof extra.company_first_visit === 'boolean' ? extra.company_first_visit : null,
     }
   })
   return {
