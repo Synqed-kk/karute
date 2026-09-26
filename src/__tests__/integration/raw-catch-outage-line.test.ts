@@ -4,16 +4,101 @@
  *
  * coreFailureLine answers only a TYPED AppApiError. A direct SDK call never throws one:
  * a non-2xx is the SDK's own SynqedError (`status` + core's own text), a network drop a
- * native TypeError ('fetch failed'). classifyCoreThrow maps exactly those two outage
- * shapes onto the typed class; everything else comes back as the same value
- * (lesson 95: a shared discriminator gets its own pin).
+ * native TypeError ('fetch failed'). So six write catches printed English during an
+ * outage — the PIN pad (web AND phone: the facade calls the same cores), 結果の記録,
+ * 同意の取得, the settings sections, カルテ delete. classifyCoreThrow maps exactly those
+ * two outage shapes onto the typed class; every other throw keeps main's answer
+ * byte-for-byte (values taken from origin/main 7300314c6).
+ *
+ * Lesson 83/87: each site runs its REAL exported action — the real roster chain and the
+ * real gate (an owner, so the try reaches the SDK call); only the SOURCES are mocked
+ * (supabase, the client factory, the SDK method under test). Every row asserts the armed
+ * SDK method actually ran, so a gate refusal can never pass for a pinned answer.
+ * Probes: T  TypeError('fetch failed') · S5 SynqedError 503 · S4 SynqedError 409 ·
+ *         D  a plain-Error denial thrown in the same try.
  */
+jest.mock('next/cache', () => ({
+  unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
+  revalidatePath: jest.fn(),
+  revalidateTag: jest.fn(),
+  updateTag: jest.fn(),
+}))
+// The REAL ja dictionary behind getTranslations, so a pin compares the exact line staff read.
+jest.mock('next-intl/server', () => {
+  const ja = jest.requireActual<Record<string, Record<string, unknown>>>('../../../messages/ja.json')
+  return {
+    getTranslations: jest.fn(async (ns: string) => (key: string) => ja[ns]?.[key]),
+    getLocale: jest.fn(async () => 'ja'),
+  }
+})
+jest.mock('@/lib/audit', () => ({ audit: jest.fn(), auditDurable: jest.fn(async () => true) }))
+jest.mock('@/lib/audit-store-lock', () => ({ ensureRecordStoreInScopeAudited: jest.fn() }))
+jest.mock('@/lib/audit-web', () => ({
+  auditWeb: jest.fn(async () => {}),
+  resolveWebActorId: jest.fn(async () => 'actor-1'),
+  resolveWebBusinessId: jest.fn(async () => 'biz-1'),
+  resolveWebAuditContext: jest.fn(async () => ({ actorId: 'actor-1', businessId: 'biz-1' })),
+}))
+// The lock's scope source (cookies + the primary-store read) — an owner's viewAll scope.
+jest.mock('@/lib/auth/store-scope', () => ({
+  ...jest.requireActual<typeof import('@/lib/auth/store-scope')>('@/lib/auth/store-scope'),
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null, degraded: false })),
+}))
+jest.mock('@/lib/synqed/staff-pager', () => ({ listAllCoreStaff: jest.fn(async () => []) }))
+// staff.ts lazily imports the ESM-only SDK; jest cannot load it, so a stub stands in.
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: class {
+    staff = {}
+  },
+}))
+jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedClient: jest.fn() }))
+
+// ── the sources the real roster chain reads (the caller is the owner) ────────
+jest.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({
+    auth: {
+      getSession: async () => ({ data: { session: null } }),
+      getUser: async () => ({ data: { user: { id: 'actor-1' } } }),
+    },
+  }),
+}))
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => {
+    const chain: Record<string, unknown> = {}
+    for (const m of ['select', 'eq', 'ilike', 'not', 'in']) chain[m] = () => chain
+    chain.single = async () => ({ data: { customer_id: 'biz-1', full_name: 'Owner' }, error: null })
+    chain.order = async () => ({
+      data: [
+        {
+          id: 'actor-1', full_name: 'Owner', created_at: '2026-01-01T00:00:00Z', display_role: 'owner', position: null,
+          email: null, phone: null, avatar_url: null, pin_hash: null, customer_id: 'biz-1', is_management: false,
+        },
+      ],
+      error: null,
+    })
+    chain.maybeSingle = async () => ({
+      data: { display_role: 'owner', permission_role: 'owner', permissions: null },
+      error: null,
+    })
+    return { from: () => chain }
+  },
+}))
+
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AppApiError } from '@/lib/app-api/errors'
 import { classifyCoreThrow } from '@/lib/auth/core-failure-line'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
+import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { setStaffPin, removeStaffPin, setStaffPinCore, removeStaffPinCore } from '@/actions/staff-pin'
+import { updateKaruteOutcome } from '@/actions/karute-outcome'
+import { grantCustomerConsent } from '@/actions/customers'
+import { upsertOrgSettings, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
+import { deleteKaruteRecord } from '@/actions/karute'
 
+const JA = JSON.parse(readFileSync(join(process.cwd(), 'messages', 'ja.json'), 'utf8'))
+const FAILURE_LINE: string = JA.common.somethingWentWrong
 const DENIAL = 'You do not have permission to perform this action.'
 
 /** The SDK's own class, byte-for-byte (node_modules/@synqed-kk/client/dist/client.js:145-151). */
@@ -68,5 +153,196 @@ describe('classifyCoreThrow — maps ONLY the two SDK outage shapes onto the typ
     expect(sdk).toContain("this.name = 'SynqedError';")
     expect(sdk).toContain('this.status = status;')
     expect(sdk).toContain('throw new SynqedError(res.status,')
+  })
+})
+
+// ── the six write catches, through the REAL actions ──────────────────────────
+const sdk = {
+  staff: { setPin: jest.fn(), removePin: jest.fn() },
+  karuteRecords: { get: jest.fn(), delete: jest.fn() },
+  customers: { grantConsent: jest.fn() },
+  orgSettings: { get: jest.fn(), upsert: jest.fn() },
+}
+const RECORD = { id: 'karute-1', store_id: null, customer_id: 'cust-1', staff_id: 'actor-1', recording_session_id: null, appointment_id: null }
+const storeLock = ensureRecordStoreInScopeAudited as unknown as jest.Mock
+
+let consoleError: jest.SpyInstance
+beforeEach(() => {
+  jest.clearAllMocks()
+  consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+  sdk.staff.setPin.mockImplementation(async () => undefined)
+  sdk.staff.removePin.mockImplementation(async () => undefined)
+  sdk.karuteRecords.get.mockImplementation(async () => RECORD)
+  sdk.karuteRecords.delete.mockImplementation(async () => undefined)
+  sdk.customers.grantConsent.mockImplementation(async () => ({ id: 'consent-1' }))
+  sdk.orgSettings.get.mockImplementation(async () => ({ settings: {} }))
+  sdk.orgSettings.upsert.mockImplementation(async () => ({}))
+  storeLock.mockImplementation(() => undefined)
+  ;(getSynqedClient as unknown as jest.Mock).mockImplementation(async () => sdk)
+})
+afterEach(() => consoleError.mockRestore())
+
+const failureLogs = (tag: string) =>
+  consoleError.mock.calls.filter((c) => String(c[0]).startsWith(`${tag} typed synqed-core failure (upstream_unavailable):`))
+const anyFailureLog = () => consoleError.mock.calls.filter((c) => String(c[0]).includes('typed synqed-core failure'))
+
+interface Site {
+  fn: string
+  tag: string
+  /** The SDK method the site's try calls — armed to reject, asserted to have run. */
+  method: jest.Mock
+  call: () => Promise<unknown>
+  /** The site's result shape around the error string. */
+  wrap: (error: string) => unknown
+  /** Main's answer for a non-outage throw — the `??` fallback, byte-for-byte. */
+  fallback: (e: Error) => string
+  /** Core's own 4xx refusal text for this call. */
+  refusal: string
+}
+const errorOnly = (error: string) => ({ error })
+const rawMessage = (e: Error) => e.message
+
+const SITES: Site[] = [
+  {
+    fn: 'setStaffPin',
+    tag: '[staff-pin]',
+    method: sdk.staff.setPin,
+    call: () => setStaffPin('actor-1', '1234'),
+    wrap: errorOnly,
+    fallback: rawMessage,
+    refusal: 'PIN already set',
+  },
+  {
+    fn: 'removeStaffPin',
+    tag: '[staff-pin]',
+    method: sdk.staff.removePin,
+    call: () => removeStaffPin('actor-1'),
+    wrap: errorOnly,
+    fallback: rawMessage,
+    refusal: 'No PIN to remove',
+  },
+  {
+    fn: 'updateKaruteOutcome',
+    tag: '[karute-outcome]',
+    method: sdk.karuteRecords.get,
+    call: () => updateKaruteOutcome('karute-1', { status: 'success' }),
+    wrap: errorOnly,
+    // 'karute record not found' is a matched literal (12+ tests) — its bytes stay.
+    fallback: () => 'karute record not found',
+    refusal: 'Karute record not found',
+  },
+  {
+    fn: 'grantCustomerConsent',
+    tag: '[customers]',
+    method: sdk.customers.grantConsent,
+    call: () => grantCustomerConsent('cust-1'),
+    wrap: (error) => ({ ok: false, error }),
+    fallback: rawMessage,
+    refusal: 'Consent already granted',
+  },
+  {
+    fn: 'upsertOrgSettings',
+    tag: '[org-settings]',
+    method: sdk.orgSettings.upsert,
+    call: () => upsertOrgSettings({ salon_name: 'Salon' }),
+    wrap: errorOnly,
+    fallback: rawMessage,
+    refusal: 'Settings version conflict',
+  },
+  {
+    fn: 'deleteKaruteRecord',
+    tag: '[karute]',
+    method: sdk.karuteRecords.delete,
+    call: () => deleteKaruteRecord('karute-1'),
+    wrap: errorOnly,
+    fallback: rawMessage,
+    refusal: 'Karute record is locked',
+  },
+]
+
+type Probe = 'T' | 'S5' | 'S4' | 'D'
+const throwFor = (site: Site, probe: Probe): Error =>
+  ({
+    T: () => new TypeError('fetch failed'),
+    S5: () => new SynqedError(503, 'synqed-core: Service Unavailable'),
+    S4: () => new SynqedError(409, site.refusal),
+    D: () => new Error(DENIAL),
+  })[probe]()
+const OUTAGE_LOG = {
+  T: { errName: 'AppApiError', errStatus: 502, errMessage: 'synqed-core call failed (TypeError): fetch failed' },
+  S5: {
+    errName: 'AppApiError',
+    errStatus: 502,
+    errMessage: 'synqed-core call failed (SynqedError 503): synqed-core: Service Unavailable',
+  },
+}
+
+describe('THE FAILURE LINE is the ja common.somethingWentWrong', () => {
+  it('reads エラーが発生しました。', () => {
+    expect(FAILURE_LINE).toBe('エラーが発生しました。')
+  })
+})
+
+describe.each(SITES)('$fn — a write catch around a raw SDK call', (site) => {
+  it.each(['T', 'S5'] as const)(
+    '(%s) a synqed-core outage → the failure line, one bounded log carrying the code and the SDK detail',
+    async (probe) => {
+      site.method.mockImplementation(async () => Promise.reject(throwFor(site, probe)))
+      const res = await site.call()
+      expect(site.method).toHaveBeenCalledTimes(1)
+      expect(res).toEqual(site.wrap(FAILURE_LINE))
+      const lines = failureLogs(site.tag)
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toHaveLength(2)
+      expect(lines[0][1]).toEqual(OUTAGE_LOG[probe])
+    },
+  )
+
+  it.each(['S4', 'D'] as const)('(%s) core\'s own refusal / a denial → main\'s answer, byte-for-byte', async (probe) => {
+    const thrown = throwFor(site, probe)
+    site.method.mockImplementation(async () => Promise.reject(thrown))
+    const res = await site.call()
+    expect(site.method).toHaveBeenCalledTimes(1)
+    expect(res).toEqual(site.wrap(site.fallback(thrown)))
+    expect(anyFailureLog()).toHaveLength(0)
+  })
+})
+
+describe('updateKaruteOutcome — the store lock\'s own AppApiError refusals keep their message', () => {
+  it.each([
+    ['store_forbidden (a degraded scope)', new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)],
+    ['not_found (out of store)', new AppApiError('not_found', 'karute record not found')],
+  ])('%s → err.message, no failure line', async (_label, refusal) => {
+    storeLock.mockImplementation(() => {
+      throw refusal
+    })
+    const res = await updateKaruteOutcome('karute-1', { status: 'success' })
+    expect(sdk.karuteRecords.get).toHaveBeenCalledTimes(1)
+    expect(storeLock).toHaveBeenCalledTimes(1)
+    expect(res).toEqual({ error: refusal.message })
+    expect(anyFailureLog()).toHaveLength(0)
+  })
+
+  it('a core 404 on the read keeps the exact bytes \'karute record not found\'', async () => {
+    sdk.karuteRecords.get.mockImplementation(async () => Promise.reject(new SynqedError(404, 'Karute record not found')))
+    expect(await updateKaruteOutcome('karute-1', { status: 'success' })).toEqual({ error: 'karute record not found' })
+  })
+})
+
+// The phone's PIN pad and settings PATCH call these exact cores and pass `{ error }` through
+// verbatim (staff/[id]/pin/route.ts, org-settings/route.ts) — so the fix lives in the core.
+describe('the phone doors share the cores — the line rides the facade\'s 2xx body too', () => {
+  const facade = { actorId: 'auth-user-1', source: 'facade' as const, requestId: 'req-1' }
+  const client = sdk as never
+  it.each([
+    ['setStaffPinCore', () => setStaffPinCore(client, 'biz-1', facade, 'actor-1', '1234', 'actor-1'), sdk.staff.setPin],
+    ['removeStaffPinCore', () => removeStaffPinCore(client, 'biz-1', facade, 'actor-1', 'actor-1'), sdk.staff.removePin],
+    ['writeOrgSettingsBlobWithClient', () => writeOrgSettingsBlobWithClient(client, { salon_name: 'Salon' }), sdk.orgSettings.upsert],
+  ] as const)('%s: an outage → the line; core\'s own 4xx → its own bytes', async (_fn, call, method) => {
+    method.mockImplementation(async () => Promise.reject(new TypeError('fetch failed')))
+    expect(await call()).toEqual({ error: FAILURE_LINE })
+    method.mockImplementation(async () => Promise.reject(new SynqedError(409, 'refused by core')))
+    expect(await call()).toEqual({ error: 'refused by core' })
+    expect(method).toHaveBeenCalledTimes(2)
   })
 })
