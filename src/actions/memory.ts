@@ -58,21 +58,44 @@ export async function updateMemoryItemAction(input: {
   detail?: string | null
 }): Promise<{ ok: boolean }> {
   const { getSynqedClient } = await import('@/lib/synqed/client')
-  const result = await updateMemoryItemWithClient(await getSynqedClient(), input)
+  // Round 3 leg 7d (2026-09-26): the client build settles like the three guarded
+  // siblings (add / relearn / passport) — same log line, same { ok: false }. Same in the two below.
+  let synqed
+  try {
+    synqed = await getSynqedClient()
+  } catch (err) {
+    console.error('[memory] pre-core read failed:', describeUnknownThrow(err))
+    return { ok: false }
+  }
+  const result = await updateMemoryItemWithClient(synqed, input)
   if (result.ok) revalidateProfile()
   return result
 }
 
 export async function toggleMemoryPinAction(id: string, pinned: boolean): Promise<{ ok: boolean }> {
   const { getSynqedClient } = await import('@/lib/synqed/client')
-  const result = await toggleMemoryPinWithClient(await getSynqedClient(), id, pinned)
+  let synqed
+  try {
+    synqed = await getSynqedClient()
+  } catch (err) {
+    console.error('[memory] pre-core read failed:', describeUnknownThrow(err))
+    return { ok: false }
+  }
+  const result = await toggleMemoryPinWithClient(synqed, id, pinned)
   if (result.ok) revalidateProfile()
   return result
 }
 
 export async function deleteMemoryItemAction(id: string): Promise<{ ok: boolean }> {
   const { getSynqedClient } = await import('@/lib/synqed/client')
-  const result = await deleteMemoryItemWithClient(await getSynqedClient(), id)
+  let synqed
+  try {
+    synqed = await getSynqedClient()
+  } catch (err) {
+    console.error('[memory] pre-core read failed:', describeUnknownThrow(err))
+    return { ok: false }
+  }
+  const result = await deleteMemoryItemWithClient(synqed, id)
   if (result.ok) revalidateProfile()
   return result
 }
