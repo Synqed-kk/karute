@@ -32,6 +32,7 @@
 
 import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import {
   computeChecks,
   dragOrigin,
@@ -57,7 +58,6 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // ⚖ Liam 8/23 — the guided tour is EVERY Business page's now, so the engine this
 // board was written against moved to one shared home. Same functions, same
 // behaviour, new address; nothing about this room's tour changed with it.
-import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
@@ -702,6 +702,10 @@ export interface TodayProps {
    *  (`canReleaseHeld`), the same way `canOverride` above is: staff see the
    *  law sentence alone, managers see it with the one action beside it. */
   canReleaseHeld: boolean
+  /** ⚖ PR-3 fix round 1 (Greptile P1). May THIS reader open both 設定 sections the 表示 popover's chips
+   *  point at (予約と確保 · 言語・表示)? Answered on the server through the 設定 room's own gate, the way
+   *  `canReleaseHeld` is: a reader the room would turn away is not shown a link it would only drop. */
+  canOpenLegendSettings: boolean
   closedWeekdayLabel: string
   /** ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 月カレンダーで橙になる、あと入る予約数の上限,
    *  the store's own dial (`storeBookingPolicy.calendarTightMax`, default 2,
@@ -9140,7 +9144,9 @@ export function TodayScreen(props: TodayProps) {
                       {/* ⚖ S17 fix round 5 · G2 — THROUGH THE ONE LINK HOME.
                           The literal dropped the locale and the store, so on
                           代官山 this chip opened 銀座's 予約と確保 (⚖ 8/17). */}
-                      <Link className="chip" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>
+                      {/* ⚖ PR-3 fix round 1 (Greptile P1) — ONLY FOR A READER THE ROOM ADMITS THERE. The
+                          sentence beside it stays for everyone; the link is hidden, never greyed. */}
+                      {props.canOpenLegendSettings && <Link className="chip" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>}
                     </div>
 
                     <div className="pop-divider" role="presentation" />
@@ -9160,6 +9166,12 @@ export function TodayScreen(props: TodayProps) {
                         <i className="cat" style={catVar(props.store, 'vip')} />VIP
                       </span>
                       <b>左端の色＝予約カテゴリー</b>
+                      {/* ⚖ PR-3 of 予約の色分け — THE AFFIRMATIVE HALF: the line above says what
+                          the four colours mean, this chip says where they change. Same shape
+                          as the 保護ルール chip above (one link home, the resolved store), and
+                          it lands ON the 予約の色分け block, which sits inside 言語・表示. */}
+                      {/* …and, like it, only for a reader 言語・表示's gate admits (Greptile P1). */}
+                      {props.canOpenLegendSettings && <Link className="chip" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>}
                     </div>
 
                     <div className="pop-divider" role="presentation" />

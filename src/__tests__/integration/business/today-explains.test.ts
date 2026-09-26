@@ -1530,8 +1530,10 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     expect(fields).toContain('<span>お客様名は常に表示</span>')
     expect(fields).toContain('aria-label="予約カテゴリー色"')
     // THE CAPTION names what the swatches are (予約カテゴリー, the aria's noun) and nothing
-    // more: 「色は変更できません」 is retired (the colours are per store now) and the
-    // affirmative half waits for the real save, so neither claim is on this tip.
+    // more: 「色は変更できません」 is retired (the colours are per store now). The
+    // affirmative half — where to change them — landed as its own 色の意味 chip
+    // 「変更は「設定」＞予約の色分けで」 (src/business/i18n/ja.json, PR-3 of 予約の色分け),
+    // pinned by today-screen-interactions.test.ts T1/T2 — not by this suite's `fields`.
     expect(fields).toContain('<b>左端の色＝予約カテゴリー</b>')
     // ONE HOME for the four hexes (`BOOKING_COLOR_DEFAULTS`, today-board.ts). SRC is the RAW
     // file, comments included, so a hex typed back even inside a comment is red too.

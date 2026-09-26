@@ -31,6 +31,8 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
 import { bedSecuredProof } from '@/business/lib/fixtures-today'
+import { rulebook } from '@/business/lib/fixtures-settings'
+import { accessFor, gateOf, sectionById } from '@/business/lib/settings'
 import { samplePart, sampleWhole, storeSample } from '@/business/lib/practice-door/sample-facade'
 import {
   defaultStoreId,
@@ -581,6 +583,12 @@ export default async function TodayPage({
    *  readings of one answer are free to disagree the day the dial grows a
    *  fourth level (flag 54's disease, at the permission layer). */
   const overrideLevel = overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator)
+  /** ⚖ PR-3 fix round 1 (Greptile P1) — MAY THIS READER OPEN WHERE THE 表示 POPOVER'S TWO 設定 CHIPS POINT
+   *  (予約と確保 · 言語・表示)? Asked through the 設定 room's OWN gate: the same operator role (the shell
+   *  identity the room reads), the same rulebook and the same `gateOf` its `?section=` is admitted with
+   *  (settings-props.ts `accessFor` + `opening`) — never a second reading of the rule. A shut gate opens
+   *  the room on another section and drops the fragment, so the chips are not shown at all. */
+  const settingsAccess = accessFor(shell.operator.role, rulebook)
 
   const props: TodayProps = {
     locale,
@@ -699,6 +707,7 @@ export default async function TodayPage({
     // as the line above: the board is handed the ANSWER, never the rule, so a
     // staff member is never shown an action they would only be refused for.
     canReleaseHeld: canReleaseHeld(planes.opsConfig.releaseHeldRoles, shell.operator),
+    canOpenLegendSettings: (['booking-guard', 'language-display'] as const).every((id) => gateOf(sectionById(id)!, settingsAccess) === 'open'),
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
     // ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 「残りわずか」 の境目, the store's own dial,
     // read ONCE here and clamped once: the board is handed the answer, never the

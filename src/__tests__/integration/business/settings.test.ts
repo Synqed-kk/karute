@@ -3903,6 +3903,63 @@ describe('the shell one-liners, and the signposts that now really navigate', () 
     expect(register).not.toContain('設定の画面はまだ準備中')
   })
 
+  it('⚖ PR-3 of 予約の色分け — the 色の意味 chip opens the SAME store\'s 言語・表示 and lands ON 予約の色分け', async () => {
+    // T3 — read off the chip as the board writes it, then DRIVEN: the section the
+    // chip names is the one the room opens by URL, and the block it names is in it
+    // under the title the chip prints (⚖ label truth).
+    const today = read('src/app/[locale]/(business)/business/today/TodayScreen.tsx')
+    const call = /settingsHref\(props\.locale, props\.store, '([^']+)', '([^']+)'\)\}>\{businessStrings\.today\.legend\.colorsChangeAt\}/.exec(today)
+    expect(call?.slice(1)).toEqual(['language-display', 'lang.colors'])
+    const [, section, block] = call!
+    for (const store of [STORE_A, STORE_B]) {
+      const props = await room({ store, section })
+      expect({ store, opening: props.openingSectionId, byUrl: props.openedByUrl }).toEqual({ store, opening: section, byUrl: true })
+      expect(sectionOf(props, section).blocks.find((b) => b.id === block)?.title).toBe('予約の色分け')
+      // …through the ONE link home, carrying the store (the G2 lesson: 代官山 never opens 銀座's room).
+      expect(settingsHref('ja', store, section, block)).toBe(`/ja/business/settings?section=${section}&store=${store}#st-blk-${block}`)
+    }
+    expect(settingsHref('ja', null, 'language-display', 'lang.colors')).toBe('/ja/business/settings?section=language-display#st-blk-lang.colors')
+    // The fragment names the anchor the room renders for every block, and the room
+    // lands it itself, once, through the jump list's own jumpTo.
+    expect(SCREEN_CODE).toContain('id={`st-blk-${block.id}`}')
+    expect(SCREEN_CODE).toContain("const id = hash.startsWith('#st-blk-') ? hash.slice('#st-blk-'.length) : null")
+    // ⚖ fix round 1 (Greptile P2) — the decision and the landing are lifted (`landingBlockOf` · `landOnBlock`,
+    // RUN on real DOM nodes in settings-screen-interactions.test.ts); here, the room's wiring of them.
+    expect(SCREEN_CODE).toContain('return id !== null && blocks.some((b) => b.id === id) ? id : null')
+    expect(SCREEN_CODE).toContain('const id = landingBlockOf(window.location.hash, blocks)')
+    expect(SCREEN_CODE).toContain('if (id !== null) jumpTo(id)')
+    expect(SCREEN_CODE).toContain('landOnBlock(blockId, reduced)')
+  })
+
+  it('⚖ PR-3 fix round 1 (Greptile P1) — the board shows its two 設定 chips to exactly the readers the room admits there', async () => {
+    // The board's flag, read off page.tsx as it computes it: the room's own access, the room's own gate.
+    const page = read('src/app/[locale]/(business)/business/today/page.tsx')
+    expect(page).toContain('const settingsAccess = accessFor(shell.operator.role, rulebook)')
+    const flag = /canOpenLegendSettings: \(\[([^\]]+)\] as const\)\.every\(\(id\) => gateOf\(sectionById\(id\)!, settingsAccess\) === 'open'\),/.exec(page)
+    expect(flag).not.toBeNull()
+    const ids = [...flag![1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+    // …asking about exactly the sections the two chips link to — no more, no fewer.
+    const today = read('src/app/[locale]/(business)/business/today/TodayScreen.tsx')
+    const linked = [...today.matchAll(/settingsHref\(props\.locale, props\.store, '([^']+)'/g)].map((m) => m[1])
+    expect([...ids].sort()).toEqual([...linked].sort())
+    expect([...ids].sort()).toEqual(['booking-guard', 'language-display'])
+    // …and for every role word the rulebook knows (plus one it does not), the board's answer IS the room's:
+    // true exactly when a `?section=` link to each chip's section opens that section.
+    const answers: Record<string, boolean> = {}
+    for (const role of [...Object.keys(rulebook.roleKeyOf), '見習い']) {
+      const board = ids.every((id) => gateOf(sectionById(id)!, accessFor(role, rulebook)) === 'open')
+      const opened: boolean[] = []
+      for (const section of ids) {
+        const props = await room({ store: STORE_A, role, section })
+        opened.push(props.openingSectionId === section && props.openedByUrl)
+      }
+      expect({ role, board }).toEqual({ role, board: opened.every(Boolean) })
+      answers[role] = board
+    }
+    // Both answers are really exercised: a staff reader is shut out (no chips), a manager and an owner are not.
+    expect(answers).toEqual({ オーナー: true, 店舗管理者: true, スタッフ: false, 見習い: false })
+  })
+
   it('⚖ S17 fix round 5 · G2 — every link into 設定 comes out of ONE home, and carries the store', () => {
     // ⚠ THE HELPER'S OWN BEHAVIOUR, driven rather than described. A resolved
     // lens rides on the URL; NO lens writes no `store=` at all, because writing

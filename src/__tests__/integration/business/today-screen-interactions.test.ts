@@ -7936,6 +7936,44 @@ describe('BATCH-10b X4 — the two copy items', () => {
     expect(SRC).toContain('<span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>')
   })
 
+  it('⚖ PR-3 of 予約の色分け — 色の意味 names where the colours change, through the string home and the link home', () => {
+    // T1 — the chip, whole, straight after the neutral line and still inside the
+    // legend: the SAME store's 言語・表示, landing on the 予約の色分け block. The
+    // text is the Business string home's; the screen never spells it.
+    const CHIP = "<Link className=\"chip\" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>"
+    // DISCLOSED PIN MOVE (catch-up to #1058 on PR-3's marks) — the ONE import from the string home
+    // also carries the 「サンプル」 mark's `sampleMarkLines`; a second import line from it would be a duplicate.
+    expect(SRC).toContain("import { businessStrings, sampleMarkLines } from '@/business/i18n'")
+    const neutral = SRC.indexOf('<b>左端の色＝予約カテゴリー</b>')
+    const chip = SRC.indexOf(CHIP)
+    expect(neutral).toBeGreaterThan(-1)
+    expect(chip).toBeGreaterThan(neutral)
+    expect(SRC.slice(neutral, chip).includes('</div>')).toBe(false)
+    expect(SRC.split(CHIP).length - 1).toBe(1)
+    expect(SRC).not.toContain('変更は「設定」＞予約の色分けで')
+    // T2 — the string home holds the blind-passed final line, byte-exact (15 字,
+    // no trailing 。), under the key the screen reads.
+    const ja = JSON.parse(readFileSync(join(process.cwd(), 'src/business/i18n/ja.json'), 'utf8'))
+    expect(ja.today.legend.colorsChangeAt).toBe('変更は「設定」＞予約の色分けで')
+    expect([...ja.today.legend.colorsChangeAt].length).toBe(15)
+  })
+
+  it('⚖ PR-3 fix round 1 (Greptile P1) — both 設定 chips are drawn only for a reader the room admits there', () => {
+    // ONE condition, two chips. A reader whose 設定 gate is shut is opened on another section with the
+    // fragment dropped, so the link is not drawn at all — hidden, never a greyed or 準備中 chip.
+    const GUARD = "{props.canOpenLegendSettings && <Link className=\"chip\" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>}"
+    const COLORS = "{props.canOpenLegendSettings && <Link className=\"chip\" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>}"
+    expect(SRC).toContain(GUARD)
+    expect(SRC).toContain(COLORS)
+    // …and neither link is drawn anywhere else, unconditionally.
+    expect(SRC.split('href={settingsHref(').length - 1).toBe(2)
+    // …while the two sentences beside them stay for everyone.
+    expect(SRC).toContain('<span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>')
+    expect(SRC).toContain('<b>左端の色＝予約カテゴリー</b>')
+    // The flag is the server's answer, a plain boolean (page.tsx asks the room's own gate — settings.test.ts).
+    expect(SRC).toContain('  canOpenLegendSettings: boolean\n')
+  })
+
   it('sweep rider (ii) — the two advisory grammars are two engine FACTS, not one in two voices', () => {
     // Investigated before touching either, per the packet. They come from
     // different engine verdicts, and the difference is the whole point:
@@ -11712,10 +11750,13 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
   const SRC_FROM_LINES: readonly string[] = [
     "import Link from 'next/link'",
     "import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'",
+    // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味 chip's
+    // text; named in `foundation.test.ts`'s sealed inventory with the same reason.
+    // ⚖ PR-3 (practice door) — the same one line carries the 「サンプル」 mark's strings.
+    "import { businessStrings, sampleMarkLines } from '@/business/i18n'",
     "} from '@/business/lib/canon-logic/drag-rules'",
     "} from '@/business/lib/canon-logic/pricing'",
     "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",
-    "import { businessStrings, sampleMarkLines } from '@/business/i18n'",
     "import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'",
     // ⚖ S17 fix round 5 · G2 (D-44) — the ONE home every link into 設定 is built
     // by. Pure, no imports of its own, reached for the 保護ルール chip and nothing

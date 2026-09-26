@@ -6,6 +6,9 @@
   },
   "today": {
     "loading": "読み込み中…",
+    "legend": {
+      "colorsChangeAt": "変更は「設定」＞予約の色分けで"
+    },
     "titleCheckout": "お客様の精算を完了する",
     "titleHandover": "お客様へ担当変更案を送る",
     "titleAbsent": "お客様の担当不在に対応する",
