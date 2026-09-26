@@ -8,41 +8,18 @@
  * nothing in the query actually enforced (ja.json:1358 was unbacked copy,
  * per the adversarial-round packet). Byte-exact pin so a future edit can't
  * silently reintroduce the disproven window.
+ *
+ * 案C+ (2026-09-26): the status line itself is gone; what remains pinned here
+ * is the rest of the list's copy and the namespace-wide 14-day guard.
  */
 import ja from '../../../messages/ja.json'
 import en from '../../../messages/en.json'
 
 describe('karute.recordList.statusLine states only what the query backs (PR-1b 正直ヘッダー)', () => {
-  it('ja.json matches the adjudicated string exactly', () => {
-    expect(ja.karute.recordList.statusLine).toBe(
-      'カルテ 全{total}件 ・ 今月 {monthCount}件 ・ 表示中 {showingCount}件',
-    )
-  })
-
-  it('en.json matches the adjudicated string exactly', () => {
-    expect(en.karute.recordList.statusLine).toBe(
-      'Karute · {total} total · {monthCount} this month · showing {showingCount}',
-    )
-  })
-
-  it('statusLineDiscarded / statusLineNoMonthDiscarded match the R1 repair (2026-09-13, F1)', () => {
-    // 全 now names the SAME universe 表示中 counts under すべて (active +
-    // discarded) — see the Business sibling this mirrors,
-    // business/karute.test.ts:405's monthLabel 「カルテ 今月 N件（うち破棄
-    // M件）」, quoted in BUILD-REPORT-ANTHONY-REPAIRS-2026-09-13.md.
-    expect(ja.karute.recordList.statusLineDiscarded).toBe(
-      'カルテ 全{total}件（うち破棄{discarded}件）・ 今月 {monthCount}件 ・ 表示中 {showingCount}件',
-    )
-    expect(ja.karute.recordList.statusLineNoMonthDiscarded).toBe(
-      'カルテ 全{total}件（うち破棄{discarded}件）・ 表示中 {showingCount}件',
-    )
-    expect(en.karute.recordList.statusLineDiscarded).toBe(
-      'Karute · {total} total ({discarded} discarded) · {monthCount} this month · showing {showingCount}',
-    )
-    expect(en.karute.recordList.statusLineNoMonthDiscarded).toBe(
-      'Karute · {total} total ({discarded} discarded) · showing {showingCount}',
-    )
-  })
+  // 案C+ (⚖ Liam 9/26 「案C+ Looks good.」) folded the status line away —
+  // its four strings were deleted with it (their absence is pinned in
+  // karute-cplus-fold.test.tsx). The guard below still keeps the disproven
+  // 14-day window out of the whole namespace.
 
   it('the さらに表示 label + append announcement are pinned in both locales (PR-2a)', () => {
     expect(ja.karute.recordList.loadMore).toBe('さらに表示（{date}以前のカルテ）')
