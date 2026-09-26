@@ -989,6 +989,14 @@ export const SDK_WRITE_ALLOWLIST: {
       'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). ⚖ Liam 9/24 A2 (PKT-A2-CORE-WRITE R-A2-4/R-A2-11): one structured server log line per real write; a core audit row is R5 (later).',
     dated: '2026-09-24',
   },
+  {
+    file: 'src/business/lib/practice-door/door-booking-colors.ts',
+    call: 'orgSettings.upsert',
+    symbols: ['writeBookingColors'],
+    justification:
+      'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). ⚖ Liam 9/25 「make it work」 (PKT-S38 R3/R8, R-S39-1) + ⚖ Liam 9/25 A (PKT-S41 R-S41-1): 予約の色分け — one key per store (booking_colors:<storeId>, sent alone; the legacy booking_colors map is read-only), closed palette, settings.manage + a store the operator may see, read-before-write; one structured server log line per real write; a core audit row is R5 (later).',
+    dated: '2026-09-25',
+  },
 ]
 
 // ── RAW_SUPABASE_WRITE_ALLOWLIST ─────────────────────────────────────────────

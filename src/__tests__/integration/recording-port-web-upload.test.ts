@@ -342,7 +342,7 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
 
   // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
   // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
-  // is fenced at `kind === 'take'` (requireOwnPath → isOwnRecordingKey), so a
+  // is fenced at `kind === 'take'` (the isOwnRecordingKey check inside it), so a
   // `stg/` key is refused there by construction: the web arm PUT the copy and
   // then THREW on the very next line, so the discard's words were never
   // collected on that arm at all. Nothing needs the URL — runDiscardTranscript

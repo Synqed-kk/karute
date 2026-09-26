@@ -19,11 +19,12 @@
 // Capability records.write on both (only recorders stage audio) — the same
 // gate the upload-url facade twin and enqueueRecordingJob carry.
 
-import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { can, getMyCapabilities } from '@/lib/auth/require-permission'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { composeTakeKey, isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import {
   mintSegmentUploadUrls,
@@ -32,33 +33,6 @@ import {
   type MintTakeUrlInput,
   type MintTakeUrlResult,
 } from '@/lib/recording/mint-take-url'
-
-/**
- * Tenant fence for a CLIENT-SUPPLIED storage key. The service-role client
- * below bypasses RLS, so this check is the only thing standing between a
- * caller and another tenant's audio — the same invariant enqueueRecordingJob
- * and processJob enforce on `audio_path`. Throws on a foreign or
- * non-tenant-scoped key.
- *
- * TENANT-ONLY, not row-scoped (fix round 6, I4): this proves the key is one
- * of THIS BUSINESS's takes, never that it is the CALLING STAFFER's own — any
- * staffer at the tenant can read any colleague's take through the one leg
- * below. The remove leg it also guarded is gone (PR4, as promised); the read
- * leg narrows to the reserving row's own recorder in the player round.
- *
- * Minted keys have exactly one shape (see mintRecordingUploadUrl), so the
- * grammar is matched POSITIVELY — kind 'take': own prefix, a lowercase uuid,
- * and one of the closed set of extensions — and anything that is not exactly
- * that shape is refused. The grammar itself lives
- * in @/lib/recording/key-grammar, shared with the three service-role call
- * sites that fence the same client-supplied key.
- */
-async function requireOwnPath(path: string): Promise<void> {
-  const businessId = await getBusinessId()
-  if (!isOwnRecordingKey(path, businessId)) {
-    throw new Error('recording not found in this business')
-  }
-}
 
 /**
  * Mint a signed UPLOAD url for a take. Key shape is byte-identical to the
@@ -158,7 +132,7 @@ export async function mintRecordingUploadUrl(
       input,
     )
   } catch (err) {
-    console.warn('[mintRecordingUploadUrl] failed:', err)
+    console.warn('[mintRecordingUploadUrl] failed:', describeUnknownThrow(err))
     return { error: 'upstream' }
   }
 }
@@ -267,20 +241,47 @@ export async function recordingFinalizedKey(input: {
 /**
  * Mint a signed READ url for a take in the caller's own business — what the
  * web transcribe route's `audioUrl` carries (its SSRF guard requires exactly
- * this host). Refuses any path outside the caller's own tenant prefix
- * (requireOwnPath is tenant-scoped only — see its docstring).
+ * this host).
+ *
+ * THE TENANT FENCE for a CLIENT-SUPPLIED storage key (it lived in a private
+ * requireOwnPath helper whose only caller was this door; Round 3 leg 7c folded
+ * it in here). The service-role client below bypasses RLS, so this check is the
+ * only thing standing between a caller and another tenant's audio — the same
+ * invariant enqueueRecordingJob and processJob enforce on `audio_path`.
+ * TENANT-ONLY, not row-scoped (fix round 6, I4): it proves the key is one of
+ * THIS BUSINESS's takes, never that it is the CALLING STAFFER's own — any
+ * staffer at the tenant can read any colleague's take through this one leg; it
+ * narrows to the reserving row's own recorder in the player round. The grammar
+ * is matched POSITIVELY — kind 'take': own prefix, a lowercase uuid, and one of
+ * the closed set of extensions — and anything that is not exactly that shape is
+ * refused. It lives in @/lib/recording/key-grammar, shared with the three
+ * service-role call sites that fence the same client-supplied key.
+ *
+ * NEVER THROWS (Round 3 leg 7c, D-S29-1) — the same contract, and the same
+ * union shape, as mintRecordingUploadUrl above. A denied capability and a
+ * foreign key are TERMINAL and answer 'forbidden' on their own (a retry cannot
+ * make a foreign path yours); a THROW from the gate or the identity read, and a
+ * storage failure, are infrastructure and answer 'upstream'.
  */
-export async function mintRecordingReadUrl(path: string): Promise<{ url: string }> {
-  await requireCapability('records.write')
-  await requireOwnPath(path)
-
-  const supabase = createServiceClient()
-  const { data, error } = await supabase.storage
-    .from('recordings')
-    .createSignedUrl(path, 3600)
-
-  if (error || !data?.signedUrl) {
-    throw new Error('could not read the recording')
+export async function mintRecordingReadUrl(
+  path: string,
+): Promise<{ url: string } | { error: 'forbidden' | 'upstream' }> {
+  try {
+    // Mirrors mintRecordingUploadUrl above (D-S29-1): a denied capability is
+    // TERMINAL and answers 'forbidden' on its own; a THROW from the gate is
+    // infrastructure and maps to 'upstream' like every other failure.
+    if (!(await can('records.write'))) return { error: 'forbidden' }
+    const businessId = await getBusinessId()
+    if (!isOwnRecordingKey(path, businessId)) return { error: 'forbidden' }
+    const supabase = createServiceClient()
+    const { data, error } = await supabase.storage
+      .from('recordings')
+      .createSignedUrl(path, 3600)
+    if (error || !data?.signedUrl) return { error: 'upstream' }
+    return { url: data.signedUrl }
+  } catch (err) {
+    // Bounded log (D-S24-2, Greptile S29 P2): never the whole error, whose cause can carry raw DB text.
+    console.warn('[mintRecordingReadUrl] failed:', describeUnknownThrow(err))
+    return { error: 'upstream' }
   }
-  return { url: data.signedUrl }
 }

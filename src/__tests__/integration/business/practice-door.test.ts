@@ -25,6 +25,7 @@ import { sampleFor, sampleSelfId } from '@/business/lib/practice-door/sample-fac
 import { appointments, customers, menus, staff, stores, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { businessProfiles, storeDials } from '@/business/lib/fixtures-settings'
 import * as door from '@/business/lib/practice-door/door'
+import * as doorBookingColors from '@/business/lib/practice-door/door-booking-colors'
 import * as data from '@/business/lib/data'
 import { renderNow as clockRenderNow } from '@/business/lib/clock'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -354,10 +355,15 @@ const DOOR_READERS = [
 ] as const
 /** ⚖ A2 (Liam 9/24) — the ONE writer beside them. */
 const DOOR_WRITERS = ['writeReserveCardColor'] as const
+/** ⚖ R-S39-1 — exported for door-booking-colors.ts only (the once-per-actor org read, the one settings.manage truth). */
+const DOOR_HELPERS = ['canManageSettings', 'orgSettingsOf'] as const
 
 describe('the door', () => {
-  it('exports exactly the twenty readers and the one writer', () => {
-    expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, ...DOOR_WRITERS].sort())
+  it('exports exactly the twenty readers and the one writer, and two helpers', () => {
+    expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, ...DOOR_WRITERS, ...DOOR_HELPERS].sort())
+  })
+  it('⚖ R-S39-1 — door-booking-colors.ts exports exactly the one writer', () => {
+    expect(Object.keys(doorBookingColors)).toEqual(['writeBookingColors'])
   })
 })
 

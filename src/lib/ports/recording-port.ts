@@ -471,8 +471,9 @@ export const webRecordingPort: RecordingPipelinePort = {
     const { mintRecordingUploadUrl, mintRecordingReadUrl } = await uploadActions()
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key. The read url is minted server-side over that key through
-    // the unchanged tenant fence (mintRecordingReadUrl → requireOwnPath), and
-    // the object stays exactly where it is — nothing deletes recording audio.
+    // the unchanged tenant fence (the isOwnRecordingKey check inside
+    // mintRecordingReadUrl), and the object stays exactly where it is —
+    // nothing deletes recording audio.
     let path = finalizedPath
     let recordingSessionId: string | null = null
     if (!path) {
@@ -524,19 +525,20 @@ export const webRecordingPort: RecordingPipelinePort = {
     }
     // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
     // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
-    // is fenced at `kind === 'take'` (key-grammar's grammar, read by
-    // requireOwnPath), so a `stg/` key is refused there by construction: this
-    // line THREW on every web discard staging, after the copy had been PUT, so
-    // the words were never collected on that arm at all. Nothing needs the URL
-    // anyway — the only caller with `stagedFor` is runDiscardTranscript, which
-    // reads `path` and lets the discard action sign its own URL from it. So the
-    // body is empty here, deliberately: there is no audio URL a staged copy can
-    // honestly carry through this door.
+    // is fenced at `kind === 'take'` (key-grammar's grammar, read by the
+    // isOwnRecordingKey check inside that door), so a `stg/` key is refused there
+    // by construction: this line THREW on every web discard staging, after the
+    // copy had been PUT, so the words were never collected on that arm at all.
+    // Nothing needs the URL anyway — the only caller with `stagedFor` is
+    // runDiscardTranscript, which reads `path` and lets the discard action sign
+    // its own URL from it. So the body is empty here, deliberately: there is no
+    // audio URL a staged copy can honestly carry through this door.
     if (opts?.stagedFor) return { body: {}, path, recordingSessionId }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
-    const { url: audioUrl } = await mintRecordingReadUrl(path)
-    return { body: { audioUrl }, path, recordingSessionId }
+    const read = await mintRecordingReadUrl(path)
+    if ('error' in read) throw new Error('could not mint a read URL')
+    return { body: { audioUrl: read.url }, path, recordingSessionId }
   },
   async finalizedKey(takeId, mimeType) {
     const { recordingFinalizedKey } = await uploadActions()
