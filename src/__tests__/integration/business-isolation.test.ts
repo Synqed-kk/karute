@@ -53,6 +53,10 @@ const IMPORT_FORMS: Array<[string, RegExp]> = [
   ['side-effect import', /import\s*['"]([^'"\n]+)['"]/g],
   ['dynamic import()', /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
   ['require()', /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
+  // jest.requireActual loads the REAL module and jest.requireMock builds its
+  // automock FROM it — the same reach as require(), one form each.
+  ['jest.requireActual()', /jest\s*\.\s*requireActual\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
+  ['jest.requireMock()', /jest\s*\.\s*requireMock\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
 ]
 
 // A specifier is Business when it resolves under src/business/ (alias) or
@@ -170,6 +174,16 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   // the territory's own test file reads fixtures off disk — stdlib reaches no
   // app data, so it cannot smuggle core the way a shared @/ helper does.
   const ALLOWED_BARE = /^(?:react|next)(?:\/|$)|^node:/
+  // ⚖ Liam 9/27 — the rendered-test door. A `*.test.tsx` file DIRECTLY under
+  // src/__tests__/integration/business/ may import exactly these two bare
+  // specifiers (a DOM renderer + RTL), so a territory suite can MOUNT a
+  // Business component and prove a click / an Escape. Judged on the importing
+  // FILE's shape and the EXACT specifier: a `.test.ts`, a non-test `.tsx`, a
+  // subfolder, `react-dom` itself, `react-dom/server`, `@testing-library/jest-dom`
+  // all stay offenders. Runtime Business files are not test files, so nothing
+  // shipped can reach these through the door. DESIGN-PRACTICE-DOOR.md §9's sibling.
+  const RENDER_TEST_FILE = /^src\/__tests__\/integration\/business\/[^/]+\.test\.tsx$/
+  const RENDER_TEST_BARE = new Set(['react-dom/client', '@testing-library/react'])
 
   /** Repo-relative target of a specifier, or null when it is a bare package. */
   function resolveSpecifier(spec: string, fromFile: string): string | null {
@@ -184,7 +198,9 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   function outwardOffense(spec: string, fromFile: string): string | null {
     const target = resolveSpecifier(spec, fromFile)
     if (target === null) {
-      return ALLOWED_BARE.test(spec) ? null : 'bare package off the allowlist'
+      if (ALLOWED_BARE.test(spec)) return null
+      if (RENDER_TEST_FILE.test(fromFile) && RENDER_TEST_BARE.has(spec)) return null
+      return 'bare package off the allowlist'
     }
     if (inTerritory(target)) return null // territory's own, root barrel included
     if (ALLOWED_TARGETS.includes(target)) return null
@@ -252,6 +268,66 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     expect(outwardOffense('@/lib/synqed/client', from)).not.toBeNull()
     expect(outwardOffense('@synqed-kk/client', door)).not.toBeNull()
     expect(outwardOffense('@/lib/staff', door)).not.toBeNull()
+  })
+
+  it('the rendered-test door: one folder, one file shape, two specifiers, bare only', () => {
+    const BARE_OFF = 'bare package off the allowlist'
+    // A direct-child *.test.tsx: the two door specifiers pass, react is
+    // unchanged, every neighbour specifier stays out, and a RESOLVED target
+    // never rides the door (@/lib/staff is still judged as a target).
+    const tsx = 'src/__tests__/integration/business/sample-mark-disclosure.test.tsx'
+    expect(outwardOffense('react-dom/client', tsx)).toBeNull()
+    expect(outwardOffense('@testing-library/react', tsx)).toBeNull()
+    expect(outwardOffense('react', tsx)).toBeNull()
+    expect(outwardOffense('react-dom', tsx)).toBe(BARE_OFF)
+    expect(outwardOffense('react-dom/server', tsx)).toBe(BARE_OFF)
+    expect(outwardOffense('@testing-library/jest-dom', tsx)).toBe(BARE_OFF)
+    expect(outwardOffense('@testing-library/react/pure', tsx)).toBe(BARE_OFF)
+    expect(outwardOffense('@/lib/staff', tsx)).toBe('resolves outside territory to src/lib/staff')
+    expect(outwardOffense('@/business/components/SampleMark', tsx)).toBeNull()
+    // Every other file shape stays shut to BOTH door specifiers.
+    const shut = [
+      'src/__tests__/integration/business/helpers.ts',
+      'src/__tests__/integration/business/render.tsx',
+      'src/__tests__/integration/business/x.test.ts',
+      'src/__tests__/integration/business/sub/x.test.tsx',
+      'src/__tests__/integration/businessX/x.test.tsx',
+      'src/business/components/SampleMark.tsx',
+      'src/app/[locale]/(business)/business/today/TodayScreen.tsx',
+    ]
+    const verdicts = (spec: string) => Object.fromEntries(shut.map((f) => [f, outwardOffense(spec, f)]))
+    const allOff = Object.fromEntries(shut.map((f) => [f, BARE_OFF]))
+    expect(verdicts('react-dom/client')).toEqual(allOff)
+    expect(verdicts('@testing-library/react')).toEqual(allOff)
+  })
+
+  it('jest.requireActual / jest.requireMock are import forms the scanner reads', () => {
+    const src = stripFullLineComments(
+      [
+        "const a = jest.requireActual('@/lib/staff')",
+        'const b = jest.requireMock("@/lib/staff")',
+        'const c = jest . requireActual(`react-dom/client`)',
+        "const d = require('@/x')",
+        "// jest.requireActual('@/lib/auth/x')",
+      ].join('\n'),
+    )
+    const captured: Array<[string, string]> = []
+    for (const [form, re] of IMPORT_FORMS) {
+      re.lastIndex = 0
+      for (let m = re.exec(src); m; m = re.exec(src)) captured.push([form, m[1]])
+    }
+    // The comment line yields nothing, and require() never also claims a jest
+    // call (no double capture): exactly one capture per real call.
+    expect(captured).toEqual([
+      ['require()', '@/x'],
+      ['jest.requireActual()', '@/lib/staff'],
+      ['jest.requireActual()', 'react-dom/client'],
+      ['jest.requireMock()', '@/lib/staff'],
+    ])
+    // A captured helper reach is judged like any other import: an offender.
+    expect(outwardOffense(captured[1][1], 'src/business/lib/data.ts')).toBe(
+      'resolves outside territory to src/lib/staff',
+    )
   })
 
   it('every Business import is on the allowlist', () => {
