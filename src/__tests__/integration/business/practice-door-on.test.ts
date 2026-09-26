@@ -918,7 +918,7 @@ describe('(12) PR-3 — 今日の運営 marks its SAMPLE planes under the door',
 })
 
 describe('(13) PR-4a — every store\'s board is filled: a borrower is served the borrowed day (⚖ §v7 V7-3)', () => {
-  const at = (store: string, roster: string[]) => ({ store, roster })
+  const at = (store: string, roster: string[]) => ({ store, roster: roster.map((id) => ({ id, name: `名 ${id}` })) })
   const SEAT3 = ['s0', 's1', 's2']
   const shiftOf = (fixtureId: string) => fxShifts.find((s) => s.staff_id === fixtureId)!
   type Board = { cards: Array<{ id: string; title: string; bookingId: string | null }>; cases: Record<string, { meta: string; facts: string[][] }>; myDay: { shift: string } | null }
@@ -950,6 +950,23 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(rekeyRows([fxAbsence], [at(STORE.devSalon, [])], 'identity')).toEqual([])
     expect(rekeyRows(fxSlots, [at(STORE.devSalon, ['s0', 's1', 's2', 's3'])], 'identity').map((x) => [x.id, x.staff_id])).toEqual([['slot-01~5a171878', 's3'], ['slot-02~5a171878', 's2']])
     expect(rekeyRows(fxSlots, [at(STORE.devSalon, ['s0'])], 'identity')).toEqual([])
+  })
+
+  it('R9 — a borrowed row\'s free text names the SEATED person, by the row\'s own seat rule, in one pass; the twin\'s text is untouched', () => {
+    const rows = rekeyRows(fxDecisions, [at(STORE.devSalon, SEAT3)], 'attribute')
+    expect(rows[0].detail).toBe('名 s0欠勤 / 名 s0 + ベッド1が成立') // はなこ p-01 → seat 0; しろう p-04 → 3 mod 3 = 0
+    expect(rows[2].detail).toBe('名 s0 + ベッド2 / 新規オンライン単発')
+    const names = fxStaff.map((p) => p.full_name)
+    for (const [store, roster] of [[STORE.devSalon, SEAT3], [STORE.laEstro, ['s0']]] as const) {
+      const json = JSON.stringify([...rekeyRows(fxDecisions, [at(store, [...roster])], 'attribute'), ...rekeyRows([...fxShifts, fxAbsence, ...fxSlots], [at(store, [...roster])], 'identity')])
+      expect({ store, named: names.filter((n) => json.includes(n)) }).toEqual({ store, named: [] })
+    }
+    // one pass: a seat whose live name IS another fixture name is never re-read
+    const swap = rekeyRows([{ ...fxDecisions[0], proofs: ['見本 はなこ / 見本 しろう'] }], [{ store: STORE.devSalon, roster: [{ id: 'a', name: '見本 しろう' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }, { id: 'd', name: 'D' }] }], 'attribute')
+    expect(swap[0].proofs).toEqual(['見本 しろう / D'])
+    // an identity row naming a person with no seat drops, like its own person would
+    expect(rekeyRows([{ ...fxAbsence, reason: '見本 みらい' }], [at(STORE.devSalon, ['s0'])], 'identity')).toEqual([])
+    expect(rekeyRows(fxDecisions, [at(STORE.tokyo, SEAT3)], 'attribute').map((d) => d.detail)).toEqual(fxDecisions.map((d) => d.detail))
   })
 
   it('decision person attributes wrap (n mod seats), null on an empty roster', () => {
@@ -1014,6 +1031,19 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await data.listAbsenceByDay(STORE.devSalon, { from: TODAY, to: TODAY })).get(TODAY)).toEqual(planes.absence)
     const res = await data.readReservationPlanes(STORE.devSalon)
     expect([res.shifts, res.absence, res.staffQualifications, res.sellSlots]).toEqual([planes.shifts, planes.absence, planes.staffQualifications, planes.sellSlots])
+    // R9 — the served slot decision's text names the seated person
+    const probe = STAFF.find((s) => s.id === CARD.probe)!.name
+    expect(planes.decisions.map((d) => d.detail)).toEqual([`${probe} + ベッド2 / 新規オンライン単発`])
+  })
+
+  it('R9 — no fixture staff name in anything a borrower is served (decisions · slots · shifts · 勤務不可 · resources · 予約一覧)', async () => {
+    const names = fxStaff.map((p) => p.full_name)
+    for (const store of BORROWERS) {
+      const d = await data.readDayPlanes(store, TODAY)
+      const r = await data.readReservationPlanes(store)
+      const json = JSON.stringify([d.decisions, d.sellSlots, d.shifts, d.absence, await data.listResources(store), r.shifts, r.absence, r.sellSlots])
+      expect({ store, named: names.filter((n) => json.includes(n)) }).toEqual({ store, named: [] })
+    }
   })
 
   it('R1 + R4, rendered: a borrower\'s cards compose on its own records — no 「の…」 title, no other store\'s booking or customer, the slot on the seated person', async () => {
