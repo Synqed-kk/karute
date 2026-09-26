@@ -5,11 +5,11 @@
 
 import { businessStrings } from '@/business/i18n'
 import { operator, staff } from '../fixtures'
-import { defaultKindOf, resources } from '../fixtures-today'
+import { closedWeekday, defaultKindOf, operatingHours, opsConfig, resources } from '../fixtures-today'
 import { storeDials, type StoreDials } from '../fixtures-settings'
 import type { WordOverride } from '../resource-words'
 import type { SampleMark } from '../settings'
-import { fixtureIdOf, liveIdOf, samplePolicyFor } from './registry'
+import { fixtureIdOf, liveIdOf, samplePolicyFor, type StoreSamplePolicy } from './registry'
 import { practiceTenant } from './switch'
 
 export type TwinKind = 'stores' | 'staff' | 'menus' | 'customers' | 'appointments'
@@ -244,6 +244,20 @@ export function storeSample(storeId: string): StoreSample {
   }
   // `none` is REAL mode's (a practice store always resolves to a twin, V4-2).
   return { state: 'no-sample-policy', storeId, words: null, dials: null }
+}
+
+/** ⚖ PR-4e §v9 V9-1 — the board's store-wide singletons door.ts serves (営業時間 · 定休日 · the
+ *  スキマガード/Reserve受付 dials), by the store's sample policy, as `storeSample` serves its dials.
+ *  One entry per FIXTURE store, EMPTY today (no fixture holds a per-store value): a key with no
+ *  entry is the shared constant itself, the same instance as before. `null` = the all-stores view,
+ *  which chooses no store (V9-2). `shiftsPolicy` / `cashTolerance` join in PR-4d, with the rooms that
+ *  read them. ⚠ V9-4 — the 設定 room reads the three directly (settings-props.ts); it joins this
+ *  read in the change that adds the first entry here, never before. */
+export type Singletons = { operatingHours: typeof operatingHours; closedWeekday: number; opsConfig: typeof opsConfig }
+export const SINGLETONS_BY_FIXTURE_STORE: Partial<Record<string, Partial<Singletons>>> = {}
+export function singletonsOf(policy: StoreSamplePolicy | null): Singletons {
+  const o = policy?.kind === 'twin' ? SINGLETONS_BY_FIXTURE_STORE[policy.fixtureStoreId] : undefined
+  return { operatingHours: o?.operatingHours ?? operatingHours, closedWeekday: o?.closedWeekday ?? closedWeekday, opsConfig: o?.opsConfig ?? opsConfig }
 }
 
 // ── ⚖ PR-3 §v3 V3-4 — THE PLANE TABLE, keyed per store AND per plane ─────────
