@@ -105,8 +105,8 @@ const renderList = (props: Partial<React.ComponentProps<typeof KaruteRecordListV
     />,
   )
 
-const shinkiChip = () => screen.getByRole('button', { name: /^newRecent/ })
-const shinkiCount = () => Number(shinkiChip().textContent!.replace('newRecent', ''))
+const shinkiChip = () => screen.getByRole('button', { name: /^shinki/ })
+const shinkiCount = () => Number(shinkiChip().textContent!.replace('shinki', ''))
 const visibleNames = () =>
   ITEMS.map((i) => i.customerName).filter((n) => screen.queryByText(n) !== null)
 
@@ -127,7 +127,7 @@ describe('KARUTE_SWITCHES.shinkiChip — the committed value', () => {
 describe('switch OFF — the screen renders exactly as PR-1', () => {
   it('no chip, and every row shows whatever its companyFirstVisit says', () => {
     renderList()
-    expect(screen.queryByRole('button', { name: /^newRecent/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^shinki/ })).not.toBeInTheDocument()
     // The field IS on the items (mapped) — nothing narrows by it.
     expect(ITEMS.every((i) => 'companyFirstVisit' in i)).toBe(true)
     expect(visibleNames()).toEqual(ITEMS.map((i) => i.customerName))
