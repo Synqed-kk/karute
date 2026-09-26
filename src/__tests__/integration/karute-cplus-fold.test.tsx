@@ -1,20 +1,21 @@
 /** @jest-environment jsdom */
 /**
- * KaruteRecordListView's status-line rendering contract (Greptile PR #775
- * round 2): the LIST is primary, the count is auxiliary — a failed count
- * must never render as a fake number.
- *   - total !== null, monthCount !== null → the full statusLine key.
- *   - total !== null, monthCount === null → statusLineNoMonth (今月 probe
- *     failed alone; never render a fake 「今月 0件」).
- *   - total === null → NO status line at all (the main read itself failed;
- *     the empty/degraded list below already tells the honest story).
+ * 案C+ 「三段に畳む」 on the カルテ tab (⚖ Liam 9/26 「案C+ Looks good.」):
+ * search (＋ at its end) → state pills → ONE chip row [month · 担当 ▾] → list.
+ * The status line and the 自分/全スタッフ row fold away. What this pins:
+ *   - no status line renders in ANY state (the i18n keys are gone too);
+ *   - its numbers live on the controls — 今月 on the month chip, 全件 on
+ *     すべて — under the SAME honesty rules the line had (Greptile PR #775
+ *     round 2: a failed count is never shown as a number, a failed main read
+ *     shows no numbers at all);
+ *   - the 担当 dropdown chip carries today's CustomersStaffFilter keys
+ *     ('all' | 'self' | staffId) with no new meaning, names the current pick,
+ *     and wears the R13 wash only while it narrows;
+ *   - the ＋ opens the same manual-entry dialog the words CTA did.
  *
- * next-intl is mocked to echo the KEY + its params (never the interpolated
- * copy) — these pin WHICH key fires and WHAT it was told, never the exact
- * wording (that's karute-statusline-copy.test.ts's job). Extended 2026-09-13
- * (R1/F1 repair) to echo params too — the discarded-repair tests below need
- * to see the actual numbers a mutant could get wrong (e.g. `total` silently
- * staying active-only), which a bare-key echo can't catch.
+ * next-intl echoes the key + params (same idiom as the sibling suites), so
+ * these pin WHICH key and WHAT number, never the wording.
+ * (Replaces karute-statusline-render.test.tsx, whose subject no longer exists.)
  */
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
@@ -24,187 +25,249 @@ jest.mock('next-intl', () => ({
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
   usePathname: () => '/ja/karute',
-  // Added for the discarded-repair tests below, which (unlike the four
-  // original tests) render real rows via KaruteListRow — an active row is a
-  // Link, same stub idiom as karute-chunk-load.test.tsx.
   Link: ({ children, ...rest }: { children?: React.ReactNode; href?: string }) => (
     <a {...rest}>{children}</a>
   ),
 }))
+let searchParams = new URLSearchParams()
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
   usePathname: () => '/ja/karute',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParams,
 }))
-// Heavy dialog, irrelevant to the status line — same narrow-stub convention
-// management-flag-wiring.test.tsx already uses for this exact component.
+const dialogProps: Array<{ open: boolean; preselectedCustomerId?: string | null }> = []
 jest.mock('@/components/karute/spike-lifted/list/NewKaruteDialog', () => ({
-  NewKaruteDialog: () => null,
+  NewKaruteDialog: (props: { open: boolean; preselectedCustomerId?: string | null }) => {
+    dialogProps.push(props)
+    return null
+  },
 }))
-// KaruteRecordListView imports revealNoKaruteCustomer directly — the real
-// 'use server' module pulls in next/cache's unstable_cache, which needs a
-// DOM API (TextEncoder) this jsdom suite doesn't polyfill.
 jest.mock('@/actions/karute', () => ({
   revealNoKaruteCustomer: jest.fn(async () => ({ candidate: null })),
+  loadKaruteWindow: jest.fn(),
 }))
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
+import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
+import ja from '../../../messages/ja.json'
+import en from '../../../messages/en.json'
 
-describe('KaruteRecordListView status line (Greptile PR #775 round 2)', () => {
-  it('data OK + probe OK: renders the full statusLine key, never statusLineNoMonth', () => {
-    render(
-      <KaruteRecordListView
-        items={[]}
-        monthCount={26}
-        total={312}
-        staffList={[]}
-        currentStaffId={null}
-        customerOptions={[]}
-      />,
-    )
-    expect(screen.getByText(/^statusLine:/)).toBeInTheDocument()
-    expect(screen.queryByText(/^statusLineNoMonth/)).not.toBeInTheDocument()
-  })
-
-  it('data OK + probe null: omits 今月 — renders statusLineNoMonth, never statusLine', () => {
-    render(
-      <KaruteRecordListView
-        items={[]}
-        monthCount={null}
-        total={312}
-        staffList={[]}
-        currentStaffId={null}
-        customerOptions={[]}
-      />,
-    )
-    expect(screen.getByText(/^statusLineNoMonth:/)).toBeInTheDocument()
-    expect(screen.queryByText(/^statusLine:/)).not.toBeInTheDocument()
-  })
-
-  it('data null (main read failed): renders NO status line at all, regardless of monthCount', () => {
-    render(
-      <KaruteRecordListView
-        items={[]}
-        monthCount={26}
-        total={null}
-        staffList={[]}
-        currentStaffId={null}
-        customerOptions={[]}
-      />,
-    )
-    expect(screen.queryByText('statusLine')).not.toBeInTheDocument()
-    expect(screen.queryByText('statusLineNoMonth')).not.toBeInTheDocument()
-  })
-
-  it('total omitted (prop default) behaves the same as data null — no status line', () => {
-    render(
-      <KaruteRecordListView
-        items={[]}
-        monthCount={26}
-        staffList={[]}
-        currentStaffId={null}
-        customerOptions={[]}
-      />,
-    )
-    expect(screen.queryByText('statusLine')).not.toBeInTheDocument()
-    expect(screen.queryByText('statusLineNoMonth')).not.toBeInTheDocument()
-  })
-})
-
-// R1 repair (2026-09-13, F1): 全件 must name active+discarded once any
-// discarded row exists, so 表示中 (which counts both under すべて — see
-// KaruteRecordListView.tsx's `filtered` block) can never read larger than 全.
-// next-intl still echoes the bare key here — WHICH key fires is this file's
-// job; the exact interpolated wording is karute-statusline-copy.test.ts's.
-function discardedItem(id: string): import('@/components/karute/spike-lifted/list/types').KaruteListItem {
+function row(id: string, over: Partial<KaruteListItem> = {}): KaruteListItem {
   return {
     id,
     customerId: `c-${id}`,
-    customerName: '破棄 太郎',
-    customerInitials: '破',
-    customerKaruteNumber: '#00009',
+    customerName: `顧客 ${id}`,
+    customerInitials: '顧',
+    customerKaruteNumber: '#00001',
     date: '2026-09-10',
     weekday: '木',
     service: 'カット',
-    duration: 0,
-    staffId: null,
+    duration: 60,
+    staffId: 'staff-1',
     staffColorKey: null,
-    staffName: '—',
-    summary: '',
-    aiStatus: 'draft',
-    conversionStatus: 'provisional',
-    isDiscarded: true,
-    href: `/karute/${id}`,
-  }
-}
-function activeItem(id: string): import('@/components/karute/spike-lifted/list/types').KaruteListItem {
-  return {
-    ...discardedItem(id),
-    customerName: '有効 花子',
+    staffName: '田中 太郎',
     summary: 'まとめ',
-    isDiscarded: undefined,
+    aiStatus: 'summarized',
+    conversionStatus: 'active',
+    href: `/karute/${id}`,
+    ...over,
   }
 }
 
-describe('KaruteRecordListView status line — discarded repair (F1, 2026-09-13)', () => {
-  it('discarded > 0: renders statusLineDiscarded (never the plain statusLine), 全 = active+discarded, 表示中 counts both', () => {
-    render(
-      <KaruteRecordListView
-        items={[activeItem('a1'), activeItem('a2'), discardedItem('d1'), discardedItem('d2'), discardedItem('d3')]}
-        monthCount={4}
-        total={2}
-        discardedCount={3}
-        staffList={[]}
-        currentStaffId={null}
-        customerOptions={[]}
-      />,
-    )
-    // total(2) + discarded(3) + monthCount(4) + showingCount(5, all 5 loaded
-    // rows under the default すべて filter) — the mutant this proves: reverting
-    // `total` back to the active-only storeTotal (2 instead of 5) goes RED.
-    expect(
-      screen.getByText(
-        'statusLineDiscarded:{"total":5,"discarded":3,"monthCount":4,"showingCount":5}',
-      ),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/^statusLine:/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/^statusLineNoMonth/)).not.toBeInTheDocument()
+const STAFF = [
+  { id: 'staff-1', name: '田中 太郎', initials: '田中' },
+  { id: 'staff-2', name: '鈴木 花子', initials: '鈴木' },
+]
+
+const renderList = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>> = {}) =>
+  render(
+    <KaruteRecordListView
+      items={[row('a1'), row('a2', { staffId: 'staff-2', customerName: '他人 二郎' })]}
+      monthCount={26}
+      total={312}
+      staffList={[]}
+      currentStaffId={null}
+      customerOptions={[]}
+      {...props}
+    />,
+  )
+
+/** The month chip — its accessible name is 「YYYY年M月」 plus, when shown, the
+ *  count (dom-accessibility-api joins the two spans with a space). */
+const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月( \d+)?$/ })
+const allPill = () => screen.getByRole('button', { name: /^filters\.all/ })
+/** The 担当 dropdown chip — names the current pick ('all' / 'self' echo, or a
+ *  staff name). */
+const staffChip = (name: RegExp | string = /^(all|self)$/) =>
+  screen.getByRole('button', { name })
+
+beforeEach(() => {
+  searchParams = new URLSearchParams()
+  dialogProps.length = 0
+})
+
+describe('the status line is folded away (案C+)', () => {
+  it('renders in NO state — data OK, discarded > 0, probe failed, main read failed', () => {
+    const states: Array<Partial<React.ComponentProps<typeof KaruteRecordListView>>> = [
+      {},
+      { total: 2, discardedCount: 3 },
+      { monthCount: null },
+      { total: null },
+    ]
+    for (const props of states) {
+      const { unmount } = renderList(props)
+      expect(screen.queryByText(/statusLine/)).not.toBeInTheDocument()
+      unmount()
+    }
   })
 
-  it('discarded > 0, month probe failed: statusLineNoMonthDiscarded, never statusLineNoMonth', () => {
-    render(
-      <KaruteRecordListView
-        items={[activeItem('a1'), discardedItem('d1')]}
-        monthCount={null}
-        total={1}
-        discardedCount={1}
-        staffList={[]}
-        currentStaffId={null}
-        customerOptions={[]}
-      />,
-    )
-    expect(
-      screen.getByText('statusLineNoMonthDiscarded:{"total":2,"discarded":1,"showingCount":2}'),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/^statusLineNoMonth:/)).not.toBeInTheDocument()
+  it('its strings are gone from both locales (no orphaned copy left behind)', () => {
+    for (const locale of [ja, en]) {
+      const keys = Object.keys(locale.karute.recordList)
+      expect(keys.filter((k) => k.startsWith('statusLine'))).toEqual([])
+    }
+  })
+})
+
+describe('the folded numbers live on the controls, with the line’s honesty rules', () => {
+  it('今月 → the month chip; 全件 → すべて', () => {
+    renderList()
+    expect(monthChip()).toHaveAccessibleName(/ 26$/)
+    expect(allPill().textContent).toBe('filters.all312')
   })
 
-  it('discarded === 0: byte-for-byte the old statusLine key, never the discarded variant', () => {
-    render(
-      <KaruteRecordListView
-        items={[activeItem('a1'), activeItem('a2')]}
-        monthCount={4}
-        total={2}
-        discardedCount={0}
-        staffList={[]}
-        currentStaffId={null}
-        customerOptions={[]}
-      />,
+  it('全件 on すべて is the STORE UNIVERSE (active + discarded), the number the line printed', () => {
+    renderList({ total: 2, discardedCount: 3, items: [row('a1')] })
+    expect(allPill().textContent).toBe('filters.all5')
+  })
+
+  it('a failed 今月 probe prints NO number on the chip — never a fake 0', () => {
+    renderList({ monthCount: null })
+    expect(monthChip()).toHaveAccessibleName(/月$/)
+    expect(allPill().textContent).toBe('filters.all312')
+  })
+
+  it('a real 0 IS printed', () => {
+    renderList({ monthCount: 0 })
+    expect(monthChip()).toHaveAccessibleName(/ 0$/)
+  })
+
+  it('a failed MAIN read prints no numbers at all, even with a healthy 今月 probe', () => {
+    renderList({ total: null })
+    expect(monthChip()).toHaveAccessibleName(/月$/)
+    expect(allPill().textContent).toBe('filters.all')
+  })
+})
+
+describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', () => {
+  it('is absent when there is no roster — the same gate the old row had', () => {
+    renderList({ staffList: [], currentStaffId: 'staff-1' })
+    expect(screen.queryByRole('button', { name: /^(all|self)$/ })).not.toBeInTheDocument()
+  })
+
+  it('names 全スタッフ while nothing narrows, in the outline (non-wash) state', () => {
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    expect(staffChip()).toHaveTextContent(/^all$/)
+    expect(staffChip().className).not.toContain('bg-primary/8')
+  })
+
+  it('offers 自分 · 全スタッフ · the roster — same keys, 全スタッフ marked current', () => {
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    fireEvent.click(staffChip())
+    const listbox = screen.getByRole('listbox')
+    const options = within(listbox).getAllByRole('option')
+    // In this order, by accessible name (the avatar initials are aria-hidden).
+    const order = ['self', 'all', '田中 太郎', '鈴木 花子'].map((name) =>
+      options.indexOf(within(listbox).getByRole('option', { name })),
     )
-    expect(
-      screen.getByText('statusLine:{"total":2,"monthCount":4,"showingCount":2}'),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/Discarded/)).not.toBeInTheDocument()
+    expect(order).toEqual([0, 1, 2, 3])
+    expect(options).toHaveLength(4)
+    expect(within(listbox).getByRole('option', { name: 'all' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(within(listbox).getByRole('option', { name: 'self' })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    )
+  })
+
+  it('offers no 自分 row when the viewer has no staff profile', () => {
+    renderList({ staffList: STAFF, currentStaffId: null })
+    fireEvent.click(staffChip())
+    expect(screen.queryByRole('option', { name: 'self' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'all' })).toBeInTheDocument()
+  })
+
+  it('自分 narrows the list to the viewer’s rows, renames the chip and washes it', () => {
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    fireEvent.click(staffChip())
+    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(staffChip()).toHaveTextContent(/^self$/)
+    expect(staffChip().className).toContain('bg-primary/8')
+    expect(staffChip().className).toContain('text-primary')
+    expect(screen.getByText('顧客 a1')).toBeInTheDocument()
+    expect(screen.queryByText('他人 二郎')).not.toBeInTheDocument()
+  })
+
+  it('a roster pick narrows to that staff and the chip names them; 全スタッフ returns', () => {
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    fireEvent.click(staffChip())
+    fireEvent.click(screen.getByRole('option', { name: '鈴木 花子' }))
+    expect(staffChip(/鈴木 花子/)).toBeInTheDocument()
+    expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+    expect(screen.queryByText('顧客 a1')).not.toBeInTheDocument()
+
+    fireEvent.click(staffChip(/鈴木 花子/))
+    fireEvent.click(screen.getByRole('option', { name: 'all' }))
+    expect(staffChip()).toHaveTextContent(/^all$/)
+    expect(screen.getByText('顧客 a1')).toBeInTheDocument()
+    expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+  })
+
+  it('restores ?s=self from the URL (byte-identical initial params)', () => {
+    searchParams = new URLSearchParams('s=self')
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    expect(staffChip()).toHaveTextContent(/^self$/)
+    expect(screen.queryByText('他人 二郎')).not.toBeInTheDocument()
+  })
+
+  it('the pills count AFTER the chip’s scope — 自分 moves 今週 with it', () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(new Date())
+    renderList({
+      staffList: STAFF,
+      currentStaffId: 'staff-1',
+      total: 2,
+      items: [
+        row('a1', { date: today }),
+        row('a2', { date: today, staffId: 'staff-2', customerName: '他人 二郎' }),
+      ],
+    })
+    const weekPill = () => screen.getByRole('button', { name: /^filters\.thisWeek/ })
+    expect(weekPill().textContent).toBe('filters.thisWeek2')
+    fireEvent.click(staffChip())
+    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    expect(weekPill().textContent).toBe('filters.thisWeek1')
+  })
+})
+
+describe('the ＋ (manual entry) at the end of the search row', () => {
+  it('carries the 「+ 新規カルテ」 name and opens the manual-entry dialog with no preselect', () => {
+    renderList()
+    const plus = screen.getByRole('button', { name: 'newKarute' })
+    // Same row as the search field.
+    const searchRow = screen.getByPlaceholderText('searchPlaceholder').closest('label')!
+      .parentElement!
+    expect(searchRow).toContainElement(plus)
+    // Solid primary (the Button default), full-round — never a black fill.
+    expect(plus.className).toContain('bg-primary')
+    expect(plus.className).toContain('rounded-full')
+    expect(plus.className).not.toMatch(/bg-(foreground|black)/)
+    fireEvent.click(plus)
+    const last = dialogProps[dialogProps.length - 1]
+    expect(last.open).toBe(true)
+    expect(last.preselectedCustomerId).toBeNull()
   })
 })

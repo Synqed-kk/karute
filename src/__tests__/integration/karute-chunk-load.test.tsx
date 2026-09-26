@@ -235,8 +235,11 @@ describe('append', () => {
     })
     renderList()
     fireEvent.click(loadMoreButton())
+    // 案C+: 全件 lives on すべて (the status line folded away).
     await waitFor(() =>
-      expect(screen.getByText(/statusLine:/).textContent).toContain('"total":11'),
+      expect(screen.getByRole('button', { name: /^filters\.all/ }).textContent).toBe(
+        'filters.all11',
+      ),
     )
   })
 })
@@ -372,7 +375,10 @@ describe('degraded server window keeps what is already on screen (fix round 2)',
     // freeze, so a screen-reader user would otherwise never learn of it.
     expect(screen.getByText('loadMoreFailed')).toBeInTheDocument()
     expect(screen.getByText('loadMoreFailed')).toHaveAttribute('role', 'alert')
-    expect(screen.queryByText(/statusLine/)).not.toBeInTheDocument()
+    // No stale number on the controls either (案C+: the status line's numbers
+    // live on すべて and the month chip now) — labels alone.
+    expect(screen.getByRole('button', { name: /^filters\.all/ }).textContent).toBe('filters.all')
+    expect(screen.getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })).toBeInTheDocument()
   })
 
   it('a healthy prop set takes over again — rows update, the failure line goes', async () => {
@@ -385,7 +391,9 @@ describe('degraded server window keeps what is already on screen (fix round 2)',
     )
     expect(screen.getByText('佐藤 次郎')).toBeInTheDocument()
     expect(screen.queryByText('loadMoreFailed')).not.toBeInTheDocument()
-    expect(screen.getByText(/statusLine/)).toBeInTheDocument()
+    // The numbers come back on the controls (案C+).
+    expect(screen.getByRole('button', { name: /^filters\.all/ }).textContent).toBe('filters.all9')
+    expect(screen.getByRole('button', { name: /^\d{4}年\d{1,2}月 2$/ })).toBeInTheDocument()
   })
 
   it('a genuinely EMPTY store is NOT degraded — normal empty state, no failure line', () => {
@@ -398,7 +406,9 @@ describe('degraded server window keeps what is already on screen (fix round 2)',
     })
     expect(screen.getByText('empty')).toBeInTheDocument()
     expect(screen.queryByText('loadMoreFailed')).not.toBeInTheDocument()
-    expect(screen.getByText(/statusLine/)).toBeInTheDocument()
+    // Real zeros ARE shown numbers (案C+: on すべて and the month chip).
+    expect(screen.getByRole('button', { name: /^filters\.all/ }).textContent).toBe('filters.all0')
+    expect(screen.getByRole('button', { name: /^\d{4}年\d{1,2}月 0$/ })).toBeInTheDocument()
   })
 })
 
@@ -822,12 +832,16 @@ describe('pill counts', () => {
   /** The number printed ON the pill. */
   const pillCount = (key: string): number =>
     Number(pill(key).textContent!.replace(`filters.${key}`, ''))
-  /** 表示中 — the post-filter visible row count, read off the status line the
-   *  header renders. This is literally "what the tap shows". */
-  const showingCount = (): number => {
-    const line = screen.getByText(/^statusLine/).textContent ?? ''
-    return JSON.parse(line.slice(line.indexOf(':') + 1)).showingCount
-  }
+  /** The post-filter visible row count — the sum of the day headers' own
+   *  「N件のカルテ」 over the rows actually rendered. This is literally "what
+   *  the tap shows" (案C+ folded the status line's 表示中 away). */
+  const showingCount = (): number =>
+    screen
+      .queryAllByText(/^dateGroup\.suffix:/)
+      .reduce((sum, el) => {
+        const text = el.textContent ?? ''
+        return sum + JSON.parse(text.slice(text.indexOf(':') + 1)).n
+      }, 0)
 
   /** Today/yesterday in JST — the same rule the view now uses, so a fixture
    *  dated "this week" really is inside the cutoff whatever TZ jest runs in. */
@@ -959,7 +973,13 @@ describe('pill counts', () => {
       { id: 'staff-1', name: '田中 太郎', initials: '田中' },
       { id: 'staff-2', name: '鈴木 花子', initials: '鈴木' },
     ]
-    const selfToggle = () => screen.getByRole('button', { name: 'self' })
+    // 案C+: 自分 is an option inside the 担当 dropdown chip now.
+    const selfToggle = () => ({
+      click: () => {
+        fireEvent.click(screen.getByRole('button', { name: /^(all|self)$/ }))
+        fireEvent.click(screen.getByRole('option', { name: 'self' }))
+      },
+    })
 
     it('破棄済み: 自分 excludes another staff\'s loaded discarded row', () => {
       const mine = { ...item('d-mine', jstYmd(0), '自分 一郎'), staffId: 'staff-1', isDiscarded: true }
@@ -972,7 +992,7 @@ describe('pill counts', () => {
         currentStaffId: 'staff-1',
       })
 
-      fireEvent.click(selfToggle())
+      selfToggle().click()
       expect(pillCount('discarded')).toBe(1)
       fireEvent.click(pill('discarded'))
       expect(showingCount()).toBe(pillCount('discarded'))
@@ -1000,7 +1020,7 @@ describe('pill counts', () => {
       const theirs = { ...item('w-theirs', jstYmd(1), '他人 太郎'), staffId: 'staff-2' }
       renderList({ items: [mine, theirs], total: 2, staffList, currentStaffId: 'staff-1' })
 
-      fireEvent.click(selfToggle())
+      selfToggle().click()
       expect(pillCount('thisWeek')).toBe(1)
       fireEvent.click(pill('thisWeek'))
       expect(showingCount()).toBe(pillCount('thisWeek'))
@@ -1048,9 +1068,9 @@ describe('pill counts', () => {
     // plumbed value, so they cannot disagree an inch apart on the same screen;
     // さらに表示 and 表示中 are what stand between the total and the rows.
     expect(pill('all').textContent).toBe('filters.all9')
-    expect(
-      screen.getByText('statusLine:{"total":9,"monthCount":2,"showingCount":2}'),
-    ).toBeInTheDocument()
+    // 案C+: the header 全件 folded away — すべて is its only home now, and no
+    // second number on screen can disagree with it.
+    expect(screen.queryByText(/^statusLine/)).not.toBeInTheDocument()
   })
 
   it('すべて does NOT climb on an append, and follows a FRESH store total', async () => {
@@ -1106,11 +1126,6 @@ describe('pill counts', () => {
     })
 
     expect(pillCount('all')).toBe(5)
-    expect(
-      screen.getByText(
-        'statusLineDiscarded:{"total":5,"discarded":3,"monthCount":4,"showingCount":5}',
-      ),
-    ).toBeInTheDocument()
 
     fireEvent.click(pill('all'))
     expect(showingCount()).toBe(pillCount('all'))
@@ -1286,7 +1301,7 @@ describe('共有 pill + shared mode (D10, PR-C)', () => {
   // T2 (fix round 2, L2 MED-2): mode exclusivity between shared mode and
   // 月ジャンプ was untested in EITHER direction — mirrors the store-switch
   // test above, which already proves a THIRD kind of exit from shared mode.
-  const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })
+  const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月( \d+)?$/ })
 
   it('T2(a): entering shared mode then picking a month EXITS shared mode', async () => {
     loadKaruteWindow.mockImplementation(
