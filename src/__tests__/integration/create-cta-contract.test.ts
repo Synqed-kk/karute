@@ -69,13 +69,38 @@ const expectIconPlusLabel = (src: string, icon: string, labelExpr: string) => {
 }
 
 describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
-  it('カルテ list CTA: shared Button, FilePlus2 icon, responsive label', () => {
+  // ⚖ Liam 9/26 「案C+ Looks good.」 supersedes the 8/6–8/7 recipe for the
+  // カルテ list ONLY: the create action is a solid primary circle (＋) at the
+  // end of the search row, the search field's own 36px — the header cannot
+  // hold a third item beside its centred title (mock D32). Still the SHARED
+  // Button with its default (primary) variant; the accessible name is the
+  // same 「+ 新規カルテ」 key the words used to show. The 8/6 icon rule
+  // stands: the circle carries FilePlus2, never a bare plus glyph.
+  it('カルテ list CTA (案C+): shared Button, primary FilePlus2 circle at the end of the search row', () => {
     const src = read('src/components/karute/spike-lifted/list/KaruteRecordListView.tsx')
     expect(src).toContain(SHARED_IMPORT)
     const tags = buttonTags(src)
     expect(tags).toHaveLength(1)
-    expectPlain(tags[0])
-    expectIconPlusLabel(src, 'FilePlus2', "t('newKarute')")
+    const tag = tags[0] ?? ''
+    expect(tag).not.toMatch(/\{\s*\.\.\./)
+    expect(tag).toContain('size="icon-lg"')
+    expect(tag).toContain('className="rounded-full"')
+    expect(tag).toContain("aria-label={t('newKarute')}")
+    // ONLY these props — no variant override (the default IS the app's
+    // primary-action token), no disabled, nothing smuggled. Same token scan
+    // as expectPlain, one allowance wider.
+    let rest = tag.replace(/^<Button\b/, '').replace(/\/?>$/, '')
+    while (/\{[^{}]*\}/.test(rest)) rest = rest.replace(/\{[^{}]*\}/g, '')
+    rest = rest.replace(/"[^"]*"/g, '')
+    const allowed = ['type', 'size', 'className', 'aria-label', 'onClick']
+    expect((rest.match(/[\w-]+/g) ?? []).filter((p) => !allowed.includes(p))).toEqual([])
+    expect(src).toContain('<FilePlus2 className="size-[18px]" aria-hidden />')
+    // Never a bare plus glyph (8/6 案A) — no lucide Plus import at all.
+    expect(src).not.toMatch(/import \{[^}]*\bPlus\b[^}]*\} from 'lucide-react'/)
+    // …and it sits INSIDE the search row, after the field.
+    expect(src).toMatch(
+      /<div className="flex items-center gap-2 md:mt-4">\s*<label className="flex min-w-0 flex-1 [^"]*">[\s\S]*?<\/label>\s*<Button\b/,
+    )
   })
 
   it('予約 header CTA: newBookingSlot override with shared Button, CalendarPlus icon, responsive label', () => {
@@ -120,9 +145,12 @@ describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
     // No per-page top offset at any width (Liam 8/7 desktop-unify ruling):
     // the header zone wrapper is a bare <div> directly before the md h1.
     expect(karute).toMatch(/<div>\s*<h1 className="hidden/)
-    rowWithStatus(karute, 'flex items-center justify-between gap-3 md:mt-1')
-    expect(karute).toContain('<div className="mt-4">')
-    expect(karute).toContain('<div className="pt-4">')
+    // 案C+ (⚖ Liam 9/26): the status row and the staff row are folded away,
+    // so the search row is the first row under the shared offset on phones
+    // (md:mt-4 spaces it from the desktop-only h1).
+    expect(karute).not.toContain('<div className="mt-4">')
+    expect(karute).not.toContain('<div className="pt-4">')
+    expect(karute).toContain('<div className="flex items-center gap-2 md:mt-4">')
     const yoyaku = read('src/components/appointments/AppointmentsView.tsx')
     const headerTag = yoyaku.match(/<ReservationPageHeader[\s\S]*?className="([^"]*)"/)?.[1] ?? ''
     expect(headerTag).toContain('mb-0')
