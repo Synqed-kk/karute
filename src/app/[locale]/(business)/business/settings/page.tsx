@@ -32,7 +32,7 @@
 //    — the type note is printed beside the row, and the suite pins that.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { practiceDoorOn, readCanManageCardColor } from '@/business/lib/data'
+import { practiceDoorOn, readBookingColors, readCanManageCardColor } from '@/business/lib/data'
 import { SettingsScreen } from './SettingsScreen'
 import { settingsProps } from './settings-props'
 import './settings.css'
@@ -53,7 +53,11 @@ export default async function SettingsPage({
   // ⚖ LINKED UP. `?section=` is how a trace card in another room lands on the
   // setting it points at instead of on whatever this page opens with. An unknown
   // or gated section falls back to the first one this reader may open.
-  const { props, storePolicy, storeKey } = await settingsProps({ locale, store: query.store, section: query.section })
+  //
+  // ⚖ PKT-S38 R7 — 予約の色分け is LIVE while the door is ON: its raw org-settings value is read ONCE here and
+  // the props file resolves the lens store's four (the clamp's one home). OFF: nothing is read.
+  const live = practiceDoorOn() ? { raw: await readBookingColors() } : undefined
+  const { props, storePolicy, storeKey, bookingColors } = await settingsProps({ locale, store: query.store, section: query.section, ...(live ? { bookingColors: live } : {}) })
 
   // ⚖ VIEW STATE IS STORE-SCOPED. `?store=` navigation keeps the same screen
   // instance, so the open section AND every control's value would survive a lens
@@ -65,5 +69,8 @@ export default async function SettingsPage({
   // ADMITTED business (the route's X-Expected-Business check compares against it), and whether core's
   // sheet lets this operator save at all (G5: the writer's own check, asked once — no 保存する it would refuse).
   const saveCardColor = practiceDoorOn() ? { businessId: admitted.businessId, canSave: await readCanManageCardColor() } : undefined
-  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} />
+  // ⚖ PKT-S38 R7 — and 予約の色分け's save, for the lens store: the SAME canSave answer (settings.manage is one
+  // truth; no second sheet read). OFF, or no store / a shut gate (bookingColors null): no prop, today's render.
+  const saveBookingColors = saveCardColor && bookingColors ? { businessId: saveCardColor.businessId, storeId: storeKey, canSave: saveCardColor.canSave, colors: bookingColors } : undefined
+  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} />
 }

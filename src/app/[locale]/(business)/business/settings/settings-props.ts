@@ -33,6 +33,7 @@
 // the screen holds no clock and no formatter.
 
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
+import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsFor, type BookingColors } from '@/business/lib/booking-colors'
 import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
 import { jstSlotEnd } from '@/business/lib/clock'
 import {
@@ -50,7 +51,6 @@ import {
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import {
   AUDIT_CATEGORIES,
-  bookingPalette,
   businessProfiles,
   colorTokenMeaning,
   connectorCatalog,
@@ -133,6 +133,10 @@ export interface SettingsPropsInput {
     role?: string
     dials?: StoreDials | null
   }
+  /** ⚖ PKT-S38 R7 — 予約の色分け's LIVE value: the org-settings colour keys (PKT-S41: one `booking_colors:<storeId>`
+   *  per store + the legacy `booking_colors` map), RAW, read ONCE by page.tsx while
+   *  the practice door is ON. Absent = door OFF: the dial stays the sample plane, byte for byte. */
+  bookingColors?: { raw: unknown }
 }
 
 export interface SettingsPropsResult {
@@ -150,9 +154,12 @@ export interface SettingsPropsResult {
    *  section is open resets when the store changes — the ⚖ 8/17 isolation law at
    *  the frame as well as the read. */
   storeKey: string
+  /** ⚖ PKT-S38 R7 — the lens store's four live colours (the dial's seed), resolved HERE because the store
+   *  clamp has one home. null = door OFF, no store in the lens, or a reader 言語・表示's gate shuts. */
+  bookingColors: BookingColors | null
 }
 
-export async function settingsProps({ locale, store, section, world }: SettingsPropsInput): Promise<SettingsPropsResult> {
+export async function settingsProps({ locale, store, section, world, bookingColors: live }: SettingsPropsInput): Promise<SettingsPropsResult> {
   void locale
   const storeOptions = await listStoreOptions()
   const storeId = defaultStoreId(store, storeOptions)
@@ -178,6 +185,9 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   const [cardColor, cardAddress] = gateOf(sectionById(CARD_LOOK_ID)!, access) === 'open'
     ? await Promise.all([readReserveCardColor(), cardStore ? readStoreAddress(cardStore.id) : null])
     : [null, null]
+  // ⚖ PKT-S38 R7 — 予約の色分け, LIVE while the door is ON: the lens store's four, for a reader who may open
+  // the section (a shut gate ships nothing, the G1 rule).
+  const bookingColors = live && clamped && gateOf(sectionById('language-display')!, access) === 'open' ? bookingColorsFor(storeId!, live.raw) : null
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
 
@@ -223,6 +233,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     cardColor,
     cardStore,
     cardAddress,
+    bookingColors,
   }
 
   const sections = RAIL.map((entry) => buildSection(entry, ctx))
@@ -296,7 +307,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     saveStampTime: fmtClock.format(now),
   }
 
-  return { props, storePolicy, storeKey: clamped ? storeId! : 'all-stores' }
+  return { props, storePolicy, storeKey: clamped ? storeId! : 'all-stores', bookingColors }
 }
 
 // ── the builders' shorthand ─────────────────────────────────────────────────
@@ -338,6 +349,8 @@ interface Ctx {
   /** ⚖ A1b · K11 — the store the card shows, and its own address (readStoreAddress). */
   cardStore: Ctx['stores'][number] | undefined
   cardAddress: string | null
+  /** ⚖ PKT-S38 R7 — the lens store's live 予約の色分け (null = the sample plane; see settingsProps). */
+  bookingColors: BookingColors | null
 }
 
 const opts = (pairs: Array<[string, string]>): ControlOption[] => pairs.map(([value, label]) => ({ value, label }))
@@ -627,7 +640,14 @@ function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDia
     case 'business-structure':
       return businessStructure(base, ctx, d)
   }
-  if (d === null) return noSample(base, entry, ctx)
+  if (d === null) {
+    // ⚖ PKT-S38 R7 — 予約の色分け is LIVE while the door is ON, so a store with no sample dials still gets
+    // that one block; the rest of 言語・表示 (この画面の言語 · カルテの最初の言語 · Reserveの言語) keeps
+    // today's no-sample state (⚖ PR-3: the section's own lead + the no-sample card), like every other
+    // sample-only section.
+    const none = noSample(base, entry, ctx)
+    return entry.id === 'language-display' && ctx.bookingColors ? { ...none, blocks: [bookingColorsBlock(ctx, null)] } : none
+  }
   switch (entry.id) {
     case 'payments':
       return payments(base, ctx, d)
@@ -2442,18 +2462,36 @@ const periodTags = (dayOffset: number): string[] => {
 
 // ── 言語・表示 ──────────────────────────────────────────────────────────────
 
-const BOOKING_CATEGORIES: Array<[string, string, string]> = [
+/** ⚖ PKT-S38 R6 — the dial speaks the BOARD'S four (today-board.ts `bookingCategory`); a colour with no
+ *  board rule behind it could never reach the board. */
+const BOOKING_CATEGORIES: Array<[keyof BookingColors, string, string]> = [
   ['new', '新規予約', 'はじめてのお客様'],
   ['repeat', '再来（リピート）', '2回目以降のご来店'],
-  ['renewal', '更新案内が必要', '回数券の残りが少ない・期限が近い'],
-  ['pack', '回数券利用', '回数券を消化する予約'],
+  ['ticket', '回数券利用', '回数券の残りがあるお客様'],
   ['vip', 'VIP', 'お店が指定したお客様'],
 ]
 
+/** 予約の色分け's block — ONE copy for both paths. Seeds: the live colours while the door is ON (never the
+ *  fixture), else the store's sample dials, else the board's default for the category. */
+function bookingColorsBlock(ctx: Ctx, d: StoreDials | null): SettingsBlock {
+  const paletteOpts = BOOKING_PALETTE.map((p) => ({ value: p.hex, label: p.label, hex: p.hex }))
+  return block('lang.colors', '予約の色分け', '予約の種類ごとの色です。ボードの左端の帯・点に出ます。', BOOKING_CATEGORIES.map(([id, label, hint]) =>
+    row(`lang.row-color-${id}`, label, hint, [
+      swatch(`lang.color-${id}`, `${label}の色`, paletteOpts, ctx.bookingColors ? ctx.bookingColors[id] : (d?.bookingColors[id] ?? BOOKING_COLOR_DEFAULTS[id])),
+    ], { scopeLabel: STORE_SCOPE })), {
+    // ⚖ §v6 V6-2 — the table decides: `bookingColors` is LIVE (#1049 connected its read), so this yields no mark.
+    sample: ctx.sampleWhole('bookingColors'),
+    preview: { template: '新規予約は{lang.color-new}、再来は{lang.color-repeat}、回数券は{lang.color-ticket}、VIPは{lang.color-vip}の帯で表示します。' },
+    facts: [
+      '状態の色は変えられません — 緑（確定）・琥珀（要対応）・赤（停止・障害）は全店舗共通の安全の決まりです。',
+      '帯と点は予約の種類、ピルはいまの状態です。別のものを見せています。',
+    ],
+    links: [{ label: '画面全体の色は色・テーマで', sectionId: 'colors' }],
+  })
+}
+
 function languageDisplay(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  void ctx
   const langOpts = opts([['ja', '日本語'], ['en', 'English']])
-  const paletteOpts = bookingPalette.map((p) => ({ value: p.value, label: p.label, hex: p.hex }))
   return {
     ...base,
     kicker: '組織・管理',
@@ -2481,18 +2519,7 @@ function languageDisplay(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         preview: { template: 'この画面は{lang.ui}、カルテの最初の言語は{lang.karute}です。切り替えると、メニュー・状態・お知らせの文がすべて選んだ言語になります。' },
         facts: ['すべての画面を言語に対応させる作業はこれから行います。それまでは日本語で表示されます。'],
       }),
-      block('lang.colors', '予約の色分け', '予約の種類ごとの色です。ボードと一覧の左端の帯・点に出ます。', BOOKING_CATEGORIES.map(([id, label, hint]) =>
-        row(`lang.row-color-${id}`, label, hint, [
-          swatch(`lang.color-${id}`, `${label}の色`, paletteOpts, d.bookingColors[id] ?? 'gray'),
-        ], { scopeLabel: STORE_SCOPE })), {
-        sample: ctx.sampleWhole('bookingColors'),
-        preview: { template: '新規予約は{lang.color-new}、再来は{lang.color-repeat}、更新案内は{lang.color-renewal}の帯で表示します。' },
-        facts: [
-          '状態の色は変えられません — 緑（確定）・琥珀（要対応）・赤（停止・障害）は全店舗共通の安全の決まりです。',
-          '帯と点は予約の種類、ピルはいまの状態です。別のものを見せています。',
-        ],
-        links: [{ label: '画面全体の色は色・テーマで', sectionId: 'colors' }],
-      }),
+      bookingColorsBlock(ctx, d),
     ],
     persist: null,
   }

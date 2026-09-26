@@ -1,7 +1,7 @@
 // The ONE switch registry for the recording lane — the recording copy of
 // src/lib/appointments/booking-switches.ts. Plain constants — no env, no
 // settings read: a flip is a one-line server PR through the normal gate, needs
-// no phone bake, and both states are pinned by tests. Every switch is honest
+// no phone bake when the switch is server-side (it flips with the deploy; a CLIENT-side switch — today `captureWarningNotice` — reaches the phone only with its next bake), and both states are pinned by tests. Every switch is honest
 // when OFF: nothing it gates half-runs.
 export const RECORDING_SWITCHES = {
   /** A server-named upload (the in-tab fallback, and an old phone's copy of a
@@ -42,4 +42,6 @@ export const RECORDING_SWITCHES = {
    *  state — mint-take-url.ts, the `if (!input.takeId)` arm.
    *  Flipped ON 2026-09-24, back OFF 2026-09-25 on Liam's word: the ON arm leaves an undismissable 復元可能 row after every successful fallback save (all clients) and lets a discarded take resurface — cold read COLD-READ-S32-VERDICTS.md (outside the repo). Re-flip only after the stray/discard fix lands. */
   bindUnboundUploads: false,
+  /** The recorder's yellow notice (PR-6): during a recording, tell staff this phone cannot save (audio goes straight to the server) or the server is not receiving (audio is kept on the phone), and file one `recording.capture_warned` fact per reason a take shows. Default ON, 2026-09-26. OFF = PR-6 never computes, never renders, never writes the fact — pre-PR-6 behaviour exactly. Client code: a flip reaches the phone with its next bake. */
+  captureWarningNotice: true,
 } as const

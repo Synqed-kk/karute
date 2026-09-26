@@ -548,8 +548,12 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
   })
   const BOARD = ['shifts', 'absence', 'sellSlots', 'operatingHours'] as const
-  it('every plane is SAMPLE for the practice business today, and `marked` IS 「some plane is sample」', () => {
-    expect(Object.values(PRACTICE_PLANES).every((s) => s === 'sample')).toBe(true)
+  // ⚖ §v6 V6-2 — every plane but ONE: #1049 connected 予約の色分け's read (core's per-store colours), so
+  // `bookingColors` is LIVE in the practice table; every other plane stays SAMPLE.
+  it('every plane is SAMPLE for the practice business but bookingColors (LIVE, §v6 V6-2), and `marked` IS 「some plane is sample」', () => {
+    expect(Object.entries(PRACTICE_PLANES).filter(([, s]) => s !== 'sample')).toEqual([['bookingColors', 'live']])
+    expect(sampleWhole(STORE.tokyo, 'bookingColors')).toBeUndefined()
+    expect(sampleWhole(STORE.tokyo, 'language')).toEqual({ form: 'whole' })
     const s = storeSample(STORE.tokyo)
     expect(s.state === 'sample' && s.marked === Object.values(s.planes).some((p) => p === 'sample')).toBe(true)
   })

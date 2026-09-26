@@ -668,6 +668,8 @@
     "pipelineErrorDiscarded": "この録音はスタッフが破棄したため、カルテに保存できません。",
     "pipelineErrorRepeated": "再試行しても同じ結果でした。",
     "serverRowMissing": "サーバーに録音の記録を作成できませんでした。カルテは保存されますが、音声はこの端末にのみ残ります",
+    "deviceSaveUnavailable": "この端末に保存できないため、サーバーへ直接送信しています。録音停止までアプリを閉じないでください",
+    "serverSendStalled": "サーバーに送信できていません。音声はこの端末に保存され、自動送信されます",
     "recordingFor": "録音対象",
     "noUpcomingAppointment": "予約がありません",
     "noBookingTitle": "予約が見つかりません",

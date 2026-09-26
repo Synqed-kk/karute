@@ -175,7 +175,7 @@ export default async function TodayPage({
     // above it: a staff block is occupied time and the count must not disagree
     // with what the placement rail already refuses.
     listBlocksByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
-    // 予約の色分け — the business's raw per-store map; resolved below, beside `storeOfBooking`.
+    // 予約の色分け — the business's raw colour keys (one per store + the legacy map); resolved below, beside `storeOfBooking`.
     readBookingColors(),
   ])
   const staffStores = await readStaffStores(lens)

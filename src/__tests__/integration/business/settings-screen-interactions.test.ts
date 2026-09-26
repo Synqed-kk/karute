@@ -39,6 +39,8 @@ import { join } from 'node:path'
 import { operator } from '@/business/lib/fixtures'
 import { rulebook } from '@/business/lib/fixtures-settings'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
+import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE } from '@/business/lib/booking-colors'
+import { sameBookingColors, sendBookingColors } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
 import {
   accessFor,
   blockingError,
@@ -922,9 +924,10 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // (`props.demoSaveLine`), which is where it belongs on every section rather
     // than only after a press.
     expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: true }))")
-    // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the ONE exception is カードの見た目
-    // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color).
-    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : commitSection(section))}')
+    // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the exceptions are カードの見た目
+    // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color),
+    // and ⚖ PKT-S38 R7 言語・表示's 予約の色分け likewise (PUT /api/business/booking-colors).
+    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}')
     // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
     expect(SRC_CODE).toContain("{blocked ??")
@@ -1238,5 +1241,74 @@ describe('S28 — a number field announces its unit', () => {
     expect(b.describedBy).toBe(b.span)
     expect(a.describedBy).not.toBe(b.describedBy)
     expect(a.span).not.toBe(b.span)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Greptile T2/T4 on #1049 (PKT-S40-FIX-1) — 予約の色分け's 保存する, RUN through its lifted send.
+// ⚠ NOT a mounted click, and the header says why: this folder's import fence keeps react-dom out, so
+// no suite here can mount SettingsScreen. The decision the click makes lives in `sendBookingColors`
+// and is run here against a mocked fetch; the handler's use of it is a source pin.
+describe('予約の色分け — 保存する sends only a real colour change (Greptile T2/T4, PKT-S40-FIX-1)', () => {
+  const BIZ = 'biz-1'
+  const STORE = 'store-1'
+  const SEED: Record<string, string> = { ...BOOKING_COLOR_DEFAULTS }
+  const SAVE = { businessId: BIZ, storeId: STORE, canSave: true, colors: SEED }
+  const SAVED: Record<string, RowValue> = { ...Object.fromEntries(Object.entries(SEED).map(([k, v]) => [`lang.color-${k}`, v])), 'lang.ui': 'ja' }
+  const realFetch = global.fetch
+  afterEach(() => { global.fetch = realFetch })
+  const reply = (status: number, body: unknown) => {
+    const f = jest.fn(async (_url: string, _init: RequestInit) => ({ ok: status >= 200 && status < 300, json: async () => body }))
+    global.fetch = f as unknown as typeof fetch
+    return f
+  }
+  const HANDLER = (() => {
+    const i = SRC_CODE.indexOf('const saveBookingSection = useCallback(')
+    expect(i).toBeGreaterThan(-1)
+    return SRC_CODE.slice(i, SRC_CODE.indexOf('}, [', i))
+  })()
+
+  it.each(['new', 'repeat', 'ticket', 'vip'])('sameBookingColors: equal → true; only %s differs → false', (k) => {
+    expect(sameBookingColors(SEED, { ...SEED })).toBe(true)
+    expect(sameBookingColors(SEED, { ...SEED, [k]: '#000000' })).toBe(false)
+  })
+
+  it('sameBookingColors: a missing key is a difference', () => {
+    const three = { new: SEED.new, repeat: SEED.repeat, ticket: SEED.ticket }
+    expect(sameBookingColors(three, SEED)).toBe(false)
+    expect(sameBookingColors(SEED, three)).toBe(false)
+  })
+
+  it('(a) a different swatch for 新規 → exactly ONE PUT /api/business/booking-colors with { storeId, colors } and X-Expected-Business; ok → core’s four, and the handler commits', async () => {
+    const blue = BOOKING_PALETTE.find((c) => c.label === '青')!.hex
+    const picked = { ...SEED, new: blue }
+    const f = reply(200, { ok: true, colors: picked })
+    const result = await sendBookingColors(SAVE, { ...SAVED, 'lang.color-new': blue }, SAVED)
+    expect(f).toHaveBeenCalledTimes(1)
+    expect(f.mock.calls[0]).toEqual(['/api/business/booking-colors', { method: 'PUT', headers: { 'content-type': 'application/json', 'x-expected-business': BIZ }, body: JSON.stringify({ storeId: STORE, colors: picked }) }])
+    expect(result).toEqual({ ok: true, colors: picked })
+    // …on that yes the handler commits the section and takes core's four as the baseline (the dirty state clears)
+    expect(HANDLER).toMatch(/if \(!result\.ok\) \{\s*setBookingFail\(result\.reason\)\s*return\s*\}\s*commitSection\(target\)\s*setSaved\(\(prev\) => \(\{ \.\.\.prev, \.\.\.Object\.fromEntries\(BOOKING_KEYS\.map\(\(k\) => \[`lang\.color-\$\{k\}`, result\.colors\[k\]\]\)\) \}\)\)/)
+  })
+
+  it('(b) only a non-colour row changed (the four equal the last save) → ZERO fetch, and the handler commits locally', async () => {
+    const f = reply(200, { ok: true, colors: SEED })
+    expect(await sendBookingColors(SAVE, { ...SAVED, 'lang.ui': 'en' }, SAVED)).toBeNull()
+    expect(f).not.toHaveBeenCalled()
+    expect(HANDLER).toMatch(/const result = await sendBookingColors\(save, values, saved\)\s*bookingSaving\.current = false\s*if \(result === null\) \{\s*commitSection\(target\)[^\n]*\n\s*return\s*\}/)
+  })
+
+  it('(c) canSave false → the section renders no 保存する, and its foot is the forbidden line (source pin)', () => {
+    expect(SRC_CODE).toContain('{liveColors.canSave === false ? null : roomSave(section)}')
+    expect(SRC_CODE).toContain('<p className="st-foot">{liveColors.canSave ? BOOKING_SAVE_NOTE : BOOKING_SAVE_FAIL.forbidden}</p>')
+    expect(SRC_CODE).toContain("forbidden: '設定を変更できる権限がないため保存できず、ボードの色はこれまでのままです。',")
+  })
+
+  it('(d) the route answers forbidden → the result carries it, the alert prints BOOKING_SAVE_FAIL[reason], and nothing commits', async () => {
+    const f = reply(403, { ok: false, reason: 'forbidden' })
+    expect(await sendBookingColors(SAVE, { ...SAVED, 'lang.color-vip': BOOKING_PALETTE[4].hex }, SAVED)).toEqual({ ok: false, reason: 'forbidden' })
+    expect(f).toHaveBeenCalledTimes(1)
+    expect(HANDLER).toMatch(/if \(!result\.ok\) \{\s*setBookingFail\(result\.reason\)\s*return\s*\}/)
+    expect(SRC_CODE).toContain('{bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}')
   })
 })

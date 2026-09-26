@@ -119,8 +119,9 @@ export function storeSample(storeId: string): StoreSample {
 // ONE home for 「is this part of this store still the built-in sample」. A plane
 // is one SAMPLE row family of CONTRACT-MAP (the suite pins every key to its
 // row by name); a block or a board region names the plane it shows and the
-// mark follows the table — no site decides for itself. Today every plane of
-// the practice business is `'sample'` (that IS the map's truth); as the test
+// mark follows the table — no site decides for itself. Every plane of the
+// practice business is `'sample'` (that IS the map's truth) except the one whose
+// read is connected: `bookingColors` (⚖ §v6 V6-2, #1049's 予約の色分け); as the test
 // world lands a plane live in core, its one line in STORE_PLANE_OVERRIDES
 // (per store) — or PRACTICE_PLANES (every store) — flips it and every mark of
 // that plane disappears on its own.
@@ -151,8 +152,10 @@ const PLANE_KEYS: readonly PlaneKey[] = [
 ]
 const every = (state: PlaneState) => Object.fromEntries(PLANE_KEYS.map((k) => [k, state])) as Record<PlaneKey, PlaneState>
 
-/** The practice business's planes. Every one is SAMPLE today (CONTRACT-MAP). */
-export const PRACTICE_PLANES: Readonly<Record<PlaneKey, PlaneState>> = every('sample')
+/** The practice business's planes. Every one is SAMPLE (CONTRACT-MAP) but
+ *  `bookingColors`: ⚖ §v6 V6-2 — #1049 connected its read (core's per-store
+ *  予約の色分け under the door, saved by its writer), so it is LIVE here. */
+export const PRACTICE_PLANES: Readonly<Record<PlaneKey, PlaneState>> = { ...every('sample'), bookingColors: 'live' }
 /** The later one-line flip, per live store × plane — here and nowhere else.
  *  Flip a plane to live ONLY in the change that connects its read: the mark follows this table, the data follows the read (closures + bookingPolicy in PLANE_MAP_SAYS_LIVE are the open case, PR-4). */
 export const STORE_PLANE_OVERRIDES: Record<string, Partial<Record<PlaneKey, PlaneState>>> = {}
