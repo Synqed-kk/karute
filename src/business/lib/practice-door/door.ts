@@ -14,7 +14,7 @@
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
-import { rekeyRows, sampleFor, sampleKeys, sampleRows, type RosterSeats } from './sample-facade'
+import { rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, type RosterSeats } from './sample-facade'
 import {
   appointments,
   customers,
@@ -42,6 +42,7 @@ import {
   staffQualifications,
   type FixtureAbsence,
   type FixtureBlock,
+  type FixtureDecision,
   type FixtureResource,
   type FixtureShift,
 } from '../fixtures-today'
@@ -540,12 +541,22 @@ export async function listBlocksByDay(lens: StoreLens, range: DayRange): Promise
 
 // ── SAMPLE (through the facade) ────────────────────────────────────────────
 
+/** ⚖ PR-4a R4 — the decisions a store is SERVED. A borrower's rows point at no other store's
+ *  records (the facade nulls them), so a card built on its booking cannot be composed there
+ *  and is not served; a slot decision is served with its slot. Rendered on Dev Salon (fix
+ *  round): 担当変更 · レジ · 担当不在 and a Reserve販売 about a booking drop; the Reserve販売
+ *  about a served slot stays. An exact twin is served all of its own, as before. */
+function servedDecisions(rows: FixtureDecision[], seats: RosterSeats[]): FixtureDecision[] {
+  const slots = new Set(rekeyRows(sellSlots, seats, 'identity').map((s) => s.id))
+  return rekeyRows(rows, seats, 'attribute', (raw, d) => raw.appointment_id === null && d.sell_slot_id !== null && slots.has(d.sell_slot_id))
+}
+
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
   const actor = await practiceActor()
   const open = decisions.filter((d) => d.state === 'open')
   const byStore: Record<string, number> = {}
   // ⚖ PR-4a — per store, its OWN re-key of the open family: a borrower counts the rows it is served.
-  for (const seats of await rosterOrderOf(actor, { viewAll: true })) byStore[seats.store] = rekeyRows(open, [seats], 'attribute').length
+  for (const seats of await rosterOrderOf(actor, { viewAll: true })) byStore[seats.store] = servedDecisions(open, [seats]).length
   // A store the actor cannot see never counts.
   return { byStore, all: Object.values(byStore).reduce((a, b) => a + b, 0) }
 }
@@ -578,14 +589,14 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     // ⚖ PR-4a §v7 V7-3 — the board's rows through the ONE re-key: an exact twin's as before,
     // a borrower's on its own store and roster; viewAll = every store in view's own rows.
     shifts: rekeyRows(shifts, seats, 'identity'),
-    staffQualifications: sampleKeys('staff', staffQualifications),
-    staffListPrice: sampleKeys('staff', staffListPrice),
+    staffQualifications: rekeyKeys(staffQualifications, seats),
+    staffListPrice: rekeyKeys(staffListPrice, seats),
     closedWeekday,
     opsConfig,
     absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null,
     blocks: day.blocksByDay.get(dayKey) ?? [],
-    sellSlots: clamp(sampleRows(sellSlots, null), lens),
-    decisions: rekeyRows(today ? decisions : [], seats, 'attribute'),
+    sellSlots: rekeyRows(sellSlots, seats, 'identity'),
+    decisions: servedDecisions(today ? decisions : [], seats),
     // SAMPLE contract: no register in core yet — neutral, never fixture money.
     // Named field by field, never a spread of the fixture plane, so a fixture
     // refund can never be subtracted from a live 純売上 (LIVE-PROOF M-A) and a
