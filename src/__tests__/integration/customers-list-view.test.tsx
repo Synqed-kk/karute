@@ -19,11 +19,14 @@ let mockSearch = ''
 jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(mockSearch),
 }))
+// One shared replace spy so a test can read what the URL writer wrote.
+const mockReplace = jest.fn()
 afterEach(() => {
   mockSearch = ''
+  mockReplace.mockClear()
 })
 jest.mock('@/i18n/navigation', () => ({
-  useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
   usePathname: () => '/customers',
   Link: ({ children }: { children: unknown }) => children,
 }))
@@ -777,6 +780,21 @@ describe('顧客 TAB LOCKED — one search row with the add circle, one staff co
     renderView()
     expect(screen.getByRole('button', { name: /^all$/ })).toHaveAttribute('aria-pressed', 'true')
     expect(desktopRows().map((r) => r.textContent)).toEqual(['Mine', 'Theirs'])
+  })
+
+  it('a departed staffer\'s link is written back WITHOUT s= — the URL agrees with 全スタッフ', () => {
+    // The writer reads the real address bar, so the link has to be there too:
+    // the writer must actively DROP s=, not merely never add it.
+    mockSearch = 's=gone-9'
+    window.history.replaceState(null, '', '/customers?s=gone-9')
+    try {
+      renderView()
+      expect(screen.getByRole('button', { name: /^all$/ })).toHaveAttribute('aria-pressed', 'true')
+      expect(mockReplace).toHaveBeenCalled()
+      for (const [url] of mockReplace.mock.calls) expect(String(url)).not.toMatch(/[?&]s=/)
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
   })
 
   it('no URL param: the remembered pick applies (karute:staffScope:customers:<viewer>)', () => {
