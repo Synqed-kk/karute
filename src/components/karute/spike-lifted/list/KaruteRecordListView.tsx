@@ -290,6 +290,9 @@ export function KaruteRecordListView({
   // debounce; the declarations sit up here with the rest of the store-scoped
   // state so the store-switch reset can reach them.
   const [revealCandidate, setRevealCandidate] = useState<NoKaruteCandidate | null>(null)
+  // Set when the reveal check itself could not run (Round 3 item 8) — the
+  // loadError idiom above, for the reveal row's slot.
+  const [revealError, setRevealError] = useState(false)
   const revealRequestId = useRef(0)
   // The loaded boundary persists as ?since=YYYY-MM-DD. Set ON TAP (via this
   // state, written by the URL effect below in the same commit) — never
@@ -762,6 +765,7 @@ export function KaruteRecordListView({
     setAnnouncement('')
     revealRequestId.current += 1
     setRevealCandidate(null)
+    setRevealError(false)
     // HISTORY DEPTH is per-store too (Greptile #784, final round). These MUST
     // land after rewindToFirstWindow() — it re-seeds restoreTarget with the
     // deepest goal, which is right for a purge and wrong here. "I had scrolled
@@ -1008,7 +1012,19 @@ export function KaruteRecordListView({
     const myRequestId = ++revealRequestId.current
     const result = await revealNoKaruteCustomer(q)
     if (myRequestId !== revealRequestId.current) return // superseded — drop it
-    setRevealCandidate('candidate' in result ? result.candidate : null)
+    if ('error' in result) {
+      // The check itself could not run — a core outage, a denial, a defect.
+      // Say so where the reveal row sits instead of settling to null, which
+      // reads exactly like "nobody matches" (lesson 111). The action's own
+      // text is never printed: three of its failure branches are English
+      // literals. No try/catch here: both doors settle (the web action's
+      // catch, the thin port's catch), so a throw would be a real defect.
+      setRevealCandidate(null)
+      setRevealError(true)
+      return
+    }
+    setRevealError(false)
+    setRevealCandidate(result.candidate)
   }, 300)
   useEffect(() => {
     // Bump + clear on EVERY change, synchronously, BEFORE (re)scheduling the
@@ -1021,6 +1037,7 @@ export function KaruteRecordListView({
     // fetch has fired yet.
     revealRequestId.current++
     setRevealCandidate(null)
+    setRevealError(false)
     const q = searchQuery.trim()
     if (!q) {
       fetchReveal.cancel()
@@ -1418,7 +1435,7 @@ export function KaruteRecordListView({
               {t('loadMoreFailed')}
             </p>
           </div>
-        ) : grouped.length === 0 && !revealCandidate ? (
+        ) : grouped.length === 0 && !revealCandidate && !revealError ? (
           <div className="px-6 py-12 text-center">
             <p className="text-sm font-medium text-foreground">{t('empty')}</p>
           </div>
@@ -1477,6 +1494,15 @@ export function KaruteRecordListView({
                   setNewKaruteOpen(true)
                 }}
               />
+            )}
+            {/* The reveal check could not run (Round 3 item 8): one honest
+             *  line in the row's slot, never the silent "no match". Like the
+             *  row, it holds the empty state off above — an outage must not
+             *  print as 「カルテはまだありません」 alone. */}
+            {revealError && (
+              <p role="alert" className="px-4 py-2.5 text-xs text-muted-foreground">
+                {t('revealFailed')}
+              </p>
             )}
           </>
         )}
