@@ -180,8 +180,10 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   // Business component and prove a click / an Escape. Judged on the importing
   // FILE's shape and the EXACT specifier: a `.test.ts`, a non-test `.tsx`, a
   // subfolder, `react-dom` itself, `react-dom/server`, `@testing-library/jest-dom`
-  // all stay offenders. Runtime Business files are not test files, so nothing
-  // shipped can reach these through the door. DESIGN-PRACTICE-DOOR.md §9's sibling.
+  // all stay offenders. Runtime Business files are not test files, and (below)
+  // may not import the test folder at all, so nothing shipped reaches these two
+  // packages through the door — directly or in two hops. DESIGN-PRACTICE-DOOR.md
+  // §9's sibling.
   const RENDER_TEST_FILE = /^src\/__tests__\/integration\/business\/[^/]+\.test\.tsx$/
   const RENDER_TEST_BARE = new Set(['react-dom/client', '@testing-library/react'])
 
@@ -203,6 +205,10 @@ describe('Business import isolation (phone-safety lock 3)', () => {
       if (ALLOWED_BARE.test(spec)) return null
       if (RENDER_TEST_FILE.test(fromFile) && RENDER_TEST_BARE.has(spec)) return null
       return 'bare package off the allowlist'
+    }
+    // Tests may import tests; runtime + e2e never import the test folder (a *.test.tsx may re-export the door).
+    if (target === 'src/__tests__' || target.startsWith('src/__tests__/')) {
+      if (!fromFile.startsWith('src/__tests__/')) return 'runtime file imports the test folder'
     }
     if (inTerritory(target)) return null // territory's own, root barrel included
     if (ALLOWED_TARGETS.includes(target)) return null
@@ -274,6 +280,8 @@ describe('Business import isolation (phone-safety lock 3)', () => {
 
   it('the rendered-test door: one folder, one file shape, two specifiers, bare only', () => {
     const BARE_OFF = 'bare package off the allowlist'
+    // Exact strings, never a prefix — that is what makes the order against the next/dist deny irrelevant.
+    expect([...RENDER_TEST_BARE]).toEqual(['react-dom/client', '@testing-library/react'])
     // A direct-child *.test.tsx: the two door specifiers pass, react is
     // unchanged, every neighbour specifier stays out, and a RESOLVED target
     // never rides the door (@/lib/staff is still judged as a target).
@@ -307,9 +315,54 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     const DIST_OFF = 'next/dist internals are not a public entry'
     expect(outwardOffense('next/dist/compiled/react-dom/client', data)).toBe(DIST_OFF)
     expect(outwardOffense('next/dist/compiled/react-dom/client', tsx)).toBe(DIST_OFF)
+    expect(outwardOffense('next/dist', data)).toBe(DIST_OFF)
     expect(outwardOffense('next/navigation', data)).toBeNull()
     expect(outwardOffense('next/link', data)).toBeNull()
     expect(outwardOffense('next/headers', data)).toBeNull()
+  })
+
+  it('the door is one hop: runtime and e2e never import the test folder', () => {
+    const TESTS_OFF = 'runtime file imports the test folder'
+    // A territory *.test.tsx may re-export the door's packages, so a runtime
+    // or e2e file importing it would reach them in two hops — shut, in every spelling.
+    const aTest = '@/__tests__/integration/business/sample-mark-disclosure.test'
+    expect(outwardOffense(aTest, 'src/business/components/SampleMark.tsx')).toBe(TESTS_OFF)
+    expect(outwardOffense(aTest, 'src/app/[locale]/(business)/business/today/TodayScreen.tsx')).toBe(TESTS_OFF)
+    const rel = '../../__tests__/integration/business/x.test'
+    expect(resolveSpecifier(rel, 'src/business/lib/data.ts')).toBe('src/__tests__/integration/business/x.test')
+    expect(outwardOffense(rel, 'src/business/lib/data.ts')).toBe(TESTS_OFF)
+    expect(outwardOffense('../../src/__tests__/integration/business/x.test', 'e2e/business/spec.ts')).toBe(TESTS_OFF)
+    // Test files still import each other and their helpers.
+    expect(outwardOffense('./sample-mark-disclosure.test', 'src/__tests__/integration/business/other.test.ts')).toBeNull()
+    expect(
+      outwardOffense('@/__tests__/integration/business/fixtures-helper', 'src/__tests__/integration/business/x.test.tsx'),
+    ).toBeNull()
+  })
+
+  it('no import form captures a specifier that spans a line', () => {
+    // The header's promise ("every specifier group forbids newlines"), pinned
+    // per form: one fixture each with a newline INSIDE the specifier.
+    const spanning: Record<string, string> = {
+      'static from, single-quote': "import x from '@/lib\n/staff'",
+      'static from, double-quote': 'import x from "@/lib\n/staff"',
+      'side-effect import': "import '@/lib\n/staff'",
+      'dynamic import()': "import('@/lib\n/staff')",
+      'require()': "require('@/lib\n/staff')",
+      'jest.requireActual()': "jest.requireActual('@/lib\n/staff')",
+      'jest.requireMock()': 'jest.requireMock("@/lib\n/staff")',
+    }
+    // Every form has its fixture: a new form without one fails here first.
+    expect(IMPORT_FORMS.map(([form]) => form).sort()).toEqual(Object.keys(spanning).sort())
+    const src = Object.values(spanning).join('\n')
+    const captures = Object.fromEntries(
+      IMPORT_FORMS.map(([form, re]) => {
+        const got: string[] = []
+        re.lastIndex = 0
+        for (let m = re.exec(src); m; m = re.exec(src)) got.push(m[1])
+        return [form, got]
+      }),
+    )
+    expect(captures).toEqual(Object.fromEntries(IMPORT_FORMS.map(([form]) => [form, []])))
   })
 
   it('jest.requireActual / jest.requireMock are import forms the scanner reads', () => {
