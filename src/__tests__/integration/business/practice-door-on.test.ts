@@ -1280,4 +1280,37 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
     }
   })
+
+  // ⚖ PR-4c MY-1 — the reservation read's all-stores view, with an override PRESENT (S15 verify-final survivor: only
+  // the day and analytics reads were pinned for viewAll-with-override). Both fixture planes carry their own values,
+  // so a viewAll routed through ANY store's policy (横浜's, or the fallback's) serves an override and goes red.
+  // `readReservationPlanes` serves ONE of the three singletons — 営業時間 — so that is the key asserted.
+  it('§v9 V9-2 — readReservationPlanes(viewAll) keeps the shared 営業時間 while every fixture plane overrides it; each store serves its own plane\'s', async () => {
+    const hoursA = { open: 11 * 60, close: 19 * 60 }
+    const hoursB = { open: 9 * 60, close: 20 * 60 }
+    SINGLETONS_BY_FIXTURE_STORE[STORE_A] = { closedWeekday: 4, operatingHours: hoursA, opsConfig: { ...opsConfig } }
+    SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: 3, operatingHours: hoursB, opsConfig: { ...opsConfig } }
+    try {
+      expect((await data.readReservationPlanes(VIEW_ALL)).operatingHours).toBe(operatingHours)
+      expect((await data.readReservationPlanes(STORE.yokohama)).operatingHours).toBe(hoursB)
+      expect((await data.readReservationPlanes(STORE.tokyo)).operatingHours).toBe(hoursA)
+    } finally {
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_A]
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
+    }
+  })
+
+  // ⚖ PR-4c MY-2 — 定休日 0 (日曜) is a value, never an absence: the per-key fallback is `??`, never `||` (S15
+  // verify-final survivor). The two reads that serve 定休日 (the day, analytics) both carry the 0.
+  it('§v9 — closedWeekday 0 survives the per-key fallback: 横浜 is served 0 by the day and analytics reads; 東京 keeps the shared 1', async () => {
+    SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: 0 }
+    try {
+      expect((await data.readDayPlanes(STORE.yokohama, TODAY)).closedWeekday).toBe(0)
+      expect((await data.readAnalyticsPlanes(STORE.yokohama)).closedWeekday).toBe(0)
+      expect((await data.readDayPlanes(STORE.tokyo, TODAY)).closedWeekday).toBe(closedWeekday)
+      expect(closedWeekday).toBe(1)
+    } finally {
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
+    }
+  })
 })
