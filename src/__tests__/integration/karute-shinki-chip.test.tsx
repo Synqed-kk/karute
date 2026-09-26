@@ -300,3 +300,78 @@ describe('the ✓ glide (switch ON)', () => {
     expect(staffWrap.style.willChange).toBe('')
   })
 })
+
+// S42 fix round — three compositions the first round left untested. Each pins
+// "the count names the 新規 rows actually on screen" in a state the earlier
+// tests never reached.
+describe('switch ON — a discarded 新規 row · a degraded read (S42)', () => {
+  beforeEach(() => {
+    mockSwitches.shinkiChip = true
+  })
+
+  /** The 新規 rows of `items` that are rendered right now. */
+  const renderedShinki = (items: KaruteListItem[]) =>
+    items.filter((i) => i.companyFirstVisit === true && screen.queryByText(i.customerName) !== null)
+      .length
+
+  // The contract (PKT-S41-SHINKI-BUILD.md) is silent on discarded rows: STAGE
+  // 2 item 3 says the chip "composes with the state tab, staff scope, search
+  // and month mode (AND)", and THE CONTRACT says "Nothing else in the app
+  // interprets the field". So the STATE PILL decides discarded visibility —
+  // the register its chip-row siblings (month · 担当) already follow: すべて
+  // shows discarded rows (its number is active + discarded), the active-only
+  // pills drop them, 破棄済み keeps only them. The chip adds no rule of its own.
+  it('a DISCARDED 新規 row counts and shows under すべて; the state pill, not the chip, decides', () => {
+    const d1 = row('d1', true, { isDiscarded: true, customerName: '破棄 新規' })
+    const items = [...ITEMS, d1]
+    renderList({ items, total: ITEMS.length, discardedCount: 1 })
+    expect(shinkiCount()).toBe(4) // n1 · n2 · n3 · d1
+    expect(shinkiCount()).toBe(renderedShinki(items))
+    fireEvent.click(shinkiChip())
+    expect(visibleNames()).toEqual(['顧客 n1', '顧客 n2', '顧客 n3'])
+    expect(screen.getByText('破棄 新規')).toBeInTheDocument()
+    expect(shinkiCount()).toBe(renderedShinki(items))
+    // 今週 is active-only (every ITEMS row but `old` is today): d1 drops out.
+    fireEvent.click(screen.getByRole('button', { name: /^filters\.thisWeek/ }))
+    expect(shinkiCount()).toBe(3)
+    expect(screen.queryByText('破棄 新規')).not.toBeInTheDocument()
+    expect(shinkiCount()).toBe(renderedShinki(items))
+    // 破棄済み keeps only discarded rows: d1 is the one 新規 row left.
+    fireEvent.click(screen.getByRole('button', { name: /^filters\.discarded/ }))
+    expect(shinkiCount()).toBe(1)
+    expect(screen.getByText('破棄 新規')).toBeInTheDocument()
+    expect(shinkiCount()).toBe(renderedShinki(items))
+  })
+
+  it('a DEGRADED read (the latched rows stay on screen): the count equals the rendered 新規 rows', () => {
+    const { rerender } = renderList()
+    rerender(
+      <KaruteRecordListView
+        items={[]}
+        monthCount={5}
+        total={null}
+        initialWindowStart={null}
+        initialHasMore={false}
+        staffList={STAFF}
+        currentStaffId="staff-1"
+        customerOptions={[]}
+      />,
+    )
+    // Degraded for real: the failure line is up, the last good rows stay.
+    expect(screen.getByRole('alert')).toHaveTextContent('loadMoreFailed')
+    expect(visibleNames()).toEqual(ITEMS.map((i) => i.customerName))
+    expect(shinkiCount()).toBe(3)
+    expect(shinkiCount()).toBe(renderedShinki(ITEMS))
+    fireEvent.click(shinkiChip())
+    expect(visibleNames()).toEqual(['顧客 n1', '顧客 n2', '顧客 n3'])
+    expect(shinkiCount()).toBe(renderedShinki(ITEMS))
+  })
+
+  it('a first mount that is ALREADY degraded: the count equals the rendered 新規 rows', () => {
+    renderList({ total: null, initialWindowStart: null })
+    expect(shinkiCount()).toBe(renderedShinki(ITEMS))
+    fireEvent.click(shinkiChip())
+    expect(shinkiCount()).toBe(renderedShinki(ITEMS))
+    expect(visibleNames()).toEqual(['顧客 n1', '顧客 n2', '顧客 n3'])
+  })
+})
