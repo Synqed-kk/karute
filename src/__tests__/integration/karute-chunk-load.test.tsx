@@ -391,9 +391,10 @@ describe('degraded server window keeps what is already on screen (fix round 2)',
     )
     expect(screen.getByText('佐藤 次郎')).toBeInTheDocument()
     expect(screen.queryByText('loadMoreFailed')).not.toBeInTheDocument()
-    // The numbers come back on the controls (案C+).
+    // The numbers come back on the controls (案C+) — すべて; the month chip
+    // names the month only (⚖ 月の件数 = オフ, S44).
     expect(screen.getByRole('button', { name: /^filters\.all/ }).textContent).toBe('filters.all9')
-    expect(screen.getByRole('button', { name: /^\d{4}年\d{1,2}月 2$/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })).toBeInTheDocument()
   })
 
   it('a genuinely EMPTY store is NOT degraded — normal empty state, no failure line', () => {
@@ -406,9 +407,10 @@ describe('degraded server window keeps what is already on screen (fix round 2)',
     })
     expect(screen.getByText('empty')).toBeInTheDocument()
     expect(screen.queryByText('loadMoreFailed')).not.toBeInTheDocument()
-    // Real zeros ARE shown numbers (案C+: on すべて and the month chip).
+    // Real zeros ARE shown numbers (案C+: on すべて; the month chip names the
+    // month only since ⚖ 月の件数 = オフ, S44).
     expect(screen.getByRole('button', { name: /^filters\.all/ }).textContent).toBe('filters.all0')
-    expect(screen.getByRole('button', { name: /^\d{4}年\d{1,2}月 0$/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })).toBeInTheDocument()
   })
 })
 

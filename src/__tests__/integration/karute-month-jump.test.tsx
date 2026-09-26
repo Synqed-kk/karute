@@ -122,9 +122,9 @@ const listEl = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>
 const renderList = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>> = {}) =>
   render(listEl(props))
 
-/** The chip: the only <button> whose accessible name is 「YYYY年M月」, plus
- *  the 今月 count it carries since 案C+ in the default view (the month rows
- *  inside the panel are role="option", not "button"). */
+/** The chip: the only <button> whose accessible name is 「YYYY年M月」 (the
+ *  month rows inside the panel are role="option", not "button"). Since
+ *  ⚖ カルテ TAB LOCKED 9/27 01:56 (月の件数 = オフ) it names the month only. */
 const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月( \d+)?$/ })
 const openPanel = () => {
   fireEvent.click(monthChip())
@@ -164,20 +164,19 @@ beforeEach(() => {
 })
 
 describe('the month chip', () => {
-  it('labels itself with the CURRENT month while nothing is picked', () => {
+  it('labels itself with the CURRENT month while nothing is picked — the name only', () => {
     renderList()
-    // …followed by the 今月 count (案C+: the folded status line's number).
-    expect(monthChip().textContent).toBe(`${CURRENT_MONTH_LABEL}2`)
+    // ⚖ 月の件数 = オフ (S44): never a count on the month chip, even with a
+    // 今月 number in hand (monthCount 2 here).
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
   })
 
-  it('drops the count while a past month is picked, and when the 今月 probe failed (案C+)', async () => {
+  it('carries no count in any state — default, failed probe, past month picked', async () => {
     const { unmount } = renderList({ monthCount: null })
-    // A failed probe is never shown as a number — the label alone.
     expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
     unmount()
     renderList()
     await jumpToJanuary()
-    // 「今月」 is not the month the chip now names.
     expect(monthChip().textContent).toBe('2026年1月')
   })
 
@@ -352,7 +351,7 @@ describe('leaving month view', () => {
     // Back in the default window: the accumulated rows are on screen again,
     // straight out of state — no refetch.
     expect(loadKaruteWindow).toHaveBeenCalledTimes(3)
-    expect(monthChip().textContent).toBe(`${CURRENT_MONTH_LABEL}2`)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
     expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
     // …and the tapped filter is the one now in force: every seeded row is
     // aiStatus 'summarized', so 下書き shows none of them while the pills
@@ -376,7 +375,7 @@ describe('leaving month view', () => {
     // fetched as a month (that would strip the counts and the button off a
     // screen the user thinks they just came back to).
     expect(loadKaruteWindow).toHaveBeenCalledTimes(3)
-    expect(monthChip().textContent).toBe(`${CURRENT_MONTH_LABEL}2`)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
     expect(screen.getAllByText('山田 花子')).toHaveLength(2)
     expect(pill('all').textContent).toBe('filters.all9')
     expect(loadMoreQuery()).toBeInTheDocument()
@@ -492,7 +491,7 @@ describe('store switch (Greptile PR #784)', () => {
     // Store A's month rows are gone, and the view is back on the default
     // window the new store's props carry.
     expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
-    expect(monthChip().textContent).toBe(`${CURRENT_MONTH_LABEL}2`)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
     // すべて is the STORE total since PR-2c, not a tally of the rows on screen
     // — so this now asserts something STRONGER than it did when it read 3: the
     // pill is showing the NEW store's total, which is precisely what this
@@ -549,8 +548,6 @@ describe('store switch (Greptile PR #784)', () => {
       // Store A's rows…
       expect(frame).not.toContain('一月 太郎')
       expect(frame).not.toContain('山田 花子')
-      // …its 今月 (案C+: on the month chip now — store A's monthCount 2)…
-      expect(frame).not.toContain(`${CURRENT_MONTH_LABEL}2`)
       // …the すべて PILL, which reads that same store total since PR-2c and so
       // became a second surface this frame guarantee has to cover (the status
       // line's `"total":9` check above cannot see it — the pill renders a bare
@@ -566,7 +563,7 @@ describe('store switch (Greptile PR #784)', () => {
     // asserted free of store A's rows, so a stale 今週 is unreachable.
     // Store B's own truth is what landed.
     expect(pill('all').textContent).toBe('filters.all3')
-    expect(monthChip().textContent).toBe(`${CURRENT_MONTH_LABEL}1`)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
   })
 
   it('resets the picker floor — store A\'s depth never stretches store B\'s months', async () => {

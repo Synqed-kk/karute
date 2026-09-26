@@ -1,11 +1,12 @@
 /** @jest-environment jsdom */
 /**
- * 案C+ 「三段に畳む」 on the カルテ tab (⚖ Liam 9/26 「案C+ Looks good.」):
- * search (＋ at its end) → state pills → ONE chip row [month · 担当 ▾] → list.
+ * 案C+ 「三段に畳む」 on the カルテ tab (⚖ Liam 9/26 「案C+ Looks good.」), row
+ * order since ⚖ カルテ TAB LOCKED 9/27 01:56: search (＋ at its end) → ONE
+ * chip row [month · 担当 ▾] → the words row → list (the S44 block at the end).
  * The status line and the 自分/全スタッフ row fold away. What this pins:
  *   - no status line renders in ANY state (the i18n keys are gone too);
- *   - its numbers live on the controls — 今月 on the month chip, 全件 on
- *     すべて — under the SAME honesty rules the line had (Greptile PR #775
+ *   - its numbers live on the controls — 全件 on すべて (the month chip's 今月
+ *     was retired by ⚖ 月の件数 = オフ, S44) — under the SAME honesty rules the line had (Greptile PR #775
  *     round 2: a failed count is never shown as a number, a failed main read
  *     shows no numbers at all);
  *   - the 担当 dropdown chip carries today's CustomersStaffFilter keys
@@ -94,8 +95,7 @@ const renderList = (props: Partial<React.ComponentProps<typeof KaruteRecordListV
     />,
   )
 
-/** The month chip — its accessible name is 「YYYY年M月」 plus, when shown, the
- *  count (dom-accessibility-api joins the two spans with a space). */
+/** The month chip — its accessible name is 「YYYY年M月」 (no count since S44). */
 const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月( \d+)?$/ })
 const allPill = () => screen.getByRole('button', { name: /^filters\.all/ })
 /** The 担当 dropdown chip — names the current pick ('all' / 'self' echo, or a
@@ -133,9 +133,9 @@ describe('the status line is folded away (案C+)', () => {
 })
 
 describe('the folded numbers live on the controls, with the line’s honesty rules', () => {
-  it('今月 → the month chip; 全件 → すべて', () => {
+  it('全件 → すべて; the month chip names the month only (⚖ 月の件数 = オフ, S44)', () => {
     renderList()
-    expect(monthChip()).toHaveAccessibleName(/ 26$/)
+    expect(monthChip()).toHaveAccessibleName(/月$/)
     expect(allPill().textContent).toBe('filters.all312')
   })
 
@@ -150,9 +150,9 @@ describe('the folded numbers live on the controls, with the line’s honesty rul
     expect(allPill().textContent).toBe('filters.all312')
   })
 
-  it('a real 0 IS printed', () => {
+  it('a real 0 still prints no month count — the chip never carries one', () => {
     renderList({ monthCount: 0 })
-    expect(monthChip()).toHaveAccessibleName(/ 0$/)
+    expect(monthChip()).toHaveAccessibleName(/月$/)
   })
 
   it('a failed MAIN read prints no numbers at all, even with a healthy 今月 probe', () => {
@@ -374,5 +374,93 @@ describe('the ＋ (manual entry) at the end of the search row', () => {
     const last = dialogProps[dialogProps.length - 1]
     expect(last.open).toBe(true)
     expect(last.preselectedCustomerId).toBeNull()
+  })
+})
+
+// ── ⚖ カルテ TAB LOCKED (Liam 9/27 01:56) — S44 ────────────────────────────
+// 行の順 = チップが上: search → the chip row [month · 担当] → the words row →
+// list. 選択 = 太字＋青＋うすい下地, no ✓. 月の件数 = オフ. The remembered pick
+// (⚖ STAFF CONTROL 04:5x): URL > remembered > 全スタッフ, per person per tab.
+describe('カルテ TAB LOCKED — row order, the words row, the remembered pick', () => {
+  beforeEach(() => window.localStorage.clear())
+
+  it('the chip row sits ABOVE the words row, and the list follows the words', () => {
+    const { container } = renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    const chips = container.querySelector('[data-chip-row]')!
+    const words = container.querySelector('[data-words-row]')!
+    expect(chips).toBeTruthy()
+    expect(words).toBeTruthy()
+    // DOCUMENT_POSITION_FOLLOWING: the words row comes after the chip row.
+    expect(chips.compareDocumentPosition(words) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // The chip row holds the month chip and the 担当 chip — nothing else.
+    expect(within(chips as HTMLElement).getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })).toBeTruthy()
+    expect(within(chips as HTMLElement).getByRole('button', { name: /^all$/ })).toBeTruthy()
+    expect(words.getAttribute('data-words-row')).toBe('words')
+  })
+
+  it('the chosen word = bold + blue + a light blue wash, and no ✓ anywhere on the row', () => {
+    const { container } = renderList()
+    const chosen = allPill()
+    expect(chosen).toHaveAttribute('aria-pressed', 'true')
+    expect(chosen.className).toContain('font-semibold')
+    expect(chosen.className).toContain('text-primary')
+    expect(chosen.className).toContain('bg-primary/8')
+    expect(container.querySelector('[data-words-row] svg')).toBeNull()
+  })
+
+  it('step B keeps counts on the urgent words only (AI補完待ち / 下書き)', () => {
+    const { container } = renderList({
+      items: [row('p1', { aiStatus: 'pending' }), row('d1', { aiStatus: 'draft' }), row('s1')],
+    })
+    const urgent = [...container.querySelectorAll('[data-words-row] [data-count="urgent"]')]
+    const plain = [...container.querySelectorAll('[data-words-row] [data-count="plain"]')]
+    expect(urgent.map((e) => e.closest('button')!.textContent)).toEqual([
+      'filters.aiPending1',
+      'filters.draft1',
+    ])
+    // Non-urgent counts carry the step-B class (hidden below the breakpoint).
+    expect(plain.length).toBeGreaterThan(0)
+    for (const e of plain) expect(e.className).toMatch(/max-\[\d+px\]:hidden/)
+    for (const e of urgent) expect(e.className).not.toMatch(/:hidden/)
+  })
+
+  it('no URL param: the remembered pick applies (karute:staffScope:records:<viewer>)', () => {
+    window.localStorage.setItem('karute:staffScope:records:staff-1', 'staff-2')
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    expect(staffChip(/鈴木 花子/)).toBeInTheDocument()
+    expect(screen.queryByText('顧客 a1')).not.toBeInTheDocument()
+    expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+  })
+
+  it('an explicit URL param wins over the remembered pick', () => {
+    window.localStorage.setItem('karute:staffScope:records:staff-1', 'staff-2')
+    searchParams = new URLSearchParams('s=self')
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    expect(staffChip(/^self$/)).toBeInTheDocument()
+  })
+
+  it('a remembered staffer who left the roster reads 全スタッフ — label and list together', () => {
+    window.localStorage.setItem('karute:staffScope:records:staff-1', 'staff-9')
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    expect(staffChip()).toHaveTextContent(/^all$/)
+    expect(screen.getByText('顧客 a1')).toBeInTheDocument()
+    expect(screen.getByText('他人 二郎')).toBeInTheDocument()
+  })
+
+  it('a pick is remembered for this viewer, on this tab only', () => {
+    renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
+    fireEvent.click(staffChip())
+    fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: 'self' }))
+    expect(window.localStorage.getItem('karute:staffScope:records:staff-1')).toBe('self')
+    expect(window.localStorage.getItem('karute:staffScope:customers:staff-1')).toBeNull()
+  })
+
+  it('a viewer with no staff profile: nothing remembered, nothing written', () => {
+    window.localStorage.setItem('karute:staffScope:records:null', 'staff-2')
+    renderList({ staffList: STAFF, currentStaffId: null })
+    expect(staffChip()).toHaveTextContent(/^all$/)
+    fireEvent.click(staffChip())
+    fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: '鈴木 花子' }))
+    expect(Object.keys(window.localStorage).filter((k) => k !== 'karute:staffScope:records:null')).toEqual([])
   })
 })

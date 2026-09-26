@@ -72,7 +72,6 @@ export function KaruteMonthSelector({
   selected,
   onSelect,
   busy = false,
-  count = null,
 }: {
   /** 'YYYY-MM' — the JST calendar month containing today. Top of the list, and
    *  the chip's label while no other month is picked (the default view IS this
@@ -86,11 +85,6 @@ export function KaruteMonthSelector({
   onSelect: (month: string) => void
   /** A month's rows are in flight — announced on the chip, not as a spinner. */
   busy?: boolean
-  /** 案C+ (⚖ Liam 9/26): the folded status line's 今月 number rides on the
-   *  chip, printed the way the pills print theirs. null = no number — the
-   *  caller passes null whenever that number is not true for what the chip
-   *  names (a past month picked, a failed probe), never a stand-in 0. */
-  count?: number | null
 }) {
   const t = useTranslations('karute.recordList.month')
   const locale = useLocale()
@@ -201,10 +195,9 @@ export function KaruteMonthSelector({
         className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
       >
         <Calendar size={13} className="shrink-0 text-muted-foreground" aria-hidden />
+        {/* The month's NAME only, never a count (⚖ カルテ TAB LOCKED 9/27
+         *  01:56 月の件数 = オフ). */}
         <span className="tabular-nums">{formatMonth(shown)}</span>
-        {count !== null && (
-          <span className="text-[10px] tabular-nums text-muted-foreground">{count}</span>
-        )}
         <ChevronDown
           size={13}
           className={cn(
