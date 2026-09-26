@@ -40,7 +40,7 @@ import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, rekeyKeys, rekeyRows, sampleFor,
   sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, STORE_PLANE_OVERRIDES, storeSample,
 } from '@/business/lib/practice-door/sample-facade'
-import { liveIdOf, samplePolicyFor } from '@/business/lib/practice-door/registry'
+import { liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
 import { customers, operator, staff as fxStaff, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import {
   absence as fxAbsence, decisions as fxDecisions, defaultKindOf, register, sellSlots as fxSlots, shifts as fxShifts,
@@ -972,6 +972,17 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(rekeyRows(fxSlots, [at(STORE.tokyo, four, ['room-1'])], 'identity')).toEqual(sampleRows(fxSlots, null)) // the twin: untouched
   })
 
+  it('P3 — a borrowed room\'s position counts only the BORROWED store\'s fixture rooms (STORE_B\'s ベッド1 is its first, not the 4th)', () => {
+    const lenderB = 'b0b0b0b0-0000-4000-8000-000000000004' // a store borrowing 横浜's plane (none does on the recorded world)
+    STORE_SAMPLE_POLICY[lenderB] = { kind: 'twin', fixtureStoreId: STORE_B }
+    try {
+      expect(rekeyRows([{ id: 'x', store_id: STORE_B, staff_id: 'p-01', resource_id: 'bed-04' }], [at(lenderB, ['s0'], ['room-1'])], 'identity'))
+        .toEqual([{ id: 'x~b0b0b0b0', store_id: lenderB, staff_id: 's0', resource_id: 'room-1' }])
+    } finally {
+      delete STORE_SAMPLE_POLICY[lenderB]
+    }
+  })
+
   it('R9 — a borrowed row\'s free text names the SEATED person, by the row\'s own seat rule, in one pass; the twin\'s text is untouched', () => {
     const rows = rekeyRows(fxDecisions, [at(STORE.devSalon, SEAT3)], 'attribute')
     expect(rows[0].detail).toBe('名 s0欠勤 / 名 s0 + ベッド1が成立') // はなこ p-01 → seat 0; しろう p-04 → 3 mod 3 = 0
@@ -987,6 +998,26 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     // an identity row naming a person with no seat drops, like its own person would
     expect(rekeyRows([{ ...fxAbsence, reason: '見本 みらい' }], [at(STORE.devSalon, ['s0'])], 'identity')).toEqual([])
     expect(rekeyRows(fxDecisions, [at(STORE.tokyo, SEAT3)], 'attribute').map((d) => d.detail)).toEqual(fxDecisions.map((d) => d.detail))
+  })
+
+  it('P1 — a fixture name that another one prefixes is replaced WHOLE (longest first): ベッド12 → the 4th room, never 〈ベッド1\'s room〉2', async () => {
+    // FIXTURE_NAME is built once at load, so the facade is loaded fresh AFTER the room joins the fixture.
+    await jest.isolateModulesAsync(async () => {
+      const today = await import('@/business/lib/fixtures-today')
+      today.resources.push({ id: 'bed-12', store_id: STORE_A, kind_id: 'k-a', name: 'ベッド12', note: '', cleanup_minutes: 0, room_class: 'standard' })
+      try {
+        const facade = await import('@/business/lib/practice-door/sample-facade')
+        const [row] = facade.rekeyRows([{ id: 'x', store_id: STORE_A, detail: 'ベッド12を確保' }], [at(STORE.devSalon, SEAT3, ['r0', 'r1', 'r2', 'r3'])], 'attribute')
+        expect(row.detail).toBe('名 r3を確保')
+      } finally {
+        today.resources.pop()
+      }
+    })
+  })
+
+  it('P2 — a row\'s own id and its slot pointer are never read as free text; a nested text field is', () => {
+    const [row] = rekeyRows([{ id: 'dec-見本 はなこ', store_id: STORE_A, sell_slot_id: 'slot-見本 しろう', n: { note: '見本 はなこ' } }], [at(STORE.devSalon, SEAT3)], 'attribute')
+    expect(row).toEqual({ id: 'dec-見本 はなこ~5a171878', store_id: STORE.devSalon, sell_slot_id: 'slot-見本 しろう~5a171878', n: { note: '名 s0' } })
   })
 
   it('decision person attributes wrap (n mod seats), null on an empty roster', () => {
@@ -1129,9 +1160,20 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00')])).toEqual(both) // adjacent, no overlap
     expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00')])).toEqual({ slots: ['slot-02~5a171878'], cards: [] })
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00', { occupied_until: jst('16:10') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // core's cleanup
+    expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:30', { occupied_until: jst('15:30') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // P5 — an earlier snapshot never shortens the span
     expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'CANCELLED' })])).toEqual(both)
+    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'NO_SHOW' })])).toEqual(both) // P4 — NO_SHOW is core's tombstone too
     expect(await day([live(STORE.devSalon, ROOM_A, '18:00', '18:30', { kind: 'BLOCK', customer_id: null })])).toEqual({ slots: ['slot-01~5a171878'], cards: ['dec-capacity~5a171878'] })
+    expect(await day([live(STORE.devSalon, ROOM_A, '16:00', '17:00')])).toEqual(both) // P6 — slot-01's exact window on ANOTHER room: 個室B stays free
     expect(await day([live(STORE.tokyo, 'bed-02', '16:00', '17:00')])).toEqual(both) // an exact twin's room is never checked
+    // P7 — a block begun the day BEFORE runs from 00:00 on the displayed day: a 00:00–01:00 slot on 個室B is not served.
+    fxSlots.push({ ...fxSlots[0], id: 'slot-night', start: 0, end: 60 })
+    try {
+      const night = { ...live(STORE.devSalon, ROOM_B, '00:00', '00:30'), id: '00000000-0000-4000-8000-0000000000e7', starts_at: new Date('2026-09-13T23:00:00+09:00').toISOString() }
+      expect(await day([night])).toEqual(both)
+    } finally {
+      fxSlots.pop()
+    }
   })
 
   it('R6 — every visible store counts exactly the open decisions it is served', async () => {
