@@ -198,6 +198,8 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   function outwardOffense(spec: string, fromFile: string): string | null {
     const target = resolveSpecifier(spec, fromFile)
     if (target === null) {
+      // `next/dist/compiled/react-dom/client` was a hole through `^next/`.
+      if (/^next\/dist(?:\/|$)/.test(spec)) return 'next/dist internals are not a public entry'
       if (ALLOWED_BARE.test(spec)) return null
       if (RENDER_TEST_FILE.test(fromFile) && RENDER_TEST_BARE.has(spec)) return null
       return 'bare package off the allowlist'
@@ -299,6 +301,15 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     const allOff = Object.fromEntries(shut.map((f) => [f, BARE_OFF]))
     expect(verdicts('react-dom/client')).toEqual(allOff)
     expect(verdicts('@testing-library/react')).toEqual(allOff)
+    // next/dist internals are shut everywhere — from runtime code AND from the
+    // door's own file shape — while the public next/* entries stay open.
+    const data = 'src/business/lib/data.ts'
+    const DIST_OFF = 'next/dist internals are not a public entry'
+    expect(outwardOffense('next/dist/compiled/react-dom/client', data)).toBe(DIST_OFF)
+    expect(outwardOffense('next/dist/compiled/react-dom/client', tsx)).toBe(DIST_OFF)
+    expect(outwardOffense('next/navigation', data)).toBeNull()
+    expect(outwardOffense('next/link', data)).toBeNull()
+    expect(outwardOffense('next/headers', data)).toBeNull()
   })
 
   it('jest.requireActual / jest.requireMock are import forms the scanner reads', () => {
