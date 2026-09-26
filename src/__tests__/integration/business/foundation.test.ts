@@ -473,6 +473,10 @@ describe('the fixture data door', () => {
         '@/business/lib/admission',
         '@/business/lib/clock',
         '@/business/lib/data',
+        // ⚖ PR-3 fix round 1 (Greptile P1) — `fixtures-settings` (the `rulebook`) + `settings` (`accessFor`,
+        // `gateOf`, `sectionById`) join for ONE boolean, `canOpenLegendSettings`: the 設定 room's own gate,
+        // asked with the room's own inputs (settings-props.ts), never a second reading of the rule. No data read.
+        '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-today',
         // PR-2: the per-store SAMPLE words read (`storeSample`, never a throw on a live uuid).
         '@/business/lib/practice-door/sample-facade',
@@ -480,6 +484,7 @@ describe('the fixture data door', () => {
         // under today/. `resourceWordsFor`/`chromeWords` live here and
         // nowhere else in this directory (the resource-words census's C5 pin).
         '@/business/lib/resource-words',
+        '@/business/lib/settings',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [

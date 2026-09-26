@@ -7956,6 +7956,22 @@ describe('BATCH-10b X4 — the two copy items', () => {
     expect([...ja.today.legend.colorsChangeAt].length).toBe(15)
   })
 
+  it('⚖ PR-3 fix round 1 (Greptile P1) — both 設定 chips are drawn only for a reader the room admits there', () => {
+    // ONE condition, two chips. A reader whose 設定 gate is shut is opened on another section with the
+    // fragment dropped, so the link is not drawn at all — hidden, never a greyed or 準備中 chip.
+    const GUARD = "{props.canOpenLegendSettings && <Link className=\"chip\" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>}"
+    const COLORS = "{props.canOpenLegendSettings && <Link className=\"chip\" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>}"
+    expect(SRC).toContain(GUARD)
+    expect(SRC).toContain(COLORS)
+    // …and neither link is drawn anywhere else, unconditionally.
+    expect(SRC.split('href={settingsHref(').length - 1).toBe(2)
+    // …while the two sentences beside them stay for everyone.
+    expect(SRC).toContain('<span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>')
+    expect(SRC).toContain('<b>左端の色＝予約カテゴリー</b>')
+    // The flag is the server's answer, a plain boolean (page.tsx asks the room's own gate — settings.test.ts).
+    expect(SRC).toContain('  canOpenLegendSettings: boolean\n')
+  })
+
   it('sweep rider (ii) — the two advisory grammars are two engine FACTS, not one in two voices', () => {
     // Investigated before touching either, per the packet. They come from
     // different engine verdicts, and the difference is the whole point:
