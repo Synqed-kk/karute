@@ -30,9 +30,9 @@
  *
  *  `block` (PR-3 of 予約の色分け) lands ON one block of that section: the room
  *  renders every block as `st-blk-<block id>` (SettingsScreen's `Block`),
- *  the same anchor its jump list scrolls to, with the sticky-topbar
- *  `scroll-margin-top` already on `.st-block`. A fragment, so the page reader is
- *  unchanged. */
+ *  the same anchor its jump list scrolls to, cleared now by the page
+ *  scroller's `scroll-padding-top` (settings.css's `html:has(.biz .page.pg-settings)`
+ *  rule), not a per-block margin. A fragment, so the page reader is unchanged. */
 export function settingsHref(locale: string, store: string | null, section?: string, block?: string): string {
   const q = new URLSearchParams()
   if (section) q.set('section', section)

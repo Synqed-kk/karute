@@ -40,9 +40,11 @@ import { operator } from '@/business/lib/fixtures'
 import { rulebook } from '@/business/lib/fixtures-settings'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE } from '@/business/lib/booking-colors'
-import { landingBlockOf, landOnBlock, sameBookingColors, sendBookingColors } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
+import { jumpAnchorsOf, landingBlockOf, landOnBlock, sameBookingColors, sendBookingColors } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
+import { STORE_POLICY_ANCHORS } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
 import {
   accessFor,
+  BOOKING_GUARD_ID,
   blockingError,
   effectiveCeiling,
   effectiveLock,
@@ -1357,6 +1359,39 @@ describe('a link that names a block lands ON it — scroll + caret (Greptile P2,
     expect(land('#st-blk-nope', LANG)).toBeNull()
     expect(land('#lang.colors', LANG)).toBeNull()
     expect(land('', LANG)).toBeNull()
+    expect(scrolled).toEqual([])
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('⚖ R-S42-7 — 予約と確保\'s two anchors land through the jump list\'s OWN inventory, not the section\'s blocks', () => {
+    // 予約と確保's DOM as StorePolicySection renders it: プリセット = section + h3 (tabIndex -1), 詳細設定 =
+    // div + an open <details> whose <summary> is the heading (advOpen starts true).
+    document.body.innerHTML =
+      '<section id="st-blk-bg.presets" aria-labelledby="st-blkh-bg.presets"><div class="st-sec-h"><h3 id="st-blkh-bg.presets" tabindex="-1">プリセット</h3></div></section>' +
+      '<div class="st-col-adv" id="st-blk-bg.adv"><details class="st-adv" open><summary id="st-blkh-bg.adv">詳細設定</summary></details></div>'
+    // The section's own blocks are [] (settings-props.ts bookingGuard) — what the landing read before: nowhere.
+    const guardBlocks: ReadonlyArray<{ id: string }> = []
+    expect(landingBlockOf('#st-blk-bg.adv', guardBlocks)).toBeNull()
+    // The ONE inventory the jump list, the spy and the landing now share, and the room's effect reads it.
+    const anchors = jumpAnchorsOf(BOOKING_GUARD_ID, guardBlocks)
+    expect(anchors).toBe(STORE_POLICY_ANCHORS)
+    expect(jumpAnchorsOf('language-display', LANG)).toBe(LANG)
+    expect(SRC_CODE).toContain('const anchors = useMemo(() => jumpAnchorsOf(section?.id, blocks), [section?.id, blocks])')
+    expect(SRC_CODE).toContain('const anchorIds = useMemo(() => anchors.map((a) => a.id), [anchors])')
+    expect(SRC_CODE).toContain('const id = landingBlockOf(window.location.hash, anchors)')
+    // Lands: the landOnBlock path is reached — scrollIntoView block:'start' — and the heading takes the caret.
+    expect(land('#st-blk-bg.adv', anchors)).toBe('bg.adv')
+    expect(scrolled).toEqual([{ id: 'st-blk-bg.adv', opts: { block: 'start', behavior: 'smooth' } }])
+    expect(document.activeElement?.id).toBe('st-blkh-bg.adv')
+    scrolled.length = 0
+    expect(land('#st-blk-bg.presets', anchors, true)).toBe('bg.presets')
+    expect(scrolled).toEqual([{ id: 'st-blk-bg.presets', opts: { block: 'start', behavior: 'auto' } }])
+    expect(document.activeElement?.id).toBe('st-blkh-bg.presets')
+    // C17 — the prefix must sit at position 0, and an id outside the inventory lands nowhere.
+    ;(document.activeElement as HTMLElement).blur()
+    scrolled.length = 0
+    expect(land('#x-st-blk-bg.adv', anchors)).toBeNull()
+    expect(land('#st-blk-nope', anchors)).toBeNull()
     expect(scrolled).toEqual([])
     expect(document.activeElement).toBe(document.body)
   })

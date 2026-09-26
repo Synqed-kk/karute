@@ -9,6 +9,7 @@ import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
+import { coreFailureLine, classifyCoreThrow } from '@/lib/auth/core-failure-line'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /**
@@ -81,8 +82,10 @@ export async function updateKaruteOutcome(
     // here — so passing it through changes nothing a clamped actor can see.
     // Only `store_forbidden` (degraded scope) now reads differently, and it
     // is an answer about the CALLER's own session, never about the record.
-    if (err instanceof AppApiError) return { error: err.message }
-    return { error: 'karute record not found' }
+    // S33 (D-S33-1/2): a synqed-core OUTAGE on the read answers the failure line, never the
+    // not-found lie; the lock's own refusals and every other throw keep their answers.
+    const line = await coreFailureLine(classifyCoreThrow(err), '[karute-outcome]')
+    return { error: line ?? (err instanceof AppApiError ? err.message : 'karute record not found') }
   }
   const result = await setKaruteOutcome({
     karuteRecordId,
