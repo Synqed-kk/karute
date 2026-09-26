@@ -200,7 +200,10 @@ export function StaffSelector({
     : staffList.filter((s) => !s.isManagement || s.id === selected)
 
   return (
-    <div ref={ref} className="relative inline-block">
+    // w-fit: the panel anchors to THIS box, so it must hug its trigger even
+    // where a column parent would stretch it (顧客's header rows) — otherwise
+    // right-0 would hang the panel off the row's far edge, not the chevron.
+    <div ref={ref} className="relative inline-block w-fit">
       {renderTrigger ? (
         renderTrigger({ open, setOpen, listboxId, active, activeColor })
       ) : (
