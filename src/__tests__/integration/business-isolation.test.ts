@@ -54,9 +54,12 @@ const IMPORT_FORMS: Array<[string, RegExp]> = [
   ['dynamic import()', /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
   ['require()', /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
   // jest.requireActual loads the REAL module and jest.requireMock builds its
-  // automock FROM it — the same reach as require(), one form each.
-  ['jest.requireActual()', /jest\s*\.\s*requireActual\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
-  ['jest.requireMock()', /jest\s*\.\s*requireMock\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
+  // automock FROM it — the same reach as require(), one form each. A type
+  // argument (up to two nested `<…>` levels, no newline) may sit before `(`; a
+  // newline inside the type argument is not read by these forms — the three
+  // such calls in the repo carry an import() the dynamic form reads.
+  ['jest.requireActual()', /jest\s*\.\s*requireActual\s*(?:<(?:[^<>\n]|<(?:[^<>\n]|<[^<>\n]*>)*>)*>)?\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
+  ['jest.requireMock()', /jest\s*\.\s*requireMock\s*(?:<(?:[^<>\n]|<(?:[^<>\n]|<[^<>\n]*>)*>)*>)?\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
 ]
 
 // A specifier is Business when it resolves under src/business/ (alias) or
@@ -348,8 +351,20 @@ describe('Business import isolation (phone-safety lock 3)', () => {
       'side-effect import': "import '@/lib\n/staff'",
       'dynamic import()': "import('@/lib\n/staff')",
       'require()': "require('@/lib\n/staff')",
-      'jest.requireActual()': "jest.requireActual('@/lib\n/staff')",
-      'jest.requireMock()': 'jest.requireMock("@/lib\n/staff")',
+      // …and for the jest forms, a newline inside the type argument too, at
+      // every level the type argument reads (outer, one nested, two nested).
+      'jest.requireActual()': [
+        "jest.requireActual('@/lib\n/staff')",
+        "jest.requireActual<Pump\n>('@/lib/staff')",
+        "jest.requireActual<Record<string,\nPump>>('@/lib/staff')",
+        "jest.requireActual<Record<string, Record<string,\nstring>>>('@/lib/staff')",
+      ].join('\n'),
+      'jest.requireMock()': [
+        'jest.requireMock("@/lib\n/staff")',
+        'jest.requireMock<Pump\n>("@/lib/staff")',
+        'jest.requireMock<Record<string,\nX>>("@/lib/staff")',
+        'jest.requireMock<Record<string, Record<string,\nstring>>>("@/lib/staff")',
+      ].join('\n'),
     }
     // Every form has its fixture: a new form without one fails here first.
     expect(IMPORT_FORMS.map(([form]) => form).sort()).toEqual(Object.keys(spanning).sort())
@@ -366,6 +381,9 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   })
 
   it('jest.requireActual / jest.requireMock are import forms the scanner reads', () => {
+    // Spliced in, so this file's own text never holds a Business import form
+    // (the inward scan below reads this file too).
+    const biz = '@/business/lib/data'
     const src = stripFullLineComments(
       [
         "const a = jest.requireActual('@/lib/staff')",
@@ -373,6 +391,10 @@ describe('Business import isolation (phone-safety lock 3)', () => {
         'const c = jest . requireActual(`react-dom/client`)',
         "const d = require('@/x')",
         "// jest.requireActual('@/lib/auth/x')",
+        "const e = jest.requireActual<Pump>('@/lib/staff')",
+        'const f = jest.requireMock<Record<string, X>>("@/lib/staff")',
+        `const g = jest.requireActual<typeof import('${biz}')>('${biz}')`,
+        "const h = jest.requireActual<Record<string, Record<string, string>>>('@/lib/staff')",
       ].join('\n'),
     )
     const captured: Array<[string, string]> = []
@@ -381,15 +403,22 @@ describe('Business import isolation (phone-safety lock 3)', () => {
       for (let m = re.exec(src); m; m = re.exec(src)) captured.push([form, m[1]])
     }
     // The comment line yields nothing, and require() never also claims a jest
-    // call (no double capture): exactly one capture per real call.
+    // call (no double capture): exactly one capture per real call. A typed
+    // call is read too, nested generics two levels deep included; an import()
+    // inside the type argument is its own capture, so `g` lands twice — once per form.
     expect(captured).toEqual([
+      ['dynamic import()', '@/business/lib/data'],
       ['require()', '@/x'],
       ['jest.requireActual()', '@/lib/staff'],
       ['jest.requireActual()', 'react-dom/client'],
+      ['jest.requireActual()', '@/lib/staff'],
+      ['jest.requireActual()', '@/business/lib/data'],
+      ['jest.requireActual()', '@/lib/staff'],
+      ['jest.requireMock()', '@/lib/staff'],
       ['jest.requireMock()', '@/lib/staff'],
     ])
     // A captured helper reach is judged like any other import: an offender.
-    expect(outwardOffense(captured[1][1], 'src/business/lib/data.ts')).toBe(
+    expect(outwardOffense(captured[2][1], 'src/business/lib/data.ts')).toBe(
       'resolves outside territory to src/lib/staff',
     )
   })
