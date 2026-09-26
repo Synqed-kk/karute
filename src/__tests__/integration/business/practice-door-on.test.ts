@@ -38,12 +38,12 @@ import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
 import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, rekeyKeys, rekeyRows, sampleFor,
-  sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, STORE_PLANE_OVERRIDES, storeSample,
+  sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, SINGLETONS_BY_FIXTURE_STORE, STORE_PLANE_OVERRIDES, storeSample,
 } from '@/business/lib/practice-door/sample-facade'
-import { liveIdOf, samplePolicyFor } from '@/business/lib/practice-door/registry'
+import { liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
 import { customers, operator, staff as fxStaff, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import {
-  absence as fxAbsence, decisions as fxDecisions, defaultKindOf, register, sellSlots as fxSlots, shifts as fxShifts,
+  absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
   staffListPrice as fxListPrice, staffQualifications,
 } from '@/business/lib/fixtures-today'
 import { jstDayKey } from '@/business/lib/clock'
@@ -972,6 +972,17 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(rekeyRows(fxSlots, [at(STORE.tokyo, four, ['room-1'])], 'identity')).toEqual(sampleRows(fxSlots, null)) // the twin: untouched
   })
 
+  it('P3 — a borrowed room\'s position counts only the BORROWED store\'s fixture rooms (STORE_B\'s ベッド1 is its first, not the 4th)', () => {
+    const lenderB = 'b0b0b0b0-0000-4000-8000-000000000004' // a store borrowing 横浜's plane (none does on the recorded world)
+    STORE_SAMPLE_POLICY[lenderB] = { kind: 'twin', fixtureStoreId: STORE_B }
+    try {
+      expect(rekeyRows([{ id: 'x', store_id: STORE_B, staff_id: 'p-01', resource_id: 'bed-04' }], [at(lenderB, ['s0'], ['room-1'])], 'identity'))
+        .toEqual([{ id: 'x~b0b0b0b0', store_id: lenderB, staff_id: 's0', resource_id: 'room-1' }])
+    } finally {
+      delete STORE_SAMPLE_POLICY[lenderB]
+    }
+  })
+
   it('R9 — a borrowed row\'s free text names the SEATED person, by the row\'s own seat rule, in one pass; the twin\'s text is untouched', () => {
     const rows = rekeyRows(fxDecisions, [at(STORE.devSalon, SEAT3)], 'attribute')
     expect(rows[0].detail).toBe('名 s0欠勤 / 名 s0 + ベッド1が成立') // はなこ p-01 → seat 0; しろう p-04 → 3 mod 3 = 0
@@ -987,6 +998,26 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     // an identity row naming a person with no seat drops, like its own person would
     expect(rekeyRows([{ ...fxAbsence, reason: '見本 みらい' }], [at(STORE.devSalon, ['s0'])], 'identity')).toEqual([])
     expect(rekeyRows(fxDecisions, [at(STORE.tokyo, SEAT3)], 'attribute').map((d) => d.detail)).toEqual(fxDecisions.map((d) => d.detail))
+  })
+
+  it('P1 — a fixture name that another one prefixes is replaced WHOLE (longest first): ベッド12 → the 4th room, never 〈ベッド1\'s room〉2', async () => {
+    // FIXTURE_NAME is built once at load, so the facade is loaded fresh AFTER the room joins the fixture.
+    await jest.isolateModulesAsync(async () => {
+      const today = await import('@/business/lib/fixtures-today')
+      today.resources.push({ id: 'bed-12', store_id: STORE_A, kind_id: 'k-a', name: 'ベッド12', note: '', cleanup_minutes: 0, room_class: 'standard' })
+      try {
+        const facade = await import('@/business/lib/practice-door/sample-facade')
+        const [row] = facade.rekeyRows([{ id: 'x', store_id: STORE_A, detail: 'ベッド12を確保' }], [at(STORE.devSalon, SEAT3, ['r0', 'r1', 'r2', 'r3'])], 'attribute')
+        expect(row.detail).toBe('名 r3を確保')
+      } finally {
+        today.resources.pop()
+      }
+    })
+  })
+
+  it('P2 — a row\'s own id and its slot pointer are never read as free text; a nested text field is', () => {
+    const [row] = rekeyRows([{ id: 'dec-見本 はなこ', store_id: STORE_A, sell_slot_id: 'slot-見本 しろう', n: { note: '見本 はなこ' } }], [at(STORE.devSalon, SEAT3)], 'attribute')
+    expect(row).toEqual({ id: 'dec-見本 はなこ~5a171878', store_id: STORE.devSalon, sell_slot_id: 'slot-見本 しろう~5a171878', n: { note: '名 s0' } })
   })
 
   it('decision person attributes wrap (n mod seats), null on an empty roster', () => {
@@ -1064,6 +1095,23 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await data.readUnresolvedCounts()).byStore[STORE.devSalon]).toBe(1)
   })
 
+  it('§v9 V9-3 — rooms are read only for a store that BORROWS: never for 東京/横浜, once per borrower, once per borrower in view', async () => {
+    const spy = withReads()
+    const shiftsOf = (lens: string | typeof VIEW_ALL) => data.listShiftsByDay(lens, { from: TODAY, to: TODAY })
+    await shiftsOf(STORE.tokyo)
+    await shiftsOf(STORE.yokohama)
+    expect(spy.resourcesList).not.toHaveBeenCalled()
+    for (const store of BORROWERS) {
+      spy.resourcesList.mockClear()
+      await shiftsOf(store)
+      expect(spy.resourcesList.mock.calls).toEqual([[{ store_id: store, active: true }]])
+    }
+    spy.resourcesList.mockClear()
+    await shiftsOf(VIEW_ALL)
+    const byStore = (a: { store_id: string }, b: { store_id: string }) => a.store_id.localeCompare(b.store_id)
+    expect(spy.resourcesList.mock.calls.map(([q]) => q).sort(byStore)).toEqual(BORROWERS.map((store_id) => ({ store_id, active: true })).sort(byStore))
+  })
+
   it('R9 — no fixture staff name in anything a borrower is served (decisions · slots · shifts · 勤務不可 · resources · 予約一覧)', async () => {
     const names = fxStaff.map((p) => p.full_name)
     for (const store of BORROWERS) {
@@ -1129,9 +1177,20 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00')])).toEqual(both) // adjacent, no overlap
     expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00')])).toEqual({ slots: ['slot-02~5a171878'], cards: [] })
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00', { occupied_until: jst('16:10') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // core's cleanup
+    expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:30', { occupied_until: jst('15:30') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // P5 — an earlier snapshot never shortens the span
     expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'CANCELLED' })])).toEqual(both)
+    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'NO_SHOW' })])).toEqual(both) // P4 — NO_SHOW is core's tombstone too
     expect(await day([live(STORE.devSalon, ROOM_A, '18:00', '18:30', { kind: 'BLOCK', customer_id: null })])).toEqual({ slots: ['slot-01~5a171878'], cards: ['dec-capacity~5a171878'] })
+    expect(await day([live(STORE.devSalon, ROOM_A, '16:00', '17:00')])).toEqual(both) // P6 — slot-01's exact window on ANOTHER room: 個室B stays free
     expect(await day([live(STORE.tokyo, 'bed-02', '16:00', '17:00')])).toEqual(both) // an exact twin's room is never checked
+    // P7 — a block begun the day BEFORE runs from 00:00 on the displayed day: a 00:00–01:00 slot on 個室B is not served.
+    fxSlots.push({ ...fxSlots[0], id: 'slot-night', start: 0, end: 60 })
+    try {
+      const night = { ...live(STORE.devSalon, ROOM_B, '00:00', '00:30'), id: '00000000-0000-4000-8000-0000000000e7', starts_at: new Date('2026-09-13T23:00:00+09:00').toISOString() }
+      expect(await day([night])).toEqual(both)
+    } finally {
+      fxSlots.pop()
+    }
   })
 
   it('R6 — every visible store counts exactly the open decisions it is served', async () => {
@@ -1170,5 +1229,55 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const mineShift = planes.shifts.find((s) => s.staff_id === shell.operator.staff_id) ?? null // page.tsx's own read
     expect(mineShift).toEqual({ ...shiftOf(fxStaff[seat].id), staff_id: shell.operator.staff_id })
     expect((await board(STORE.devSalon)).myDay?.shift).toBe('シフト 10:00–17:00')
+  })
+
+  it('§v9 V9-1/V9-2 — 営業時間 · 定休日 · opsConfig reach every store (and the all-stores view) through its sample policy: no per-store value → the SAME shared instance', async () => {
+    for (const lens of [STORE.tokyo, STORE.yokohama, ...BORROWERS, VIEW_ALL]) {
+      const day = await data.readDayPlanes(lens, TODAY)
+      expect(day.operatingHours).toBe(operatingHours)
+      expect(day.closedWeekday).toBe(closedWeekday)
+      expect(day.opsConfig).toBe(opsConfig)
+      expect((await data.readReservationPlanes(lens)).operatingHours).toBe(operatingHours)
+      expect((await data.readAnalyticsPlanes(lens)).closedWeekday).toBe(closedWeekday)
+    }
+  })
+
+  it('§v9 — a per-store value moves only its own plane\'s stores: 横浜 (STORE_B) its own 定休日 · 営業時間 · opsConfig; 東京 and Dev Salon (a borrower takes STORE_A\'s plane, ⚖ §v4 V4-2) STORE_A\'s 定休日; the all-stores view keeps the shared set (V9-2)', async () => {
+    const hoursB = { open: 9 * 60, close: 20 * 60 }
+    const opsB = { ...opsConfig }
+    SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: 3, operatingHours: hoursB, opsConfig: opsB }
+    SINGLETONS_BY_FIXTURE_STORE[STORE_A] = { closedWeekday: 9 }
+    try {
+      const yokohama = await data.readDayPlanes(STORE.yokohama, TODAY)
+      expect(yokohama.closedWeekday).toBe(3)
+      expect(yokohama.operatingHours).toBe(hoursB)
+      expect(yokohama.opsConfig).toBe(opsB)
+      expect((await data.readReservationPlanes(STORE.yokohama)).operatingHours).toBe(hoursB)
+      expect((await data.readAnalyticsPlanes(STORE.yokohama)).closedWeekday).toBe(3)
+      const tokyo = await data.readDayPlanes(STORE.tokyo, TODAY)
+      expect(tokyo.closedWeekday).toBe(9)
+      expect(tokyo.operatingHours).toBe(operatingHours) // the keys it does not name stay shared
+      expect(tokyo.opsConfig).toBe(opsConfig)
+      expect((await data.readDayPlanes(STORE.devSalon, TODAY)).closedWeekday).toBe(9)
+      const all = await data.readDayPlanes(VIEW_ALL, TODAY) // V9-2 — viewAll chooses no store, so neither entry applies
+      expect(all.closedWeekday).toBe(1)
+      expect(all.operatingHours).toBe(operatingHours)
+      expect((await data.readAnalyticsPlanes(VIEW_ALL)).closedWeekday).toBe(1)
+    } finally {
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_A]
+    }
+  })
+
+  it('§v9 — per key, never a spread: an entry whose key is present but undefined serves the shared constant itself', async () => {
+    SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: undefined }
+    try {
+      const yokohama = await data.readDayPlanes(STORE.yokohama, TODAY)
+      expect(yokohama.closedWeekday).toBe(1)
+      expect(yokohama.closedWeekday).toBe(closedWeekday)
+      expect(yokohama.operatingHours).toBe(operatingHours)
+    } finally {
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
+    }
   })
 })
