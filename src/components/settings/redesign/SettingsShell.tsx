@@ -212,6 +212,10 @@ interface SettingsShellProps {
   /** Stores fetched on the server, passed straight to StoresSection so its
    *  list renders complete on first paint instead of fetching on mount. */
   initialStores: StoreRow[]
+  /** Round 3 leg 8a (D-S31-4): the server could not READ the store list
+   *  (initialStores is then []) — StoresSection says so instead of showing a
+   *  placeholder store. OPTIONAL; omitted = false (the thin caller). */
+  storesUnavailable?: boolean
   /** The stores the ACTOR may write menus for — their assignment when they
    *  lack stores.viewAll, every store otherwise. Separate from initialStores
    *  on purpose: 店舗/自動録音/スタッフ still show a branch-restricted staff
@@ -302,6 +306,7 @@ export function SettingsShell({
   initialTab,
   auditTargetId,
   initialStores,
+  storesUnavailable,
   menuStores,
   assignableStores,
   assignableActiveStoreId,
@@ -441,6 +446,7 @@ export function SettingsShell({
             initialStores={initialStores}
             initialActiveStoreId={initialActiveStoreId}
             initialEntitlement={initialEntitlement}
+            storesUnavailable={storesUnavailable}
           />
         ) : null
       case 'theme':

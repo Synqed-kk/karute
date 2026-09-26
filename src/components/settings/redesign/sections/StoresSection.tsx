@@ -68,6 +68,12 @@ interface StoresSectionProps {
   /** Entitlement fetched on the server — the plan row + add-store gate paint
    *  with the page (no pop-in). Null/absent → client fetch fallback. */
   initialEntitlement?: Entitlement | null
+  /** Round 3 leg 8a (D-S31-4): the server could NOT read the store list (the
+   *  door answered null). The section starts with no rows — never the seeded
+   *  placeholder, which would be a made-up store — says so where the list
+   *  sits, and lets the mount refresh() try once more. Absent = false, so the
+   *  phone's caller (which never passes it) is unchanged. */
+  storesUnavailable?: boolean
 }
 
 // StoreRow (synqed-core shape) → the Store the UI renders.
@@ -115,6 +121,7 @@ export function StoresSection({
   initialStores,
   initialActiveStoreId,
   initialEntitlement,
+  storesUnavailable = false,
 }: StoresSectionProps) {
   const t = useTranslations('settings.stores')
   const locale = useLocale()
@@ -142,16 +149,22 @@ export function StoresSection({
   }, [orgSettings, t])
 
   // Server-provided rows render the real list on first paint (no pop-in). Fall
-  // back to the synthesized primary only when the server didn't supply them.
+  // back to the synthesized primary only when the server didn't supply them —
+  // and never when it said it could not read them (a made-up 本店 card).
   const initialMapped = useMemo<Store[]>(
     () =>
       initialStores && initialStores.length > 0
         ? mapStoreRows(initialStores)
-        : seededStores,
-    [initialStores, seededStores],
+        : storesUnavailable
+          ? []
+          : seededStores,
+    [initialStores, seededStores, storesUnavailable],
   )
 
   const [stores, setStores] = useState<Store[]>(initialMapped)
+  // The store list could not be read (server-side, or a refresh() below). Rows
+  // already on screen stay; only the honest line changes.
+  const [unavailable, setUnavailable] = useState(storesUnavailable)
   const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
   const [planDialogOpen, setPlanDialogOpen] = useState(false)
   const [formMode, setFormMode] = useState<StoreFormMode>(null)
@@ -174,7 +187,7 @@ export function StoresSection({
   }, [])
 
   const refresh = useCallback(async () => {
-    const [rows, persisted, ent] = await Promise.all([
+    const [first, persisted, ent] = await Promise.all([
       // WITH hours: this section renders the 営業時間 editor, and a re-list
       // that dropped them made the editor re-offer the business-wide default
       // as "not saved yet" after every store rename (LENS-1 HIGH-2).
@@ -182,11 +195,22 @@ export function StoresSection({
       // to []): a store-policy blip must not blank this screen's rows — fall
       // back to the plain list (the pre-PR call) so names/rows still repaint;
       // mergeKnownHours below keeps whatever hours this section already knows.
+      // The catch stays for the phone port, which still THROWS on a failed
+      // read (D-S31-5); the web door answers null instead, handled below.
       listStoresWithHours().catch(() => listStores()),
       getActiveStoreId(),
       getEntitlement(),
     ])
     setEntitlement(ent)
+    // Round 3 leg 8a (D-S31-4): null = the list could not be read. The same
+    // fallback as the catch above (a failed hours read is a null too), then
+    // say so — keeping the rows already on screen, never blanking or seeding.
+    const rows = first === null ? await listStores() : first
+    if (rows === null) {
+      setUnavailable(true)
+      return
+    }
+    setUnavailable(false)
     if (rows.length === 0) return
     const mapped = mapStoreRows(rows)
     setStores((prev) => mergeKnownHours(prev, mapped))
@@ -368,9 +392,12 @@ export function StoresSection({
           <h3 className="text-[15px] font-semibold text-foreground">
             {t('title')}
           </h3>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
-            {t('storesCount', { n: stores.length })}
-          </p>
+          {/* A count of 0 while the list could not be read would be a lie. */}
+          {!(unavailable && stores.length === 0) && (
+            <p className="mt-0.5 text-[12px] text-muted-foreground">
+              {t('storesCount', { n: stores.length })}
+            </p>
+          )}
           {isOwner && !canAdd && (
             <p className="mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
               {t('limitReached')}
@@ -400,12 +427,24 @@ export function StoresSection({
         )}
       </div>
 
+      {/* A re-read failed with rows already on screen: they stay, and the
+       *  line says they may be out of date (the InviteStaffDialog idiom). */}
+      {unavailable && stores.length > 0 && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">{t('listUnavailable')}</p>
+      )}
+
       {/* Stores list */}
       <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-black/5 dark:ring-white/5">
         {stores.length === 0 ? (
-          <div className="p-6 text-center text-sm text-muted-foreground">
-            {t('emptyState')}
-          </div>
+          unavailable ? (
+            <div className="p-6 text-center text-sm text-amber-700 dark:text-amber-300">
+              {t('listUnavailable')}
+            </div>
+          ) : (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              {t('emptyState')}
+            </div>
+          )
         ) : (
           <div className="divide-y divide-black/5 dark:divide-white/5">
             {stores.map((store) => {
