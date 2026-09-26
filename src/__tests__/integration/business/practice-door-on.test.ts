@@ -38,12 +38,12 @@ import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
 import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, rekeyKeys, rekeyRows, sampleFor,
-  sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, STORE_PLANE_OVERRIDES, storeSample,
+  sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, SINGLETONS_BY_FIXTURE_STORE, STORE_PLANE_OVERRIDES, storeSample,
 } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
 import { customers, operator, staff as fxStaff, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import {
-  absence as fxAbsence, decisions as fxDecisions, defaultKindOf, register, sellSlots as fxSlots, shifts as fxShifts,
+  absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
   staffListPrice as fxListPrice, staffQualifications,
 } from '@/business/lib/fixtures-today'
 import { jstDayKey } from '@/business/lib/clock'
@@ -1212,5 +1212,30 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const mineShift = planes.shifts.find((s) => s.staff_id === shell.operator.staff_id) ?? null // page.tsx's own read
     expect(mineShift).toEqual({ ...shiftOf(fxStaff[seat].id), staff_id: shell.operator.staff_id })
     expect((await board(STORE.devSalon)).myDay?.shift).toBe('シフト 10:00–17:00')
+  })
+
+  it('§v9 V9-1/V9-2 — 営業時間 · 定休日 · opsConfig reach every store (and the all-stores view) through its sample policy: no per-store value → the SAME shared instance', async () => {
+    for (const lens of [STORE.tokyo, STORE.yokohama, ...BORROWERS, VIEW_ALL]) {
+      const day = await data.readDayPlanes(lens, TODAY)
+      expect(day.operatingHours).toBe(operatingHours)
+      expect(day.closedWeekday).toBe(closedWeekday)
+      expect(day.opsConfig).toBe(opsConfig)
+      expect((await data.readReservationPlanes(lens)).operatingHours).toBe(operatingHours)
+      expect((await data.readAnalyticsPlanes(lens)).closedWeekday).toBe(closedWeekday)
+    }
+  })
+
+  it('§v9 — one per-store value moves ONE store: 横浜 (STORE_B) with its own 定休日 → 3; 東京, a borrower and the all-stores view keep the shared 1', async () => {
+    SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: 3 }
+    try {
+      expect((await data.readDayPlanes(STORE.yokohama, TODAY)).closedWeekday).toBe(3)
+      expect((await data.readAnalyticsPlanes(STORE.yokohama)).closedWeekday).toBe(3)
+      expect((await data.readDayPlanes(STORE.yokohama, TODAY)).operatingHours).toBe(operatingHours) // the keys it does not name stay shared
+      expect((await data.readDayPlanes(STORE.tokyo, TODAY)).closedWeekday).toBe(1)
+      expect((await data.readDayPlanes(STORE.devSalon, TODAY)).closedWeekday).toBe(1)
+      expect((await data.readDayPlanes(VIEW_ALL, TODAY)).closedWeekday).toBe(1) // V9-2 — viewAll chooses no store
+    } finally {
+      delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
+    }
   })
 })

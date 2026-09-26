@@ -14,7 +14,7 @@
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
-import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, type RosterSeats } from './sample-facade'
+import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import {
   appointments,
   customers,
@@ -30,10 +30,7 @@ import {
 import {
   absence,
   boardNow,
-  closedWeekday,
   decisions,
-  operatingHours,
-  opsConfig,
   pricingRule,
   recoverySteps,
   sellSlots,
@@ -620,8 +617,9 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
   const today = dayKey === jstDayKey(renderNow())
   const [day, seats] = await Promise.all([dayRows(actor, lens, { from: dayKey, to: dayKey }), rosterOrderOf(actor, lens)])
   const busy = roomsBusy(day.rows, dayKey) // ⚖ R10 — the rows this read already holds
+  const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null) // ⚖ §v9 V9-1/V9-2
   return {
-    operatingHours,
+    operatingHours: s.operatingHours,
     /** JST minutes from midnight — the moment the board is showing. */
     boardNow,
     // ⚖ PR-4a §v7 V7-3 — the board's rows through the ONE re-key: an exact twin's as before,
@@ -629,8 +627,8 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     shifts: rekeyRows(shifts, seats, 'identity'),
     staffQualifications: rekeyKeys(staffQualifications, seats),
     staffListPrice: rekeyKeys(staffListPrice, seats),
-    closedWeekday,
-    opsConfig,
+    closedWeekday: s.closedWeekday,
+    opsConfig: s.opsConfig,
     absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null,
     blocks: day.blocksByDay.get(dayKey) ?? [],
     sellSlots: servedSlots(seats, busy),
@@ -655,13 +653,14 @@ export async function readReservationPlanes(lens: StoreLens) {
   assertLensVisible(actor, lens)
   const seats = await rosterOrderOf(actor, lens) // ⚖ PR-4a R5 — the same rows the board is served
   const busy = await busyFor(actor, seats, jstDayKey(renderNow())) // ⚖ R10 — today's rooms, as the board
+  const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null) // ⚖ §v9 V9-1/V9-2
   return {
     reservations: sampleFor(reservations, null),
     auditTrail: sampleKeys('appointments', auditTrail), // keyed by appointment id → live twins
     /** JST minutes from midnight — the pinned moment every countdown is measured
      *  against, the same one the board's now-line uses. */
     boardNow,
-    operatingHours,
+    operatingHours: s.operatingHours,
     shifts: rekeyRows(shifts, seats, 'identity'),
     staffQualifications: rekeyKeys(staffQualifications, seats),
     absence: rekeyRows([absence], seats, 'identity')[0] ?? null,
@@ -680,6 +679,7 @@ export async function readAnalyticsPlanes(lens: StoreLens) {
     return policy.kind === 'twin' ? (salesTargets[policy.fixtureStoreId] ?? 0) : 0
   }
   const storeId = lensStore(lens)
+  const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null) // ⚖ §v9 V9-1/V9-2
   return {
     ledger: clamp(sampleRows(salesLedger, null), lens),
     staffMix: clamp(sampleRows(staffMix, null), lens),
@@ -689,7 +689,7 @@ export async function readAnalyticsPlanes(lens: StoreLens) {
     target: storeId ? targetOf(storeId) : visibleIds(actor).reduce((a, id) => a + targetOf(id), 0),
     policy: analyticsPolicy,
     dowWeight,
-    closedWeekday,
+    closedWeekday: s.closedWeekday,
     staffQualifications: sampleKeys('staff', staffQualifications),
     ticketUnitPrice: pricingRule.base,
   }
