@@ -279,11 +279,11 @@ describe('(1) OWNER — viewAll', () => {
     const counts = await data.readUnresolvedCounts()
     expect(Object.keys(counts.byStore)).toEqual([STORE.devSalon, STORE.devGinza, STORE.tokyo, STORE.yokohama, STORE.laEstro])
     expect(counts.byStore[STORE.tokyo]).toBe(4)
-    // ⚖ PR-4a R6 — each borrower counts what it is served: the slot decision where its slot's person is
-    // seated (Dev Salon, La Estro); Dev 銀座's one person holds no slot seat → 0. 横浜 twins STORE_B: none.
-    expect([STORE.devSalon, STORE.devGinza, STORE.laEstro].map((s) => counts.byStore[s])).toEqual([1, 0, 1])
+    // ⚖ PR-4a R6 + R8' — each borrower counts what it is served; the recorded world has 0 rooms at every
+    // store, so no borrower is served a slot or its decision → 0. 横浜 twins STORE_B: none.
+    expect([STORE.devSalon, STORE.devGinza, STORE.laEstro].map((s) => counts.byStore[s])).toEqual([0, 0, 0])
     expect(counts.all).toBe(Object.values(counts.byStore).reduce((a, b) => a + b, 0))
-    expect(counts.all).toBe(6)
+    expect(counts.all).toBe(4)
   })
 
   it('readDayPlanes(東京, today): SAMPLE planes on live ids, the live blocks, no fixture store id anywhere', async () => {
@@ -918,7 +918,14 @@ describe('(12) PR-3 — 今日の運営 marks its SAMPLE planes under the door',
 })
 
 describe('(13) PR-4a — every store\'s board is filled: a borrower is served the borrowed day (⚖ §v7 V7-3)', () => {
-  const at = (store: string, roster: string[]) => ({ store, roster: roster.map((id) => ({ id, name: `名 ${id}` })) })
+  const named = (ids: string[]) => ids.map((id) => ({ id, name: `名 ${id}` }))
+  const at = (store: string, roster: string[], rooms: string[] = []) => ({ store, roster: named(roster), rooms: named(rooms) })
+  /** ⚖ R8' — Dev Salon with two LIVE rooms (handed out of id order; the door sorts by id). */
+  const ROOM_A = '00000000-0000-4000-8000-0000000000d1', ROOM_B = '00000000-0000-4000-8000-0000000000d2'
+  const withRooms = () => {
+    const room = (id: string, name: string) => ({ id, store_id: STORE.devSalon, name, note: null, room_class: 'standard' as const, cleanup_minutes: 0, display_order: 0, active: true, created_at: 'x', updated_at: 'x' })
+    withReads().resourcesList.mockImplementation(async (q?: { store_id?: string }) => ({ resources: q?.store_id === STORE.devSalon ? [room(ROOM_B, '個室B'), room(ROOM_A, '個室A')] : [] }))
+  }
   const SEAT3 = ['s0', 's1', 's2']
   const shiftOf = (fixtureId: string) => fxShifts.find((s) => s.staff_id === fixtureId)!
   type Board = { cards: Array<{ id: string; title: string; bookingId: string | null }>; cases: Record<string, { meta: string; facts: string[][] }>; myDay: { shift: string } | null }
@@ -948,8 +955,19 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(rekeyRows([fxAbsence], [at(STORE.devSalon, ['s0'])], 'identity')).toEqual([{ ...fxAbsence, store_id: STORE.devSalon, staff_id: 's0' }])
     expect(rekeyRows(fxShifts, [at(STORE.devSalon, [])], 'identity')).toEqual([])
     expect(rekeyRows([fxAbsence], [at(STORE.devSalon, [])], 'identity')).toEqual([])
-    expect(rekeyRows(fxSlots, [at(STORE.devSalon, ['s0', 's1', 's2', 's3'])], 'identity').map((x) => [x.id, x.staff_id])).toEqual([['slot-01~5a171878', 's3'], ['slot-02~5a171878', 's2']])
-    expect(rekeyRows(fxSlots, [at(STORE.devSalon, ['s0'])], 'identity')).toEqual([])
+    expect(rekeyRows(fxSlots, [at(STORE.devSalon, ['s0', 's1', 's2', 's3'], ['r1', 'r2'])], 'identity').map((x) => [x.id, x.staff_id])).toEqual([['slot-01~5a171878', 's3'], ['slot-02~5a171878', 's2']])
+    expect(rekeyRows(fxSlots, [at(STORE.devSalon, ['s0'], ['r1', 'r2'])], 'identity')).toEqual([])
+  })
+
+  it('R8\' — a borrowed slot sits on the borrower\'s OWN room by position (no wrap), its text names that room; no room → the slot drops', () => {
+    const four = ['s0', 's1', 's2', 's3']
+    const two = rekeyRows(fxSlots, [at(STORE.devSalon, four, ['room-1', 'room-2'])], 'identity')
+    expect(two.map((x) => [x.id, x.resource_id])).toEqual([['slot-01~5a171878', 'room-2'], ['slot-02~5a171878', 'room-1']])
+    expect(rekeyRows(fxSlots, [at(STORE.devSalon, four, ['room-1'])], 'identity').map((x) => x.id)).toEqual(['slot-02~5a171878'])
+    expect(rekeyRows(fxSlots, [at(STORE.devSalon, four, [])], 'identity')).toEqual([])
+    const dec = rekeyRows(fxDecisions, [at(STORE.devSalon, four, ['room-1', 'room-2'])], 'attribute')[2] // dec-capacity
+    expect([dec.detail, dec.proofs[1]]).toEqual(['名 s3 + 名 room-2 / 新規オンライン単発', '名 room-2を確保'])
+    expect(rekeyRows(fxSlots, [at(STORE.tokyo, four, ['room-1'])], 'identity')).toEqual(sampleRows(fxSlots, null)) // the twin: untouched
   })
 
   it('R9 — a borrowed row\'s free text names the SEATED person, by the row\'s own seat rule, in one pass; the twin\'s text is untouched', () => {
@@ -962,7 +980,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       expect({ store, named: names.filter((n) => json.includes(n)) }).toEqual({ store, named: [] })
     }
     // one pass: a seat whose live name IS another fixture name is never re-read
-    const swap = rekeyRows([{ ...fxDecisions[0], proofs: ['見本 はなこ / 見本 しろう'] }], [{ store: STORE.devSalon, roster: [{ id: 'a', name: '見本 しろう' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }, { id: 'd', name: 'D' }] }], 'attribute')
+    const swap = rekeyRows([{ ...fxDecisions[0], proofs: ['見本 はなこ / 見本 しろう'] }], [{ store: STORE.devSalon, roster: [{ id: 'a', name: '見本 しろう' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }, { id: 'd', name: 'D' }], rooms: [] }], 'attribute')
     expect(swap[0].proofs).toEqual(['見本 しろう / D'])
     // an identity row naming a person with no seat drops, like its own person would
     expect(rekeyRows([{ ...fxAbsence, reason: '見本 みらい' }], [at(STORE.devSalon, ['s0'])], 'identity')).toEqual([])
@@ -1003,7 +1021,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(dec.map((d) => d.store_id)).toEqual([STORE.tokyo, STORE.devSalon, STORE.devGinza].flatMap((s) => fxDecisions.map(() => s)))
     expect(new Set(dec.map((d) => d.id)).size).toBe(dec.length)
     const four = ['a', 'b', 'c', 'm']
-    expect(rekeyRows(fxSlots, [at(STORE.devSalon, four), at(STORE.devGinza, four)], 'identity')).toHaveLength(4)
+    expect(rekeyRows(fxSlots, [at(STORE.devSalon, four, ['r1', 'r2']), at(STORE.devGinza, four, ['r1', 'r2'])], 'identity')).toHaveLength(4)
     expect(rekeyKeys(fxListPrice, view)).toEqual({ ...sampleKeys('staff', fxListPrice), m: fxListPrice['p-01'], a: fxListPrice['p-02'] })
   })
 
@@ -1019,8 +1037,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
   it('the door, Dev Salon: decisions, the 勤務不可 row, shifts, 資格 and 定価 on its own store and roster; every door reader agrees (R5)', async () => {
     const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
     const roster = ids(await data.listStaff(STORE.devSalon))
-    expect(planes.decisions.length).toBeGreaterThan(0)
-    expect(planes.decisions.every((d) => d.store_id === STORE.devSalon && d.id.endsWith('~5a171878'))).toBe(true)
+    expect([planes.decisions, planes.sellSlots]).toEqual([[], []]) // R8' — the recorded world: 0 rooms, no slot, no card
     expect(roster).toContain(planes.absence?.staff_id)
     expect(planes.shifts.length).toBeGreaterThan(0)
     expect(planes.shifts.every((s) => roster.includes(s.staff_id))).toBe(true)
@@ -1031,9 +1048,18 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await data.listAbsenceByDay(STORE.devSalon, { from: TODAY, to: TODAY })).get(TODAY)).toEqual(planes.absence)
     const res = await data.readReservationPlanes(STORE.devSalon)
     expect([res.shifts, res.absence, res.staffQualifications, res.sellSlots]).toEqual([planes.shifts, planes.absence, planes.staffQualifications, planes.sellSlots])
-    // R9 — the served slot decision's text names the seated person
+  })
+
+  it('R8\' + R9, the door with live rooms: Dev Salon\'s slot sits on its own room; the card, its text and the inspector name the seated person and that room', async () => {
+    withRooms()
     const probe = STAFF.find((s) => s.id === CARD.probe)!.name
-    expect(planes.decisions.map((d) => d.detail)).toEqual([`${probe} + ベッド2 / 新規オンライン単発`])
+    const planes = await data.readDayPlanes(STORE.devSalon, TODAY)
+    expect(planes.sellSlots.map((x) => [x.id, x.staff_id, x.resource_id])).toEqual([['slot-01~5a171878', CARD.probe, ROOM_B], ['slot-02~5a171878', CARD.perry, ROOM_A]])
+    expect(planes.decisions.map((d) => [d.id, d.detail, d.proofs[1]])).toEqual([['dec-capacity~5a171878', `${probe} + 個室B / 新規オンライン単発`, '個室Bを確保']])
+    expect(JSON.stringify([planes.decisions, planes.sellSlots])).not.toMatch(new RegExp(fxStaff.map((p) => p.full_name).join('|')))
+    const p = await board(STORE.devSalon)
+    expect(p.cards.map((c) => [c.title, p.cases[c.id].facts[0]])).toEqual([['16:00の安全な1枠を販売する', ['担当・設備', `${probe} / 個室B`]]])
+    expect((await data.readUnresolvedCounts()).byStore[STORE.devSalon]).toBe(1)
   })
 
   it('R9 — no fixture staff name in anything a borrower is served (decisions · slots · shifts · 勤務不可 · resources · 予約一覧)', async () => {
@@ -1057,16 +1083,17 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       expect({ store, heads: p.cards.filter((c) => c.title.startsWith('の') || c.bookingId !== null) }).toEqual({ store, heads: [] })
       expect({ store, unset: cases.filter((k) => k.meta === '枠未設定') }).toEqual({ store, unset: [] })
       const json = JSON.stringify([p.cards, cases])
-      expect({ store, named: foreign.filter((f) => json.includes(f)) }).toEqual({ store, named: [] })
+      expect({ store, named: [...foreign, ...fxStaff.map((x) => x.full_name)].filter((f) => json.includes(f)) }).toEqual({ store, named: [] })
     }
-    const dev = await board(STORE.devSalon)
-    const probe = STAFF.find((s) => s.id === CARD.probe)!.name
-    expect(dev.cards.map((c) => [c.title, dev.cases[c.id].facts[0]])).toEqual([['16:00の安全な1枠を販売する', ['担当・設備', `${probe} / 設備未定`]]])
-    expect((await data.readDayPlanes(STORE.devGinza, TODAY)).sellSlots).toEqual([]) // one person, no slot seat
-    expect((await board(STORE.devGinza)).cards).toEqual([])
+    // R8' — the recorded world has 0 rooms at every store: no borrower is served a slot or a card
+    for (const store of BORROWERS) {
+      const out = { store, cards: (await board(store)).cards, slots: (await data.readDayPlanes(store, TODAY)).sellSlots }
+      expect(out).toEqual({ store, cards: [], slots: [] })
+    }
   })
 
   it('R4 — a borrowed decision built on a booking is refused even when it also names a served slot; the twin keeps it', async () => {
+    withRooms()
     fxDecisions.push({ ...fxDecisions[2], id: 'dec-both', appointment_id: 'apt-26' })
     try {
       expect((await data.readDayPlanes(STORE.devSalon, TODAY)).decisions.map((d) => d.id)).toEqual(['dec-capacity~5a171878'])
