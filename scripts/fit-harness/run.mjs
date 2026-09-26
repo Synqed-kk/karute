@@ -162,9 +162,16 @@ async function measure(page, tab) {
         : input?.closest('label')?.parentElement?.closest('.flex.items-center') ?? null
     const out = { first: box(first) }
     out.chips = box(document.querySelector('[data-chip-row]'))
+    // 予約's staff row; on a build without the marker (the pre-S44 baseline)
+    // the same row is found from the date bar: the row inside the wrapper
+    // that follows the date-jump anchor.
     out.staff =
       tab === 'appointments'
-        ? box(document.querySelector('[data-staff-row]'))
+        ? box(
+            document.querySelector('[data-staff-row]') ??
+              dateChip?.closest('[class*="data-date-jump-chip"]')?.nextElementSibling?.firstElementChild ??
+              null,
+          )
         : box(document.querySelector('[data-staff-scope]'))
     out.scope = box(document.querySelector('[data-staff-scope]'))
     out.words = box(document.querySelector('[data-words-row]'))
