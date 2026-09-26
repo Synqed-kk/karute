@@ -74,8 +74,9 @@ describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
   // end of the search row, the search field's own 36px — the header cannot
   // hold a third item beside its centred title (mock D32). Still the SHARED
   // Button with its default (primary) variant; the accessible name is the
-  // same 「+ 新規カルテ」 key the words used to show.
-  it('カルテ list CTA (案C+): shared Button, primary ＋ circle at the end of the search row', () => {
+  // same 「+ 新規カルテ」 key the words used to show. The 8/6 icon rule
+  // stands: the circle carries FilePlus2, never a bare plus glyph.
+  it('カルテ list CTA (案C+): shared Button, primary FilePlus2 circle at the end of the search row', () => {
     const src = read('src/components/karute/spike-lifted/list/KaruteRecordListView.tsx')
     expect(src).toContain(SHARED_IMPORT)
     const tags = buttonTags(src)
@@ -93,7 +94,9 @@ describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
     rest = rest.replace(/"[^"]*"/g, '')
     const allowed = ['type', 'size', 'className', 'aria-label', 'onClick']
     expect((rest.match(/[\w-]+/g) ?? []).filter((p) => !allowed.includes(p))).toEqual([])
-    expect(src).toContain('<Plus className="size-[18px]" aria-hidden />')
+    expect(src).toContain('<FilePlus2 className="size-[18px]" aria-hidden />')
+    // Never a bare plus glyph (8/6 案A) — no lucide Plus import at all.
+    expect(src).not.toMatch(/import \{[^}]*\bPlus\b[^}]*\} from 'lucide-react'/)
     // …and it sits INSIDE the search row, after the field.
     expect(src).toMatch(
       /<div className="flex items-center gap-2 md:mt-4">\s*<label className="flex min-w-0 flex-1 [^"]*">[\s\S]*?<\/label>\s*<Button\b/,

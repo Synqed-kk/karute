@@ -22,7 +22,7 @@
 //                                  scoping can layer in later)
 
 import { Button } from '@/components/ui/button'
-import { Plus } from 'lucide-react'
+import { FilePlus2 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { useLocale, useTranslations } from 'next-intl'
@@ -1229,7 +1229,9 @@ export function KaruteRecordListView({
             {t('loadMoreFailed')}
           </p>
         )}
-        {/* Search + ＋. The ＋ (manual-entry NewKaruteDialog — backdate or log a
+        {/* Search + ＋. The ＋ circle carries the per-page FilePlus2 icon — the
+         *  8/6 rule 「never a bare plus glyph」 stands (the mock's ＋ is intent).
+         *  The circle (manual-entry NewKaruteDialog — backdate or log a
          *  session without the recording flow; the bottom-nav 録音 stays the
          *  AI-assisted path) is a solid primary circle at the row's end, the
          *  search field's own 36px: the header cannot hold a third item beside
@@ -1272,7 +1274,7 @@ export function KaruteRecordListView({
               setNewKaruteOpen(true)
             }}
           >
-            <Plus className="size-[18px]" aria-hidden />
+            <FilePlus2 className="size-[18px]" aria-hidden />
           </Button>
         </div>
       </div>
