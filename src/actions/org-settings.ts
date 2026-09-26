@@ -19,6 +19,17 @@ import {
 import type { ThemeColors } from '@/lib/theme'
 import { DEFAULT_THEME_COLORS } from '@/lib/theme'
 
+/** ⚖ A2 (R-A2-2) + ⚖ PKT-S38 R5 — settings keys SYNQED Business owns and writes itself, one key per
+ *  PUT: `reserve_card_color` (カードの見た目) and `booking_colors` (予約の色分け, per store).
+ *  Karute's whole-snapshot writer below never sends them back from its read: core merges a
+ *  one-key PUT, so leaving a key out keeps it, and replaying a stale read would revert it.
+ *  Not exported — a 'use server' module may export async functions only. */
+const BUSINESS_OWNED_SETTINGS_KEYS = ['reserve_card_color', 'booking_colors'] as const
+/** ⚖ PKT-S41 R-S41-1 (Liam 9/25 A) — and every key that STARTS with one of these: 予約の色分け keeps one
+ *  top-level key per store (`booking_colors:<storeId>`), so Karute never replays any of them either.
+ *  Karute's own literal (this module may not import Business); the Business leaf pins its twin. */
+const BUSINESS_OWNED_SETTINGS_KEY_PREFIXES = ['booking_colors:'] as const
+
 export type RecordingDisclosureMode = 'A' | 'B' | 'C'
 export type AudioSource = 'phone' | 'bluetooth' | 'wired'
 export type AIVoiceStyle = 'formal' | 'polite' | 'friendly'
@@ -341,6 +352,13 @@ export async function writeOrgSettingsBlobWithClient(
     // Merge with existing settings so partial updates don't wipe other fields
     const existing = await synqed.orgSettings.get()
     const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>
+    const replayed = Object.fromEntries(
+      Object.entries(existingSettings).filter(
+        ([key]) =>
+          !(BUSINESS_OWNED_SETTINGS_KEYS as readonly string[]).includes(key) &&
+          !BUSINESS_OWNED_SETTINGS_KEY_PREFIXES.some((prefix) => key.startsWith(prefix)),
+      ),
+    )
 
     // salon_name maps to the top-level `name` column; everything else lives in
     // the settings JSON
@@ -377,7 +395,7 @@ export async function writeOrgSettingsBlobWithClient(
 
     await synqed.orgSettings.upsert({
       ...(salon_name !== undefined ? { name: salon_name } : {}),
-      settings: { ...existingSettings, ...rest },
+      settings: { ...replayed, ...rest },
     })
 
     // No cache invalidation here: updateTag is Server-Action-only (throws from
@@ -438,8 +456,17 @@ async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
  */
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   const { getMyCapabilities, ensureCapability } = await import('@/lib/auth/require-permission')
+  // An outage (the capability read failed) is not a permission answer (Round 2);
+  // a typed synqed-core failure answers the failure line (Round 3 leg 7, D-S27-5).
+  let caps: Awaited<ReturnType<typeof getMyCapabilities>>
   try {
-    ensureCapability(await getMyCapabilities(), 'settings.manage')
+    caps = await getMyCapabilities()
+  } catch (e) {
+    const { coreFailureLine } = await import('@/lib/auth/core-failure-line')
+    return { error: (await coreFailureLine(e, '[org-settings]')) ?? 'Unknown error' }
+  }
+  try {
+    ensureCapability(caps, 'settings.manage')
   } catch {
     return { error: 'You do not have permission to change settings.' }
   }

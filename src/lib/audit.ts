@@ -281,6 +281,7 @@ export type FacadeEndpointKey =
   | 'orgSettings.update'
   | 'permissions.get'
   | 'permissions.update'
+  | 'recordings.captureWarning'
   | 'recordings.discard'
   | 'recordings.discards.list'
   | 'recordings.discards.transcript'
@@ -291,7 +292,6 @@ export type FacadeEndpointKey =
   | 'recordings.job.enqueueFromSession'
   | 'recordings.job.status'
   | 'recordings.playbackUrl'
-  | 'recordings.session.delete'
   | 'recordings.session.mint'
   | 'recordings.share'
   | 'recordings.uploadUrl'
@@ -461,10 +461,14 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // settings.permissions_change, settings.staff_stores_change). Same
   // reasoning as stores.create/update above — a rule here would double-log
   // every facade write.
-  'staff.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#createStaffCore' },
-  'staff.update': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#updateStaffCore' },
-  'staff.delete': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#deleteStaffCore' },
-  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#uploadStaffAvatarCore' },
+  // The four staff cores moved to a server-only module (PKT-SEC-CORES-D5,
+  // 2026-09-23) — same writers, same rows, new home. Ledgered: map:staff.create
+  // / map:staff.update / map:staff.delete / map:staff.uploadAvatar in
+  // docs/audit-weakening-ledger.md.
+  'staff.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#createStaffCore' },
+  'staff.update': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#updateStaffCore' },
+  'staff.delete': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#deleteStaffCore' },
+  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/lib/staff/staff.core.ts#uploadStaffAvatarCore' },
   'permissions.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/permissions.ts#setStaffPermissionsCore' },
   'staffStores.set': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/lib/stores/stores.core.ts#setStaffStoresCore' },
   // PIN + voice + invites (design-parity packet 12 §S4b): setStaffPinCore/
@@ -781,6 +785,9 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // generic hook would emit on every 2xx — including the soft refusals and the
   // idempotent no-op this route deliberately returns in a 2xx body.
   'recordings.finalize': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/finalize-take.ts#finalizeTakeWithClient' },
+  // Same doctrine (recording hole PR-7): the ONE recording.capture_warned emit
+  // lives at the shared choke point, which alone knows whether a row was filed.
+  'recordings.captureWarning': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/capture-warning.ts#recordCaptureWarningWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
   // The SAME job, entered from the 録音履歴 row instead of from a device that
   // just uploaded (build 23 slice ③) — so the same skip, for the same reason:
@@ -804,12 +811,6 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // interactive choke point (the default/primary flow when no job is
   // enqueued); the job-pipeline alternative is real too and not reducible to
   // one symbol — flagged here rather than silently picking one truth.
-  // recordings.session.delete (Build F1 fix round 3): a deliberate 破棄's
-  // orphan-row cleanup. Skip HERE and cited to the shared choke point instead,
-  // exactly like recordings.discard above — both doors call
-  // deleteRecordingSessionWithClient, so one cleanup writes one row. A
-  // 'mutation' row here would double-log every facade discard.
-  'recordings.session.delete': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient' },
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/karute/karute.core.ts#createOrUpdateKaruteRecord' },
   // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
   // design D6). Same doctrine as the writers above: the shared body
@@ -851,6 +852,16 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // already has a saved karute — auditTakeRefusedHasRecord, beside
   // auditTakeNamed in the same file, same actor idiom. Not a second coveredBy
   // row: both emits live at this one endpoint's one choke point.
+  // coveredBy = the client-named write only. The switch-ON server-named arm
+  // (RECORDING_SWITCHES.bindUnboundUploads, ships OFF (on 2026-09-24, off again 2026-09-25)) files a row with NO
+  // audit of its own; a karute save targets it only where the client adopts
+  // the id it returns (S34: the web from its deploy, the phone from build 29;
+  // build-28 phones do not). What IS covered as of S33: an upload whose
+  // recording already has a row never reaches that create ('attach_failed'),
+  // and every server-named upload is counted per business by the
+  // `[mint-take-url] unbound upload` log line. check-audit-weakening.mjs cannot
+  // see this; re-read this line before any re-flip (recording-switches.ts
+  // condition 5).
   'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
@@ -1060,5 +1071,24 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     justification:
       "watchOneBusiness (src/lib/audit-watch/run.ts) emits recording.karute_missing, recording.transcribe_storm and recording.no_sessions_today — one row per NEW candidate actually written. Conditional by design, same shape as the auto-burn/assemble rows above (return unemitted when there is nothing to do), except the emit sits inline in the driver rather than a downstream helper, so it cannot be handed a dominated coveredBy citation the way those two are.",
     dated: '2026-09-12',
+  },
+  // ⚖ A2 (Liam 9/24, PKT-A2-CORE-WRITE §7 R-A2-13) — SYNQED Business's カードの見た目 save. Same class as
+  // Karute's own org-settings writer (unaudited by design, the 7/27 parity rule; R-A2-11): the route writes
+  // exactly one org-settings key through the practice door and logs one structured server line per real
+  // write (R-A2-4). A core audit row is R5 (later). No `coveredBy`: nothing emits by design.
+  'business/card-color': {
+    kind: 'skip',
+    justification:
+      "Business card colour (org settings' reserve_card_color, one key, palette-or-null, settings.manage) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule, R-A2-11); one structured server log line per real write (R-A2-4); core audit row = R5 (later).",
+    dated: '2026-09-24',
+  },
+  // ⚖ PKT-S38 R4 (Liam 9/25 「make it work」) — SYNQED Business's 予約の色分け save, the card route's twin: same
+  // class as Karute's own org-settings writer (unaudited by design, the 7/27 parity rule); one org-settings key
+  // through the practice door, one structured server log line per real write. Core audit row = R5 (later).
+  'business/booking-colors': {
+    kind: 'skip',
+    justification:
+      "Business booking colours (org settings' booking_colors, the per-store map, closed palette, settings.manage + a store the operator may see) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule); one structured server log line per real write; core audit row = R5 (later).",
+    dated: '2026-09-25',
   },
 }

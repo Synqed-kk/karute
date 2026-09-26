@@ -668,6 +668,8 @@
     "pipelineErrorDiscarded": "This recording was discarded by a staff member, so it cannot be saved to a karute.",
     "pipelineErrorRepeated": "Retrying gave the same result.",
     "serverRowMissing": "Could not create the recording's server record. The karute will be saved, but the audio stays on this device only",
+    "deviceSaveUnavailable": "This phone cannot save the recording, so audio is being sent straight to the server. Keep the app open until you stop recording",
+    "serverSendStalled": "The server is not receiving audio. It is being kept on this phone and will be sent automatically",
     "recordingFor": "Recording for",
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",
@@ -823,6 +825,8 @@
         "aiFailed": "The karute could not be created (the transcription finished)",
         "saveFailed": "The karute could not be saved (its content was created)",
         "genericFailure": "This recording was not saved",
+        "warnedDevice": "This recording was not saved (the device could not store the audio while recording)",
+        "warnedServer": "This recording was not saved (the audio was not reaching the server while recording)",
         "localAudio": "The audio is still on this device (unsaved)",
         "tailIncomplete": "The recording ends partway (you can save what is left on this device)",
         "serverAudio": "Audio is on the server (not saved yet; may end partway)",
@@ -2292,6 +2296,8 @@
       "switchTo": "Switch",
       "edit": "Edit",
       "emptyState": "No stores yet. Tap Add to register one.",
+      "listUnavailable": "Stores could not be loaded. Please try again in a moment.",
+      "switcherUnavailable": "Load failed",
       "activeStoreScopeNote": "Switching stores scopes the customer list, dashboard, and agenda to the selected store (per-store figures are derived from that store's events). Full karute-list scoping turns on once the synqed-core karute store filter ships.",
       "addStoreSubscription": {
         "freeAtLimitTitle": "Upgrade to add another store",
@@ -2603,6 +2609,7 @@
           "capture_finalized": "Recording audio saved",
           "capture_resumed": "Recording audio restored on the server",
           "capture_unlinked": "Recording audio not linked to a record",
+          "capture_warned": "Recording warning shown to staff",
           "discard": "Discarded recording",
           "karute_missing": "Recording never became a karute",
           "no_sessions_today": "No recording sessions today",
@@ -2667,6 +2674,8 @@
         "transcription_failed": "Transcription error",
         "ai_failed": "AI processing error",
         "karute_save_failed": "Karute save error",
+        "warned_device": "Device storage warning shown",
+        "warned_server": "Server upload warning shown",
         "other": "Other"
       },
       "recording": {
@@ -3237,6 +3246,7 @@
     "setNewPin": "Set new PIN for {name}",
     "confirmPin": "Confirm PIN",
     "pinsDoNotMatch": "PINs do not match. Try again.",
+    "pinChangeFailed": "The PIN setting could not be changed. Try again.",
     "pinUpdated": "PIN updated for {name}",
     "pinSet": "PIN set for {name}",
     "pinRemoved": "PIN removed for {name}",
@@ -3570,6 +3580,7 @@
     "copy": "Copy",
     "copied": "Copied",
     "pendingInvites": "Pending invites",
+    "pendingInvitesUnavailable": "Pending invites could not be loaded. Please try again in a moment.",
     "linkedBadge": "Connected",
     "revoke": "Revoke",
     "inviteExistingLabel": "Invite an existing team member (optional)",
@@ -3675,6 +3686,18 @@
     "body": "This account has not been assigned to a store yet. Please ask your manager to assign one.",
     "checkAgain": "Check again",
     "checking": "Checking…",
+    "logout": "Log out"
+  },
+  "storeOutage": {
+    "title": "Couldn't load your store",
+    "body": "Customer and karute details stay hidden until your store assignment can be confirmed. This screen reloads automatically — please wait a moment.",
+    "retry": "Reload",
+    "retrying": "Reloading…",
+    "logout": "Log out"
+  },
+  "removedStaff": {
+    "title": "Removed from the staff list",
+    "body": "Your manager has removed this account from the staff list, so customer and karute details are not shown. Please log out. If you think this is a mistake, contact your manager.",
     "logout": "Log out"
   }
 }

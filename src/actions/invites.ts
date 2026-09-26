@@ -12,8 +12,11 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
+import { STAFF_CREATE_FAILED } from '@/lib/auth/store-gate'
+import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   createInviteCore,
   isNewestLiveInviteForCard,
@@ -23,8 +26,9 @@ import {
   type InviteClient,
 } from '@/lib/invites/invites.core'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
-import { synqedRoleToPreset } from '@/lib/auth/permissions'
+import { synqedRoleToPreset, type Capability } from '@/lib/auth/permissions'
 import { inviteSchema, type InviteInput, type InviteRole } from '@/lib/validations/invite'
+import { RESERVED_STAFF_NAME } from '@/lib/validations/staff'
 
 // Type ALIAS, not an `export type { … }` re-export: Next's 'use server'
 // transform registers every export NAME as a server reference at runtime, and
@@ -80,6 +84,16 @@ export async function createInvite(
   try {
     businessId = await requireInviteBusiness()
   } catch (e) {
+    // Round 3 leg 5 fold (2026-09-25, Greptile P1 on #1040): the gate rides the
+    // same memoised roster read as the try below, so an OUTAGE surfaces here
+    // first. Typed upstream_unavailable = outage → the create-failed line;
+    // a denial / removed membership / no session keeps today's answer.
+    // Round 3 leg 7 (D-S27-7): a typed client defect (internal) is the same
+    // failure to staff — the same code.
+    if (e instanceof AppApiError && (e.code === 'upstream_unavailable' || e.code === 'internal')) {
+      console.error('[createInvite] pre-core read failed (permission gate / business):', describeUnknownThrow(e))
+      return { error: STAFF_CREATE_FAILED }
+    }
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
@@ -125,7 +139,21 @@ export async function createInvite(
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Unknown error' }
   }
-  const invitedBy = await getCurrentUserStaffId().catch(() => null)
+  // Round 3 leg 5 (2026-09-25, D-S23-1): a THROWN roster or permission read is
+  // an outage — not "off the roster", not "no permission". Refuse with the
+  // dialog's create-failed line; never mint an invite with invited_by: null.
+  // A RESOLVED null invitedBy keeps the core's own empty-set refusal.
+  let invitedBy: string | null
+  let callerCapabilities: Set<Capability>
+  try {
+    invitedBy = await getCurrentUserStaffId()
+    // The inviter's own capabilities for the core's hold-what-you-grant check
+    // (the setStaffPermissions twin). Off the roster = the empty set = refused.
+    callerCapabilities = await getMyCapabilities()
+  } catch (err) {
+    console.error('[createInvite] pre-core read failed (roster / permission):', describeUnknownThrow(err))
+    return { error: STAFF_CREATE_FAILED }
+  }
   const actorId = await resolveWebActorId()
   // ⚖ Liam 2026-09-16: a fresh invite mints the card, so the same
   // creator-subset rule the 追加 door applies has to reach this door too.
@@ -135,7 +163,8 @@ export async function createInvite(
   // silently become able to place a new hire in 代官山. `[]` refuses every
   // store instead. This is the file's own sibling convention (staffWriteInScope
   // returns false on degraded) and what the facade twin already does by
-  // throwing. A WRITE fails closed on an unknown; only the read plane doesn't.
+  // throwing. Both planes fail closed on an unknown now: the read plane joined
+  // in Round 2, 2026-09-24, D-S16-4 (discussed, default).
   // ⚖ FOLD ROUND 3 (fresh-eyes F6) — and a THROW is the same unknown. Every
   // other risky call in this action is guarded; this one was not, so a core
   // blip turned a hire into an unhandled Server Action error (message stripped
@@ -151,6 +180,7 @@ export async function createInvite(
       source: 'web',
       requestId: crypto.randomUUID(),
       creatorAllowedStoreIds: allowedStoreIds,
+      callerCapabilities,
     },
     invitedBy,
     parsed.data,
@@ -159,21 +189,22 @@ export async function createInvite(
   return result
 }
 
-/** Owner action: list this business's pending invites. */
-export async function listInvites(): Promise<InviteRow[]> {
+/** Owner action: list this business's pending invites. `null` = could not load. */
+export async function listInvites(): Promise<InviteRow[] | null> {
+  let allowed: boolean
   try {
-    await requireCapability('staff.invite')
+    allowed = await can('staff.invite')
   } catch {
-    return []
+    return null // permission read failed — an outage, never "no invites"
   }
+  if (!allowed) return [] // a denied viewer sees no invites — today's contract, unchanged
   try {
     const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
     const actorId = await resolveWebActorId()
-    // A THROWN lens collapses the WHOLE list to [] through the catch below
-    // (fresh invites included), where the facade drops only the row it could
-    // not judge. Both fail closed; the shapes differ because web's action
-    // contract is "degrade to []" and the facade's is per-row.
+    // Any failed read answers null (could not load) through the catch below:
+    // a failed list read or a THROWN lens propagates from the core; the
+    // facade's handler answers an error status for the same throw.
     return await listInvitesWithClient(
       synqed,
       await memberEmailsForBusiness(businessId),
@@ -181,7 +212,7 @@ export async function listInvites(): Promise<InviteRow[]> {
       actorId,
     )
   } catch {
-    return []
+    return null
   }
 }
 
@@ -190,7 +221,7 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   try {
     await requireCapability('staff.invite')
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+    return { error: (await coreFailureLine(e, '[invites]')) ?? (e instanceof Error ? e.message : 'Not allowed') }
   }
 
   let synqed: InviteClient
@@ -292,7 +323,8 @@ export async function acceptInvite(
     return { error: 'Password must be at least 8 characters.' }
   }
   const name = fullName.trim()
-  if (!name) return { error: 'Your name is required.' }
+  // A system-row name counts as no name: the roster hides `ILIKE '_system_%'`.
+  if (!name || RESERVED_STAFF_NAME.test(name)) return { error: 'Your name is required.' }
   // One id for every audit row this single accept-invite call can produce
   // (the happy path plus its two best-effort failure branches below).
   const requestId = crypto.randomUUID()

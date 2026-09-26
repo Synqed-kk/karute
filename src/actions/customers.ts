@@ -4,7 +4,9 @@ import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { auditWeb } from '@/lib/audit-web'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
 import type { CustomerOption, CustomerSearchOption } from '@/components/karute/CustomerCombobox'
@@ -73,10 +75,24 @@ async function customerWriteDenied(): Promise<string> {
 }
 
 export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
-  if (!(await can('customers.manage'))) {
-    return { success: false, error: await customerWriteDenied() }
+  // Round 3 leg 7b + 7c (D-S28-1/4, D-S29): the gate's own THROW and the client
+  // build's THROW both settle — a typed core outage/defect is the failure line;
+  // anything else (a removed membership included) the translated generic, the
+  // consumer's own answer before either change (its catch printed a translated
+  // toast, never the raw sentence). The try holds the gate, the denial answer
+  // and getSynqedClient(); the writer below catches its own.
+  let synqed: Awaited<ReturnType<typeof getSynqedClient>>
+  try {
+    if (!(await can('customers.manage'))) {
+      return { success: false, error: await customerWriteDenied() }
+    }
+    synqed = await getSynqedClient()
+  } catch (err) {
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
-  const synqed = await getSynqedClient()
   const result = await createCustomerWithClient(synqed, input)
   if (!result.success) return { success: false, error: result.error }
 
@@ -104,10 +120,19 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
 /** The WEB door onto its twin in lib/customers/customers.core.ts — same
  *  wrapper duties as createCustomer. */
 export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
-  if (!(await can('customers.manage'))) {
-    return { success: false, error: await customerWriteDenied() }
+  // D-S28-4 + D-S29: the same arm as createCustomer — the gate and the client build settle.
+  let synqed: Awaited<ReturnType<typeof getSynqedClient>>
+  try {
+    if (!(await can('customers.manage'))) {
+      return { success: false, error: await customerWriteDenied() }
+    }
+    synqed = await getSynqedClient()
+  } catch (err) {
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
-  const synqed = await getSynqedClient()
   const result = await createQuickCustomerWithClient(synqed, name)
   if (!result.success) return { success: false, error: result.error }
 
@@ -136,10 +161,19 @@ export async function updateCustomer(
   id: string,
   input: CustomerFormInput | Record<string, unknown>,
 ): Promise<ActionResult> {
-  if (!(await can('customers.manage'))) {
-    return { success: false, error: await customerWriteDenied() }
+  // D-S28-4 + D-S29: the same arm as createCustomer — the gate and the client build settle.
+  let synqed: Awaited<ReturnType<typeof getSynqedClient>>
+  try {
+    if (!(await can('customers.manage'))) {
+      return { success: false, error: await customerWriteDenied() }
+    }
+    synqed = await getSynqedClient()
+  } catch (err) {
+    const line = await coreFailureLine(err, '[customers]')
+    if (line) return { success: false, error: line }
+    console.error('[customers]', err)
+    return { success: false, error: (await getTranslations('common'))('somethingWentWrong') }
   }
-  const synqed = await getSynqedClient()
   const result = await updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
   if (result.success) {
     revalidatePath('/customers')
@@ -324,7 +358,7 @@ export async function deleteCustomerPhoto(
   } catch (err) {
     return {
       success: false as const,
-      error: err instanceof Error ? err.message : 'Unknown error',
+      error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error'),
     }
   }
 }
@@ -347,7 +381,14 @@ export async function grantCustomerConsent(
   input: { method?: 'VERBAL' | 'WRITTEN' } = {},
 ) {
   const { getCurrentUserStaffId } = await import('@/lib/staff')
-  const staffId = await getCurrentUserStaffId()
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch (err) {
+    // Round 3 leg 6 (2026-09-25): a roster outage answers the action's own failure shape, never a rejection.
+    console.error('[customers] pre-core read failed (roster):', describeUnknownThrow(err))
+    return { ok: false as const, error: (await getTranslations('common'))('somethingWentWrong') }
+  }
   if (!staffId) {
     return {
       ok: false as const,
@@ -385,7 +426,14 @@ export async function grantCustomerConsent(
 
 export async function revokeCustomerConsent(customerId: string) {
   const { getCurrentUserStaffId } = await import('@/lib/staff')
-  const staffId = await getCurrentUserStaffId()
+  let staffId: string | null
+  try {
+    staffId = await getCurrentUserStaffId()
+  } catch (err) {
+    // Round 3 leg 6 (2026-09-25): a roster outage answers the action's own failure shape, never a rejection.
+    console.error('[customers] pre-core read failed (roster):', describeUnknownThrow(err))
+    return { ok: false as const, error: (await getTranslations('common'))('somethingWentWrong') }
+  }
   if (!staffId) {
     return { ok: false as const, error: 'No staff identity for the signed-in user.' }
   }
@@ -507,6 +555,6 @@ export async function searchCustomersCompanyWide(
       .map((r) => ({ ...r, other_store: otherStoreFor(r.id) }))
     return { options, karute_number_unavailable: karuteNumberUnavailable, remote_more: remoteMore }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[customers]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }

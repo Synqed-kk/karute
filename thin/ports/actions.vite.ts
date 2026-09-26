@@ -1400,27 +1400,25 @@ export const setStaffStores = facadeSetStaffStores
 export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
 
-// The mint's undo (Build F1 fix round 3, INTERIM — P5's kept-discard build
-// replaces it). Fire-and-forget by contract: a failed cleanup must never block
-// the discard, so every failure resolves to { error } instead of throwing.
-export const deleteRecordingSession = async (
-  recordingSessionId: string,
-): Promise<{ ok: true } | { error: string }> => {
+// PR-6 — "the recorder was shown the at-risk notice": the phone's call into
+// PR-7's facade door (src/app/api/app/v1/recordings/capture-warning), the twin
+// of the web action. NEVER THROWS: the fact is best-effort telemetry the
+// recorder fires and forgets, so every failure settles to one answer.
+export const recordCaptureWarning = async (input: {
+  recordingSessionId: string
+  takeId: string
+  reason: 'device' | 'server'
+  warnedAt: string
+}): Promise<{ ok: true } | { error: 'bad_input' | 'forbidden' | 'not_found' | 'failed' }> => {
   try {
-    const res = await getDataPort().apiFetch(
-      `/api/app/v1/recordings/session/${enc(recordingSessionId)}`,
-      // idemPost() with no body: the id is in the path, so a DELETE carries
-      // no payload — only the Idempotency-Key the route requires.
-      { ...idemPost(), method: 'DELETE' },
-    )
-    const body = (await res.json().catch(() => null)) as
-      | { ok?: true; error?: string | { message?: string } }
-      | null
-    if (res.ok && body?.ok) return { ok: true }
-    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
-    return { error: message ?? `cleanup failed (${res.status})` }
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Network error' }
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/capture-warning', idemPost(input))
+    if (res.status === 403) return { error: 'forbidden' }
+    if (res.status === 400) return { error: 'bad_input' }
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (res.ok && body?.ok === true) return { ok: true }
+    return { error: res.ok && (body?.error === 'not_found' || body?.error === 'bad_input') ? body.error : 'failed' }
+  } catch {
+    return { error: 'failed' }
   }
 }
 
@@ -1428,7 +1426,7 @@ export const deleteRecordingSession = async (
 // shape uses; the presence of `reason` is what routes it to the door that
 // writes the core discard row first (src/app/api/app/v1/recordings/discard).
 //
-// FAILS CLOSED, unlike its deleteRecordingSession neighbour above: this call
+// FAILS CLOSED: this call
 // IS the trace, so anything short of a 2xx must leave the take alone. Every
 // failure — network, non-2xx, unparseable body — resolves to { ok: false },
 // which RecordPageView renders as the retry-able inline error.
@@ -1881,9 +1879,10 @@ async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean; reason
 }
 
 // Invites: createInvite is create-class → Idempotency-Key (idemPost). listInvites
-// degrades to [] on ANY failure (web-exact — the web action's own two catches
-// both return []). revokeInvite mirrors createStore's business-result
-// passthrough (2xx { ok: true } | { error } VERBATIM).
+// is web-exact: a 403 (missing staff.invite) → [], any other failure → null,
+// so the dialog shows its could-not-load line on the phone too. revokeInvite
+// mirrors createStore's business-result passthrough
+// (2xx { ok: true } | { error } VERBATIM).
 /** The invite twin of voiceStoreScopeRefusal above, read off an ALREADY-parsed
  *  body: these ports consume res.json() themselves and a Response body can
  *  only be read once. Both invite writes are store-clamped server-side, and
@@ -1916,14 +1915,15 @@ async function facadeCreateInvite(
   }
 }
 
-async function facadeListInvites(): Promise<InviteRow[]> {
+async function facadeListInvites(): Promise<InviteRow[] | null> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/invites')
-    if (!res.ok) return []
+    if (res.status === 403) return []
+    if (!res.ok) return null
     const body = (await res.json().catch(() => null)) as { invites?: InviteRow[] } | null
     return body?.invites ?? []
   } catch {
-    return []
+    return null
   }
 }
 

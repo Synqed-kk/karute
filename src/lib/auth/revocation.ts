@@ -50,6 +50,8 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // row and files a durable audit row. A just-terminated staffer must not
   // reach it on the local fast-path.
   'recordings.finalize',
+  // 録音の警告 (recording hole PR-7) — files a staff-attributed audit row.
+  'recordings.captureWarning',
   // 新規顧客 create (both doors) — a durable customer-PII write, the same
   // class as customer.update above.
   'customer.create',
@@ -94,7 +96,6 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // upload-url mints no durable state but is a POST, so it re-checks too (the
   // "every facade mutation re-checks revocation" rule; the coverage test enforces it).
   'customer.consent.grant',
-  'recordings.session.delete',
   'recordings.session.mint',
   'recordings.uploadUrl',
   // The discard receipt (recording-integrity A1) — a POST that writes a

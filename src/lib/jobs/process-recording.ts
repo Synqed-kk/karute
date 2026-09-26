@@ -418,6 +418,9 @@ async function processJob(job: RecordingJob): Promise<string> {
         attempt: job.attempts,
         rescued,
         requestId: job.id,
+        // Re-checked with isOwnAudioKey above. A `rsc/` path composes its own
+        // memo — the rescue's bytes are the assembler's rebuild, its own audio.
+        audioKey: payload.audio_path,
       },
       {
         audio: { url: signed.signedUrl },

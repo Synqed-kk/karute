@@ -71,10 +71,12 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
+import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSection'
 import {
   isIntegerTextAtLeast,
   StorePolicySection,
@@ -86,6 +88,8 @@ import {
   addToCollection,
   blockDirty,
   BOOKING_GUARD_ID,
+  CARD_COLOR_ID,
+  CARD_LOOK_ID,
   hitOf,
   blockingError,
   changedCount,
@@ -115,6 +119,7 @@ import {
   type RailRow,
   type RowControl,
   type RowValue,
+  type SampleMark as SampleMarkForm,
   type SettingsBlock,
   type SettingsProps,
   type SettingsRow,
@@ -151,7 +156,7 @@ const HEAD_GUIDE_NARROW =
  *  exactly the way the scroll-spy asks for its anchors, so 予約と確保 is one
  *  special case in this file rather than two. */
 const termsFor = (id: string): readonly string[] | undefined =>
-  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : undefined)
+  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === CARD_LOOK_ID ? CARD_LOOK_HEADINGS : undefined)
 
 const DENSITY_ID = 'my-display.density'
 const EMPHASIS_ID = 'my-display.emphasis'
@@ -188,6 +193,8 @@ function seedOf(props: SettingsProps): Record<string, RowValue> {
   const out: Record<string, RowValue> = {}
   for (const section of props.sections) {
     for (const b of section.blocks) for (const r of b.rows) for (const c of r.controls) out[c.id] = c.value
+    // ⚖ A1b — カードの見た目's one value ('' = nothing set), so the save bar counts and commits it.
+    if (section.cardLook) out[CARD_COLOR_ID] = section.cardLook.value ?? ''
   }
   return out
 }
@@ -273,7 +280,118 @@ function useNarrow(): boolean {
  *  予約と確保 gate is shut the server does not assemble it at all. `null` is not
  *  「loading」 and not 「empty」: it is the ONLY shape a reader who may not see the
  *  section is given, and the screen renders that section's own boundary for it. */
-export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null }
+/** ⚖ PR-3 fix round 1 (Greptile P2) — THE LANDING, LIFTED SO A SUITE CAN RUN IT. This folder's import fence
+ *  keeps react-dom out, so no suite here can mount the room (the `sendBookingColors` precedent below); the
+ *  two halves of a landing live here instead and the room's effect + `jumpTo` only call them.
+ *  Which block a `#st-blk-<id>` fragment lands on: one of the OPEN section's blocks, else none. */
+export function landingBlockOf(hash: string, blocks: ReadonlyArray<{ id: string }>): string | null {
+  const id = hash.startsWith('#st-blk-') ? hash.slice('#st-blk-'.length) : null
+  return id !== null && blocks.some((b) => b.id === id) ? id : null
+}
+
+/** …and the landing itself, the jump list's own: the block scrolls to the top of the reading area and the
+ *  caret moves to its heading (⚖ keyboard reach). The heading: every block renders one; 予約と確保's two
+ *  anchors render their own (its プリセット label and its 詳細設定 summary), so one lookup serves both. */
+export function landOnBlock(blockId: string, reduced: boolean): void {
+  const head = document.getElementById(`st-blkh-${blockId}`)
+  const el = document.getElementById(`st-blk-${blockId}`)
+  /** ⚠ AND THE SCROLL OBEYS THE READER'S PREFERENCE (⚖ S17 fix round 4 · M1).
+   *  `behavior: 'smooth'` was unconditional, so a reader who asked the
+   *  platform for stillness got a 1 554px animated slide out of a jump list —
+   *  measured under `reduce`: scrollY 0 → 47 at 60ms → 1554 settled. The
+   *  sheet cannot cover it twice over: `scroll-behavior: auto !important` in
+   *  the shell is scoped to `.biz *` and the scrolling element here is the
+   *  DOCUMENT, and an explicit `behavior` argument beats the CSS property
+   *  anyway. The flag the room already holds is the answer. */
+  el?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
+  head?.focus({ preventScroll: true })
+}
+
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave }
+
+/** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
+ *  practice door is ON; absent = today's page-local commit, and nothing is ever sent. */
+type CardSaveReason = 'forbidden' | 'tenant' | 'invalid' | 'core'
+type CardSave = { businessId: string; canSave: boolean }
+const CARD_SAVE_URL = '/api/business/card-color'
+const CARD_SAVE_REASONS: ReadonlyArray<CardSaveReason> = ['forbidden', 'tenant', 'invalid', 'core']
+
+/** The route's answer → the room's: core's colour on 200, else one of the four reasons; anything the
+ *  room cannot read (a network failure, a 404, a body that is not the route's) is 'core'. */
+async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: true; color: string | null } | { ok: false; reason: CardSaveReason }> {
+  try {
+    const res = await fetch(CARD_SAVE_URL, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-expected-business': card.businessId },
+      body: JSON.stringify({ color: next }),
+    })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; color?: unknown; reason?: unknown }
+    if (res.ok && answer.ok === true && (answer.color === null || typeof answer.color === 'string')) return { ok: true, color: answer.color }
+    const reason = CARD_SAVE_REASONS.find((r) => r === answer.reason)
+    return { ok: false, reason: reason ?? 'core' }
+  } catch {
+    return { ok: false, reason: 'core' }
+  }
+}
+/** JP-COPY-A2-FINAL.md, byte for byte, by id. */
+const CARD_SAVE_NOTE = '色は事業全体の設定として保存され、お客様が次にReserveのお店ページを開くと表示されます。' // save.note.card
+const CARD_SAVE_FAIL: Record<CardSaveReason, string> = {
+  forbidden: '設定を変更できる権限がないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.forbidden
+  tenant: 'ここからはこの事業の設定を保存できないため、Reserveのカードはこれまでの色のままです。', // save.fail.tenant
+  invalid: '選んだ色が12色に含まれていないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.invalid
+  core: 'いまは保存できないため、時間をおいてもう一度保存してください（Reserveのカードはこれまでの色のままです）。', // save.fail.core
+}
+
+/** ⚖ PKT-S38 R7 (Liam 9/25 「make it work」) — 予約の色分け's REAL save, mirrored from the card colour's.
+ *  page.tsx hands it over ONLY while the practice door is ON and the lens is one store; absent = today's
+ *  page-local commit, and nothing is ever sent. `colors` = the four the dial was seeded with. */
+type BookingSave = { businessId: string; storeId: string; canSave: boolean; colors: Record<string, string> }
+const BOOKING_SAVE_URL = '/api/business/booking-colors'
+const LANG_SECTION_ID = 'language-display'
+const BOOKING_KEYS = ['new', 'repeat', 'ticket', 'vip'] as const
+/** The dial's four swatches → the route's `colors` (control id `lang.color-<category>`). */
+export const bookingColorsOf = (values: Record<string, RowValue>): Record<string, string> =>
+  Object.fromEntries(BOOKING_KEYS.map((k) => [k, String(values[`lang.color-${k}`] ?? '')]))
+/** Greptile T2 (PKT-S40-FIX-1) — the same four colours, category by category (nothing to send). */
+export const sameBookingColors = (a: Record<string, string>, b: Record<string, string>): boolean =>
+  BOOKING_KEYS.every((k) => a[k] === b[k])
+
+/** The route's answer → the room's: core's four on 200, else one of the four reasons (the card route's
+ *  own set); anything the room cannot read (a network failure, a 404, a body that is not the route's) is 'core'. */
+export async function putBookingColors(save: BookingSave, colors: Record<string, string>): Promise<{ ok: true; colors: Record<string, string> } | { ok: false; reason: CardSaveReason }> {
+  try {
+    const res = await fetch(BOOKING_SAVE_URL, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
+      body: JSON.stringify({ storeId: save.storeId, colors }),
+    })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; colors?: unknown; reason?: unknown }
+    const got = answer.colors
+    if (res.ok && answer.ok === true && got !== null && typeof got === 'object' && BOOKING_KEYS.every((k) => typeof (got as Record<string, unknown>)[k] === 'string')) {
+      return { ok: true, colors: Object.fromEntries(BOOKING_KEYS.map((k) => [k, (got as Record<string, string>)[k]])) }
+    }
+    const reason = CARD_SAVE_REASONS.find((r) => r === answer.reason)
+    return { ok: false, reason: reason ?? 'core' }
+  } catch {
+    return { ok: false, reason: 'core' }
+  }
+}
+/** Greptile T2 (PKT-S40-FIX-1) — 保存する's send: the four picked equal the four last saved → null and NO
+ *  request (the caller still commits the section locally); otherwise the PUT. */
+export async function sendBookingColors(save: BookingSave, values: Record<string, RowValue>, saved: Record<string, RowValue>): Promise<Awaited<ReturnType<typeof putBookingColors>> | null> {
+  const picked = bookingColorsOf(values)
+  return sameBookingColors(picked, bookingColorsOf(saved)) ? null : putBookingColors(save, picked)
+}
+/** The save's lines, in the card colour's own shape (builder-authored; PR-3 owns further dial copy). */
+const BOOKING_SAVE_NOTE = '色はこの店舗の設定として保存され、次に「今日の運営」を開くとボードに表示されます。'
+const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
+  forbidden: '設定を変更できる権限がないため保存できず、ボードの色はこれまでのままです。',
+  tenant: 'ここからはこの事業の設定を保存できないため、ボードの色はこれまでのままです。',
+  invalid: '選んだ色が色の一覧にないため保存できず、ボードの色はこれまでのままです。',
+  core: 'いまは保存できないため、時間をおいてもう一度保存してください（ボードの色はこれまでのままです）。',
+}
 
 export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
@@ -310,6 +428,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  covers all of it — and it keeps `.delete(`, which the guard really does
    *  ban, out of the room without an exception being argued for. */
   const [committed, setCommitted] = useState<Record<string, boolean>>({})
+  /** ⚖ A2 — why the last real card save did not land (null = none, or it did). */
+  const [cardFail, setCardFail] = useState<CardSaveReason | null>(null)
+  const cardSaving = useRef(false)
+  /** ⚖ PKT-S38 — why the last real 予約の色分け save did not land (null = none, or it did). */
+  const [bookingFail, setBookingFail] = useState<CardSaveReason | null>(null)
+  const bookingSaving = useRef(false)
   const [results, setResults] = useState<Record<string, string>>({})
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [tourIdx, setTourIdx] = useState(-1)
@@ -507,10 +631,50 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setCommitted((prev) => ({ ...prev, [target.id]: true }))
   }, [values, listRows])
 
+  /** ⚖ A2 — カードの見た目 with the door ON: core first (the route), and the page commits ONLY on core's
+   *  yes. The committed baseline takes core's answer, not the input echoed; a pick made while the save
+   *  is in flight stays a pending change. */
+  const saveCardSection = useCallback(async (target: SettingsSection, card: CardSave) => {
+    if (cardSaving.current) return
+    cardSaving.current = true
+    setCardFail(null)
+    const picked = String(values[CARD_COLOR_ID] ?? '')
+    const result = await putCardColor(card, picked === '' ? null : picked)
+    cardSaving.current = false
+    if (!result.ok) {
+      setCardFail(result.reason)
+      return
+    }
+    commitSection(target)
+    setSaved((prev) => ({ ...prev, [CARD_COLOR_ID]: result.color ?? '' }))
+  }, [values, commitSection])
+
+  /** ⚖ PKT-S38 R7 — 予約の色分け with the door ON: core first (the route), and the page commits ONLY on
+   *  core's yes; the baseline takes core's four, not the input echoed. The card colour's save, one for one. */
+  const saveBookingSection = useCallback(async (target: SettingsSection, save: BookingSave) => {
+    if (bookingSaving.current) return
+    bookingSaving.current = true
+    setBookingFail(null)
+    const result = await sendBookingColors(save, values, saved)
+    bookingSaving.current = false
+    if (result === null) {
+      commitSection(target) // Greptile T2: the four unchanged → no PUT, the section commits locally
+      return
+    }
+    if (!result.ok) {
+      setBookingFail(result.reason)
+      return
+    }
+    commitSection(target)
+    setSaved((prev) => ({ ...prev, ...Object.fromEntries(BOOKING_KEYS.map((k) => [`lang.color-${k}`, result.colors[k]])) }))
+  }, [values, saved, commitSection])
+
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */
   const openSection = useCallback((id: string, fromRail: boolean) => {
     if (fromRail) cameFromRef.current = id
+    setCardFail(null) // G7 — the section changes (`picked` is state): an old card refusal goes with it
+    setBookingFail(null) // …and an old 予約の色分け refusal
     setPicked(id)
     setJumpPin(null)
     setInView(null)
@@ -518,6 +682,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
 
   const backToList = useCallback(() => {
     const id = cameFromRef.current
+    setCardFail(null) // G7 — leaving the section clears an old card refusal
+    setBookingFail(null)
     setPicked(null)
     if (!id) return
     // The rail is only mounted again once `picked` is null, so the focus move
@@ -773,22 +939,23 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const jumpTo = useCallback((blockId: string) => {
     setJumpPin(blockId)
     setInView(blockId)
-    /** The heading a jump lands the caret on. Every block renders one; 予約と確保's
-     *  two anchors render their own (its プリセット label and its 詳細設定
-     *  summary), so one lookup serves both. */
-    const head = document.getElementById(`st-blkh-${blockId}`)
-    const el = document.getElementById(`st-blk-${blockId}`)
-    /** ⚠ AND THE SCROLL OBEYS THE READER'S PREFERENCE (⚖ S17 fix round 4 · M1).
-     *  `behavior: 'smooth'` was unconditional, so a reader who asked the
-     *  platform for stillness got a 1 554px animated slide out of a jump list —
-     *  measured under `reduce`: scrollY 0 → 47 at 60ms → 1554 settled. The
-     *  sheet cannot cover it twice over: `scroll-behavior: auto !important` in
-     *  the shell is scoped to `.biz *` and the scrolling element here is the
-     *  DOCUMENT, and an explicit `behavior` argument beats the CSS property
-     *  anyway. The flag the room already holds is the answer. */
-    el?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
-    head?.focus({ preventScroll: true })
+    landOnBlock(blockId, reduced)
   }, [reduced])
+
+  /** ⚖ PR-3 of 予約の色分け — A LINK MAY LAND ON ONE BLOCK. `settingsHref`'s
+   *  `block` writes `#st-blk-<block id>`, but Next's own fragment scroll runs
+   *  before this room is on the page (measured on the 色の意味 chip: scrollY 62,
+   *  the jump list on 表示言語), so the room lands it itself, through the jump
+   *  list's own `jumpTo`. A fragment never reaches the server, so this is read in
+   *  an effect — after hydration, never in a seed. Once per mount; a fragment
+   *  that names no block of the open section is ignored. */
+  const landedRef = useRef(false)
+  useEffect(() => {
+    if (landedRef.current) return
+    landedRef.current = true
+    const id = landingBlockOf(window.location.hash, blocks)
+    if (id !== null) jumpTo(id)
+  }, [blocks, jumpTo])
 
   const groups: string[] = []
   for (const row of props.rail) if (!groups.includes(row.group)) groups.push(row.group)
@@ -835,6 +1002,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) ?? wordsBlockingError(section, values) : null
   const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
+  /** ⚖ PKT-S38 R7 — 言語・表示 while page.tsx has said 予約の色分け saves for real (undefined = today's render). */
+  const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined
   /** ⚖ S17 fix round 5 · G1 — 予約と確保'S PAYLOAD IS ABSENT FOR A READER WHOSE
    *  GATE IS SHUT. The server no longer assembles it (`settings-props.ts`): the
    *  roster, the named restrictions, the pricing frame and every policy value
@@ -915,6 +1084,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           )}
         </p>
       )}
+      {section.sample && <SampleMark mark={section.sample} id={`st-mark-${section.id}`} reduced={reduced} />}
     </div>
   )
 
@@ -942,6 +1112,41 @@ export function SettingsScreen(props: SettingsScreenProps) {
       {side}
     </>
   )
+
+  /** THE ROOM'S SAVE BAR, one copy for every section that uses it (⚖ A1b: カードの見た目 too). */
+  const roomSave = (section: SettingsSection) =>
+    /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
+       already saved, in this browser, the moment it is pressed.
+       Printing 保存する under it would ask a reader to commit
+       something nobody else can see. */
+    section.persist === 'local' ? (
+      <p className="st-save-state" role="status">
+        {committed[section.id]
+          ? `✓ この端末に保存しました ${props.saveStampTime}`
+          : '押すとすぐ保存されます'}
+      </p>
+    ) : (
+      <>
+        <div className="st-save-line">
+          <span className={`st-save-count${changed === 0 ? ' is-none' : ''}`} role="status">
+            {blocked ??
+              (changed > 0
+                ? `変更した設定 ${changed}件`
+                : committed[section.id]
+                  ? `✓ 保存しました ${props.saveStampTime}`
+                  : '変更はありません')}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="st-save"
+          disabled={!dirty || blocked !== null}
+          onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}
+        >
+          保存する
+        </button>
+      </>
+    )
 
   const sideNode = (
     jump: ReadonlyArray<{ id: string; title: string }>,
@@ -1141,16 +1346,45 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 )
               }
             />
+          ) : section.cardLook ? (
+            // ⚖ A1b — カードの見た目 renders itself, like 予約と確保, but on the ROOM's save bar:
+            // its one value lives in `values`, so the count, the rise and 保存する are the room's own.
+            <ReserveCardLookSection
+              look={section.cardLook}
+              value={String(values[CARD_COLOR_ID] ?? '')}
+              onPick={(hex) => {
+                setCardFail(null) // G7 — an old refusal never stands beside a new pick
+                setValue(CARD_COLOR_ID, hex)
+              }}
+              reduced={reduced}
+              render={(slots) =>
+                columnAnd(
+                  <div className="st-main">{slots.main}<p className="st-foot">{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}</p></div>,
+                  sideNode(
+                    [],
+                    slots.preview,
+                    <>
+                      {/* ⚖ G5 — core's sheet says no: no 保存する to press; the foot says why. */}
+                      {props.saveCardColor?.canSave === false ? null : roomSave(section)}
+                      {cardFail && <p className="st-act-error" role="alert">{CARD_SAVE_FAIL[cardFail]}</p>}
+                    </>,
+                    () => false,
+                    changed > 0,
+                  ),
+                )
+              }
+            />
           ) : (
             columnAnd(
               <div className="st-main">
+                {section.sampleNone && <NoSample />}
                 {section.blocks.map((b) => (
                   <Block
                     key={b.id}
                     block={b}
                     section={section}
                     values={values}
-                    onChange={setValue}
+                    onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}
                     labelFor={labelFor}
                     result={results[b.id] ?? null}
                     error={actionErrors[b.id] ?? null}
@@ -1181,43 +1415,25 @@ export function SettingsScreen(props: SettingsScreenProps) {
                     and 959 the sentence was not merely low — it was gone. */}
                 {section.persist === 'local'
                   ? <p className="st-foot">{props.selfSaveLine}</p>
-                  : <p className="st-foot">{props.demoSaveLine}</p>}
+                  : liveColors
+                    ? (
+                        <>
+                          {/* ⚖ PKT-S38 — core's sheet says no: the foot says why (and there is no 保存する). */}
+                          <p className="st-foot">{liveColors.canSave ? BOOKING_SAVE_NOTE : BOOKING_SAVE_FAIL.forbidden}</p>
+                          {section.blocks.length > 1 && <p className="st-foot">{props.demoSaveLine}</p>}
+                        </>
+                      )
+                    : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
               sideNode(
                 section.blocks.map((b) => ({ id: b.id, title: wordsRoomBlock(section, b.id, values)?.title ?? b.title })),
                 null,
-                /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
-                   already saved, in this browser, the moment it is pressed.
-                   Printing 保存する under it would ask a reader to commit
-                   something nobody else can see. */
-                section.persist === 'local' ? (
-                  <p className="st-save-state" role="status">
-                    {committed[section.id]
-                      ? `✓ この端末に保存しました ${props.saveStampTime}`
-                      : '押すとすぐ保存されます'}
-                  </p>
-                ) : (
+                liveColors ? (
                   <>
-                    <div className="st-save-line">
-                      <span className={`st-save-count${changed === 0 ? ' is-none' : ''}`} role="status">
-                        {blocked ??
-                          (changed > 0
-                            ? `変更した設定 ${changed}件`
-                            : committed[section.id]
-                              ? `✓ 保存しました ${props.saveStampTime}`
-                              : '変更はありません')}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="st-save"
-                      disabled={!dirty || blocked !== null}
-                      onClick={() => commitSection(section)}
-                    >
-                      保存する
-                    </button>
+                    {liveColors.canSave === false ? null : roomSave(section)}
+                    {bookingFail && <p className="st-act-error" role="alert">{BOOKING_SAVE_FAIL[bookingFail]}</p>}
                   </>
-                ),
+                ) : roomSave(section),
                 (id) => {
                   const b = section.blocks.find((x) => x.id === id)
                   return b !== undefined && blockDirty(b, values, saved, listRows, savedRows)
@@ -1475,6 +1691,79 @@ function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: 
   )
 }
 
+// ── ⚖ PR-3 — the 「サンプル」 mark ────────────────────────────────────────────
+//
+// ONE token (`.sample-mark` in the shell sheet, amber wash — never black), ONE
+// string home (`businessStrings.sampleMark`). The chip opens its two-line
+// explanation on the room's ONE disclosure (`Collapse` → `makeSpring`): no
+// second easing, and an inline panel rather than a floating popover because
+// that is the shape `Collapse` has. Esc on the chip closes it; focus never left
+// the chip, so it is already where it returns to.
+
+const MARK = businessStrings.sampleMark
+
+function MarkChip({ mark, open, controls, onToggle }: { mark: SampleMarkForm; open: boolean; controls: string; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="sample-mark"
+      aria-expanded={open}
+      aria-controls={controls}
+      aria-label={MARK.chipLabel}
+      data-guide-title={MARK.popLabel}
+      data-guide={`${sampleMarkLines(mark).pop1}${MARK.popLine2}`}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) {
+          e.stopPropagation()
+          onToggle()
+        }
+      }}
+    >
+      {MARK.chip}
+    </button>
+  )
+}
+
+/** The note line, and under it the chip's explanation on `Collapse`. ⚖ §v3 V3-3 —
+ *  both say the mark's FORM: the whole block, or only its named parts. */
+function MarkNote({ mark, id, open, reduced }: { mark: SampleMarkForm; id: string; open: boolean; reduced: boolean }) {
+  const lines = sampleMarkLines(mark)
+  return (
+    <>
+      <p className="sample-mark-note">{lines.note}</p>
+      <Collapse open={open} id={id} reduced={reduced}>
+        <div className="sample-pop" role="note" aria-label={MARK.popLabel}>
+          <p>{lines.pop1}</p>
+          <p>{MARK.popLine2}</p>
+        </div>
+      </Collapse>
+    </>
+  )
+}
+
+/** A section's mark (予約と確保): chip + note on one line under the lead. ⚖ §v3
+ *  V3-6 — it is the section's ONLY mark: its blocks draw none (see `Block`). */
+function SampleMark({ mark, id, reduced }: { mark: SampleMarkForm; id: string; reduced: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="sample-mark-line">
+      <MarkChip mark={mark} open={open} controls={id} onToggle={() => setOpen((o) => !o)} />
+      <MarkNote mark={mark} id={id} open={open} reduced={reduced} />
+    </div>
+  )
+}
+
+/** The `no-sample-policy` state: where 「サンプル設定なし」 used to print. */
+function NoSample() {
+  return (
+    <div className="no-sample" role="note" data-guide-title={MARK.noneHead} data-guide={MARK.noneText}>
+      <b>{MARK.noneHead}</b>
+      <p>{MARK.noneText}</p>
+    </div>
+  )
+}
+
 // ── a block ────────────────────────────────────────────────────────────────
 
 function Block({
@@ -1514,6 +1803,10 @@ function Block({
   onListRemove: (rowId: string) => void
   reduced: boolean
 }) {
+  const [markOpen, setMarkOpen] = useState(false)
+  // ⚖ PR-3 §v3 V3-6 — ONE RULE, ONE HOME: under a marked section its blocks carry
+  // no mark of their own (the section's chip already says it).
+  const mark = section.sample ? undefined : seed.sample
   const roomBlock = wordsRoomBlock(section, seed.id, values)
   const block: SettingsBlock = roomBlock === null ? seed : { ...seed, ...(roomBlock.title === undefined ? {} : { title: roomBlock.title }), ...(roomBlock.note === undefined ? {} : { note: roomBlock.note }) }
   const rows = block.table === null ? block.table : filterTable(block, values)
@@ -1542,9 +1835,11 @@ function Block({
             jump has to move the caret as well as the page, or a keyboard reader
             presses 「営業時間」 and is still standing in the list. */}
         <h3 id={`st-blkh-${block.id}`} tabIndex={-1}>{block.title}</h3>
+        {mark && <MarkChip mark={mark} open={markOpen} controls={`st-mark-${block.id}`} onToggle={() => setMarkOpen((o) => !o)} />}
         {block.flag && <span className="st-flag is-soon">{block.flag}</span>}
       </div>
       {block.note && <p className="st-block-note">{block.note}</p>}
+      {mark && <MarkNote mark={mark} id={`st-mark-${block.id}`} open={markOpen} reduced={reduced} />}
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.layout === 'week' ? (
@@ -1636,7 +1931,11 @@ function Block({
             Object.entries(block.preview.attrs ?? {}).map(([attr, id]) => [attr, String(values[id] ?? '')]),
           )}
         >
-          <div className="st-pv-note">いまの設定での見え方</div>
+          {/* ⚖ PR-3 — ONLY the preview that draws the static 見本 board (`attrs`,
+              自分の表示設定) is a display example and says so; every other
+              preview is a live readout of this block's own values and keeps
+              its note. */}
+          <div className="st-pv-note">{block.preview.attrs ? businessStrings.settings.pvNoteExample : 'いまの設定での見え方'}</div>
           <p className="st-pv-text">{fillTemplate(previewTemplate(block.preview, values), labelFor)}</p>
           {block.preview.attrs && (
             <div className="st-pv-board">
@@ -1656,6 +1955,8 @@ function Block({
           <p className="st-pv-text">{block.words.copy.exampleLabel}: {sentences.example}</p>
         </div>
       )}
+
+      {block.sampleNone && <NoSample />}
 
       {block.facts.map((f, index) => (
         <p className="st-fact" key={f}>{roomBlock?.facts[index] ?? (turnoverFact?.index === index ? turnoverFact.sentence : liveFact?.index === index ? liveFact.sentence : f)}</p>
@@ -2127,7 +2428,7 @@ function Control({
         onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
       >
         {k.options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+          <option key={opt.value} value={opt.value} disabled={opt.disabled}>{opt.label}</option>
         ))}
       </select>
     )

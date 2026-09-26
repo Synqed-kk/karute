@@ -29,6 +29,30 @@ export function UnassignedStoreScreen({
   onRecheck?: () => Promise<void>
 } = {}) {
   const t = useTranslations('unassignedStore')
+  return (
+    <StoreGateScreen
+      copy={{ title: t('title'), body: t('body'), recheck: t('checkAgain'), rechecking: t('checking'), logout: t('logout') }}
+      onRecheck={onRecheck}
+    />
+  )
+}
+
+/** The shell's full-screen gate LAYOUT, shared by this screen,
+ *  StoreOutageScreen (Round 2) and RemovedStaffScreen (Round 3): same look,
+ *  each with its own words. No `recheck` copy = no recheck button (a removed
+ *  membership is a fact a reload cannot change — D-S19-2). */
+export function StoreGateScreen({
+  copy,
+  onRecheck,
+}: {
+  /** recheck + rechecking come as a PAIR or not at all (Greptile P2 on #1028):
+   *  a recheck without its busy label would render an unlabeled button. */
+  copy: { title: string; body: string; logout: string } & (
+    | { recheck: string; rechecking: string }
+    | { recheck?: undefined; rechecking?: undefined }
+  )
+  onRecheck?: () => Promise<void>
+}) {
   const locale = useLocale()
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
@@ -71,27 +95,29 @@ export function UnassignedStoreScreen({
           <Store className="size-5 text-muted-foreground" aria-hidden />
         </div>
         <h1 className="text-lg font-semibold tracking-tight text-foreground">
-          {t('title')}
+          {copy.title}
         </h1>
         <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
-          {t('body')}
+          {copy.body}
         </p>
-        <button
-          type="button"
-          onClick={handleRecheck}
-          disabled={busy}
-          className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-60"
-        >
-          {checking ? t('checking') : t('checkAgain')}
-        </button>
+        {copy.recheck && (
+          <button
+            type="button"
+            onClick={handleRecheck}
+            disabled={busy}
+            className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-60"
+          >
+            {checking ? copy.rechecking : copy.recheck}
+          </button>
+        )}
         <button
           type="button"
           onClick={handleSignOut}
           disabled={busy}
-          className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+          className={`${copy.recheck ? 'mt-3' : 'mt-8'} inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60`}
         >
           <LogOut className="size-4" aria-hidden />
-          {t('logout')}
+          {copy.logout}
         </button>
       </div>
     </main>

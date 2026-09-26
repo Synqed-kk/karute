@@ -165,6 +165,29 @@ function bumpBackoff(takeId: string): void {
   backoff.set(takeId, { until: Date.now() + wait, step })
 }
 
+/**
+ * ⚖ WHERE THE PUMP READS WHAT THE SERVER IS OWED, AND WRITES DOWN WHAT LANDED
+ * (S36 PR-1b). ONE pump, one protocol, one door — and two places its bytes can
+ * come from. The store (take-store's row and segments) is the default and is
+ * exactly what this file has always read. The other is the recorder's own
+ * MEMORY, for the one take whose storage is off: global-recorder builds it, and
+ * everything below — the mint, the PUTs, `uploadedSeq` as a contiguous prefix
+ * of what storage ACCEPTED, the backoff — is the same code either way.
+ */
+export type SegmentSource = {
+  readUploadMeta(): ReturnType<typeof readTakeUploadMeta>
+  listSegmentsAfter(afterSeq: number, limit: number): ReturnType<typeof listTakeSegmentsAfter>
+  markUploaded(seq: number): Promise<void>
+  markError(code: string): Promise<void>
+}
+
+const storeSource = (takeId: string): SegmentSource => ({
+  readUploadMeta: () => readTakeUploadMeta(takeId),
+  listSegmentsAfter: (afterSeq, limit) => listTakeSegmentsAfter(takeId, afterSeq, limit),
+  markUploaded: (seq) => markSegmentsUploaded(takeId, seq),
+  markError: (code) => markSegmentError(takeId, code),
+})
+
 /** ⚖ AND A PUMP THAT STOPPED FOR GOOD SAYS SO ONCE (slice five packet C fix
  *  round 1, R1). `segmentError` is read by this file's own early return and by
  *  nothing else — no 要対応 row, no audit — so a take whose head start was
@@ -172,9 +195,9 @@ function bumpBackoff(takeId: string): void {
  *  could meet it. One line at MARK TIME, which is once per take and never on a
  *  retryable refusal, makes the one thing worth knowing legible: this take is
  *  no longer sending segments, and why. */
-async function stopSegments(takeId: string, code: string): Promise<void> {
+async function stopSegments(src: SegmentSource, takeId: string, code: string): Promise<void> {
   console.warn('[segment-uploader] segments stopped for', takeId, code)
-  await markSegmentError(takeId, code)
+  await src.markError(code)
 }
 
 /** ONE segment PUT, under its own size-derived deadline.
@@ -232,11 +255,15 @@ async function putSegment(url: string, blob: Blob, contentType: string): Promise
  * `fresh: true` is the stop leg's ask, and only its ask (see `pendingFresh` for
  * the whole of it). Without it, an overlapping call joins the running one,
  * which is what every flush-time trigger wants.
+ *
+ * `source` is where this run's bytes come from (S36 PR-1b, SegmentSource
+ * above); omitted, the store, as always. Single-flight is per TAKE whichever
+ * source a run reads, so memory and store never send the same take at once.
  */
 export async function pumpSegments(
   port: RecordingPipelinePort,
   takeId: string,
-  opts?: { fresh?: boolean },
+  opts?: { fresh?: boolean; source?: SegmentSource },
 ): Promise<void> {
   const running = inFlight.get(takeId)
   if (!running) return startPump(port, takeId, opts)
@@ -269,7 +296,7 @@ export async function pumpSegments(
 function startPump(
   port: RecordingPipelinePort,
   takeId: string,
-  opts?: { fresh?: boolean },
+  opts?: { fresh?: boolean; source?: SegmentSource },
 ): Promise<void> {
   const run = pumpOnce(port, takeId, opts).finally(() => inFlight.delete(takeId))
   inFlight.set(takeId, run)
@@ -279,8 +306,9 @@ function startPump(
 async function pumpOnce(
   port: RecordingPipelinePort,
   takeId: string,
-  opts?: { fresh?: boolean },
+  opts?: { fresh?: boolean; source?: SegmentSource },
 ): Promise<void> {
+  const src = opts?.source ?? storeSource(takeId)
   try {
     // ⚖ THE STOP'S OWN ATTEMPT IS NOT A RETRY (fix round 2, M1). Every other
     // caller honours the window — the trigger is a flush every ~5 s, and a take
@@ -296,7 +324,7 @@ async function pumpOnce(
     const wait = opts?.fresh ? undefined : backoff.get(takeId)
     if (wait && Date.now() < wait.until) return
 
-    const meta = await readTakeUploadMeta(takeId)
+    const meta = await src.readUploadMeta()
     // Gone, another staffer's, or no store at all — the owner gate's answer,
     // and nothing to send either way.
     if (!meta) return
@@ -321,7 +349,7 @@ async function pumpOnce(
     // prefix, and a seq behind a hole advances nothing (see the store's own
     // docblock).
     const ask = batchAsk.get(takeId) ?? SEGMENT_BATCH
-    const rows = await listTakeSegmentsAfter(takeId, from, ask)
+    const rows = await src.listSegmentsAfter(from, ask)
     if (rows.length === 0) return
 
     const minted = await port.mintSegmentUrls(
@@ -337,7 +365,7 @@ async function pumpOnce(
       // TERMINAL_SECURE_ERRORS is the ONE list that says which refusals can
       // never turn into a yes — shared with the whole-take path so the two
       // cannot drift, and read here without writing anything of that path's.
-      if (TERMINAL_SECURE_ERRORS.has(minted.error)) await stopSegments(takeId, minted.error)
+      if (TERMINAL_SECURE_ERRORS.has(minted.error)) await stopSegments(src, takeId, minted.error)
       else {
         // The door ran out of time (or storage did) — ask for less next time,
         // down to one seq. See `batchAsk`: this is what keeps a catch-up on a
@@ -404,14 +432,14 @@ async function pumpOnce(
       Array.from({ length: Math.min(SEGMENT_CONCURRENCY, rows.length) }, () => worker()),
     )
 
-    if (mismatch) await stopSegments(takeId, 'seg_mismatch')
+    if (mismatch) await stopSegments(src, takeId, 'seg_mismatch')
 
     // THE CONTIGUOUS PREFIX, and only it. A seq that landed after a gap is real
     // on storage and stays there — it simply does not move the mark, because
     // what the mark promises is that everything up to it is present.
     let landedUpTo = from
     while (landed.has(landedUpTo + 1)) landedUpTo++
-    if (landedUpTo > from) await markSegmentsUploaded(takeId, landedUpTo)
+    if (landedUpTo > from) await src.markUploaded(landedUpTo)
 
     if (failed || mismatch) bumpBackoff(takeId)
     else backoff.delete(takeId)

@@ -131,8 +131,8 @@ export const PUBLIC_ACTIONS: Record<string, string[]> = {
     'listRecordingsInbox',
   ],
   'src/actions/recordings.ts': [
-    'deleteRecordingSession', // UNSURE: no production caller found through this export.
     'finalizeTake',
+    'recordCaptureWarning',
     'startRecordingSession',
   ],
   'src/actions/recovery.ts': [
@@ -200,12 +200,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
   'src/actions/karute.ts': [
   ],
   'src/actions/memory.ts': [
-    'addMemoryItemWithClient',
-    'deleteMemoryItemWithClient',
-    'relearnCustomerMemoryWithClient',
-    'toggleMemoryPinWithClient',
-    'updateMemoryItemWithClient',
-    'upsertPassportFieldWithClient',
   ],
   'src/actions/menus.ts': [
     'listMenus',
@@ -216,12 +210,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
     'writeOrgSettingsBlobWithClient',
   ],
   'src/actions/packs.ts': [
-    'createPackActionWithClient',
-    'dismissPackAlertActionWithClient',
-    'dismissVisitReconcileActionWithClient',
-    'logCustomerContactActionWithClient',
-    'redeemSessionActionWithClient',
-    'setLifecycleActionWithClient',
   ],
   'src/actions/permissions.ts': [
     'getStaffPermissionsCore',
@@ -261,10 +249,6 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
     'setStaffPinCore',
   ],
   'src/actions/staff.ts': [
-    'createStaffCore',
-    'deleteStaffCore',
-    'updateStaffCore',
-    'uploadStaffAvatarCore',
   ],
   'src/actions/stores.ts': [
     'getPrimaryStoreId',
@@ -276,3 +260,25 @@ export const INTERNAL_DEBT: Record<string, string[]> = {
     'revokeVoiceActionCore',
   ],
 }
+
+// The server-only modules helpers were moved INTO, newest last: PR-A's
+// member-emails, then PKT-SEC-CORES-B1's four invite cores, then
+// PKT-SEC-CORES-B2's six store cores, then PKT-SEC-CORES-C's two
+// discard-transcript cores, then PKT-SEC-CORES-D1's eight customer cores,
+// then PKT-SEC-CORES-D2's eight karute cores, then PKT-SEC-CORES-D3's six
+// customer-memory cores, then PKT-SEC-CORES-D4's six pack cores, then
+// PKT-SEC-CORES-D5's four staff cores.
+// ONE list drives both r4 in server-action-surface.test.ts (server-only first
+// line, no directive) and the
+// updateTag ban in facade-core-updatetag-ban.test.ts.
+export const SERVER_ONLY_MODULES: string[] = [
+  'src/lib/invites/member-emails.ts',
+  'src/lib/invites/invites.core.ts',
+  'src/lib/stores/stores.core.ts',
+  'src/lib/recording/discard-transcript.core.ts',
+  'src/lib/customers/customers.core.ts',
+  'src/lib/karute/karute.core.ts',
+  'src/lib/customers/memory.core.ts',
+  'src/lib/packs/packs.core.ts',
+  'src/lib/staff/staff.core.ts',
+]

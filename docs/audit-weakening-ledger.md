@@ -580,3 +580,66 @@
   the facade's FACADE_AUDIT_MAP['karute.manualCreate'] row owning the emits. Justification and
   `dated` unchanged · Fable (PKT-SEC-CORES-D2-KARUTE-2026-09-23.md; ⚖ Liam 2026-09-16 security
   tight, whole ecosystem)
+- 2026-09-23 · cores:src/actions/staff.ts · NOT a dropped writer — the symbols MOVED. Every
+  runtime export of a 'use server' file is registered as a browser-callable server action with
+  no authentication of its own, so the four client-threaded staff cores (createStaffCore,
+  updateStaffCore, deleteStaffCore, uploadStaffAvatarCore) left src/actions/staff.ts for the
+  server-only module src/lib/staff/staff.core.ts (no directive, `import 'server-only'` on line
+  one). All four are re-registered there as AUDITED_CORES['src/lib/staff/staff.core.ts'],
+  byte-identical body, same staff.add/staff.update/staff.remove/staff.avatar_update emits. The
+  whole entry left the old file (nothing registered stays behind — the web wrappers were never
+  registered), and the entry key is file-scoped so the move costs this line · Fable
+  (PKT-SEC-CORES-D5-STAFF-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:staff.create · coveredBy repointed
+  'src/actions/staff.ts#createStaffCore' → 'src/lib/staff/staff.core.ts#createStaffCore'.
+  The same choke point, at its new address: the facade POST /api/app/v1/staff route still calls
+  that one core, which still emits staff.add itself, which is why the row stays a 'skip' (a rule
+  here would double-log every facade write). The citation moved because the file did · Fable
+  (PKT-SEC-CORES-D5-STAFF-2026-09-23.md; ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:staff.update · coveredBy repointed
+  'src/actions/staff.ts#updateStaffCore' → 'src/lib/staff/staff.core.ts#updateStaffCore'.
+  Same move, same choke point: the facade PATCH /api/app/v1/staff/[id] route calls that one core
+  and it emits staff.update itself · Fable (PKT-SEC-CORES-D5-STAFF-2026-09-23.md; ⚖ Liam
+  2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:staff.delete · coveredBy repointed
+  'src/actions/staff.ts#deleteStaffCore' → 'src/lib/staff/staff.core.ts#deleteStaffCore'.
+  Same move, same choke point: the facade DELETE /api/app/v1/staff/[id] route calls that one core
+  and it emits staff.remove itself · Fable (PKT-SEC-CORES-D5-STAFF-2026-09-23.md; ⚖ Liam
+  2026-09-16 security tight, whole ecosystem)
+- 2026-09-23 · map:staff.uploadAvatar · coveredBy repointed
+  'src/actions/staff.ts#uploadStaffAvatarCore' → 'src/lib/staff/staff.core.ts#uploadStaffAvatarCore'.
+  Same move, same choke point: the facade POST /api/app/v1/staff/[id]/avatar route calls that one
+  core and it emits staff.avatar_update itself · Fable (PKT-SEC-CORES-D5-STAFF-2026-09-23.md;
+  ⚖ Liam 2026-09-16 security tight, whole ecosystem)
+- 2026-09-24 · action:recording.session_cleanup · AUDIT_ACTIONS member removed. Its one emitter,
+  src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient, is deleted with the
+  module, so CP4 would fail the member as an orphan. Retired on the lead's ruling 2026-09-23:
+  nothing deleted, soft only; the write it covered no longer exists. The ja/en label stays, so
+  past rows still render · Fable (PKT-S28-PR4-RETIRE-HARD-DELETE.md; ⚖ Liam 2026-09-16 nothing
+  deleted, soft only)
+- 2026-09-24 · cores:src/lib/recording/session-cleanup.ts · AUDITED_CORES entry removed. The
+  module and its recordings.delete write are deleted outright (the entry's own INTERIM note said
+  it goes with the module). Retired on the lead's ruling 2026-09-23: nothing deleted, soft only;
+  the write it covered no longer exists · Fable (PKT-S28-PR4-RETIRE-HARD-DELETE.md; ⚖ Liam
+  2026-09-16 nothing deleted, soft only)
+- 2026-09-24 · map:recordings.session.delete · cited skip row deleted with its route (the facade
+  DELETE /api/app/v1/recordings/session/[id] file is removed). Retired on the lead's ruling
+  2026-09-23: nothing deleted, soft only; the write it covered no longer exists · Fable
+  (PKT-S28-PR4-RETIRE-HARD-DELETE.md; ⚖ Liam 2026-09-16 nothing deleted, soft only)
+- 2026-09-24 · SDK_WRITE_ALLOWLIST:src/lib/recording/transcript-memo.ts::storage.recordings.upload · PR-5
+  (charge once) keeps the provider's answer for one audio object in one language at
+  trc/<audio key>.<locale>.json, so the same audio is never paid for twice. The write
+  (writeTranscriptMemo) is a side-effect of an ALREADY-AUDITED paid call: its one caller,
+  runMeteredTranscription, reaches it only after the provider answered, and every door files
+  its own recording.transcribe receipt for that same call (web auditWeb, facade hook row,
+  job/from_session/discard via the meter's auditTranscriptionReceipt) — the write precedes it by
+  one call-frame and never throws. ⚖ 8/17 doc law keeps the transcript content out of audit
+  details, which is what the object holds. Create-only (upsert:false) except the one repair case
+  (Greptile round): an object the read PROVED corrupt is replaced by the paid answer, unless a
+  re-read immediately before the write finds another caller's repair, which is left standing
+  (Greptile rounds 2–3); a readable memo is never replaced, nothing is ever deleted · Opus 5.5
+  builder on Fable's S29 fix-round ruling
+  (PKT-S29-PR5-CHARGE-ONCE.md; recorder fix plan v3 §6 row 3)
+- 2026-09-24 · SDK_WRITE_ALLOWLIST:src/business/lib/practice-door/door.ts::orgSettings.upsert · the Business card-colour writer (A2): one key, palette-or-null, settings.manage, read-before-write; server log line per write, core audit row = R5 later · Fable 5.1 (lead, R-A2-4/R-A2-11) under the 7/27 parity rule · Liam's 9/24 fence yes · Liam is told before the merge word · core audit row = R5
+- 2026-09-25 · SDK_WRITE_ALLOWLIST:src/business/lib/practice-door/door-booking-colors.ts::orgSettings.upsert · the Business booking-colours writer (予約の色分け, per store): one key (the whole per-store map), closed palette, settings.manage + a store the operator may see, read-before-write; server log line per write, core audit row = R5 later · Opus 5.5 builder on PKT-S38-COLORS-PR2 R8 + the lead's R-S39-1 under the 7/27 parity rule · ⚖ Liam 9/25 「make it work」 · Liam's per-change word before the merge
+- 2026-09-25 · SDK_WRITE_ALLOWLIST:src/business/lib/practice-door/door-booking-colors.ts::orgSettings.upsert · shape change, same grant and symbol: 予約の色分け writes ONE key PER STORE (`booking_colors:<storeId>`, sent alone; core merges top-level keys, so the same-instant cross-store race is gone); the legacy `booking_colors` map is read-only (never written, never removed); closed palette, settings.manage + a store the operator may see, read-before-write · Opus 5.5 builder on PKT-S41-COLORS-PR2C R-S41-1 · ⚖ Liam 9/25 「Yeah okay, go with A」 · Liam's per-change word before the merge

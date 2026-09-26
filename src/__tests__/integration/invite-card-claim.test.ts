@@ -16,6 +16,7 @@
 
 import { acceptInvite } from '@/actions/invites'
 import { createInviteCore } from '@/lib/invites/invites.core'
+import { ROLE_PRESETS } from '@/lib/auth/permissions'
 
 const CORE = { url: 'https://core.test', key: 'test-key' }
 
@@ -85,7 +86,8 @@ jest.mock('@/lib/supabase/service', () => ({
 import { audit } from '@/lib/audit'
 import { auditWeb } from '@/lib/audit-web'
 
-const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null }
+// The inviter holds the full owner preset — the role cap is pinned in invite-role-cap.test.ts.
+const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1', creatorAllowedStoreIds: null, callerCapabilities: new Set(ROLE_PRESETS.owner) }
 
 interface InviteFixture {
   id: string
@@ -963,5 +965,37 @@ describe('rollback failure is a recovery state, not a clean undo (R3)', () => {
     expect(res).toEqual({ error: COULD_NOT })
     expect(res).not.toEqual({ error: REPLACED })
     expect(rows()[0].detail).toMatchObject({ rollback_failed: true, stranded_user_id: 'user-a', banned: false, profile_neutralised: false })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The third name writer: the invitee types their own name at /join. A
+// system-row name would hide an active staffer from the roster (the
+// `ILIKE '_system_%'` filter), so it is refused like an empty one — before any
+// account or profile write.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('accept refuses a reserved (system-row) name', () => {
+  const invite = {
+    id: 'inv-A', token: 'token-A', email: 'aoi@test.com', role: 'STYLIST', status: 'pending',
+    invited_staff_id: 'card-aoi', created_at: '2026-09-01T09:00:00Z',
+    business_id: 'business-1', expires_at: null,
+  }
+
+  it.each(['_system_x', '_SYSTEM_x', '  _system_x', '1system2alice', 'xSYSTEMy'])('%j → the name-required error, no account, no profile write', async (name) => {
+    const c = core({ invites: [{ ...invite }], cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: null }] })
+    install(c.api, 'user-a')
+
+    expect(await acceptInvite('token-A', 'password123', name, 'ja')).toEqual({ error: 'Your name is required.' })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+    expect(mockProfileUpdate).not.toHaveBeenCalled()
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+  })
+
+  it('an ordinary name is still accepted and written', async () => {
+    const c = core({ invites: [{ ...invite }], cards: [{ id: 'card-aoi', email: 'aoi@test.com', user_id: null }] })
+    install(c.api, 'user-a')
+
+    expect(await acceptInvite('token-A', 'password123', '葵', 'ja')).toBeUndefined()
+    expect(mockProfileUpdate).toHaveBeenCalledWith(expect.objectContaining({ full_name: '葵' }))
   })
 })

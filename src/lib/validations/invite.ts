@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { RESERVED_STAFF_NAME } from './staff'
 
 // Roles an owner can invite into. Mirrors synqed-core's StaffRole minus OWNER
 // (you can't mint another owner via an invite). Kept here so the dialog, the
@@ -22,7 +23,12 @@ export const inviteSchema = z.object({
    *  for a fresh invite, and `storeIds` only for a fresh invite in a business
    *  with two or more stores — neither condition is expressible from the body
    *  alone. NEVER an email-named card: with no name the invite is refused. */
-  name: z.string().trim().max(100).optional(),
+  name: z
+    .string()
+    .trim()
+    .max(100)
+    .refine((v) => !RESERVED_STAFF_NAME.test(v))
+    .optional(),
   storeIds: z.array(z.string().uuid()).optional(),
 })
 export type InviteInput = z.infer<typeof inviteSchema>

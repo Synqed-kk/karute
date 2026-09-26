@@ -23,7 +23,9 @@
 //
 // Times are JST minutes from midnight throughout (see fixtures-today.ts).
 
+import { businessStrings } from '@/business/i18n'
 import { freePockets, kPackCount } from './canon-logic/availability'
+import type { BookingColors } from './booking-colors'
 import { jstDayKey, jstMinuteOfDay } from './clock'
 import type { FixtureAppointment, FixtureCustomer, FixtureMenu, FixtureStaff } from './fixtures'
 import type {
@@ -400,6 +402,40 @@ export interface BoardLane {
   roomClass: RoomClass | null
 }
 
+/** ⚖ PR-3 — `AppointmentSource` (@synqed-kk/client dist/types.d.ts:448, six
+ *  values) → the word staff read, ONE map (the Business string home). Business
+ *  names no client path, so the union is restated here and pinned against the
+ *  .d.ts by the suite. */
+export type AppointmentSourceWord = 'MANUAL' | 'QUICKRESERVE' | 'SYNQED_RESERVE' | 'SALON_BOARD' | 'HOT_PEPPER' | 'OTHER'
+export const SOURCE_WORD: Readonly<Record<AppointmentSourceWord, string>> = businessStrings.today.source
+
+/** A source prints as its word; a value outside the six prints RAW — honest,
+ *  never blank (switch OFF every fixture source is such a value, so it prints
+ *  exactly as before). */
+export function sourceWord(source: string): string {
+  return Object.prototype.hasOwnProperty.call(SOURCE_WORD, source) ? SOURCE_WORD[source as AppointmentSourceWord] : source
+}
+
+/** The inspector's source line: the word, then the booking's own number — an
+ *  empty number is omitted, never a dangling 「/」. */
+export function sourceLine(source: string, displayNo: string): string {
+  return displayNo ? `${sourceWord(source)} / ${displayNo}` : sourceWord(source)
+}
+
+/** ⚖ PR-3 — the decision card's title. With the card's live booking and its
+ *  name: 「{name}様の…」; without one: the plain noun with ONE 様 — never
+ *  「お客様様」. */
+export function decisionTitle(kind: string, b: Pick<BoardBooking, 'customerName' | 'startMinute'> | undefined, slotStart: number | null): string {
+  const t = businessStrings.today
+  const name = b?.customerName
+  if (kind === 'レジ') return name ? `${name}様の精算を完了する` : t.titleCheckout
+  if (kind === 'Reserve販売') return `${slotStart == null ? '' : hhmm(slotStart)}の安全な1枠を販売する`
+  // ⚖ §v3 V3-9 — the time and its space only when there is a booking: no leading space.
+  const at = b ? `${hhmm(b.startMinute)} ` : ''
+  if (kind === '担当不在') return at + (name ? `${name}様の担当不在に対応する` : t.titleAbsent)
+  return at + (name ? `${name}様へ担当変更案を送る` : t.titleHandover)
+}
+
 export interface BoardBooking {
   id: string
   displayNo: string
@@ -472,6 +508,21 @@ export const CATEGORY_LABEL: Record<BookingCategory, string> = {
   repeat: '再来',
   ticket: '回数券',
   vip: 'VIP',
+}
+
+/** 予約の色分け — ONE HOME for the four category colours, the closed palette and the per-store resolver:
+ *  `./booking-colors` (import-free, so the practice door's writer checks a save against the same palette
+ *  without reaching the fixtures — ⚖ PKT-S38 R2). page.tsx reads the business's colour keys (one
+ *  `booking_colors:<storeId>` per store, the legacy `booking_colors` map as a fallback — ⚖ PKT-S41) and hands
+ *  each store's result to TodayScreen; 設定's save writes the store's own key.
+ *  Re-exported here so every existing import keeps its path. */
+export { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsFor, type BookingColors } from './booking-colors'
+/** The ONE lookup the board paints with (TodayScreen's `catVar` wraps it in `--cat`): `map` = page.tsx's
+ *  per-store map, a store with no entry takes `''`'s. No category / no entry / an unknown category → undefined. */
+export function bookingColorHex(map: Record<string, BookingColors>, store: string | null | undefined, cat: string | null | undefined): string | undefined {
+  if (!cat) return undefined
+  const colors = map[store ?? ''] ?? map['']
+  return colors !== undefined && Object.prototype.hasOwnProperty.call(colors, cat) ? colors[cat as BookingCategory] : undefined
 }
 
 /** Every booking on the day, with the joins the board needs and its category

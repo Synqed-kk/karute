@@ -9,7 +9,7 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { addMemoryItemWithClient } from '@/actions/memory'
+import { addMemoryItemWithClient } from '@/lib/customers/memory.core'
 import { proveCustomerInBusiness } from '@/lib/app-api/customer-facade'
 
 export const runtime = 'nodejs'

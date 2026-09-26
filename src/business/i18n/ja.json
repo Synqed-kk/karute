@@ -1,9 +1,25 @@
 {
   "customers": {
-    "loading": "読み込み中…"
+    "loading": "読み込み中…",
+    "memberNoneRow": "番号未登録",
+    "memberNoneKv": "未登録"
   },
   "today": {
-    "loading": "読み込み中…"
+    "loading": "読み込み中…",
+    "legend": {
+      "colorsChangeAt": "変更は「設定」＞予約の色分けで"
+    },
+    "titleCheckout": "お客様の精算を完了する",
+    "titleHandover": "お客様へ担当変更案を送る",
+    "titleAbsent": "お客様の担当不在に対応する",
+    "source": {
+      "MANUAL": "手動登録",
+      "QUICKRESERVE": "Quick Reserve",
+      "SYNQED_RESERVE": "Reserve",
+      "SALON_BOARD": "サロンボード",
+      "HOT_PEPPER": "ホットペッパービューティー",
+      "OTHER": "その他"
+    }
   },
   "reservations": {
     "loading": "読み込み中…"
@@ -27,9 +43,34 @@
     "loading": "読み込み中…"
   },
   "settings": {
-    "loading": "読み込み中…"
+    "loading": "読み込み中…",
+    "typeUnset": "未設定",
+    "pvNoteExample": "いまの設定での見え方（表示例）"
   },
   "askAi": {
     "loading": "読み込み中…"
+  },
+  "sampleMark": {
+    "chip": "サンプル",
+    "chipLabel": "サンプル — 説明を開く",
+    "markNote": "この内容はサンプルです。実データはまだつながっていません。",
+    "popLabel": "サンプルについて",
+    "popLine1": "この印は、見本の内容を表示しているところに付きます。この店舗の実データではありません。",
+    "popLine2": "この店舗の実データがつながると、印は外れ、実際の内容に置き換わります。",
+    "noneHead": "この店舗にサンプルデータはありません",
+    "noneText": "この店舗の実データがつながると、ここに表示されます。",
+    "markNotePart": "{部分}はサンプルです。実データはまだつながっていません。",
+    "popLine1Part": "{部分}は見本の内容です。この店舗の実データではありません。",
+    "part": {
+      "staffActive": "稼働状態",
+      "staffSettings": "役職と表示",
+      "operatingHours": "営業時間",
+      "shiftsAbsence": "シフトと休み",
+      "sellSlots": "販売可能枠",
+      "bookingGuard": "予約と確保の設定"
+    },
+    "partJoin": "、",
+    "topNote": "練習用の事業",
+    "topNoteLabel": "練習用の事業 — 実在の店舗の予約・お客様ではありません"
   }
 }

@@ -4,14 +4,17 @@ import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/l
 import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
-import { resolveWebAuditContext } from '@/lib/audit-web'
-import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanup'
 import { startRecordingSessionWithClient } from '@/lib/recording/session-mint'
 import {
   finalizeTakeWithClient,
   type FinalizeTakeInput,
   type FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
+import {
+  recordCaptureWarningWithClient,
+  type CaptureWarningInput,
+  type CaptureWarningResult,
+} from '@/lib/recording/capture-warning'
 
 /**
  * Mints a `recording_sessions` row (synqed-core, server-generated uuid) the
@@ -195,31 +198,23 @@ export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTa
 }
 
 /**
- * The mint's undo — see lib/recording/session-cleanup.ts for why this exists
- * and when it gets deleted. Web door; the facade twin is
- * /api/app/v1/recordings/session/[id]. Fire-and-forget by contract: callers
- * never await it into the discard UX.
+ * Web door for "the recorder was shown the at-risk notice" (recording hole
+ * PR-7) — the cookie twin of POST /api/app/v1/recordings/capture-warning. Both
+ * call the ONE choke point (lib/recording/capture-warning.ts), which owns the
+ * parse, the own-session check and the single audit row. Identity comes from
+ * the cookie session only; finalizeTake's gate and never-throws contract.
  */
-export async function deleteRecordingSession(
-  recordingSessionId: string,
-): Promise<{ ok: true } | { error: string }> {
+export async function recordCaptureWarning(input: CaptureWarningInput): Promise<CaptureWarningResult> {
   try {
-    // Same gate the mint carries — only a recorder discards a recording.
-    await requireCapability('records.write')
-    const [synqed, staffId, ctx] = await Promise.all([
-      getSynqedClient(),
-      getCurrentUserStaffId(),
-      resolveWebAuditContext(),
-    ])
-    return await deleteRecordingSessionWithClient(
-      synqed,
-      { staffId, businessId: ctx.businessId, source: 'web' },
-      recordingSessionId,
+    if (!(await can('records.write'))) return { error: 'forbidden' }
+    const [businessId, staffId] = await Promise.all([getBusinessId(), getCurrentUserStaffId()])
+    return await recordCaptureWarningWithClient(
+      newSynqedClient(businessId, await getCurrentAccessToken()),
+      { staffId, businessId, source: 'web' },
+      input,
     )
   } catch (err) {
-    // Never blocks the discard — the row just stays until the 7-day window
-    // rolls past it.
-    console.warn('[deleteRecordingSession] failed:', err)
+    console.warn('[recordCaptureWarning] failed:', err)
     return { error: 'failed' }
   }
 }

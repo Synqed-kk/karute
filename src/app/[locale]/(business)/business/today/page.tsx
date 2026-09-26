@@ -31,7 +31,9 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
 import { bedSecuredProof } from '@/business/lib/fixtures-today'
-import { storeSample } from '@/business/lib/practice-door/sample-facade'
+import { rulebook } from '@/business/lib/fixtures-settings'
+import { accessFor, gateOf, sectionById } from '@/business/lib/settings'
+import { samplePart, sampleWhole, storeSample } from '@/business/lib/practice-door/sample-facade'
 import {
   defaultStoreId,
   listAppointments,
@@ -43,6 +45,7 @@ import {
   listBlocksByDay,
   listShiftsByDay,
   listStoreOptions,
+  readBookingColors,
   readDayPlanes,
   readShellIdentity,
   readStaffStores,
@@ -52,16 +55,21 @@ import {
 import {
   absenceForDay,
   blocksForDay,
+  bookingColorsFor,
   buildLanes,
   coursesFitForDay,
   dayBookings,
   dayTotals,
+  decisionTitle,
   hhmm,
   laneMinutes,
   openDecisions,
+  sourceLine,
+  sourceWord,
   utilization,
   yen,
   type BoardBooking,
+  type BookingColors,
   type BuildInput,
 } from '@/business/lib/today-board'
 import { canReleaseHeld, clampCalendarTight, overrideLevelFor, storeHasBeds, type CalendarWindowDay } from './today-interactions'
@@ -149,7 +157,7 @@ export default async function TodayPage({
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
   const to = new Date(now.getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
-  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay] =
+  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay, bookingColorsRaw] =
     await Promise.all([
     listCustomers(lens),
     listAppointments(lens, { from, to }),
@@ -169,6 +177,8 @@ export default async function TodayPage({
     // above it: a staff block is occupied time and the count must not disagree
     // with what the placement rail already refuses.
     listBlocksByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    // 予約の色分け — the business's raw colour keys (one per store + the legacy map); resolved below, beside `storeOfBooking`.
+    readBookingColors(),
   ])
   const staffStores = await readStaffStores(lens)
 
@@ -181,6 +191,15 @@ export default async function TodayPage({
   // `capabilitiesByStore` below still needs for every store option regardless
   // of clamping. `wordsByStore` (the prop every lane indexes) narrows this on
   // a clamped board (next line's own comment); this internal map does not.
+  // ⚖ PR-3 §v3 — THE MARKS ARE THE PLANE TABLE'S (the facade's readers), for the
+  // stores this board shows. The board grid: ONE head mark naming the sample
+  // planes it paints (シフトと休み・販売可能枠・営業時間), never one per lane. The
+  // decisions: ONE section mark (the cards carry none). 勤務不可: its strip's
+  // own. Switch OFF every reader answers nothing and no prop is added.
+  const markStores = clamped ? [storeId!] : storeOptions.map((s) => s.id)
+  const boardMark = samplePart(markStores, 'shifts', 'absence', 'sellSlots', 'operatingHours')
+  const decisionsMark = sampleWhole(markStores, 'decisions')
+  const absenceMark = sampleWhole(markStores, 'absence', 'recoverySteps')
   const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
     storeOptions.map((s) => [s.id, wordsForStore(s.business_type, storeSample(s.id).words)]),
   )
@@ -377,13 +396,6 @@ export default async function TodayPage({
   // ── J: decision cards ─────────────────────────────────────────────────────
   const hqSpread = Math.round(((planes.pricingRule.hq_max - planes.pricingRule.hq_min) / planes.pricingRule.hq_min) * 100)
 
-  function decisionTitle(kind: string, b: BoardBooking | undefined, slotStart: number | null): string {
-    if (kind === 'レジ') return `${b?.customerName ?? 'お客様'}様の精算を完了する`
-    if (kind === 'Reserve販売') return `${slotStart == null ? '' : hhmm(slotStart)}の安全な1枠を販売する`
-    if (kind === '担当不在') return `${b ? hhmm(b.startMinute) : ''} ${b?.customerName ?? 'お客様'}様の担当不在に対応する`
-    return `${b ? hhmm(b.startMinute) : ''} ${b?.customerName ?? 'お客様'}様へ担当変更案を送る`
-  }
-
   const cards: DecisionCard[] = planes.decisions.map((d) => {
     const b = d.appointment_id ? bookingById.get(d.appointment_id) : undefined
     const slot = d.sell_slot_id ? slotById.get(d.sell_slot_id) : undefined
@@ -418,7 +430,9 @@ export default async function TodayPage({
       meta: `${b.timeRange} / ${b.menuName}`,
       status,
       statusTone,
-      source: `${b.source} / ${b.displayNo}`,
+      // ⚖ PR-3 — the enum prints as its word, and an empty number is omitted
+      // (no dangling 「/」); a value outside the six prints raw.
+      source: sourceLine(b.source, b.displayNo),
       facts: [
         // ⚖ FIX ROUND 1 (blind lens 3 F5) — the 個室のみ tag on the inspector too.
         // The card, the inspector and the accessible name described one booking
@@ -449,7 +463,7 @@ export default async function TodayPage({
         // is the impossible-state guard (a private-tagged booking on a
         // no-private-class store — unreachable until N3/N4 build the upstream
         // gate; pinned never-hit on this fixture).
-        ['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
+        ['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${sourceWord(b.source.split(' ')[0])}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],
@@ -479,6 +493,16 @@ export default async function TodayPage({
   // member's store LIST was a proxy that answers wrong for a person who
   // works in two stores.
   const storeOfBooking = new Map(appointments.map((a) => [a.id, a.store_id]))
+  // 予約の色分け — the card's store is THIS join (by `BoardItem.caseId` = the
+  // shown day's `bookings` ids, the rows `cases` is built from), so the screen gets
+  // it as a plain map, plus every store's four colours resolved ONCE here
+  // (`bookingColorsFor`); `''` = no store (viewAll's legend) = the defaults.
+  const storeByCase = Object.fromEntries(
+    bookings.map((b) => [b.id, storeOfBooking.get(b.id)]).filter((e): e is [string, string] => e[1] != null),
+  )
+  const bookingColors: Record<string, BookingColors> = Object.fromEntries(
+    ['', ...new Set([...storeOptions.map((s) => s.id), ...Object.values(storeByCase)])].map((id) => [id, bookingColorsFor(id || null, bookingColorsRaw)]),
+  )
   const cases: Record<string, InspectorCase> = {}
   bookings.forEach((b, i) => {
     // ⚖ D-53 (c) R2 + (g) — the booking's own store's axis (`storeHasBeds`'s
@@ -559,6 +583,12 @@ export default async function TodayPage({
    *  readings of one answer are free to disagree the day the dial grows a
    *  fourth level (flag 54's disease, at the permission layer). */
   const overrideLevel = overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator)
+  /** ⚖ PR-3 fix round 1 (Greptile P1) — MAY THIS READER OPEN WHERE THE 表示 POPOVER'S TWO 設定 CHIPS POINT
+   *  (予約と確保 · 言語・表示)? Asked through the 設定 room's OWN gate: the same operator role (the shell
+   *  identity the room reads), the same rulebook and the same `gateOf` its `?section=` is admitted with
+   *  (settings-props.ts `accessFor` + `opening`) — never a second reading of the rule. A shut gate opens
+   *  the room on another section and drops the fragment, so the chips are not shown at all. */
+  const settingsAccess = accessFor(shell.operator.role, rulebook)
 
   const props: TodayProps = {
     locale,
@@ -571,6 +601,8 @@ export default async function TodayPage({
     words,
     genericWords,
     caps: chromeCaps,
+    bookingColors,
+    storeByCase,
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),
     // The month the calendar popover opens on. It is a FACT ABOUT THE SHOWN
@@ -675,6 +707,7 @@ export default async function TodayPage({
     // as the line above: the board is handed the ANSWER, never the rule, so a
     // staff member is never shown an action they would only be refused for.
     canReleaseHeld: canReleaseHeld(planes.opsConfig.releaseHeldRoles, shell.operator),
+    canOpenLegendSettings: (['booking-guard', 'language-display'] as const).every((id) => gateOf(sectionById(id)!, settingsAccess) === 'open'),
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
     // ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 「残りわずか」 の境目, the store's own dial,
     // read ONCE here and clamped once: the board is handed the answer, never the
@@ -715,6 +748,9 @@ export default async function TodayPage({
     inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,
     incident,
     cards,
+    ...(boardMark ? { boardMark } : {}),
+    ...(decisionsMark ? { decisionsMark } : {}),
+    ...(absenceMark ? { absenceMark } : {}),
     cases,
     kpi: {
       count: `${totals.count}件`,

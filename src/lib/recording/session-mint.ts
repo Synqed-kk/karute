@@ -11,7 +11,7 @@
 // a caller free to name it could reserve a key under ANY business's prefix.
 //
 // NO 'use server' directive here, deliberately — same rule as
-// mint-take-url.ts, discard.ts and session-cleanup.ts: businessId is the
+// mint-take-url.ts and discard.ts: businessId is the
 // AUTHENTICATED tenant the caller (the web action's cookie session, or the
 // facade's Bearer identity) vouches for, never a body field a caller
 // controls.
@@ -24,7 +24,7 @@ import { objectExists } from '@/lib/recording/mint-take-url'
  *  `bad_input` (a take pair it will not compose a key from), `exists` (fix
  *  round 11, fresh-eyes #7 P2 — the composed key already holds bytes with no
  *  row of this caller's reserving it: a hard-deleted sibling row's audio,
- *  most concretely, staying on storage after session-cleanup deletes its row
+ *  most concretely, left on storage by the now-retired session-cleanup delete
  *  — refused before any row is created, never repointed onto it), and
  *  `upstream` (storage failed to answer whether the key is free — retryable,
  *  and no row is created meanwhile). `null` stays what it has always been —
@@ -57,9 +57,9 @@ export type StartRecordingSessionResult =
  * mint's update path survives only for LEGACY rows minted before this round.
  *
  * THE EXISTS FENCE (fix round 11, fresh-eyes #7 P2). Born-reserved closed the
- * two-rows-one-key race, but not a colder path: session-cleanup HARD-DELETES a
- * row (the abandoned/system path — see session-cleanup.ts) while its finalized
- * object stays on storage, never deleted alongside it. A caller who can name
+ * two-rows-one-key race, but not a colder path: session-cleanup (RETIRED
+ * 2026-09-24 — nothing hard-deletes a row now) removed rows while their
+ * finalized objects stayed on storage (they still do). A caller who can name
  * that exact take id again (it rides in cleartext on the audit trail's own
  * recording.take_named / karute-save rows) would otherwise get a FRESH row
  * created pointing straight at somebody else's audio, with finalize accepting
@@ -125,6 +125,12 @@ export async function startRecordingSessionWithClient(
      *  keeps `| null` because the core column and every pre-③ row still do. */
     storeId: string | null
   },
+  /** ⚖ S35 C1 — the take's length in whole seconds, from the server-named
+   *  mint alone (mint-take-url.ts#bindServerNamedTake): that row is never
+   *  finalized, so it is born with what finalize would write. Its own argument,
+   *  never an `input` field, because the web start action spreads its
+   *  caller-supplied argument into `input`. */
+  born: { durationSeconds?: number } = {},
 ): Promise<StartRecordingSessionResult> {
   // THE FENCES, composed BEFORE anything is created: a key this server would
   // refuse must never leave a row behind for the client to inherit, and a
@@ -165,7 +171,7 @@ export async function startRecordingSessionWithClient(
   // below — moved AFTER staff resolution, fix round 12 — now only ever runs
   // for a call that is actually going to mint, never as an existence oracle
   // for a caller who was never getting a row either way.
-  let reservation: { audio_storage_path: string; status: 'UPLOADING' } | undefined
+  let reservation: { audio_storage_path: string; status: 'UPLOADING'; duration_seconds?: number } | undefined
   if (composed) {
     // THE FENCE the mint has and this door didn't (fix round 11, fresh-eyes #7
     // P2): refuse BEFORE any row is created, exactly like the mint's own
@@ -178,7 +184,11 @@ export async function startRecordingSessionWithClient(
     // UPLOADING, the status the mint's own reservation writes: the take's bytes
     // are on their way and nothing owns this row yet — there is no job to
     // preserve a status for, the row is one call old.
-    reservation = { audio_storage_path: composed.key, status: 'UPLOADING' }
+    reservation = {
+      audio_storage_path: composed.key,
+      status: 'UPLOADING',
+      ...(born.durationSeconds ? { duration_seconds: born.durationSeconds } : {}),
+    }
   }
 
   // THE STORE RIDES ALONG (slice three ③). Two questions, two answers:

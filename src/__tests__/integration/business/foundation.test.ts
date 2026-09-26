@@ -310,7 +310,14 @@ describe('the fixture data door', () => {
       // reconciled by taking a side — the inventory mirrors reality or it is
       // worth nothing.
       // PR-2: `react` left with `renderNow` (now in ./clock, re-exported).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', './practice-door/door', './practice-door/switch'],
+      // ⚖ A1b · K11 — `./fixtures-settings`: OFF, a store's address is its SAMPLE 店舗情報 dial
+      // (`readStoreAddress`); ON it is the door's own core store record.
+      // ⚖ R-S39-1 — `./practice-door/door-booking-colors`: 予約の色分け's writer, door.ts's sibling (its own allowlist key).
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/switch'],
+      // ⚖ R-S39-1 — the second writer's file: the actor and the switch (OFF has no writer), door.ts's two exported
+      // helpers (the once-per-actor org read, the one settings.manage truth), the clock (the audit line's time),
+      // the import-free palette leaf (never today-board.ts, which would bring the fixtures), and a LAZY ./core-reach.
+      'src/business/lib/practice-door/door-booking-colors.ts': ['../booking-colors', '../clock', './actor', './core-reach', './door', './switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.
@@ -319,9 +326,15 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/registry-manifest.ts': [],
       'src/business/lib/practice-door/registry.generated.ts': [],
       'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
-      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures-settings', '../fixtures-today', '../resource-words', './registry', './switch'],
+      // ⚖ PR-3 §v3 — the plane table: the mark's labels (Business's string home), the
+      // fixture operator the sample history credits (V4-3), and the mark's TYPE.
+      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures', '../fixtures-settings', '../fixtures-today', '../resource-words', '../settings', './registry', './switch', '@/business/i18n'],
       'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
-      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', './actor', './registry', './sample-facade'],
+      // ⚖ A1b — `../reserve-card/card-color`: the card colour's ONE normaliser (the
+      // port's boundary), so the door's `readReserveCardColor` never grows a second.
+      // ⚖ A2 (Liam 9/24) — the ONE writer: `../reserve-card/palette` (the 12 it accepts), `./switch` (OFF has
+      // no writer) and a LAZY `./core-reach` (the write-only org-settings handle; the OFF path never loads it).
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-facade', './switch'],
       'src/business/lib/fixtures.ts': ['./clock'],
       // ⚖ D-15/D-24 (B2) — `./canon-logic/pricing` JOINED this inventory,
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
@@ -342,7 +355,12 @@ describe('the fixture data door', () => {
       // pocket formula written in this file is exactly what the import prevents;
       // canon-logic is pure (its own inventory above is `['./pricing']`), so
       // nothing about this reaches a door or the clock.
-      'src/business/lib/today-board.ts': ['./canon-logic/availability', './clock', './fixtures', './fixtures-today'],
+      // ⚖ PKT-S38 R2 — `./booking-colors`: the four defaults, the closed palette and the resolver moved to an
+      // import-free leaf the practice door can import; today-board re-exports them (no call site moved).
+      // ⚖ PR-3 — SOURCE_WORD + decisionTitle's copy: Business's own string home (a JSON module, no imports).
+      'src/business/lib/today-board.ts': ['./booking-colors', './canon-logic/availability', './clock', './fixtures', './fixtures-today', '@/business/i18n'],
+      // ⚖ PKT-S38 R2 — the leaf's EMPTY inventory is its fence: the door imports it, so it may import nothing.
+      'src/business/lib/booking-colors.ts': [],
       // A2 fix (Greptile round 1B addendum) — `shiftWarningOf`'s overage half
       // reads real instants (`jstMidnight`/`jstMinuteOfDay`) rather than bare
       // minute-of-day numbers, the same reason `data.ts`/`today-board.ts` above
@@ -383,6 +401,8 @@ describe('the fixture data door', () => {
         './business-shell.css',
         '@/business/lib/admission',
         '@/business/lib/data',
+        // ⚖ PR-3 §v3 V3-5 — the topbar's one door-aware prop, read on the server.
+        '@/business/lib/practice-door/switch',
         'react',
       ],
       // スタッフ・シフト's staged edits, above the screen for the same reason
@@ -397,7 +417,8 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/BusinessSidebar.tsx': ['next/link', 'next/navigation', 'react'],
-      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', 'next/navigation', 'react'],
+      // ⚖ PR-3 §v3 V3-5 — the practice note's words (Business's string home, a JSON module).
+      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', '@/business/i18n', 'next/navigation', 'react'],
       'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
       'src/business/lib/grants.ts': ['@/lib/supabase/service'],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
@@ -429,6 +450,8 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': [
         './customers-props',
         './customers-row',
+        // ⚖ PR-3 — 「番号未登録」 / 「未登録」: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
         '@/business/lib/column-config',
         // ⚖ Liam 8/23 — the 画面の説明 tour's shared engine.
         '@/business/lib/guide',
@@ -458,6 +481,10 @@ describe('the fixture data door', () => {
         '@/business/lib/admission',
         '@/business/lib/clock',
         '@/business/lib/data',
+        // ⚖ PR-3 fix round 1 (Greptile P1) — `fixtures-settings` (the `rulebook`) + `settings` (`accessFor`,
+        // `gateOf`, `sectionById`) join for ONE boolean, `canOpenLegendSettings`: the 設定 room's own gate,
+        // asked with the room's own inputs (settings-props.ts), never a second reading of the rule. No data read.
+        '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-today',
         // PR-2: the per-store SAMPLE words read (`storeSample`, never a throw on a live uuid).
         '@/business/lib/practice-door/sample-facade',
@@ -465,6 +492,7 @@ describe('the fixture data door', () => {
         // under today/. `resourceWordsFor`/`chromeWords` live here and
         // nowhere else in this directory (the resource-words census's C5 pin).
         '@/business/lib/resource-words',
+        '@/business/lib/settings',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
@@ -535,6 +563,11 @@ describe('the fixture data door', () => {
         // `./reserved-mask`, which is already on this list.
         './timed-release',
         './today-interactions',
+        // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味
+        // chip's text (a NEW visible string goes through it, never a literal).
+        // It imports only `./ja.json`, so this arrow adds no code module below.
+        // ⚖ PR-3 (practice door) — the same arrow carries the 「サンプル」 mark's strings.
+        '@/business/i18n',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
         '@/business/lib/canon-logic/pricing',
@@ -542,7 +575,7 @@ describe('the fixture data door', () => {
         // unchanged; only where the four functions live moved.
         '@/business/lib/guide',
         // ⚖ S17 fix round 5 · G2 (D-41) — the ONE link home, reached for the
-        // 保護ルール chip and nothing else. It is a string builder with no
+        // 保護ルール chip and (PR-3 of 予約の色分け) the 色の意味 chip, nothing else. It is a string builder with no
         // imports of its own, so this arrow adds no module to the graph below
         // it.
         // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: a TYPE-only import of
@@ -832,7 +865,14 @@ describe('the fixture data door', () => {
         './settings-props',
         './settings.css',
         '@/business/lib/admission',
+        // ⚖ A2 — `practiceDoorOn()`: カードの見た目's real save is offered only while the door is ON.
+        '@/business/lib/data',
       ],
+      // ⚖ A2 (Liam 9/24, R-A2-13) — the ONE Business write route: admission (the expected business) and the
+      // data seam, nothing else.
+      'src/app/api/business/card-color/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
+      // ⚖ PKT-S38 R4 — 予約の色分け's route, the card route's twin: admission and the data seam, nothing else.
+      'src/app/api/business/booking-colors/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       'src/app/[locale]/(business)/business/settings/settings-props.ts': [
         // ⚖ S17 FOLD (A1) — ONE ASSEMBLY. 予約と確保's payload is built by the
         // section's own props file and handed through this one, so the route and
@@ -841,6 +881,13 @@ describe('the fixture data door', () => {
         // ⚡ R2 BRANCH C — the dial's mapping pair (⚖ D-11); the empty-inventory
         // fence on the seam file itself (below) is unchanged.
         './store-policy-seam',
+        // ⚖ PR-3 — 業種's 「未設定」 option label: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
+        // ③ — PRICE_UNIT_YEN, the ¥ unit the Reserve 受付 fact prints from the
+        // same constant gapFillPrice and packedPrice round to.
+        '@/business/lib/canon-logic/pricing',
+        // ⚖ PKT-S38 R2/R6 — 予約の色分け's closed palette + the board's four defaults (one home).
+        '@/business/lib/booking-colors',
         // ⚖ PR-2b — `jstSlotEnd` for 「最終同期は…分前」 off the shell's own sync
         // stamp; and `@/business/lib/fixtures` LEFT: the room's stores, staff,
         // menus and business now come through `@/business/lib/data`.
@@ -852,6 +899,10 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
         '@/business/lib/practice-door/sample-facade',
+        // ⚖ PR-3 §v3 V3-5 — the dateline drops サンプルデータ under the door (the switch itself, read once).
+        '@/business/lib/practice-door/switch',
+        // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
+        '@/business/lib/reserve-card/palette',
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
@@ -869,6 +920,10 @@ describe('the fixture data door', () => {
         './Collapse',
         // ⚖ S17 FOLD (A1) — the rail renders #812's room for its 予約と確保 row.
         './StorePolicySection',
+        // ⚖ A1b — …and カードの見た目's picker + ported card for its row.
+        './ReserveCardLookSection',
+        // ⚖ PR-3 — the 「サンプル」 mark's strings: Business's own string home (a JSON module, no imports).
+        '@/business/i18n',
         '@/business/lib/guide',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
@@ -940,6 +995,17 @@ describe('the fixture data door', () => {
       // ⚠ THE SEAM'S EMPTY INVENTORY IS THE FENCE, MADE MACHINE-READABLE: the one
       // file core's reconnect lands in reaches nothing at all today.
       'src/app/[locale]/(business)/business/settings/store-policy-seam.ts': [],
+      // ⚖ A1b — カードの見た目: the port is its ONLY card drawing (and its satin the
+      // only colour math); the room's spring and the tour's ring helper; no data door.
+      'src/app/[locale]/(business)/business/settings/ReserveCardLookSection.tsx': [
+        '@/business/lib/guide',
+        '@/business/lib/reserve-card/ReserveCardPreview',
+        '@/business/lib/reserve-card/satin-material',
+        '@/business/lib/settings',
+        '@/business/lib/spring',
+        'react',
+      ],
+      'src/business/lib/reserve-card/palette.ts': ['./card-color'],
       'src/app/[locale]/(business)/business/settings/loading.tsx': ['@/business/i18n'],
       // AI相談. The room's own CONSULTATION plane plus the derivations that
       // BORROW every other fact it shows: the booking's customer / staff / menu
@@ -1172,37 +1238,93 @@ describe('the fixture data door', () => {
     expect(resolveFile('src/business/lib/data.js')).toBe('src/business/lib/data.ts')
   })
 
-  it('one importer each: data.ts alone imports the door, core-reach.ts alone names the core client factory', () => {
+  // ⚖ R-S39-1 (lead ruling on PKT-S38 D4) — the door's sibling writer file imports door.ts for its two exported
+  // helpers; it is itself imported by data.ts alone. Nothing else in territory reaches either.
+  it('one importer each: data.ts alone imports the door (plus its sibling writer file), core-reach.ts alone names the core client factory', () => {
     const doorImporters: string[] = []
+    const siblingImporters: string[] = []
     const factoryImporters: string[] = []
     for (const file of territoryFiles()) {
       for (const spec of specifiersOf(file)) {
         if (resolveSpec(spec, file) === `${PRACTICE_DOOR}/door`) doorImporters.push(file)
+        if (resolveSpec(spec, file) === `${PRACTICE_DOOR}/door-booking-colors`) siblingImporters.push(file)
         if (spec === '@/lib/synqed/client') factoryImporters.push(file)
       }
     }
-    expect(doorImporters).toEqual(['src/business/lib/data.ts'])
+    expect(doorImporters.sort()).toEqual(['src/business/lib/data.ts', `${PRACTICE_DOOR}/door-booking-colors.ts`])
+    expect(siblingImporters).toEqual(['src/business/lib/data.ts'])
     expect(factoryImporters).toEqual([`${PRACTICE_DOOR}/core-reach.ts`])
   })
 
   // §7 — FORBIDDEN ON THE READ PATH. Comment lines stripped first, as specifiersOf does.
-  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call', () => {
-    const FORBIDDEN = [
-      'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
-      '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
-      '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
-    ]
-    const files = readdirSync(join(ROOT, PRACTICE_DOOR)).filter((n) => n.endsWith('.ts'))
-    expect(files).toContain('door.ts')
+  // ⚖ A2 (Liam 9/24, R-A2-8) — the jest twin of the scanner's write entries: door.ts only, each exact
+  // one-key line, once. Every other mutator token stays forbidden everywhere in the folder, door.ts included.
+  // ⚖ PKT-S38 R8 (Liam 9/25 「make it work」) + R-S39-1 — the second writer, in its own file; ⚖ PKT-S41 R-S41-1
+  // (Liam 9/25 A): its line sends ONE key per store (`booking_colors:<storeId>`), never the shared map.
+  const WRITERS = [
+    { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 },
+    { file: 'door-booking-colors.ts', line: 'orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })', count: 1 },
+  ]
+  const DOOR_FORBIDDEN = [
+    'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
+    '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
+    '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
+  ]
+  function doorHits(sources: Array<[string, string]>): string[] {
     const hits: string[] = []
-    for (const name of files) {
-      const code = readFileSync(join(ROOT, PRACTICE_DOOR, name), 'utf8')
+    for (const [name, src] of sources) {
+      let code = src
         .split('\n')
         .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
         .join('\n')
-      for (const bad of FORBIDDEN) if (code.includes(bad)) hits.push(`${name}: ${bad}`)
+      for (const WRITER of WRITERS) {
+        if (name !== WRITER.file) continue
+        const uses = code.split(WRITER.line).length - 1
+        if (uses > WRITER.count) hits.push(`${name}: the writer line ×${uses} > ${WRITER.count}`)
+        code = code.split(WRITER.line).join('') // only the exact line's text is exempt, never its neighbours
+      }
+      for (const bad of DOOR_FORBIDDEN) if (code.includes(bad)) hits.push(`${name}: ${bad}`)
     }
-    expect(hits).toEqual([])
+    return hits
+  }
+  const doorSources = (): Array<[string, string]> =>
+    readdirSync(join(ROOT, PRACTICE_DOOR))
+      .filter((n) => n.endsWith('.ts'))
+      .map((n) => [n, readFileSync(join(ROOT, PRACTICE_DOOR, n), 'utf8')])
+
+  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call but the TWO writer lines', () => {
+    const sources = doorSources()
+    expect(sources.map(([n]) => n)).toContain('door.ts')
+    for (const WRITER of WRITERS) expect(sources.find(([n]) => n === WRITER.file)![1]).toContain(WRITER.line)
+    expect(doorHits(sources)).toEqual([])
+  })
+
+  it('the writer exemption fails closed: a second copy in door.ts, another upsert in door.ts, or the line elsewhere', () => {
+    const line = `  const saved = await writer.orgSettings.upsert({ settings: { reserve_card_color: next } })\n`
+    expect(doorHits([['door.ts', line]])).toEqual([])
+    expect(doorHits([['door.ts', line + line]])).toEqual(['door.ts: the writer line ×2 > 1'])
+    expect(doorHits([['door.ts', line + 'await x.orgSettings.upsert({ settings: {} })\n']])).toEqual(['door.ts: .upsert('])
+    expect(doorHits([['actor.ts', line]])).toEqual(['actor.ts: .upsert('])
+    expect(doorHits([['core-reach.ts', line]])).toEqual(['core-reach.ts: .upsert('])
+    // ⚖ PKT-S38 — the second writer's line fails closed the same way, and never covers the first.
+    const line2 = `  const saved = await writer.orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })\n`
+    expect(doorHits([['door-booking-colors.ts', line2]])).toEqual([])
+    expect(doorHits([['door-booking-colors.ts', line2 + line2]])).toEqual(['door-booking-colors.ts: the writer line ×2 > 1'])
+    // the retired shared-map line is no longer exempt, nor is a bare legacy key
+    expect(doorHits([['door-booking-colors.ts', line2.replace('[bookingColorsKeyFor(storeId)]: next', 'booking_colors: { ...map, [storeId]: next }')]])).toEqual(['door-booking-colors.ts: .upsert('])
+    expect(doorHits([['door-booking-colors.ts', line2.replace('[bookingColorsKeyFor(storeId)]', 'booking_colors')]])).toEqual(['door-booking-colors.ts: .upsert('])
+    expect(doorHits([['door-booking-colors.ts', line + line2]])).toEqual(['door-booking-colors.ts: .upsert(']) // the card line never moves here
+    expect(doorHits([['door.ts', line + line2]])).toEqual(['door.ts: .upsert(']) // …nor the booking line back into door.ts
+    expect(doorHits([['actor.ts', line2]])).toEqual(['actor.ts: .upsert('])
+  })
+
+  // ⚖ PKT-S38 R8 — still ONE bind, now with two callers: door.ts writeReserveCardColor and writeBookingColors,
+  // both through orgSettingsWriterFor.
+  it('R-A2-7: the one bound mutator is core-reach.ts’s `upsert.bind(` — once, and nowhere else in practice-door/', () => {
+    const binds = doorSources().flatMap(([name, src]) =>
+      [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
+    )
+    expect(binds).toEqual(['core-reach.ts: upsert.bind('])
   })
 })
 

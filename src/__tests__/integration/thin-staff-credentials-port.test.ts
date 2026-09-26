@@ -14,8 +14,9 @@
  *   - createInvite: POST with an Idempotency-Key; success → { token }; a
  *     business-level { error } rides the 2xx body VERBATIM; a transport
  *     reject maps to { error: message }.
- *   - listInvites: GET; unwraps { invites } → InviteRow[]; ANY failure
- *     (403/500/transport reject) degrades to [] — web-exact, never throws.
+ *   - listInvites: GET; unwraps { invites } → InviteRow[]; a 403 → [] (a
+ *     denied viewer), any other failure (500/transport reject) → null (could
+ *     not load) — web-exact, never throws.
  *   - revokeInvite: DELETE; { ok: true } | { error } rides the 2xx body
  *     VERBATIM.
  *
@@ -255,13 +256,22 @@ describe('thin actions port — staff invites', () => {
     await expect(listInvites()).resolves.toEqual([])
   })
 
-  it('listInvites: a transport reject degrades to [] — web-exact, never throws', async () => {
+  it('listInvites: a transport reject → null (could not load) — web-exact, never throws', async () => {
     const apiFetch = jest.fn(async () => {
       throw new TypeError('Load failed')
     })
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
-    await expect(listInvites()).resolves.toEqual([])
+    await expect(listInvites()).resolves.toBeNull()
+  })
+
+  it('listInvites: a 500 (the facade could not read the list or roster) → null, never a false []', async () => {
+    const apiFetch = jest.fn(
+      async () => new Response(JSON.stringify({ error: { code: 'internal' } }), { status: 500 }),
+    )
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(listInvites()).resolves.toBeNull()
   })
 
   it('revokeInvite: DELETE to /api/app/v1/invites/[id], success → { ok: true }', async () => {

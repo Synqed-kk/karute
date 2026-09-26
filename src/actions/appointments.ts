@@ -6,6 +6,7 @@ import { revalidatePath, updateTag } from 'next/cache'
 import type { Appointment, AppointmentSource } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import { getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
@@ -92,7 +93,16 @@ export async function createAppointment(input: AppointmentInput): Promise<Create
   // requireCapability() — because this action returns the house { error } shape
   // and its callers (NewBookingDialog, AppointmentPopout) await it WITHOUT a
   // try/catch, so a thrown error would surface as an unhandled rejection.
-  if (!(await can('bookings.manage'))) {
+  // Round 3 leg 7b (D-S28-1): so the gate's own THROW settles too — a typed core
+  // outage/defect answers the failure line, anything else this action's own
+  // catch expression. The try holds the can() call only; the denial stays below.
+  let allowed: boolean
+  try {
+    allowed = await can('bookings.manage')
+  } catch (err) {
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+  }
+  if (!allowed) {
     return { error: 'You do not have permission to manage bookings.' }
   }
 
@@ -501,7 +511,7 @@ export async function deleteAppointment(appointmentId: string) {
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -562,7 +572,7 @@ export async function updateAppointment(
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -624,7 +634,7 @@ export async function cancelAppointment(
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -666,7 +676,7 @@ export async function restoreAppointment(
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -711,7 +721,7 @@ export async function markNoShowAppointment(
     }
     return result
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 

@@ -1,11 +1,13 @@
 // Facade: staff update + delete (design-parity packet 12 §S4a). Single-
 // source: both routes call the SAME cores the web actions call
-// (updateStaffCore / deleteStaffCore, src/actions/staff.ts).
+// (updateStaffCore / deleteStaffCore, src/lib/staff/staff.core.ts).
 //
 // Gate: 'staff.manage' for both — matches web's own can('staff.manage')
-// gate on updateStaff/deleteStaff. The owner guard lives in deleteStaffCore
-// (it throws AppApiError('forbidden') for the owner row before any write),
-// next to the synqed SDK's own last-member/attributed-records guard.
+// gate on updateStaff/deleteStaff. The owner guard lives in BOTH cores:
+// deleteStaffCore refuses the owner row outright (next to the synqed SDK's own
+// last-member/attributed-records guard), updateStaffCore refuses it unless the
+// actor IS the owner — each throws AppApiError('forbidden') before any write,
+// and both handlers below pass it through as 403.
 //
 // Business-result passthrough: updateStaffCore/deleteStaffCore's own
 // { ok: true } | { error } result rides the 2xx body VERBATIM — same
@@ -32,7 +34,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { SynqedError } from '@synqed-kk/client'
-import { updateStaffCore, deleteStaffCore } from '@/actions/staff'
+import { updateStaffCore, deleteStaffCore } from '@/lib/staff/staff.core'
 import { staffProfileSchema } from '@/lib/validations/staff'
 
 /** Only core's REAL not-found maps to 404 (an unknown/foreign staff id is a

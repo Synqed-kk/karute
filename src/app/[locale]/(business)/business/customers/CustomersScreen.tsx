@@ -34,6 +34,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { toggleColumn, wireColumnsPopover } from '@/business/lib/column-config'
+import { businessStrings } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring, type Spring } from '@/business/lib/spring'
 import type { CustomerRow, CustomersProps } from './customers-props'
@@ -1037,7 +1038,8 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
                                   {r.categoryChip && <span className="cu-chip">{r.categoryChip}</span>}
                                 </span>
                                 <span className="cu-id">
-                                  {r.no} / {r.phone ?? '電話未登録'}
+                                  {/* ⚖ PR-3 — a customer with no number yet reads 「番号未登録」, never a blank before the 「/」. */}
+                                  {r.no || businessStrings.customers.memberNoneRow} / {r.phone ?? '電話未登録'}
                                 </span>
                               </span>
                             </span>
@@ -1570,7 +1572,7 @@ function InspectorBody({
         <div className="cu-sec">
           <span className="cu-lb-k">本人情報</span>
           <div className="cu-kvbox">
-            {kv('顧客番号', row.no)}
+            {kv('顧客番号', row.no || businessStrings.customers.memberNoneKv, !row.no)}
             {kv('携帯番号', row.phone ?? '未登録', row.phone == null)}
             {kv('メール', row.email ?? '未登録', row.email == null)}
             {kv('登録元', row.source)}

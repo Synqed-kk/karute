@@ -42,6 +42,7 @@ type RecordingRow = {
   staff_id: string
   duration_seconds: number | null
   created_at: string
+  audio_storage_path?: string | null
 }
 type KaruteRow = { id: string; recording_session_id: string | null; staff_id: string }
 // SDK shape (recording-discards.d.ts's RecordingDiscardEvent) isn't a public
@@ -79,6 +80,11 @@ const getByRecordingSession = jest.fn(async (_id: string) => {
   throw Object.assign(new Error('not found'), { status: 404 })
 })
 const storesGet = jest.fn(async (id: string) => ({ id }))
+/** Recording hole PR-7 — the warning-fact read. Default: no rows at all. */
+const auditList = jest.fn(async (_opts: unknown): Promise<{ events: unknown[]; total: number }> => ({
+  events: [],
+  total: 0,
+}))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 
 const recordingsGet = jest.fn(async (id: string) => ({
@@ -115,8 +121,10 @@ const fakeClient = {
       }> => ({ events: [], total: 0, page: 1, page_size: 200 }),
     ),
   },
-  stores: { get: storesGet },
+  // One store: floating = the single-store carve-out (readable list required).
+  stores: { get: storesGet, list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: staffStoresGet },
+  audit: { list: auditList },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -132,7 +140,6 @@ jest.mock('@/lib/customers/cached', () => ({
 }))
 
 import { GET } from '@/app/api/app/v1/recordings/inbox/route'
-import { DELETE as SESSION_DELETE } from '@/app/api/app/v1/recordings/session/[id]/route'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
 import { RecordingsInboxDTO } from '@/lib/app-api/recordings-inbox-dto'
 
@@ -392,6 +399,45 @@ describe('GET recordings/inbox — the join', () => {
     ])
   })
 
+  it('PR-7: a warned 失敗 session ships ONE more key, captureWarning — a code, never text', async () => {
+    // Past the 3h grace, no job, no record: the server-only fold calls it
+    // genericFailure, so its warning fact is asked for (and only its).
+    const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+    recordingRows.current = [
+      {
+        id: 'sess-mine',
+        customer_id: 'cust-1',
+        staff_id: 'auth-user-1',
+        duration_seconds: 1380,
+        created_at: nowIso(300),
+        audio_storage_path: `app_business-1_${TAKE}.webm`,
+      },
+    ]
+    auditList.mockResolvedValueOnce({
+      events: [{ action: 'recording.capture_warned', detail: { reason: 'device', warned_at: 'x', take_id: TAKE } }],
+      total: 1,
+    })
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { sessions: Array<Record<string, unknown>> }
+    expect(auditList).toHaveBeenCalledTimes(1)
+    expect(body.sessions[0].captureWarning).toBe('device')
+    expect(Object.keys(body.sessions[0]).sort()).toEqual([
+      'captureWarning',
+      'createdAt',
+      'customerId',
+      'customerName',
+      'discardedByStaff',
+      'durationSeconds',
+      'jobLastError',
+      'jobProbeFailed',
+      'jobStatus',
+      'karuteRecordId',
+      'recordingSessionId',
+      'sameDay',
+    ])
+  })
+
   it('page_size stays <= 200 on BOTH lists — core REJECTS above it (400)', async () => {
     // Fix round 2, caught on the live preview: core validates page_size with
     // z.coerce...max(200) on the recording AND karute list routes — it 400s
@@ -583,65 +629,5 @@ describe('GET recordings/inbox — roster failure taxonomy (FX-7b)', () => {
     expect(res.status).toBe(502)
     const body = (await res.json()) as { error: { code: string } }
     expect(body.error.code).toBe('upstream_unavailable')
-  })
-})
-
-describe('DELETE recordings/session/[id] — the discard cleanup twin', () => {
-  const idem = { 'idempotency-key': 'k1' }
-  const delReq = (headers: Record<string, string> = {}) =>
-    new Request('https://s/api/app/v1/recordings/session/sess-1', {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${bearer()}`, ...headers },
-    })
-  const route = (id = 'sess-1') => ({ params: Promise.resolve({ id }) })
-
-  it('deletes the caller’s OWN session row', async () => {
-    const res = await SESSION_DELETE(delReq(idem), route())
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true })
-    expect(recordingsDelete).toHaveBeenCalledWith('sess-1')
-  })
-
-  it('leaves ANOTHER staffer’s session untouched (core’s DELETE is business-scoped)', async () => {
-    recordingsGet.mockResolvedValue({
-      id: 'sess-1',
-      staff_id: 'auth-user-2',
-      customer_id: 'cust-9',
-      audio_storage_path: null,
-      status: 'RECORDING',
-    })
-    const res = await SESSION_DELETE(delReq(idem), route())
-    expect(await res.json()).toEqual({ error: 'not_owned' })
-    expect(recordingsDelete).not.toHaveBeenCalled()
-  })
-
-  it('refuses a session that already has a karute record (provenance gate)', async () => {
-    // Both doors share the choke point, so the gate is live here too.
-    getKaruteByRecordingSession.mockResolvedValue({ id: 'rec-1' })
-    const res = await SESSION_DELETE(delReq(idem), route())
-    expect(await res.json()).toEqual({ error: 'has_record' })
-    expect(recordingsDelete).not.toHaveBeenCalled()
-  })
-
-  it('requires records.write', async () => {
-    capabilities.current = new Set(['customers.view'])
-    const res = await SESSION_DELETE(delReq(idem), route())
-    expect(res.status).toBe(403)
-    expect(recordingsDelete).not.toHaveBeenCalled()
-  })
-
-  it('requires an Idempotency-Key (it undoes an effectful mint)', async () => {
-    const res = await SESSION_DELETE(delReq(), route())
-    expect(res.status).toBe(400)
-    expect(recordingsDelete).not.toHaveBeenCalled()
-  })
-
-  it('is registered revocation-sensitive and audit-skipped to the shared core', async () => {
-    const { REVOCATION_SENSITIVE_ENDPOINTS } = await import('@/lib/auth/revocation')
-    expect([...REVOCATION_SENSITIVE_ENDPOINTS]).toContain('recordings.session.delete')
-    expect(FACADE_AUDIT_MAP['recordings.session.delete']).toMatchObject({
-      kind: 'skip',
-      coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient',
-    })
   })
 })

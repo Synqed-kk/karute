@@ -6,10 +6,15 @@ import { cookies } from 'next/headers'
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
 import type { StoreInput } from '@/lib/validations/store'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
-import { actorIsUnassigned, STORE_UNASSIGNED_DENIAL } from '@/lib/auth/store-gate'
+import {
+  actorStoreVerdict,
+  STORE_SCOPE_UNVERIFIED_DENIAL,
+  STORE_UNASSIGNED_DENIAL,
+} from '@/lib/auth/store-gate'
 // The six client-threaded cores left this file for a server-only module
 // (PKT-SEC-CORES-B2, 2026-09-23): every runtime export here is a
 // browser-callable server action with no authentication of its own, and these
@@ -53,30 +58,60 @@ const ACTIVE_STORE_COOKIE = 'karute_active_store'
 // The row shape lives with listStoresWithClient, its only producer.
 export type StoreRow = import('@/lib/stores/stores.core').StoreRow
 
+/** The two pre-core throws that are statements about the CALLER, not an
+ *  outage — answered `[]` exactly as before (Round 3 leg 8a, D-S31-2): a typed
+ *  membership_inactive (a removed staffer / no membership), and the plain
+ *  Error('Not authenticated') that resolveUserId / getCurrentAccessToken throw
+ *  when there is no session (src/lib/staff.ts — no exported constant or
+ *  predicate for that message, so the literal is matched here, once). */
+function isCallersOwnStanding(err: unknown): boolean {
+  if (err instanceof AppApiError) return err.code === 'membership_inactive'
+  return err instanceof Error && err.message === 'Not authenticated'
+}
+
 /** Cookie-session context resolution shared by the two web readers below —
  *  the lazy 本店-create prelude itself lives in the twin (shared with the
- *  facade paths). */
-async function listStoresForWeb(withHours: boolean): Promise<StoreRow[]> {
+ *  facade paths).
+ *
+ *  Round 3 leg 8a (2026-09-26, D-S31-1/2/3) — the S21 listInvites shape:
+ *  `null` = the list could NOT be read (an outage or a defect); `[]` = only a
+ *  real answer — a live core with no stores, or the caller's own standing
+ *  (above). It used to answer `[]` on ANY getBusinessId throw and REJECT on a
+ *  thrown client build or core read, and all three consumers turned both into
+ *  "no stores": a fabricated 本店 card in 設定, a hidden header switcher. The
+ *  core step's throws map to null the way the facade route maps the same
+ *  throws to upstream_unavailable. A zero-store list whose lazy 本店 name
+ *  lookup failed stays `[]` — the list read itself succeeded (D-S31-3). */
+async function listStoresForWeb(withHours: boolean): Promise<StoreRow[] | null> {
   let businessId: string
+  let synqed: StoresClient
   try {
     businessId = await getBusinessId()
-  } catch {
-    return []
+    synqed = await getSynqedClient()
+  } catch (err) {
+    if (isCallersOwnStanding(err)) return []
+    console.error('[stores] list read failed:', describeUnknownThrow(err))
+    return null
   }
-  const synqed = await getSynqedClient()
-  return listStoresWithClient(synqed, businessId, { ensurePrimary: true, withHours })
+  try {
+    return await listStoresWithClient(synqed, businessId, { ensurePrimary: true, withHours })
+  } catch (err) {
+    console.error('[stores] list read failed:', describeUnknownThrow(err))
+    return null
+  }
 }
 
 /** All stores for the caller's business (anyone in the business can read).
  *  NO hours — this is the app-shell layout's per-render read and StoresSection's
- *  own refresh(); neither renders 営業時間. */
-export async function listStores(): Promise<StoreRow[]> {
+ *  own refresh(); neither renders 営業時間. `null` = could not read. */
+export async function listStores(): Promise<StoreRow[] | null> {
   return listStoresForWeb(false)
 }
 
 /** listStores + each store's own weekly hours (ONE storePolicies.list()). The
- *  設定 page's read: its 店舗 tab is the only web surface that edits them. */
-export async function listStoresWithHours(): Promise<StoreRow[]> {
+ *  設定 page's read: its 店舗 tab is the only web surface that edits them.
+ *  `null` = could not read (a failed hours read included). */
+export async function listStoresWithHours(): Promise<StoreRow[] | null> {
   return listStoresForWeb(true)
 }
 
@@ -138,10 +173,19 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
   // store they're assigned to — otherwise the cookie would be a back door around
   // the store-scoped reads (lib/auth/store-scope). Cross-store roles and floating
   // staff (empty staff_stores = works everywhere) are unaffected.
-  const caps = await getMyCapabilities()
+  //
+  // Round 2, 2026-09-24, D-S16-4 (discussed, default): anything that could not
+  // be READ — the capability or roster read (an outage), the assignment lookup,
+  // or a caller the roster cannot place — pins nothing, with the unverified
+  // answer (never a silent rejection: both switchers show `error` inline). It
+  // used to fall through and set the cookie to ANY store; the read plane now
+  // reaches no store in the same case, and the pin must not disagree with it.
+  const caps = await getMyCapabilities().catch(() => null)
+  if (!caps) return { error: STORE_SCOPE_UNVERIFIED_DENIAL }
   if (!caps.has('stores.viewAll')) {
-    const uid = await getCurrentUserStaffId()
+    const uid = await getCurrentUserStaffId().catch(() => null)
     const allowed = uid ? await getStaffStoresStrict(uid) : null
+    if (!uid || allowed === null) return { error: STORE_SCOPE_UNVERIFIED_DENIAL }
     if (allowed && allowed.length > 0 && !allowed.includes(storeId)) {
       return { error: 'You can only view a store you are assigned to.' }
     }
@@ -150,9 +194,13 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
     // read as "floating, pin anything" — the strict twin keeps the failure
     // apart (null above) so only a GENUINE empty assignment reaches the gate,
     // which is then answered by the gate's ONE resolution, memoized alongside
-    // the capability seam's.
-    if (allowed && allowed.length === 0 && uid && (await actorIsUnassigned(uid))) {
-      return { error: STORE_UNASSIGNED_DENIAL }
+    // the capability seam's; `unknown` pins nothing (Round 2 fold, Greptile G1).
+    if (allowed && allowed.length === 0 && uid) {
+      const verdict = await actorStoreVerdict(uid)
+      if (verdict === 'unassigned') return { error: STORE_UNASSIGNED_DENIAL }
+      // `unknown` (or two reads that disagree) never pins: the read plane reaches
+      // no store in this state (store-scope.ts), and the pin must not disagree.
+      if (verdict !== 'unclamped') return { error: STORE_SCOPE_UNVERIFIED_DENIAL }
     }
   }
 

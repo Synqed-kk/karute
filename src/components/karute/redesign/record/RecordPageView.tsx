@@ -485,6 +485,7 @@ export function RecordPageView({
     stream,
     startedAt,
     overrun,
+    captureWarning,
     autoStopped,
     target,
     takeId: activeTakeId,
@@ -1057,8 +1058,12 @@ export function RecordPageView({
   // (see lib/recordings/inbox.ts). The orphan-as-失敗 problem the cleanup was
   // built for is solved by naming the row correctly instead of destroying it.
   //
-  // SYSTEM/abandoned cleanup is untouched — deleteRecordingSessionWithClient
-  // keeps its other call sites (the recordings action + the facade route).
+  // The SYSTEM/abandoned cleanup is RETIRED too (2026-09-24): nothing in the
+  // app hard-deletes a recording row. A STAFF discard (a reason in core's
+  // discard ledger) renders as a grayed 破棄済み row; an abandoned session
+  // simply stays and is NOT grayed — with no record, job, take or server audio
+  // behind it, the inbox reads it 処理中 for SESSION_UNSETTLED_GRACE_MS (3 h),
+  // then 失敗 (lib/recordings/inbox.ts).
 
   /** `keepTake` (A2-2): the take has been stamped `discardPending` and its audio
    *  is owed to the discard record, so this arm hands no take id on to be
@@ -3416,6 +3421,14 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
+      {/* PR-6 — the recorder's yellow notice, live takes only: this phone
+          cannot save (device) or the server is not receiving (server). Words
+          only — no control, no pop-up, no dismiss; it clears on recovery. */}
+      {(recState === 'recording' || recState === 'paused') && captureWarning && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
+          {captureWarning === 'device' ? t('deviceSaveUnavailable') : t('serverSendStalled')}
+        </p>
+      )}
       {/* UPDATE 25 GROUP A, piece d2 — a run whose session id never resolved.
           Quiet, non-blocking: the karute still saves, but the audio stays on
           this device only. Never a dialog, never a toast-only surface — the

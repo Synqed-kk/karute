@@ -21,6 +21,8 @@ export class PracticeLensRefused extends Error {
 }
 
 export interface PracticeActor {
+  /** The admitted business — already checked against the practice tenant by clientFor. */
+  businessId: string
   reads: CoreReads
   card: Staff
   sheet: Sheet
@@ -78,7 +80,7 @@ export const practiceActor = cache(async (): Promise<PracticeActor> => {
   const ids = sheet.visible_store_ids
   // FOLD F-2 (⚖ 9/16): core's null = "every store" only WITH stores.viewAll; without it, nothing.
   const visible = viewAll ? tenant : ids === null ? [] : tenant.filter((s) => ids.includes(s.id))
-  return { reads, card, sheet, viewAll, visible }
+  return { businessId: admitted.businessId, reads, card, sheet, viewAll, visible }
 })
 
 export function visibleIds(actor: PracticeActor): string[] {

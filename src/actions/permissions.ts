@@ -9,6 +9,8 @@ import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permiss
 import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { resolveWebActorId } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
+import { coreFailureLine } from '@/lib/auth/core-failure-line'
 import {
   PERMISSION_ROLES,
   ROLE_PRESETS,
@@ -110,7 +112,7 @@ export async function getStaffPermissions(
   try {
     await requireCapability('staff.manage')
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+    return { error: (await coreFailureLine(e, '[permissions]')) ?? (e instanceof Error ? e.message : 'Not allowed') }
   }
   const businessId = await getBusinessId()
   return getStaffPermissionsCore(businessId, staffId)
@@ -293,15 +295,26 @@ export async function setStaffPermissions(
   try {
     await requireCapability('staff.manage')
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+    // Round 3 leg 6/7 (D-S25-1, D-S27-1/2): the gate reads the roster first — a TYPED synqed-core failure (outage or client defect) answers the failure line, never the English fixed message; a denial keeps its own answer.
+    return { error: (await coreFailureLine(e, '[permissions]')) ?? (e instanceof Error ? e.message : 'Not allowed') }
   }
 
-  const businessId = await getBusinessId()
-  const [callerCapabilities, callerStaffId, actorId] = await Promise.all([
-    getMyCapabilities(),
-    getCurrentUserStaffId(),
-    resolveWebActorId(),
-  ])
+  let businessId: string
+  let callerCapabilities: Set<Capability>
+  let callerStaffId: string | null
+  let actorId: string | null
+  try {
+    businessId = await getBusinessId()
+    ;[callerCapabilities, callerStaffId, actorId] = await Promise.all([
+      getMyCapabilities(),
+      getCurrentUserStaffId(),
+      resolveWebActorId(),
+    ])
+  } catch (err) {
+    // Round 3 leg 6 (2026-09-25): a roster outage answers the action's own failure shape, never a rejection.
+    console.error('[permissions] pre-core read failed (roster):', describeUnknownThrow(err))
+    return { error: (await getTranslations('common'))('somethingWentWrong') }
+  }
   // Actor store scope: AFTER the staff.manage gate, BEFORE the core (#715's
   // clamp, web transport — see storeScopeError in src/actions/staff.ts). A
   // clamped custom grant must not re-role another branch's staff. The core's

@@ -13,7 +13,7 @@ import {
   updateMemoryItemWithClient,
   toggleMemoryPinWithClient,
   deleteMemoryItemWithClient,
-} from '@/actions/memory'
+} from '@/lib/customers/memory.core'
 import { proveMemoryItemInBusiness } from '@/lib/app-api/customer-facade'
 
 export const runtime = 'nodejs'

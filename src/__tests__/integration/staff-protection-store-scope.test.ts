@@ -36,7 +36,8 @@ const can = jest.fn<Promise<boolean>, [string]>(async () => true)
 jest.mock('@/lib/auth/require-permission', () => ({
   can: (c: string) => can(c),
   requireCapability: jest.fn(async () => {}),
-  getMyCapabilities: jest.fn(async () => new Set(['staff.manage'])),
+  // + the practitioner preset a STYLIST invite seeds (hold what you grant).
+  getMyCapabilities: jest.fn(async () => new Set(['staff.manage', 'records.write', 'customers.view', 'customers.manage', 'bookings.manage'])),
 }))
 
 // The clamp's own module — stubbed to a switch so this file pins the WIRING
@@ -267,7 +268,7 @@ describe('pending re-invites — list hides, revoke refuses', () => {
     staffWriteInScope.mockImplementation(async ({ targetStaffId }: { targetStaffId: string }) =>
       targetStaffId !== TARGET,
     )
-    expect((await listInvites()).map((i) => i.id)).toEqual(['inv-fresh'])
+    expect((await listInvites())?.map((i) => i.id)).toEqual(['inv-fresh'])
     // A fresh invite has no store dimension, so the clamp is asked ONLY about
     // the re-invite's target card.
     expect(staffWriteInScope).toHaveBeenCalledTimes(1)
@@ -276,7 +277,7 @@ describe('pending re-invites — list hides, revoke refuses', () => {
 
   it('listInvites: an in-scope viewer keeps both rows', async () => {
     invitesList.mockResolvedValue({ invites: [FRESH, REINVITE] })
-    expect((await listInvites()).map((i) => i.id)).toEqual(['inv-fresh', 'inv-reinvite'])
+    expect((await listInvites())?.map((i) => i.id)).toEqual(['inv-fresh', 'inv-reinvite'])
   })
 
   it('revokeInvite: out of scope → the store-scope code, core untouched, no audit row', async () => {

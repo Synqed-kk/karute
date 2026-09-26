@@ -76,6 +76,37 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://test-dummy.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: dummy-not-a-key
 
+      - name: Seeder core-target guard selftest (fixture red→green)
+        # seed-booking-data.ts wipes core data; it must refuse any non-local
+        # core before a client or request exists. Here, not in audit-gates:
+        # it spawns the real seeder, whose imports need this job's npm ci.
+        # Only .invalid hosts + a from-scratch child env — never a real core.
+        run: node scripts/lib/core-target-guard.test.mjs
+
+      - name: Test-world count baseline selftest (fake core, no network)
+        # Pins the Dev Salon loss check: a drop exits 3, equal/growth exit 0,
+        # a used-up pack is not a breach, any other business is REFUSED (2).
+        # ts-node (a lockfile-pinned devDependency), not tsx: tsx is not in
+        # the lockfile, so `npx --no -- tsx` fails here. CommonJS override
+        # because the repo tsconfig is set up for the bundler.
+        run: |
+          npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/count-baseline.test.ts
+
+      - name: Test-world fill loader selftest (fake core, no network)
+        # Pins the fill loader: the planner is deterministic and a later
+        # date only ADDS days; no practitioner or bed is double-booked; any
+        # other business is REFUSED (2) before a write; a second run creates
+        # 0; a 409 exits 4; no delete call, no import of the seeder guard.
+        # close-out: dry-run writes nothing; only tagged + SCHEDULED + past +
+        # owned rows get plan()'s status; another business is refused.
+        # realism: per-store step, rhythm/指名 only from realismFrom, the
+        # ご要望 pools; the pass refuses another business, applies only the
+        # dry-run's hash, writes the ledger first, and reverts.
+        run: |
+          npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/fill.test.ts
+          npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/close-out.test.ts
+          npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/realism.test.ts
+
       - name: Thin bundle gate (size budget + purchase exclusion)
         # The gate breached silently for weeks because it only ran by hand
         # (packet-09 F-1: the breach masked a §1.5 purchase-code leak).
@@ -235,9 +266,11 @@ jobs:
   # business-territory.json) AND anything outside it — deny-by-default, so
   # phone-owned surfaces (thin/, facade routes, shared screens at every
   # width, messages/, package.json) never need enumerating. Same isolation
-  # philosophy as audit-gates: no npm install, no lifecycle scripts — the
-  # chain is checkout → node on CODEOWNERS-protected scripts + the preinstalled
-  # gh CLI. The PR files API (not a local git diff) supplies the change list:
+  # philosophy as audit-gates: no npm ci, no lockfile, no lifecycle scripts —
+  # the chain is checkout → one exact-pinned typescript install (the lock-3
+  # door's parser, same step as audit-gates) → node on CODEOWNERS-protected
+  # scripts + the preinstalled gh CLI. The PR files API (not a local git
+  # diff) supplies the change list:
   # exact, pagination-safe, and includes previous_filename so a rename can't
   # smuggle a phone file into territory. The jest import-isolation half
   # (business-isolation.test.ts) runs in the main ci job's suite.
@@ -260,12 +293,24 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install pinned typescript only
+        # The lock-3 door (⚖ Liam 9/24, R-A2-15) reads src/lib/audit-policy.ts
+        # with scripts/audit/parse-audit-source.mjs's parser, which imports
+        # 'typescript'. Byte-for-byte the audit-gates job's install (read its
+        # comment for why --prefix and why the node_modules purge).
+        run: |
+          find . -name node_modules -prune -exec rm -rf {} +
+          npm install --prefix "$RUNNER_TEMP/audit-deps" --no-save --ignore-scripts --no-audit --no-fund typescript@5.9.3
+          ln -s "$RUNNER_TEMP/audit-deps/node_modules" node_modules
+
       - name: Guard selftest (boundary + rename cases)
         run: node scripts/business/check-business-isolation.selftest.mjs
 
       - name: Business PRs touch only Business territory
         env:
           GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # pipefail is load-bearing (blind round): the default step shell is
         # plain `bash -e` — without it a failed gh api call feeds the script
         # empty stdin and the pipeline exits with node's status. The script
@@ -275,6 +320,11 @@ jobs:
         # outside-territory file past the cap — refuse anything near it
         # outright (a ~3000-file PR is already far outside this repo's
         # 50–200 LOC convention).
+        # The lock-3 door reads audit-policy.ts + the ledger at
+        # merge-base(base, head) and at the PR head, so it needs both commits'
+        # history; the checkout is shallow. --unshallow, never a depth flag. A
+        # failed fetch only matters to a Business PR that changes one of the two
+        # files: the gate then cannot read them and refuses (fail closed).
         run: |
           set -eo pipefail
           changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.changed_files')
@@ -282,6 +332,8 @@ jobs:
             echo "::error::PR has $changed changed files — beyond the files API's reliable range (3000 cap). Split the PR."
             exit 1
           fi
+          git fetch --no-tags --unshallow origin "$BASE_SHA" "$HEAD_SHA" \
+            || echo "::warning::history fetch failed — a Business PR touching the two policy files will be refused"
           gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
             --jq '.[] | .filename, (.previous_filename // empty)' \
-          | node scripts/business/check-business-isolation.mjs
+          | node scripts/business/check-business-isolation.mjs --base "$BASE_SHA" --head "$HEAD_SHA"

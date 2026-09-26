@@ -35,9 +35,13 @@ import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 export function MobileHeader({
   stores,
   activeStoreId,
+  storesUnavailable = false,
 }: {
   stores: StoreRow[]
   activeStoreId: string | null
+  /** Round 3 leg 8a (D-S31-4): the store list could not be read — the switcher
+   *  says so instead of hiding. Optional (the thin chrome never passes it). */
+  storesUnavailable?: boolean
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -88,7 +92,12 @@ export function MobileHeader({
          *  overlapping; the spacer holds the slot when the bell collapses. */}
         <div className="flex shrink-0 items-center gap-1">
           {!isRecording && (
-            <StoreSwitcher stores={stores} activeStoreId={activeStoreId} variant="mobile" />
+            <StoreSwitcher
+              stores={stores}
+              activeStoreId={activeStoreId}
+              variant="mobile"
+              unavailable={storesUnavailable}
+            />
           )}
           {isRecording ? (
             <span aria-hidden className="size-11 shrink-0" />

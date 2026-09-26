@@ -38,7 +38,7 @@ import { join } from 'node:path'
 import { fillWords, wordsRoomBlock, wordsSentences, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { GENERIC_WORDS } from '@/business/lib/resource-words'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
-import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
+import { business, menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import { AUDIT_CATEGORIES, businessProfiles, rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
@@ -51,6 +51,8 @@ import {
   accessFor,
   addToCollection,
   blockDirty,
+  CARD_COLOR_ID,
+  CARD_LOOK_ID,
   hitOf,
   blockingError,
   changedCount,
@@ -70,6 +72,7 @@ import {
   hhmm,
   labelOfValue,
   longestOpenDayMin,
+  minutesLabel,
   PREFS_DEFAULT,
   previewTemplate,
   RAIL,
@@ -90,7 +93,14 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
-import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
+import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
+import { PALETTE } from '@/business/lib/reserve-card/palette'
+import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/business/lib/booking-colors'
+// ③ — the ¥ unit the Reserve 受付 fact prints; imported, never typed, so the
+// pin below follows the constant rather than restating it.
+import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
 // `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
 // (A2 turned the row into a select of two STATES plus a free minute field).
@@ -400,7 +410,7 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     const props = await room({ role: 'スタッフ' })
     for (const section of props.sections) {
       if (section.gate === 'open') continue
-      expect({ id: section.id, blocks: section.blocks.length, aside: section.aside }).toEqual({ id: section.id, blocks: 0, aside: null })
+      expect({ id: section.id, blocks: section.blocks.length }).toEqual({ id: section.id, blocks: 0 })
     }
     // Not one guardrail or store value from a gated section reaches a reader who
     // may read none of them.
@@ -422,7 +432,7 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
         // ⚠ 「権限がありません」 ON ITS OWN IS NOT A REASON. The sentence has to
         // name WHO is reading and WHAT would open it, or the reader is told they
         // are locked out and nothing else.
-        expect({ role, id, names: line.includes(s.label) }).toEqual({ role, id, names: true })
+        expect({ role, id, names: line.includes(RAIL.find((e) => e.id === id)!.label) }).toEqual({ role, id, names: true })
         expect({ role, id, long: line.length >= 40 }).toEqual({ role, id, long: true })
         expect({ role, id, whose: line.includes(role) }).toEqual({ role, id, whose: true })
       }
@@ -594,9 +604,11 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // is the third: canon has no page for it because it is #812's room, which
     // arrived as ONE section of this rail rather than as a second 設定 route at
     // the same path. It sits SECOND, right after 店舗情報・営業時間.
-    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', '自分の表示設定'])
+    // ⚖ A1b — カードの見た目 is the fourth: canon has no page for the Reserve card's
+    // colour; it sits between Reserve 受付 and 通知, one value for the business.
+    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', 'カードの見た目', '自分の表示設定'])
     expect(labels[1]).toBe('予約と確保')
-    expect(RAIL).toHaveLength(22)
+    expect(RAIL).toHaveLength(23)
   })
 
   it('NOT ONE SECTION IS A STUB — every open section carries real content', async () => {
@@ -611,12 +623,13 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
         // directly below, against that payload, rather than against blocks it
         // deliberately does not have.
         if (s.id === 'booking-guard') continue
+        // ⚖ A1b — カードの見た目 renders itself too (the picker + the ported card);
+        // its substance is its payload, asserted in the A1b block at the end.
+        if (s.id === 'reserve-card-look') continue
         const rows = s.blocks.reduce((n, b) => n + b.rows.length, 0)
         const substance = s.blocks.reduce((n, b) => n + b.rows.length + b.facts.length + (b.list ? 1 : 0) + (b.table ? 1 : 0), 0)
         expect({ role, id: s.id, blocks: s.blocks.length > 0 }).toEqual({ role, id: s.id, blocks: true })
         expect({ role, id: s.id, substance: substance >= 2 }).toEqual({ role, id: s.id, substance: true })
-        // Liam 2026-09-23: 人・設備's aside was never rendered — removed, so it alone may carry none.
-        if (s.id !== 'people-equipment') expect({ role, id: s.id, aside: s.aside !== null }).toEqual({ role, id: s.id, aside: true })
         void rows
       }
     }
@@ -1419,12 +1432,16 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     for (const r of trioRows(props)) {
       const states = typeof r.trio!.businessType === 'string' && r.trio!.businessType.length > 0
       expect({ id: r.id, statesOne: states }).toEqual({ id: r.id, statesOne: RULED.includes(r.id) })
-      if (states) expect({ id: r.id, real: r.trio!.businessType!.startsWith('業種による初期値:') }).toEqual({ id: r.id, real: true })
+      if (states) expect({ id: r.id, real: r.trio!.businessType!.startsWith(BUSINESS_TYPE_NOTE_PREFIX) }).toEqual({ id: r.id, real: true })
     }
     // …and the null sentence is gone from the WHOLE payload, not just from the
     // rows this test walked.
     expect(JSON.stringify(props)).not.toContain('業種による初期値の決まりはありません')
     expect(PROPS_CODE).not.toContain('業種による初期値の決まりはありません')
+    // one home: the prefix literal lives only in the constant
+    expect(PROPS_CODE.split(BUSINESS_TYPE_NOTE_PREFIX).length).toBe(2)
+    // the wording itself: a regression of the constant to the old promise goes red here
+    expect(BUSINESS_TYPE_NOTE_PREFIX).toBe('業種による違い: ')
     // The screen renders the line CONDITIONALLY, so a future row that omits it
     // cannot print an empty bullet.
     // ⚖ S17 STEP 1 — RE-PINNED AT ITS NEW HOME. The three lines did not change
@@ -1992,7 +2009,6 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
       // nothing, which is worse than no guard at all.
       if (world === 'manager') {
         for (const [shape, sample] of [
-          ['a trace-card value', 'ひとつだけ（二か所には持ちません）'],
           ['a row scope label', '事業全体'],
           // ⚖ S17 FOLD — the old sample (予約の移動単位) was a control that moved
           // to 予約と確保. The shape is what matters, so the sample is another
@@ -2035,8 +2051,9 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // `aria-disabled`, never `disabled`, on a locked control: it has to stay
     // focusable for its reason to be reachable by keyboard. The two `disabled`
     // attributes in this file are the save button and the tour's 前へ, which are
-    // genuinely unusable rather than refusing.
-    expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(2)
+    // genuinely unusable rather than refusing — and (⚖ PR-3) a select's
+    // 「未設定」 option, which is a state shown, never a choice offered.
+    expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(3)
   })
 
   it('the room’s own SOURCE keeps the codes where codes belong', () => {
@@ -2123,7 +2140,7 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
     for (const store of [undefined, 'store-that-is-not-ours']) {
       const { props, storeKey } = await settingsProps({ locale: 'ja', store })
       expect({ store, key: storeKey }).not.toEqual({ store, key: 'all-stores' })
-      expect({ store, label: props.lensLabel }).not.toEqual({ store, label: 'すべての店舗' })
+      expect({ store, allStores: props.dateline.endsWith('/ すべての店舗') }).toEqual({ store, allStores: false })
       // …and the section really carries its blocks, rather than the designed
       // no-store panel a null lens would render.
       const hours = props.sections.find((s) => s.id === 'store-hours')!
@@ -2266,7 +2283,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // …and the SCREEN really hands them over — to the filter AND to the chip.
     // Without this the list above is a fact about a function nobody calls with
     // it, which is exactly how the battery caught the first cut of this pin.
-    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : undefined)')
+    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === CARD_LOOK_ID ? CARD_LOOK_HEADINGS : undefined)')
     expect(SCREEN_CODE).toContain('searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id))')
     expect(SCREEN_CODE).toContain('hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))')
     // An empty query is not a filter; a query nothing matches is honest silence.
@@ -2278,9 +2295,9 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // 「AI設定」 are the two rows a reader types in lowercase.
     expect(matchesQuery(searchTextOf(rowOf('reserve-acceptance'), byId['reserve-acceptance']), 'reserve')).toBe(true)
     expect(matchesQuery(searchTextOf(rowOf('ai'), byId['ai']), 'ai')).toBe(true)
-    // …and the footer's count is DERIVED, so a 23rd section cannot ship beside a
-    // rail still claiming 22.
-    expect(props.rail).toHaveLength(22)
+    // …and the footer's count is DERIVED, so a 24th section cannot ship beside a
+    // rail still claiming 23.
+    expect(props.rail).toHaveLength(23)
     expect(SCREEN_CODE).toContain('`全${props.rail.length}件の設定 ・ 名前とページの中の見出しから探せます`')
   })
 
@@ -2812,16 +2829,10 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(labelOfValue(cutoffCtrl, '0')).toBe('締め切らない')
   })
 
-  it('⚖ D-33 R2 — the aside\'s gap-fill line reads the zero state, one spelling with the row\'s own zeroLabel', async () => {
-    const props = await room({ store: STORE_A })
-    const asideLineOf = (p: SettingsProps, label: string) =>
-      sectionOf(p, 'reserve-acceptance').aside!.lines.find((l) => l.label === label)!.value
-    // (a) at the fixture (gapFillMinMin: 30) the line is byte-unchanged.
-    expect(asideLineOf(props, 'スキマ枠')).toBe('30分以上・10%引き')
-
-    // (b) under the suite's opsConfig override door with gapFillMinMin: 0 the
-    // aside reads the row's own zero label alone — no discount clause for a
-    // slot that is not sold.
+  it('⚖ D-33 R2 — the gap-fill row\'s zeroLabel reads the zero state, one spelling', async () => {
+    // Under the suite's opsConfig override door with gapFillMinMin: 0 the row
+    // reads its own zero label alone — no discount clause for a slot that is
+    // not sold.
     jest.doMock('@/business/lib/fixtures-today', () => {
       const actual = jest.requireActual('@/business/lib/fixtures-today')
       return { ...actual, opsConfig: { ...actual.opsConfig, gapFillMinMin: 0 } }
@@ -2832,16 +2843,20 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     })
     jest.dontMock('@/business/lib/fixtures-today')
     const props0 = (await mod0.settingsProps({ locale: 'ja', store: STORE_A })).props
-    const aside0 = asideLineOf(props0, 'スキマ枠')
-    // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
-    expect(aside0).toBe('販売なし')
-    expect(aside0).not.toContain('0分')
-    expect(aside0).not.toContain('%引き')
-
-    // (c) the row's own zeroLabel and the aside's zero value are the SAME
-    // string, read through the two payload paths — not a typed literal twice.
     const gapfillCtrl0 = controlOf(props0, 'reserve.gapfill').control
-    expect(gapfillCtrl0.kind === 'number' ? gapfillCtrl0.zeroLabel : undefined).toBe(aside0)
+    const zero0 = gapfillCtrl0.kind === 'number' ? gapfillCtrl0.zeroLabel : undefined
+    // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
+    expect(zero0).toBe('販売なし')
+    expect(zero0).not.toContain('0分')
+    expect(zero0).not.toContain('%引き')
+  })
+
+  it('③ — the two Reserve 受付 facts render from the code\'s own constants', async () => {
+    const props = await room({ store: STORE_A })
+    const facts = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!.facts
+    expect(facts).toContain(`受付できるのは営業時間の範囲内だけです。価格は時間帯ごとの価格を分単位で按分し、¥${PRICE_UNIT_YEN}単位で表示します。`)
+    const grid = facts.map((f) => /^お客様が選べる開始時刻の(.+)きざみは、今日の運営のお客様向け表示が読む値です。$/.exec(f)).find(Boolean)
+    expect(grid?.[1]).toBe(minutesLabel(opsConfig.reserveStartGridMin))
   })
 
   it('⚖ D-31/D-32 F4 §B — each zero-capable row’s description states what 0 means, verbatim', async () => {
@@ -3585,9 +3600,13 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     expect(three).toMatch(/\.st-save-card \{[^}]*white-space: normal/)
 
     // ⚠ NO HORIZONTAL AXIS ANYWHERE except the ② strip's own jump run, which is
-    // a one-line chip scroller and says so by removing the vertical one.
+    // a one-line chip scroller and says so by removing the vertical one — and
+    // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip, a scroll container in
+    // bytes that never scrolls: a 393px phone in a 393px strip, there for the
+    // card's own paint layer; narrower, it scales and `.is-scaled` clips instead.
     const xOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-x:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
-    expect(xOwners).toEqual(['.biz .pg-settings .st-jump-list'])
+    expect(xOwners).toEqual(['.biz .pg-settings .cl-strip', '.biz .pg-settings .st-jump-list'])
+    expect(CSS_CODE).toContain('.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }')
     expect(CSS_CODE).toMatch(/\.st-jump-list \{[^}]*overflow-x: auto; overflow-y: hidden/)
   })
 
@@ -3802,10 +3821,26 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
         if (name && /^[a-z][\w-]*$/.test(name)) rendered.add(name)
       }
     }
-    const SHELL = new Set(['page', 'pg-settings', 'btn', 'primary'])
+    // ⚖ PR-3 — the 「サンプル」 mark is ONE token for two rooms, so it is the shell sheet's.
+    const SHELL = new Set(['page', 'pg-settings', 'btn', 'primary', 'sample-mark', 'sample-mark-note', 'sample-mark-line', 'sample-pop', 'no-sample'])
     const strays = [...rendered].filter((n) => !n.startsWith('st-') && !n.startsWith('is-') && !SHELL.has(n))
     expect(strays).toEqual([])
     expect([...rendered].filter((n) => n.startsWith('st-')).length).toBeGreaterThan(35)
+  })
+
+  // ⚖ PR-3 — the room draws the mark and the card ONLY off the payload's own flags,
+  // which the builders emit only when true (so a switch-OFF payload never has them).
+  it('PR-3: chip + note on `block.sample`, the card on `block.sampleNone` / `section.sampleNone`, the section mark on `section.sample`', () => {
+    for (const gate of [
+      '{mark && <MarkChip mark={mark} ',
+      '{mark && <MarkNote mark={mark} ',
+      '{block.sampleNone && <NoSample />}',
+      '{section.sampleNone && <NoSample />}',
+      '{section.sample && <SampleMark mark={section.sample} ',
+      // ⚖ §v3 V3-6 — a marked section's blocks carry no mark of their own: ONE rule, here.
+      'const mark = section.sample ? undefined : seed.sample',
+    ]) expect(SCREEN_CODE.split(gate).length - 1).toBe(1)
+    expect(SCREEN_CODE.match(/<(MarkChip|MarkNote|NoSample|SampleMark)\b/g)).toHaveLength(7) // the five gated + SampleMark's own chip + note
   })
 
   it('this room’s own names exist NOWHERE else in the family', () => {
@@ -3866,6 +3901,63 @@ describe('the shell one-liners, and the signposts that now really navigate', () 
     const register = read('src/app/[locale]/(business)/business/register/register-props.ts')
     expect(register).toContain("settingsHref(locale, clamped ? storeId! : null, 'payments')")
     expect(register).not.toContain('設定の画面はまだ準備中')
+  })
+
+  it('⚖ PR-3 of 予約の色分け — the 色の意味 chip opens the SAME store\'s 言語・表示 and lands ON 予約の色分け', async () => {
+    // T3 — read off the chip as the board writes it, then DRIVEN: the section the
+    // chip names is the one the room opens by URL, and the block it names is in it
+    // under the title the chip prints (⚖ label truth).
+    const today = read('src/app/[locale]/(business)/business/today/TodayScreen.tsx')
+    const call = /settingsHref\(props\.locale, props\.store, '([^']+)', '([^']+)'\)\}>\{businessStrings\.today\.legend\.colorsChangeAt\}/.exec(today)
+    expect(call?.slice(1)).toEqual(['language-display', 'lang.colors'])
+    const [, section, block] = call!
+    for (const store of [STORE_A, STORE_B]) {
+      const props = await room({ store, section })
+      expect({ store, opening: props.openingSectionId, byUrl: props.openedByUrl }).toEqual({ store, opening: section, byUrl: true })
+      expect(sectionOf(props, section).blocks.find((b) => b.id === block)?.title).toBe('予約の色分け')
+      // …through the ONE link home, carrying the store (the G2 lesson: 代官山 never opens 銀座's room).
+      expect(settingsHref('ja', store, section, block)).toBe(`/ja/business/settings?section=${section}&store=${store}#st-blk-${block}`)
+    }
+    expect(settingsHref('ja', null, 'language-display', 'lang.colors')).toBe('/ja/business/settings?section=language-display#st-blk-lang.colors')
+    // The fragment names the anchor the room renders for every block, and the room
+    // lands it itself, once, through the jump list's own jumpTo.
+    expect(SCREEN_CODE).toContain('id={`st-blk-${block.id}`}')
+    expect(SCREEN_CODE).toContain("const id = hash.startsWith('#st-blk-') ? hash.slice('#st-blk-'.length) : null")
+    // ⚖ fix round 1 (Greptile P2) — the decision and the landing are lifted (`landingBlockOf` · `landOnBlock`,
+    // RUN on real DOM nodes in settings-screen-interactions.test.ts); here, the room's wiring of them.
+    expect(SCREEN_CODE).toContain('return id !== null && blocks.some((b) => b.id === id) ? id : null')
+    expect(SCREEN_CODE).toContain('const id = landingBlockOf(window.location.hash, blocks)')
+    expect(SCREEN_CODE).toContain('if (id !== null) jumpTo(id)')
+    expect(SCREEN_CODE).toContain('landOnBlock(blockId, reduced)')
+  })
+
+  it('⚖ PR-3 fix round 1 (Greptile P1) — the board shows its two 設定 chips to exactly the readers the room admits there', async () => {
+    // The board's flag, read off page.tsx as it computes it: the room's own access, the room's own gate.
+    const page = read('src/app/[locale]/(business)/business/today/page.tsx')
+    expect(page).toContain('const settingsAccess = accessFor(shell.operator.role, rulebook)')
+    const flag = /canOpenLegendSettings: \(\[([^\]]+)\] as const\)\.every\(\(id\) => gateOf\(sectionById\(id\)!, settingsAccess\) === 'open'\),/.exec(page)
+    expect(flag).not.toBeNull()
+    const ids = [...flag![1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+    // …asking about exactly the sections the two chips link to — no more, no fewer.
+    const today = read('src/app/[locale]/(business)/business/today/TodayScreen.tsx')
+    const linked = [...today.matchAll(/settingsHref\(props\.locale, props\.store, '([^']+)'/g)].map((m) => m[1])
+    expect([...ids].sort()).toEqual([...linked].sort())
+    expect([...ids].sort()).toEqual(['booking-guard', 'language-display'])
+    // …and for every role word the rulebook knows (plus one it does not), the board's answer IS the room's:
+    // true exactly when a `?section=` link to each chip's section opens that section.
+    const answers: Record<string, boolean> = {}
+    for (const role of [...Object.keys(rulebook.roleKeyOf), '見習い']) {
+      const board = ids.every((id) => gateOf(sectionById(id)!, accessFor(role, rulebook)) === 'open')
+      const opened: boolean[] = []
+      for (const section of ids) {
+        const props = await room({ store: STORE_A, role, section })
+        opened.push(props.openingSectionId === section && props.openedByUrl)
+      }
+      expect({ role, board }).toEqual({ role, board: opened.every(Boolean) })
+      answers[role] = board
+    }
+    // Both answers are really exercised: a staff reader is shut out (no chips), a manager and an owner are not.
+    expect(answers).toEqual({ オーナー: true, 店舗管理者: true, スタッフ: false, 見習い: false })
   })
 
   it('⚖ S17 fix round 5 · G2 — every link into 設定 comes out of ONE home, and carries the store', () => {
@@ -3957,7 +4049,6 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
       expect(c.control).not.toHaveProperty('required')
     }
     expect(Object.keys(words.words!.copy.problems).sort()).toEqual(['bar', 'empty', 'full', 'length', 'pair', 'reserved', 'space', 'trim'])
-    expect(section.aside).toBeNull()
     expect(wordsSentences(words.words!, seedOf(props), labelOfValue(typeControl.control, typeControl.value)).example)
       .toBe(section.blocks.find((b) => b.id === 'people.equipment')!.facts[0])
     const added = section.blocks.filter((b) => ['people.business-type', 'people.words'].includes(b.id))
@@ -4017,11 +4108,41 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     expect(sectionOf(props, 'people-equipment').blocks).toEqual([])
   })
 
-  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks and no aside', async () => {
+  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks', async () => {
     const props = await withoutStores(true)
     const section = sectionOf(props, 'people-equipment')
     expect(section.blocks.map((b) => b.id)).toEqual(['people.staff', 'people.equipment', 'people.room-policy', 'people.shifts'])
-    expect(section.aside).toBeNull()
+  })
+
+  it('S29 — no stores (no business type) keeps the 設備・枠 title and its 台数 note byte-for-byte', async () => {
+    const equipment = sectionOf(await withoutStores(true), 'people-equipment').blocks.find((b) => b.id === 'people.equipment')!
+    expect(equipment.title).toBe('設備・枠')
+    expect(equipment.note).toBe('この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。')
+  })
+
+  it('S29 — a store with no business type keeps both generic lines even with a saved ブース/つ override', async () => {
+    const typeless = stores.map((s) => (s.id === STORE_A ? { ...s, business_type: null } : s))
+    jest.doMock('@/business/lib/data', () => ({ ...jest.requireActual('@/business/lib/data'), listStoreOptions: async () => typeless }))
+    jest.doMock('@/business/lib/practice-door/sample-facade', () => {
+      const actual = jest.requireActual('@/business/lib/practice-door/sample-facade')
+      return { ...actual, storeSample: (id: string) => ({ ...actual.storeSample(id), words: { resourceNoun: 'ブース', counter: 'つ' } }) }
+    })
+    let props!: SettingsProps
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const mod = await import('@/app/[locale]/(business)/business/settings/settings-props')
+        props = (await mod.settingsProps({ locale: 'ja', store: STORE_A })).props
+      })
+    } finally {
+      jest.dontMock('@/business/lib/data')
+      jest.dontMock('@/business/lib/practice-door/sample-facade')
+    }
+    const section = sectionOf(props, 'people-equipment')
+    expect(section.blocks.some((b) => b.words)).toBe(false)
+    expect(section.blocks.find((b) => b.id === 'people.equipment')!.facts[0]).toContain('ブース')
+    const equipment = section.blocks.find((b) => b.id === 'people.equipment')!
+    expect(equipment.title).toBe('設備・枠')
+    expect(equipment.note).toBe('この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。')
   })
 
   it('N3-4 no stores renders the room policy from the umbrella noun and the fallback private word', async () => {
@@ -4075,3 +4196,247 @@ describe('S28 — the 0-minute fact and the auto-assignment note, byte-for-byte'
       .toBe('予約ごとに使うブースの選び方です。ここで変えられる設定はありません。')
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ A1b — カードの見た目: one colour per business, the curated 12, the room’s own save bar', () => {
+  const LOOK_CODE = stripLine(stripComments(read(`${ROOM_DIR}/ReserveCardLookSection.tsx`)))
+  const lookOf = async (input?: { store?: string; role?: string }) => sectionOf(await room(input), CARD_LOOK_ID)
+
+  it('the rail row sits between Reserve 受付 and 通知, scope business, gated by settings.manage', () => {
+    const ids = RAIL.map((e) => e.id)
+    expect(ids.indexOf(CARD_LOOK_ID)).toBe(ids.indexOf('reserve-acceptance') + 1)
+    expect(ids.indexOf('notifications')).toBe(ids.indexOf(CARD_LOOK_ID) + 1)
+    const entry = sectionById(CARD_LOOK_ID)!
+    expect(entry).toEqual({ id: CARD_LOOK_ID, group: 'Reserve設定', label: 'カードの見た目', scope: 'business', needs: 'settings.manage' })
+    expect(gateOf(entry, accessFor('店舗管理者', rulebook))).toBe('open')
+    expect(gateOf(entry, accessFor('スタッフ', rulebook))).toBe('no-rights')
+  })
+
+  it('no rights → the stub: no payload, no value, no palette', async () => {
+    const s = await lookOf({ store: STORE_A, role: 'スタッフ' })
+    expect(s.gate).toBe('no-rights')
+    expect(s.cardLook).toBeUndefined()
+    expect(s.blocks).toEqual([])
+    expect(controlIdsOf(s)).toEqual([])
+  })
+
+  it('switch OFF: the value is null (no fixture home), the payload is this business and this lens', async () => {
+    const s = await lookOf({ store: STORE_A })
+    expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'カードの見た目' })
+    expect(s.lead).toBe('お客様がReserveのホームで見る、お店のカードの色をここで選びます。色は事業全体でひとつで、店舗ごとには分かれていません。')
+    expect(s.guide).toBe('お客様がReserveのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
+    expect(s.cardLook).toEqual({
+      businessName: business.name,
+      storeLine: stores.find((x) => x.id === STORE_A)!.name,
+      address: storeDials[STORE_A].profile.address,
+      scopeLabel: '事業全体',
+      value: null,
+      palette: PALETTE,
+    })
+  })
+
+  it('R3 — the same value under every lens; only the branch line follows the lens', async () => {
+    const a = (await lookOf({ store: STORE_A })).cardLook!
+    const b = (await lookOf({ store: STORE_B })).cardLook!
+    expect(b.value).toBe(a.value)
+    expect(b.storeLine).toBe(stores.find((x) => x.id === STORE_B)!.name)
+    // a store with no sample profile → no address: the port's own no-address shape (K11), never ''
+    const c = (await lookOf({ store: STORE_C })).cardLook!
+    expect(c.value).toBe(a.value)
+    expect(storeDials[STORE_C]).toBeUndefined()
+    expect('address' in c).toBe(false)
+  })
+
+  it('the value rides the room’s save bar: one control id, +1 on a pick, 0 after 保存', async () => {
+    const s = await lookOf({ store: STORE_A })
+    expect(controlIdsOf(s)).toEqual([CARD_COLOR_ID])
+    const seed = { [CARD_COLOR_ID]: '' }
+    expect(changedCount(s, seed, seed)).toBe(0)
+    const picked = { [CARD_COLOR_ID]: '#00304C' }
+    expect(changedCount(s, picked, seed)).toBe(1)
+    expect(sectionDirty(s, picked, seed)).toBe(true)
+    expect(changedCount(s, picked, { ...picked })).toBe(0) // commitSection copies values into the baseline
+    expect(SCREEN_CODE).toContain("if (section.cardLook) out[CARD_COLOR_ID] = section.cardLook.value ?? ''")
+    expect(SCREEN_CODE).toMatch(/onPick=\{\(hex\) => \{[^}]*setValue\(CARD_COLOR_ID, hex\)/) // G7: the pick also clears an old refusal
+    expect(SCREEN_CODE).toContain('roomSave(section)')
+  })
+
+  it('the palette is the curated 12, in order, stored exactly as the boundary stores them', () => {
+    expect(PALETTE.map((c) => c.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+    expect(PALETTE.map((c) => c.name)).toEqual(['紺', '藍', '深緑', '松葉色', '墨', '焦茶', 'えんじ', '紫紺', '生成り', '白', '桜', '空色'])
+    expect(PALETTE.map((c) => c.hex)).toEqual(['#1C2247', '#00304C', '#1F3D33', '#2D4722', '#26282B', '#4A2E22', '#6B1F2B', '#3B2A4F', '#EDE6D6', '#F2F4F3', '#F1D9DC', '#D7E6F2'])
+    for (const c of PALETTE) expect(normalizeCardColor(c.hex)).toBe(c.hex)
+  })
+
+  it('the state line: nothing set · one of the 12 · a legacy colour outside them (contract §8)', () => {
+    expect(cardLookState(null, PALETTE)).toBe('empty')
+    expect(cardLookState('#1C2247', PALETTE)).toBe('set')
+    expect(cardLookState('#285643', PALETTE)).toBe('legacy')
+  })
+
+  it('the radiogroup: arrows step with wrap, Home/End jump, nothing else moves', () => {
+    expect(nextSwatch('ArrowRight', 0, 12)).toBe(1)
+    expect(nextSwatch('ArrowDown', 11, 12)).toBe(0)
+    expect(nextSwatch('ArrowLeft', 0, 12)).toBe(11)
+    expect(nextSwatch('ArrowUp', 5, 12)).toBe(4)
+    expect(nextSwatch('Home', 7, 12)).toBe(0)
+    expect(nextSwatch('End', 2, 12)).toBe(11)
+    expect(nextSwatch('Tab', 2, 12)).toBeNull()
+    expect(nextSwatch('Enter', 2, 12)).toBeNull() // Enter/Space = the button's own click = a pick
+    // R-A1b-1 — the phone scales DOWN to a narrow column, never up, and an unlaid column keeps 1:1
+    expect(fitScale(500, 393)).toBe(1)
+    expect(fitScale(393, 393)).toBe(1)
+    expect(fitScale(289, 393)).toBeCloseTo(0.7354, 4)
+    expect(fitScale(0, 393)).toBe(1)
+    expect(fitScale(-5, 393)).toBe(1)
+    expect(LOOK_CODE).toContain('const scale = fitScale(strip.clientWidth)')
+    // …and the markup that carries it: one radiogroup, radios with names and state, one tab stop.
+    expect(LOOK_CODE).toContain('role="radiogroup" aria-labelledby="clPickHead"')
+    expect(LOOK_CODE).toContain('role="radio"')
+    expect(LOOK_CODE).toContain('aria-checked={i === checked}')
+    expect(LOOK_CODE).toContain('aria-label={c.name}')
+    // ⚖ Greptile #1015 — the ONE tab stop follows FOCUS, not the checked swatch: an arrow moves focus and the
+    // stop (ArrowRight from 紺 → the stop is 藍) while the check stays on 紺 — arrows never pick.
+    expect(LOOK_CODE).toContain('const [focusAt, setFocusAt] = useState(() => Math.max(checked, 0))')
+    expect(LOOK_CODE).toContain('tabIndex={i === focusAt ? 0 : -1}')
+    expect(LOOK_CODE).toContain('onFocus={() => setFocusAt(i)}')
+    const onKeyBody = LOOK_CODE.slice(LOOK_CODE.indexOf('const onKey = '), LOOK_CODE.indexOf('const onPhoneClick'))
+    expect(onKeyBody).toContain('setFocusAt(next)')
+    expect(onKeyBody).not.toMatch(/pick\(|onPick\(/)
+    expect(LOOK_CODE).toContain('aria-checked={i === checked}')
+    // a legacy value checks nothing (findIndex → -1), and a pick shows the Home card
+    expect(LOOK_CODE).toContain('const checked = look.palette.findIndex((c) => c.hex === shown)')
+    expect(LOOK_CODE).toMatch(/onPick\(hex\)\s*\n\s*setFocusAt\(i\)\s*\n\s*setView\('home'\)/)
+  })
+
+  it('one card drawing, one colour math, a picture screen readers skip, no second save story', () => {
+    expect(LOOK_CODE).toContain('<ReserveCardPreview ')
+    expect(LOOK_CODE).toContain('primaryColor={STAND_IN}')
+    expect(LOOK_CODE).toContain('className="cl-phone" ref={phoneRef} aria-hidden="true"')
+    expect(LOOK_CODE).toContain('satinVars(hex)')
+    expect(LOOK_CODE).not.toMatch(/linear-gradient|radial-gradient/)
+    // ⚖ no colour-filled control (Greptile #1015): the swatch BUTTON is neutral chrome, the colour is a fill inside it
+    expect(LOOK_CODE).toContain('<span className="cl-swatch__fill" aria-hidden="true" style={satin(c.hex)}>')
+    const swatchRule = CSS_CODE.match(/\.biz \.pg-settings \.cl-swatch \{([^}]*)\}/)![1]
+    expect(swatchRule).toContain('background: transparent')
+    expect(swatchRule).not.toMatch(/satin/)
+    expect(CSS_CODE).toMatch(/\.cl-swatch__fill \{[^}]*border: 1px solid var\(--line\)[^}]*background: var\(--satin-base\)/)
+    for (const banned of ['元に戻す', '反映されます', 'type="color"', '<input']) expect({ banned, found: LOOK_CODE.includes(banned) }).toEqual({ banned, found: false })
+    expect(PROPS_CODE).not.toContain('.upsert(')
+  })
+
+  it('every Japanese string is JP-COPY-A1-FINAL’s, byte for byte', () => {
+    for (const line of [
+      'カードの色',
+      '用意した12色から選びます。店名の位置や文字の大きさは、どのお店のカードでも同じです。',
+      '現在の色',
+      '現在の色は「${look.palette[checked].name}」です。',
+      '色はまだ設定されていません。Reserveのカードは、これまでどおりの色で表示されます。',
+      '現在の色は、以前に設定された色で、12色には含まれていません。12色のどれかを選ぶまで、この設定は変わりません。',
+      'Reserveでの見え方',
+      '表示のみ',
+      'ホーム',
+      'お店ページ',
+      '見本では、大きいカードも小さいカードも、このお店のものを表示しています。実際のReserveでは、次のご予約がいちばん近いお店が大きいカードになります。',
+      'カードを開くときの動きは見本用のもので、実際のReserveの動きとは異なります。',
+      '色が設定されていないため、見本では仮に紺で表示しています。実際のReserveのカードとは色が異なる場合があります。',
+      'カードの色を12色から1つ選びます。押すと、見本のカードがその色になります。',
+      '選んだ色で、お店のカードがReserveでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。',
+    ]) expect({ line, present: LOOK_CODE.includes(line) }).toEqual({ line, present: true })
+  })
+})
+
+// ⚖ PR-3 — THE 「サンプル」 MARK AND THE NO-SAMPLE CARD ARE UNREACHABLE WITH THE
+// PRACTICE SWITCH OFF (every deployment today): no block or section of any lens
+// grows a `sample` / `sampleNone` key, and the bare placeholder is gone for good.
+describe('⚖ PR-3 — the preview board is a DISPLAY EXAMPLE (X-1), at every switch position', () => {
+  it('its note reads 「いまの設定での見え方（表示例）」 from the string home — ONLY where the static 見本 board draws; live previews keep their note', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expect((require('@/business/i18n') as typeof import('@/business/i18n')).businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')
+    expect(SCREEN_CODE).toContain("<div className=\"st-pv-note\">{block.preview.attrs ? businessStrings.settings.pvNoteExample : 'いまの設定での見え方'}</div>")
+    expect(SCREEN_CODE).toContain('{block.preview.attrs && (')
+    expect(SCREEN_CODE).toContain('<span>10:00 見本 あかり 様</span>')
+    // the board (and so the 表示例 note) is 自分の表示設定's alone
+    const withAttrs = (await room({ store: STORE_A })).sections.flatMap((x) => x.blocks.filter((b) => b.preview?.attrs).map((b) => b.id))
+    expect(withAttrs).toEqual(['my-display.prefs'])
+  })
+})
+
+// ⚖ PR-3 — THE MARK'S WORDS, VERBATIM from the mock (mocks/pr3/tools/build.py STRINGS,
+// native pass folded §v2). An emptied or reworded string here is a mark that says
+// nothing, so every one is pinned.
+describe('⚖ PR-3 — the mark’s strings are the mock’s, verbatim', () => {
+  it('sampleMark.* + settings.typeUnset + settings.pvNoteExample', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { businessStrings } = require('@/business/i18n') as typeof import('@/business/i18n')
+    expect(businessStrings.sampleMark).toEqual({
+      chip: 'サンプル',
+      chipLabel: 'サンプル — 説明を開く',
+      markNote: 'この内容はサンプルです。実データはまだつながっていません。',
+      popLabel: 'サンプルについて',
+      popLine1: 'この印は、見本の内容を表示しているところに付きます。この店舗の実データではありません。',
+      popLine2: 'この店舗の実データがつながると、印は外れ、実際の内容に置き換わります。',
+      noneHead: 'この店舗にサンプルデータはありません',
+      noneText: 'この店舗の実データがつながると、ここに表示されます。',
+      // ⚖ §v3 — the part form, the labels and the practice topbar (tools/build.py STRINGS, native-passed).
+      markNotePart: '{部分}はサンプルです。実データはまだつながっていません。',
+      popLine1Part: '{部分}は見本の内容です。この店舗の実データではありません。',
+      part: { staffActive: '稼働状態', staffSettings: '役職と表示', operatingHours: '営業時間', shiftsAbsence: 'シフトと休み', sellSlots: '販売可能枠', bookingGuard: '予約と確保の設定' },
+      partJoin: '、',
+      topNote: '練習用の事業',
+      topNoteLabel: '練習用の事業 — 実在の店舗の予約・お客様ではありません',
+    })
+    expect(businessStrings.settings.typeUnset).toBe('未設定')
+    expect(businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')
+  })
+})
+
+describe('⚖ PR-3 — switch OFF: no mark, no card, no placeholder', () => {
+  it.each([['STORE_A', STORE_A], ['STORE_B', STORE_B], ['STORE_C', STORE_C], ['all stores', undefined]])('%s', async (_label, store) => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const props = await room(store === undefined ? {} : { store })
+    const json = JSON.stringify(props)
+    expect(json).not.toMatch(/"sample(None)?":/)
+    expect(json).not.toContain('サンプル設定なし')
+    expect(json).not.toContain('"disabled":true') // 業種 has a type on every fixture store
+  })
+})
+
+describe('⚖ PKT-S38 R6 — 予約の色分け speaks the board’s four, from ONE closed palette', () => {
+  it('four rows (new · repeat · ticket · vip), eleven swatches = BOOKING_PALETTE, and a store with no saved colours seeds the board defaults', async () => {
+    for (const store of [STORE_A, STORE_B]) {
+      const block = sectionOf(await room({ store }), 'language-display').blocks.find((b) => b.id === 'lang.colors')!
+      expect(block.rows.map((r) => r.id)).toEqual(['lang.row-color-new', 'lang.row-color-repeat', 'lang.row-color-ticket', 'lang.row-color-vip'])
+      expect(block.rows.map((r) => r.label)).toEqual(['新規予約', '再来（リピート）', '回数券利用', 'VIP'])
+      const controls = block.rows.flatMap((r) => r.controls)
+      expect(controls.map((c) => [c.id, c.value])).toEqual(Object.entries(BOOKING_COLOR_DEFAULTS).map(([k, hex]) => [`lang.color-${k}`, hex]))
+      for (const c of controls) expect(c.control).toEqual({ kind: 'swatch', options: BOOKING_PALETTE.map((p) => ({ value: p.hex, label: p.label, hex: p.hex })) })
+      expect(block.note).toBe('予約の種類ごとの色です。ボードの左端の帯・点に出ます。')
+      expect(block.preview?.template).toBe('新規予約は{lang.color-new}、再来は{lang.color-repeat}、回数券は{lang.color-ticket}、VIPは{lang.color-vip}の帯で表示します。')
+    }
+  })
+  it('the palette: the four defaults first (new, repeat, ticket, vip), eleven distinct lowercase hexes, eleven distinct labels', () => {
+    expect(BOOKING_PALETTE.slice(0, 4).map((p) => p.hex)).toEqual([BOOKING_COLOR_DEFAULTS.new, BOOKING_COLOR_DEFAULTS.repeat, BOOKING_COLOR_DEFAULTS.ticket, BOOKING_COLOR_DEFAULTS.vip])
+    expect(BOOKING_PALETTE.map((p) => p.label)).toEqual(['藍', '藤紫', '浅葱', '墨', '青', '青緑', '紫', '桃', '紺', '茶', '灰'])
+    expect(new Set(BOOKING_PALETTE.map((p) => p.hex)).size).toBe(11)
+    for (const p of BOOKING_PALETTE) expect(p.hex).toMatch(/^#[0-9a-f]{6}$/)
+  })
+})
+
+describe('⚖ PKT-S38 R7 — the live colours reach ONLY a reader 言語・表示 lets in (a shut gate ships nothing, G1)', () => {
+  // ⚖ PKT-S41 — the door's raw subset: the store's own `booking_colors:<storeId>` key.
+  const FOUR = { new: '#3b6fd4', repeat: '#7a5bd4', ticket: '#c25a8f', vip: '#3f4a7d' }
+  const live = { raw: { [bookingColorsKeyFor(STORE_A)]: FOUR } }
+  it('open gate: the lens store’s four are resolved and seed the dial; a shut gate: null, and the section carries no rows', async () => {
+    const open = await settingsProps({ locale: 'ja', store: STORE_A, bookingColors: live })
+    expect(open.bookingColors).toEqual(FOUR)
+    const shut = await settingsProps({ locale: 'ja', store: STORE_A, bookingColors: live, world: { role: 'スタッフ' } })
+    expect(sectionOf(shut.props, 'language-display').gate).not.toBe('open')
+    expect(shut.bookingColors).toBeNull()
+    expect(JSON.stringify(shut.props)).not.toContain('#c25a8f')
+  })
+  it('no live input (door OFF) → null', async () => {
+    expect((await settingsProps({ locale: 'ja', store: STORE_A })).bookingColors).toBeNull()
+  })
+})
+

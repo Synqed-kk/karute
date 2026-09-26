@@ -6,7 +6,8 @@
 // caller-supplied · the plan gate (staffAddAllowedWithClient) skips for
 // re-invites (staffId present) · exactly one staff.invite_create/
 // staff.invite_revoke audit row per successful write, ids-only detail ·
-// listInvites degrades to [] on a read failure.
+// a failed LIST read and a failed ROSTER read both answer 500 internal (the
+// throw reaches facadeHandler) — never a false empty list.
 import { createHmac } from 'node:crypto'
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
@@ -24,7 +25,10 @@ jest.mock('@synqed-kk/client', () => ({
   SynqedError: class extends Error {},
 }))
 
-const mockCapabilities = jest.fn(async () => new Set(['staff.invite']))
+// The inviter also holds the practitioner preset every STYLIST invite below
+// seeds (hold what you grant — the role cap itself is invite-role-cap.test.ts).
+const INVITER = ['staff.invite', 'records.write', 'customers.view', 'customers.manage', 'bookings.manage']
+const mockCapabilities = jest.fn(async () => new Set(INVITER))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
@@ -144,7 +148,7 @@ const deleteReq = (id: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockCapabilities.mockResolvedValue(new Set(['staff.invite']))
+  mockCapabilities.mockResolvedValue(new Set(INVITER))
   staffListByBusinessOrThrow.mockResolvedValue([
     { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner' },
   ])
@@ -221,16 +225,18 @@ describe('GET /api/app/v1/invites', () => {
     expect(invitesList).not.toHaveBeenCalled()
   })
 
-  it('the roster READ fails → 200 with the same empty shape the web list answers, the invites list never read', async () => {
+  it('the roster READ fails → 500 internal, never a false empty list; the invites list never read', async () => {
     staffListByBusinessOrThrow.mockRejectedValueOnce(new Error('profiles down'))
-    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const res = await GET(getReq(), noParams)
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ invites: [] })
+      expect(res.status).toBe(500)
+      const body = await res.json()
+      expect(body).not.toHaveProperty('invites')
+      expect(body.error).toMatchObject({ code: 'internal' })
       expect(invitesList).not.toHaveBeenCalled()
     } finally {
-      err.mockRestore()
+      warn.mockRestore()
     }
   })
 
@@ -241,11 +247,18 @@ describe('GET /api/app/v1/invites', () => {
     expect((await res.json()).invites).toHaveLength(1)
   })
 
-  it('a read failure degrades to [] (web-exact tolerance)', async () => {
+  it('R1 the LIST read fails → 500 internal, never a false empty list', async () => {
     invitesList.mockRejectedValueOnce(new Error('core down'))
-    const res = await GET(getReq(), noParams)
-    expect(res.status).toBe(200)
-    expect((await res.json()).invites).toEqual([])
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const res = await GET(getReq(), noParams)
+      expect(res.status).toBe(500)
+      const body = await res.json()
+      expect(body).not.toHaveProperty('invites')
+      expect(body.error).toMatchObject({ code: 'internal' })
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 
@@ -439,7 +452,7 @@ describe("re-invites are clamped to the caller's stores", () => {
   })
 
   it('stores.viewAll → passes, the assignment is never consulted', async () => {
-    mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'stores.viewAll']))
+    mockCapabilities.mockResolvedValue(new Set([...INVITER, 'stores.viewAll']))
     storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
     const res = await reinvite()
     expect(res.status).toBe(201)

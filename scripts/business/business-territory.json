@@ -1,10 +1,14 @@
 {
-  "comment": "SYNQED Business territory — the ONLY paths a Business PR may touch (phone-safety lock 3, deny-by-default). Every entry is a directory prefix and MUST end with '/'. Consumed by check-business-isolation.mjs (CI diff gate) and business-isolation.test.ts (import-isolation gate). Business i18n lives inside src/business/ — messages/*.json is in the thin bundle's dependency graph and stays phone-owned.",
+  "comment": "SYNQED Business territory — the ONLY paths a Business PR may touch (phone-safety lock 3, deny-by-default). Every entry is a directory prefix and MUST end with '/'. Consumed by check-business-isolation.mjs (CI diff gate) and business-isolation.test.ts (import-isolation gate). Business i18n lives inside src/business/ — messages/*.json is in the thin bundle's dependency graph and stays phone-owned. \"writers\" (⚖ Liam 9/24, R-A2-15 §4) = every write site Business territory may contain, one row per { file, call, symbol } exactly as CP3 (audit-sdk-write-sites.test.ts) prints it; CP3 fails any territory write site with no row. This file is outside territory, so a row lands in its own non-Business PR before (or with no need of) its code — a row with no site yet is allowed.",
   "territory": [
     "src/business/",
     "src/app/[locale]/(business)/",
     "src/app/api/business/",
     "src/__tests__/integration/business/",
     "e2e/business/"
+  ],
+  "writers": [
+    { "file": "src/business/lib/practice-door/door.ts", "call": "orgSettings.upsert", "symbol": "writeReserveCardColor" },
+    { "file": "src/business/lib/practice-door/door-booking-colors.ts", "call": "orgSettings.upsert", "symbol": "writeBookingColors" }
   ]
 }

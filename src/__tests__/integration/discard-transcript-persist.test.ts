@@ -106,6 +106,7 @@ const mockPrepareTranscription = jest.fn(
   ) => ({
     body: { path: STAGED },
     path: STAGED,
+    recordingSessionId: null as string | null,
   }),
 )
 /** The backfill door (fix round 7): the web arm composes this take's finalized
@@ -158,6 +159,7 @@ beforeEach(() => {
   mockPrepareTranscription.mockImplementation(async () => ({
     body: { path: STAGED },
     path: STAGED,
+    recordingSessionId: null,
   }))
 })
 

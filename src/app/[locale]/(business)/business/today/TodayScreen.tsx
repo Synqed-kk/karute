@@ -32,6 +32,7 @@
 
 import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import {
   computeChecks,
   dragOrigin,
@@ -60,7 +61,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type Hours } from '@/business/lib/today-board'
+import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -593,6 +594,11 @@ export interface TodayProps {
   /** The CHROME store's own capabilities (same rule as `words` above) — what
    *  `blockKinds` and the 「休憩・清掃」-shaped example pairs gate on. */
   caps: { privateClass: boolean; turnover: boolean }
+  /** 予約の色分け — every store's four category colours, resolved ONCE in page.tsx
+   *  (`bookingColorsFor`, today-board.ts); `''` = no store. This screen only indexes it. */
+  bookingColors: Record<string, BookingColors>
+  /** booking id (`BoardItem.caseId`) → its store: page.tsx's `storeOfBooking`, as data. */
+  storeByCase: Record<string, string>
   dayOffset: number
   dayLabel: string
   /** THE MONTH THE CALENDAR OPENS ON — the shown day's own year/month, in JST,
@@ -696,6 +702,10 @@ export interface TodayProps {
    *  (`canReleaseHeld`), the same way `canOverride` above is: staff see the
    *  law sentence alone, managers see it with the one action beside it. */
   canReleaseHeld: boolean
+  /** ⚖ PR-3 fix round 1 (Greptile P1). May THIS reader open both 設定 sections the 表示 popover's chips
+   *  point at (予約と確保 · 言語・表示)? Answered on the server through the 設定 room's own gate, the way
+   *  `canReleaseHeld` is: a reader the room would turn away is not shown a link it would only drop. */
+  canOpenLegendSettings: boolean
   closedWeekdayLabel: string
   /** ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 月カレンダーで橙になる、あと入る予約数の上限,
    *  the store's own dial (`storeBookingPolicy.calendarTightMax`, default 2,
@@ -733,6 +743,15 @@ export interface TodayProps {
     caseId: string | null
   } | null
   cards: DecisionCard[]
+  /** ⚖ PR-3 §v3 — the 「サンプル」 marks, each the plane table's answer for the
+   *  planes it names; absent (never `false`) with the switch OFF or once the
+   *  plane is live. `boardMark`: the grid's ONE head mark (part form — シフトと
+   *  休み・販売可能枠・営業時間), no per-lane chip. `decisionsMark`: the 次に決める
+   *  こと section's ONE mark (cards carry none) and the count strip's, drawn only
+   *  beside a count above 0. `absenceMark`: the 勤務不可 strip's own. */
+  boardMark?: SampleMarkForm
+  decisionsMark?: SampleMarkForm
+  absenceMark?: SampleMarkForm
   cases: Record<string, InspectorCase>
   kpi: { count: string; revenue: string; utilization: string; note: string }
   hold: { summary: string; checks: string[]; bookingId: string } | null
@@ -1088,6 +1107,18 @@ interface GuardAdvice {
    *  own, which is exactly flag 41's: it dies with every ending. */
   attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
+
+/** ⚖ PR-3 — the 「サンプル」 mark on this board. A LABEL, not a control: the
+ *  decision card around it is itself the button, so the chip explains itself
+ *  through the room's ?-tour (`data-guide`), the way every element here does.
+ *  ONE token (the shell sheet's `.sample-mark`), ONE string home. */
+const SAMPLE_MARK = businessStrings.sampleMark
+type SampleMarkForm = Parameters<typeof sampleMarkLines>[0]
+const sampleChip = (mark: SampleMarkForm) => (
+  <span className="sample-mark" data-guide-title={SAMPLE_MARK.popLabel} data-guide={`${sampleMarkLines(mark).pop1}${SAMPLE_MARK.popLine2}`}>
+    {SAMPLE_MARK.chip}
+  </span>
+)
 
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
@@ -8471,8 +8502,16 @@ export function TodayScreen(props: TodayProps) {
     )
   }
 
+  // 予約の色分け — a category's `--cat` off its STORE's own four (`bookingColorHex`, today-board.ts;
+  // `''` = no store). A card outside `storeByCase` (made on this board this session) is this
+  // board's store. No hex → no inline var, and today.css's hex paints as before.
+  const catVar = (store: string | null | undefined, cat: string | null | undefined): React.CSSProperties | undefined => {
+    const hex = bookingColorHex(props.bookingColors, store, cat)
+    return hex ? ({ '--cat': hex } as React.CSSProperties) : undefined
+  }
+
   function renderItem(item: BoardItem, lane: BoardLane) {
-    const style = { '--x': `${item.x}%`, '--w': `${item.w}%` } as React.CSSProperties
+    const style = { '--x': `${item.x}%`, '--w': `${item.w}%`, ...catVar(props.storeByCase[item.caseId ?? ''] ?? props.store, item.category) } as React.CSSProperties
     const settledHere = item.caseId != null && settled.includes(item.caseId)
     const state =
       item.kind !== 'booking'
@@ -8705,11 +8744,11 @@ export function TodayScreen(props: TodayProps) {
           <b>{ops.cashDifference}</b>
         </div>
         <button className="register-cell act" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>未解決</span>
+          <span>未解決{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}</span>
           <b className="warn">{unresolved}件</b>
         </button>
         <button className="register-cell ops-decisions" type="button" onClick={() => listRef.current?.showModal()}>
-          <span>次に決めること</span>
+          <span>次に決めること{props.decisionsMark && unresolved > 0 && sampleChip(props.decisionsMark)}</span>
           <b>{unresolved}件</b>
         </button>
         <div className="ops-right">
@@ -8870,6 +8909,7 @@ export function TodayScreen(props: TodayProps) {
                   </div>
                 )}
               </div>
+              {props.boardMark && sampleChip(props.boardMark)}
 
               {props.inStore && (
                 <div
@@ -9027,7 +9067,7 @@ export function TodayScreen(props: TodayProps) {
                 </button>
                 {pop === 'fields' && (
                   <div className="fields-pop" ref={fieldsPopRef}>
-                    <strong>予約カードの表示項目（店舗設定）</strong>
+                    <strong>予約カードの表示項目（自分の表示）</strong>
                     <label><input type="checkbox" checked={showTime} onChange={() => setShowTime((v) => !v)} /> 時間・メニュー</label>
                     <label><input type="checkbox" checked={showTicket} onChange={() => setShowTicket((v) => !v)} /> チケット・価格</label>
                     <label><input type="checkbox" checked={showSlotPrice} onChange={() => setShowSlotPrice((v) => !v)} /> 空き枠の価格（Reserve動的価格ON時）</label>
@@ -9052,7 +9092,7 @@ export function TodayScreen(props: TodayProps) {
                       <input type="checkbox" checked={showNametags} onChange={() => setShowNametags((v) => !v)} /> 種類の名札
                     </label>
 
-                    <strong>販売可能枠の表示（店舗設定・業種プロファイルが初期値）</strong>
+                    <strong>販売可能枠の表示（自分の表示）</strong>
                     <div className="density-seg" role="group" aria-label="販売可能枠の表示">
                       {([['tint', '淡色表示'], ['drag', 'ドラッグ時のみ'], ['off', '非表示']] as const).map(([k, label]) => (
                         <button key={k} type="button" aria-pressed={sellMode === k} onClick={() => setSellMode(k)}>{label}</button>
@@ -9061,7 +9101,7 @@ export function TodayScreen(props: TodayProps) {
                     {/* ⚖ Liam flag 27: canon's degrade caption (:1809) is GONE with
                         the valve that raised it — a note explaining why the board
                         stopped honouring the setting has nothing left to explain. */}
-                    <span>お客様名は常に表示 / 全ボード共通の店舗設定</span>
+                    <span>お客様名は常に表示</span>
 
                     <div className="pop-divider" role="presentation" />
                     <strong>スキマガードの配置ガイド（自分の表示）</strong>
@@ -9104,7 +9144,9 @@ export function TodayScreen(props: TodayProps) {
                       {/* ⚖ S17 fix round 5 · G2 — THROUGH THE ONE LINK HOME.
                           The literal dropped the locale and the store, so on
                           代官山 this chip opened 銀座's 予約と確保 (⚖ 8/17). */}
-                      <Link className="chip" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>
+                      {/* ⚖ PR-3 fix round 1 (Greptile P1) — ONLY FOR A READER THE ROOM ADMITS THERE. The
+                          sentence beside it stays for everyone; the link is hidden, never greyed. */}
+                      {props.canOpenLegendSettings && <Link className="chip" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>}
                     </div>
 
                     <div className="pop-divider" role="presentation" />
@@ -9117,13 +9159,19 @@ export function TodayScreen(props: TodayProps) {
                       <span className="packed"><i />詰め込み</span>
                       <span className="gapfill"><i />スキマ枠</span>
                       {guardOn && <span className="guard"><i />スキマガード</span>}
-                      <span className="cat-legend" aria-label="店舗設定の予約カテゴリー色">
-                        <i className="cat" style={{ '--cat': '#3d7ab8' } as React.CSSProperties} />新規
-                        <i className="cat" style={{ '--cat': '#8a63b8' } as React.CSSProperties} />再来
-                        <i className="cat" style={{ '--cat': '#2f8f8f' } as React.CSSProperties} />回数券
-                        <i className="cat" style={{ '--cat': '#3f3f46' } as React.CSSProperties} />VIP
+                      <span className="cat-legend" aria-label="予約カテゴリー色">
+                        <i className="cat" style={catVar(props.store, 'new')} />新規
+                        <i className="cat" style={catVar(props.store, 'repeat')} />再来
+                        <i className="cat" style={catVar(props.store, 'ticket')} />回数券
+                        <i className="cat" style={catVar(props.store, 'vip')} />VIP
                       </span>
-                      <b>左端の色＝店舗カテゴリー / 状態の色は変更できません</b>
+                      <b>左端の色＝予約カテゴリー</b>
+                      {/* ⚖ PR-3 of 予約の色分け — THE AFFIRMATIVE HALF: the line above says what
+                          the four colours mean, this chip says where they change. Same shape
+                          as the 保護ルール chip above (one link home, the resolved store), and
+                          it lands ON the 予約の色分け block, which sits inside 言語・表示. */}
+                      {/* …and, like it, only for a reader 言語・表示's gate admits (Greptile P1). */}
+                      {props.canOpenLegendSettings && <Link className="chip" href={settingsHref(props.locale, props.store, 'language-display', 'lang.colors')}>{businessStrings.today.legend.colorsChangeAt}</Link>}
                     </div>
 
                     <div className="pop-divider" role="presentation" />
@@ -9155,6 +9203,9 @@ export function TodayScreen(props: TodayProps) {
               </div>
             </div>
           </div>
+          {/* ⚖ PR-3 §v3 (mock tab G) — the grid head's mark names the sample planes it
+              paints in one line, under the head: never a chip per lane or per window. */}
+          {props.boardMark && <p className="sample-mark-note board-mark-note">{sampleMarkLines(props.boardMark).note}</p>}
 
           {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. The
               KEYS only exist while the store's protection policy is on, and the
@@ -9265,7 +9316,7 @@ export function TodayScreen(props: TodayProps) {
                     <div
                       className="park-chip"
                       key={chip.id}
-                      style={chip.category ? ({ '--cat': CAT_COLOR[chip.category] } as React.CSSProperties) : undefined}
+                      style={catVar(chip.home.store, chip.category)}
                       onPointerDown={(e) => onChipPointerDown(e, chip.id)}
                       onPointerMove={onChipPointerMove}
                       onPointerUp={onChipPointerUp}
@@ -9416,6 +9467,7 @@ export function TodayScreen(props: TodayProps) {
           data-guide="いま起きている問題と、対応がどこまで進んだかを示します。"
         >
           <div className="incident-main">
+            {props.absenceMark && sampleChip(props.absenceMark)}
             <span className="incident-icon" aria-hidden="true">!</span>
             <span>
               <strong>{props.incident.staffName}さん、本日{props.incident.from}以降は勤務不可</strong>
@@ -9461,6 +9513,7 @@ export function TodayScreen(props: TodayProps) {
       >
         <div className="section-head">
           <strong id="decisionTitle">次に決めること</strong>
+          {props.decisionsMark && openCards.length > 0 && sampleChip(props.decisionsMark)}
           <div className="section-tools">
             <span>根拠・期限・次の操作がある判断だけを表示</span>
             <button className="btn text" type="button" onClick={() => listRef.current?.showModal()}>判断と閉店阻害</button>
@@ -10246,7 +10299,7 @@ export function TodayScreen(props: TodayProps) {
           }}
           aria-hidden="true"
           data-cat={proxy.kind === 'chip' ? (proxy.category ?? undefined) : (proxy.item.category ?? undefined)}
-          style={{ width: proxy.w, height: proxy.h }}
+          style={{ width: proxy.w, height: proxy.h, ...(proxy.kind === 'chip' ? catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category) : catVar(props.storeByCase[proxy.item.caseId ?? ''] ?? props.store, proxy.item.category)) }}
         >
           {proxy.kind === 'chip' ? (
             <>
@@ -10361,8 +10414,6 @@ export function TodayScreen(props: TodayProps) {
 
 /** canon `renderGapGuardPolicySummary` (:5938). */
 const POLICY_WORD: Record<'off' | 'standard' | 'strict', string> = { off: 'オフ', standard: '標準', strict: '厳格' }
-
-const CAT_COLOR: Record<string, string> = { new: '#3d7ab8', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }
 
 /** L4 新規予約を作成 — canon's two-column dialog: the steps on the left, the
  *  ticket that assembles itself on the right. Confirming puts a real card on

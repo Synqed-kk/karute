@@ -163,7 +163,7 @@ describe('webRecordingPort.prepareTranscription — the finalized take', () => {
     const result = await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm')
     // The shape, not merely the absence of one name: NOTHING this answers with
     // is callable, so no caller can be handed a delete by another spelling.
-    expect(Object.keys(result).sort()).toEqual(['body', 'path'])
+    expect(Object.keys(result).sort()).toEqual(['body', 'path', 'recordingSessionId'])
     expect(Object.values(result).some((v) => typeof v === 'function')).toBe(false)
   })
 
@@ -342,7 +342,7 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
 
   // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
   // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
-  // is fenced at `kind === 'take'` (requireOwnPath → isOwnRecordingKey), so a
+  // is fenced at `kind === 'take'` (the isOwnRecordingKey check inside it), so a
   // `stg/` key is refused there by construction: the web arm PUT the copy and
   // then THREW on the very next line, so the discard's words were never
   // collected on that arm at all. Nothing needs the URL — runDiscardTranscript
@@ -417,6 +417,80 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
 // ⚖ J2 (PR4 fix round 7): the key of a take finalized before the key was
 // stamped. Composed on the SERVER — the device must never assemble a tenant
 // key, which is the rule markTakeFinalized was written to.
+// ⚖ S34, piece 3 — the fallback ANSWERS the row the mint named, so the pipeline
+// can adopt it; and a no-row fallback sends the visit the new row is born with.
+describe('webRecordingPort.prepareTranscription — the minted row (S34)', () => {
+  it('T4 answers the mint’s recordingSessionId', async () => {
+    mintRecordingUploadUrl.mockImplementation(async () => ({ ...MINTED, recordingSessionId: 'rs-minted' }))
+    const r = await webRecordingPort.prepareTranscription(blob(), null, { attachOutcome: 'no_session' })
+    expect(r.recordingSessionId).toBe('rs-minted')
+  })
+
+  it('T4 null when the mint named no row (switch OFF) or its answer has no such field', async () => {
+    mintRecordingUploadUrl.mockImplementation(async () => ({ ...MINTED, recordingSessionId: null }))
+    expect((await webRecordingPort.prepareTranscription(blob(), null)).recordingSessionId).toBeNull()
+    const { recordingSessionId: _dropped, ...older } = MINTED
+    mintRecordingUploadUrl.mockImplementation(async () => older as MintReply)
+    expect((await webRecordingPort.prepareTranscription(blob(), null)).recordingSessionId).toBeNull()
+  })
+
+  it('T4 null on the finalized path — nothing was minted', async () => {
+    const r = await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm')
+    expect(r.recordingSessionId).toBeNull()
+  })
+
+  it('T5 no_session carries the visit; attach_failed and a visit-less no_session carry none', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null, {
+      attachOutcome: 'no_session',
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+    })
+    expect(mintRecordingUploadUrl).toHaveBeenLastCalledWith({
+      attachOutcome: 'no_session',
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+    })
+    await webRecordingPort.prepareTranscription(blob(), null, { attachOutcome: 'attach_failed' })
+    expect(mintRecordingUploadUrl.mock.calls.at(-1)?.[0]).toStrictEqual({ attachOutcome: 'attach_failed' })
+    await webRecordingPort.prepareTranscription(blob(), null, {
+      attachOutcome: 'no_session',
+      customerId: null,
+      appointmentId: undefined,
+    })
+    expect(mintRecordingUploadUrl.mock.calls.at(-1)?.[0]).toStrictEqual({ attachOutcome: 'no_session' })
+  })
+})
+
+// ⚖ S35 C1 — a no-row fallback also sends the take's length: what the row the
+// server makes is born with (ai-pipeline's takeLengthSeconds builds it).
+describe('webRecordingPort.prepareTranscription — the take length (S35 C1)', () => {
+  it('T7 no_session carries durationSeconds beside the visit', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null, {
+      attachOutcome: 'no_session',
+      customerId: 'cust-1',
+      durationSeconds: 63,
+    })
+    expect(mintRecordingUploadUrl.mock.calls.at(-1)?.[0]).toStrictEqual({
+      attachOutcome: 'no_session',
+      customerId: 'cust-1',
+      durationSeconds: 63,
+    })
+  })
+
+  it('T2 no length → the field is not sent', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null, { attachOutcome: 'no_session', durationSeconds: undefined })
+    expect(mintRecordingUploadUrl.mock.calls.at(-1)?.[0]).toStrictEqual({ attachOutcome: 'no_session' })
+  })
+
+  it('T4 the finalized path mints nothing, whatever it is handed', async () => {
+    await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm', {
+      attachOutcome: 'no_session',
+      durationSeconds: 63,
+    })
+    expect(mintRecordingUploadUrl).not.toHaveBeenCalled()
+  })
+})
+
 describe('webRecordingPort.finalizedKey', () => {
   it('asks the composing action and answers its key verbatim', async () => {
     await expect(webRecordingPort.finalizedKey('take-9', 'audio/mp4')).resolves.toBe(

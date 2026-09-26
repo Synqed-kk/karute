@@ -6,7 +6,11 @@
 // SAMPLE planes (everything core does not hold) stay fixture-shaped and reach the
 // live ids through the facade (./sample-facade), by exact twin, never by position.
 // Every lensed reader first checks the lens against the actor's visible stores
-// (§3). A core error propagates — never an empty list (§7). Nothing here writes.
+// (§3). A core error propagates — never an empty list (§7). Nothing here writes,
+// except the ONE guarded writer (A2, Liam 9/24): `writeReserveCardColor`, one key, one PUT.
+// The second guarded writer, 予約の色分け's `writeBookingColors` (PKT-S38, Liam 9/25), lives in
+// ./door-booking-colors.ts (R-S39-1: one allowlist entry per file::call); it reads through
+// `orgSettingsOf` and `canManageSettings`, exported here for it and nothing else.
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
@@ -45,6 +49,9 @@ import { analyticsPolicy, dowWeight, menuMix, salesLedger, salesTargets, sourceM
 import { rulebook } from '../fixtures-settings'
 import { auditTrail, reservations } from '../fixtures-reservations'
 import { jstDayKey, jstMinuteOfDay, jstSlot, jstSlotEnd, renderNow } from '../clock'
+import { normalizeCardColor } from '../reserve-card/card-color'
+import { PALETTE } from '../reserve-card/palette'
+import { practiceTenant } from './switch'
 
 type StoreLens = string | { viewAll: true }
 type DayRange = { from: number; to: number }
@@ -210,9 +217,9 @@ export async function listStoreOptions(): Promise<FixtureStore[]> {
     if (policy.kind === 'twin') {
       const twin = stores.find((f) => f.id === policy.fixtureStoreId)
       if (!twin) throw new Error(`practice door: registry twin ${policy.fixtureStoreId} has no fixture store`)
-      return { id: s.id, name: s.name, business_type: twin.business_type, default_kind_id: twin.default_kind_id }
+      // ⚖ PR-3 V4-2 — the store's own 業種 wins when the registry names one; the plane is the twin's.
+      return { id: s.id, name: s.name, business_type: policy.business_type ?? twin.business_type, default_kind_id: twin.default_kind_id }
     }
-    if (policy.kind === 'named') return { id: s.id, name: s.name, business_type: policy.business_type, default_kind_id: '' }
     return { id: s.id, name: s.name, business_type: '', default_kind_id: '' }
   })
 }
@@ -373,6 +380,18 @@ export async function listVisits(
   ).sort(newestFirst)
 }
 
+/** ⚖ A1b · P2-2 — ONE org-settings read per admitted actor, shared by every reader that needs the
+ *  document (the shell's business name, the Reserve card colour — 設定 asked three times per render).
+ *  The once-promise lives on the actor's own bound reads: one binding per actor, and practiceActor() is
+ *  React-cache()d per request, so readers in one render share the answer and a new request never sees
+ *  an old one. A symbol slot rather than a WeakMap: this folder's fence bans the `.set(` token outright
+ *  (foundation.test.ts, the mutator list), and a cache is no reason to weaken a core-write fence. */
+const ORG_ONCE = Symbol('org-settings, once per actor')
+export function orgSettingsOf(actor: PracticeActor) {
+  const reads: PracticeActor['reads'] & { [ORG_ONCE]?: ReturnType<PracticeActor['reads']['orgSettingsGet']> } = actor.reads
+  return (reads[ORG_ONCE] ??= reads.orgSettingsGet())
+}
+
 export async function readShellIdentity(): Promise<{
   business: { name: string; storeCount: number }
   operator: { name: string; mark: string; role: string; staff_id: string }
@@ -380,7 +399,7 @@ export async function readShellIdentity(): Promise<{
 }> {
   const actor = await practiceActor()
   const now = renderNow()
-  const org = await actor.reads.orgSettingsGet()
+  const org = await orgSettingsOf(actor)
   return {
     // FOLD F-1: the count of stores THIS actor may see, never the tenant total.
     business: { name: org?.name ?? '', storeCount: actor.visible.length },
@@ -393,6 +412,92 @@ export async function readShellIdentity(): Promise<{
     // SAMPLE: exactly data.ts's scene stamp.
     reserveSyncedAt: jstSlotEnd(0, 0, boardNow, -reserveSync.minutes_ago, now),
   }
+}
+
+/** LIVE: org settings' `reserve_card_color` through the door's existing read;
+ *  null / absent / malformed → null (contract §2, §6 — Reserve reads it the same way). */
+export async function readReserveCardColor(): Promise<string | null> {
+  const actor = await practiceActor()
+  const org = await orgSettingsOf(actor)
+  return normalizeCardColor(org?.settings?.reserve_card_color)
+}
+
+/** LIVE: 予約の色分け's org-settings keys through the same read, RAW — every own key that IS `booking_colors`
+ *  (the legacy per-store map, read-only) or STARTS WITH `booking_colors:` (one key per store, ⚖ PKT-S41 R-S41-1),
+ *  values untouched; no other key leaves the door. null when the settings are absent. The key names' one home is
+ *  booking-colors.ts (door.ts does not import it; the writer suite pins this filter to its keys), and
+ *  `bookingColorsFor` there is the one place that resolves them. */
+export async function readBookingColors(): Promise<Record<string, unknown> | null> {
+  const actor = await practiceActor()
+  const settings: unknown = (await orgSettingsOf(actor))?.settings
+  if (settings === null || settings === undefined || typeof settings !== 'object') return null
+  return Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'booking_colors' || key.startsWith('booking_colors:')))
+}
+
+/** ⚖ A2 · G5 — ONE truth for 「may this operator save the card colour」: core's own answer sheet. */
+export const canManageSettings = (a: PracticeActor) => a.sheet.capabilities.includes('settings.manage')
+
+/** LIVE: may the admitted operator save the card colour? The page asks so the screen never offers a
+ *  保存する the writer would refuse. Never throws to the page: another business → false; any other
+ *  failure → false, logged. OFF → false (no writer). */
+export async function readCanManageCardColor(): Promise<boolean> {
+  if (practiceTenant() === null) return false
+  const reach = await import('./core-reach') // lazy, like the writer
+  try {
+    return canManageSettings(await practiceActor())
+  } catch (e) {
+    if (e instanceof reach.PracticeTenantMismatch) return false
+    console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
+    return false
+  }
+}
+
+export type WriteCardColorResult =
+  | { ok: true; color: string | null }
+  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'core' }
+
+/** ⚖ A2 (Liam 9/24, CONTRACT-CARD-LOOK §5) — THE ONE BUSINESS WRITER: the Reserve card colour.
+ *  OFF has no writer. Only the 12 palette hex values or null, checked before any core call.
+ *  `settings.manage` on core's own answer sheet. Read-before-write through the shared org read: an
+ *  equal value sends nothing. Core merges a one-key PUT (org-settings.service.ts:50), so exactly one
+ *  key is sent and nothing is read-merged-written. A core failure is reported, never swallowed or retried. */
+export async function writeReserveCardColor(next: string | null): Promise<WriteCardColorResult> {
+  if (practiceTenant() === null) return { ok: false, reason: 'tenant' }
+  if (next !== null && !PALETTE.some((c) => c.hex === next)) return { ok: false, reason: 'invalid' }
+  const reach = await import('./core-reach') // lazy, like actor.ts: the OFF path never loads the SDK
+  let actor: PracticeActor
+  try {
+    actor = await practiceActor()
+  } catch (e) {
+    if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
+    // The route promises 503 honesty: a failed staff / sheet / store read is core's failure, never a 500.
+    console.error('[business card colour] core did not answer:', e instanceof Error ? e.message : String(e))
+    return { ok: false, reason: 'core' }
+  }
+  if (!canManageSettings(actor)) return { ok: false, reason: 'forbidden' }
+  try {
+    const before = (await orgSettingsOf(actor))?.settings?.reserve_card_color ?? null
+    // G6 — a clear compares the RAW value: a legacy 'navy' normalises to null but is still stored.
+    const same = next === null ? before === null : normalizeCardColor(before) === next
+    if (same) return { ok: true, color: next }
+    const writer = reach.orgSettingsWriterFor({ businessId: actor.businessId })
+    const saved = await writer.orgSettings.upsert({ settings: { reserve_card_color: next } })
+    const color = normalizeCardColor(saved?.settings?.reserve_card_color)
+    // R-A2-4 — the audit line (a core audit row is R5, later).
+    console.info('[business card colour]', JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, old: before, new: color, at: renderNow().toISOString() }))
+    return { ok: true, color }
+  } catch (e) {
+    if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
+    console.error('[business card colour] core did not save:', e instanceof Error ? e.message : String(e))
+    return { ok: false, reason: 'core' }
+  }
+}
+
+/** ⚖ A1b · K11 — LIVE: the store's own address, from the door's own core store record (null = none). */
+export async function readStoreAddress(lens: string): Promise<string | null> {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  return actor.visible.find((s) => s.id === lens)?.address ?? null
 }
 
 export async function listResources(lens: StoreLens): Promise<FixtureResource[]> {

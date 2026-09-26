@@ -25,9 +25,17 @@ interface StoreSwitcherProps {
   stores: StoreRow[]
   activeStoreId: string | null
   variant?: 'mobile' | 'desktop'
+  /** Round 3 leg 8a (D-S31-4): the store list could not be read. Optional,
+   *  default false — every existing caller renders exactly as before. */
+  unavailable?: boolean
 }
 
-export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: StoreSwitcherProps) {
+export function StoreSwitcher({
+  stores,
+  activeStoreId,
+  variant = 'mobile',
+  unavailable = false,
+}: StoreSwitcherProps) {
   const t = useTranslations('settings.stores')
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -68,6 +76,21 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
       document.removeEventListener('keydown', onKey)
     }
   }, [open, pending])
+
+  // The list could not be read: a one-store salon and an outage must not look
+  // the same, so say so in the pill's own place — same shape, muted amber, and
+  // nothing to tap (there is no list to switch between).
+  if (unavailable) {
+    return (
+      <span
+        role="status"
+        className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 text-[13px] font-medium text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-500/20 ${variant === 'mobile' ? 'max-w-[112px]' : 'max-w-[200px]'}`}
+      >
+        <Building2 className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">{t('switcherUnavailable')}</span>
+      </span>
+    )
+  }
 
   // The switcher only matters with 2+ stores — single-store salons get nothing.
   if (stores.length < 2) return null

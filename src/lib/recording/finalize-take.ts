@@ -25,8 +25,8 @@
 // happens — it simply now holds against concurrency by construction rather than
 // by the mint's re-read.
 //
-// NO 'use server' directive, deliberately — same rule as discard.ts and
-// session-cleanup.ts: `actor` is the authenticated identity the CALLER
+// NO 'use server' directive, deliberately — same rule as discard.ts:
+// `actor` is the authenticated identity the CALLER
 // resolved and vouches for. As a server action a caller could supply its own.
 //
 // ONE choke point, two doors: the web action (src/actions/recordings.ts) and
@@ -298,16 +298,17 @@ export async function finalizeTakeWithClient(
       // own capture_unlinked row. The bound on how many is the CLIENT's own
       // retry count, not a dedupe in this function.
       // The grammar grew a third kind in fix round 7 (a STAGED copy, named for
-      // a session rather than a take), and that one has no take id to report.
-      // A row pointer is never one — the mint reserves take keys — so this
-      // reads exactly as it did; it just says so to the compiler.
+      // a session rather than a take), and that one has no take id to report —
+      // nor has the transcript memo (PR-5). A row pointer is never either — the
+      // mint reserves take keys — so this reads exactly as it did; it just says
+      // so to the compiler.
       const parsedPointer = parseRecordingKey(pointer, actor.businessId)
       return emitCaptureUnlinked(
         actor,
         row.id,
         input,
         composed.ext,
-        parsedPointer && parsedPointer.kind !== 'staged' ? parsedPointer.takeId : null,
+        parsedPointer && 'takeId' in parsedPointer ? parsedPointer.takeId : null,
         { size_verified: false },
         row,
       )

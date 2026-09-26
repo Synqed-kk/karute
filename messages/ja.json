@@ -668,6 +668,8 @@
     "pipelineErrorDiscarded": "この録音はスタッフが破棄したため、カルテに保存できません。",
     "pipelineErrorRepeated": "再試行しても同じ結果でした。",
     "serverRowMissing": "サーバーに録音の記録を作成できませんでした。カルテは保存されますが、音声はこの端末にのみ残ります",
+    "deviceSaveUnavailable": "この端末に保存できないため、サーバーへ直接送信しています。録音停止までアプリを閉じないでください",
+    "serverSendStalled": "サーバーに送信できていません。音声はこの端末に保存され、自動送信されます",
     "recordingFor": "録音対象",
     "noUpcomingAppointment": "予約がありません",
     "noBookingTitle": "予約が見つかりません",
@@ -823,6 +825,8 @@
         "aiFailed": "カルテを作成できませんでした（文字起こしまでは完了しています）",
         "saveFailed": "カルテを保存できませんでした（内容の作成までは完了しています）",
         "genericFailure": "この録音は保存されませんでした",
+        "warnedDevice": "この録音は保存されませんでした（録音中、端末に音声を保存できない状態でした）",
+        "warnedServer": "この録音は保存されませんでした（録音中、サーバーに音声が届いていない状態でした）",
         "localAudio": "この端末に音声が残っています（未保存）",
         "tailIncomplete": "録音が途中で終わっています（この端末に残っているところまで保存できます）",
         "serverAudio": "サーバーに音声が残っています（未保存・途中までの場合があります）",
@@ -2292,6 +2296,8 @@
       "switchTo": "切り替え",
       "edit": "編集",
       "emptyState": "店舗が登録されていません。「追加」から登録してください。",
+      "listUnavailable": "店舗一覧を読み込めませんでした。しばらくしてからもう一度お試しください。",
+      "switcherUnavailable": "読込エラー",
       "activeStoreScopeNote": "店舗を切り替えると、顧客リスト・ダッシュボード・予約が選択中の店舗に絞り込まれます（店舗ごとの集計はその店舗でのイベントから算出）。カルテ一覧の完全な絞り込みは、synqed-core側のカルテ店舗フィルタの反映後に有効化されます。",
       "addStoreSubscription": {
         "freeAtLimitTitle": "店舗追加にはアップグレードが必要です",
@@ -2603,6 +2609,7 @@
           "capture_finalized": "録音の音声を保存",
           "capture_resumed": "録音の音声をサーバーで復元",
           "capture_unlinked": "録音の音声が記録に紐付かず",
+          "capture_warned": "録音中に警告を表示",
           "discard": "録音を破棄",
           "karute_missing": "カルテ未保存",
           "no_sessions_today": "本日の録音なし",
@@ -2667,6 +2674,8 @@
         "transcription_failed": "文字起こしエラー",
         "ai_failed": "AI処理エラー",
         "karute_save_failed": "カルテ保存エラー",
+        "warned_device": "端末保存の警告あり",
+        "warned_server": "サーバー送信の警告あり",
         "other": "その他"
       },
       "recording": {
@@ -3237,6 +3246,7 @@
     "setNewPin": "{name}の新しいPINを設定",
     "confirmPin": "PINを確認",
     "pinsDoNotMatch": "PINが一致しません。もう一度お試しください。",
+    "pinChangeFailed": "PINの設定を変更できませんでした。もう一度お試しください。",
     "pinUpdated": "{name}のPINを更新しました",
     "pinSet": "{name}のPINを設定しました",
     "pinRemoved": "{name}のPINを解除しました",
@@ -3570,6 +3580,7 @@
     "copy": "コピー",
     "copied": "コピーしました",
     "pendingInvites": "保留中の招待",
+    "pendingInvitesUnavailable": "保留中の招待を読み込めませんでした。しばらくしてからもう一度お試しください。",
     "linkedBadge": "接続済み",
     "revoke": "取り消す",
     "inviteExistingLabel": "既存スタッフにログインを招待（任意）",
@@ -3675,6 +3686,18 @@
     "body": "このアカウントにはまだ店舗が割り当てられていません。管理者に店舗の割り当てを依頼してください。",
     "checkAgain": "もう一度確認する",
     "checking": "確認中…",
+    "logout": "ログアウト"
+  },
+  "storeOutage": {
+    "title": "担当店舗を読み込めませんでした",
+    "body": "担当店舗の情報を確認できるまで、お客様やカルテの情報は表示されません。自動で読み込み直しますので、しばらくお待ちください。",
+    "retry": "もう一度読み込む",
+    "retrying": "読み込み中…",
+    "logout": "ログアウト"
+  },
+  "removedStaff": {
+    "title": "スタッフから削除されました",
+    "body": "このアカウントは管理者によってスタッフから削除されたため、お客様やカルテの情報は表示されません。ログアウトしてください。誤りと思われる場合は、管理者に確認してください。",
     "logout": "ログアウト"
   }
 }

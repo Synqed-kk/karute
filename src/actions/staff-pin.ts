@@ -59,6 +59,23 @@ async function nonSelfPinDenial(
   return inScope ? null : (await getTranslations('settings'))('staffStoreScopeDenied')
 }
 
+/** The pre-core reads both PIN writes share. A THROWN read — roster or
+ *  permission outage — answers the action's own `{ error }` instead of
+ *  rejecting, which left PinSetup's pad spinning with no line (Round 3 leg 4,
+ *  2026-09-25). */
+async function resolvePinWriteActor(
+  targetStaffId: string,
+): Promise<{ actingStaffId: string | null; denied: string | null } | { error: string }> {
+  try {
+    const actingStaffId = await getCurrentUserStaffId()
+    const denied = await nonSelfPinDenial(targetStaffId, actingStaffId)
+    return { actingStaffId, denied }
+  } catch (err) {
+    console.error('[staff-pin] pre-core read failed (roster / permission / store scope):', { targetStaffId }, err)
+    return { error: (await getTranslations('pin'))('pinChangeFailed') }
+  }
+}
+
 /**
  * Client-threaded core of setStaffPin (facade Bearer path, design-parity
  * packet 12 §S4b). `actingStaffId` gates the change by the acting
@@ -112,12 +129,14 @@ export async function setStaffPinCore(
  * staff-management act: `staff.manage` PLUS the actor store clamp, both
  * applied app-side by nonSelfPinDenial before the core call. Core's own
  * self-or-OWNER/ADMIN rule (keyed off the acting staff id) stays behind that
- * as defense-in-depth, never as the only door.
+ * as defense-in-depth, never as the only door. A thrown pre-core read answers
+ * `{ error }` (this surface's contract), never a rejected action.
  */
 export async function setStaffPin(staffId: string, pin: string): Promise<{ error?: string }> {
-  const actingStaffId = await getCurrentUserStaffId()
   // Non-self PIN writes: capability + store scope, BEFORE the core call.
-  const denied = await nonSelfPinDenial(staffId, actingStaffId)
+  const actor = await resolvePinWriteActor(staffId)
+  if ('error' in actor) return actor
+  const { actingStaffId, denied } = actor
   if (denied) return { error: denied }
 
   let synqed: StaffPinClient
@@ -177,12 +196,15 @@ export async function removeStaffPinCore(
 }
 
 /**
- * Remove a staff member's PIN (allows switching without PIN).
+ * Remove a staff member's PIN (allows switching without PIN). A thrown
+ * pre-core read answers `{ error }` (this surface's contract), never a
+ * rejected action.
  */
 export async function removeStaffPin(staffId: string): Promise<{ error?: string }> {
-  const actingStaffId = await getCurrentUserStaffId()
   // Same non-self gate as setStaffPin — removing a PIN is the same authority.
-  const denied = await nonSelfPinDenial(staffId, actingStaffId)
+  const actor = await resolvePinWriteActor(staffId)
+  if ('error' in actor) return actor
+  const { actingStaffId, denied } = actor
   if (denied) return { error: denied }
 
   let synqed: StaffPinClient

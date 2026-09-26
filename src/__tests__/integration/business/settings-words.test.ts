@@ -286,6 +286,8 @@ describe('N3-4 room-class words seed and live copy', () => {
     })
     expect(policy.facts).toHaveLength(3)
     expect(wordsRoomBlock(section, 'people.words', seed)!.facts[0]).toBe(block.facts[0])
+    const equipment = section.blocks.find((b) => b.id === 'people.equipment')!
+    expect(wordsRoomBlock(section, 'people.equipment', seed)).toEqual({ title: equipment.title, note: equipment.note, facts: {} })
     expect(classControls().length).toBeGreaterThan(0)
     for (const c of classControls()) expect(wordsRoomOptions(section, c.id, optionsOf(c), seed)).toEqual(optionsOf(c))
   })
@@ -326,7 +328,7 @@ describe('N3-4 room-class words seed and live copy', () => {
   })
 
   it('N3-4 T5 other blocks, other controls, sections without a spec and unknown options stay null or unchanged', () => {
-    for (const id of [...section.blocks.map((b) => b.id).filter((id) => !['people.room-policy', 'people.words'].includes(id)), 'absent']) {
+    for (const id of [...section.blocks.map((b) => b.id).filter((id) => !['people.room-policy', 'people.words', 'people.equipment'].includes(id)), 'absent']) {
       expect(wordsRoomBlock(section, id, seed)).toBeNull()
     }
     expect(wordsRoomOptions(section, 'people.cleanup-resource', [{ value: 'private', label: 'x' }], seed)).toBeNull()
@@ -345,6 +347,10 @@ describe('N3-4 room-class words seed and live copy', () => {
     expect(searchTextOf(row, liveSection)).toContain('セット面の自動割り当て')
     expect(searchTextOf(row, liveSection)).not.toContain('ベッドの自動割り当て')
     expect(searchTextOf(row, section)).toContain('ベッドの自動割り当て')
+    // S29 — the equipment block's title rides the same seam into search (and the jump list, which reads the same expression).
+    expect(searchTextOf(row, liveSection)).toContain('セット面・枠')
+    expect(searchTextOf(row, liveSection)).not.toContain('ベッド・枠')
+    expect(searchTextOf(row, section)).toContain('ベッド・枠')
   })
 
   it('N3-4 T6 a slot token typed as the noun stays literal in one pass', () => {
@@ -357,5 +363,34 @@ describe('N3-4 room-class words seed and live copy', () => {
       expect(policy.facts[0]).toBe(spec.copy.policyFacts[0].split('{noun}').join(typed).split('{privateWord}').join(privateWord))
     }
     expect(fillWords('{noun}|{privateWord}', { noun: '{privateWord}', privateWord: 'P' })).toBe('{privateWord}|P')
+  })
+})
+
+// ⚖ S29 (2026-09-23) — the 設備・枠 block's title and note follow the store's noun
+// through wordsRoomBlock; the note says 「数」, never 「台数」, so a つ / 面 / 室 store
+// never reads 台. Each worked example is pinned byte-for-byte.
+describe('S29 — the equipment block title and note follow the store\'s noun', () => {
+  const noteOf = (noun: string) => `この数は、ボードの空き枠計算に使われます（${noun}の数 × 営業時間）。`
+  const live = (v: Record<string, RowValue>) => wordsRoomBlock(section, 'people.equipment', v)!
+
+  it('S29 a ベッド/台 store seeds ベッド・枠 and the live door prints the same', () => {
+    const equipment = section.blocks.find((b) => b.id === 'people.equipment')!
+    expect(wordsReadout(spec, seed).current.counter).toBe('台')
+    expect([equipment.title, equipment.note]).toEqual(['ベッド・枠', noteOf('ベッド')])
+    expect(live(seed)).toEqual({ title: 'ベッド・枠', note: noteOf('ベッド'), facts: {} })
+  })
+
+  it('S29 a typed ブース/つ pair and the ブース/つ business type both print ブース and never 台', () => {
+    for (const v of [values('ブース', 'つ'), { ...seed, [spec.typeId]: 'personal_gym' }]) {
+      const { title, note } = live(v)
+      expect(title).toBe('ブース・枠')
+      expect(note).toBe(noteOf('ブース'))
+      expect(`${title}${note}`).not.toContain('台')
+    }
+  })
+
+  it('S29 a セット面/面 type prints セット面 and the facts stay with their own doors', () => {
+    const hair = { ...seed, [spec.typeId]: 'hair_salon' }
+    expect(live(hair)).toEqual({ title: 'セット面・枠', note: noteOf('セット面'), facts: {} })
   })
 })

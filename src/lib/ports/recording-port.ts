@@ -20,6 +20,7 @@ import type {
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
 import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 // The staged PUT's deadline, from the module that holds the whole-take one
 // (slice five fix round 3, F7). It imports nothing app-side, so a port may
 // reach it without a cycle.
@@ -160,12 +161,30 @@ export interface RecordingPipelinePort {
    * is its own blob's — the one fact a caller who never held the recording
    * cannot produce. Any other answer throws and the take stays unstaged, which
    * is what keeps ⚖ 9/3 true: no staffer action can erase a recording.
+   *
+   * ⚖ …AND IT ANSWERS THE ROW THE MINT NAMED (S34, piece 3). `recordingSessionId`
+   * is the mint's own answer — with RECORDING_SWITCHES.bindUnboundUploads ON,
+   * the row the server-named arm just created for this upload — so the caller
+   * can ADOPT it (ai-pipeline.ts). null when nothing was minted (the finalized
+   * path) or the server named no row (switch OFF, an older server).
    */
   prepareTranscription(
     blob: Blob,
     finalizedPath: string | null,
-    opts?: { stagedFor?: string | null; stagedTake?: string | null },
-  ): Promise<{ body: Record<string, unknown>; path: string }>
+    opts?: {
+      stagedFor?: string | null
+      stagedTake?: string | null
+      /** The unbound fallback only (S33): why the take's own row was not used. */
+      attachOutcome?: AttachOutcome | null
+      /** The visit, sent with `attachOutcome` only (S34): what a row the
+       *  server-named arm creates is born carrying. */
+      customerId?: string | null
+      appointmentId?: string | null
+      /** The take's length in whole seconds, sent with 'no_session' only
+       *  (S35 C1): what that row is born carrying — see takeLengthSeconds. */
+      durationSeconds?: number
+    },
+  ): Promise<{ body: Record<string, unknown>; path: string; recordingSessionId: string | null }>
   /**
    * The finalized KEY this take's audio was sealed under — composed, never
    * looked up (capture pipeline PR4 fix round 7).
@@ -452,9 +471,11 @@ export const webRecordingPort: RecordingPipelinePort = {
     const { mintRecordingUploadUrl, mintRecordingReadUrl } = await uploadActions()
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key. The read url is minted server-side over that key through
-    // the unchanged tenant fence (mintRecordingReadUrl → requireOwnPath), and
-    // the object stays exactly where it is — nothing deletes recording audio.
+    // the unchanged tenant fence (the isOwnRecordingKey check inside
+    // mintRecordingReadUrl), and the object stays exactly where it is —
+    // nothing deletes recording audio.
     let path = finalizedPath
+    let recordingSessionId: string | null = null
     if (!path) {
       // The fallback, for a take the store never held (see the port's doc).
       // Byte-for-byte the staging this arm always did, minus its delete —
@@ -472,9 +493,17 @@ export const webRecordingPort: RecordingPipelinePort = {
               stagedTake: opts.stagedTake ?? null,
               mimeType: blob.type || undefined,
             }
-          : undefined,
+          : opts?.attachOutcome
+            ? {
+                attachOutcome: opts.attachOutcome,
+                ...(opts.customerId ? { customerId: opts.customerId } : {}),
+                ...(opts.appointmentId ? { appointmentId: opts.appointmentId } : {}),
+                ...(opts.durationSeconds ? { durationSeconds: opts.durationSeconds } : {}),
+              }
+            : undefined,
       )
       if ('error' in minted) throw new Error('could not mint an upload URL')
+      recordingSessionId = minted.recordingSessionId ?? null
       // ⚖ ADOPT ONLY WHAT IS OUR OWN BYTE LENGTH (fix round 2). The door signed
       // nothing because the object is already there; the ONLY reading of that
       // which is safe is "this is the copy we PUT, whose markTakeStaged was
@@ -496,19 +525,20 @@ export const webRecordingPort: RecordingPipelinePort = {
     }
     // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
     // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
-    // is fenced at `kind === 'take'` (key-grammar's grammar, read by
-    // requireOwnPath), so a `stg/` key is refused there by construction: this
-    // line THREW on every web discard staging, after the copy had been PUT, so
-    // the words were never collected on that arm at all. Nothing needs the URL
-    // anyway — the only caller with `stagedFor` is runDiscardTranscript, which
-    // reads `path` and lets the discard action sign its own URL from it. So the
-    // body is empty here, deliberately: there is no audio URL a staged copy can
-    // honestly carry through this door.
-    if (opts?.stagedFor) return { body: {}, path }
+    // is fenced at `kind === 'take'` (key-grammar's grammar, read by the
+    // isOwnRecordingKey check inside that door), so a `stg/` key is refused there
+    // by construction: this line THREW on every web discard staging, after the
+    // copy had been PUT, so the words were never collected on that arm at all.
+    // Nothing needs the URL anyway — the only caller with `stagedFor` is
+    // runDiscardTranscript, which reads `path` and lets the discard action sign
+    // its own URL from it. So the body is empty here, deliberately: there is no
+    // audio URL a staged copy can honestly carry through this door.
+    if (opts?.stagedFor) return { body: {}, path, recordingSessionId }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
-    const { url: audioUrl } = await mintRecordingReadUrl(path)
-    return { body: { audioUrl }, path }
+    const read = await mintRecordingReadUrl(path)
+    if ('error' in read) throw new Error('could not mint a read URL')
+    return { body: { audioUrl: read.url }, path, recordingSessionId }
   },
   async finalizedKey(takeId, mimeType) {
     const { recordingFinalizedKey } = await uploadActions()

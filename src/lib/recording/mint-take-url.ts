@@ -1,7 +1,7 @@
 // The signed-upload-URL mint, shared by both doors (web action + facade route).
 //
-// NO 'use server' directive, deliberately — same rule as discard.ts and
-// session-cleanup.ts: `businessId` is the AUTHENTICATED tenant the caller
+// NO 'use server' directive, deliberately — same rule as discard.ts:
+// `businessId` is the AUTHENTICATED tenant the caller
 // vouches for. Exported from a 'use server' module it would become a
 // client-invokable action taking any tenant id, which is the exact escape the
 // grammar exists to prevent.
@@ -37,17 +37,26 @@
 // sees a URL before its row is reserved, because the function does not return
 // until both have succeeded.
 //
-// WHAT CHANGED AGAIN (fix round 7) — THIS MINT NEVER CREATES A ROW. It used to
-// mint one when a client-named take arrived with no session id. That branch is
-// gone, deleted rather than flagged off: a LOST RESPONSE after a successful
-// create left the client holding no session id, so its only possible retry was
-// a second nameless mint — which core's own unique key rightly refuses (409 →
-// reserved_elsewhere, TERMINAL), stranding the take behind an orphan row the
-// caller could not even name. Row minting now has exactly ONE home,
-// startRecordingSession (src/actions/recordings.ts), whose retry is safe
-// because it is the client's own first step and carries no key. So a
-// CLIENT-NAMED mint REQUIRES a recordingSessionId — bad_input without one —
-// and this file only ever READS a row and UPDATES the one it was given.
+// WHAT CHANGED AGAIN (fix round 7) — A CLIENT-NAMED MINT NEVER CREATES A ROW.
+// It used to mint one when a client-named take arrived with no session id. That
+// branch is gone, deleted rather than flagged off: a LOST RESPONSE after a
+// successful create left the client holding no session id, so its only possible
+// retry was a second nameless mint — which core's own unique key rightly refuses
+// (409 → reserved_elsewhere, TERMINAL), stranding the take behind an orphan row
+// the caller could not even name. So a CLIENT-NAMED mint REQUIRES a
+// recordingSessionId — bad_input without one — and on that path this file only
+// ever READS a row and UPDATES the one it was given.
+//
+// THE ONE ROW THIS FILE CAN CREATE (fix plan v3 PR-2), and only with
+// RECORDING_SWITCHES.bindUnboundUploads ON — it ships OFF (on 2026-09-24, off again 2026-09-25). A SERVER-named take
+// (a body with no takeId) is signed and, with the switch OFF, handed out bound to
+// no row, exactly as before: its audio can land with nothing pointing at it.
+// With the switch ON, that arm creates a row born reserved on the exact key it
+// just signed, through the one create every row goes through
+// (startRecordingSessionWithClient, session-mint.ts). Round 7's hazard does not
+// return, because the uuid is the SERVER's own, drawn fresh on every call: a lost
+// reply costs one empty row nobody uploads to (it reads 失敗 after the grace),
+// never a stranded take — the retry names a new take that row never reserved.
 //
 // WHAT CHANGED AGAIN (fix round 10) — EVERY SESSION IS BORN RESERVED, so this
 // mint's UPDATE path is now the LEGACY path. startRecordingSession composes the
@@ -73,7 +82,8 @@ import {
   composeTakeKey,
   parseRecordingKey,
 } from '@/lib/recording/key-grammar'
-import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
+import { UploadUrlMintSchema, type AttachOutcome } from '@/lib/app-api/record-schemas'
+import { describeUnknownThrow } from '@/lib/app-api/errors'
 import {
   assertRecorderOwnsRow,
   isJobOwnedStatus,
@@ -82,12 +92,20 @@ import {
   storageMessageKind,
   warnStorageUnknown,
 } from '@/lib/recording/take-binding'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import {
+  startRecordingSessionWithClient,
+  type StartRecordingSessionResult,
+} from '@/lib/recording/session-mint'
+import { settleUnboundBind } from '@/lib/recording/unbound-bind'
 
 // ⚖ UPDATE 25 GROUP B, d4: commitReservation's legacy write needs the karute
-// probe (session-cleanup.ts's own idiom) — widened here rather than passed as
+// probe (the retired session-cleanup's idiom) — widened here rather than passed as
 // a second parameter, since planReservation/mintTakeUploadUrl/
 // mintSegmentUploadUrls all thread the SAME `synqed` through unchanged.
-type Core = Pick<SynqedClient, 'recordings' | 'karuteRecords'>
+// `appointments` (PR-2): the server-named arm's row create needs it
+// (session-mint.ts); both doors already pass the full client.
+type Core = Pick<SynqedClient, 'recordings' | 'karuteRecords' | 'appointments'>
 
 /** WHO asked for this key — resolved by the caller from its own session
  *  (cookie on web, Bearer identity on the facade), never read from a body.
@@ -126,6 +144,14 @@ export interface MintTakeActor {
    *  stricter own-staff line after the shared predicate (:997 · :636), so a
    *  resolved reach there is a core round trip that can change no answer. */
   allowedStoreIds: readonly string[] | null
+  /** WHO a SERVER-named take's new row is attributed to, and WHERE it was made
+   *  (fix plan v3 PR-2). REQUIRED, the same rule as `allowedStoreIds`: a door
+   *  that forgot to decide it fails to COMPILE. LAZY on purpose: only the
+   *  server-named arm with RECORDING_SWITCHES.bindUnboundUploads ON calls it, so
+   *  the named, staged and segment arms make no new reads. `null` (or a throw)
+   *  means no staff or no real store — the take stays unbound, as today; a row
+   *  is never born store-less. */
+  bindIdentity: () => Promise<{ staffId: string; storeId: string } | null>
   source: 'web' | 'facade'
   requestId?: string
 }
@@ -166,6 +192,17 @@ export interface MintTakeUrlInput {
    *  whole-take mint below ignores it, and the two doors branch on its presence
    *  before either body runs. */
   seqs?: number[] | null
+  /** The visit a SERVER-named take belongs to (fix plan v3 PR-2), carried onto
+   *  the row that arm creates with its switch ON. Never with takeId, stagedFor
+   *  or seqs (the schema refuses it). */
+  customerId?: string | null
+  appointmentId?: string | null
+  /** Why an in-tab fallback reached the SERVER-named arm (S33) — see
+   *  record-schemas.ts. 'attach_failed' never creates a row. */
+  attachOutcome?: AttachOutcome | null
+  /** The take's length in whole seconds (S35 C1) — see record-schemas.ts.
+   *  Written only onto the row the server-named arm creates. */
+  durationSeconds?: number
 }
 
 export type MintTakeUrlResult =
@@ -548,16 +585,14 @@ async function commitReservation(
   // LIVE path on current builds, not merely legacy, and it can leave a
   // null-pointer session that ALREADY has a saved karute — the web in-tab
   // pipeline writes one directly, with no take/job/audio_storage_path trail
-  // at all (session-cleanup.ts:68-78). Binding a second take onto such a
+  // at all. Binding a second take onto such a
   // session here would let the worker's carry-forward merge
   // (process-recording.ts:401-432 upsertKaruteRecord) silently REPLACE that
   // saved visit's transcript and ai_summary the moment its job runs — the
   // exact "a take never reached the server and nobody was told" this whole
   // packet exists to close, just for a visit that WAS recorded, not one that
-  // wasn't. Same idiom as session-cleanup.ts's own provenance gate
-  // (:120-147): getByRecordingSession, a structural 404 check, ONLY a 404
-  // proves "no record". (session-cleanup.ts's own internal `'has_record'`
-  // string is that door's own, unrelated guard — a different code path.)
+  // wasn't. The provenance idiom: getByRecordingSession, a structural 404
+  // check, ONLY a 404 proves "no record".
   let existingRecord: KaruteRecord | null
   try {
     existingRecord = await synqed.karuteRecords.getByRecordingSession(row.id)
@@ -650,6 +685,66 @@ async function signUpload(
     token: data.token,
     contentType: composed.contentType,
   }
+}
+
+/**
+ * ⚖ THE SERVER-NAMED TAKE GETS A ROW (fix plan v3 PR-2, switch ON only). Runs
+ * AFTER a successful sign, so every failure below gives the caller exactly
+ * today's answer — signed, bound to no row — and the audio still lands. Only
+ * the create's `exists` withholds the link (settleUnboundBind).
+ *
+ * The row is created through the one create every row goes through, born
+ * reserved on exactly the key just signed: session-mint.ts composes the same key
+ * from the same three inputs (this tenant, this server-drawn uuid, this
+ * container) and writes it with UPLOADING.
+ */
+async function bindServerNamedTake(
+  synqed: Core,
+  actor: MintTakeActor,
+  input: { customerId?: string | null; appointmentId?: string | null; durationSeconds?: number },
+  takeId: string,
+  mimeType: string,
+  signed: SignedUpload,
+): Promise<MintTakeUrlResult> {
+  const unbound = { ...signed, recordingSessionId: null }
+  const keptUnbound = (reason: string) => {
+    console.warn(`[mint-take-url] unbound upload kept unbound: ${reason}`)
+    return unbound
+  }
+  let who: { staffId: string; storeId: string } | null
+  try {
+    who = await actor.bindIdentity()
+  } catch (err) {
+    return keptUnbound(`identity lookup threw: ${describeUnknownThrow(err).errMessage}`)
+  }
+  if (!who) return keptUnbound('no staff or no store')
+  let result: StartRecordingSessionResult
+  try {
+    result = await startRecordingSessionWithClient(
+      synqed,
+      {
+        customerId: input.customerId ?? null,
+        appointmentId: input.appointmentId ?? null,
+        selfStaffId: who.staffId,
+        businessId: actor.businessId,
+        takeId,
+        mimeType,
+        storeId: who.storeId,
+      },
+      // S35 C1: born with the length finalize writes on a row that had one
+      // from the start (finalize-take.ts) — this row is never finalized.
+      { durationSeconds: input.durationSeconds },
+    )
+  } catch (err) {
+    return keptUnbound(`session create threw: ${describeUnknownThrow(err).errMessage}`)
+  }
+  // `exists` is settled below, not warned as kept: its link is withheld.
+  if (result && 'error' in result && result.error !== 'exists') {
+    keptUnbound(`create answered ${result.error}`)
+  }
+  const settled = settleUnboundBind(result, signed)
+  if ('recordingSessionId' in settled && settled.recordingSessionId) console.info('[mint-take-url] unbound upload bound')
+  return settled
 }
 
 /**
@@ -843,12 +938,32 @@ export async function mintTakeUploadUrl(
   }
   if (composed === null) return { error: 'bad_mime' }
 
-  // A SERVER-NAMED take: a fresh uuid nobody could have claimed, bound to no
-  // row and claiming nothing. Signed and returned exactly as before this round.
+  // A SERVER-NAMED take: a fresh uuid nobody could have claimed. Signed FIRST,
+  // exactly as before (fix round 6's order: a sign error writes nothing). With
+  // the switch OFF it is returned bound to no row, byte for byte as before and
+  // with no extra read; with it ON it gets a row born on this exact key.
   if (!input.takeId) {
     const signed = await signUpload(composed, 'take-server-named')
     if ('error' in signed) return signed
-    return { ...signed, recordingSessionId: null }
+    // ⚖ A RECORDING THAT HAS A ROW NEVER GETS A SECOND ONE (S33). The client
+    // says 'attach_failed' when its take's own row exists and attaching to it
+    // failed: that upload stays unbound in BOTH switch states. 'no_session' and
+    // an absent field (a client older than it) keep the switch's answer.
+    const minted =
+      RECORDING_SWITCHES.bindUnboundUploads && input.attachOutcome !== 'attach_failed'
+        ? await bindServerNamedTake(synqed, actor, input, takeId, mimeType, signed)
+        : { ...signed, recordingSessionId: null }
+    // The per-business count of in-tab fallbacks (S33) — ids and flags only,
+    // never a customer and never a key. Counted only when an upload is really
+    // handed out: the ON arm's `exists` answers an error (settleUnboundBind).
+    if (!('error' in minted))
+      console.info('[mint-take-url] unbound upload', {
+        businessId,
+        attachOutcome: input.attachOutcome ?? null,
+        switchOn: RECORDING_SWITCHES.bindUnboundUploads,
+        bound: 'recordingSessionId' in minted && Boolean(minted.recordingSessionId),
+      })
+    return minted
   }
 
   // A CLIENT-NAMED take names its row. The schema's field-pair rule already

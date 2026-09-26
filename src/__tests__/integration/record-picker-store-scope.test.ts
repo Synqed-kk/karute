@@ -135,10 +135,13 @@ describe('録音 picker customer scope (web sessions page)', () => {
     expect(await shippedCustomers()).toEqual(ALL)
   })
 
-  it('a degraded assignment lookup stays business-wide — reads ignore F-A', async () => {
+  // Round 2 (2026-09-24, D-S16-4) — INVERTED (the F-A "reads ignore
+  // degraded" shape is gone).
+  it('a degraded assignment lookup reaches NO store — an EMPTY list, never business-wide', async () => {
     resolveStoreScope.mockResolvedValue({
-      storeId: MINE, viewAll: false, allowedStoreIds: null, degraded: true,
+      storeId: null, viewAll: false, allowedStoreIds: [], degraded: true,
     })
-    expect(await shippedCustomers()).toEqual(ALL)
+    expect(await shippedCustomers()).toEqual([])
+    expect(getCachedCustomerList).not.toHaveBeenCalled()
   })
 })

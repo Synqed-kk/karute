@@ -147,8 +147,23 @@ export const SessionMintSchema = z
 // refused for the same reason a take is minted once: two entries for one seq
 // would probe and sign the same immutable key twice in one answer, and the
 // caller could only PUT one of them.
+//
+// customerId + appointmentId (fix plan v3 PR-2) are the visit a SERVER-named
+// take belongs to: with RECORDING_SWITCHES.bindUnboundUploads ON, that arm
+// creates the take's row and carries them onto it. Bounded like
+// SessionMintSchema's own pair, and they ride ONLY on a body with no takeId, no
+// stagedFor and no seqs — every other act already names its row, and a field
+// the mint would silently drop is refused instead.
+// attachOutcome (S33) says WHY an in-tab fallback reached the server-named arm:
+// 'attach_failed' = the recording HAS a row and attaching to it failed, so the
+// ON arm must not create a second one; 'no_session' = no row is known. Absent =
+// a client older than the field, which keeps today's answer. Request-only:
+// read by the mint's switch arm and its count line, never stored.
+export const AttachOutcomeSchema = z.enum(['no_session', 'attach_failed'])
+export type AttachOutcome = z.infer<typeof AttachOutcomeSchema>
 export const MAX_SEGMENT_SEQ = 999_999
 export const MAX_SEGMENT_BATCH = 60
+const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().uuid().nullish(),
@@ -161,6 +176,15 @@ export const UploadUrlMintSchema = z
       .min(1)
       .max(MAX_SEGMENT_BATCH)
       .nullish(),
+    customerId: z.string().max(MAX_ID_CHARS).nullish(),
+    appointmentId: z.string().max(MAX_ID_CHARS).nullish(),
+    attachOutcome: AttachOutcomeSchema.nullish(),
+    // How long the take ran (S35 C1), for the row the 'no_session' fallback's
+    // ON arm creates — the value finalize would have written. Whole seconds,
+    // because core's create takes an int (validations/recording.ts). Anything
+    // else is dropped, never refused: a row born without a length is honest,
+    // and an odd number must never cost the upload. Read by that arm alone.
+    durationSeconds: z.number().int().positive().max(MAX_TAKE_SECONDS).optional().catch(undefined),
   })
   .strict()
   .refine((v) => !(v.takeId && v.stagedFor), {
@@ -191,6 +215,14 @@ export const UploadUrlMintSchema = z
     message: 'each seq may appear once — a segment key is minted once',
     path: ['seqs'],
   })
+  .refine((v) => !((v.customerId != null || v.appointmentId != null) && (v.takeId || v.stagedFor || v.seqs)), {
+    message: 'customerId and appointmentId ride only on a server-named take',
+    path: ['customerId'],
+  })
+  .refine((v) => !(v.attachOutcome != null && (v.takeId || v.stagedFor || v.seqs)), {
+    message: 'attachOutcome rides only on a server-named take',
+    path: ['attachOutcome'],
+  })
 
 // ── Take finalize (capture pipeline PR2) — "this take is complete on storage".
 // takeId + mimeType compose the SAME key the mint composed (never a path from
@@ -207,7 +239,6 @@ export const UploadUrlMintSchema = z
 // row is a finalize for a take this server never bound.
 // The two numbers get ceilings for the same reason: durationSeconds is WRITTEN
 // onto the core row, and a take of zero bytes is not a take at all.
-const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
 const MAX_TAKE_BYTES = 2 * 1024 * 1024 * 1024
 export const FinalizeTakeSchema = z
   .object({
@@ -216,6 +247,19 @@ export const FinalizeTakeSchema = z
     durationSeconds: z.number().finite().min(0).max(MAX_TAKE_SECONDS),
     byteLength: z.number().int().min(1).max(MAX_TAKE_BYTES),
     recordingSessionId: z.string().uuid(),
+  })
+  .strict()
+
+// ── Capture warning (recording hole PR-7) — "the recorder was shown the
+// at-risk notice". Same id validators as the finalize schema above (both ride
+// into a core URL path or an audit row). `reason` is exactly the two sides the
+// phone can blame; `warnedAt` is the phone's own ISO stamp of the raise.
+export const CaptureWarningSchema = z
+  .object({
+    recordingSessionId: z.string().uuid(),
+    takeId: z.string().uuid(),
+    reason: z.enum(['device', 'server']),
+    warnedAt: z.iso.datetime(),
   })
   .strict()
 

@@ -24,17 +24,15 @@ import { cache } from 'react'
  * so without this guard "sees nothing" silently becomes "sees everything"
  * (CENSUS-UNASSIGNED-FLIP.md, the whole falls-open list).
  *
- * The three shapes it must NOT fire on, all unchanged:
- *   - `allowedStoreIds: null` → unclamped (stores.viewAll, floating staff, a
- *     degraded lookup) — today's behaviour, business-wide.
+ * It also fires on a DEGRADED web scope: since Round 2 (2026-09-24, D-S16-4)
+ * an unreadable assignment arrives as `[]` too. The shapes it must NOT fire on:
+ *   - `allowedStoreIds: null` → unclamped (stores.viewAll, floating staff).
  *   - a clamped actor WITH stores → their own lens, business-wide never.
  *   - a scope that failed to resolve at all — callers already catch and refuse.
  *
- * ponytail: dead in production until the gate itself lands — both resolvers
- * still answer `allowedStoreIds: null` for an empty assignment today, so
- * nothing reaches this predicate yet. That is the point: the backstops are
- * proved standing on their own BEFORE the flip that makes them load-bearing
- * (⚖ the layer matrix: each layer must hold with the layers above it OFF).
+ * The (app) layout's front gate answers both `[]` shapes before any page
+ * renders; this is the layer beneath it (⚖ the layer matrix: each layer must
+ * hold with the layers above it OFF).
  */
 export function reachesNoStore(scope: {
   allowedStoreIds: readonly string[] | null
@@ -62,20 +60,30 @@ export const STORE_UNASSIGNED_DENIAL =
   '担当店舗が未設定です。管理者に店舗の割り当てを依頼してください。'
 
 /**
+ * The refusal when the actor's assignment could not be READ (an outage, or a
+ * caller the roster cannot place) and they try to PIN a store (Round 2). Not
+ * the unassigned answer: the next move is to retry, not to ask a manager.
+ */
+export const STORE_SCOPE_UNVERIFIED_DENIAL =
+  '担当店舗の割り当てを確認できないため、現在は店舗を切り替えられません。少し時間をおいてから、もう一度お試しください。'
+
+/**
  * THE DEFINITION, in one place (⚖ Liam 2026-09-16, PKT-P2 §Definitions):
  *
  *   unassigned := NOT `stores.viewAll`
  *                 ∧ the staff_stores lookup SUCCEEDED with 0 rows
  *                 ∧ the business has ≥ 2 stores
  *
- * Every other shape keeps exactly today's behaviour, and each exclusion is
- * load-bearing:
+ * Each other verdict, and why it is kept apart:
  *
  *   - `viewAll` — the assignment is never consulted for a cross-store role.
- *   - `assigned: null` — the lookup FAILED (`degraded`, ⚖ 8/17 F-A). A blipped
- *     core call must not blank a working staff member mid-shift; writes already
- *     fail closed on `degraded` and reads are unchanged by the shipped
- *     convention. Never conflate the two.
+ *   - `unknown` — a fact could not be READ: the assignment lookup failed
+ *     (`assigned: null`), or it found 0 rows and the store list failed
+ *     (`storeCount: null`). Never "unassigned" (an outage is not a staffing
+ *     fact) and, since Round 2 (2026-09-24, D-S16-4, discussed, default),
+ *     never "unclamped": it reaches NO store on both transports — the web shows
+ *     its outage screen, the facade refuses. It supersedes, for the read
+ *     plane, the 8/17 F-A split and the 9/16 "unknown ⇒ unclamped" arms.
  *   - SINGLE-STORE CARVE-OUT — with exactly one store, an empty assignment IS
  *     that store: there is nothing to isolate from. This returns `unclamped`,
  *     i.e. BYTE-IDENTICAL to today, rather than clamping to `[theOnlyStore]`.
@@ -84,12 +92,10 @@ export const STORE_UNASSIGNED_DENIAL =
  *     record in a single-store salon (a write refusal La Estro would feel the
  *     day this ships) while buying no isolation at all. The packet's own proof
  *     line — "single-store floating = unchanged" — is the reading kept here.
- *   - `storeCount: null` — the store list could not be read. UNKNOWN is not
- *     "≥2": an outage must not blank every floating staff member at once
- *     (⚖ reversible-by-default). The 1→2 store transition backfills real
- *     assignments, so this arm only ever covers a genuine outage.
+ *     It needs a KNOWN count: with the store list unreadable nobody can say the
+ *     business is single-store, so that case is `unknown` (above), not this.
  */
-export type StoreAssignmentVerdict = 'viewAll' | 'clamped' | 'unassigned' | 'unclamped'
+export type StoreAssignmentVerdict = 'viewAll' | 'clamped' | 'unassigned' | 'unclamped' | 'unknown'
 
 /**
  * The ONE place the single-store carve-out's business size is computed
@@ -136,44 +142,27 @@ export function storeAssignmentVerdict(facts: {
   storeCount: number | null
 }): StoreAssignmentVerdict {
   if (facts.viewAll) return 'viewAll'
-  // ⚖ ADJUDICATED AND CLOSED (fold round 2, 2026-09-16) — do not re-open.
-  // `assigned === null` means the staffStores.get lookup ITSELF failed, and
-  // that can happen to ANY non-viewAll staff member, not just unplaced ones.
-  // Failing closed here would blank every branch-restricted person in the
-  // business — カルテ, 予約, dashboard, the whole floor — on any blip, which is
-  // an order of magnitude more blast radius than the gate itself has. It also
-  // overturns the standing ⚖ 8/17 F-A split the codebase implements
-  // everywhere: writes fail closed on degraded, reads are unchanged
-  // (staffWriteInScope · menus.storeScopeError · viewerScopeForActs → [] ·
-  // resolveStoreForRequest step 3 throws). The write plane IS already tight;
-  // this is the read plane, and it stays as it is.
-  if (facts.assigned === null) return 'unclamped' // degraded — today's behaviour
+  // Round 2 (D-S16-4): an unreadable fact reaches no store — a blip costs the
+  // floor a retry (the outage screen), never another branch's data.
+  if (facts.assigned === null) return 'unknown'
   if (facts.assigned.length > 0) return 'clamped'
-  if (facts.storeCount !== null && facts.storeCount >= 2) return 'unassigned'
+  // Accepted cost: during a stores.list outage a SINGLE-store salon's floating
+  // staff see the outage screen too. Shrink it by removing the unknown
+  // (memoize the last good store count), never by returning `unclamped` here.
+  if (facts.storeCount === null) return 'unknown'
+  if (facts.storeCount >= 2) return 'unassigned'
   // ⚠ THE PACKET CONTRADICTS ITSELF HERE, and this line is the ruling (⚖ Liam
   // 2026-09-16 16:1x, confirmed): PKT-P2 §Layer-3 asked the carve-out to resolve
   // as `[theOnlyStore]`, while PKT-P2 §Proof asked for "single-store floating =
   // unchanged". The second wins — see the carve-out paragraph above for why
   // clamping would refuse legacy null-store writes for nothing.
-  //
-  // ⚖ THE `storeCount === null` ARM IS ALSO ADJUDICATED AND CLOSED (fold round
-  // 2) — do not re-open. Exposed: only an actor who is non-viewAll, whose
-  // assignment lookup SUCCEEDED with zero rows, and whose stores.list FAILED —
-  // a partial outage where one core endpoint answers and the other does not.
-  // Cost of failing closed instead: every floating staff member of a
-  // SINGLE-store salon — most of La Estro's roster today — blanked mid-shift,
-  // with no way to fix it, for a fact that is not even true of them (a
-  // one-store salon has nothing to isolate). A certain cost against a rare
-  // exposure, and exactly what ⚖ reversible-by-default exists to prevent. If it
-  // is ever wanted tighter, the honest edit is NOT flipping this arm — it is
-  // removing the unknown: memoize the last successful store count per business
-  // and consult it when stores.list throws.
-  return 'unclamped' // single-store carve-out · zero stores · unreadable list
+  return 'unclamped' // single-store carve-out · zero stores
 }
 
 /**
- * THE GATE'S ONE RESOLUTION — is this actor a staff member of a multi-store
- * business whom nobody has placed in a store yet?
+ * THE GATE'S ONE RESOLUTION — where does this non-viewAll actor stand: clamped,
+ * unassigned (a staff member of a multi-store business whom nobody has placed
+ * in a store yet), floating (unclamped), or unknown?
  *
  * Per-request memo (React cache, keyed on both args) so Layer 1 (the capability
  * seam) and Layer 2 (both front gates) resolve it ONCE. Cheap by construction:
@@ -185,19 +174,16 @@ export function storeAssignmentVerdict(facts: {
  * token — resolving the client from the cookie session there would read another
  * tenant. Omitted = the cookie path, where getSynqedClient is the right client.
  *
- * FAIL SAFE, deliberately: every failure — no client, an unreadable assignment,
- * an unreadable store list, a graph that has no SDK at all — answers `false`,
- * i.e. today's behaviour. "Unknown" is never "unassigned": a core blip must not
- * blank a working salon mid-shift (⚖ reversible-by-default), and the gate's
- * whole value is that it fires on a FACT (a successful lookup with zero rows),
- * never on an absence of one.
+ * Every failure — no client, an unreadable assignment or store list, a graph
+ * with no SDK — is `unknown` (Round 2): never "unassigned" (the gate fires on a
+ * FACT, never on an absence of one) and never "unclamped".
  *
  * ⚠ The SDK import is LAZY — a top-level import would drag the ESM-only
  * @synqed-kk/client into every jest graph that touches this module, and this
  * module is imported by the capability seam, i.e. by nearly all of them.
  */
-export const actorIsUnassigned = cache(
-  async (uid: string, businessId?: string): Promise<boolean> => {
+export const actorStoreVerdict = cache(
+  async (uid: string, businessId?: string): Promise<StoreAssignmentVerdict> => {
     try {
       const { getSynqedClient, newSynqedClient } = await import('@/lib/synqed/client')
       const synqed = businessId ? newSynqedClient(businessId) : await getSynqedClient()
@@ -205,19 +191,24 @@ export const actorIsUnassigned = cache(
         .get(uid)
         .then((r) => r.store_ids)
         .catch(() => null)
-      if (assigned === null || assigned.length > 0) return false
+      if (assigned === null || assigned.length > 0) {
+        return storeAssignmentVerdict({ viewAll: false, assigned, storeCount: null })
+      }
       const storeCount = await synqed.stores
         .list()
         .then((r) => storeCountForGate(r.stores))
         .catch(() => null)
-      return (
-        storeAssignmentVerdict({ viewAll: false, assigned, storeCount }) === 'unassigned'
-      )
+      return storeAssignmentVerdict({ viewAll: false, assigned, storeCount })
     } catch {
-      return false
+      return 'unknown'
     }
   },
 )
+
+/** True ONLY on the `unassigned` fact (shares actorStoreVerdict's memo). */
+export async function actorIsUnassigned(uid: string, businessId?: string): Promise<boolean> {
+  return (await actorStoreVerdict(uid, businessId)) === 'unassigned'
+}
 
 /**
  * The refusal when a new staff card is submitted with NO store in a business
@@ -253,3 +244,12 @@ export const INVITE_ALREADY_PENDING = 'INVITE_ALREADY_PENDING'
  * copy at each door, like its siblings above.
  */
 export const STAFF_CREATE_FAILED = 'STAFF_CREATE_FAILED'
+
+/**
+ * The refusal when an invite's role would hand the new person a capability the
+ * INVITER does not hold (hold what you grant — the rule setStaffPermissionsCore
+ * already enforces on permission edits). The accepted role becomes that role's
+ * full preset, so a custom role holding staff.invite could otherwise mint a
+ * manager. Machine code, mapped to copy at each door, like its siblings above.
+ */
+export const INVITE_ROLE_EXCEEDS_CALLER = 'INVITE_ROLE_EXCEEDS_CALLER'

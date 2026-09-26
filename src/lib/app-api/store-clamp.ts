@@ -129,10 +129,12 @@ export async function resolveStoreForRequest(args: {
   // 4. DELIBERATE empty set. ⚖ Liam 2026-09-16 — THE FLIP, the Bearer twin of
   //    resolveStoreScope's: in a business with ≥2 stores this is a staff member
   //    nobody has placed yet, and they reach NO store until a manager assigns
-  //    one. A SINGLE-store business and an unreadable store list both stay
-  //    exactly as they were — floating, unrestricted within the verified tenant
-  //    (storeAssignmentVerdict holds the whole definition). The extra
-  //    stores.list runs ONLY on this branch, so an assigned caller pays nothing.
+  //    one. A SINGLE-store business stays exactly as it was — floating,
+  //    unrestricted within the verified tenant (storeAssignmentVerdict holds
+  //    the whole definition). An UNREADABLE store list is `unknown` and fails
+  //    closed like step 3 (Round 2, 2026-09-24, D-S16-4, discussed, default).
+  //    The extra stores.list runs ONLY on this branch, so an assigned caller
+  //    pays nothing.
   if (assigned.length === 0) {
     // try/catch, not `.catch()`: a client whose stores port cannot even be
     // called is the same UNKNOWN as a failed call, and the gate must never
@@ -146,6 +148,11 @@ export async function resolveStoreForRequest(args: {
     const verdict = storeAssignmentVerdict({ viewAll: false, assigned, storeCount })
     if (verdict === 'unassigned') {
       return { storeId: null, allowedStoreIds: [] }
+    }
+    // No `reason` marker: an UNKNOWN verdict must never wipe a good pin (the
+    // self-heal rule in the doc above).
+    if (verdict === 'unknown') {
+      throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
     }
     return { storeId: requestedStoreId, allowedStoreIds: null }
   }

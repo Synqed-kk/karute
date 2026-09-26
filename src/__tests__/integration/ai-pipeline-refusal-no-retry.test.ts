@@ -25,6 +25,7 @@ jest.mock('@/lib/ports/recording-port', () => ({
     prepareTranscription: jest.fn(async () => ({
       body: { path: 'app_biz-1_take-1.webm' },
       path: 'app_biz-1_take-1.webm',
+      recordingSessionId: null,
     })),
     finalizedKey: jest.fn(async () => null),
   }),

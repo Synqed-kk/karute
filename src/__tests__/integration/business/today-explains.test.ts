@@ -1507,8 +1507,69 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
 
     // THE ROW ITSELF, in the 表示設定 popover beside its sibling dial.
     expect(SRC).toContain('<input type="checkbox" checked={showNametags} onChange={() => setShowNametags((v) => !v)} /> 種類の名札')
-    const pop = SRC.slice(SRC.indexOf('<strong>予約カードの表示項目（店舗設定）</strong>'))
+    // SOURCE-BLOCK PIN, not a render: no suite mounts TodayScreen (the ⚖ renderer-fence
+    // question on Liam's desk, today-screen-interactions.test.ts:2127), so the labels are
+    // pinned inside the popover's own branch; the 18-mount render proof lives outside the suite (builder-evidence-S31A).
+    // The block ends at the next sibling, the 表示の切替 group — its aria-label is unique in the file.
+    const open = SRC.indexOf("{pop === 'fields' && (")
+    const end = SRC.indexOf('aria-label="ボード表示"', open)
+    expect(open).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(open)
+    const fields = SRC.slice(open, end)
+    const pop = fields.slice(fields.indexOf('<strong>予約カードの表示項目（自分の表示）</strong>'))
     expect(pop.indexOf('種類の名札')).toBeGreaterThan(pop.indexOf('空き枠の価格'))
+    // THE PANEL'S LABELS SAY WHAT THE BOARD DOES. Every dial on it is this
+    // viewer's own useState — no store setting, no business-type profile. The
+    // legend swatches and the card stripes read the store's `bookingColors` map
+    // (resolver `bookingColorsFor`, today-board.ts; defaults = today.css's four),
+    // yet no label names 店舗設定: nothing saves that map until the dial's save (PR-2).
+    // The legend colours BOOKING categories (bookingCategory(), today-board.ts),
+    // never store categories, so no label says 店舗カテゴリー.
+    expect(fields).toContain('<strong>予約カードの表示項目（自分の表示）</strong>')
+    expect(fields).toContain('<strong>販売可能枠の表示（自分の表示）</strong>')
+    expect(fields).toContain('<span>お客様名は常に表示</span>')
+    expect(fields).toContain('aria-label="予約カテゴリー色"')
+    // THE CAPTION names what the swatches are (予約カテゴリー, the aria's noun) and nothing
+    // more: 「色は変更できません」 is retired (the colours are per store now). The
+    // affirmative half — where to change them — landed as its own 色の意味 chip
+    // 「変更は「設定」＞予約の色分けで」 (src/business/i18n/ja.json, PR-3 of 予約の色分け),
+    // pinned by today-screen-interactions.test.ts T1/T2 — not by this suite's `fields`.
+    expect(fields).toContain('<b>左端の色＝予約カテゴリー</b>')
+    // ONE HOME for the four hexes (`BOOKING_COLOR_DEFAULTS`, today-board.ts). SRC is the RAW
+    // file, comments included, so a hex typed back even inside a comment is red too.
+    for (const hex of ['#3d7ab8', '#8a63b8', '#2f8f8f', '#3f3f46']) expect(SRC.toLowerCase()).not.toContain(hex)
+    // THE MAP REACHES THE CSS. The screen has no renderer in this suite (its own
+    // :2127 rule, today-screen-interactions.test.ts), so the sites that turn the
+    // store's `bookingColors` into an inline `--cat` are pinned as CODE — `codeOnly`
+    // blanks comments, so a copy parked in a comment does not count — and the
+    // lookup itself is pure and unit-pinned (`bookingColorHex`, booking-colors.test.ts).
+    // The wrapper is pinned whole, so an early return slipped inside it is red too.
+    // The card and the proxy's card fall back to `props.store`: a card outside the
+    // join (made on this board this session) is this store's — pinned by text only,
+    // since the fallback lives in the screen.
+    const CODE = codeOnly(SRC)
+    expect(CODE).toContain([
+      "  const catVar = (store: string | null | undefined, cat: string | null | undefined): React.CSSProperties | undefined => {",
+      "    const hex = bookingColorHex(props.bookingColors, store, cat)",
+      "    return hex ? ({ '--cat': hex } as React.CSSProperties) : undefined",
+      "  }",
+    ].join('\n'))
+    expect(CODE).toContain([
+      "                        <i className=\"cat\" style={catVar(props.store, 'new')} />新規",
+      "                        <i className=\"cat\" style={catVar(props.store, 'repeat')} />再来",
+      "                        <i className=\"cat\" style={catVar(props.store, 'ticket')} />回数券",
+      "                        <i className=\"cat\" style={catVar(props.store, 'vip')} />VIP",
+    ].join('\n'))
+    for (const site of [
+      "...catVar(props.storeByCase[item.caseId ?? ''] ?? props.store, item.category) } as React.CSSProperties",
+      "style={catVar(chip.home.store, chip.category)}",
+      "catVar(parkChips.find((c) => c.id === proxy.id)?.home.store, proxy.category)",
+      "catVar(props.storeByCase[proxy.item.caseId ?? ''] ?? props.store, proxy.item.category)",
+    ]) expect(CODE).toContain(site)
+    for (const lie of ['予約カードの表示項目（店舗設定）', '販売可能枠の表示（店舗設定・業種プロファイルが初期値）', '全ボード共通の店舗設定', '店舗設定の予約カテゴリー色', '店舗カテゴリー', '色は変更できません', 'CAT_COLOR']) {
+      expect(SRC).not.toContain(lie)
+      expect(fields).not.toContain(lie)
+    }
 
     // ⚖ 8/23 GUIDED-TOUR LAW — a new function declares itself the same round.
     // ⚖ NATIVE PASS (2026-08-30): the tour sentence is native-confirmed final.

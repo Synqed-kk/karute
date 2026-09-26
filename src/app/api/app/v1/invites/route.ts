@@ -55,18 +55,11 @@ export const GET = facadeHandler('invite.list', async (ctx) => {
   // still alive — reads no pending invite (email + role). A roster caller is
   // unaffected.
   //
-  // Outage arm only: a roster READ failure answers the same empty list the
-  // web's listInvites answers (src/actions/invites.ts, its outer catch →
-  // `return []`), byte-identical to this route's normal empty result below
-  // (`{ invites: [] }`). Nothing is read on the caller's behalf on that path.
-  // A roster that reads fine and cannot place the caller stays the 403.
-  let selfStaffId: string | null
-  try {
-    selfStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
-  } catch (err) {
-    console.error('[invite.list] roster read failed — answering empty like the web list', err)
-    return ok(ctx, { invites: [] })
-  }
+  // An unreadable roster answers an error status (facadeHandler's catch),
+  // never an empty list — the same as a failed LIST read, which
+  // listInvitesWithClient throws. A roster that reads fine and cannot place
+  // the caller stays the 403.
+  const selfStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
   if (!selfStaffId) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
   const synqed = newSynqedClient(businessId)
   const invites = await listInvitesWithClient(
@@ -165,6 +158,9 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
       source: 'facade',
       requestId: ctx.meta.requestId,
       creatorAllowedStoreIds: allowedStoreIds,
+      // The Bearer twin of web's getMyCapabilities — the core refuses a role
+      // whose preset the caller does not hold (soft 200 machine code).
+      callerCapabilities: ctx.identity.capabilities,
     },
     invitedBy,
     parsed.data,

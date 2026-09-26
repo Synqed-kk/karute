@@ -106,6 +106,7 @@ export function wordsRoomBlock(section: SettingsSection, blockId: string, values
   if (blockId === spec.liveRoom.policyBlockId) {
     return { title: fill(spec.copy.policyTitle), note: fill(spec.copy.policyNote), facts: Object.fromEntries(spec.copy.policyFacts.map((t, i) => [i, fill(t)])) }
   }
+  if (blockId === spec.liveFact.blockId) return { title: fill(spec.copy.equipmentTitle), note: fill(spec.copy.equipmentNote), facts: {} }
   if (carrier.id === blockId) return { facts: { [spec.liveRoom.privateFactIndex]: fill(spec.copy.privateFact) } }
   return null
 }

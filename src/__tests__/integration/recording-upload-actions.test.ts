@@ -142,6 +142,7 @@ import {
   composeSegmentKey,
   composeStagedKey,
   composeRescueKey,
+  composeTranscriptKey,
   composeTakeKeyFromExt,
   composeRescueKeyFromExt,
   extFromMime,
@@ -149,6 +150,7 @@ import {
 } from '@/lib/recording/key-grammar'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 /** The SIGNED success arm. The door's success side is two arms since fix round
  *  2 — the other is "the object is already there, here is its size", which
@@ -309,13 +311,18 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
   // Fix round 4: a take the SERVER names is a fresh uuid nobody could have
   // claimed, so it binds to no row — core is never touched, and the client is
   // told there is no session to stamp.
-  it('a server-named take reserves NOTHING — no core read, no core write', async () => {
-    const res = await mintOk()
-    expect(res.recordingSessionId).toBeNull()
-    expect(get).not.toHaveBeenCalled()
-    expect(create).not.toHaveBeenCalled()
-    expect(update).not.toHaveBeenCalled()
-    expect(info).not.toHaveBeenCalled()
+  it('a server-named take reserves NOTHING — no core read, no core write (switch OFF)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', false)
+    try {
+      const res = await mintOk()
+      expect(res.recordingSessionId).toBeNull()
+      expect(get).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+      expect(update).not.toHaveBeenCalled()
+      expect(info).not.toHaveBeenCalled()
+    } finally {
+      off.restore()
+    }
   })
 
   it('gates on records.write BEFORE minting anything — a denial settles, never throws', async () => {
@@ -566,6 +573,16 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     )
   })
 
+  // ⚖ S35 C1 — the take length rides ONLY onto a row the server-named arm
+  // creates. A take that already HAS its row is finalized, and finalize writes
+  // its length (finalize-take.ts) — so here it is ignored, never refused.
+  it('T4 (S35 C1) a take that HAS its row ignores a length — the reservation write is unchanged', async () => {
+    const res = await mintOk({ ...named, durationSeconds: 63 })
+    expect(update).toHaveBeenCalledWith(SESSION, { audio_storage_path: OWN, status: 'UPLOADING' })
+    expect(create).not.toHaveBeenCalled()
+    expect(res.recordingSessionId).toBe(SESSION)
+  })
+
   // HOTFIX 2026-09-05: this retry now takes the ALREADY-THERE arm. The object
   // is at this row's own reserved key, and a non-upsert sign would be refused
   // by storage — so the door answers the size instead of a URL. Everything the
@@ -601,10 +618,15 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     expectNoBinding()
   })
 
-  it('NEVER creates a row, on any path — one door mints, and it is not this one', async () => {
-    await mintOk(named)
-    await mintOk()
-    expect(create).not.toHaveBeenCalled()
+  it('NEVER creates a row, on any path — one door mints, and it is not this one (switch OFF)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', false)
+    try {
+      await mintOk(named)
+      await mintOk()
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      off.restore()
+    }
   })
 
   // H1 (round 5): the web door has no schema of its own — mintTakeUploadUrl is
@@ -1796,6 +1818,85 @@ describe('isOwnAudioKey — take OR rescue, and nothing else', () => {
   })
 })
 
+// ⚖ THE FIFTH KIND — THE TRANSCRIPT MEMO (PR-5, charge once). The meter keeps
+// the answer it paid for at `trc/<audio key>.<locale>.json`, beside the audio,
+// and reads it back before it would pay again. What this block owns: the memo
+// is named for exactly one take or rescue of THIS business in one closed
+// language, it nests nowhere, and it passes no audio fence at all.
+describe('composeTranscriptKey — the paid answer, named for its audio', () => {
+  const take = () => composeTakeKey('biz-1', UUID, 'audio/webm')!.key
+  const rescue = () => composeRescueKey('biz-1', UUID, 'audio/webm')!.key
+
+  it('parses a take’s memo and a rescue’s memo as kind transcript', () => {
+    expect(parseRecordingKey(`trc/app_biz-1_${UUID}.webm.ja.json`, 'biz-1')).toEqual({
+      kind: 'transcript',
+      audioKey: `app_biz-1_${UUID}.webm`,
+      locale: 'ja',
+    })
+    expect(parseRecordingKey(`trc/rsc/app_biz-1_${UUID}.mp4.en.json`, 'biz-1')).toEqual({
+      kind: 'transcript',
+      audioKey: `rsc/app_biz-1_${UUID}.mp4`,
+      locale: 'en',
+    })
+  })
+
+  it.each([
+    ['a nested memo', `trc/trc/app_biz-1_${UUID}.webm.ja.json.ja.json`],
+    ['a SEGMENT body', `trc/seg/app_biz-1_${UUID}/000000.webm.ja.json`],
+    ['a STAGED body', `trc/stg/biz-1_${SESSION_UUID}_${UUID}.webm.ja.json`],
+    ['another tenant’s take', `trc/app_biz-2_${UUID}.webm.ja.json`],
+    ['a locale outside the closed set', `trc/app_biz-1_${UUID}.webm.fr.json`],
+    ['no `.json`', `trc/app_biz-1_${UUID}.webm.ja`],
+    ['no locale at all', `trc/app_biz-1_${UUID}.webm.json`],
+    ['a query suffix', `trc/app_biz-1_${UUID}.webm.ja.json?x=1`],
+  ])('%s does not parse for biz-1', (_label, key) => {
+    expect(parseRecordingKey(key, 'biz-1')).toBeNull()
+  })
+
+  it.each([
+    ['take', take],
+    ['rescue', rescue],
+  ])('round-trips a %s in both languages', (_label, audio) => {
+    for (const locale of ['ja', 'en'] as const) {
+      const composed = composeTranscriptKey('biz-1', audio(), locale)!
+      expect(composed.key).toBe(`trc/${audio()}.${locale}.json`)
+      expect(parseRecordingKey(composed.key, 'biz-1')).toEqual({
+        kind: 'transcript',
+        audioKey: audio(),
+        locale,
+      })
+      // …and belongs to NOBODY else.
+      expect(parseRecordingKey(composed.key, 'biz-2')).toBeNull()
+    }
+  })
+
+  it.each([
+    ['a staged copy', () => composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key, 'ja'],
+    ['a segment', () => composeSegmentKey('biz-1', UUID, 0, 'audio/webm')!.key, 'ja'],
+    ['a memo key as the audio', () => composeTranscriptKey('biz-1', take(), 'ja')!.key, 'ja'],
+    ['another tenant’s take', () => composeTakeKey('biz-2', UUID, 'audio/webm')!.key, 'ja'],
+    ['a string-shaped non-string', () => IMPOSTOR, 'ja'],
+    ['a locale outside the closed set', () => take(), 'fr'],
+    ['a region-tagged locale', () => take(), 'ja-JP'],
+    ['no locale', () => take(), null],
+  ])('refuses %s — null, never a composed key', (_label, audio, locale) => {
+    expect(composeTranscriptKey('biz-1', audio(), locale)).toBeNull()
+  })
+
+  // A memo is neither kind of audio: no fence that means a take (or a take's
+  // audio) may ever be handed one, and the tenant-blind cleanup walk reads
+  // neither the memo nor its folder as a recording.
+  it('passes NO audio fence, and cleanup reads neither it nor its folder as a take', () => {
+    const memo = composeTranscriptKey('biz-1', rescue(), 'en')!.key
+    expect(isOwnRecordingKey(memo, 'biz-1')).toBe(false)
+    expect(isOwnAudioKey(memo, 'biz-1')).toBe(false)
+    expect(isStagedKeyFor(memo, 'biz-1', SESSION_UUID)).toBe(false)
+    expect(looksLikeRecordingKey('trc')).toBe(false)
+    expect(looksLikeRecordingKey(memo)).toBe(false)
+    expect(looksLikeRecordingKey(composeTranscriptKey('biz-1', take(), 'ja')!.key)).toBe(false)
+  })
+})
+
 // ⚖ ADDENDUM 9.2 M2 — ONE ext→key SPELLING. The assembler reads a CONTAINER off
 // a folder's leaf names (an extension), not a MIME, so `audio/<ext>` is how it
 // re-enters the closed map. That inverse is a COINCIDENCE of MIME_TO_EXT, and
@@ -1923,6 +2024,7 @@ describe('composeSegmentKey — the segment shape, as a table', () => {
   })
 })
 
+// The door now SETTLES like its upload sibling (D-S29-1): a refusal answers { error: 'forbidden' }, never a throw.
 describe('mintRecordingReadUrl — the tenant fence', () => {
   it('signs a path under the caller’s own prefix', async () => {
     await expect(mintRecordingReadUrl(OWN)).resolves.toEqual({
@@ -1932,22 +2034,18 @@ describe('mintRecordingReadUrl — the tenant fence', () => {
   })
 
   it.each(REFUSED)('refuses %s — service-role storage is never reached', async (_label, path) => {
-    await expect(mintRecordingReadUrl(path)).rejects.toThrow(
-      'recording not found in this business',
-    )
+    await expect(mintRecordingReadUrl(path)).resolves.toStrictEqual({ error: 'forbidden' })
     expect(createSignedUrl).not.toHaveBeenCalled()
   })
 
   it('refuses a string-shaped non-string before it calls a method on it', async () => {
-    await expect(mintRecordingReadUrl(IMPOSTOR)).rejects.toThrow(
-      'recording not found in this business',
-    )
+    await expect(mintRecordingReadUrl(IMPOSTOR)).resolves.toStrictEqual({ error: 'forbidden' })
     expect(createSignedUrl).not.toHaveBeenCalled()
   })
 
   it('gates on records.write before the fence even runs', async () => {
-    requireCapability.mockRejectedValue(new Error('forbidden'))
-    await expect(mintRecordingReadUrl(OWN)).rejects.toThrow('forbidden')
+    can.mockResolvedValueOnce(false)
+    await expect(mintRecordingReadUrl(OWN)).resolves.toStrictEqual({ error: 'forbidden' })
     // The fence's first act is asking who the caller is — never asked = never ran.
     expect(getBusinessId).not.toHaveBeenCalled()
     expect(createSignedUrl).not.toHaveBeenCalled()
@@ -2189,5 +2287,43 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
         ext: 'mp4',
       })
     })
+  })
+})
+
+// ⚖ FIX PLAN v3 PR-2 — THE WEB DOOR'S bindIdentity. With the switch ON a
+// server-named take gets a row, and its store comes from the web session door's
+// own rule: a degraded scope or a null store means NO row — today's answer,
+// the audio still lands, never a store-less row.
+describe('mintRecordingUploadUrl — switch ON, the server-named take’s store (PR-2)', () => {
+  let replaced: { restore(): void } | undefined
+  beforeEach(() => {
+    replaced = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', true)
+  })
+  afterEach(() => replaced?.restore())
+
+  it('a readable scope binds the row to its store', async () => {
+    const res = await mintOk()
+    expect(res.recordingSessionId).toBe('sess-new')
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ staff_id: 'staff-1', store_id: 'store-9', audio_storage_path: res.path }),
+    )
+  })
+
+  it.each([
+    ['a degraded scope', { storeId: 'store-9', degraded: true }],
+    ['a null storeId', { storeId: null, degraded: false }],
+  ])('%s → today’s answer, no row', async (_label, scope) => {
+    resolveStoreScope.mockResolvedValue(scope)
+    const res = await mintOk()
+    expect(res.recordingSessionId).toBeNull()
+    expect(res.url).toEqual(expect.any(String))
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('a scope lookup that throws → today’s answer, no row', async () => {
+    resolveStoreScope.mockRejectedValue(new Error('assignment blip'))
+    const res = await mintOk()
+    expect(res.recordingSessionId).toBeNull()
+    expect(create).not.toHaveBeenCalled()
   })
 })

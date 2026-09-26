@@ -11,7 +11,16 @@
 //      factory — see ALLOW.
 //   2. NO writes, anywhere — .insert( .update( .upsert( .delete( .rpc(.
 //      Zero exemptions, the lock files included: nothing in Business can edit
-//      anything, by construction.
+//      anything, by construction. ONE named exception since 2026-09-24 (⚖ Liam
+//      9/24, A2): the Reserve card colour's one guarded line in
+//      src/business/lib/practice-door/door.ts — see ALLOW.
+//      A write method handed out BOUND — `.upsert.bind(`, any of the write
+//      verbs below — is the same reach without the `(` right after the name,
+//      so it is banned on its own (⚖ Liam 9/24, R-A2-15 §5; LOCK3 coldread
+//      Finding 2). ONE named exception: core-reach.ts's write-only handle
+//      `client.orgSettings.upsert.bind(client.orgSettings)` (R-A2-7), count 1
+//      — see ALLOW. Known ceiling: `.call(` / `.apply(`, bracket access and
+//      a plain-variable alias before `.bind(` still need AST alias tracking.
 //   3. Supabase / service-client READS are legal in EXACTLY two lock files,
 //      src/business/lib/grants.ts and src/business/lib/admission.ts, so the
 //      workspace-grant lock stays real config, not a fixture. Everywhere else
@@ -124,12 +133,18 @@ const CALL_PATTERNS = [
   { re: /\.upsert\s*\(/g, label: 'write call .upsert(', scope: EVERYWHERE },
   { re: /\.delete\s*\(/g, label: 'write call .delete(', scope: EVERYWHERE },
   { re: /\.rpc\s*\(/g, label: 'write call .rpc(', scope: EVERYWHERE },
+  // A bound write method is the same reach, one step removed (R-A2-15 §5).
+  {
+    re: /\.(insert|update|upsert|delete|rpc|create|save|set)\s*\.\s*bind\s*\(/g,
+    label: 'bound write method .X.bind(',
+    scope: EVERYWHERE,
+  },
 ]
 
 // Known-legal exceptions. Same contract as check-dark-interactive's ALLOW:
-// exact path + label + a `match` substring the flagged line must contain + a
-// `count` budget, so a pinned string copied onto a new line fails the whole
-// entry closed.
+// exact path + label + a `match` string that must cover the flagged occurrence
+// on the comment-stripped line + a `count` budget, so a pinned string copied
+// onto a new line fails the whole entry closed.
 const ALLOW = [
   {
     path: 'src/app/[locale]/(business)/business/today/today-interactions.ts',
@@ -151,6 +166,33 @@ const ALLOW = [
     reason:
       '⚖ Liam 9/19 practice-salon door (DESIGN-PRACTICE-DOOR.md §2/§9): the ONE server-only core-reach file; ' +
       'explicit-tenant factory only, one import line (either spelling, one occurrence), the tenant throw guards it before any read',
+  },
+  {
+    path: 'src/business/lib/practice-door/door.ts',
+    // Double-quoted for the same reason as the first entry: the settings-screen
+    // suite censuses `label: 'write call .X('` (single quotes) as the guard's banned tokens.
+    label: "write call .upsert(",
+    match: ['orgSettings.upsert({ settings: { reserve_card_color: next } })'],
+    count: 1,
+    reason: '⚖ Liam 9/24 A2 (CONTRACT-CARD-LOOK §5, RULINGS R3): the ONE Business writer — one key, palette-or-null, settings.manage, admitted tenant only, read-before-write, one PUT',
+  },
+  {
+    path: 'src/business/lib/practice-door/door-booking-colors.ts',
+    // ⚖ R-S39-1 — the second writer lives in its own file (one allowlist key per file::call).
+    // Double-quoted, same reason as the entry above.
+    label: "write call .upsert(",
+    match: ['orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })'],
+    count: 1,
+    reason: "⚖ Liam 9/25 「make it work」 (PKT-S38-COLORS-PR2 R3/R8) + ⚖ Liam 9/25 A (PKT-S41 R-S41-1): the second Business writer, 予約の色分け — one key PER STORE (`booking_colors:<storeId>`, core merges top-level keys → no cross-store race), closed palette, settings.manage + a store the operator may see, admitted tenant only, read-before-write, one PUT",
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['client.orgSettings.upsert.bind(client.orgSettings)'],
+    count: 1,
+    reason:
+      '⚖ R-A2-7 (orgSettingsWriterFor: a write-only { orgSettings: { upsert } } handle, the two tenant throws before the client is built) + ' +
+      'R-A2-15(5) (Liam 9/24 「go」): the ONE bound write method in territory, feeding door.ts\'s one pinned writer line',
   },
 ]
 
@@ -229,28 +271,38 @@ export function scanDataAccess(rootDir, allow = ALLOW) {
     const rel = relative(rootDir, file).split(sep).join('/')
     const srcLines = readFileSync(file, 'utf8').split('\n')
     const code = stripComments(srcLines.join('\n'))
+    const codeLines = code.split('\n')
     // Territory files are small — counting newlines per match is cheap enough.
     const lineOf = (index) => code.slice(0, index).split('\n').length
 
     const hits = []
+    const hit = (index, label) =>
+      hits.push({ line: lineOf(index), col: index - (code.lastIndexOf('\n', index - 1) + 1), label })
     for (const re of IMPORT_FORMS) {
       re.lastIndex = 0
       for (let m = re.exec(code); m; m = re.exec(code)) {
         const rule = FORBIDDEN_SPECIFIER.find((r) => r.scope(rel) && r.test(m[1]))
-        if (rule) hits.push({ line: lineOf(m.index), label: rule.label })
+        if (rule) hit(m.index, rule.label)
       }
     }
     for (const { re, label, scope } of CALL_PATTERNS) {
       if (!scope(rel)) continue
       re.lastIndex = 0
-      for (let m = re.exec(code); m; m = re.exec(code)) hits.push({ line: lineOf(m.index), label })
+      for (let m = re.exec(code); m; m = re.exec(code)) hit(m.index, label)
     }
 
-    for (const { line, label } of hits) {
+    for (const { line, col, label } of hits) {
       const text = (srcLines[line - 1] ?? '').trim().slice(0, 120)
-      const entry = allow.find(
-        (a) => a.path === rel && a.label === label && a.match.some((m) => text.includes(m)),
-      )
+      // The exemption is the flagged occurrence ITSELF: a pinned string on the
+      // comment-stripped line whose span covers the hit (Greptile P1, 9/25). A
+      // pinned string in a comment is blanked, and one elsewhere on the line
+      // never covers a widened call beside it.
+      const at = codeLines[line - 1] ?? ''
+      const covers = (m) => {
+        for (let i = at.indexOf(m); i !== -1; i = at.indexOf(m, i + 1)) if (i <= col && col < i + m.length) return true
+        return false
+      }
+      const entry = allow.find((a) => a.path === rel && a.label === label && a.match.some(covers))
       if (!entry) {
         findings.push({ rel, line, label, text })
         continue

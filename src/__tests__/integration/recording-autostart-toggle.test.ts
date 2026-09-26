@@ -364,4 +364,12 @@ describe('setRecordingAutostart (web action) — settings.manage gate', () => {
     })
     expect(auditSpy).not.toHaveBeenCalled()
   })
+
+  // Round 2 (2026-09-24): an OUTAGE is not a permission answer.
+  it('a capability read that FAILS → failed, never forbidden', async () => {
+    mockCapabilities.mockRejectedValueOnce(new Error('roster read failed'))
+    const { setRecordingAutostart } = await import('@/actions/recording-autostart')
+    await expect(setRecordingAutostart('store-1', true)).resolves.toEqual({ ok: false, error: 'failed' })
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
 })

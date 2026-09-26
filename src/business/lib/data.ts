@@ -24,6 +24,7 @@
 import { jstDayKey, jstSlotEnd, renderNow } from './clock'
 import { practiceTenant } from './practice-door/switch'
 import * as door from './practice-door/door'
+import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
 import {
   appointments,
   business,
@@ -51,6 +52,7 @@ import {
   staffMix,
 } from './fixtures-analytics'
 import { auditTrail, reservations } from './fixtures-reservations'
+import { storeDials } from './fixtures-settings'
 import {
   absence,
   blocks,
@@ -221,6 +223,57 @@ export async function readShellIdentity(): Promise<{
     // #724), so the stamp cannot land on a different day from the rest of it.
     reserveSyncedAt: jstSlotEnd(0, 0, boardNow, -reserveSync.minutes_ago, renderNow()),
   }
+}
+
+/** ⚖ A1b — the business's Reserve card colour (org settings `reserve_card_color`,
+ *  contract §1–§2): a strict #RRGGBB, uppercased, or null. No lens: it is ONE
+ *  value per business (R3), the same under every store.
+ *  ⚠ RECONNECT: the play phase has no business-level fixture home for it, so
+ *  OFF answers null — 「nothing set」, which is the honest fixture answer. */
+export async function readReserveCardColor(): Promise<string | null> {
+  if (practiceTenant() !== null) return door.readReserveCardColor()
+  return null
+}
+
+/** 予約の色分け — the business's org-settings colour keys, RAW: the legacy `booking_colors` map (read-only) and one
+ *  `booking_colors:<storeId>` key per store (⚖ PKT-S41); `bookingColorsFor` (booking-colors.ts) resolves them.
+ *  OFF answers null → every store gets the defaults. */
+export async function readBookingColors(): Promise<unknown> {
+  if (practiceTenant() !== null) return door.readBookingColors()
+  return null
+}
+
+/** ⚖ A2 (Liam 9/24) — is the practice door ON? The 設定 page offers the REAL card-colour save
+ *  only then; OFF keeps today's page-local commit. */
+export function practiceDoorOn(): boolean {
+  return practiceTenant() !== null
+}
+
+/** ⚖ A2 · G5 — may the admitted operator save the card colour (core's sheet, `settings.manage`)?
+ *  The page asks only while the door is ON; OFF answers false (no writer). */
+export async function readCanManageCardColor(): Promise<boolean> {
+  return door.readCanManageCardColor()
+}
+
+/** ⚖ A2 (Liam 9/24) — the ONE Business write: the business's Reserve card colour, through the door.
+ *  OFF has no writer — the door answers 'tenant' before anything else. */
+export async function writeReserveCardColor(next: string | null): Promise<door.WriteCardColorResult> {
+  return door.writeReserveCardColor(next)
+}
+
+/** 予約の色分け (⚖ PKT-S38 R3) — the second Business write: one store's four booking colours, through
+ *  the door. OFF has no writer — the door answers 'tenant' before anything else. */
+export async function writeBookingColors(storeId: string, colors: unknown): Promise<WriteBookingColorsResult> {
+  return doorWriteBookingColors(storeId, colors)
+}
+
+/** ⚖ A1b · K11 — the store's address as the Reserve card's cover prints it; null = none
+ *  (the cover then shows Reserve's own no-address shape). ON: the door's own store record.
+ *  OFF: the play-phase store's SAMPLE address — the same 店舗情報 dial the 設定 room shows. */
+export async function readStoreAddress(lens: string): Promise<string | null> {
+  if (practiceTenant() !== null) return door.readStoreAddress(lens)
+  assertLens(lens)
+  return storeDials[lens]?.profile.address ?? null
 }
 
 export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {

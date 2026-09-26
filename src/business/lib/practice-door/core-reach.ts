@@ -1,7 +1,8 @@
 // THE one territory file that reaches core (DESIGN-PRACTICE-DOOR.md §2, §7).
 // Explicit-tenant factory only; the tenant check runs BEFORE the client is built,
 // so a login-path bug fails loud and never lists another business. The SDK client
-// never leaves this file: callers get bound READ methods and nothing else.
+// never leaves this file: callers get bound READ methods, plus the one org-settings
+// writer (A2, Liam 9/24) — a write-only handle with `upsert` and nothing else.
 
 import { newSynqedClient } from '@/lib/synqed/client'
 import { practiceTenant } from './switch'
@@ -23,6 +24,17 @@ export function clientFor(admitted: { businessId: string }): CoreReads {
   if (tenant === null) throw new Error('practice door called with the switch unset')
   if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
   return readsOf(newSynqedClient(tenant))
+}
+
+/** ⚖ A2 (Liam 9/24, R-A2-7) — the ONE org-settings writer, for door.ts's one guarded call. The same two
+ *  throws as clientFor, BEFORE the client is built; the handle is write-only: `orgSettings.upsert` and
+ *  nothing else (no get, no list, no other resource). */
+export function orgSettingsWriterFor(admitted: { businessId: string }): { orgSettings: Pick<CoreClient['orgSettings'], 'upsert'> } {
+  const tenant = practiceTenant()
+  if (tenant === null) throw new Error('practice door called with the switch unset')
+  if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
+  const client = newSynqedClient(tenant)
+  return { orgSettings: { upsert: client.orgSettings.upsert.bind(client.orgSettings) } }
 }
 
 export function readsOf(client: CoreClient) {

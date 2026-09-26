@@ -17,7 +17,7 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { dismissPackAlertActionWithClient } from '@/actions/packs'
+import { dismissPackAlertActionWithClient } from '@/lib/packs/packs.core'
 import { proveCustomerInBusiness, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 
 export const runtime = 'nodejs'

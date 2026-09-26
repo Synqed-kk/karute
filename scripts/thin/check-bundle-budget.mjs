@@ -2110,7 +2110,28 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Re-measured on main f8485db34 after the port onto src/lib/stores/stores.core.ts
 // (#981 moved createStoreCore): the same three chunks, byte-identical.
 // Proof: /Users/liam/Documents/Claude/karute-ginza-onboarding-2026-09-16/evidence/s13-port/BUNDLE.txt.
-const BUDGET_BYTES = 2_162_642
+//
+// raised 2026-09-24, Round 2 fold: main's #1019/#1020/#1017/#1021/#1022 bytes merged in; the fold itself adds no client bytes.
+// Same CI recipe (keylen = 208), two clean laps byte-identical (node v24.16.0):
+// 139,972 + 1,085,404 + 937,800 = 2,163,176 B, 534 B over 2,162,642 B.
+// Ceiling = measured + 600 = 2,163,776 B.
+//
+// raised 2026-09-24, Round 3 leg 1 (the removed screen): the removedStaff
+// ja/en strings ship in the thin bundle (both catalogues are bundled whole)
+// plus StoreGateScreen's optional recheck button (AuthGate imports it).
+// Same CI recipe (keylen = 208, node v24.16.0), merged tree = origin/main
+// d0064ccf6 (#1025, no bundled file) + this branch at b460ffbc5:
+// 140,251 + 1,085,797 + 937,800 = 2,163,848 B, 72 B over 2,163,776 B;
+// main alone 2,163,176 B → this PR adds 672 B.
+// Proof: /Users/liam/Documents/Claude/karute-ginza-onboarding-2026-09-16/evidence/s19-removed-screen/.
+// Ceiling = measured + 600 = 2,164,448 B.
+//
+// raised 2026-09-25, PR #1037 (recording fallback attaches to the take's own row): merged tree origin/main 419f77e58 + e68539214 = 140,406 + 1,087,228 + 937,800 = 2,165,434 B (986 B over); main alone 2,164,397 B → the PR adds 1,037 B; ceiling = 2,164,448 + 1,037 + 1,024 = 2,166,509 B.
+//
+// raised 2026-09-25, PR #1039 (the in-tab fallback adopts the row the server made — S34 piece 3): merged tree origin/main df86b6e3b + 41f20dcb2 = 140,406 + 1,088,486 + 937,800 = 2,166,692 B (183 B over); main alone 2,165,434 B → the PR adds 1,258 B (piece 3 adoption +1,065 · O1/O2 finalize mark +193); ceiling = 2,165,434 + 1,258 + 1,024 = 2,167,716 B.
+//
+// raised 2026-09-25 once by ~1% on Liam's ruling (the gate is an alarm for accidental growth, not a limit; no more per-PR topping-up): main cb4bdf79f (79bf3dbac byte-identical) = 140,406 + 1,088,742 + 937,800 = 2,166,948 B; ceiling = ceil(2,166,948 × 1.01 / 100) × 100 = 2,188,700 B.
+const BUDGET_BYTES = 2_188_700
 let dir
 try {
   dir = readdirSync(DIST)

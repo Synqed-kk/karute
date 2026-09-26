@@ -77,11 +77,11 @@ export const AUDIT_ACTIONS = [
   'recording.capture_finalized',
   'recording.capture_resumed',
   'recording.capture_unlinked',
+  'recording.capture_warned',
   'recording.discard',
   'recording.karute_missing',
   'recording.no_sessions_today',
   'recording.play',
-  'recording.session_cleanup',
   'recording.share',
   'recording.store_write_refused',
   'recording.take_named',
@@ -231,17 +231,16 @@ export const AUDITED_CORES: {
     file: 'src/lib/ai/transcribe.ts',
     symbols: ['auditTranscriptionReceipt', 'auditTranscriptionRefused'],
   },
-  // Build F1 fix round 3 — the deliberate-discard orphan cleanup. Its
-  // recordings.delete is the write; the audit() sits on the ONLY success path
-  // (every refusal returns { error } before reaching it). INTERIM: P5's
-  // kept-discard build deletes the module, and this entry goes with it.
-  { file: 'src/lib/recording/session-cleanup.ts', symbols: ['deleteRecordingSessionWithClient'] },
   // The take-finalize choke point (capture pipeline PR2) — its recordings
   // .update write sits inside the same symbol as its emit (via emitFinalized,
   // the emitSave call-through idiom), so no SDK_WRITE_ALLOWLIST row is needed.
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The capture-warning choke point (recording hole PR-7) — makes NO SDK write
+  // at all (one recordings.get for the owner check), so it needs no
+  // SDK_WRITE_ALLOWLIST row; its one emit is the recording.capture_warned row.
+  { file: 'src/lib/recording/capture-warning.ts', symbols: ['recordCaptureWarningWithClient'] },
   // The nightly assembler (build 23 slice ③) — the take a dead device never
   // came back for, rebuilt from its segments. Its ONE write sits inside this
   // symbol alongside the emit — the bucket PUT (storage.recordings.upload) —
@@ -280,10 +279,17 @@ export const AUDITED_CORES: {
   // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
   // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
   // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a
-  // server-named take reserves nothing and files no row) and carries no
-  // audit() of its own, so CP7's registry-reality cross-check (exported
-  // symbols only) can never require this entry — recording-upload-actions
-  // .test.ts pins it directly instead.
+  // server-named take reserves nothing and files no row — with
+  // RECORDING_SWITCHES.bindUnboundUploads OFF (ships OFF (on 2026-09-24, off again 2026-09-25)); ON, that arm files a
+  // row through startRecordingSessionWithClient (session-mint.ts), which
+  // carries no audit() and is NOT covered by auditTakeNamed; a karute save
+  // reaches it only where the client adopts that row's id (S34: the web from
+  // its deploy, the phone from build 29; build-28 phones do not) — otherwise it
+  // shows only as an inbox 復元可能/失敗 row — and an upload whose recording already has a row never
+  // reaches it (S33 'attach_failed'), see audit.ts's map entry) and carries no audit() of its own, so
+  // CP7's registry-reality cross-check (exported symbols only) can never
+  // require this entry — recording-upload-actions.test.ts pins it directly
+  // instead.
   // commitReservation joins it because IT is the write: fix round 6 split the
   // old reserveTakeForRecorder into a read-only planReservation (the fences +
   // exists check, never a write) and commitReservation (recordings.update,
@@ -350,8 +356,12 @@ export const AUDITED_CORES: {
     file: 'src/actions/menus.ts',
     symbols: ['createMenu', 'updateMenu', 'retireMenu', 'reactivateMenu'],
   },
+  // The four staff emitters followed their bodies out of the action file and
+  // into the server-only module (PKT-SEC-CORES-D5, 2026-09-23) — the SAME
+  // emitters, registered at their new home. Ledgered: cores:src/actions/staff.ts
+  // in docs/audit-weakening-ledger.md. The web wrappers stayed.
   {
-    file: 'src/actions/staff.ts',
+    file: 'src/lib/staff/staff.core.ts',
     symbols: ['createStaffCore', 'updateStaffCore', 'deleteStaffCore', 'uploadStaffAvatarCore'],
   },
   { file: 'src/actions/invites.ts', symbols: ['acceptInvite'] },
@@ -619,6 +629,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-14',
   },
   {
+    file: 'src/lib/recording/transcript-memo.ts',
+    call: 'storage.recordings.upload',
+    symbols: ['writeTranscriptMemo'],
+    justification:
+      "PR-5 (charge once): the durable memo of a transcription the meter has ALREADY PAID FOR — a side-effect of an already-audited call, not an act of its own. Its one caller is runMeteredTranscription (src/lib/ai/transcribe.ts), and only after the provider answered, i.e. only on a PAID call; every door files its own recording.transcribe receipt row for that same call (web: the route's auditWeb; facade: the hook's FACADE_AUDIT_MAP['ai.transcribe'] row; job/from_session/discard: the meter's auditTranscriptionReceipt), which the write precedes by one call-frame and never prevents — writeTranscriptMemo never throws. A second row here would double-count one act, and ⚖ 8/17 doc law keeps the CONTENT (the transcript itself) out of any audit detail, which is exactly what this call stores. Create-only (upsert:false) except the one repair case: when the read before the call PROVED the existing `trc/` object corrupt (not a v1 memo), the paid answer replaces that garbage — unless a re-read immediately before the write finds that another caller has already repaired it, in which case that memo is left standing. A readable memo is never replaced, and nothing is ever deleted.",
+    dated: '2026-09-24',
+  },
+  {
     file: 'src/lib/customers/customers.core.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
@@ -746,7 +764,7 @@ export const SDK_WRITE_ALLOWLIST: {
     file: 'src/lib/staff/new-card.ts',
     call: 'staff.create',
     symbols: ['createAndPlaceStaffCard'],
-    justification: "The shared new-card mint (⚖ Liam 2026-09-16): one home for 'a new staff card is born in a store', reached by BOTH doors that make one — the 追加 button (actions/staff.ts#createStaffCore) and a FRESH invite (lib/invites/invites.core.ts#createInviteCore, which now mints the card up front so accept only attaches the login). createAndPlaceStaffCard itself emits NOTHING on its success path, on purpose: each door emits its own staff.add row at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both citations are registered AUDITED_CORES symbols. 'staff.delete' is the placement ROLLBACK, in its own `rollback` helper — it only ever removes the card this same function created moments earlier, so it has no separate lifecycle to audit; the door's staff.add never fires for a rolled-back card. ⚖ G8 (2026-09-19): that helper DOES emit on one path — when the rollback's own delete throws, it writes a WARNING staff.add row (targetId = the stranded card, detail.reason = 'rollback_failed') before returning STAFF_CARD_LEFT_BEHIND, because that is the one case where the roster really did grow and no door's staff.add ever fires for it. It is a private function, so CP7's exported-symbol registry-reality scan does not reach it, and it is listed here rather than in AUDITED_CORES because its SUCCESS path correctly emits nothing.",
+    justification: "The shared new-card mint (⚖ Liam 2026-09-16): one home for 'a new staff card is born in a store', reached by BOTH doors that make one — the 追加 button (lib/staff/staff.core.ts#createStaffCore) and a FRESH invite (lib/invites/invites.core.ts#createInviteCore, which now mints the card up front so accept only attaches the login). createAndPlaceStaffCard itself emits NOTHING on its success path, on purpose: each door emits its own staff.add row at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both citations are registered AUDITED_CORES symbols. 'staff.delete' is the placement ROLLBACK, in its own `rollback` helper — it only ever removes the card this same function created moments earlier, so it has no separate lifecycle to audit; the door's staff.add never fires for a rolled-back card. ⚖ G8 (2026-09-19): that helper DOES emit on one path — when the rollback's own delete throws, it writes a WARNING staff.add row (targetId = the stranded card, detail.reason = 'rollback_failed') before returning STAFF_CARD_LEFT_BEHIND, because that is the one case where the roster really did grow and no door's staff.add ever fires for it. It is a private function, so CP7's exported-symbol registry-reality scan does not reach it, and it is listed here rather than in AUDITED_CORES because its SUCCESS path correctly emits nothing.",
     dated: '2026-09-16',
   },
   {
@@ -758,7 +776,7 @@ export const SDK_WRITE_ALLOWLIST: {
     // (STAFF_CARD_LEFT_BEHIND) instead of a console line. Same single call
     // site, same reasoning, one level down.
     symbols: ['rollback'],
-    justification: "The shared new-card mint's ROLLBACK (⚖ Liam 2026-09-16; moved into its own helper by the F8 fold, 2026-09-17). The delete itself is never audited: it only ever removes the card createAndPlaceStaffCard created moments earlier in the same request, so it has no separate lifecycle — the door's staff.add never fires for a rolled-back card. ⚖ G8 (2026-09-19): the FAILURE path now does emit — when the delete throws, `rollback` writes a WARNING staff.add row (targetId = the stranded card, detail.reason = 'rollback_failed') and logs that id, then returns STAFF_CARD_LEFT_BEHIND. That row records a card that really is on the roster, not the delete. The mint's success path still carries NO audit call on purpose — each door emits its own staff.add at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both doors (actions/staff.ts#createStaffCore and lib/invites/invites.core.ts#createInviteCore) are registered AUDITED_CORES symbols; `rollback` is private, so CP7's exported-symbol registry-reality scan does not reach it.",
+    justification: "The shared new-card mint's ROLLBACK (⚖ Liam 2026-09-16; moved into its own helper by the F8 fold, 2026-09-17). The delete itself is never audited: it only ever removes the card createAndPlaceStaffCard created moments earlier in the same request, so it has no separate lifecycle — the door's staff.add never fires for a rolled-back card. ⚖ G8 (2026-09-19): the FAILURE path now does emit — when the delete throws, `rollback` writes a WARNING staff.add row (targetId = the stranded card, detail.reason = 'rollback_failed') and logs that id, then returns STAFF_CARD_LEFT_BEHIND. That row records a card that really is on the roster, not the delete. The mint's success path still carries NO audit call on purpose — each door emits its own staff.add at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both doors (lib/staff/staff.core.ts#createStaffCore and lib/invites/invites.core.ts#createInviteCore) are registered AUDITED_CORES symbols; `rollback` is private, so CP7's exported-symbol registry-reality scan does not reach it.",
     dated: '2026-09-16',
   },
   {
@@ -962,6 +980,22 @@ export const SDK_WRITE_ALLOWLIST: {
     justification:
       'Internal create-on-miss side effect of resolving a profiles.id to a synqed staff.id for an FK the booking flow needs — not a user-initiated "add staff" action; no facade/web action surface triggers this directly.',
     dated: '2026-07-27',
+  },
+  {
+    file: 'src/business/lib/practice-door/door.ts',
+    call: 'orgSettings.upsert',
+    symbols: ['writeReserveCardColor'],
+    justification:
+      'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). ⚖ Liam 9/24 A2 (PKT-A2-CORE-WRITE R-A2-4/R-A2-11): one structured server log line per real write; a core audit row is R5 (later).',
+    dated: '2026-09-24',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-booking-colors.ts',
+    call: 'orgSettings.upsert',
+    symbols: ['writeBookingColors'],
+    justification:
+      'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). ⚖ Liam 9/25 「make it work」 (PKT-S38 R3/R8, R-S39-1) + ⚖ Liam 9/25 A (PKT-S41 R-S41-1): 予約の色分け — one key per store (booking_colors:<storeId>, sent alone; the legacy booking_colors map is read-only), closed palette, settings.manage + a store the operator may see, read-before-write; one structured server log line per real write; a core audit row is R5 (later).',
+    dated: '2026-09-25',
   },
 ]
 

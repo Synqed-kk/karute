@@ -239,6 +239,120 @@ describe('the flag flip — the fix itself', () => {
     expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null })
   })
 
+  // ⚖ …AND IT SAYS WHY IT IS UNBOUND (S33). The in-tab fallback reaches this
+  // body only after attaching to the take's own row failed or no row was known;
+  // the mint's switch arm reads the reason so a recording that HAS a row never
+  // gets a second one. Exactly the field, only when given.
+  it.each(['attach_failed', 'no_session'] as const)(
+    'the in-tab fallback carries attachOutcome %s on the unbound body',
+    async (attachOutcome) => {
+      const apiFetch = port(async () =>
+        json({ path: 'app_business-1_x.webm', url: 'https://up/', contentType: 'audio/webm' }),
+      )
+      global.fetch = jest.fn(
+        async () => ({ ok: true, status: 200 }) as unknown as Response,
+      ) as unknown as typeof fetch
+
+      await viteRecordingPort.prepareTranscription(new Blob(['a'], { type: 'audio/mp4' }), null, {
+        stagedFor: null,
+        attachOutcome,
+      })
+
+      const [, init] = apiFetch.mock.calls[0] as [string, RequestInit]
+      expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null, attachOutcome })
+    },
+  )
+
+  // ⚖ S34, piece 3 — the phone's fallback answers the row the mint named (the
+  // facade echoes the mint's whole result), and a no-row fallback sends the
+  // visit. An older server's answer has no field at all → null.
+  describe('the minted row (S34)', () => {
+    const upload = (extra: Record<string, unknown>) => {
+      const apiFetch = port(async () =>
+        json({ path: 'app_business-1_x.webm', url: 'https://up/', contentType: 'audio/webm', ...extra }),
+      )
+      global.fetch = jest.fn(
+        async () => ({ ok: true, status: 200 }) as unknown as Response,
+      ) as unknown as typeof fetch
+      return apiFetch
+    }
+
+    it('T4 answers recordingSessionId from the mint JSON', async () => {
+      upload({ recordingSessionId: 'rs-minted' })
+      const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+      })
+      expect(r.recordingSessionId).toBe('rs-minted')
+    })
+
+    it.each([
+      ['null', { recordingSessionId: null }],
+      ['absent (a build-28-era answer)', {}],
+    ])('T4 %s in the JSON → null', async (_label, extra) => {
+      upload(extra)
+      const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), null)
+      expect(r.recordingSessionId).toBeNull()
+    })
+
+    // Only a string is a row id — anything else the JSON carries is not adopted.
+    it.each([
+      ['a number', 123],
+      ['an object', {}],
+      ['true', true],
+    ])('T4 a non-string truthy value (%s) → null', async (_label, value) => {
+      upload({ recordingSessionId: value })
+      const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+      })
+      expect(r.recordingSessionId).toBeNull()
+    })
+
+    it('T4 null on the finalized path — nothing was minted', async () => {
+      const r = await viteRecordingPort.prepareTranscription(new Blob(['a']), 'app_business-1_t.webm')
+      expect(r.recordingSessionId).toBeNull()
+    })
+
+    it('T5 no_session carries the visit; attach_failed carries none', async () => {
+      const apiFetch = upload({})
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+        customerId: 'cust-1',
+        appointmentId: 'appt-1',
+      })
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'attach_failed',
+      })
+      const bodies = apiFetch.mock.calls.map(([, init]) => (init as RequestInit).body)
+      expect(bodies[0]).toBe(
+        JSON.stringify({ stagedFor: null, attachOutcome: 'no_session', customerId: 'cust-1', appointmentId: 'appt-1' }),
+      )
+      // Byte-identical to S33's body (ai-pipeline hands the visit on no_session only).
+      expect(bodies[1]).toBe(JSON.stringify({ stagedFor: null, attachOutcome: 'attach_failed' }))
+    })
+
+    it('T7 (S35 C1) no_session carries the take length; none without one; the finalized path mints nothing', async () => {
+      const apiFetch = upload({})
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+        customerId: 'cust-1',
+        durationSeconds: 63,
+      })
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        attachOutcome: 'no_session',
+        durationSeconds: undefined,
+      })
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), 'app_business-1_t.webm', {
+        attachOutcome: 'no_session',
+        durationSeconds: 63,
+      })
+      const bodies = apiFetch.mock.calls.map(([, init]) => (init as RequestInit).body)
+      expect(bodies).toEqual([
+        JSON.stringify({ stagedFor: null, attachOutcome: 'no_session', customerId: 'cust-1', durationSeconds: 63 }),
+        JSON.stringify({ stagedFor: null, attachOutcome: 'no_session' }),
+      ])
+    })
+  })
+
   // ⚖ AND BOTH LEGS CARRY A DEADLINE (slice five fix round 3, F7). A phone that
   // walks out of signal STALLS its sockets rather than failing them, and a hung
   // staged leg is held in runDiscardTranscript's module-level `inFlight` set
