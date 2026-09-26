@@ -120,6 +120,8 @@ function borrowedStoreOf(store: string): string | null {
   return policy.kind === 'twin' && liveIdOf('stores', policy.fixtureStoreId) !== store ? policy.fixtureStoreId : null
 }
 /** ⚖ R3 — exact twins first (their rows are the originals, a borrower's are copies), each group in view order. */
+/** Does this live store BORROW its plane (not an exact twin)? — for the door's R10 room check. */
+export const borrows = (store: string): boolean => borrowedStoreOf(store) !== null
 const twinsFirst = (seats: readonly RosterSeats[]) =>
   [false, true].flatMap((borrows) => seats.filter((s) => (borrowedStoreOf(s.store) !== null) === borrows))
 
@@ -136,6 +138,7 @@ function rekeyStore<T extends BoardRow>(rows: readonly T[], { store, roster, roo
   }
   const seatOf = (fixtureId: string) => pick(roster, PERSON_ORDER.indexOf(fixtureId))
   const lent = resources.filter((r) => r.store_id === borrowed)
+  // Position only — whether that room is FREE at the slot's window is the door's `servedSlots` (R10).
   const roomOf = (fixtureId: string) => pick(rooms, lent.findIndex((r) => r.id === fixtureId))
   return rows.flatMap((row): T[] => {
     if (hasStore(row) && row.store_id !== borrowed) return [] // another fixture store's row: dropped, as today
