@@ -237,7 +237,8 @@ const worksAt = (stores: string[] | undefined, id: string): boolean => !stores |
 
 /** ⚖ PR-4a §v7 V7-3 — each store of the lens (viewAll: every store in view) with its
  *  active people in a STABLE order: the rows `listStaff(store)` yields, sorted by id —
- *  and (⚖ R8') its active rooms, the rows `listResources(store)` reads, sorted by id.
+ *  and (⚖ R8') its active rooms, the rows `listResources(store)` reads, sorted by id; ⚖ §v9
+ *  V9-3 — read for a store that BORROWS only: an exact twin's own rows never seat a room.
  *  Internal to the facade's `rekeyRows` (the borrower's seats), from ONE pair of staff
  *  reads per call — never a call per store. `listStaff`'s own order stays core's. */
 async function rosterOrderOf(actor: PracticeActor, lens: StoreLens): Promise<RosterSeats[]> {
@@ -248,8 +249,8 @@ async function rosterOrderOf(actor: PracticeActor, lens: StoreLens): Promise<Ros
     store,
     // ⚖ R9 — each seat's live name, for the borrowed free text
     roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => ({ id: row.id, name: row.name })).sort(byId),
-    // ⚖ R8' — the store's own active rooms: the read listResources makes, once per store
-    rooms: (await actor.reads.resourcesList({ store_id: store, active: true })).resources.map((r) => ({ id: r.id, name: r.name })).sort(byId),
+    // ⚖ R8' — a borrower's own active rooms: the read listResources makes, once per store; an exact twin: none read (V9-3)
+    rooms: borrows(store) ? (await actor.reads.resourcesList({ store_id: store, active: true })).resources.map((r) => ({ id: r.id, name: r.name })).sort(byId) : [],
   })))
 }
 

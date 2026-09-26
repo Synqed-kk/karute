@@ -1095,6 +1095,23 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await data.readUnresolvedCounts()).byStore[STORE.devSalon]).toBe(1)
   })
 
+  it('§v9 V9-3 — rooms are read only for a store that BORROWS: never for 東京/横浜, once per borrower, once per borrower in view', async () => {
+    const spy = withReads()
+    const shiftsOf = (lens: string | typeof VIEW_ALL) => data.listShiftsByDay(lens, { from: TODAY, to: TODAY })
+    await shiftsOf(STORE.tokyo)
+    await shiftsOf(STORE.yokohama)
+    expect(spy.resourcesList).not.toHaveBeenCalled()
+    for (const store of BORROWERS) {
+      spy.resourcesList.mockClear()
+      await shiftsOf(store)
+      expect(spy.resourcesList.mock.calls).toEqual([[{ store_id: store, active: true }]])
+    }
+    spy.resourcesList.mockClear()
+    await shiftsOf(VIEW_ALL)
+    const byStore = (a: { store_id: string }, b: { store_id: string }) => a.store_id.localeCompare(b.store_id)
+    expect(spy.resourcesList.mock.calls.map(([q]) => q).sort(byStore)).toEqual(BORROWERS.map((store_id) => ({ store_id, active: true })).sort(byStore))
+  })
+
   it('R9 — no fixture staff name in anything a borrower is served (decisions · slots · shifts · 勤務不可 · resources · 予約一覧)', async () => {
     const names = fxStaff.map((p) => p.full_name)
     for (const store of BORROWERS) {
