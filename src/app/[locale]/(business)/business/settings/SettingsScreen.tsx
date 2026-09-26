@@ -283,7 +283,7 @@ function useNarrow(): boolean {
 /** ⚖ PR-3 fix round 1 (Greptile P2) — THE LANDING, LIFTED SO A SUITE CAN RUN IT. This folder's import fence
  *  keeps react-dom out, so no suite here can mount the room (the `sendBookingColors` precedent below); the
  *  two halves of a landing live here instead and the room's effect + `jumpTo` only call them.
- *  Which block a `#st-blk-<id>` fragment lands on: one of the OPEN section's blocks, else none. */
+ *  Which anchor a `#st-blk-<id>` fragment lands on: one of the OPEN section's jump anchors (`jumpAnchorsOf`), else none. */
 export function landingBlockOf(hash: string, blocks: ReadonlyArray<{ id: string }>): string | null {
   const id = hash.startsWith('#st-blk-') ? hash.slice('#st-blk-'.length) : null
   return id !== null && blocks.some((b) => b.id === id) ? id : null
@@ -305,6 +305,13 @@ export function landOnBlock(blockId: string, reduced: boolean): void {
    *  anyway. The flag the room already holds is the answer. */
   el?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
   head?.focus({ preventScroll: true })
+}
+
+/** ⚖ R-S42-7 — THE JUMP LIST'S INVENTORY, ONE HOME. 予約と確保 renders itself and its anchors are the
+ *  section's own (`STORE_POLICY_ANCHORS`); every other section's are its blocks. The jump list, the
+ *  scroll-spy and a link's landing all read this list, so a `#st-blk-bg.adv` link lands like a press. */
+export function jumpAnchorsOf(sectionId: string | undefined, blocks: ReadonlyArray<{ id: string }>): ReadonlyArray<{ id: string }> {
+  return sectionId === BOOKING_GUARD_ID ? STORE_POLICY_ANCHORS : blocks
 }
 
 /** The shell topbar's pre-measurement height, for the scroll-spy when the variable is unreadable. The source
@@ -900,13 +907,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
   }, [picked, section?.id, reduced])
   useEffect(() => () => panelSpring.current?.stop(), [])
 
-  /** The ids the scroll-spy measures. 予約と確保 renders itself and its anchors
-   *  are the section's own (`STORE_POLICY_ANCHORS`), so the spy asks the same
-   *  list the jump list offers rather than a second one that could drift. */
-  const anchorIds = useMemo(
-    () => (section?.id === BOOKING_GUARD_ID ? STORE_POLICY_ANCHORS.map((a) => a.id) : blocks.map((b) => b.id)),
-    [section?.id, blocks],
-  )
+  /** The ids the scroll-spy measures, off the jump list's own inventory
+   *  (`jumpAnchorsOf`) — the same list the landing below resolves against,
+   *  rather than a second one that could drift. */
+  const anchors = useMemo(() => jumpAnchorsOf(section?.id, blocks), [section?.id, blocks])
+  const anchorIds = useMemo(() => anchors.map((a) => a.id), [anchors])
 
   /** ⚖ IMPROVEMENT 3 — SCROLL-SPY, MEASURED ON THE PAGE. This room has no
    *  scroller of its own (⚖ PAGE-SCROLL): the window is what moves, so the
@@ -957,14 +962,14 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  the jump list on 表示言語), so the room lands it itself, through the jump
    *  list's own `jumpTo`. A fragment never reaches the server, so this is read in
    *  an effect — after hydration, never in a seed. Once per mount; a fragment
-   *  that names no block of the open section is ignored. */
+   *  that names no anchor of the open section's jump list is ignored. */
   const landedRef = useRef(false)
   useEffect(() => {
     if (landedRef.current) return
     landedRef.current = true
-    const id = landingBlockOf(window.location.hash, blocks)
+    const id = landingBlockOf(window.location.hash, anchors)
     if (id !== null) jumpTo(id)
-  }, [blocks, jumpTo])
+  }, [anchors, jumpTo])
 
   const groups: string[] = []
   for (const row of props.rail) if (!groups.includes(row.group)) groups.push(row.group)

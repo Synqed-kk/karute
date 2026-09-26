@@ -3926,7 +3926,8 @@ describe('the shell one-liners, and the signposts that now really navigate', () 
     // ⚖ fix round 1 (Greptile P2) — the decision and the landing are lifted (`landingBlockOf` · `landOnBlock`,
     // RUN on real DOM nodes in settings-screen-interactions.test.ts); here, the room's wiring of them.
     expect(SCREEN_CODE).toContain('return id !== null && blocks.some((b) => b.id === id) ? id : null')
-    expect(SCREEN_CODE).toContain('const id = landingBlockOf(window.location.hash, blocks)')
+    // ⚖ R-S42-7 — …against the jump list's own inventory (`jumpAnchorsOf`), which is `blocks` for 言語・表示.
+    expect(SCREEN_CODE).toContain('const id = landingBlockOf(window.location.hash, anchors)')
     expect(SCREEN_CODE).toContain('if (id !== null) jumpTo(id)')
     expect(SCREEN_CODE).toContain('landOnBlock(blockId, reduced)')
   })
