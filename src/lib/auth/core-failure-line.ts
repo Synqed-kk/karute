@@ -31,11 +31,12 @@ export async function coreFailureLine(e: unknown, tag: string): Promise<string |
  * SDK into every action graph). coreFailureLine logs describeUnknownThrow(e), which never reads
  * `cause`, so the bounded SDK detail rides the message (log-only — no caller prints it) and
  * the original rides `cause`.
+ * Reads are defensive (describeUnknownThrow's one try): a throwing name/status getter returns `e` as is.
  */
 export function classifyCoreThrow(e: unknown): unknown {
-  const sdkStatus = e instanceof Error && e.name === 'SynqedError' ? (e as { status?: unknown }).status : undefined
-  if (!(e instanceof TypeError) && !(typeof sdkStatus === 'number' && sdkStatus >= 500)) return e
   const d = describeUnknownThrow(e)
+  const sdk5xx = d.errName === 'SynqedError' && typeof d.errStatus === 'number' && d.errStatus >= 500
+  if (!(e instanceof TypeError) && !sdk5xx) return e
   const kind = d.errStatus === undefined ? d.errName : `${d.errName} ${d.errStatus}`
   return new AppApiError('upstream_unavailable', `synqed-core call failed (${kind}): ${d.errMessage}`, undefined, e)
 }

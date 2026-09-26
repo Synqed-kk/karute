@@ -17,6 +17,13 @@
  * Probes: T  TypeError('fetch failed') · S5 SynqedError 503 · S4 SynqedError 409 ·
  *         D  a plain-Error denial thrown in the same try.
  */
+// The PIN facade route's Bearer verifier + revocation round-trip (app-api-staff-pin.test.ts's harness).
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
+process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
+process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
+jest.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'actor-1' } }, error: null }) } }),
+}))
 jest.mock('next/cache', () => ({
   unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
   revalidatePath: jest.fn(),
@@ -31,7 +38,12 @@ jest.mock('next-intl/server', () => {
     getLocale: jest.fn(async () => 'ja'),
   }
 })
-jest.mock('@/lib/audit', () => ({ audit: jest.fn(), auditDurable: jest.fn(async () => true) }))
+jest.mock('@/lib/audit', () => ({
+  audit: jest.fn(),
+  auditDurable: jest.fn(async () => true),
+  // facadeHandler classifies its audit row from the real table.
+  FACADE_AUDIT_MAP: jest.requireActual<typeof import('@/lib/audit')>('@/lib/audit').FACADE_AUDIT_MAP,
+}))
 jest.mock('@/lib/audit-store-lock', () => ({ ensureRecordStoreInScopeAudited: jest.fn() }))
 jest.mock('@/lib/audit-web', () => ({
   auditWeb: jest.fn(async () => {}),
@@ -84,18 +96,20 @@ jest.mock('@/lib/supabase/service', () => ({
   },
 }))
 
+import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AppApiError } from '@/lib/app-api/errors'
 import { classifyCoreThrow } from '@/lib/auth/core-failure-line'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
-import { getSynqedClient } from '@/lib/synqed/client'
+import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { setStaffPin, removeStaffPin, setStaffPinCore, removeStaffPinCore } from '@/actions/staff-pin'
 import { updateKaruteOutcome } from '@/actions/karute-outcome'
 import { grantCustomerConsent } from '@/actions/customers'
 import { upsertOrgSettings, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 import { deleteKaruteRecord } from '@/actions/karute'
+import { PUT, DELETE } from '@/app/api/app/v1/staff/[id]/pin/route'
 
 const JA = JSON.parse(readFileSync(join(process.cwd(), 'messages', 'ja.json'), 'utf8'))
 const FAILURE_LINE: string = JA.common.somethingWentWrong
@@ -153,6 +167,25 @@ describe('classifyCoreThrow — maps ONLY the two SDK outage shapes onto the typ
     expect(sdk).toContain("this.name = 'SynqedError';")
     expect(sdk).toContain('this.status = status;')
     expect(sdk).toContain('throw new SynqedError(res.status,')
+  })
+
+  it('a throwing status or name getter → the SAME object back, never a throw inside the catch', () => {
+    class HostileStatus extends Error {
+      name = 'SynqedError'
+      get status(): number {
+        throw new Error('status getter')
+      }
+    }
+    class HostileName extends Error {
+      status = 503
+      get name(): string {
+        throw new Error('name getter')
+      }
+    }
+    for (const e of [new HostileStatus('x'), new HostileName('x')]) {
+      expect(() => classifyCoreThrow(e)).not.toThrow()
+      expect(classifyCoreThrow(e)).toBe(e)
+    }
   })
 })
 
@@ -344,5 +377,47 @@ describe('the phone doors share the cores — the line rides the facade\'s 2xx b
     method.mockImplementation(async () => Promise.reject(new SynqedError(409, 'refused by core')))
     expect(await call()).toEqual({ error: 'refused by core' })
     expect(method).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+// The phone's PIN pad itself: the REAL facade route (Bearer verify → identity → roster self →
+// the shared core), its 2xx business-result passthrough carrying the core's answer.
+describe('PIN facade route — the phone reads the same answer in the 2xx body', () => {
+  const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
+  const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+  const bearer = () => {
+    const now = Math.floor(Date.now() / 1000)
+    const head = b64({ alg: 'HS256', typ: 'JWT' })
+    const body = b64({ sub: 'actor-1', iss: ISSUER, aud: 'authenticated', exp: now + 3600, iat: now })
+    return `${head}.${body}.${createHmac('sha256', SECRET).update(`${head}.${body}`).digest('base64url')}`
+  }
+  const url = 'https://s/api/app/v1/staff/actor-1/pin'
+  const params = { params: Promise.resolve({ id: 'actor-1' }) }
+  const routes = [
+    ['PUT', sdk.staff.setPin, () =>
+      PUT(new Request(url, { method: 'PUT', headers: { authorization: `Bearer ${bearer()}`, 'content-type': 'application/json' }, body: JSON.stringify({ pin: '1234' }) }), params)],
+    ['DELETE', sdk.staff.removePin, () =>
+      DELETE(new Request(url, { method: 'DELETE', headers: { authorization: `Bearer ${bearer()}` } }), params)],
+  ] as const
+  beforeEach(() => (newSynqedClient as unknown as jest.Mock).mockImplementation(() => sdk))
+
+  it.each(routes)('%s: a network drop on the SDK write → 200 { error: the ja line }', async (_m, method, run) => {
+    method.mockImplementation(async () => Promise.reject(new TypeError('fetch failed')))
+    const res = await run()
+    expect(method).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ error: FAILURE_LINE })
+    expect(failureLogs('[staff-pin]')).toHaveLength(1)
+  })
+
+  it.each(routes)('%s: core\'s own 409 → 200 with its message byte-for-byte (main\'s answer)', async (_m, method, run) => {
+    method.mockImplementation(async () => Promise.reject(new SynqedError(409, 'PIN already set')))
+    const res = await run()
+    expect(method).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ error: 'PIN already set' })
+    expect(anyFailureLog()).toHaveLength(0)
   })
 })
