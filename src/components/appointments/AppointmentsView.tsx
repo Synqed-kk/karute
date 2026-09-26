@@ -263,7 +263,16 @@ const NeighbourPane = memo(function NeighbourPane({
          *  agenda prints 「予約なし」, and a day whose bookings have simply not
          *  been read yet has not earned that sentence. */
         <div className="space-y-6">
-          <DayNumbersLine row={null} pending soloMode={false} typeSlot={TYPE_SLOT} locale={locale} />
+          <DayNumbersLine
+            row={null}
+            pending
+            soloMode={false}
+            typeSlot={TYPE_SLOT}
+            locale={locale}
+            // Same seam as the loaded line below (⚖ SPACING 03:1x) so the list
+            // never jumps when the answer lands.
+            className="mb-4"
+          />
           <div className="space-y-2 rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-4 ring-1 ring-black/5">
             {[0, 1, 2].map((i) => (
               <div key={i} className="reservation-shim h-[44px] w-full rounded-[var(--radius-sm)]" />
@@ -631,9 +640,9 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             {/* The day's numbers (spec §2 / mock §v9d): one flowing line of
              *  四 values, above the list, from the SAME adapter row the week
              *  page renders — the two surfaces cannot disagree. Its own
-             *  `mb-2` is the whole seam to the list card, so it sits OUTSIDE
-             *  the space-y-6 wrapper's rhythm by design (§v9c: "no extra
-             *  margin beyond the page's normal 8px").
+             *  bottom margin is the whole seam to the list card, so it sits
+             *  OUTSIDE the space-y-6 wrapper's rhythm by design — 16px since
+             *  ⚖ SPACING 03:1x (header → list, every tab; §v9c's 8px before).
              *  ReservationTotals stays ONLY while `dayTotals` is null — a
              *  stale phone bundle or a server that predates the field. */}
             {props.dayTotals ? (
@@ -651,6 +660,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 // never spelled per call site.
                 typeSlot={TYPE_SLOT}
                 locale={props.locale}
+                // header → list = 16px (⚖ SPACING 03:1x, was mb-2 8px).
+                className="mb-4"
               />
             ) : null}
             <div className="hidden md:block">
@@ -835,20 +846,24 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onNext={handleNext}
         onToday={handleToday}
         onPickDate={handlePickDate}
-        // Unified create pill (Liam 8/6, 案A): the package default is an
-        // icon-only square on mobile — the slot override keeps the same
-        // shared-Button「+ ラベル」pill as the 顧客/カルテ list pages. The
-        // slot bypasses the package's onNewBooking/newReservationLabel
-        // props entirely, so they are not passed — the slot's own onClick
-        // and label are the single source of truth.
+        // ⚖ 予約 TAB LOCKED 02:5x (Liam): 予約 = build 29 EXACTLY; the ONLY
+        // change is 「+ 新規予約」 → the blue circle in the same top-right spot —
+        // the カルテ/顧客 circle's family (size icon-lg = 36px, primary,
+        // rounded-full, CalendarPlus 18px), one control scale on every tab.
+        // The 36px circle sets the date row's height (32 → 36px), the same
+        // first-row height as カルテ/顧客's search row; the circle is never
+        // shrunk to hold 32. The slot bypasses the package's
+        // onNewBooking/newReservationLabel props entirely — the slot's own
+        // onClick and aria-label are the single source of truth.
         newBookingSlot={
           <Button
             type="button"
+            size="icon-lg"
+            className="rounded-full"
             aria-label={tReservation('new')}
             onClick={() => setDialogOpen(true)}
           >
-            <CalendarPlus className="size-3.5 min-[380px]:hidden" aria-hidden />
-            <span className="hidden min-[380px]:inline">{tReservation('new')}</span>
+            <CalendarPlus className="size-[18px]" aria-hidden />
           </Button>
         }
         // @synqed-kk/ui ships English defaults baked into the component
@@ -930,7 +945,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  calendar mock Liam approved on 9/14, and on 9/15 he measured this
        *  page against the mock and the 24px read as a gap. Padding above,
        *  not margin: margins collapse. */}
-      <div className="pt-[9px] mb-[11px]">
+      {/* ⚖ SPACING 03:1x (S44) — ONE scale on all three list tabs, the
+       *  カルテ tab's: first row → next row 12px (pt-3, was 9px), header rows
+       *  8px (mb-2 here, was 11px — to the numbers line in 日, the page body in
+       *  週/月), header → list 16px (the numbers line's own mb-4, was mb-2).
+       *  Padding above, not margin: margins collapse. */}
+      <div className="pt-3 mb-2">
       <ReservationStaffFilter
         staffList={props.staff.map<ReservationStaffEntry>((s) => ({
           id: s.id,
@@ -940,6 +960,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         }))}
         selfStaffId={props.activeStaffId}
         selected={props.staffFilter}
+        operatorId={props.authProfileId}
         prependSlot={
           <DayWeekMonthToggle
             view={view}
