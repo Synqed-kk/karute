@@ -4,7 +4,7 @@
 // (member_number, duplicate_of, free text) pass through untouched.
 
 import { businessStrings } from '@/business/i18n'
-import { operator } from '../fixtures'
+import { operator, staff } from '../fixtures'
 import { defaultKindOf } from '../fixtures-today'
 import { storeDials, type StoreDials } from '../fixtures-settings'
 import type { WordOverride } from '../resource-words'
@@ -75,6 +75,81 @@ export function sampleKeys<V>(kind: TwinKind, record: Record<string, V>): Record
     if (live !== null) out[live] = value
   }
   return out
+}
+
+// ── ⚖ PR-4a §v7 V7-3 — A BORROWING STORE IS SERVED ITS BORROWED ROWS ──────────
+//
+// …exactly as an exact twin is served its own: store rows re-keyed to the
+// borrower, person fields re-keyed onto the borrower's OWN active roster by
+// position — the fixture persons in their declaration order (fixtures.ts
+// `staff`) onto the roster in the door's stable order (door.ts
+// `rosterOrderOf`). THE ONE HOME for it. It reads the RAW fixture rows, never
+// `sampleFor` output; an exact twin (東京/横浜) goes through `sampleRows`
+// untouched — the positional map never applies to it.
+
+/** A store in view: its live uuid and its active people, in `rosterOrderOf`'s order. */
+export type RosterSeats = { store: string; roster: readonly string[] }
+
+/** `identity` — one row per real person per day (shifts, the 勤務不可 row): no seat
+ *  drops the row, never a wrap (today-board keeps only the LAST shift per staff_id,
+ *  so a wrap would lose shifts silently). `attribute` — a store row naming people
+ *  (decisions): always kept; the person wraps (n mod roster size), null on an
+ *  empty roster (nothing renders those fields; null owners already ship). */
+export type PersonRows = 'identity' | 'attribute'
+
+const PERSON_ORDER: readonly string[] = staff.map((p) => p.id)
+
+/** The fixture store a live store BORROWS; null for an exact twin (or a store with no plane). */
+function borrowedStoreOf(store: string): string | null {
+  const policy = samplePolicyFor(store)
+  return policy.kind === 'twin' && liveIdOf('stores', policy.fixtureStoreId) !== store ? policy.fixtureStoreId : null
+}
+
+type BoardRow = { store_id?: string | null; staff_id?: string | null }
+const hasStore = (row: object) => Object.prototype.hasOwnProperty.call(row, 'store_id')
+
+function rekeyStore<T extends BoardRow>(rows: readonly T[], { store, roster }: RosterSeats, persons: PersonRows): T[] {
+  const borrowed = borrowedStoreOf(store)
+  // An exact twin: the facade's own rewrite, then its own store's rows (a store-less shift is everyone's).
+  if (borrowed === null) return sampleRows([...rows], null).filter((r) => !hasStore(r) || r.store_id === store)
+  const seatOf = (fixtureId: string): string | null | undefined => {
+    const n = PERSON_ORDER.indexOf(fixtureId)
+    if (persons === 'identity') return roster[n] // undefined = no seat → the row drops
+    return n < 0 || roster.length === 0 ? null : roster[n % roster.length]
+  }
+  return rows.flatMap((row): T[] => {
+    if (hasStore(row) && row.store_id !== borrowed) return [] // another fixture store's row: dropped, as today
+    const out: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(row)) {
+      if (RESERVED.includes(key)) throw new Error(`sample facade: refused key "${key}"`)
+      const kind = Object.prototype.hasOwnProperty.call(FIELD_KIND, key) ? FIELD_KIND[key] : null
+      if (key === 'store_id') out[key] = store
+      else if (key === 'id' && typeof value === 'string') out[key] = `${value}~${store.slice(0, 8)}` // seven stores, seven keys
+      else if (kind === 'staff' && typeof value === 'string') {
+        const seat = seatOf(value)
+        if (seat === undefined) return []
+        out[key] = seat
+      } else out[key] = typeof value === 'string' && kind ? (liveIdOf(kind, value) ?? value) : sampleFor(value, null)
+    }
+    const rekeyed: unknown = out
+    return [rekeyed as T]
+  })
+}
+
+/** The rows for the stores in view: each store's own re-key, in view order, then
+ *  concatenated (viewAll = the union of every store's own board). Identity rows are
+ *  deduped by `staff_id` across the union — a real person has one shift and one
+ *  勤務不可 state a day whatever store they float on; the first store in view keeps
+ *  the row. Pure: a function of (rows, seats), computed per request, never cached. */
+export function rekeyRows<T extends BoardRow>(rows: readonly T[], seats: readonly RosterSeats[], persons: PersonRows): T[] {
+  const all = seats.flatMap((s) => rekeyStore(rows, s, persons))
+  if (persons === 'attribute') return all
+  const seen = new Set<string | null | undefined>()
+  return all.filter((r) => {
+    if (seen.has(r.staff_id)) return false
+    seen.add(r.staff_id)
+    return true
+  })
 }
 
 export type StoreSample =
