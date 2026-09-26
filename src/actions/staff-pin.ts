@@ -7,6 +7,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { audit } from '@/lib/audit'
 import { resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { can } from '@/lib/auth/require-permission'
+import { coreFailureLine, classifyCoreThrow } from '@/lib/auth/core-failure-line'
 import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import {
@@ -117,7 +118,10 @@ export async function setStaffPinCore(
     })
     return {}
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    // S33 (D-S33-1/2): a synqed-core OUTAGE answers the failure line — here, so the facade
+    // twin (the same core) prints it too; core's own refusal (4xx) keeps its bytes.
+    const line = await coreFailureLine(classifyCoreThrow(err), '[staff-pin]')
+    return { error: line ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 
@@ -191,7 +195,10 @@ export async function removeStaffPinCore(
     })
     return {}
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    // S33 (D-S33-1/2): a synqed-core OUTAGE answers the failure line — here, so the facade
+    // twin (the same core) prints it too; core's own refusal (4xx) keeps its bytes.
+    const line = await coreFailureLine(classifyCoreThrow(err), '[staff-pin]')
+    return { error: line ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 

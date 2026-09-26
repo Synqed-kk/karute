@@ -404,7 +404,12 @@ export async function writeOrgSettingsBlobWithClient(
     // wrapper below owns revalidatePath/updateTag.
     return { success: true }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : 'Unknown error' }
+    // S33 (D-S33-1/2): a synqed-core OUTAGE answers the failure line (every caller branches on
+    // `'error' in`, never on the text); core's own refusal keeps its bytes. Dynamic, like
+    // upsertOrgSettings's own import below.
+    const { coreFailureLine, classifyCoreThrow } = await import('@/lib/auth/core-failure-line')
+    const line = await coreFailureLine(classifyCoreThrow(err), '[org-settings]')
+    return { error: line ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 

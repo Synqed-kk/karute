@@ -13,7 +13,7 @@ import {
 } from '@/lib/karute/karute-window'
 import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
 import { can, requireCapability } from '@/lib/auth/require-permission'
-import { coreFailureLine } from '@/lib/auth/core-failure-line'
+import { coreFailureLine, classifyCoreThrow } from '@/lib/auth/core-failure-line'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope, customerLensFor, storeStaffIdSet } from '@/lib/auth/store-scope'
@@ -467,7 +467,8 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
 
     return { success: true }
   } catch (err) {
-    return { error: (await coreFailureLine(err, '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+    // S33 (D-S33-1): the delete is a raw SDK call — classify its outage before asking the line.
+    return { error: (await coreFailureLine(classifyCoreThrow(err), '[karute]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
   }
 }
 

@@ -4,7 +4,7 @@ import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
-import { coreFailureLine } from '@/lib/auth/core-failure-line'
+import { coreFailureLine, classifyCoreThrow } from '@/lib/auth/core-failure-line'
 import { auditWeb } from '@/lib/audit-web'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { getCurrentUserStaffId } from '@/lib/staff'
@@ -417,9 +417,11 @@ export async function grantCustomerConsent(
     })
     return { ok: true as const, consent }
   } catch (err) {
+    // S33 (D-S33-1/2): a synqed-core OUTAGE answers the failure line; core's own refusal keeps its bytes.
+    const line = await coreFailureLine(classifyCoreThrow(err), '[customers]')
     return {
       ok: false as const,
-      error: err instanceof Error ? err.message : 'Unknown error',
+      error: line ?? (err instanceof Error ? err.message : 'Unknown error'),
     }
   }
 }
