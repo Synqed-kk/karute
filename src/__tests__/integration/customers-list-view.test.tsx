@@ -99,7 +99,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={42}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -117,7 +116,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={20}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -134,7 +132,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={20}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -157,7 +154,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={5}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -179,7 +175,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={2}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -201,7 +196,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={3}
         query=""
         selfStaffId="s-1"
         assignableStaff={[]}
@@ -231,7 +225,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={21}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -252,7 +245,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={[]}
-        totalRegistered={0}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -267,7 +259,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={[]}
-        totalRegistered={10}
         query="zzz"
         selfStaffId={null}
         staffList={[]}
@@ -283,7 +274,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={2}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -298,7 +288,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={2}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -314,7 +303,7 @@ describe('案D stats strip', () => {
   it('honesty gate: bookingDataAvailable=false hides 予約なし (no confident 100% lie)', () => {
     const rows = [row({ id: 'a', nextBookingDate: null }), row({ id: 'b', nextBookingDate: null })]
     render(
-      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={rows} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} bookingDataAvailable={false} />,
     )
     expect(screen.queryByText(/noBooking:/)).toBeNull()
@@ -327,7 +316,7 @@ describe('案D stats strip', () => {
       row({ id: 'c', name: 'Grad', status: 'graduated', nextBookingDate: null }),
     ]
     render(
-      <CustomersListView rows={rows} totalRegistered={3} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={rows} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // counts a but not c (graduated) → 1
@@ -342,7 +331,7 @@ describe('案D stats strip', () => {
   it('pack stats hide pre-import (no pack data) — 予約なし stays', () => {
     const rows = [row({ id: 'a', nextBookingDate: null }), row({ id: 'b', nextBookingDate: '6/20' })]
     render(
-      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={rows} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.getByText('noBooking:{"n":1}')).toBeInTheDocument()
@@ -356,7 +345,7 @@ describe('案D stats strip', () => {
       row({ id: 'b', pack: { remaining: 4, size: 10, unconsumed: 39600 }, nextBookingDate: '6/16' }),
     ]
     render(
-      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={rows} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(within(screen.getByText('packRemainingLabel1').closest('button')!).getByText('packRemainingCount:{"n":1}')).toBeInTheDocument()
@@ -375,7 +364,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('renders the view-scoped mtd sum with the ▲% vs the prev same-period window', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 10_000 }, b: { mtd: 40_000, prev: 40_000 } }}
       />,
@@ -389,7 +378,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('re-scopes to the filtered list — the ¥ always describes what you see (#534 rule)', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 10_000 }, b: { mtd: 40_000, prev: 40_000 } }}
       />,
@@ -403,7 +392,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('hides the ▲% when the prev window is ¥0 (a % of zero is meaningless)', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
       />,
@@ -414,7 +403,7 @@ describe('今月消化 burn stat (案A)', () => {
 
   it('honesty gate: no burn data (default) → the stat does not render', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.queryByText('burnLabel')).toBeNull()
@@ -423,7 +412,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('honesty gate: burn data without pack data → hidden (it is a pack stat)', () => {
     render(
       <CustomersListView
-        rows={[row({ id: 'a', nextBookingDate: null })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]}
+        rows={[row({ id: 'a', nextBookingDate: null })]} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
       />,
@@ -434,7 +423,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('honesty gate is VIEW-scoped: an unpriceable customer in view hides the stat…', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
         burnUnpricedIds={['b']}
@@ -446,7 +435,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('…but filtering the unpriceable customer OUT restores the exact stat', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
         burnUnpricedIds={['b']}
@@ -476,7 +465,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('hides the bits while no row has pack data', () => {
     render(
-      <CustomersListView rows={[row({ id: 'a' })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={[row({ id: 'a' })]} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.queryByText(/packRemaining/)).toBeNull()
@@ -484,7 +473,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('renders 残１/残２/残３ with exact-count numbers (残３ stays visible at 0)', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(within(bit(1)).getByText('packRemainingCount:{"n":2}')).toBeInTheDocument()
@@ -494,7 +483,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('tapping 残１ narrows to remaining===1; tapping again clears', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(1))
@@ -508,7 +497,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('multi-select unions 残１+残２ (Kitano\'s「3回未満」population)', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(1))
@@ -519,7 +508,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('composes with 予約なし — 残１ × no booking (the sheet-impossible combo)', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(1))
@@ -532,7 +521,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('the segmented status bar and the 残数 bits are independent controls', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // Activating a status segment must not clear the 残数 selection.
@@ -553,7 +542,7 @@ describe('UltraCode fix round (7/17)', () => {
   it('legacy ?f=packLow migrates to the 残１ bit (visible + clearable, list narrowed)', () => {
     mockSearch = 'f=packLow'
     render(
-      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // Migrated: the 残１ bit is pressed and the list shows only remaining===1.
@@ -570,7 +559,7 @@ describe('UltraCode fix round (7/17)', () => {
 
   it('a 0-count 残n bit shows the filter-no-match state, never the onboarding empty state', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(screen.getByText('packRemainingLabel3'))
@@ -581,7 +570,7 @@ describe('UltraCode fix round (7/17)', () => {
 
   it('the true first-run empty state (zero rows) is unchanged', () => {
     render(
-      <CustomersListView rows={[]} totalRegistered={0} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={[]} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.getByText('empty.title')).toBeInTheDocument()
@@ -590,7 +579,7 @@ describe('UltraCode fix round (7/17)', () => {
 
   it('予約なし stat announces aria-pressed like the bits beside it', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     const noBooking = screen.getByText('noBooking:{"n":2}').closest('button')
@@ -624,7 +613,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('residual-bit selection recounts the whole status dimension (Liam\'s screenshot bug)', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // Baseline: all frozen-free numbers agree with the full set.
@@ -645,7 +634,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('INVARIANT: every segment count equals the list you get by tapping it', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(1)) // fix the pack dimension: 残1 = A,B,C
@@ -658,7 +647,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('INVARIANT: status selection recounts the bits; multi-select list = sum of selected bit counts', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(screen.getByText('filters.dormant')) // C(残1), D(残2), H(no pack)
@@ -674,7 +663,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('INVARIANT: 予約なし count = the rows tapping it shows, inside any pack slice', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(2)) // 残2 = D,E
@@ -694,7 +683,6 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={8}
         query=""
         selfStaffId="s-1"
         assignableStaff={[]}
@@ -711,7 +699,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('hide-when-zero keys off the baseline: segments survive a 0-count slice, hide only pre-import', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(3)) // 残3 = F (on-track only)
@@ -720,7 +708,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
     expect(segCount('dormant')).toBe('0')
     // Pre-import (no followup/dormant rows at all) → hidden as before.
     render(
-      <CustomersListView rows={[row({ id: 'x' })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={[row({ id: 'x' })]} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.getAllByText('filters.all').length).toBeGreaterThan(0)
@@ -728,7 +716,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('未消化 is view-scoped and ¥0 renders as an honest answer (layout stays)', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // G,H have no pack → their slice's stranded money is 0. dormant∧残3 = empty view.
@@ -750,7 +738,7 @@ describe('顧客 TAB LOCKED — one search row with the add circle, one staff co
   ]
   const renderView = () =>
     render(
-      <CustomersListView rows={rows()} totalRegistered={2} query="" selfStaffId="s-1"
+      <CustomersListView rows={rows()} query="" selfStaffId="s-1"
         staffList={STAFF} assignableStaff={[]} />,
     )
   beforeEach(() => window.localStorage.clear())
@@ -774,7 +762,7 @@ describe('顧客 TAB LOCKED — one search row with the add circle, one staff co
     const { container } = render(
       <CustomersListView
         rows={[...rows(), row({ id: 'f', name: 'Follow', status: 'needs-followup' })]}
-        totalRegistered={3} query="" selfStaffId="s-1" staffList={STAFF} assignableStaff={[]} />,
+        query="" selfStaffId="s-1" staffList={STAFF} assignableStaff={[]} />,
     )
     const urgent = [...container.querySelectorAll('[data-words-row] [data-count="urgent"]')]
     expect(urgent.map((e) => e.closest('button')!.textContent)).toEqual(['filters.followup1'])

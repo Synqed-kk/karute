@@ -49,9 +49,6 @@ const PAGE_SIZE = 12
 
 interface CustomersListViewProps {
   rows: CustomerListRow[]
-  /** NOT RENDERED since ⚖ 顧客 TAB LOCKED 02:1x removed the 「登録中の顧客 ·
-   *  全…」 status line. Still passed by both doors (web page / thin screen). */
-  totalRegistered: number
   query: string
   selfStaffId: string | null
   /** Booking enrichment loaded? false → the 予約なし stat hides (honesty gate). */

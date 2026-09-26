@@ -122,7 +122,6 @@ function row(over: Partial<CustomerListRow> = {}): CustomerListRow {
 const list = (rows: CustomerListRow[]) => (
   <CustomersListView
     rows={rows}
-    totalRegistered={rows.length}
     query=""
     selfStaffId={null}
     staffList={[]}

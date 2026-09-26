@@ -38,7 +38,6 @@ export function CustomersScreen() {
       {(dto) => (
         <CustomersListView
           rows={dto.rows}
-          totalRegistered={dto.totalRegistered}
           query={query}
           selfStaffId={dto.selfStaffId}
           bookingDataAvailable={dto.bookingDataAvailable}

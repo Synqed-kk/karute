@@ -38,7 +38,6 @@ function View() {
     return (
       <CustomersListView
         rows={customerRows()}
-        totalRegistered={1234}
         query=""
         selfStaffId={SELF_ID}
         staffList={STAFF}

@@ -144,7 +144,6 @@ export default async function CustomersPage({
       <QuietRefresh renderedAt={renderStamp()} />
       <CustomersListView
         rows={screen.rows}
-        totalRegistered={screen.totalRegistered}
         query={query}
         selfStaffId={activeStaffId}
         bookingDataAvailable={screen.bookingDataAvailable}
