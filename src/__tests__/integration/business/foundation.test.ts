@@ -475,6 +475,10 @@ describe('the fixture data door', () => {
         '@/business/lib/admission',
         '@/business/lib/clock',
         '@/business/lib/data',
+        // ⚖ PR-3 fix round 1 (Greptile P1) — `fixtures-settings` (the `rulebook`) + `settings` (`accessFor`,
+        // `gateOf`, `sectionById`) join for ONE boolean, `canOpenLegendSettings`: the 設定 room's own gate,
+        // asked with the room's own inputs (settings-props.ts), never a second reading of the rule. No data read.
+        '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-today',
         // PR-2: the per-store SAMPLE words read (`storeSample`, never a throw on a live uuid).
         '@/business/lib/practice-door/sample-facade',
@@ -482,6 +486,7 @@ describe('the fixture data door', () => {
         // under today/. `resourceWordsFor`/`chromeWords` live here and
         // nowhere else in this directory (the resource-words census's C5 pin).
         '@/business/lib/resource-words',
+        '@/business/lib/settings',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
@@ -552,6 +557,10 @@ describe('the fixture data door', () => {
         // `./reserved-mask`, which is already on this list.
         './timed-release',
         './today-interactions',
+        // ⚖ PR-3 of 予約の色分け — the Business string home, for the 色の意味
+        // chip's text (a NEW visible string goes through it, never a literal).
+        // It imports only `./ja.json`, so this arrow adds no code module below.
+        '@/business/i18n',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
         '@/business/lib/canon-logic/pricing',
@@ -559,7 +568,7 @@ describe('the fixture data door', () => {
         // unchanged; only where the four functions live moved.
         '@/business/lib/guide',
         // ⚖ S17 fix round 5 · G2 (D-41) — the ONE link home, reached for the
-        // 保護ルール chip and nothing else. It is a string builder with no
+        // 保護ルール chip and (PR-3 of 予約の色分け) the 色の意味 chip, nothing else. It is a string builder with no
         // imports of its own, so this arrow adds no module to the graph below
         // it.
         // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: a TYPE-only import of
