@@ -2051,8 +2051,9 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // `aria-disabled`, never `disabled`, on a locked control: it has to stay
     // focusable for its reason to be reachable by keyboard. The two `disabled`
     // attributes in this file are the save button and the tour's 前へ, which are
-    // genuinely unusable rather than refusing.
-    expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(2)
+    // genuinely unusable rather than refusing — and (⚖ PR-3) a select's
+    // 「未設定」 option, which is a state shown, never a choice offered.
+    expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(3)
   })
 
   it('the room’s own SOURCE keeps the codes where codes belong', () => {
@@ -3820,10 +3821,26 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
         if (name && /^[a-z][\w-]*$/.test(name)) rendered.add(name)
       }
     }
-    const SHELL = new Set(['page', 'pg-settings', 'btn', 'primary'])
+    // ⚖ PR-3 — the 「サンプル」 mark is ONE token for two rooms, so it is the shell sheet's.
+    const SHELL = new Set(['page', 'pg-settings', 'btn', 'primary', 'sample-mark', 'sample-mark-note', 'sample-mark-line', 'sample-pop', 'no-sample'])
     const strays = [...rendered].filter((n) => !n.startsWith('st-') && !n.startsWith('is-') && !SHELL.has(n))
     expect(strays).toEqual([])
     expect([...rendered].filter((n) => n.startsWith('st-')).length).toBeGreaterThan(35)
+  })
+
+  // ⚖ PR-3 — the room draws the mark and the card ONLY off the payload's own flags,
+  // which the builders emit only when true (so a switch-OFF payload never has them).
+  it('PR-3: chip + note on `block.sample`, the card on `block.sampleNone` / `section.sampleNone`, the section mark on `section.sample`', () => {
+    for (const gate of [
+      '{mark && <MarkChip mark={mark} ',
+      '{mark && <MarkNote mark={mark} ',
+      '{block.sampleNone && <NoSample />}',
+      '{section.sampleNone && <NoSample />}',
+      '{section.sample && <SampleMark mark={section.sample} ',
+      // ⚖ §v3 V3-6 — a marked section's blocks carry no mark of their own: ONE rule, here.
+      'const mark = section.sample ? undefined : seed.sample',
+    ]) expect(SCREEN_CODE.split(gate).length - 1).toBe(1)
+    expect(SCREEN_CODE.match(/<(MarkChip|MarkNote|NoSample|SampleMark)\b/g)).toHaveLength(7) // the five gated + SampleMark's own chip + note
   })
 
   it('this room’s own names exist NOWHERE else in the family', () => {
@@ -4326,6 +4343,62 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
       'カードの色を12色から1つ選びます。押すと、見本のカードがその色になります。',
       '選んだ色で、お店のカードがReserveでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。',
     ]) expect({ line, present: LOOK_CODE.includes(line) }).toEqual({ line, present: true })
+  })
+})
+
+// ⚖ PR-3 — THE 「サンプル」 MARK AND THE NO-SAMPLE CARD ARE UNREACHABLE WITH THE
+// PRACTICE SWITCH OFF (every deployment today): no block or section of any lens
+// grows a `sample` / `sampleNone` key, and the bare placeholder is gone for good.
+describe('⚖ PR-3 — the preview board is a DISPLAY EXAMPLE (X-1), at every switch position', () => {
+  it('its note reads 「いまの設定での見え方（表示例）」 from the string home — ONLY where the static 見本 board draws; live previews keep their note', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expect((require('@/business/i18n') as typeof import('@/business/i18n')).businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')
+    expect(SCREEN_CODE).toContain("<div className=\"st-pv-note\">{block.preview.attrs ? businessStrings.settings.pvNoteExample : 'いまの設定での見え方'}</div>")
+    expect(SCREEN_CODE).toContain('{block.preview.attrs && (')
+    expect(SCREEN_CODE).toContain('<span>10:00 見本 あかり 様</span>')
+    // the board (and so the 表示例 note) is 自分の表示設定's alone
+    const withAttrs = (await room({ store: STORE_A })).sections.flatMap((x) => x.blocks.filter((b) => b.preview?.attrs).map((b) => b.id))
+    expect(withAttrs).toEqual(['my-display.prefs'])
+  })
+})
+
+// ⚖ PR-3 — THE MARK'S WORDS, VERBATIM from the mock (mocks/pr3/tools/build.py STRINGS,
+// native pass folded §v2). An emptied or reworded string here is a mark that says
+// nothing, so every one is pinned.
+describe('⚖ PR-3 — the mark’s strings are the mock’s, verbatim', () => {
+  it('sampleMark.* + settings.typeUnset + settings.pvNoteExample', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { businessStrings } = require('@/business/i18n') as typeof import('@/business/i18n')
+    expect(businessStrings.sampleMark).toEqual({
+      chip: 'サンプル',
+      chipLabel: 'サンプル — 説明を開く',
+      markNote: 'この内容はサンプルです。実データはまだつながっていません。',
+      popLabel: 'サンプルについて',
+      popLine1: 'この印は、見本の内容を表示しているところに付きます。この店舗の実データではありません。',
+      popLine2: 'この店舗の実データがつながると、印は外れ、実際の内容に置き換わります。',
+      noneHead: 'この店舗にサンプルデータはありません',
+      noneText: 'この店舗の実データがつながると、ここに表示されます。',
+      // ⚖ §v3 — the part form, the labels and the practice topbar (tools/build.py STRINGS, native-passed).
+      markNotePart: '{部分}はサンプルです。実データはまだつながっていません。',
+      popLine1Part: '{部分}は見本の内容です。この店舗の実データではありません。',
+      part: { staffActive: '稼働状態', staffSettings: '役職と表示', operatingHours: '営業時間', shiftsAbsence: 'シフトと休み', sellSlots: '販売可能枠', bookingGuard: '予約と確保の設定' },
+      partJoin: '、',
+      topNote: '練習用の事業',
+      topNoteLabel: '練習用の事業 — 実在の店舗の予約・お客様ではありません',
+    })
+    expect(businessStrings.settings.typeUnset).toBe('未設定')
+    expect(businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')
+  })
+})
+
+describe('⚖ PR-3 — switch OFF: no mark, no card, no placeholder', () => {
+  it.each([['STORE_A', STORE_A], ['STORE_B', STORE_B], ['STORE_C', STORE_C], ['all stores', undefined]])('%s', async (_label, store) => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const props = await room(store === undefined ? {} : { store })
+    const json = JSON.stringify(props)
+    expect(json).not.toMatch(/"sample(None)?":/)
+    expect(json).not.toContain('サンプル設定なし')
+    expect(json).not.toContain('"disabled":true') // 業種 has a type on every fixture store
   })
 })
 

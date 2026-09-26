@@ -217,9 +217,9 @@ export async function listStoreOptions(): Promise<FixtureStore[]> {
     if (policy.kind === 'twin') {
       const twin = stores.find((f) => f.id === policy.fixtureStoreId)
       if (!twin) throw new Error(`practice door: registry twin ${policy.fixtureStoreId} has no fixture store`)
-      return { id: s.id, name: s.name, business_type: twin.business_type, default_kind_id: twin.default_kind_id }
+      // ⚖ PR-3 V4-2 — the store's own 業種 wins when the registry names one; the plane is the twin's.
+      return { id: s.id, name: s.name, business_type: policy.business_type ?? twin.business_type, default_kind_id: twin.default_kind_id }
     }
-    if (policy.kind === 'named') return { id: s.id, name: s.name, business_type: policy.business_type, default_kind_id: '' }
     return { id: s.id, name: s.name, business_type: '', default_kind_id: '' }
   })
 }

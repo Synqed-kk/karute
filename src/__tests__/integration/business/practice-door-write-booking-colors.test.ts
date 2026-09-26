@@ -32,6 +32,9 @@ import { PUT } from '@/app/api/business/booking-colors/route'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import { bookingColorsOf, putBookingColors } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
 import { bookingColorsFor } from '@/business/lib/today-board'
+import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { STORE_A } from '@/business/lib/fixtures'
+import { storeDials } from '@/business/lib/fixtures-settings'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CARD, LOGIN, SHEETS, STORE, TENANT, recordedReads } from './practice-door-recorded'
@@ -445,12 +448,17 @@ describe('⚖ PKT-S38 R4 — the route: the card route’s twin, body exactly { 
 })
 
 // ── the page + the screen (R7) ───────────────────────────────────────────────────────────────
-type El = { props: { saveBookingColors?: unknown; saveCardColor?: unknown; sections: Array<{ id: string; lead: string; blocks: Array<{ id: string; rows: Array<{ controls: Array<{ id: string; value: unknown }> }> }> }> } }
+type El = { props: { saveBookingColors?: unknown; saveCardColor?: unknown; sections: Array<{ id: string; lead: string; sampleNone?: true; blocks: Array<{ id: string; sample?: unknown; rows: Array<{ controls: Array<{ id: string; value: unknown }> }> }> }> } }
 const render = async (store: string = S) =>
   (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section: 'language-display' }) })) as unknown as El
 const langOf = (el: El) => el.props.sections.find((x) => x.id === 'language-display')!
 const dialOf = (el: El) =>
   Object.fromEntries(langOf(el).blocks.find((b) => b.id === 'lang.colors')!.rows.flatMap((r) => r.controls).map((c) => [c.id.replace('lang.color-', ''), c.value]))
+const langBlock = (el: El, id: string) => langOf(el).blocks.find((b) => b.id === id)!
+/** 言語・表示's own lead (settings-props.ts SAMPLE_ONLY_LEAD) — the section keeps it with or without sample dials. */
+const LANG_LEAD = '表示言語と、予約の色分けです。言語は人ごと、色分けは店舗ごとの設定です。'
+/** What the fixture plane the Dev Salon borrows (STORE_A's) would seed the dial with — `d.bookingColors[k] ?? default`. */
+const FIXTURE_SEED = Object.fromEntries(Object.entries(BOOKING_COLOR_DEFAULTS).map(([k, hex]) => [k, storeDials[STORE_A].bookingColors[k] ?? hex]))
 
 describe('⚖ PKT-S38 R7 — the page: 予約の色分け is live while the door is ON', () => {
   it('ON, no key: the lens store gets the dial seeded with the four defaults, and the save prop (the admitted business, the store, canSave, colors)', async () => {
@@ -459,12 +467,41 @@ describe('⚖ PKT-S38 R7 — the page: 予約の色分け is live while the door
     expect(dialOf(el)).toEqual(BOOKING_COLOR_DEFAULTS)
     // テスト東京店 has a fixture twin (store-test-ginza): its sample language rows stay, the colours are live
     expect(langOf(el).blocks.map((b) => b.id)).toEqual(['lang.language', 'lang.colors'])
-    // a live store with NO fixture twin (Dev Salon): ONLY the colours block; the rest keeps サンプル設定なし
+    // ⚖ §v6 V6-1 — the Dev Salon HAS a twin (§v4 V4-2, every practice store filled in: it borrows STORE_A's plane),
+    // so it shows BOTH blocks like 東京: the language rows are the sample plane (marked; the section's own lead), the
+    // colours are LIVE — core's four, the defaults while no key is saved — and carry no mark (§v6 V6-2).
     const bare = await render(STORE.devSalon)
-    expect(langOf(bare).blocks.map((b) => b.id)).toEqual(['lang.colors'])
-    expect(langOf(bare).lead).toBe('サンプル設定なし')
+    expect(langOf(bare).blocks.map((b) => b.id)).toEqual(['lang.language', 'lang.colors'])
+    expect(langOf(bare).lead).toBe(LANG_LEAD)
+    expect(langOf(bare).sampleNone).toBeUndefined()
+    expect(langBlock(bare, 'lang.language').sample).toEqual({ form: 'whole' })
+    expect(langBlock(bare, 'lang.colors').sample).toBeUndefined()
     expect(dialOf(bare)).toEqual(BOOKING_COLOR_DEFAULTS)
     expect(bare.props.saveBookingColors).toEqual({ businessId: TENANT, storeId: STORE.devSalon, canSave: true, colors: BOOKING_COLOR_DEFAULTS })
+    // …and the dial is the LIVE read, never the twin's fixture dials: a key saved for the Dev Salon seeds it, where
+    // the borrowed plane would seed FIXTURE_SEED (with no key saved the two agree — both are the defaults).
+    seed({ [K(STORE.devSalon)]: PICK })
+    const keyed = await render(STORE.devSalon)
+    expect(dialOf(keyed)).toEqual(PICK)
+    expect(dialOf(keyed)).not.toEqual(FIXTURE_SEED)
+    expect(langBlock(keyed, 'lang.colors').sample).toBeUndefined()
+  })
+
+  it('⚖ §v6 V6-1 — the no-twin branch (`d === null`: a store with no sample dials, e.g. one made after this registry): ONLY the live colours block; the rest of 言語・表示 is the no-sample card', async () => {
+    // The Dev Salon is absent from the registry's `twins.stores`; `world.dials: null` takes away the plane it
+    // borrows, so settings-props' storeSection runs its `d === null` path — the one a store with no twin takes.
+    seed({ [K(STORE.devSalon)]: PICK })
+    const { props, bookingColors } = await settingsProps({ locale: 'ja', store: STORE.devSalon, world: { dials: null }, bookingColors: { raw: await data.readBookingColors() } })
+    const lang = props.sections.find((x) => x.id === 'language-display')!
+    expect(lang.blocks.map((b) => b.id)).toEqual(['lang.colors'])
+    expect(lang.sampleNone).toBe(true)
+    expect(lang.lead).toBe(LANG_LEAD)
+    expect(lang.blocks[0].sample).toBeUndefined()
+    expect(Object.fromEntries(lang.blocks[0].rows.flatMap((r) => r.controls).map((c) => [c.id.replace('lang.color-', ''), c.value]))).toEqual(PICK)
+    expect(bookingColors).toEqual(PICK)
+    // a sample-only section with no live block keeps no blocks at all, only the card
+    const pay = props.sections.find((x) => x.id === 'payments')!
+    expect([pay.blocks, pay.sampleNone]).toEqual([[], true])
   })
 
   it('ON, a saved map: the lens store’s dial is seeded with ITS saved four; another store keeps the defaults', async () => {

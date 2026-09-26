@@ -71,6 +71,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
+import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
@@ -118,6 +119,7 @@ import {
   type RailRow,
   type RowControl,
   type RowValue,
+  type SampleMark as SampleMarkForm,
   type SettingsBlock,
   type SettingsProps,
   type SettingsRow,
@@ -1082,6 +1084,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           )}
         </p>
       )}
+      {section.sample && <SampleMark mark={section.sample} id={`st-mark-${section.id}`} reduced={reduced} />}
     </div>
   )
 
@@ -1374,6 +1377,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           ) : (
             columnAnd(
               <div className="st-main">
+                {section.sampleNone && <NoSample />}
                 {section.blocks.map((b) => (
                   <Block
                     key={b.id}
@@ -1687,6 +1691,79 @@ function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: 
   )
 }
 
+// ── ⚖ PR-3 — the 「サンプル」 mark ────────────────────────────────────────────
+//
+// ONE token (`.sample-mark` in the shell sheet, amber wash — never black), ONE
+// string home (`businessStrings.sampleMark`). The chip opens its two-line
+// explanation on the room's ONE disclosure (`Collapse` → `makeSpring`): no
+// second easing, and an inline panel rather than a floating popover because
+// that is the shape `Collapse` has. Esc on the chip closes it; focus never left
+// the chip, so it is already where it returns to.
+
+const MARK = businessStrings.sampleMark
+
+function MarkChip({ mark, open, controls, onToggle }: { mark: SampleMarkForm; open: boolean; controls: string; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="sample-mark"
+      aria-expanded={open}
+      aria-controls={controls}
+      aria-label={MARK.chipLabel}
+      data-guide-title={MARK.popLabel}
+      data-guide={`${sampleMarkLines(mark).pop1}${MARK.popLine2}`}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) {
+          e.stopPropagation()
+          onToggle()
+        }
+      }}
+    >
+      {MARK.chip}
+    </button>
+  )
+}
+
+/** The note line, and under it the chip's explanation on `Collapse`. ⚖ §v3 V3-3 —
+ *  both say the mark's FORM: the whole block, or only its named parts. */
+function MarkNote({ mark, id, open, reduced }: { mark: SampleMarkForm; id: string; open: boolean; reduced: boolean }) {
+  const lines = sampleMarkLines(mark)
+  return (
+    <>
+      <p className="sample-mark-note">{lines.note}</p>
+      <Collapse open={open} id={id} reduced={reduced}>
+        <div className="sample-pop" role="note" aria-label={MARK.popLabel}>
+          <p>{lines.pop1}</p>
+          <p>{MARK.popLine2}</p>
+        </div>
+      </Collapse>
+    </>
+  )
+}
+
+/** A section's mark (予約と確保): chip + note on one line under the lead. ⚖ §v3
+ *  V3-6 — it is the section's ONLY mark: its blocks draw none (see `Block`). */
+function SampleMark({ mark, id, reduced }: { mark: SampleMarkForm; id: string; reduced: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="sample-mark-line">
+      <MarkChip mark={mark} open={open} controls={id} onToggle={() => setOpen((o) => !o)} />
+      <MarkNote mark={mark} id={id} open={open} reduced={reduced} />
+    </div>
+  )
+}
+
+/** The `no-sample-policy` state: where 「サンプル設定なし」 used to print. */
+function NoSample() {
+  return (
+    <div className="no-sample" role="note" data-guide-title={MARK.noneHead} data-guide={MARK.noneText}>
+      <b>{MARK.noneHead}</b>
+      <p>{MARK.noneText}</p>
+    </div>
+  )
+}
+
 // ── a block ────────────────────────────────────────────────────────────────
 
 function Block({
@@ -1726,6 +1803,10 @@ function Block({
   onListRemove: (rowId: string) => void
   reduced: boolean
 }) {
+  const [markOpen, setMarkOpen] = useState(false)
+  // ⚖ PR-3 §v3 V3-6 — ONE RULE, ONE HOME: under a marked section its blocks carry
+  // no mark of their own (the section's chip already says it).
+  const mark = section.sample ? undefined : seed.sample
   const roomBlock = wordsRoomBlock(section, seed.id, values)
   const block: SettingsBlock = roomBlock === null ? seed : { ...seed, ...(roomBlock.title === undefined ? {} : { title: roomBlock.title }), ...(roomBlock.note === undefined ? {} : { note: roomBlock.note }) }
   const rows = block.table === null ? block.table : filterTable(block, values)
@@ -1754,9 +1835,11 @@ function Block({
             jump has to move the caret as well as the page, or a keyboard reader
             presses 「営業時間」 and is still standing in the list. */}
         <h3 id={`st-blkh-${block.id}`} tabIndex={-1}>{block.title}</h3>
+        {mark && <MarkChip mark={mark} open={markOpen} controls={`st-mark-${block.id}`} onToggle={() => setMarkOpen((o) => !o)} />}
         {block.flag && <span className="st-flag is-soon">{block.flag}</span>}
       </div>
       {block.note && <p className="st-block-note">{block.note}</p>}
+      {mark && <MarkNote mark={mark} id={`st-mark-${block.id}`} open={markOpen} reduced={reduced} />}
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.layout === 'week' ? (
@@ -1848,7 +1931,11 @@ function Block({
             Object.entries(block.preview.attrs ?? {}).map(([attr, id]) => [attr, String(values[id] ?? '')]),
           )}
         >
-          <div className="st-pv-note">いまの設定での見え方</div>
+          {/* ⚖ PR-3 — ONLY the preview that draws the static 見本 board (`attrs`,
+              自分の表示設定) is a display example and says so; every other
+              preview is a live readout of this block's own values and keeps
+              its note. */}
+          <div className="st-pv-note">{block.preview.attrs ? businessStrings.settings.pvNoteExample : 'いまの設定での見え方'}</div>
           <p className="st-pv-text">{fillTemplate(previewTemplate(block.preview, values), labelFor)}</p>
           {block.preview.attrs && (
             <div className="st-pv-board">
@@ -1868,6 +1955,8 @@ function Block({
           <p className="st-pv-text">{block.words.copy.exampleLabel}: {sentences.example}</p>
         </div>
       )}
+
+      {block.sampleNone && <NoSample />}
 
       {block.facts.map((f, index) => (
         <p className="st-fact" key={f}>{roomBlock?.facts[index] ?? (turnoverFact?.index === index ? turnoverFact.sentence : liveFact?.index === index ? liveFact.sentence : f)}</p>
@@ -2339,7 +2428,7 @@ function Control({
         onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
       >
         {k.options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+          <option key={opt.value} value={opt.value} disabled={opt.disabled}>{opt.label}</option>
         ))}
       </select>
     )
