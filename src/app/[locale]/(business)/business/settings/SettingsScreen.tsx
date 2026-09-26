@@ -307,6 +307,10 @@ export function landOnBlock(blockId: string, reduced: boolean): void {
   head?.focus({ preventScroll: true })
 }
 
+/** The shell topbar's pre-measurement height, for the scroll-spy when the variable is unreadable. The source
+ *  of truth is settings.css's `html:has(.biz .page.pg-settings) { --st-topbar: 62px }`; a suite pins the two equal. */
+const TOPBAR_FALLBACK_PX = 62
+
 export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave }
 
 /** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
@@ -515,20 +519,25 @@ export function SettingsScreen(props: SettingsScreenProps) {
   }, [prefKey])
 
   /** ⚖ HARNESS-GEOMETRY, IN THE PRODUCT (the ② room's own rule). The sticky
-   *  stack and every block's `scroll-margin-top` hang off the SHELL's real
+   *  stack and the page scroller's `scroll-padding-top` hang off the SHELL's real
    *  topbar, which is 62px at a desk and wraps to ~87px on a narrow window — so
    *  the offset is MEASURED, once on mount and again whenever the bar changes
    *  height. The sheet's own 62px is the pre-measurement default, not the
-   *  answer. */
+   *  answer. ⚖ R-S42-5: written on the DOCUMENT element, where settings.css's
+   *  `html:has(.biz .page.pg-settings)` rule reads it, and removed on unmount —
+   *  the Karute room's F5-4 idiom (KaruteScreen.tsx:443-455). */
   useLayoutEffect(() => {
-    const root = rootRef.current
-    const bar = root?.closest('.main')?.querySelector('.topbar')
-    if (!root || !bar) return
-    const apply = () => root.style.setProperty('--st-topbar', `${Math.round(bar.getBoundingClientRect().height)}px`)
+    const bar = rootRef.current?.closest('.main')?.querySelector('.topbar')
+    if (!bar) return
+    const doc = document.documentElement
+    const apply = () => doc.style.setProperty('--st-topbar', `${Math.round(bar.getBoundingClientRect().height)}px`)
     apply()
     const ro = new ResizeObserver(apply)
     ro.observe(bar)
-    return () => ro.disconnect()
+    return () => {
+      ro.disconnect()
+      doc.style.removeProperty('--st-topbar')
+    }
   }, [])
 
   /** ⚠ THE ONE SECTION THAT SAVES OUTSIDE THIS SCREEN WRITES ON THE PRESS, not
@@ -909,8 +918,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const measure = () => {
       frame = 0
       const top = rootRef.current
-        ? parseFloat(getComputedStyle(rootRef.current).getPropertyValue('--st-topbar')) || 62
-        : 62
+        ? parseFloat(getComputedStyle(rootRef.current).getPropertyValue('--st-topbar')) || TOPBAR_FALLBACK_PX
+        : TOPBAR_FALLBACK_PX
       let best: string | null = null
       let bestSeen = -1
       for (const id of anchorIds) {

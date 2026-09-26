@@ -220,12 +220,6 @@
   --st-label-gap: 16px;
   --st-ctl-max: 440px;
 
-  /* The shell's real topbar height — the pre-measurement default only. The
-     screen corrects it on mount from the bar itself, because the shell's topbar
-     wraps to ~87px on a narrow window and a sticky column hung off a typed
-     number lands in the wrong place there (⚖ HARNESS-GEOMETRY). */
-  --st-topbar: 62px;
-
   /* ⚖ ULTRA-WIDE LAW. The work column stops at 1416px and centres, so the extra
      width of a big external display becomes symmetric page margin rather than a
      stretched row. */
@@ -243,6 +237,21 @@
      the break count toward the element's MIN-CONTENT width, so a grid track can
      shrink past the long word instead of being sized by it. */
   overflow-wrap: anywhere;
+}
+
+/* ⚖ R-S42-5 — THE CLEARANCE IS THE PAGE SCROLLER'S, NOT EACH TARGET'S: the Karute
+   room's F5-4 idiom (karute.css:171-175). This room scrolls the DOCUMENT, so a
+   `scroll-padding` on `html` covers every scroll the browser makes — a jump, a
+   link's landing, focus moving to a control under the bar — where a
+   `scroll-margin-top` on `.st-block` covered jumps to a block only (予約と確保's two
+   anchors are not blocks). `:has()` keeps it this room's after a soft-nav. The
+   shell's real topbar height: 62px is the pre-measurement default only — the
+   screen writes the measured bar on this element, because the topbar wraps to
+   ~87px on a narrow window (⚖ HARNESS-GEOMETRY). The sticky stack and the
+   scroll-spy read the same variable, inherited. */
+html:has(.biz .page.pg-settings) {
+  --st-topbar: 62px;
+  scroll-padding-top: calc(var(--st-topbar) + 12px);
 }
 
 /* ── the head: ONE compact row ─────────────────────────────────────────────── */
@@ -425,8 +434,6 @@
   padding: 12px 14px 13px;
   border: 1px solid var(--st-line); border-radius: 13px;
   background: var(--st-panel-bg);
-  /* The jump list lands a block under the shell's sticky topbar, not behind it. */
-  scroll-margin-top: calc(var(--st-topbar) + 12px);
 }
 .biz .pg-settings .st-block-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .biz .pg-settings .st-block-head h3 { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.4; letter-spacing: -.005em; color: var(--ink); }
