@@ -47,8 +47,10 @@
 //   expected      = chip(this case's label) + 8 + control
 // with 新規(no count) from ab-measure's chipWidths. |mine − expected| > 1px =
 // DEVIATION (reported, never tuned away).
-// Emits <out>/fit-proof-s46.md + .json. Exit 1 on any FAIL (not on a
-// deviation). Only the server this script starts is ever stopped.
+// Emits <out>/fit-proof-s46.md + .json. Exit 1 on any FAIL — and, when the
+// c-measure inputs are given, on any deviation > 1px (or inputs given but not
+// found); a sub-1px difference is recorded (JSON Δ columns), never failing.
+// Only the server this script starts is ever stopped.
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -320,6 +322,15 @@ if (blocked > 0) failures.push(`${blocked} request(s) left the harness origin (a
 let expectations = null
 let shinkiNone = null
 const deviations = []
+// A deviation > TOL px FAILS the run; a step disagreement whose numbers all sit
+// within TOL is a 6px-line straddle — recorded, not failing (any > TOL number
+// behind one has already failed on its own line).
+const deviate = (text, delta) => {
+  deviations.push(text)
+  if (Math.abs(delta) > TOL) failures.push(`DEVIATION > ${TOL}px: ${text}`)
+}
+if ((CM || AB) && !(CM && AB && existsSync(CM) && existsSync(AB)))
+  failures.push(`c-measure comparison asked for, but --cmeasure / --abmeasure is missing or not found (${CM} · ${AB})`)
 if (CM && AB && existsSync(CM) && existsSync(AB)) {
   const cm = JSON.parse(readFileSync(CM, 'utf8'))
   const ab = JSON.parse(readFileSync(AB, 'utf8'))
@@ -348,10 +359,10 @@ if (CM && AB && existsSync(CM) && existsSync(AB)) {
     const expRule = avail - exp0 >= SPARE_MIN ? '' : exp1 != null && avail - exp1 >= SPARE_MIN ? 'badgeOnly' : c.natural1 != null ? 'badgeOnly ownRow' : 'ownRow'
     const e = { ...c, exp0, exp1, expMonthW: monthW, expRule, d0: c.natural0 - exp0, d1: exp1 == null ? null : c.natural1 - exp1, dMonth: c.m.chipW - monthW }
     expectations.push(e)
-    if (Math.abs(e.d0) > TOL) deviations.push(`${c.engine} ${c.w} ${c.lang} ${c.month} ${c.staff}: natural ${c.natural0.toFixed(1)} vs c-measure-derived ${exp0.toFixed(1)} (Δ ${e.d0.toFixed(1)})`)
-    if (e.d1 != null && Math.abs(e.d1) > TOL) deviations.push(`${c.engine} ${c.w} ${c.lang} ${c.month} ${c.staff}: badge-only natural ${c.natural1.toFixed(1)} vs ${exp1.toFixed(1)} (Δ ${e.d1.toFixed(1)})`)
-    if (Math.abs(e.dMonth) > TOL) deviations.push(`${c.engine} ${c.w} ${c.lang} ${c.month}: month chip ${c.m.chipW.toFixed(1)} vs c-measure ${monthW.toFixed(1)}`)
-    if (expRule !== c.applied) deviations.push(`${c.engine} ${c.w} ${c.lang} ${c.month} ${c.staff}: steps "${c.applied}" vs c-measure-derived "${expRule}"`)
+    if (Math.abs(e.d0) > TOL) deviate(`${c.engine} ${c.w} ${c.lang} ${c.month} ${c.staff}: natural ${c.natural0.toFixed(1)} vs c-measure-derived ${exp0.toFixed(1)} (Δ ${e.d0.toFixed(1)})`, e.d0)
+    if (e.d1 != null && Math.abs(e.d1) > TOL) deviate(`${c.engine} ${c.w} ${c.lang} ${c.month} ${c.staff}: badge-only natural ${c.natural1.toFixed(1)} vs ${exp1.toFixed(1)} (Δ ${e.d1.toFixed(1)})`, e.d1)
+    if (Math.abs(e.dMonth) > TOL) deviate(`${c.engine} ${c.w} ${c.lang} ${c.month}: month chip ${c.m.chipW.toFixed(1)} vs c-measure ${monthW.toFixed(1)} (Δ ${e.dMonth.toFixed(1)})`, e.dMonth)
+    if (expRule !== c.applied) deviate(`${c.engine} ${c.w} ${c.lang} ${c.month} ${c.staff}: steps "${c.applied}" vs c-measure-derived "${expRule}"${Math.max(Math.abs(e.d0), Math.abs(e.d1 ?? 0)) <= TOL ? ` (numbers within ${TOL}px — a 6px-line straddle, not failing)` : ''}`, 0)
   }
 }
 
