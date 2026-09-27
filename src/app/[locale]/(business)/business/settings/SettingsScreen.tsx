@@ -71,7 +71,8 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
-import { businessStrings, sampleMarkLines } from '@/business/i18n'
+import { MarkChip, MarkNote, SampleMark } from '@/business/components/SampleMark'
+import { businessStrings } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
@@ -119,7 +120,6 @@ import {
   type RailRow,
   type RowControl,
   type RowValue,
-  type SampleMark as SampleMarkForm,
   type SettingsBlock,
   type SettingsProps,
   type SettingsRow,
@@ -1707,65 +1707,15 @@ function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: 
 
 // ── ⚖ PR-3 — the 「サンプル」 mark ────────────────────────────────────────────
 //
-// ONE token (`.sample-mark` in the shell sheet, amber wash — never black), ONE
-// string home (`businessStrings.sampleMark`). The chip opens its two-line
-// explanation on the room's ONE disclosure (`Collapse` → `makeSpring`): no
-// second easing, and an inline panel rather than a floating popover because
-// that is the shape `Collapse` has. Esc on the chip closes it; focus never left
-// the chip, so it is already where it returns to.
+// ⚖ PR-4c §v7 V7-1 — the chip, its note and the section's line live in ONE home for both
+// rooms: src/business/components/SampleMark.tsx. The no-sample card stays here (設定's own).
 
 const MARK = businessStrings.sampleMark
 
-function MarkChip({ mark, open, controls, onToggle }: { mark: SampleMarkForm; open: boolean; controls: string; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      className="sample-mark"
-      aria-expanded={open}
-      aria-controls={controls}
-      aria-label={MARK.chipLabel}
-      data-guide-title={MARK.popLabel}
-      data-guide={`${sampleMarkLines(mark).pop1}${MARK.popLine2}`}
-      onClick={onToggle}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && open) {
-          e.stopPropagation()
-          onToggle()
-        }
-      }}
-    >
-      {MARK.chip}
-    </button>
-  )
-}
-
-/** The note line, and under it the chip's explanation on `Collapse`. ⚖ §v3 V3-3 —
- *  both say the mark's FORM: the whole block, or only its named parts. */
-function MarkNote({ mark, id, open, reduced }: { mark: SampleMarkForm; id: string; open: boolean; reduced: boolean }) {
-  const lines = sampleMarkLines(mark)
-  return (
-    <>
-      <p className="sample-mark-note">{lines.note}</p>
-      <Collapse open={open} id={id} reduced={reduced}>
-        <div className="sample-pop" role="note" aria-label={MARK.popLabel}>
-          <p>{lines.pop1}</p>
-          <p>{MARK.popLine2}</p>
-        </div>
-      </Collapse>
-    </>
-  )
-}
-
-/** A section's mark (予約と確保): chip + note on one line under the lead. ⚖ §v3
- *  V3-6 — it is the section's ONLY mark: its blocks draw none (see `Block`). */
-function SampleMark({ mark, id, reduced }: { mark: SampleMarkForm; id: string; reduced: boolean }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="sample-mark-line">
-      <MarkChip mark={mark} open={open} controls={id} onToggle={() => setOpen((o) => !o)} />
-      <MarkNote mark={mark} id={id} open={open} reduced={reduced} />
-    </div>
-  )
+/** ⚖ PR-3 §v3 V3-6 — under a marked section its blocks carry no mark of their own. ⚖ PR-4c (g) — lifted
+ *  out of `Block` so a suite can run it (react-dom is fenced out here; `landingBlockOf` is the precedent). */
+export function blockMarkOf(section: Pick<SettingsSection, 'sample'>, block: Pick<SettingsBlock, 'sample'>): SettingsBlock['sample'] {
+  return section.sample ? undefined : block.sample
 }
 
 /** The `no-sample-policy` state: where 「サンプル設定なし」 used to print. */
@@ -1818,9 +1768,7 @@ function Block({
   reduced: boolean
 }) {
   const [markOpen, setMarkOpen] = useState(false)
-  // ⚖ PR-3 §v3 V3-6 — ONE RULE, ONE HOME: under a marked section its blocks carry
-  // no mark of their own (the section's chip already says it).
-  const mark = section.sample ? undefined : seed.sample
+  const mark = blockMarkOf(section, seed)
   const roomBlock = wordsRoomBlock(section, seed.id, values)
   const block: SettingsBlock = roomBlock === null ? seed : { ...seed, ...(roomBlock.title === undefined ? {} : { title: roomBlock.title }), ...(roomBlock.note === undefined ? {} : { note: roomBlock.note }) }
   const rows = block.table === null ? block.table : filterTable(block, values)
