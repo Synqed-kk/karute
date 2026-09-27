@@ -452,16 +452,25 @@
   background-color: #f7f7f8;
   background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px), linear-gradient(to right, var(--row) 1px, transparent 1px);
 }
-/* ⚖ §v11 V11-15(c) · A5 — 営業時間外 is a LAYER, not an element: when the axis runs past the store's own hours the
-   timeline carries `.off-hours` + --off-before / --off-after (each side's share of the axis), and every track paints
-   the locked lane's grey there under its hour grid — one sized layer per side. A locked lane is grey already and a
-   drop target keeps its own paint. Nothing to press; the board's aria names both ranges; the ruler says it once. */
-.biz .timeline.off-hours .lane:not(.locked) .track:not(.drop-target) {
+/* ⚖ §v11 V11-15(c) · A5/B5 — 営業時間外 is a LAYER, not an element: when the axis runs past the store's own hours the
+   timeline carries `.off-hours` + --off-before / --off-after (each side's share of the axis) and every track paints
+   the locked lane's grey there under its hour grid — one sized layer per side, on every lane state (plain, locked,
+   drop target). Nothing to press; the board's aria names both ranges; the ruler says it once. */
+.biz .timeline.off-hours .track {
   background-image: linear-gradient(to right, var(--row) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px);
   background-size: calc(100% / var(--hours, 9)) 100%, calc(100% * var(--off-before, 0)) 100%, calc(100% * var(--off-after, 0)) 100%;
   background-position: 0 0, left top, right top;
   background-repeat: repeat, no-repeat, no-repeat;
 }
+.biz .timeline.off-hours .lane.locked .track {
+  background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px), linear-gradient(to right, var(--row) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px);
+  background-size: calc(100% / var(--hours, 9)) 100%, calc(100% / var(--hours, 9)) 100%, calc(100% * var(--off-before, 0)) 100%, calc(100% * var(--off-after, 0)) 100%;
+  background-position: 0 0, 0 0, left top, right top;
+  background-repeat: repeat, repeat, no-repeat, no-repeat;
+}
+.biz .timeline.off-hours .track.drop-target { background-image: linear-gradient(to right, rgba(63, 91, 232, .22) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px); }
+/* ⚖ B1 — a booking is always drawn: a zero-width card keeps its 18 px sliver INSIDE the board, even at the right edge. */
+.biz .event[data-book] { left: min(var(--x), calc(100% - 18px)); }
 .biz .timeline .time-head > span.off-caption { position: absolute; top: 3px; z-index: 1; display: block; padding: 0; border: 0; background: none; color: #a1a1aa; font-size: 10px; font-weight: 600; line-height: 1; text-align: center; white-space: nowrap; overflow: hidden; pointer-events: none; }
 .biz .timeline .time-head > span.off-caption.before { left: var(--label); width: calc((100% - var(--label)) * var(--off-before, 0)); }
 .biz .timeline .time-head > span.off-caption.after { left: auto; right: 0; width: calc((100% - var(--label)) * var(--off-after, 0)); }

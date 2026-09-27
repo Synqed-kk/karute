@@ -69,20 +69,21 @@ export function place(start: number, end: number, hours: Hours): { x: number; w:
   }
 }
 
-const floor60 = (m: number) => Math.floor(m / 60) * 60
-const ceil60 = (m: number) => Math.ceil(m / 60) * 60
-
-/** ⚖ §v11 V11-15(a) + amendment A4 — THE DRAWN WINDOW, the axis every card is
- *  placed on: the store's own hours ∪ every card, floored/ceiled to the whole
- *  hour, clamped to [0, 1440]. Only bookings grow it (never a shift, wash,
- *  break, absence, block or sell slot); one inside the hours or touching an
- *  edge grows nothing. Always whole hours, so `count` is an integer and the
- *  30-minute lattice holds — a fractional pair gets a whole-hour axis and a
- *  band for the fraction. */
+/** ⚖ §v11 V11-15(a) + amendments A4/B1/B3 — THE DRAWN WINDOW, the axis every
+ *  card is placed on: the store's own hours, grown in whole hours FROM its own
+ *  edges until every card fits, clamped to [0, 1440]. Only bookings grow it
+ *  (never a shift, wash, break, absence, block or sell slot); one inside the
+ *  hours or touching an edge grows nothing. A row whose end wrapped past
+ *  midnight (end < start) grows it to its START. Anchored at the business edges,
+ *  so a whole-hour pair gives whole hours and a fractional pair keeps today's
+ *  left edge — the drag lattice (snapPct, drag-rules.ts) is unchanged. */
 export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute: number; endMinute: number }>): Hours {
-  const open = Math.min(hours.open, ...bookings.map((b) => b.startMinute))
-  const close = Math.max(hours.close, ...bookings.map((b) => b.endMinute))
-  return { open: Math.max(0, floor60(open)), close: Math.min(1440, ceil60(close)) }
+  const earliest = Math.min(hours.open, ...bookings.map((b) => b.startMinute))
+  const latest = Math.max(hours.close, ...bookings.map((b) => Math.max(b.startMinute, b.endMinute)))
+  return {
+    open: Math.max(0, hours.open - 60 * Math.ceil((hours.open - earliest) / 60)),
+    close: Math.min(1440, hours.close + 60 * Math.ceil((latest - hours.close) / 60)),
+  }
 }
 
 /** place()'s inverse for the drag layer: a percent offset back to the minute it
@@ -650,13 +651,14 @@ export const STATE_LABEL: Record<NonNullable<BoardBooking['state']>, string> = {
 }
 
 /** Staff lanes then resource lanes, in canon's two groups. Every item of the seven builders passes ONE gate: a box
- *  `place()` gives no width is not drawn (⚖ §v11 V11-15(d)). */
+ *  `place()` gives no width is not drawn (⚖ §v11 V11-15(d)) — EXCEPT a booking, which is always drawn (amendment B1:
+ *  a zero-width card still shows as the card's minimum sliver, as it does today; nothing hidden). */
 export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLane[] {
   const { hours, absence } = input
   const biz = input.businessHours ?? hours
   const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
   const lanes: BoardLane[] = []
-  const drawn = (items: BoardItem[]) => items.filter((i) => i.w > 0)
+  const drawn = (items: BoardItem[]) => items.filter((i) => i.kind === 'booking' || i.w > 0)
 
   // ⚖ D-53 (ak)/(al) N2c-2 R-2 — Home B: the booking's own room word, resolved
   // ONCE per booking so the staff-lane copy and the resource-lane copy of one

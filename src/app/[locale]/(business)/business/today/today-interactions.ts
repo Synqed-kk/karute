@@ -4493,9 +4493,10 @@ export function foreignStoreRefusal(
  *  rounded, so [11:15, 11:45) jumped FORWARD to 11:30 and a standard session
  *  seeded there ran into the next booking — Liam's 「the left half works, the
  *  right half fires 時間帯が重複」. One token, canon parity. */
-export function slotStartAt(track: Element, clientX: number, hours: Hours, stepMin = 30): number {
+export function slotStartAt(track: Element, clientX: number, hours: Hours, bounds: Hours = hours, stepMin = 30): number {
+  // ⚖ §v11 V11-15 B4 — the pixel is read on the AXIS (`hours`); the start is bounded by the STORE's hours (`bounds`).
   const minute = hours.open + fractionIn(track, clientX) * (hours.close - hours.open)
-  return Math.max(hours.open, Math.min(hours.close - stepMin, Math.floor(minute / stepMin) * stepMin))
+  return Math.max(bounds.open, Math.min(bounds.close - stepMin, Math.floor(minute / stepMin) * stepMin))
 }
 
 /** ⚖ Liam flag 62 (2026-08-22) — THE SEED IS CLAMPED INTO THE POCKET IT LANDED IN.

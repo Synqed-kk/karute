@@ -25,7 +25,10 @@ jest.mock('@/app/[locale]/(business)/business/today/reserved-mask', () => {
 })
 jest.mock('@/app/[locale]/(business)/business/today/today-interactions', () => {
   const a = jest.requireActual('@/app/[locale]/(business)/business/today/today-interactions')
-  return { ...a, windowsOn: jest.fn(a.windowsOn), guardRailsFor: jest.fn(a.guardRailsFor), guardVerdictAt: jest.fn(a.guardVerdictAt), sellLayerFor: jest.fn(a.sellLayerFor) }
+  return {
+    ...a, windowsOn: jest.fn(a.windowsOn), guardRailsFor: jest.fn(a.guardRailsFor), guardVerdictAt: jest.fn(a.guardVerdictAt), sellLayerFor: jest.fn(a.sellLayerFor),
+    slotStartAt: jest.fn(a.slotStartAt), seedSpanIn: jest.fn(a.seedSpanIn), nearestFreeStarts: jest.fn(a.nearestFreeStarts),
+  }
 })
 
 import { readFileSync } from 'node:fs'
@@ -37,7 +40,7 @@ import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
 import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { guardRailsFor, guardVerdictAt, sellLayerFor, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { guardRailsFor, guardVerdictAt, nearestFreeStarts, seedSpanIn, sellLayerFor, slotStartAt, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { GYM, LOGIN, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
 
 let mockOptions: RecordedOptions = {}
@@ -114,9 +117,9 @@ it('§v11 V11-14 P5 — MOUNTED: on テスト恵比寿ジム\'s board no hatch (
 
 // ⚖ §v11 V11-15 (the board fix, PR-C) — the same gym with ONE opt-in row wholly after its close (22:30–23:15 on りな,
 // practice-door-recorded.ts `outOfHours`). The board used to place it at x 103.33% / w 0% — drawn nowhere.
-async function mountGymOutOfHours() {
+async function mountGymOutOfHours(store: string = STORE.gym) {
   mockOptions = { outOfHours: true }
-  const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+  const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
   mockOptions = {}
   const host = document.body.appendChild(document.createElement('div'))
   const root = createRoot(host)
@@ -161,8 +164,27 @@ it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is dra
     expect(host.querySelector('.timeline-scroll')!.getAttribute('aria-label')).toBe('営業時間07:00から22:00の予約ボード（営業時間外を含め07:00から24:00を表示）')
     act(() => host.querySelector<HTMLButtonElement>('button.help-toggle')!.click())
     expect(host.querySelector('.help-pop')!.textContent).toContain('営業時間 07:00–22:00・営業時間外の予約も表示')
+    // B5 — a lane that becomes a drop target keeps the layer: its timeline still carries the shares, and the stylesheet's
+    // drop-target rule repaints the grid WITH both band layers (jsdom loads no stylesheet, so the rule is read as text).
+    const track = host.querySelector('.lane[data-group="staff"] .track')!
+    act(() => { track.classList.add('drop-target') })
+    expect(parseFloat(track.closest<HTMLElement>('.timeline.off-hours')!.style.getPropertyValue('--off-after')) > 0).toBe(true)
+    const css = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
+    expect(css).toMatch(/\.biz \.timeline\.off-hours \.track\.drop-target \{ background-image: linear-gradient\(to right, rgba\(63, 91, 232, \.22\) 1px, transparent 1px\), repeating-linear-gradient\(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px\), repeating-linear-gradient\(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px\); \}/)
   } finally {
     done()
+  }
+  // B2 — on a store whose hours are the SAMPLE pair (テスト横浜店, none in core) the axis still grows for its 19:30 row,
+  // but nothing says 営業時間外 over hours the store never set: no layer, no caption, no muted hour.
+  const yokohama = await mountGymOutOfHours(STORE.yokohama)
+  try {
+    const { host } = yokohama
+    const card = host.querySelector('.lane .track .event[data-book="00000000-0000-4000-8000-00000000c398"]')!
+    expect([pct(card, '--w') > 0, pct(card, '--x') + pct(card, '--w') <= 100 + 1e-9]).toEqual([true, true])
+    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('20') // 10:00–21:00
+    expect([host.querySelectorAll('.timeline.off-hours').length, host.querySelectorAll('.off-caption').length, host.querySelectorAll('.hours span.off').length]).toEqual([0, 0, 0])
+  } finally {
+    yokohama.done()
   }
 })
 
@@ -196,6 +218,16 @@ it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) whil
     // TodayScreen.tsx:3403-3404 — guardVerdictAt (one landing's verdict): asked by an empty-slot click on a staff track.
     act(() => { host.querySelector('.lane[data-group="staff"] .track')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     expect(closes(argsOf(guardVerdictAt), ([, , , o]) => `${(o as { open: number }).open}-${(o as { close: number }).close}`)).toEqual([true, ['420-1320']])
+    // B4 — the helpers that seed a start read the pixel on the axis but bound it by the store's hours.
+    // TodayScreen.tsx slotStartAt(e.currentTarget, e.clientX, hours, business) — the empty-slot click above:
+    expect(closes(argsOf(slotStartAt), ([, , axis, b]) => `${(axis as { close: number }).close}|${(b as { open: number }).open}-${(b as { close: number }).close}`)).toEqual([true, ['1440|420-1320']])
+    // TodayScreen.tsx seedSpanIn(lane, start, …, business, …) — the same click:
+    expect(closes(argsOf(seedSpanIn), ([, , , b]) => `${(b as { open: number }).open}-${(b as { close: number }).close}`)).toEqual([true, ['420-1320']])
+    // …and its 配置モード twin (placeNextVisit) plus nearestFreeStarts (a refusal's alternatives) never run on a static
+    // board with a free 07:00: pinned as TEXT — both seedSpanIn calls and the nearestFreeStarts call pass `business`.
+    expect([src.split('seedSpanIn(lane, start, props.guard.standardSessionMin, business, props.sell.nowMinute)').length - 1, /seedSpanIn\([^)]*\bhours\b/.test(src)]).toEqual([2, false])
+    expect(src).toContain('return nearestFreeStarts(start, props.guard.bookingStepMin, business, dur, (s) =>')
+    expect(argsOf(nearestFreeStarts).every(([, , b]) => (b as { close: number }).close === 1320)).toBe(true)
     // TodayScreen.tsx:2369 — the sell layer reads the same frame (beyond the census's thirty lines).
     expect(closes(argsOf(sellLayerFor), ([, h]) => `${(h as { open: number }).open}-${(h as { close: number }).close}`)).toEqual([true, ['420-1320']])
     // TodayScreen.tsx:10458-10589 — CreateDialog: the ›30分遅く stepper stops at business.close − duration; the check reads 22:00.

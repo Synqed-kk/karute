@@ -7548,7 +7548,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     expect(SRC.match(/cell: offerable\(/g)).toHaveLength(2)
     // The selector is a SOURCE, so it hands its starts to the same filter and
     // never filters or re-verifies them itself.
-    expect(SRC).toContain('return nearestFreeStarts(start, props.guard.bookingStepMin, hours, dur, (s) =>')
+    expect(SRC).toContain('return nearestFreeStarts(start, props.guard.bookingStepMin, business, dur, (s) =>') // ⚖ §v11 V11-15 B4 — bounded by the store's hours
     expect(SRC.match(/nearestFreeStarts\(/g)).toHaveLength(1)
     expect(SRC.match(/bedClassCell\(/g)).toHaveLength(1)
     expect(SRC).toContain('return offerableCell(cell, props.guard.bookingStepMin, start, (s) =>')

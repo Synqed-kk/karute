@@ -614,8 +614,9 @@ export interface TodayProps {
   /** The AXIS: the drawn window (⚖ §v11 V11-15(a)) — ruler, grid, every place()/minuteOf(). */
   hours: { open: number; close: number; count: number; labels: string[] }
   /** ⚖ §v11 V11-15(b) — the store's OWN hours, for every RULE (sell/guard frames, the dialogs, the sentence).
-   *  Present only when the axis grew past them; absent, the axis IS the store's hours. */
-  businessHours?: { open: number; close: number }
+   *  Present only when the axis grew past them; absent, the axis IS the store's hours. `ownHours` (B2): set by the
+   *  store in core — only then is 営業時間外 painted. */
+  businessHours?: { open: number; close: number; ownHours: boolean }
   nowFraction: number | null
   nowLabel: string
   lanes: BoardLane[]
@@ -1127,9 +1128,11 @@ const sampleChip = (mark: SampleMarkForm) => (
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
   const business = props.businessHours ?? hours
-  // ⚖ §v11 V11-15(c) · A5 — each side's share of the axis the store is closed for (0 when the axis IS the store's hours).
-  const offBefore = (business.open - hours.open) / (hours.close - hours.open)
-  const offAfter = (hours.close - business.close) / (hours.close - hours.open)
+  // ⚖ §v11 V11-15(c) · A5/B2 — each side's share of the axis the store is closed for; 0 when the axis IS the store's
+  // hours or the hours are the sample pair (never paint 営業時間外 over hours the store did not set).
+  const band = props.businessHours?.ownHours === true
+  const offBefore = band ? (business.open - hours.open) / (hours.close - hours.open) : 0
+  const offAfter = band ? (hours.close - business.close) / (hours.close - hours.open) : 0
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
   // board-wide site (group header, tab, legend, rail tour, create dialog)
   // reads these, never a per-lane lookup (C7).
@@ -4108,7 +4111,7 @@ export function TodayScreen(props: TodayProps) {
       bedClassCell(v, () => {
         const start = minuteOf(ask.span.x, hours)
         const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
-        return nearestFreeStarts(start, props.guard.bookingStepMin, hours, dur, (s) =>
+        return nearestFreeStarts(start, props.guard.bookingStepMin, business, dur, (s) =>
           // ⚖ FIX ROUND 2 (F1) — the refusal box's own starts, judged with the
           // pack for the same reason `offerable` above is.
           verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind !== 'blocked',
@@ -7195,7 +7198,7 @@ export function TodayScreen(props: TodayProps) {
     // seed, an engine alternative (where the full session fits by construction)
     // or a deliberate override — and silently sliding an operator's chosen start
     // would be a second decision nobody asked for.
-    const end = seedSpanIn(lane, start, props.guard.standardSessionMin, hours, props.sell.nowMinute).end
+    const end = seedSpanIn(lane, start, props.guard.standardSessionMin, business, props.sell.nowMinute).end
     // ⚖ Liam flag 51 — the same allocator every landing uses. A 次回予約 has no
     // room yet, so there is nothing to keep and it takes the first free
     // compatible one; when there is none the refusal NAMES the rooms that are
@@ -7537,7 +7540,7 @@ export function TodayScreen(props: TodayProps) {
     dragLen != null || live || blockLive ? 'guard-guide-aiming' : '',
     placing ? 'placing' : '',
     `guard-guide-mode-${guideMode}`,
-    props.businessHours ? 'off-hours' : '',
+    band ? 'off-hours' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -7783,7 +7786,7 @@ export function TodayScreen(props: TodayProps) {
                 return
               }
             }
-            const start = slotStartAt(e.currentTarget, e.clientX, hours)
+            const start = slotStartAt(e.currentTarget, e.clientX, hours, business)
             const at = { x: e.clientX, y: e.clientY, t: e.timeStamp }
             // ⚖ Liam flag 31c — the consult belongs HERE. The operator is
             // proposing a start that does not exist yet, so the guard's better
@@ -7797,7 +7800,7 @@ export function TodayScreen(props: TodayProps) {
             // ⚖ Liam flag 62 — the seed is clamped into the pocket under the
             // click before anyone is asked about it, so the guard hears a
             // question the operator could actually mean.
-            const seed = seedSpanIn(lane, start, props.guard.standardSessionMin, hours, props.sell.nowMinute)
+            const seed = seedSpanIn(lane, start, props.guard.standardSessionMin, business, props.sell.nowMinute)
             const slot = place(seed.start, seed.end, hours)
             if (placing) {
               // ⚖ 51 — 次回予約 has no room yet, so the landing solves one; ⚖ 46
@@ -9361,7 +9364,7 @@ export function TodayScreen(props: TodayProps) {
                 <div
                   className={timelineClasses}
                   ref={boardRef}
-                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, ...(props.businessHours ? { '--off-before': offBefore, '--off-after': offAfter } : {}) } as React.CSSProperties}
+                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}) } as React.CSSProperties}
                   // ⚖ Liam flag 33 — canon's singleton, at the one place every
                   // board gesture starts (capture, so a card's own handler
                   // cannot get there first).
@@ -9382,7 +9385,7 @@ export function TodayScreen(props: TodayProps) {
                     {offBefore > 0 && <span className="off-caption before">営業時間外</span>}
                     {offAfter > 0 && <span className="off-caption after">営業時間外</span>}
                     <div className="hours">
-                      {hours.labels.map((h) => <span key={h} className={(Number(h) + 1) * 60 <= business.open || Number(h) * 60 >= business.close ? 'off' : undefined}>{h}</span>)}
+                      {hours.labels.map((h) => <span key={h} className={band && ((Number(h) + 1) * 60 <= business.open || Number(h) * 60 >= business.close) ? 'off' : undefined}>{h}</span>)}
                     </div>
                   </div>
 

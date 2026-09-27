@@ -374,10 +374,21 @@ describe('board derivations', () => {
     // An in-window box keeps today's numbers bit for bit (frozen from ed0d2de44's formula).
     expect(place(780, 1140, { open: 600, close: 1140 })).toEqual({ x: 33.33333333333333, w: 66.66666666666666, startMin: 780, endMin: 1140 })
     expect(place(1125, 1140, { open: 600, close: 1140 })).toEqual({ x: 97.22222222222221, w: 2.7777777777777777, startMin: 1125, endMin: 1140 })
+    // B1: a booking whose end wrapped past midnight is still DRAWN (its sliver), inside the board — never hidden.
+    const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
+    const wrapped = { ...base, id: 'apt-wrapped', staff_id: 'p-pr-c', resource_id: null, starts_at: '2026-09-14T14:30:00.000Z', ends_at: '2026-09-14T15:30:00.000Z' } // 23:30 → 00:30 JST
+    const input = {
+      appointments: [wrapped], customers: [], menus: [], staff: [{ id: 'p-pr-c', full_name: '見本 ぴーしー' }], resources: [], shifts: [], qualifications: {},
+      staffListPrice: {}, staffStores: {}, absence: null, blocks: [], sellSlots: [], decisions: [], hours: gym, dayKey: jstDayKey(wrapped.starts_at),
+      operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
+    } as unknown as BuildInput
+    const bookings = dayBookings(input)
+    const card = buildLanes({ ...input, hours: drawnWindow(gym, bookings) }, bookings).flatMap((l) => l.items).find((i) => i.caseId === 'apt-wrapped')
+    expect(card && [card.x >= 0, card.x <= 100, card.w >= 0, card.x + card.w <= 100 + 1e-9]).toEqual([true, true, true, true])
   })
 
   // ⚖ §v11 V11-15(j) P11 — the drawn window: the store's hours grown to the whole hour around every card outside them.
-  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day; always whole hours', () => {
+  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day; grown in whole hours from the store\'s own edges', () => {
     const gym = { open: 420, close: 1320 }
     const at = (...spans: Array<[number, number]>) => spans.map(([startMinute, endMinute]) => ({ startMinute, endMinute }))
     expect(drawnWindow(gym, at([600, 660], [1000, 1100]))).toEqual(gym)
@@ -386,9 +397,12 @@ describe('board derivations', () => {
     expect(drawnWindow(gym, at([1290, 1350]))).toEqual({ open: 420, close: 1380 }) // ends 22:30 → closes 23:00
     expect(drawnWindow(gym, at([1350, 1395]))).toEqual({ open: 420, close: 1440 }) // ends 23:15 → closes 24:00 (ceil60)
     expect(drawnWindow(gym, at([-10, 20], [1430, 1500]))).toEqual({ open: 0, close: 1440 })
+    expect(drawnWindow(gym, at([1410, 30]))).toEqual({ open: 420, close: 1440 }) // B1: a wrapped row grows the axis to its START
     const w = drawnWindow(gym, at([395, 1395]))
     expect(Number.isInteger((w.close - w.open) / 60)).toBe(true)
-    expect(drawnWindow({ open: 630, close: 1110 }, [])).toEqual({ open: 600, close: 1140 }) // A4: a fractional pair → a whole-hour axis
+    // B3: growth is anchored at the store's own edges — a fractional pair keeps its left edge (the drag lattice's anchor).
+    expect(drawnWindow({ open: 630, close: 1110 }, [])).toEqual({ open: 630, close: 1110 })
+    expect(drawnWindow({ open: 630, close: 1110 }, at([600, 640], [1100, 1130]))).toEqual({ open: 570, close: 1170 })
   })
 
   it('reads カテゴリー strongest-first: VIP over 回数券 over 新規/再来', () => {

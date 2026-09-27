@@ -622,7 +622,8 @@ export default async function TodayPage({
     windowDays: WINDOW,
     hours: { open: drawn.open, close: drawn.close, count: hourCount, labels: hourLabels },
     // Only when the axis grew past them — absent, the axis IS the store's hours (and the OFF props stay byte-identical).
-    ...(drawn.open !== planes.operatingHours.open || drawn.close !== planes.operatingHours.close ? { businessHours: planes.operatingHours } : {}),
+    // ⚖ B2 — `ownHours`: the band is painted only over hours the store itself set (core), never over the sample pair.
+    ...(drawn.open !== planes.operatingHours.open || drawn.close !== planes.operatingHours.close ? { businessHours: { ...planes.operatingHours, ownHours: 'hoursSource' in planes && planes.hoursSource === 'core' } } : {}),
     nowFraction: dayOffset === 0
       ? Math.max(0, Math.min(1, (planes.boardNow - drawn.open) / (drawn.close - drawn.open)))
       : null,
