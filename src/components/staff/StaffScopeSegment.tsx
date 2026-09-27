@@ -39,6 +39,7 @@ export function StaffScopeSegment({
   selfStaffId,
   selected,
   onChange,
+  badgeOnly = false,
 }: {
   staffList: StaffSelectorEntry[]
   /** The viewer's own staff id; null hides 自分 (no profile, nothing to be). */
@@ -46,6 +47,10 @@ export function StaffScopeSegment({
   /** RESOLVED scope: 'all' | 'self' | a staff id ON staffList. */
   selected: string
   onChange: (next: string) => void
+  /** The カルテ chip row's trim step 1 (⚖ S46 option C): a picked staffer
+   *  shows as their badge only — the name text is left out; the label button
+   *  keeps the full name as its accessible name. Default = as before. */
+  badgeOnly?: boolean
 }) {
   const t = useTranslations('reservation.staffFilter')
   const tPanel = useTranslations('staffSelector')
@@ -131,7 +136,9 @@ export function StaffScopeSegment({
                   >
                     {active.initials}
                   </span>
-                  <span className="max-w-[6rem] truncate">{familyName(active.name)}</span>
+                  {!badgeOnly && (
+                    <span className="max-w-[6rem] truncate">{familyName(active.name)}</span>
+                  )}
                 </>
               ) : (
                 <>
