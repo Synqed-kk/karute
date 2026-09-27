@@ -246,6 +246,22 @@ describe('⚖ C3 — the take remembers the fallback answer it paid for', () => 
     expect(prepareTranscription).toHaveBeenCalledTimes(1)
   })
 
+  it('(n2) a non-fallback stamp never replays on the unbound arm', async () => {
+    // The take holds an answer paid for key F (no `fallback` mark), but this run
+    // has no finalized key (ensureFinalizedPath → null) and its attach fails: the
+    // unbound door sends the in-memory blob, a different object than F — asked.
+    takeWhoseAttachFails(1)
+    store.meta = {
+      ...store.meta!,
+      transcript: { finalizedPath: TAKE_KEY, locale: 'ja', response: { transcript: 'paid-for-F' }, at: 1 },
+    }
+    const result = await direct()
+    expect(transcribePosts()).toBe(1)
+    expect(result.transcript).toBe('answer-1')
+    expect(prepareTranscription.mock.calls.map(([, path, opts]) => [path, opts])).toEqual([[null, { attachOutcome: 'attach_failed' }]])
+    expect(store.meta?.transcript).toMatchObject({ finalizedPath: unbound(1), response: { transcript: 'answer-1' }, fallback: true })
+  })
+
   describe('switch ON', () => {
     forceSwitch(true)
     it('(m7) no_session + minted X → retry = ZERO POSTs (the adopted key IS the key that was paid for)', async () => {
