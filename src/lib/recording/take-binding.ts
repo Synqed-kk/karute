@@ -236,8 +236,8 @@ export type TakeKeyHolder = 'own' | 'foreign' | 'no_row' | 'unreadable'
  * assertRecorderOwnsRow decides: own session, or the owner's hand in reach.
  * `actor.staffId` = the LOGIN id rows carry, never a job's staff CARD id.
  * `no_row` (no/non-uuid id, 404, a row not holding the key — the unbound
- * fallback, every installed phone build) keeps today's answer except at the
- * enqueue doors. Lazy client + actor; a failed read is `unreadable`, never yes.
+ * fallback, every installed phone build) keeps today's answer at every door.
+ * Lazy client + actor; a failed read is `unreadable`, never yes.
  */
 export async function takeKeyHolder(
   synqed: () => Promise<Pick<SynqedClient, 'recordings'>>,

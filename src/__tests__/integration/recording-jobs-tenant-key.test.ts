@@ -125,7 +125,7 @@ describe('enqueueRecordingJob — the tenant key grammar', () => {
   })
 })
 
-// ── S46 closure 2: the session must HOLD the key and be the caller's ─────────
+// ── S46 closure 2: a row that HOLDS the key must be the caller's ─────────────
 describe('enqueueRecordingJob — the row names its recorder (S46)', () => {
   const REFUSED = { error: 'recording not found in this business' }
 
@@ -153,17 +153,22 @@ describe('enqueueRecordingJob — the row names its recorder (S46)', () => {
     expect(enqueue).not.toHaveBeenCalled()
   })
 
-  it("naming one's OWN session beside a colleague's key is refused: the row must hold THIS key", async () => {
+  // ⚖ NO ROW KEEPS TODAY'S ANSWER (fix round 1, Warning 1): base never read the
+  // row here, and the unbound fallback's key sits on no row while
+  // bindUnboundUploads is off — refusing it would lose that recording.
+  it('no-row case — a row that does not hold this key → enqueued exactly as base', async () => {
     current.row = { ...current.row!, audio_storage_path: 'app_biz-1_ffffffff-ffff-4fff-8fff-ffffffffffff.webm' }
-    await expect(enqueueRecordingJob(body(OWN))).resolves.toEqual(REFUSED)
-    expect(enqueue).not.toHaveBeenCalled()
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toMatchObject({ ok: true })
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ recording_session_id: ROW, payload: expect.objectContaining({ audio_path: OWN }) }),
+    )
   })
 
-  it('a session core does not know (404), or a non-uuid id, is refused — the job would name it', async () => {
+  it('no-row case — a session core does not know (404), or a non-uuid id → enqueued exactly as base', async () => {
     recordingsGet.mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
-    await expect(enqueueRecordingJob(body(OWN))).resolves.toEqual(REFUSED)
-    await expect(enqueueRecordingJob({ ...body(OWN), recordingSessionId: 'sess-1' })).resolves.toEqual(REFUSED)
-    expect(enqueue).not.toHaveBeenCalled()
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toMatchObject({ ok: true })
+    await expect(enqueueRecordingJob({ ...body(OWN), recordingSessionId: 'sess-1' })).resolves.toMatchObject({ ok: true })
+    expect(enqueue).toHaveBeenCalledTimes(2)
   })
 
   it("a row read that FAILS is never a yes: the retryable error, nothing queued", async () => {

@@ -105,8 +105,9 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     ctx.identity.businessId,
   ).catch(() => selfStaffId)
 
-  // ⚖ S46: the web twin's rule — the session must hold this key AND be the
-  // caller's, on the LOGIN id (selfStaffId), never the card id (staffId).
+  // ⚖ S46: the web twin's rule — a row holding this key must be the caller's,
+  // on the LOGIN id (selfStaffId), never the card id (staffId); no row keeps
+  // today's answer.
   const pairHeld = holdsOwnerKeys(ctx.identity.capabilities)
   const holder = await takeKeyHolder(
     async () => synqed,
@@ -129,7 +130,7 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
   if (holder === 'unreadable') {
     throw new AppApiError('upstream_unavailable', 'failed to enqueue the recording job')
   }
-  if (holder !== 'own') throw new AppApiError('not_found', 'recording not found in this business')
+  if (holder === 'foreign') throw new AppApiError('not_found', 'recording not found in this business')
 
   // Store scope: the Bearer-path twin of the action's resolveStoreScope()
   // (cookie-only, unreachable here). No `store-id` header → the same

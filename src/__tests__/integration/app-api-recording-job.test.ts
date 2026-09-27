@@ -399,7 +399,7 @@ describe('POST recordings/job — a retake is not its own proof of prior history
   })
 })
 
-// ── S46 closure 2: the session must HOLD the key and be the caller's ─────────
+// ── S46 closure 2: a row that HOLDS the key must be the caller's ─────────────
 describe('POST recordings/job — the row names its recorder (S46)', () => {
   const post = (body: unknown = validBody) => jobPOST(jreq('POST', { ...auth, ...idem }, body), noRoute)
 
@@ -424,16 +424,24 @@ describe('POST recordings/job — the row names its recorder (S46)', () => {
     expect(res.status).toBe(200)
   })
 
-  it("own session + a colleague's key → refused: the row must hold THIS key", async () => {
+  // ⚖ NO ROW KEEPS TODAY'S ANSWER (fix round 1, Warning 1): base never read the
+  // row here, and the unbound fallback's key sits on no row while
+  // bindUnboundUploads is off — refusing it would lose that recording.
+  it('no-row case — a row that does not hold this key → 200, enqueued exactly as base', async () => {
     recordingsGet.mockResolvedValue({ ...ownRow(), audio_storage_path: 'app_business-1_ffffffff-ffff-4fff-8fff-ffffffffffff.webm' })
     const res = await post()
-    expect(res.status).toBe(404)
-    expect(jobsEnqueue).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
   })
 
-  it('a session core does not know (404) → refused; a failed read → 502, never a yes', async () => {
+  it('no-row case — a 404 row, or a non-uuid session id → 200, enqueued exactly as base', async () => {
     recordingsGet.mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
-    expect((await post()).status).toBe(404)
+    expect((await post()).status).toBe(200)
+    expect((await post({ ...validBody, recordingSessionId: 'sess-1' })).status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failed row read → 502, never a yes', async () => {
     recordingsGet.mockRejectedValueOnce(Object.assign(new Error('down'), { status: 503 }))
     expect((await post()).status).toBe(502)
     expect(jobsEnqueue).not.toHaveBeenCalled()
