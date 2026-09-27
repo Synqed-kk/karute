@@ -14,7 +14,11 @@
 // month pick's data read goes nowhere.
 //
 // Matrix: 375 · 393 · 402 · 440 × ja/en × month 9 and 10 of the current year
-// and month 10 of another year × 全スタッフ / 鈴木 友梨佳 / 勘解由小路美和子.
+// and month 10 of another year × 全スタッフ / 鈴木 友梨佳 / 勘解由小路美和子;
+// then the same at NARROW 320 (the narrowest iPhone) · 280 (a folded Galaxy
+// Fold's cover screen) — the only widths on this branch where the own-row
+// step applies (at 375 the longest name's badge-only row still leaves +64px) —
+// emitted as rows APPENDED after the phone table.
 // The page clock is fixed (2026-09-15 / 2026-10-15 JST; another year = the
 // clock at 2027-01-15 and 2026年10月 picked from the panel).
 //
@@ -28,6 +32,12 @@
 //   own-row step), the month chip's and the control's accessible names; and
 //   the 800px page RESIZED to that width (the ResizeObserver walk) → its
 //   steps, which must agree.
+// Own-row DOM (wherever the engine applied it): data-trim holds ownRow; the
+// month chip stays on line 1 (its top = the row's top); the break element is
+// present and full-width (= the row's track); the staff control's top sits
+// the 8px gap below the month chip's bottom. No break element otherwise. The
+// narrow set must reach ownRow — alone and after the badge — in each engine,
+// or those checks ran on nothing (FAIL).
 // Rule check: the engine's steps must equal the rule computed from these same
 // measured numbers (spare = (w − 32) − natural; a step only while < 6).
 // c-measure comparison (optional, the S45 numbers): the expected natural0 /
@@ -93,6 +103,8 @@ const ORIGIN = `http://127.0.0.1:${server.address().port}`
 // ── 3. the matrix.
 const ENGINES = ['chromium', 'webkit']
 const WIDTHS = [375, 393, 402, 440]
+const NARROW = [320, 280]
+const OWN_ROW_GAP = 8
 const LANGS = ['ja', 'en']
 const MONTHS = {
   'cur-09': { clock: '2026-09-15T12:00:00+09:00', pick: null, mm: '09', kind: 'short' },
@@ -133,6 +145,10 @@ async function openOnce(browser, engine, w, lang, month, staff) {
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
   await page.addInitScript((origin) => {
+    // Error EVENTS too (a "ResizeObserver loop" error reaches Playwright's
+    // pageerror in WebKit but not in Chromium).
+    window.__errorEvents = []
+    window.addEventListener('error', (e) => window.__errorEvents.push(String(e.message)))
     const real = window.fetch.bind(window)
     window.__heldFetches = 0
     window.fetch = (input, init) => {
@@ -196,6 +212,7 @@ async function read(page) {
     // no aria-label; the label carries one only for a picked name).
     const seg2 = buttons.find((b) => b.hasAttribute('aria-pressed') && b !== buttons[0]) ?? buttons[0]
     const accName = (b) => b.getAttribute('aria-label') ?? b.textContent.trim()
+    const R = (e) => e.getBoundingClientRect()
     return {
       trim: row.getAttribute('data-trim') ?? '',
       rowClass: row.className,
@@ -213,6 +230,14 @@ async function read(page) {
       controlName: accName(seg2),
       controlText: seg2.textContent.trim(),
       held: window.__heldFetches ?? 0,
+      errorEvents: window.__errorEvents ?? [],
+      geo: {
+        rowTop: R(row).top,
+        chipItemTop: R(row.firstElementChild).top,
+        chipBottom: R(chip).bottom,
+        controlTop: R(scope.parentElement).top,
+        breakW: brk ? R(brk).width : null,
+      },
     }
   })
 }
@@ -229,13 +254,13 @@ for (const engine of ENGINES) {
         if (w0.trim) failures.push(`${engine} ${lang} ${month} ${staff} @800: trimmed "${w0.trim}" where nothing should`)
         const natural0 = w0.natural
         const natural1 = w0.hasName ? w0.naturalNoName : null
-        for (const w of WIDTHS) {
+        for (const w of [...WIDTHS, ...NARROW]) {
           const tag = `${engine} ${w} ${lang} ${month} ${staff}`
           // Fresh load at w — the first-paint walk.
           const { ctx, page, errors } = await open(browser, engine, w, lang, month, staff)
           const m = await read(page)
-          if (SHOTS && engine === 'chromium' && (w === 375 || w === 440) && (staff !== 'staff-3'))
-            await page.screenshot({ path: join(OUT, 'shots', `${engine}-${w}-${lang}-${month}-${staff}.png`), clip: { x: 0, y: 0, width: w, height: 200 } })
+          if (SHOTS && engine === 'chromium' && (w === 375 || w === 440 || NARROW.includes(w)) && (staff !== 'staff-3'))
+            await page.screenshot({ path: join(OUT, 'shots', `${engine}-${w}-${lang}-${month}-${staff}.png`), clip: { x: 0, y: 0, width: w, height: NARROW.includes(w) ? 240 : 200 } })
           await ctx.close()
           // The wide page resized to w — the ResizeObserver walk.
           await wide.page.setViewportSize({ width: w, height: 900 })
@@ -258,20 +283,37 @@ for (const engine of ENGINES) {
           if (m.pageScrollX > 0) bad.push(`page scrolls sideways ${m.pageScrollX}px`)
           if (!own && m.lines !== 1) bad.push(`${m.lines} lines without the own-row step`)
           if (own && m.lines !== 2) bad.push(`own-row step but ${m.lines} line(s)`)
+          const g = m.geo
+          if (own) {
+            if (Math.abs(g.chipItemTop - g.rowTop) > TOL) bad.push(`own row: month chip not on line 1 (top ${g.chipItemTop} vs row ${g.rowTop})`)
+            if (g.breakW == null) bad.push('own row: no break element')
+            else if (Math.abs(g.breakW - m.track) > TOL) bad.push(`own row: break ${g.breakW}px wide ≠ track ${m.track}`)
+            if (Math.abs(g.controlTop - g.chipBottom - OWN_ROW_GAP) > TOL) bad.push(`own row: control top − chip bottom = ${(g.controlTop - g.chipBottom).toFixed(1)} ≠ ${OWN_ROW_GAP}`)
+          } else if (g.breakW != null) bad.push('break element without the own-row step')
           if (!m.chipName || !m.chipName.includes(m.chipText)) bad.push(`chip name "${m.chipName}" vs text "${m.chipText}"`)
           if (staff !== 'all' && m.controlName !== STAFF[staff].name) bad.push(`control name "${m.controlName}" ≠ "${STAFF[staff].name}"`)
           if (errors.length) bad.push(`page errors: ${errors.join(' | ')}`)
+          if (m.errorEvents.length) bad.push(`page errors (error events): ${m.errorEvents.join(' | ')}`)
           if (bad.length) failures.push(`${tag}: ${bad.join('; ')}`)
           cases.push({ engine, w, lang, month, staff, natural0, natural1, spare0, spare1, rule, applied: m.trim, resizeApplied: r.trim, naturalApplied: m.natural, m, pass: !bad.length, bad })
         }
+        const wideEvents = await wide.page.evaluate(() => window.__errorEvents ?? [])
         await wide.ctx.close()
         if (wide.errors.length) failures.push(`${engine} ${lang} ${month} ${staff} @800: page errors ${wide.errors.join(' | ')}`)
+        if (wideEvents.length) failures.push(`${engine} ${lang} ${month} ${staff} @800 (resized to every width): page errors (error events) ${wideEvents.join(' | ')}`)
       }
     }
   }
   await browser.close()
 }
 server.close()
+for (const engine of ENGINES) {
+  const seen = new Set(cases.filter((c) => c.engine === engine && NARROW.includes(c.w)).map((c) => c.applied))
+  for (const want of ['ownRow', 'badgeOnly ownRow'])
+    if (!seen.has(want)) failures.push(`${engine}: the narrow set never reached "${want}" — the own-row DOM checks ran on nothing`)
+}
+// Emit order: the phone matrix first (as before), the narrow rows appended.
+cases.sort((a, b) => NARROW.includes(a.w) - NARROW.includes(b.w))
 if (blocked > 0) failures.push(`${blocked} request(s) left the harness origin (aborted)`)
 
 // ── 4. the S45 c-measure expectation, WITHOUT the 新規 chip.
@@ -330,9 +372,22 @@ for (const lang of LANGS) for (const month of Object.keys(MONTHS)) for (const st
   const e = expectations?.find((x) => x.engine === 'webkit' && x.w === w && x.lang === lang && x.month === month && x.staff === staff)
   md += `| ${w} | ${lang} | ${month} (${k.m.chipText}) | ${STAFF[staff].name} | ${alt(k.natural0, ch.natural0, px)} | ${alt(k.spare0, ch.spare0, f1)} | ${alt(k.natural1, ch.natural1, px)} | ${alt(k.spare1, ch.spare1, f1)} | ${stepsCell} | ${k.rule === k.applied && ch.rule === ch.applied ? 'matches' : '**MISMATCH**'} |${e ? ` ${px(e.exp0)} · ${stepName(e.expRule)} |` : ''}\n`
 }
+md += `\n### Narrower — the own-row step (${NARROW.join(' · ')}; appended, S46 fix round 1)\n\n`
+md += `Same columns, plus the own-row DOM read off the page where it applied (WebKit; Chromium in brackets where it differs by > 0.3px): **line 1** = the month chip's top − the row's top; **break** = the break element's width (track = w − 32); **gap** = the staff control's top − the month chip's bottom (want ${OWN_ROW_GAP}).\n\n`
+md += `| w | lang | month (chip label) | picked | natural | spare | badge | spare | applied | rule on these numbers | line 1 | break | gap |${expectations ? ' c-measure-derived natural · steps |' : ''}\n|---|---|---|---|---|---|---|---|---|---|---|---|---|${expectations ? '---|' : ''}\n`
+for (const lang of LANGS) for (const month of Object.keys(MONTHS)) for (const staff of Object.keys(STAFF)) for (const w of NARROW) {
+  const k = cases.find((c) => c.engine === 'webkit' && c.w === w && c.lang === lang && c.month === month && c.staff === staff)
+  const ch = cases.find((c) => c.engine === 'chromium' && c.w === w && c.lang === lang && c.month === month && c.staff === staff)
+  const alt = (a, b, fmt) => fmt(a) + (a != null && b != null && Math.abs(a - b) > 0.3 ? ` (${fmt(b)})` : '')
+  const stepsCell = stepName(k.applied) + (ch.applied !== k.applied ? ` (${stepName(ch.applied)})` : '')
+  const own = (c) => c.applied.includes('ownRow')
+  const geo = (c, f) => (own(c) ? f(c.m.geo) : null)
+  const e = expectations?.find((x) => x.engine === 'webkit' && x.w === w && x.lang === lang && x.month === month && x.staff === staff)
+  md += `| ${w} | ${lang} | ${month} (${k.m.chipText}) | ${STAFF[staff].name} | ${alt(k.natural0, ch.natural0, px)} | ${alt(k.spare0, ch.spare0, f1)} | ${alt(k.natural1, ch.natural1, px)} | ${alt(k.spare1, ch.spare1, f1)} | ${stepsCell} | ${k.rule === k.applied && ch.rule === ch.applied ? 'matches' : '**MISMATCH**'} | ${alt(geo(k, (g) => g.chipItemTop - g.rowTop), geo(ch, (g) => g.chipItemTop - g.rowTop), px)} | ${alt(geo(k, (g) => g.breakW), geo(ch, (g) => g.breakW), px)} | ${alt(geo(k, (g) => g.controlTop - g.chipBottom), geo(ch, (g) => g.controlTop - g.chipBottom), px)} |${e ? ` ${px(e.exp0)} · ${stepName(e.expRule)} |` : ''}\n`
+}
 const passN = cases.filter((c) => c.pass).length
-md += `\n## Checks per case (${cases.length} cases = 2 engines × ${WIDTHS.length} widths × 2 langs × 3 months × 3 picks)\n\n`
-md += `- PASS ${passN} / ${cases.length}: the engine's steps = the rule on the measured numbers; the resize walk = the first-paint walk; the row's track = w − 32; nothing overflows its track; the page never scrolls sideways; one line unless the own-row step; the month chip's accessible name contains its visible label (full year + month); a picked staffer's control is named by the FULL name.\n`
+md += `\n## Checks per case (${cases.length} cases = 2 engines × (${WIDTHS.length} phone + ${NARROW.length} narrow) widths × 2 langs × 3 months × 3 picks)\n\n`
+md += `- PASS ${passN} / ${cases.length}: the engine's steps = the rule on the measured numbers; the resize walk = the first-paint walk; the row's track = w − 32; nothing overflows its track; the page never scrolls sideways; one line unless the own-row step; with the own-row step: two lines, the month chip on line 1, the break full-width, the control ${OWN_ROW_GAP}px below the chip (and no break element without it); the month chip's accessible name contains its visible label (full year + month); a picked staffer's control is named by the FULL name.\n`
 md += `- Steps seen: ${[...new Set(cases.map((c) => stepName(c.applied)))].join(' · ')}.\n`
 md += `- Month picks (another year) went through the real panel. Fetches the page tried to send to another origin (held, never sent) over the fresh loads: ${cases.reduce((a, c) => a + c.m.held, 0)}; requests that left the harness: ${blocked}.\n`
 if (expectations) {
