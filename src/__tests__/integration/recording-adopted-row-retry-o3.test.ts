@@ -17,6 +17,11 @@
  *   finalized — mint-take-url.ts bindServerNamedTake: "this row is never
  *   finalized") is transcribed and its karute is created against X.
  *
+ * CLIENT FLOW (S50 fold, Greptile #1078 P2): the last describe drives the
+ * phone's OWN code — GlobalPipeline, ai-pipeline's adoption, take-store, the
+ * thin port — into these same two doors, so a phone that stopped saving X or
+ * stopped sending its key on 再試行 turns it red (see its own note).
+ *
  * NOT covered here (not in this repo): whether CORE's recordingJobs.enqueue /
  * claim refuses a session whose row is UPLOADING — the SDK documents only
  * "idempotent: one job per recording session". Every core call is a fake.
@@ -132,10 +137,82 @@ const fakeClient = {
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(() => fakeClient), SynqedError: class extends Error {} }))
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
+// ── The PHONE half (S50 fold, Greptile #1078 P2) ──────────────────────────────
+// The client-flow case at the bottom runs the REAL GlobalPipeline → ai-pipeline
+// → secure-take → take-store → thin recording port against the two REAL doors
+// above. Only what a phone has and jest does not is stood in for:
+//  · the recorder — ai-pipeline / global-pipeline import it lazily for
+//    awaitTakeSecured alone, and there is no stop leg in flight here;
+//  · the signed-in session take-store's owner gate reads (currentUserId);
+//  · IndexedDB — a minimal in-memory shim of exactly the surface take-store's
+//    writers and readers on this path use (open/upgrade, get, getAll, put, add).
+jest.mock('@/lib/global-recorder', () => ({ globalRecorder: { awaitTakeSecured: async () => {} } }))
+jest.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'auth-user-1' } } }, error: null }) },
+  }),
+}))
+
+type IdbRow = Record<string, unknown>
+const idbStores = new Map<string, { keyPath: string | string[]; data: Map<string, IdbRow> }>()
+const idbKey = (keyPath: string | string[], row: IdbRow) =>
+  JSON.stringify(Array.isArray(keyPath) ? keyPath.map((p) => row[p]) : row[keyPath])
+function idbRequest<T>(exec: () => T) {
+  const r: { result?: T; error?: unknown; onsuccess: (() => void) | null; onerror: (() => void) | null } = {
+    onsuccess: null,
+    onerror: null,
+  }
+  queueMicrotask(() => {
+    try {
+      r.result = exec()
+      r.onsuccess?.()
+    } catch (e) {
+      r.error = e
+      r.onerror?.()
+    }
+  })
+  return r
+}
+const idbDb = {
+  objectStoreNames: { contains: (n: string) => idbStores.has(n) },
+  createObjectStore: (n: string, opts: { keyPath: string | string[] }) =>
+    idbStores.set(n, { keyPath: opts.keyPath, data: new Map() }),
+  transaction: () => ({
+    objectStore: (n: string) => {
+      const s = idbStores.get(n)!
+      return {
+        get: (k: unknown) => idbRequest(() => s.data.get(JSON.stringify(k))),
+        getAll: () => idbRequest(() => [...s.data.values()]),
+        put: (row: IdbRow) => idbRequest(() => void s.data.set(idbKey(s.keyPath, row), row)),
+        add: (row: IdbRow) =>
+          idbRequest(() => {
+            if (s.data.has(idbKey(s.keyPath, row))) throw Object.assign(new Error('exists'), { name: 'ConstraintError' })
+            s.data.set(idbKey(s.keyPath, row), row)
+          }),
+      }
+    },
+  }),
+}
+;(globalThis as unknown as { indexedDB: unknown }).indexedDB = {
+  open: () => {
+    const r: { result: typeof idbDb; onupgradeneeded?: () => void; onsuccess?: () => void } = { result: idbDb }
+    queueMicrotask(() => {
+      r.onupgradeneeded?.()
+      r.onsuccess?.()
+    })
+    return r
+  },
+}
+
 import { POST as mintPOST } from '@/app/api/app/v1/recordings/upload-url/route'
 import { POST as jobPOST } from '@/app/api/app/v1/recordings/job/route'
 import { processRecordingJobs } from '@/lib/jobs/process-recording'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import { globalPipeline } from '@/lib/global-pipeline'
+import { getRecordingPipelinePort, setRecordingPipelinePort } from '@/lib/ports/recording-port'
+import { getDataPort, setDataPort } from '@/lib/ports/data-port'
+import { appendTakeSegment, createTake, readTakeSecureMeta } from '@/lib/karute/take-store'
+import { viteRecordingPort } from '../../../thin/ports/recording.vite'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -223,5 +300,155 @@ describe('O3 — a phone 再試行 after an adopted X (switch ON): the server pa
     expect(karuteRecordsCreate.mock.calls[0]).toEqual([expect.objectContaining({ recording_session_id: X })])
     expect(complete).toHaveBeenCalledWith('job-x', 'record-x')
     expect(fail).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Greptile #1078 P2: the two cases above hand X's key to the job door
+ * DIRECTLY, so a phone that stopped saving X — or stopped sending its key on
+ * 再試行 — would leave them green. This one drives the phone's OWN client code,
+ * end to end, against the same two real doors:
+ *
+ *   GlobalPipeline.start (no row: the start-time mint failed) → run() →
+ *   runAIPipeline → ensureAudioOnServer → secureTake knocks on the session door
+ *   (down) → the unbound door as 'no_session' → switch ON answers X →
+ *   adoptMintedSession → take-store adoptTakeSession stamps X + X's key on the
+ *   take, and the context is told → transcribe on X → extraction refused →
+ *   'error' → retry() → isServerJobEligible (X + customer + outcome, a
+ *   supportsServerJob port) → runServerJob → finalizedAudioPath reads the take's
+ *   key → the thin port's enqueueJob → job door → enqueued on X.
+ *
+ * The port is the real thin one (thin/ports/recording.vite.ts) behind a fake
+ * facade-fetch that adds the Bearer and the store lens and hands each call to
+ * the route in this file; the AI doors and the storage PUT are the only fakes.
+ */
+describe('O3 — the phone’s OWN 再試行 after it adopted X (client flow, switch ON)', () => {
+  const TAKE = '8d4c2b1a-3e5f-4a6b-9c7d-0e1f2a3b4c5d'
+  const SESSION = '/api/app/v1/recordings/session'
+  const UPLOAD = '/api/app/v1/recordings/upload-url'
+  const JOB = '/api/app/v1/recordings/job'
+  const TRANSCRIBE = '/api/app/v1/ai/transcribe'
+  type Call = { path: string; method: string; body: Record<string, unknown> | null }
+  const facade: Call[] = []
+  const json = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+
+  /** facade-fetch.ts's job (Bearer + store lens), then the route itself. */
+  async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    const method = init.method ?? 'GET'
+    const text = typeof init.body === 'string' ? init.body : null
+    facade.push({ path, method, body: text ? (JSON.parse(text) as Record<string, unknown>) : null })
+    const headers = new Headers(init.headers)
+    headers.set('authorization', auth.authorization)
+    headers.set('store-id', 'store-1')
+    const req = () => new Request(`https://s${path}`, { method, headers, body: text })
+    if (path === UPLOAD) return mintPOST(req(), noRoute)
+    if (path === JOB && method === 'POST') return jobPOST(req(), noRoute)
+    if (path.startsWith(`${JOB}/`)) {
+      // The status door, answered from the job table above: a 404 is "no job".
+      const id = decodeURIComponent(path.slice(JOB.length + 1))
+      return enqueued?.recording_session_id === id
+        ? json(200, { status: 'QUEUED', karuteRecordId: null, attempts: 0, maxAttempts: 3, lastError: null })
+        : json(404, { error: { code: 'not_found', message: 'no job for this session' } })
+    }
+    // The start-time mint failed, and the session door is still down at stop.
+    if (path === SESSION) return json(503, { error: { code: 'upstream_unavailable', message: 'core down' } })
+    if (path === TRANSCRIBE) return json(200, { transcript: 'こんにちは', paragraphs: [], words: [], confidence: 1 })
+    // The run fails AFTER transcription: the AI ceiling refuses extraction (a
+    // refusal leaves on the first answer — fetchWithRetry — so no 1.5 s wait).
+    if (path === '/api/app/v1/ai/extract') return json(429, { error: 'ai_limit' })
+    if (path === '/api/app/v1/ai/summarize') return json(200, { summary: 'S' })
+    throw new Error(`unexpected facade call ${method} ${path}`)
+  }
+  /** The signed-URL PUT (plain fetch on the phone). */
+  const put = jest.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method !== 'PUT' || !url.startsWith('https://proj.supabase.co/upload/')) throw new Error(`unexpected fetch ${url}`)
+    return new Response(null, { status: 200 })
+  })
+  const settle = async (done: () => boolean) => {
+    for (let i = 0; i < 500 && !done(); i++) await new Promise((r) => setImmediate(r))
+  }
+
+  const realFetch = global.fetch
+  const priorDataPort = getDataPort()
+  const priorRecordingPort = getRecordingPipelinePort()
+  beforeEach(() => {
+    facade.length = 0
+    for (const s of idbStores.values()) s.data.clear()
+    // The server path's poll sleeps 5 s before its first status read; faked so
+    // it never fires — the pin is the enqueue, not the settlement.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    global.fetch = put as unknown as typeof fetch
+    setDataPort({ ...priorDataPort, apiFetch })
+    setRecordingPipelinePort(viteRecordingPort)
+  })
+  afterEach(() => {
+    globalPipeline.reset()
+    jest.useRealTimers()
+    global.fetch = realFetch
+    setDataPort(priorDataPort)
+    setRecordingPipelinePort(priorRecordingPort)
+  })
+
+  it('adopts X from the no_session fallback, fails after transcription, and 再試行 hands X’s row id AND X’s key to the job door', async () => {
+    // The take at stop, written by the recorder's own writers: no row on it
+    // (the start-time mint failed), whole on disk, stop stamp on the tail.
+    expect(
+      await createTake({
+        takeId: TAKE,
+        target: { customerId: 'cust-1', customerName: '田中', karuteNumber: null, appointmentId: null },
+        recordingSessionId: null,
+        mimeType: 'audio/webm',
+        startedAt: Date.now() - 42_000,
+      }),
+    ).toBe(true)
+    expect(await appendTakeSegment(TAKE, 0, new Blob(['take bytes'], { type: 'audio/webm' }), 42_000)).toBe(true)
+
+    globalPipeline.start(new Blob(['take bytes'], { type: 'audio/webm' }), {
+      locale: 'ja',
+      customers: [],
+      appointmentCustomerId: 'cust-1',
+      outcome: { status: 'success' },
+      recordingSessionId: null,
+      serverRowMissing: true,
+      takeId: TAKE,
+      duration: 42,
+    })
+    await settle(() => globalPipeline.state !== 'processing')
+
+    // Run 1: in-tab (no row → not server-eligible), and it failed after transcription.
+    expect(globalPipeline.state).toBe('error')
+    expect(facade.some((c) => c.path === SESSION)).toBe(true)
+    // The fallback reached the unbound door as 'no_session'; the ON arm made X on the key it signed.
+    expect(facade.filter((c) => c.path === UPLOAD).map((c) => c.body)).toEqual([
+      expect.objectContaining({ stagedFor: null, attachOutcome: 'no_session', customerId: 'cust-1', durationSeconds: 42 }),
+    ])
+    const key = rows.get(X)!.audio_storage_path!
+    expect(rows.get(X)).toMatchObject({ status: 'UPLOADING', staff_id: 'auth-user-1', store_id: 'store-1' })
+    expect(put).toHaveBeenCalledWith(`https://proj.supabase.co/upload/${key}`, expect.objectContaining({ method: 'PUT' }))
+    expect(facade.filter((c) => c.path === TRANSCRIBE).map((c) => c.body)).toEqual([
+      expect.objectContaining({ path: key, recordingSessionId: X }),
+    ])
+
+    // 再試行 — the phone's own retry.
+    globalPipeline.retry()
+    await settle(() => globalPipeline.serverOwned || globalPipeline.state !== 'processing')
+
+    // ⚖ THE PIN: the phone sent X's row id AND X's key — read off the take — to the job door…
+    expect(facade.filter((c) => c.path === JOB && c.method === 'POST').map((c) => c.body)).toEqual([
+      expect.objectContaining({ recordingSessionId: X, audioPath: key, customerId: 'cust-1' }),
+    ])
+    // …which accepted it (isOwnRecordingKey + takeKeyHolder 'own') and enqueued on X.
+    expect(enqueued).toMatchObject({
+      recording_session_id: X,
+      payload: { audio_path: key, customer_id: 'cust-1', store_id: 'store-1' },
+    })
+    // The server owns the run now: the phone polls it, and nothing ran in-tab a second time.
+    expect(globalPipeline.serverOwned).toBe(true)
+    expect(facade.filter((c) => c.path === UPLOAD)).toHaveLength(1)
+    expect(facade.filter((c) => c.path === TRANSCRIBE)).toHaveLength(1)
+    // What made it so — both halves of the adoption, read back through the real store.
+    expect(await readTakeSecureMeta(TAKE)).toMatchObject({ recordingSessionId: X, finalizedPath: key })
+    expect(globalPipeline.context?.recordingSessionId).toBe(X)
   })
 })
