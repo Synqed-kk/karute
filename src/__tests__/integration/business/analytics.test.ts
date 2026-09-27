@@ -267,7 +267,7 @@ describe('日報 rows', () => {
   const now = new Date()
 
   it('a FINISHED month distributes to exactly its own figure, and every closed day is marked', () => {
-    const coords = monthCoords(now, 1, closedWeekday)
+    const coords = monthCoords(now, 1, [closedWeekday])
     const row = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 1)!
     const rows = dailyLedger(coords, monthFigures(row), dowWeight, null)
     expect(rows).toHaveLength(coords.daysInMonth)
@@ -279,7 +279,7 @@ describe('日報 rows', () => {
   })
 
   it('the month IN PROGRESS shows only the days that have happened', () => {
-    const coords = monthCoords(now, 0, closedWeekday)
+    const coords = monthCoords(now, 0, [closedWeekday])
     const row = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 0)!
     const rows = dailyLedger(coords, monthFigures(row), dowWeight, null)
     expect(rows).toHaveLength(jstYmd(now).d)
@@ -287,7 +287,7 @@ describe('日報 rows', () => {
   })
 
   it("TODAY's row is the board's own day, not a distributed estimate", () => {
-    const coords = monthCoords(now, 0, closedWeekday)
+    const coords = monthCoords(now, 0, [closedWeekday])
     const row = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 0)!
     const pinned = { total: 12345, nw: 1, collected: 2, consumed: 3, newCount: 1, existingCount: 2 }
     const rows = dailyLedger(coords, monthFigures(row), dowWeight, pinned)
@@ -446,7 +446,7 @@ describe('a month in progress is never shown as a finished one', () => {
     const plan = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 0)!
     const shown = yenNumber(p.tiles![0].value)
     const d = jstYmd(new Date()).d
-    const coords = monthCoords(new Date(), 0, closedWeekday)
+    const coords = monthCoords(new Date(), 0, [closedWeekday])
     // TWO reasons this could read low — fewer days shown, or today's pin
     // coming in under its distributed share — so the day count is asserted
     // separately. A pin that can be true for two reasons is not a pin.
@@ -467,7 +467,7 @@ describe('a month in progress is never shown as a finished one', () => {
   })
 
   it('the previous month is read over the SAME span, not its whole self', () => {
-    const coords = monthCoords(new Date(), 1, closedWeekday)
+    const coords = monthCoords(new Date(), 1, [closedWeekday])
     const row = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 1)!
     const partial = spanFigures(coords, monthFigures(row), dowWeight, 10)
     const whole = spanFigures(coords, monthFigures(row), dowWeight, 99)
@@ -1542,7 +1542,7 @@ describe('the decision tiles', () => {
       const p = await room({ store: STORE_A })
       const land = p.tiles![4]
       const total = yenNumber(p.tiles![0].value)
-      const coords = monthCoords(new Date(), 0, closedWeekday)
+      const coords = monthCoords(new Date(), 0, [closedWeekday])
       expect(yenNumber(land.value)).toBe(landingEstimate(total, coords.elapsedDays, coords.daysInMonth))
       expect(land.calc).not.toBeNull()
       const lines = land.calc!.lines
@@ -2189,13 +2189,13 @@ describe('JST month coordinates', () => {
 
   it('walks backwards across a year boundary', () => {
     const now = new Date('2026-02-10T03:00:00.000Z')
-    expect(monthCoords(now, 0, 1)).toMatchObject({ y: 2026, m: 2, elapsedDays: 10 })
-    expect(monthCoords(now, 3, 1)).toMatchObject({ y: 2025, m: 11, daysInMonth: 30 })
-    expect(monthCoords(now, 11, 1)).toMatchObject({ y: 2025, m: 3 })
+    expect(monthCoords(now, 0, [1])).toMatchObject({ y: 2026, m: 2, elapsedDays: 10 })
+    expect(monthCoords(now, 3, [1])).toMatchObject({ y: 2025, m: 11, daysInMonth: 30 })
+    expect(monthCoords(now, 11, [1])).toMatchObject({ y: 2025, m: 3 })
   })
 
   it('knows February in a leap year and out of one', () => {
-    expect(monthCoords(new Date('2028-03-10T03:00:00.000Z'), 1, 1).daysInMonth).toBe(29)
-    expect(monthCoords(new Date('2026-03-10T03:00:00.000Z'), 1, 1).daysInMonth).toBe(28)
+    expect(monthCoords(new Date('2028-03-10T03:00:00.000Z'), 1, [1]).daysInMonth).toBe(29)
+    expect(monthCoords(new Date('2026-03-10T03:00:00.000Z'), 1, [1]).daysInMonth).toBe(28)
   })
 })

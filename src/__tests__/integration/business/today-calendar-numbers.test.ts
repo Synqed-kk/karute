@@ -585,7 +585,7 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
       const shifts = shiftsByDay.get(dayKey)
       if (!shifts) return 0
       const p = jstYmd(new Date(renderNow().getTime() + (dayKey - todayKey) * 86_400_000))
-      if (p.wd === planes.closedWeekday) return 0
+      if (planes.closedWeekdays.includes(p.wd)) return 0
       const absence = absenceForDay(dayKey, absenceByDay)
       const dayBlocks = blocksForDay(dayKey, blocksByDay)
       const live = appointments.filter(

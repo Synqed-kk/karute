@@ -313,7 +313,7 @@ describe('the fixture data door', () => {
       // ⚖ A1b · K11 — `./fixtures-settings`: OFF, a store's address is its SAMPLE 店舗情報 dial
       // (`readStoreAddress`); ON it is the door's own core store record.
       // ⚖ R-S39-1 — `./practice-door/door-booking-colors`: 予約の色分け's writer, door.ts's sibling (its own allowlist key).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/switch'],
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/store-hours', './practice-door/switch'],
       // ⚖ R-S39-1 — the second writer's file: the actor and the switch (OFF has no writer), door.ts's two exported
       // helpers (the once-per-actor org read, the one settings.manage truth), the clock (the audit line's time),
       // the import-free palette leaf (never today-board.ts, which would bring the fixtures), and a LAZY ./core-reach.
@@ -901,6 +901,8 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
         '@/business/lib/practice-door/sample-facade',
+        // ⚖ §v11 V11-7 — the week's ONE derivation (the shared pair on every day but the 定休日) for the storeless lens.
+        '@/business/lib/practice-door/store-hours',
         // ⚖ PR-3 §v3 V3-5 — the dateline drops サンプルデータ under the door (the switch itself, read once).
         '@/business/lib/practice-door/switch',
         // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
