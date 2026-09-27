@@ -27,6 +27,10 @@ import {
 const q = new URLSearchParams(location.search)
 const tab = q.get('tab') ?? 'karute'
 const lang = q.get('lang') === 'en' ? 'en' : 'ja'
+// `?shinki=on` (S45): the 新規 chip ON through the harness-only registry
+// (./switches.ts) with a 480-row set, every row 新規 → a 3-digit tally in
+// every staff state (480 · 120 · 120). Without it: the S44 fixture, untouched.
+const shinki = q.get('shinki') === 'on'
 document.documentElement.lang = lang
 
 function todayJstIso(): string {
@@ -76,7 +80,7 @@ function View() {
   }
   return (
     <KaruteRecordListView
-      items={karuteItems()}
+      items={shinki ? karuteItems(480, true) : karuteItems()}
       monthCount={96}
       total={1234}
       discardedCount={12}
