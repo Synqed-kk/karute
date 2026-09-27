@@ -32,7 +32,7 @@ function minuteOf(value: unknown): number | null {
 
 /** One weekday of a store's week, read as `resolveDayHours` reads it: no hours at all (null, no row, `{}`)
  *  → sample · the day null or absent → 定休日 · a well-formed window → its minutes · a malformed one vouches
- *  for nothing → malformed (there: falls through to the org blob / 10:00–24:00 default, never closed). */
+ *  for nothing → malformed (never closed; the door serves it the store's usual window, V11-2a final). */
 export function resolveStoreDay(weekly: WeeklyHours | undefined, weekday: number): StoreDay {
   if (weekly == null || Object.keys(weekly).length === 0) return { source: 'sample' }
   const day = weekly[KEYS[weekday]]
@@ -42,7 +42,8 @@ export function resolveStoreDay(weekly: WeeklyHours | undefined, weekday: number
 }
 
 /** Core's week, normalized — each weekday read as `resolveStoreDay` reads it; a MALFORMED weekday is null here and
- *  named in `malformed` (V11-2a, amended 17:0x: it never takes the other days with it — the door serves it per day).
+ *  named in `malformed` (V11-2a, final 17:5x: it never takes the other days with it — the door serves it the store's
+ *  OWN usual window, `usualPairOf` over the well-formed days).
  *  null = no core week, and the plane serves the sample set: no hours at all, or no well-formed weekday that opens
  *  (V11-2b). */
 export function weekOf(weekly: WeeklyHours | undefined): { week: Week; malformed: number[] } | null {

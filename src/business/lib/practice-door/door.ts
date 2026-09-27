@@ -630,10 +630,10 @@ async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: numbe
   const core = weekOf(weekly)
   const usual = core && usualPairOf(core.week)
   if (!core || !usual) return sample
-  // ⚖ V11-2a (amended 17:0x) — a malformed weekday mirrors resolveDayHours per day (not the store's statement, never
-  // closed there): it takes the sample set's day; the other six keep their own windows. Logged once per read.
-  if (core.malformed.length > 0) console.error('[practice hours] malformed weekday served from the sample set:', lens, core.malformed.join(','))
-  const week = core.week.map((d, wd) => (core.malformed.includes(wd) ? sample.weeklyHours[wd] : d))
+  // ⚖ V11-2a (final 17:5x) — a malformed weekday never takes the other days with it and never borrows another world's
+  // day: it is served the store's OWN usual window (never a closure it did not set). Logged once per read.
+  if (core.malformed.length > 0) console.error("[practice hours] malformed weekday served as the store's usual window:", lens, core.malformed.join(','))
+  const week = core.week.map((d, wd) => (core.malformed.includes(wd) ? usual : d))
   return { operatingHours: week[weekdayOfKey(dayKey)] ?? usual, weeklyHours: week, closedWeekdays: closedWeekdaysOf(week), hoursSource: 'core' }
 }
 

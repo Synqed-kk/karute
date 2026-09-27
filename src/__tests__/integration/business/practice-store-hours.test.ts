@@ -29,7 +29,7 @@ describe('store-hours — a practice store\'s own 営業時間 · 定休日 (§v
     }
   })
 
-  it('resolveStoreDay: no hours (null · no row · {}) → sample; a null or absent day → 定休日; 24:00 = 1440; a malformed or empty window (open ≥ close) → malformed (V11-2a, amended 17:0x)', () => {
+  it('resolveStoreDay: no hours (null · no row · {}) → sample; a null or absent day → 定休日; 24:00 = 1440; a malformed or empty window (open ≥ close) → malformed (V11-2a, final 17:5x)', () => {
     for (const none of [null, undefined, {}]) expect(resolveStoreDay(none, 1)).toEqual({ source: 'sample' })
     expect(resolveStoreDay({ mon: { open: '09:00', close: '18:00' } }, 2)).toEqual({ source: 'core', closed: true })
     expect(resolveStoreDay({ mon: null, tue: { open: '09:00', close: '18:00' } }, 1)).toEqual({ source: 'core', closed: true })
@@ -44,8 +44,11 @@ describe('store-hours — a practice store\'s own 営業時間 · 定休日 (§v
     expect(closedWeekdaysOf(weekOf(wedSat)!.week)).toEqual([3, 6])
     expect(closedWeekdaysOf(weekOf(POLICIES[STORE.tokyo].weekly_hours)!.week)).toEqual([2])
     expect(closedWeekdaysOf(weekOf(POLICIES[STORE.gym].weekly_hours)!.week)).toEqual([])
-    // V11-2a (amended 17:0x) — a malformed Friday never takes the other six: they keep their windows; Friday is named.
-    expect(weekOf({ ...every('10:00', '19:00'), fri: { open: '19:00', close: '10:00' } })).toEqual({ week: [W, W, W, W, W, null, W], malformed: [5] })
+    // V11-2a (final 17:5x) — a malformed Friday never takes the other six: they keep their windows; Friday is named, and
+    // the window the door serves it is the store's own usual pair over the well-formed days (never a closure, never sample).
+    const badFri = weekOf({ ...every('10:00', '19:00'), fri: { open: '19:00', close: '10:00' } })!
+    expect(badFri).toEqual({ week: [W, W, W, W, W, null, W], malformed: [5] })
+    expect(usualPairOf(badFri.week)).toEqual(W)
     for (const none of [null, undefined, {}, { mon: null }, { mon: null, tue: null }, { mon: { open: '25:00', close: '26:00' } }]) expect(weekOf(none)).toBeNull() // V11-2 · V11-2b
     expect(weekFromPair({ open: 600, close: 1140 }, [1])).toEqual([0, 1, 2, 3, 4, 5, 6].map((wd) => (wd === 1 ? null : { open: 600, close: 1140 })))
   })
