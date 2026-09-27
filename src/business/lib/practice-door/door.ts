@@ -552,10 +552,11 @@ export async function listBlocksByDay(lens: StoreLens, range: DayRange): Promise
  *  every BOOKING or BLOCK on a room that is not CANCELLED / NO_SHOW (core's tombstones), from its
  *  start to its end extended — never shortened — by core's own `occupied_until` cleanup snapshot. */
 type Busy = Array<{ room: string; start: number; end: number }>
+const untilOf = (r: CoreAppointment) => (r.occupied_until !== null && Date.parse(r.occupied_until) > Date.parse(r.ends_at) ? r.occupied_until : r.ends_at)
 function roomsBusy(rows: CoreAppointment[], dayKey: number): Busy {
   return rows.flatMap((r): Busy => {
     if (r.resource_id === null || r.status === 'CANCELLED' || r.status === 'NO_SHOW') return []
-    const until = r.occupied_until !== null && Date.parse(r.occupied_until) > Date.parse(r.ends_at) ? r.occupied_until : r.ends_at
+    const until = untilOf(r)
     const [a, b] = [jstDayKey(r.starts_at), jstDayKey(until)]
     if (dayKey < a || dayKey > b) return []
     const span = { room: r.resource_id, start: a < dayKey ? 0 : jstMinuteOfDay(r.starts_at), end: b > dayKey ? 1440 : jstMinuteOfDay(until) }
@@ -626,13 +627,16 @@ export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, 
 }
 
 /** ⚖ §v11 V11-12 — each day of the range its OWN served shifts, from ONE range read of the live rows (a closed day of a
- *  'core' store: [], never an absent key). */
+ *  'core' store: [], never an absent key). The rows are grouped by day ONCE (Greptile P2 on #1071): a row counts on
+ *  every day from its start to its end — core's cleanup snapshot included, as roomsBusy reads it. */
 export async function listShiftsByDay(lens: StoreLens, range: DayRange): Promise<Map<number, FixtureShift[]>> {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)
   const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, jstDayKey(renderNow()), s), liveRowsOf(actor, lens, range)])
-  return new Map(dayKeys(range).map((k) => [k, servedDay(seats, day, hours, s.operatingHours, k).shifts]))
+  const on: Record<number, CoreAppointment[]> = {}
+  for (const r of day) for (let k = Math.max(range.from, jstDayKey(r.starts_at)); k <= Math.min(range.to, jstDayKey(untilOf(r))); k += 1) (on[k] ??= []).push(r)
+  return new Map(dayKeys(range).map((k) => [k, servedDay(seats, on[k] ?? [], hours, s.operatingHours, k).shifts]))
 }
 
 export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promise<Map<number, FixtureAbsence | null>> {
