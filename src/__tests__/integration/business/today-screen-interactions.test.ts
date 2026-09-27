@@ -1580,7 +1580,7 @@ describe('the window layers price the committed board, never the card in flight'
     // takes the BED side's committed memberships too, and the same rule binds
     // them — `bedMoves`, never `liveBedMoves`. The pin is what stops a future
     // round from quietly feeding the priced layers the pointer's position.
-    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props\.bedCleanupMinutes\)/
+    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props\.bedCleanupMinutes, business\.close\)/ // ⚖ §v11 V11-15 fix round 2
     expect(memo.test(src)).toBe(true)
     // ⚖ flag 64 — the delete ledger joined that SAME pass, deliberately: the
     // board, the sell layer, blockClash and the guard's occupancy all read the
@@ -1880,9 +1880,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const CODE = codeOnly(SRC)
     // ⚖ FRAME-SEAM (2026-09-12) — the rail's call and its dep-array anchor name the
     // HAND's board; the verdict's slice below is byte-unchanged.
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
-    const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
       // ⚖ FRAME-SEAM (2026-09-12) — the RAIL's two doors answer on the hand's
       // board; the VERDICT's two are byte-unchanged (their board is the caller's).
@@ -2016,7 +2016,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // Mechanical whole-line rename; the slice is the same call.
     const heldBoard = uniqueSlice(
       'const heldBoardRaw = useMemo(',
-      '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
+      '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
     )
     expect({
       bareGateLines: pinnedLines(SRC, 'SELLING_ENGINE_LAW'),
@@ -2147,12 +2147,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // HAND's board; every other line of the slice is byte-unchanged.
     const rail = sliceLines(
       'guardRailsFor(handBoard, {',
-      '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(rail.lines).toEqual([
       'guardRailsFor(handBoard, {',
-      'open: hours.open,',
-      'close: hours.close,',
+      'open: business.open,',
+      'close: business.close,',
       'stepMin: 30,',
       'dur: railDur,',
       'protectedDur: props.guard.protectedDurationMin,',
@@ -2176,12 +2176,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // the caller's own exclusion and the board it was handed.
     const verdict = sliceLines(
       '? guardVerdictAt(lanes, laneKey, start, {',
-      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(verdict.lines).toEqual([
       '? guardVerdictAt(lanes, laneKey, start, {',
-      'open: hours.open,',
-      'close: hours.close,',
+      'open: business.open,',
+      'close: business.close,',
       'stepMin: 30,',
       'dur,',
       'protectedDur: props.guard.protectedDurationMin,',
@@ -3926,9 +3926,9 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // ⚖ 9/8 PACKING fix round 2 (F4) — RENEGOTIATED AGAIN: each room's own
     // turnaround rides with both boards, so a card that changed room is drawn
     // with the tail its NEW room needs. All three boards carry it.
-    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes)')
-    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes)')
-    expect(SRC).toContain('applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes)')
+    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes, business.close)') // ⚖ §v11 V11-15 fix round 2 — the store's close for turnarounds
+    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes, business.close)')
+    expect(SRC).toContain('applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes, business.close)')
     // The shelf lands through `added`, stamped with the BOARD on screen —
     // RENEGOTIATED (⚖ 46 forerunner): the day and the store together, from the
     // one `board` const, so a landing cannot record half of where it landed.
@@ -4411,7 +4411,7 @@ describe('the guided tour builds itself out of what is on screen', () => {
 
   it('the ? popover carries canon’s hints, ours, and the button that starts the tour', () => {
     expect(SRC).toContain('<strong>操作ヒント</strong>')
-    expect(SRC).toContain('・時間外は非表示')
+    expect(SRC).toContain("'・営業時間外の予約も表示'") // ⚖ §v11 V11-15(g) — canon's 「・時間外は非表示」 is false once out-of-hours cards are drawn
     expect(SRC).toContain('カードはドラッグで移動・両端で時間変更')
     expect(SRC).toContain('キーボード: Shift＋←/→で開始、Alt＋←/→で終了を30分ずつ変更')
     expect(SRC).toContain('仮置きエリア（ボード上の点線バー）')
@@ -5235,7 +5235,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // 元に戻す (:5527). Ours reads the staged `moves`, so the same is true.
     // (⚖ BATCH-6 flag 45 — RENEGOTIATED: the bed side's committed memberships
     // ride the same board, and the same "committed, never live" rule.)
-    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes),')
+    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes, business.close),')
     // What is frozen for the length of a GESTURE is `liveMoves`, and only that.
     // ⚖ flag 57 — RENEGOTIATED: a third case joined, and only as a PAINT. The
     // pending-override ghost is `attemptLanes`, folded in here and nowhere
@@ -5258,7 +5258,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // the sell layer reads (`committedLanes`, never `boardLanes`).
     expect(SRC.indexOf('const gap = useMemo(')).toBeLessThan(SRC.indexOf('const { sell, sellDrops } = useMemo('))
     const sell = SRC.slice(SRC.indexOf('const { sell, sellDrops } = useMemo('), SRC.indexOf('const guardOn ='))
-    expect(sell).toContain('sellLayerFor(committedLanes, hours, {')
+    expect(sell).toContain('sellLayerFor(committedLanes, business, {') // ⚖ §v11 V11-15(b) — the sell frame reads the store's own hours
     expect(sell).not.toContain('boardLanes')
     // …and the promises it reconciles against are the gap layer's own cells,
     // never a second derivation of them.
@@ -7014,7 +7014,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // the second leg re-solves on the shuffled board, where step 0 succeeds, so
     // its own reseats are provably always empty.
     expect(SRC).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
-    expect(SRC).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)')
+    expect(SRC).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)')
     expect(SRC).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
   })
 
@@ -7548,7 +7548,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     expect(SRC.match(/cell: offerable\(/g)).toHaveLength(2)
     // The selector is a SOURCE, so it hands its starts to the same filter and
     // never filters or re-verifies them itself.
-    expect(SRC).toContain('return nearestFreeStarts(start, props.guard.bookingStepMin, hours, dur, (s) =>')
+    expect(SRC).toContain('return nearestFreeStarts(start, props.guard.bookingStepMin, business, dur, (s) =>') // ⚖ §v11 V11-15 B4 — bounded by the store's hours
     expect(SRC.match(/nearestFreeStarts\(/g)).toHaveLength(1)
     expect(SRC.match(/bedClassCell\(/g)).toHaveLength(1)
     expect(SRC).toContain('return offerableCell(cell, props.guard.bookingStepMin, start, (s) =>')
@@ -7705,7 +7705,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // why the strip and the drop judged two different boards); this body is one of
     // its two callers, and the HAND's arm is the array this render already built.
     const which = SRC.slice(SRC.indexOf('function solveLanes('), SRC.indexOf('\n  }', SRC.indexOf('function solveLanes(')))
-    expect(which).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes)')
+    expect(which).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes, business.close)')
     expect(which).toContain('? handBoardRef.current')
     expect(which).not.toContain('lanesWithCompanionsRestored(')
   })
@@ -8125,7 +8125,7 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
     // a truncation: 10:00–19:00 is nine columns, and the head says so in words.
     const fixtures = read('src/business/lib/fixtures-today.ts')
     expect(fixtures).toContain('export const operatingHours = { open: 10 * 60, close: 19 * 60 }')
-    expect(src).toContain('<span>営業時間 {hhmm(hours.open)}–{hhmm(hours.close)}・時間外は非表示</span>')
+    expect(src).toContain("<span>営業時間 {hhmm(business.open)}–{hhmm(business.close)}{props.businessHours ? '・営業時間外の予約も表示' : ''}</span>") // ⚖ §v11 V11-15(g)
   })
 })
 
@@ -15345,5 +15345,66 @@ describe('⚖ PR-3 — the board’s sample label is gated on the door, one per 
   it('a decision card carries no chip (the card is a <button>; its section head carries the mark)', () => {
     const card = SRC.slice(SRC.indexOf('<div className="decision-grid">'), SRC.indexOf('<div className="decision-grid">') + 2000)
     expect(card).not.toContain('sampleChip')
+  })
+})
+
+// ⚖ §v11 V11-15 (board fix PR-C) — the axis may run past the store's hours; the rules never do.
+describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', () => {
+  const AXIS = { open: 420, close: 1440 } // 07:00–24:00, grown by a late card
+  const STORE = { open: 420, close: 1320 } // 07:00–22:00, the store's own day
+
+  // Fix round 2 — P16: a moved booking's re-derived turnaround is cut by the store's close, not by the axis.
+  it('§v11 V11-15 P16 — a bed booking moved to end 21:50 keeps a 30-minute turnaround only up to 22:00 when the axis runs to 24:00; unchanged when the axis IS the hours', () => {
+    const tailEnd = (axis: { open: number; close: number }, closeMin?: number) => {
+      const bed = lane({
+        key: 'bed-late', group: 'beds',
+        items: [
+          booking({ key: 'apt-late-bed', caseId: 'apt-late', ...place(1140, 1200, axis) }, 1140, 1200),
+          { ...booking({ key: 'apt-late-cleanup', caseId: null, ...place(1200, 1230, axis) }, 1200, 1230), kind: 'cleanup' as const, title: '清掃' },
+        ],
+      })
+      const to = place(1250, 1310, axis) // 20:50–21:50 — the span rides `moves`; the booking stays on its bed
+      const out = applyMoves([bed], { 'apt-late': { laneKey: 'p-late', x: to.x, w: to.w } }, [], [], axis, LANE_WORDS, {}, undefined, closeMin)
+      return out[0].items.find((i) => i.kind === 'cleanup')?.endMin
+    }
+    expect(tailEnd(AXIS, STORE.close)).toBe(1320) // not 1340
+    expect(tailEnd(STORE)).toBe(1320) // the OFF path: axis == the store's hours, as today
+  })
+
+  // Fix round 3 — P19 (stress mutant M10): an empty-slot click reads the pixel on the AXIS and bounds the start by the STORE.
+  it('§v11 V11-15 P19 — slotStartAt: the far right of a 07:00–24:00 track seeds 21:30 (the store\'s close − 30), not 23:30; the far left 07:00', () => {
+    const track = document.createElement('div')
+    rect(track, { left: 0, top: 0, width: 1000, height: 40 })
+    expect(slotStartAt(track, 1000, AXIS, STORE)).toBe(1290)
+    expect(slotStartAt(track, 0, AXIS, STORE)).toBe(420)
+  })
+
+  // Fix round 3b — P18 (stress mutant M9, recorded EQUIVALENT by the lead): the new-booking dialog's submit guard sits
+  // behind a confirm button the same 営業時間 check already disables, so no user path reaches it today. Pinned as TEXT, so
+  // a later change that re-enables the button cannot silently flip the guard to the axis.
+  it('§v11 V11-15 P18 — the new-booking dialog refuses a booking past the STORE\'s close at submit (text pin: the guard reads business.close)', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    const guard = "    if (end > business.close) {\n      setError('営業時間を超える予約は作成できません')"
+    expect(src.split(guard).length - 1).toBe(1)
+    expect(src).not.toMatch(/if \(end > hours\.close\)/)
+  })
+
+  // Fix round 4 — P20, the render half: no suite renders TodayScreen here (the renderer fence, header :5-9), so the ruler's
+  // JSX and CSS are pinned as TEXT; the arithmetic is P20 in today-board.test.ts, the render is the byte-id harness's.
+  it('§v11 V11-15 P20 — the ruler spans sit at rulerLabels() minute positions, the off rule unchanged, the labels out of flow', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    expect(src).toContain("{hours.labels.map((l) => <span key={l.hour} style={{ left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : undefined}>{l.hour}</span>)}")
+    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')).toContain('const hourLabels = rulerLabels(drawn)')
+    const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    expect(css).toContain('.biz .hours { position: relative; }\n.biz .hours span { position: absolute; top: 0; bottom: 0; box-sizing: border-box;')
+    expect(css).toContain('.biz .page-today .hours { height: 36.25px; }')
+    // …and the track's lines take the ruler's lead (set only on a fractional axis), on every gridline layer.
+    const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(page).toContain('  const hourLead = rulerLead(drawn)')
+    expect(page).toContain('labels: hourLabels, ...(hourLead > 0 ? { lead: hourLead } : {}) },')
+    expect(src).toContain("...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}")
+    expect(css).toContain('  --grid-x: calc(var(--hour-lead, 0) * var(--hours, 9) / (var(--hours, 9) - 1) * 1%);\n  background-position-x: var(--grid-x);\n')
+    expect(css).toContain('  background-position: var(--grid-x) 0, left top, right top;\n')
+    expect(css).toContain('  background-position: var(--grid-x) 0, var(--grid-x) 0, left top, right top;\n')
   })
 })

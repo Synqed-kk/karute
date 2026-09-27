@@ -1140,8 +1140,8 @@ describe('R6 — a second landing of the same card solves against the day it sta
     // test guards (「one home for: which board does this landing solve against」)
     // is strengthened, not weakened: there is still exactly one spelling of it.
     expect(SCREEN).toContain('function solveLanes(id: string | null): BoardLane[] {')
-    expect(SCREEN).toContain('? lanesWithCompanionsRestored(lanes, pending.companions, hours, words, cleanupMinutesByBed)')
-    expect(SCREEN).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes)')
+    expect(SCREEN).toContain('? lanesWithCompanionsRestored(lanes, pending.companions, hours, words, cleanupMinutesByBed, closeMin)') // ⚖ §v11 V11-15 fix round 2
+    expect(SCREEN).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes, business.close)')
     // The HAND's arm is the very array this render already built and the rails
     // were cut from — not a second restore, and not `boardLanesRef` (that mutant
     // puts the strip and the word back on two boards and the frame-mount pin's
@@ -1256,7 +1256,7 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     // judgement and the solve can no longer drift apart.
     expect(SCREEN).toContain('const base = solveLanes(q.id)')
     expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
-    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)')
+    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)')
     expect(SCREEN).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
     // The gesture end reads the board through `solveLanes` and nowhere else.
     const landing = SCREEN.slice(SCREEN.indexOf('const verdictAtLanding = useCallback('), SCREEN.indexOf('const verdictRef = useRef('))
@@ -1684,7 +1684,7 @@ describe('R10 — a shuffle that kills a held window is judged on the board it w
   it('and the screen asks the guard on exactly that board', () => {
     expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
     expect(SCREEN).toContain('if (!opts.pack || v.reseats.length === 0) return v')
-    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)')
+    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)')
     expect(SCREEN).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
   })
 })
@@ -2028,7 +2028,7 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // 9/11 finding. `store.base` below stays on `boardLanes` and cannot disagree
     // with it: the memo-gate invariant (pinned further down) says a store exists
     // only while `handBoard === boardLanes`.
-    expect(SCREEN).toContain('      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, laneWords, props.bedCleanupMinutes)\n      store.shuffledFor.set(moveSet, shuffled)\n    }')
+    expect(SCREEN).toContain('      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)\n      store.shuffledFor.set(moveSet, shuffled)\n    }')
     expect(SCREEN).not.toContain('applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats)')
     // …and there are exactly two places on this screen that build a shuffled
     // board at all: `verdictAtLanding`'s own second leg, and the composer.
@@ -2334,7 +2334,7 @@ describe('FRAME-SEAM — one render, one world', () => {
     // (置けない on the card, △15:30 on the chip). The strip joins the drop; ⚖ 9/8
     // PACKING's re-landing rule is Liam's and is never the thing that moves.
     expect(SCREEN).toContain('export function handBoardFor(')
-    expect(SCREEN).toContain('const handBoard = useMemo(\n    () => handBoardFor(boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes),')
+    expect(SCREEN).toContain('const handBoard = useMemo(\n    () => handBoardFor(boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes, business.close),')
     // …and the `else` arm hands back the SAME REFERENCE, which is what makes
     // nothing move at rest: with no hand `handBoard === boardLanes` by identity,
     // so every memo below sees the identical array in its dep list. A copy here

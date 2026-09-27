@@ -47,20 +47,62 @@ export interface Hours {
   close: number
 }
 
-/** Percent placement on the timeline. The window is the store's open hours, so
- *  the hour ruler and the cards are the same axis by construction — canon's own
- *  sheet drew a 15-column ruler under 11 hours of cards, and the lines and the
- *  cards did not line up. */
+/** Percent placement on the timeline. The window is the board's DRAWN window
+ *  (`drawnWindow`), so the hour ruler and the cards are the same axis by
+ *  construction — canon's own sheet drew a 15-column ruler under 11 hours of
+ *  cards, and the lines and the cards did not line up.
+ *  ⚖ §v11 V11-15(d) — TOTAL, FINITE, INSIDE THE BOARD: the INPUTS are clamped
+ *  into the window and an end before the start becomes the start, so `0 ≤ x ≤ 100`,
+ *  `0 ≤ w`, `x + w ≤ 100` (to float precision, 1e-9). The output is never
+ *  re-rounded: `x` and `w` keep today's formulas bit for bit. A window that does
+ *  not open before it closes places nothing, never NaN. */
 export function place(start: number, end: number, hours: Hours): { x: number; w: number; startMin: number; endMin: number } {
   const span = hours.close - hours.open
-  const from = Math.max(start, hours.open)
-  const to = Math.min(end, hours.close)
+  if (!(span > 0)) return { x: 0, w: 0, startMin: hours.open, endMin: hours.open }
+  const from = Math.min(Math.max(start, hours.open), hours.close)
+  const to = Math.max(Math.min(end, hours.close), from)
   return {
     x: ((from - hours.open) / span) * 100,
     w: (Math.max(to - from, 0) / span) * 100,
     startMin: from,
-    endMin: Math.max(to, from),
+    endMin: to,
   }
+}
+
+/** ⚖ §v11 V11-15(a) + amendments A4/B1/B3 — THE DRAWN WINDOW, the axis every
+ *  card is placed on: the store's own hours, grown in whole hours FROM its own
+ *  edges until every card fits, clamped to [0, 1440]. Only bookings grow it
+ *  (never a shift, wash, break, absence, block or sell slot); one inside the
+ *  hours or touching an edge grows nothing. A row whose end wrapped past
+ *  midnight (end < start) grows it to its START. Anchored at the business edges,
+ *  so a whole-hour pair gives whole hours and a fractional pair keeps today's
+ *  left edge — the drag lattice (snapPct, drag-rules.ts) is unchanged. */
+export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute: number; endMinute: number }>): Hours {
+  const earliest = Math.min(hours.open, ...bookings.map((b) => b.startMinute))
+  const latest = Math.max(hours.close, ...bookings.map((b) => Math.max(b.startMinute, b.endMinute)))
+  return {
+    open: Math.max(0, hours.open - 60 * Math.ceil((hours.open - earliest) / 60)),
+    close: Math.min(1440, hours.close + 60 * Math.ceil((latest - hours.close) / 60)),
+  }
+}
+
+/** ⚖ §v11 V11-15 P20 — THE RULER: the AXIS may be fractional (B3); the RULER prints whole hours at their minute
+ *  positions — one label per whole hour h with open ≤ h·60 < close, placed exactly as place() places a card
+ *  (left = (h·60 − open)/span, width = min(60, close − h·60)/span). A whole-hour axis gives today's label set at
+ *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %). */
+export function rulerLabels(axis: Hours): ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }> {
+  const span = axis.close - axis.open
+  if (!(span > 0)) return []
+  const out: { hour: number; leftPct: number; widthPct: number }[] = []
+  for (let h = Math.ceil(axis.open / 60); h * 60 < axis.close; h++) out.push({ hour: h, leftPct: ((h * 60 - axis.open) / span) * 100, widthPct: (Math.min(60, axis.close - h * 60) / span) * 100 })
+  return out
+}
+
+/** ⚖ §v11 V11-15 P20 — the track's gridlines take the ruler's lead: the share of the axis (percent) before its first
+ *  whole hour, so the lines start where the first label does. 0 on a whole-hour axis (nothing is added to the DOM). */
+export function rulerLead(axis: Hours): number {
+  const span = axis.close - axis.open
+  return span > 0 ? ((Math.ceil(axis.open / 60) * 60 - axis.open) / span) * 100 : 0
 }
 
 /** place()'s inverse for the drag layer: a percent offset back to the minute it
@@ -487,7 +529,10 @@ export interface BuildInput {
   blocks: FixtureBlock[]
   sellSlots: FixtureSellSlot[]
   decisions: FixtureDecision[]
+  /** The AXIS every item is placed on — the drawn window (`drawnWindow`). */
   hours: Hours
+  /** ⚖ §v11 V11-15(b) — the store's OWN hours, for the wash edges that mean 開店/閉店. Absent = `hours`. */
+  businessHours?: Hours
   /** The day being shown, as a JST day index (clock.jstDayKey). */
   dayKey: number
   operatorStaffId: string
@@ -624,11 +669,15 @@ export const STATE_LABEL: Record<NonNullable<BoardBooking['state']>, string> = {
   noshow: '来店なし',
 }
 
-/** Staff lanes then resource lanes, in canon's two groups. */
+/** Staff lanes then resource lanes, in canon's two groups. Every item of the seven builders passes ONE gate: a box
+ *  `place()` gives no width is not drawn (⚖ §v11 V11-15(d)) — EXCEPT a booking, which is always drawn (amendment B1:
+ *  a zero-width card still shows as the card's minimum sliver, as it does today; nothing hidden). */
 export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLane[] {
   const { hours, absence } = input
+  const biz = input.businessHours ?? hours
   const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
   const lanes: BoardLane[] = []
+  const drawn = (items: BoardItem[]) => items.filter((i) => i.kind === 'booking' || i.w > 0)
 
   // ⚖ D-53 (ak)/(al) N2c-2 R-2 — Home B: the booking's own room word, resolved
   // ONCE per booking so the staff-lane copy and the resource-lane copy of one
@@ -678,7 +727,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
       items.push({
         key: `${member.id}-absence`,
         kind: 'absence', state: null, category: null,
-        ...place(absence.from, hours.close, hours),
+        ...place(absence.from, biz.close, hours),
         title: '勤務不可', tag: '', time: `${hhmm(absence.from)}〜閉店`,
         ticketCat: null, ticketCore: null, held: false, micro: false, caseId: null,
         label: `${member.full_name}、${hhmm(absence.from)}以降 勤務不可`,
@@ -698,19 +747,19 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
     // Occupancy is unaffected — laneSpans() reads every item whatever its kind.
     const offShift: Array<{ title: string; from: number; to: number; time: string; label: string }> = shift
       ? [
-          ...(shift.start > hours.open
+          ...(shift.start > biz.open
             ? [
                 {
-                  title: '勤務前', from: hours.open, to: shift.start,
+                  title: '勤務前', from: biz.open, to: shift.start,
                   time: `開店〜${hhmm(shift.start)}`,
                   label: `${member.full_name}、${hhmm(shift.start)}開始のため、それより前は予約不可`,
                 },
               ]
             : []),
-          ...(shift.end < hours.close && !(absence && absence.staff_id === member.id)
+          ...(shift.end < biz.close && !(absence && absence.staff_id === member.id)
             ? [
                 {
-                  title: '終業', from: shift.end, to: hours.close,
+                  title: '終業', from: shift.end, to: biz.close,
                   time: `${hhmm(shift.end)}〜閉店`,
                   label: `${member.full_name}、${hhmm(shift.end)}以降、終業のため予約不可`,
                 },
@@ -721,9 +770,9 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
           // ponytail: canon's fixture is fully staffed, so it has no no-shift lane
           // and no wording to copy. Built's own sentence stays; only the paint moves.
           {
-            title: '本日勤務なし', from: hours.open, to: hours.close,
-            time: `${hhmm(hours.open)}〜${hhmm(hours.close)}`,
-            label: `${member.full_name}、${hhmm(hours.open)}から${hhmm(hours.close)}、本日勤務なし・予約不可`,
+            title: '本日勤務なし', from: biz.open, to: biz.close,
+            time: `${hhmm(biz.open)}〜${hhmm(biz.close)}`,
+            label: `${member.full_name}、${hhmm(biz.open)}から${hhmm(biz.close)}、本日勤務なし・予約不可`,
           },
         ]
     for (const off of offShift) {
@@ -746,7 +795,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
         : '本日シフトなし',
       absentNote: absence && absence.staff_id === member.id ? `${hhmm(absence.from)}以降 勤務不可` : null,
       mine: member.id === input.operatorStaffId,
-      items: items.sort((a, b) => a.x - b.x),
+      items: drawn(items).sort((a, b) => a.x - b.x),
       window: shift ? { from: shift.start, until: shift.end } : null,
       untilLabel: shift ? hhmm(shift.end) : null,
       listPrice: input.staffListPrice[member.id] ?? 0,
@@ -761,10 +810,11 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
     // ⚖ D-53 (ak)/(al) N2c-2 R-3 — Home C: resolved ONCE per resource, the
     // same store lookup Home B uses.
     const t = input.wordsByStore[resource.store_id]?.turnoverWord ?? input.genericWords.turnoverWord!
+    // ⚖ §v11 V11-15 fix round 1 (P15) — a turnover is cut by the STORE's closing time, never by the axis.
     for (const c of cleanupBlocks(
       on.map((b) => ({ id: b.id, start: b.startMinute, end: b.endMinute })),
       resource.cleanup_minutes,
-      hours,
+      biz,
     )) {
       items.push({
         key: c.id,
@@ -796,7 +846,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
         : resource.note,
       absentNote: null,
       mine: false,
-      items: items.sort((a, b) => a.x - b.x),
+      items: drawn(items).sort((a, b) => a.x - b.x),
       window: null,
       untilLabel: null,
       listPrice: 0,

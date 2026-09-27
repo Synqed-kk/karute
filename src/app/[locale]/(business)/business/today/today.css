@@ -16,9 +16,10 @@
    gridlines and the cards do not line up; its own later pass introduces
    `--hours` and fixes the track, but leaves `.hours` hardcoded at 11. Here BOTH
    the ruler and the track read the store's open-hours span, so the lines are
-   under the cards by construction at any opening hours. `repeat()` cannot take
-   a custom property for its count, so the ruler uses auto-flow columns — same
-   result, one source.
+   under the cards by construction at any opening hours. The ruler places each
+   whole-hour label at its own minute (rulerLabels()), and the track's lines take
+   the same lead offset (`--hour-lead`, rulerLead()) — so on a fractional axis
+   both start at the first whole hour, one source.
 
    NOT CARRIED (dead CSS is worse than absent CSS): the スキマガード demo layer
    with its popover and log — canon's own copy calls it a page-local teaching
@@ -358,10 +359,10 @@
 .biz .label-resize { position: absolute; top: 0; bottom: 0; right: -5px; width: 10px; cursor: col-resize; z-index: 8; touch-action: none; }
 .biz .label-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: transparent; }
 .biz .label-resize:hover::after, .biz .label-resize.dragging::after { background: var(--select-line); }
-/* See the header note: auto-flow columns instead of repeat(N) so the ruler
-   reads the same --hours the track does. */
-.biz .hours { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
-.biz .hours span { padding-top: 10px; border-left: 1px solid var(--row); color: var(--quiet); font-size: 12px; text-align: center; }
+/* ⚖ §v11 V11-15 P20 — each hour label is placed at its own minute (rulerLabels(), inline left/width), so the ruler
+   agrees with the track's --hours gridlines on any axis, fractional included. */
+.biz .hours { position: relative; }
+.biz .hours span { position: absolute; top: 0; bottom: 0; box-sizing: border-box; padding-top: 10px; border-left: 1px solid var(--row); color: var(--quiet); font-size: 12px; text-align: center; }
 
 .biz .group-label {
   display: flex;
@@ -447,11 +448,38 @@
   min-width: 0;
   background-image: linear-gradient(to right, var(--row) 1px, transparent 1px);
   background-size: calc(100% / var(--hours, 9)) 100%;
+  /* ⚖ P20 — the hour tiles start at the first whole hour. A background-position % is a share of (track − tile), so the
+     axis share --hour-lead is scaled by N/(N−1) to land on (lead × track). Unset (whole-hour axis) → 0%, as before. */
+  --grid-x: calc(var(--hour-lead, 0) * var(--hours, 9) / (var(--hours, 9) - 1) * 1%);
+  background-position-x: var(--grid-x);
 }
 .biz .lane.locked .track {
   background-color: #f7f7f8;
   background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px), linear-gradient(to right, var(--row) 1px, transparent 1px);
 }
+/* ⚖ §v11 V11-15(c) · A5/B5 — 営業時間外 is a LAYER, not an element: when the axis runs past the store's own hours the
+   timeline carries `.off-hours` + --off-before / --off-after (each side's share of the axis) and every track paints
+   the locked lane's grey there under its hour grid — one sized layer per side, on every lane state (plain, locked,
+   drop target). Nothing to press; the board's aria names both ranges; the ruler says it once. */
+.biz .timeline.off-hours .track {
+  background-image: linear-gradient(to right, var(--row) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px);
+  background-size: calc(100% / var(--hours, 9)) 100%, calc(100% * var(--off-before, 0)) 100%, calc(100% * var(--off-after, 0)) 100%;
+  background-position: var(--grid-x) 0, left top, right top;
+  background-repeat: repeat, no-repeat, no-repeat;
+}
+.biz .timeline.off-hours .lane.locked .track {
+  background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px), linear-gradient(to right, var(--row) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px);
+  background-size: calc(100% / var(--hours, 9)) 100%, calc(100% / var(--hours, 9)) 100%, calc(100% * var(--off-before, 0)) 100%, calc(100% * var(--off-after, 0)) 100%;
+  background-position: var(--grid-x) 0, var(--grid-x) 0, left top, right top;
+  background-repeat: repeat, repeat, no-repeat, no-repeat;
+}
+.biz .timeline.off-hours .track.drop-target { background-image: linear-gradient(to right, rgba(63, 91, 232, .22) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px); }
+/* ⚖ B1 — a booking is always drawn: a zero-width card keeps its 18 px sliver INSIDE the board, even at the right edge. */
+.biz .event[data-book] { left: min(var(--x), calc(100% - 18px)); }
+.biz .timeline .time-head > span.off-caption { position: absolute; top: 3px; z-index: 1; display: block; padding: 0; border: 0; background: none; color: #a1a1aa; font-size: 10px; font-weight: 600; line-height: 1; text-align: center; white-space: nowrap; overflow: hidden; pointer-events: none; }
+.biz .timeline .time-head > span.off-caption.before { left: var(--label); width: calc((100% - var(--label)) * var(--off-before, 0)); }
+.biz .timeline .time-head > span.off-caption.after { left: auto; right: 0; width: calc((100% - var(--label)) * var(--off-after, 0)); }
+.biz .hours span.off, .biz .page-today .hours span.off { color: #a1a1aa; }
 
 /* ── drag surfaces (canon :1436–1453) ────────────────────────────────────
    Both edges resize, so both edges must visibly say so. Real child grips keep
@@ -2867,6 +2895,8 @@
    these; the ruler keeps its 36px in コンパクト on purpose (the pill's clearance
    is not a density question). */
 .biz .page-today .time-head { min-height: 36px; }
+/* P20 — the labels are out of flow now: the ruler keeps the height its in-flow labels gave it (19px + the 11.5px line, measured 36.25px). */
+.biz .page-today .hours { height: 36.25px; }
 .biz .page-today .time-head > span { font-size: 11.5px; color: #9ca3af; }
 .biz .page-today .hours span {
   padding: 19px 0 0 6px;
