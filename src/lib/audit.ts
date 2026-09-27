@@ -861,8 +861,10 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // unbound answer, never on the withheld `exists`, never with the switch OFF.
   // Not a second coveredBy row: the same one endpoint, the same one file, the
   // take_refused_has_record shape. So the row is audited at its create whether
-  // or not a karute save or 破棄 ever names it (build-28 phones never adopt
-  // it; S34 clients do). Also covered as of S33: an upload whose recording
+  // or not a karute save or 破棄 ever names it (since S50 5C only a
+  // 'no_session' run of a client that adopts it — the web, phones from build
+  // 29 — reaches that create; a body with no attachOutcome, i.e. build 28 and
+  // older, stays unbound as with the switch OFF). Also covered as of S33: an upload whose recording
   // already has a row never reaches that create ('attach_failed'), and every
   // server-named upload is counted per business by the
   // `[mint-take-url] unbound upload` log line. check-audit-weakening.mjs cannot
