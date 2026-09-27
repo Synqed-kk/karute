@@ -111,6 +111,7 @@ global.fetch = put as unknown as typeof fetch
 
 import { runAIPipeline, takeLengthSeconds, type PipelineContext } from '@/lib/ai-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 const memory = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
 const run = (ctx: PipelineContext = {}) =>
@@ -400,5 +401,215 @@ describe('S35 C1 — the no_session fallback sends the take length', () => {
     expect(takeLengthSeconds(63_900)).toBe(63)
     expect(takeLengthSeconds(1_000)).toBe(1)
     for (const v of [undefined, 0, 999, -5_000, NaN, Infinity]) expect(takeLengthSeconds(v)).toBeUndefined()
+  })
+})
+
+// ── ⚖ S49 — A ROW THE ATTACH MINTED IS THE RUN'S ROW ─────────────────────────
+// The recording started with no row (both start-time mints failed), so the
+// attach (secureTake) minted the take's own row X, stamped it on the take and
+// PUT the audio there. Until S49 the run's context never heard of X: the karute
+// saved unlinked, the 「この端末にのみ残ります」 notice kept showing while the
+// audio already sat on X, and X later surfaced as 復元可能 — a second karute
+// for the same visit. This file has no save seam of its own (the save reads
+// globalPipeline.context.recordingSessionId in ProcessingIndicator.tsx and
+// RecordPageView.tsx), so the context is what is asserted. Every id is invented.
+describe('S49 — a row minted during the attach is adopted into the run', () => {
+  const ROW_X = 'rs_minted_x'
+  const ROW_Y = 'rs_known_y'
+  const NO_ROW_TAKE = { mimeType: 'audio/webm', durationMs: 42_000, startedAt: 0, updatedAt: 1 }
+  /** The recording started with no row, the take's bytes are on the device,
+   *  and the session door answers X when the attach knocks. */
+  const noLinkTake = () => {
+    store.meta = { ...NO_ROW_TAKE }
+    store.blob = new Blob(['stored'], { type: 'audio/webm' })
+    startSessionAnswer = { id: ROW_X }
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+  const settle = async () => {
+    for (let i = 0; i < 200 && globalPipeline.state === 'processing'; i++) await tick()
+  }
+  const outcome = (onSessionAdopted: jest.Mock) => ({
+    told: onSessionAdopted.mock.calls,
+    sessionDoorAsked: startSession.mock.calls.length,
+    mints: mintTakeUrl.mock.calls,
+    finalizedOn: finalizeTake.mock.calls.map(([input]) => input.recordingSessionId),
+    transcribeAsked: prepareTranscription.mock.calls.map(([, path, opts]) => [path, opts]),
+    take: { row: store.meta?.recordingSessionId, key: store.meta?.finalizedPath },
+  })
+  /** Case 1's outcome — one row (X), told once, the take's own key sent with it. */
+  const ADOPTED_X = {
+    told: [[ROW_X]],
+    sessionDoorAsked: 1,
+    mints: [[TAKE, 'audio/webm', ROW_X]],
+    finalizedOn: [ROW_X],
+    transcribeAsked: [[TAKE_KEY, { takeRow: ROW_X }]],
+    take: { row: ROW_X, key: TAKE_KEY },
+  }
+  beforeEach(() => {
+    jest.spyOn(console, 'info').mockImplementation(() => {})
+  })
+  afterEach(() => globalPipeline.reset())
+
+  it('1 — the attach mints X for the take → the run is told X once; one row, no second', async () => {
+    noLinkTake()
+    const onSessionAdopted = jest.fn()
+    await run({ onSessionAdopted })
+    expect(outcome(onSessionAdopted)).toEqual(ADOPTED_X)
+    expect(stampTakeSession).toHaveBeenCalledWith(TAKE, ROW_X)
+    expect(finalizeTake).toHaveBeenCalledWith(expect.objectContaining({ takeId: TAKE, recordingSessionId: ROW_X }))
+    // The unbound door was never asked to make a row, so there is nothing else to adopt.
+    expect(adoptTakeSession).not.toHaveBeenCalled()
+    // Told AFTER the attach (X exists only then), before the transcribe door is asked.
+    const [finalized] = finalizeTake.mock.invocationCallOrder
+    const [told] = onSessionAdopted.mock.invocationCallOrder
+    const [asked] = prepareTranscription.mock.invocationCallOrder
+    expect(finalized).toBeLessThan(told)
+    expect(told).toBeLessThan(asked)
+  })
+
+  it('2 — through the real pipeline: the context the save and the 破棄 read names X, and the notice stands down', async () => {
+    noLinkTake()
+    globalPipeline.start(memory, {
+      locale: 'ja',
+      customers: [],
+      takeId: TAKE,
+      duration: 42,
+      recordingSessionId: null,
+      serverRowMissing: true,
+    })
+    await settle()
+    expect(globalPipeline.state).toBe('review')
+    // What the save hands saveKaruteRecordInline as recordingSessionId
+    // (→ recording_session_id) — no save seam in this file, so the context itself.
+    expect(globalPipeline.context?.recordingSessionId).toBe(ROW_X)
+    // The 「この端末にのみ残ります」 notice reads this: the row holds the audio now.
+    expect(globalPipeline.context?.serverRowMissing).toBe(false)
+    expect(mintTakeUrl.mock.calls).toEqual([[TAKE, 'audio/webm', ROW_X]])
+    expect(store.meta?.recordingSessionId).toBe(ROW_X)
+  })
+
+  it('3 — the run already names Y → never overwritten: nobody is told', async () => {
+    noLinkTake()
+    const onSessionAdopted = jest.fn()
+    await run({ recordingSessionId: ROW_Y, onSessionAdopted })
+    // The take itself carries X (secureTake follows the take's own stamp —
+    // unchanged by S49), so only the guard stands between X and the run.
+    expect(store.meta?.recordingSessionId).toBe(ROW_X)
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, TAKE_KEY, { takeRow: ROW_X })
+    expect(onSessionAdopted).not.toHaveBeenCalled()
+  })
+
+  it('3 — through the real pipeline the context still reads Y', async () => {
+    noLinkTake()
+    globalPipeline.start(memory, { locale: 'ja', customers: [], takeId: TAKE, duration: 42, recordingSessionId: ROW_Y })
+    await settle()
+    expect(globalPipeline.state).toBe('review')
+    expect(globalPipeline.context?.recordingSessionId).toBe(ROW_Y)
+  })
+
+  it('4 — a superseded run’s late adoption is dropped: the newer run’s context is untouched', async () => {
+    noLinkTake()
+    // Run A's attach waits at the session door until run B has taken over.
+    let answerA: (v: { id: string } | null) => void = () => {}
+    startSession.mockImplementationOnce(() => new Promise((r) => (answerA = r)))
+    const adopt = jest.spyOn(globalPipeline, 'adoptRecordingSession')
+    globalPipeline.start(memory, {
+      locale: 'ja',
+      customers: [],
+      takeId: TAKE,
+      duration: 42,
+      recordingSessionId: null,
+      serverRowMissing: true,
+    })
+    const runA = globalPipeline.runId
+    for (let i = 0; i < 200 && startSession.mock.calls.length === 0; i++) await tick()
+    expect(startSession).toHaveBeenCalledTimes(1)
+    // Run B supersedes A — another recording with no row either, so ONLY the
+    // run guard can keep A's row out of B's context.
+    globalPipeline.start(new Blob(['b'], { type: 'audio/webm' }), {
+      locale: 'ja',
+      customers: [],
+      recordingSessionId: null,
+      serverRowMissing: true,
+    })
+    const runB = globalPipeline.runId
+    await settle()
+    expect(globalPipeline.state).toBe('review')
+    // A's attach resolves late: X is minted and stamped on A's take, and A's run hands it over…
+    answerA({ id: ROW_X })
+    for (let i = 0; i < 200 && prepareTranscription.mock.calls.length < 2; i++) await tick()
+    for (let i = 0; i < 20; i++) await tick()
+    expect(adopt).toHaveBeenCalledWith(runA, ROW_X)
+    expect(store.meta?.recordingSessionId).toBe(ROW_X)
+    // …and it is dropped: B is still the live run and its context is exactly as it started.
+    expect(globalPipeline.runId).toBe(runB)
+    expect(globalPipeline.state).toBe('review')
+    expect(globalPipeline.context?.recordingSessionId).toBeNull()
+    expect(globalPipeline.context?.serverRowMissing).toBe(true)
+    adopt.mockRestore()
+  })
+
+  // The lane's forced-switch convention (mint-take-unbound-bind.test.ts):
+  // forced for one describe, restored after every case. Neither secure-take.ts
+  // nor ai-pipeline.ts reads the switch, so both states must give case 1's outcome.
+  describe.each([true, false])('5 — switch parity: bindUnboundUploads forced %s', (value) => {
+    let replaced: { restore(): void } | undefined
+    beforeEach(() => {
+      replaced = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', value)
+    })
+    afterEach(() => replaced?.restore())
+
+    it('the row the attach minted is adopted exactly as in case 1', async () => {
+      expect(RECORDING_SWITCHES.bindUnboundUploads).toBe(value)
+      noLinkTake()
+      const onSessionAdopted = jest.fn()
+      await run({ onSessionAdopted })
+      expect(outcome(onSessionAdopted)).toEqual(ADOPTED_X)
+    })
+  })
+
+  it('6 — no bytes, no row: no_session, and the new line never fires (the door names no row → nobody told)', async () => {
+    store.meta = { ...NO_ROW_TAKE }
+    // The session door WOULD answer — but a take with no bytes never knocks on it.
+    startSessionAnswer = { id: ROW_X }
+    const onSessionAdopted = jest.fn()
+    await run({ onSessionAdopted })
+    expect(startSession).not.toHaveBeenCalled()
+    expect(mintTakeUrl).not.toHaveBeenCalled()
+    expect(prepareTranscription.mock.calls).toEqual([[memory, null, { attachOutcome: 'no_session', durationSeconds: 42 }]])
+    expect(adoptTakeSession).not.toHaveBeenCalled()
+    expect(onSessionAdopted).not.toHaveBeenCalled()
+  })
+
+  it('6 — no_session where the unbound door names a row: the existing adoption tells the run exactly once', async () => {
+    store.meta = { ...NO_ROW_TAKE }
+    prepareTranscription.mockImplementationOnce(async () => ({
+      body: { path: 'app_biz-1_server-named.webm' },
+      path: 'app_biz-1_server-named.webm',
+      recordingSessionId: ROW_X,
+    }))
+    const onSessionAdopted = jest.fn()
+    await run({ onSessionAdopted })
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, null, { attachOutcome: 'no_session', durationSeconds: 42 })
+    expect(adoptTakeSession).toHaveBeenCalledWith(TAKE, ROW_X, 'app_biz-1_server-named.webm')
+    expect(onSessionAdopted.mock.calls).toEqual([[ROW_X]])
+  })
+
+  it('no-op (i) — the ordinary take: secured at stop, the run already names its row', async () => {
+    store.meta = { ...NO_ROW_TAKE, recordingSessionId: SESSION, finalizedAt: 1, finalizedPath: TAKE_KEY }
+    const onSessionAdopted = jest.fn()
+    await run({ recordingSessionId: SESSION, onSessionAdopted })
+    expect(mintTakeUrl).not.toHaveBeenCalled()
+    expect(prepareTranscription.mock.calls).toEqual([[memory, TAKE_KEY, { takeRow: SESSION }]])
+    expect(onSessionAdopted).not.toHaveBeenCalled()
+  })
+
+  it('no-op (iii) — attach_failed: no finalized key, so no takeRow, so the new line never fires', async () => {
+    noLinkTake()
+    mintTakeUrl.mockResolvedValueOnce({ error: 'reserved_elsewhere' })
+    const onSessionAdopted = jest.fn()
+    await run({ onSessionAdopted })
+    expect(prepareTranscription.mock.calls).toEqual([[memory, null, { attachOutcome: 'attach_failed' }]])
+    expect(onSessionAdopted).not.toHaveBeenCalled()
   })
 })
