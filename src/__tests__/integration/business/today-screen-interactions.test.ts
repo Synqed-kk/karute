@@ -15378,4 +15378,14 @@ describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', ()
     expect(slotStartAt(track, 1000, AXIS, STORE)).toBe(1290)
     expect(slotStartAt(track, 0, AXIS, STORE)).toBe(420)
   })
+
+  // Fix round 3b — P18 (stress mutant M9, recorded EQUIVALENT by the lead): the new-booking dialog's submit guard sits
+  // behind a confirm button the same 営業時間 check already disables, so no user path reaches it today. Pinned as TEXT, so
+  // a later change that re-enables the button cannot silently flip the guard to the axis.
+  it('§v11 V11-15 P18 — the new-booking dialog refuses a booking past the STORE\'s close at submit (text pin: the guard reads business.close)', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    const guard = "    if (end > business.close) {\n      setError('営業時間を超える予約は作成できません')"
+    expect(src.split(guard).length - 1).toBe(1)
+    expect(src).not.toMatch(/if \(end > hours\.close\)/)
+  })
 })
