@@ -40,6 +40,13 @@ describe('giveWay — one person\'s day, in the contract\'s order (shift · abse
     expect(giveWay({ shift: s, absence: null }, PAIR, rows, new Set(), taken).shift?.breaks).toEqual(want)
   })
 
+  it('the ORDER is the contract: the 勤務不可 moves before the break looks for its slot (break-first would drop it)', () => {
+    const rows = [row(hm(10), hm(11)), row(hm(11), hm(12)), row(hm(13), hm(14))]
+    const out = giveWay({ shift: shift(hm(10), hm(18), [{ start: hm(13), end: hm(14) }]), absence: away(hm(12)) }, PAIR, rows)
+    expect(out.absence?.from).toBe(hm(14)) // past the 13:00 row it covered
+    expect(out.shift?.breaks).toEqual([{ start: hm(12), end: hm(13) }]) // 13 row · 14+ 勤務不可 · wraps: 10 row · 11 row · 12 free
+  })
+
   it('a break never moves into the 勤務不可', () => {
     const out = giveWay({ shift: shift(hm(10), hm(19), [{ start: hm(11), end: hm(12) }]), absence: away(hm(13)) }, PAIR, [row(hm(10), hm(11, 30)), row(hm(12), hm(13))])
     expect(out.shift?.breaks).toEqual([]) // 11–12 · 12–13 booked, 13:00 on is 勤務不可, 10–11 booked
