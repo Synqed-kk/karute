@@ -852,16 +852,24 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // already has a saved karute — auditTakeRefusedHasRecord, beside
   // auditTakeNamed in the same file, same actor idiom. Not a second coveredBy
   // row: both emits live at this one endpoint's one choke point.
-  // coveredBy = the client-named write only. The switch-ON server-named arm
-  // (RECORDING_SWITCHES.bindUnboundUploads, ships OFF (on 2026-09-24, off again 2026-09-25)) files a row with NO
-  // audit of its own; a karute save targets it only where the client adopts
-  // the id it returns (S34: the web from its deploy, the phone from build 29;
-  // build-28 phones do not). What IS covered as of S33: an upload whose
-  // recording already has a row never reaches that create ('attach_failed'),
-  // and every server-named upload is counted per business by the
+  // coveredBy = the client-named write (auditTakeNamed, the dominant emit).
+  // The switch-ON server-named arm (RECORDING_SWITCHES.bindUnboundUploads,
+  // ships OFF (on 2026-09-24, off again 2026-09-25)) files its OWN row since
+  // S50 (condition 5, closed by an emitter): recording.take_bound_server_named,
+  // auditTakeBoundServerNamed beside auditTakeNamed in the same file, emitted
+  // ONLY on the bound success (the create answered an id) — never on a kept-
+  // unbound answer, never on the withheld `exists`, never with the switch OFF.
+  // Not a second coveredBy row: the same one endpoint, the same one file, the
+  // take_refused_has_record shape. So the row is audited at its create whether
+  // or not a karute save or 破棄 ever names it (since S50 5C only a
+  // 'no_session' run of a client that adopts it — the web, phones from build
+  // 29 — reaches that create; a body with no attachOutcome, i.e. build 28 and
+  // older, stays unbound as with the switch OFF). Also covered as of S33: an upload whose recording
+  // already has a row never reaches that create ('attach_failed'), and every
+  // server-named upload is counted per business by the
   // `[mint-take-url] unbound upload` log line. check-audit-weakening.mjs cannot
-  // see this; re-read this line before any re-flip (recording-switches.ts
-  // condition 5).
+  // see this pairing; re-read this line before any re-flip
+  // (recording-switches.ts condition 5).
   'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now

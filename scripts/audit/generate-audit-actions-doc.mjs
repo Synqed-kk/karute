@@ -131,6 +131,12 @@ const LITERAL_ONLY_CATEGORY = {
   // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
   // emitShareAudit) — the unshare twin of recording.share directly above.
   'recording.unshare': 'recording',
+  // Choke emit: src/lib/recording/mint-take-url.ts#auditTakeBoundServerNamed
+  // (S50, condition 5) — the row the switch-ON server-named arm creates, filed
+  // only on the bound success. Literal-only: no endpoint of its own
+  // (recordings.uploadUrl stays the skip row citing auditTakeNamed, the same
+  // shape as recording.take_refused_has_record below).
+  'recording.take_bound_server_named': 'recording',
   // Choke emit: src/lib/recording/mint-take-url.ts#auditTakeNamed (the private
   // helper mintTakeUploadUrl calls only for a CLIENT-NAMED take; facade key
   // recordings.uploadUrl stays a skip row citing it).

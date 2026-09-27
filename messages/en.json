@@ -2615,6 +2615,7 @@
           "session_cleanup": "Recording discarded",
           "share": "Shared recording",
           "take_named": "Recording upload address issued (existing session)",
+          "take_bound_server_named": "Recording upload address issued (new session)",
           "store_write_refused": "Refused discarding a recording without store authorization",
           "take_refused_has_record": "Refused a duplicate link to a saved recording",
           "transcribe": "Transcribed recording",

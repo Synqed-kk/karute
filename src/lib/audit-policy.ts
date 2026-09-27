@@ -84,6 +84,7 @@ export const AUDIT_ACTIONS = [
   'recording.play',
   'recording.share',
   'recording.store_write_refused',
+  'recording.take_bound_server_named',
   'recording.take_named',
   'recording.take_refused_has_record',
   'recording.transcribe',
@@ -297,7 +298,10 @@ export const AUDITED_CORES: {
   // with the mint's row-creating branch), and every one of
   // commitReservation's success paths that actually writes leaves through
   // auditTakeNamed — the retry path writes and audits nothing, by design (I3).
-  { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed', 'commitReservation'] },
+  // auditTakeBoundServerNamed (S50, condition 5): the switch-ON server-named
+  // arm's own row — a PRIVATE helper that emits unconditionally on its one
+  // path (the auditTakeNamed shape), called only on the bound success.
+  { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed', 'commitReservation', 'auditTakeBoundServerNamed'] },
   // 自動消化 (packet 11) — the ONE auto-burn writer. The batch driver
   // autoBurnForBusiness is deliberately not listed: it performs no write of its
   // own and returns unemitted whenever there is nothing to burn.

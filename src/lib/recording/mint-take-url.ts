@@ -326,6 +326,48 @@ function auditTakeNamed(
 }
 
 /**
+ * ⚖ CONDITION 5, CLOSED BY AN EMITTER (S50, 5A — recording-switches.ts). The
+ * row the switch-ON server-named arm creates is its OWN act: no karute save or
+ * 破棄 is guaranteed ever to name it (a build-28 phone never adopts it; the O4
+ * race; a superseded run; a take nobody acts on). So the create files its own
+ * row, the sibling of auditTakeNamed — ids and flags only (⚖ 8/17 doc law; no
+ * key, no url: #1072 withholds storage-key fields), `reserved` always true
+ * because the row is born reserved on the key just signed.
+ *
+ * Attributed to WHO the row itself carries (bindIdentity's roster id and the
+ * store it was made in), never `actor.staffId` — that is null on a
+ * server-named body, which names no session up front. Called ONLY on the
+ * bound success, so it emits unconditionally on its one path.
+ */
+function auditTakeBoundServerNamed(
+  actor: MintTakeActor,
+  who: { staffId: string; storeId: string },
+  takeId: string,
+  recordingSessionId: string,
+  attachOutcome: AttachOutcome | null,
+): void {
+  audit({
+    category: 'recording',
+    action: 'recording.take_bound_server_named',
+    actorId: who.staffId,
+    actorType: 'staff',
+    businessId: actor.businessId,
+    severity: 'info',
+    targetType: 'recording',
+    targetId: recordingSessionId,
+    storeId: who.storeId,
+    detail: {
+      take_id: takeId,
+      recording_session_id: recordingSessionId,
+      attach_outcome: attachOutcome,
+      reserved: true,
+    },
+    requestId: actor.requestId,
+    source: actor.source,
+  })
+}
+
+/**
  * ⚖ UPDATE 25 GROUP B, d4 — VISIBLE, NOT SILENT. commitReservation's karute
  * probe refuses a second take that would otherwise bind onto a session that
  * already has a saved karute (see the probe's own comment for the mechanism
@@ -701,7 +743,12 @@ async function signUpload(
 async function bindServerNamedTake(
   synqed: Core,
   actor: MintTakeActor,
-  input: { customerId?: string | null; appointmentId?: string | null; durationSeconds?: number },
+  input: {
+    customerId?: string | null
+    appointmentId?: string | null
+    durationSeconds?: number
+    attachOutcome?: AttachOutcome | null
+  },
   takeId: string,
   mimeType: string,
   signed: SignedUpload,
@@ -743,7 +790,19 @@ async function bindServerNamedTake(
     keptUnbound(`create answered ${result.error}`)
   }
   const settled = settleUnboundBind(result, signed)
-  if ('recordingSessionId' in settled && settled.recordingSessionId) console.info('[mint-take-url] unbound upload bound')
+  if ('recordingSessionId' in settled && settled.recordingSessionId) {
+    console.info('[mint-take-url] unbound upload bound')
+    // Condition 5's emitter. audit() never throws by contract (its core sink
+    // catches everything — audit.ts forwardToCore), the contract auditTakeNamed
+    // leans on with no guard of its own. Guarded here as well because this row
+    // ALREADY EXISTS: a throw would turn a bound answer into an error, and the
+    // client's retry would draw a new uuid and a second row.
+    try {
+      auditTakeBoundServerNamed(actor, who, takeId, settled.recordingSessionId, input.attachOutcome ?? null)
+    } catch (err) {
+      console.warn(`[mint-take-url] bound-row audit threw: ${describeUnknownThrow(err).errMessage}`)
+    }
+  }
   return settled
 }
 
@@ -947,10 +1006,17 @@ export async function mintTakeUploadUrl(
     if ('error' in signed) return signed
     // ⚖ A RECORDING THAT HAS A ROW NEVER GETS A SECOND ONE (S33). The client
     // says 'attach_failed' when its take's own row exists and attaching to it
-    // failed: that upload stays unbound in BOTH switch states. 'no_session' and
-    // an absent field (a client older than it) keep the switch's answer.
+    // failed: that upload stays unbound in BOTH switch states.
+    // ⚖ ONLY A CLIENT THAT ADOPTS THE ROW GETS ONE (S50, 5C). Only 'no_session'
+    // takes the switch's answer. A server-named body with NO attachOutcome is a
+    // client older than build 29 — the only two production callers always send
+    // it (ai-pipeline.ts sets it whenever its run reaches this door;
+    // discard-transcript.ts takes the staged arm) — and it stays unbound exactly
+    // as with the switch OFF: build ≤28 never adopts the row, so a row made for
+    // it could only be a stray. Liam 2026-09-28: builds two behind are expired
+    // (ledger karute-releases/ios/README.md — 31 shipped, 30 kept behind).
     const minted =
-      RECORDING_SWITCHES.bindUnboundUploads && input.attachOutcome !== 'attach_failed'
+      RECORDING_SWITCHES.bindUnboundUploads && input.attachOutcome === 'no_session'
         ? await bindServerNamedTake(synqed, actor, input, takeId, mimeType, signed)
         : { ...signed, recordingSessionId: null }
     // The per-business count of in-tab fallbacks (S33) — ids and flags only,
