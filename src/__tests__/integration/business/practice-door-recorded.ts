@@ -342,6 +342,11 @@ const BACKWARDS_BLOCK: Appointment = {
   ends_at: jst('2026-09-14T11:00'),
 }
 
+/** ⚖ §v11 V11-15(i) (PR-C) — 9/14 22:30–23:15 JST at テスト恵比寿ジム (07:00–22:00), wholly after close, on りな (already on
+ *  the gym's roster — no person added) for a customer the gym already holds. Opt-in via `outOfHours`, never in the
+ *  default world, so V11-6 P1 over the default world stays as it is. */
+const OUT_OF_HOURS = booking('00000000-0000-4000-8000-00000000c399', '2026-09-14T22:30', G(12), GYM.rina, STORE.gym, MENU.zenten, 45, 11000, 'SCHEDULED')
+
 const visit = (id: string, store_id: string | null, used_at: string, sales_amount: number): Visit => ({
   id, customer_id: AKARI, store_id, qr_reservation_id: 1, used_at, status: 'visited', course_name: null, sales_amount, staff_name: null, treatment_comment: null,
 })
@@ -363,6 +368,8 @@ export interface RecordedOptions {
   lyingTotal?: number
   /** Adds a BLOCK whose ends_at is before its starts_at. */
   backwardsBlock?: boolean
+  /** Adds a gym booking wholly after the gym's close (⚖ §v11 V11-15(i)). */
+  outOfHours?: boolean
 }
 
 function paged<T>(rows: T[], q: { page?: number; page_size?: number } | undefined, force?: number) {
@@ -397,7 +404,7 @@ export function recordedReads(o: RecordedOptions = {}): CoreReads {
     },
     customerVisits: async (id) => ({ visits: VISITS[id] ?? [] }),
     appointmentsList: async (q) => {
-      const extra = o.backwardsBlock ? [BACKWARDS_BLOCK] : []
+      const extra = [...(o.backwardsBlock ? [BACKWARDS_BLOCK] : []), ...(o.outOfHours ? [OUT_OF_HOURS] : [])]
       const rows = [...APPOINTMENTS, ...extra].filter(
         (a) =>
           (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) &&
