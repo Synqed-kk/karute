@@ -4117,7 +4117,7 @@ export function TodayScreen(props: TodayProps) {
           verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind !== 'blocked',
         )
       }),
-    [hours, props.guard.bookingStepMin],
+    [hours, business, props.guard.bookingStepMin],
   )
 
   /** canon `computeChecks` fed from the board as it currently stands. The sell
