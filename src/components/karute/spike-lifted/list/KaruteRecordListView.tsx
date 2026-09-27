@@ -1408,7 +1408,7 @@ export function KaruteRecordListView({
          *  (rounded-full), built on Liam's 9/27 word; the 顧客 tab's
          *  CustomerSearchInput carries the same radius — one look. */}
         <div className="flex items-center gap-2 md:mt-4">
-          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-border bg-card px-3 focus-within:border-sky-500">
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-border bg-card px-3.5 focus-within:border-sky-500">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="16"

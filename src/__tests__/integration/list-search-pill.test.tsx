@@ -5,7 +5,8 @@
  * the mock」 — MOCK-LIST-FINAL-v3.html `.search{border-radius:999px}`). The
  * カルテ tab's field lives inside KaruteRecordListView; the 顧客 tab's is
  * CustomerSearchInput. One look: each field's container carries rounded-full,
- * never the app's old 10px.
+ * never the app's old 10px, and the mock's 14px sides (`padding:0 14px` →
+ * px-3.5), never the old px-3.
  */
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
@@ -41,7 +42,7 @@ beforeEach(() => {
 })
 
 describe('list search bar — the mock pill', () => {
-  it('カルテ: the search field container is rounded-full, not rounded-[10px]', () => {
+  it('カルテ: the search field container is rounded-full with 14px sides (px-3.5), not rounded-[10px] / px-3', () => {
     render(
       <KaruteRecordListView
         items={[]}
@@ -58,13 +59,17 @@ describe('list search bar — the mock pill', () => {
     expect(field).not.toBeNull()
     expect(field).toHaveClass('rounded-full')
     expect(field).not.toHaveClass('rounded-[10px]')
+    expect(field).toHaveClass('px-3.5')
+    expect(field).not.toHaveClass('px-3')
   })
 
-  it('顧客: the search field container is rounded-full, not rounded-[10px]', () => {
+  it('顧客: the search field container is rounded-full with 14px sides (px-3.5), not rounded-[10px] / px-3', () => {
     render(<CustomerSearchInput initialQuery="" />)
     const field = screen.getByRole('textbox').closest('label')!
     expect(field).not.toBeNull()
     expect(field).toHaveClass('rounded-full')
     expect(field).not.toHaveClass('rounded-[10px]')
+    expect(field).toHaveClass('px-3.5')
+    expect(field).not.toHaveClass('px-3')
   })
 })
