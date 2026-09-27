@@ -787,11 +787,11 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
   }
   const p = storeBookingPolicy
   // ⚖ C1 — the plane boundary, and the ONE place the seven days come into being.
-  const { operatingHours: pair, closedWeekday: closedWd } = ctx.hours
-  const fallbackWindow = { open: hhmm(pair.open), close: hhmm(pair.close) }
-  const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWd)
+  const { operatingHours, closedWeekday } = ctx.hours
+  const fallbackWindow = { open: hhmm(operatingHours.open), close: hhmm(operatingHours.close) }
+  const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWeekday)
   // ⚖ §v11 V11-3 — a store open every day gets its own sentence, never 「曜を定休日に設定」.
-  const closedSet = closedWd === null ? '定休日なしに設定' : `${WEEKDAYS.find(([n]) => n === closedWd)?.[1] ?? ''}曜を定休日に設定`
+  const closedSet = closedWeekday === null ? '定休日なしに設定' : `${WEEKDAYS.find(([n]) => n === closedWeekday)?.[1] ?? ''}曜を定休日に設定`
   return {
     ...head,
     blocks: [
