@@ -52,6 +52,10 @@ it('§v11 V11-6 P3 — MOUNTED: every booking card on テスト恵比寿ジム\'
     }))
     expect(cards.length).toBeGreaterThanOrEqual(2) // the 07:00 pair at least — never a vacuous pass
     expect(cards.filter((c) => !(c.x >= 0 && c.x + c.w <= 100 + 1e-9 && c.w > 0))).toEqual([])
+    // ⚖ §v11 V11-3 — the gym closes no weekday: its month legend's item is 「定休日なし」 alone.
+    act(() => host.querySelector<HTMLButtonElement>('button.day-label')!.click())
+    const legend = Array.from(host.querySelectorAll('.cal-legend span')).map((s) => s.textContent)
+    expect([legend.includes('定休日なし'), legend.some((t) => t?.startsWith('定休＝'))]).toEqual([true, false])
   } finally {
     act(() => root.unmount())
     host.remove()

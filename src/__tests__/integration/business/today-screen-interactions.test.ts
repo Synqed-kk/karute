@@ -2507,7 +2507,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // advertise hours.)
     expect(legend).not.toContain('60')
     const clauses = [...legend.matchAll(/<span>([^<]*)<\/span>/g)].map((m) => m[1])
-    expect(clauses).toHaveLength(4)
+    // ⚖ §v11 V11-3 — four items; the 定休 item has two forms (a store with no closed weekday: 「定休日なし」 alone).
+    expect(clauses).toHaveLength(5)
+    expect(clauses).toContain('定休日なし')
     expect(clauses.filter((c) => c.includes('空き'))).toEqual([])
     expect(SRC).not.toContain('空き枠 = スタッフの空き時間を60分単位で数えたもの')
     expect(SRC).not.toContain('満＝空きなし')

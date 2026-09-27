@@ -708,8 +708,8 @@ export default async function TodayPage({
     // staff member is never shown an action they would only be refused for.
     canReleaseHeld: canReleaseHeld(planes.opsConfig.releaseHeldRoles, shell.operator),
     canOpenLegendSettings: (['booking-guard', 'language-display'] as const).every((id) => gateOf(sectionById(id)!, settingsAccess) === 'open'),
-    // ⚖ §v11 V11-3 — a store open every day (null) prints 定休日なし.
-    closedWeekdayLabel: planes.closedWeekday === null ? '定休日なし' : WEEKDAY_WORD[planes.closedWeekday],
+    // ⚖ §v11 V11-3 — null = a store open every day; the legend prints its own item for it.
+    closedWeekdayLabel: planes.closedWeekday === null ? null : WEEKDAY_WORD[planes.closedWeekday],
     // ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 「残りわずか」 の境目, the store's own dial,
     // read ONCE here and clamped once: the board is handed the answer, never the
     // policy, exactly like `holdToConfirm` and `canReleaseHeld` above. The

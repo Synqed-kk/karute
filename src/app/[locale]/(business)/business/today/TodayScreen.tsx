@@ -706,7 +706,7 @@ export interface TodayProps {
    *  point at (予約と確保 · 言語・表示)? Answered on the server through the 設定 room's own gate, the way
    *  `canReleaseHeld` is: a reader the room would turn away is not shown a link it would only drop. */
   canOpenLegendSettings: boolean
-  closedWeekdayLabel: string
+  closedWeekdayLabel: string | null
   /** ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 月カレンダーで橙になる、あと入る予約数の上限,
    *  the store's own dial (`storeBookingPolicy.calendarTightMax`, default 2,
    *  guardrail 0–5), clamped on the server like every other authority this
@@ -9047,7 +9047,8 @@ export function TodayScreen(props: TodayProps) {
                           gone entirely, because the month has no 橙 to explain. */}
                       {tightLegend !== null && <span>{tightLegend} ・</span>}
                       <span>満＝もう入らない ・</span>
-                      <span>定休＝定休日（{props.closedWeekdayLabel}）</span>
+                      {/* ⚖ §v11 — a store with no closed weekday says so on its own, never 「定休＝定休日（定休日なし）」. */}
+                      {props.closedWeekdayLabel === null ? <span>定休日なし</span> : <span>定休＝定休日（{props.closedWeekdayLabel}）</span>}
                     </div>
                   </div>
                 )}
