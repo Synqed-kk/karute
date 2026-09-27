@@ -1,4 +1,4 @@
-// ⚖ §v11 V11-1…V11-3 (the board fix, PR-A) — a practice store's OWN 営業時間 · 定休日, read off core's
+// ⚖ §v11 V11-1…V11-3 + V11-7 (the board fix, PR-A) — a practice store's OWN 営業時間 · 定休日, read off core's
 // `weekly_hours`. Territory-local and pure: the fence denies territory `src/lib/operating-hours.ts`, so this
 // restates the one reading door.ts needs from its `resolveDayHours` (no 臨時休業 dates, no org blob):
 // `source: 'store'` there is 'core' here, anything else is 'sample'.
@@ -6,8 +6,12 @@
 import type { CoreReads } from './core-reach'
 
 export type WeeklyHours = Awaited<ReturnType<CoreReads['storePolicyGet']>>['weekly_hours']
-/** What a practice plane serves for 営業時間 · 定休日 (null = no weekly closed day), and where it came from. */
-export type StoreHours = { operatingHours: { open: number; close: number }; closedWeekday: number | null; hoursSource: 'core' | 'sample' }
+export type Window = { open: number; close: number }
+/** ⚖ §v11 V11-7 — THE WEEK: seven entries, 0 = 日 … 6 = 土, each window in JST minutes or null (closed). */
+export type Week = Array<Window | null>
+/** What a practice plane serves for 営業時間 · 定休日, and where it came from: the SHOWN day's pair (a closed day: the
+ *  usual pair), the week, and its closed weekdays ascending ([] = open every day). */
+export type StoreHours = { operatingHours: Window; weeklyHours: Week; closedWeekdays: number[]; hoursSource: 'core' | 'sample' }
 export type StoreDay = { source: 'sample' } | { source: 'core'; closed: true } | { source: 'core'; closed: false; open: number; close: number }
 
 /** `Date#getDay` numbering, 0 = 日 … 6 = 土 — the app's own (operating-hours.ts `JS_DAY_TO_KEY`). */
@@ -33,22 +37,25 @@ export function resolveStoreDay(weekly: WeeklyHours | undefined, weekday: number
   return open !== null && close !== null && open < close ? { source: 'core', closed: false, open, close } : { source: 'sample' }
 }
 
-/** 定休日 on the plane: the LOWEST weekday the store leaves null or absent; null = open every day. */
-export function closedWeekdayOf(weekly: WeeklyHours | undefined): number | null {
-  const wd = KEYS.findIndex((_, i) => {
-    const d = resolveStoreDay(weekly, i)
-    return d.source === 'core' && d.closed
-  })
-  return wd === -1 ? null : wd
+/** Core's week, normalized — each weekday read as `resolveStoreDay` reads it. null = no core week, and the plane serves
+ *  the sample set: no hours at all, ANY malformed weekday (V11-2a: never an unvalidated number, never a half-core
+ *  week), or no weekday that opens (V11-2b). */
+export function weekOf(weekly: WeeklyHours | undefined): Week | null {
+  const days = KEYS.map((_, wd) => resolveStoreDay(weekly, wd))
+  const week = days.map((d) => (d.source === 'core' && !d.closed ? { open: d.open, close: d.close } : null))
+  return days.some((d) => d.source === 'sample') || week.every((d) => d === null) ? null : week
 }
+
+/** The sample (and OFF) week: the one pair on every weekday but the closed ones — the week `weeklyHoursFrom` builds. */
+export const weekFromPair = (pair: Window, closed: number[]): Week => KEYS.map((_, wd) => (closed.includes(wd) ? null : { open: pair.open, close: pair.close }))
+
+/** 定休日 on the plane: every weekday the week leaves null, ascending; [] = open every day. */
+export const closedWeekdaysOf = (week: Week): number[] => week.flatMap((d, wd) => (d === null ? [wd] : []))
 
 /** The store's USUAL window: the most frequent (open, close) across its open weekdays; a tie → the earliest
  *  weekday's (日 = 0 first). null when no weekday opens. */
-export function usualPairOf(weekly: WeeklyHours | undefined): { open: number; close: number } | null {
-  const pairs = KEYS.flatMap((_, i) => {
-    const d = resolveStoreDay(weekly, i)
-    return d.source === 'core' && !d.closed ? [{ open: d.open, close: d.close }] : []
-  })
-  const count = (p: { open: number; close: number }) => pairs.filter((q) => q.open === p.open && q.close === p.close).length
-  return pairs.reduce<{ open: number; close: number } | null>((best, p) => (best === null || count(p) > count(best) ? p : best), null)
+export function usualPairOf(week: Week): Window | null {
+  const pairs = week.filter((d): d is Window => d !== null)
+  const count = (p: Window) => pairs.filter((q) => q.open === p.open && q.close === p.close).length
+  return pairs.reduce<Window | null>((best, p) => (best === null || count(p) > count(best) ? p : best), null)
 }

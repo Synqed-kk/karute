@@ -15,7 +15,7 @@
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
-import { closedWeekdayOf, resolveStoreDay, usualPairOf, weekdayOfKey, type StoreHours, type WeeklyHours } from './store-hours'
+import { closedWeekdaysOf, usualPairOf, weekdayOfKey, weekFromPair, weekOf, type StoreHours, type WeeklyHours } from './store-hours'
 import {
   appointments,
   customers,
@@ -613,12 +613,12 @@ export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promis
   return new Map(inRange ? [[todayKey, row]] : [])
 }
 
-/** ⚖ §v11 V11-1/V11-2 — THE one place a plane's 営業時間 · 定休日 come from. A single-store lens draws its
- *  store's OWN weekly_hours for the day shown (a closed weekday: the store's usual window, the closure on
- *  `closedWeekday`); no hours in core (null, {}, a failed read — logged) and the all-stores view keep the
- *  shared sample set (§v9 V9-2), marked 'sample' — never a silent 10:00. */
+/** ⚖ §v11 V11-1/V11-2/V11-7 — THE one place a plane's 営業時間 · 定休日 come from. A single-store lens draws its
+ *  store's OWN week (`weeklyHours` + `closedWeekdays`) and the day shown's pair (a closed weekday: the store's usual
+ *  window); no core week (null, {}, a malformed day, a failed read — logged) and the all-stores view keep the
+ *  shared sample set (§v9 V9-2) in the same shape, marked 'sample' — never a silent 10:00. */
 async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<StoreHours> {
-  const sample: StoreHours = { operatingHours: s.operatingHours, closedWeekday: s.closedWeekday, hoursSource: 'sample' }
+  const sample: StoreHours = { operatingHours: s.operatingHours, weeklyHours: weekFromPair(s.operatingHours, [s.closedWeekday]), closedWeekdays: [s.closedWeekday], hoursSource: 'sample' }
   if (typeof lens !== 'string') return sample
   let weekly: WeeklyHours | null
   try {
@@ -627,10 +627,10 @@ async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: numbe
     console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
     weekly = null
   }
-  const day = resolveStoreDay(weekly, weekdayOfKey(dayKey))
-  const usual = usualPairOf(weekly)
-  if (day.source === 'sample' || usual === null) return sample
-  return { operatingHours: day.closed ? usual : { open: day.open, close: day.close }, closedWeekday: closedWeekdayOf(weekly), hoursSource: 'core' }
+  const week = weekOf(weekly)
+  const usual = week && usualPairOf(week)
+  if (!week || !usual) return sample
+  return { operatingHours: week[weekdayOfKey(dayKey)] ?? usual, weeklyHours: week, closedWeekdays: closedWeekdaysOf(week), hoursSource: 'core' }
 }
 
 /** ⚖ §v11 V11-4 — 設定's light read: the store's 営業時間 · 定休日 for one day through the same resolver as the board. */
@@ -656,7 +656,8 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     shifts: rekeyRows(shifts, seats, 'identity'),
     staffQualifications: rekeyKeys(staffQualifications, seats),
     staffListPrice: rekeyKeys(staffListPrice, seats),
-    closedWeekday: hours.closedWeekday,
+    weeklyHours: hours.weeklyHours,
+    closedWeekdays: hours.closedWeekdays,
     hoursSource: hours.hoursSource,
     opsConfig: s.opsConfig,
     absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null,
@@ -691,6 +692,8 @@ export async function readReservationPlanes(lens: StoreLens) {
      *  against, the same one the board's now-line uses. */
     boardNow,
     operatingHours: hours.operatingHours,
+    weeklyHours: hours.weeklyHours,
+    closedWeekdays: hours.closedWeekdays,
     hoursSource: hours.hoursSource,
     shifts: rekeyRows(shifts, seats, 'identity'),
     staffQualifications: rekeyKeys(staffQualifications, seats),
@@ -720,7 +723,8 @@ export async function readAnalyticsPlanes(lens: StoreLens) {
     target: storeId ? targetOf(storeId) : visibleIds(actor).reduce((a, id) => a + targetOf(id), 0),
     policy: analyticsPolicy,
     dowWeight,
-    closedWeekday: hours.closedWeekday,
+    weeklyHours: hours.weeklyHours,
+    closedWeekdays: hours.closedWeekdays,
     hoursSource: hours.hoursSource,
     staffQualifications: sampleKeys('staff', staffQualifications),
     ticketUnitPrice: pricingRule.base,

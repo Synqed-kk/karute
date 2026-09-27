@@ -25,6 +25,7 @@ import { jstDayKey, jstSlotEnd, renderNow } from './clock'
 import { practiceTenant } from './practice-door/switch'
 import * as door from './practice-door/door'
 import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
+import { weekFromPair } from './practice-door/store-hours'
 import {
   appointments,
   business,
@@ -442,7 +443,7 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     shifts,
     staffQualifications,
     staffListPrice,
-    closedWeekday,
+    ...offWeek(),
     opsConfig,
     absence: inLens(today ? [absence] : [], lens, false)[0] ?? null,
     blocks: inLens(blocks, lens, false),
@@ -464,12 +465,15 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
   }
 }
 
+/** ⚖ §v11 V11-7 — OFF's week: the fixture pair on every weekday but the fixture 定休日 (what 設定's weeklyHoursFrom built). */
+const offWeek = () => ({ weeklyHours: weekFromPair(operatingHours, [closedWeekday]), closedWeekdays: [closedWeekday] })
+
 /** ⚖ §v11 V11-4 — a store's 営業時間 · 定休日 for one day, alone (設定's read; the board reads them in its
  *  plane). OFF: the fixture pair itself, exactly the two constants 設定 read before. */
 export async function readStoreHours(lens: StoreLens, dayKey: number) {
   if (practiceTenant() !== null) return door.readStoreHours(lens, dayKey)
   assertLens(lens)
-  return { operatingHours, closedWeekday }
+  return { operatingHours, ...offWeek() }
 }
 
 /** The 予約一覧 exception plane (asks C-1, C-2, C-5, C-6, C-10). Read as ONE
@@ -489,6 +493,7 @@ export async function readReservationPlanes(lens: StoreLens) {
      *  against, the same one the board's now-line uses. */
     boardNow,
     operatingHours,
+    ...offWeek(),
     shifts,
     // 資格 rides along for the same reason the shifts do: the accept dialog's
     // 担当資格・設備 fact is a claim ABOUT the assigned staff member, and a claim
@@ -534,7 +539,7 @@ export async function readAnalyticsPlanes(lens: StoreLens) {
       : Object.values(salesTargets).reduce((a, b) => a + b, 0),
     policy: analyticsPolicy,
     dowWeight,
-    closedWeekday,
+    ...offWeek(),
     /** 資格 — the roster's own signal for who takes treatments. A receptionist
      *  is never a candidate in a treatment-revenue ranking, and that must come
      *  from the roster rather than from a name list on the screen. */
