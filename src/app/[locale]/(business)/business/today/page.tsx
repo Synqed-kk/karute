@@ -61,6 +61,7 @@ import {
   dayBookings,
   dayTotals,
   decisionTitle,
+  drawnWindow,
   hhmm,
   laneMinutes,
   openDecisions,
@@ -261,7 +262,10 @@ export default async function TodayPage({
   }
 
   const bookings = dayBookings(input)
-  const lanes = buildLanes(input, bookings)
+  // ⚖ §v11 V11-15(a)(b) — the AXIS is the drawn window (the store's hours grown around every card); the store's own
+  // hours stay the RULE (the washes' 開店/閉店, the sell and guard frames, the dialogs). The plane is never written.
+  const drawn = drawnWindow(planes.operatingHours, bookings.filter((b) => b.onBoard))
+  const lanes = buildLanes({ ...input, hours: drawn, businessHours: planes.operatingHours }, bookings)
   const minutes = laneMinutes(input, bookings)
   const util = utilization(minutes)
   const totals = dayTotals(
@@ -277,8 +281,8 @@ export default async function TodayPage({
 
   const shownAt = new Date(now.getTime() + dayOffset * DAY_MS)
   const shownYmd = jstYmd(shownAt)
-  const hourCount = (planes.operatingHours.close - planes.operatingHours.open) / 60
-  const hourLabels = Array.from({ length: hourCount }, (_, i) => String(planes.operatingHours.open / 60 + i))
+  const hourCount = (drawn.close - drawn.open) / 60
+  const hourLabels = Array.from({ length: hourCount }, (_, i) => String(drawn.open / 60 + i))
 
   // ── the day index behind the calendar (E8) and the date nav ───────────────
   // ONE PASS, because the two things the month needs about a day come off the
@@ -616,9 +620,11 @@ export default async function TodayPage({
     monthLabel: fmtMonth.format(shownAt),
     isToday: dayOffset === 0,
     windowDays: WINDOW,
-    hours: { open: planes.operatingHours.open, close: planes.operatingHours.close, count: hourCount, labels: hourLabels },
+    hours: { open: drawn.open, close: drawn.close, count: hourCount, labels: hourLabels },
+    // Only when the axis grew past them — absent, the axis IS the store's hours (and the OFF props stay byte-identical).
+    ...(drawn.open !== planes.operatingHours.open || drawn.close !== planes.operatingHours.close ? { businessHours: planes.operatingHours } : {}),
     nowFraction: dayOffset === 0
-      ? Math.max(0, Math.min(1, (planes.boardNow - planes.operatingHours.open) / (planes.operatingHours.close - planes.operatingHours.open)))
+      ? Math.max(0, Math.min(1, (planes.boardNow - drawn.open) / (drawn.close - drawn.open)))
       : null,
     nowLabel: hhmm(planes.boardNow),
     lanes,
