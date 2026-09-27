@@ -190,13 +190,15 @@ const KARUTE_WORD_STEPS: Record<'ja' | 'en', Record<'withShared' | 'base', Width
  *  < 6px spare (trim-steps.ts):
  *    1. 'badgeOnly' — the picked staffer shows as their badge only (the
  *       control keeps the full name as its accessible name);
- *    2. RESERVED — the 新規 chip's count. That chip lives on its own branch,
- *       which inserts its step into CHIP_ROW_STEPS between 1 and 3;
+ *    2. 'shinkiCount' — the 新規 chip's count leaves the screen; the word 新規
+ *       stays. The number stays in the chip's accessible name (sr-only), so
+ *       the chip is spoken exactly as before the trim;
  *    3. 'ownRow' — the staff control drops to its own row.
- *  A step with nothing to trim (no picked name → no 'badgeOnly') is left out
- *  of the list, so the walk never spends a step on a no-op. */
-type ChipRowStep = 'badgeOnly' | 'ownRow'
-const CHIP_ROW_STEPS: readonly ChipRowStep[] = ['badgeOnly', 'ownRow']
+ *  A step with nothing to trim is left out of the list, so the walk never
+ *  spends a step on a no-op: no picked name → no 'badgeOnly'; the 新規 chip
+ *  not rendered (KARUTE_SWITCHES.shinkiChip OFF) → no 'shinkiCount'. */
+type ChipRowStep = 'badgeOnly' | 'shinkiCount' | 'ownRow'
+const CHIP_ROW_STEPS: readonly ChipRowStep[] = ['badgeOnly', 'shinkiCount', 'ownRow']
 
 const isActiveKarute = (item: KaruteListItem) => !item.isDiscarded
 
@@ -774,26 +776,6 @@ export function KaruteRecordListView({
   }
   const monthFloor = monthFloorRef.current
 
-  // The chip row's trim (option C). Its natural width depends on: the month
-  // label (locale + the month shown), the staff control's presence, 自分's
-  // presence, and the picked name.
-  const pickedStaffName = staffList.find((s) => s.id === effectiveStaffFilter)?.name ?? null
-  const {
-    ref: chipRowRef,
-    applied: chipRowTrimmed,
-    has: chipRowTrims,
-  } = useTrimSteps<ChipRowStep>(
-    pickedStaffName ? CHIP_ROW_STEPS : CHIP_ROW_STEPS.filter((s) => s !== 'badgeOnly'),
-    [
-      locale,
-      activeMonth ?? currentMonth,
-      staffList.length > 0 ? 'control' : 'none',
-      effectiveStaffFilter,
-      pickedStaffName ?? '',
-      currentStaffId ?? '',
-    ].join('|'),
-  )
-
   /** Leave month view — the accumulated default window is still in state, so
    *  this is a pure swap back with no fetch. */
   function exitMonth() {
@@ -1295,6 +1277,33 @@ export function KaruteRecordListView({
   )
   const filtered = shinkiActive ? shinkiRows : filteredBeforeShinki
 
+  // The chip row's trim (option C). Its natural width depends on: the month
+  // label (locale + the month shown), the 新規 chip (present only while its
+  // switch is ON; its count's digits; on/off), the staff control's presence,
+  // 自分's presence, and the picked name. Placed below the 新規 tally because
+  // the count is one of those inputs.
+  const pickedStaffName = staffList.find((s) => s.id === effectiveStaffFilter)?.name ?? null
+  const {
+    ref: chipRowRef,
+    applied: chipRowTrimmed,
+    has: chipRowTrims,
+  } = useTrimSteps<ChipRowStep>(
+    CHIP_ROW_STEPS.filter((s) => {
+      if (s === 'badgeOnly') return pickedStaffName !== null
+      if (s === 'shinkiCount') return KARUTE_SWITCHES.shinkiChip
+      return true
+    }),
+    [
+      locale,
+      activeMonth ?? currentMonth,
+      KARUTE_SWITCHES.shinkiChip ? `shinki:${shinkiOn ? 'on' : 'off'}:${shinkiRows.length}` : 'no-shinki',
+      staffList.length > 0 ? 'control' : 'none',
+      effectiveStaffFilter,
+      pickedStaffName ?? '',
+      currentStaffId ?? '',
+    ].join('|'),
+  )
+
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
   // only way more rows arrive.
@@ -1450,9 +1459,10 @@ export function KaruteRecordListView({
          *  line: the row wraps and a full-width 8px break (the header rows'
          *  gap-2) puts the staff control on a row of its own, while whatever
          *  sits before the break keeps line 1. The 新規 chip sits between the
-         *  month chip and the staff control ONLY while
-         *  KARUTE_SWITCHES.shinkiChip is ON; OFF (the committed value) renders
-         *  no element at all — the row is exactly [month, staff control]. */}
+         *  month chip and the break ONLY while KARUTE_SWITCHES.shinkiChip is
+         *  ON (it keeps line 1 with the month); OFF (the committed value)
+         *  renders no element at all and leaves step 2 out of the walk — the
+         *  row is exactly option C's [month, staff control]. */}
         <div
           ref={chipRowRef}
           data-chip-row=""
@@ -1470,9 +1480,11 @@ export function KaruteRecordListView({
             onSelect={(month) => void pickMonth(month)}
             busy={monthLoading}
           />
-          {/* 新規 — on = the 担当 chip's own narrowed look (wash + blue border
-           *  and words), no ✓: no chip or word on this screen draws one, so
-           *  a toggle changes colours only and nothing beside it moves. */}
+          {/* 新規 — on = the app's narrowed-chip look (StaffSelector's chip
+           *  trigger: wash + blue border and words), no ✓: no chip or word on
+           *  this screen draws one, so a toggle changes colours only and
+           *  nothing beside it moves. Trim step 2 ('shinkiCount') takes the
+           *  count off the screen (sr-only — still spoken); the word stays. */}
           {KARUTE_SWITCHES.shinkiChip && (
             <button
               type="button"
@@ -1488,6 +1500,7 @@ export function KaruteRecordListView({
                 className={cn(
                   'text-[10px] tabular-nums',
                   shinkiOn ? 'text-primary' : 'text-muted-foreground',
+                  chipRowTrims('shinkiCount') && 'sr-only',
                 )}
               >
                 {shinkiRows.length}
