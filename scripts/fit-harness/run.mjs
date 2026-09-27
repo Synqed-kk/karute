@@ -21,13 +21,15 @@
 //
 // S45 — the 新規 chip. The matrix above runs with the committed registry
 // (KARUTE_SWITCHES.shinkiChip = false) and also asserts the カルテ chip row
-// has exactly its two main children (month, 担当). A second matrix renders
-// the chip ON through the harness-only registry (`?shinki=on` →
-// ./switches.ts; the source value is never flipped): カルテ × 375/393/430/440
-// × ja/en × staff state × chip idle/active, with a 3-digit 新規 tally. Each
-// case asserts the chip row is [month, 新規, 担当] on one line inside its
-// track, no control clipped or overlapping, the 担当 list opening ≥ 8px
-// inside both edges, no sideways page scroll.
+// has exactly its two main children (month, the staff control). A second
+// matrix renders the chip ON through the harness-only registry (`?shinki=on`
+// → ./switches.ts; the source value is never flipped): カルテ ×
+// 375/393/430/440 × ja/en × staff state × chip idle/active, with a 3-digit
+// 新規 tally. Each case asserts the chip row is [month, 新規, staff control]
+// inside its track, no control clipped or overlapping on its line, the staff
+// list opening ≥ 8px inside both edges, no sideways page scroll. (S46 LEG 1b:
+// on option C the カルテ staff control is the shared 自分 | 全スタッフ ⌄
+// control and the row trims in steps — ./shinki-on-c.mjs proves each step.)
 //
 // S46 (option C's trim engine) — ONE narrow exception to "the chip row never
 // wraps": the designed own-row step. Only while the row's data-trim carries
@@ -292,9 +294,10 @@ for (const tab of TABS) {
         if (m.pageScrollX > 0 && others.length)
           failures.push(`${tag}: page scrolls sideways by ${m.pageScrollX}px (${others.map((o) => o.what + ' +' + o.by).join(', ')})`)
         if (errors.length) failures.push(`${tag}: page errors ${errors.join(' | ')}`)
-        // Switch OFF (the committed value) = main's chip row: month + 担当.
+        // Switch OFF (the committed value) = option C's chip row: month + the
+        // staff control.
         if (tab === 'karute' && m.chipKids !== 2)
-          failures.push(`${tag}: chip row has ${m.chipKids} children (switch OFF = month + 担当 only)`)
+          failures.push(`${tag}: chip row has ${m.chipKids} children (switch OFF = month + the staff control only)`)
         if (SHOTS) await page.screenshot({ path: join(OUT, `${LABEL}-${tab}-${w}-${lang}-${state}.png`), fullPage: false })
         // The staff list OPEN — from the カルテ 担当 chip, or the segment's
         // chevron (予約/顧客): both edges ≥ 8px inside the viewport.
@@ -335,28 +338,30 @@ async function chipDetail(page) {
     const cs = getComputedStyle(row)
     const rb = row.getBoundingClientRect()
     const trackRight = rb.right - parseFloat(cs.paddingRight)
-    // 新規 = the row's one aria-pressed button; the listbox chips in order =
-    // the month chip, then the 担当 chip.
-    let listboxes = 0
-    const kids = [...row.children].map((k) => {
+    // 新規 = the row's one aria-pressed button (a direct child); the month
+    // chip = a child's own listbox button; the staff control = the child
+    // holding [data-staff-scope] (S46 option C: the shared 自分 | 全スタッフ ⌄
+    // control); the own-row break is spacing, not a control — left out.
+    const kids = [...row.children].filter((k) => !k.hasAttribute('data-row-break')).map((k) => {
       const b = k.getBoundingClientRect()
       const btn = k.matches('button') ? k : k.querySelector(':scope > button')
-      const which = !btn
-        ? 'other'
-        : btn.hasAttribute('aria-pressed')
-          ? 'shinki'
-          : btn.getAttribute('aria-haspopup') === 'listbox'
-            ? ++listboxes === 1
+      const which = k.querySelector('[data-staff-scope]')
+        ? 'staff'
+        : !btn
+          ? 'other'
+          : btn.hasAttribute('aria-pressed')
+            ? 'shinki'
+            : btn.getAttribute('aria-haspopup') === 'listbox'
               ? 'month'
-              : 'staff'
-            : 'other'
-      const cut = btn
-        ? [btn, ...btn.querySelectorAll('*')].filter(
-            (el) => el instanceof HTMLElement && el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1,
-          ).length
-        : 0
+              : 'other'
+      // Every button of the control and everything inside them; an sr-only
+      // element (the 新規 count at trim step 2) is 1px by design, not a cut.
+      const cut = [...(k.matches('button') ? [k] : []), ...k.querySelectorAll('button, button *')].filter(
+        (el) => el instanceof HTMLElement && !el.classList.contains('sr-only') && el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1,
+      ).length
       return {
         which,
+        top: +b.top.toFixed(1),
         left: +b.left.toFixed(1),
         right: +b.right.toFixed(1),
         w: +b.width.toFixed(1),
@@ -366,8 +371,10 @@ async function chipDetail(page) {
         cut,
       }
     })
-    const overlaps = kids.slice(1).filter((k, i) => k.left < kids[i].right - 0.5).length
-    return { kids, overlaps, rowLeft: +rb.left.toFixed(1), trackRight: +trackRight.toFixed(1) }
+    // Overlap = a control starting before its left neighbour ends ON THE SAME
+    // line (the own-row step puts the control on a line of its own).
+    const overlaps = kids.slice(1).filter((k, i) => Math.abs(k.top - kids[i].top) < 1 && k.left < kids[i].right - 0.5).length
+    return { kids, overlaps, rowLeft: +rb.left.toFixed(1), trackRight: +trackRight.toFixed(1), trim: row.getAttribute('data-trim') ?? '' }
   })
 }
 
@@ -418,7 +425,7 @@ for (const lang of LANGS) {
             failures.push(`${tag}: staff list outside the 8px margin (${panel.left}..${panel.right} of ${panel.vw})`)
           }
           if (SHOTS) await page.screenshot({ path: join(OUT, `${LABEL}-karute-shinki-${w}-${lang}-${state}-${chip}-open.png`), fullPage: false })
-        } else bad.push('no 担当 chip'), failures.push(`${tag}: no 担当 chip`)
+        } else bad.push('no staff control'), failures.push(`${tag}: no staff control`)
         chipRows.push({ w, lang, state, chip, m, d, panel, bad, verdict, errors })
         await ctx.close()
       }
@@ -461,10 +468,10 @@ lines.push(
   '',
   '## 新規 chip ON — harness-only override (S45 invariant 3)',
   '',
-  "`?shinki=on` → `scripts/fit-harness/switches.ts` (aliased for the harness build only; `KARUTE_SWITCHES.shinkiChip` stays `false` in source). 480 fixture rows, every row 新規 → a 3-digit tally in every staff state. Cells: chip row = height · lines · used/track px; the three controls' left..right (width) px; track right = the row's inner right edge; cut = elements narrower than their content; panel = the 担当 list opened from its chip.",
+  "`?shinki=on` → `scripts/fit-harness/switches.ts` (aliased for the harness build only; `KARUTE_SWITCHES.shinkiChip` stays `false` in source). 480 fixture rows, every row 新規 → a 3-digit tally in every staff state. Cells: steps = the chip row's trim steps (option C's data-trim; none = nothing trimmed); chip row = height · lines · used/track px; the three controls' left..right (width) px; track right = the row's inner right edge; cut = elements narrower than their content (an sr-only count excluded); panel = the staff list opened from the control's chevron.",
   '',
-  '| w | lang | state | 新規 | chip row | month | 新規 chip (text) | 担当 | track right | overlaps · cut | words row | header→list | panel L..R | verdict |',
-  '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+  '| w | lang | state | 新規 | steps | chip row | month | 新規 chip (text) | staff control | track right | overlaps · cut | words row | header→list | panel L..R | verdict |',
+  '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
 )
 for (const { w, lang, state, chip, m, d, panel, bad, verdict } of chipRows) {
   const sk = d?.kids.find((x) => x.which === 'shinki')
@@ -472,7 +479,7 @@ for (const { w, lang, state, chip, m, d, panel, bad, verdict } of chipRows) {
   const toList = m.words && m.listTop != null ? +(m.listTop - m.words.bottom).toFixed(1) : '—'
   const ok = !bad.length && Object.values(verdict).every((x) => !String(x).startsWith('FAIL'))
   lines.push(
-    `| ${w} | ${lang} | ${state} | ${chip} | ${f(m.chips)} | ${kid(d, 'month')} | ${kid(d, 'shinki')} ${sk ? `「${sk.text}」` : ''} | ${kid(d, 'staff')} | ${d?.trackRight ?? '—'} | ${d?.overlaps ?? '—'} · ${cut} | ${f(m.words)} ${verdict.words === 'slides' ? '(slides)' : ''} | ${toList} | ${panel ? `${panel.left}..${panel.right}/${panel.vw}` : '—'} | ${ok ? 'PASS' : 'FAIL'} |`,
+    `| ${w} | ${lang} | ${state} | ${chip} | ${m.chipTrim || 'none'} | ${f(m.chips)} | ${kid(d, 'month')} | ${kid(d, 'shinki')} ${sk ? `「${sk.text}」` : ''} | ${kid(d, 'staff')} | ${d?.trackRight ?? '—'} | ${d?.overlaps ?? '—'} · ${cut} | ${f(m.words)} ${verdict.words === 'slides' ? '(slides)' : ''} | ${toList} | ${panel ? `${panel.left}..${panel.right}/${panel.vw}` : '—'} | ${ok ? 'PASS' : 'FAIL'} |`,
   )
 }
 lines.push('', failures.length ? `## FAILURES (${failures.length})\n\n` + failures.map((x) => `- ${x}`).join('\n') : '## Result: PASS — every row one line, every track fits (or the words row slides at step C), no sideways page scroll, every open panel inside 8px, 0 requests left the harness.')

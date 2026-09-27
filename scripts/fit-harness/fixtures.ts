@@ -67,6 +67,46 @@ export function karuteItems(n = 96, firstVisit: boolean | null = null): KaruteLi
   return out
 }
 
+/** The owner of the 新規 rows for a page's `s` param: 自分 = the viewer, a
+ *  staff id = that staffer, anything else (全スタッフ) = spread (null). */
+export function shinkiOwner(s: string | null): string | null {
+  if (s === 'self') return SELF_ID
+  return s && s !== 'all' ? s : null
+}
+
+/** S46 LEG 1b (shinki-on-c.mjs, `?shinki=<N>`): the S44 rows with 新規 =
+ *  false (core answered "not a first visit") + EXACTLY `n` 新規 rows the chip
+ *  counts under the page's pick — owned by `owner` (a staff id on
+ *  WIDE_ROSTER), or spread over STAFF when the pick is 全スタッフ (null). Every
+ *  新規 row is live (not discarded, not shared) so the default すべて view counts
+ *  them all. `month` ('YYYY-MM', the harness month read) dates every row
+ *  inside that month; without it the dates are relative to the clock like the
+ *  S44 set. */
+export function karuteShinkiItems(n: number, owner: string | null, month?: string): KaruteListItem[] {
+  const day = (i: number) => (month ? `${month}-${String(1 + (i % 28)).padStart(2, '0')}` : ymd(i % 13))
+  const tag = month ? `${month}-` : ''
+  const base = karuteItems(96, false).map((it, i) => ({ ...it, id: `${tag}${it.id}`, date: day(i) }))
+  const out: KaruteListItem[] = [...base]
+  for (let i = 0; i < n; i++) {
+    const staff = owner ? WIDE_ROSTER.find((s) => s.id === owner)! : STAFF[i % STAFF.length]
+    out.push({
+      ...base[i % base.length],
+      id: `${tag}n${i}`,
+      customerId: `cn${i}`,
+      customerName: `新規客 ${i}`,
+      date: day(i),
+      staffId: staff.id,
+      staffName: staff.name,
+      aiStatus: 'summarized',
+      isDiscarded: false,
+      isShared: false,
+      companyFirstVisit: true,
+      href: `/karute/${tag}n${i}`,
+    })
+  }
+  return out
+}
+
 export function customerRows(): CustomerListRow[] {
   const out: CustomerListRow[] = []
   const now = Date.now()

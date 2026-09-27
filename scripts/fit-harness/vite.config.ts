@@ -11,6 +11,10 @@
 // ./switches.ts, which is the committed registry unless the page URL carries
 // `?shinki=on` — the test-only way to render the 新規 chip ON. mergeConfig
 // puts this alias BEFORE thin's `@/` rule, so it wins for this one path.
+//
+// A second (S46 LEG 1b): `@/actions/karute` resolves to ./actions-karute.ts —
+// the thin port's own exports, with a fixture month read ONLY on a
+// `?shinki=<N>` page (every other page gets the port's function unchanged).
 import { defineConfig, mergeConfig } from 'vite'
 import path from 'node:path'
 import thinConfig from '../../thin/vite.config'
@@ -24,6 +28,10 @@ export default mergeConfig(
         {
           find: '@/lib/karute/karute-switches',
           replacement: path.resolve(__dirname, 'switches.ts'),
+        },
+        {
+          find: '@/actions/karute',
+          replacement: path.resolve(__dirname, 'actions-karute.ts'),
         },
       ],
     },
