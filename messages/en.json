@@ -1464,6 +1464,7 @@
       "revealFailed": "Couldn't search for customers without a karute. Please try again in a moment.",
       "newKarute": "+ New karute",
       "searchPlaceholder": "Search by customer · service · staff",
+      "shinki": "New",
       "revealSummary": "Shows up here once their first session is recorded",
       "revealCreate": "Create karute",
       "month": {

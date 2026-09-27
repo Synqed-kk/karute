@@ -52,6 +52,8 @@ import type { KaruteListFilter, KaruteListItem } from './types'
 import { loadKaruteWindow, revealNoKaruteCustomer } from '@/actions/karute'
 import { KARUTE_SESSION_DATE_EPOCH, karuteHasMore } from '@/lib/karute/karute-window'
 import { ymdInJst } from '@/lib/date/jst'
+import { KARUTE_SWITCHES } from '@/lib/karute/karute-switches'
+import { cn } from '@/lib/utils'
 
 interface Props {
   items: KaruteListItem[]
@@ -188,13 +190,15 @@ const KARUTE_WORD_STEPS: Record<'ja' | 'en', Record<'withShared' | 'base', Width
  *  < 6px spare (trim-steps.ts):
  *    1. 'badgeOnly' — the picked staffer shows as their badge only (the
  *       control keeps the full name as its accessible name);
- *    2. RESERVED — the 新規 chip's count. That chip lives on its own branch,
- *       which inserts its step into CHIP_ROW_STEPS between 1 and 3;
+ *    2. 'shinkiCount' — the 新規 chip's count leaves the screen; the word 新規
+ *       stays. The number stays in the chip's accessible name (sr-only), so
+ *       the chip is spoken exactly as before the trim;
  *    3. 'ownRow' — the staff control drops to its own row.
- *  A step with nothing to trim (no picked name → no 'badgeOnly') is left out
- *  of the list, so the walk never spends a step on a no-op. */
-type ChipRowStep = 'badgeOnly' | 'ownRow'
-const CHIP_ROW_STEPS: readonly ChipRowStep[] = ['badgeOnly', 'ownRow']
+ *  A step with nothing to trim is left out of the list, so the walk never
+ *  spends a step on a no-op: no picked name → no 'badgeOnly'; the 新規 chip
+ *  not rendered (KARUTE_SWITCHES.shinkiChip OFF) → no 'shinkiCount'. */
+type ChipRowStep = 'badgeOnly' | 'shinkiCount' | 'ownRow'
+const CHIP_ROW_STEPS: readonly ChipRowStep[] = ['badgeOnly', 'shinkiCount', 'ownRow']
 
 const isActiveKarute = (item: KaruteListItem) => !item.isDiscarded
 
@@ -350,6 +354,11 @@ export function KaruteRecordListView({
     rosterIds: staffList.map((s) => s.id),
   })
   const [searchQuery, setSearchQuery] = useState('')
+  // 新規 chip (KARUTE_SWITCHES.shinkiChip, OFF): a toggle that ANDs with the
+  // state pill, the staff scope, search and month mode. React state like the
+  // month chip and the search box — no URL param.
+  const [shinkiOn, setShinkiOn] = useState(false)
+  const shinkiActive = KARUTE_SWITCHES.shinkiChip && shinkiOn
 
   // PR-2a 日付チャンク読み込み. `appended` holds ONLY the chunks さらに表示
   // pulled in; `items` stays the server-rendered first window, so a router
@@ -766,26 +775,6 @@ export function KaruteRecordListView({
     monthFloorRef.current = oldestLoadedMonth
   }
   const monthFloor = monthFloorRef.current
-
-  // The chip row's trim (option C). Its natural width depends on: the month
-  // label (locale + the month shown), the staff control's presence, 自分's
-  // presence, and the picked name.
-  const pickedStaffName = staffList.find((s) => s.id === effectiveStaffFilter)?.name ?? null
-  const {
-    ref: chipRowRef,
-    applied: chipRowTrimmed,
-    has: chipRowTrims,
-  } = useTrimSteps<ChipRowStep>(
-    pickedStaffName ? CHIP_ROW_STEPS : CHIP_ROW_STEPS.filter((s) => s !== 'badgeOnly'),
-    [
-      locale,
-      activeMonth ?? currentMonth,
-      staffList.length > 0 ? 'control' : 'none',
-      effectiveStaffFilter,
-      pickedStaffName ?? '',
-      currentStaffId ?? '',
-    ].join('|'),
-  )
 
   /** Leave month view — the accumulated default window is still in state, so
    *  this is a pure swap back with no fetch. */
@@ -1249,7 +1238,7 @@ export function KaruteRecordListView({
     [sharedMode, sharedItems, monthMode, monthItems, allItems],
   )
 
-  const filtered = useMemo(() => {
+  const filteredBeforeShinki = useMemo(() => {
     // Staff scope + search — SAME function as the pill counts above
     // (applyScope), so the two can never drift apart again.
     let result = applyScope(displayItems, {
@@ -1272,6 +1261,48 @@ export function KaruteRecordListView({
 
     return result
   }, [displayItems, filter, weekCutoff, searchQuery, effectiveStaffFilter, currentStaffId])
+
+  // 新規 — only `=== true` is 新規; false and null (core did not answer) never
+  // are. The count is the rows its OWN tap reveals (⚖ 8/25): the list as it
+  // stands (state pill · staff scope · search · month/shared mode) narrowed to
+  // 新規 — so inside a month it is that month's tally. Rows, not people (fold
+  // 6: the owner's 新規数 lives on 予約).
+  // Switch OFF = the field is never read (not even for the count).
+  const shinkiRows = useMemo(
+    () =>
+      KARUTE_SWITCHES.shinkiChip
+        ? filteredBeforeShinki.filter((i) => i.companyFirstVisit === true)
+        : [],
+    [filteredBeforeShinki],
+  )
+  const filtered = shinkiActive ? shinkiRows : filteredBeforeShinki
+
+  // The chip row's trim (option C). Its natural width depends on: the month
+  // label (locale + the month shown), the 新規 chip (present only while its
+  // switch is ON; its count's digits; on/off), the staff control's presence,
+  // 自分's presence, and the picked name. Placed below the 新規 tally because
+  // the count is one of those inputs.
+  const pickedStaffName = staffList.find((s) => s.id === effectiveStaffFilter)?.name ?? null
+  const {
+    ref: chipRowRef,
+    applied: chipRowTrimmed,
+    has: chipRowTrims,
+  } = useTrimSteps<ChipRowStep>(
+    CHIP_ROW_STEPS.filter((s) => {
+      if (s === 'badgeOnly') return pickedStaffName !== null
+      if (s === 'shinkiCount') return KARUTE_SWITCHES.shinkiChip
+      return true
+    }),
+    [
+      locale,
+      activeMonth ?? currentMonth,
+      KARUTE_SWITCHES.shinkiChip ? `shinki:${shinkiOn ? 'on' : 'off'}:${shinkiRows.length}` : 'no-shinki',
+      staffList.length > 0 ? 'control' : 'none',
+      effectiveStaffFilter,
+      pickedStaffName ?? '',
+      currentStaffId ?? '',
+    ].join('|'),
+  )
 
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
@@ -1427,8 +1458,11 @@ export function KaruteRecordListView({
          *  CHIP_ROW_STEPS order; only the last step ('ownRow') makes a second
          *  line: the row wraps and a full-width 8px break (the header rows'
          *  gap-2) puts the staff control on a row of its own, while whatever
-         *  sits before the break keeps line 1. The 新規 chip is PR-2's (its
-         *  switch lives on that branch), not on this one. */}
+         *  sits before the break keeps line 1. The 新規 chip sits between the
+         *  month chip and the break ONLY while KARUTE_SWITCHES.shinkiChip is
+         *  ON (it keeps line 1 with the month); OFF (the committed value)
+         *  renders no element at all and leaves step 2 out of the walk — the
+         *  row is exactly option C's [month, staff control]. */}
         <div
           ref={chipRowRef}
           data-chip-row=""
@@ -1446,6 +1480,33 @@ export function KaruteRecordListView({
             onSelect={(month) => void pickMonth(month)}
             busy={monthLoading}
           />
+          {/* 新規 — on = the app's narrowed-chip look (StaffSelector's chip
+           *  trigger: wash + blue border and words), no ✓: no chip or word on
+           *  this screen draws one, so a toggle changes colours only and
+           *  nothing beside it moves. Trim step 2 ('shinkiCount') takes the
+           *  count off the screen (sr-only — still spoken); the word stays. */}
+          {KARUTE_SWITCHES.shinkiChip && (
+            <button
+              type="button"
+              aria-pressed={shinkiOn}
+              onClick={() => setShinkiOn((on) => !on)}
+              className={cn(
+                'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
+                shinkiOn && 'border-primary bg-primary/8 text-primary hover:bg-primary/8',
+              )}
+            >
+              <span>{t('shinki')}</span>
+              <span
+                className={cn(
+                  'text-[10px] tabular-nums',
+                  shinkiOn ? 'text-primary' : 'text-muted-foreground',
+                  chipRowTrims('shinkiCount') && 'sr-only',
+                )}
+              >
+                {shinkiRows.length}
+              </span>
+            </button>
+          )}
           {chipRowTrims('ownRow') && <div aria-hidden data-row-break="" className="h-2 basis-full" />}
           {/* 自分 | 全スタッフ ⌄ — the SAME two-part control 顧客 and 予約 use
            *  (⚖ S46 option C, Liam: the カルテ tab's single 担当 chip becomes

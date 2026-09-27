@@ -412,6 +412,7 @@ describe('the カルテ chip row walks its steps (widths stubbed) — accessible
     summary: 'まとめ',
     aiStatus: 'summarized',
     conversionStatus: 'active',
+    companyFirstVisit: null,
     href: `/karute/${id}`,
   })
   // The list's own current month, derived independently.

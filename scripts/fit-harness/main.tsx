@@ -21,12 +21,23 @@ import {
   customerRows,
   dayTotals,
   karuteItems,
+  karuteShinkiItems,
   reservationViews,
+  shinkiOwner,
 } from './fixtures'
 
 const q = new URLSearchParams(location.search)
 const tab = q.get('tab') ?? 'karute'
 const lang = q.get('lang') === 'en' ? 'en' : 'ja'
+// `?shinki=on` (S45): the 新規 chip ON through the harness-only registry
+// (./switches.ts) with a 480-row set, every row 新規 → a 3-digit tally in
+// every staff state (480 · 120 · 120). Without it: the S44 fixture, untouched.
+const shinki = q.get('shinki') === 'on'
+// `?shinki=<N>` (S46 LEG 1b): the chip ON with the S44 rows + EXACTLY N 新規
+// rows under the page's pick (`s`), so the chip prints N in every staff state
+// (fixtures.ts karuteShinkiItems; a picked month gets the same N through the
+// harness month read, ./actions-karute.ts).
+const shinkiN = /^\d+$/.test(q.get('shinki') ?? '') ? Number(q.get('shinki')) : null
 document.documentElement.lang = lang
 
 function todayJstIso(): string {
@@ -76,7 +87,13 @@ function View() {
   }
   return (
     <KaruteRecordListView
-      items={karuteItems()}
+      items={
+        shinkiN !== null
+          ? karuteShinkiItems(shinkiN, shinkiOwner(q.get('s')))
+          : shinki
+            ? karuteItems(480, true)
+            : karuteItems()
+      }
       monthCount={96}
       total={1234}
       discardedCount={12}

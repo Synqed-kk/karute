@@ -66,6 +66,11 @@ export interface KaruteListItem {
    *  viewerHoldsViewShared + currentStaffId props) — this flag only states
    *  the fact that a share exists. */
   isShared?: boolean
+  /** 新規 chip (KARUTE_SWITCHES.shinkiChip): core's per-row first-visit flag
+   *  (`company_first_visit`) — true = this karute was the customer's first
+   *  visit anywhere in the business, as of its own day. null = core did not
+   *  answer; null is NEVER 新規. Nothing but the chip reads it. */
+  companyFirstVisit: boolean | null
   /** Tap target. Real records link to `/karute/{recordId}`; placeholder
    *  rows for customers with no records link to
    *  `/karute/customer/{customerId}`. Caller (page) decides. */
