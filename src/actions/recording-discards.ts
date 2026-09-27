@@ -198,10 +198,11 @@ async function walkRecordingsNewestFirst(
   synqed: ReturnType<typeof newSynqedClient>,
   sessionIds: Set<string>,
   windowStartMs: number,
-): Promise<{ recordingById: Map<string, RecordingContextRow>; detailTruncated: boolean }> {
+): Promise<{ recordingById: Map<string, RecordingContextRow>; detailTruncated: boolean; complete: boolean }> {
   const recordingById = new Map<string, RecordingContextRow>()
   let pagesLeft = MAX_PAGES
   let sliceToMs = Date.now()
+  let sliceCut = false
 
   while (sliceToMs > windowStartMs && pagesLeft > 0 && recordingById.size < sessionIds.size) {
     const sliceFromMs = Math.max(windowStartMs, sliceToMs - RECORDING_SLICE_MS)
@@ -229,6 +230,9 @@ async function walkRecordingsNewestFirst(
       },
       pagesLeft,
       'discard-reasons recordings',
+      () => {
+        sliceCut = true
+      },
     )
     pagesLeft -= used
     // Only the sessions the ledger actually NAMES are kept: a slice is a date
@@ -245,6 +249,9 @@ async function walkRecordingsNewestFirst(
     // the window — the row already says that as an absence, and calling it a
     // failed load would be the mirror image of the claim this fix removed.
     detailTruncated: pagesLeft <= 0 && recordingById.size < sessionIds.size,
+    // S46 fix round 2: every page of the window was read (or every session
+    // found) and no slice was cut — only then is a missing session an ABSENCE.
+    complete: !sliceCut && (recordingById.size >= sessionIds.size || sliceToMs <= windowStartMs),
   }
 }
 
@@ -257,6 +264,9 @@ async function readDiscardRecordingContext(
   customerNameById: Map<string, string>
   storeNameById: Map<string, string>
   detailTruncated: boolean
+  /** S46 fix round 2: the recordings walk read its whole window without a
+   *  failure or a cut — so a session missing from `recordingById` is absent. */
+  complete: boolean
 }> {
   const [walk, storeNameById] = await Promise.all([
     walkRecordingsNewestFirst(
@@ -274,7 +284,7 @@ async function readDiscardRecordingContext(
       // NOT `detailTruncated: true`: the walk did not run out of budget, it
       // failed outright. Every row degrades, which is a different sentence
       // from "some records".
-      return { recordingById: new Map<string, RecordingContextRow>(), detailTruncated: false }
+      return { recordingById: new Map<string, RecordingContextRow>(), detailTruncated: false, complete: false }
     }),
     // `stores.list()` direct rather than the settings tree's listStores(): that
     // helper takes `ensurePrimary` (a lazy core WRITE, which has no business
@@ -289,7 +299,7 @@ async function readDiscardRecordingContext(
       }),
   ])
 
-  const { recordingById, detailTruncated } = walk
+  const { recordingById, detailTruncated, complete } = walk
 
   // The maps rule (store-scope.ts): only the names these rows REFERENCE ever
   // leave core — an ids batch, never the customer roster.
@@ -333,7 +343,7 @@ async function readDiscardRecordingContext(
     }
   }
 
-  return { recordingById, customerNameById, storeNameById, detailTruncated }
+  return { recordingById, customerNameById, storeNameById, detailTruncated, complete }
 }
 
 /** SynqedError's HTTP status, duck-typed — same reason as store-clamp.ts's own:
@@ -445,13 +455,20 @@ export async function listDiscardReasonsWithClient(
 
   // ⚖ THE WORDS DOOR'S OWN STORE RULE (S46): a row whose words would refuse to
   // open is not listed — the same canViewAllInStore/readDoorStoreId judgment.
-  // A recording this read could not place is 'unreadable': hidden from a
-  // clamped viewer, never from an all-store one. Counts follow the rows.
+  // An ALL-STORE viewer passes every row, so the context stays decoration for
+  // her, best-effort exactly as before. A CLAMPED viewer's list depends on it
+  // (fix round 2): a walk that failed or was cut is not an absence, so it
+  // THROWS — the ledger's own failure path — never an empty list or a zero
+  // count. After a COMPLETE walk a missing session is absent (swept): null,
+  // exactly what the door reads off a 404, so list and door agree row for row.
+  if (viewer.allowedStoreIds !== null && usable.length > 0 && !context?.complete) {
+    throw new Error('discard-reasons: recordings not fully read — a store-clamped list is never partial')
+  }
   const inReach = (sessionId: string) =>
     canViewAllInStore({
       canViewAll: true,
       allowedStoreIds: viewer.allowedStoreIds,
-      recordStoreId: readDoorStoreId({}, context?.recordingById.get(sessionId) ?? 'unreadable'),
+      recordStoreId: readDoorStoreId({}, context?.recordingById.get(sessionId) ?? null),
     })
 
   const rows: DiscardReasonRow[] = usable
