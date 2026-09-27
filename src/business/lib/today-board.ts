@@ -26,7 +26,7 @@
 import { businessStrings } from '@/business/i18n'
 import { freePockets, kPackCount } from './canon-logic/availability'
 import type { BookingColors } from './booking-colors'
-import { jstDayKey, jstEndOnStartDay, jstMinuteOfDay } from './clock'
+import { jstDayKey, jstMinuteOfDay } from './clock'
 import type { FixtureAppointment, FixtureCustomer, FixtureMenu, FixtureStaff } from './fixtures'
 import type {
   FixtureAbsence,
@@ -83,11 +83,8 @@ const ceil60 = (m: number) => Math.ceil(m / 60) * 60
  *  contract violation the resolver never serves (store-hours.ts): one hour from
  *  its opening hour ∪ the bookings, warned once per build — never NaN. */
 export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute: number; endMinute: number }>): Hours {
-  const broken = !(hours.close > hours.open)
-  if (broken) console.warn('[today board] store hours that do not open before they close — drawn as one hour:', hours)
-  let { open, close } = broken ? { open: floor60(hours.open), close: floor60(hours.open) + 60 } : hours
+  let { open, close } = hours
   for (const b of bookings) {
-    if (!(b.endMinute > b.startMinute)) continue // never a card (buildLanes), so it grows nothing
     if (b.startMinute < open) open = floor60(b.startMinute)
     if (b.endMinute > close) close = ceil60(b.endMinute)
   }
@@ -594,9 +591,7 @@ export function dayBookings(input: BuildInput): BoardBooking[] {
     .map((a) => {
       const customer = customerById.get(a.customer_id)
       const startMinute = jstMinuteOfDay(a.starts_at)
-      // ⚖ §v11 V11-15(e) — the practice door's rule (`liveSpans`, one helper): a row crossing midnight ends at 24:00
-      // here while its label keeps the real range; one that does not end after it starts is never a card.
-      const endMinute = jstEndOnStartDay(a.starts_at, a.ends_at)
+      const endMinute = jstMinuteOfDay(a.ends_at)
       const resource = a.resource_id ? resourceById.get(a.resource_id) : undefined
       return {
         id: a.id,
@@ -610,7 +605,7 @@ export function dayBookings(input: BuildInput): BoardBooking[] {
         resourceName: resource?.name ?? '未定',
         startMinute,
         endMinute,
-        timeRange: `${hhmm(startMinute)}–${hhmm(jstMinuteOfDay(a.ends_at))}`,
+        timeRange: `${hhmm(startMinute)}–${hhmm(endMinute)}`,
         price: a.booked_price,
         category: customer
           ? bookingCategory(customer, priorVisits.get(a.customer_id) ?? 0)
@@ -675,24 +670,14 @@ export const STATE_LABEL: Record<NonNullable<BoardBooking['state']>, string> = {
   noshow: '来店なし',
 }
 
-/** ⚖ §v11 V11-15(d) — a box `place()` gives no width, NOT DRAWN and named here instead (never rendered, never a DOM
- *  attribute): a booking that does not end after it starts is `'zero-length'`; anything else `'outside-window'`. */
-export interface BoardDrop {
-  kind: BoardItem['kind']
-  id: string
-  reason: 'zero-length' | 'outside-window'
-}
-
-/** Staff lanes then resource lanes, in canon's two groups. Every item of the seven builders passes ONE gate: a
- *  zero-width box is left off its lane and pushed to `dropped` (V11-15(d)). */
-export function buildLanes(input: BuildInput, bookings: BoardBooking[], dropped: BoardDrop[] = []): BoardLane[] {
+/** Staff lanes then resource lanes, in canon's two groups. Every item of the seven builders passes ONE gate: a box
+ *  `place()` gives no width is not drawn (⚖ §v11 V11-15(d)). */
+export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLane[] {
   const { hours, absence } = input
   const biz = input.businessHours ?? hours
   const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
   const lanes: BoardLane[] = []
-  const zeroLength = new Set(bookings.filter((b) => !(b.endMinute > b.startMinute)).map((b) => b.id))
-  const drawn = (items: BoardItem[]) =>
-    items.filter((i) => i.w > 0 || void dropped.push({ kind: i.kind, id: i.caseId ?? i.key, reason: i.caseId !== null && zeroLength.has(i.caseId) ? 'zero-length' : 'outside-window' }))
+  const drawn = (items: BoardItem[]) => items.filter((i) => i.w > 0)
 
   // ⚖ D-53 (ak)/(al) N2c-2 R-2 — Home B: the booking's own room word, resolved
   // ONCE per booking so the staff-lane copy and the resource-lane copy of one

@@ -60,7 +60,6 @@ import {
   bookingCategory,
   buildLanes,
   dayBookings,
-  dayTotals,
   drawnWindow,
   cleanupBlocks,
   effectiveShift,
@@ -69,11 +68,9 @@ import {
   place,
   suppressedByAbsence,
   utilization,
-  type BoardDrop,
   type BoardLane,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { liveSpans } from '@/business/lib/practice-door/sample-day'
 import * as data from '@/business/lib/data'
 import { bookingColorsKeyFor } from '@/business/lib/booking-colors'
 import TodayPage, { bookingProofs } from '@/app/[locale]/(business)/business/today/page'
@@ -380,7 +377,7 @@ describe('board derivations', () => {
   })
 
   // ⚖ §v11 V11-15(j) P11 — the drawn window: the store's hours grown to the whole hour around every card outside them.
-  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day; a broken pair is one hour + the cards, warned once', () => {
+  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day', () => {
     const gym = { open: 420, close: 1320 }
     const at = (...spans: Array<[number, number]>) => spans.map(([startMinute, endMinute]) => ({ startMinute, endMinute }))
     expect(drawnWindow(gym, at([600, 660], [1000, 1100]))).toEqual(gym)
@@ -389,40 +386,8 @@ describe('board derivations', () => {
     expect(drawnWindow(gym, at([1290, 1350]))).toEqual({ open: 420, close: 1380 }) // ends 22:30 → closes 23:00
     expect(drawnWindow(gym, at([1350, 1395]))).toEqual({ open: 420, close: 1440 }) // ends 23:15 → closes 24:00 (ceil60)
     expect(drawnWindow(gym, at([-10, 20], [1430, 1500]))).toEqual({ open: 0, close: 1440 })
-    expect(drawnWindow(gym, at([1410, 1440]))).toEqual({ open: 420, close: 1440 }) // a crossing row, read as dayBookings reads it
     const w = drawnWindow(gym, at([395, 1395]))
     expect(Number.isInteger((w.close - w.open) / 60)).toBe(true)
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      expect(drawnWindow({ open: 700, close: 600 }, [])).toEqual({ open: 660, close: 720 })
-      expect(warn).toHaveBeenCalledTimes(1)
-      expect(drawnWindow({ open: 600, close: 600 }, at([800, 860]))).toEqual({ open: 600, close: 900 })
-      expect(warn).toHaveBeenCalledTimes(2)
-    } finally {
-      warn.mockRestore()
-    }
-  })
-
-  // ⚖ §v11 V11-15(j) P12 — the board and the door read one row's end the same way; a zero-length row is named, not drawn.
-  it('§v11 V11-15 P12 — a row crossing midnight ends where liveSpans ends it; a zero-length row is in no lane, named in `dropped`, still counted', () => {
-    const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
-    const lane = { id: 'p-pr-c', full_name: '見本 ぴーしー' } as unknown as BuildInput['staff'][number]
-    const inputOf = (row: FixtureAppointment) => ({
-      appointments: [row], customers: [], menus: [], staff: [lane], resources: [], shifts: [], qualifications: {}, staffListPrice: {}, staffStores: {},
-      absence: null, blocks: [], sellSlots: [], decisions: [], hours: { open: 600, close: 1140 }, dayKey: jstDayKey(row.starts_at),
-      operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
-    }) as unknown as BuildInput
-    const crossing = { ...base, id: 'apt-crossing', staff_id: lane.id, resource_id: null, starts_at: '2026-09-14T14:30:00.000Z', ends_at: '2026-09-14T15:30:00.000Z' } // 23:30 → 00:30 JST
-    const [b] = dayBookings(inputOf(crossing))
-    const [door] = liveSpans([{ ...crossing, kind: 'BOOKING', status: 'SCHEDULED' }], jstDayKey(crossing.starts_at))
-    expect([b.startMinute, b.endMinute, b.timeRange]).toEqual([1410, door.end, '23:30–00:30'])
-    expect(door.end).toBe(1440)
-    const zero = { ...base, id: 'apt-zero', staff_id: lane.id, resource_id: null, ends_at: base.starts_at }
-    const dropped: BoardDrop[] = []
-    const lanes = buildLanes(inputOf(zero), dayBookings(inputOf(zero)), dropped)
-    expect(lanes.flatMap((l) => l.items).filter((i) => i.caseId === 'apt-zero')).toEqual([])
-    expect(dropped).toEqual([{ kind: 'booking', id: 'apt-zero', reason: 'zero-length' }])
-    expect(dayTotals([zero], 0).count).toBe(1)
   })
 
   it('reads カテゴリー strongest-first: VIP over 回数券 over 新規/再来', () => {

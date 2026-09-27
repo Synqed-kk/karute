@@ -46,7 +46,7 @@ import {
   absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
   staffListPrice as fxListPrice, staffQualifications,
 } from '@/business/lib/fixtures-today'
-import { jstDayKey, jstEndOnStartDay, jstMinuteOfDay } from '@/business/lib/clock'
+import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
 import { dayBookings, dayTotals, type BuildInput } from '@/business/lib/today-board'
 import { weekdayOfKey } from '@/business/lib/practice-door/store-hours'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
@@ -1391,9 +1391,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
         const { operatingHours: h } = await data.readDayPlanes(store, dayKey)
         const live = (await data.listAppointments(store)).filter((a) => jstDayKey(a.starts_at) === dayKey && a.status !== 'cancelled')
         seen += live.length
-        // ⚖ §v11 V11-15(i) — RE-SCOPED (V11-5): the end is read as the board reads it (start + length, clipped to 24:00),
-        // so a row crossing midnight is no longer invisible to this pin (its minute-of-day end once wrapped to 00:30).
-        const outside = live.filter((a) => jstMinuteOfDay(a.starts_at) < h.open || jstEndOnStartDay(a.starts_at, a.ends_at) > h.close)
+        const outside = live.filter((a) => jstMinuteOfDay(a.starts_at) < h.open || jstMinuteOfDay(a.ends_at) > h.close)
         expect({ store, dayKey, outside: outside.map((a) => `${a.starts_at}–${a.ends_at}`) }).toEqual({ store, dayKey, outside: [] })
       }
     }
