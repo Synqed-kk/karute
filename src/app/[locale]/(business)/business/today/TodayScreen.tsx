@@ -613,8 +613,9 @@ export interface TodayProps {
   monthLabel: string
   isToday: boolean
   windowDays: number
-  /** The AXIS: the drawn window (⚖ §v11 V11-15(a)) — ruler, grid, every place()/minuteOf(). */
-  hours: { open: number; close: number; count: number; labels: ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }> }
+  /** The AXIS: the drawn window (⚖ §v11 V11-15(a)) — ruler, grid, every place()/minuteOf(). `lead` (P20, rulerLead()): present only on a
+   *  fractional axis — the gridlines' offset to the first whole hour, so they start where the ruler's first label does. */
+  hours: { open: number; close: number; count: number; labels: ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }>; lead?: number }
   /** ⚖ §v11 V11-15(b) — the store's OWN hours, for every RULE (sell/guard frames, the dialogs, the sentence).
    *  Present only when the axis grew past them; absent, the axis IS the store's hours. `ownHours` (B2): set by the
    *  store in core — only then is 営業時間外 painted. */
@@ -9367,7 +9368,7 @@ export function TodayScreen(props: TodayProps) {
                 <div
                   className={timelineClasses}
                   ref={boardRef}
-                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}) } as React.CSSProperties}
+                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}), ...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}
                   // ⚖ Liam flag 33 — canon's singleton, at the one place every
                   // board gesture starts (capture, so a card's own handler
                   // cannot get there first).

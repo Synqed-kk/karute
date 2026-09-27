@@ -68,6 +68,7 @@ import {
   sourceLine,
   sourceWord,
   rulerLabels,
+  rulerLead,
   utilization,
   yen,
   type BoardBooking,
@@ -284,6 +285,7 @@ export default async function TodayPage({
   const shownYmd = jstYmd(shownAt)
   const hourCount = (drawn.close - drawn.open) / 60
   const hourLabels = rulerLabels(drawn) // ⚖ §v11 V11-15 P20 — whole hours at their minute positions, on any axis
+  const hourLead = rulerLead(drawn) // …and the gridlines' lead to the first whole hour (0 on a whole-hour axis → not sent)
 
   // ── the day index behind the calendar (E8) and the date nav ───────────────
   // ONE PASS, because the two things the month needs about a day come off the
@@ -621,7 +623,7 @@ export default async function TodayPage({
     monthLabel: fmtMonth.format(shownAt),
     isToday: dayOffset === 0,
     windowDays: WINDOW,
-    hours: { open: drawn.open, close: drawn.close, count: hourCount, labels: hourLabels },
+    hours: { open: drawn.open, close: drawn.close, count: hourCount, labels: hourLabels, ...(hourLead > 0 ? { lead: hourLead } : {}) },
     // Only when the axis grew past them — absent, the axis IS the store's hours (and the OFF props stay byte-identical).
     // ⚖ B2 — `ownHours`: the band is painted only over hours the store itself set (core), never over the sample pair.
     ...(drawn.open !== planes.operatingHours.open || drawn.close !== planes.operatingHours.close ? { businessHours: { ...planes.operatingHours, ownHours: 'hoursSource' in planes && planes.hoursSource === 'core' } } : {}),

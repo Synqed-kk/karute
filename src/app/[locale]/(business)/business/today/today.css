@@ -16,9 +16,10 @@
    gridlines and the cards do not line up; its own later pass introduces
    `--hours` and fixes the track, but leaves `.hours` hardcoded at 11. Here BOTH
    the ruler and the track read the store's open-hours span, so the lines are
-   under the cards by construction at any opening hours. `repeat()` cannot take
-   a custom property for its count, so the ruler uses auto-flow columns — same
-   result, one source.
+   under the cards by construction at any opening hours. The ruler places each
+   whole-hour label at its own minute (rulerLabels()), and the track's lines take
+   the same lead offset (`--hour-lead`, rulerLead()) — so on a fractional axis
+   both start at the first whole hour, one source.
 
    NOT CARRIED (dead CSS is worse than absent CSS): the スキマガード demo layer
    with its popover and log — canon's own copy calls it a page-local teaching
@@ -447,6 +448,10 @@
   min-width: 0;
   background-image: linear-gradient(to right, var(--row) 1px, transparent 1px);
   background-size: calc(100% / var(--hours, 9)) 100%;
+  /* ⚖ P20 — the hour tiles start at the first whole hour. A background-position % is a share of (track − tile), so the
+     axis share --hour-lead is scaled by N/(N−1) to land on (lead × track). Unset (whole-hour axis) → 0%, as before. */
+  --grid-x: calc(var(--hour-lead, 0) * var(--hours, 9) / (var(--hours, 9) - 1) * 1%);
+  background-position-x: var(--grid-x);
 }
 .biz .lane.locked .track {
   background-color: #f7f7f8;
@@ -459,13 +464,13 @@
 .biz .timeline.off-hours .track {
   background-image: linear-gradient(to right, var(--row) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px);
   background-size: calc(100% / var(--hours, 9)) 100%, calc(100% * var(--off-before, 0)) 100%, calc(100% * var(--off-after, 0)) 100%;
-  background-position: 0 0, left top, right top;
+  background-position: var(--grid-x) 0, left top, right top;
   background-repeat: repeat, no-repeat, no-repeat;
 }
 .biz .timeline.off-hours .lane.locked .track {
   background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px), linear-gradient(to right, var(--row) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px);
   background-size: calc(100% / var(--hours, 9)) 100%, calc(100% / var(--hours, 9)) 100%, calc(100% * var(--off-before, 0)) 100%, calc(100% * var(--off-after, 0)) 100%;
-  background-position: 0 0, 0 0, left top, right top;
+  background-position: var(--grid-x) 0, var(--grid-x) 0, left top, right top;
   background-repeat: repeat, repeat, no-repeat, no-repeat;
 }
 .biz .timeline.off-hours .track.drop-target { background-image: linear-gradient(to right, rgba(63, 91, 232, .22) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px); }

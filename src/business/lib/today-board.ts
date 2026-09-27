@@ -98,6 +98,13 @@ export function rulerLabels(axis: Hours): ReadonlyArray<{ hour: number; leftPct:
   return out
 }
 
+/** ⚖ §v11 V11-15 P20 — the track's gridlines take the ruler's lead: the share of the axis (percent) before its first
+ *  whole hour, so the lines start where the first label does. 0 on a whole-hour axis (nothing is added to the DOM). */
+export function rulerLead(axis: Hours): number {
+  const span = axis.close - axis.open
+  return span > 0 ? ((Math.ceil(axis.open / 60) * 60 - axis.open) / span) * 100 : 0
+}
+
 /** place()'s inverse for the drag layer: a percent offset back to the minute it
  *  names. canon `minutesOf` (:3743) — rounded, because a card's percent is
  *  three decimals and 30-minute steps must land on whole minutes. */

@@ -67,6 +67,7 @@ import {
   minuteOf,
   place,
   rulerLabels,
+  rulerLead,
   suppressedByAbsence,
   utilization,
   type BoardLane,
@@ -445,6 +446,13 @@ describe('board derivations', () => {
     expect(both.at(-1)!.leftPct + both.at(-1)!.widthPct).toBeCloseTo(100, 10)
     expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
     expect(rulerLabels({ open: 660, close: 600 })).toEqual([])
+  })
+
+  it('§v11 V11-15 P20 — rulerLead: the gridlines\' lead is the axis share before the first whole hour (= the first label\'s left); 0 on a whole-hour axis or an empty span', () => {
+    expect(rulerLead({ open: 570, close: 1440 })).toBeCloseTo((30 / 870) * 100, 10)
+    expect(rulerLead({ open: 570, close: 1440 })).toBe(rulerLabels({ open: 570, close: 1440 })[0].leftPct)
+    expect(rulerLead({ open: 540, close: 1140 })).toBe(0)
+    expect(rulerLead({ open: 600, close: 600 })).toBe(0)
   })
 
   // ⚖ §v11 V11-15 fix round 3 — P17 (stress mutant M3): only BOOKINGS grow the axis — never a shift, a wash or an absence.
