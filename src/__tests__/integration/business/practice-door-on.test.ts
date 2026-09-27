@@ -80,6 +80,8 @@ function withReads(o: RecordedOptions = {}): Spied {
   mockCore.reads = spied as unknown as CoreReads
   return spied
 }
+/** ⚖ §v11 PR-B — the floating path (no assignments row = every store), with むすび's recorded row taken out. */
+const floatingMusubi = () => withReads().staffStoresList.mockResolvedValue({ assignments: Object.fromEntries(Object.entries(ASSIGNMENTS).filter(([id]) => id !== CARD.musubi)) })
 function as(userId: string, email: string | null = null, businessId: string = TENANT) {
   admission.mockResolvedValue({ userId, email, businessId })
 }
@@ -136,17 +138,20 @@ describe('(1) OWNER — viewAll', () => {
     ])
     const all = await data.listStaff(VIEW_ALL)
     expect(ids(all)).not.toContain(CARD.inactive)
-    expect(all).toHaveLength(16)
+    expect(all).toHaveLength(21) // ⚖ §v11 PR-B — + the gym's own five
     expect(all.find((s) => s.id === CARD.goro)).toEqual({ id: CARD.goro, full_name: '見本 ごろう', email: 'goro@test.invalid' })
   })
 
   it('readStaffStores: null for the floating card, the two-store arrays from the live assignments', async () => {
     const map = await data.readStaffStores(STORE.tokyo)
-    expect(map[CARD.musubi]).toBeNull()
+    // ⚖ §v11 PR-B — REWRITTEN: むすび was the floating card (null); she now works every recorded store but the gym (S4a).
+    expect(map[CARD.musubi]).toEqual(ASSIGNMENTS[CARD.musubi])
     expect(map[CARD.saburo]).toEqual([STORE.tokyo, STORE.yokohama])
     expect(map[CARD.goro]).toEqual([STORE.yokohama, STORE.tokyo])
     expect(map).not.toHaveProperty(CARD.inactive)
-    expect(Object.keys(map)).toHaveLength(16)
+    expect(Object.keys(map)).toHaveLength(21)
+    floatingMusubi() // …and a card with no assignments row is still null, never a list
+    expect((await data.readStaffStores(STORE.tokyo))[CARD.musubi]).toBeNull()
   })
 
   it('listMenus: store menus + 全店舗; twins carry their kind, the La Estro menu none', async () => {
@@ -172,7 +177,7 @@ describe('(1) OWNER — viewAll', () => {
       source: '', identity_check: null, ticket_balance: null, wallet_balance: null, merge_status: 'none', duplicate_of: null,
       consent: null, line_linked: false, party: [], thin: false, external_owner: false, note: null, vip: false,
     }])
-    expect(await data.listCustomers(VIEW_ALL)).toHaveLength(14 + 11) // ⚖ §v11 — + the gym's and 自由が丘's own 11
+    expect(await data.listCustomers(VIEW_ALL)).toHaveLength(14 + 20) // ⚖ §v11 — + the gym's, 自由が丘's and (PR-B) 東京's C6 own 20
   })
 
   it('listCustomers: literal membership anchors from fixtures.ts, independent of the membership() helper', async () => {
@@ -343,7 +348,10 @@ describe('(2) AREA MANAGER — two stores by the answer sheet', () => {
     expect(map).not.toHaveProperty(CARD.mio) // assigned ONLY to La Estro (READBACK §2) → unresolved, never null
     expect(map).not.toHaveProperty(CARD.owner) // Dev Salon only
     expect(map[CARD.saburo]).toEqual([STORE.tokyo, STORE.yokohama])
-    expect(map[CARD.musubi]).toBeNull() // floating stays floating
+    // ⚖ §v11 PR-B — REWRITTEN (was: null, floating): むすび's stores, cut to the two he sees; floating stays floating.
+    expect(map[CARD.musubi]).toEqual([STORE.tokyo, STORE.yokohama])
+    floatingMusubi()
+    expect((await data.readStaffStores(STORE.tokyo))[CARD.musubi]).toBeNull()
     as(LOGIN.owner)
     expect((await data.readStaffStores(STORE.tokyo))[CARD.mio]).toEqual([STORE.laEstro])
   })
@@ -635,8 +643,9 @@ describe('(10) sampleKeys + sampleRows', () => {
     expect(membership(STORE.tokyo)).not.toContain(liveIdOf('customers', 'cus-10')) // never booked anywhere
     expect(membership(STORE.devSalon)).toEqual([])
     expect(customers.length).toBe(13)
-    expect(STAFF).toHaveLength(17)
-    expect(ASSIGNMENTS).not.toHaveProperty(CARD.musubi)
+    expect(STAFF).toHaveLength(22) // ⚖ §v11 PR-B — + the gym's five
+    // ⚖ §v11 PR-B — REWRITTEN (was: むすび has no row): every recorded store but the gym, whose roster is production's five.
+    expect(ASSIGNMENTS[CARD.musubi]).toEqual(STORES.filter((x) => x.active && x.id !== STORE.gym).map((x) => x.id))
   })
 })
 
@@ -1215,7 +1224,11 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
 
   it('東京 and 横浜 unchanged: their planes equal the pre-change expectations exactly', async () => {
     const tokyo = await data.readDayPlanes(STORE.tokyo, TODAY)
-    expect(tokyo.shifts).toEqual(sampleFor(fxShifts, null))
+    // ⚖ §v11 V11-8 (PR-B) — REWRITTEN (was: exactly the fixture's shifts): the recorded 東京 day now holds its two live C6 rows,
+    // and the sample day gives way to them — ごろう's 17:00 終業 → 17:30 for 後藤 大輔; みらい, who has no sample shift, is
+    // served the day's own window for 青木 修. Every other row is the fixture's, exactly.
+    const [goro, mirai] = [liveIdOf('staff', 'p-05'), liveIdOf('staff', 'p-09')!]
+    expect(tokyo.shifts).toEqual([...sampleFor(fxShifts, null).map((x) => (x.staff_id === goro ? { ...x, end: 17 * 60 + 30 } : x)), { staff_id: mirai, start: 600, end: 1140, breaks: [] }])
     expect(tokyo.decisions).toEqual(sampleRows(fxDecisions, null).filter((d) => d.store_id === STORE.tokyo))
     expect(tokyo.absence).toEqual(sampleRows([fxAbsence], null)[0])
     expect(tokyo.sellSlots).toEqual(sampleRows(fxSlots, null).filter((x) => x.store_id === STORE.tokyo))
@@ -1379,7 +1392,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
         expect({ store, dayKey, outside: outside.map((a) => `${a.starts_at}–${a.ends_at}`) }).toEqual({ store, dayKey, outside: [] })
       }
     }
-    expect(seen).toBe(14) // 東京 3 · the gym 7 + 3 · 自由が丘 1 — never a vacuous pass
+    expect(seen).toBe(23) // 東京 3 + (PR-B) its two C6 rows · the gym 13 + 4 (PR-B: production's whole day) · 自由が丘 1 — never a vacuous pass
   })
 
   // ⚖ §v11 V11-5 — the override table is the SAMPLE world's: exercised on stores core holds no hours for.
