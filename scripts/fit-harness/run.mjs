@@ -42,7 +42,7 @@ import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, extname, join, resolve } from 'node:path'
+import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -82,7 +82,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 const server = createServer((req, res) => {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname)
   const file = join(DIST, path === '/' ? 'index.html' : path)
-  if (!file.startsWith(DIST) || !existsSync(file)) {
+  if (!file.startsWith(DIST + sep) || !existsSync(file)) {
     res.writeHead(404).end()
     return
   }
