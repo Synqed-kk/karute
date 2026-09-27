@@ -614,7 +614,7 @@ export interface TodayProps {
   isToday: boolean
   windowDays: number
   /** The AXIS: the drawn window (⚖ §v11 V11-15(a)) — ruler, grid, every place()/minuteOf(). */
-  hours: { open: number; close: number; count: number; labels: string[] }
+  hours: { open: number; close: number; count: number; labels: ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }> }
   /** ⚖ §v11 V11-15(b) — the store's OWN hours, for every RULE (sell/guard frames, the dialogs, the sentence).
    *  Present only when the axis grew past them; absent, the axis IS the store's hours. `ownHours` (B2): set by the
    *  store in core — only then is 営業時間外 painted. */
@@ -9388,7 +9388,7 @@ export function TodayScreen(props: TodayProps) {
                     {offBefore > 0 && <span className="off-caption before">営業時間外</span>}
                     {offAfter > 0 && <span className="off-caption after">営業時間外</span>}
                     <div className="hours">
-                      {hours.labels.map((h) => <span key={h} className={band && ((Number(h) + 1) * 60 <= business.open || Number(h) * 60 >= business.close) ? 'off' : undefined}>{h}</span>)}
+                      {hours.labels.map((l) => <span key={l.hour} style={{ left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : undefined}>{l.hour}</span>)}
                     </div>
                   </div>
 

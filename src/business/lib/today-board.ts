@@ -86,6 +86,18 @@ export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute:
   }
 }
 
+/** ⚖ §v11 V11-15 P20 — THE RULER: the AXIS may be fractional (B3); the RULER prints whole hours at their minute
+ *  positions — one label per whole hour h with open ≤ h·60 < close, placed exactly as place() places a card
+ *  (left = (h·60 − open)/span, width = min(60, close − h·60)/span). A whole-hour axis gives today's label set at
+ *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %). */
+export function rulerLabels(axis: Hours): ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }> {
+  const span = axis.close - axis.open
+  if (!(span > 0)) return []
+  const out: { hour: number; leftPct: number; widthPct: number }[] = []
+  for (let h = Math.ceil(axis.open / 60); h * 60 < axis.close; h++) out.push({ hour: h, leftPct: ((h * 60 - axis.open) / span) * 100, widthPct: (Math.min(60, axis.close - h * 60) / span) * 100 })
+  return out
+}
+
 /** place()'s inverse for the drag layer: a percent offset back to the minute it
  *  names. canon `minutesOf` (:3743) — rounded, because a card's percent is
  *  three decimals and 30-minute steps must land on whole minutes. */

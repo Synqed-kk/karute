@@ -67,6 +67,7 @@ import {
   openDecisions,
   sourceLine,
   sourceWord,
+  rulerLabels,
   utilization,
   yen,
   type BoardBooking,
@@ -282,7 +283,7 @@ export default async function TodayPage({
   const shownAt = new Date(now.getTime() + dayOffset * DAY_MS)
   const shownYmd = jstYmd(shownAt)
   const hourCount = (drawn.close - drawn.open) / 60
-  const hourLabels = Array.from({ length: hourCount }, (_, i) => String(drawn.open / 60 + i))
+  const hourLabels = rulerLabels(drawn) // ⚖ §v11 V11-15 P20 — whole hours at their minute positions, on any axis
 
   // ── the day index behind the calendar (E8) and the date nav ───────────────
   // ONE PASS, because the two things the month needs about a day come off the

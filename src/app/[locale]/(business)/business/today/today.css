@@ -358,10 +358,10 @@
 .biz .label-resize { position: absolute; top: 0; bottom: 0; right: -5px; width: 10px; cursor: col-resize; z-index: 8; touch-action: none; }
 .biz .label-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: transparent; }
 .biz .label-resize:hover::after, .biz .label-resize.dragging::after { background: var(--select-line); }
-/* See the header note: auto-flow columns instead of repeat(N) so the ruler
-   reads the same --hours the track does. */
-.biz .hours { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
-.biz .hours span { padding-top: 10px; border-left: 1px solid var(--row); color: var(--quiet); font-size: 12px; text-align: center; }
+/* ⚖ §v11 V11-15 P20 — each hour label is placed at its own minute (rulerLabels(), inline left/width), so the ruler
+   agrees with the track's --hours gridlines on any axis, fractional included. */
+.biz .hours { position: relative; }
+.biz .hours span { position: absolute; top: 0; bottom: 0; box-sizing: border-box; padding-top: 10px; border-left: 1px solid var(--row); color: var(--quiet); font-size: 12px; text-align: center; }
 
 .biz .group-label {
   display: flex;
@@ -2890,6 +2890,8 @@
    these; the ruler keeps its 36px in コンパクト on purpose (the pill's clearance
    is not a density question). */
 .biz .page-today .time-head { min-height: 36px; }
+/* P20 — the labels are out of flow now: the ruler keeps the height its in-flow labels gave it (19px + the 11.5px line, measured 36.25px). */
+.biz .page-today .hours { height: 36.25px; }
 .biz .page-today .time-head > span { font-size: 11.5px; color: #9ca3af; }
 .biz .page-today .hours span {
   padding: 19px 0 0 6px;

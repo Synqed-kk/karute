@@ -66,6 +66,7 @@ import {
   openDecisions,
   minuteOf,
   place,
+  rulerLabels,
   suppressedByAbsence,
   utilization,
   type BoardLane,
@@ -418,6 +419,32 @@ describe('board derivations', () => {
     const cleanupEnd = (i: BuildInput) => buildLanes(i, dayBookings(i)).find((l) => l.key === 'r-pr-c')!.items.find((x) => x.kind === 'cleanup')?.endMin
     expect(cleanupEnd({ ...input, hours: { open: 420, close: 1440 }, businessHours: { open: 420, close: 1320 } })).toBe(1320) // not 1340
     expect(cleanupEnd(input)).toBe(1320) // the OFF path: axis == the store's hours, as today
+  })
+
+  // ⚖ §v11 V11-15 fix round 4 — P20 (Greptile P1 on 8637ba1d7): the AXIS may be fractional (B3); the RULER prints whole
+  // hours at their minute positions, so a label sits on the gridline of its own hour on any axis.
+  it('§v11 V11-15 P20 — the ruler prints whole hours at their minute positions: a whole-hour axis gives today\'s equal columns exactly, a fractional axis gives whole hours only, and an empty span gives []', () => {
+    const whole = rulerLabels({ open: 540, close: 1140 }) // 09:00–19:00 — today's ruler: open/60 + i at i/count·100 %, width 100/count %
+    expect(whole.map((l) => l.hour)).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18])
+    whole.forEach((l, i) => { expect(l.leftPct).toBe((i / 10) * 100); expect(l.widthPct).toBeCloseTo(10, 10) })
+    for (const axis of [{ open: 600, close: 1140 }, { open: 420, close: 1320 }, { open: 0, close: 1440 }]) { // every whole-hour axis = today's label set and columns
+      const count = (axis.close - axis.open) / 60
+      const got = rulerLabels(axis)
+      expect(got.map((l) => String(l.hour))).toEqual(Array.from({ length: count }, (_, i) => String(axis.open / 60 + i)))
+      got.forEach((l, i) => { expect(l.leftPct).toBeCloseTo((i / count) * 100, 10); expect(l.widthPct).toBeCloseTo(100 / count, 10) })
+    }
+    const late = rulerLabels({ open: 570, close: 1440 }) // 09:30–24:00: 14.5 track columns, 14 whole hours
+    expect(late.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
+    expect(late[0].leftPct).toBeCloseTo((30 / 870) * 100, 10)
+    late.forEach((l) => expect(l.widthPct).toBeCloseTo((60 / 870) * 100, 10))
+    expect(late.at(-1)!.leftPct + late.at(-1)!.widthPct).toBeCloseTo(100, 10)
+    const both = rulerLabels({ open: 570, close: 1350 }) // 09:30–22:30: the last hour is cut at the close
+    expect(both.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+    expect(both[0].leftPct).toBeCloseTo((30 / 780) * 100, 10)
+    expect(both.at(-1)!.widthPct).toBeCloseTo((30 / 780) * 100, 10)
+    expect(both.at(-1)!.leftPct + both.at(-1)!.widthPct).toBeCloseTo(100, 10)
+    expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
+    expect(rulerLabels({ open: 660, close: 600 })).toEqual([])
   })
 
   // ⚖ §v11 V11-15 fix round 3 — P17 (stress mutant M3): only BOOKINGS grow the axis — never a shift, a wash or an absence.
@@ -780,7 +807,7 @@ describe('今日の運営 screen', () => {
     const p = await board(STORE_A)
     expect(p.hours.count).toBe((operatingHours.close - operatingHours.open) / 60)
     expect(p.hours.labels).toHaveLength(p.hours.count)
-    expect(p.hours.labels[0]).toBe(String(operatingHours.open / 60))
+    expect(p.hours.labels[0].hour).toBe(operatingHours.open / 60) // P20 — labels are { hour, leftPct, widthPct }
     expect(p.sell.gridMin).toBe(opsConfig.reserveStartGridMin)
     // ⚖ D-15/D-24 pin 9(a) — the L1→L3 seam contract at the default: the
     // page's own props.sell carries the store's sellSlotMin, not a literal.

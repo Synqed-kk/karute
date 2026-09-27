@@ -15388,4 +15388,15 @@ describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', ()
     expect(src.split(guard).length - 1).toBe(1)
     expect(src).not.toMatch(/if \(end > hours\.close\)/)
   })
+
+  // Fix round 4 — P20, the render half: no suite renders TodayScreen here (the renderer fence, header :5-9), so the ruler's
+  // JSX and CSS are pinned as TEXT; the arithmetic is P20 in today-board.test.ts, the render is the byte-id harness's.
+  it('§v11 V11-15 P20 — the ruler spans sit at rulerLabels() minute positions, the off rule unchanged, the labels out of flow', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    expect(src).toContain("{hours.labels.map((l) => <span key={l.hour} style={{ left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : undefined}>{l.hour}</span>)}")
+    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')).toContain('const hourLabels = rulerLabels(drawn)')
+    const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    expect(css).toContain('.biz .hours { position: relative; }\n.biz .hours span { position: absolute; top: 0; bottom: 0; box-sizing: border-box;')
+    expect(css).toContain('.biz .page-today .hours { height: 36.25px; }')
+  })
 })
