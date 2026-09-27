@@ -1880,8 +1880,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const CODE = codeOnly(SRC)
     // ⚖ FRAME-SEAM (2026-09-12) — the rail's call and its dep-array anchor name the
     // HAND's board; the verdict's slice below is byte-unchanged.
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
       // ⚖ FRAME-SEAM (2026-09-12) — the RAIL's two doors answer on the hand's
@@ -2147,7 +2147,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // HAND's board; every other line of the slice is byte-unchanged.
     const rail = sliceLines(
       'guardRailsFor(handBoard, {',
-      '[guardOn, handBoard, hours, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(rail.lines).toEqual([
       'guardRailsFor(handBoard, {',
@@ -2176,7 +2176,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // the caller's own exclusion and the board it was handed.
     const verdict = sliceLines(
       '? guardVerdictAt(lanes, laneKey, start, {',
-      '[guardOn, boardLanes, hours, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(verdict.lines).toEqual([
       '? guardVerdictAt(lanes, laneKey, start, {',
