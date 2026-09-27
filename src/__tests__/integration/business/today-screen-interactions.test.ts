@@ -1880,9 +1880,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const CODE = codeOnly(SRC)
     // ⚖ FRAME-SEAM (2026-09-12) — the rail's call and its dep-array anchor name the
     // HAND's board; the verdict's slice below is byte-unchanged.
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
-    const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
       // ⚖ FRAME-SEAM (2026-09-12) — the RAIL's two doors answer on the hand's
       // board; the VERDICT's two are byte-unchanged (their board is the caller's).
@@ -2016,7 +2016,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // Mechanical whole-line rename; the slice is the same call.
     const heldBoard = uniqueSlice(
       'const heldBoardRaw = useMemo(',
-      '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
+      '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
     )
     expect({
       bareGateLines: pinnedLines(SRC, 'SELLING_ENGINE_LAW'),
@@ -2147,12 +2147,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // HAND's board; every other line of the slice is byte-unchanged.
     const rail = sliceLines(
       'guardRailsFor(handBoard, {',
-      '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, handBoard, hours, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(rail.lines).toEqual([
       'guardRailsFor(handBoard, {',
-      'open: hours.open,',
-      'close: hours.close,',
+      'open: business.open,',
+      'close: business.close,',
       'stepMin: 30,',
       'dur: railDur,',
       'protectedDur: props.guard.protectedDurationMin,',
@@ -2176,12 +2176,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // the caller's own exclusion and the board it was handed.
     const verdict = sliceLines(
       '? guardVerdictAt(lanes, laneKey, start, {',
-      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
+      '[guardOn, boardLanes, hours, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],',
     )
     expect(verdict.lines).toEqual([
       '? guardVerdictAt(lanes, laneKey, start, {',
-      'open: hours.open,',
-      'close: hours.close,',
+      'open: business.open,',
+      'close: business.close,',
       'stepMin: 30,',
       'dur,',
       'protectedDur: props.guard.protectedDurationMin,',
@@ -4411,7 +4411,7 @@ describe('the guided tour builds itself out of what is on screen', () => {
 
   it('the ? popover carries canon’s hints, ours, and the button that starts the tour', () => {
     expect(SRC).toContain('<strong>操作ヒント</strong>')
-    expect(SRC).toContain('・時間外は非表示')
+    expect(SRC).toContain("'・営業時間外の予約も表示'") // ⚖ §v11 V11-15(g) — canon's 「・時間外は非表示」 is false once out-of-hours cards are drawn
     expect(SRC).toContain('カードはドラッグで移動・両端で時間変更')
     expect(SRC).toContain('キーボード: Shift＋←/→で開始、Alt＋←/→で終了を30分ずつ変更')
     expect(SRC).toContain('仮置きエリア（ボード上の点線バー）')
@@ -5258,7 +5258,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // the sell layer reads (`committedLanes`, never `boardLanes`).
     expect(SRC.indexOf('const gap = useMemo(')).toBeLessThan(SRC.indexOf('const { sell, sellDrops } = useMemo('))
     const sell = SRC.slice(SRC.indexOf('const { sell, sellDrops } = useMemo('), SRC.indexOf('const guardOn ='))
-    expect(sell).toContain('sellLayerFor(committedLanes, hours, {')
+    expect(sell).toContain('sellLayerFor(committedLanes, business, {') // ⚖ §v11 V11-15(b) — the sell frame reads the store's own hours
     expect(sell).not.toContain('boardLanes')
     // …and the promises it reconciles against are the gap layer's own cells,
     // never a second derivation of them.
@@ -8125,7 +8125,7 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
     // a truncation: 10:00–19:00 is nine columns, and the head says so in words.
     const fixtures = read('src/business/lib/fixtures-today.ts')
     expect(fixtures).toContain('export const operatingHours = { open: 10 * 60, close: 19 * 60 }')
-    expect(src).toContain('<span>営業時間 {hhmm(hours.open)}–{hhmm(hours.close)}・時間外は非表示</span>')
+    expect(src).toContain("<span>営業時間 {hhmm(business.open)}–{hhmm(business.close)}{props.businessHours ? '・営業時間外の予約も表示' : ''}</span>") // ⚖ §v11 V11-15(g)
   })
 })
 
