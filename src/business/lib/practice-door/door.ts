@@ -15,7 +15,7 @@
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
-import { closedWeekdayOf, resolveStoreDay, usualPairOf, weekdayOfKey, type StoreHours } from './store-hours'
+import { closedWeekdayOf, resolveStoreDay, usualPairOf, weekdayOfKey, type StoreHours, type WeeklyHours } from './store-hours'
 import {
   appointments,
   customers,
@@ -617,18 +617,16 @@ export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promis
  *  store's OWN weekly_hours for the day shown (a closed weekday: the store's usual window, the closure on
  *  `closedWeekday`); no hours in core (null, {}, a failed read — logged) and the all-stores view keep the
  *  shared sample set (§v9 V9-2), marked 'sample' — never a silent 10:00. */
-async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number): Promise<StoreHours> {
-  const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)
+async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<StoreHours> {
   const sample: StoreHours = { operatingHours: s.operatingHours, closedWeekday: s.closedWeekday, hoursSource: 'sample' }
   if (typeof lens !== 'string') return sample
-  // A synchronous throw becomes a rejection, so it degrades like every other failed read (day-hours.ts's rule).
-  const weekly = await Promise.resolve(lens).then((id) => actor.reads.storePolicyGet(id)).then(
-    (policy) => policy?.weekly_hours ?? null,
-    (e: unknown) => {
-      console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
-      return null
-    },
-  )
+  let weekly: WeeklyHours | null
+  try {
+    weekly = (await actor.reads.storePolicyGet(lens))?.weekly_hours ?? null
+  } catch (e) {
+    console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
+    weekly = null
+  }
   const day = resolveStoreDay(weekly, weekdayOfKey(dayKey))
   const usual = usualPairOf(weekly)
   if (day.source === 'sample' || usual === null) return sample
@@ -646,9 +644,9 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const today = dayKey === jstDayKey(renderNow())
-  const [day, seats, hours] = await Promise.all([dayRows(actor, lens, { from: dayKey, to: dayKey }), rosterOrderOf(actor, lens), storeHoursOf(actor, lens, dayKey)])
-  const busy = roomsBusy(day.rows, dayKey) // ⚖ R10 — the rows this read already holds
   const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null) // ⚖ §v9 V9-1/V9-2
+  const [day, seats, hours] = await Promise.all([dayRows(actor, lens, { from: dayKey, to: dayKey }), rosterOrderOf(actor, lens), storeHoursOf(actor, lens, dayKey, s)])
+  const busy = roomsBusy(day.rows, dayKey) // ⚖ R10 — the rows this read already holds
   return {
     operatingHours: hours.operatingHours,
     /** JST minutes from midnight — the moment the board is showing. */
@@ -683,9 +681,9 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
 export async function readReservationPlanes(lens: StoreLens) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
-  const seats = await rosterOrderOf(actor, lens) // ⚖ PR-4a R5 — the same rows the board is served
+  // ⚖ PR-4a R5 — the same rows the board is served; ⚖ §v11 V11-1 — today's hours, as the board
+  const [seats, hours] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, jstDayKey(renderNow()))])
   const busy = await busyFor(actor, seats, jstDayKey(renderNow())) // ⚖ R10 — today's rooms, as the board
-  const hours = await storeHoursOf(actor, lens, jstDayKey(renderNow())) // ⚖ §v11 V11-1 — today's, as the board
   return {
     reservations: sampleFor(reservations, null),
     auditTrail: sampleKeys('appointments', auditTrail), // keyed by appointment id → live twins
