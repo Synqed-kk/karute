@@ -382,9 +382,29 @@ export type TakeMeta = {
    *  finalized key; `finalizedPath` then names the fresh key that door minted
    *  and was paid for). A later run with still no finalized key replays it in
    *  the same locale; a run WITH one replays it only if that key is this one
-   *  (ai-pipeline's replay rule) — never onto a different object. */
-  transcript?: { finalizedPath: string; locale: string; response: unknown; at: number; fallback?: true }
+   *  (ai-pipeline's replay rule) — never onto a different object.
+   *  ⚖ C3 fold (Greptile P1): `audio` fingerprints what that fallback SENT (see
+   *  TakeAudioFingerprint). A run with no finalized key replays a fallback
+   *  answer only when it is about to send the same audio; a fallback stamp
+   *  without it never replays. Finalized-key stamps do not carry it — their
+   *  key already names the exact bytes. */
+  transcript?: {
+    finalizedPath: string
+    locale: string
+    response: unknown
+    at: number
+    fallback?: true
+    audio?: TakeAudioFingerprint
+  }
 }
+
+/** ⚖ C3 fold (Greptile P1): the audio a fallback transcription actually sent —
+ *  the blob's byte size and type, plus the run's measured length when the run
+ *  knew one. Cheap on purpose (no hashing megabytes on a phone). A recovery
+ *  run assembles the take from its saved segments, which can be SHORTER than
+ *  the in-memory recording the first fallback sent (a tail that was never
+ *  saved) — a different size, so that answer is not replayed onto it. */
+export type TakeAudioFingerprint = { size: number; type: string; durationSeconds?: number }
 
 /** What a pending discard-transcript needs to finish after a reload — the
  *  discard's own session id and duration, not the take's (the gate may have
@@ -1135,11 +1155,20 @@ export async function stampTakeTranscript(
   response: unknown,
   /** C3: the unbound door answered (see `TakeMeta.transcript`). */
   fallback = false,
+  /** C3 fold: what that fallback sent — written with every fallback stamp. */
+  audio?: TakeAudioFingerprint,
 ): Promise<void> {
   await patchTakeMeta(
     takeId,
     {
-      transcript: { finalizedPath, locale, response, at: Date.now(), ...(fallback ? { fallback: true as const } : {}) },
+      transcript: {
+        finalizedPath,
+        locale,
+        response,
+        at: Date.now(),
+        ...(fallback ? { fallback: true as const } : {}),
+        ...(audio ? { audio } : {}),
+      },
     },
     // ⚖ C3: a fallback answer is written only while the take still has no
     // finalized key — or has exactly the key it was paid for (S34's adoption).
