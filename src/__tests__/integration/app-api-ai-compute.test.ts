@@ -90,7 +90,12 @@ const removeObj = jest.fn(async () => ({ error: null }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ storage: { from: () => ({ createSignedUrl, remove: removeObj }) } }) }))
 
 const customersGet = jest.fn(async (id: string) => { if (id !== 'cust-1') throw Object.assign(new Error('x'), { status: id === 'cust-boom' ? 500 : 404 }); return { id, name: 'Y', visit_count: 2, notes: null } })
-const fakeClient = { customers: { get: customersGet }, appointments: { get: jest.fn(async () => ({ notes: null })) } }
+// S46: the transcribe door reads the ROW the phone names beside the key.
+type RowFixture = { id: string; business_id: string; staff_id: string; store_id: string | null; audio_storage_path: string | null }
+const recordingsGet = jest.fn(async (_id: string): Promise<RowFixture> => {
+  throw Object.assign(new Error('nf'), { status: 404 })
+})
+const fakeClient = { customers: { get: customersGet }, appointments: { get: jest.fn(async () => ({ notes: null })) }, recordings: { get: recordingsGet } }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
 import { POST as transcribePOST } from '@/app/api/app/v1/ai/transcribe/route'
@@ -273,5 +278,66 @@ describe('brief GET — tenancy', () => {
   it('missing Bearer → 401', async () => {
     const res = await briefGET(new Request('https://s/x'), custRoute('cust-1'))
     expect(res.status).toBe(401)
+  })
+})
+
+// ── S46 closure 2: the row names its recorder ────────────────────────────────
+describe('POST ai/transcribe — the row names its recorder (S46)', () => {
+  const ROW = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'
+  /** The caller's own row (LOGIN id 'auth-user-1'), holding exactly OWN_PATH. */
+  const own = (over: Partial<RowFixture> = {}): RowFixture => ({
+    id: ROW, business_id: 'business-1', staff_id: 'auth-user-1', store_id: 'store-1', audio_storage_path: OWN_PATH, ...over,
+  })
+  const send = (body: Record<string, unknown>) => transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja', ...body }), noRoute)
+
+  it('own recording → 200, transcribed', async () => {
+    recordingsGet.mockResolvedValueOnce(own())
+    const res = await send({ recordingSessionId: ROW })
+    expect(res.status).toBe(200)
+    expect(recordingsGet).toHaveBeenCalledWith(ROW)
+    expect(runTranscription).toHaveBeenCalled()
+  })
+
+  it("another person's recording in the same store → 404 (the door's own refusal), nothing signed or paid", async () => {
+    recordingsGet.mockResolvedValueOnce(own({ staff_id: 'auth-user-colleague' }))
+    const res = await send({ recordingSessionId: ROW })
+    expect(res.status).toBe(404)
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    expect(runTranscription).not.toHaveBeenCalled()
+  })
+
+  it("…unless the caller holds the owner's hand (unrestricted owner)", async () => {
+    capabilities.current = new Set(['records.write', 'customers.view', 'business.manage', 'recordings.viewAll', 'stores.viewAll'])
+    recordingsGet.mockResolvedValueOnce(own({ staff_id: 'auth-user-colleague' }))
+    expect((await send({ recordingSessionId: ROW })).status).toBe(200)
+  })
+
+  it.each([
+    ['no recordingSessionId (every installed phone build)', {}],
+    ['a null recordingSessionId', { recordingSessionId: null }],
+  ])('no-row case — %s → TODAY’S answer, core never asked', async (_label, extra) => {
+    const res = await send(extra)
+    expect(res.status).toBe(200)
+    expect(recordingsGet).not.toHaveBeenCalled()
+  })
+
+  it('no-row case — a 404 row, or a row that does not hold this key → today’s answer', async () => {
+    expect((await send({ recordingSessionId: ROW })).status).toBe(200) // default fake = 404
+    recordingsGet.mockResolvedValueOnce(own({ staff_id: 'auth-user-colleague', audio_storage_path: null }))
+    expect((await send({ recordingSessionId: ROW })).status).toBe(200)
+  })
+
+  it('a row read that FAILS → 502, never a yes', async () => {
+    recordingsGet.mockRejectedValueOnce(Object.assign(new Error('down'), { status: 503 }))
+    const res = await send({ recordingSessionId: ROW })
+    expect(res.status).toBe(502)
+    expect(runTranscription).not.toHaveBeenCalled()
+  })
+
+  it('card id ≠ login id: the row carries the LOGIN id and so does the actor — the honest recorder passes', async () => {
+    // selfStaffId resolves from the roster to the LOGIN id 'auth-user-1'; no
+    // staff-card id enters the compare at all.
+    recordingsGet.mockResolvedValueOnce(own({ staff_id: 'auth-user-1' }))
+    expect((await send({ recordingSessionId: ROW })).status).toBe(200)
   })
 })

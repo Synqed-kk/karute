@@ -123,8 +123,11 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key, so the facade is simply handed that path — and it deletes
     // nothing when it is done, because the finalized object is evidence.
+    // S46: the take's own row rides beside the key (takeKeyHolder, server side).
+    const withRow = (path: string, row: string | null | undefined) =>
+      row ? { path, recordingSessionId: row } : { path }
     if (finalizedPath)
-      return { body: { path: finalizedPath }, path: finalizedPath, recordingSessionId: null }
+      return { body: withRow(finalizedPath, opts?.takeRow), path: finalizedPath, recordingSessionId: null }
 
     // The fallback, for a take the store never held (see the port's doc):
     // byte-for-byte the staging this arm always did.
@@ -200,7 +203,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // mint again — one small JSON call per mount, no upload, nothing released.
     if ('existingSize' in minted && minted.existingSize !== undefined) {
       if (minted.existingSize !== blob.size) throw new Error('staged copy mismatch')
-      return { body: { path: minted.path }, path: minted.path, recordingSessionId }
+      return { body: withRow(minted.path, recordingSessionId), path: minted.path, recordingSessionId }
     }
     if (!minted.url) throw new Error('Upload URL failed (no url)')
 
@@ -236,7 +239,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 
     // 3. Transcribe by PATH.
-    return { body: { path: minted.path }, path: minted.path, recordingSessionId }
+    return { body: withRow(minted.path, recordingSessionId), path: minted.path, recordingSessionId }
   },
   // ⚖ NULL, AND THE COHORT IS EMPTY BY CONSTRUCTION (PR4 fix round 7). The
   // backfill this answers exists for takes finalized by slice THREE's code and

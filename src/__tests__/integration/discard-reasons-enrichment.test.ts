@@ -165,7 +165,7 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 }))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
-  return { ...actual, getMyCapabilities: jest.fn(async () => new Set(['staff.manage'])) }
+  return { ...actual, getMyCapabilities: jest.fn(async () => new Set(['staff.manage', 'stores.viewAll'])) }
 })
 
 import { listDiscardReasons } from '@/actions/recording-discards'

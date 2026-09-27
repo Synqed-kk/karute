@@ -27,6 +27,9 @@ import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { RecordingJobEnqueueSchema } from '@/lib/app-api/record-schemas'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { takeKeyHolder } from '@/lib/recording/take-binding'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { isReturningCustomerServerSide } from '@/lib/karute/revisit-guard'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
 
@@ -101,6 +104,33 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     selfStaffId,
     ctx.identity.businessId,
   ).catch(() => selfStaffId)
+
+  // ⚖ S46: the web twin's rule — a row holding this key must be the caller's,
+  // on the LOGIN id (selfStaffId), never the card id (staffId); no row keeps
+  // today's answer.
+  const pairHeld = holdsOwnerKeys(ctx.identity.capabilities)
+  const holder = await takeKeyHolder(
+    async () => synqed,
+    parsed.data.audioPath,
+    parsed.data.recordingSessionId,
+    async () => ({
+      staffId: selfStaffId,
+      businessId: ctx.identity.businessId,
+      holdsOwnerKeys: pairHeld,
+      allowedStoreIds: pairHeld
+        ? await viewerAllowedStoreIds({
+            synqed,
+            authUserId: ctx.identity.authUserId,
+            capabilities: ctx.identity.capabilities,
+            selfStaffId,
+          })
+        : null,
+    }),
+  )
+  if (holder === 'unreadable') {
+    throw new AppApiError('upstream_unavailable', 'failed to enqueue the recording job')
+  }
+  if (holder === 'foreign') throw new AppApiError('not_found', 'recording not found in this business')
 
   // Store scope: the Bearer-path twin of the action's resolveStoreScope()
   // (cookie-only, unreachable here). No `store-id` header → the same

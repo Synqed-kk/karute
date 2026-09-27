@@ -268,6 +268,8 @@ export const TranscribeSchema = z
   .object({
     path: z.string().max(MAX_STORAGE_PATH_CHARS),
     locale: z.string().max(MAX_LOCALE_CHARS).optional(),
+    // S46: the row holding `path` (takeKeyHolder); absent = today's answer.
+    recordingSessionId: z.string().max(MAX_ID_CHARS).nullish(),
   })
   .strict()
 

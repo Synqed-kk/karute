@@ -26,7 +26,7 @@ jest.mock('@synqed-kk/client', () => ({
   SynqedError: class extends Error {},
 }))
 
-const mockCapabilities = jest.fn(async () => new Set(['staff.manage']))
+const mockCapabilities = jest.fn(async () => new Set(['staff.manage', 'stores.viewAll']))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
@@ -92,6 +92,8 @@ type LedgerPage = {
     created_at: string
     discarded_by: string
     reason: string
+    /** Core's ledger rows carry it; the words door's discarded check reads it (S46). */
+    source?: string
   }[]
   total: number
   page: number
@@ -106,6 +108,7 @@ const ONE_ROW_PAGE: LedgerPage = {
       created_at: CREATED_AT,
       discarded_by: 'card-A',
       reason: 'お客様が席を外したため録り直します',
+      source: 'STAFF',
     },
   ],
   total: 1,
@@ -191,7 +194,7 @@ const upstream = (status: number) => Object.assign(new Error(`core ${status}`), 
 beforeEach(() => {
   jest.clearAllMocks()
   listPage = ONE_ROW_PAGE
-  mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+  mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
 })
 
 describe('GET /api/app/v1/recordings/discards', () => {
@@ -434,5 +437,51 @@ describe('GET /api/app/v1/recordings/discards/transcript', () => {
       expect(res.status).toBe(200)
     })
     expect(lines).toHaveLength(0)
+  })
+})
+
+// ── S46 closure 3 on the phone doors: the same store rule, same change ───────
+describe('GET recordings/discards (+ /transcript) — a viewer WITHOUT all-store reach (S46)', () => {
+  beforeEach(() => {
+    // A custom set: staff management, no all-store reach. Her assignment read
+    // is not available in this fake core, so her reach fails CLOSED to [].
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+  })
+
+  it('a stamped store outside her reach → the words door refuses (403), no word is read', async () => {
+    recordingsGet.mockResolvedValueOnce({ duration_seconds: 42, store_id: 'store-b' } as never)
+    const res = await TRANSCRIPT(transcriptReq(), noParams)
+    expect(res.status).toBe(403)
+    expect(listSegments).not.toHaveBeenCalled()
+  })
+
+  it('…and her LIST judges that same row by its own row read — hidden, exactly as the door refuses it (fix round 3)', async () => {
+    recordingsGet.mockResolvedValueOnce({ duration_seconds: 42, store_id: 'store-b' } as never)
+    const res = await LIST(listReq(), noParams)
+    expect(res.status).toBe(200)
+    expect((await res.json()).rows).toEqual([])
+    expect(recordingsGet).toHaveBeenCalledWith('rs-1')
+  })
+
+  it('…a store-less row reads as open to her, in the list as at the door', async () => {
+    recordingsGet.mockResolvedValueOnce({ duration_seconds: 42, store_id: null } as never)
+    const res = await LIST(listReq(), noParams)
+    expect(res.status).toBe(200)
+    expect((await res.json()).rows.map((r: { recordingSessionId: string }) => r.recordingSessionId)).toEqual(['rs-1'])
+  })
+
+  it('…and a row read that FAILS makes her list a 502 — never a partial or empty list', async () => {
+    recordingsGet.mockRejectedValueOnce(upstream(503))
+    const res = await LIST(listReq(), noParams)
+    expect(res.status).toBe(502)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
+  })
+
+  it('an all-store viewer (the default owner / manager sets) is unchanged: the same row reads in full', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
+    recordingsGet.mockResolvedValueOnce({ duration_seconds: 42, store_id: 'store-b' } as never)
+    const res = await TRANSCRIPT(transcriptReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(listSegments).toHaveBeenCalledWith('rs-1')
   })
 })

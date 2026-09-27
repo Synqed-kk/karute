@@ -2356,3 +2356,47 @@ describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => 
     })
   })
 })
+
+// ── S46 closure 1: the READ-OUT withholds a recording's storage-key ingredients
+describe('listAuditLog — the web read-out withholds take id / file type / key (S46)', () => {
+  const STORED_DETAIL = {
+    recording_session_id: 'sess-fixture',
+    take_id: '11111111-2222-4333-8444-555555555555',
+    row_take_id: '66666666-7777-4888-8999-aaaaaaaaaaaa',
+    ext: 'webm',
+    audio_path: 'app_biz-1_11111111-2222-4333-8444-555555555555.webm',
+    reason: 'server',
+    bytes: 2048,
+  }
+  const stored = () =>
+    coreEvent({ id: 'r1', category: 'recording', action: 'recording.capture_finalized', detail: { ...STORED_DETAIL } })
+
+  it('the client payload carries none of the four; every other detail field is kept', async () => {
+    const row = stored()
+    list.mockImplementation(async () => ({ events: [row], total: 1, page: 1, page_size: 100 }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0]!.detail).toEqual({ recording_session_id: 'sess-fixture', reason: 'server', bytes: 2048 })
+    const wire = JSON.stringify(res)
+    for (const k of ['take_id', 'row_take_id', '"ext"', 'audio_path', STORED_DETAIL.take_id, 'webm']) {
+      expect(wire).not.toContain(k)
+    }
+    // The STORED row (core's own answer) is untouched — the redaction is a copy.
+    expect(row.detail).toEqual(STORED_DETAIL)
+  })
+
+  it('the shared twin still hands its server callers the whole stored detail — only the read-out withholds', async () => {
+    list.mockImplementation(async () => ({ events: [stored()], total: 1, page: 1, page_size: 100 }))
+    const twin = await listAuditLogWithClient(newSynqedClient('biz-1'), { staffId: 'staff-1', businessId: 'biz-1', source: 'web' }, {})
+    if (!twin.ok) throw new Error('expected ok')
+    expect(twin.events[0]!.detail).toEqual(STORED_DETAIL)
+  })
+
+  it('rows without any of the four pass through as the same object', async () => {
+    const plain = coreEvent({ id: 'p1', detail: { customer_id: 'cus-1' } })
+    list.mockImplementation(async () => ({ events: [plain], total: 1, page: 1, page_size: 100 }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0]!.detail).toEqual({ customer_id: 'cus-1' })
+  })
+})

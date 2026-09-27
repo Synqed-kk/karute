@@ -223,6 +223,10 @@ export async function runAIPipeline(
       ctx.recordingSessionId
     if (!finalizedPath) attachOutcome = known ? 'attach_failed' : 'no_session'
   }
+  // S46: the row that reserved the finalized key rides beside it (re-read: the
+  // attach may have just stamped it). None → the door keeps today's answer.
+  const takeRow =
+    takeId && finalizedPath ? ((await readTakeSecureMeta(takeId))?.recordingSessionId ?? null) : null
   // ⚖ THE SAME OBJECT IS NEVER PAID FOR TWICE (recording hole PR-2). The
   // transcribe door cannot tell a repeat (a take key carries no session id, and
   // core has no by-path read), so the device that holds the take remembers: a
@@ -247,7 +251,9 @@ export async function runAIPipeline(
             }
           : attachOutcome
             ? { attachOutcome }
-            : undefined,
+            : takeRow
+              ? { takeRow }
+              : undefined,
       )
     if (minted) await adoptMintedSession(takeId, minted, mintedPath, ctx)
 

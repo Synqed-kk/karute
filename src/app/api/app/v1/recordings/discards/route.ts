@@ -32,6 +32,8 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { listDiscardReasonsWithClient } from '@/actions/recording-discards'
+import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { DiscardReasonsListDTO } from '@/lib/app-api/discard-reasons-dto'
 
 export const runtime = 'nodejs'
@@ -42,9 +44,21 @@ export const GET = facadeHandler('recordings.discards.list', async (ctx) => {
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
 
+  // S46: all-store access = every store, straight from the capability; anyone
+  // else the Bearer act scope, failing CLOSED to [] (web: discardViewerReach).
+  const caps = ctx.identity.capabilities
+  const allowedStoreIds = caps.has('stores.viewAll')
+    ? null
+    : await viewerAllowedStoreIds({
+        synqed,
+        authUserId: ctx.identity.authUserId,
+        capabilities: caps,
+        selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId).catch(() => null),
+      })
+
   let result
   try {
-    result = await listDiscardReasonsWithClient(synqed, businessId)
+    result = await listDiscardReasonsWithClient(synqed, businessId, { allowedStoreIds })
   } catch (err) {
     // The twin THROWS on a failed read rather than answering an empty ledger,
     // so a transient core failure surfaces as 502 upstream_unavailable — the

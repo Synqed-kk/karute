@@ -54,7 +54,7 @@ const MINTED = {
 const mintRecordingUploadUrl = jest.fn(
   async (_input?: MintInput): Promise<MintReply> => MINTED,
 )
-const mintRecordingReadUrl = jest.fn(async (p: string) => ({
+const mintRecordingReadUrl = jest.fn(async (p: string, _row?: string | null) => ({
   url: `https://proj.supabase.co/storage/v1/object/sign/recordings/${p}?token=read`,
 }))
 /** The backfill door (PR4 fix round 7) — a pure composition on the server, so
@@ -89,7 +89,7 @@ const mintRecordingSegmentUrls = jest.fn(
 )
 jest.mock('@/actions/recording-upload', () => ({
   mintRecordingUploadUrl: (i?: MintInput) => mintRecordingUploadUrl(i),
-  mintRecordingReadUrl: (p: string) => mintRecordingReadUrl(p),
+  mintRecordingReadUrl: (p: string, row?: string | null) => mintRecordingReadUrl(p, row),
   recordingFinalizedKey: (i: { takeId: string; mimeType: string }) => recordingFinalizedKey(i),
   mintRecordingSegmentUrls: (i: MintInput & { seqs?: number[] | null }) =>
     mintRecordingSegmentUrls(i),
@@ -152,10 +152,22 @@ describe('webRecordingPort.prepareTranscription — the finalized take', () => {
     )
     expect(fetchMock).not.toHaveBeenCalled()
     expect(mintRecordingUploadUrl).not.toHaveBeenCalled()
-    expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_take-9.webm')
+    expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_take-9.webm', null)
     expect(body).toEqual({
       audioUrl:
         'https://proj.supabase.co/storage/v1/object/sign/recordings/app_biz-1_take-9.webm?token=read',
+    })
+  })
+
+  it("S46: the take's own row rides beside the finalized key — to the read-url door AND the transcribe body", async () => {
+    const { body } = await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm', {
+      takeRow: 'row-own',
+    })
+    expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_take-9.webm', 'row-own')
+    expect(body).toEqual({
+      audioUrl:
+        'https://proj.supabase.co/storage/v1/object/sign/recordings/app_biz-1_take-9.webm?token=read',
+      recordingSessionId: 'row-own',
     })
   })
 
@@ -193,10 +205,12 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
 
   it('hands the transcribe leg the SERVER-minted read url for the path it just uploaded', async () => {
     const { body, path } = await webRecordingPort.prepareTranscription(blob(), null)
-    expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_uuid-1.webm')
+    // S46: the row the fallback's mint made rides to BOTH doors.
+    expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_uuid-1.webm', 'rs-1')
     expect(body).toEqual({
       audioUrl:
         'https://proj.supabase.co/storage/v1/object/sign/recordings/app_biz-1_uuid-1.webm?token=read',
+      recordingSessionId: 'rs-1',
     })
     // …and it names the STAGED key it just wrote (PR4 fix round 2), which is
     // what the discard's word-collection reads its words from.

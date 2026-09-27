@@ -527,3 +527,19 @@ describe('the status map — which answers settle the take and which retry it', 
     await expect(persistDiscardTranscript(REVIEW)).resolves.toEqual({ error: 'failed' })
   })
 })
+
+// ── S46 closure 2: the phone's transcribe body carries the take's own row ─────
+describe('viteRecordingPort.prepareTranscription — the row rides beside the finalized key (S46)', () => {
+  const KEY = 'app_business-1_11111111-2222-4333-8444-555555555555.webm'
+
+  it("a finalized key + the take's own row → { path, recordingSessionId }, nothing uploaded", async () => {
+    const { body, path } = await viteRecordingPort.prepareTranscription(new Blob(['a']), KEY, { takeRow: 'row-own' })
+    expect(body).toEqual({ path: KEY, recordingSessionId: 'row-own' })
+    expect(path).toBe(KEY)
+  })
+
+  it('no row known → the body is byte-identical to every installed build: { path } alone', async () => {
+    const { body } = await viteRecordingPort.prepareTranscription(new Blob(['a']), KEY)
+    expect(body).toEqual({ path: KEY })
+  })
+})

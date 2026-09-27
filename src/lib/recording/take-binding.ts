@@ -15,7 +15,7 @@
 // argument, so as client-invokable actions these would take any tenant's word
 // for who the caller is.
 
-import type { Recording } from '@synqed-kk/client'
+import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { ownerHandReach } from '@/lib/auth/recording-acl'
 
@@ -219,4 +219,43 @@ export function assertRecorderOwnsRow(
   })
     ? null
     : { error: 'forbidden' }
+}
+
+/** A core row id — it rides into a core URL path (recordings.get), so anything
+ *  that is not exactly a uuid is never sent there. */
+const ROW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Who a take key belongs to, as far as the row the caller named can say. */
+export type TakeKeyHolder = 'own' | 'foreign' | 'no_row' | 'unreadable'
+
+/**
+ * WHOSE TAKE IS THIS KEY? (S46) — for the four doors that take a CLIENT-NAMED
+ * key (read-url, both transcribes, both enqueues). Core has no lookup by key,
+ * so the client names the ROW; it counts only if its pointer IS this key (a key
+ * sits on one row, never re-pointed — planReservation), then
+ * assertRecorderOwnsRow decides: own session, or the owner's hand in reach.
+ * `actor.staffId` = the LOGIN id rows carry, never a job's staff CARD id.
+ * `no_row` (no/non-uuid id, 404, a row not holding the key — the unbound
+ * fallback, every installed phone build) keeps today's answer at every door.
+ * Lazy client + actor; a failed read is `unreadable`, never yes.
+ */
+export async function takeKeyHolder(
+  synqed: () => Promise<Pick<SynqedClient, 'recordings'>>,
+  key: string,
+  recordingSessionId: unknown,
+  actor: () => Promise<Parameters<typeof assertRecorderOwnsRow>[1]>,
+): Promise<TakeKeyHolder> {
+  if (typeof recordingSessionId !== 'string' || !ROW_ID.test(recordingSessionId)) return 'no_row'
+  let row: Recording
+  try {
+    row = await (await synqed()).recordings.get(recordingSessionId)
+  } catch (err) {
+    return statusOf(err) === 404 ? 'no_row' : 'unreadable'
+  }
+  if (row.audio_storage_path !== key) return 'no_row'
+  try {
+    return assertRecorderOwnsRow(row, await actor()) ? 'foreign' : 'own'
+  } catch {
+    return 'unreadable'
+  }
 }

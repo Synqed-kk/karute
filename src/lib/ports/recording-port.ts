@@ -183,6 +183,9 @@ export interface RecordingPipelinePort {
       /** The take's length in whole seconds, sent with 'no_session' only
        *  (S35 C1): what that row is born carrying — see takeLengthSeconds. */
       durationSeconds?: number
+      /** S46: the take's OWN row (the one that reserved `finalizedPath`), sent
+       *  beside the key for takeKeyHolder. */
+      takeRow?: string | null
     },
   ): Promise<{ body: Record<string, unknown>; path: string; recordingSessionId: string | null }>
   /**
@@ -535,10 +538,16 @@ export const webRecordingPort: RecordingPipelinePort = {
     // audio URL a staged copy can honestly carry through this door.
     if (opts?.stagedFor) return { body: {}, path, recordingSessionId }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
-    // guard); mint it server-side from the path we just proved we own.
-    const read = await mintRecordingReadUrl(path)
+    // guard); mint it server-side from the path we just proved we own. S46: the
+    // key's row (the take's own, or the fallback mint's) rides to both doors.
+    const row = (finalizedPath ? opts?.takeRow : recordingSessionId) ?? null
+    const read = await mintRecordingReadUrl(path, row)
     if ('error' in read) throw new Error('could not mint a read URL')
-    return { body: { audioUrl: read.url }, path, recordingSessionId }
+    return {
+      body: row ? { audioUrl: read.url, recordingSessionId: row } : { audioUrl: read.url },
+      path,
+      recordingSessionId,
+    }
   },
   async finalizedKey(takeId, mimeType) {
     const { recordingFinalizedKey } = await uploadActions()

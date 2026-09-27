@@ -26,6 +26,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { describeUnknownThrow } from '@/lib/app-api/errors'
 import { composeTakeKey, isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { takeKeyHolder } from '@/lib/recording/take-binding'
 import {
   mintSegmentUploadUrls,
   mintTakeUploadUrl,
@@ -262,9 +263,14 @@ export async function recordingFinalizedKey(input: {
  * foreign key are TERMINAL and answer 'forbidden' on their own (a retry cannot
  * make a foreign path yours); a THROW from the gate or the identity read, and a
  * storage failure, are infrastructure and answer 'upstream'.
+ *
+ * ⚖ S46: a `recordingSessionId` holding this key names its recorder
+ * (takeKeyHolder) — a colleague's take is 'forbidden' before anything is signed;
+ * no row (the unbound fallback, an older tab) keeps the tenant-only answer.
  */
 export async function mintRecordingReadUrl(
   path: string,
+  recordingSessionId?: string | null,
 ): Promise<{ url: string } | { error: 'forbidden' | 'upstream' }> {
   try {
     // Mirrors mintRecordingUploadUrl above (D-S29-1): a denied capability is
@@ -273,6 +279,22 @@ export async function mintRecordingReadUrl(
     if (!(await can('records.write'))) return { error: 'forbidden' }
     const businessId = await getBusinessId()
     if (!isOwnRecordingKey(path, businessId)) return { error: 'forbidden' }
+    // The actor exactly as mintRecordingUploadUrl builds it.
+    const holder = await takeKeyHolder(
+      async () => newSynqedClient(businessId, await getCurrentAccessToken()),
+      path,
+      recordingSessionId,
+      async () => {
+        const [staffId, capabilities] = await Promise.all([getCurrentUserStaffId(), getMyCapabilities()])
+        const pairHeld = holdsOwnerKeys(capabilities)
+        const allowedStoreIds = pairHeld
+          ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
+          : null
+        return { staffId, businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
+      },
+    )
+    if (holder === 'foreign') return { error: 'forbidden' }
+    if (holder === 'unreadable') return { error: 'upstream' }
     const supabase = createServiceClient()
     const { data, error } = await supabase.storage
       .from('recordings')

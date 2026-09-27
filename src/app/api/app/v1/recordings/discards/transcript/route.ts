@@ -70,6 +70,7 @@ import {
 import { DiscardTranscriptDTO } from '@/lib/app-api/discard-reasons-dto'
 import { DiscardTranscriptWriteSchema } from '@/lib/app-api/record-schemas'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 
 export const runtime = 'nodejs'
 
@@ -83,13 +84,27 @@ export const GET = facadeHandler('recordings.discards.transcript', async (ctx) =
 
   const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
 
+  // S46: all-store access = every store, straight from the capability; anyone
+  // else the Bearer act scope, failing CLOSED to [] (web: discardViewerReach).
+  const caps = ctx.identity.capabilities
+  const allowedStoreIds = caps.has('stores.viewAll')
+    ? null
+    : await viewerAllowedStoreIds({
+        synqed,
+        authUserId: ctx.identity.authUserId,
+        capabilities: caps,
+        selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId).catch(() => null),
+      })
+
   let result
   try {
-    result = await getDiscardTranscriptWithClient(synqed, sessionId)
+    result = await getDiscardTranscriptWithClient(synqed, sessionId, { allowedStoreIds })
   } catch (err) {
     if (err instanceof AppApiError) throw err
     throw new AppApiError('upstream_unavailable', 'the discard transcript is unavailable')
   }
+  // S46: not discarded, or outside this viewer's stores (existing message).
+  if (result === 'forbidden') throw new AppApiError('forbidden', 'the discard transcript is unavailable')
 
   // Parsed at the door, same reason (and same placement outside the catch) as
   // the list route beside it.

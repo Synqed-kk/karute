@@ -324,7 +324,12 @@ describe('actor-bearer forwarding — the door contract (packet hotfix 2)', () =
   })
 
   it("(g) facade discards/transcript route GET: the core reads carry the request's OWN bearer", async () => {
+    // A manager: staff.manage AND the preset's all-store reach (S46's store
+    // check leaves it untouched). The one-answer fake serves every read, so the
+    // row also carries the ledger's STAFF discard the words door now checks.
     capabilities.current.add('staff.manage')
+    capabilities.current.add('stores.viewAll')
+    setRow({ ...ROW, audio_storage_path: KEY, events: [{ recording_session_id: SESSION, source: 'STAFF', reason: '録り直し' }] })
     const token = bearer()
     const req = new Request(`https://s/x?sessionId=${SESSION}`, {
       method: 'GET',
