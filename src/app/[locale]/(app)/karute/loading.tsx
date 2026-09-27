@@ -11,7 +11,7 @@ export default function KaruteLoading() {
       </div>
 
       {/* Search bar */}
-      <div className="h-11 rounded-[10px] bg-muted" />
+      <div data-testid="list-search-skeleton" className="h-11 rounded-full bg-muted" />
 
       {/* 4 status filter chips — matches the live list (レビュー要
        *  was dropped in PR #63 because no data path assigned it).

@@ -6,7 +6,9 @@
  * カルテ tab's field lives inside KaruteRecordListView; the 顧客 tab's is
  * CustomerSearchInput. One look: each field's container carries rounded-full,
  * never the app's old 10px, and the mock's 14px sides (`padding:0 14px` →
- * px-3.5), never the old px-3.
+ * px-3.5), never the old px-3. The pre-hydration skeletons (the two
+ * routes' loading.tsx) draw the same pill, so the bar does not change shape
+ * when the real list mounts.
  */
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
@@ -36,6 +38,8 @@ jest.mock('@/actions/karute', () => ({
 import { render, screen } from '@testing-library/react'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
 import { CustomerSearchInput } from '@/components/customers/redesign/list/CustomerSearchInput'
+import KaruteLoading from '@/app/[locale]/(app)/karute/loading'
+import CustomersLoading from '@/app/[locale]/(app)/customers/loading'
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -71,5 +75,19 @@ describe('list search bar — the mock pill', () => {
     expect(field).not.toHaveClass('rounded-[10px]')
     expect(field).toHaveClass('px-3.5')
     expect(field).not.toHaveClass('px-3')
+  })
+
+  it('カルテ loading skeleton: the search placeholder is rounded-full, not rounded-[10px]', () => {
+    render(<KaruteLoading />)
+    const placeholder = screen.getByTestId('list-search-skeleton')
+    expect(placeholder).toHaveClass('rounded-full')
+    expect(placeholder).not.toHaveClass('rounded-[10px]')
+  })
+
+  it('顧客 loading skeleton: the search placeholder is rounded-full, not rounded-[10px]', () => {
+    render(<CustomersLoading />)
+    const placeholder = screen.getByTestId('list-search-skeleton')
+    expect(placeholder).toHaveClass('rounded-full')
+    expect(placeholder).not.toHaveClass('rounded-[10px]')
   })
 })

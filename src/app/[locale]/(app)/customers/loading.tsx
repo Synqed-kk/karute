@@ -12,7 +12,7 @@ export default function CustomersLoading() {
 
       {/* Filter / search bar */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="h-9 flex-1 rounded-[10px] bg-muted md:max-w-sm" />
+        <div data-testid="list-search-skeleton" className="h-9 flex-1 rounded-full bg-muted md:max-w-sm" />
         <div className="h-8 w-20 rounded-full bg-muted" />
       </div>
 
