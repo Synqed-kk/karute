@@ -2089,6 +2089,15 @@ describe('mintRecordingReadUrl — the row names its recorder (S46)', () => {
     expect(get).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['a STAGED copy (stg/, row-less by design)', `stg/biz-1_${SESSION_UUID}_${UUID}.webm`],
+    ['a RESCUE copy (rsc/, the assembler’s side key)', `rsc/app_biz-1_${UUID}.webm`],
+  ])('no-row case — %s → TODAY’S answer: refused by the take-only fence, core never asked', async (_label, key) => {
+    await expect(mintRecordingReadUrl(key, SESSION)).resolves.toStrictEqual({ error: 'forbidden' })
+    expect(get).not.toHaveBeenCalled()
+    expect(createSignedUrl).not.toHaveBeenCalled()
+  })
+
   it('no-row case — core does not know the row (404) → today’s answer', async () => {
     get.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
     await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toHaveProperty('url')
