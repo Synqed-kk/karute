@@ -27,10 +27,18 @@ jest.mock('@/lib/karute/take-store', () => ({
     locale: string,
     response: unknown,
     fallback?: boolean,
+    audio?: { size: number; type: string; durationSeconds?: number },
   ) => {
     const meta = takes.get(takeId)
     if (meta)
-      meta.transcript = { finalizedPath, locale, response, at: 1, ...(fallback ? { fallback: true } : {}) }
+      meta.transcript = {
+        finalizedPath,
+        locale,
+        response,
+        at: 1,
+        ...(fallback ? { fallback: true } : {}),
+        ...(audio ? { audio } : {}),
+      }
   },
 }))
 

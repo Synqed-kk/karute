@@ -14,6 +14,11 @@
  * The key is the take's CURRENT one, re-read at the replay (C3 fold, Greptile
  * 1+2): a take finalized underneath the run is never handed the fallback's
  * answer, and a late fallback stamp never overwrites the finalized key's.
+ * And with no finalized key, a fallback answer replays only onto the SAME audio
+ * (C3 fold, Greptile P1): the stamp and the slot carry the fingerprint of what
+ * the fallback sent (size + type, + length when both sides know one); a
+ * recovery run's shorter blob is asked for, and a stamp with no fingerprint
+ * never replays.
  *
  * Real ai-pipeline + secure-take + global-pipeline; the take store, the port,
  * the recorder and the network are faked. The fake port's unbound mint models
@@ -26,7 +31,8 @@ jest.mock('@/lib/global-recorder', () => ({
   globalRecorder: { awaitTakeSecured: async () => {} },
 }))
 
-type Stamp = { finalizedPath: string; locale: string; response: unknown; at: number; fallback?: true }
+type Audio = { size: number; type: string; durationSeconds?: number }
+type Stamp = { finalizedPath: string; locale: string; response: unknown; at: number; fallback?: true; audio?: Audio }
 type Meta = {
   recordingSessionId?: string
   mimeType?: string
@@ -40,16 +46,24 @@ type Meta = {
 const store = { meta: null as Meta | null, blob: null as Blob | null }
 let onTranscriptRead: (() => void) | null = null
 // The shape of take-store's stampTakeTranscript: whole body + path + locale,
-// `fallback` only when the unbound door answered. A missing take is a no-op,
+// `fallback` only when the unbound door answered, `audio` when it was given
+// (every fallback stamp — take-durability.test.ts pins the real one). A missing take is a no-op,
 // and a fallback answer never lands on a take finalized at ANOTHER key (the
 // store's own guard — take-durability.test.ts pins the real one).
 const stampTakeTranscript = jest.fn(
-  async (_id: string, path: string, locale: string, response: unknown, fallback?: boolean) => {
+  async (_id: string, path: string, locale: string, response: unknown, fallback?: boolean, audio?: Audio) => {
     if (!store.meta) return
     if (fallback && store.meta.finalizedPath && store.meta.finalizedPath !== path) return
     store.meta = {
       ...store.meta,
-      transcript: { finalizedPath: path, locale, response, at: 1, ...(fallback ? { fallback: true as const } : {}) },
+      transcript: {
+        finalizedPath: path,
+        locale,
+        response,
+        at: 1,
+        ...(fallback ? { fallback: true as const } : {}),
+        ...(audio ? { audio } : {}),
+      },
     }
   },
 )
@@ -64,8 +78,8 @@ jest.mock('@/lib/karute/take-store', () => ({
     underneath?.()
     return store.meta?.transcript ?? null
   },
-  stampTakeTranscript: (id: string, path: string, locale: string, response: unknown, fallback?: boolean) =>
-    stampTakeTranscript(id, path, locale, response, fallback),
+  stampTakeTranscript: (id: string, path: string, locale: string, response: unknown, fallback?: boolean, audio?: Audio) =>
+    stampTakeTranscript(id, path, locale, response, fallback, audio),
   isStoppedTake: () => false,
   markTakeFinalized: async (_id: string, path: string) => {
     if (store.meta) store.meta = { ...store.meta, finalizedAt: 1, finalizedPath: path }
@@ -166,6 +180,14 @@ import { globalPipeline } from '@/lib/global-pipeline'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 const memory = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
+/** A recovery's audio, assembled from the take's saved segments: the tail was never saved. */
+const recovered = new Blob(['in-memory: every chunk'], { type: 'audio/webm' })
+/** What the pipeline fingerprints: the blob's size + type, + the run's length when it knows one. */
+const fp = (blob: Blob, durationSeconds?: number): Audio => ({
+  size: blob.size,
+  type: blob.type,
+  ...(durationSeconds === undefined ? {} : { durationSeconds }),
+})
 const transcribePosts = () => posts.filter((u) => u.endsWith('/transcribe')).length
 const direct = (locale = 'ja', ctx: PipelineContext = {}, takeId: string | null = TAKE) =>
   runAIPipeline(memory, takeId, locale, () => {}, { durationSeconds: 42, ...ctx })
@@ -325,7 +347,7 @@ describe('⚖ C3 fold — Greptile 1+2: a take finalized underneath the run', ()
 
   it('(g1) …the chain’s slot is not replayed onto a take finalized underneath either', async () => {
     takeWhoseAttachFails(1)
-    const paidFallback = { takeId: TAKE, locale: 'ja', response: { transcript: 'slot-answer' } }
+    const paidFallback = { takeId: TAKE, locale: 'ja', response: { transcript: 'slot-answer' }, audio: fp(memory, 42) }
     onTranscriptRead = finalizeUnderneath(TAKE_KEY)
     const result = await direct('ja', { paidFallback })
     expect(transcribePosts()).toBe(1)
@@ -356,7 +378,7 @@ describe('⚖ C3 fold — Greptile 1+2: a take finalized underneath the run', ()
   it('(g3) a take-less run has no take to re-read: its slot still replays with ZERO POSTs, whatever the store holds', async () => {
     // The fake store answers every id; a guard that read a take for a take-less run would see F here.
     store.meta = { recordingSessionId: SESSION, mimeType: 'audio/webm', finalizedAt: 1, finalizedPath: TAKE_KEY, startedAt: 0, updatedAt: 1 }
-    const paidFallback = { takeId: null, locale: 'ja', response: { transcript: 'remembered' } }
+    const paidFallback = { takeId: null, locale: 'ja', response: { transcript: 'remembered' }, audio: fp(memory, 42) }
     const result = await direct('ja', { paidFallback }, null)
     expect(result.transcript).toBe('remembered')
     expect(transcribePosts()).toBe(0)
@@ -373,6 +395,86 @@ describe('⚖ C3 fold — Greptile 1+2: a take finalized underneath the run', ()
     expect(result.transcript).toBe('answer-1')
     expect(transcribePosts()).toBe(1)
     expect(prepareTranscription).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('⚖ C3 fold — Greptile P1: a fallback answer replays only onto the audio it was paid for', () => {
+  const recovery = (blob: Blob, ctx: PipelineContext = {}, takeId: string | null = TAKE) =>
+    runAIPipeline(blob, takeId, 'ja', () => {}, { durationSeconds: 42, ...ctx })
+
+  it('(f1) the take’s tail was never saved: a RECOVERY run’s shorter blob is asked for once, and its answer is stamped with its own fingerprint', async () => {
+    expect(recovered.size).toBeLessThan(memory.size)
+    expect(recovered.type).toBe(memory.type)
+    takeWhoseAttachFails(2)
+    extractRefuses = true
+    expect(await outcome(direct())).toBeInstanceOf(Error) // paid: the fallback sent the in-memory recording
+    expect(store.meta?.transcript).toMatchObject({ finalizedPath: unbound(1), fallback: true, audio: fp(memory, 42) })
+    extractRefuses = false
+    const result = await recovery(recovered) // same take, same locale, same length — shorter audio
+    expect(transcribePosts()).toBe(2)
+    expect(result.transcript).toBe('answer-2')
+    expect(prepareTranscription.mock.calls.map(([blob, path, opts]) => [blob, path, opts])).toEqual([
+      [memory, null, { attachOutcome: 'attach_failed' }],
+      [recovered, null, { attachOutcome: 'attach_failed' }],
+    ])
+    expect(store.meta?.transcript).toMatchObject({
+      finalizedPath: unbound(2),
+      locale: 'ja',
+      response: { transcript: 'answer-2' },
+      fallback: true,
+      audio: fp(recovered, 42),
+    })
+  })
+
+  it('(f2) the same audio in a NEW blob (a reload) → replayed, ZERO POSTs', async () => {
+    takeWhoseAttachFails(2)
+    extractRefuses = true
+    expect(await outcome(direct())).toBeInstanceOf(Error)
+    extractRefuses = false
+    posts.length = 0
+    const same = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
+    const result = await recovery(same)
+    expect(result.transcript).toBe('answer-1')
+    expect(posts.filter((u) => u.endsWith('/transcribe'))).toHaveLength(0)
+    expect(prepareTranscription).toHaveBeenCalledTimes(1)
+  })
+
+  it('(f2′) the length counts only when both sides know one: 43 s ≠ 42 s is asked; an unknown length on the retry replays', async () => {
+    takeWhoseAttachFails(3)
+    extractRefuses = true
+    expect(await outcome(direct())).toBeInstanceOf(Error) // paid at 42 s
+    expect(await outcome(recovery(memory, { durationSeconds: undefined }))).toBeInstanceOf(Error) // unknown → replayed
+    expect(transcribePosts()).toBe(1)
+    extractRefuses = false
+    const result = await recovery(memory, { durationSeconds: 43 }) // both known, different → asked
+    expect(transcribePosts()).toBe(2)
+    expect(result.transcript).toBe('answer-2')
+  })
+
+  it('(f3) the chain’s slot never replays onto a different-size blob (take-less); the new answer goes to the chain with its own fingerprint', async () => {
+    const paidFallback = { takeId: null, locale: 'ja', response: { transcript: 'paid-for-memory' }, audio: fp(memory, 42) }
+    const onFallbackPaid = jest.fn()
+    const result = await recovery(recovered, { paidFallback, onFallbackPaid }, null)
+    expect(result.transcript).toBe('answer-1')
+    expect(transcribePosts()).toBe(1)
+    expect(onFallbackPaid).toHaveBeenCalledWith({
+      takeId: null,
+      locale: 'ja',
+      response: { transcript: 'answer-1' },
+      audio: fp(recovered, 42),
+    })
+  })
+
+  it('(f4) a fallback stamp with NO fingerprint (legacy) never replays: the door is asked once and the new stamp carries one', async () => {
+    takeWhoseAttachFails(1)
+    store.meta = {
+      ...store.meta!,
+      transcript: { finalizedPath: unbound(7), locale: 'ja', response: { transcript: 'legacy' }, at: 1, fallback: true },
+    }
+    const result = await direct()
+    expect(result.transcript).toBe('answer-1')
+    expect(transcribePosts()).toBe(1)
+    expect(store.meta?.transcript).toMatchObject({ finalizedPath: unbound(1), response: { transcript: 'answer-1' }, audio: fp(memory, 42) })
   })
 })
 
@@ -399,7 +501,7 @@ describe('⚖ C3 — a take-less run chain keeps its paid answer on globalPipeli
   })
 
   it('the slot replays in ja and asks again in en (a bare runAIPipeline call carries no chain and asks)', async () => {
-    const paidFallback = { takeId: null, locale: 'ja', response: { transcript: 'remembered' } }
+    const paidFallback = { takeId: null, locale: 'ja', response: { transcript: 'remembered' }, audio: fp(memory, 42) }
     const ja = await direct('ja', { paidFallback }, null)
     expect(ja.transcript).toBe('remembered')
     expect(transcribePosts()).toBe(0)
@@ -411,7 +513,7 @@ describe('⚖ C3 — a take-less run chain keeps its paid answer on globalPipeli
 
   it('(own m11) a slot paid for a different take never replays onto this one', async () => {
     takeWhoseAttachFails(1)
-    const paidFallback = { takeId: 'another-take', locale: 'ja', response: { transcript: 'not-mine' } }
+    const paidFallback = { takeId: 'another-take', locale: 'ja', response: { transcript: 'not-mine' }, audio: fp(memory, 42) }
     const result = await direct('ja', { paidFallback })
     expect(result.transcript).toBe('answer-1')
     expect(transcribePosts()).toBe(1)

@@ -968,6 +968,21 @@ describe('stampTakeTranscript — a fallback answer never overwrites a finalized
     await stampTakeTranscript(takeId, X, 'ja', { transcript: 'paid-for-X' }, true)
     expect(await readTakeTranscript(takeId)).toMatchObject({ finalizedPath: X, response: { transcript: 'paid-for-X' }, fallback: true })
   })
+
+  it('a fallback stamp keeps the audio fingerprint it was paid for; a finalized-key stamp carries none (C3 fold, Greptile P1)', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const audio = { size: 1234, type: 'audio/webm', durationSeconds: 42 }
+    await stampTakeTranscript(takeId, 'app_biz-1_server-named-3.webm', 'ja', { transcript: 'fb' }, true, audio)
+    expect((await readTakeTranscript(takeId))?.audio).toEqual(audio)
+    const F = `app_biz-1_${takeId}.webm`
+    await markTakeFinalized(takeId, F)
+    await stampTakeTranscript(takeId, F, 'ja', { transcript: 'paid-for-F' })
+    const kept = await readTakeTranscript(takeId)
+    expect(kept).toMatchObject({ finalizedPath: F, response: { transcript: 'paid-for-F' } })
+    expect(kept?.audio).toBeUndefined()
+  })
 })
 
 describe('detachTakeFromRecordedSession (piece r)', () => {
