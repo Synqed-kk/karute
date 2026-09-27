@@ -5,7 +5,7 @@
 // ONE WORLD, BY CONSTRUCTION. The standing roster is `fixtures-today.shifts`
 // (the same rows the 今日の運営 board draws its lanes from), the 勤務不可 is the
 // board's own `absence` applied through the board's own `effectiveShift`, the
-// 定休日 is the board's `closedWeekday`, and a day's 予約件数 is the board's own
+// 定休日 is the board's `closedWeekdays`, and a day's 予約件数 is the board's own
 // `dayTotals().count`. Nothing about a day is stated twice, so the week board,
 // the month board and 今日の運営 cannot disagree about it.
 //
@@ -28,7 +28,7 @@ export interface Ymd {
   y: number
   m: number
   d: number
-  /** `Date#getDay` numbering — 0=日 … 6=土, the same numbers `closedWeekday` uses. */
+  /** `Date#getDay` numbering — 0=日 … 6=土, the same numbers `closedWeekdays` uses. */
   wd: number
 }
 
