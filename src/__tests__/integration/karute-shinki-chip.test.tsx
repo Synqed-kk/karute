@@ -113,6 +113,10 @@ const visibleNames = () =>
 beforeEach(() => {
   mockSwitches.shinkiChip = false
   loadKaruteWindow.mockReset()
+  // Main's remembered 担当 pick (staff-scope.ts, karute:staffScope:records:*)
+  // lives in localStorage: a test that picks 自分 must not start the next
+  // one in 自分 (S44 F4 added the same line to the sibling suites).
+  window.localStorage.clear()
 })
 
 describe('KARUTE_SWITCHES.shinkiChip — the committed value', () => {
@@ -218,5 +222,57 @@ describe('switch ON (test-only mock)', () => {
     expect(screen.queryByText('一月 不明')).not.toBeInTheDocument()
     // Still in the month (the chip names it) — 新規 is an AND, not an exit.
     expect(screen.getByRole('button', { name: /^2026年1月$/ })).toBeInTheDocument()
+  })
+})
+
+// The ✓ and its glide (FLIP) were DROPPED in the S45 rebase onto main: main's
+// chip row and words row draw no ✓ (⚖ 01:56, BUILD-S44), so the chip's on
+// state is the 担当 chip's own narrowed look and a toggle changes colours only
+// — nothing beside it moves, so there is nothing to glide. This block REPLACES
+// the two glide tests ('applies the inverse translateX…' and 'reduced motion:
+// the chip still toggles…'): the chip still toggles, no ✓ is drawn, its
+// contents keep their shape, and no inline transform/transition/will-change is
+// written anywhere in the chip row.
+describe('the on-state = the 担当 chip’s narrowed look — no ✓, nothing moves (switch ON)', () => {
+  beforeEach(() => {
+    mockSwitches.shinkiChip = true
+  })
+
+  it('toggles without a ✓, keeps its two parts, and writes no inline style in the chip row', () => {
+    renderList()
+    const chip = shinkiChip()
+    const row = chip.closest('[data-chip-row]')!
+    const parts = () => Array.from(chip.children).map((c) => c.tagName)
+    expect(parts()).toEqual(['SPAN', 'SPAN'])
+    expect(chip.querySelector('svg')).toBeNull()
+    fireEvent.click(chip)
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+    expect(parts()).toEqual(['SPAN', 'SPAN'])
+    expect(chip.querySelector('svg')).toBeNull()
+    const styled = [row, ...Array.from(row.querySelectorAll('*'))].filter((el) =>
+      el.hasAttribute('style'),
+    )
+    expect(styled).toEqual([])
+    fireEvent.click(chip)
+    expect(chip).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('at rest and on, it wears exactly the 担当 chip’s classes (resting · narrowed)', () => {
+    renderList()
+    const staffChip = () => screen.getByRole('button', { name: /^(all|self)$/ })
+    // The class sets, both directions, less shrink-0 (the month chip's wrapper
+    // carries it; the 新規 chip is a bare child of the row).
+    const same = (a: Element, b: Element) => {
+      const set = (el: Element) =>
+        Array.from(el.classList).filter((c) => c !== 'shrink-0').sort()
+      expect(set(a)).toEqual(set(b))
+    }
+    same(shinkiChip(), staffChip()) // both at rest (全スタッフ)
+    fireEvent.click(staffChip())
+    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    fireEvent.click(shinkiChip())
+    expect(staffChip()).toHaveTextContent(/^self$/)
+    same(shinkiChip(), staffChip()) // 新規 on · 担当 narrowed to 自分
+    expect(shinkiChip().classList).toContain('bg-primary/8')
   })
 })

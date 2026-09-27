@@ -22,7 +22,7 @@
 //                                  scoping can layer in later)
 
 import { Button } from '@/components/ui/button'
-import { Check, FilePlus2 } from 'lucide-react'
+import { FilePlus2 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { useLocale, useTranslations } from 'next-intl'
@@ -1470,6 +1470,9 @@ export function KaruteRecordListView({
             onSelect={(month) => void pickMonth(month)}
             busy={monthLoading}
           />
+          {/* 新規 — on = the 担当 chip's own narrowed look (wash + blue border
+           *  and words), no ✓: no chip or word on this screen draws one, so
+           *  a toggle changes colours only and nothing beside it moves. */}
           {KARUTE_SWITCHES.shinkiChip && (
             <button
               type="button"
@@ -1480,13 +1483,6 @@ export function KaruteRecordListView({
                 shinkiOn && 'border-primary bg-primary/8 text-primary hover:bg-primary/8',
               )}
             >
-              {shinkiOn && (
-                <Check
-                  size={13}
-                  className="shrink-0 animate-in fade-in zoom-in-50 duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:animate-none"
-                  aria-hidden
-                />
-              )}
               <span>{t('shinki')}</span>
               <span
                 className={cn(
