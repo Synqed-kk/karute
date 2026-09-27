@@ -455,7 +455,23 @@ describe('GET recordings/discards (+ /transcript) — a viewer WITHOUT all-store
     expect(listSegments).not.toHaveBeenCalled()
   })
 
-  it('…and her LIST, whose recordings could not be read (this fake core has none), is a 502 — never an empty list (fix round 2)', async () => {
+  it('…and her LIST judges that same row by its own row read — hidden, exactly as the door refuses it (fix round 3)', async () => {
+    recordingsGet.mockResolvedValueOnce({ duration_seconds: 42, store_id: 'store-b' } as never)
+    const res = await LIST(listReq(), noParams)
+    expect(res.status).toBe(200)
+    expect((await res.json()).rows).toEqual([])
+    expect(recordingsGet).toHaveBeenCalledWith('rs-1')
+  })
+
+  it('…a store-less row reads as open to her, in the list as at the door', async () => {
+    recordingsGet.mockResolvedValueOnce({ duration_seconds: 42, store_id: null } as never)
+    const res = await LIST(listReq(), noParams)
+    expect(res.status).toBe(200)
+    expect((await res.json()).rows.map((r: { recordingSessionId: string }) => r.recordingSessionId)).toEqual(['rs-1'])
+  })
+
+  it('…and a row read that FAILS makes her list a 502 — never a partial or empty list', async () => {
+    recordingsGet.mockRejectedValueOnce(upstream(503))
     const res = await LIST(listReq(), noParams)
     expect(res.status).toBe(502)
     expect((await res.json()).error.code).toBe('upstream_unavailable')
