@@ -443,6 +443,8 @@ import {
   stampTakeDuration,
   stampTakeOutcome,
   stampTakeSession,
+  stampTakeTranscript,
+  readTakeTranscript,
   adoptTakeSession,
   TERMINAL_SECURE_ERRORS,
   writeTakeHeartbeat,
@@ -933,6 +935,53 @@ describe('adoptTakeSession — the first stamp wins (S34 T3)', () => {
 
     expect(await adoptTakeSession(takeId, 'sess-minted-X', 'app_biz-1_server-named.webm')).toBe(false)
     expect(takes().get(JSON.stringify(takeId))).toEqual(before)
+  })
+})
+
+// ⚖ C3 fold (Greptile 2 on #1077) — the stamp guard's ONE home. A fallback
+// answer is written only while the take still has no finalized key, or has
+// exactly the key it was paid for (S34's adoption); ai-pipeline's suite
+// (ai-pipeline-fallback-paid-once, g2) runs the race against a model of this.
+describe('stampTakeTranscript — a fallback answer never overwrites a finalized key’s (C3 fold)', () => {
+  it('no key → written; finalized at F → a late fallback stamp is refused and F’s answer stays; a non-fallback stamp is unconditional', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeTranscript(takeId, 'app_biz-1_server-named-1.webm', 'ja', { transcript: 'fb-1' }, true)
+    expect(await readTakeTranscript(takeId)).toMatchObject({ finalizedPath: 'app_biz-1_server-named-1.webm', fallback: true })
+
+    const F = `app_biz-1_${takeId}.webm`
+    await markTakeFinalized(takeId, F)
+    await stampTakeTranscript(takeId, F, 'ja', { transcript: 'paid-for-F' })
+    await stampTakeTranscript(takeId, 'app_biz-1_server-named-2.webm', 'ja', { transcript: 'late-fallback' }, true)
+    const kept = await readTakeTranscript(takeId)
+    expect(kept).toMatchObject({ finalizedPath: F, response: { transcript: 'paid-for-F' } })
+    expect(kept?.fallback).toBeUndefined()
+  })
+
+  it('a take adopted at the fallback’s own minted key takes that fallback’s stamp (m7’s store half)', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const X = 'app_biz-1_server-named-9.webm'
+    expect(await adoptTakeSession(takeId, 'sess-minted-X', X)).toBe(true)
+    await stampTakeTranscript(takeId, X, 'ja', { transcript: 'paid-for-X' }, true)
+    expect(await readTakeTranscript(takeId)).toMatchObject({ finalizedPath: X, response: { transcript: 'paid-for-X' }, fallback: true })
+  })
+
+  it('a fallback stamp keeps the audio fingerprint it was paid for; a finalized-key stamp carries none (C3 fold, Greptile P1)', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const audio = { size: 1234, type: 'audio/webm', durationSeconds: 42 }
+    await stampTakeTranscript(takeId, 'app_biz-1_server-named-3.webm', 'ja', { transcript: 'fb' }, true, audio)
+    expect((await readTakeTranscript(takeId))?.audio).toEqual(audio)
+    const F = `app_biz-1_${takeId}.webm`
+    await markTakeFinalized(takeId, F)
+    await stampTakeTranscript(takeId, F, 'ja', { transcript: 'paid-for-F' })
+    const kept = await readTakeTranscript(takeId)
+    expect(kept).toMatchObject({ finalizedPath: F, response: { transcript: 'paid-for-F' } })
+    expect(kept?.audio).toBeUndefined()
   })
 })
 

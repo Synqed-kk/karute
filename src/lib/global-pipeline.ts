@@ -3,6 +3,7 @@
 import {
   runAIPipeline,
   EmptyTranscriptError,
+  type PaidFallback,
   type PipelineStep,
   type PipelineResult,
 } from '@/lib/ai-pipeline'
@@ -300,6 +301,12 @@ class GlobalPipeline {
   }
 
   private blob: Blob | null = null
+  /** ⚖ C3: the fallback transcription THIS run chain already paid for (same
+   *  blob, same context). Kept across retry() so a 再試行 replays it instead of
+   *  paying again — the only memory a take-less run has (a take also keeps it
+   *  durably on its own stamp). Cleared by start()/reset() with the rest of the
+   *  run; a superseded run's late answer is dropped. */
+  private paidFallback: PaidFallback | null = null
   private listeners = new Set<Listener>()
   /**
    * Identifies the live run. A new start()/retry() supersedes an in-flight run,
@@ -344,6 +351,7 @@ class GlobalPipeline {
   start(blob: Blob, context: PipelineContext) {
     this.blob = blob
     this.context = context
+    this.paidFallback = null
     this.state = 'processing'
     this.step = 'transcribing'
     this.result = null
@@ -426,6 +434,10 @@ class GlobalPipeline {
           customerId: this.context.appointmentCustomerId,
           appointmentId: this.context.appointmentId,
           onSessionAdopted: (id) => this.adoptRecordingSession(runId, id),
+          paidFallback: this.paidFallback,
+          onFallbackPaid: (answer) => {
+            if (runId === this.runId) this.paidFallback = answer
+          },
         },
       )
       if (runId !== this.runId) return
@@ -768,6 +780,7 @@ class GlobalPipeline {
     this.errorRepeated = false
     this.context = null
     this.blob = null
+    this.paidFallback = null
     this.serverSavedRecordId = null
     this.savedRecordId = null
     this.serverOwned = false

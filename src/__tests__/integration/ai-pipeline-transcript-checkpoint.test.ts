@@ -26,9 +26,19 @@ jest.mock('@/lib/karute/take-store', () => ({
     finalizedPath: string,
     locale: string,
     response: unknown,
+    fallback?: boolean,
+    audio?: { size: number; type: string; durationSeconds?: number },
   ) => {
     const meta = takes.get(takeId)
-    if (meta) meta.transcript = { finalizedPath, locale, response, at: 1 }
+    if (meta)
+      meta.transcript = {
+        finalizedPath,
+        locale,
+        response,
+        at: 1,
+        ...(fallback ? { fallback: true } : {}),
+        ...(audio ? { audio } : {}),
+      }
   },
 }))
 
@@ -68,7 +78,7 @@ jest.mock('@/lib/ports/data-port', () => ({
   }),
 }))
 
-import { EmptyTranscriptError, runAIPipeline } from '@/lib/ai-pipeline'
+import { EmptyTranscriptError, runAIPipeline, type PaidFallback } from '@/lib/ai-pipeline'
 
 const TAKE = 'take-1'
 const FINALIZED = 'app_biz-1_take-1.webm'
@@ -127,18 +137,37 @@ describe('⚖ runAIPipeline never pays for the same finalized object twice', () 
     expect(count('/transcribe')).toBe(2)
   })
 
-  it('(4) no take: nothing to key on — the door is asked every run, as before', async () => {
-    await run(null)
+  // (4) and (6) FLIPPED ON PURPOSE (C3): they pinned the fallback arm paying on
+  // every run. The fallback answer is now remembered for its run chain — the
+  // take's stamp, or globalPipeline's slot when there is no take — and replayed.
+  it('(4) no take: the run chain’s slot replays the paid answer (C3); a bare call with no chain still asks', async () => {
+    let slot: PaidFallback | null = null
+    const chain = () =>
+      runAIPipeline(new Blob(['audio']), null, 'ja', () => {}, {
+        paidFallback: slot,
+        onFallbackPaid: (answer) => {
+          slot = answer
+        },
+      })
+    await chain()
+    await chain()
+    expect(count('/transcribe')).toBe(1)
+    expect(slot).toMatchObject({ takeId: null, locale: 'ja', response: { transcript: 'こんにちは' } })
     await run(null)
     expect(count('/transcribe')).toBe(2)
   })
 
-  it('(6) a take with no finalized key yet: nothing to key on — the door is asked every run, nothing stamped', async () => {
+  it('(6) a take with no finalized key yet: the fallback answer is stamped and the retry replays it — ONE POST (C3)', async () => {
     takes.set(TAKE, {})
     await run()
     await run()
-    expect(count('/transcribe')).toBe(2)
-    expect(takes.get(TAKE)!.transcript).toBeUndefined()
+    expect(count('/transcribe')).toBe(1)
+    expect(takes.get(TAKE)!.transcript).toMatchObject({
+      finalizedPath: 'app_biz-1_staged-9.webm',
+      locale: 'ja',
+      response: { transcript: 'こんにちは' },
+      fallback: true,
+    })
   })
 })
 
@@ -180,6 +209,37 @@ describe('⚖ two tabs on the same object take turns (the Web Locks API)', () =>
 
     expect(count('/transcribe')).toBe(1)
     expect(ra.transcript).toBe('こんにちは')
+    expect(rb.transcript).toBe(ra.transcript)
+  })
+
+  it('(9) C3 — two tabs on a take with NO finalized key take turns on the take itself → ONE transcribe POST', async () => {
+    const tails = new Map<string, Promise<unknown>>()
+    const requested: string[] = []
+    setNavigator({
+      locks: {
+        request: (name: string, fn: () => Promise<unknown>) => {
+          requested.push(name)
+          const next = (tails.get(name) ?? Promise.resolve()).then(() => fn())
+          tails.set(name, next.catch(() => {}))
+          return next
+        },
+      },
+    })
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
+    takes.set(TAKE, {})
+    let open!: () => void
+    transcribeGate = new Promise<void>((r) => {
+      open = r
+    })
+
+    const a = run()
+    const b = run()
+    for (let i = 0; i < 200 && requested.length < 2; i++) await Promise.resolve()
+    expect(requested).toEqual([`karute:transcribe:take:${TAKE}`, `karute:transcribe:take:${TAKE}`])
+    open()
+    const [ra, rb] = await Promise.all([a, b])
+
+    expect(count('/transcribe')).toBe(1)
     expect(rb.transcript).toBe(ra.transcript)
   })
 

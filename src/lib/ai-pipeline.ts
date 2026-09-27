@@ -7,6 +7,7 @@ import {
   readTakeSecureMeta,
   readTakeTranscript,
   stampTakeTranscript,
+  type TakeAudioFingerprint,
 } from '@/lib/karute/take-store'
 import { ensureAudioOnServer } from '@/lib/recording/secure-take'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
@@ -118,6 +119,32 @@ export type PipelineContext = {
   /** Told the row this run ADOPTED (S34), so the run's own context — what the
    *  save, the 破棄 and the status surfaces read — names it too. */
   onSessionAdopted?: (recordingSessionId: string) => void
+  /** ⚖ C3: the fallback answer this run CHAIN already paid for (global-pipeline
+   *  keeps it across retry(), clears it in start()/reset()) — the only memory a
+   *  take-less run has, and a take the store could not stamp. */
+  paidFallback?: PaidFallback | null
+  /** Told the fallback answer the moment it is paid for, so the chain keeps it. */
+  onFallbackPaid?: (answer: PaidFallback) => void
+}
+
+/** One fallback transcription the chain paid for: whose take (null = none),
+ *  asked in which locale, the door's whole JSON body, and the audio it sent
+ *  (C3 fold — replayed only onto a run about to send the same). */
+export type PaidFallback = {
+  takeId: string | null
+  locale: string
+  response: unknown
+  audio: TakeAudioFingerprint
+}
+
+/** ⚖ C3 fold (Greptile P1): a fallback answer replays only onto the SAME audio
+ *  — same byte size, same type, and the same length when both sides know one.
+ *  No fingerprint (a stamp written without one) is never a match. */
+function sameAudio(paid: TakeAudioFingerprint | undefined, now: TakeAudioFingerprint): boolean {
+  if (!paid || paid.size !== now.size || paid.type !== now.type) return false
+  return paid.durationSeconds === undefined || now.durationSeconds === undefined
+    ? true
+    : paid.durationSeconds === now.durationSeconds
 }
 
 /**
@@ -238,12 +265,60 @@ export async function runAIPipeline(
   // transcribe door cannot tell a repeat (a take key carries no session id, and
   // core has no by-path read), so the device that holds the take remembers: a
   // stored answer for THIS finalized object, asked in THIS locale, is replayed
-  // and the door is not asked — no spend on a 再試行 tap or a reload. Blob-only runs (no take, or
-  // no finalized key) have nothing to key on and ask every time, as before.
+  // and the door is not asked — no spend on a 再試行 tap or a reload.
+  // ⚖ …AND THE FALLBACK IS PAID FOR ONCE PER RUN CHAIN (C3). With no finalized
+  // key the unbound door mints a NEW key every time, so neither memo could see
+  // a repeat and each 再試行 minted, PUT and paid again. Its answer is kept too —
+  // on the take (marked `fallback`), else on the chain's slot — and a run that
+  // STILL has no finalized key replays it: no mint, no PUT, no POST. A run that
+  // has one replays only an answer paid for that very key — the fallback sent
+  // the in-memory blob, the attach sends the stored bytes, and they can differ.
+  // ⚖ A FALLBACK ANSWER IS REPLAYED OR WRITTEN ONLY WHILE THE TAKE STILL HAS NO
+  // FINALIZED KEY — or has exactly the key that answer was paid for (S34's
+  // adoption secures the take at the fallback's own minted key). Another tab or
+  // the drain can finalize the take after this run read no key, from stored
+  // bytes the fallback never sent, so the key is RE-READ here, never taken from
+  // this run's start: with one, only an answer paid for it replays; with none,
+  // the fallback's. The write half lives in stampTakeTranscript (take-store),
+  // where the check and the write share one transaction.
+  // ⚖ …AND ONLY ONTO THE SAME AUDIO (C3 fold, Greptile P1). A recovery run
+  // assembles the take from its saved segments, which can be shorter than the
+  // in-memory recording the first fallback sent (a tail never saved) — same
+  // take, same locale, different words. So a run with no finalized key replays
+  // a fallback answer (the take's stamp or the chain's slot) only when the
+  // audio it is about to send matches what that answer was paid for: this
+  // blob's size and type, and its length when both sides know one. A stamp
+  // with no fingerprint never replays. The finalized-key replay is unchanged —
+  // that key names the exact bytes.
+  const audio: TakeAudioFingerprint = {
+    size: audioBlob.size,
+    type: audioBlob.type,
+    ...(typeof ctx.durationSeconds === 'number' && Number.isFinite(ctx.durationSeconds)
+      ? { durationSeconds: ctx.durationSeconds }
+      : {}),
+  }
   const transcribeOnce = async (): Promise<Awaited<ReturnType<Response['json']>>> => {
-    const stored = takeId && finalizedPath ? await readTakeTranscript(takeId) : null
-    if (stored && stored.finalizedPath === finalizedPath && stored.locale === locale) {
+    const stored = takeId ? await readTakeTranscript(takeId) : null
+    const currentPath =
+      finalizedPath ?? (takeId ? ((await readTakeSecureMeta(takeId))?.finalizedPath ?? null) : null)
+    if (
+      stored &&
+      stored.locale === locale &&
+      (currentPath
+        ? stored.finalizedPath === currentPath
+        : stored.fallback === true && sameAudio(stored.audio, audio))
+    ) {
       return stored.response
+    }
+    const slot = ctx.paidFallback
+    if (
+      !currentPath &&
+      slot &&
+      slot.takeId === takeId &&
+      slot.locale === locale &&
+      sameAudio(slot.audio, audio)
+    ) {
+      return slot.response
     }
     const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
       await recordingPort.prepareTranscription(
@@ -280,15 +355,26 @@ export async function runAIPipeline(
     const fresh = await transcribeRes.json()
     // Stamped BEFORE the empty check: an empty answer was paid for too, and
     // replays below as the same EmptyTranscriptError with no second spend.
-    if (takeId && finalizedPath) await stampTakeTranscript(takeId, finalizedPath, locale, fresh)
+    if (finalizedPath) {
+      if (takeId) await stampTakeTranscript(takeId, finalizedPath, locale, fresh)
+    } else {
+      // The fallback's answer names the key it was paid for (with the switch ON
+      // and no row, S34 just secured the take at that very key). A take
+      // finalized at ANOTHER key meanwhile keeps its own stamp — the store
+      // refuses this write (see the rule above transcribeOnce); the chain's
+      // slot is still told, run-guarded as ever.
+      if (takeId) await stampTakeTranscript(takeId, mintedPath, locale, fresh, true, audio)
+      ctx.onFallbackPaid?.({ takeId, locale, response: fresh, audio })
+    }
     return fresh
   }
   // The door's JSON body, used exactly as before — replayed or fresh. Two tabs
-  // on the same object take turns, so the second one reads the first's stamp.
-  const transcribeData =
-    takeId && finalizedPath
-      ? await withTranscribeLock(finalizedPath, transcribeOnce)
-      : await transcribeOnce()
+  // on the same object take turns, so the second one reads the first's stamp;
+  // a take with no finalized key yet takes turns on the take itself (C3).
+  const lockKey = finalizedPath ?? (takeId ? `take:${takeId}` : null)
+  const transcribeData = lockKey
+    ? await withTranscribeLock(lockKey, transcribeOnce)
+    : await transcribeOnce()
   const transcript: string = transcribeData.transcript
 
   if (!transcript) {

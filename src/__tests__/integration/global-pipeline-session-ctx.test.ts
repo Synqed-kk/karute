@@ -64,6 +64,9 @@ describe('globalPipeline prompt-anchor ctx', () => {
       // is told any row it adopts.
       customerId: 'c-2',
       onSessionAdopted: expect.any(Function),
+      // C3: the chain's paid fallback answer (none on a fresh start) and its writer.
+      paidFallback: null,
+      onFallbackPaid: expect.any(Function),
     })
   })
 
