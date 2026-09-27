@@ -1339,6 +1339,23 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await settingsHours(STORE.yokohama)).audit).toMatch(/（水曜・土曜を定休日に設定）$/)
   })
 
+  it('§v11 V11-2a (amended 17:0x) — a malformed weekday never takes the week with it: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows; the day itself mirrors resolveDayHours (not the store\'s) = the sample set\'s Monday, logged', async () => {
+    const spy = withReads()
+    const bad = { ...WEEK_WS, mon: { open: '10:00', close: '25:00' } }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama ? { ...POLICIES[id], source: 'custom', weekly_hours: bad } : POLICIES[id]))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const day = await data.readDayPlanes(STORE.yokohama, TODAY + 1) // Tuesday 9/15
+      const [W, T] = [{ open: 600, close: 1140 }, { open: 660, close: 1320 }]
+      expect([hoursSource(day), day.operatingHours]).toEqual(['core', W])
+      expect(day.weeklyHours).toEqual([{ open: 540, close: 1080 }, weekOfPair(operatingHours, [closedWeekday])[1], W, null, T, W, null])
+      expect(day.closedWeekdays).toEqual([1, 3, 6]) // Monday closed only because the sample set closes Monday
+      expect(quiet).toHaveBeenCalledWith('[practice hours] malformed weekday served from the sample set:', STORE.yokohama, '1')
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+
   it('§v11 V11-7 — the month calendar counts each day in its OWN window: Thursday (11–22) and Monday (10–19) fit different numbers of courses', async () => {
     withWeek()
     const { calendar } = (await board(STORE.yokohama)) as unknown as { calendar: Array<{ m: number; d: number; wd: number; fits?: number; booked?: number }> }

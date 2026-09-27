@@ -3,7 +3,7 @@ import { jstDayKey } from '@/business/lib/clock'
 import { closedWeekdaysOf, resolveStoreDay, usualPairOf, weekdayOfKey, weekFromPair, weekOf, type WeeklyHours } from '@/business/lib/practice-door/store-hours'
 import { POLICIES, STORE } from './practice-door-recorded'
 
-const show = (d: ReturnType<typeof resolveStoreDay>) => (d.source === 'sample' ? 'sample' : d.closed ? 'closed' : `${d.open}-${d.close}`)
+const show = (d: ReturnType<typeof resolveStoreDay>) => (d.source === 'sample' ? 'sample' : 'malformed' in d ? 'malformed' : d.closed ? 'closed' : `${d.open}-${d.close}`)
 const every = (open: string, close: string) => ({ mon: { open, close }, tue: { open, close }, wed: { open, close }, thu: { open, close }, fri: { open, close }, sat: { open, close }, sun: { open, close } })
 
 describe('store-hours — a practice store\'s own 営業時間 · 定休日 (§v11)', () => {
@@ -24,36 +24,37 @@ describe('store-hours — a practice store\'s own 営業時間 · 定休日 (§v
     for (const [id, days] of Object.entries(TABLE)) expect({ id, days: days.map((_, wd) => show(resolveStoreDay(POLICIES[id].weekly_hours, wd))) }).toEqual({ id, days })
     // ⚖ §v11 V11-7 — and the plane's WEEK (weekOf) says the same seven days; no core hours → no core week (the sample set).
     for (const [id, days] of Object.entries(TABLE)) {
-      const week = weekOf(POLICIES[id].weekly_hours)
-      expect({ id, week: week?.map((d) => (d === null ? 'closed' : `${d.open}-${d.close}`)) ?? Array(7).fill('sample') }).toEqual({ id, week: days })
+      const core = weekOf(POLICIES[id].weekly_hours)
+      expect({ id, week: core?.week.map((d) => (d === null ? 'closed' : `${d.open}-${d.close}`)) ?? Array(7).fill('sample'), malformed: core?.malformed ?? [] }).toEqual({ id, week: days, malformed: [] })
     }
   })
 
-  it('resolveStoreDay: no hours (null · no row · {}) → sample; a null or absent day → 定休日; 24:00 = 1440; a malformed or empty window (open ≥ close) → sample', () => {
+  it('resolveStoreDay: no hours (null · no row · {}) → sample; a null or absent day → 定休日; 24:00 = 1440; a malformed or empty window (open ≥ close) → malformed (V11-2a, amended 17:0x)', () => {
     for (const none of [null, undefined, {}]) expect(resolveStoreDay(none, 1)).toEqual({ source: 'sample' })
     expect(resolveStoreDay({ mon: { open: '09:00', close: '18:00' } }, 2)).toEqual({ source: 'core', closed: true })
     expect(resolveStoreDay({ mon: null, tue: { open: '09:00', close: '18:00' } }, 1)).toEqual({ source: 'core', closed: true })
     expect(resolveStoreDay({ mon: { open: '09:30', close: '24:00' } }, 1)).toEqual({ source: 'core', closed: false, open: 570, close: 1440 })
-    for (const bad of [{ open: '10:00', close: '10:00' }, { open: '18:00', close: '09:00' }, { open: '9', close: '18:00' }, { open: '09:00', close: '24:30' }, { open: '09:60', close: '18:00' }]) expect(resolveStoreDay({ mon: bad }, 1)).toEqual({ source: 'sample' })
+    for (const bad of [{ open: '10:00', close: '10:00' }, { open: '18:00', close: '09:00' }, { open: '9', close: '18:00' }, { open: '09:00', close: '24:30' }, { open: '09:60', close: '18:00' }]) expect(resolveStoreDay({ mon: bad }, 1)).toEqual({ source: 'core', malformed: true })
   })
 
-  it('weekOf + closedWeekdaysOf (§v11 V11-7): the week normalized; EVERY closed weekday, ascending; a malformed day or a week with no open day → no core week', () => {
+  it('weekOf + closedWeekdaysOf (§v11 V11-7): the week normalized; EVERY closed weekday, ascending; a malformed day keeps the rest (named); no hours or no open day → no core week', () => {
     const wedSat = { ...every('10:00', '19:00'), sat: null, wed: null, thu: { open: '11:00', close: '22:00' } }
     const [W, T] = [{ open: 600, close: 1140 }, { open: 660, close: 1320 }]
-    expect(weekOf(wedSat)).toEqual([W, W, W, null, T, W, null])
-    expect(closedWeekdaysOf(weekOf(wedSat)!)).toEqual([3, 6])
-    expect(closedWeekdaysOf(weekOf(POLICIES[STORE.tokyo].weekly_hours)!)).toEqual([2])
-    expect(closedWeekdaysOf(weekOf(POLICIES[STORE.gym].weekly_hours)!)).toEqual([])
-    expect(weekOf({ ...every('10:00', '19:00'), fri: { open: '19:00', close: '10:00' } })).toBeNull() // V11-2a
-    for (const none of [null, undefined, {}, { mon: null }, { mon: null, tue: null }]) expect(weekOf(none)).toBeNull() // V11-2b
+    expect(weekOf(wedSat)).toEqual({ week: [W, W, W, null, T, W, null], malformed: [] })
+    expect(closedWeekdaysOf(weekOf(wedSat)!.week)).toEqual([3, 6])
+    expect(closedWeekdaysOf(weekOf(POLICIES[STORE.tokyo].weekly_hours)!.week)).toEqual([2])
+    expect(closedWeekdaysOf(weekOf(POLICIES[STORE.gym].weekly_hours)!.week)).toEqual([])
+    // V11-2a (amended 17:0x) — a malformed Friday never takes the other six: they keep their windows; Friday is named.
+    expect(weekOf({ ...every('10:00', '19:00'), fri: { open: '19:00', close: '10:00' } })).toEqual({ week: [W, W, W, W, W, null, W], malformed: [5] })
+    for (const none of [null, undefined, {}, { mon: null }, { mon: null, tue: null }, { mon: { open: '25:00', close: '26:00' } }]) expect(weekOf(none)).toBeNull() // V11-2 · V11-2b
     expect(weekFromPair({ open: 600, close: 1140 }, [1])).toEqual([0, 1, 2, 3, 4, 5, 6].map((wd) => (wd === 1 ? null : { open: 600, close: 1140 })))
   })
 
   it('usualPairOf: the most frequent open window of the week; a tie → the earliest weekday\'s (日 = 0 first); no open day → null', () => {
-    expect(usualPairOf(weekOf(POLICIES[STORE.gym].weekly_hours)!)).toEqual({ open: 420, close: 1320 })
-    expect(usualPairOf(weekOf({ ...every('10:00', '19:00'), sat: { open: '09:00', close: '17:00' }, sun: { open: '09:00', close: '17:00' } })!)).toEqual({ open: 600, close: 1140 })
+    expect(usualPairOf(weekOf(POLICIES[STORE.gym].weekly_hours)!.week)).toEqual({ open: 420, close: 1320 })
+    expect(usualPairOf(weekOf({ ...every('10:00', '19:00'), sat: { open: '09:00', close: '17:00' }, sun: { open: '09:00', close: '17:00' } })!.week)).toEqual({ open: 600, close: 1140 })
     const tie: WeeklyHours = { mon: { open: '10:00', close: '19:00' }, sun: { open: '09:00', close: '17:00' } }
-    expect(usualPairOf(weekOf(tie)!)).toEqual({ open: 540, close: 1020 })
+    expect(usualPairOf(weekOf(tie)!.week)).toEqual({ open: 540, close: 1020 })
     expect(usualPairOf([null, null, null, null, null, null, null])).toBeNull()
   })
 

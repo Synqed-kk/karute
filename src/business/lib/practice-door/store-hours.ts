@@ -12,7 +12,11 @@ export type Week = Array<Window | null>
 /** What a practice plane serves for 営業時間 · 定休日, and where it came from: the SHOWN day's pair (a closed day: the
  *  usual pair), the week, and its closed weekdays ascending ([] = open every day). */
 export type StoreHours = { operatingHours: Window; weeklyHours: Week; closedWeekdays: number[]; hoursSource: 'core' | 'sample' }
-export type StoreDay = { source: 'sample' } | { source: 'core'; closed: true } | { source: 'core'; closed: false; open: number; close: number }
+export type StoreDay =
+  | { source: 'sample' }
+  | { source: 'core'; closed: true }
+  | { source: 'core'; closed: false; open: number; close: number }
+  | { source: 'core'; malformed: true }
 
 /** `Date#getDay` numbering, 0 = 日 … 6 = 土 — the app's own (operating-hours.ts `JS_DAY_TO_KEY`). */
 const KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
@@ -27,23 +31,25 @@ function minuteOf(value: unknown): number | null {
 }
 
 /** One weekday of a store's week, read as `resolveDayHours` reads it: no hours at all (null, no row, `{}`)
- *  → sample · the day null or absent → 定休日 · a well-formed window → its minutes · a malformed one
- *  vouches for nothing → sample. */
+ *  → sample · the day null or absent → 定休日 · a well-formed window → its minutes · a malformed one vouches
+ *  for nothing → malformed (there: falls through to the org blob / 10:00–24:00 default, never closed). */
 export function resolveStoreDay(weekly: WeeklyHours | undefined, weekday: number): StoreDay {
   if (weekly == null || Object.keys(weekly).length === 0) return { source: 'sample' }
   const day = weekly[KEYS[weekday]]
   if (day == null) return { source: 'core', closed: true }
   const [open, close] = [minuteOf(day.open), minuteOf(day.close)]
-  return open !== null && close !== null && open < close ? { source: 'core', closed: false, open, close } : { source: 'sample' }
+  return open !== null && close !== null && open < close ? { source: 'core', closed: false, open, close } : { source: 'core', malformed: true }
 }
 
-/** Core's week, normalized — each weekday read as `resolveStoreDay` reads it. null = no core week, and the plane serves
- *  the sample set: no hours at all, ANY malformed weekday (V11-2a: never an unvalidated number, never a half-core
- *  week), or no weekday that opens (V11-2b). */
-export function weekOf(weekly: WeeklyHours | undefined): Week | null {
+/** Core's week, normalized — each weekday read as `resolveStoreDay` reads it; a MALFORMED weekday is null here and
+ *  named in `malformed` (V11-2a, amended 17:0x: it never takes the other days with it — the door serves it per day).
+ *  null = no core week, and the plane serves the sample set: no hours at all, or no well-formed weekday that opens
+ *  (V11-2b). */
+export function weekOf(weekly: WeeklyHours | undefined): { week: Week; malformed: number[] } | null {
   const days = KEYS.map((_, wd) => resolveStoreDay(weekly, wd))
-  const week = days.map((d) => (d.source === 'core' && !d.closed ? { open: d.open, close: d.close } : null))
-  return days.some((d) => d.source === 'sample') || week.every((d) => d === null) ? null : week
+  const week = days.map((d) => ('open' in d ? { open: d.open, close: d.close } : null))
+  const malformed = days.flatMap((d, wd) => ('malformed' in d ? [wd] : []))
+  return days[0].source === 'sample' || week.every((d) => d === null) ? null : { week, malformed }
 }
 
 /** The sample (and OFF) week: the one pair on every weekday but the closed ones — the week `weeklyHoursFrom` builds. */

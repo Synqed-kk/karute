@@ -615,7 +615,7 @@ export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promis
 
 /** ⚖ §v11 V11-1/V11-2/V11-7 — THE one place a plane's 営業時間 · 定休日 come from. A single-store lens draws its
  *  store's OWN week (`weeklyHours` + `closedWeekdays`) and the day shown's pair (a closed weekday: the store's usual
- *  window); no core week (null, {}, a malformed day, a failed read — logged) and the all-stores view keep the
+ *  window); no core week (null, {}, no day that opens, a failed read — logged) and the all-stores view keep the
  *  shared sample set (§v9 V9-2) in the same shape, marked 'sample' — never a silent 10:00. */
 async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: number, s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)): Promise<StoreHours> {
   const sample: StoreHours = { operatingHours: s.operatingHours, weeklyHours: weekFromPair(s.operatingHours, [s.closedWeekday]), closedWeekdays: [s.closedWeekday], hoursSource: 'sample' }
@@ -627,9 +627,13 @@ async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: numbe
     console.error('[practice hours] core did not answer:', e instanceof Error ? e.message : String(e))
     weekly = null
   }
-  const week = weekOf(weekly)
-  const usual = week && usualPairOf(week)
-  if (!week || !usual) return sample
+  const core = weekOf(weekly)
+  const usual = core && usualPairOf(core.week)
+  if (!core || !usual) return sample
+  // ⚖ V11-2a (amended 17:0x) — a malformed weekday mirrors resolveDayHours per day (not the store's statement, never
+  // closed there): it takes the sample set's day; the other six keep their own windows. Logged once per read.
+  if (core.malformed.length > 0) console.error('[practice hours] malformed weekday served from the sample set:', lens, core.malformed.join(','))
+  const week = core.week.map((d, wd) => (core.malformed.includes(wd) ? sample.weeklyHours[wd] : d))
   return { operatingHours: week[weekdayOfKey(dayKey)] ?? usual, weeklyHours: week, closedWeekdays: closedWeekdaysOf(week), hoursSource: 'core' }
 }
 
