@@ -1461,6 +1461,36 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(got).toEqual(want)
   })
 
+  it('§v11 V11-12 — a failed live-row read serves the plain seated day, logged once, never a throw; the board\'s own read still throws', async () => {
+    const range = { from: TODAY, to: TODAY }
+    // The plain seated day = the same store with no live rows at all; the given-way day differs from it (never a vacuous pass).
+    const given = await data.listShiftsByDay(STORE.gym, range)
+    withReads().appointmentsList.mockResolvedValue({ appointments: [], total: 0, page: 1, page_size: 500 })
+    const [plain, plainRes] = [await data.listShiftsByDay(STORE.gym, range), await data.readReservationPlanes(STORE.gym)]
+    expect(plain).not.toEqual(given)
+    withReads().appointmentsList.mockRejectedValue(new Error('core down'))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      expect(await data.listShiftsByDay(STORE.gym, range)).toEqual(plain)
+      expect(quiet.mock.calls).toEqual([['[practice sample day] core did not answer:', 'core down']])
+      quiet.mockClear()
+      const res = await data.readReservationPlanes(STORE.gym)
+      expect([res.shifts, res.absence, res.sellSlots]).toEqual([plainRes.shifts, plainRes.absence, plainRes.sellSlots])
+      expect(quiet.mock.calls).toEqual([['[practice sample day] core did not answer:', 'core down']])
+      await expect(data.readDayPlanes(STORE.gym, TODAY)).rejects.toThrow('core down') // the board's own read propagates (§7), as main
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+
+  it('§v11 V11-12 — the readers agree on a day where the 勤務不可 GENUINELY moves: the gym\'s だいち, 13:00 → 21:30 on day, calendar and 予約一覧', async () => {
+    const day = (await data.readDayPlanes(STORE.gym, TODAY)).absence
+    const cal = (await data.listAbsenceByDay(STORE.gym, { from: TODAY, to: TODAY })).get(TODAY)
+    const res = (await data.readReservationPlanes(STORE.gym)).absence
+    expect([day?.staff_id, day?.from]).toEqual(['3c7ecb3b-24f6-413b-8292-5b9d5292e511', 21 * 60 + 30]) // was 13:00 (fixture); past her last row
+    expect([cal, res]).toEqual([day, day])
+  })
+
   it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {
     const { drawnRow } = await import('@/business/lib/practice-door/sample-day')
     const all = await data.listAppointments(VIEW_ALL, {})
