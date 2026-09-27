@@ -452,11 +452,19 @@
   background-color: #f7f7f8;
   background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px), linear-gradient(to right, var(--row) 1px, transparent 1px);
 }
-/* ⚖ §v11 V11-15(c) — 営業時間外: the locked lane's grey wash, under the cards, on every lane. A statement, never a
-   control — the pointer passes through, so drags and empty-slot clicks behave as before. Not the red 勤務不可 hatch:
-   the store is closed then, and a booking drawn on it still exists. */
-.biz .offhours { position: absolute; top: 0; bottom: 0; left: var(--x); width: var(--w); display: flex; flex-direction: column; justify-content: center; padding: 0 6px; overflow: hidden; white-space: nowrap; background-color: #f7f7f8; background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px); color: #a1a1aa; font-size: 10px; line-height: 1.25; pointer-events: none; }
-.biz .offhours strong { font-weight: 700; }
+/* ⚖ §v11 V11-15(c) · A5 — 営業時間外 is a LAYER, not an element: when the axis runs past the store's own hours the
+   timeline carries `.off-hours` + --off-before / --off-after (each side's share of the axis), and every track paints
+   the locked lane's grey there under its hour grid — one sized layer per side. A locked lane is grey already and a
+   drop target keeps its own paint. Nothing to press; the board's aria names both ranges; the ruler says it once. */
+.biz .timeline.off-hours .lane:not(.locked) .track:not(.drop-target) {
+  background-image: linear-gradient(to right, var(--row) 1px, transparent 1px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px), repeating-linear-gradient(135deg, #eeeeef 0 6px, #f7f7f8 6px 12px);
+  background-size: calc(100% / var(--hours, 9)) 100%, calc(100% * var(--off-before, 0)) 100%, calc(100% * var(--off-after, 0)) 100%;
+  background-position: 0 0, left top, right top;
+  background-repeat: repeat, no-repeat, no-repeat;
+}
+.biz .timeline .time-head > span.off-caption { position: absolute; top: 3px; z-index: 1; display: block; padding: 0; border: 0; background: none; color: #a1a1aa; font-size: 10px; font-weight: 600; line-height: 1; text-align: center; white-space: nowrap; overflow: hidden; pointer-events: none; }
+.biz .timeline .time-head > span.off-caption.before { left: var(--label); width: calc((100% - var(--label)) * var(--off-before, 0)); }
+.biz .timeline .time-head > span.off-caption.after { left: auto; right: 0; width: calc((100% - var(--label)) * var(--off-after, 0)); }
 .biz .hours span.off, .biz .page-today .hours span.off { color: #a1a1aa; }
 
 /* ── drag surfaces (canon :1436–1453) ────────────────────────────────────

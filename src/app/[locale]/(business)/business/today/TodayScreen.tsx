@@ -61,7 +61,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { bookingColorHex, hhmm, minuteOf, offHoursBands, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
+import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -1127,7 +1127,9 @@ const sampleChip = (mark: SampleMarkForm) => (
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
   const business = props.businessHours ?? hours
-  const offHours = props.businessHours ? offHoursBands(hours, props.businessHours) : []
+  // ⚖ §v11 V11-15(c) · A5 — each side's share of the axis the store is closed for (0 when the axis IS the store's hours).
+  const offBefore = (business.open - hours.open) / (hours.close - hours.open)
+  const offAfter = (hours.close - business.close) / (hours.close - hours.open)
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
   // board-wide site (group header, tab, legend, rail tour, create dialog)
   // reads these, never a per-lane lookup (C7).
@@ -7535,6 +7537,7 @@ export function TodayScreen(props: TodayProps) {
     dragLen != null || live || blockLive ? 'guard-guide-aiming' : '',
     placing ? 'placing' : '',
     `guard-guide-mode-${guideMode}`,
+    props.businessHours ? 'off-hours' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -7835,13 +7838,6 @@ export function TodayScreen(props: TodayProps) {
             )
           }}
         >
-          {/* ⚖ §v11 V11-15(c) — 営業時間外, under everything: a statement, not a control (never `.event`). */}
-          {offHours.map((b) => (
-            <span className="offhours" role="note" key={b.key} aria-label={b.label} style={{ '--x': `${b.x}%`, '--w': `${b.w}%` } as React.CSSProperties}>
-              <strong>{b.title}</strong>
-              <small>{b.time}</small>
-            </span>
-          ))}
           {/* Under everything the board is SELLING — a cue about why a space is
               empty may never sit on top of an offer. `--x`/`--w` is the same
               positioning grammar `.cell-price` uses; 30 is the rail's own step
@@ -9365,7 +9361,7 @@ export function TodayScreen(props: TodayProps) {
                 <div
                   className={timelineClasses}
                   ref={boardRef}
-                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0 } as React.CSSProperties}
+                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, ...(props.businessHours ? { '--off-before': offBefore, '--off-after': offAfter } : {}) } as React.CSSProperties}
                   // ⚖ Liam flag 33 — canon's singleton, at the one place every
                   // board gesture starts (capture, so a card's own handler
                   // cannot get there first).
@@ -9383,8 +9379,10 @@ export function TodayScreen(props: TodayProps) {
                         onPointerDown={onLabelResizeDown}
                       />
                     </span>
+                    {offBefore > 0 && <span className="off-caption before">営業時間外</span>}
+                    {offAfter > 0 && <span className="off-caption after">営業時間外</span>}
                     <div className="hours">
-                      {hours.labels.map((h) => <span key={h} className={Number(h) * 60 < business.open || Number(h) * 60 >= business.close ? 'off' : undefined}>{h}</span>)}
+                      {hours.labels.map((h) => <span key={h} className={(Number(h) + 1) * 60 <= business.open || Number(h) * 60 >= business.close ? 'off' : undefined}>{h}</span>)}
                     </div>
                   </div>
 

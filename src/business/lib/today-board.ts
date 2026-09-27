@@ -85,21 +85,6 @@ export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute:
   return { open: Math.max(0, floor60(open)), close: Math.min(1440, ceil60(close)) }
 }
 
-/** ⚖ §v11 V11-15(c) — 営業時間外: where the drawn window runs past the store's
- *  own hours, ONE band per side, drawn under the cards on every lane. It is not
- *  a lane item (never an `.event`): it states that the store is closed then,
- *  never 予約不可 — the booking sitting on it exists and is drawn. */
-export function offHoursBands(drawn: Hours, business: Hours): Array<{ key: string; x: number; w: number; title: string; time: string; label: string }> {
-  return [
-    ...(drawn.open < business.open
-      ? [{ key: 'before', ...place(drawn.open, business.open, drawn), title: '営業時間外', time: `${hhmm(business.open)}開店`, label: `${hhmm(business.open)}開店のため、それより前は営業時間外` }]
-      : []),
-    ...(drawn.close > business.close
-      ? [{ key: 'after', ...place(business.close, drawn.close, drawn), title: '営業時間外', time: `${hhmm(business.close)}閉店`, label: `${hhmm(business.close)}閉店のため、それより後は営業時間外` }]
-      : []),
-  ]
-}
-
 /** place()'s inverse for the drag layer: a percent offset back to the minute it
  *  names. canon `minutesOf` (:3743) — rounded, because a card's percent is
  *  three decimals and 30-minute steps must land on whole minutes. */
