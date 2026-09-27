@@ -78,6 +78,23 @@ describe('StaffScopeSegment — render states', () => {
     render(<Harness initial="s2" />)
     expect(within(screen.getByRole('button', { name: /勅使河原/ })).getByText('勅使河原')).toBeInTheDocument()
   })
+  it('the pressed segment wears the R13 selected recipe (bg-primary/8 text-primary), the other stays quiet', () => {
+    const { unmount } = render(<Harness initial="all" />)
+    // Segment 2 = the capsule around the label button and the chevron.
+    const seg2 = screen.getByRole('button', { name: '全スタッフ' }).parentElement as HTMLElement
+    expect(seg2).toHaveClass('bg-primary/8', 'text-primary')
+    expect(seg2.className).not.toMatch(/bg-card|shadow-sm|bg-(foreground|black)/)
+    expect(chevron().querySelector('svg')).toHaveClass('text-primary')
+    expect(selfBtn()).not.toHaveClass('bg-primary/8')
+    expect(selfBtn()).toHaveClass('text-muted-foreground')
+    unmount()
+    render(<Harness initial="self" />)
+    expect(selfBtn()).toHaveClass('bg-primary/8', 'text-primary')
+    const quiet = screen.getByRole('button', { name: '全スタッフ' }).parentElement as HTMLElement
+    expect(quiet).not.toHaveClass('bg-primary/8')
+    expect(quiet).toHaveClass('text-muted-foreground')
+    expect(chevron().querySelector('svg')).toHaveClass('text-muted-foreground')
+  })
   it('no staff profile: no 自分 segment', () => {
     render(<Harness initial="all" self={null} />)
     expect(screen.queryByRole('button', { name: '自分' })).toBeNull()

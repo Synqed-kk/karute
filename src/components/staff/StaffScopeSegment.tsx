@@ -18,8 +18,11 @@
 //
 // Look = the app's own segment (the 自分/全スタッフ ScopeToggle this replaces,
 // CustomersStaffFilter.tsx / ReservationStaffFilter.tsx: h-9 track, p-0.5,
-// border, bg-muted/50, text-xs font-medium; segments px-3 gap-1.5, on =
-// bg-card + text-foreground + shadow-sm). No new sizes, no new type.
+// border, bg-muted/50, text-xs font-medium; segments px-3 gap-1.5). The
+// pressed segment = the repo's R13 selected recipe (CLAUDE.md): bg-primary/8 +
+// text-primary — the same tokens as StaffSelector's own narrowed trigger; a
+// segment has no border of its own, so no border-primary. No new sizes, no
+// new type.
 // Words = ONE pair of keys on both tabs (reservation.staffFilter).
 
 import { ChevronDown, User, Users } from 'lucide-react'
@@ -31,7 +34,7 @@ import {
 } from '@/components/staff/StaffSelector'
 import { cn } from '@/lib/utils'
 
-const SEGMENT_ON = 'bg-card text-foreground shadow-sm'
+const SEGMENT_ON = 'bg-primary/8 text-primary'
 const SEGMENT_OFF = 'text-muted-foreground hover:text-foreground'
 
 export function StaffScopeSegment({
@@ -161,7 +164,10 @@ export function StaffScopeSegment({
                 <ChevronDown
                   size={13}
                   className={cn(
-                    'shrink-0 text-muted-foreground transition-transform',
+                    'shrink-0 transition-transform',
+                    // Inside the pressed segment the chevron takes the
+                    // segment's accent, as StaffSelector's narrowed chevron.
+                    isSelf ? 'text-muted-foreground' : 'text-primary',
                     open && 'rotate-180',
                   )}
                   aria-hidden
