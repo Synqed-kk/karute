@@ -46,7 +46,7 @@ import {
   absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
   staffListPrice as fxListPrice, staffQualifications,
 } from '@/business/lib/fixtures-today'
-import { jstDayKey } from '@/business/lib/clock'
+import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { accessFor as settingsAccessFor, RAIL, yen } from '@/business/lib/settings'
 import { salesTargets } from '@/business/lib/fixtures-analytics'
@@ -58,7 +58,7 @@ import { settingsProps } from '@/app/[locale]/(business)/business/settings/setti
 import { recordingProps } from '@/app/[locale]/(business)/business/recording/recording-props'
 import { karuteProps } from '@/app/[locale]/(business)/business/karute/karute-props'
 import {
-  APPOINTMENTS, APT, AKARI, ASSIGNMENTS, CARD, CUSTOMERS, KOBAYASHI, LOGIN, MENU, STAFF, STORE, STORES, TENANT, membership, recordedReads,
+  APPOINTMENTS, APT, AKARI, ASSIGNMENTS, CARD, CUSTOMERS, KOBAYASHI, LOGIN, MENU, POLICIES, STAFF, STORE, STORES, TENANT, membership, recordedReads,
   type RecordedOptions,
 } from './practice-door-recorded'
 
@@ -106,18 +106,18 @@ describe('(1) OWNER — viewAll', () => {
     expect(spy.staffList).toHaveBeenCalledTimes(2)
   })
 
-  it('listStoreOptions: the 5 active stores in core order, typed by sample policy', async () => {
+  it('listStoreOptions: the 7 active stores in core order, typed by sample policy', async () => {
     const opts = await data.listStoreOptions()
-    expect(ids(opts)).toEqual([STORE.devSalon, STORE.devGinza, STORE.tokyo, STORE.yokohama, STORE.laEstro])
+    expect(ids(opts)).toEqual([STORE.devSalon, STORE.devGinza, STORE.tokyo, STORE.yokohama, STORE.laEstro, STORE.gym, STORE.jiyugaoka])
     // ⚖ PR-3 V4-2 — every practice store takes a plane: a borrower shows its plane's 業種 unless it names its own.
-    expect(opts.map((s) => s.business_type)).toEqual(['beauty_chiropractic', 'beauty_chiropractic', 'beauty_chiropractic', 'massage', 'esthetic_salon'])
-    expect(opts.map((s) => s.default_kind_id)).toEqual(['k-a', 'k-a', 'k-a', 'k-b', 'k-a'])
-    expect(opts.map((s) => s.name)).toEqual(['Dev Salon', 'Dev 銀座', 'テスト東京店', 'テスト横浜店', 'La Estro Test Store'])
+    expect(opts.map((s) => s.business_type)).toEqual(['beauty_chiropractic', 'beauty_chiropractic', 'beauty_chiropractic', 'massage', 'esthetic_salon', 'personal_gym', 'hair_salon'])
+    expect(opts.map((s) => s.default_kind_id)).toEqual(['k-a', 'k-a', 'k-a', 'k-b', 'k-a', 'k-a', 'k-a'])
+    expect(opts.map((s) => s.name)).toEqual(['Dev Salon', 'Dev 銀座', 'テスト東京店', 'テスト横浜店', 'La Estro Test Store', 'テスト恵比寿ジム', 'テスト自由が丘店'])
   })
 
   it('readShellIdentity: live org name + the actor-visible count + the card; honest empty when org is null', async () => {
     const shell = await data.readShellIdentity()
-    expect(shell.business).toEqual({ name: 'Dev Salon', storeCount: 5 })
+    expect(shell.business).toEqual({ name: 'Dev Salon', storeCount: 7 })
     expect(shell.operator).toEqual({ name: 'Dev Salon', mark: 'Dev', role: 'オーナー', staff_id: CARD.owner })
     expect(typeof shell.reserveSyncedAt).toBe('string')
     withReads({ orgName: null })
@@ -172,7 +172,7 @@ describe('(1) OWNER — viewAll', () => {
       source: '', identity_check: null, ticket_balance: null, wallet_balance: null, merge_status: 'none', duplicate_of: null,
       consent: null, line_linked: false, party: [], thin: false, external_owner: false, note: null, vip: false,
     }])
-    expect(await data.listCustomers(VIEW_ALL)).toHaveLength(14)
+    expect(await data.listCustomers(VIEW_ALL)).toHaveLength(14 + 11) // ⚖ §v11 — + the gym's and 自由が丘's own 11
   })
 
   it('listCustomers: literal membership anchors from fixtures.ts, independent of the membership() helper', async () => {
@@ -277,11 +277,11 @@ describe('(1) OWNER — viewAll', () => {
     expect(await data.listResources(STORE.tokyo)).toEqual([])
     expect(await data.listResources(VIEW_ALL)).toEqual([])
     const counts = await data.readUnresolvedCounts()
-    expect(Object.keys(counts.byStore)).toEqual([STORE.devSalon, STORE.devGinza, STORE.tokyo, STORE.yokohama, STORE.laEstro])
+    expect(Object.keys(counts.byStore)).toEqual([STORE.devSalon, STORE.devGinza, STORE.tokyo, STORE.yokohama, STORE.laEstro, STORE.gym, STORE.jiyugaoka])
     expect(counts.byStore[STORE.tokyo]).toBe(4)
     // ⚖ PR-4a R6 + R8' — each borrower counts what it is served; the recorded world has 0 rooms at every
     // store, so no borrower is served a slot or its decision → 0. 横浜 twins STORE_B: none.
-    expect([STORE.devSalon, STORE.devGinza, STORE.laEstro].map((s) => counts.byStore[s])).toEqual([0, 0, 0])
+    expect([STORE.devSalon, STORE.devGinza, STORE.laEstro, STORE.gym, STORE.jiyugaoka].map((s) => counts.byStore[s])).toEqual([0, 0, 0, 0, 0])
     expect(counts.all).toBe(Object.values(counts.byStore).reduce((a, b) => a + b, 0))
     expect(counts.all).toBe(4)
   })
@@ -321,7 +321,7 @@ describe('(1) OWNER — viewAll', () => {
     expect((await data.readAnalyticsPlanes(STORE.tokyo)).target).toBe(2000000)
     // ⚖ PR-3 V4-2 — a borrower's target is its plane's (every practice store is filled in).
     expect((await data.readAnalyticsPlanes(STORE.laEstro)).target).toBe(2000000)
-    expect((await data.readAnalyticsPlanes(VIEW_ALL)).target).toBe(4 * 2000000 + 800000)
+    expect((await data.readAnalyticsPlanes(VIEW_ALL)).target).toBe(6 * 2000000 + 800000)
   })
 })
 
@@ -680,9 +680,9 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     // 事業構成
     const org = blockOf(props, 'business-structure', 'org.stores')
     expect(org.note).toBe('Dev Salonが運営する店舗の一覧です。ほかの店舗の設定はここからは変更できません。')
-    expect(org.table!.rows.map((r) => r.cells[0])).toEqual(['Dev Salon', 'Dev 銀座', 'テスト東京店', 'テスト横浜店', 'La Estro Test Store'])
-    expect(org.table!.rows.map((r) => r.cells[1])).toEqual(['—', '—', 'いま見ている店舗', '—', '—'])
-    expect(blockOf(props, 'business-structure', 'org.brand').facts[0]).toMatch(/^5店舗の運営のため/)
+    expect(org.table!.rows.map((r) => r.cells[0])).toEqual(['Dev Salon', 'Dev 銀座', 'テスト東京店', 'テスト横浜店', 'La Estro Test Store', 'テスト恵比寿ジム', 'テスト自由が丘店'])
+    expect(org.table!.rows.map((r) => r.cells[1])).toEqual(['—', '—', 'いま見ている店舗', '—', '—', '—', '—'])
+    expect(blockOf(props, 'business-structure', 'org.brand').facts[0]).toMatch(/^7店舗の運営のため/)
     // 予約同期: the shell's own stamp, 12 minutes before the board's moment
     expect(blockOf(props, 'sync', 'sync.status').facts[0]).toMatch(/^最終同期は12分前/)
     // ⚖ PR-3 — the mark: SAMPLE blocks carry it, ROW blocks never; a twin has no no-sample card.
@@ -744,7 +744,7 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
     }
     expect(blockOf(props, 'business-structure', 'org.entity').rows.length).toBe(3)
     expect(blockOf(props, 'audit-log', 'audit.rows').table!.rows.length).toBeGreaterThan(0)
-    expect(blockOf(props, 'business-structure', 'org.stores').table!.rows).toHaveLength(5)
+    expect(blockOf(props, 'business-structure', 'org.stores').table!.rows).toHaveLength(7)
     expect(sec(props, 'booking-guard').sample).toBeTruthy()
     // ⚖ FIX-1a (V3-3) — a part mark only where some row draws the sample part. No borrowed
     // person has twin settings, so the roster names nothing; the 全店舗 menu IS twinned
@@ -936,7 +936,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
     return (el as unknown as { props: Board }).props
   }
-  const BORROWERS = [STORE.devSalon, STORE.devGinza, STORE.laEstro]
+  const BORROWERS = [STORE.devSalon, STORE.devGinza, STORE.laEstro, STORE.gym, STORE.jiyugaoka]
 
   it('a borrower: store rows re-keyed to it, ids + the slot pointer suffixed per store, another store\'s records nulled (R4, nested too); another fixture store\'s row drops', () => {
     const rows = rekeyRows(fxDecisions, [at(STORE.devSalon, SEAT3)], 'attribute')
@@ -1231,38 +1231,175 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await board(STORE.devSalon)).myDay?.shift).toBe('シフト 10:00–17:00')
   })
 
-  it('§v9 V9-1/V9-2 — 営業時間 · 定休日 · opsConfig reach every store (and the all-stores view) through its sample policy: no per-store value → the SAME shared instance', async () => {
+  // ⚖ §v11 V11-5 — REWRITTEN: this pin once asserted that every store got the SAME shared window, the very
+  // defect Liam saw on テスト恵比寿ジム (DIAGNOSIS T3). Core's own hours (CENSUS-S18 § A, recorded): 東京 10–19
+  // tue-closed · the gym 07–22 every day · 自由が丘 10–20 tue-closed; the other four hold none.
+  const hoursSource = (plane: object) => (plane as { hoursSource?: string }).hoursSource
+  const OWN_HOURS: Record<string, [{ open: number; close: number }, number[]]> = {
+    [STORE.tokyo]: [{ open: 600, close: 1140 }, [2]], [STORE.gym]: [{ open: 420, close: 1320 }, []], [STORE.jiyugaoka]: [{ open: 600, close: 1200 }, [2]],
+  }
+  /** The week a store with ONE window and these closed weekdays serves (⚖ §v11 V11-7). */
+  const weekOfPair = (pair: { open: number; close: number }, closed: number[]) => [0, 1, 2, 3, 4, 5, 6].map((wd) => (closed.includes(wd) ? null : pair))
+  it('§v11 V11-5 — 営業時間 · 定休日: a store with core hours serves its OWN on all three planes; a store without, and the all-stores view, the SAME shared instance marked sample; opsConfig stays shared', async () => {
     for (const lens of [STORE.tokyo, STORE.yokohama, ...BORROWERS, VIEW_ALL]) {
-      const day = await data.readDayPlanes(lens, TODAY)
-      expect(day.operatingHours).toBe(operatingHours)
-      expect(day.closedWeekday).toBe(closedWeekday)
+      const own = typeof lens === 'string' ? OWN_HOURS[lens] : undefined
+      const [day, res, ana] = [await data.readDayPlanes(lens, TODAY), await data.readReservationPlanes(lens), await data.readAnalyticsPlanes(lens)]
       expect(day.opsConfig).toBe(opsConfig)
-      expect((await data.readReservationPlanes(lens)).operatingHours).toBe(operatingHours)
-      expect((await data.readAnalyticsPlanes(lens)).closedWeekday).toBe(closedWeekday)
+      if (own) {
+        expect([day.operatingHours, day.closedWeekdays, res.operatingHours, ana.closedWeekdays]).toEqual([own[0], own[1], own[0], own[1]])
+        for (const plane of [day, res, ana]) expect(plane.weeklyHours).toEqual(weekOfPair(own[0], own[1]))
+        expect([hoursSource(day), hoursSource(res), hoursSource(ana)]).toEqual(['core', 'core', 'core'])
+        continue
+      }
+      for (const hours of [day.operatingHours, res.operatingHours]) expect(hours).toBe(operatingHours)
+      for (const plane of [day, res, ana]) expect([plane.closedWeekdays, plane.weeklyHours]).toEqual([[closedWeekday], weekOfPair(operatingHours, [closedWeekday])])
+      expect([hoursSource(day), hoursSource(res), hoursSource(ana)]).toEqual(['sample', 'sample', 'sample'])
+    }
+    // 東京 on its closed weekday (Tuesday 9/15) draws its usual window; a failed read serves the sample set.
+    expect((await data.readDayPlanes(STORE.tokyo, TODAY + 1)).operatingHours).toEqual({ open: 600, close: 1140 })
+    const spy = withReads()
+    spy.storePolicyGet.mockRejectedValue(new Error('core down'))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const day = await data.readDayPlanes(STORE.gym, TODAY)
+      expect([day.operatingHours, hoursSource(day)]).toEqual([operatingHours, 'sample'])
+      expect(quiet).toHaveBeenCalledWith('[practice hours] core did not answer:', 'core down')
+    } finally {
+      quiet.mockRestore()
     }
   })
 
-  it('§v9 — a per-store value moves only its own plane\'s stores: 横浜 (STORE_B) its own 定休日 · 営業時間 · opsConfig; 東京 and Dev Salon (a borrower takes STORE_A\'s plane, ⚖ §v4 V4-2) STORE_A\'s 定休日; the all-stores view keeps the shared set (V9-2)', async () => {
+  /** 設定's 営業時間 block for one store: its seven rows (JST minutes; null = switched off), its 定休日 and its length ceiling. */
+  async function settingsHours(store: string) {
+    const { props } = await settingsProps({ locale: 'ja', store })
+    const c = new Map(props.sections.flatMap((x) => x.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls))).map((x) => [x.id, x]))
+    const at = (hhmm: unknown) => Number(String(hhmm).slice(0, 2)) * 60 + Number(String(hhmm).slice(3))
+    const rows = [0, 1, 2, 3, 4, 5, 6].map((d) => (c.get(`store-hours.day-${d}`)?.value === true ? { open: at(c.get(`store-hours.open-${d}`)?.value), close: at(c.get(`store-hours.close-${d}`)?.value) } : null))
+    const closed = [0, 1, 2, 3, 4, 5, 6].filter((d) => rows[d] === null)
+    const ceiling = (c.get('store-hours.block-step')?.control as { max?: number } | undefined)?.max
+    const audit = props.sections.find((x) => x.id === 'store-hours')?.blocks.find((b) => b.id === 'store-hours.hours')?.audit
+    return { rows, closed, ceiling, audit }
+  }
+
+  it('§v11 V11-6 P2 — never again: the four readers agree for every lens (day · reservation · analytics · 設定, its length ceiling and its audit line included)', async () => {
+    // Its OWN list, never BORROWERS: every store with core hours, the four without, and the all-stores view.
+    const lenses = [...Object.keys(OWN_HOURS), STORE.yokohama, STORE.laEstro, STORE.devSalon, STORE.devGinza, VIEW_ALL]
+    let checked = 0
+    for (const lens of lenses) {
+      checked += 1
+      const day = await data.readDayPlanes(lens, TODAY)
+      const [res, ana] = [await data.readReservationPlanes(lens), await data.readAnalyticsPlanes(lens)]
+      expect([res.operatingHours, res.weeklyHours, res.closedWeekdays, ana.weeklyHours, ana.closedWeekdays]).toEqual([day.operatingHours, day.weeklyHours, day.closedWeekdays, day.weeklyHours, day.closedWeekdays])
+      if (typeof lens !== 'string') continue // the all-stores view has no 営業時間 block
+      const set = await settingsHours(lens)
+      const longest = Math.max(...day.weeklyHours.map((w) => (w ? w.close - w.open : 0)))
+      expect({ lens, rows: set.rows, closed: set.closed, ceiling: set.ceiling }).toEqual({ lens, rows: day.weeklyHours, closed: day.closedWeekdays, ceiling: longest })
+    }
+    expect(checked).toBe(8)
+    expect((await settingsHours(STORE.gym)).audit).toMatch(/（定休日なしに設定）$/)
+    expect((await settingsHours(STORE.tokyo)).audit).toMatch(/（火曜を定休日に設定）$/)
+  })
+
+  it('§v11 V11-2 — the all-stores lens chooses no store: no plane and no 設定 read ever asks core for a store policy; a store asks for its own', async () => {
+    const spy = withReads()
+    await Promise.all([data.readDayPlanes(VIEW_ALL, TODAY), data.readReservationPlanes(VIEW_ALL), data.readAnalyticsPlanes(VIEW_ALL), data.readStoreHours(VIEW_ALL, TODAY)])
+    expect(spy.storePolicyGet).not.toHaveBeenCalled()
+    await data.readStoreHours(STORE.gym, TODAY)
+    expect(spy.storePolicyGet.mock.calls).toEqual([[STORE.gym]])
+  })
+
+  // ⚖ §v11 V11-7 — THE PLANE CARRIES THE WEEK. テスト横浜店 holds NO hours in core (CENSUS-S18 § A: weekly_hours null), so
+  // these two tests alone answer for it an invented week: its own window per weekday, closed Wednesday AND Saturday.
+  const WEEK_WS = {
+    sun: { open: '09:00', close: '18:00' }, mon: { open: '10:00', close: '19:00' }, tue: { open: '10:00', close: '19:00' }, wed: null,
+    thu: { open: '11:00', close: '22:00' }, fri: { open: '10:00', close: '19:00' }, sat: null,
+  }
+  const withWeek = () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama ? { ...POLICIES[id], source: 'custom', weekly_hours: WEEK_WS } : POLICIES[id]))
+    return spy
+  }
+  it('§v11 V11-7 — 設定 states each weekday its OWN window from the week (never today\'s pair repeated), and the length ceiling is the longest day', async () => {
+    withWeek()
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.yokohama })
+    const c = new Map(props.sections.flatMap((x) => x.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls))).map((x) => [x.id, x]))
+    const row = (d: number) => (c.get(`store-hours.day-${d}`)?.value === true ? `${c.get(`store-hours.open-${d}`)?.value}–${c.get(`store-hours.close-${d}`)?.value}` : 'closed')
+    expect([0, 1, 2, 3, 4, 5, 6].map(row)).toEqual(['09:00–18:00', '10:00–19:00', '10:00–19:00', 'closed', '11:00–22:00', '10:00–19:00', 'closed'])
+    expect((c.get('store-hours.block-step')?.control as { max?: number }).max).toBe(11 * 60)
+  })
+  it('§v11 V11-7 — a week closed Wed + Sat marks BOTH on the month calendar and the shift board, and every printer names both', async () => {
+    withWeek()
+    const today = (await board(STORE.yokohama)) as unknown as { calendar: Array<{ wd: number; closed?: boolean }>; closedWeekdayLabel: string | null }
+    const closedWds = (days: Array<{ wd: number; closed?: boolean }>) => [...new Set(days.filter((d) => d.closed).map((d) => d.wd))].sort()
+    expect(closedWds(today.calendar)).toEqual([3, 6])
+    expect(today.closedWeekdayLabel).toBe('水曜・土曜')
+    const ShiftsPage = (await import('@/app/[locale]/(business)/business/shifts/page')).default
+    const shifts = await ShiftsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.yokohama }) })
+    expect(closedWds((shifts as unknown as { props: { plane: { days: Array<{ wd: number; closed: boolean }> } } }).props.plane.days)).toEqual([3, 6])
+    expect((await settingsHours(STORE.yokohama)).audit).toMatch(/（水曜・土曜を定休日に設定）$/)
+  })
+
+  it('§v11 V11-2a (final 17:5x) — a malformed weekday never takes the week with it and never borrows another world\'s day: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows and is drawn with the store\'s OWN usual window, logged', async () => {
+    const spy = withReads()
+    const bad = { ...WEEK_WS, mon: { open: '10:00', close: '25:00' } }
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama ? { ...POLICIES[id], source: 'custom', weekly_hours: bad } : POLICIES[id]))
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const day = await data.readDayPlanes(STORE.yokohama, TODAY + 1) // Tuesday 9/15
+      const [W, T] = [{ open: 600, close: 1140 }, { open: 660, close: 1320 }]
+      expect([hoursSource(day), day.operatingHours]).toEqual(['core', W])
+      expect(day.weeklyHours).toEqual([{ open: 540, close: 1080 }, W, W, null, T, W, null]) // Monday = the usual pair (Tue + Fri)
+      expect(day.closedWeekdays).toEqual([3, 6]) // core's own closures only — never a closure the store did not set
+      expect(quiet).toHaveBeenCalledWith("[practice hours] malformed weekday served as the store's usual window:", STORE.yokohama, '1')
+    } finally {
+      quiet.mockRestore()
+    }
+  })
+
+  it('§v11 V11-7 — the month calendar counts each day in its OWN window: Thursday (11–22) and Monday (10–19) fit different numbers of courses', async () => {
+    withWeek()
+    const { calendar } = (await board(STORE.yokohama)) as unknown as { calendar: Array<{ m: number; d: number; wd: number; fits?: number; booked?: number }> }
+    const [mon, thu] = [21, 17].map((d) => calendar.find((c) => c.m === 9 && c.d === d)!) // no 横浜 booking on either day
+    expect([mon.wd, thu.wd, mon.booked, thu.booked]).toEqual([1, 4, 0, 0])
+    expect(thu.fits).toBeLessThan(mon.fits!) // the sample staff day starts at 10:00; Thursday's window opens at 11:00
+  })
+
+  it('§v11 V11-6 P1 — never again: every live booking of the day lies inside the hours the board draws, today and tomorrow, on every store with core hours', async () => {
+    let seen = 0
+    for (const store of Object.keys(OWN_HOURS)) {
+      for (const dayKey of [TODAY, TODAY + 1]) {
+        const { operatingHours: h } = await data.readDayPlanes(store, dayKey)
+        const live = (await data.listAppointments(store)).filter((a) => jstDayKey(a.starts_at) === dayKey && a.status !== 'cancelled')
+        seen += live.length
+        const outside = live.filter((a) => jstMinuteOfDay(a.starts_at) < h.open || jstMinuteOfDay(a.ends_at) > h.close)
+        expect({ store, dayKey, outside: outside.map((a) => `${a.starts_at}–${a.ends_at}`) }).toEqual({ store, dayKey, outside: [] })
+      }
+    }
+    expect(seen).toBe(14) // 東京 3 · the gym 7 + 3 · 自由が丘 1 — never a vacuous pass
+  })
+
+  // ⚖ §v11 V11-5 — the override table is the SAMPLE world's: exercised on stores core holds no hours for.
+  it('§v9 — a per-store value moves only its own plane\'s stores: 横浜 (STORE_B) its own 定休日 · 営業時間 · opsConfig; Dev 銀座 and Dev Salon (a borrower takes STORE_A\'s plane, ⚖ §v4 V4-2) STORE_A\'s 定休日; the all-stores view keeps the shared set (V9-2)', async () => {
     const hoursB = { open: 9 * 60, close: 20 * 60 }
     const opsB = { ...opsConfig }
     SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: 3, operatingHours: hoursB, opsConfig: opsB }
     SINGLETONS_BY_FIXTURE_STORE[STORE_A] = { closedWeekday: 9 }
     try {
       const yokohama = await data.readDayPlanes(STORE.yokohama, TODAY)
-      expect(yokohama.closedWeekday).toBe(3)
+      expect(yokohama.closedWeekdays).toEqual([3])
       expect(yokohama.operatingHours).toBe(hoursB)
       expect(yokohama.opsConfig).toBe(opsB)
       expect((await data.readReservationPlanes(STORE.yokohama)).operatingHours).toBe(hoursB)
-      expect((await data.readAnalyticsPlanes(STORE.yokohama)).closedWeekday).toBe(3)
-      const tokyo = await data.readDayPlanes(STORE.tokyo, TODAY)
-      expect(tokyo.closedWeekday).toBe(9)
-      expect(tokyo.operatingHours).toBe(operatingHours) // the keys it does not name stay shared
-      expect(tokyo.opsConfig).toBe(opsConfig)
-      expect((await data.readDayPlanes(STORE.devSalon, TODAY)).closedWeekday).toBe(9)
+      expect((await data.readAnalyticsPlanes(STORE.yokohama)).closedWeekdays).toEqual([3])
+      const ginza = await data.readDayPlanes(STORE.devGinza, TODAY)
+      expect(ginza.closedWeekdays).toEqual([9])
+      expect(ginza.operatingHours).toBe(operatingHours) // the keys it does not name stay shared
+      expect(ginza.opsConfig).toBe(opsConfig)
+      expect((await data.readDayPlanes(STORE.devSalon, TODAY)).closedWeekdays).toEqual([9])
       const all = await data.readDayPlanes(VIEW_ALL, TODAY) // V9-2 — viewAll chooses no store, so neither entry applies
-      expect(all.closedWeekday).toBe(1)
+      expect(all.closedWeekdays).toEqual([1])
       expect(all.operatingHours).toBe(operatingHours)
-      expect((await data.readAnalyticsPlanes(VIEW_ALL)).closedWeekday).toBe(1)
+      expect((await data.readAnalyticsPlanes(VIEW_ALL)).closedWeekdays).toEqual([1])
     } finally {
       delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
       delete SINGLETONS_BY_FIXTURE_STORE[STORE_A]
@@ -1273,8 +1410,8 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     SINGLETONS_BY_FIXTURE_STORE[STORE_B] = { closedWeekday: undefined }
     try {
       const yokohama = await data.readDayPlanes(STORE.yokohama, TODAY)
-      expect(yokohama.closedWeekday).toBe(1)
-      expect(yokohama.closedWeekday).toBe(closedWeekday)
+      expect(yokohama.closedWeekdays).toEqual([1])
+      expect(yokohama.closedWeekdays).toEqual([closedWeekday])
       expect(yokohama.operatingHours).toBe(operatingHours)
     } finally {
       delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]

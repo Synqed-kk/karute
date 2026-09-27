@@ -313,7 +313,7 @@ describe('the fixture data door', () => {
       // ⚖ A1b · K11 — `./fixtures-settings`: OFF, a store's address is its SAMPLE 店舗情報 dial
       // (`readStoreAddress`); ON it is the door's own core store record.
       // ⚖ R-S39-1 — `./practice-door/door-booking-colors`: 予約の色分け's writer, door.ts's sibling (its own allowlist key).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/switch'],
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/store-hours', './practice-door/switch'],
       // ⚖ R-S39-1 — the second writer's file: the actor and the switch (OFF has no writer), door.ts's two exported
       // helpers (the once-per-actor org read, the one settings.manage truth), the clock (the audit line's time),
       // the import-free palette leaf (never today-board.ts, which would bring the fixtures), and a LAZY ./core-reach.
@@ -334,7 +334,9 @@ describe('the fixture data door', () => {
       // port's boundary), so the door's `readReserveCardColor` never grows a second.
       // ⚖ A2 (Liam 9/24) — the ONE writer: `../reserve-card/palette` (the 12 it accepts), `./switch` (OFF has
       // no writer) and a LAZY `./core-reach` (the write-only org-settings handle; the OFF path never loads it).
-      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-facade', './switch'],
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-facade', './store-hours', './switch'],
+      // ⚖ §v11 — the store's own 営業時間 · 定休日 reading: pure, the read's TYPE only.
+      'src/business/lib/practice-door/store-hours.ts': ['./core-reach'],
       'src/business/lib/fixtures.ts': ['./clock'],
       // ⚖ D-15/D-24 (B2) — `./canon-logic/pricing` JOINED this inventory,
       // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
@@ -899,6 +901,8 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-shifts',
         '@/business/lib/fixtures-today',
         '@/business/lib/practice-door/sample-facade',
+        // ⚖ §v11 V11-7 — the week's ONE derivation (the shared pair on every day but the 定休日) for the storeless lens.
+        '@/business/lib/practice-door/store-hours',
         // ⚖ PR-3 §v3 V3-5 — the dateline drops サンプルデータ under the door (the switch itself, read once).
         '@/business/lib/practice-door/switch',
         // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).

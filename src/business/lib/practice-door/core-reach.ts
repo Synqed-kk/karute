@@ -49,5 +49,7 @@ export function readsOf(client: CoreClient) {
     appointmentsList: (o?: Parameters<CoreClient['appointments']['list']>[0]) => client.appointments.list(o),
     orgSettingsGet: () => client.orgSettings.get(),
     resourcesList: (o?: Parameters<CoreClient['resources']['list']>[0]) => client.resources.list(o),
+    // ⚖ §v11 V11-1 — the store's own weekly_hours (営業時間 · 定休日), one store per call.
+    storePolicyGet: (storeId: string) => client.storePolicies.get(storeId),
   }
 }

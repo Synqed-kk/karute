@@ -165,7 +165,7 @@ function contextFor(roster: RosterMember[], todayKey: number, withAbsence = true
     const key = jstDayKey(a.starts_at)
     byDay.set(key, [...(byDay.get(key) ?? []), a])
   }
-  const leaves = resolveLeaveRequests(leaveRequests, roster, todayKey, byDay, closedWeekday)
+  const leaves = resolveLeaveRequests(leaveRequests, roster, todayKey, byDay, [closedWeekday])
   const bookedKeys = new Set<string>()
   for (const [dayKey, rows] of byDay) {
     for (const a of rows) {
@@ -173,7 +173,7 @@ function contextFor(roster: RosterMember[], todayKey: number, withAbsence = true
     }
   }
   return {
-    closedWd: closedWeekday,
+    closedWds: [closedWeekday],
     todayKey,
     absence: withAbsence ? absence : null,
     leaveKeys: new Set(leaves.map((l) => editKey(l.staffId, l.dayKey))),
@@ -189,7 +189,7 @@ function rosterFor(todayKey: number, ids: string[] = staff.map((s) => s.id)): Ro
     shifts,
     staffQualifications,
     hourlyWage,
-    closedWeekday,
+    [closedWeekday],
     todayKey,
   )
 }
@@ -286,13 +286,13 @@ describe('the shift plane is operationally possible', () => {
     // store: it reads the id, which no lens can change.
     expect(seatOf('p-05')).toBe(seatOf('p-05'))
     expect(seatOf('p-05')).not.toBe(seatOf('c-03'))
-    expect(restWeekday(seatOf('p-05'), 1, 6)).toBe(restWeekday(seatOf('p-05'), 1, 6))
+    expect(restWeekday(seatOf('p-05'), [1], 6)).toBe(restWeekday(seatOf('p-05'), [1], 6))
     // and it never lands on the closed day or on today
     for (const id of ['p-01', 'p-02', 'c-03', 'p-04', 'p-05', 'p-06']) {
       for (let closed = 0; closed < 7; closed += 1) {
         for (let today = 0; today < 7; today += 1) {
           if (closed === today) continue
-          const wd = restWeekday(seatOf(id), closed, today)
+          const wd = restWeekday(seatOf(id), [closed], today)
           expect(wd).not.toBe(closed)
           expect(wd).not.toBe(today)
         }
@@ -311,7 +311,7 @@ describe('the shift plane is operationally possible', () => {
           const key = jstDayKey(a.starts_at)
           byDay.set(key, [...(byDay.get(key) ?? []), a])
         }
-        const resolved = resolveLeaveRequests(leaveRequests, roster, todayKey, byDay, closedWeekday)
+        const resolved = resolveLeaveRequests(leaveRequests, roster, todayKey, byDay, [closedWeekday])
         expect(resolved).toHaveLength(leaveRequests.length)
         for (const l of resolved) {
           const member = roster.find((m) => m.id === l.staffId)!
@@ -335,7 +335,7 @@ describe('the shift plane is operationally possible', () => {
         const key = jstDayKey(a.starts_at)
         byDay.set(key, [...(byDay.get(key) ?? []), a])
       }
-      const resolved = resolveLeaveRequests(leaveRequests, roster, todayKey, byDay, closedWeekday)
+      const resolved = resolveLeaveRequests(leaveRequests, roster, todayKey, byDay, [closedWeekday])
       const clashing = resolved.filter((l) => l.conflicts.length > 0)
       expect(clashing).toHaveLength(1)
       expect(clashing[0].staffId).toBe('p-04')
@@ -372,7 +372,7 @@ describe('today on this board IS today on 今日の運営', () => {
     expect(today).toBeDefined()
     const roster = props.plane.roster as unknown as RosterMember[]
     const ctx: DayContext = {
-      closedWd: props.plane.closedWd,
+      closedWds: props.plane.closedWds,
       todayKey,
       absence: props.plane.absence,
       leaveKeys: new Set(props.plane.leaves.map((l) => editKey(l.staffId, l.dayKey))),
@@ -402,7 +402,7 @@ describe('today on this board IS today on 今日の運営', () => {
     const roster = props.plane.roster as unknown as RosterMember[]
     const her = roster.find((m) => m.id === absence.staff_id)!
     const ctx: DayContext = {
-      closedWd: props.plane.closedWd,
+      closedWds: props.plane.closedWds,
       todayKey: props.plane.todayKey,
       absence: props.plane.absence,
       leaveKeys: new Set(),
@@ -1210,7 +1210,7 @@ describe('every data state renders sanely', () => {
     const roster = props.plane.roster as unknown as RosterMember[]
     const withBreak = roster.find((m) => m.shift && m.shift.breaks.length > 0)!
     const cell = cellFor(withBreak, props.plane.days.find((d) => !d.closed)!.dayKey, {
-      closedWd: props.plane.closedWd,
+      closedWds: props.plane.closedWds,
       todayKey: props.plane.todayKey,
       absence: null,
       leaveKeys: new Set(),
@@ -1421,7 +1421,7 @@ describe('E-2 · the boards scale to any roster size', () => {
       rows,
       Object.fromEntries(people.map((p) => [p.id, ['整体']])),
       Object.fromEntries(people.map((p, i) => [p.id, 1500 + (i % 7) * 130])),
-      closedWeekday,
+      [closedWeekday],
       todayKey,
     )
   }
@@ -1461,7 +1461,7 @@ describe('E-2 · the boards scale to any roster size', () => {
       const roster = syntheticRoster(28, todayKey)
       const month = monthCoords(todayKey, 0)
       const ctx: DayContext = {
-        closedWd: closedWeekday,
+        closedWds: [closedWeekday],
         todayKey,
         absence: null,
         leaveKeys: new Set(),
@@ -1499,7 +1499,7 @@ describe('E-2 · the boards scale to any roster size', () => {
       const roster = syntheticRoster(28, todayKey)
       const month = monthCoords(todayKey, 0).days
       const ctx: DayContext = {
-        closedWd: closedWeekday, todayKey, absence: null,
+        closedWds: [closedWeekday], todayKey, absence: null,
         leaveKeys: new Set(), bookedKeys: new Set(),
         shiftEdits: new Map(), leaveAnswers: new Map(),
       }
