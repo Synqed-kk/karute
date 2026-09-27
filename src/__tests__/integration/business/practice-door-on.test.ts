@@ -47,6 +47,8 @@ import {
   staffListPrice as fxListPrice, staffQualifications,
 } from '@/business/lib/fixtures-today'
 import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
+import { dayBookings, dayTotals, type BuildInput } from '@/business/lib/today-board'
+import { weekdayOfKey } from '@/business/lib/practice-door/store-hours'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { accessFor as settingsAccessFor, RAIL, yen } from '@/business/lib/settings'
 import { salesTargets } from '@/business/lib/fixtures-analytics'
@@ -1356,12 +1358,15 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
 
   it('§v11 V11-2a (final 17:5x) — a malformed weekday never takes the week with it and never borrows another world\'s day: Monday 「25:00」 keeps Tuesday–Sunday\'s real windows and is drawn with the store\'s OWN usual window, logged', async () => {
     const spy = withReads()
-    const bad = { ...WEEK_WS, mon: { open: '10:00', close: '25:00' } }
+    // ⚖ §v11 V11-14 P9 (PR-B) — RE-PINNED at a usual pair (Tue + Fri 09:00–20:00) that is NOT the sample default 10:00–19:00:
+    // the old pin's usual pair equalled the sample one, so it could not tell the usual-pair path from the sample path.
+    const U = { open: '09:00', close: '20:00' }
+    const bad = { ...WEEK_WS, mon: { open: '10:00', close: '25:00' }, tue: U, fri: U }
     spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama ? { ...POLICIES[id], source: 'custom', weekly_hours: bad } : POLICIES[id]))
     const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const day = await data.readDayPlanes(STORE.yokohama, TODAY + 1) // Tuesday 9/15
-      const [W, T] = [{ open: 600, close: 1140 }, { open: 660, close: 1320 }]
+      const [W, T] = [{ open: 540, close: 1200 }, { open: 660, close: 1320 }]
       expect([hoursSource(day), day.operatingHours]).toEqual(['core', W])
       expect(day.weeklyHours).toEqual([{ open: 540, close: 1080 }, W, W, null, T, W, null]) // Monday = the usual pair (Tue + Fri)
       expect(day.closedWeekdays).toEqual([3, 6]) // core's own closures only — never a closure the store did not set
@@ -1393,6 +1398,111 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       }
     }
     expect(seen).toBe(23) // 東京 3 + (PR-B) its two C6 rows · the gym 13 + 4 (PR-B: production's whole day) · 自由が丘 1 — never a vacuous pass
+  })
+
+  // ⚖ §v11 V11-14 (the board fix, PR-B) — THE NEVER-AGAIN PINS for the sample day vs the live day, over the recorded world.
+  const ALL7 = [STORE.tokyo, STORE.yokohama, ...BORROWERS]
+  /** A store's day as the board draws it: its own `dayBookings` (onBoard), on a roster person's lane or a room's. */
+  const drawnOn = async (store: string, dayKey: number) => {
+    const [planes, roster, rooms, appointments] = [await data.readDayPlanes(store, dayKey), ids(await data.listStaff(store)), ids(await data.listResources(store)), await data.listAppointments(store)]
+    const input = { appointments, customers: [], menus: [], staff: [], resources: [], absence: planes.absence, dayKey } as unknown as BuildInput
+    const drawn = dayBookings(input).filter((b) => b.onBoard && ((b.staffId !== null && roster.includes(b.staffId)) || (b.resourceId !== null && rooms.includes(b.resourceId))))
+    return { planes, roster, appointments, drawn }
+  }
+
+  it('§v11 V11-14 P4 — never again: every drawn row lies inside its person\'s served shift, clear of their break and their 勤務不可, on every practice store, today and tomorrow', async () => {
+    let seen = 0
+    const bad: string[] = []
+    for (const store of ALL7) {
+      for (const dayKey of [TODAY, TODAY + 1]) {
+        const { planes, roster, drawn } = await drawnOn(store, dayKey)
+        const shiftOf = new Map(planes.shifts.map((x) => [x.staff_id, x])) // the board's own rule: the last row per person
+        bad.push(...drawn.filter((b) => b.staffId !== null && roster.includes(b.staffId)).flatMap((b) => {
+          seen += 1
+          const x = shiftOf.get(b.staffId!)
+          const why = [
+            !x ? '本日勤務なし' : b.startMinute < x.start ? '勤務前' : b.endMinute > x.end ? '終業' : '',
+            (x?.breaks ?? []).some((br) => b.startMinute < br.end && br.start < b.endMinute) ? '休憩' : '',
+            planes.absence?.staff_id === b.staffId && b.endMinute > planes.absence.from ? '勤務不可' : '',
+          ].filter(Boolean)
+          return why.length > 0 ? [`${store.slice(0, 8)} +${dayKey - TODAY} ${b.timeRange} ${b.staffId!.slice(0, 8)} ${why.join('・')}`] : []
+        }))
+      }
+    }
+    expect({ bad, seen }).toEqual({ bad: [], seen: 25 }) // 東京 5 · 横浜 2 · the gym 13 + 4 · 自由が丘 1 — never a vacuous pass
+  })
+
+  it('§v11 V11-14 P6 — never again: 本日の予約件数 = |drawn ∪ carried by an open served decision card| on every practice store (a union, never a sum)', async () => {
+    const off: object[] = []
+    for (const store of ALL7) {
+      for (const dayKey of [TODAY, TODAY + 1]) {
+        const { planes, appointments, drawn } = await drawnOn(store, dayKey)
+        const day = appointments.filter((a) => jstDayKey(a.starts_at) === dayKey) // the page's own count input (today/page.tsx)
+        const held = new Set(day.filter((a) => a.status !== 'cancelled').map((a) => a.id))
+        // A card naming a booking the day does not hold carries nothing.
+        const carried = planes.decisions.flatMap((d) => (d.state === 'open' && d.appointment_id !== null && held.has(d.appointment_id) ? [d.appointment_id] : []))
+        const union = new Set([...drawn.map((b) => b.id), ...carried])
+        const [count, unseen] = [dayTotals(day, 0).count, [...held].filter((id) => !union.has(id))]
+        if (count !== union.size || unseen.length > 0) off.push({ store, dayKey: dayKey - TODAY, count, drawnOrCarried: union.size, unseen })
+      }
+    }
+    expect(off).toEqual([])
+  })
+
+  it("§v11 V11-14 P7 — never again: a 'core' store's served shifts cover its own [open, close] on an open day, and a closed weekday serves [] (a key, never a gap) — board and calendar", async () => {
+    const edges = (xs: Array<{ start: number; end: number }>) => (xs.length === 0 ? null : [Math.min(...xs.map((x) => x.start)), Math.max(...xs.map((x) => x.end))])
+    const [got, want]: object[][] = [[], []]
+    for (const [store, [pair, closed]] of Object.entries(OWN_HOURS)) {
+      for (const dayKey of [TODAY, TODAY + 1]) {
+        const [day, cal] = [await data.readDayPlanes(store, dayKey), await data.listShiftsByDay(store, { from: dayKey, to: dayKey })]
+        const own = closed.includes(weekdayOfKey(dayKey)) ? null : [pair.open, pair.close]
+        got.push({ store, dayKey: dayKey - TODAY, day: edges(day.shifts), cal: cal.has(dayKey) ? edges(cal.get(dayKey)!) : 'no key' })
+        want.push({ store, dayKey: dayKey - TODAY, day: own, cal: own })
+      }
+    }
+    expect(got).toEqual(want)
+  })
+
+  it('§v11 V11-14 P8 — never again: no sample sell slot is served on its person\'s live row, twin or borrower; 予約一覧 and the badge follow', async () => {
+    // Dev Salon with its two rooms (slot-01 → Invite Probe, slot-02 → perry) and 東京 (slot-01 → 見本 しろう): each slot-01's person
+    // holds a live booking inside the slot's window, on NO room — the room rule alone would serve both.
+    const at = (hm: string) => new Date(`2026-09-14T${hm}:00+09:00`).toISOString()
+    const booked = (n: string, store: string, staff_id: string) => ({ ...APPOINTMENTS[0], id: `00000000-0000-4000-8000-0000000000${n}`, store_id: store, staff_id, menu_id: MENU.zenten, resource_id: null, starts_at: at('16:30'), ends_at: at('17:00'), status: 'SCHEDULED' as const })
+    const rows = [booked('e8', STORE.devSalon, CARD.probe), booked('e9', STORE.tokyo, liveIdOf('staff', 'p-04')!)]
+    const spy = withReads()
+    spy.resourcesList.mockImplementation(async (q?: { store_id?: string }) => ({ resources: q?.store_id !== STORE.devSalon ? [] : ['d2', 'd1'].map((n) => ({ id: `00000000-0000-4000-8000-0000000000${n}`, store_id: STORE.devSalon, name: `個室${n}`, note: null, room_class: 'standard' as const, cleanup_minutes: 0, display_order: 0, active: true, created_at: 'x', updated_at: 'x' })) }))
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const more = rows.filter((a) => (!q?.store_id || a.store_id === q.store_id) && (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) && (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)))
+      return (q?.page ?? 1) > 1 ? r : { ...r, appointments: [...r.appointments, ...more] }
+    })
+    const counts = await data.readUnresolvedCounts()
+    let served = 0
+    const [got, want]: object[][] = [[], []]
+    for (const store of ALL7) {
+      const [day, res] = [await data.readDayPlanes(store, TODAY), await data.readReservationPlanes(store)]
+      const live = (await data.listAppointments(store)).filter((a) => jstDayKey(a.starts_at) === TODAY && a.board_state !== null)
+      const onRow = (xs: typeof day.sellSlots) => xs.filter((x) => live.some((a) => a.staff_id === x.staff_id && jstMinuteOfDay(a.starts_at) < x.end && x.start < jstMinuteOfDay(a.ends_at))).map((x) => x.id)
+      served += day.sellSlots.length
+      got.push({ store, day: onRow(day.sellSlots), res: onRow(res.sellSlots), badge: counts.byStore[store] })
+      want.push({ store, day: [], res: [], badge: day.decisions.filter((d) => d.state === 'open').length })
+    }
+    expect({ got, served }).toEqual({ got: want, served: 2 }) // each store's slot-02 still stands — never a vacuous pass
+  })
+
+  it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {
+    const { drawnRow } = await import('@/business/lib/practice-door/sample-day')
+    const all = await data.listAppointments(VIEW_ALL, {})
+    const statuses = new Set<string>()
+    for (const row of APPOINTMENTS.filter((a) => all.some((x) => x.id === a.id))) {
+      const a = all.find((x) => x.id === row.id)!
+      statuses.add(row.status)
+      const drawn = dayBookings({ appointments: [a], customers: [], menus: [], staff: [], resources: [], absence: null, dayKey: jstDayKey(a.starts_at) } as unknown as BuildInput).length === 1
+      expect({ id: row.id, status: row.status, drawn }).toEqual({ id: row.id, status: row.status, drawn: drawnRow(row) })
+    }
+    expect([...statuses].sort()).toEqual(['CANCELLED', 'COMPLETED', 'IN_PROGRESS', 'NO_SHOW', 'SCHEDULED']) // every core status, both sides
+    expect(APPOINTMENTS.filter((a) => a.kind === 'BLOCK').some(drawnRow)).toBe(false) // a BLOCK is never a booking card
   })
 
   // ⚖ §v11 V11-5 — the override table is the SAMPLE world's: exercised on stores core holds no hours for.
