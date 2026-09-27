@@ -405,6 +405,21 @@ describe('board derivations', () => {
     expect(drawnWindow({ open: 630, close: 1110 }, at([600, 640], [1100, 1130]))).toEqual({ open: 570, close: 1170 })
   })
 
+  // ⚖ §v11 V11-15 fix round 1 — P15: a bed's turnover is cut by the store's closing time, not by an axis a late card grew.
+  it('§v11 V11-15 P15 — a turnover block ends at the store\'s close (22:00), not past it, when the axis runs to 24:00; unchanged when the axis IS the hours', () => {
+    const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
+    const row = { ...base, id: 'apt-late-bed', staff_id: null, resource_id: 'r-pr-c', starts_at: '2026-09-14T11:50:00.000Z', ends_at: '2026-09-14T12:50:00.000Z' } // 20:50–21:50 JST
+    const input = {
+      appointments: [row], customers: [], menus: [], staff: [], shifts: [], qualifications: {}, staffListPrice: {}, staffStores: {},
+      resources: [{ id: 'r-pr-c', name: 'ベッドC', store_id: 's-pr-c', cleanup_minutes: 30, note: '', room_class: 'standard' }],
+      absence: null, blocks: [], sellSlots: [], decisions: [], hours: { open: 420, close: 1320 }, dayKey: jstDayKey(row.starts_at),
+      operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
+    } as unknown as BuildInput
+    const cleanupEnd = (i: BuildInput) => buildLanes(i, dayBookings(i)).find((l) => l.key === 'r-pr-c')!.items.find((x) => x.kind === 'cleanup')?.endMin
+    expect(cleanupEnd({ ...input, hours: { open: 420, close: 1440 }, businessHours: { open: 420, close: 1320 } })).toBe(1320) // not 1340
+    expect(cleanupEnd(input)).toBe(1320) // the OFF path: axis == the store's hours, as today
+  })
+
   it('reads カテゴリー strongest-first: VIP over 回数券 over 新規/再来', () => {
     const base = customers.find((c) => c.id === 'cus-02')!
     expect(bookingCategory({ ...base, vip: true, ticket_balance: 5 }, 9)).toBe('vip')

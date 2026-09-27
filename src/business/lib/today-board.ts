@@ -791,10 +791,11 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
     // ⚖ D-53 (ak)/(al) N2c-2 R-3 — Home C: resolved ONCE per resource, the
     // same store lookup Home B uses.
     const t = input.wordsByStore[resource.store_id]?.turnoverWord ?? input.genericWords.turnoverWord!
+    // ⚖ §v11 V11-15 fix round 1 (P15) — a turnover is cut by the STORE's closing time, never by the axis.
     for (const c of cleanupBlocks(
       on.map((b) => ({ id: b.id, start: b.startMinute, end: b.endMinute })),
       resource.cleanup_minutes,
-      hours,
+      biz,
     )) {
       items.push({
         key: c.id,
