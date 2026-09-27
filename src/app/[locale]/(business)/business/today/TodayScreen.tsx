@@ -61,7 +61,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { bookingColorHex, hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
+import { bookingColorHex, hhmm, minuteOf, offHoursBands, place, yen, type BoardItem, type BoardLane, type BookingCategory, type BookingColors, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -611,7 +611,11 @@ export interface TodayProps {
   monthLabel: string
   isToday: boolean
   windowDays: number
+  /** The AXIS: the drawn window (⚖ §v11 V11-15(a)) — ruler, grid, every place()/minuteOf(). */
   hours: { open: number; close: number; count: number; labels: string[] }
+  /** ⚖ §v11 V11-15(b) — the store's OWN hours, for every RULE (sell/guard frames, the dialogs, the sentence).
+   *  Present only when the axis grew past them; absent, the axis IS the store's hours. */
+  businessHours?: { open: number; close: number }
   nowFraction: number | null
   nowLabel: string
   lanes: BoardLane[]
@@ -1122,6 +1126,8 @@ const sampleChip = (mark: SampleMarkForm) => (
 
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
+  const business = props.businessHours ?? hours
+  const offHours = props.businessHours ? offHoursBands(hours, props.businessHours) : []
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
   // board-wide site (group header, tab, legend, rail tour, create dialog)
   // reads these, never a per-lane lookup (C7).
@@ -2095,8 +2101,8 @@ export function TodayScreen(props: TodayProps) {
    *  Its own memo so the book below is not rebuilt by an `hours` object that
    *  merely re-rendered. */
   const ledgerFrame = useMemo<DayFrame>(
-    () => ({ openMin: hours.open, closeMin: hours.close, nowMin: props.sell.nowMinute ?? hours.open }),
-    [hours.open, hours.close, props.sell.nowMinute],
+    () => ({ openMin: business.open, closeMin: business.close, nowMin: props.sell.nowMinute ?? business.open }),
+    [business.open, business.close, props.sell.nowMinute],
   )
 
   /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE SALES DOOR: the COMMITTED
@@ -2192,7 +2198,7 @@ export function TodayScreen(props: TodayProps) {
         // closure over the chrome pair sits here rather than widening the
         // frozen type.
         bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),
-        closeMin: hours.close,
+        closeMin: business.close,
         nowMin: props.sell.nowMinute,
         guard: props.guard.config,
         gapGuardMode: props.guard.mode,
@@ -2202,7 +2208,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
         released: releasedHere,
       }),
-    [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere, chromeAsk],
+    [committedLanes, ledgerFrame, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere, chromeAsk],
   )
 
   /** ⚖ D-11 · ROUND 2 (2026-09-13) — THE TIMED RELEASE, APPLIED ONCE, WHERE
@@ -2358,7 +2364,7 @@ export function TodayScreen(props: TodayProps) {
   const { sell, sellDrops } = useMemo(
     () => {
       const sellDrops: SellDrop[] = []
-      const sell = sellLayerFor(committedLanes, hours, {
+      const sell = sellLayerFor(committedLanes, business, {
         gridMin: props.sell.gridMin,
         // ⚖ D-42/B2 — the store's own number, connected in the same PR that moved
         // every reader onto the cell's own `e`; never a literal.
@@ -2390,7 +2396,7 @@ export function TodayScreen(props: TodayProps) {
     },
     [
       committedLanes,
-      hours,
+      business,
       props.sell,
       locked,
       showSlotPrice,
@@ -2447,7 +2453,7 @@ export function TodayScreen(props: TodayProps) {
     if (!heldCommitted) return null
     return fallbackCellsFor({
       lanes: committedLanes,
-      closeMin: hours.close,
+      closeMin: business.close,
       dropped: sellDrops,
       survivors: sell.cells,
       claims: gapClaims,
@@ -2469,7 +2475,7 @@ export function TodayScreen(props: TodayProps) {
   }, [
     heldCommitted,
     committedLanes,
-    hours.close,
+    business.close,
     sellDrops,
     sell,
     gapClaims,
@@ -2740,7 +2746,7 @@ export function TodayScreen(props: TodayProps) {
       SELLING_ENGINE_LAW
         ? reservedMaskFor({
             lanes: boardLanes,
-            closeMin: hours.close,
+            closeMin: business.close,
             nowMin: props.sell.nowMinute,
             guard: props.guard.config,
             gapGuardMode: props.guard.mode,
@@ -2749,7 +2755,7 @@ export function TodayScreen(props: TodayProps) {
             excludeId: handId,
           })
         : undefined,
-    [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
+    [boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
   )
 
   /** ⚖ ROUND 2 — AND THE LIVE MASK GETS THE SAME SUBTRACTION, so the rail can
@@ -2827,8 +2833,8 @@ export function TodayScreen(props: TodayProps) {
    *  placement one — nothing is being placed, so there is no `excludeId`, no
    *  `placementFeasible`, and with two real boards there is nothing left to lift. */
   const inputOn = useCallback((lanes: BoardLane[]): RailInput => ({
-    open: hours.open,
-    close: hours.close,
+    open: business.open,
+    close: business.close,
     // the rail's 30-minute grid, spelled the way this screen's own two RailInput
     // sites spell it — there is no constant for it in this file.
     stepMin: 30,
@@ -2844,7 +2850,7 @@ export function TodayScreen(props: TodayProps) {
     protectedWindowFeasible: windowDoorOn(lanes),
     resting: null,
     restingWindowFeasible: undefined,
-  }), [hours.open, hours.close, props.guard.standardSessionMin, props.guard.protectedDurationMin,
+  }), [business.open, business.close, props.guard.standardSessionMin, props.guard.protectedDurationMin,
        props.guard.config, props.sell.nowMinute, locked, windowDoorOn])
 
   const pendingId = pending?.id ?? null
@@ -2932,7 +2938,7 @@ export function TodayScreen(props: TodayProps) {
       lanes: originLanes,
       frame: ledgerFrame,
       bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),
-      closeMin: hours.close,
+      closeMin: business.close,
       nowMin: props.sell.nowMinute,
       guard: props.guard.config,
       gapGuardMode: props.guard.mode,
@@ -2944,7 +2950,7 @@ export function TodayScreen(props: TodayProps) {
     // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
     // these two boards, so a release on one of them alone IS a reported loss.
     return releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
-  }, [dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
+  }, [dayStaged, originLanes, ledgerFrame, business.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
   /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
    *
    *  `lostOn` subtracts two settled boards, so both of them have to come out of
@@ -3019,8 +3025,8 @@ export function TodayScreen(props: TodayProps) {
           // strip. `=== boardLanes` for every other gesture, so this is today's
           // memo byte for byte away from a staged re-drag.
           guardRailsFor(handBoard, {
-            open: hours.open,
-            close: hours.close,
+            open: business.open,
+            close: business.close,
             stepMin: 30,
             dur: railDur,
             protectedDur: props.guard.protectedDurationMin,
@@ -3051,7 +3057,7 @@ export function TodayScreen(props: TodayProps) {
             restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,
           }, laneWords)
         : [],
-    [guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
+    [guardOn, handBoard, hours, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
   /** ⚖ LIAM RULING 1 (2026-09-09) — THE BED TRUTH FOR ONE WINDOW ON ONE LANE.
@@ -3392,8 +3398,8 @@ export function TodayScreen(props: TodayProps) {
     (laneKey: string, start: number, dur: number, excludeId: string | null, lanes: BoardLane[] = boardLanes): RailCell | null =>
       guardOn
         ? guardVerdictAt(lanes, laneKey, start, {
-            open: hours.open,
-            close: hours.close,
+            open: business.open,
+            close: business.close,
             stepMin: 30,
             dur,
             protectedDur: props.guard.protectedDurationMin,
@@ -3417,7 +3423,7 @@ export function TodayScreen(props: TodayProps) {
             restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(excludeId, lanes) : undefined,
           }, laneWords)
         : null,
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
+    [guardOn, boardLanes, hours, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
   )
 
   /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT, ASKED FROM THE SCREEN.
@@ -7829,6 +7835,13 @@ export function TodayScreen(props: TodayProps) {
             )
           }}
         >
+          {/* ⚖ §v11 V11-15(c) — 営業時間外, under everything: a statement, not a control (never `.event`). */}
+          {offHours.map((b) => (
+            <span className="offhours" role="note" key={b.key} aria-label={b.label} style={{ '--x': `${b.x}%`, '--w': `${b.w}%` } as React.CSSProperties}>
+              <strong>{b.title}</strong>
+              <small>{b.time}</small>
+            </span>
+          ))}
           {/* Under everything the board is SELLING — a cue about why a space is
               empty may never sit on top of an offer. `--x`/`--w` is the same
               positioning grammar `.cell-price` uses; 30 is the rail's own step
@@ -8891,7 +8904,7 @@ export function TodayScreen(props: TodayProps) {
                 {pop === 'help' && (
                   <div className="fields-pop help-pop">
                     <strong>操作ヒント</strong>
-                    <span>営業時間 {hhmm(hours.open)}–{hhmm(hours.close)}・時間外は非表示</span>
+                    <span>営業時間 {hhmm(business.open)}–{hhmm(business.close)}{props.businessHours ? '・営業時間外の予約も表示' : ''}</span>
                     <span>カードはドラッグで移動・両端で時間変更</span>
                     <span>キーボード: Shift＋←/→で開始、Alt＋←/→で終了を30分ずつ変更</span>
                     <span>仮置きエリア（ボード上の点線バー）: 日付をまたいで予約を変更したい場合は、一旦このエリアに置いてください。置いた予約は仮押さえになります。</span>
@@ -9345,7 +9358,7 @@ export function TodayScreen(props: TodayProps) {
               <div
                 className="timeline-scroll"
                 tabIndex={0}
-                aria-label={`営業時間${hhmm(hours.open)}から${hhmm(hours.close)}の予約ボード`}
+                aria-label={`営業時間${hhmm(business.open)}から${hhmm(business.close)}の予約ボード${props.businessHours ? `（営業時間外を含め${hhmm(hours.open)}から${hhmm(hours.close)}を表示）` : ''}`}
                 data-guide-title="今日のボード"
                 data-guide="空き枠をクリックで新規予約。カードはドラッグで移動、端をつかんで時間変更。"
               >
@@ -9371,7 +9384,7 @@ export function TodayScreen(props: TodayProps) {
                       />
                     </span>
                     <div className="hours">
-                      {hours.labels.map((h) => <span key={h}>{h}</span>)}
+                      {hours.labels.map((h) => <span key={h} className={Number(h) * 60 < business.open || Number(h) * 60 >= business.close ? 'off' : undefined}>{h}</span>)}
                     </div>
                   </div>
 
@@ -9708,6 +9721,7 @@ export function TodayScreen(props: TodayProps) {
         dialogRef={createRef}
         data={dialogs.create}
         hours={hours}
+        business={business}
         seed={seed}
         onCreate={(laneKey, item, message, priced) => {
           setAdded((was) => [...was, { ...board, laneKey, item, priced }])
@@ -10424,6 +10438,7 @@ function CreateDialog({
   dialogRef,
   data,
   hours,
+  business,
   seed,
   onCreate,
   turnoverWord,
@@ -10431,6 +10446,8 @@ function CreateDialog({
   dialogRef: React.RefObject<HTMLDialogElement | null>
   data: TodayProps['dialogs']['create']
   hours: TodayProps['hours']
+  /** ⚖ §v11 V11-15(b) — the store's own hours: every 営業時間 check below. `hours` only places the card. */
+  business: { open: number; close: number }
   seed: { staffId: string; start: number; nonce: number } | null
   onCreate: (laneKey: string, item: BoardItem, message: string, priced: boolean) => void
   /** ⚖ D-53 (n) R-N2-4 — #28's already-resolved 「休憩・◯◯」 example word: the
@@ -10440,7 +10457,7 @@ function CreateDialog({
   turnoverWord: string
 }) {
   const [tab, setTab] = useState<'book' | 'block'>('book')
-  const [start, setStart] = useState(hours.open + 6 * 60 >= hours.close ? hours.open : hours.open + 6 * 60)
+  const [start, setStart] = useState(business.open + 6 * 60 >= business.close ? business.open : business.open + 6 * 60)
   const [staffId, setStaffId] = useState(data.staff[0]?.id ?? '')
   const [search, setSearch] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
@@ -10460,9 +10477,9 @@ function CreateDialog({
   useEffect(() => {
     if (!seed) return
     setStaffId(seed.staffId)
-    setStart(Math.max(hours.open, Math.min(hours.close - 30, seed.start)))
+    setStart(Math.max(business.open, Math.min(business.close - 30, seed.start)))
     setTab('book')
-  }, [seed, hours.open, hours.close])
+  }, [seed, business.open, business.close])
 
   const everyone = useMemo(() => [...localCustomers, ...data.customers], [localCustomers, data.customers])
   const customer = everyone.find((c) => c.id === customerId) ?? null
@@ -10486,7 +10503,7 @@ function CreateDialog({
   /** canon's right-rail checks (:4691 grammar, computed per booking). A static
    *  「営業時間内 / 担当を選択済み」 would claim a check that never ran. */
   const checks: Check[] = [
-    { ok: end <= hours.close && start >= hours.open, label: end <= hours.close && start >= hours.open ? '営業時間内' : '営業時間を超えます' },
+    { ok: end <= business.close && start >= business.open, label: end <= business.close && start >= business.open ? '営業時間内' : '営業時間を超えます' },
     { ok: staffId !== '', label: staffId !== '' ? '担当を選択済み' : '担当が未選択です' },
     ...(tab === 'book'
       ? [
@@ -10516,7 +10533,7 @@ function CreateDialog({
       setError('お客様を選んでください')
       return
     }
-    if (end > hours.close) {
+    if (end > business.close) {
       setError('営業時間を超える予約は作成できません')
       return
     }
@@ -10569,9 +10586,9 @@ function CreateDialog({
             <div className="cc-field">
               開始・時間
               <span className="stepper">
-                <button type="button" aria-label="30分早く" onClick={() => setStart((s) => Math.max(hours.open, s - 30))}>‹</button>
+                <button type="button" aria-label="30分早く" onClick={() => setStart((s) => Math.max(business.open, s - 30))}>‹</button>
                 <b>{hhmm(start)}–{hhmm(end)}</b>
-                <button type="button" aria-label="30分遅く" onClick={() => setStart((s) => Math.min(hours.close - duration, s + 30))}>›</button>
+                <button type="button" aria-label="30分遅く" onClick={() => setStart((s) => Math.min(business.close - duration, s + 30))}>›</button>
               </span>
             </div>
             <div className="cc-field">

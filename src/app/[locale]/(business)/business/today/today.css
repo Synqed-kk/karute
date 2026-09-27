@@ -452,6 +452,12 @@
   background-color: #f7f7f8;
   background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px), linear-gradient(to right, var(--row) 1px, transparent 1px);
 }
+/* ⚖ §v11 V11-15(c) — 営業時間外: the locked lane's grey wash, under the cards, on every lane. A statement, never a
+   control — the pointer passes through, so drags and empty-slot clicks behave as before. Not the red 勤務不可 hatch:
+   the store is closed then, and a booking drawn on it still exists. */
+.biz .offhours { position: absolute; top: 0; bottom: 0; left: var(--x); width: var(--w); display: flex; flex-direction: column; justify-content: center; padding: 0 6px; overflow: hidden; white-space: nowrap; background-color: #f7f7f8; background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px); color: #a1a1aa; font-size: 10px; line-height: 1.25; pointer-events: none; }
+.biz .offhours strong { font-weight: 700; }
+.biz .hours span.off, .biz .page-today .hours span.off { color: #a1a1aa; }
 
 /* ── drag surfaces (canon :1436–1453) ────────────────────────────────────
    Both edges resize, so both edges must visibly say so. Real child grips keep
