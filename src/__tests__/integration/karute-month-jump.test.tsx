@@ -91,6 +91,17 @@ const jaMonth = (month: string) =>
     month: 'long',
   }).format(new Date(`${month}-01T00:00:00+09:00`))
 const CURRENT_MONTH_LABEL = jaMonth(CURRENT_MONTH)
+/** The CHIP's visible label (⚖ S46 option C): the month alone inside the
+ *  current year, the year too for any other — derived independently here, so
+ *  the pins keep telling the truth after the calendar turns a year. The chip's
+ *  accessible name is always the full jaMonth label. */
+const chipMonth = (month: string) =>
+  month.slice(0, 4) === CURRENT_MONTH.slice(0, 4)
+    ? new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'long' }).format(
+        new Date(`${month}-01T00:00:00+09:00`),
+      )
+    : jaMonth(month)
+const CURRENT_MONTH_CHIP = chipMonth(CURRENT_MONTH)
 /** The row directly under the current month in the panel. */
 const PREV_MONTH_LABEL = jaMonth(
   (() => {
@@ -170,16 +181,18 @@ describe('the month chip', () => {
     renderList()
     // ⚖ 月の件数 = オフ (S44): never a count on the month chip, even with a
     // 今月 number in hand (monthCount 2 here).
-    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_CHIP)
+    // …and its spoken name is the full year + month (option C).
+    expect(monthChip()).toHaveAccessibleName(CURRENT_MONTH_LABEL)
   })
 
   it('carries no count in any state — default, failed probe, past month picked', async () => {
     const { unmount } = renderList({ monthCount: null })
-    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_CHIP)
     unmount()
     renderList()
     await jumpToJanuary()
-    expect(monthChip().textContent).toBe('2026年1月')
+    expect(monthChip().textContent).toBe(chipMonth('2026-01'))
   })
 
   it('offers back to the session-date epoch month when no older row is loaded', () => {
@@ -268,7 +281,7 @@ describe('picking a month', () => {
   it('renames the chip to the picked month', async () => {
     renderList()
     await jumpToJanuary()
-    expect(monthChip().textContent).toBe('2026年1月')
+    expect(monthChip().textContent).toBe(chipMonth('2026-01'))
   })
 
   it('says the rows are LOADING rather than calling the month empty', async () => {
@@ -346,14 +359,14 @@ describe('leaving month view', () => {
   it('ANY pill tap returns to the default window WITH that filter applied', async () => {
     renderList()
     await jumpToJanuary()
-    expect(monthChip().textContent).toBe('2026年1月')
+    expect(monthChip().textContent).toBe(chipMonth('2026-01'))
 
     fireEvent.click(pill('draft'))
 
     // Back in the default window: the accumulated rows are on screen again,
     // straight out of state — no refetch.
     expect(loadKaruteWindow).toHaveBeenCalledTimes(3)
-    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_CHIP)
     expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
     // …and the tapped filter is the one now in force: every seeded row is
     // aiStatus 'summarized', so 下書き shows none of them while the pills
@@ -377,7 +390,7 @@ describe('leaving month view', () => {
     // fetched as a month (that would strip the counts and the button off a
     // screen the user thinks they just came back to).
     expect(loadKaruteWindow).toHaveBeenCalledTimes(3)
-    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_CHIP)
     expect(screen.getAllByText('山田 花子')).toHaveLength(2)
     expect(pill('all').textContent).toBe('filters.all9')
     expect(loadMoreQuery()).toBeInTheDocument()
@@ -493,7 +506,7 @@ describe('store switch (Greptile PR #784)', () => {
     // Store A's month rows are gone, and the view is back on the default
     // window the new store's props carry.
     expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
-    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_CHIP)
     // すべて is the STORE total since PR-2c, not a tally of the rows on screen
     // — so this now asserts something STRONGER than it did when it read 3: the
     // pill is showing the NEW store's total, which is precisely what this
@@ -565,7 +578,7 @@ describe('store switch (Greptile PR #784)', () => {
     // asserted free of store A's rows, so a stale 今週 is unreachable.
     // Store B's own truth is what landed.
     expect(pill('all').textContent).toBe('filters.all3')
-    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_CHIP)
   })
 
   it('resets the picker floor — store A\'s depth never stretches store B\'s months', async () => {
@@ -670,25 +683,25 @@ describe('store switch (Greptile PR #784)', () => {
     // own.
     const staffList = [{ id: 'staff-1', name: '田中 太郎', initials: '田中' }]
     const props = { staffList, currentStaffId: 'staff-1' }
-    // 案C+: the 担当 dropdown chip names the current pick ('all' / 'self' echo).
-    const staffChip = () => screen.getByRole('button', { name: /^(all|self)$/ })
+    // S46 option C: the 自分 | 全スタッフ ⌄ control — 自分 is its own segment.
+    const selfSegment = () => screen.getByRole('button', { name: 'self' })
     const { rerender } = render(listEl({ storeId: 'store-a', ...props }))
 
-    fireEvent.click(staffChip())
-    fireEvent.click(screen.getByRole('option', { name: 'self' }))
-    expect(staffChip()).toHaveTextContent(/^self$/)
+    fireEvent.click(selfSegment())
+    expect(selfSegment()).toHaveAttribute('aria-pressed', 'true')
 
     // PURGE — same store, a total that came back lower.
     await act(async () => {
       rerender(listEl({ storeId: 'store-a', ...props, total: 1 }))
     })
-    expect(staffChip()).toHaveTextContent(/^self$/)
+    expect(selfSegment()).toHaveAttribute('aria-pressed', 'true')
 
     // STORE SWITCH — different lens, different roster.
     await act(async () => {
       rerender(listEl({ storeId: 'store-b', ...props, total: 1 }))
     })
-    expect(staffChip()).toHaveTextContent(/^all$/)
+    expect(selfSegment()).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'all' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('drops a month response still in flight across the switch', async () => {

@@ -975,11 +975,10 @@ describe('pill counts', () => {
       { id: 'staff-1', name: '田中 太郎', initials: '田中' },
       { id: 'staff-2', name: '鈴木 花子', initials: '鈴木' },
     ]
-    // 案C+: 自分 is an option inside the 担当 dropdown chip now.
+    // S46 option C: 自分 is the 自分 | 全スタッフ ⌄ control's own segment.
     const selfToggle = () => ({
       click: () => {
-        fireEvent.click(screen.getByRole('button', { name: /^(all|self)$/ }))
-        fireEvent.click(screen.getByRole('option', { name: 'self' }))
+        fireEvent.click(screen.getByRole('button', { name: 'self' }))
       },
     })
 
@@ -1375,13 +1374,14 @@ describe('共有 pill + shared mode (D10, PR-C)', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('option', { name: '2026年7月' }))
     })
-    expect(monthChip().textContent).toBe('2026年7月')
+    // The chip's spoken name is always the full year + month (option C).
+    expect(monthChip()).toHaveAccessibleName('2026年7月')
 
     await act(async () => {
       fireEvent.click(sharedPill())
     })
 
-    expect(monthChip().textContent).not.toBe('2026年7月')
+    expect(monthChip()).not.toHaveAccessibleName('2026年7月')
     await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
     expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
     const sharedCalls = loadKaruteWindow.mock.calls.filter(
