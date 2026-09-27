@@ -63,3 +63,28 @@ it('§v11 V11-6 P3 — MOUNTED: every booking card on テスト恵比寿ジム\'
     host.remove()
   }
 })
+
+it('§v11 V11-14 P5 — MOUNTED: on テスト恵比寿ジム\'s board no hatch (休憩 · 勤務前 · 終業 · 本日勤務なし · 勤務不可) overlaps a booking card in its own lane', async () => {
+  // DIAGNOSIS C1 — the sample break 13:00–14:00 seated on 見本 けんた was drawn over 清水 亮 13:00–14:15; C5 / E1 the rest.
+  const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+  try {
+    const span = (el: Element) => {
+      const x = parseFloat((el as HTMLElement).style.getPropertyValue('--x'))
+      return { x, end: x + parseFloat((el as HTMLElement).style.getPropertyValue('--w')), label: el.getAttribute('aria-label') }
+    }
+    let cards = 0
+    const clashes = Array.from(host.querySelectorAll('.lane[data-group="staff"]')).flatMap((lane) => {
+      const booked = Array.from(lane.querySelectorAll('.track .event[data-book]')).map(span)
+      cards += booked.length
+      const hatches = Array.from(lane.querySelectorAll('.track .event.absence, .track .event[data-block*="-break-"]')).map(span)
+      return hatches.flatMap((h) => booked.filter((b) => b.x < h.end - 1e-9 && h.x < b.end - 1e-9).map((b) => `${h.label} × ${b.label}`))
+    })
+    expect({ clashes, cards }).toEqual({ clashes: [], cards: 13 }) // the gym's whole recorded day on its lanes — never a vacuous pass
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})

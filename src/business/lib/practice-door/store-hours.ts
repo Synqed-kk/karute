@@ -1,7 +1,9 @@
 // ⚖ §v11 V11-1…V11-3 + V11-7 (the board fix, PR-A) — a practice store's OWN 営業時間 · 定休日, read off core's
-// `weekly_hours`. Territory-local and pure: the fence denies territory `src/lib/operating-hours.ts`, so this
-// restates the one reading door.ts needs from its `resolveDayHours` (no 臨時休業 dates, no org blob):
-// `source: 'store'` there is 'core' here, anything else is 'sample'.
+// `weekly_hours`. Territory-local and pure: the fence denies territory `src/lib/operating-hours.ts`, so this reads a
+// week as its `resolveDayHours` does (no 臨時休業 dates, no org blob): no hours at all → 'sample'; a null or absent day
+// → 定休日; a well-formed window → its minutes, 'core'. ONE deliberate difference (V11-2a FINAL): a MALFORMED weekday is
+// named, never a closure and never the sample day, and door.ts serves it the store's OWN usual window under 'core' —
+// where `resolveDayHours` sends it on to the org blob / default (operating-hours.ts:265-266).
 
 import type { CoreReads } from './core-reach'
 

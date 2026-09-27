@@ -15,7 +15,8 @@
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
-import { closedWeekdaysOf, usualPairOf, weekdayOfKey, weekFromPair, weekOf, type StoreHours, type WeeklyHours } from './store-hours'
+import { liveSpans, serveDay } from './sample-day'
+import { closedWeekdaysOf, usualPairOf, weekdayOfKey, weekFromPair, weekOf, type StoreHours, type WeeklyHours, type Window } from './store-hours'
 import {
   appointments,
   customers,
@@ -198,7 +199,7 @@ function blockPieces(row: CoreAppointment): Array<[number, FixtureBlock]> {
  *  inclusive) for the lens — the BLOCKs grouped by day.
  *  The query starts a day EARLY so an overnight block begun on from−1 still
  *  reaches `from` (its from−1 piece is dropped by the key filter). */
-async function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
+async function readDayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
   const rows = await coreAppointments(actor, lens, { from: dayStartIso(range.from - 1), to: dayStartIso(range.to + 1) })
   const pieces = rows
     .filter((r) => r.kind === 'BLOCK')
@@ -209,6 +210,16 @@ async function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
     blocksByDay: new Map(keys.map((k) => [k, pieces.filter(([p]) => p === k).map(([, b]) => b)])),
     rows, // ⚖ R10 — the same read's rows, for the day's room occupancy
   }
+}
+/** ⚖ §v11 V11-12 (Greptile P2 on #1071) — ONE read per lens + range per request: the calendar's range is asked by
+ *  listBlocksByDay AND listShiftsByDay, today's by readDayPlanes AND listAbsenceByDay. Kept on the actor's bound reads
+ *  as `orgSettingsOf` keeps its answer (a keyed slot, never a Map: this folder's fence bans `.set(`); the key carries
+ *  the actor's visible stores, the read's only other input. */
+const ROWS_ONCE = Symbol('day rows, once per lens + range')
+function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange): ReturnType<typeof readDayRows> {
+  const reads: PracticeActor['reads'] & { [ROWS_ONCE]?: Record<string, ReturnType<typeof readDayRows>> } = actor.reads
+  const once = (reads[ROWS_ONCE] ??= {})
+  return (once[JSON.stringify([visibleIds(actor), lens, range.from, range.to])] ??= readDayRows(actor, lens, range))
 }
 
 export async function listStoreOptions(): Promise<FixtureStore[]> {
@@ -551,10 +562,11 @@ export async function listBlocksByDay(lens: StoreLens, range: DayRange): Promise
  *  every BOOKING or BLOCK on a room that is not CANCELLED / NO_SHOW (core's tombstones), from its
  *  start to its end extended — never shortened — by core's own `occupied_until` cleanup snapshot. */
 type Busy = Array<{ room: string; start: number; end: number }>
+const untilOf = (r: CoreAppointment) => (r.occupied_until !== null && Date.parse(r.occupied_until) > Date.parse(r.ends_at) ? r.occupied_until : r.ends_at)
 function roomsBusy(rows: CoreAppointment[], dayKey: number): Busy {
   return rows.flatMap((r): Busy => {
     if (r.resource_id === null || r.status === 'CANCELLED' || r.status === 'NO_SHOW') return []
-    const until = r.occupied_until !== null && Date.parse(r.occupied_until) > Date.parse(r.ends_at) ? r.occupied_until : r.ends_at
+    const until = untilOf(r)
     const [a, b] = [jstDayKey(r.starts_at), jstDayKey(until)]
     if (dayKey < a || dayKey > b) return []
     const span = { room: r.resource_id, start: a < dayKey ? 0 : jstMinuteOfDay(r.starts_at), end: b > dayKey ? 1440 : jstMinuteOfDay(until) }
@@ -584,6 +596,33 @@ function servedDecisions(rows: FixtureDecision[], seats: RosterSeats[], busy: Bu
   return rekeyRows(rows, seats, 'attribute', (raw, d) => raw.appointment_id === null && d.sell_slot_id !== null && slots.has(d.sell_slot_id))
 }
 
+/** ⚖ §v11 V11-12 — the live rows a server WITHOUT them in hand reads for the give-way: ONE read per call (a range for
+ *  the calendar). A failed read serves the plain sample day and says so — never a throw (the board's own read still
+ *  propagates, §7). */
+async function liveRowsOf(actor: PracticeActor, lens: StoreLens, range: DayRange): Promise<CoreAppointment[]> {
+  try {
+    return (await dayRows(actor, lens, range)).rows
+  } catch (e) {
+    console.error('[practice sample day] core did not answer:', e instanceof Error ? e.message : String(e))
+    return []
+  }
+}
+
+/** ⚖ §v11 V11-8 · V11-12 (PR-B; V11-11 → PR-B2) — THE one place a store's sample DAY is served, for every server below:
+ *  seated as before (the facade), then given way to the live day in `rows` (the door's own read of it; ./sample-day),
+ *  so the board, the calendar, 予約一覧 and the badge can never disagree. The absence and the decisions are today's. */
+function servedDay(seats: RosterSeats[], rows: CoreAppointment[], hours: StoreHours, sample: Window, dayKey: number) {
+  const today = dayKey === jstDayKey(renderNow())
+  const busy = roomsBusy(rows, dayKey) // ⚖ R10 — the rows this read already holds
+  const live = liveSpans(rows, dayKey)
+  const slots = servedSlots(seats, busy)
+  const served = servedDecisions(today ? decisions : [], seats, busy)
+  const carried = new Set(served.flatMap((d) => (d.state === 'open' && d.appointment_id !== null ? [d.appointment_id] : [])))
+  const roster = seats.flatMap((s) => s.roster.map((p) => p.id))
+  const seated = { shifts: rekeyRows(shifts, seats, 'identity'), absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null }
+  return { ...serveDay({ ...seated, roster, rows: live, carried, taken: slots, hours, sample, dayKey }), sellSlots: slots, decisions: served }
+}
+
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
   const actor = await practiceActor()
   const open = decisions.filter((d) => d.state === 'open')
@@ -597,20 +636,27 @@ export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, 
   return { byStore, all: Object.values(byStore).reduce((a, b) => a + b, 0) }
 }
 
+/** ⚖ §v11 V11-12 — each day of the range its OWN served shifts, from ONE range read of the live rows (a closed day of a
+ *  'core' store: [], never an absent key). The rows are grouped by day ONCE (Greptile P2 on #1071): a row counts on
+ *  every day from its start to its end — core's cleanup snapshot included, as roomsBusy reads it. */
 export async function listShiftsByDay(lens: StoreLens, range: DayRange): Promise<Map<number, FixtureShift[]>> {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
-  const rows = rekeyRows(shifts, await rosterOrderOf(actor, lens), 'identity')
-  return new Map(dayKeys(range).map((k) => [k, rows]))
+  const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)
+  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, jstDayKey(renderNow()), s), liveRowsOf(actor, lens, range)])
+  const on: Record<number, CoreAppointment[]> = {}
+  for (const r of day) for (let k = Math.max(range.from, jstDayKey(r.starts_at)); k <= Math.min(range.to, jstDayKey(untilOf(r))); k += 1) (on[k] ??= []).push(r)
+  return new Map(dayKeys(range).map((k) => [k, servedDay(seats, on[k] ?? [], hours, s.operatingHours, k).shifts]))
 }
 
 export async function listAbsenceByDay(lens: StoreLens, range: DayRange): Promise<Map<number, FixtureAbsence | null>> {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
   const todayKey = jstDayKey(renderNow())
-  const inRange = todayKey >= range.from && todayKey <= range.to
-  const row = rekeyRows(inRange ? [absence] : [], await rosterOrderOf(actor, lens), 'identity')[0] ?? null
-  return new Map(inRange ? [[todayKey, row]] : [])
+  if (todayKey < range.from || todayKey > range.to) return new Map()
+  const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)
+  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, todayKey, s), liveRowsOf(actor, lens, { from: todayKey, to: todayKey })])
+  return new Map([[todayKey, servedDay(seats, day, hours, s.operatingHours, todayKey).absence]])
 }
 
 /** ⚖ §v11 V11-1/V11-2/V11-7 — THE one place a plane's 営業時間 · 定休日 come from. A single-store lens draws its
@@ -647,27 +693,26 @@ export async function readStoreHours(lens: StoreLens, dayKey: number): Promise<S
 export async function readDayPlanes(lens: StoreLens, dayKey: number) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
-  const today = dayKey === jstDayKey(renderNow())
   const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null) // ⚖ §v9 V9-1/V9-2
   const [day, seats, hours] = await Promise.all([dayRows(actor, lens, { from: dayKey, to: dayKey }), rosterOrderOf(actor, lens), storeHoursOf(actor, lens, dayKey, s)])
-  const busy = roomsBusy(day.rows, dayKey) // ⚖ R10 — the rows this read already holds
+  const served = servedDay(seats, day.rows, hours, s.operatingHours, dayKey)
   return {
     operatingHours: hours.operatingHours,
     /** JST minutes from midnight — the moment the board is showing. */
     boardNow,
     // ⚖ PR-4a §v7 V7-3 — the board's rows through the ONE re-key: an exact twin's as before,
     // a borrower's on its own store and roster; viewAll = every store in view's own rows.
-    shifts: rekeyRows(shifts, seats, 'identity'),
+    shifts: served.shifts,
     staffQualifications: rekeyKeys(staffQualifications, seats),
     staffListPrice: rekeyKeys(staffListPrice, seats),
     weeklyHours: hours.weeklyHours,
     closedWeekdays: hours.closedWeekdays,
     hoursSource: hours.hoursSource,
     opsConfig: s.opsConfig,
-    absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null,
+    absence: served.absence,
     blocks: day.blocksByDay.get(dayKey) ?? [],
-    sellSlots: servedSlots(seats, busy),
-    decisions: servedDecisions(today ? decisions : [], seats, busy),
+    sellSlots: served.sellSlots,
+    decisions: served.decisions,
     // SAMPLE contract: no register in core yet — neutral, never fixture money.
     // Named field by field, never a spread of the fixture plane, so a fixture
     // refund can never be subtracted from a live 純売上 (LIVE-PROOF M-A) and a
@@ -686,9 +731,12 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
 export async function readReservationPlanes(lens: StoreLens) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
-  // ⚖ PR-4a R5 — the same rows the board is served; ⚖ §v11 V11-1 — today's hours, as the board
-  const [seats, hours] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, jstDayKey(renderNow()))])
-  const busy = await busyFor(actor, seats, jstDayKey(renderNow())) // ⚖ R10 — today's rooms, as the board
+  // ⚖ PR-4a R5 — the same rows the board is served; ⚖ §v11 V11-1 — today's hours, as the board; ⚖ V11-12 — today's
+  // live rows by ONE read, twin or borrower, through the board's own servedDay (the 勤務不可 is today's, as the board's).
+  const todayKey = jstDayKey(renderNow())
+  const s = singletonsOf(typeof lens === 'string' ? samplePolicyFor(lens) : null)
+  const [seats, hours, day] = await Promise.all([rosterOrderOf(actor, lens), storeHoursOf(actor, lens, todayKey, s), liveRowsOf(actor, lens, { from: todayKey, to: todayKey })])
+  const served = servedDay(seats, day, hours, s.operatingHours, todayKey)
   return {
     reservations: sampleFor(reservations, null),
     auditTrail: sampleKeys('appointments', auditTrail), // keyed by appointment id → live twins
@@ -699,10 +747,10 @@ export async function readReservationPlanes(lens: StoreLens) {
     weeklyHours: hours.weeklyHours,
     closedWeekdays: hours.closedWeekdays,
     hoursSource: hours.hoursSource,
-    shifts: rekeyRows(shifts, seats, 'identity'),
+    shifts: served.shifts,
     staffQualifications: rekeyKeys(staffQualifications, seats),
-    absence: rekeyRows([absence], seats, 'identity')[0] ?? null,
-    sellSlots: servedSlots(seats, busy),
+    absence: served.absence,
+    sellSlots: served.sellSlots,
     // SAMPLE contract: no register in core yet — neutral, never fixture money,
     // terminal_held included (as readDayPlanes).
     register: { cash_difference: 0, refunds: 0, terminal_held: [] },

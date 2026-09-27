@@ -9,7 +9,7 @@
 
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { appointments, STORE_A, STORE_B } from '@/business/lib/fixtures'
-import { liveIdOf } from '@/business/lib/practice-door/registry'
+import { fixtureIdOf, liveIdOf } from '@/business/lib/practice-door/registry'
 
 type Staff = Awaited<ReturnType<CoreReads['staffList']>>['staff'][number]
 type Store = Awaited<ReturnType<CoreReads['storesList']>>['stores'][number]
@@ -42,6 +42,17 @@ export const CARD = {
   goro: '6279b2a0-7f01-4d7b-8644-2f1ce127c947',
   musubi: '00000000-0000-4000-8000-0000000000c9',
   inactive: '00000000-0000-4000-8000-0000000000ca',
+} as const
+/** ⚖ §v11 PR-B — テスト恵比寿ジム's five, as the live probe read them 9/27 (DIAGNOSIS C3): uuids + names from
+ *  evidence/board-broken-2026-09-27/blocks-ebisu-1440.json (`lanes[].key` / `label`), roles from the recipe
+ *  (scripts/test-world/recipes/personal_gym.ts: the coaches STYLIST, こはる ASSISTANT). By uuid they seat
+ *  だいち←p-01 · りな←p-02 · こはる←c-03 · けんた←p-04 · なつみ←p-05, as production does. */
+export const GYM = {
+  daichi: '3c7ecb3b-24f6-413b-8292-5b9d5292e511',
+  rina: '51971c2d-db2e-4c2f-ae84-8a8da95cbd9c',
+  koharu: '8a387e8c-d691-41d8-bf6c-7919ae577822',
+  kenta: '8dd49f39-7ae7-4464-b2f7-f2d0cf7f5461',
+  natsumi: 'f6adba7d-e8e3-4173-a7db-d8271ef4604c',
 } as const
 
 const T0 = '2026-09-15T05:00:00Z'
@@ -81,10 +92,15 @@ export const STAFF: Staff[] = [
   card('1b11388c-b441-4eb7-acf8-5b068a3aba6f', '見本 れいな', 'STYLIST', null),
   card(CARD.musubi, '見本 むすび', 'STYLIST', null, LOGIN.musubi), // controlled extra: no assignments row
   card(CARD.inactive, 'inactive card', 'STYLIST', null, null, false), // inactive: must be excluded
+  // ⚖ §v11 PR-B — the gym's own five (see GYM).
+  card(GYM.daichi, '見本 だいち', 'STYLIST', null), card(GYM.rina, 'テスト りな', 'STYLIST', null), card(GYM.koharu, 'テスト こはる', 'ASSISTANT', null),
+  card(GYM.kenta, '見本 けんた', 'STYLIST', null), card(GYM.natsumi, '見本 なつみ', 'STYLIST', null),
 ]
 
 /** READBACK §2's "store assignment" column — the live truth (さぶろう works BOTH
- *  stores; the manifest's 'floating' label is not trusted). むすび: absent. */
+ *  stores; the manifest's 'floating' label is not trusted). ⚖ §v11 PR-B — むすび (the controlled extra production does
+ *  not have) works every recorded store BUT the gym, whose roster is production's five; the floating path is kept by
+ *  the suites that assert it, with むすび's row taken out. */
 export const ASSIGNMENTS: Record<string, string[]> = {
   [CARD.owner]: [STORE.devSalon],
   'b89b95cf-2365-4652-b8f4-d9235cabc8f9': [STORE.devSalon],
@@ -101,6 +117,8 @@ export const ASSIGNMENTS: Record<string, string[]> = {
   'ff708849-6ed2-4dca-90ae-a7fe2f4ac961': [STORE.tokyo],
   '0df861fd-c8c5-4772-b226-22f8fa89417f': [STORE.laEstro],
   '1b11388c-b441-4eb7-acf8-5b068a3aba6f': [STORE.laEstro],
+  [CARD.musubi]: [STORE.devSalon, STORE.devGinza, STORE.tokyo, STORE.yokohama, STORE.laEstro, STORE.jiyugaoka],
+  ...Object.fromEntries(Object.values(GYM).map((id) => [id, [STORE.gym]])),
 }
 
 // The owner's 18 (READBACK §3: 18, incl. stores.viewAll). Names are the app's own
@@ -191,6 +209,8 @@ export function membership(storeId: string): string[] {
   const ids = new Set(
     appointments(new Date()).filter((a) => a.store_id === fixtureStore).map((a) => liveIdOf('customers', a.customer_id)),
   )
+  // ⚖ §v11 PR-B — …and the no-twin customers its own recorded bookings name (東京's two live C6 rows).
+  for (const a of APPOINTMENTS) if (a.store_id === storeId && a.customer_id !== null && fixtureIdOf('customers', a.customer_id) === null) ids.add(a.customer_id)
   return CUSTOMERS.filter((c) => ids.has(c.id)).map((c) => c.id)
 }
 
@@ -268,17 +288,31 @@ export const APPOINTMENTS: Appointment[] = [
 // MEASURED live on 9/27 (DIAGNOSIS A1 · B1 · B4 · B6; blocks-ebisu-1440*.json), set on the recorded today (9/14)
 // and tomorrow (9/15): outside the old shared 10–19 window, inside each store's own (07–22 · 10–20).
 // Each booking's customer is its own recorded row (unseeded, no member number), named as the probe read the live card.
+// ⚖ §v11 PR-B — each gym booking sits on the staff member the probe MEASURED it on (blocks-ebisu-1440*.json, DIAGNOSIS C1 · C5
+// · E1), and the gym's day is production's whole day: + 山田 美穂 · 佐藤 直樹 · 伊藤 翼 (drawn 9/27, same file) and the
+// three だいち rows E1 counted but the probe could not see (hidden by the 13:00 勤務不可): their COUNT and 「from 13:00」
+// are measured, their times and customers (石井 · 中村 · 林) are INVENTED, on the planner's own anchors
+// (scripts/test-world/plan.ts preferredStart: pm 14:30, eve 20:30); + 長谷川 恵 on tomorrow (blocks-ebisu-1440-day1.json).
 const G = (n: number) => `00000000-0000-4000-8000-00000000cc${String(n).padStart(2, '0')}`
-CUSTOMERS.push(...['松田 亜希子', '加藤 麻美', '清水 亮', '森 大樹', '近藤 雄一', '高橋 美穂', '井上 拓也', '小林 健太郎', '鈴木 拓海', '斎藤 美紀', '上田 彩']
+CUSTOMERS.push(...['松田 亜希子', '加藤 麻美', '清水 亮', '森 大樹', '近藤 雄一', '高橋 美穂', '井上 拓也', '小林 健太郎', '鈴木 拓海', '斎藤 美紀', '上田 彩',
+  '山田 美穂', '佐藤 直樹', '伊藤 翼', '石井 陽介', '中村 早紀', '林 大輔', '長谷川 恵', '後藤 大輔', '青木 修']
   .map((name, i) => customer(G(i + 1), name, null)))
-const gymDay = (n: number, starts: string, minutes: number, price: number) =>
-  booking(`00000000-0000-4000-8000-00000000c3${String(n).padStart(2, '0')}`, starts, G(n), CARD.musubi, STORE.gym, MENU.zenten, minutes, price, 'SCHEDULED')
+const gymDay = (n: number, starts: string, minutes: number, price: number, staff: string) =>
+  booking(`00000000-0000-4000-8000-00000000c3${String(n).padStart(2, '0')}`, starts, G(n), staff, STORE.gym, MENU.zenten, minutes, price, 'SCHEDULED')
 APPOINTMENTS.push(
-  gymDay(1, '2026-09-14T07:00', 30, 6600), gymDay(2, '2026-09-14T07:00', 60, 11000), gymDay(3, '2026-09-14T13:00', 75, 11000),
-  gymDay(4, '2026-09-14T18:30', 90, 16500), gymDay(5, '2026-09-14T19:00', 60, 11000), gymDay(6, '2026-09-14T20:30', 60, 11000),
-  gymDay(7, '2026-09-14T20:30', 60, 11000),
-  gymDay(8, '2026-09-15T07:00', 30, 6600), gymDay(9, '2026-09-15T20:30', 60, 11000), gymDay(10, '2026-09-15T20:30', 60, 11000),
+  gymDay(1, '2026-09-14T07:00', 30, 6600, GYM.daichi), gymDay(2, '2026-09-14T07:00', 60, 11000, GYM.natsumi), gymDay(3, '2026-09-14T13:00', 75, 11000, GYM.kenta),
+  gymDay(4, '2026-09-14T18:30', 90, 16500, GYM.kenta), gymDay(5, '2026-09-14T19:00', 60, 11000, GYM.natsumi), gymDay(6, '2026-09-14T20:30', 60, 11000, GYM.natsumi),
+  gymDay(7, '2026-09-14T20:30', 60, 11000, GYM.kenta),
+  gymDay(8, '2026-09-15T07:00', 30, 6600, GYM.kenta), gymDay(9, '2026-09-15T20:30', 60, 11000, GYM.kenta), gymDay(10, '2026-09-15T20:30', 60, 11000, GYM.natsumi),
   booking('00000000-0000-4000-8000-00000000e301', '2026-09-14T18:30', G(11), CARD.musubi, STORE.jiyugaoka, MENU.zenten, 60, 6600, 'SCHEDULED'),
+  gymDay(12, '2026-09-14T12:00', 90, 16500, GYM.rina), gymDay(13, '2026-09-14T14:30', 60, 11000, GYM.rina), gymDay(14, '2026-09-14T14:30', 75, 11000, GYM.kenta),
+  gymDay(15, '2026-09-14T14:30', 60, 11000, GYM.daichi), gymDay(16, '2026-09-14T17:00', 60, 11000, GYM.daichi), gymDay(17, '2026-09-14T20:30', 60, 11000, GYM.daichi),
+  gymDay(18, '2026-09-15T14:30', 30, 6600, GYM.daichi),
+  // ⚖ §v11 PR-B (DIAGNOSIS C6) — テスト東京店's two live rows the sample day contradicted, ids + times + people from the AFTER
+  // probe (evidence/board-fix/pr-a/after-results.json): 後藤 大輔 16:30–17:30 on ごろう (past his 17:00 終業) · 青木 修
+  // 10:00–11:00 on みらい (no sample shift at all).
+  booking('388e5229-8c55-4431-a046-22d3381222b1', '2026-09-14T16:30', G(19), CARD.goro, STORE.tokyo, MENU.seitai, 60, 6600, 'SCHEDULED'),
+  booking('cc1b09bb-9d0f-4373-8237-672cd5f3f056', '2026-09-14T10:00', G(20), 'ff708849-6ed2-4dca-90ae-a7fe2f4ac961', STORE.tokyo, MENU.seitai, 60, 6600, 'SCHEDULED'),
 )
 
 type Policy = Awaited<ReturnType<CoreReads['storePolicyGet']>>

@@ -46,9 +46,11 @@ describe('store-hours — a practice store\'s own 営業時間 · 定休日 (§v
     expect(closedWeekdaysOf(weekOf(POLICIES[STORE.gym].weekly_hours)!.week)).toEqual([])
     // V11-2a (final 17:5x) — a malformed Friday never takes the other six: they keep their windows; Friday is named, and
     // the window the door serves it is the store's own usual pair over the well-formed days (never a closure, never sample).
-    const badFri = weekOf({ ...every('10:00', '19:00'), fri: { open: '19:00', close: '10:00' } })!
-    expect(badFri).toEqual({ week: [W, W, W, W, W, null, W], malformed: [5] })
-    expect(usualPairOf(badFri.week)).toEqual(W)
+    // ⚖ §v11 V11-14 P9 (PR-B) — RE-PINNED at 09:00–20:00, never the sample default 10:00–19:00 the old pin happened to use.
+    const U = { open: 540, close: 1200 }
+    const badFri = weekOf({ ...every('09:00', '20:00'), fri: { open: '19:00', close: '10:00' } })!
+    expect(badFri).toEqual({ week: [U, U, U, U, U, null, U], malformed: [5] })
+    expect(usualPairOf(badFri.week)).toEqual(U)
     for (const none of [null, undefined, {}, { mon: null }, { mon: null, tue: null }, { mon: { open: '25:00', close: '26:00' } }]) expect(weekOf(none)).toBeNull() // V11-2 · V11-2b
     expect(weekFromPair({ open: 600, close: 1140 }, [1])).toEqual([0, 1, 2, 3, 4, 5, 6].map((wd) => (wd === 1 ? null : { open: 600, close: 1140 })))
   })
