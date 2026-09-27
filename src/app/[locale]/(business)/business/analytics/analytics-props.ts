@@ -297,7 +297,7 @@ export async function analyticsProps({
   )
 
   // ── the twelve months as the screen states them ───────────────────────────
-  const currentCoords = monthCoords(now, 0, planes.closedWeekday)
+  const currentCoords = monthCoords(now, 0, planes.closedWeekdays)
   const currentRow = ledger[0]
   const currentRows = currentRow
     ? dailyLedger(currentCoords, monthFigures(currentRow), planes.dowWeight, boardToday)
@@ -306,7 +306,7 @@ export async function analyticsProps({
 
   const months = Array.from({ length: LEDGER_MONTHS }, (_, i) => {
     const ago = LEDGER_MONTHS - 1 - i // chronological: oldest first
-    const coords = monthCoords(now, ago, planes.closedWeekday)
+    const coords = monthCoords(now, ago, planes.closedWeekdays)
     const row = ledger[ago]
     const shown: DayFigures = ago === 0 ? currentShown : row ? monthFigures(row) : { total: 0, nw: 0, collected: 0, consumed: 0, newCount: 0, existingCount: 0 }
     const at = monthAt(coords.y, coords.m)
@@ -336,7 +336,7 @@ export async function analyticsProps({
   const spanDays = selected.partial ? selectedCoords.elapsedDays : selectedCoords.daysInMonth
   const priorAgo = selected.monthsAgo + 1
   const priorRow = ledger[priorAgo]
-  const priorCoords = monthCoords(now, priorAgo, planes.closedWeekday)
+  const priorCoords = monthCoords(now, priorAgo, planes.closedWeekdays)
   const prior = priorRow
     ? spanFigures(priorCoords, monthFigures(priorRow), planes.dowWeight, spanDays)
     : null
@@ -778,7 +778,7 @@ export async function analyticsProps({
       nextHref: selected.monthsAgo > 0 ? monthHref(selected.monthsAgo - 1) : null,
       nextTitle:
         selected.monthsAgo > 0
-          ? `${fmtMonthShort.format(monthAt(monthCoords(now, selected.monthsAgo - 1, planes.closedWeekday).y, monthCoords(now, selected.monthsAgo - 1, planes.closedWeekday).m))}を表示`
+          ? `${fmtMonthShort.format(monthAt(monthCoords(now, selected.monthsAgo - 1, planes.closedWeekdays).y, monthCoords(now, selected.monthsAgo - 1, planes.closedWeekdays).m))}を表示`
           : '翌月はまだ営業実績がありません',
     },
     // ⚠SETTINGS-BATCH / registry ③: 年間 and 直近30日 are markup with no

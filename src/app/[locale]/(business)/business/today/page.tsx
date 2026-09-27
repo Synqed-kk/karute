@@ -315,7 +315,7 @@ export default async function TodayPage({
     if (!shifts) return { offset, ...p, covered: false }
     // 定休日 has no capacity to advertise — a closed day advertising capacity is
     // the impossible state, not a rounding question.
-    const closed = p.wd === planes.closedWeekday
+    const closed = planes.closedWeekdays.includes(p.wd)
     // ⚠ 勤務不可 belongs to ONE day, and to that day WHATEVER DAY IS ON SCREEN.
     // The absence comes from its own per-day door rather than from the shown
     // day's planes, so today's cell carries today's incident while the operator
@@ -708,8 +708,8 @@ export default async function TodayPage({
     // staff member is never shown an action they would only be refused for.
     canReleaseHeld: canReleaseHeld(planes.opsConfig.releaseHeldRoles, shell.operator),
     canOpenLegendSettings: (['booking-guard', 'language-display'] as const).every((id) => gateOf(sectionById(id)!, settingsAccess) === 'open'),
-    // ⚖ §v11 V11-3 — null = a store open every day; the legend prints its own item for it.
-    closedWeekdayLabel: planes.closedWeekday === null ? null : WEEKDAY_WORD[planes.closedWeekday],
+    // ⚖ §v11 V11-3/V11-7 — every closed day named (「火曜・土曜」); null = a store open every day (its own legend item).
+    closedWeekdayLabel: planes.closedWeekdays.length === 0 ? null : planes.closedWeekdays.map((wd) => WEEKDAY_WORD[wd]).join('・'),
     // ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 「残りわずか」 の境目, the store's own dial,
     // read ONCE here and clamped once: the board is handed the answer, never the
     // policy, exactly like `holdToConfirm` and `canReleaseHeld` above. The

@@ -72,7 +72,7 @@ export function weekdayOf(y: number, m: number, d: number): number {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
 }
 
-export function monthCoords(now: Date, monthsAgo: number, closedWeekday: number | null): MonthCoords {
+export function monthCoords(now: Date, monthsAgo: number, closedWeekdays: number[]): MonthCoords {
   const today = jstYmd(now)
   const absolute = today.y * 12 + (today.m - 1) - monthsAgo
   const y = Math.floor(absolute / 12)
@@ -80,7 +80,7 @@ export function monthCoords(now: Date, monthsAgo: number, closedWeekday: number 
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
   const openDays: number[] = []
   for (let d = 1; d <= daysInMonth; d += 1) {
-    if (weekdayOf(y, m, d) !== closedWeekday) openDays.push(d)
+    if (!closedWeekdays.includes(weekdayOf(y, m, d))) openDays.push(d)
   }
   const isCurrent = monthsAgo === 0
   return { y, m, monthsAgo, daysInMonth, openDays, elapsedDays: isCurrent ? today.d : daysInMonth, isCurrent }

@@ -135,7 +135,7 @@ export default async function ShiftsPage({
     planes.shifts,
     planes.staffQualifications,
     maySeeLaborCost ? hourlyWage : {},
-    planes.closedWeekday,
+    planes.closedWeekdays,
     todayKey,
   )
 
@@ -171,7 +171,7 @@ export default async function ShiftsPage({
     const key = jstDayKey(a.starts_at)
     byDay.set(key, [...(byDay.get(key) ?? []), a])
   }
-  const leaves = resolveLeaveRequests(leaveRequests, roster, todayKey, byDay, planes.closedWeekday)
+  const leaves = resolveLeaveRequests(leaveRequests, roster, todayKey, byDay, planes.closedWeekdays)
   const leaveKeys = new Set(leaves.map((l) => editKey(l.staffId, l.dayKey)))
 
   const staffName = new Map(roster.map((m) => [m.id, m.name]))
@@ -205,7 +205,7 @@ export default async function ShiftsPage({
   )
 
   const ctx: DayContext = {
-    closedWd: planes.closedWeekday,
+    closedWds: planes.closedWeekdays,
     todayKey,
     absence: planes.absence,
     leaveKeys,
@@ -217,7 +217,7 @@ export default async function ShiftsPage({
   const days: DayModel[] = shownDays.map((dayKey) => {
     const p = ymdOf(dayKey)
     const rows = byDay.get(dayKey) ?? []
-    const closed = p.wd === planes.closedWeekday
+    const closed = planes.closedWeekdays.includes(p.wd)
     const conflicts = conflictsOn(dayKey, rows, roster, ctx)
     return {
       dayKey,
@@ -433,7 +433,7 @@ export default async function ShiftsPage({
     ],
     plane: {
       todayKey,
-      closedWd: planes.closedWeekday,
+      closedWds: planes.closedWeekdays,
       absence: planes.absence,
       roster: roster.map((m) => ({
         id: m.id,

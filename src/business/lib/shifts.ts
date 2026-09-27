@@ -126,8 +126,8 @@ export interface RosterMember {
  *  impossible state (⚖ 8/9: a person off and the assigned 担当 on the same day)
  *  out, rather than choosing a weekday that dodges the bookings: dodging would
  *  put the lens back into the answer. */
-export function restWeekday(seat: number, closedWd: number | null, todayWd: number): number {
-  const base = [2, 3, 4, 5, 0, 6].filter((wd) => wd !== closedWd && wd !== todayWd)
+export function restWeekday(seat: number, closedWds: number[], todayWd: number): number {
+  const base = [2, 3, 4, 5, 0, 6].filter((wd) => !closedWds.includes(wd) && wd !== todayWd)
   return base[seat % base.length]
 }
 
@@ -144,7 +144,7 @@ export function buildRoster(
   shifts: FixtureShift[],
   qualifications: Record<string, string[]>,
   wages: Record<string, number>,
-  closedWd: number | null,
+  closedWds: number[],
   todayKey: number,
 ): RosterMember[] {
   const byStaff = new Map(shifts.map((s) => [s.staff_id, s]))
@@ -155,7 +155,7 @@ export function buildRoster(
       id: m.id,
       name: m.full_name,
       shift,
-      restWd: shift ? restWeekday(seatOf(m.id), closedWd, todayWd) : null,
+      restWd: shift ? restWeekday(seatOf(m.id), closedWds, todayWd) : null,
       wage: shift ? (wages[m.id] ?? null) : null,
       qualifications: qualifications[m.id] ?? [],
     }
@@ -251,7 +251,7 @@ function workCell(shift: FixtureShift, staged: boolean, answered: Cell['answered
 }
 
 export interface DayContext {
-  closedWd: number | null
+  closedWds: number[]
   todayKey: number
   absence: FixtureAbsence | null
   /** The days that hold a 希望休, as `editKey(staffId, dayKey)`. A set, because
@@ -272,7 +272,7 @@ export interface DayContext {
  *  weekly day off · the standing shift. */
 export function cellFor(member: RosterMember, dayKey: number, ctx: DayContext): Cell {
   const wd = ymdOf(dayKey).wd
-  if (wd === ctx.closedWd) return EMPTY_CELL('closed')
+  if (ctx.closedWds.includes(wd)) return EMPTY_CELL('closed')
   if (!member.shift) return EMPTY_CELL('none')
 
   const key = editKey(member.id, dayKey)
@@ -335,7 +335,7 @@ export function conflictsOn(
   ctx: DayContext,
 ): StaffingConflict[] {
   const byId = new Map(roster.map((m) => [m.id, m]))
-  const closed = ymdOf(dayKey).wd === ctx.closedWd
+  const closed = ctx.closedWds.includes(ymdOf(dayKey).wd)
   const out: StaffingConflict[] = []
   for (const a of bookings) {
     if (a.status === 'cancelled') continue
@@ -400,7 +400,7 @@ export function resolveLeaveRequests(
   roster: RosterMember[],
   todayKey: number,
   byDay: Map<number, FixtureAppointment[]>,
-  closedWd: number | null,
+  closedWds: number[],
   horizonDays = 45,
 ): ResolvedLeave[] {
   const byId = new Map(roster.map((m) => [m.id, m]))
@@ -411,7 +411,7 @@ export function resolveLeaveRequests(
     for (let offset = req.fromDayOffset; offset <= horizonDays; offset += 1) {
       const dayKey = todayKey + offset
       const wd = ymdOf(dayKey).wd
-      if (wd === closedWd || wd === member.restWd) continue
+      if (closedWds.includes(wd) || wd === member.restWd) continue
       const mine = (byDay.get(dayKey) ?? []).filter(
         (a) => a.staff_id === req.staff_id && a.status !== 'cancelled',
       )

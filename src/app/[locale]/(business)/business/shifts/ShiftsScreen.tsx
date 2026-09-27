@@ -159,7 +159,7 @@ export interface ShiftsProps {
   refusedActions: Array<{ label: string; title: string }>
   plane: {
     todayKey: number
-    closedWd: number | null
+    closedWds: number[]
     absence: FixtureAbsence | null
     roster: RosterModel[]
     leaves: LeaveModel[]
@@ -236,7 +236,7 @@ export function ShiftsScreen(props: ShiftsProps) {
 
   const ctx: DayContext = useMemo(
     () => ({
-      closedWd: plane.closedWd,
+      closedWds: plane.closedWds,
       todayKey: plane.todayKey,
       absence: plane.absence,
       leaveKeys: new Set(plane.leaves.map((l) => editKey(l.staffId, l.dayKey))),
