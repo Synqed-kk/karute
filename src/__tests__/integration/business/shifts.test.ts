@@ -1838,3 +1838,37 @@ describe('⚖ the month board’s columns are tighter, and the operator sets the
     expect(SRC).not.toMatch(/--date-w': '13\d/)
   })
 })
+
+// ⚖ §v11 V11-16 fix round 1 (S21) — a day that carries its OWN served shift (`RosterMember.days`).
+describe('§v11 V11-16 — a day with its own served shift: a staged edit still lands, and breaks alone make a day its own', () => {
+  const todayKey = jstDayKey(new Date('2026-09-14T04:24:00Z'))
+  const own = (id: string) => shifts.find((s) => s.staff_id === id)!
+  /** Open days this week the person is not resting on — so a cell there is decided by its shift alone. */
+  const openDays = (id: string) =>
+    [1, 2, 3, 4, 5, 6].map((o) => todayKey + o).filter((d) => ![closedWeekday, restWeekday(seatOf(id), [closedWeekday], ymdOf(todayKey).wd)].includes(ymdOf(d).wd))
+  const memberOf = (id: string, byDay: Map<number, typeof shifts>) =>
+    buildRoster(staff.filter((s) => s.id === id), shifts, staffQualifications, hourlyWage, [closedWeekday], todayKey, byDay)[0]
+
+  it('P23 (Greptile on 94435a3fc) — a staged edit on a day whose served shift is null renders the staged hours, and 人件費 counts it', () => {
+    const [d] = openDays('p-04')
+    const m = memberOf('p-04', new Map([[todayKey, [...shifts]], [d, shifts.filter((s) => s.staff_id !== 'p-04')]]))
+    expect({ shift: m.shift, days: m.days, wage: m.wage }).toEqual({ shift: own('p-04'), days: { [d]: null }, wage: hourlyWage['p-04'] }) // the precondition
+    const ctx = contextFor([m], todayKey)
+    expect(cellFor(m, d, ctx).kind).toBe('none') // nothing staged: nothing to show
+    ctx.shiftEdits.set(editKey('p-04', d), { staffId: 'p-04', dayKey: d, kind: 'work', start: 11 * 60, end: 15 * 60 })
+    const cell = cellFor(m, d, ctx)
+    expect({ kind: cell.kind, start: cell.start, end: cell.end, staged: cell.staged, worked: cell.workedMinutes }).toEqual({ kind: 'work', start: 660, end: 900, staged: true, worked: 240 })
+    expect(laborCost([{ staffId: 'p-04', workedMinutes: cell.workedMinutes }], [m]).yen).toBe(4 * hourlyWage['p-04'])
+  })
+
+  it('P24 (stress M4) — a day whose served shift differs ONLY in its breaks is its own day: it sits in `days` and its cell prints that day\'s break', () => {
+    const [d1, d2] = openDays('p-04')
+    const moved = { ...own('p-04'), breaks: [{ start: 15 * 60, end: 16 * 60 }] }
+    expect([moved.start, moved.end, moved.breaks]).not.toEqual([own('p-04').start, own('p-04').end, own('p-04').breaks]) // the precondition
+    expect([moved.start, moved.end]).toEqual([own('p-04').start, own('p-04').end])
+    const m = memberOf('p-04', new Map([[d1, [own('p-04')]], [d2, [moved]]]))
+    expect(m.days).toEqual({ [d2]: moved })
+    const ctx = contextFor([m], todayKey)
+    expect([cellFor(m, d1, ctx).breaks, cellFor(m, d2, ctx).breaks]).toEqual([own('p-04').breaks, moved.breaks])
+  })
+})

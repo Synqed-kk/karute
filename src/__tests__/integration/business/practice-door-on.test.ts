@@ -1610,6 +1610,26 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     }
   })
 
+  it('§v11 V11-16 P25 (stress M7) — 予約一覧 reads its LAST day too: a row at exactly 00:00 of day +7 (the window admits it) inside its person\'s served shift that day is never flagged', async () => {
+    const { reservationsProps } = await import('@/app/[locale]/(business)/business/reservations/reservations-props')
+    const last = TODAY + 7
+    const shiro = liveIdOf('staff', 'p-04')!
+    const midnight = new Date('2026-09-21T00:00:00+09:00').toISOString()
+    const row = { ...APPOINTMENTS[0], id: '00000000-0000-4000-8000-0000000000f3', store_id: STORE.tokyo, staff_id: shiro, menu_id: MENU.zenten, resource_id: null, starts_at: midnight, ends_at: new Date('2026-09-21T00:30:00+09:00').toISOString(), status: 'SCHEDULED' as const }
+    const spy = withReads()
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const more = [row].filter((a) => (!q?.store_id || a.store_id === q.store_id) && (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) && (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)))
+      return (q?.page ?? 1) > 1 ? r : { ...r, appointments: [...r.appointments, ...more] }
+    })
+    // The precondition: day +7 is open and the live row stretches しろう's served shift to hold it (V11-8).
+    const served = (await data.listShiftsByDay(STORE.tokyo, { from: last, to: last })).get(last)!.find((x) => x.staff_id === shiro)
+    expect(served && [weekdayOfKey(last), served.start, served.end >= 30]).toEqual([1, 0, true])
+    const { props } = await reservationsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.rows.filter((r) => r.id === row.id).map((r) => ({ dayKey: r.dayKey, shiftWarning: r.shiftWarning }))).toEqual([{ dayKey: last, shiftWarning: null }])
+  })
+
   it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {
     const { drawnRow } = await import('@/business/lib/practice-door/sample-day')
     const all = await data.listAppointments(VIEW_ALL, {})

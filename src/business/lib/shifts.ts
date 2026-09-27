@@ -279,15 +279,15 @@ export interface DayContext {
 
 /** ONE cell, and the whole precedence in one place so no two surfaces can
  *  resolve the same day differently. Order, strongest first: the store is shut ·
- *  nobody has scheduled this person at all · this session staged an edit · the
+ *  this session staged an edit · nobody has scheduled this person that day · the
  *  勤務不可 recorded on the board (today only) · a 希望休 and its answer · the
  *  weekly day off · the standing shift. */
 export function cellFor(member: RosterMember, dayKey: number, ctx: DayContext): Cell {
   const wd = ymdOf(dayKey).wd
   if (ctx.closedWds.includes(wd)) return EMPTY_CELL('closed')
   const shift = member.days && dayKey in member.days ? member.days[dayKey] : member.shift // ⚖ V11-16 — the day's own, ONE read
-  if (!shift) return EMPTY_CELL('none')
 
+  // A staged edit is this session's answer for the day — it lands whether or not a shift was served that day.
   const key = editKey(member.id, dayKey)
   const staged = ctx.shiftEdits.get(key)
   if (staged) {
@@ -295,6 +295,7 @@ export function cellFor(member: RosterMember, dayKey: number, ctx: DayContext): 
       ? { ...EMPTY_CELL('rest'), staged: true }
       : workCell({ staff_id: member.id, start: staged.start, end: staged.end, breaks: [] }, true, null)
   }
+  if (!shift) return EMPTY_CELL('none')
 
   // 勤務不可 — the board's own record, applied through the board's own rule, so
   // the two surfaces cut the same shift at the same minute.
