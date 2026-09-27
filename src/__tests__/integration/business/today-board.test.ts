@@ -60,6 +60,8 @@ import {
   bookingCategory,
   buildLanes,
   dayBookings,
+  dayTotals,
+  drawnWindow,
   cleanupBlocks,
   effectiveShift,
   openDecisions,
@@ -67,9 +69,11 @@ import {
   place,
   suppressedByAbsence,
   utilization,
+  type BoardDrop,
   type BoardLane,
   type BuildInput,
 } from '@/business/lib/today-board'
+import { liveSpans } from '@/business/lib/practice-door/sample-day'
 import * as data from '@/business/lib/data'
 import { bookingColorsKeyFor } from '@/business/lib/booking-colors'
 import TodayPage, { bookingProofs } from '@/app/[locale]/(business)/business/today/page'
@@ -339,7 +343,8 @@ describe('the board day is operationally possible (⚖ 8/9 demo-data-product-tru
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('board derivations', () => {
-  it('places a lane element as a share of the opening-hours window', () => {
+  // ⚖ §v11 V11-15 (PR-C) — title REWRITTEN: the window is the board's drawn window now, not the opening hours.
+  it('places a lane element as a share of the drawn window', () => {
     const h = { open: 600, close: 1140 } // 10:00–19:00, 540 minutes
     expect(place(600, 660, h)).toEqual({ x: 0, w: (60 / 540) * 100, startMin: 600, endMin: 660 })
     expect(place(1080, 1140, h)).toEqual({ x: (480 / 540) * 100, w: (60 / 540) * 100, startMin: 1080, endMin: 1140 })
@@ -352,6 +357,72 @@ describe('board derivations', () => {
     expect(place(1100, 1260, h).endMin).toBe(1140)
     // minuteOf is place()'s inverse, on the same axis.
     expect(minuteOf(place(750, 810, h).x, h)).toBe(750)
+  })
+
+  // ⚖ §v11 V11-15(j) P10 — never again: place() is total, finite and inside the board for every census §2b row.
+  it('§v11 V11-15 P10 — place() stays on the board for every shape of input (before · after · wholly outside · zero-length · empty or inverted window · midnight · 24:00 · the edge)', () => {
+    const gym = { open: 420, close: 1320 }
+    const rows: Array<[string, number, number, { open: number; close: number }]> = [
+      ['starts before', 390, 450, gym], ['ends after', 1290, 1350, gym], ['wholly before', 360, 405, gym], ['wholly after', 1350, 1410, gym],
+      ['zero-length', 720, 720, gym], ['pair {600,600}', 700, 760, { open: 600, close: 600 }], ['pair {700,600}', 650, 680, { open: 700, close: 600 }],
+      ['crosses midnight 1410→30', 1410, 30, gym], ['ends 24:00', 1380, 1440, { open: 420, close: 1440 }],
+      ['ends at the edge', 1260, 1320, gym], ['ends at the edge 1125–1140', 1125, 1140, { open: 600, close: 1140 }],
+    ]
+    const off = rows.flatMap(([name, s, e, h]) => {
+      const { x, w, startMin, endMin } = place(s, e, h)
+      const ok = [x, w, startMin, endMin].every(Number.isFinite) && x >= 0 && x <= 100 && w >= 0 && x + w <= 100 + 1e-9
+      return ok ? [] : [`${name}: x ${x} w ${w}`]
+    })
+    expect(off).toEqual([])
+    // An in-window box keeps today's numbers bit for bit (frozen from ed0d2de44's formula).
+    expect(place(780, 1140, { open: 600, close: 1140 })).toEqual({ x: 33.33333333333333, w: 66.66666666666666, startMin: 780, endMin: 1140 })
+    expect(place(1125, 1140, { open: 600, close: 1140 })).toEqual({ x: 97.22222222222221, w: 2.7777777777777777, startMin: 1125, endMin: 1140 })
+  })
+
+  // ⚖ §v11 V11-15(j) P11 — the drawn window: the store's hours grown to the whole hour around every card outside them.
+  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day; a broken pair is one hour + the cards, warned once', () => {
+    const gym = { open: 420, close: 1320 }
+    const at = (...spans: Array<[number, number]>) => spans.map(([startMinute, endMinute]) => ({ startMinute, endMinute }))
+    expect(drawnWindow(gym, at([600, 660], [1000, 1100]))).toEqual(gym)
+    expect(drawnWindow(gym, at([420, 480], [1260, 1320]))).toEqual(gym)
+    expect(drawnWindow(gym, at([390, 450]))).toEqual({ open: 360, close: 1320 }) // 06:30 → opens 06:00
+    expect(drawnWindow(gym, at([1290, 1350]))).toEqual({ open: 420, close: 1380 }) // ends 22:30 → closes 23:00
+    expect(drawnWindow(gym, at([1350, 1395]))).toEqual({ open: 420, close: 1440 }) // ends 23:15 → closes 24:00 (ceil60)
+    expect(drawnWindow(gym, at([-10, 20], [1430, 1500]))).toEqual({ open: 0, close: 1440 })
+    expect(drawnWindow(gym, at([1410, 1440]))).toEqual({ open: 420, close: 1440 }) // a crossing row, read as dayBookings reads it
+    const w = drawnWindow(gym, at([395, 1395]))
+    expect(Number.isInteger((w.close - w.open) / 60)).toBe(true)
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(drawnWindow({ open: 700, close: 600 }, [])).toEqual({ open: 660, close: 720 })
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(drawnWindow({ open: 600, close: 600 }, at([800, 860]))).toEqual({ open: 600, close: 900 })
+      expect(warn).toHaveBeenCalledTimes(2)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  // ⚖ §v11 V11-15(j) P12 — the board and the door read one row's end the same way; a zero-length row is named, not drawn.
+  it('§v11 V11-15 P12 — a row crossing midnight ends where liveSpans ends it; a zero-length row is in no lane, named in `dropped`, still counted', () => {
+    const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
+    const lane = { id: 'p-pr-c', full_name: '見本 ぴーしー' } as unknown as BuildInput['staff'][number]
+    const inputOf = (row: FixtureAppointment) => ({
+      appointments: [row], customers: [], menus: [], staff: [lane], resources: [], shifts: [], qualifications: {}, staffListPrice: {}, staffStores: {},
+      absence: null, blocks: [], sellSlots: [], decisions: [], hours: { open: 600, close: 1140 }, dayKey: jstDayKey(row.starts_at),
+      operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
+    }) as unknown as BuildInput
+    const crossing = { ...base, id: 'apt-crossing', staff_id: lane.id, resource_id: null, starts_at: '2026-09-14T14:30:00.000Z', ends_at: '2026-09-14T15:30:00.000Z' } // 23:30 → 00:30 JST
+    const [b] = dayBookings(inputOf(crossing))
+    const [door] = liveSpans([{ ...crossing, kind: 'BOOKING', status: 'SCHEDULED' }], jstDayKey(crossing.starts_at))
+    expect([b.startMinute, b.endMinute, b.timeRange]).toEqual([1410, door.end, '23:30–00:30'])
+    expect(door.end).toBe(1440)
+    const zero = { ...base, id: 'apt-zero', staff_id: lane.id, resource_id: null, ends_at: base.starts_at }
+    const dropped: BoardDrop[] = []
+    const lanes = buildLanes(inputOf(zero), dayBookings(inputOf(zero)), dropped)
+    expect(lanes.flatMap((l) => l.items).filter((i) => i.caseId === 'apt-zero')).toEqual([])
+    expect(dropped).toEqual([{ kind: 'booking', id: 'apt-zero', reason: 'zero-length' }])
+    expect(dayTotals([zero], 0).count).toBe(1)
   })
 
   it('reads カテゴリー strongest-first: VIP over 回数券 over 新規/再来', () => {
