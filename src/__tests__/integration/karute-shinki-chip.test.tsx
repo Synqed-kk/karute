@@ -42,7 +42,7 @@ jest.mock('@/actions/karute', () => ({
   loadKaruteWindow: (...a: unknown[]) => loadKaruteWindow(...a),
 }))
 
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
 import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
 
@@ -135,6 +135,42 @@ describe('switch OFF — the screen renders exactly as PR-1', () => {
     // The field IS on the items (mapped) — nothing narrows by it.
     expect(ITEMS.every((i) => 'companyFirstVisit' in i)).toBe(true)
     expect(visibleNames()).toEqual(ITEMS.map((i) => i.customerName))
+  })
+
+  // S45 (rebased onto main's S44 layout): OFF = main's chip row, element for
+  // element — no chip, no extra wrapper, nothing pressable-and-pressed in it.
+  it('the chip row is exactly [month, 担当] — the same two children main renders', () => {
+    renderList()
+    const row = document.querySelector('[data-chip-row]')!
+    const kids = Array.from(row.children) as HTMLElement[]
+    expect(kids).toHaveLength(2)
+    expect(within(kids[0]).getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })).toBeInTheDocument()
+    expect(within(kids[1]).getByRole('button', { name: /^(all|self)$/ })).toBeInTheDocument()
+    expect(row.querySelector('[aria-pressed]')).toBeNull()
+  })
+})
+
+describe('the chip adds no call (OFF or ON)', () => {
+  it('OFF and ON mount with the same calls, and toggling the chip makes none', () => {
+    const actions = jest.requireMock('@/actions/karute') as {
+      revealNoKaruteCustomer: jest.Mock
+    }
+    const calls = () => [
+      loadKaruteWindow.mock.calls.length,
+      actions.revealNoKaruteCustomer.mock.calls.length,
+    ]
+    actions.revealNoKaruteCustomer.mockClear()
+    const off = renderList()
+    const offCalls = calls()
+    off.unmount()
+    loadKaruteWindow.mockClear()
+    actions.revealNoKaruteCustomer.mockClear()
+    mockSwitches.shinkiChip = true
+    renderList()
+    expect(calls()).toEqual(offCalls)
+    fireEvent.click(shinkiChip())
+    fireEvent.click(shinkiChip())
+    expect(calls()).toEqual(offCalls)
   })
 })
 
