@@ -536,12 +536,13 @@ describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row'
   // what goes red if either entry is dropped. commitReservation (fix round 6
   // — the write half of the old reserveTakeForRecorder, split from the
   // read-only planReservation) is the symbol the SDK writes live in (CP3's
-  // containment rule).
+  // containment rule). auditTakeBoundServerNamed (S50, condition 5) is the
+  // switch-ON server-named arm's own emitter — private too, so the same pin.
   it('is registered in AUDITED_CORES as the file’s writer', () => {
     expect(AUDITED_CORES).toContainEqual(
       expect.objectContaining({
         file: 'src/lib/recording/mint-take-url.ts',
-        symbols: ['auditTakeNamed', 'commitReservation'],
+        symbols: ['auditTakeNamed', 'commitReservation', 'auditTakeBoundServerNamed'],
       }),
     )
   })
