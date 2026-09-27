@@ -57,7 +57,7 @@
 // already emitted its receipt, and ⚖ 8/17 keeps the CONTENT out of audit
 // details. One act, one row, whichever door files it.
 
-import { facadeHandler, ok } from '@/lib/app-api/handler'
+import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { extractBearer } from '@/lib/app-api/identity'
@@ -70,6 +70,7 @@ import {
 import { DiscardTranscriptDTO } from '@/lib/app-api/discard-reasons-dto'
 import { DiscardTranscriptWriteSchema } from '@/lib/app-api/record-schemas'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 
 export const runtime = 'nodejs'
 
@@ -85,16 +86,40 @@ export const GET = facadeHandler('recordings.discards.transcript', async (ctx) =
 
   let result
   try {
-    result = await getDiscardTranscriptWithClient(synqed, sessionId)
+    result = await getDiscardTranscriptWithClient(synqed, sessionId, {
+      allowedStoreIds: await discardViewerReachFacade(ctx, synqed),
+    })
   } catch (err) {
     if (err instanceof AppApiError) throw err
     throw new AppApiError('upstream_unavailable', 'the discard transcript is unavailable')
   }
+  // S46: not discarded, or outside this viewer's stores — the web twin's own
+  // 'forbidden', with this door's existing message (no new string).
+  if (result === 'forbidden') throw new AppApiError('forbidden', 'the discard transcript is unavailable')
 
   // Parsed at the door, same reason (and same placement outside the catch) as
   // the list route beside it.
   return ok(ctx, DiscardTranscriptDTO.parse(result))
 })
+
+/** S46: the phone twin of the web doors' discardViewerReach — all-store access
+ *  answers null straight from the capability (so an owner or preset manager
+ *  never depends on a roster or scope read here); anyone else gets the Bearer
+ *  act scope, failing CLOSED to [] (viewerAllowedStoreIds). The list route
+ *  beside this one carries the same lines (a route file may export only its
+ *  handlers). */
+async function discardViewerReachFacade(
+  ctx: FacadeContext,
+  synqed: ReturnType<typeof newSynqedClient>,
+): Promise<readonly string[] | null> {
+  if (ctx.identity.capabilities.has('stores.viewAll')) return null
+  return viewerAllowedStoreIds({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId).catch(() => null),
+  })
+}
 
 export const POST = facadeHandler('recordings.discards.transcript.write', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'records.write')

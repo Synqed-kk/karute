@@ -27,6 +27,9 @@ import {
   staffNameByIdAcrossCardsAndProfiles,
 } from '@/lib/synqed/staff-map'
 import { paginateDedupe } from '@/lib/customers/paginate'
+import { canViewAllInStore, readDoorStoreId } from '@/lib/auth/recording-acl'
+import { readStaffDiscard } from '@/lib/recording/staff-discard'
+import type { Capability } from '@/lib/auth/permissions'
 import { INBOX_WINDOW_MS } from '@/lib/recordings/inbox'
 import { jstStartOfMonth } from '@/lib/date/jst'
 
@@ -360,6 +363,8 @@ function upstreamStatus(err: unknown): number | null {
 export async function listDiscardReasonsWithClient(
   synqed: ReturnType<typeof newSynqedClient>,
   businessId: string,
+  /** S46: the stores this viewer can see — null = every store (stores.viewAll). */
+  viewer: { allowedStoreIds: readonly string[] | null },
 ): Promise<{
   rows: DiscardReasonRow[]
   counts: DiscardReasonCounts
@@ -438,7 +443,22 @@ export async function listDiscardReasonsWithClient(
   // re-implementing the profile↔card join.
   const nameById = staffNameByIdAcrossCardsAndProfiles(roster, cards)
 
+  // ⚖ THE WORDS DOOR'S OWN STORE RULE, IN THE SAME CHANGE (S46 closure 3): a
+  // row whose words would refuse to open is not listed. One spelling —
+  // canViewAllInStore over readDoorStoreId, judged by the recording's store,
+  // exactly as getDiscardTranscriptWithClient judges it. A recording this read
+  // could not place (context degraded, or outside its window) is 'unreadable':
+  // hidden from a clamped viewer, never from an all-store one. The counts
+  // below follow the listed rows.
+  const inReach = (sessionId: string) =>
+    canViewAllInStore({
+      canViewAll: true,
+      allowedStoreIds: viewer.allowedStoreIds,
+      recordStoreId: readDoorStoreId({}, context?.recordingById.get(sessionId) ?? 'unreadable'),
+    })
+
   const rows: DiscardReasonRow[] = usable
+    .filter((e) => inReach(e.recording_session_id))
     .map((e) => {
       const rec = context?.recordingById.get(e.recording_session_id) ?? null
       const customerId = rec?.customer_id ?? null
@@ -514,7 +534,8 @@ export async function listDiscardReasons(): Promise<ListDiscardReasonsResult> {
     const businessId = await getBusinessId()
     if (!businessId) return { ok: false, error: 'forbidden' }
     const synqed = newSynqedClient(businessId)
-    return { ok: true, ...(await listDiscardReasonsWithClient(synqed, businessId)) }
+    const viewer = { allowedStoreIds: await discardViewerReach(caps) }
+    return { ok: true, ...(await listDiscardReasonsWithClient(synqed, businessId, viewer)) }
   } catch (err) {
     console.warn('[discard-reasons] list failed:', err)
     return { ok: false, error: 'failed' }
@@ -555,38 +576,61 @@ export type GetDiscardTranscriptResult =
  * read that FAILED is not one of them: it THROWS, and each door reports that it
  * could not look — never empty segments.
  *
- * SCOPE, deliberately: this reads segments for ANY session id a `staff.manage`
- * caller names. That equals the discard doctrine's intent only because the A2-2
- * actions are the sole writers of segments in this repo — a kept recording's
- * transcript lives on its karute record, never here. Any FUTURE segments writer
- * puts other recordings' words behind this gate and must revisit the scope.
+ * SCOPE: since S46 it reads segments only for a session a staff member has
+ * DISCARDED, in a store this viewer can see (the two checks below). The A2-2
+ * actions are still the sole writers of segments in this repo — a kept
+ * recording's transcript lives on its karute record, never here — so the
+ * discarded check changes no real answer today; it is what keeps this door a
+ * discard door if a FUTURE segments writer ever appears.
  */
 export async function getDiscardTranscriptWithClient(
   synqed: ReturnType<typeof newSynqedClient>,
   recordingSessionId: string,
-): Promise<{
-  segments: { text: string; startTime: number | null }[]
-  durationSeconds: number | null
-}> {
-  const [segments, recording] = await Promise.all([
-    // A FAILED READ IS NOT AN ABSENCE. A blanket catch here answered
-    // `{ok:true, segments:[]}` for a 500, a timeout or a mid-deploy blip, and
-    // the section printed 「文字起こしはありません」 — a claim about the words
-    // on a screen whose whole job is checking a staffer's claim. Only core's
-    // own "there is no such recording" (404 — a swept session row, one of the
-    // legitimate no-words populations in the docstring above) is an answer;
-    // everything else propagates and the section says it could not look.
+  /** S46: the stores this viewer can see — null = every store (stores.viewAll). */
+  viewer: { allowedStoreIds: readonly string[] | null },
+): Promise<
+  | {
+      segments: { text: string; startTime: number | null }[]
+      durationSeconds: number | null
+    }
+  | 'forbidden'
+> {
+  // ⚖ TWO CHECKS ADDED, NOTHING CLOSED (S46 closure 3; Liam 9/27: a manager
+  // reads a DISCARDED recording's words in full, and still does). Before a word
+  // is read: (1) is this recording actually discarded by a staff member — the
+  // same ledger read the save door asks (readStaffDiscard); (2) is it in a store
+  // this viewer can see — canViewAllInStore over readDoorStoreId, the transcript
+  // doors' own spelling, judged by the recording row (no karute is read here, as
+  // the list beside it reads none). All-store reach passes on every store, a
+  // failed row read included; a clamped viewer fails closed on it. An
+  // unreadable ledger THROWS: "could not check" is never "discarded".
+  const [verdict, recording] = await Promise.all([
+    readStaffDiscard(synqed, recordingSessionId),
     synqed.recordings
-      .listSegments(recordingSessionId)
-      .then((r) => r?.segments ?? [])
-      .catch((err: unknown) => {
-        if (upstreamStatus(err) === 404) return []
-        throw err
-      }),
-    // Metadata stays best-effort: a duration we cannot read costs the
-    // below-floor distinction, never the honesty of the words themselves.
-    synqed.recordings.get(recordingSessionId).catch(() => null),
+      .get(recordingSessionId)
+      .catch((err: unknown) => (upstreamStatus(err) === 404 ? null : ('unreadable' as const))),
   ])
+  if (verdict === 'unreadable') throw new Error('discard ledger unreadable')
+  if (verdict !== 'discarded') return 'forbidden'
+  const recordStoreId = readDoorStoreId({}, recording)
+  if (!canViewAllInStore({ canViewAll: true, allowedStoreIds: viewer.allowedStoreIds, recordStoreId })) {
+    return 'forbidden'
+  }
+
+  // A FAILED READ IS NOT AN ABSENCE. A blanket catch here answered
+  // `{ok:true, segments:[]}` for a 500, a timeout or a mid-deploy blip, and
+  // the section printed 「文字起こしはありません」 — a claim about the words
+  // on a screen whose whole job is checking a staffer's claim. Only core's
+  // own "there is no such recording" (404 — a swept session row, one of the
+  // legitimate no-words populations in the docstring above) is an answer;
+  // everything else propagates and the section says it could not look.
+  const segments = await synqed.recordings
+    .listSegments(recordingSessionId)
+    .then((r) => r?.segments ?? [])
+    .catch((err: unknown) => {
+      if (upstreamStatus(err) === 404) return []
+      throw err
+    })
 
   return {
     segments: segments
@@ -608,8 +652,20 @@ export async function getDiscardTranscriptWithClient(
         startTime: typeof s.start_time === 'number' ? s.start_time : null,
       }))
       .filter((s) => !!s.text?.trim()),
-    durationSeconds: recording?.duration_seconds ?? null,
+    // Metadata stays best-effort: a duration we cannot read costs the
+    // below-floor distinction, never the honesty of the words themselves.
+    durationSeconds: recording && recording !== 'unreadable' ? (recording.duration_seconds ?? null) : null,
   }
+}
+
+/** S46: the viewer's store reach for the two 破棄の記録 doors. All-store access
+ *  answers null straight from the capability — the first line of
+ *  resolveStoreScope itself — so an owner or preset manager never depends on a
+ *  scope read here; anyone else gets the act scope, failing CLOSED to [] on a
+ *  degraded or failed read (viewerScopeForActs). */
+async function discardViewerReach(caps: Set<Capability>): Promise<readonly string[] | null> {
+  if (caps.has('stores.viewAll')) return null
+  return (await import('@/lib/auth/store-scope')).viewerScopeForActs()
 }
 
 /** The WEB door onto the twin above — same `staff.manage` gate as the list,
@@ -630,7 +686,9 @@ export async function getDiscardTranscript(
     const businessId = await getBusinessId()
     if (!businessId) return { ok: false, error: 'forbidden' }
     const synqed = newSynqedClient(businessId)
-    return { ok: true, ...(await getDiscardTranscriptWithClient(synqed, recordingSessionId)) }
+    const viewer = { allowedStoreIds: await discardViewerReach(caps) }
+    const words = await getDiscardTranscriptWithClient(synqed, recordingSessionId, viewer)
+    return words === 'forbidden' ? { ok: false, error: 'forbidden' } : { ok: true, ...words }
   } catch (err) {
     console.warn('[discard-reasons] transcript read failed:', err)
     return { ok: false, error: 'failed' }
