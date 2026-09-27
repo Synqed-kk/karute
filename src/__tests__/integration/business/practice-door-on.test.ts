@@ -46,7 +46,7 @@ import {
   absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
   staffListPrice as fxListPrice, staffQualifications,
 } from '@/business/lib/fixtures-today'
-import { jstDayKey } from '@/business/lib/clock'
+import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
 import { rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { accessFor as settingsAccessFor, RAIL, yen } from '@/business/lib/settings'
 import { salesTargets } from '@/business/lib/fixtures-analytics'
@@ -1264,6 +1264,46 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     } finally {
       quiet.mockRestore()
     }
+  })
+
+  /** 設定's 営業時間 block for one store: its pair, its 定休日 (the lowest weekday switched off) and its length ceiling. */
+  async function settingsHours(store: string) {
+    const { props } = await settingsProps({ locale: 'ja', store })
+    const c = new Map(props.sections.flatMap((x) => x.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls))).map((x) => [x.id, x]))
+    const at = (hhmm: unknown) => Number(String(hhmm).slice(0, 2)) * 60 + Number(String(hhmm).slice(3))
+    const open = [0, 1, 2, 3, 4, 5, 6].filter((d) => c.get(`store-hours.day-${d}`)?.value === true)
+    const closed = [0, 1, 2, 3, 4, 5, 6].find((d) => c.get(`store-hours.day-${d}`)?.value === false) ?? null
+    const pair = { open: at(c.get(`store-hours.open-${open[0]}`)?.value), close: at(c.get(`store-hours.close-${open[0]}`)?.value) }
+    const ceiling = (c.get('store-hours.block-step')?.control as { max?: number } | undefined)?.max
+    const audit = props.sections.find((x) => x.id === 'store-hours')?.blocks.find((b) => b.id === 'store-hours.hours')?.audit
+    return { pair, closed, ceiling, audit }
+  }
+
+  it('§v11 V11-6 P2 — never again: the four readers agree for every lens (day · reservation · analytics · 設定, its length ceiling and its audit line included)', async () => {
+    for (const lens of [STORE.tokyo, STORE.yokohama, ...BORROWERS, VIEW_ALL]) {
+      const day = await data.readDayPlanes(lens, TODAY)
+      expect([(await data.readReservationPlanes(lens)).operatingHours, (await data.readAnalyticsPlanes(lens)).closedWeekday]).toEqual([day.operatingHours, day.closedWeekday])
+      if (typeof lens !== 'string') continue // the all-stores view has no 営業時間 block
+      const set = await settingsHours(lens)
+      expect({ lens, pair: set.pair, closed: set.closed, ceiling: set.ceiling })
+        .toEqual({ lens, pair: day.operatingHours, closed: day.closedWeekday, ceiling: day.operatingHours.close - day.operatingHours.open })
+    }
+    expect((await settingsHours(STORE.gym)).audit).toMatch(/（定休日なしに設定）$/)
+    expect((await settingsHours(STORE.tokyo)).audit).toMatch(/（火曜を定休日に設定）$/)
+  })
+
+  it('§v11 V11-6 P1 — never again: every live booking of the day lies inside the hours the board draws, today and tomorrow, on every store with core hours', async () => {
+    let seen = 0
+    for (const store of Object.keys(OWN_HOURS)) {
+      for (const dayKey of [TODAY, TODAY + 1]) {
+        const { operatingHours: h } = await data.readDayPlanes(store, dayKey)
+        const live = (await data.listAppointments(store)).filter((a) => jstDayKey(a.starts_at) === dayKey && a.status !== 'cancelled')
+        seen += live.length
+        const outside = live.filter((a) => jstMinuteOfDay(a.starts_at) < h.open || jstMinuteOfDay(a.ends_at) > h.close)
+        expect({ store, dayKey, outside: outside.map((a) => `${a.starts_at}–${a.ends_at}`) }).toEqual({ store, dayKey, outside: [] })
+      }
+    }
+    expect(seen).toBe(14) // 東京 3 · the gym 7 + 3 · 自由が丘 1 — never a vacuous pass
   })
 
   // ⚖ §v11 V11-5 — the override table is the SAMPLE world's: exercised on stores core holds no hours for.
