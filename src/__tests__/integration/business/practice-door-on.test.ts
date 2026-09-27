@@ -1280,7 +1280,11 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
   }
 
   it('§v11 V11-6 P2 — never again: the four readers agree for every lens (day · reservation · analytics · 設定, its length ceiling and its audit line included)', async () => {
-    for (const lens of [STORE.tokyo, STORE.yokohama, ...BORROWERS, VIEW_ALL]) {
+    // Its OWN list, never BORROWERS: every store with core hours, the four without, and the all-stores view.
+    const lenses = [...Object.keys(OWN_HOURS), STORE.yokohama, STORE.laEstro, STORE.devSalon, STORE.devGinza, VIEW_ALL]
+    let checked = 0
+    for (const lens of lenses) {
+      checked += 1
       const day = await data.readDayPlanes(lens, TODAY)
       expect([(await data.readReservationPlanes(lens)).operatingHours, (await data.readAnalyticsPlanes(lens)).closedWeekday]).toEqual([day.operatingHours, day.closedWeekday])
       if (typeof lens !== 'string') continue // the all-stores view has no 営業時間 block
@@ -1288,8 +1292,17 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       expect({ lens, pair: set.pair, closed: set.closed, ceiling: set.ceiling })
         .toEqual({ lens, pair: day.operatingHours, closed: day.closedWeekday, ceiling: day.operatingHours.close - day.operatingHours.open })
     }
+    expect(checked).toBe(8)
     expect((await settingsHours(STORE.gym)).audit).toMatch(/（定休日なしに設定）$/)
     expect((await settingsHours(STORE.tokyo)).audit).toMatch(/（火曜を定休日に設定）$/)
+  })
+
+  it('§v11 V11-2 — the all-stores lens chooses no store: no plane and no 設定 read ever asks core for a store policy; a store asks for its own', async () => {
+    const spy = withReads()
+    await Promise.all([data.readDayPlanes(VIEW_ALL, TODAY), data.readReservationPlanes(VIEW_ALL), data.readAnalyticsPlanes(VIEW_ALL), data.readStoreHours(VIEW_ALL, TODAY)])
+    expect(spy.storePolicyGet).not.toHaveBeenCalled()
+    await data.readStoreHours(STORE.gym, TODAY)
+    expect(spy.storePolicyGet.mock.calls).toEqual([[STORE.gym]])
   })
 
   it('§v11 V11-6 P1 — never again: every live booking of the day lies inside the hours the board draws, today and tomorrow, on every store with core hours', async () => {

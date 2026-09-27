@@ -24,12 +24,12 @@ describe('store-hours — a practice store\'s own 営業時間 · 定休日 (§v
     for (const [id, days] of Object.entries(TABLE)) expect({ id, days: days.map((_, wd) => show(resolveStoreDay(POLICIES[id].weekly_hours, wd))) }).toEqual({ id, days })
   })
 
-  it('resolveStoreDay: no hours (null · no row · {}) → sample; a null or absent day → 定休日; 24:00 = 1440; a malformed window → sample', () => {
+  it('resolveStoreDay: no hours (null · no row · {}) → sample; a null or absent day → 定休日; 24:00 = 1440; a malformed or empty window (open ≥ close) → sample', () => {
     for (const none of [null, undefined, {}]) expect(resolveStoreDay(none, 1)).toEqual({ source: 'sample' })
     expect(resolveStoreDay({ mon: { open: '09:00', close: '18:00' } }, 2)).toEqual({ source: 'core', closed: true })
     expect(resolveStoreDay({ mon: null, tue: { open: '09:00', close: '18:00' } }, 1)).toEqual({ source: 'core', closed: true })
     expect(resolveStoreDay({ mon: { open: '09:30', close: '24:00' } }, 1)).toEqual({ source: 'core', closed: false, open: 570, close: 1440 })
-    for (const bad of [{ open: '18:00', close: '09:00' }, { open: '9', close: '18:00' }, { open: '09:00', close: '24:30' }, { open: '09:60', close: '18:00' }]) expect(resolveStoreDay({ mon: bad }, 1)).toEqual({ source: 'sample' })
+    for (const bad of [{ open: '10:00', close: '10:00' }, { open: '18:00', close: '09:00' }, { open: '9', close: '18:00' }, { open: '09:00', close: '24:30' }, { open: '09:60', close: '18:00' }]) expect(resolveStoreDay({ mon: bad }, 1)).toEqual({ source: 'sample' })
   })
 
   it('closedWeekdayOf: the LOWEST closed weekday; null when every day opens or no hours exist', () => {
