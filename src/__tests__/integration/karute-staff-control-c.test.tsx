@@ -207,17 +207,26 @@ describe('the trim engine (trim-steps.ts) — widths stubbed', () => {
   describe('a WIDTH change re-walks (ResizeObserver); nothing else does', () => {
     let roCallback: (() => void) | null = null
     let width = 343
+    let observed = false
+    let trimAtUnobserve: string | undefined
     const OriginalRO = globalThis.ResizeObserver
     beforeEach(() => {
       roCallback = null
       width = 343
+      observed = false
+      trimAtUnobserve = undefined
       globalThis.ResizeObserver = class {
         constructor(cb: () => void) {
           roCallback = cb
         }
-        observe() {}
+        observe() {
+          observed = true
+        }
         disconnect() {}
-        unobserve() {}
+        unobserve() {
+          observed = false
+          trimAtUnobserve = applied()
+        }
       } as unknown as typeof ResizeObserver
       jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(() => width)
     })
@@ -243,6 +252,30 @@ describe('the trim engine (trim-steps.ts) — widths stubbed', () => {
       AVAIL = 380 // 400 → −20 → badge 350 → +30: badge only
       act(() => roCallback!())
       expect(applied()).toBe('badgeOnly')
+    })
+
+    it('the walk runs UNOBSERVED (the own row changes the height — no ResizeObserver loop error), observed again next frame', () => {
+      const frames: FrameRequestCallback[] = []
+      jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb))
+      BASE = 400
+      render(<Row steps={['badgeOnly', 'ownRow']} />)
+      expect(applied()).toBe('badgeOnly ownRow')
+      expect(observed).toBe(true)
+      width = 380
+      AVAIL = 380
+      act(() => roCallback!())
+      // Unobserved BEFORE the walk (the trim was still the old one), walked, and
+      // not observed until the next frame.
+      expect(trimAtUnobserve).toBe('badgeOnly ownRow')
+      expect(applied()).toBe('badgeOnly')
+      expect(observed).toBe(false)
+      expect(frames).toHaveLength(1)
+      act(() => frames[0](0))
+      expect(observed).toBe(true)
+      // An unchanged width reported by that first observation: no walk, no unobserve.
+      act(() => roCallback!())
+      expect(observed).toBe(true)
+      expect(frames).toHaveLength(1)
     })
   })
 

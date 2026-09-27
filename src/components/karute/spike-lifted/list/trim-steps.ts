@@ -22,7 +22,11 @@
 //    whole walk lands in the same frame;
 //  - when the row's WIDTH changes (rotation, a resized window): a
 //    ResizeObserver restarts the walk inside flushSync, still before paint.
-//    Only the width counts — a trim changes the row's height, never its width;
+//    Only the width counts — a trim changes the row's height, never its width.
+//    The own-row step DOES change the height, and an observed element resized
+//    inside its own observer's callback is a "ResizeObserver loop" error, so
+//    the row is not observed during that walk and is observed again the next
+//    frame (whose first report re-checks the width — nothing is missed);
 //  - when web fonts finish loading: once at `document.fonts.ready` if they
 //    were still loading at mount, and again on EVERY `loadingdone` for the
 //    row's lifetime — a font that starts loading later (a glyph fallback a new
@@ -92,17 +96,22 @@ export function useTrimSteps<S extends string, E extends HTMLElement = HTMLDivEl
         setLevel(0)
         setPass((p) => p + 1)
       })
+    let live = true
     let width = row.clientWidth
-    const ro =
+    let reobserve = 0
+    const ro: ResizeObserver | null =
       typeof ResizeObserver === 'undefined'
         ? null
         : new ResizeObserver(() => {
             if (row.clientWidth === width) return
             width = row.clientWidth
+            ro?.unobserve(row)
             restart()
+            reobserve = requestAnimationFrame(() => {
+              if (live) ro?.observe(row)
+            })
           })
     ro?.observe(row)
-    let live = true
     const fonts = typeof document === 'undefined' ? undefined : document.fonts
     if (fonts && fonts.status !== 'loaded') {
       void fonts.ready.then(() => {
@@ -115,6 +124,7 @@ export function useTrimSteps<S extends string, E extends HTMLElement = HTMLDivEl
     fonts?.addEventListener?.('loadingdone', onFontsLoaded)
     return () => {
       live = false
+      cancelAnimationFrame(reobserve)
       ro?.disconnect()
       fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     }
