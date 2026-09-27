@@ -33,7 +33,7 @@
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
-import { canReadAuditLog } from '@/lib/auth/audit-read'
+import { canReadAuditLog, withholdKeyIngredients } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAuditLogWithClient, type AuditLogFilters } from '@/actions/audit-log'
@@ -96,7 +96,13 @@ export const GET = facadeHandler('audit.list', async (ctx) => {
     requestId: ctx.meta.requestId,
   }
 
-  return ok(ctx, AuditLogListResultDTO.parse(await listAuditLogWithClient(synqed, actor, filters)))
+  // S46: the phone READ-OUT withholds a recording's storage-key ingredients,
+  // exactly as the web action does (withholdKeyIngredients); stored rows keep them.
+  const res = await listAuditLogWithClient(synqed, actor, filters)
+  return ok(
+    ctx,
+    AuditLogListResultDTO.parse(res.ok ? { ...res, events: withholdKeyIngredients(res.events) } : res),
+  )
 })
 
 export const OPTIONS = GET // facadeHandler short-circuits OPTIONS before auth.
