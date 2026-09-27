@@ -103,6 +103,9 @@ export function StaffScopeSegment({
               // so it announces the popup; from 自分 it is a plain toggle.
               aria-haspopup={!isSelf && canOpen ? 'listbox' : undefined}
               aria-expanded={!isSelf && canOpen ? open : undefined}
+              // A picked staffer is spoken by their FULL name — the visible
+              // label is the family name only (S46).
+              aria-label={active ? active.name : undefined}
               onClick={() => {
                 if (isSelf) {
                   setOpen(false)
