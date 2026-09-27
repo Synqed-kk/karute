@@ -23,8 +23,11 @@
 //  - when the row's WIDTH changes (rotation, a resized window): a
 //    ResizeObserver restarts the walk inside flushSync, still before paint.
 //    Only the width counts — a trim changes the row's height, never its width;
-//  - once when the web fonts finish loading (glyph widths change under an
-//    unchanged row width, which no ResizeObserver on the row would see).
+//  - when web fonts finish loading: once at `document.fonts.ready` if they
+//    were still loading at mount, and again on EVERY `loadingdone` for the
+//    row's lifetime — a font that starts loading later (a glyph fallback a new
+//    name pulls in) changes text width under an unchanged row width, which no
+//    ResizeObserver on the row would see.
 // A row that is not laid out (display:none, a layout-less test DOM) measures
 // 0px available and trims nothing.
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
@@ -106,9 +109,14 @@ export function useTrimSteps<S extends string, E extends HTMLElement = HTMLDivEl
         if (live) restart()
       })
     }
+    const onFontsLoaded = () => {
+      if (live) restart()
+    }
+    fonts?.addEventListener?.('loadingdone', onFontsLoaded)
     return () => {
       live = false
       ro?.disconnect()
+      fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     }
   }, [])
 

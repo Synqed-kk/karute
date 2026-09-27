@@ -245,6 +245,81 @@ describe('the trim engine (trim-steps.ts) — widths stubbed', () => {
       expect(applied()).toBe('badgeOnly')
     })
   })
+
+  describe('a web font that finishes loading re-walks (document.fonts), the row width unchanged', () => {
+    const had = Object.getOwnPropertyDescriptor(document, 'fonts')
+    let fonts: EventTarget & { status: string; ready: Promise<unknown> }
+    // Every measure call's trim state, in order: a restart shows as '' first.
+    const seen: string[] = []
+    const logMeasure = (row: HTMLElement): TrimMeasure => {
+      seen.push(row.dataset.applied ?? '')
+      return stubMeasure(row)
+    }
+    function LoggedRow({ steps }: { steps: string[] }) {
+      const { ref, applied } = useTrimSteps<string, HTMLDivElement>(steps, '', logMeasure)
+      return <div ref={ref} data-testid="row" data-applied={applied.join(' ')} />
+    }
+    const setFonts = (status: string, ready: Promise<unknown>) => {
+      fonts = Object.assign(new EventTarget(), { status, ready })
+      Object.defineProperty(document, 'fonts', { value: fonts, configurable: true })
+    }
+    beforeEach(() => {
+      seen.length = 0
+      setFonts('loaded', Promise.resolve())
+    })
+    afterEach(() => {
+      if (had) Object.defineProperty(document, 'fonts', had)
+      else delete (document as { fonts?: unknown }).fonts
+      jest.restoreAllMocks()
+    })
+
+    it('every loadingdone restarts the walk from nothing trimmed, then walks it again', () => {
+      BASE = 400 // badge → 350 (−7): own row too
+      render(<LoggedRow steps={['badgeOnly', 'ownRow']} />)
+      expect(applied()).toBe('badgeOnly ownRow')
+      // A glyph fallback loads later: the text narrows, the row's width does not.
+      BASE = 345 // −8 → badge → 295 (+48): badge only
+      seen.length = 0
+      act(() => {
+        fonts.dispatchEvent(new Event('loadingdone'))
+      })
+      expect(seen).toEqual(['', 'badgeOnly'])
+      expect(applied()).toBe('badgeOnly')
+      // The next load re-walks again (every loadingdone, not only the first).
+      BASE = 200
+      seen.length = 0
+      act(() => {
+        fonts.dispatchEvent(new Event('loadingdone'))
+      })
+      expect(seen).toEqual([''])
+      expect(applied()).toBe('')
+    })
+
+    it('fonts still loading at mount: fonts.ready restarts the walk too', async () => {
+      let resolveReady: () => void = () => {}
+      setFonts('loading', new Promise<void>((r) => (resolveReady = r)))
+      BASE = 400
+      render(<LoggedRow steps={['badgeOnly', 'ownRow']} />)
+      expect(applied()).toBe('badgeOnly ownRow')
+      BASE = 200
+      seen.length = 0
+      await act(async () => {
+        resolveReady()
+      })
+      expect(seen[0]).toBe('')
+      expect(applied()).toBe('')
+    })
+
+    it('the row going away stops the listening (the same handler is removed)', () => {
+      const add = jest.spyOn(fonts, 'addEventListener')
+      const remove = jest.spyOn(fonts, 'removeEventListener')
+      const { unmount } = render(<LoggedRow steps={['badgeOnly', 'ownRow']} />)
+      const handler = add.mock.calls.find((c) => c[0] === 'loadingdone')?.[1]
+      expect(handler).toBeDefined()
+      unmount()
+      expect(remove).toHaveBeenCalledWith('loadingdone', handler)
+    })
+  })
 })
 
 // ── 3. the staff control: badge only keeps the full name ────────────────────
