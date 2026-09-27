@@ -7,7 +7,15 @@ const show = (d: ReturnType<typeof resolveStoreDay>) => (d.source === 'sample' ?
 const every = (open: string, close: string) => ({ mon: { open, close }, tue: { open, close }, wed: { open, close }, thu: { open, close }, fri: { open, close }, sat: { open, close }, sun: { open, close } })
 
 describe('store-hours — a practice store\'s own 営業時間 · 定休日 (§v11)', () => {
-  it('agrees with resolveDayHours over the seven stores\' recorded hours × 7 weekdays (this table IS its output, a local run of src/lib/operating-hours.ts on 2026-09-27; the fence keeps that import out of territory)', () => {
+  // PROVENANCE — the table below IS `resolveDayHours`'s output (src/lib/operating-hours.ts; the fence keeps that import
+  // out of territory, so it is recorded, not called). Saved as the lane's evidence/board-fix/pr-a/equivalence-resolveDayHours.json
+  // (2026-09-27, tip 944e0cb03). Re-derive: in a worktree, write an UNCOMMITTED src/__tests__/integration/zz-oracle.scratch.test.ts
+  // that calls resolveDayHours({ date: 12:00 JST on Sun 2026-09-13 + wd, weeklyHours: <the POLICIES weekly_hours below>,
+  // closedDates: new Set(), orgHours: null, orgSaved: new Set() }) for wd 0…6 and writes source !== 'store' → 'sample',
+  // closed → 'closed', else `${openMinute}-${closeMinute}` to ORACLE_OUT; run it with
+  // ORACLE_OUT=<file> NEXT_PUBLIC_SUPABASE_URL=https://test-dummy.supabase.co SUPABASE_SERVICE_ROLE_KEY=dummy-not-a-key node_modules/.bin/jest src/__tests__/integration/zz-oracle.scratch.test.ts
+  // then delete the scratch file (a file outside territory never rides a Business PR).
+  it('agrees with resolveDayHours over the seven stores\' recorded hours × 7 weekdays (its recorded output — see PROVENANCE)', () => {
     const week = (day: string, tue = day) => [day, day, tue, day, day, day, day] // index = Date#getDay, 0 = 日
     const TABLE: Record<string, string[]> = {
       [STORE.tokyo]: week('600-1140', 'closed'), [STORE.gym]: week('420-1320'), [STORE.jiyugaoka]: week('600-1200', 'closed'),
