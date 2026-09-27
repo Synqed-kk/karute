@@ -7,6 +7,7 @@ import {
   readTakeSecureMeta,
   readTakeTranscript,
   stampTakeTranscript,
+  type TakeAudioFingerprint,
 } from '@/lib/karute/take-store'
 import { ensureAudioOnServer } from '@/lib/recording/secure-take'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
@@ -127,8 +128,24 @@ export type PipelineContext = {
 }
 
 /** One fallback transcription the chain paid for: whose take (null = none),
- *  asked in which locale, and the door's whole JSON body. */
-export type PaidFallback = { takeId: string | null; locale: string; response: unknown }
+ *  asked in which locale, the door's whole JSON body, and the audio it sent
+ *  (C3 fold — replayed only onto a run about to send the same). */
+export type PaidFallback = {
+  takeId: string | null
+  locale: string
+  response: unknown
+  audio: TakeAudioFingerprint
+}
+
+/** ⚖ C3 fold (Greptile P1): a fallback answer replays only onto the SAME audio
+ *  — same byte size, same type, and the same length when both sides know one.
+ *  No fingerprint (a stamp written without one) is never a match. */
+function sameAudio(paid: TakeAudioFingerprint | undefined, now: TakeAudioFingerprint): boolean {
+  if (!paid || paid.size !== now.size || paid.type !== now.type) return false
+  return paid.durationSeconds === undefined || now.durationSeconds === undefined
+    ? true
+    : paid.durationSeconds === now.durationSeconds
+}
 
 /**
  * ⚖ THE ROW THE SERVER MAKES IS BORN WITH ITS LENGTH (S35 C1). That row is
@@ -264,6 +281,22 @@ export async function runAIPipeline(
   // this run's start: with one, only an answer paid for it replays; with none,
   // the fallback's. The write half lives in stampTakeTranscript (take-store),
   // where the check and the write share one transaction.
+  // ⚖ …AND ONLY ONTO THE SAME AUDIO (C3 fold, Greptile P1). A recovery run
+  // assembles the take from its saved segments, which can be shorter than the
+  // in-memory recording the first fallback sent (a tail never saved) — same
+  // take, same locale, different words. So a run with no finalized key replays
+  // a fallback answer (the take's stamp or the chain's slot) only when the
+  // audio it is about to send matches what that answer was paid for: this
+  // blob's size and type, and its length when both sides know one. A stamp
+  // with no fingerprint never replays. The finalized-key replay is unchanged —
+  // that key names the exact bytes.
+  const audio: TakeAudioFingerprint = {
+    size: audioBlob.size,
+    type: audioBlob.type,
+    ...(typeof ctx.durationSeconds === 'number' && Number.isFinite(ctx.durationSeconds)
+      ? { durationSeconds: ctx.durationSeconds }
+      : {}),
+  }
   const transcribeOnce = async (): Promise<Awaited<ReturnType<Response['json']>>> => {
     const stored = takeId ? await readTakeTranscript(takeId) : null
     const currentPath =
@@ -271,12 +304,20 @@ export async function runAIPipeline(
     if (
       stored &&
       stored.locale === locale &&
-      (currentPath ? stored.finalizedPath === currentPath : stored.fallback === true)
+      (currentPath
+        ? stored.finalizedPath === currentPath
+        : stored.fallback === true && sameAudio(stored.audio, audio))
     ) {
       return stored.response
     }
     const slot = ctx.paidFallback
-    if (!currentPath && slot && slot.takeId === takeId && slot.locale === locale) {
+    if (
+      !currentPath &&
+      slot &&
+      slot.takeId === takeId &&
+      slot.locale === locale &&
+      sameAudio(slot.audio, audio)
+    ) {
       return slot.response
     }
     const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
@@ -322,8 +363,8 @@ export async function runAIPipeline(
       // finalized at ANOTHER key meanwhile keeps its own stamp — the store
       // refuses this write (see the rule above transcribeOnce); the chain's
       // slot is still told, run-guarded as ever.
-      if (takeId) await stampTakeTranscript(takeId, mintedPath, locale, fresh, true)
-      ctx.onFallbackPaid?.({ takeId, locale, response: fresh })
+      if (takeId) await stampTakeTranscript(takeId, mintedPath, locale, fresh, true, audio)
+      ctx.onFallbackPaid?.({ takeId, locale, response: fresh, audio })
     }
     return fresh
   }
