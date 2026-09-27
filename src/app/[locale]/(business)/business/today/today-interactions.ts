@@ -881,6 +881,10 @@ export function applyMoves(
    *  behaviour this file shipped with: every tail keeps the length the server
    *  drew on the origin room. See `withTrailingCleanup` for the rule. */
   cleanupMinutesByBed?: Record<string, number>,
+  /** ⚖ §v11 V11-15 fix round 2 (P16) — the STORE's closing time, the ceiling of every re-derived turnaround; `hours`
+   *  is only the axis the cards are placed on. Every TodayScreen call passes `business.close`; absent (a caller whose
+   *  `hours` IS the store's day) = `hours.close`, today's behaviour. */
+  closeMin?: number,
 ): BoardLane[] {
   // The row the SERVER drew, per group — what a lane re-admits when a booking
   // arrives on it. Keyed by group as well as id, because a booking arriving on a
@@ -1042,7 +1046,7 @@ export function applyMoves(
       arrivals.push(row)
     }
     const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).sort(byX)
-    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours, words, cleanupMinutesByBed, movedRoom) : settled }
+    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours, words, cleanupMinutesByBed, movedRoom, closeMin) : settled }
   })
 }
 
@@ -1083,6 +1087,7 @@ function withTrailingCleanup(
   words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
   movedRoom?: ReadonlySet<string>,
+  closeMin: number = hours.close,
 ): BoardItem[] {
   const out = [...items]
   /** This room's own policy — the tail length for anyone who arrived here. */
@@ -1102,7 +1107,7 @@ function withTrailingCleanup(
     const start = b.endMin
     const ceiling = items.reduce(
       (c, i) => (i.kind === 'booking' && i.startMin >= start && i.startMin < c ? i.startMin : c),
-      hours.close,
+      closeMin,
     )
     const end = Math.min(start + minutes, ceiling)
     if (end <= start) continue
@@ -3769,6 +3774,8 @@ export function explainRails(
      *  ABSENT is the round gate off: no chip wears a mark and no pack runs. */
     reseat?: {
       hours: Hours
+      /** ⚖ §v11 V11-15 fix round 2 — the store's closing time for the shuffle's turnarounds (never the axis's). */
+      closeMin?: number
       nowMinute: number | null
       cleanupMinutesByBed: Record<string, number>
       landingOn: (lanes: BoardLane[], laneKey: string, start: number) => Pick<LandingVerdict, 'kind' | 'reason'>
@@ -4096,7 +4103,7 @@ export function explainRails(
         if (packed == null || packed.laneKey == null || packed.reseats.length === 0) return null
         const companions = companionsFor(lanes, packed.reseats)
         if (companions.length === 0) return null
-        const after = applyBedMoves(lanes, companions, opts.reseat!.hours, opts.words, opts.reseat!.cleanupMinutesByBed)
+        const after = applyBedMoves(lanes, companions, opts.reseat!.hours, opts.words, opts.reseat!.cleanupMinutesByBed, opts.reseat!.closeMin)
         const v = opts.reseat!.landingOn(after, rail.laneKey, c.start)
         if (v.kind === 'blocked') return null
         return {
@@ -4493,9 +4500,10 @@ export function foreignStoreRefusal(
  *  rounded, so [11:15, 11:45) jumped FORWARD to 11:30 and a standard session
  *  seeded there ran into the next booking — Liam's 「the left half works, the
  *  right half fires 時間帯が重複」. One token, canon parity. */
-export function slotStartAt(track: Element, clientX: number, hours: Hours, stepMin = 30): number {
+export function slotStartAt(track: Element, clientX: number, hours: Hours, bounds: Hours = hours, stepMin = 30): number {
+  // ⚖ §v11 V11-15 B4 — the pixel is read on the AXIS (`hours`); the start is bounded by the STORE's hours (`bounds`).
   const minute = hours.open + fractionIn(track, clientX) * (hours.close - hours.open)
-  return Math.max(hours.open, Math.min(hours.close - stepMin, Math.floor(minute / stepMin) * stepMin))
+  return Math.max(bounds.open, Math.min(bounds.close - stepMin, Math.floor(minute / stepMin) * stepMin))
 }
 
 /** ⚖ Liam flag 62 (2026-08-22) — THE SEED IS CLAMPED INTO THE POCKET IT LANDED IN.
@@ -5615,11 +5623,12 @@ export function applyBedMoves(
   // `applyMoves`, which this forwards to).
   words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
+  closeMin?: number,
 ): BoardLane[] {
   if (companions.length === 0) return lanes
   const bedMoves: Moves = {}
   for (const c of companions) bedMoves[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
-  return applyMoves(lanes, {}, [], [], hours, words, bedMoves, cleanupMinutesByBed)
+  return applyMoves(lanes, {}, [], [], hours, words, bedMoves, cleanupMinutesByBed, closeMin)
 }
 
 /** ⚖ 9/8 PACKING, THE RE-LANDING RULE — every companion put back where it stood
@@ -5637,8 +5646,9 @@ export function lanesWithCompanionsRestored(
   // `applyBedMoves`).
   words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
+  closeMin?: number,
 ): BoardLane[] {
-  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours, words, cleanupMinutesByBed)
+  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours, words, cleanupMinutesByBed, closeMin)
 }
 
 /** ⚖ 9/8 PACKING — VACATE BEFORE OCCUPY. A card moving INTO a room is written

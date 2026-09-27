@@ -1020,8 +1020,8 @@ describe('1 — the round gate', () => {
       expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
       return s
     }
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,'],
       ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
@@ -1062,7 +1062,7 @@ describe('1 — the round gate', () => {
     // rename — this slice is still the producer's own call.
     const heldBoard = uniqueSlice(
       'const heldBoardRaw = useMemo(',
-      '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
+      '[boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
     )
     expect({
       bareGateLines: pinnedLines(screen, 'SELLING_ENGINE_LAW'),

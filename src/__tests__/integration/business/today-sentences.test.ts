@@ -411,7 +411,7 @@ describe('⚖ D-53 (u)/(n2b2) — the whole-board functions read the resolved wo
         join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
         'utf8',
       )
-      expect(src).toContain('[placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes]')
+      expect(src).toContain('[placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes, business.close]') // ⚖ §v11 V11-15 fix round 2
     })
 
     it('a staff lane and a beds lane sharing one literal key resolve to their OWN rows, never each other\'s (the group half of the key)', () => {

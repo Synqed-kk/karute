@@ -60,11 +60,14 @@ import {
   bookingCategory,
   buildLanes,
   dayBookings,
+  drawnWindow,
   cleanupBlocks,
   effectiveShift,
   openDecisions,
   minuteOf,
   place,
+  rulerLabels,
+  rulerLead,
   suppressedByAbsence,
   utilization,
   type BoardLane,
@@ -339,7 +342,8 @@ describe('the board day is operationally possible (⚖ 8/9 demo-data-product-tru
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('board derivations', () => {
-  it('places a lane element as a share of the opening-hours window', () => {
+  // ⚖ §v11 V11-15 (PR-C) — title REWRITTEN: the window is the board's drawn window now, not the opening hours.
+  it('places a lane element as a share of the drawn window', () => {
     const h = { open: 600, close: 1140 } // 10:00–19:00, 540 minutes
     expect(place(600, 660, h)).toEqual({ x: 0, w: (60 / 540) * 100, startMin: 600, endMin: 660 })
     expect(place(1080, 1140, h)).toEqual({ x: (480 / 540) * 100, w: (60 / 540) * 100, startMin: 1080, endMin: 1140 })
@@ -352,6 +356,126 @@ describe('board derivations', () => {
     expect(place(1100, 1260, h).endMin).toBe(1140)
     // minuteOf is place()'s inverse, on the same axis.
     expect(minuteOf(place(750, 810, h).x, h)).toBe(750)
+  })
+
+  // ⚖ §v11 V11-15(j) P10 — never again: place() is total, finite and inside the board for every census §2b row.
+  it('§v11 V11-15 P10 — place() stays on the board for every shape of input (before · after · wholly outside · zero-length · empty or inverted window · midnight · 24:00 · the edge)', () => {
+    const gym = { open: 420, close: 1320 }
+    const rows: Array<[string, number, number, { open: number; close: number }]> = [
+      ['starts before', 390, 450, gym], ['ends after', 1290, 1350, gym], ['wholly before', 360, 405, gym], ['wholly after', 1350, 1410, gym],
+      ['zero-length', 720, 720, gym], ['pair {600,600}', 700, 760, { open: 600, close: 600 }], ['pair {700,600}', 650, 680, { open: 700, close: 600 }],
+      ['crosses midnight 1410→30', 1410, 30, gym], ['ends 24:00', 1380, 1440, { open: 420, close: 1440 }],
+      ['ends at the edge', 1260, 1320, gym], ['ends at the edge 1125–1140', 1125, 1140, { open: 600, close: 1140 }],
+    ]
+    const off = rows.flatMap(([name, s, e, h]) => {
+      const { x, w, startMin, endMin } = place(s, e, h)
+      const ok = [x, w, startMin, endMin].every(Number.isFinite) && x >= 0 && x <= 100 && w >= 0 && x + w <= 100 + 1e-9
+      return ok ? [] : [`${name}: x ${x} w ${w}`]
+    })
+    expect(off).toEqual([])
+    // An in-window box keeps today's numbers bit for bit (frozen from ed0d2de44's formula).
+    expect(place(780, 1140, { open: 600, close: 1140 })).toEqual({ x: 33.33333333333333, w: 66.66666666666666, startMin: 780, endMin: 1140 })
+    expect(place(1125, 1140, { open: 600, close: 1140 })).toEqual({ x: 97.22222222222221, w: 2.7777777777777777, startMin: 1125, endMin: 1140 })
+    // B1: a booking whose end wrapped past midnight is still DRAWN (its sliver), inside the board — never hidden.
+    const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
+    const wrapped = { ...base, id: 'apt-wrapped', staff_id: 'p-pr-c', resource_id: null, starts_at: '2026-09-14T14:30:00.000Z', ends_at: '2026-09-14T15:30:00.000Z' } // 23:30 → 00:30 JST
+    const input = {
+      appointments: [wrapped], customers: [], menus: [], staff: [{ id: 'p-pr-c', full_name: '見本 ぴーしー' }], resources: [], shifts: [], qualifications: {},
+      staffListPrice: {}, staffStores: {}, absence: null, blocks: [], sellSlots: [], decisions: [], hours: gym, dayKey: jstDayKey(wrapped.starts_at),
+      operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
+    } as unknown as BuildInput
+    const bookings = dayBookings(input)
+    const card = buildLanes({ ...input, hours: drawnWindow(gym, bookings) }, bookings).flatMap((l) => l.items).find((i) => i.caseId === 'apt-wrapped')
+    expect(card && [card.x >= 0, card.x <= 100, card.w >= 0, card.x + card.w <= 100 + 1e-9]).toEqual([true, true, true, true])
+  })
+
+  // ⚖ §v11 V11-15(j) P11 — the drawn window: the store's hours grown to the whole hour around every card outside them.
+  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day; grown in whole hours from the store\'s own edges', () => {
+    const gym = { open: 420, close: 1320 }
+    const at = (...spans: Array<[number, number]>) => spans.map(([startMinute, endMinute]) => ({ startMinute, endMinute }))
+    expect(drawnWindow(gym, at([600, 660], [1000, 1100]))).toEqual(gym)
+    expect(drawnWindow(gym, at([420, 480], [1260, 1320]))).toEqual(gym)
+    expect(drawnWindow(gym, at([390, 450]))).toEqual({ open: 360, close: 1320 }) // 06:30 → opens 06:00
+    expect(drawnWindow(gym, at([1290, 1350]))).toEqual({ open: 420, close: 1380 }) // ends 22:30 → closes 23:00
+    expect(drawnWindow(gym, at([1350, 1395]))).toEqual({ open: 420, close: 1440 }) // ends 23:15 → closes 24:00 (ceil60)
+    expect(drawnWindow(gym, at([-10, 20], [1430, 1500]))).toEqual({ open: 0, close: 1440 })
+    expect(drawnWindow(gym, at([1410, 30]))).toEqual({ open: 420, close: 1440 }) // B1: a wrapped row grows the axis to its START
+    const w = drawnWindow(gym, at([395, 1395]))
+    expect(Number.isInteger((w.close - w.open) / 60)).toBe(true)
+    // B3: growth is anchored at the store's own edges — a fractional pair keeps its left edge (the drag lattice's anchor).
+    expect(drawnWindow({ open: 630, close: 1110 }, [])).toEqual({ open: 630, close: 1110 })
+    expect(drawnWindow({ open: 630, close: 1110 }, at([600, 640], [1100, 1130]))).toEqual({ open: 570, close: 1170 })
+  })
+
+  // ⚖ §v11 V11-15 fix round 1 — P15: a bed's turnover is cut by the store's closing time, not by an axis a late card grew.
+  it('§v11 V11-15 P15 — a turnover block ends at the store\'s close (22:00), not past it, when the axis runs to 24:00; unchanged when the axis IS the hours', () => {
+    const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
+    const row = { ...base, id: 'apt-late-bed', staff_id: null, resource_id: 'r-pr-c', starts_at: '2026-09-14T11:50:00.000Z', ends_at: '2026-09-14T12:50:00.000Z' } // 20:50–21:50 JST
+    const input = {
+      appointments: [row], customers: [], menus: [], staff: [], shifts: [], qualifications: {}, staffListPrice: {}, staffStores: {},
+      resources: [{ id: 'r-pr-c', name: 'ベッドC', store_id: 's-pr-c', cleanup_minutes: 30, note: '', room_class: 'standard' }],
+      absence: null, blocks: [], sellSlots: [], decisions: [], hours: { open: 420, close: 1320 }, dayKey: jstDayKey(row.starts_at),
+      operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
+    } as unknown as BuildInput
+    const cleanupEnd = (i: BuildInput) => buildLanes(i, dayBookings(i)).find((l) => l.key === 'r-pr-c')!.items.find((x) => x.kind === 'cleanup')?.endMin
+    expect(cleanupEnd({ ...input, hours: { open: 420, close: 1440 }, businessHours: { open: 420, close: 1320 } })).toBe(1320) // not 1340
+    expect(cleanupEnd(input)).toBe(1320) // the OFF path: axis == the store's hours, as today
+  })
+
+  // ⚖ §v11 V11-15 fix round 4 — P20 (Greptile P1 on 8637ba1d7): the AXIS may be fractional (B3); the RULER prints whole
+  // hours at their minute positions, so a label sits on the gridline of its own hour on any axis.
+  it('§v11 V11-15 P20 — the ruler prints whole hours at their minute positions: a whole-hour axis gives today\'s equal columns exactly, a fractional axis gives whole hours only, and an empty span gives []', () => {
+    const whole = rulerLabels({ open: 540, close: 1140 }) // 09:00–19:00 — today's ruler: open/60 + i at i/count·100 %, width 100/count %
+    expect(whole.map((l) => l.hour)).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18])
+    whole.forEach((l, i) => { expect(l.leftPct).toBe((i / 10) * 100); expect(l.widthPct).toBeCloseTo(10, 10) })
+    for (const axis of [{ open: 600, close: 1140 }, { open: 420, close: 1320 }, { open: 0, close: 1440 }]) { // every whole-hour axis = today's label set and columns
+      const count = (axis.close - axis.open) / 60
+      const got = rulerLabels(axis)
+      expect(got.map((l) => String(l.hour))).toEqual(Array.from({ length: count }, (_, i) => String(axis.open / 60 + i)))
+      got.forEach((l, i) => { expect(l.leftPct).toBeCloseTo((i / count) * 100, 10); expect(l.widthPct).toBeCloseTo(100 / count, 10) })
+    }
+    const late = rulerLabels({ open: 570, close: 1440 }) // 09:30–24:00: 14.5 track columns, 14 whole hours
+    expect(late.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
+    expect(late[0].leftPct).toBeCloseTo((30 / 870) * 100, 10)
+    late.forEach((l) => expect(l.widthPct).toBeCloseTo((60 / 870) * 100, 10))
+    expect(late.at(-1)!.leftPct + late.at(-1)!.widthPct).toBeCloseTo(100, 10)
+    const both = rulerLabels({ open: 570, close: 1350 }) // 09:30–22:30: the last hour is cut at the close
+    expect(both.map((l) => l.hour)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+    expect(both[0].leftPct).toBeCloseTo((30 / 780) * 100, 10)
+    expect(both.at(-1)!.widthPct).toBeCloseTo((30 / 780) * 100, 10)
+    expect(both.at(-1)!.leftPct + both.at(-1)!.widthPct).toBeCloseTo(100, 10)
+    expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
+    expect(rulerLabels({ open: 660, close: 600 })).toEqual([])
+  })
+
+  it('§v11 V11-15 P20 — rulerLead: the gridlines\' lead is the axis share before the first whole hour (= the first label\'s left); 0 on a whole-hour axis or an empty span', () => {
+    expect(rulerLead({ open: 570, close: 1440 })).toBeCloseTo((30 / 870) * 100, 10)
+    expect(rulerLead({ open: 570, close: 1440 })).toBe(rulerLabels({ open: 570, close: 1440 })[0].leftPct)
+    expect(rulerLead({ open: 540, close: 1140 })).toBe(0)
+    expect(rulerLead({ open: 600, close: 600 })).toBe(0)
+  })
+
+  // ⚖ §v11 V11-15 fix round 3 — P17 (stress mutant M3): only BOOKINGS grow the axis — never a shift, a wash or an absence.
+  it('§v11 V11-15 P17 — only bookings grow the axis: the page feeds drawnWindow its drawn cards alone, and a shift or 勤務不可 past close leaves the axis at the store\'s hours', () => {
+    const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(page).toContain('const drawn = drawnWindow(planes.operatingHours, bookings.filter((b) => b.onBoard))')
+    expect(page.split('drawnWindow(').length - 1).toBe(1)
+    const gym = { open: 420, close: 1320 }
+    const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
+    const row = { ...base, id: 'apt-in-hours', staff_id: 'p-late-shift', resource_id: null, starts_at: '2026-09-14T03:00:00.000Z', ends_at: '2026-09-14T04:00:00.000Z' } // 12:00–13:00 JST
+    const input = {
+      appointments: [row], customers: [], menus: [], staff: [{ id: 'p-late-shift', full_name: '見本 ぴーしー' }], resources: [],
+      shifts: [{ staff_id: 'p-late-shift', start: 420, end: 1400, breaks: [] }], // a shift that runs past close
+      absence: { staff_id: 'p-late-shift', from: 1300 }, // …and a 勤務不可 from 21:40
+      qualifications: {}, staffListPrice: {}, staffStores: {}, blocks: [], sellSlots: [], decisions: [], hours: gym, dayKey: jstDayKey(row.starts_at),
+      operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
+    } as unknown as BuildInput
+    const bookings = dayBookings(input)
+    const axis = drawnWindow(gym, bookings)
+    expect(axis).toEqual(gym)
+    const items = buildLanes({ ...input, hours: axis, businessHours: gym }, bookings).flatMap((l) => l.items)
+    expect(items.length).toBeGreaterThan(1) // the card and the 勤務不可 — never a vacuous pass
+    expect(items.filter((i) => !(i.x >= 0 && i.x + i.w <= 100 + 1e-9))).toEqual([])
   })
 
   it('reads カテゴリー strongest-first: VIP over 回数券 over 新規/再来', () => {
@@ -691,7 +815,7 @@ describe('今日の運営 screen', () => {
     const p = await board(STORE_A)
     expect(p.hours.count).toBe((operatingHours.close - operatingHours.open) / 60)
     expect(p.hours.labels).toHaveLength(p.hours.count)
-    expect(p.hours.labels[0]).toBe(String(operatingHours.open / 60))
+    expect(p.hours.labels[0].hour).toBe(operatingHours.open / 60) // P20 — labels are { hour, leftPct, widthPct }
     expect(p.sell.gridMin).toBe(opsConfig.reserveStartGridMin)
     // ⚖ D-15/D-24 pin 9(a) — the L1→L3 seam contract at the default: the
     // page's own props.sell carries the store's sellSlotMin, not a literal.

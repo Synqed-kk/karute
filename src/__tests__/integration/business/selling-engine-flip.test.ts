@@ -2493,7 +2493,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
       // stays 3-arg, so this door is now a closure over the chrome pair
       // (R-6) rather than the bare value ROUND 2 passed.
       'bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),',
-      'closeMin: hours.close,',
+      'closeMin: business.close,', // ⚖ §v11 V11-15(b) — the frame reads the store's own close
       'nowMin: props.sell.nowMinute,',
       'guard: props.guard.config,',
       'gapGuardMode: props.guard.mode,',

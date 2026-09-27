@@ -470,9 +470,11 @@ export function handBoardFor(
   // `lanesWithCompanionsRestored`).
   words: { byLaneKey: Record<string, ResourceWords>; generic: ResourceWords },
   cleanupMinutesByBed?: Record<string, number>,
+  /** ⚖ §v11 V11-15 fix round 2 — the store's closing time for re-derived turnarounds (forwarded). */
+  closeMin?: number,
 ): BoardLane[] {
   return pending && forId != null && pending.id === forId
-    ? lanesWithCompanionsRestored(lanes, pending.companions, hours, words, cleanupMinutesByBed)
+    ? lanesWithCompanionsRestored(lanes, pending.companions, hours, words, cleanupMinutesByBed, closeMin)
     : lanes
 }
 
@@ -611,7 +613,13 @@ export interface TodayProps {
   monthLabel: string
   isToday: boolean
   windowDays: number
-  hours: { open: number; close: number; count: number; labels: string[] }
+  /** The AXIS: the drawn window (⚖ §v11 V11-15(a)) — ruler, grid, every place()/minuteOf(). `lead` (P20, rulerLead()): present only on a
+   *  fractional axis — the gridlines' offset to the first whole hour, so they start where the ruler's first label does. */
+  hours: { open: number; close: number; count: number; labels: ReadonlyArray<{ hour: number; leftPct: number; widthPct: number }>; lead?: number }
+  /** ⚖ §v11 V11-15(b) — the store's OWN hours, for every RULE (sell/guard frames, the dialogs, the sentence).
+   *  Present only when the axis grew past them; absent, the axis IS the store's hours. `ownHours` (B2): set by the
+   *  store in core — only then is 営業時間外 painted. */
+  businessHours?: { open: number; close: number; ownHours: boolean }
   nowFraction: number | null
   nowLabel: string
   lanes: BoardLane[]
@@ -1122,6 +1130,12 @@ const sampleChip = (mark: SampleMarkForm) => (
 
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
+  const business = props.businessHours ?? hours
+  // ⚖ §v11 V11-15(c) · A5/B2 — each side's share of the axis the store is closed for; 0 when the axis IS the store's
+  // hours or the hours are the sample pair (never paint 営業時間外 over hours the store did not set).
+  const band = props.businessHours?.ownHours === true
+  const offBefore = band ? (business.open - hours.open) / (hours.close - hours.open) : 0
+  const offAfter = band ? (hours.close - business.close) / (hours.close - hours.open) : 0
   // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
   // board-wide site (group header, tab, legend, rail tour, create dialog)
   // reads these, never a per-lane lookup (C7).
@@ -1971,8 +1985,8 @@ export function TodayScreen(props: TodayProps) {
    *  measured against. Without it `committedLanes` — the board the sell, gap and
    *  reserved layers price against — could advertise minutes core will refuse. */
   const boardLanes = useMemo(
-    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes),
-    [placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes],
+    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes, business.close),
+    [placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes, business.close],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -1987,8 +2001,8 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes),
-    [placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes],
+    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes, business.close),
+    [placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes, business.close],
   )
   /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
    *  card he grabbed is under his cursor now (the proxy), so the original stays
@@ -2006,8 +2020,8 @@ export function TodayScreen(props: TodayProps) {
     if (!a) return null
     const staff = a.staffLane ? { ...moves, [a.id]: { laneKey: a.staffLane, x: a.span.x, w: a.span.w } } : moves
     const bed = a.bedLane ? { ...bedMoves, [a.id]: { laneKey: a.bedLane, x: a.span.x, w: a.span.w } } : bedMoves
-    return applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes)
-  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours, laneWords, props.bedCleanupMinutes])
+    return applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes, business.close)
+  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours, laneWords, props.bedCleanupMinutes, business.close])
   const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)
   /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
    *  is drawn for every live drag, same lane or not — with the card off travelling
@@ -2095,8 +2109,8 @@ export function TodayScreen(props: TodayProps) {
    *  Its own memo so the book below is not rebuilt by an `hours` object that
    *  merely re-rendered. */
   const ledgerFrame = useMemo<DayFrame>(
-    () => ({ openMin: hours.open, closeMin: hours.close, nowMin: props.sell.nowMinute ?? hours.open }),
-    [hours.open, hours.close, props.sell.nowMinute],
+    () => ({ openMin: business.open, closeMin: business.close, nowMin: props.sell.nowMinute ?? business.open }),
+    [business.open, business.close, props.sell.nowMinute],
   )
 
   /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE SALES DOOR: the COMMITTED
@@ -2192,7 +2206,7 @@ export function TodayScreen(props: TodayProps) {
         // closure over the chrome pair sits here rather than widening the
         // frozen type.
         bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),
-        closeMin: hours.close,
+        closeMin: business.close,
         nowMin: props.sell.nowMinute,
         guard: props.guard.config,
         gapGuardMode: props.guard.mode,
@@ -2202,7 +2216,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
         released: releasedHere,
       }),
-    [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere, chromeAsk],
+    [committedLanes, ledgerFrame, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere, chromeAsk],
   )
 
   /** ⚖ D-11 · ROUND 2 (2026-09-13) — THE TIMED RELEASE, APPLIED ONCE, WHERE
@@ -2358,7 +2372,7 @@ export function TodayScreen(props: TodayProps) {
   const { sell, sellDrops } = useMemo(
     () => {
       const sellDrops: SellDrop[] = []
-      const sell = sellLayerFor(committedLanes, hours, {
+      const sell = sellLayerFor(committedLanes, business, {
         gridMin: props.sell.gridMin,
         // ⚖ D-42/B2 — the store's own number, connected in the same PR that moved
         // every reader onto the cell's own `e`; never a literal.
@@ -2390,7 +2404,7 @@ export function TodayScreen(props: TodayProps) {
     },
     [
       committedLanes,
-      hours,
+      business,
       props.sell,
       locked,
       showSlotPrice,
@@ -2447,7 +2461,7 @@ export function TodayScreen(props: TodayProps) {
     if (!heldCommitted) return null
     return fallbackCellsFor({
       lanes: committedLanes,
-      closeMin: hours.close,
+      closeMin: business.close,
       dropped: sellDrops,
       survivors: sell.cells,
       claims: gapClaims,
@@ -2469,7 +2483,7 @@ export function TodayScreen(props: TodayProps) {
   }, [
     heldCommitted,
     committedLanes,
-    hours.close,
+    business.close,
     sellDrops,
     sell,
     gapClaims,
@@ -2647,8 +2661,8 @@ export function TodayScreen(props: TodayProps) {
    *  Everything that must read it (`rails`, the two gated doors, the chip site,
    *  `explainRails`, `composeSlot`, `linesFor`, `handBoardRef`) is below. */
   const handBoard = useMemo(
-    () => handBoardFor(boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes),
-    [boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes],
+    () => handBoardFor(boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes, business.close),
+    [boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes, business.close],
   )
   /** THE CAPACITY BOOK, BUILT ONCE PER FRAME. Both worlds come out of one call,
    *  and the second only exists while a hand is holding something. Construction
@@ -2740,7 +2754,7 @@ export function TodayScreen(props: TodayProps) {
       SELLING_ENGINE_LAW
         ? reservedMaskFor({
             lanes: boardLanes,
-            closeMin: hours.close,
+            closeMin: business.close,
             nowMin: props.sell.nowMinute,
             guard: props.guard.config,
             gapGuardMode: props.guard.mode,
@@ -2749,7 +2763,7 @@ export function TodayScreen(props: TodayProps) {
             excludeId: handId,
           })
         : undefined,
-    [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
+    [boardLanes, business.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
   )
 
   /** ⚖ ROUND 2 — AND THE LIVE MASK GETS THE SAME SUBTRACTION, so the rail can
@@ -2827,8 +2841,8 @@ export function TodayScreen(props: TodayProps) {
    *  placement one — nothing is being placed, so there is no `excludeId`, no
    *  `placementFeasible`, and with two real boards there is nothing left to lift. */
   const inputOn = useCallback((lanes: BoardLane[]): RailInput => ({
-    open: hours.open,
-    close: hours.close,
+    open: business.open,
+    close: business.close,
     // the rail's 30-minute grid, spelled the way this screen's own two RailInput
     // sites spell it — there is no constant for it in this file.
     stepMin: 30,
@@ -2844,7 +2858,7 @@ export function TodayScreen(props: TodayProps) {
     protectedWindowFeasible: windowDoorOn(lanes),
     resting: null,
     restingWindowFeasible: undefined,
-  }), [hours.open, hours.close, props.guard.standardSessionMin, props.guard.protectedDurationMin,
+  }), [business.open, business.close, props.guard.standardSessionMin, props.guard.protectedDurationMin,
        props.guard.config, props.sell.nowMinute, locked, windowDoorOn])
 
   const pendingId = pending?.id ?? null
@@ -2910,9 +2924,9 @@ export function TodayScreen(props: TodayProps) {
    *  so this memo — and only this one — may take the pending gate. */
   const originLanes = useMemo(
     () => (dayStaged
-      ? applyMoves(placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes)
+      ? applyMoves(placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes, business.close)
       : committedLanes),
-    [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes, committedLanes],
+    [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes, business.close, committedLanes],
   )
   /** ⚖ D-20 (1) — ONE ORIGIN MASK, TWO CONSUMERS. `honestOrigin` used to
    *  produce the released mask ITSELF, gated behind `!honest` — so with
@@ -2932,7 +2946,7 @@ export function TodayScreen(props: TodayProps) {
       lanes: originLanes,
       frame: ledgerFrame,
       bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),
-      closeMin: hours.close,
+      closeMin: business.close,
       nowMin: props.sell.nowMinute,
       guard: props.guard.config,
       gapGuardMode: props.guard.mode,
@@ -2944,7 +2958,7 @@ export function TodayScreen(props: TodayProps) {
     // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
     // these two boards, so a release on one of them alone IS a reported loss.
     return releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
-  }, [dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
+  }, [dayStaged, originLanes, ledgerFrame, business.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
   /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
    *
    *  `lostOn` subtracts two settled boards, so both of them have to come out of
@@ -3019,8 +3033,8 @@ export function TodayScreen(props: TodayProps) {
           // strip. `=== boardLanes` for every other gesture, so this is today's
           // memo byte for byte away from a staged re-drag.
           guardRailsFor(handBoard, {
-            open: hours.open,
-            close: hours.close,
+            open: business.open,
+            close: business.close,
             stepMin: 30,
             dur: railDur,
             protectedDur: props.guard.protectedDurationMin,
@@ -3051,7 +3065,7 @@ export function TodayScreen(props: TodayProps) {
             restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,
           }, laneWords)
         : [],
-    [guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
+    [guardOn, handBoard, business, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
   /** ⚖ LIAM RULING 1 (2026-09-09) — THE BED TRUTH FOR ONE WINDOW ON ONE LANE.
@@ -3392,8 +3406,8 @@ export function TodayScreen(props: TodayProps) {
     (laneKey: string, start: number, dur: number, excludeId: string | null, lanes: BoardLane[] = boardLanes): RailCell | null =>
       guardOn
         ? guardVerdictAt(lanes, laneKey, start, {
-            open: hours.open,
-            close: hours.close,
+            open: business.open,
+            close: business.close,
             stepMin: 30,
             dur,
             protectedDur: props.guard.protectedDurationMin,
@@ -3417,7 +3431,7 @@ export function TodayScreen(props: TodayProps) {
             restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(excludeId, lanes) : undefined,
           }, laneWords)
         : null,
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
+    [guardOn, boardLanes, business, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
   )
 
   /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT, ASKED FROM THE SCREEN.
@@ -3615,6 +3629,7 @@ export function TodayScreen(props: TodayProps) {
         // The same values `verdictAtLanding` passes, from the same props.
         reseat: {
           hours,
+          closeMin: business.close,
           nowMinute: props.sell.nowMinute,
           cleanupMinutesByBed: props.bedCleanupMinutes,
           landingOn: reseatLandingAt,
@@ -3623,7 +3638,7 @@ export function TodayScreen(props: TodayProps) {
       }),
     [
       rails, handBoard, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellPublished, publishedClaims, sellDrops, inHand, sellMode,
-      heldBoardHonest, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt, laneWords,
+      heldBoardHonest, bedsOver, hours, business.close, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt, laneWords,
     ],
   )
 
@@ -3685,7 +3700,7 @@ export function TodayScreen(props: TodayProps) {
       // (`allocateBed` returns `reseats: []` on every non-pack path), and this
       // says so out loud rather than relying on that.
       if (!opts.pack || v.reseats.length === 0) return v
-      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)
+      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)
       return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }
     },
     // `solveLanes` is a body function declaration (⚖ its own doc comment: one
@@ -3702,7 +3717,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ D-53 (u)/(n2b2) — `laneWords` is added: it feeds the shuffle's own
     // `applyBedMoves` call directly (not only through `verdictFor`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [verdictFor, verdictAt, hours, pending, laneWords],
+    [verdictFor, verdictAt, hours, business.close, pending, laneWords],
   )
 
   /** ⚖ Liam flag 50 — the drag frame runs inside listeners bound once per
@@ -3908,7 +3923,7 @@ export function TodayScreen(props: TodayProps) {
       // shuffle (`verdictAtLanding` → `solveLanes`). `store.base` below stays on
       // `boardLanes` and cannot disagree with it — see the memo-gate invariant at
       // `beginDrag`: a store exists only when `handBoard === boardLanes`.
-      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, laneWords, props.bedCleanupMinutes)
+      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)
       store.shuffledFor.set(moveSet, shuffled)
     }
     const ask = { ...inHand, staffLane: laneKey, span: place(start, start + railDur, hours) }
@@ -4100,13 +4115,13 @@ export function TodayScreen(props: TodayProps) {
       bedClassCell(v, () => {
         const start = minuteOf(ask.span.x, hours)
         const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
-        return nearestFreeStarts(start, props.guard.bookingStepMin, hours, dur, (s) =>
+        return nearestFreeStarts(start, props.guard.bookingStepMin, business, dur, (s) =>
           // ⚖ FIX ROUND 2 (F1) — the refusal box's own starts, judged with the
           // pack for the same reason `offerable` above is.
           verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind !== 'blocked',
         )
       }),
-    [hours, props.guard.bookingStepMin],
+    [hours, business, props.guard.bookingStepMin],
   )
 
   /** canon `computeChecks` fed from the board as it currently stands. The sell
@@ -4889,7 +4904,7 @@ export function TodayScreen(props: TodayProps) {
   function solveLanes(id: string | null): BoardLane[] {
     return id != null && id === handIdRef.current
       ? handBoardRef.current
-      : handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes)
+      : handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes, business.close)
   }
 
   /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`
@@ -7187,7 +7202,7 @@ export function TodayScreen(props: TodayProps) {
     // seed, an engine alternative (where the full session fits by construction)
     // or a deliberate override — and silently sliding an operator's chosen start
     // would be a second decision nobody asked for.
-    const end = seedSpanIn(lane, start, props.guard.standardSessionMin, hours, props.sell.nowMinute).end
+    const end = seedSpanIn(lane, start, props.guard.standardSessionMin, business, props.sell.nowMinute).end
     // ⚖ Liam flag 51 — the same allocator every landing uses. A 次回予約 has no
     // room yet, so there is nothing to keep and it takes the first free
     // compatible one; when there is none the refusal NAMES the rooms that are
@@ -7529,6 +7544,7 @@ export function TodayScreen(props: TodayProps) {
     dragLen != null || live || blockLive ? 'guard-guide-aiming' : '',
     placing ? 'placing' : '',
     `guard-guide-mode-${guideMode}`,
+    band ? 'off-hours' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -7774,7 +7790,7 @@ export function TodayScreen(props: TodayProps) {
                 return
               }
             }
-            const start = slotStartAt(e.currentTarget, e.clientX, hours)
+            const start = slotStartAt(e.currentTarget, e.clientX, hours, business)
             const at = { x: e.clientX, y: e.clientY, t: e.timeStamp }
             // ⚖ Liam flag 31c — the consult belongs HERE. The operator is
             // proposing a start that does not exist yet, so the guard's better
@@ -7788,7 +7804,7 @@ export function TodayScreen(props: TodayProps) {
             // ⚖ Liam flag 62 — the seed is clamped into the pocket under the
             // click before anyone is asked about it, so the guard hears a
             // question the operator could actually mean.
-            const seed = seedSpanIn(lane, start, props.guard.standardSessionMin, hours, props.sell.nowMinute)
+            const seed = seedSpanIn(lane, start, props.guard.standardSessionMin, business, props.sell.nowMinute)
             const slot = place(seed.start, seed.end, hours)
             if (placing) {
               // ⚖ 51 — 次回予約 has no room yet, so the landing solves one; ⚖ 46
@@ -8891,7 +8907,7 @@ export function TodayScreen(props: TodayProps) {
                 {pop === 'help' && (
                   <div className="fields-pop help-pop">
                     <strong>操作ヒント</strong>
-                    <span>営業時間 {hhmm(hours.open)}–{hhmm(hours.close)}・時間外は非表示</span>
+                    <span>営業時間 {hhmm(business.open)}–{hhmm(business.close)}{props.businessHours ? '・営業時間外の予約も表示' : ''}</span>
                     <span>カードはドラッグで移動・両端で時間変更</span>
                     <span>キーボード: Shift＋←/→で開始、Alt＋←/→で終了を30分ずつ変更</span>
                     <span>仮置きエリア（ボード上の点線バー）: 日付をまたいで予約を変更したい場合は、一旦このエリアに置いてください。置いた予約は仮押さえになります。</span>
@@ -9345,14 +9361,14 @@ export function TodayScreen(props: TodayProps) {
               <div
                 className="timeline-scroll"
                 tabIndex={0}
-                aria-label={`営業時間${hhmm(hours.open)}から${hhmm(hours.close)}の予約ボード`}
+                aria-label={`営業時間${hhmm(business.open)}から${hhmm(business.close)}の予約ボード${props.businessHours ? `（営業時間外を含め${hhmm(hours.open)}から${hhmm(hours.close)}を表示）` : ''}`}
                 data-guide-title="今日のボード"
                 data-guide="空き枠をクリックで新規予約。カードはドラッグで移動、端をつかんで時間変更。"
               >
                 <div
                   className={timelineClasses}
                   ref={boardRef}
-                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0 } as React.CSSProperties}
+                  style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0, ...(band ? { '--off-before': offBefore, '--off-after': offAfter } : {}), ...(hours.lead ? { '--hour-lead': hours.lead } : {}) } as React.CSSProperties}
                   // ⚖ Liam flag 33 — canon's singleton, at the one place every
                   // board gesture starts (capture, so a card's own handler
                   // cannot get there first).
@@ -9370,8 +9386,10 @@ export function TodayScreen(props: TodayProps) {
                         onPointerDown={onLabelResizeDown}
                       />
                     </span>
+                    {offBefore > 0 && <span className="off-caption before">営業時間外</span>}
+                    {offAfter > 0 && <span className="off-caption after">営業時間外</span>}
                     <div className="hours">
-                      {hours.labels.map((h) => <span key={h}>{h}</span>)}
+                      {hours.labels.map((l) => <span key={l.hour} style={{ left: `${l.leftPct}%`, width: `${l.widthPct}%` }} className={band && ((l.hour + 1) * 60 <= business.open || l.hour * 60 >= business.close) ? 'off' : undefined}>{l.hour}</span>)}
                     </div>
                   </div>
 
@@ -9708,6 +9726,7 @@ export function TodayScreen(props: TodayProps) {
         dialogRef={createRef}
         data={dialogs.create}
         hours={hours}
+        business={business}
         seed={seed}
         onCreate={(laneKey, item, message, priced) => {
           setAdded((was) => [...was, { ...board, laneKey, item, priced }])
@@ -10424,6 +10443,7 @@ function CreateDialog({
   dialogRef,
   data,
   hours,
+  business,
   seed,
   onCreate,
   turnoverWord,
@@ -10431,6 +10451,8 @@ function CreateDialog({
   dialogRef: React.RefObject<HTMLDialogElement | null>
   data: TodayProps['dialogs']['create']
   hours: TodayProps['hours']
+  /** ⚖ §v11 V11-15(b) — the store's own hours: every 営業時間 check below. `hours` only places the card. */
+  business: { open: number; close: number }
   seed: { staffId: string; start: number; nonce: number } | null
   onCreate: (laneKey: string, item: BoardItem, message: string, priced: boolean) => void
   /** ⚖ D-53 (n) R-N2-4 — #28's already-resolved 「休憩・◯◯」 example word: the
@@ -10440,7 +10462,7 @@ function CreateDialog({
   turnoverWord: string
 }) {
   const [tab, setTab] = useState<'book' | 'block'>('book')
-  const [start, setStart] = useState(hours.open + 6 * 60 >= hours.close ? hours.open : hours.open + 6 * 60)
+  const [start, setStart] = useState(business.open + 6 * 60 >= business.close ? business.open : business.open + 6 * 60)
   const [staffId, setStaffId] = useState(data.staff[0]?.id ?? '')
   const [search, setSearch] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
@@ -10460,9 +10482,9 @@ function CreateDialog({
   useEffect(() => {
     if (!seed) return
     setStaffId(seed.staffId)
-    setStart(Math.max(hours.open, Math.min(hours.close - 30, seed.start)))
+    setStart(Math.max(business.open, Math.min(business.close - 30, seed.start)))
     setTab('book')
-  }, [seed, hours.open, hours.close])
+  }, [seed, business.open, business.close])
 
   const everyone = useMemo(() => [...localCustomers, ...data.customers], [localCustomers, data.customers])
   const customer = everyone.find((c) => c.id === customerId) ?? null
@@ -10486,7 +10508,7 @@ function CreateDialog({
   /** canon's right-rail checks (:4691 grammar, computed per booking). A static
    *  「営業時間内 / 担当を選択済み」 would claim a check that never ran. */
   const checks: Check[] = [
-    { ok: end <= hours.close && start >= hours.open, label: end <= hours.close && start >= hours.open ? '営業時間内' : '営業時間を超えます' },
+    { ok: end <= business.close && start >= business.open, label: end <= business.close && start >= business.open ? '営業時間内' : '営業時間を超えます' },
     { ok: staffId !== '', label: staffId !== '' ? '担当を選択済み' : '担当が未選択です' },
     ...(tab === 'book'
       ? [
@@ -10516,7 +10538,7 @@ function CreateDialog({
       setError('お客様を選んでください')
       return
     }
-    if (end > hours.close) {
+    if (end > business.close) {
       setError('営業時間を超える予約は作成できません')
       return
     }
@@ -10569,9 +10591,9 @@ function CreateDialog({
             <div className="cc-field">
               開始・時間
               <span className="stepper">
-                <button type="button" aria-label="30分早く" onClick={() => setStart((s) => Math.max(hours.open, s - 30))}>‹</button>
+                <button type="button" aria-label="30分早く" onClick={() => setStart((s) => Math.max(business.open, s - 30))}>‹</button>
                 <b>{hhmm(start)}–{hhmm(end)}</b>
-                <button type="button" aria-label="30分遅く" onClick={() => setStart((s) => Math.min(hours.close - duration, s + 30))}>›</button>
+                <button type="button" aria-label="30分遅く" onClick={() => setStart((s) => Math.min(business.close - duration, s + 30))}>›</button>
               </span>
             </div>
             <div className="cc-field">
