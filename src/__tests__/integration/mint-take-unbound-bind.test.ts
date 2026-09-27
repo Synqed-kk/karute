@@ -5,7 +5,9 @@
  *
  * With the switch OFF the upload door answers exactly as it always did: a
  * server-named take is signed and bound to no row, and nothing new is read.
- * With it ON, the same arm signs FIRST and then creates a row born reserved on
+ * With it ON, a 'no_session' body (5C, S50: ONLY that one — a body with no
+ * attachOutcome, i.e. a client older than build 29, stays unbound exactly as
+ * OFF) is signed FIRST and then gets a row born reserved on
  * the exact key it signed — and every failure after the sign gives today's
  * answer, so the audio still lands. Only the create's `exists` withholds the
  * link. The phone door never answers 403 on this body, whatever the roster or
@@ -123,6 +125,10 @@ const actor = (): MintTakeActor => ({
   source: 'facade',
 })
 const mint = (body: Record<string, unknown> = {}) => mintTakeUploadUrl(fakeClient as never, actor(), body)
+/** 5C (S50): only a 'no_session' body takes the ON arm — the bind machinery
+ *  below is driven through it. A body with NO attachOutcome stays unbound. */
+const mintNS = (body: Record<string, unknown> = {}) => mint({ attachOutcome: 'no_session', ...body })
+const NS_BODY = { stagedFor: null, attachOutcome: 'no_session' }
 /** Forces the switch for one describe; restored after every case. */
 const forceSwitch = (value: boolean) => {
   let replaced: { restore(): void } | undefined
@@ -206,7 +212,7 @@ describe('switch ON — the server-named take gets a row on the key it was signe
   forceSwitch(true)
 
   it('creates ONE row, born reserved on exactly the signed key, after the sign', async () => {
-    const res = await mint({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    const res = await mintNS({ customerId: 'cust-1', appointmentId: 'appt-1' })
     if (!('url' in res)) throw new Error('expected a signed answer')
     const take = SERVER_KEY.exec(res.path)![1]
     expect(res.path).toBe(composeTakeKey('business-1', take, 'audio/webm')!.key)
@@ -234,10 +240,10 @@ describe('switch ON — the server-named take gets a row on the key it was signe
     try {
       // A create that settles to today's answer (storage could not say) — no line.
       info.mockImplementationOnce(async () => ({ data: null, error: { message: 'boom', status: 500 } }))
-      await expect(mint()).resolves.toMatchObject({ recordingSessionId: null })
+      await expect(mintNS()).resolves.toMatchObject({ recordingSessionId: null })
       expect(warned).toContain('[mint-take-url] unbound upload kept unbound: create answered upstream')
       expect(bound()).toEqual([])
-      await mint()
+      await mintNS()
       expect(bound()).toEqual([['[mint-take-url] unbound upload bound']])
     } finally {
       logged.mockRestore()
@@ -254,7 +260,7 @@ describe('switch ON — the server-named take gets a row on the key it was signe
     ],
   ])('%s → today’s answer, no create', async (_label, impl) => {
     bindIdentity.mockImplementation(impl)
-    const res = await mint()
+    const res = await mintNS()
     expect(Object.keys(res).sort()).toEqual(TODAY_KEYS)
     expect(res).toMatchObject({ recordingSessionId: null })
     expect(recordingsCreate).not.toHaveBeenCalled()
@@ -263,7 +269,7 @@ describe('switch ON — the server-named take gets a row on the key it was signe
 
   it('the create throws (core down) → today’s answer', async () => {
     recordingsCreate.mockRejectedValue(new Error('core 503'))
-    const res = await mint()
+    const res = await mintNS()
     expect(Object.keys(res).sort()).toEqual(TODAY_KEYS)
     expect(res).toMatchObject({ recordingSessionId: null })
     // The reason survives, bounded (describeUnknownThrow) — never bare.
@@ -272,7 +278,7 @@ describe('switch ON — the server-named take gets a row on the key it was signe
 
   it('the identity lookup throws → today’s answer, and the warn keeps why', async () => {
     bindIdentity.mockRejectedValue(new Error('roster down'))
-    const res = await mint()
+    const res = await mintNS()
     expect(Object.keys(res).sort()).toEqual(TODAY_KEYS)
     expect(res).toMatchObject({ recordingSessionId: null })
     expect(recordingsCreate).not.toHaveBeenCalled()
@@ -282,7 +288,7 @@ describe('switch ON — the server-named take gets a row on the key it was signe
   it('a 1,000-char thrown message is cut to 200 chars (+ the helper’s … marker)', async () => {
     const long = 'core down '.repeat(100)
     recordingsCreate.mockRejectedValue(new Error(long))
-    await mint()
+    await mintNS()
     const prefix = '[mint-take-url] unbound upload kept unbound: session create threw: '
     const line = warned.find((w) => w.startsWith(prefix))
     expect(line).toBeDefined()
@@ -291,14 +297,14 @@ describe('switch ON — the server-named take gets a row on the key it was signe
 
   it('the sign fails → an error, and nothing is looked up or created', async () => {
     createSignedUploadUrl.mockResolvedValue({ data: null, error: { message: 'boom' } })
-    await expect(mint()).resolves.toEqual({ error: 'upstream' })
+    await expect(mintNS()).resolves.toEqual({ error: 'upstream' })
     expect(bindIdentity).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
   it('the key already holds bytes (`exists`) → upstream with NO url, no row', async () => {
     info.mockImplementation(async () => ({ data: { size: 9 }, error: null }))
-    const res = await mint()
+    const res = await mintNS()
     expect(res).toEqual({ error: 'upstream' })
     expect('url' in res).toBe(false)
     expect(recordingsCreate).not.toHaveBeenCalled()
@@ -309,7 +315,7 @@ describe('switch ON — the phone door never refuses the unbound body', () => {
   forceSwitch(true)
 
   it('binds with the clamp’s store', async () => {
-    const res = await mintPOST(jreq({ ...auth, 'store-id': 'store-1' }), noRoute)
+    const res = await mintPOST(jreq({ ...auth, 'store-id': 'store-1' }, NS_BODY), noRoute)
     expect(res.status).toBe(200)
     expect((await res.json()).recordingSessionId).toBe('sess-new')
     expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1', staff_id: 'auth-user-1' }))
@@ -317,14 +323,14 @@ describe('switch ON — the phone door never refuses the unbound body', () => {
 
   it('no store header, floating staff → the primary store', async () => {
     staffStoresGet.mockImplementation(async () => ({ store_ids: [] }))
-    const res = await mintPOST(jreq(auth), noRoute)
+    const res = await mintPOST(jreq(auth, NS_BODY), noRoute)
     expect(res.status).toBe(200)
     expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-p' }))
   })
 
   it('an unrostered caller → 200 with today’s answer, not 403', async () => {
     roster.current = []
-    const res = await mintPOST(jreq(auth), noRoute)
+    const res = await mintPOST(jreq(auth, NS_BODY), noRoute)
     expect(res.status).toBe(200)
     expect((await res.json()).recordingSessionId).toBeNull()
     expect(recordingsCreate).not.toHaveBeenCalled()
@@ -332,7 +338,7 @@ describe('switch ON — the phone door never refuses the unbound body', () => {
 
   it('the clamp throws store_forbidden → 200 with today’s answer', async () => {
     storesGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
-    const res = await mintPOST(jreq({ ...auth, 'store-id': 'store-elsewhere' }), noRoute)
+    const res = await mintPOST(jreq({ ...auth, 'store-id': 'store-elsewhere' }, NS_BODY), noRoute)
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.recordingSessionId).toBeNull()
@@ -348,7 +354,7 @@ describe('switch ON — the phone door never refuses the unbound body', () => {
       .mockImplementationOnce(async () => ({ store_ids: ['store-1'] }))
       .mockImplementation(async () => ({ store_ids: [] }))
     storesList.mockImplementation(async () => ({ stores: [{ id: 's1' }, { id: 's2' }] }))
-    const res = await mintPOST(jreq(auth), noRoute)
+    const res = await mintPOST(jreq(auth, NS_BODY), noRoute)
     expect(res.status).toBe(200)
     expect((await res.json()).recordingSessionId).toBeNull()
     expect(recordingsCreate).not.toHaveBeenCalled()
@@ -394,7 +400,10 @@ describe('the schema — attribution rides only on a server-named take', () => {
 
 // ⚖ S33 — a recording that HAS a row never gets a second one. The in-tab
 // fallback says why it reached this arm; 'attach_failed' stays unbound in BOTH
-// switch states, 'no_session' and an absent field keep the switch's answer.
+// switch states. ⚖ 5C (S50, Liam 2026-09-28): ONLY 'no_session' keeps the
+// switch's answer — an absent field (a client older than build 29, which never
+// adopts the row) stays unbound exactly as OFF. Flipped on purpose from S33's
+// "an absent field creates as before".
 describe('S33 attachOutcome — the ON arm creates only when no row is known', () => {
   const countLines = (spy: jest.SpyInstance) =>
     spy.mock.calls.filter((c) => c[0] === '[mint-take-url] unbound upload')
@@ -422,9 +431,33 @@ describe('S33 attachOutcome — the ON arm creates only when no row is known', (
       expect(recordingsCreate).toHaveBeenCalledTimes(1)
     })
 
-    it('t2c: field absent (an older client) → creates as before', async () => {
-      await expect(mint()).resolves.toMatchObject({ recordingSessionId: 'sess-new' })
-      expect(recordingsCreate).toHaveBeenCalledTimes(1)
+    it('u1 (was t2c, flipped by 5C): field absent (a client older than build 29) → unbound as OFF: no identity read, no row, no audit', async () => {
+      const spy = jest.spyOn(console, 'info').mockImplementation(() => {})
+      try {
+        const res = await mint({ customerId: 'cust-1', appointmentId: 'appt-1' })
+        expect(Object.keys(res).sort()).toEqual(TODAY_KEYS)
+        expect(res).toMatchObject({ path: expect.stringMatching(SERVER_KEY), recordingSessionId: null })
+        expect(bindIdentity).not.toHaveBeenCalled()
+        expect(info).not.toHaveBeenCalled()
+        expect(recordingsCreate).not.toHaveBeenCalled()
+        expect(auditFn).not.toHaveBeenCalled()
+        // The post-flip watch still counts it — as an unbound upload.
+        expect(countLines(spy)).toEqual([
+          ['[mint-take-url] unbound upload', { businessId: 'business-1', attachOutcome: null, switchOn: true, bound: false }],
+        ])
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('u1 (phone door): build 28’s exact body `{ stagedFor: null }` → 200, unbound, no row, no audit', async () => {
+      const res = await mintPOST(jreq({ ...auth, 'store-id': 'store-1' }, { stagedFor: null }), noRoute)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.recordingSessionId).toBeNull()
+      expect(body.url).toEqual(expect.any(String))
+      expect(recordingsCreate).not.toHaveBeenCalled()
+      expect(auditFn).not.toHaveBeenCalled()
     })
 
     it('t6: ONE count line per upload — businessId, outcome, switch, bound — never a customer or a key', async () => {
@@ -618,10 +651,10 @@ describe('condition 5 — the ON arm’s bound row files ONE audit line', () => 
       for (const secret of [res.path, res.url, res.token, 'cust-1', 'appt-1']) expect(printed).not.toContain(secret)
     })
 
-    it('t1b: an older client (field absent) → the same ONE line, attach_outcome null', async () => {
-      await expect(mint()).resolves.toMatchObject({ recordingSessionId: 'sess-new' })
-      expect(boundCalls()).toHaveLength(1)
-      expect(boundCalls()[0][0].detail).toMatchObject({ attach_outcome: null, recording_session_id: 'sess-new' })
+    it('t1b (flipped by 5C): an older client (field absent) → no row, so no line', async () => {
+      await expect(mint()).resolves.toMatchObject({ recordingSessionId: null })
+      expect(recordingsCreate).not.toHaveBeenCalled()
+      expect(auditFn).not.toHaveBeenCalled()
     })
 
     it('t1c (phone door): the facade files it with the clamp’s store and the request id', async () => {

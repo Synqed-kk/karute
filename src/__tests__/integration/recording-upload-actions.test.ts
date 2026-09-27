@@ -2365,7 +2365,8 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
 // ⚖ FIX PLAN v3 PR-2 — THE WEB DOOR'S bindIdentity. With the switch ON a
 // server-named take gets a row, and its store comes from the web session door's
 // own rule: a degraded scope or a null store means NO row — today's answer,
-// the audio still lands, never a store-less row.
+// the audio still lands, never a store-less row. Driven with 'no_session': since
+// 5C (S50) a body with no attachOutcome never takes the ON arm.
 describe('mintRecordingUploadUrl — switch ON, the server-named take’s store (PR-2)', () => {
   let replaced: { restore(): void } | undefined
   beforeEach(() => {
@@ -2374,7 +2375,7 @@ describe('mintRecordingUploadUrl — switch ON, the server-named take’s store 
   afterEach(() => replaced?.restore())
 
   it('a readable scope binds the row to its store', async () => {
-    const res = await mintOk()
+    const res = await mintOk({ attachOutcome: 'no_session' })
     expect(res.recordingSessionId).toBe('sess-new')
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ staff_id: 'staff-1', store_id: 'store-9', audio_storage_path: res.path }),
@@ -2386,7 +2387,7 @@ describe('mintRecordingUploadUrl — switch ON, the server-named take’s store 
     ['a null storeId', { storeId: null, degraded: false }],
   ])('%s → today’s answer, no row', async (_label, scope) => {
     resolveStoreScope.mockResolvedValue(scope)
-    const res = await mintOk()
+    const res = await mintOk({ attachOutcome: 'no_session' })
     expect(res.recordingSessionId).toBeNull()
     expect(res.url).toEqual(expect.any(String))
     expect(create).not.toHaveBeenCalled()
@@ -2394,7 +2395,7 @@ describe('mintRecordingUploadUrl — switch ON, the server-named take’s store 
 
   it('a scope lookup that throws → today’s answer, no row', async () => {
     resolveStoreScope.mockRejectedValue(new Error('assignment blip'))
-    const res = await mintOk()
+    const res = await mintOk({ attachOutcome: 'no_session' })
     expect(res.recordingSessionId).toBeNull()
     expect(create).not.toHaveBeenCalled()
   })
