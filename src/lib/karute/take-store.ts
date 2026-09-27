@@ -377,8 +377,13 @@ export type TakeMeta = {
    *  answer. An EMPTY transcript is stamped too, and replays as the
    *  same empty result with no spend. Lives and dies with the take — the same
    *  record, the same owner gate, the same delete. Absent = never transcribed
-   *  (or stamped before this field existed): the door is asked, as always. */
-  transcript?: { finalizedPath: string; locale: string; response: unknown; at: number }
+   *  (or stamped before this field existed): the door is asked, as always.
+   *  ⚖ C3: `fallback` marks an answer the UNBOUND door gave (the take had no
+   *  finalized key; `finalizedPath` then names the fresh key that door minted
+   *  and was paid for). A later run with still no finalized key replays it in
+   *  the same locale; a run WITH one replays it only if that key is this one
+   *  (ai-pipeline's replay rule) — never onto a different object. */
+  transcript?: { finalizedPath: string; locale: string; response: unknown; at: number; fallback?: true }
 }
 
 /** What a pending discard-transcript needs to finish after a reload — the
@@ -1128,9 +1133,11 @@ export async function stampTakeTranscript(
   finalizedPath: string,
   locale: string,
   response: unknown,
+  /** C3: the unbound door answered (see `TakeMeta.transcript`). */
+  fallback = false,
 ): Promise<void> {
   await patchTakeMeta(takeId, {
-    transcript: { finalizedPath, locale, response, at: Date.now() },
+    transcript: { finalizedPath, locale, response, at: Date.now(), ...(fallback ? { fallback: true as const } : {}) },
   })
 }
 
