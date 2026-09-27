@@ -145,18 +145,23 @@ export async function POST(request: Request) {
       // No new refusal here: that this route asks no records.write at all is an
       // existing gap, recorded, not fixed in PR-5.
       //
-      // ⚖ AND ONLY FOR THE CALLER'S OWN TAKE (S46). The replay is the one
-      // answer on this arm the URL's token never gates, so it now also needs
-      // the row the client names to hold this key and to be the caller's
+      //
+      // ⚖ AND THE REPLAY ONLY FOR THE CALLER'S OWN TAKE (S46). The replay is
+      // the one answer on this arm the URL's token never gates, so it also
+      // needs the row the client names to hold this key and to be the caller's
       // (takeKeyHolder → assertRecorderOwnsRow). Anything else — no row, a
-      // colleague's, a failed read — simply gets no replay: Deepgram fetches
-      // the signed URL, whose token is then the proof, exactly as a paid call
-      // always was. Still no new refusal on this arm.
+      // colleague's, a failed read — gets no replay: Deepgram fetches the
+      // signed URL, whose token is then the proof, exactly as a paid call
+      // always was, and the paid answer is still remembered. No new refusal.
       const urlKey = storageKeyFromAudioUrl(audioUrl)
       const audioKey =
         isOwnRecordingKey(urlKey, meter.businessId) &&
-        (await can('records.write').catch(() => false)) &&
-        (await takeKeyHolder(async () => meter.synqed, urlKey, recordingSessionId, async () => {
+        (await can('records.write').catch(() => false))
+          ? urlKey
+          : null
+      const replayMemo =
+        audioKey !== null &&
+        (await takeKeyHolder(async () => meter.synqed, audioKey, recordingSessionId, async () => {
           const capabilities = await getMyCapabilities()
           const pairHeld = holdsOwnerKeys(capabilities)
           const allowedStoreIds = pairHeld
@@ -164,9 +169,7 @@ export async function POST(request: Request) {
             : null
           return { staffId: meter.staffId, businessId: meter.businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
         })) === 'own'
-          ? urlKey
-          : null
-      const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey }, {
+      const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey, replayMemo }, {
         audio: { url: audioUrl },
         locale: (loc ?? 'ja') === 'en' ? 'en' : 'ja',
         diarize,

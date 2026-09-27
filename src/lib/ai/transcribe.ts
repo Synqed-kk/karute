@@ -363,6 +363,12 @@ export interface TranscriptionMeter {
    *  is the fence: a key that is not this business's take or rescue composes
    *  no memo key, and the call pays exactly as it did before. */
   audioKey?: string | null
+  /** S46: false = still WRITE the paid answer under `audioKey`, but never
+   *  REPLAY one. The web JSON arm's replay is the one answer its URL token never
+   *  gates, so it is replayed only for a take the caller proved is theirs
+   *  (takeKeyHolder); a paid call is token-proven and safe to remember. Absent
+   *  = today's behaviour for every other door. */
+  replayMemo?: boolean
 }
 
 /** A duration is usable only when it is a real, positive number of seconds. */
@@ -502,7 +508,7 @@ export async function runMeteredTranscription(
   // a TTL, on Liam's word — not built here, because a stuck lease would block
   // paying at all.
   const memoKey = composeTranscriptKey(meter.businessId, meter.audioKey, params.locale)?.key ?? null
-  const memoRead = memoKey === null ? null : await readTranscriptMemo(memoKey)
+  const memoRead = memoKey === null || meter.replayMemo === false ? null : await readTranscriptMemo(memoKey)
   if (memoRead?.state === 'hit') {
     const receipt: TranscriptionReceipt = {
       duration_seconds: memoRead.memo.duration_seconds,
