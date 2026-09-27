@@ -118,7 +118,17 @@ export type PipelineContext = {
   /** Told the row this run ADOPTED (S34), so the run's own context — what the
    *  save, the 破棄 and the status surfaces read — names it too. */
   onSessionAdopted?: (recordingSessionId: string) => void
+  /** ⚖ C3: the fallback answer this run CHAIN already paid for (global-pipeline
+   *  keeps it across retry(), clears it in start()/reset()) — the only memory a
+   *  take-less run has, and a take the store could not stamp. */
+  paidFallback?: PaidFallback | null
+  /** Told the fallback answer the moment it is paid for, so the chain keeps it. */
+  onFallbackPaid?: (answer: PaidFallback) => void
 }
+
+/** One fallback transcription the chain paid for: whose take (null = none),
+ *  asked in which locale, and the door's whole JSON body. */
+export type PaidFallback = { takeId: string | null; locale: string; response: unknown }
 
 /**
  * ⚖ THE ROW THE SERVER MAKES IS BORN WITH ITS LENGTH (S35 C1). That row is
@@ -238,12 +248,26 @@ export async function runAIPipeline(
   // transcribe door cannot tell a repeat (a take key carries no session id, and
   // core has no by-path read), so the device that holds the take remembers: a
   // stored answer for THIS finalized object, asked in THIS locale, is replayed
-  // and the door is not asked — no spend on a 再試行 tap or a reload. Blob-only runs (no take, or
-  // no finalized key) have nothing to key on and ask every time, as before.
+  // and the door is not asked — no spend on a 再試行 tap or a reload.
+  // ⚖ …AND THE FALLBACK IS PAID FOR ONCE PER RUN CHAIN (C3). With no finalized
+  // key the unbound door mints a NEW key every time, so neither memo could see
+  // a repeat and each 再試行 minted, PUT and paid again. Its answer is kept too —
+  // on the take (marked `fallback`), else on the chain's slot — and a run that
+  // STILL has no finalized key replays it: no mint, no PUT, no POST. A run that
+  // has one replays only an answer paid for that very key — the fallback sent
+  // the in-memory blob, the attach sends the stored bytes, and they can differ.
   const transcribeOnce = async (): Promise<Awaited<ReturnType<Response['json']>>> => {
-    const stored = takeId && finalizedPath ? await readTakeTranscript(takeId) : null
-    if (stored && stored.finalizedPath === finalizedPath && stored.locale === locale) {
+    const stored = takeId ? await readTakeTranscript(takeId) : null
+    if (
+      stored &&
+      stored.locale === locale &&
+      (finalizedPath ? stored.finalizedPath === finalizedPath : stored.fallback === true)
+    ) {
       return stored.response
+    }
+    const slot = ctx.paidFallback
+    if (!finalizedPath && slot && slot.takeId === takeId && slot.locale === locale) {
+      return slot.response
     }
     const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
       await recordingPort.prepareTranscription(
@@ -280,15 +304,23 @@ export async function runAIPipeline(
     const fresh = await transcribeRes.json()
     // Stamped BEFORE the empty check: an empty answer was paid for too, and
     // replays below as the same EmptyTranscriptError with no second spend.
-    if (takeId && finalizedPath) await stampTakeTranscript(takeId, finalizedPath, locale, fresh)
+    if (finalizedPath) {
+      if (takeId) await stampTakeTranscript(takeId, finalizedPath, locale, fresh)
+    } else {
+      // The fallback's answer names the key it was paid for (with the switch ON
+      // and no row, S34 just secured the take at that very key).
+      if (takeId) await stampTakeTranscript(takeId, mintedPath, locale, fresh, true)
+      ctx.onFallbackPaid?.({ takeId, locale, response: fresh })
+    }
     return fresh
   }
   // The door's JSON body, used exactly as before — replayed or fresh. Two tabs
-  // on the same object take turns, so the second one reads the first's stamp.
-  const transcribeData =
-    takeId && finalizedPath
-      ? await withTranscribeLock(finalizedPath, transcribeOnce)
-      : await transcribeOnce()
+  // on the same object take turns, so the second one reads the first's stamp;
+  // a take with no finalized key yet takes turns on the take itself (C3).
+  const lockKey = finalizedPath ?? (takeId ? `take:${takeId}` : null)
+  const transcribeData = lockKey
+    ? await withTranscribeLock(lockKey, transcribeOnce)
+    : await transcribeOnce()
   const transcript: string = transcribeData.transcript
 
   if (!transcript) {
