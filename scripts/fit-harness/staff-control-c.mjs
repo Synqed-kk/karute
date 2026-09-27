@@ -38,6 +38,10 @@
 // the 8px gap below the month chip's bottom. No break element otherwise. The
 // narrow set must reach ownRow — alone and after the badge — in each engine,
 // or those checks ran on nothing (FAIL).
+// Live resize: a page open at 440 with 全スタッフ, resized to 320 while live —
+// no "ResizeObserver loop" error by any door (pageerror, console error, window
+// error event), and data-trim lands on the rule at 320 (the matrix's own
+// numbers). Must cross into ownRow at least once per engine.
 // Rule check: the engine's steps must equal the rule computed from these same
 // measured numbers (spare = (w − 32) − natural; a step only while < 6).
 // c-measure comparison (optional, the S45 numbers): the expected natural0 /
@@ -121,6 +125,7 @@ const TOL = 1
 let blocked = 0
 const failures = []
 const cases = []
+const liveResize = []
 
 // A headless WebKit navigation very occasionally never reaches
 // domcontentloaded on this harness (seen once in ~180 loads, S46); such a
@@ -306,6 +311,30 @@ for (const engine of ENGINES) {
       }
     }
   }
+  for (const lang of LANGS) {
+    for (const month of Object.keys(MONTHS)) {
+      const { ctx, page, errors } = await open(browser, engine, 440, lang, month, 'all')
+      const consoleErrors = []
+      page.on('console', (msg) => msg.type() === 'error' && consoleErrors.push(msg.text()))
+      const before = (await read(page)).trim
+      await page.setViewportSize({ width: 320, height: 900 })
+      await settle(page)
+      await settle(page)
+      const m = await read(page)
+      await ctx.close()
+      const want = cases.find((c) => c.engine === engine && c.w === 320 && c.lang === lang && c.month === month && c.staff === 'all')?.rule
+      const all = [...errors, ...consoleErrors, ...m.errorEvents]
+      const loop = all.filter((x) => /ResizeObserver loop/.test(x)).length
+      const bad = []
+      if (loop) bad.push(`"ResizeObserver loop" error ×${loop}`)
+      if (all.length > loop) bad.push(`other page errors: ${all.filter((x) => !/ResizeObserver loop/.test(x)).join(' | ')}`)
+      if (want == null || m.trim !== want) bad.push(`data-trim "${m.trim}" ≠ the rule at 320 "${want}"`)
+      if (bad.length) failures.push(`${engine} live resize 440→320 ${lang} ${month} 全スタッフ: ${bad.join('; ')}`)
+      liveResize.push({ engine, lang, month, before, after: m.trim, want, loop, errors: all, pass: !bad.length })
+    }
+  }
+  if (!liveResize.some((x) => x.engine === engine && x.want?.includes('ownRow')))
+    failures.push(`${engine}: the live resize 440→320 never crossed into ownRow — its check ran on nothing`)
   await browser.close()
 }
 server.close()
@@ -396,6 +425,8 @@ for (const lang of LANGS) for (const month of Object.keys(MONTHS)) for (const st
   const e = expectations?.find((x) => x.engine === 'webkit' && x.w === w && x.lang === lang && x.month === month && x.staff === staff)
   md += `| ${w} | ${lang} | ${month} (${k.m.chipText}) | ${STAFF[staff].name} | ${alt(k.natural0, ch.natural0, px)} | ${alt(k.spare0, ch.spare0, f1)} | ${alt(k.natural1, ch.natural1, px)} | ${alt(k.spare1, ch.spare1, f1)} | ${stepsCell} | ${k.rule === k.applied && ch.rule === ch.applied ? 'matches' : '**MISMATCH**'} | ${alt(geo(k, (g) => g.chipItemTop - g.rowTop), geo(ch, (g) => g.chipItemTop - g.rowTop), px)} | ${alt(geo(k, (g) => g.breakW), geo(ch, (g) => g.breakW), px)} | ${alt(geo(k, (g) => g.controlTop - g.chipBottom), geo(ch, (g) => g.controlTop - g.chipBottom), px)} |${e ? ` ${px(e.exp0)} · ${stepName(e.expRule)} |` : ''}\n`
 }
+md += `\n### Live resize 440 → 320 (全スタッフ; a page resized while open)\n\nErrors counted from every door: Playwright pageerror, console errors, window error events.\n\n| engine | lang | month | steps at 440 | steps at 320 | rule at 320 | "ResizeObserver loop" errors |\n|---|---|---|---|---|---|---|\n`
+for (const x of liveResize) md += `| ${x.engine} | ${x.lang} | ${x.month} | ${stepName(x.before)} | ${stepName(x.after)} | ${stepName(x.want ?? '?')} | ${x.loop} |\n`
 const passN = cases.filter((c) => c.pass).length
 md += `\n## Checks per case (${cases.length} cases = 2 engines × (${WIDTHS.length} phone + ${NARROW.length} narrow) widths × 2 langs × 3 months × 3 picks)\n\n`
 md += `- PASS ${passN} / ${cases.length}: the engine's steps = the rule on the measured numbers; the resize walk = the first-paint walk; the row's track = w − 32; nothing overflows its track; the page never scrolls sideways; one line unless the own-row step; with the own-row step: two lines, the month chip on line 1, the break full-width, the control ${OWN_ROW_GAP}px below the chip (and no break element without it); the month chip's accessible name contains its visible label (full year + month); a picked staffer's control is named by the FULL name.\n`
@@ -407,8 +438,8 @@ if (expectations) {
 }
 md += failures.length ? `\n## FAILURES (${failures.length})\n\n${failures.map((x) => `- ${x}`).join('\n')}\n` : `\n## Result: PASS\n`
 writeFileSync(join(OUT, 'fit-proof-s46.md'), md)
-writeFileSync(join(OUT, 'fit-proof-s46.json'), JSON.stringify({ playwright: pwv, blocked, retries, failures, deviations, cases: expectations ?? cases }, null, 1))
-console.log(`cases ${cases.length} · pass ${passN} · failures ${failures.length} · deviations ${expectations ? deviations.length : 'n/a'} · requests left ${blocked} · retries ${retries}`)
+writeFileSync(join(OUT, 'fit-proof-s46.json'), JSON.stringify({ playwright: pwv, blocked, retries, failures, deviations, cases: expectations ?? cases, liveResize }, null, 1))
+console.log(`cases ${cases.length} · pass ${passN} · live resizes ${liveResize.length} (pass ${liveResize.filter((x) => x.pass).length}) · failures ${failures.length} · deviations ${expectations ? deviations.length : 'n/a'} · requests left ${blocked} · retries ${retries}`)
 console.log(`table: ${join(OUT, 'fit-proof-s46.md')}`)
 if (failures.length) {
   console.error(failures.join('\n'))
