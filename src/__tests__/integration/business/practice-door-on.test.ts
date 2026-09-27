@@ -1179,9 +1179,11 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00', { occupied_until: jst('16:10') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // core's cleanup
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:30', { occupied_until: jst('15:30') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // P5 — an earlier snapshot never shortens the span
     expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'CANCELLED' })])).toEqual(both)
-    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'NO_SHOW' })])).toEqual(both) // P4 — NO_SHOW is core's tombstone too
+    // ⚖ §v11 V11-11 (PR-B) — the next two rows sit on 店主 (seated p-05: no slot), so they keep testing the ROOM alone; on slot-01's
+    // own person (Invite Probe) the slot is refused by the person rule — pinned in P8 below.
+    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'NO_SHOW', staff_id: CARD.owner })])).toEqual(both) // P4 — NO_SHOW is core's tombstone too
     expect(await day([live(STORE.devSalon, ROOM_A, '18:00', '18:30', { kind: 'BLOCK', customer_id: null })])).toEqual({ slots: ['slot-01~5a171878'], cards: ['dec-capacity~5a171878'] })
-    expect(await day([live(STORE.devSalon, ROOM_A, '16:00', '17:00')])).toEqual(both) // P6 — slot-01's exact window on ANOTHER room: 個室B stays free
+    expect(await day([live(STORE.devSalon, ROOM_A, '16:00', '17:00', { staff_id: CARD.owner })])).toEqual(both) // P6 — slot-01's exact window on ANOTHER room: 個室B stays free
     expect(await day([live(STORE.tokyo, 'bed-02', '16:00', '17:00')])).toEqual(both) // an exact twin's room is never checked
     // P7 — a block begun the day BEFORE runs from 00:00 on the displayed day: a 00:00–01:00 slot on 個室B is not served.
     fxSlots.push({ ...fxSlots[0], id: 'slot-night', start: 0, end: 60 })
@@ -1361,7 +1363,9 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const { calendar } = (await board(STORE.yokohama)) as unknown as { calendar: Array<{ m: number; d: number; wd: number; fits?: number; booked?: number }> }
     const [mon, thu] = [21, 17].map((d) => calendar.find((c) => c.m === 9 && c.d === d)!) // no 横浜 booking on either day
     expect([mon.wd, thu.wd, mon.booked, thu.booked]).toEqual([1, 4, 0, 0])
-    expect(thu.fits).toBeLessThan(mon.fits!) // the sample staff day starts at 10:00; Thursday's window opens at 11:00
+    // ⚖ §v11 V11-9 (PR-B) — REWRITTEN: this once read 「Thursday fits fewer」 because the sample staff day stayed 10–19 on every
+    // day. The sample shifts now cover each day's OWN window (11–22 on Thursday, 10–19 on Monday), so Thursday fits MORE.
+    expect(thu.fits).toBeGreaterThan(mon.fits!)
   })
 
   it('§v11 V11-6 P1 — never again: every live booking of the day lies inside the hours the board draws, today and tomorrow, on every store with core hours', async () => {

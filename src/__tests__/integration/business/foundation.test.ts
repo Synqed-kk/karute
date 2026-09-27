@@ -334,7 +334,8 @@ describe('the fixture data door', () => {
       // port's boundary), so the door's `readReserveCardColor` never grows a second.
       // ⚖ A2 (Liam 9/24) — the ONE writer: `../reserve-card/palette` (the 12 it accepts), `./switch` (OFF has
       // no writer) and a LAZY `./core-reach` (the write-only org-settings handle; the OFF path never loads it).
-      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-facade', './store-hours', './switch'],
+      // ⚖ §v11 V11-8 (PR-B) — `./sample-day`: the give-way, door.ts's pure sibling (a NAMED allowance, never a widening).
+      'src/business/lib/practice-door/door.ts': ['../clock', '../fixtures', '../fixtures-analytics', '../fixtures-reservations', '../fixtures-settings', '../fixtures-today', '../reserve-card/card-color', '../reserve-card/palette', './actor', './core-reach', './registry', './sample-day', './sample-facade', './store-hours', './switch'],
       // ⚖ §v11 — the store's own 営業時間 · 定休日 reading: pure, the read's TYPE only.
       'src/business/lib/practice-door/store-hours.ts': ['./core-reach'],
       // ⚖ §v11 V11-8 — the sample day gives way to the live day: pure; the clock (a row's JST day), the fixture day's
