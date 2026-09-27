@@ -28,6 +28,14 @@
 // case asserts the chip row is [month, 新規, 担当] on one line inside its
 // track, no control clipped or overlapping, the 担当 list opening ≥ 8px
 // inside both edges, no sideways page scroll.
+//
+// S46 (option C's trim engine) — ONE narrow exception to "the chip row never
+// wraps": the designed own-row step. Only while the row's data-trim carries
+// 'ownRow' may it be two lines (exactly two: the staff control on a line of
+// its own under an 8px break, nothing past its track); a wrap without that
+// step still fails, and the step without exactly two lines fails
+// (judgeChipRow). The break is not a control, so it is not counted as an item
+// or a line. Same shape as the 予約 en two-line exception; nothing else loosens.
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -133,7 +141,10 @@ async function measure(page, tab) {
     const box = (el) => {
       if (!el) return null
       const b = r(el)
-      const kids = [...el.children].filter((k) => getComputedStyle(k).display !== 'none' && r(k).width > 0)
+      // Option C's own-row break ([data-row-break]) is spacing, not an item.
+      const kids = [...el.children].filter(
+        (k) => getComputedStyle(k).display !== 'none' && r(k).width > 0 && !k.hasAttribute('data-row-break'),
+      )
       // Lines: an item that starts at or below the running line's bottom
       // opens a new line (items-center rows hold 36px and 38px controls side
       // by side — equal tops are not the test, overlap is).
@@ -172,7 +183,9 @@ async function measure(page, tab) {
         : input?.closest('label')?.parentElement?.closest('.flex.items-center') ?? null
     const out = { first: box(first) }
     out.chips = box(document.querySelector('[data-chip-row]'))
-    out.chipKids = document.querySelector('[data-chip-row]')?.children.length ?? null
+    const chipRow = document.querySelector('[data-chip-row]')
+    out.chipKids = chipRow ? [...chipRow.children].filter((k) => !k.hasAttribute('data-row-break')).length : null
+    out.chipTrim = chipRow?.getAttribute('data-trim') ?? ''
     // 予約's staff row; on a build without the marker (the pre-S44 baseline)
     // the same row is found from the date bar: the row inside the wrapper
     // that follows the date-jump anchor.
@@ -222,6 +235,23 @@ function judge(tag, name, b, { slideOk = false } = {}) {
   return bad.length ? `FAIL (${bad.join(', ')})` : slides ? 'slides' : 'ok'
 }
 
+// The カルテ chip row: ONE line — except option C's designed own-row step
+// (data-trim carries 'ownRow'), which is exactly two lines: line 1 = what
+// sits before the break, line 2 = the staff control. Height ≤ two controls +
+// the 8px break, nothing past the track. A wrap without the step = judge()'s
+// "wraps" failure, unchanged.
+function judgeChipRow(tag, b, trim) {
+  if (!b) return 'n/a'
+  if (!String(trim ?? '').split(' ').includes('ownRow')) return judge(tag, 'chips', b)
+  const bad = []
+  if (b.lines !== 2) bad.push(`${b.lines} line(s) at the own-row step`)
+  if (b.h > 2 * CONTROL_H + 8 + TOL) bad.push(`height ${b.h}`)
+  if (b.content > b.track + TOL) bad.push(`overflow ${b.content}>${b.track}`)
+  if (b.rightEdge > b.trackRight + TOL) bad.push('past track')
+  if (bad.length) failures.push(`${tag} chips: ${bad.join(', ')}`)
+  return bad.length ? `FAIL (${bad.join(', ')})` : 'ok (own-row step)'
+}
+
 for (const tab of TABS) {
   for (const lang of LANGS) {
     for (const w of WIDTHS) {
@@ -237,7 +267,7 @@ for (const tab of TABS) {
         if (m.staff) m.staff.stack = stacked
         row.verdict = {
           first: judge(tag, 'first', m.first),
-          chips: judge(tag, 'chips', m.chips),
+          chips: judgeChipRow(tag, m.chips, m.chipTrim),
           staff: m.staff
             ? stacked
               ? (() => {
@@ -366,7 +396,7 @@ for (const lang of LANGS) {
           if (k.cut) bad.push(`${k.which} cut (${k.cut} element(s) narrower than their content)`)
           if (k.left < d.rowLeft - TOL || k.right > d.trackRight + TOL) bad.push(`${k.which} outside the row (${k.left}..${k.right} of ${d.rowLeft}..${d.trackRight})`)
         }
-        const verdict = { chips: judge(tag, 'chips', m.chips), words: judge(tag, 'words', m.words, { slideOk: true }) }
+        const verdict = { chips: judgeChipRow(tag, m.chips, m.chipTrim), words: judge(tag, 'words', m.words, { slideOk: true }) }
         if (m.pageScrollX > 0) bad.push(`page scrolls sideways by ${m.pageScrollX}px`)
         if (errors.length) bad.push(`page errors ${errors.join(' | ')}`)
         for (const b of bad) failures.push(`${tag}: ${b}`)
