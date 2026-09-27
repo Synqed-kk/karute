@@ -227,6 +227,13 @@ export async function runAIPipeline(
   // attach may have just stamped it). None → the door keeps today's answer.
   const takeRow =
     takeId && finalizedPath ? ((await readTakeSecureMeta(takeId))?.recordingSessionId ?? null) : null
+  // S49: the attach may have minted THIS take's row (secureTake stamps it on
+  // the take's meta). The run's context is the only party that does not know
+  // yet — hand it the row so the save links it and the 「この端末にのみ残ります」
+  // notice stands down. adoptMintedSession is not used: its take-store write
+  // already happened inside secureTake and would be refused (first stamp wins).
+  // adoptRecordingSession's own guards (same run, never overwrites) still apply.
+  if (takeRow && !ctx.recordingSessionId) ctx.onSessionAdopted?.(takeRow)
   // ⚖ THE SAME OBJECT IS NEVER PAID FOR TWICE (recording hole PR-2). The
   // transcribe door cannot tell a repeat (a take key carries no session id, and
   // core has no by-path read), so the device that holds the take remembers: a
