@@ -19,7 +19,11 @@
 // and month 10 of another year × 新規 count 0 · 12 · 120 × 全スタッフ /
 // 鈴木 友梨佳 / 勅使河原 さくら (the S45 run's long name) / 勘解由小路美和子 (8
 // characters). Page clock fixed (2026-09-15 / 2026-10-15 JST; another year =
-// the clock at 2027-01-15 and 2026年10月 picked from the real panel).
+// the clock at 2027-01-15 and 2026年10月 picked from the real panel). Then the
+// same at NARROW 320 (the narrowest iPhone) · 280 (a folded Galaxy Fold's
+// cover screen) — option C's fix-round widths, where every pick reaches the
+// own-row step with the chip ON — emitted as rows APPENDED after the phone
+// table.
 //
 // Per case, every number read off the page:
 //   natural0 — one-line max-content width, NOTHING trimmed (the page at 800px);
@@ -31,6 +35,21 @@
 //   chip's visible parts and its accessible name (Playwright's); and the 800px
 //   page RESIZED to that width (the ResizeObserver walk) → its steps, which
 //   must agree.
+// Own-row DOM (wherever the engine applied it; option C's fix-round checks):
+// data-trim holds ownRow; the month chip on line 1 (its top = the row's top);
+// the break element present and full-width (= the row's track); the staff
+// control's top 8px below the month chip's bottom; no break element without
+// the step. The narrow set must reach 'shinkiCount ownRow' AND 'badgeOnly
+// shinkiCount ownRow' in each engine, or those checks ran on nothing (FAIL).
+// Errors by every door: Playwright pageerror, window error EVENTS (a
+// "ResizeObserver loop" error reaches pageerror in WebKit but not in
+// Chromium) and console errors — any on a fresh load or on the 800px page
+// resized to every width FAILS (console: a "ResizeObserver loop" line fails;
+// other console errors are counted and listed).
+// Live resize (switch ON): a page open at 440 (全スタッフ and the long name ×
+// every count), resized to 320 while live and back to 440 — no error by any
+// door, data-trim lands on the rule at each width (the matrix's own numbers);
+// must cross into ownRow at least once per engine.
 // Rule check: the engine's steps = the rule on these measured numbers
 // (spare = (w − 32) − natural; a step only while < 6; order badgeOnly →
 // shinkiCount → ownRow, badgeOnly left out without a name). END spare < 6 =
@@ -38,11 +57,13 @@
 // c-measure comparison (optional, S45's option-C numbers WITH the chip, ja/en
 // cur-09 rows, count 12 and 128): expected natural0/1/2 = the c-measure row −
 // its month chip (9月/Sep) + this case's month chip, ± one count digit per
-// digit (C1 128 − C1 12; tabular numerals, so 120 ≡ 128). |Δ| > 1px or a
-// different step = DEVIATION (reported with both numbers, never tuned away).
+// digit (C1 128 − C1 12; tabular numerals, so 120 ≡ 128). |Δ| > 1px FAILS
+// (as option C's fix round 1); a different step with every number within 1px
+// is a 6px-line straddle — recorded, not failing; --cmeasure given but not
+// found FAILS. Reported with both numbers, never tuned away.
 // Emits <out>/fit-proof-s46-shinki.md + .json (+ <out>/shots-shinki/*.png).
-// Exit 1 on any FAIL (not on a deviation or a finding). Only the server this
-// script starts is ever stopped.
+// Exit 1 on any FAIL (not on a finding). Only the server this script starts
+// is ever stopped.
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -97,6 +118,8 @@ const ORIGIN = `http://127.0.0.1:${server.address().port}`
 // ── 3. the matrix.
 const ENGINES = ['chromium', 'webkit']
 const WIDTHS = [375, 393, 402, 440]
+const NARROW = [320, 280]
+const OWN_ROW_GAP = 8
 const LANGS = ['ja', 'en']
 const MONTHS = {
   'cur-09': { clock: '2026-09-15T12:00:00+09:00', pick: null, mm: '09', kind: 'short' },
@@ -119,6 +142,8 @@ let blocked = 0
 const failures = []
 const cases = []
 let retries = 0
+const liveResize = []
+const LOOP = /ResizeObserver loop/
 
 async function open(...a) {
   for (let attempt = 0; ; attempt++) {
@@ -139,7 +164,13 @@ async function openOnce(browser, engine, w, lang, month, staff, n) {
   await page.route('**/*', (route) => (route.request().url().startsWith(ORIGIN) ? route.continue() : (blocked++, route.abort())))
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
+  const consoleErrors = []
+  page.on('console', (msg) => msg.type() === 'error' && consoleErrors.push(msg.text()))
   await page.addInitScript((origin) => {
+    // Error EVENTS too (a "ResizeObserver loop" error reaches Playwright's
+    // pageerror in WebKit but not in Chromium).
+    window.__errorEvents = []
+    window.addEventListener('error', (e) => window.__errorEvents.push(String(e.message)))
     const real = window.fetch.bind(window)
     window.__heldFetches = 0
     window.fetch = (input, init) => {
@@ -170,7 +201,7 @@ async function openOnce(browser, engine, w, lang, month, staff, n) {
   // The chip prints N under this pick (a picked month: once its read landed).
   await page.waitForFunction((n) => document.querySelector('[data-chip-row] > button[aria-pressed]')?.lastElementChild?.textContent === String(n), n, { timeout: 15000 })
   await settle(page)
-  return { ctx, page, errors }
+  return { ctx, page, errors, consoleErrors }
 }
 
 const settle = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
@@ -184,6 +215,8 @@ async function resizeTo(page, w) {
   await settle(page)
 }
 let lateResizeWalks = 0
+let wideLoopErrors = 0
+const otherConsole = []
 
 // Everything read off the row. `oneLine(hideName, hideCount)` = the row's
 // max-content width forced to one line (no wrap, the own-row break hidden),
@@ -229,6 +262,14 @@ async function read(page) {
     const asRendered = own ? Math.max(line1, line2) : oneLine(false, false)
     const countBox = r(count)
     return {
+      errorEvents: window.__errorEvents ?? [],
+      geo: {
+        rowTop: r(row).top,
+        monthItemTop: r(row.firstElementChild).top,
+        monthBottom: r(month).bottom,
+        controlTop: r(scope.parentElement).top,
+        breakW: brk ? r(brk).width : null,
+      },
       trim: row.getAttribute('data-trim') ?? '',
       natural: oneLine(false, false),
       naturalNoName: oneLine(true, false),
@@ -279,12 +320,12 @@ async function runEngine(engine) {
     const natural1 = w0.hasName ? w0.naturalNoName : null
     // Step 2's look: the name hidden (a no-op for 全スタッフ) + the count hidden.
     const natural2 = w0.naturalNoNameNoCount
-    for (const w of WIDTHS) {
+    for (const w of [...WIDTHS, ...NARROW]) {
       const tag = `${engine} ${w} ${lang} ${month} n=${n} ${staff}`
-      const { ctx, page, errors } = await open(browser, engine, w, lang, month, staff, n)
+      const { ctx, page, errors, consoleErrors } = await open(browser, engine, w, lang, month, staff, n)
       const m = await read(page)
-      if (SHOTS && n === 120 && (engine === 'chromium' ? w === 375 || w === 440 : w === 375))
-        await page.screenshot({ path: join(SHOT_DIR, `${engine}-${w}-${lang}-${month}-n${n}-${staff}.png`), clip: { x: 0, y: 0, width: w, height: 200 } })
+      if (SHOTS && n === 120 && (engine === 'chromium' ? w === 375 || w === 440 || NARROW.includes(w) : w === 375))
+        await page.screenshot({ path: join(SHOT_DIR, `${engine}-${w}-${lang}-${month}-n${n}-${staff}.png`), clip: { x: 0, y: 0, width: w, height: NARROW.includes(w) ? 240 : 200 } })
       await ctx.close()
       await resizeTo(wide.page, w)
       let r = await read(wide.page)
@@ -321,13 +362,54 @@ async function runEngine(engine) {
       if (!m.chipAccName || !m.chipAccName.startsWith(WORD[lang]) || !m.chipAccName.includes(String(n))) bad.push(`chip name "${m.chipAccName}" lacks the word or the count ${n}`)
       if (!m.monthName || !m.monthName.includes(m.monthText)) bad.push(`month chip name "${m.monthName}" vs text "${m.monthText}"`)
       if (staff !== 'all' && m.controlName !== STAFF[staff].name) bad.push(`control name "${m.controlName}" ≠ "${STAFF[staff].name}"`)
+      const g = m.geo
+      if (own) {
+        if (Math.abs(g.monthItemTop - g.rowTop) > TOL) bad.push(`own row: month chip not on line 1 (top ${g.monthItemTop} vs row ${g.rowTop})`)
+        if (g.breakW == null) bad.push('own row: no break element')
+        else if (Math.abs(g.breakW - m.track) > TOL) bad.push(`own row: break ${g.breakW}px wide ≠ track ${m.track}`)
+        if (Math.abs(g.controlTop - g.monthBottom - OWN_ROW_GAP) > TOL) bad.push(`own row: control top − month chip bottom = ${(g.controlTop - g.monthBottom).toFixed(1)} ≠ ${OWN_ROW_GAP}`)
+      } else if (g.breakW != null) bad.push('break element without the own-row step')
       if (errors.length) bad.push(`page errors: ${errors.join(' | ')}`)
+      if (m.errorEvents.length) bad.push(`page errors (error events): ${m.errorEvents.join(' | ')}`)
+      if (consoleErrors.some((x) => LOOP.test(x))) bad.push(`console: ${consoleErrors.filter((x) => LOOP.test(x)).join(' | ')}`)
+      otherConsole.push(...consoleErrors.filter((x) => !LOOP.test(x)).map((x) => `${tag}: ${x}`))
       if (bad.length) failures.push(`${tag}: ${bad.join('; ')}`)
       out.push({ engine, w, lang, month, n, staff, natural0, natural1, natural2, rule, applied: m.trim, resizeApplied: r.trim, spareEnd, m, pass: !bad.length, bad })
     }
+    const wideEvents = await wide.page.evaluate(() => window.__errorEvents ?? [])
     await wide.ctx.close()
-    if (wide.errors.length) failures.push(`${engine} ${lang} ${month} n=${n} ${staff} @800: page errors ${wide.errors.join(' | ')}`)
+    const wtag = `${engine} ${lang} ${month} n=${n} ${staff} @800 (resized to every width and back)`
+    if (wide.errors.length) failures.push(`${wtag}: page errors ${wide.errors.join(' | ')}`)
+    if (wideEvents.length) failures.push(`${wtag}: page errors (error events) ${wideEvents.join(' | ')}`)
+    if (wide.consoleErrors.some((x) => LOOP.test(x))) failures.push(`${wtag}: console ${wide.consoleErrors.filter((x) => LOOP.test(x)).join(' | ')}`)
+    otherConsole.push(...wide.consoleErrors.filter((x) => !LOOP.test(x)).map((x) => `${wtag}: ${x}`))
+    wideLoopErrors += [...wide.errors, ...wideEvents, ...wide.consoleErrors].filter((x) => LOOP.test(x)).length
   }
+  // Live resize, switch ON: a page open at 440, resized to 320 while live and
+  // back to 440. The rules come from this engine's own matrix numbers.
+  for (const lang of LANGS) for (const month of Object.keys(MONTHS)) for (const n of COUNTS) for (const staff of ['all', 'staff-long']) {
+    const { ctx, page, errors, consoleErrors } = await open(browser, engine, 440, lang, month, staff, n)
+    const at440 = (await read(page)).trim
+    await resizeTo(page, 320)
+    await settle(page)
+    const m320 = await read(page)
+    await resizeTo(page, 440)
+    await settle(page)
+    const m440 = await read(page)
+    await ctx.close()
+    const rule = (w) => out.find((c) => c.w === w && c.lang === lang && c.month === month && c.n === n && c.staff === staff)?.rule
+    const all = [...errors, ...consoleErrors, ...m440.errorEvents]
+    const loop = all.filter((x) => LOOP.test(x)).length
+    const bad = []
+    if (loop) bad.push(`"ResizeObserver loop" error ×${loop}`)
+    if (all.length > loop) bad.push(`other page errors: ${all.filter((x) => !LOOP.test(x)).join(' | ')}`)
+    if (rule(320) == null || m320.trim !== rule(320)) bad.push(`data-trim at 320 "${m320.trim}" ≠ the rule "${rule(320)}"`)
+    if (rule(440) == null || at440 !== rule(440) || m440.trim !== rule(440)) bad.push(`data-trim at 440 "${at440}" → back "${m440.trim}" ≠ the rule "${rule(440)}"`)
+    if (bad.length) failures.push(`${engine} live resize 440→320→440 ${lang} ${month} n=${n} ${staff}: ${bad.join('; ')}`)
+    liveResize.push({ engine, lang, month, n, staff, at440, at320: m320.trim, back440: m440.trim, want320: rule(320), want440: rule(440), loop, errors: all, pass: !bad.length })
+  }
+  if (!liveResize.some((x) => x.engine === engine && x.want320?.includes('ownRow')))
+    failures.push(`${engine}: the live resize 440→320 never crossed into ownRow — its check ran on nothing`)
   await browser.close()
   return out
 }
@@ -335,12 +417,30 @@ async function runEngine(engine) {
 const results = await Promise.all(ENGINES.map((e) => runEngine(e)))
 for (const r of results) cases.push(...r)
 server.close()
+for (const engine of ENGINES) {
+  const seen = new Set(cases.filter((c) => c.engine === engine && NARROW.includes(c.w)).map((c) => c.applied))
+  for (const want of ['shinkiCount ownRow', 'badgeOnly shinkiCount ownRow'])
+    if (!seen.has(want)) failures.push(`${engine}: the narrow set never reached "${want}" — the own-row DOM checks ran on nothing`)
+}
+// Emit order: the phone matrix first (as before), the narrow rows appended.
+cases.sort((a, b) => NARROW.includes(a.w) - NARROW.includes(b.w))
 if (blocked > 0) failures.push(`${blocked} request(s) left the harness origin (aborted)`)
+const loopErrors =
+  wideLoopErrors +
+  liveResize.reduce((a, x) => a + x.loop, 0) +
+  cases.reduce((a, c) => a + c.bad.filter((b) => /ResizeObserver loop/.test(b)).length, 0)
 const findings = cases.filter((c) => c.spareEnd < SPARE_MIN).map((c) => `${c.engine} ${c.w} ${c.lang} ${c.month} n=${c.n} ${c.staff}: end spare ${c.spareEnd.toFixed(1)} after "${c.applied}" (line 1 ${c.m.line1.toFixed(1)} · line 2 ${c.m.line2.toFixed(1)} · as rendered ${c.m.asRendered.toFixed(1)} of ${c.w - 32})`)
 
 // ── 4. the S45 c-measure comparison (WITH the chip).
 let expectations = null
 const deviations = []
+// A deviation > TOL px FAILS the run; a step disagreement whose numbers all sit
+// within TOL is a 6px-line straddle — recorded, not failing.
+const deviate = (text, delta) => {
+  deviations.push(text)
+  if (Math.abs(delta) > TOL) failures.push(`DEVIATION > ${TOL}px: ${text}`)
+}
+if (CM && !existsSync(CM)) failures.push(`c-measure comparison asked for, but ${CM} is not found`)
 if (CM && existsSync(CM)) {
   const cm = JSON.parse(readFileSync(CM, 'utf8'))
   const cmRow = (engine, lang, s, shape, count) =>
@@ -366,11 +466,11 @@ if (CM && existsSync(CM)) {
     const e = { ...c, exp0, exp1, exp2, expRule, expMonthW: monthW, d0: c.natural0 - exp0, d1: exp1 == null ? null : c.natural1 - exp1, d2: c.natural2 - exp2, dMonth: c.m.monthW - monthW }
     expectations.push(e)
     const t = `${c.engine} ${c.w} ${c.lang} ${c.month} n=${c.n} ${c.staff}`
-    if (Math.abs(e.d0) > TOL) deviations.push(`${t}: natural ${c.natural0.toFixed(1)} vs c-measure-derived ${exp0.toFixed(1)} (Δ ${e.d0.toFixed(1)})`)
-    if (e.d1 != null && Math.abs(e.d1) > TOL) deviations.push(`${t}: badge-only natural ${c.natural1.toFixed(1)} vs ${exp1.toFixed(1)} (Δ ${e.d1.toFixed(1)})`)
-    if (Math.abs(e.d2) > TOL) deviations.push(`${t}: no-count natural ${c.natural2.toFixed(1)} vs ${exp2.toFixed(1)} (Δ ${e.d2.toFixed(1)})`)
-    if (Math.abs(e.dMonth) > TOL) deviations.push(`${t}: month chip ${c.m.monthW.toFixed(1)} vs c-measure ${monthW.toFixed(1)}`)
-    if (expRule !== c.applied) deviations.push(`${t}: steps "${c.applied}" vs c-measure-derived "${expRule}"`)
+    if (Math.abs(e.d0) > TOL) deviate(`${t}: natural ${c.natural0.toFixed(1)} vs c-measure-derived ${exp0.toFixed(1)} (Δ ${e.d0.toFixed(1)})`, e.d0)
+    if (e.d1 != null && Math.abs(e.d1) > TOL) deviate(`${t}: badge-only natural ${c.natural1.toFixed(1)} vs ${exp1.toFixed(1)} (Δ ${e.d1.toFixed(1)})`, e.d1)
+    if (Math.abs(e.d2) > TOL) deviate(`${t}: no-count natural ${c.natural2.toFixed(1)} vs ${exp2.toFixed(1)} (Δ ${e.d2.toFixed(1)})`, e.d2)
+    if (Math.abs(e.dMonth) > TOL) deviate(`${t}: month chip ${c.m.monthW.toFixed(1)} vs c-measure ${monthW.toFixed(1)} (Δ ${e.dMonth.toFixed(1)})`, e.dMonth)
+    if (expRule !== c.applied) deviate(`${t}: steps "${c.applied}" vs c-measure-derived "${expRule}"${Math.max(Math.abs(e.d0), Math.abs(e.d1 ?? 0), Math.abs(e.d2)) <= TOL ? ` (numbers within ${TOL}px — a 6px-line straddle, not failing)` : ''}`, 0)
   }
 }
 
@@ -380,7 +480,7 @@ const px = (n) => (n == null ? '—' : n.toFixed(1))
 const stepName = (t) => (t === '' ? 'none' : t.replace('badgeOnly', '1 badge').replace('shinkiCount', '2 no count').replace('ownRow', '3 own row'))
 const pwv = require('playwright/package.json').version
 let md = `# Fit proof — S46 LEG 1b: the 新規 chip ON on option C (the カルテ chip row [month][新規 N][自分 | 全スタッフ ⌄] + trim step 2)\n\n`
-md += `Generated by \`node scripts/fit-harness/shinki-on-c.mjs\` (Playwright ${pwv}; headless Chromium, and WebKit as a phone — isMobile + hasTouch; dsf 2; the app's own fonts via thin/fonts.css; the REAL カルテ view, fixture data; the chip ON only through the harness-only registry, \`KARUTE_SWITCHES.shinkiChip\` = false in source). Every number is read off the page. Requests that left the harness origin: ${blocked}. Page loads re-opened after a navigation timeout: ${retries}. Page errors: ${cases.filter((c) => c.bad.some((b) => b.startsWith('page errors'))).length}.\n\n`
+md += `Generated by \`node scripts/fit-harness/shinki-on-c.mjs\` (Playwright ${pwv}; headless Chromium, and WebKit as a phone — isMobile + hasTouch; dsf 2; the app's own fonts via thin/fonts.css; the REAL カルテ view, fixture data; the chip ON only through the harness-only registry, \`KARUTE_SWITCHES.shinkiChip\` = false in source). Every number is read off the page. Requests that left the harness origin: ${blocked}. Page loads re-opened after a navigation timeout: ${retries}. Cases with a page error (pageerror or window error event): ${cases.filter((c) => c.bad.some((b) => b.startsWith('page errors'))).length}. **"ResizeObserver loop" errors, every door (pageerror · window error events · console), fresh loads + the 800px pages resized to every width + the live resizes: ${loopErrors}.**\n\n`
 md += `Spare = (w − 32) − natural (one-line max-content width); a step applies only while spare < ${SPARE_MIN}, in the order 1 badge → 2 no count → 3 own row (1 left out without a picked name). **natural** = nothing trimmed; **badge** = the picked name's text hidden; **no count** = step 1 (if a name) + the 新規 count hidden; **applied** = the steps the engine chose on a fresh load (first-paint walk; the 800px page resized to w agreed unless listed under FAILURES); **end** = the spare left after the applied steps (own row: w − 32 − the wider of its two lines). WebKit values; Chromium in brackets where it differs by > 0.3px.\n\n`
 md += `| w | lang | month (chip) | 新規 | picked | natural | spare | badge | spare | no count | spare | applied | end | rule |${expectations ? ' c-measure-derived natural · steps |' : ''}\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|${expectations ? '---|' : ''}\n`
 for (const lang of LANGS) for (const month of Object.keys(MONTHS)) for (const n of COUNTS) for (const staff of Object.keys(STAFF)) for (const w of WIDTHS) {
@@ -393,10 +493,28 @@ for (const lang of LANGS) for (const month of Object.keys(MONTHS)) for (const n 
   const e = expectations?.find((x) => x.engine === 'webkit' && x.w === w && x.lang === lang && x.month === month && x.n === n && x.staff === staff)
   md += `| ${w} | ${lang} | ${month} (${k.m.monthText}) | ${n} | ${STAFF[staff].name} | ${alt(k.natural0, ch.natural0, px)} | ${alt(sp(k.natural0), sp(ch.natural0), f1)} | ${alt(k.natural1, ch.natural1, px)} | ${alt(sp(k.natural1), sp(ch.natural1), f1)} | ${alt(k.natural2, ch.natural2, px)} | ${alt(sp(k.natural2), sp(ch.natural2), f1)} | ${stepsCell} | ${alt(k.spareEnd, ch.spareEnd, f1)}${k.spareEnd < SPARE_MIN || ch.spareEnd < SPARE_MIN ? ' **FINDING**' : ''} | ${k.rule === k.applied && ch.rule === ch.applied ? 'matches' : '**MISMATCH**'} |${e ? ` ${px(e.exp0)} · ${stepName(e.expRule)} |` : ''}\n`
 }
+md += `\n### Narrower — the own-row step (${NARROW.join(' · ')}; appended, the option C fix-round widths)\n\nSame columns, plus the own-row DOM read off the page where it applied (WebKit; Chromium in brackets where it differs by > 0.3px): **line 1** = the month chip's top − the row's top; **break** = the break element's width (track = w − 32); **gap** = the staff control's top − the month chip's bottom (want ${OWN_ROW_GAP}).\n\n`
+md += `| w | lang | month (chip) | 新規 | picked | natural | spare | badge | spare | no count | spare | applied | end | rule | line 1 | break | gap |${expectations ? ' c-measure-derived natural · steps |' : ''}\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|${expectations ? '---|' : ''}\n`
+for (const lang of LANGS) for (const month of Object.keys(MONTHS)) for (const n of COUNTS) for (const staff of Object.keys(STAFF)) for (const w of NARROW) {
+  const k = cases.find((c) => c.engine === 'webkit' && c.w === w && c.lang === lang && c.month === month && c.n === n && c.staff === staff)
+  const ch = cases.find((c) => c.engine === 'chromium' && c.w === w && c.lang === lang && c.month === month && c.n === n && c.staff === staff)
+  const alt = (a, b, fmt) => fmt(a) + (a != null && b != null && Math.abs(a - b) > 0.3 ? ` (${fmt(b)})` : '')
+  const av = w - 32
+  const sp = (x) => (x == null ? null : av - x)
+  const stepsCell = stepName(k.applied) + (ch.applied !== k.applied ? ` (${stepName(ch.applied)})` : '')
+  const own = (c) => c.applied.includes('ownRow')
+  const geo = (c, f) => (own(c) ? f(c.m.geo) : null)
+  const e = expectations?.find((x) => x.engine === 'webkit' && x.w === w && x.lang === lang && x.month === month && x.n === n && x.staff === staff)
+  md += `| ${w} | ${lang} | ${month} (${k.m.monthText}) | ${n} | ${STAFF[staff].name} | ${alt(k.natural0, ch.natural0, px)} | ${alt(sp(k.natural0), sp(ch.natural0), f1)} | ${alt(k.natural1, ch.natural1, px)} | ${alt(sp(k.natural1), sp(ch.natural1), f1)} | ${alt(k.natural2, ch.natural2, px)} | ${alt(sp(k.natural2), sp(ch.natural2), f1)} | ${stepsCell} | ${alt(k.spareEnd, ch.spareEnd, f1)}${k.spareEnd < SPARE_MIN || ch.spareEnd < SPARE_MIN ? ' **FINDING**' : ''} | ${k.rule === k.applied && ch.rule === ch.applied ? 'matches' : '**MISMATCH**'} | ${alt(geo(k, (g) => g.monthItemTop - g.rowTop), geo(ch, (g) => g.monthItemTop - g.rowTop), px)} | ${alt(geo(k, (g) => g.breakW), geo(ch, (g) => g.breakW), px)} | ${alt(geo(k, (g) => g.controlTop - g.monthBottom), geo(ch, (g) => g.controlTop - g.monthBottom), px)} |${e ? ` ${px(e.exp0)} · ${stepName(e.expRule)} |` : ''}\n`
+}
+md += `\n### Live resize 440 → 320 → 440, switch ON (a page resized while open)\n\nErrors counted from every door: Playwright pageerror, console errors, window error events.\n\n| engine | lang | month | 新規 | picked | steps at 440 | at 320 | rule at 320 | back at 440 | rule at 440 | "ResizeObserver loop" errors | other errors |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n`
+for (const x of liveResize) md += `| ${x.engine} | ${x.lang} | ${x.month} | ${x.n} | ${STAFF[x.staff].name} | ${stepName(x.at440)} | ${stepName(x.at320)} | ${stepName(x.want320 ?? '?')} | ${stepName(x.back440)} | ${stepName(x.want440 ?? '?')} | ${x.loop} | ${x.errors.length - x.loop} |\n`
 const passN = cases.filter((c) => c.pass).length
-md += `\n## Checks per case (${cases.length} cases = ${ENGINES.length} engines × ${WIDTHS.length} widths × ${LANGS.length} langs × 3 months × ${COUNTS.length} counts × ${Object.keys(STAFF).length} picks)\n\n`
-md += `- PASS ${passN} / ${cases.length}: the engine's steps = the rule on the measured numbers; the resize walk = the first-paint walk; track = w − 32; nothing overflows its track; no sideways page scroll; one line unless the own-row step (own row: exactly 2 lines, 新規 on line 1 with the month); the word 新規 always shown; the count shown exactly when step 2 is not applied (sr-only when it is); the chip's accessible name (Playwright's) = the untrimmed one and carries the word and the count; the month chip's name contains its visible label; a picked staffer's control is named by the FULL name.\n`
+md += `\n## Checks per case (${cases.length} cases = ${ENGINES.length} engines × (${WIDTHS.length} phone + ${NARROW.length} narrow) widths × ${LANGS.length} langs × 3 months × ${COUNTS.length} counts × ${Object.keys(STAFF).length} picks; + ${liveResize.length} live resizes)\n\n`
+md += `- PASS ${passN} / ${cases.length}: the engine's steps = the rule on the measured numbers; the resize walk = the first-paint walk; track = w − 32; nothing overflows its track; no sideways page scroll; one line unless the own-row step (own row: exactly 2 lines, 新規 on line 1 with the month, the month chip on line 1, the break full-width, the control ${OWN_ROW_GAP}px below the month chip; no break element without the step); no error by pageerror or window error event, no "ResizeObserver loop" console line; the word 新規 always shown; the count shown exactly when step 2 is not applied (sr-only when it is); the chip's accessible name (Playwright's) = the untrimmed one and carries the word and the count; the month chip's name contains its visible label; a picked staffer's control is named by the FULL name.\n`
 md += `- Steps seen: ${[...new Set(cases.map((c) => stepName(c.applied)))].join(' · ')}.\n`
+md += `- Live resizes 440 → 320 → 440 (switch ON): PASS ${liveResize.filter((x) => x.pass).length} / ${liveResize.length}; crossed into the own-row step: ${liveResize.filter((x) => x.want320?.includes('ownRow')).length}.\n`
+md += `- "ResizeObserver loop" errors, every door: ${loopErrors}. Other console errors (listed, not failing): ${otherConsole.length}${otherConsole.length ? ` — ${[...new Set(otherConsole.map((x) => x.replace(/^.*?: /, '')))].slice(0, 5).join(' | ')}` : ''}.\n`
 md += `- Chip accessible names seen: ${[...new Set(cases.map((c) => `"${c.m.chipAccName}"`))].slice(0, 12).join(' · ')}.\n`
 md += `- End spare ≥ ${SPARE_MIN} after the steps: ${cases.length - findings.length} / ${cases.length}${findings.length ? ` — ${findings.length} FINDING(s) below` : ''}.\n`
 md += `- Resize walks that landed later than two frames after the page saw its new width (read again 600ms later; the later read is the one judged): ${lateResizeWalks}.\n`
@@ -408,8 +526,8 @@ if (expectations) {
 }
 md += failures.length ? `\n## FAILURES (${failures.length})\n\n${failures.map((x) => `- ${x}`).join('\n')}\n` : `\n## Result: PASS${findings.length ? ` (with ${findings.length} finding(s))` : ''}\n`
 writeFileSync(join(OUT, 'fit-proof-s46-shinki.md'), md)
-writeFileSync(join(OUT, 'fit-proof-s46-shinki.json'), JSON.stringify({ playwright: pwv, blocked, retries, lateResizeWalks, failures, findings, deviations, cases: expectations ?? cases }, null, 1))
-console.log(`cases ${cases.length} · pass ${passN} · failures ${failures.length} · findings ${findings.length} · deviations ${expectations ? deviations.length : 'n/a'} · late resize walks ${lateResizeWalks} · requests left ${blocked} · retries ${retries}`)
+writeFileSync(join(OUT, 'fit-proof-s46-shinki.json'), JSON.stringify({ playwright: pwv, blocked, retries, lateResizeWalks, loopErrors, otherConsole, failures, findings, deviations, cases: expectations ?? cases, liveResize }, null, 1))
+console.log(`cases ${cases.length} · pass ${passN} · live resizes ${liveResize.length} (pass ${liveResize.filter((x) => x.pass).length}) · loop errors ${loopErrors} · failures ${failures.length} · findings ${findings.length} · deviations ${expectations ? deviations.length : 'n/a'} · late resize walks ${lateResizeWalks} · requests left ${blocked} · retries ${retries}`)
 console.log(`table: ${join(OUT, 'fit-proof-s46-shinki.md')}`)
 if (failures.length) {
   console.error(failures.slice(0, 40).join('\n'))
