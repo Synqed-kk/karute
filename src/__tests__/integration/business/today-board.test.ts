@@ -420,6 +420,29 @@ describe('board derivations', () => {
     expect(cleanupEnd(input)).toBe(1320) // the OFF path: axis == the store's hours, as today
   })
 
+  // ⚖ §v11 V11-15 fix round 3 — P17 (stress mutant M3): only BOOKINGS grow the axis — never a shift, a wash or an absence.
+  it('§v11 V11-15 P17 — only bookings grow the axis: the page feeds drawnWindow its drawn cards alone, and a shift or 勤務不可 past close leaves the axis at the store\'s hours', () => {
+    const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(page).toContain('const drawn = drawnWindow(planes.operatingHours, bookings.filter((b) => b.onBoard))')
+    expect(page.split('drawnWindow(').length - 1).toBe(1)
+    const gym = { open: 420, close: 1320 }
+    const base = today().find((a) => a.board_state !== null && a.status !== 'cancelled')!
+    const row = { ...base, id: 'apt-in-hours', staff_id: 'p-late-shift', resource_id: null, starts_at: '2026-09-14T03:00:00.000Z', ends_at: '2026-09-14T04:00:00.000Z' } // 12:00–13:00 JST
+    const input = {
+      appointments: [row], customers: [], menus: [], staff: [{ id: 'p-late-shift', full_name: '見本 ぴーしー' }], resources: [],
+      shifts: [{ staff_id: 'p-late-shift', start: 420, end: 1400, breaks: [] }], // a shift that runs past close
+      absence: { staff_id: 'p-late-shift', from: 1300 }, // …and a 勤務不可 from 21:40
+      qualifications: {}, staffListPrice: {}, staffStores: {}, blocks: [], sellSlots: [], decisions: [], hours: gym, dayKey: jstDayKey(row.starts_at),
+      operatorStaffId: '', storeNames: new Map(), crossStore: false, wordsByStore: {}, genericWords: RESOURCE_WORDS.other,
+    } as unknown as BuildInput
+    const bookings = dayBookings(input)
+    const axis = drawnWindow(gym, bookings)
+    expect(axis).toEqual(gym)
+    const items = buildLanes({ ...input, hours: axis, businessHours: gym }, bookings).flatMap((l) => l.items)
+    expect(items.length).toBeGreaterThan(1) // the card and the 勤務不可 — never a vacuous pass
+    expect(items.filter((i) => !(i.x >= 0 && i.x + i.w <= 100 + 1e-9))).toEqual([])
+  })
+
   it('reads カテゴリー strongest-first: VIP over 回数券 over 新規/再来', () => {
     const base = customers.find((c) => c.id === 'cus-02')!
     expect(bookingCategory({ ...base, vip: true, ticket_balance: 5 }, 9)).toBe('vip')

@@ -15370,4 +15370,12 @@ describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', ()
     expect(tailEnd(AXIS, STORE.close)).toBe(1320) // not 1340
     expect(tailEnd(STORE)).toBe(1320) // the OFF path: axis == the store's hours, as today
   })
+
+  // Fix round 3 — P19 (stress mutant M10): an empty-slot click reads the pixel on the AXIS and bounds the start by the STORE.
+  it('§v11 V11-15 P19 — slotStartAt: the far right of a 07:00–24:00 track seeds 21:30 (the store\'s close − 30), not 23:30; the far left 07:00', () => {
+    const track = document.createElement('div')
+    rect(track, { left: 0, top: 0, width: 1000, height: 40 })
+    expect(slotStartAt(track, 1000, AXIS, STORE)).toBe(1290)
+    expect(slotStartAt(track, 0, AXIS, STORE)).toBe(420)
+  })
 })
