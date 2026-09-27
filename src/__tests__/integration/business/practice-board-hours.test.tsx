@@ -10,12 +10,34 @@
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 // A whole mock, never requireActual: the real module loads the SDK chain, which jsdom cannot host.
 jest.mock('@/business/lib/practice-door/core-reach', () => ({ PracticeTenantMismatch: class extends Error {}, clientFor: () => mockReads() }))
+// ⚖ §v11 V11-15 P14 (A8) — pass-through spies on the functions the eight sell/guard frames feed; behaviour unchanged.
+jest.mock('@/app/[locale]/(business)/business/today/held-committed', () => {
+  const a = jest.requireActual('@/app/[locale]/(business)/business/today/held-committed')
+  return { ...a, heldCommittedFor: jest.fn(a.heldCommittedFor) }
+})
+jest.mock('@/app/[locale]/(business)/business/today/fallback-cells', () => {
+  const a = jest.requireActual('@/app/[locale]/(business)/business/today/fallback-cells')
+  return { ...a, fallbackCellsFor: jest.fn(a.fallbackCellsFor) }
+})
+jest.mock('@/app/[locale]/(business)/business/today/reserved-mask', () => {
+  const a = jest.requireActual('@/app/[locale]/(business)/business/today/reserved-mask')
+  return { ...a, reservedMaskFor: jest.fn(a.reservedMaskFor) }
+})
+jest.mock('@/app/[locale]/(business)/business/today/today-interactions', () => {
+  const a = jest.requireActual('@/app/[locale]/(business)/business/today/today-interactions')
+  return { ...a, windowsOn: jest.fn(a.windowsOn), guardRailsFor: jest.fn(a.guardRailsFor), guardVerdictAt: jest.fn(a.guardVerdictAt), sellLayerFor: jest.fn(a.sellLayerFor) }
+})
 
+import { readFileSync } from 'node:fs'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { BusinessSessionEdits } from '@/app/[locale]/(business)/BusinessSessionEdits'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
+import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
+import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallback-cells'
+import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
+import { guardRailsFor, guardVerdictAt, sellLayerFor, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { GYM, LOGIN, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
 
 let mockOptions: RecordedOptions = {}
@@ -104,7 +126,7 @@ async function mountGymOutOfHours() {
 const pct = (el: Element, v: '--x' | '--w') => parseFloat((el as HTMLElement).style.getPropertyValue(v))
 const AFTER_CLOSE = ((1320 - 420) / (1440 - 420)) * 100 // 22:00 on the drawn 07:00–24:00 axis
 
-it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is drawn on its person\'s track; the axis grows to 24:00 and every track carries ONE 営業時間外 band over 22:00–24:00 (P3 · P5 on the same mount)', async () => {
+it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is drawn on its person\'s track; the axis grows to 24:00 and the board paints 営業時間外 over 22:00–24:00 (P3 · P5 on the same mount)', async () => {
   const { host, done } = await mountGymOutOfHours()
   try {
     const card = host.querySelector(`.lane[data-lane="${GYM.rina}"] .track .event[data-book="00000000-0000-4000-8000-00000000c399"]`)!
@@ -112,15 +134,16 @@ it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is dra
     const ruler = Array.from(host.querySelectorAll('.time-head .hours span'))
     expect([ruler[0].textContent, ruler.at(-1)!.textContent, ruler.length]).toEqual(['7', '23', 17]) // 07:00–24:00: ceil60 of 23:15
     expect(ruler.filter((r) => r.classList.contains('off')).map((r) => r.textContent)).toEqual(['22', '23'])
-    const tracks = Array.from(host.querySelectorAll('.lane .track'))
-    const bands = tracks.map((t) => Array.from(t.querySelectorAll(':scope > .offhours')).map((b) => [Math.abs(pct(b, '--x') - AFTER_CLOSE) < 1e-9, Math.abs(pct(b, '--x') + pct(b, '--w') - 100) < 1e-9, b.getAttribute('aria-label'), b.textContent]))
-    expect(new Set(bands.map((b) => JSON.stringify(b)))).toEqual(new Set([JSON.stringify([[true, true, '22:00閉店のため、それより後は営業時間外', '営業時間外22:00閉店']])]))
-    expect(tracks.length).toBeGreaterThanOrEqual(5)
+    // The band is a LAYER of every track (A5): the timeline carries each side's share; the ruler says it once, after close only.
+    const timeline = host.querySelector<HTMLElement>('.timeline.off-hours')!
+    expect([timeline.style.getPropertyValue('--off-before'), Math.abs(parseFloat(timeline.style.getPropertyValue('--off-after')) - 120 / 1020) < 1e-12]).toEqual(['0', true])
+    expect(Array.from(host.querySelectorAll('.time-head > .off-caption')).map((c) => `${c.className}:${c.textContent}`)).toEqual(['off-caption after:営業時間外'])
+    expect(host.querySelectorAll('.track .offhours').length).toBe(0) // no per-lane element
     // P3 on this mount: every card on its track; no card names an unknown customer.
     const cards = Array.from(host.querySelectorAll('.lane .track .event[data-book]:not(.cleanup)'))
     expect(cards.filter((c) => !(pct(c, '--x') >= 0 && pct(c, '--x') + pct(c, '--w') <= 100 + 1e-9 && pct(c, '--w') > 0)).length).toBe(0)
     expect(cards.filter((c) => (c.textContent ?? '').includes('顧客未登録')).length).toBe(0)
-    // P5 on this mount: no hatch over a card in its own lane — the band is not a hatch; 14 = the gym's 13 + this row.
+    // P5 on this mount: no hatch over a card in its own lane; 14 = the gym's 13 + this row.
     let staffCards = 0
     const clashes = Array.from(host.querySelectorAll('.lane[data-group="staff"]')).flatMap((lane) => {
       const span = (el: Element) => ({ x: pct(el, '--x'), end: pct(el, '--x') + pct(el, '--w'), label: el.getAttribute('aria-label') })
@@ -143,19 +166,43 @@ it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is dra
   }
 })
 
-it('§v11 V11-15 P14 — the RULES keep the store\'s own close (22:00) while the axis runs to 24:00: the new-booking dialog stops at 22:00 and no sell cell stands past it', async () => {
+it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) while the axis runs to 24:00: all eight sell/guard frames, the sell layer and the new-booking dialog', async () => {
+  jest.clearAllMocks()
   const { host, done } = await mountGymOutOfHours()
   try {
     expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('23') // the axis DID grow (the precondition)
-    // TodayScreen CreateDialog: the ›30分遅く stepper clamps at business.close − duration, the 営業時間 check reads business.close.
+    type Call = unknown[]
+    const argsOf = (fn: unknown) => (fn as jest.Mock).mock.calls as Call[]
+    const closes = <C,>(calls: C[], read: (c: C) => unknown) => [calls.length > 0, [...new Set(calls.map(read))]]
+    const held = argsOf(heldCommittedFor) as Array<[{ frame: { openMin: number; closeMin: number }; closeMin: number }]>
+    // TodayScreen.tsx:2106-2107 — ledgerFrame (the ONE clock the book is built on).
+    expect(closes(held, ([o]) => `${o.frame.openMin}-${o.frame.closeMin}`)).toEqual([true, ['420-1320']])
+    // TodayScreen.tsx:2203 — heldCommittedFor's own closeMin.
+    expect(closes(held, ([o]) => o.closeMin)).toEqual([true, [1320]])
+    // TodayScreen.tsx:2458 — fallbackCellsFor (the sales door).
+    expect(closes(argsOf(fallbackCellsFor), ([o]) => (o as { closeMin: number }).closeMin)).toEqual([true, [1320]])
+    // TodayScreen.tsx:2751 — reservedMaskFor (the hand's held mask).
+    expect(closes(argsOf(reservedMaskFor), ([o]) => (o as { closeMin: number }).closeMin)).toEqual([true, [1320]])
+    // Two frames never run on a static board, so they are pinned as TEXT (their own lines read the store's hours):
+    // TodayScreen.tsx:2838-2839 — inputOn, reached through windowsOn only with the selling law OFF or a day move staged
+    // (dayCommitted's last arm / dayOrigin); TodayScreen.tsx:2943 — the STAGED day's heldCommittedFor.
+    expect(argsOf(windowsOn).length).toBe(0) // the law is on: the text pin below is the honest one, never a vacuous pass
+    const src = readFileSync('src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'utf8')
+    const block = (anchor: string) => src.slice(src.indexOf(anchor), src.indexOf(anchor) + 900)
+    expect(block('const inputOn = useCallback(')).toMatch(/open: business\.open,\n\s+close: business\.close,/)
+    expect(block('const originHeld = heldCommittedFor({')).toContain('closeMin: business.close,')
+    // TodayScreen.tsx:3030-3031 — guardRailsFor (the 60分配置 strip).
+    expect(closes(argsOf(guardRailsFor), ([, o]) => `${(o as { open: number }).open}-${(o as { close: number }).close}`)).toEqual([true, ['420-1320']])
+    // TodayScreen.tsx:3403-3404 — guardVerdictAt (one landing's verdict): asked by an empty-slot click on a staff track.
+    act(() => { host.querySelector('.lane[data-group="staff"] .track')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(closes(argsOf(guardVerdictAt), ([, , , o]) => `${(o as { open: number }).open}-${(o as { close: number }).close}`)).toEqual([true, ['420-1320']])
+    // TodayScreen.tsx:2369 — the sell layer reads the same frame (beyond the census's thirty lines).
+    expect(closes(argsOf(sellLayerFor), ([, h]) => `${(h as { open: number }).open}-${(h as { close: number }).close}`)).toEqual([true, ['420-1320']])
+    // TodayScreen.tsx:10458-10589 — CreateDialog: the ›30分遅く stepper stops at business.close − duration; the check reads 22:00.
     const dialog = host.querySelector('dialog[aria-labelledby="createTitle"]')!
     for (let i = 0; i < 40; i += 1) act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="30分遅く"]')!.click())
     expect(dialog.querySelector('.stepper b')!.textContent).toMatch(/–22:00$/)
     expect([dialog.textContent!.includes('営業時間内'), dialog.textContent!.includes('営業時間を超えます')]).toEqual([true, false])
-    // The sell layer / ledger frame (TodayScreen `sellLayerFor(committedLanes, business, …)`, `ledgerFrame.closeMin`): nothing sold past 22:00.
-    const cells = Array.from(host.querySelectorAll('.lane .track > *:not(.event):not(.offhours)')).filter((c) => (c as HTMLElement).style.getPropertyValue('--x'))
-    expect(cells.length).toBeGreaterThan(0) // never a vacuous pass
-    expect(cells.filter((c) => pct(c, '--x') + pct(c, '--w') > AFTER_CLOSE + 1e-9).map((c) => c.className)).toEqual([])
   } finally {
     done()
   }
