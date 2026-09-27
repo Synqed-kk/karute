@@ -26,6 +26,9 @@ export const STORE = {
   tokyo: 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f',
   yokohama: '8ac43a4b-7763-4a10-9f73-a662085460af',
   laEstro: '8696b856-11ab-4879-9290-bef40b03ea66',
+  // ⚖ §v11 — the two stores whose own hours broke the board (CENSUS-S18 § A).
+  gym: 'c33e4c43-bc3b-4470-ac22-aa60fecdabe3',
+  jiyugaoka: '0e8fd5dd-8da6-48c4-9ad2-2ab305aa907c',
   closed: '00000000-0000-4000-8000-00000000dead',
 } as const
 export const LOGIN = { owner: 'owner-login-uuid', probe: 'probe-login-uuid', goro: 'goro-login-uuid', musubi: 'musubi-login-uuid', perry: 'perry-login-uuid', azusa: 'azusa-login-uuid', saburo: 'saburo-login-uuid' } as const
@@ -52,6 +55,8 @@ export const STORES: Store[] = [
   store(STORE.tokyo, 'テスト東京店', false),
   store(STORE.yokohama, 'テスト横浜店', false),
   store(STORE.laEstro, 'La Estro Test Store', false),
+  store(STORE.gym, 'テスト恵比寿ジム', false),
+  store(STORE.jiyugaoka, 'テスト自由が丘店', false),
   store(STORE.closed, '閉店テスト', false, false), // inactive: must never appear
 ]
 
@@ -257,6 +262,41 @@ export const APPOINTMENTS: Appointment[] = [
   booking(APT.inactiveStore, '2026-09-14T15:00', AKARI, S.hanako, STORE.closed, MENU.seitai, 60, 6600, 'SCHEDULED'),
 ]
 
+// ⚖ §v11 — the gym's and 自由が丘's days, INVENTED in this file's style at the starts and lengths the probe
+// MEASURED live on 9/27 (DIAGNOSIS A1 · B1 · B4 · B6; blocks-ebisu-1440*.json), set on the recorded today (9/14)
+// and tomorrow (9/15): outside the old shared 10–19 window, inside each store's own (07–22 · 10–20).
+const gymDay = (n: number, starts: string, minutes: number, customer: string, price: number) =>
+  booking(`00000000-0000-4000-8000-00000000c3${String(n).padStart(2, '0')}`, starts, customer, CARD.musubi, STORE.gym, MENU.zenten, minutes, price, 'SCHEDULED')
+APPOINTMENTS.push(
+  gymDay(1, '2026-09-14T07:00', 30, C.itsuki, 6600), gymDay(2, '2026-09-14T07:00', 60, C.umi, 11000),
+  gymDay(3, '2026-09-14T13:00', 75, C.eita, 11000), gymDay(4, '2026-09-14T18:30', 90, C.kaeru, 16500),
+  gymDay(5, '2026-09-14T19:00', 60, C.kiri, 11000), gymDay(6, '2026-09-14T20:30', 60, C.kurara, 11000),
+  gymDay(7, '2026-09-14T20:30', 60, C.nagi, 11000),
+  gymDay(8, '2026-09-15T07:00', 30, C.itsuki, 6600), gymDay(9, '2026-09-15T20:30', 60, C.umi, 11000),
+  gymDay(10, '2026-09-15T20:30', 60, C.eita, 11000),
+  booking('00000000-0000-4000-8000-00000000e301', '2026-09-14T18:30', C.kaeru, CARD.musubi, STORE.jiyugaoka, MENU.zenten, 60, 6600, 'SCHEDULED'),
+)
+
+type Policy = Awaited<ReturnType<CoreReads['storePolicyGet']>>
+/** ⚖ §v11 — core's store policies as READ LIVE 2026-09-27T05:47:19Z (14:47 JST, CENSUS-S18.md § A):
+ *  weekly_hours · source · updated_at verbatim. The census read no other dial, so those carry neutral
+ *  values the door never reads. */
+const policy = (store_id: string, source: Policy['source'], updated_at: string | null, weekly_hours: Policy['weekly_hours']): Policy => ({
+  store_id, booking_open_days: 0, cutoff_minutes: 0, cancel_free_until_hours: 0, cancel_late_pct: 0, no_show_pct: 0,
+  gap_guard_mode: 'OFF', new_client_session_minutes: 60, weekly_hours, source, updated_by: null, updated_at,
+})
+const every = (open: string, close: string, tue: { open: string; close: string } | null = { open, close }) =>
+  ({ mon: { open, close }, tue, wed: { open, close }, thu: { open, close }, fri: { open, close }, sat: { open, close }, sun: { open, close } })
+export const POLICIES: Record<string, Policy> = {
+  [STORE.tokyo]: policy(STORE.tokyo, 'custom', '2026-09-23T23:07:53Z', every('10:00', '19:00', null)),
+  [STORE.gym]: policy(STORE.gym, 'custom', '2026-09-24T14:44:56Z', every('07:00', '22:00')),
+  [STORE.jiyugaoka]: policy(STORE.jiyugaoka, 'custom', '2026-09-24T14:57:02Z', every('10:00', '20:00', null)),
+  [STORE.yokohama]: policy(STORE.yokohama, 'default', null, null),
+  [STORE.laEstro]: policy(STORE.laEstro, 'custom', '2026-09-15T22:30:33Z', null),
+  [STORE.devSalon]: policy(STORE.devSalon, 'default', null, null),
+  [STORE.devGinza]: policy(STORE.devGinza, 'default', null, null),
+}
+
 /** 9/14 12:00 → 11:00 JST: ends before it starts (opt-in via `backwardsBlock`). */
 const BACKWARDS_BLOCK: Appointment = {
   ...booking(APT.blockBackwards, '2026-09-14T12:00', null, CARD.saburo, STORE.tokyo, null, 30, 0, 'SCHEDULED',
@@ -293,7 +333,7 @@ function paged<T>(rows: T[], q: { page?: number; page_size?: number } | undefine
   return { rows: rows.slice((page - 1) * size, page * size), page, size }
 }
 
-/** The ten bound reads, answering from the rows above. */
+/** The eleven bound reads, answering from the rows above. */
 export function recordedReads(o: RecordedOptions = {}): CoreReads {
   return {
     storesList: async () => ({ stores: STORES }),
@@ -333,5 +373,10 @@ export function recordedReads(o: RecordedOptions = {}): CoreReads {
     orgSettingsGet: async () =>
       o.orgName === null ? null : { business_id: TENANT, name: o.orgName ?? 'Dev Salon', settings: {}, ...stamp },
     resourcesList: async () => ({ resources: [] }), // READBACK §5: 0 at every store
+    storePolicyGet: async (id) => {
+      const p = POLICIES[id]
+      if (!p) throw new Error(`recorded: no store policy for ${id}`)
+      return p
+    },
   }
 }

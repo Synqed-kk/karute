@@ -80,6 +80,7 @@ const READS = [
   'resourcesList',
   'staffList',
   'staffStoresList',
+  'storePolicyGet',
   'storesList',
 ]
 
@@ -102,7 +103,7 @@ describe('core-reach: the tenant throw comes before the client', () => {
     expect((err as PracticeTenantMismatch).businessId).toBe('other')
     expect((err as Error).message).toBe('practice switch refused business other')
   })
-  it('the practice tenant → exactly the ten bound reads, nothing else', () => {
+  it('the practice tenant → exactly the eleven bound reads, nothing else', () => {
     setEnv({ BUSINESS_PRACTICE_TENANT: u, SYNQED_CORE_URL: 'https://dummy.invalid', SYNQED_CORE_API_KEY: 'dummy' })
     const reads = clientFor({ businessId: u })
     expect(Object.keys(reads).sort()).toEqual(READS)
