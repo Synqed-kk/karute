@@ -470,9 +470,11 @@ export function handBoardFor(
   // `lanesWithCompanionsRestored`).
   words: { byLaneKey: Record<string, ResourceWords>; generic: ResourceWords },
   cleanupMinutesByBed?: Record<string, number>,
+  /** ⚖ §v11 V11-15 fix round 2 — the store's closing time for re-derived turnarounds (forwarded). */
+  closeMin?: number,
 ): BoardLane[] {
   return pending && forId != null && pending.id === forId
-    ? lanesWithCompanionsRestored(lanes, pending.companions, hours, words, cleanupMinutesByBed)
+    ? lanesWithCompanionsRestored(lanes, pending.companions, hours, words, cleanupMinutesByBed, closeMin)
     : lanes
 }
 
@@ -1982,8 +1984,8 @@ export function TodayScreen(props: TodayProps) {
    *  measured against. Without it `committedLanes` — the board the sell, gap and
    *  reserved layers price against — could advertise minutes core will refuse. */
   const boardLanes = useMemo(
-    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes),
-    [placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes],
+    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes, business.close),
+    [placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes, business.close],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -1998,8 +2000,8 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes),
-    [placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes],
+    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes, business.close),
+    [placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes, business.close],
   )
   /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
    *  card he grabbed is under his cursor now (the proxy), so the original stays
@@ -2017,8 +2019,8 @@ export function TodayScreen(props: TodayProps) {
     if (!a) return null
     const staff = a.staffLane ? { ...moves, [a.id]: { laneKey: a.staffLane, x: a.span.x, w: a.span.w } } : moves
     const bed = a.bedLane ? { ...bedMoves, [a.id]: { laneKey: a.bedLane, x: a.span.x, w: a.span.w } } : bedMoves
-    return applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes)
-  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours, laneWords, props.bedCleanupMinutes])
+    return applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes, business.close)
+  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours, laneWords, props.bedCleanupMinutes, business.close])
   const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)
   /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
    *  is drawn for every live drag, same lane or not — with the card off travelling
@@ -2658,8 +2660,8 @@ export function TodayScreen(props: TodayProps) {
    *  Everything that must read it (`rails`, the two gated doors, the chip site,
    *  `explainRails`, `composeSlot`, `linesFor`, `handBoardRef`) is below. */
   const handBoard = useMemo(
-    () => handBoardFor(boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes),
-    [boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes],
+    () => handBoardFor(boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes, business.close),
+    [boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes, business.close],
   )
   /** THE CAPACITY BOOK, BUILT ONCE PER FRAME. Both worlds come out of one call,
    *  and the second only exists while a hand is holding something. Construction
@@ -2921,9 +2923,9 @@ export function TodayScreen(props: TodayProps) {
    *  so this memo — and only this one — may take the pending gate. */
   const originLanes = useMemo(
     () => (dayStaged
-      ? applyMoves(placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes)
+      ? applyMoves(placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes, business.close)
       : committedLanes),
-    [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes, committedLanes],
+    [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes, business.close, committedLanes],
   )
   /** ⚖ D-20 (1) — ONE ORIGIN MASK, TWO CONSUMERS. `honestOrigin` used to
    *  produce the released mask ITSELF, gated behind `!honest` — so with
@@ -3626,6 +3628,7 @@ export function TodayScreen(props: TodayProps) {
         // The same values `verdictAtLanding` passes, from the same props.
         reseat: {
           hours,
+          closeMin: business.close,
           nowMinute: props.sell.nowMinute,
           cleanupMinutesByBed: props.bedCleanupMinutes,
           landingOn: reseatLandingAt,
@@ -3634,7 +3637,7 @@ export function TodayScreen(props: TodayProps) {
       }),
     [
       rails, handBoard, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellPublished, publishedClaims, sellDrops, inHand, sellMode,
-      heldBoardHonest, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt, laneWords,
+      heldBoardHonest, bedsOver, hours, business.close, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt, laneWords,
     ],
   )
 
@@ -3696,7 +3699,7 @@ export function TodayScreen(props: TodayProps) {
       // (`allocateBed` returns `reseats: []` on every non-pack path), and this
       // says so out loud rather than relying on that.
       if (!opts.pack || v.reseats.length === 0) return v
-      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)
+      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)
       return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }
     },
     // `solveLanes` is a body function declaration (⚖ its own doc comment: one
@@ -3713,7 +3716,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ D-53 (u)/(n2b2) — `laneWords` is added: it feeds the shuffle's own
     // `applyBedMoves` call directly (not only through `verdictFor`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [verdictFor, verdictAt, hours, pending, laneWords],
+    [verdictFor, verdictAt, hours, business.close, pending, laneWords],
   )
 
   /** ⚖ Liam flag 50 — the drag frame runs inside listeners bound once per
@@ -3919,7 +3922,7 @@ export function TodayScreen(props: TodayProps) {
       // shuffle (`verdictAtLanding` → `solveLanes`). `store.base` below stays on
       // `boardLanes` and cannot disagree with it — see the memo-gate invariant at
       // `beginDrag`: a store exists only when `handBoard === boardLanes`.
-      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, laneWords, props.bedCleanupMinutes)
+      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)
       store.shuffledFor.set(moveSet, shuffled)
     }
     const ask = { ...inHand, staffLane: laneKey, span: place(start, start + railDur, hours) }
@@ -4900,7 +4903,7 @@ export function TodayScreen(props: TodayProps) {
   function solveLanes(id: string | null): BoardLane[] {
     return id != null && id === handIdRef.current
       ? handBoardRef.current
-      : handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes)
+      : handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes, business.close)
   }
 
   /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`

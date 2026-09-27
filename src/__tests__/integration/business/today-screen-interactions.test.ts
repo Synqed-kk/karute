@@ -1580,7 +1580,7 @@ describe('the window layers price the committed board, never the card in flight'
     // takes the BED side's committed memberships too, and the same rule binds
     // them — `bedMoves`, never `liveBedMoves`. The pin is what stops a future
     // round from quietly feeding the priced layers the pointer's position.
-    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props\.bedCleanupMinutes\)/
+    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props\.bedCleanupMinutes, business\.close\)/ // ⚖ §v11 V11-15 fix round 2
     expect(memo.test(src)).toBe(true)
     // ⚖ flag 64 — the delete ledger joined that SAME pass, deliberately: the
     // board, the sell layer, blockClash and the guard's occupancy all read the
@@ -3926,9 +3926,9 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // ⚖ 9/8 PACKING fix round 2 (F4) — RENEGOTIATED AGAIN: each room's own
     // turnaround rides with both boards, so a card that changed room is drawn
     // with the tail its NEW room needs. All three boards carry it.
-    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes)')
-    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes)')
-    expect(SRC).toContain('applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes)')
+    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes, business.close)') // ⚖ §v11 V11-15 fix round 2 — the store's close for turnarounds
+    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes, business.close)')
+    expect(SRC).toContain('applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes, business.close)')
     // The shelf lands through `added`, stamped with the BOARD on screen —
     // RENEGOTIATED (⚖ 46 forerunner): the day and the store together, from the
     // one `board` const, so a landing cannot record half of where it landed.
@@ -5235,7 +5235,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // 元に戻す (:5527). Ours reads the staged `moves`, so the same is true.
     // (⚖ BATCH-6 flag 45 — RENEGOTIATED: the bed side's committed memberships
     // ride the same board, and the same "committed, never live" rule.)
-    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes),')
+    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes, business.close),')
     // What is frozen for the length of a GESTURE is `liveMoves`, and only that.
     // ⚖ flag 57 — RENEGOTIATED: a third case joined, and only as a PAINT. The
     // pending-override ghost is `attemptLanes`, folded in here and nowhere
@@ -7014,7 +7014,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // the second leg re-solves on the shuffled board, where step 0 succeeds, so
     // its own reseats are provably always empty.
     expect(SRC).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
-    expect(SRC).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)')
+    expect(SRC).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes, business.close)')
     expect(SRC).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
   })
 
@@ -7705,7 +7705,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // why the strip and the drop judged two different boards); this body is one of
     // its two callers, and the HAND's arm is the array this render already built.
     const which = SRC.slice(SRC.indexOf('function solveLanes('), SRC.indexOf('\n  }', SRC.indexOf('function solveLanes(')))
-    expect(which).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes)')
+    expect(which).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes, business.close)')
     expect(which).toContain('? handBoardRef.current')
     expect(which).not.toContain('lanesWithCompanionsRestored(')
   })
@@ -15345,5 +15345,29 @@ describe('⚖ PR-3 — the board’s sample label is gated on the door, one per 
   it('a decision card carries no chip (the card is a <button>; its section head carries the mark)', () => {
     const card = SRC.slice(SRC.indexOf('<div className="decision-grid">'), SRC.indexOf('<div className="decision-grid">') + 2000)
     expect(card).not.toContain('sampleChip')
+  })
+})
+
+// ⚖ §v11 V11-15 (board fix PR-C) — the axis may run past the store's hours; the rules never do.
+describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', () => {
+  const AXIS = { open: 420, close: 1440 } // 07:00–24:00, grown by a late card
+  const STORE = { open: 420, close: 1320 } // 07:00–22:00, the store's own day
+
+  // Fix round 2 — P16: a moved booking's re-derived turnaround is cut by the store's close, not by the axis.
+  it('§v11 V11-15 P16 — a bed booking moved to end 21:50 keeps a 30-minute turnaround only up to 22:00 when the axis runs to 24:00; unchanged when the axis IS the hours', () => {
+    const tailEnd = (axis: { open: number; close: number }, closeMin?: number) => {
+      const bed = lane({
+        key: 'bed-late', group: 'beds',
+        items: [
+          booking({ key: 'apt-late-bed', caseId: 'apt-late', ...place(1140, 1200, axis) }, 1140, 1200),
+          { ...booking({ key: 'apt-late-cleanup', caseId: null, ...place(1200, 1230, axis) }, 1200, 1230), kind: 'cleanup' as const, title: '清掃' },
+        ],
+      })
+      const to = place(1250, 1310, axis) // 20:50–21:50 — the span rides `moves`; the booking stays on its bed
+      const out = applyMoves([bed], { 'apt-late': { laneKey: 'p-late', x: to.x, w: to.w } }, [], [], axis, LANE_WORDS, {}, undefined, closeMin)
+      return out[0].items.find((i) => i.kind === 'cleanup')?.endMin
+    }
+    expect(tailEnd(AXIS, STORE.close)).toBe(1320) // not 1340
+    expect(tailEnd(STORE)).toBe(1320) // the OFF path: axis == the store's hours, as today
   })
 })
