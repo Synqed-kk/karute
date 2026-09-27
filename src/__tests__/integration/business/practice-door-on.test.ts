@@ -1190,11 +1190,9 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00', { occupied_until: jst('16:10') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // core's cleanup
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:30', { occupied_until: jst('15:30') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // P5 — an earlier snapshot never shortens the span
     expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'CANCELLED' })])).toEqual(both)
-    // ⚖ §v11 V11-11 (PR-B) — the next two rows sit on 店主 (seated p-05: no slot), so they keep testing the ROOM alone; on slot-01's
-    // own person (Invite Probe) the slot is refused by the person rule — pinned in P8 below.
-    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'NO_SHOW', staff_id: CARD.owner })])).toEqual(both) // P4 — NO_SHOW is core's tombstone too
+    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'NO_SHOW' })])).toEqual(both) // P4 — NO_SHOW is core's tombstone too
     expect(await day([live(STORE.devSalon, ROOM_A, '18:00', '18:30', { kind: 'BLOCK', customer_id: null })])).toEqual({ slots: ['slot-01~5a171878'], cards: ['dec-capacity~5a171878'] })
-    expect(await day([live(STORE.devSalon, ROOM_A, '16:00', '17:00', { staff_id: CARD.owner })])).toEqual(both) // P6 — slot-01's exact window on ANOTHER room: 個室B stays free
+    expect(await day([live(STORE.devSalon, ROOM_A, '16:00', '17:00')])).toEqual(both) // P6 — slot-01's exact window on ANOTHER room: 個室B stays free
     expect(await day([live(STORE.tokyo, 'bed-02', '16:00', '17:00')])).toEqual(both) // an exact twin's room is never checked
     // P7 — a block begun the day BEFORE runs from 00:00 on the displayed day: a 00:00–01:00 slot on 個室B is not served.
     fxSlots.push({ ...fxSlots[0], id: 'slot-night', start: 0, end: 60 })
@@ -1461,34 +1459,6 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       }
     }
     expect(got).toEqual(want)
-  })
-
-  it('§v11 V11-14 P8 — never again: no sample sell slot is served on its person\'s live row, twin or borrower; 予約一覧 and the badge follow', async () => {
-    // Dev Salon with its two rooms (slot-01 → Invite Probe, slot-02 → perry) and 東京 (slot-01 → 見本 しろう): each slot-01's person
-    // holds a live booking inside the slot's window, on NO room — the room rule alone would serve both.
-    const at = (hm: string) => new Date(`2026-09-14T${hm}:00+09:00`).toISOString()
-    const booked = (n: string, store: string, staff_id: string) => ({ ...APPOINTMENTS[0], id: `00000000-0000-4000-8000-0000000000${n}`, store_id: store, staff_id, menu_id: MENU.zenten, resource_id: null, starts_at: at('16:30'), ends_at: at('17:00'), status: 'SCHEDULED' as const })
-    const rows = [booked('e8', STORE.devSalon, CARD.probe), booked('e9', STORE.tokyo, liveIdOf('staff', 'p-04')!)]
-    const spy = withReads()
-    spy.resourcesList.mockImplementation(async (q?: { store_id?: string }) => ({ resources: q?.store_id !== STORE.devSalon ? [] : ['d2', 'd1'].map((n) => ({ id: `00000000-0000-4000-8000-0000000000${n}`, store_id: STORE.devSalon, name: `個室${n}`, note: null, room_class: 'standard' as const, cleanup_minutes: 0, display_order: 0, active: true, created_at: 'x', updated_at: 'x' })) }))
-    const base = recordedReads().appointmentsList
-    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
-      const r = await base(q)
-      const more = rows.filter((a) => (!q?.store_id || a.store_id === q.store_id) && (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) && (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)))
-      return (q?.page ?? 1) > 1 ? r : { ...r, appointments: [...r.appointments, ...more] }
-    })
-    const counts = await data.readUnresolvedCounts()
-    let served = 0
-    const [got, want]: object[][] = [[], []]
-    for (const store of ALL7) {
-      const [day, res] = [await data.readDayPlanes(store, TODAY), await data.readReservationPlanes(store)]
-      const live = (await data.listAppointments(store)).filter((a) => jstDayKey(a.starts_at) === TODAY && a.board_state !== null)
-      const onRow = (xs: typeof day.sellSlots) => xs.filter((x) => live.some((a) => a.staff_id === x.staff_id && jstMinuteOfDay(a.starts_at) < x.end && x.start < jstMinuteOfDay(a.ends_at))).map((x) => x.id)
-      served += day.sellSlots.length
-      got.push({ store, day: onRow(day.sellSlots), res: onRow(res.sellSlots), badge: counts.byStore[store] })
-      want.push({ store, day: [], res: [], badge: day.decisions.filter((d) => d.state === 'open').length })
-    }
-    expect({ got, served }).toEqual({ got: want, served: 2 }) // each store's slot-02 still stands — never a vacuous pass
   })
 
   it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {
