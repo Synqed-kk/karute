@@ -1483,12 +1483,26 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     }
   })
 
-  it('§v11 V11-12 (Greptile P2 on #1071) — one 今日の運営 render reads the calendar range ONCE (listBlocksByDay and listShiftsByDay share it) and today once', async () => {
+  it('§v11 V11-12 (Greptile P2 on #1071) — the day-rows memo lives on the actor\'s BOUND READS: every reader bound to the same reads object shares it (one 今日の運営 render reads the calendar range once, today once); a fresh reads object reads again', async () => {
     const spy = withReads()
+    // PRECONDITION — what the count relies on: every practiceActor() binds the SAME reads object (actor.ts:65
+    // `const reads = clientFor(admitted)`; this suite's clientFor returns the one `mockCore.reads`, :21). Outside a render
+    // React cache() is a pass-through (pinned at :106), so the actors differ; in production actor.ts:56's cache() gives ONE
+    // actor per request — the same sharing scope, one level up.
+    const [a, b] = [await practiceActor(), await practiceActor()]
+    expect([a === b, a.reads === b.reads]).toEqual([false, true])
     await board(STORE.gym)
     const iso = (k: number) => new Date(k * 86_400_000 - 9 * 3_600_000).toISOString() // 00:00 JST of day k (the door's dayStartIso)
-    const reads = (from: number, to: number) => spy.appointmentsList.mock.calls.filter(([q]) => q?.store_id === STORE.gym && q.from === iso(from) && q.to === iso(to) && (q.page ?? 1) === 1).length
-    expect({ calendar: reads(TODAY - 46, TODAY + 46), today: reads(TODAY - 1, TODAY + 1) }).toEqual({ calendar: 1, today: 1 })
+    const reads = (on: Spied, from: number, to: number) => on.appointmentsList.mock.calls.filter(([q]) => q?.store_id === STORE.gym && q.from === iso(from) && q.to === iso(to) && (q.page ?? 1) === 1).length
+    expect({ calendar: reads(spy, TODAY - 46, TODAY + 46), today: reads(spy, TODAY - 1, TODAY + 1) }).toEqual({ calendar: 1, today: 1 })
+    // THE INVERSE — the count is the memo's doing, not a mock artefact: the same two readers of the same range, each bound
+    // to a FRESH reads object, read it twice.
+    const range = { from: TODAY - 45, to: TODAY + 45 }
+    const first = withReads()
+    await data.listBlocksByDay(STORE.gym, range)
+    const second = withReads()
+    await data.listShiftsByDay(STORE.gym, range)
+    expect([reads(first, TODAY - 46, TODAY + 46), reads(second, TODAY - 46, TODAY + 46)]).toEqual([1, 1])
   })
 
   it('§v11 V11-12 — the readers agree on a day where the 勤務不可 GENUINELY moves: the gym\'s だいち, 13:00 → 21:30 on day, calendar and 予約一覧', async () => {
