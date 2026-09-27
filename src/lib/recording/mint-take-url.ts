@@ -326,6 +326,48 @@ function auditTakeNamed(
 }
 
 /**
+ * ⚖ CONDITION 5, CLOSED BY AN EMITTER (S50, 5A — recording-switches.ts). The
+ * row the switch-ON server-named arm creates is its OWN act: no karute save or
+ * 破棄 is guaranteed ever to name it (a build-28 phone never adopts it; the O4
+ * race; a superseded run; a take nobody acts on). So the create files its own
+ * row, the sibling of auditTakeNamed — ids and flags only (⚖ 8/17 doc law; no
+ * key, no url: #1072 withholds storage-key fields), `reserved` always true
+ * because the row is born reserved on the key just signed.
+ *
+ * Attributed to WHO the row itself carries (bindIdentity's roster id and the
+ * store it was made in), never `actor.staffId` — that is null on a
+ * server-named body, which names no session up front. Called ONLY on the
+ * bound success, so it emits unconditionally on its one path.
+ */
+function auditTakeBoundServerNamed(
+  actor: MintTakeActor,
+  who: { staffId: string; storeId: string },
+  takeId: string,
+  recordingSessionId: string,
+  attachOutcome: AttachOutcome | null,
+): void {
+  audit({
+    category: 'recording',
+    action: 'recording.take_bound_server_named',
+    actorId: who.staffId,
+    actorType: 'staff',
+    businessId: actor.businessId,
+    severity: 'info',
+    targetType: 'recording',
+    targetId: recordingSessionId,
+    storeId: who.storeId,
+    detail: {
+      take_id: takeId,
+      recording_session_id: recordingSessionId,
+      attach_outcome: attachOutcome,
+      reserved: true,
+    },
+    requestId: actor.requestId,
+    source: actor.source,
+  })
+}
+
+/**
  * ⚖ UPDATE 25 GROUP B, d4 — VISIBLE, NOT SILENT. commitReservation's karute
  * probe refuses a second take that would otherwise bind onto a session that
  * already has a saved karute (see the probe's own comment for the mechanism
@@ -701,7 +743,12 @@ async function signUpload(
 async function bindServerNamedTake(
   synqed: Core,
   actor: MintTakeActor,
-  input: { customerId?: string | null; appointmentId?: string | null; durationSeconds?: number },
+  input: {
+    customerId?: string | null
+    appointmentId?: string | null
+    durationSeconds?: number
+    attachOutcome?: AttachOutcome | null
+  },
   takeId: string,
   mimeType: string,
   signed: SignedUpload,
@@ -743,7 +790,19 @@ async function bindServerNamedTake(
     keptUnbound(`create answered ${result.error}`)
   }
   const settled = settleUnboundBind(result, signed)
-  if ('recordingSessionId' in settled && settled.recordingSessionId) console.info('[mint-take-url] unbound upload bound')
+  if ('recordingSessionId' in settled && settled.recordingSessionId) {
+    console.info('[mint-take-url] unbound upload bound')
+    // Condition 5's emitter. audit() never throws by contract (its core sink
+    // catches everything — audit.ts forwardToCore), the contract auditTakeNamed
+    // leans on with no guard of its own. Guarded here as well because this row
+    // ALREADY EXISTS: a throw would turn a bound answer into an error, and the
+    // client's retry would draw a new uuid and a second row.
+    try {
+      auditTakeBoundServerNamed(actor, who, takeId, settled.recordingSessionId, input.attachOutcome ?? null)
+    } catch (err) {
+      console.warn(`[mint-take-url] bound-row audit threw: ${describeUnknownThrow(err).errMessage}`)
+    }
+  }
   return settled
 }
 
