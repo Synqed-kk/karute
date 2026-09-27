@@ -1543,6 +1543,73 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect({ got, served }).toEqual({ got: want, served: 2 }) // each store's slot-02 still stands — never a vacuous pass
   })
 
+  // ⚖ §v11 V11-16 (PR-B2) — THE TUESDAY PROBLEM: 東京 and 自由が丘 are closed on Tuesdays, so on a Tuesday TODAY's served
+  // shifts are [] — and a page that applied today's row to every shown day emptied the whole week.
+  const TUESDAY = '2026-09-15T04:24:00Z' // 13:24 JST, the day after the recorded day
+  it('§v11 V11-16 P21 — never again: on a closed today the 勤務表 reads EVERY shown day\'s own served shift — cells, 勤務予定 N名, the 人件費 and 希望休 gates', async () => {
+    const ShiftsPage = (await import('@/app/[locale]/(business)/business/shifts/page')).default
+    const { bookedKeysOf, cellFor, editKey, laborCost, resolveLeaveRequests } = await import('@/business/lib/shifts')
+    const { leaveRequests } = await import('@/business/lib/fixtures-shifts')
+    type Props = import('@/app/[locale]/(business)/business/shifts/ShiftsScreen').ShiftsProps
+    jest.setSystemTime(new Date(TUESDAY))
+    try {
+      const [got, want]: object[][] = [[], []]
+      for (const store of [STORE.tokyo, STORE.jiyugaoka]) {
+        expect((await data.readDayPlanes(store, jstDayKey(new Date(TUESDAY)))).shifts).toEqual([]) // the precondition — never vacuous
+        for (const view of ['week', 'month']) {
+          const { plane, head } = ((await ShiftsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, view }) })) as unknown as { props: Props }).props
+          const served = await data.listShiftsByDay(store, { from: plane.days[0].dayKey, to: plane.days[plane.days.length - 1].dayKey })
+          const ctx = { closedWds: plane.closedWds, todayKey: plane.todayKey, absence: plane.absence, leaveKeys: new Set(plane.leaves.map((l) => editKey(l.staffId, l.dayKey))), bookedKeys: bookedKeysOf(plane.days), shiftEdits: new Map(), leaveAnswers: new Map() }
+          const priced: Array<{ staffId: string; workedMinutes: number }> = []
+          for (const day of plane.days.filter((d) => !d.closed)) for (const m of plane.roster) {
+            const s = served.get(day.dayKey)!.find((x) => x.staff_id === m.id) ?? null
+            const cell = cellFor(m, day.dayKey, ctx)
+            priced.push({ staffId: m.id, workedMinutes: cell.workedMinutes })
+            if (view !== 'week') continue
+            const rest = m.restWd === day.wd && !ctx.bookedKeys.has(editKey(m.id, day.dayKey))
+            got.push({ store, day: day.dayKey, who: m.name, cell: cell.kind === 'none' ? null : cell.kind === 'rest' ? 'rest' : [cell.start, cell.end, cell.breaks] })
+            want.push({ store, day: day.dayKey, who: m.name, cell: s === null ? null : rest ? 'rest' : [s.start, s.end, s.breaks] })
+          }
+          // ON prices by FIXTURE ids (hourlyWage, shifts/page.tsx), so every ON wage is null on ANY day: the pin re-applies
+          // buildRoster's own gate (`wage: shift ? rate : null`) to the props' standing row, with a flat rate.
+          const yen = laborCost(priced, plane.roster.map((m) => ({ ...m, wage: m.shift ? 1500 : null }))).yen
+          got.push({ store, view, chip: Number(/\d+/.exec(head.rosterChip)![0]) > 0, worked: priced.some((p) => p.workedMinutes > 0), yen: view === 'month' && yen > 0 })
+          want.push({ store, view, chip: true, worked: true, yen: view === 'month' })
+          if (store !== STORE.tokyo || view !== 'week') continue
+          // 希望休 — the fixture requests seated on 東京's own cards (an exact twin): each one on the roster still resolves. Asked
+          // booking-free (the recorded world holds no 東京 booking after 9/14): the gate under test is the standing row.
+          const asked = leaveRequests.map((r) => ({ ...r, staff_id: liveIdOf('staff', r.staff_id) ?? r.staff_id, overlapsBooking: false })).filter((r) => plane.roster.some((m) => m.id === r.staff_id))
+          got.push({ leaves: [...new Set(resolveLeaveRequests(asked, plane.roster, plane.todayKey, new Map(), plane.closedWds).map((l) => l.staffId))].sort() })
+          want.push({ leaves: [...new Set(asked.map((r) => r.staff_id))].sort() })
+          expect(asked.length).toBeGreaterThan(0)
+        }
+      }
+      expect(got).toEqual(want)
+    } finally {
+      jest.setSystemTime(new Date('2026-09-14T04:24:00Z'))
+    }
+  })
+
+  it('§v11 V11-16 P22 — never again: on a closed today 予約一覧 reads each row\'s OWN day\'s served shift — a Wednesday row inside its person\'s shift is never flagged; one outside still is', async () => {
+    const { reservationsProps } = await import('@/app/[locale]/(business)/business/reservations/reservations-props')
+    jest.setSystemTime(new Date(TUESDAY))
+    try {
+      const wed = jstDayKey(new Date(TUESDAY)) + 1
+      const shiro = liveIdOf('staff', 'p-04')!
+      const shift = (await data.listShiftsByDay(STORE.tokyo, { from: wed, to: wed })).get(wed)!.find((x) => x.staff_id === shiro)
+      expect(shift && [shift.start <= 11 * 60, shift.end >= 12 * 60, shift.end < 19 * 60]).toEqual([true, true, true]) // the precondition
+      // The harness's own world seam (the route never passes it): the rows reach 予約一覧, never the door's served day.
+      const base = (await data.listAppointments(STORE.tokyo)).find((a) => a.status !== 'cancelled')!
+      const at = (hm: string) => new Date(`2026-09-16T${hm}:00+09:00`).toISOString()
+      const row = (n: string, from: string, to: string) => ({ ...base, id: `00000000-0000-4000-8000-0000000000${n}`, staff_id: shiro, starts_at: at(from), ends_at: at(to) })
+      const { props } = await reservationsProps({ locale: 'ja', store: STORE.tokyo, world: { appointments: [row('f1', '11:00', '12:00'), row('f2', '19:00', '20:00')] } })
+      const warn = (n: string) => props.rows.find((r) => r.id === `00000000-0000-4000-8000-0000000000${n}`)?.shiftWarning
+      expect({ inside: warn('f1'), outside: warn('f2') }).toEqual({ inside: null, outside: '見本 しろう 10:00–18:00・この予約は120分超過' })
+    } finally {
+      jest.setSystemTime(new Date('2026-09-14T04:24:00Z'))
+    }
+  })
+
   it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {
     const { drawnRow } = await import('@/business/lib/practice-door/sample-day')
     const all = await data.listAppointments(VIEW_ALL, {})
