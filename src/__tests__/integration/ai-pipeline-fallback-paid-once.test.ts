@@ -299,6 +299,14 @@ describe('⚖ C3 — a take-less run chain keeps its paid answer on globalPipeli
     expect(transcribePosts()).toBe(2)
   })
 
+  it('(own m11) a slot paid for a different take never replays onto this one', async () => {
+    takeWhoseAttachFails(1)
+    const paidFallback = { takeId: 'another-take', locale: 'ja', response: { transcript: 'not-mine' } }
+    const result = await direct('ja', { paidFallback })
+    expect(result.transcript).toBe('answer-1')
+    expect(transcribePosts()).toBe(1)
+  })
+
   it('(own m9) a superseded run’s late answer never lands in the new chain’s slot', async () => {
     let openA!: () => void
     transcribeGates.push(new Promise<void>((r) => (openA = r)))
