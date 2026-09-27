@@ -97,7 +97,9 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 
-const capabilities = { current: new Set<string>(['staff.manage']) }
+// The owner / manager presets: both carry staff.manage AND stores.viewAll
+// (permissions.ts) — the all-store reach S46's store rule leaves untouched.
+const capabilities = { current: new Set<string>(['staff.manage', 'stores.viewAll']) }
 const staffId = { current: 'staff-A' as string | null }
 /** The PROFILES roster (login-uuid space). Configurable so the blank-name
  *  population below is a real roster answer, not a stub of the join. */
@@ -154,7 +156,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   ledger.length = 0
   listSeen.length = 0
-  capabilities.current = new Set(['staff.manage'])
+  capabilities.current = new Set(['staff.manage', 'stores.viewAll'])
   staffId.current = 'staff-A'
   staffCards.listRejects = false
   profileRow.current = null

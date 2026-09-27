@@ -92,7 +92,7 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: async () => fakeClient,
 }))
 
-const capabilities = { current: new Set<string>(['records.write', 'staff.manage']) }
+const capabilities = { current: new Set<string>(['records.write', 'staff.manage', 'stores.viewAll']) }
 /** The IDENTITY, separately steerable from the capability set. `null` is what
  *  getCurrentUserStaffId returns for an auth blip, a rotated JWT and a failed
  *  staff-list read alike — it is not a denial, and the gate must not read it as
@@ -261,7 +261,7 @@ beforeEach(() => {
   // pointer, so there is nothing to claim and nothing to probe.
   recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
   consentByCustomer = { 'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION } }
-  capabilities.current = new Set(['records.write', 'staff.manage'])
+  capabilities.current = new Set(['records.write', 'staff.manage', 'stores.viewAll'])
   identity.current = 'staff-A'
   ledger.push({ recording_session_id: SESSION, source: 'STAFF', reason: '録り直します' })
 })

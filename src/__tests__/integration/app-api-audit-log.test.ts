@@ -500,3 +500,30 @@ describe('GET /api/app/v1/audit-log — a removed staffer at the identity seam',
     expect(auditList).toHaveBeenCalled()
   })
 })
+
+// ── S46 closure 1: the phone READ-OUT withholds a recording's key ingredients
+describe('GET /api/app/v1/audit-log — the phone read-out withholds take id / file type / key (S46)', () => {
+  const STORED_DETAIL = {
+    recording_session_id: 'sess-fixture',
+    take_id: '11111111-2222-4333-8444-555555555555',
+    row_take_id: '66666666-7777-4888-8999-aaaaaaaaaaaa',
+    ext: 'mp4',
+    audio_path: 'app_business-1_11111111-2222-4333-8444-555555555555.mp4',
+    reason: 'device',
+  }
+
+  it('the phone payload carries none of the four; the stored row keeps every field', async () => {
+    const row = coreEvent({ id: 'r1', category: 'recording', action: 'recording.take_named', detail: { ...STORED_DETAIL } })
+    auditList.mockResolvedValue({ events: [row], total: 1, page: 1, page_size: 100 })
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const ev = body.events.find((e: { id: string }) => e.id === 'r1')
+    expect(ev.detail).toEqual({ recording_session_id: 'sess-fixture', reason: 'device' })
+    const wire = JSON.stringify(body)
+    for (const k of ['take_id', 'row_take_id', '"ext"', 'audio_path', STORED_DETAIL.take_id, '.mp4']) {
+      expect(wire).not.toContain(k)
+    }
+    expect(row.detail).toEqual(STORED_DETAIL)
+  })
+})

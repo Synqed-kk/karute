@@ -2052,6 +2052,68 @@ describe('mintRecordingReadUrl — the tenant fence', () => {
   })
 })
 
+// ── S46 closure 2: the row the caller names beside the key ──────────────────
+describe('mintRecordingReadUrl — the row names its recorder (S46)', () => {
+  /** The row holds exactly this key; `staff_id` is the LOGIN id rows carry. */
+  const holding = (over: Partial<Row> = {}) => row({ audio_storage_path: OWN, store_id: 'store-1', ...over })
+
+  it('own recording → signed; the row read is the one the caller named', async () => {
+    get.mockResolvedValue(holding())
+    await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toEqual({
+      url: `https://proj.supabase.co/read/${OWN}?token=r`,
+    })
+    expect(get).toHaveBeenCalledWith(SESSION)
+  })
+
+  it("another person's recording in the same store → forbidden, storage never reached", async () => {
+    get.mockResolvedValue(holding({ staff_id: 'staff-colleague' }))
+    await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toStrictEqual({ error: 'forbidden' })
+    expect(createSignedUrl).not.toHaveBeenCalled()
+  })
+
+  it("…unless the caller holds the owner's hand within reach", async () => {
+    getMyCapabilities.mockImplementation(async () => new Set(['records.write', 'business.manage', 'recordings.viewAll']))
+    viewerScopeForActs.mockImplementation(async () => ['store-1'])
+    get.mockResolvedValue(holding({ staff_id: 'staff-colleague' }))
+    await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toHaveProperty('url')
+    get.mockResolvedValue(holding({ staff_id: 'staff-colleague', store_id: 'store-9' }))
+    await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toStrictEqual({ error: 'forbidden' })
+  })
+
+  it.each([
+    ['no row id at all (the unbound fallback, an older tab)', undefined],
+    ['a null row id', null],
+    ['a row id that is not a uuid', 'sess-1'],
+  ])('no-row case — %s → TODAY’S answer, core never asked', async (_label, rowId) => {
+    await expect(mintRecordingReadUrl(OWN, rowId as string | null | undefined)).resolves.toHaveProperty('url')
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('no-row case — core does not know the row (404) → today’s answer', async () => {
+    get.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toHaveProperty('url')
+  })
+
+  it("no-row case — a row that does not hold THIS key is not this key's row → today’s answer", async () => {
+    get.mockResolvedValue(holding({ staff_id: 'staff-colleague', audio_storage_path: null }))
+    await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toHaveProperty('url')
+  })
+
+  it('a row read that FAILS is never a yes → upstream, nothing signed', async () => {
+    get.mockRejectedValue(Object.assign(new Error('down'), { status: 503 }))
+    await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toStrictEqual({ error: 'upstream' })
+    expect(createSignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('card id ≠ login id: compared in the LOGIN space the row carries, so the honest recorder passes', async () => {
+    // The cookie's own id is the login uuid ('staff-1'); a staff CARD id never
+    // enters this compare, so a card that differs cannot refuse her.
+    getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
+    get.mockResolvedValue(holding({ staff_id: 'staff-1' }))
+    await expect(mintRecordingReadUrl(OWN, SESSION)).resolves.toHaveProperty('url')
+  })
+})
+
 // ⚖ THE DELETE ACTION IS GONE, NOT REFUSED (capture pipeline PR4). What used to
 // live here was a whole suite proving removeRecordingObject's fence held —
 // a client-invokable server action whose entire job was erasing a recording

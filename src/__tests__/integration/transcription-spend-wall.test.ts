@@ -1056,11 +1056,75 @@ describe('the web route (cookie door)', () => {
     ['another bucket', signedUrl(OWN_TAKE, 'object/sign/avatars'), null],
     ['no bucket segment at all', `https://test-local.supabase.co/storage/v1/object/sign/${OWN_TAKE}`, null],
   ])('t10 the URL → key parse: %s', async (_label, audioUrl, memoRead) => {
-    const res = await webTranscribePOST(post({ audioUrl, locale: 'ja' }))
+    // S46: a replay is read only for the caller's OWN take, so the parse is
+    // pinned with the row the web port now sends (takeKeyHolder → 'own').
+    ownRowHolds(OWN_TAKE)
+    try {
+      const res = await webTranscribePOST(post({ audioUrl, locale: 'ja', recordingSessionId: S46_ROW }))
 
+      expect(res.status).toBe(200)
+      if (memoRead === null) expect(storageDownload).not.toHaveBeenCalled()
+      else expect(storageDownload).toHaveBeenCalledWith(memoRead)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  // ── S46 closure 2: the replay needs the caller's OWN row ─────────────────
+  const S46_ROW = '5a0e0c1d-2b3c-4d5e-8f60-718293a4b5c6'
+  /** The web cookie's LOGIN id and a core row that holds `key` for it. */
+  const ownRowHolds = (key: string, staffId = 'login-recorder') => {
+    jest.mocked(getCurrentUserStaffId).mockResolvedValue('login-recorder')
+    recordingsGet.mockResolvedValue({
+      id: S46_ROW,
+      business_id: 'business-1',
+      staff_id: staffId,
+      store_id: 'store-a',
+      audio_storage_path: key,
+      duration_seconds: 60,
+      customer_id: 'cust-1',
+    } as never)
+  }
+  const seedMemo = async () => {
+    // One paid call with no row: token-proven, so its answer is remembered.
+    await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+    transcribeUrlWithDeepgram.mockClear()
+    storageDownload.mockClear()
+  }
+
+  it('s46 own row → the replay answers, Deepgram is not asked', async () => {
+    await seedMemo()
+    ownRowHolds(OWN_TAKE)
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`)
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  it("s46 a colleague's row → NO replay: Deepgram fetches the URL, whose token is the proof", async () => {
+    await seedMemo()
+    ownRowHolds(OWN_TAKE, 'login-colleague')
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  it('s46 no row (unbound fallback / an older tab) → the words still come back (paid), and the answer is still remembered', async () => {
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
     expect(res.status).toBe(200)
-    if (memoRead === null) expect(storageDownload).not.toHaveBeenCalled()
-    else expect(storageDownload).toHaveBeenCalledWith(memoRead)
+    expect((await res.json()).transcript).toBe('こんにちは')
+    expect(storageDownload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), expect.anything())
   })
 
   it('t10 a non-URL never reaches the parse — the SSRF guard answers 400 first, nothing read', async () => {

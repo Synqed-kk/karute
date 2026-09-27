@@ -17,8 +17,11 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: () => getBusinessId(),
   getCurrentUserStaffId: async () => 'profile-staff-1',
 }))
+// The job's staff id is a CARD id; the tenant-key cases keep the identity map,
+// the S46 card-vs-login case below swaps in a different card.
+const resolveSynqedStaffId = jest.fn(async (id: string) => id)
 jest.mock('@/lib/synqed/staff-map', () => ({
-  resolveSynqedStaffId: async (id: string) => id,
+  resolveSynqedStaffId: (id: string) => resolveSynqedStaffId(id),
 }))
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: async () => ({ storeId: 'store-1' }),
@@ -61,8 +64,10 @@ import {
 } from './helpers/recording-key-fixtures'
 
 const OWN = conformingKey('biz-1')
+/** A core row id — S46: the enqueue door reads the row the session names. */
+const ROW = '3f2e1d0c-9b8a-4c7d-8e6f-5a4b3c2d1e0f'
 const body = (audioPath: string) => ({
-  recordingSessionId: 'sess-1',
+  recordingSessionId: ROW,
   customerId: 'cust-1',
   audioPath,
 })
@@ -72,6 +77,7 @@ beforeEach(() => {
   // kickWorker is a no-op without it — keeps the fire-and-forget fetch out of the run.
   delete process.env.CRON_SECRET
   requireCapability.mockImplementation(async () => {})
+  resolveSynqedStaffId.mockImplementation(async (id: string) => id)
   getBusinessId.mockImplementation(async () => 'biz-1')
   enqueue.mockImplementation(async () => ({ id: 'job-1', status: 'QUEUED' }))
   capabilities.current = new Set(['records.write'])
@@ -116,6 +122,62 @@ describe('enqueueRecordingJob — the tenant key grammar', () => {
       error: 'recording not found in this business',
     })
     expect(enqueue).not.toHaveBeenCalled()
+  })
+})
+
+// ── S46 closure 2: the session must HOLD the key and be the caller's ─────────
+describe('enqueueRecordingJob — the row names its recorder (S46)', () => {
+  const REFUSED = { error: 'recording not found in this business' }
+
+  it("own recording: the row holds this key and is the caller's → queued", async () => {
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toMatchObject({ ok: true })
+    expect(recordingsGet).toHaveBeenCalledWith(ROW)
+  })
+
+  it("another person's recording in the same store → refused, nothing queued", async () => {
+    current.row = { ...current.row!, staff_id: 'profile-colleague', store_id: 'store-1' }
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toEqual(REFUSED)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it("…unless the caller holds the owner's hand within reach (the rescue keeps working)", async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    current.row = { ...current.row!, staff_id: 'profile-colleague', store_id: 'store-1' }
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toMatchObject({ ok: true })
+  })
+
+  it("…and the owner's hand stops at the store line: a colleague's row in another store is refused", async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    current.row = { ...current.row!, staff_id: 'profile-colleague', store_id: 'store-9' }
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toEqual(REFUSED)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it("naming one's OWN session beside a colleague's key is refused: the row must hold THIS key", async () => {
+    current.row = { ...current.row!, audio_storage_path: 'app_biz-1_ffffffff-ffff-4fff-8fff-ffffffffffff.webm' }
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toEqual(REFUSED)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('a session core does not know (404), or a non-uuid id, is refused — the job would name it', async () => {
+    recordingsGet.mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toEqual(REFUSED)
+    await expect(enqueueRecordingJob({ ...body(OWN), recordingSessionId: 'sess-1' })).resolves.toEqual(REFUSED)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it("a row read that FAILS is never a yes: the retryable error, nothing queued", async () => {
+    recordingsGet.mockRejectedValueOnce(Object.assign(new Error('down'), { status: 503 }))
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toEqual({ error: 'Failed to enqueue the recording job.' })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('card id ≠ login id: the honest recorder passes (compared in the login space), the job keeps the CARD id', async () => {
+    resolveSynqedStaffId.mockImplementation(async () => 'card-7')
+    await expect(enqueueRecordingJob(body(OWN))).resolves.toMatchObject({ ok: true })
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ staff_id: 'card-7' }) }),
+    )
   })
 })
 

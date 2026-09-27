@@ -74,8 +74,13 @@ type KaruteRow = { id: string; recording_session_id: string | null }
 const listKaruteRecords = jest.fn(async (): Promise<{ karute_records: KaruteRow[] }> => ({
   karute_records: [],
 }))
+// S46: the enqueue door reads the ROW the session names — by default the
+// caller's own (LOGIN id 'auth-user-1'), holding exactly the key sent.
+type RowFixture = { id: string; business_id: string; staff_id: string; store_id: string | null; audio_storage_path: string | null }
+const recordingsGet = jest.fn(async (_id: string): Promise<RowFixture> => ownRow())
 const fakeClient = {
   recordingJobs: { enqueue: jobsEnqueue, getByRecordingSession },
+  recordings: { get: recordingsGet },
   // One store: floating = the single-store carve-out (readable list required).
   stores: { get: storesGet, list: jest.fn(async () => ({ stores: [{ id: 'store-1' }] })) },
   staffStores: { get: staffStoresGet },
@@ -111,7 +116,11 @@ const jreq = (method: string, headers: Record<string, string>, body?: unknown) =
 // audioPath MUST be EXACTLY a key minted for this caller — the upload-url facade
 // only ever mints `app_${businessId}_<uuid>.webm` (businessId here = 'business-1').
 const OWN_KEY = conformingKey('business-1')
-const validBody = { recordingSessionId: 'sess-1', customerId: 'cust-1', audioPath: OWN_KEY }
+const SESSION = '0d1c2b3a-4f5e-4a6b-8c7d-9e0f1a2b3c4d'
+const validBody = { recordingSessionId: SESSION, customerId: 'cust-1', audioPath: OWN_KEY }
+function ownRow(): RowFixture {
+  return { id: SESSION, business_id: 'business-1', staff_id: 'auth-user-1', store_id: null, audio_storage_path: OWN_KEY }
+}
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -134,6 +143,7 @@ beforeEach(() => {
   })
   listPacks.mockResolvedValue([])
   listKaruteRecords.mockResolvedValue({ karute_records: [] })
+  recordingsGet.mockImplementation(async () => ownRow())
 })
 
 describe('POST recordings/job (enqueue)', () => {
@@ -142,7 +152,7 @@ describe('POST recordings/job (enqueue)', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, jobId: 'job-1', status: 'QUEUED' })
     const [call] = jobsEnqueue.mock.calls[0] as [{ recording_session_id: string; payload: Record<string, unknown> }]
-    expect(call.recording_session_id).toBe('sess-1')
+    expect(call.recording_session_id).toBe(SESSION)
     expect(call.payload).toMatchObject({
       customer_id: 'cust-1',
       audio_path: OWN_KEY,
@@ -371,7 +381,7 @@ describe('POST recordings/job — a retake is not its own proof of prior history
 
   it("the only karute on file is take-1 of THIS recording session → 422 not_returning, no enqueue", async () => {
     listKaruteRecords.mockResolvedValue({
-      karute_records: [{ id: 'k-take1', recording_session_id: 'sess-1' }],
+      karute_records: [{ id: 'k-take1', recording_session_id: SESSION }],
     })
     const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withRevisit), noRoute)
     expect(res.status).toBe(422)
@@ -386,5 +396,53 @@ describe('POST recordings/job — a retake is not its own proof of prior history
     const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withRevisit), noRoute)
     expect(res.status).toBe(200)
     expect(jobsEnqueue).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── S46 closure 2: the session must HOLD the key and be the caller's ─────────
+describe('POST recordings/job — the row names its recorder (S46)', () => {
+  const post = (body: unknown = validBody) => jobPOST(jreq('POST', { ...auth, ...idem }, body), noRoute)
+
+  it("own recording → 200; the row read is the session the job will carry", async () => {
+    const res = await post()
+    expect(res.status).toBe(200)
+    expect(recordingsGet).toHaveBeenCalledWith(SESSION)
+  })
+
+  it("another person's recording in the same store → 404, nothing queued (the key fence's own answer)", async () => {
+    recordingsGet.mockResolvedValue({ ...ownRow(), staff_id: 'auth-user-colleague', store_id: 'store-1' })
+    const res = await post()
+    expect(res.status).toBe(404)
+    expect((await res.json()).error.code).toBe('not_found')
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it("…unless the caller holds the owner's hand (an unrestricted owner rescuing a colleague's take)", async () => {
+    capabilities.current = new Set(['customers.view', 'records.write', 'business.manage', 'recordings.viewAll', 'stores.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ownRow(), staff_id: 'auth-user-colleague', store_id: 'store-1' })
+    const res = await post()
+    expect(res.status).toBe(200)
+  })
+
+  it("own session + a colleague's key → refused: the row must hold THIS key", async () => {
+    recordingsGet.mockResolvedValue({ ...ownRow(), audio_storage_path: 'app_business-1_ffffffff-ffff-4fff-8fff-ffffffffffff.webm' })
+    const res = await post()
+    expect(res.status).toBe(404)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a session core does not know (404) → refused; a failed read → 502, never a yes', async () => {
+    recordingsGet.mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+    expect((await post()).status).toBe(404)
+    recordingsGet.mockRejectedValueOnce(Object.assign(new Error('down'), { status: 503 }))
+    expect((await post()).status).toBe(502)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('card id ≠ login id: the honest recorder passes on the LOGIN id, the job carries the CARD id', async () => {
+    const res = await post()
+    expect(res.status).toBe(200)
+    const call = jobsEnqueue.mock.calls[0]![0] as { payload: { staff_id: string } }
+    expect(call.payload.staff_id).toBe('synqed-auth-user-1')
   })
 })

@@ -120,7 +120,7 @@ describe('t1 — a fallback with a known session lands on the ORIGINAL row, no n
     expect(finalizeTake).toHaveBeenCalledWith(expect.objectContaining({ takeId: TAKE, recordingSessionId: SESSION }))
     expect(startSession).not.toHaveBeenCalled()
     // The unbound (row-creating) door is never reached: the port gets the take's own key.
-    expect(prepareTranscription).toHaveBeenCalledWith(memory, TAKE_KEY, undefined)
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, TAKE_KEY, { takeRow: SESSION })
   })
 
   it('store lost the take: the in-memory recording goes under the take key on the context session', async () => {
@@ -128,6 +128,8 @@ describe('t1 — a fallback with a known session lands on the ORIGINAL row, no n
     expect(mintTakeUrl).toHaveBeenCalledWith(TAKE, 'audio/webm', SESSION)
     expect(put.mock.calls[0][1].body).toBe(memory)
     expect(finalizeTake).toHaveBeenCalledWith(expect.objectContaining({ recordingSessionId: SESSION, durationSeconds: 42 }))
+    // S46: the store holds no meta for this take, so no row is known to send —
+    // the door keeps today's answer (a no-row case), never a guessed row.
     expect(prepareTranscription).toHaveBeenCalledWith(memory, TAKE_KEY, undefined)
   })
 })
@@ -187,7 +189,7 @@ describe('t4 — a discardPending take is still secured (bytes are never gated)'
     await run()
     expect(mintTakeUrl).toHaveBeenCalledWith(TAKE, 'audio/webm', SESSION)
     expect(markTakeFinalized).toHaveBeenCalledWith(TAKE, TAKE_KEY)
-    expect(prepareTranscription).toHaveBeenCalledWith(memory, TAKE_KEY, undefined)
+    expect(prepareTranscription).toHaveBeenCalledWith(memory, TAKE_KEY, { takeRow: SESSION })
   })
 })
 
@@ -377,7 +379,7 @@ describe('S35 C1 — the no_session fallback sends the take length', () => {
     expect(lastOpts()).toStrictEqual({ attachOutcome: 'attach_failed' })
     store.meta = { recordingSessionId: SESSION, mimeType: 'audio/webm', durationMs: 63_400, startedAt: 0, updatedAt: 1 }
     await run()
-    expect(prepareTranscription).toHaveBeenLastCalledWith(memory, TAKE_KEY, undefined)
+    expect(prepareTranscription).toHaveBeenLastCalledWith(memory, TAKE_KEY, { takeRow: SESSION })
   })
 
   it('takeLengthSeconds — whole seconds, floored as finalize floors them; nothing honest → undefined', () => {
