@@ -31,12 +31,14 @@ export const RECORDING_SWITCHES = {
    *     exists. No audio is lost (the retry draws a new uuid). The flip PR
    *     states this cost in its body and the inbox reason text for such rows
    *     is checked to read honestly before the flip.
-   *  5. Audit coverage re-read by a human: the ON arm's row create emits no
-   *     audit line (audit.ts `recordings.uploadUrl` entry says what IS
-   *     covered). Since S34 the client ADOPTS the returned id on the
-   *     'no_session' fallback, so the karute save and the 破棄 target that row
-   *     — the web from its deploy, the phone from build 29; build-28 phones do
-   *     not. Add an emitter or confirm that adoption before any re-flip.
+   *  5. CLOSED BY AN EMITTER (S50, 5A): the ON arm's row create files ONE
+   *     `recording.take_bound_server_named` row on the bound success
+   *     (mint-take-url.ts#auditTakeBoundServerNamed; audit.ts
+   *     `recordings.uploadUrl` entry), whether or not a karute save or 破棄
+   *     ever names the row — build-28 phones never adopt it; since S34 the web
+   *     and phones from build 29 adopt it on the 'no_session' fallback. It is
+   *     a NEW core audit_log row per bound mint, written only while this
+   *     switch is ON. A human still re-reads that entry before any re-flip.
    *  Since S33 an upload whose recording already has a row
    *  (`attachOutcome: 'attach_failed'`) never takes the ON arm, in either
    *  state — mint-take-url.ts, the `if (!input.takeId)` arm.
