@@ -51,19 +51,19 @@ export interface Hours {
  *  (`drawnWindow`), so the hour ruler and the cards are the same axis by
  *  construction — canon's own sheet drew a 15-column ruler under 11 hours of
  *  cards, and the lines and the cards did not line up.
- *  ⚖ §v11 V11-15(d) — TOTAL, FINITE, INSIDE THE BOARD: both ends are clamped into
- *  the window and an end before the start becomes the start, so `0 ≤ x ≤ 100`,
- *  `0 ≤ w`, `x + w ≤ 100`. `w` keeps its formula and takes ONE clamp; a window
- *  that does not open before it closes places nothing, never NaN. */
+ *  ⚖ §v11 V11-15(d) — TOTAL, FINITE, INSIDE THE BOARD: the INPUTS are clamped
+ *  into the window and an end before the start becomes the start, so `0 ≤ x ≤ 100`,
+ *  `0 ≤ w`, `x + w ≤ 100` (to float precision, 1e-9). The output is never
+ *  re-rounded: `x` and `w` keep today's formulas bit for bit. A window that does
+ *  not open before it closes places nothing, never NaN. */
 export function place(start: number, end: number, hours: Hours): { x: number; w: number; startMin: number; endMin: number } {
   const span = hours.close - hours.open
   if (!(span > 0)) return { x: 0, w: 0, startMin: hours.open, endMin: hours.open }
   const from = Math.min(Math.max(start, hours.open), hours.close)
   const to = Math.max(Math.min(end, hours.close), from)
-  const x = ((from - hours.open) / span) * 100
   return {
-    x,
-    w: Math.min((Math.max(to - from, 0) / span) * 100, 100 - x),
+    x: ((from - hours.open) / span) * 100,
+    w: (Math.max(to - from, 0) / span) * 100,
     startMin: from,
     endMin: to,
   }
