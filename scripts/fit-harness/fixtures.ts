@@ -1,0 +1,143 @@
+// Fixture data for the fit harness — shaped for the WORST fit, never real
+// data: 4-digit すべて counts, 2–3 digit counts on every other word, the 共有
+// word present, and the longest staff name the pickers can show. The app's
+// own fixtures carry no staff name longer than 2 characters in its family
+// part (staff-selector.test.tsx: 原田 かなみ / 浜野), so the packet's
+// 4-character family name 勅使河原 is used (full name 勅使河原 さくら — the カルテ
+// chip prints the full name, the two-segment control the family name).
+import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
+import type { CustomerListRow } from '@/components/customers/redesign/types'
+import type { ReservationView } from '@/lib/adapters/reservation-view'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+
+export const SELF_ID = 'staff-self'
+export const LONG_ID = 'staff-long'
+
+export const STAFF = [
+  { id: SELF_ID, name: '佐藤 美咲', initials: '佐藤' },
+  { id: LONG_ID, name: '勅使河原 さくら', initials: '勅使' },
+  { id: 'staff-3', name: '鈴木 友梨佳', initials: '鈴木' },
+  { id: 'staff-4', name: '篠原 夢果', initials: '篠原' },
+]
+
+// JST today at the harness clock (the page reads the real clock; fixture
+// dates are relative so 今週 always has rows).
+function ymd(daysAgo: number): string {
+  const d = new Date(Date.now() - daysAgo * 86_400_000)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(d)
+}
+
+export function karuteItems(): KaruteListItem[] {
+  const out: KaruteListItem[] = []
+  for (let i = 0; i < 96; i++) {
+    const staff = STAFF[i % STAFF.length]
+    const aiStatus = i % 5 === 0 ? 'pending' : i % 7 === 0 ? 'draft' : i % 11 === 0 ? 'draft' : 'summarized'
+    out.push({
+      id: `k${i}`,
+      customerId: `c${i}`,
+      customerName: `顧客 ${i}`,
+      customerInitials: '顧',
+      customerKaruteNumber: `#${String(100 + i).padStart(5, '0')}`,
+      date: ymd(i % 13),
+      weekday: '月',
+      service: 'カット',
+      duration: 60,
+      staffId: staff.id,
+      staffColorKey: null,
+      staffName: staff.name,
+      summary: '主訴:肩のこり',
+      aiStatus,
+      conversionStatus: 'active',
+      isDiscarded: i % 9 === 0,
+      isShared: i % 6 === 0,
+      href: `/karute/k${i}`,
+    })
+  }
+  return out
+}
+
+export function customerRows(): CustomerListRow[] {
+  const out: CustomerListRow[] = []
+  const now = Date.now()
+  for (let i = 0; i < 1234; i++) {
+    const staff = STAFF[i % STAFF.length]
+    const status = i % 10 === 0 ? 'needs-followup' : i % 4 === 0 ? 'dormant' : i % 37 === 0 ? 'new' : 'on-track'
+    out.push({
+      id: `cu${i}`,
+      name: `顧客 ${i}`,
+      initials: '顧',
+      karuteNumber: `#${String(i).padStart(5, '0')}`,
+      age: 30,
+      gender: null,
+      joinDate: '2026/09/01',
+      joinDateIso: new Date(now - (i % 20) * 86_400_000).toISOString(),
+      lastVisitDate: '9/01',
+      lastVisitAgo: '26日前',
+      aiPredict: { label: '', when: '' },
+      status,
+      preferredStaffId: staff.id,
+      preferredStaffName: staff.name,
+      totalKarute: 3,
+      phone: null,
+      pack: i % 3 === 0 ? { remaining: (i % 3) + 1, size: 10, unconsumed: 12000 } : null,
+      nextBookingDate: i % 2 === 0 ? '10/01' : null,
+    })
+  }
+  return out
+}
+
+export function dayTotals(dateIso: string): WeekDayRowData {
+  return {
+    dateNumber: 27,
+    monthNumber: 9,
+    weekdayLabel: '日',
+    isToday: true,
+    count: 14,
+    bookedMinutes: 690,
+    availableMinutes: 4140,
+    newCustomerCount: 1,
+    remindersPending: 0,
+    consentPending: 0,
+    unconfirmed: 0,
+    visibleBookings: [],
+    hiddenCount: 0,
+    dateIso,
+    capacityDefensible: false,
+    hoursSaved: false,
+    closed: false,
+    cancelledCount: 0,
+    noShowDayCount: 0,
+    ...capacityRowFields(undefined),
+    returningCount: 13,
+  }
+}
+
+export function reservationViews(): ReservationView[] {
+  return [0, 1, 2, 3].map(
+    (i) =>
+      ({
+        id: `r${i}`,
+        staffId: STAFF[i % STAFF.length].id,
+        staffName: STAFF[i % STAFF.length].name,
+        startTimeHm: `${10 + i * 2}:00`,
+        durationMin: 90,
+        customerName: `顧客 ${i}`,
+        customerInitials: '顧',
+        karuteNumber: `#0036${i}`,
+        service: 'サブスク月1',
+        displayStatus: 'booked',
+        isCancelled: false,
+        isNoShow: false,
+        statusReason: null,
+        statusSetByName: null,
+        statusSetAt: null,
+        staffColorKey: 'neutral',
+        clientId: `c${i}`,
+        karuteRecordId: null,
+        isFirstTimeVisit: false,
+        pack: null,
+        needsRenewal: false,
+        noShowCount: 0,
+      }) as unknown as ReservationView,
+  )
+}

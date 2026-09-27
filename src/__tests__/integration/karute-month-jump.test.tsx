@@ -122,9 +122,10 @@ const listEl = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>
 const renderList = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>> = {}) =>
   render(listEl(props))
 
-/** The chip: the only <button> whose accessible name is a bare 「YYYY年M月」
- *  (the month rows inside the panel are role="option", not "button"). */
-const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })
+/** The chip: the only <button> whose accessible name is 「YYYY年M月」 (the
+ *  month rows inside the panel are role="option", not "button"). Since
+ *  ⚖ カルテ TAB LOCKED 9/27 01:56 (月の件数 = オフ) it names the month only. */
+const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月( \d+)?$/ })
 const openPanel = () => {
   fireEvent.click(monthChip())
   return screen.getByRole('listbox')
@@ -160,12 +161,25 @@ beforeEach(() => {
   jest.clearAllMocks()
   loadKaruteWindow.mockReset()
   searchParams = new URLSearchParams()
+  // The カルテ list remembers the staff pick (karute:staffScope:records:*).
+  window.localStorage.clear()
 })
 
 describe('the month chip', () => {
-  it('labels itself with the CURRENT month while nothing is picked', () => {
+  it('labels itself with the CURRENT month while nothing is picked — the name only', () => {
     renderList()
+    // ⚖ 月の件数 = オフ (S44): never a count on the month chip, even with a
+    // 今月 number in hand (monthCount 2 here).
     expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+  })
+
+  it('carries no count in any state — default, failed probe, past month picked', async () => {
+    const { unmount } = renderList({ monthCount: null })
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+    unmount()
+    renderList()
+    await jumpToJanuary()
+    expect(monthChip().textContent).toBe('2026年1月')
   })
 
   it('offers back to the session-date epoch month when no older row is loaded', () => {
@@ -429,9 +443,9 @@ describe('fetch axis vs display axis (Greptile PR #784)', () => {
     })
     expect(screen.queryByText('越境 迷子')).not.toBeInTheDocument()
     expect(screen.getByText('一月 太郎')).toBeInTheDocument()
-    // 表示中 counts what SURVIVED the display filter, so the header cannot
-    // promise a row the list does not show.
-    expect(screen.getByText(/statusLine/).textContent).toContain('"showingCount":1')
+    // The day header counts what SURVIVED the display filter, so no number on
+    // screen promises a row the list does not show (案C+ folded 表示中 away).
+    expect(screen.getByText('dateGroup.suffix:{"n":1}')).toBeInTheDocument()
   })
 
   it('DEDUPES a row two created-windows both return', async () => {
@@ -536,8 +550,6 @@ describe('store switch (Greptile PR #784)', () => {
       // Store A's rows…
       expect(frame).not.toContain('一月 太郎')
       expect(frame).not.toContain('山田 花子')
-      // …its 全件 (the status line echoes the params it was given)…
-      expect(frame).not.toContain('"total":9')
       // …the すべて PILL, which reads that same store total since PR-2c and so
       // became a second surface this frame guarantee has to cover (the status
       // line's `"total":9` check above cannot see it — the pill renders a bare
@@ -552,7 +564,8 @@ describe('store switch (Greptile PR #784)', () => {
     // dimension lives entirely in the ROWS, and every frame above is already
     // asserted free of store A's rows, so a stale 今週 is unreachable.
     // Store B's own truth is what landed.
-    expect(screen.getByText(/statusLine/).textContent).toContain('"total":3')
+    expect(pill('all').textContent).toBe('filters.all3')
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
   })
 
   it('resets the picker floor — store A\'s depth never stretches store B\'s months', async () => {
@@ -657,23 +670,25 @@ describe('store switch (Greptile PR #784)', () => {
     // own.
     const staffList = [{ id: 'staff-1', name: '田中 太郎', initials: '田中' }]
     const props = { staffList, currentStaffId: 'staff-1' }
-    const selfToggle = () => screen.getByRole('button', { name: 'self' })
+    // 案C+: the 担当 dropdown chip names the current pick ('all' / 'self' echo).
+    const staffChip = () => screen.getByRole('button', { name: /^(all|self)$/ })
     const { rerender } = render(listEl({ storeId: 'store-a', ...props }))
 
-    fireEvent.click(selfToggle())
-    expect(selfToggle()).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(staffChip())
+    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    expect(staffChip()).toHaveTextContent(/^self$/)
 
     // PURGE — same store, a total that came back lower.
     await act(async () => {
       rerender(listEl({ storeId: 'store-a', ...props, total: 1 }))
     })
-    expect(selfToggle()).toHaveAttribute('aria-pressed', 'true')
+    expect(staffChip()).toHaveTextContent(/^self$/)
 
     // STORE SWITCH — different lens, different roster.
     await act(async () => {
       rerender(listEl({ storeId: 'store-b', ...props, total: 1 }))
     })
-    expect(selfToggle()).toHaveAttribute('aria-pressed', 'false')
+    expect(staffChip()).toHaveTextContent(/^all$/)
   })
 
   it('drops a month response still in flight across the switch', async () => {

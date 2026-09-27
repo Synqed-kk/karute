@@ -131,6 +131,7 @@ jest.mock('next-intl', () => {
       if (typeof cur !== 'string') throw new Error(`missing ja.json key: ${ns}.${key}`)
       return cur.replace(/\{(\w+)\}/g, (_, v: string) => String((vars as Record<string, unknown> | undefined)?.[v] ?? `{${v}}`))
     },
+    useLocale: () => 'ja',
   }
 })
 jest.mock('next/navigation', () => ({
@@ -140,6 +141,11 @@ jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
   usePathname: () => '/customers',
   Link: ({ children }: { children: unknown }) => children,
+}))
+// ⚖ 顧客 TAB LOCKED 02:1x (S44): the add-person circle (CustomerSheet) now
+// sits in the search row of the view itself — stubbed like the header was.
+jest.mock('@/components/customers/CustomerSheet', () => ({
+  CustomerSheet: () => <button type="button" aria-label="newCustomer" />,
 }))
 jest.mock('@/components/customers/redesign/list/CustomersListHeader', () => ({
   CustomersListHeader: () => <div data-testid="header" />,

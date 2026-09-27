@@ -6,11 +6,11 @@
 // Karute records list — record-centric view for the カルテ tab.
 // Replaces the customer-centric list that previously rendered here.
 //
-// Layout (matches spike):
+// Layout (⚖ カルテ TAB LOCKED 9/27 01:56 — supersedes 案C+'s row order):
 //   - Sticky title bar (カルテ + bell)
-//   - Status line + "+ 新規カルテ" button
-//   - Search input (filter by customer / service / staff / summary)
-//   - Filter chips (すべて / 今週 / AI補完待ち / レビュー要 / 下書き)
+//   - Search input (filter by customer / service / staff / summary) + ＋
+//   - One chip row: month (the month's name only, never a count) · 担当 dropdown
+//   - The words row (すべて / 今週 / AI補完待ち / 下書き / 破棄済み [/ 共有])
 //   - Date-grouped records — each date renders a header
 //     "YYYY/MM/DD (曜) · 本日/昨日 · N件のカルテ" then the rows
 //
@@ -29,12 +29,20 @@ import { useLocale, useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
 import { usePathname, useRouter } from '@/i18n/navigation'
 
-import {
-  CustomersStaffFilter,
-  type StaffFilterEntry,
-  type StaffFilterKey,
+import type {
+  StaffFilterEntry,
+  StaffFilterKey,
 } from '@/components/customers/redesign/list/CustomersStaffFilter'
-import { SegmentedFilterBar } from '@/components/customers/redesign/list/SegmentedFilterBar'
+import {
+  SegmentedFilterBar,
+  type WidthSteps,
+} from '@/components/customers/redesign/list/SegmentedFilterBar'
+import { StaffSelector } from '@/components/staff/StaffSelector'
+import {
+  rememberStaffScope,
+  resolveStaffScope,
+  useRestoreStaffScope,
+} from '@/components/staff/staff-scope'
 
 import { KaruteListRow, NoKaruteRevealRow, type NoKaruteCandidate } from './KaruteListRow'
 import { KaruteMonthSelector, shiftMonth } from './KaruteMonthSelector'
@@ -46,11 +54,10 @@ import { ymdInJst } from '@/lib/date/jst'
 
 interface Props {
   items: KaruteListItem[]
-  /** Total karute records this month (not filtered) — shown in the status
-   *  line independent of the active filter. null = the 今月 probe failed
-   *  (Greptile PR #775 round 2): the status line OMITS the count entirely
-   *  rather than rendering a fake 0 — a failed count is never shown as a
-   *  number. */
+  /** Total karute records this month (not filtered). NOT RENDERED since
+   *  ⚖ カルテ TAB LOCKED 9/27 01:56 (月の件数 = オフ — the month chip names the
+   *  month only). Still carried by both doors (page.tsx / SessionsScreen DTO);
+   *  retiring the server's 今月 probe is its own server-side change. */
   monthCount: number | null
   /** Store-wide karute total, unfiltered by date (PR-1b plumbing — not
    *  rendered until PR-2a's 全件 display). Optional so existing render call
@@ -126,6 +133,54 @@ const BASE_FILTER_KEYS: KaruteListFilter[] = [
   'draft',
   'discarded',
 ]
+
+/** The urgent words (要対応 family) — the statuses that ask a person to act:
+ *  AI補完待ち, the (hidden) レビュー要, 下書き. Step B keeps their counts. */
+const KARUTE_URGENT: readonly KaruteListFilter[] = ['aiPending', 'needsReview', 'draft']
+
+/** ⚖ FIT BY DESIGN (04:2x): the words row's width steps — per language and
+ *  per word SET (the 共有 word exists only for viewShared holders once core
+ *  answers; a defined layout, never a measurement). Chosen from the real
+ *  longest labels in the app's own fonts (Noto Sans JP / Inter, 12px 500,
+ *  the chosen word 600) with a 4-digit すべて and 2 digits on every other
+ *  word, locked by the fit test (scripts/fit-harness/run.mjs).
+ *
+ *  Viewport px = labels + counts + 4px label↔count + per-word padding
+ *  (px-1.5 → px-1) + gaps (gap-2 → gap-1) + 38 (page px-4 ×2, row border +
+ *  inset) + 4 margin:
+ *               all counts   all, tight   urgent-only   urgent, tight   slide
+ *    ja ·共有   ≥ 491        447–491      410–447       366–410         < 366
+ *    ja         ≥ 430        394–430      366–394       330–366         < 330
+ *    en ·共有   ≥ 531        487–531      450–487       406–450         < 406
+ *    en         ≥ 453        417–453      389–417       353–389         < 353
+ *  (text widths, ja/en: labels 222/262 with 共有, 198/221 without; counts
+ *  90.9/77.9; urgent counts 26.) The row is full-width below md only. */
+const KARUTE_WORD_STEPS: Record<'ja' | 'en', Record<'withShared' | 'base', WidthSteps>> = {
+  ja: {
+    withShared: {
+      row: 'min-[447px]:max-[491px]:gap-1 min-[366px]:max-[410px]:gap-1 max-[366px]:overflow-x-auto max-[366px]:[scrollbar-width:none]',
+      item: 'min-[447px]:max-[491px]:px-1 min-[366px]:max-[410px]:px-1',
+      count: 'max-[447px]:hidden',
+    },
+    base: {
+      row: 'min-[394px]:max-[430px]:gap-1 min-[330px]:max-[366px]:gap-1 max-[330px]:overflow-x-auto max-[330px]:[scrollbar-width:none]',
+      item: 'min-[394px]:max-[430px]:px-1 min-[330px]:max-[366px]:px-1',
+      count: 'max-[394px]:hidden',
+    },
+  },
+  en: {
+    withShared: {
+      row: 'min-[487px]:max-[531px]:gap-1 min-[406px]:max-[450px]:gap-1 max-[406px]:overflow-x-auto max-[406px]:[scrollbar-width:none]',
+      item: 'min-[487px]:max-[531px]:px-1 min-[406px]:max-[450px]:px-1',
+      count: 'max-[487px]:hidden',
+    },
+    base: {
+      row: 'min-[417px]:max-[453px]:gap-1 min-[353px]:max-[389px]:gap-1 max-[353px]:overflow-x-auto max-[353px]:[scrollbar-width:none]',
+      item: 'min-[417px]:max-[453px]:px-1 min-[353px]:max-[389px]:px-1',
+      count: 'max-[417px]:hidden',
+    },
+  },
+}
 
 const isActiveKarute = (item: KaruteListItem) => !item.isDiscarded
 
@@ -224,7 +279,6 @@ function applyScope(
 
 export function KaruteRecordListView({
   items,
-  monthCount,
   total = null,
   discardedCount = 0,
   initialWindowStart = null,
@@ -240,6 +294,7 @@ export function KaruteRecordListView({
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
   const tCommon = useTranslations('common')
+  const tStaff = useTranslations('customers.list.staffFilter')
   const locale = useLocale()
   // URL-backed list state — back-navigation restores page + filters (same
   // pattern as the 顧客 list; search text deliberately stays local).
@@ -252,6 +307,35 @@ export function KaruteRecordListView({
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
     () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
   )
+  // The remembered pick (⚖ STAFF CONTROL 04:5x — per person, per tab, in the
+  // browser only): URL `?s=` > remembered > 全スタッフ. staff-scope.ts.
+  useRestoreStaffScope({
+    tab: 'records',
+    operatorId: currentStaffId,
+    urlParam: searchParams.get('s'),
+    apply: (remembered) => setStaffFilter(remembered as StaffFilterKey),
+  })
+  // ONE effective staff lens (S42; S44 lifted into staff-scope.ts so the three
+  // tabs and the segment share it). A lens needs someone to narrow to:
+  //  - 'self' needs a staff profile — without one (a restored `?s=self` for a
+  //    viewer with no profile) applyScope's self leg filters nothing, while a
+  //    chip fed the raw 'self' would claim 自分 in the wash over every staff's
+  //    rows. (Parity with the old ScopeToggle, which never offered 自分
+  //    without a self id.)
+  //  - a staff id needs to be ON the current roster — a saved `?s=<id>` for
+  //    someone no longer in it would filter the list to nobody while the chip
+  //    (no roster entry to name) read 全スタッフ in the wash and the dropdown
+  //    marked nothing. Same reasoning as the store-switch reset below, which
+  //    clears the lens outright when the roster changes with the store.
+  // Either collapses to 'all' HERE, and the list (applyScope, both calls),
+  // the 担当 chip (`selected`) and the URL writer all read this one value —
+  // they can never disagree. The raw state keeps the pick, so a profile or a
+  // roster that arrives later narrows again unchanged. ⚖ 退職スタッフのリンク =
+  // 全員を表示 (Liam 9/27 01:56).
+  const effectiveStaffFilter: StaffFilterKey = resolveStaffScope(staffFilter, {
+    selfStaffId: currentStaffId,
+    rosterIds: staffList.map((s) => s.id),
+  })
   const [searchQuery, setSearchQuery] = useState('')
 
   // PR-2a 日付チャンク読み込み. `appended` holds ONLY the chunks さらに表示
@@ -313,11 +397,11 @@ export function KaruteRecordListView({
     else next.delete('since')
     if (filter !== 'all') next.set('f', String(filter))
     else next.delete('f')
-    if (staffFilter !== 'all') next.set('s', String(staffFilter))
+    if (effectiveStaffFilter !== 'all') next.set('s', String(effectiveStaffFilter))
     else next.delete('s')
     const qs = next.toString()
     router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
-  }, [sinceParam, filter, staffFilter, pathname, router])
+  }, [sinceParam, filter, effectiveStaffFilter, pathname, router])
   const [newKaruteOpen, setNewKaruteOpen] = useState(false)
   // Which customer the dialog should preselect — null for the top "+ 新規
   // カルテ" CTA, a candidate id when opened from the search-reveal row below.
@@ -1084,8 +1168,9 @@ export function KaruteRecordListView({
   // Same scoping the tap's own filter applies below (applyScope) — see its
   // doc comment for why this must be one function, not two copies.
   const scopedAll = useMemo(
-    () => applyScope(allItems, { staffFilter, currentStaffId, searchQuery }),
-    [allItems, staffFilter, currentStaffId, searchQuery],
+    () =>
+      applyScope(allItems, { staffFilter: effectiveStaffFilter, currentStaffId, searchQuery }),
+    [allItems, effectiveStaffFilter, currentStaffId, searchQuery],
   )
 
   const counts = useMemo(() => {
@@ -1134,7 +1219,11 @@ export function KaruteRecordListView({
   const filtered = useMemo(() => {
     // Staff scope + search — SAME function as the pill counts above
     // (applyScope), so the two can never drift apart again.
-    let result = applyScope(displayItems, { staffFilter, currentStaffId, searchQuery })
+    let result = applyScope(displayItems, {
+      staffFilter: effectiveStaffFilter,
+      currentStaffId,
+      searchQuery,
+    })
 
     // SAME predicate, SAME cutoff as the pill's count above — that identity IS
     // the ⚖ ruling (thisWeekCutoffYmd). The second copy of this arithmetic that
@@ -1149,7 +1238,7 @@ export function KaruteRecordListView({
     }
 
     return result
-  }, [displayItems, filter, weekCutoff, searchQuery, staffFilter, currentStaffId])
+  }, [displayItems, filter, weekCutoff, searchQuery, effectiveStaffFilter, currentStaffId])
 
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
@@ -1223,104 +1312,66 @@ export function KaruteRecordListView({
     <main ref={rootRef} className="mx-auto w-full max-w-6xl flex-col px-4 pb-6 md:px-6">
       {/* Title row — h1 visible on desktop only (MobileHeader
        *  handles the mobile title to avoid the duplicate
-       *  "カルテ" rendering at top + below). Stats + primary CTA
-       *  share a non-wrapping flex row so the button stays
-       *  pinned right at every viewport width.
-       *
-       *  Earlier version used flex-wrap which pushed the button
-       *  below the stats column on mobile, making it invisible
-       *  inside the viewport. */}
+       *  "カルテ" rendering at top + below). */}
       {/* Header structure contract (Liam 8/7, desktop unified late 8/7):
        *  NO per-page top offset at any width — the layout's py-4/md:py-6
        *  is the one shared offset under the title bar on all three list
-       *  pages. (The old mobile mt-3 was the tab-switch jump; the old
-       *  md:mt-5 was the same jump on desktop, 44px vs 24px.) */}
+       *  pages. */}
+      {/* ⚖ カルテ TAB LOCKED (Liam 9/27 01:56): search (＋ at its end) → the
+       *  chip row [month · 担当] → the words row → list (行の順 = チップが上).
+       *  No totals line (the 案C+ fold already removed it), no 「+ 新規カルテ」
+       *  button (the circle is the add), no count on the month chip (月の件数 =
+       *  オフ). 全件 still reads on すべて (the SAME storeUniverseTotal), the rest
+       *  on their own words. The degraded-window failure line (fix round 2)
+       *  survives: it is not a count, it is the only sign that the rows below
+       *  are the last good ones rather than the current truth. */}
       <div>
         <h1 className="hidden text-2xl font-semibold tracking-tight text-foreground md:block md:text-[26px]">
           {tHead('tabHeading')}
         </h1>
-        {/* Header structure contract (Liam 8/7): natural-height items-center
-         *  row like 顧客/予約; mt-1 is desktop-only (spaces from the md h1
-         *  above) so mobile keeps the shared offset. */}
-        <div className="flex items-center justify-between gap-3 md:mt-1">
-          <p className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
-            {/* Greptile PR #775 round 2: total===null means the main row
-             *  read failed — render NO status line at all (the empty/
-             *  degraded list below already tells the honest story). Zero
-             *  numbers on screen beats a fake one. total!==null but
-             *  monthCount===null means only the 今月 probe failed — show
-             *  the subset line, never a fake 「今月 0件」. */}
-            {/* statusLine v2 (PR-2a): 全{total}件 joins the line now that
-             *  chunk loading makes the whole store browsable — PR-1b held it
-             *  back on purpose while the list could only ever show 200. */}
-            {/* Fix round 2: when the server window read FAILED but latched rows
-             *  are still on screen, this slot carries the failure line instead
-             *  of the numbers — the rows below are the last good ones, not the
-             *  current truth, and saying so beats leaving the header blank.
-             *  The two branches are exclusive so the numbers can't flash
-             *  alongside the failure line on the render before the storeTotal
-             *  effect catches up. role="alert" announces on mount, same as the
-             *  さらに表示 failure line: a background refresh that freezes the
-             *  newest rows is exactly what a screen-reader user must hear —
-             *  nothing on screen moved to tell them. */}
-            {/* R1 (2026-09-13 repair round): 全件 must name the SAME universe
-             *  表示中 counts under すべて — filtered.length includes discarded
-             *  rows there (:898), so 全 has to as well or 表示中 can read
-             *  larger than 全 (F1). storeUniverseTotal (defined above, next to
-             *  the すべて pill it also feeds — fix round 1) is that universe;
-             *  storeDiscardedCount and storeTotal always travel together
-             *  (both legs of the SAME karuteData.data probe — karute-window.ts's
-             *  loadKaruteWindowRows reads them off one storeProbe call), so
-             *  treating a null discarded count as 0 here never masks an
-             *  independent leg failure — there is no such leg. */}
-            {serverDegraded
-              ? loadedCount > 0 && <span role="alert">{t('loadMoreFailed')}</span>
-              : storeTotal !== null &&
-                (() => {
-                  const discarded = storeDiscardedCount ?? 0
-                  // storeTotal is narrowed non-null by the guard above;
-                  // storeUniverseTotal can only be null when storeTotal is,
-                  // so this fallback is unreachable in practice — it exists
-                  // purely to satisfy that narrowing across the two variables.
-                  const universeTotal = storeUniverseTotal ?? storeTotal
-                  if (discarded > 0) {
-                    return monthCount !== null
-                      ? t('statusLineDiscarded', {
-                          total: universeTotal,
-                          discarded,
-                          monthCount,
-                          showingCount: filtered.length,
-                        })
-                      : t('statusLineNoMonthDiscarded', {
-                          total: universeTotal,
-                          discarded,
-                          showingCount: filtered.length,
-                        })
-                  }
-                  return monthCount !== null
-                    ? t('statusLine', {
-                        total: storeTotal,
-                        monthCount,
-                        showingCount: filtered.length,
-                      })
-                    : t('statusLineNoMonth', {
-                        total: storeTotal,
-                        showingCount: filtered.length,
-                      })
-                })()}
+        {serverDegraded && loadedCount > 0 && (
+          <p role="alert" className="mb-3 text-xs text-muted-foreground md:mt-1">
+            {t('loadMoreFailed')}
           </p>
-          {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
-           *  (NewKaruteDialog) so staff can backdate or log a session
-           *  without going through the recording flow. The bottom-nav
-           *  「録音」 button stays the canonical AI-assisted path —
-           *  earlier this CTA routed there too, conflating manual entry
-           *  with starting a recording. Two distinct intents now have
-           *  two distinct surfaces. */}
-          {/* Unified create pill (Liam 8/6 案A + 8/7 responsive ruling):
-           *  shared Button default; words only on regular widths, icon
-           *  only below 380px — never both. */}
+        )}
+      {/* Search + ＋. The ＋ circle carries the per-page FilePlus2 icon — the
+         *  8/6 rule 「never a bare plus glyph」 stands (the mock's ＋ is intent).
+         *  The circle (manual-entry NewKaruteDialog — backdate or log a
+         *  session without the recording flow; the bottom-nav 録音 stays the
+         *  AI-assisted path) is a solid primary circle at the row's end, the
+         *  search field's own 36px: the header cannot hold a third item beside
+         *  its centred title (mock D32). The search keeps the app's 10px
+         *  radius — the mock's full-round field is a token proposal (D33),
+         *  not built. */}
+        <div className="flex items-center gap-2 md:mt-4">
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-muted-foreground"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('searchPlaceholder')}
+              className="h-9 w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+            />
+          </label>
           <Button
             type="button"
+            size="icon-lg"
+            className="rounded-full"
             aria-label={t('newKarute')}
             onClick={() => {
               setPresetCustomerId(null)
@@ -1328,65 +1379,58 @@ export function KaruteRecordListView({
               setNewKaruteOpen(true)
             }}
           >
-            <FilePlus2 className="size-3.5 min-[380px]:hidden" aria-hidden />
-            <span className="hidden min-[380px]:inline">{t('newKarute')}</span>
+            <FilePlus2 className="size-[18px]" aria-hidden />
           </Button>
         </div>
       </div>
 
-      {/* Staff-scope filter — "your customers / all / specific staff".
-       *  mt-4/pt-4 below: 16px header rhythm (Liam 8/7), matching 顧客/予約. */}
-      {staffList.length > 0 && (
-        <div className="mt-4">
-          <CustomersStaffFilter
-            staffList={staffList}
-            selfStaffId={currentStaffId ?? null}
-            selected={staffFilter}
-            onChange={setStaffFilter}
+      {/* SPACING = the app's one scale on all three tabs (⚖ 03:1x): search →
+       *  next row pt-3 (12px), header rows gap-2 (8px), header → list mt-4
+       *  (16px, the list card below). */}
+      <div className="flex flex-col gap-2 pt-3">
+        {/* The chip row — ONE line, never wraps (⚖ FIT BY DESIGN 04:2x): the
+         *  month chip and the 担当 chip (StaffSelector's own anchored panel,
+         *  both edges clamped). The 新規 chip is PR-2's (its switch lives on
+         *  that branch), not on this one. */}
+        <div data-chip-row="" className="flex flex-nowrap items-center gap-2">
+          <KaruteMonthSelector
+            currentMonth={currentMonth}
+            oldestMonth={monthFloor}
+            selected={activeMonth}
+            onSelect={(month) => void pickMonth(month)}
+            busy={monthLoading}
           />
+          {/* 担当 — ONE dropdown chip carries 自分 / 全スタッフ / a name (same
+           *  'all' | 'self' | staffId keys). カルテ keeps this single chip
+           *  (⚖ 01:56 自分の切替 = チップ内); 予約/顧客 use the two-segment
+           *  control. Same gate the old row had. */}
+          {staffList.length > 0 && (
+            <StaffSelector
+              staffList={staffList}
+              selected={effectiveStaffFilter}
+              onChange={(next) => {
+                setStaffFilter(next as StaffFilterKey)
+                rememberStaffScope('records', currentStaffId, next)
+              }}
+              scope={{
+                selfStaffId: currentStaffId ?? null,
+                selfLabel: tStaff('self'),
+                allLabel: tStaff('all'),
+              }}
+            />
+          )}
         </div>
-      )}
-
-      {/* Search input — reuses the customer search input visually */}
-      <div className="pt-4">
-        <label className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-muted-foreground"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('searchPlaceholder')}
-            className="h-9 w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
-          />
-        </label>
-      </div>
-
-      {/* Filter bar — 案A (Liam, 7/17): same shared segmented control as the
-       *  顧客 list status filter (one design language across list screens).
-       *  flex wrapper so md:w-auto shrinks the bar to content on desktop —
-       *  in a plain block it would stretch the full ~1100px content width. */}
-      {/* 月ジャンプ (PR-2b) rides in THIS row — 「月ジャンプは新しい行を増や
-       *  さず、既存のフィルター行に追加」 (mock, 決定済み). flex-wrap is the
-       *  narrow-width backstop: the segmented bar is full-width below md, so
-       *  the chip drops to a second line rather than squeezing 「AI補完待ち」
-       *  into an ellipsis. No overflow container here on purpose — one would
-       *  clip the chip's anchored panel. */}
-      <div className="flex flex-wrap items-center gap-2 pt-3">
+        {/* The words row (the shared SegmentedFilterBar, 'words' look): the
+         *  chosen word = bold + blue + a light blue wash, no ✓. Counts follow
+         *  the width steps (all → urgent-only → slide), never measured. */}
         <SegmentedFilterBar
+          variant="words"
+          steps={
+            KARUTE_WORD_STEPS[locale === 'en' ? 'en' : 'ja'][
+              filterKeys.includes('shared') ? 'withShared' : 'base'
+            ]
+          }
+          urgent={KARUTE_URGENT}
           segments={filterKeys.map((key) => ({
             key,
             label: t(`filters.${key}`),
@@ -1398,13 +1442,6 @@ export function KaruteRecordListView({
           }))}
           active={sharedMode ? 'shared' : filter}
           onChange={pickFilter}
-        />
-        <KaruteMonthSelector
-          currentMonth={currentMonth}
-          oldestMonth={monthFloor}
-          selected={activeMonth}
-          onSelect={(month) => void pickMonth(month)}
-          busy={monthLoading}
         />
       </div>
 

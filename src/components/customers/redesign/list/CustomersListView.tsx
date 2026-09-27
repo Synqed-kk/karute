@@ -27,6 +27,12 @@ import {
   type StaffFilterKey,
 } from './CustomersStaffFilter'
 import { CustomersListPagination } from './CustomersListPagination'
+import { CustomerSheet } from '@/components/customers/CustomerSheet'
+import {
+  rememberStaffScope,
+  resolveStaffScope,
+  useRestoreStaffScope,
+} from '@/components/staff/staff-scope'
 import { CustomerRowDesktop } from './CustomerRowDesktop'
 import { CustomerCardMobile } from './CustomerCardMobile'
 import { ComingSoonChip } from '../ComingSoonChip'
@@ -43,7 +49,6 @@ const PAGE_SIZE = 12
 
 interface CustomersListViewProps {
   rows: CustomerListRow[]
-  totalRegistered: number
   query: string
   selfStaffId: string | null
   /** Booking enrichment loaded? false → the 予約なし stat hides (honesty gate). */
@@ -99,7 +104,6 @@ interface CustomersListViewProps {
 
 export function CustomersListView({
   rows,
-  totalRegistered,
   query,
   selfStaffId,
   staffList,
@@ -133,6 +137,26 @@ export function CustomersListView({
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
     () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
   )
+  // The remembered pick (⚖ STAFF CONTROL 04:5x — per person, per tab, in the
+  // browser only): URL `?s=` > remembered > 全スタッフ.
+  useRestoreStaffScope({
+    tab: 'customers',
+    operatorId: selfStaffId,
+    urlParam: searchParams.get('s'),
+    apply: (remembered) => setStaffFilter(remembered as StaffFilterKey),
+  })
+  // ⚖ 退職スタッフのリンク = 全員を表示 — the one lens the three tabs share
+  // (staff-scope.ts): a staff id off the roster, or 自分 without a profile,
+  // reads 全スタッフ — the control, the rows and the URL together. The raw
+  // pick stays, so a roster that arrives later narrows again.
+  const effectiveStaffFilter: StaffFilterKey = resolveStaffScope(staffFilter, {
+    selfStaffId,
+    rosterIds: staffList.map((s) => s.id),
+  })
+  const pickStaff = (next: StaffFilterKey) => {
+    setStaffFilter(next)
+    rememberStaffScope('customers', selfStaffId, next)
+  }
   // 残数 chips (?r=1,3) — multi-select union over exact remaining counts.
   const [packFilter, setPackFilter] = useState<ReadonlySet<number>>(() => {
     // Legacy ?f=packLow (the pre-redesign 残り1回 stat wrote it) migrates to
@@ -159,20 +183,20 @@ export function CustomersListView({
     else next.delete('p')
     if (statusFilter !== 'all') next.set('f', statusFilter)
     else next.delete('f')
-    if (staffFilter !== 'all') next.set('s', String(staffFilter))
+    if (effectiveStaffFilter !== 'all') next.set('s', String(effectiveStaffFilter))
     else next.delete('s')
     if (packFilter.size > 0) next.set('r', [...packFilter].sort().join(','))
     else next.delete('r')
     const qs = next.toString()
     router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
-  }, [page, statusFilter, staffFilter, packFilter, pathname, router])
+  }, [page, statusFilter, effectiveStaffFilter, packFilter, pathname, router])
 
   // Reset to page 1 whenever the filter changes — otherwise switching
   // to a smaller result set could leave the viewer stranded on an
   // out-of-range page (or worse, an apparently empty list).
   useEffect(() => {
     setPage(0)
-  }, [statusFilter, staffFilter, packFilter, query])
+  }, [statusFilter, effectiveStaffFilter, packFilter, query])
 
   // DISTINCT staff-color map, derived from the FULL tenant roster (the same
   // `staffList` that feeds the staff-filter pills). Computing it once here —
@@ -204,13 +228,13 @@ export function CustomersListView({
   // real booking staff) dropped out of every specific-staff filter even
   // though their card shows that staff as 担当.
   const staffRows = useMemo(() => {
-    if (staffFilter === 'all') return rows
-    const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
+    if (effectiveStaffFilter === 'all') return rows
+    const targetId = effectiveStaffFilter === 'self' ? selfStaffId : effectiveStaffFilter
     if (!targetId) return rows
     return rows.filter(
       (r) => (r.preferredStaffId ?? r.bookingStaffId) === targetId,
     )
-  }, [rows, staffFilter, selfStaffId])
+  }, [rows, effectiveStaffFilter, selfStaffId])
 
   // Status-dimension counts (segments + 予約なし): staff ∧ 残数 applied.
   const rowsForStatusCounts = useMemo(
@@ -311,123 +335,135 @@ export function CustomersListView({
     // padding now (system rule). Matches the spike's customer list page
     // which wraps with px-4 md:px-8; using md:px-6 here for consistency
     // with reservation + karute customer detail conventions.
-    // gap-4 on mobile too (Liam 8/7): bordered control rows read cramped
-    // at 12px — 16px matches the desktop rhythm this page already used.
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pt-0 pb-6 md:px-6 md:pb-6">
-      <CustomersListHeader
-        total={totalRegistered}
-        showing={filteredRows.length}
-        heading={heading}
-        assignableStaff={assignableStaff}
-      />
+    //
+    // ⚖ 顧客 TAB LOCKED 02:1x (案D) + ⚖ SPACING 03:1x — top to bottom: (1) ONE
+    // row = search + the add-person circle; (2) 自分 | 全スタッフ ⌄; (3) the stats
+    // strip; (4) the words track; (5) the list. The status/totals line and the
+    // 「+ 新規顧客」 button are gone. Spacing = the one scale of all three list
+    // tabs: search → next row pt-3 (12px), header rows gap-2 (8px), header →
+    // list mt-4 (16px) — it was gap-4 (16px) between every row (Liam 8/7).
+    <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pt-0 pb-6 md:px-6 md:pb-6">
+      <CustomersListHeader heading={heading} />
 
-      {/* Order mirrors the design spike: staff scope first (who am I
-       *  looking at?), THEN search inside that scope, THEN status
-       *  filter to narrow further. */}
-      <CustomersStaffFilter
-        staffList={staffList}
-        selfStaffId={selfStaffId}
-        selected={staffFilter}
-        onChange={setStaffFilter}
-      />
-
-      <CustomerSearchInput initialQuery={query} />
-
-      {/* Kitano's daily read (案D): 予約なし N件(%) · 残り1回 N人 · 未消化 ¥ —
-       *  the sheet's pinned top block, tappable to filter. */}
-      <CustomerListStatsStrip
-        stats={stats}
-        active={statusFilter}
-        onSelect={setStatusFilter}
-        packCounts={packCounts}
-        packFilter={packFilter}
-        onPackToggle={togglePackFilter}
-      />
-
-      <CustomersStatusFilters
-        active={statusFilter}
-        onChange={setStatusFilter}
-        counts={counts}
-        baselineCounts={baselineCounts}
-      />
-
-      {filteredRows.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center">
-          {/* Three empty states, not two: a filter that matches nobody must
-           *  NOT show the first-run onboarding copy (「最初の顧客を作成…」)
-           *  while 450 customers exist — it shows "no match, clear filters"
-           *  (reachable via a 0-count 残n bit or an empty staff filter). */}
-          <p className="text-sm font-medium text-foreground">
-            {query
-              ? t('noMatch', { query })
-              : rows.length > 0
-                ? t('filterNoMatch')
-                : tCustomers('empty.title')}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {query || rows.length > 0
-              ? t('noMatchHint')
-              : tCustomers('empty.description')}
-          </p>
+      {/* (1) Search + add. The circle opens exactly what 「+ 新規顧客」 opened
+       *  (CustomerSheet's dialog); md:mt-4 = the カルテ search row's desktop
+       *  seam under the sticky title bar. */}
+      <div className="flex items-center gap-2 md:mt-4">
+        <div className="min-w-0 flex-1">
+          <CustomerSearchInput initialQuery={query} />
         </div>
-      ) : (
-        <>
-          {/* Desktop table — column template kept in lock-step with CustomerRowDesktop */}
-          <div className="hidden overflow-hidden rounded-2xl border border-border/60 bg-card md:block">
-            <div className="grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-2.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              <span>{t('col.customer')}</span>
-              <span>{t('col.lastVisit')}</span>
-              <span className="flex items-center gap-1.5">
-                {t('col.recommend')}
-                <ComingSoonChip />
-              </span>
-              <span>{t('col.status')}</span>
-              <span>{t('col.staff')}</span>
-              <span className="text-right">{t('col.total')}</span>
+        <CustomerSheet assignableStaff={assignableStaff} />
+      </div>
+
+      <div className="flex flex-col gap-2 pt-3">
+        {/* (2) Staff scope — ONE two-segment control (⚖ 04:5x). */}
+        <CustomersStaffFilter
+          staffList={staffList}
+          selfStaffId={selfStaffId}
+          selected={effectiveStaffFilter}
+          onChange={pickStaff}
+        />
+
+        {/* (3) Kitano's daily read (案D): 予約なし N件(%) · 残り1回 N人 · 未消化 ¥ —
+         *  the sheet's pinned top block, tappable to filter. Unchanged. */}
+        <CustomerListStatsStrip
+          stats={stats}
+          active={statusFilter}
+          onSelect={setStatusFilter}
+          packCounts={packCounts}
+          packFilter={packFilter}
+          onPackToggle={togglePackFilter}
+        />
+
+        {/* (4) build 29's grey words track, counts on every word (width steps
+         *  only where the room runs out — CustomersStatusFilters). */}
+        <CustomersStatusFilters
+          active={statusFilter}
+          onChange={setStatusFilter}
+          counts={counts}
+          baselineCounts={baselineCounts}
+        />
+      </div>
+
+      <div className="mt-4 flex flex-col gap-4">
+        {filteredRows.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center">
+            {/* Three empty states, not two: a filter that matches nobody must
+             *  NOT show the first-run onboarding copy (「最初の顧客を作成…」)
+             *  while 450 customers exist — it shows "no match, clear filters"
+             *  (reachable via a 0-count 残n bit or an empty staff filter). */}
+            <p className="text-sm font-medium text-foreground">
+              {query
+                ? t('noMatch', { query })
+                : rows.length > 0
+                  ? t('filterNoMatch')
+                  : tCustomers('empty.title')}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {query || rows.length > 0
+                ? t('noMatchHint')
+                : tCustomers('empty.description')}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Desktop table — column template kept in lock-step with CustomerRowDesktop */}
+            <div className="hidden overflow-hidden rounded-2xl border border-border/60 bg-card md:block">
+              <div className="grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-2.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <span>{t('col.customer')}</span>
+                <span>{t('col.lastVisit')}</span>
+                <span className="flex items-center gap-1.5">
+                  {t('col.recommend')}
+                  <ComingSoonChip />
+                </span>
+                <span>{t('col.status')}</span>
+                <span>{t('col.staff')}</span>
+                <span className="text-right">{t('col.total')}</span>
+              </div>
+              {pagedRows.map((c, i) => (
+                <CustomerRowDesktop
+                  key={c.id}
+                  c={c}
+                  staffColorKey={
+                    staffColors.get(c.preferredStaffId ?? c.bookingStaffId ?? '')
+                      ?.key ?? null
+                  }
+                  karuteContext={karuteContext}
+                  hrefBase={hrefBase}
+                  entranceIndex={playEntrance ? i : null}
+                />
+              ))}
             </div>
-            {pagedRows.map((c, i) => (
-              <CustomerRowDesktop
-                key={c.id}
-                c={c}
-                staffColorKey={
-                  staffColors.get(c.preferredStaffId ?? c.bookingStaffId ?? '')
-                    ?.key ?? null
-                }
-                karuteContext={karuteContext}
-                hrefBase={hrefBase}
-                entranceIndex={playEntrance ? i : null}
-              />
-            ))}
-          </div>
 
-          {/* Mobile list — rows separate via their own border-b. Sits
-           *  inside the layout's 16px horizontal padding so the rounded
-           *  card has breathing room from the screen edges, matching the
-           *  design spike (cards inset, not bleeding). */}
-          <div className="overflow-hidden rounded-2xl border border-border/60 bg-card md:hidden">
-            {pagedRows.map((c, i) => (
-              <CustomerCardMobile
-                key={c.id}
-                c={c}
-                staffColorKey={
-                  staffColors.get(c.preferredStaffId ?? c.bookingStaffId ?? '')
-                    ?.key ?? null
-                }
-                karuteContext={karuteContext}
-                hrefBase={hrefBase}
-                entranceIndex={playEntrance ? i : null}
-              />
-            ))}
-          </div>
+            {/* Mobile list — rows separate via their own border-b. Sits
+             *  inside the layout's 16px horizontal padding so the rounded
+             *  card has breathing room from the screen edges, matching the
+             *  design spike (cards inset, not bleeding). */}
+            <div className="overflow-hidden rounded-2xl border border-border/60 bg-card md:hidden">
+              {pagedRows.map((c, i) => (
+                <CustomerCardMobile
+                  key={c.id}
+                  c={c}
+                  staffColorKey={
+                    staffColors.get(c.preferredStaffId ?? c.bookingStaffId ?? '')
+                      ?.key ?? null
+                  }
+                  karuteContext={karuteContext}
+                  hrefBase={hrefBase}
+                  entranceIndex={playEntrance ? i : null}
+                />
+              ))}
+            </div>
 
-          <CustomersListPagination
-            total={filteredRows.length}
-            page={page}
-            pageSize={PAGE_SIZE}
-            onPageChange={setPage}
-          />
-        </>
-      )}
+            <CustomersListPagination
+              total={filteredRows.length}
+              page={page}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+            />
+          </>
+        )}
+      </div>
     </div>
   )
 }

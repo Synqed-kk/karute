@@ -1,13 +1,9 @@
 'use client'
 
-import type { StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import { useTranslations } from 'next-intl'
-import { CustomerSheet } from '@/components/customers/CustomerSheet'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 
 interface CustomersListHeaderProps {
-  total: number
-  showing: number
   /**
    * Optional heading override. Defaults to the customer-list heading
    * (顧客 / Customers) when omitted. The カルテ tab passes its own
@@ -16,17 +12,18 @@ interface CustomersListHeaderProps {
    * is fully owned by the calling page.
    */
   heading?: string
-  /** Tenant staff roster — threaded through to CustomerSheet's 指名スタッフ picker. */
-  assignableStaff?: StaffComboboxOption[]
 }
 
 /**
- * Two-section header — mirrors the design spike:
+ * The desktop title bar — mirrors the design spike:
  *
  *   ┌───────────────────────────────────────────────────────┐ ← sticky
  *   │                       顧客                       (🔔) │
  *   └───────────────────────────────────────────────────────┘ ← divider
- *     登録中の顧客 · 全128 · 24名を表示中           [+ 新規顧客]   ← scrolls
+ *
+ * ⚖ 顧客 TAB LOCKED 02:1x (Liam): the status line 「登録中の顧客 · 全… 」 and the
+ * 「+ 新規顧客」 button below this bar are gone — the add is the blue circle at
+ * the end of the search row (CustomersListView).
  *
  * The title bar (顧客 + bell) sticks at the top of the scrolling
  * `<main>` container so it stays visible while the list scrolls.
@@ -43,11 +40,10 @@ interface CustomersListHeaderProps {
  * MobileHeader bell is `md:hidden`, so exactly one bell is visible at
  * any width.
  */
-export function CustomersListHeader({ total, showing, heading, assignableStaff }: CustomersListHeaderProps) {
+export function CustomersListHeader({ heading }: CustomersListHeaderProps) {
   const t = useTranslations('customers.list')
-  // Fragment (not a wrapping div) so the sticky bar and the info row
-  // become DIRECT children of CustomersListView's outer flex-col.
-  // That outer column spans the entire scrollable page (header +
+  // Fragment (not a wrapping div) so the sticky bar becomes a DIRECT child
+  // of CustomersListView's outer flex-col. That outer column spans the entire scrollable page (header +
   // filters + cards), which is what the sticky bar's containing block
   // needs to be — otherwise the bar releases the moment its short
   // local wrapper scrolls past, which is what was happening before.
@@ -74,21 +70,6 @@ export function CustomersListHeader({ total, showing, heading, assignableStaff }
            *  pins to the bar's right edge, same as the old stub. */}
           <NotificationBell variant="desktop" />
         </div>
-      </div>
-
-      {/* Status line (left) + action button (right) — scrolls with the
-       *  list. Spacing handled by the parent flex-col's `gap-4` so no
-       *  explicit pt here. */}
-      {/* Header structure contract (Liam 8/7): natural-height items-center
-       *  row, no wrap — the 32px create button dictates row height on
-       *  顧客/カルテ/予約 alike, so it holds one slot across tabs. flex-wrap
-       *  removed: it dropped the button to a second line on narrow phones
-       *  (same bug カルテ fixed earlier); the status text truncates instead. */}
-      <div className="flex items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
-          {t('statusLine', { total, showing })}
-        </p>
-        <CustomerSheet assignableStaff={assignableStaff} />
       </div>
     </>
   )

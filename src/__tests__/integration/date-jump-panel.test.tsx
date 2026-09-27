@@ -1798,22 +1798,24 @@ describe('the date-jump anchor keeps the header margin contract', () => {
   })
 
   /**
-   * R6-1 — the seam is the MOCK's, measured at 393 on the production build:
-   * 9px from the date-bar control to the 日/週/月 control, 11px from there to
-   * the page's next block. Both live on the wrapper that holds the filter
-   * row: the padding above it, and a margin that outranks space-y-4's
-   * zero-specificity :where() 16px below it. A tailwind-merge collision or a
-   * hand-edit back to pt-6 would silently put the gap back, so the assertion
-   * is on the RENDERED class list, not on the source string.
+   * R6-1, superseded by ⚖ SPACING 03:1x (S44): ONE spacing scale on all three
+   * list tabs — 12px from the first row to the next (pt-3, was the mock's
+   * 9px), 8px between header rows (mb-2, was 11px). Both live on the wrapper
+   * that holds the filter row: the padding above it, and a margin that
+   * outranks space-y-4's zero-specificity :where() 16px below it. A
+   * tailwind-merge collision or a hand-edit back to an older seam would
+   * silently change the gap, so the assertion is on the RENDERED class list,
+   * not on the source string.
    */
-  it('the filter wrapper carries the mock’s two seam numbers', () => {
+  it('the filter wrapper carries the one scale’s two seam numbers', () => {
     renderView()
     const anchor = chip().closest<HTMLElement>('[class*="data-date-jump-chip"]')!
     const filterWrapper = anchor.nextElementSibling as HTMLElement
-    expect(filterWrapper.classList.contains('pt-[9px]')).toBe(true)
-    expect(filterWrapper.classList.contains('mb-[11px]')).toBe(true)
-    // …and the seam is not silently doubled by an older one left behind.
-    expect(filterWrapper.classList.contains('pt-6')).toBe(false)
+    expect(filterWrapper.classList.contains('pt-3')).toBe(true)
+    expect(filterWrapper.classList.contains('mb-2')).toBe(true)
+    // …and no older seam is left behind to double it.
+    for (const old of ['pt-6', 'pt-[9px]', 'mb-[11px]'])
+      expect(filterWrapper.classList.contains(old)).toBe(false)
   })
 })
 

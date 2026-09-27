@@ -19,11 +19,16 @@ let mockSearch = ''
 jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(mockSearch),
 }))
+// One shared replace spy so a test can read what the URL writer wrote.
+const mockReplace = jest.fn()
 afterEach(() => {
   mockSearch = ''
+  mockReplace.mockClear()
+  // The list remembers the staff pick (karute:staffScope:customers:*).
+  window.localStorage.clear()
 })
 jest.mock('@/i18n/navigation', () => ({
-  useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
   usePathname: () => '/customers',
   Link: ({ children }: { children: unknown }) => children,
 }))
@@ -31,16 +36,21 @@ jest.mock('@/i18n/navigation', () => ({
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
     vars ? `${key}:${JSON.stringify(vars)}` : key,
+  useLocale: () => 'ja',
 }))
 
 // Stub the non-under-test leaves so we don't drag in CustomerSheet/forms,
 // next/navigation search params, or the AI chip plumbing.
+// ⚖ 顧客 TAB LOCKED 02:1x (S44): the header is the desktop title bar only —
+// the 「登録中の顧客 · 全… · N名を表示中」 line is gone, so the filtered count is
+// probed on the rendered rows instead (every case here is ≤ one 12-row page).
 jest.mock('@/components/customers/redesign/list/CustomersListHeader', () => ({
-  CustomersListHeader: ({ total, showing }: { total: number; showing: number }) => (
-    <div data-testid="header">
-      total={total} showing={showing}
-    </div>
-  ),
+  CustomersListHeader: () => <div data-testid="header" />,
+}))
+// ⚖ 顧客 TAB LOCKED 02:1x (S44): the add-person circle (CustomerSheet) now
+// sits in the search row of the view itself — stubbed like the header was.
+jest.mock('@/components/customers/CustomerSheet', () => ({
+  CustomerSheet: () => <button type="button" aria-label="newCustomer" />,
 }))
 jest.mock('@/components/customers/redesign/list/CustomerSearchInput', () => ({
   CustomerSearchInput: () => <div data-testid="search" />,
@@ -94,7 +104,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={42}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -102,7 +111,9 @@ describe('CustomersListView', () => {
       />,
     )
     expect(desktopRows()).toHaveLength(5)
-    expect(screen.getByTestId('header')).toHaveTextContent('total=42 showing=5')
+    // No totals line on 顧客 any more (⚖ 02:1x) — no count reaches the header.
+    expect(screen.getByTestId('header')).toBeEmptyDOMElement()
+    expect(screen.queryByText(/statusLine/)).not.toBeInTheDocument()
   })
 
   it('slices to 12 rows per page and exposes pagination for overflow', () => {
@@ -110,7 +121,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={20}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -127,7 +137,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={20}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -150,7 +159,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={5}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -172,7 +180,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={2}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -194,7 +201,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={3}
         query=""
         selfStaffId="s-1"
         assignableStaff={[]}
@@ -204,9 +210,10 @@ describe('CustomersListView', () => {
         ]}
       />,
     )
-    // Open the 担当 trigger, pick staff s-1 in the sheet, then followup.
-    fireEvent.click(screen.getByText('trigger'))
-    fireEvent.click(screen.getByText('Me'))
+    // Open the staff list from the segment's chevron (⚖ STAFF CONTROL 04:5x —
+    // the separate 担当 chip is gone), pick staff s-1, then followup.
+    fireEvent.click(screen.getByRole('button', { name: 'title' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Me' }))
     fireEvent.click(screen.getByText('filters.followup'))
     const visible = desktopRows()
     expect(visible).toHaveLength(1)
@@ -223,7 +230,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={21}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -244,7 +250,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={[]}
-        totalRegistered={0}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -259,7 +264,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={[]}
-        totalRegistered={10}
         query="zzz"
         selfStaffId={null}
         staffList={[]}
@@ -275,7 +279,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={2}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -290,7 +293,6 @@ describe('CustomersListView', () => {
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={2}
         query=""
         selfStaffId={null}
         staffList={[]}
@@ -306,7 +308,7 @@ describe('案D stats strip', () => {
   it('honesty gate: bookingDataAvailable=false hides 予約なし (no confident 100% lie)', () => {
     const rows = [row({ id: 'a', nextBookingDate: null }), row({ id: 'b', nextBookingDate: null })]
     render(
-      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={rows} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} bookingDataAvailable={false} />,
     )
     expect(screen.queryByText(/noBooking:/)).toBeNull()
@@ -319,22 +321,22 @@ describe('案D stats strip', () => {
       row({ id: 'c', name: 'Grad', status: 'graduated', nextBookingDate: null }),
     ]
     render(
-      <CustomersListView rows={rows} totalRegistered={3} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={rows} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // counts a but not c (graduated) → 1
     const stat = screen.getByText('noBooking:{"n":1}')
     fireEvent.click(stat)
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows()).toHaveLength(1)
     // tap again clears back to all
     fireEvent.click(screen.getByText('noBooking:{"n":1}'))
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+    expect(desktopRows()).toHaveLength(3)
   })
 
   it('pack stats hide pre-import (no pack data) — 予約なし stays', () => {
     const rows = [row({ id: 'a', nextBookingDate: null }), row({ id: 'b', nextBookingDate: '6/20' })]
     render(
-      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={rows} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.getByText('noBooking:{"n":1}')).toBeInTheDocument()
@@ -348,7 +350,7 @@ describe('案D stats strip', () => {
       row({ id: 'b', pack: { remaining: 4, size: 10, unconsumed: 39600 }, nextBookingDate: '6/16' }),
     ]
     render(
-      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={rows} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(within(screen.getByText('packRemainingLabel1').closest('button')!).getByText('packRemainingCount:{"n":1}')).toBeInTheDocument()
@@ -367,7 +369,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('renders the view-scoped mtd sum with the ▲% vs the prev same-period window', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 10_000 }, b: { mtd: 40_000, prev: 40_000 } }}
       />,
@@ -381,7 +383,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('re-scopes to the filtered list — the ¥ always describes what you see (#534 rule)', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 10_000 }, b: { mtd: 40_000, prev: 40_000 } }}
       />,
@@ -395,7 +397,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('hides the ▲% when the prev window is ¥0 (a % of zero is meaningless)', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
       />,
@@ -406,7 +408,7 @@ describe('今月消化 burn stat (案A)', () => {
 
   it('honesty gate: no burn data (default) → the stat does not render', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.queryByText('burnLabel')).toBeNull()
@@ -415,7 +417,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('honesty gate: burn data without pack data → hidden (it is a pack stat)', () => {
     render(
       <CustomersListView
-        rows={[row({ id: 'a', nextBookingDate: null })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]}
+        rows={[row({ id: 'a', nextBookingDate: null })]} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
       />,
@@ -426,7 +428,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('honesty gate is VIEW-scoped: an unpriceable customer in view hides the stat…', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
         burnUnpricedIds={['b']}
@@ -438,7 +440,7 @@ describe('今月消化 burn stat (案A)', () => {
   it('…but filtering the unpriceable customer OUT restores the exact stat', () => {
     render(
       <CustomersListView
-        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]}
         burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
         burnUnpricedIds={['b']}
@@ -468,7 +470,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('hides the bits while no row has pack data', () => {
     render(
-      <CustomersListView rows={[row({ id: 'a' })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={[row({ id: 'a' })]} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.queryByText(/packRemaining/)).toBeNull()
@@ -476,7 +478,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('renders 残１/残２/残３ with exact-count numbers (残３ stays visible at 0)', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(within(bit(1)).getByText('packRemainingCount:{"n":2}')).toBeInTheDocument()
@@ -486,52 +488,52 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
 
   it('tapping 残１ narrows to remaining===1; tapping again clears', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(1))
     expect(bit(1)).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
+    expect(desktopRows()).toHaveLength(2)
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One', 'OneBooked'])
     fireEvent.click(bit(1))
     expect(bit(1)).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=5')
+    expect(desktopRows()).toHaveLength(5)
   })
 
   it('multi-select unions 残１+残２ (Kitano\'s「3回未満」population)', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(1))
     fireEvent.click(bit(2))
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+    expect(desktopRows()).toHaveLength(3)
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One', 'OneBooked', 'Two'])
   })
 
   it('composes with 予約なし — 残１ × no booking (the sheet-impossible combo)', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(1))
     // Faceted: with 残１ on, 予約なし already recounts within 残１ (One only —
     // OneBooked has a booking) and tapping it yields exactly that count.
     fireEvent.click(screen.getByText('noBooking:{"n":1}'))
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows()).toHaveLength(1)
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
   })
 
   it('the segmented status bar and the 残数 bits are independent controls', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // Activating a status segment must not clear the 残数 selection.
     fireEvent.click(bit(1))
     fireEvent.click(screen.getByText('filters.all'))
     expect(bit(1)).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
+    expect(desktopRows()).toHaveLength(2)
   })
 })
 
@@ -545,24 +547,24 @@ describe('UltraCode fix round (7/17)', () => {
   it('legacy ?f=packLow migrates to the 残１ bit (visible + clearable, list narrowed)', () => {
     mockSearch = 'f=packLow'
     render(
-      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // Migrated: the 残１ bit is pressed and the list shows only remaining===1.
     const bit1 = screen.getByText('packRemainingLabel1').closest('button')
     expect(bit1).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows()).toHaveLength(1)
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
     // No segment falsely active-less: すべて stays the pressed status segment.
     expect(screen.getByText('filters.all').closest('button')).toHaveAttribute('aria-pressed', 'true')
     // Tap-to-clear works — the invariant the legacy key violated.
     fireEvent.click(bit1!)
-    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+    expect(desktopRows()).toHaveLength(3)
   })
 
   it('a 0-count 残n bit shows the filter-no-match state, never the onboarding empty state', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(screen.getByText('packRemainingLabel3'))
@@ -573,7 +575,7 @@ describe('UltraCode fix round (7/17)', () => {
 
   it('the true first-run empty state (zero rows) is unchanged', () => {
     render(
-      <CustomersListView rows={[]} totalRegistered={0} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={[]} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.getByText('empty.title')).toBeInTheDocument()
@@ -582,7 +584,7 @@ describe('UltraCode fix round (7/17)', () => {
 
   it('予約なし stat announces aria-pressed like the bits beside it', () => {
     render(
-      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={packRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     const noBooking = screen.getByText('noBooking:{"n":2}').closest('button')
@@ -616,7 +618,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('residual-bit selection recounts the whole status dimension (Liam\'s screenshot bug)', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // Baseline: all frozen-free numbers agree with the full set.
@@ -637,7 +639,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('INVARIANT: every segment count equals the list you get by tapping it', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(1)) // fix the pack dimension: 残1 = A,B,C
@@ -650,7 +652,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('INVARIANT: status selection recounts the bits; multi-select list = sum of selected bit counts', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(screen.getByText('filters.dormant')) // C(残1), D(残2), H(no pack)
@@ -666,7 +668,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('INVARIANT: 予約なし count = the rows tapping it shows, inside any pack slice', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(2)) // 残2 = D,E
@@ -686,7 +688,6 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
     render(
       <CustomersListView
         rows={rows}
-        totalRegistered={8}
         query=""
         selfStaffId="s-1"
         assignableStaff={[]}
@@ -703,7 +704,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('hide-when-zero keys off the baseline: segments survive a 0-count slice, hide only pre-import', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     fireEvent.click(bit(3)) // 残3 = F (on-track only)
@@ -712,7 +713,7 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
     expect(segCount('dormant')).toBe('0')
     // Pre-import (no followup/dormant rows at all) → hidden as before.
     render(
-      <CustomersListView rows={[row({ id: 'x' })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={[row({ id: 'x' })]} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     expect(screen.getAllByText('filters.all').length).toBeGreaterThan(0)
@@ -720,12 +721,102 @@ describe('faceted counts — every number = "tap it and you get exactly that" (L
 
   it('未消化 is view-scoped and ¥0 renders as an honest answer (layout stays)', () => {
     render(
-      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]}
+      <CustomersListView rows={facetRows()} query="" selfStaffId={null} staffList={[]}
         assignableStaff={[]} />,
     )
     // G,H have no pack → their slice's stranded money is 0. dormant∧残3 = empty view.
     fireEvent.click(screen.getByText('filters.dormant'))
     fireEvent.click(bit(3))
     expect(screen.getByText('unconsumed:{"amount":"0"}')).toBeInTheDocument()
+  })
+})
+
+// ── ⚖ 顧客 TAB LOCKED 02:1x (案D) + ⚖ STAFF CONTROL 04:5x — S44 ─────────────
+describe('顧客 TAB LOCKED — one search row with the add circle, one staff control', () => {
+  const STAFF = [
+    { id: 's-1', name: 'Me', initials: 'ME' },
+    { id: 's-2', name: 'Them', initials: 'TH' },
+  ]
+  const rows = () => [
+    row({ id: 'a', name: 'Mine', preferredStaffId: 's-1' }),
+    row({ id: 'b', name: 'Theirs', preferredStaffId: 's-2' }),
+  ]
+  const renderView = () =>
+    render(
+      <CustomersListView rows={rows()} query="" selfStaffId="s-1"
+        staffList={STAFF} assignableStaff={[]} />,
+    )
+  beforeEach(() => window.localStorage.clear())
+
+  it('order: search + add circle in ONE row → staff control → words track; no totals line', () => {
+    const { container } = renderView()
+    const search = screen.getByTestId('search')
+    const add = screen.getByRole('button', { name: 'newCustomer' })
+    // The circle shares the search field's row.
+    expect(search.parentElement!.parentElement).toBe(add.parentElement)
+    const scope = container.querySelector('[data-staff-scope]')!
+    const words = container.querySelector('[data-words-row="track"]')!
+    expect(search.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(scope.compareDocumentPosition(words) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText(/statusLine/)).not.toBeInTheDocument()
+    // The separate 担当 chip is gone: the only listbox trigger is the chevron.
+    expect(screen.queryByText('trigger')).not.toBeInTheDocument()
+  })
+
+  it('the words track keeps a count on every word at room; 要フォロー is the urgent one', () => {
+    const { container } = render(
+      <CustomersListView
+        rows={[...rows(), row({ id: 'f', name: 'Follow', status: 'needs-followup' })]}
+        query="" selfStaffId="s-1" staffList={STAFF} assignableStaff={[]} />,
+    )
+    const urgent = [...container.querySelectorAll('[data-words-row] [data-count="urgent"]')]
+    expect(urgent.map((e) => e.closest('button')!.textContent)).toEqual(['filters.followup1'])
+    for (const e of urgent) expect(e.className).not.toMatch(/:hidden/)
+    const plain = [...container.querySelectorAll('[data-words-row] [data-count="plain"]')]
+    expect(plain.length).toBeGreaterThan(0)
+    for (const e of plain) expect(e.className).toMatch(/max-\[\d+px\]:hidden/)
+  })
+
+  it('a shared link naming a departed staffer reads 全スタッフ and shows everyone', () => {
+    mockSearch = 's=gone-9'
+    renderView()
+    expect(screen.getByRole('button', { name: /^all$/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['Mine', 'Theirs'])
+  })
+
+  it('a departed staffer\'s link is written back WITHOUT s= — the URL agrees with 全スタッフ', () => {
+    // The writer reads the real address bar, so the link has to be there too:
+    // the writer must actively DROP s=, not merely never add it.
+    mockSearch = 's=gone-9'
+    window.history.replaceState(null, '', '/customers?s=gone-9')
+    try {
+      renderView()
+      expect(screen.getByRole('button', { name: /^all$/ })).toHaveAttribute('aria-pressed', 'true')
+      expect(mockReplace).toHaveBeenCalled()
+      for (const [url] of mockReplace.mock.calls) expect(String(url)).not.toMatch(/[?&]s=/)
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
+
+  it('no URL param: the remembered pick applies (karute:staffScope:customers:<viewer>)', () => {
+    window.localStorage.setItem('karute:staffScope:customers:s-1', 'self')
+    renderView()
+    expect(screen.getByRole('button', { name: /self/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['Mine'])
+  })
+
+  it('the URL param wins over the remembered pick', () => {
+    window.localStorage.setItem('karute:staffScope:customers:s-1', 'self')
+    mockSearch = 's=s-2'
+    renderView()
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['Theirs'])
+  })
+
+  it('a pick is remembered for this viewer on 顧客 only', () => {
+    renderView()
+    fireEvent.click(screen.getByRole('button', { name: /self/ }))
+    expect(window.localStorage.getItem('karute:staffScope:customers:s-1')).toBe('self')
+    expect(window.localStorage.getItem('karute:staffScope:records:s-1')).toBeNull()
   })
 })

@@ -8,8 +8,8 @@
 // 自分/全スタッフ segment stays OUTSIDE this component so both dominant
 // actions remain one-tap.
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Search, Users } from 'lucide-react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Check, ChevronDown, Search, User, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import {
   assignStaffColors,
@@ -37,9 +37,20 @@ export interface StaffSelectorEntry {
 // ASCII and full-width (　) spaces; single-token names (江間, 浜野, Liam, or a
 // space-less full-width name) pass through untouched and lean on the chip's
 // max-width truncation as the backstop.
-function familyName(full: string): string {
+export function familyName(full: string): string {
   const first = full.trim().split(/[\s　]+/)[0]
   return first || full
+}
+
+/** What a custom trigger (StaffScopeSegment) needs from the selector. */
+export interface StaffSelectorTriggerApi {
+  open: boolean
+  setOpen: (next: boolean) => void
+  listboxId: string
+  /** The picked roster entry, or null for 'all' / 'self' / an id off the list. */
+  active: StaffSelectorEntry | null
+  /** That entry's avatar colours (the same map as the chip and the list). */
+  activeColor: { bg: string; text: string } | null
 }
 
 export function StaffSelector({
@@ -47,6 +58,8 @@ export function StaffSelector({
   selected,
   onChange,
   compact = false,
+  scope,
+  renderTrigger,
 }: {
   staffList: StaffSelectorEntry[]
   /** 'all' | 'self' | <staffId> — same model as the old pills. */
@@ -54,6 +67,17 @@ export function StaffSelector({
   onChange: (next: string) => void
   /** 予約 page: avatar + chevron only — the tightest line in the app. */
   compact?: boolean
+  /** カルテ 案C+ (⚖ Liam 9/26 「案C+ Looks good.」): this ONE chip also carries
+   *  the 自分/全スタッフ scope that CustomersStaffFilter's segment holds on the
+   *  other lists — same keys ('all' | 'self' | staffId), no new meaning. The
+   *  closed chip names the current pick; a pick that narrows the list wears
+   *  the R13 wash. Omitted = every other caller renders exactly as before. */
+  scope?: { selfStaffId: string | null; selfLabel: string; allLabel: string }
+  /** ⚖ STAFF CONTROL 04:5x (Liam): on 予約 and 顧客 the two-segment control
+   *  自分 | 全スタッフ ⌄ (StaffScopeSegment) draws its OWN trigger around THIS
+   *  panel — the same list, search, clamp and close rules, never a fork.
+   *  Omitted = the 担当 chip (カルテ), unchanged. */
+  renderTrigger?: (api: StaffSelectorTriggerApi) => ReactNode
 }) {
   const t = useTranslations('staffSelector')
   const tc = useTranslations('common')
@@ -72,6 +96,11 @@ export function StaffSelector({
   // is always fully on-screen — a backstop that costs nothing when the chip
   // sits where it should (on the right of its row).
   const [alignLeft, setAlignLeft] = useState(false)
+  // Horizontal correction after the flip (S44, FOUND S43 / COLDREAD-DROPDOWN-
+  // EDGE): the flip above only ever looked at the LEFT edge, so a trigger
+  // sitting mid-row flipped to left-0 and ran the 256px panel ~35px past the
+  // right edge at 393 (~53px at 375). This shift clamps BOTH edges.
+  const [shiftX, setShiftX] = useState(0)
   // Stable ids wire the a11y triad: trigger aria-controls → listbox, and the
   // listbox takes its accessible name from the visible header row.
   const listboxId = useId()
@@ -101,19 +130,31 @@ export function StaffSelector({
     }
   }, [open])
 
-  // Clamp the panel on-screen: after it opens (right-anchored), if its left
-  // edge falls off the left of the viewport, flip to left-anchoring. Reset on
-  // close so each open re-measures against the chip's current position.
+  // Clamp the panel on-screen, BOTH edges (S44). It opens right-anchored; if
+  // that start falls off the left of the viewport it flips to left-anchoring
+  // (the original rule), and then whatever edge still sits outside the
+  // MARGIN is shifted back in. The panel's own max-w (viewport − 2×MARGIN)
+  // guarantees both clamps can hold at once. One measurement per open, reset
+  // on close, so each open re-measures against the trigger's current place.
   useLayoutEffect(() => {
     if (!open) {
       setAlignLeft(false)
+      setShiftX(0)
       return
     }
     const el = panelRef.current
-    if (!el) return
+    const anchor = ref.current
+    if (!el || !anchor) return
     const MARGIN = 8
+    const viewport = document.documentElement.clientWidth || window.innerWidth
     const rect = el.getBoundingClientRect()
-    if (rect.left < MARGIN) setAlignLeft(true)
+    const flip = rect.left < MARGIN
+    const left = flip ? anchor.getBoundingClientRect().left : rect.left
+    let dx = 0
+    if (left + rect.width > viewport - MARGIN) dx = viewport - MARGIN - (left + rect.width)
+    if (left + dx < MARGIN) dx = MARGIN - left
+    setAlignLeft(flip)
+    setShiftX(Math.round(dx))
   }, [open])
 
   // Clear the search on close (outside tap, Escape, or a pick already closes
@@ -128,7 +169,9 @@ export function StaffSelector({
     () => assignStaffColors(staffList.map((s) => s.id)),
     [staffList],
   )
-  if (staffList.length === 0) return null
+  // The chip has nothing to offer without a roster; a custom trigger may
+  // still carry 自分 / 全スタッフ on its own (the segment decides).
+  if (staffList.length === 0 && !renderTrigger) return null
 
   const active = staffList.find((s) => s.id === selected) ?? null
   const activeColor = active
@@ -139,6 +182,7 @@ export function StaffSelector({
     onChange(next)
     setOpen(false)
   }
+  const narrowed = !!scope && selected !== 'all'
 
   // '' until they type. Typing searches the WHOLE roster (management
   // included — the reveal); an untouched box shows the default list, which
@@ -156,54 +200,65 @@ export function StaffSelector({
     : staffList.filter((s) => !s.isManagement || s.id === selected)
 
   return (
-    <div ref={ref} className="relative inline-block">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? listboxId : undefined}
-        className={cn(
-          'inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
-          active && 'pr-2',
-        )}
-      >
-        {active ? (
-          <>
-            <span
-              className={cn(
-                'flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold',
-                activeColor?.bg,
-                activeColor?.text,
-              )}
-              aria-hidden
-            >
-              {active.initials}
-            </span>
-            {/* avatar + name only — the 担当: prefix read as clutter once a
-             *  staff is picked (Liam); the unselected state keeps 「担当」.
-             *  The compact chip (予約 row) shows just the family name so the
-             *  whole filter row stays one line at 440px; a max-width truncate
-             *  is the backstop for extreme space-less single-token names. */}
-            <span className={cn('truncate', compact ? 'max-w-[6rem]' : 'max-w-[9rem]')}>
-              {compact ? familyName(active.name) : active.name}
-            </span>
-          </>
-        ) : (
-          <>
-            <Users size={13} className="shrink-0 text-muted-foreground" aria-hidden />
-            <span>{t('trigger')}</span>
-          </>
-        )}
-        <ChevronDown
-          size={13}
+    // w-fit: the panel anchors to THIS box, so it must hug its trigger even
+    // where a column parent would stretch it (顧客's header rows) — otherwise
+    // right-0 would hang the panel off the row's far edge, not the chevron.
+    <div ref={ref} className="relative inline-block w-fit">
+      {renderTrigger ? (
+        renderTrigger({ open, setOpen, listboxId, active, activeColor })
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={open ? listboxId : undefined}
           className={cn(
-            'shrink-0 text-muted-foreground transition-transform',
-            open && 'rotate-180',
+            'inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
+            active && 'pr-2',
+            narrowed && 'border-primary bg-primary/8 text-primary hover:bg-primary/8',
           )}
-          aria-hidden
-        />
-      </button>
+        >
+          {active ? (
+            <>
+              <span
+                className={cn(
+                  'flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold',
+                  activeColor?.bg,
+                  activeColor?.text,
+                )}
+                aria-hidden
+              >
+                {active.initials}
+              </span>
+              {/* avatar + name only — the 担当: prefix read as clutter once a
+               *  staff is picked (Liam); the unselected state keeps 「担当」.
+               *  The compact chip (予約 row) shows just the family name so the
+               *  whole filter row stays one line at 440px; a max-width truncate
+               *  is the backstop for extreme space-less single-token names. */}
+              <span className={cn('truncate', compact ? 'max-w-[6rem]' : 'max-w-[9rem]')}>
+                {compact ? familyName(active.name) : active.name}
+              </span>
+            </>
+          ) : scope ? (
+            <span>{selected === 'self' ? scope.selfLabel : scope.allLabel}</span>
+          ) : (
+            <>
+              <Users size={13} className="shrink-0 text-muted-foreground" aria-hidden />
+              <span>{t('trigger')}</span>
+            </>
+          )}
+          <ChevronDown
+            size={13}
+            className={cn(
+              'shrink-0 text-muted-foreground transition-transform',
+              narrowed && 'text-primary',
+              open && 'rotate-180',
+            )}
+            aria-hidden
+          />
+        </button>
+      )}
 
       {open && (
         <div
@@ -246,10 +301,15 @@ export function StaffSelector({
           // this filter in the page header near the top; if a low-trigger
           // surface ever appears, upgrade to measuring available space and
           // repositioning.
+          // max-w (S44): the panel never outgrows the viewport minus the
+          // clamp's MARGIN on each side (8 + 8 = 1rem), the same idea as
+          // KaruteMonthSelector's cap — so the both-edges clamp above can
+          // always be satisfied.
           className={cn(
-            'absolute top-full z-50 mt-1 flex max-h-[max(180px,min(55vh,55dvh))] w-64 flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900',
+            'absolute top-full z-50 mt-1 flex max-h-[max(180px,min(55vh,55dvh))] w-64 max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900',
             alignLeft ? 'left-0' : 'right-0',
           )}
+          style={shiftX ? { transform: `translateX(${shiftX}px)` } : undefined}
         >
           <div
             id={labelId}
@@ -277,6 +337,21 @@ export function StaffSelector({
             {/* 全スタッフ is pinned only on the DEFAULT list, same rule as
              *  StaffCombobox's 指名なし row — once typing starts this is a
              *  search result, and 全スタッフ isn't something the query matched. */}
+            {!trimmedQuery && scope?.selfStaffId && (
+              <StaffRow
+                avatar={
+                  <span
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+                    aria-hidden
+                  >
+                    <User size={13} />
+                  </span>
+                }
+                label={scope.selfLabel}
+                selected={selected === 'self'}
+                onClick={() => pick('self')}
+              />
+            )}
             {!trimmedQuery && (
               <StaffRow
                 avatar={
@@ -287,8 +362,8 @@ export function StaffSelector({
                     <Users size={13} />
                   </span>
                 }
-                label={t('all')}
-                selected={!active}
+                label={scope ? scope.allLabel : t('all')}
+                selected={scope ? selected === 'all' : !active}
                 onClick={() => pick('all')}
               />
             )}

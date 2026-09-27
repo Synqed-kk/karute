@@ -13,6 +13,7 @@
     "pretest:e2e": "npx tsx --env-file=.env.e2e scripts/e2e-preflight.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "test:fit": "node scripts/fit-harness/run.mjs",
     "audit:weakening": "node scripts/audit/check-audit-weakening.mjs",
     "audit:dark-interactive": "node scripts/audit/check-dark-interactive.mjs",
     "audit:route-css": "node scripts/audit/check-route-css-collisions.mjs",

@@ -195,6 +195,8 @@ export function KaruteMonthSelector({
         className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
       >
         <Calendar size={13} className="shrink-0 text-muted-foreground" aria-hidden />
+        {/* The month's NAME only, never a count (⚖ カルテ TAB LOCKED 9/27
+         *  01:56 月の件数 = オフ). */}
         <span className="tabular-nums">{formatMonth(shown)}</span>
         <ChevronDown
           size={13}

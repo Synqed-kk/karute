@@ -23,7 +23,7 @@ interface CustomerSheetProps {
 }
 
 /**
- * "+ 新規顧客" button → centered modal dialog for creating a new
+ * The add-customer circle → centered modal dialog for creating a new
  * customer. Previously a side-sliding Sheet; switched to Dialog to
  * mirror the design spike's `NewCustomerDialog` UX. File/export name
  * kept (`CustomerSheet`) to avoid churning callsites — the component
@@ -42,15 +42,15 @@ export function CustomerSheet({ assignableStaff }: CustomerSheetProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {/* Responsive CTA (Liam 8/7): words only on regular widths; below
-       *  380px the label collapses and the recognizable icon takes its
-       *  place — never both at once. aria-label keeps the accessible
-       *  name when only the icon shows. */}
+      {/* ⚖ 顧客 TAB LOCKED 02:1x (Liam): the 「+ 新規顧客」 pill became the blue
+       *  add-person circle at the end of the search row — the カルテ ＋
+       *  circle's family (size icon-lg = 36px, primary, rounded-full, icon
+       *  18px). The 「+ 新規顧客」 key stays as its accessible name. Same
+       *  dialog as before. */}
       <DialogTrigger
         render={
-          <Button aria-label={t('newCustomer')}>
-            <UserPlus className="size-3.5 min-[380px]:hidden" aria-hidden />
-            <span className="hidden min-[380px]:inline">{t('newCustomer')}</span>
+          <Button size="icon-lg" className="rounded-full" aria-label={t('newCustomer')}>
+            <UserPlus className="size-[18px]" aria-hidden />
           </Button>
         }
       />

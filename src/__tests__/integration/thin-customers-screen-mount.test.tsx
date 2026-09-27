@@ -21,6 +21,7 @@ jest.mock('next-intl', () => {
       if (typeof cur !== 'string') throw new Error(`missing ja.json key: ${ns}.${key}`)
       return cur.replace(/\{(\w+)\}/g, (_, v: string) => String((vars as Record<string, unknown> | undefined)?.[v] ?? `{${v}}`))
     },
+    useLocale: () => 'ja',
   }
 })
 // Same stub as customers-list-view.test.tsx — CustomersListView reads
@@ -35,6 +36,11 @@ jest.mock('@/i18n/navigation', () => ({
   Link: ({ children }: { children: unknown }) => children,
 }))
 // Isolate the strip: heavy leaves stubbed exactly like customers-list-view.test.tsx.
+// ⚖ 顧客 TAB LOCKED 02:1x (S44): the add-person circle (CustomerSheet) now
+// sits in the search row of the view itself — stubbed like the header was.
+jest.mock('@/components/customers/CustomerSheet', () => ({
+  CustomerSheet: () => <button type="button" aria-label="newCustomer" />,
+}))
 jest.mock('@/components/customers/redesign/list/CustomersListHeader', () => ({
   CustomersListHeader: () => <div data-testid="header" />,
 }))
