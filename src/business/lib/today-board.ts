@@ -72,23 +72,17 @@ export function place(start: number, end: number, hours: Hours): { x: number; w:
 const floor60 = (m: number) => Math.floor(m / 60) * 60
 const ceil60 = (m: number) => Math.ceil(m / 60) * 60
 
-/** ⚖ §v11 V11-15(a)(f) — THE DRAWN WINDOW, the axis every card is placed on: the
- *  store's own hours, grown to the whole hour around each booking that lies
- *  outside them, clamped to [0, 1440]. Only bookings grow it (never a shift,
- *  wash, break, absence, block or sell slot), and one inside the hours or
- *  touching an edge grows nothing (V11-6 P1's boundary rule). A whole-hour pair
- *  gives a whole-hour window, so the 30-minute lattice is unchanged; a
- *  fractional pair with nothing outside is served as it is, as before (its own
- *  question, not this one). A pair that does not open before it closes is a
- *  contract violation the resolver never serves (store-hours.ts): one hour from
- *  its opening hour ∪ the bookings, warned once per build — never NaN. */
+/** ⚖ §v11 V11-15(a) + amendment A4 — THE DRAWN WINDOW, the axis every card is
+ *  placed on: the store's own hours ∪ every card, floored/ceiled to the whole
+ *  hour, clamped to [0, 1440]. Only bookings grow it (never a shift, wash,
+ *  break, absence, block or sell slot); one inside the hours or touching an
+ *  edge grows nothing. Always whole hours, so `count` is an integer and the
+ *  30-minute lattice holds — a fractional pair gets a whole-hour axis and a
+ *  band for the fraction. */
 export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute: number; endMinute: number }>): Hours {
-  let { open, close } = hours
-  for (const b of bookings) {
-    if (b.startMinute < open) open = floor60(b.startMinute)
-    if (b.endMinute > close) close = ceil60(b.endMinute)
-  }
-  return { open: Math.max(0, open), close: Math.min(1440, close) }
+  const open = Math.min(hours.open, ...bookings.map((b) => b.startMinute))
+  const close = Math.max(hours.close, ...bookings.map((b) => b.endMinute))
+  return { open: Math.max(0, floor60(open)), close: Math.min(1440, ceil60(close)) }
 }
 
 /** ⚖ §v11 V11-15(c) — 営業時間外: where the drawn window runs past the store's

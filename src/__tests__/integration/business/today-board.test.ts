@@ -377,7 +377,7 @@ describe('board derivations', () => {
   })
 
   // ⚖ §v11 V11-15(j) P11 — the drawn window: the store's hours grown to the whole hour around every card outside them.
-  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day', () => {
+  it('§v11 V11-15 P11 — drawnWindow(): inside and edge-touching grow nothing; outside grows to the whole hour; clamped to the day; always whole hours', () => {
     const gym = { open: 420, close: 1320 }
     const at = (...spans: Array<[number, number]>) => spans.map(([startMinute, endMinute]) => ({ startMinute, endMinute }))
     expect(drawnWindow(gym, at([600, 660], [1000, 1100]))).toEqual(gym)
@@ -388,6 +388,7 @@ describe('board derivations', () => {
     expect(drawnWindow(gym, at([-10, 20], [1430, 1500]))).toEqual({ open: 0, close: 1440 })
     const w = drawnWindow(gym, at([395, 1395]))
     expect(Number.isInteger((w.close - w.open) / 60)).toBe(true)
+    expect(drawnWindow({ open: 630, close: 1110 }, [])).toEqual({ open: 600, close: 1140 }) // A4: a fractional pair → a whole-hour axis
   })
 
   it('reads カテゴリー strongest-first: VIP over 回数券 over 新規/再来', () => {
