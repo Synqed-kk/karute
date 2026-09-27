@@ -35,13 +35,14 @@
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
 import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsFor, type BookingColors } from '@/business/lib/booking-colors'
 import { PRICE_UNIT_YEN } from '@/business/lib/canon-logic/pricing'
-import { jstSlotEnd } from '@/business/lib/clock'
+import { jstDayKey, jstSlotEnd } from '@/business/lib/clock'
 import {
   defaultStoreId,
   listMenus,
   listResources,
   listStaff,
   listStoreOptions,
+  readDayPlanes,
   readReserveCardColor,
   readShellIdentity,
   readStoreAddress,
@@ -202,6 +203,9 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   const [staff, menus, resources] = clamped
     ? await Promise.all([listStaff(lens), listMenus(lens), listResources(lens)])
     : [[], [], []]
+  // ⚖ §v11 V11-4 — under the practice switch the 営業時間 block states the BOARD's 営業時間 · 定休日: the door's
+  // one resolver, through the same day plane (V9-4's gap closes). OFF reads the fixture pair, exactly as before.
+  const hours = practiceTenant() !== null && clamped ? await readDayPlanes(lens, jstDayKey(now)) : { operatingHours, closedWeekday }
 
   // ⚖ PR-3 §v3 V3-4 — THE MARK IS THE PLANE TABLE'S (the facade's readers, one
   // implementation): a block names the plane it shows and the table answers.
@@ -220,6 +224,8 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     staff,
     menus,
     resources,
+    hours: { operatingHours: hours.operatingHours, closedWeekday: hours.closedWeekday },
+    dayLen: dayLenOf(hours.operatingHours, hours.closedWeekday),
     // 「最終同期は…分前」 — ONE TRUTH for the last sync: the shell's own stamp,
     // measured against the board's moment it was set before (data.ts / door.ts
     // `readShellIdentity`), never the wall clock.
@@ -336,6 +342,10 @@ interface Ctx {
   staff: Awaited<ReturnType<typeof listStaff>>
   menus: Awaited<ReturnType<typeof listMenus>>
   resources: Awaited<ReturnType<typeof listResources>>
+  /** ⚖ §v11 V11-4 — the 営業時間 block's pair + 定休日 (the board's own under the door; null = none), and the
+   *  length ceiling they give (`dayLenOf`). */
+  hours: { operatingHours: { open: number; close: number }; closedWeekday: number | null }
+  dayLen: number
   syncMinutesAgo: number
   words: ResourceWords
   businessType: string | null
@@ -742,18 +752,17 @@ function bookingGuard(base: SectionBase, ctx: Ctx): SettingsSection {
 // weekly rows `storeHours()` builds (`weeklyHoursFrom`) — the live twin,
 // `effectiveCeiling` (settings.ts), runs the identical `longestOpenDayMin`
 // once the reader edits a day, so the initial render and the live answer
-// cannot disagree. `operatingHours`/`closedWeekday` are module-level fixture
-// data, not per-request, so this is a module-level derivation rather than a
-// per-call helper. `dayLengthMin` is the fallback for the case
+// cannot disagree. ⚖ §v11 V11-4 — per request (`ctx.dayLen`): under the door
+// the pair is the store's own. `dayLengthMin` is the fallback for the case
 // `longestOpenDayMin` cannot occur on this fixture (every day closed) — the
 // same floor-at-1 answer the old direct read gave.
-const dayLen = longestOpenDayMin(
-  Object.values(weeklyHoursFrom(hhmm(operatingHours.open), hhmm(operatingHours.close), closedWeekday)).map((day) => ({
+const dayLenOf = (h: { open: number; close: number }, closedWd: number | null) => longestOpenDayMin(
+  Object.values(weeklyHoursFrom(hhmm(h.open), hhmm(h.close), closedWd)).map((day) => ({
     on: day !== null,
     open: day?.open ?? '',
     close: day?.close ?? '',
   })),
-) ?? dayLengthMin({ open: operatingHours.open, close: operatingHours.close })
+) ?? dayLengthMin({ open: h.open, close: h.close })
 
 // ── 店舗情報・営業時間 ──────────────────────────────────────────────────────
 
@@ -778,9 +787,11 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
   }
   const p = storeBookingPolicy
   // ⚖ C1 — the plane boundary, and the ONE place the seven days come into being.
-  const fallbackWindow = { open: hhmm(operatingHours.open), close: hhmm(operatingHours.close) }
-  const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWeekday)
-  const closedName = `${WEEKDAYS.find(([n]) => n === closedWeekday)?.[1] ?? ''}曜`
+  const { operatingHours: pair, closedWeekday: closedWd } = ctx.hours
+  const fallbackWindow = { open: hhmm(pair.open), close: hhmm(pair.close) }
+  const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWd)
+  // ⚖ §v11 V11-3 — a store open every day gets its own sentence, never 「曜を定休日に設定」.
+  const closedSet = closedWd === null ? '定休日なしに設定' : `${WEEKDAYS.find(([n]) => n === closedWd)?.[1] ?? ''}曜を定休日に設定`
   return {
     ...head,
     blocks: [
@@ -836,7 +847,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
             + '。ボードの1日と、Reserveの受付枠は、この範囲を描きます。',
         },
         links: [{ label: '変更の記録を見る', sectionId: 'audit-log' }],
-        audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -2))}（${closedName}を定休日に設定）`,
+        audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -2))}（${closedSet}）`,
       }),
       block('store-hours.ops', '予約ボードの操作', '「今日の運営」のボードで、予約や予定ブロックを動かすときの刻みと、空きの守り方です。', [
         // ⚖ S17 — ONE RULE ONE HOME. スキマガード（強さ）・予約の移動単位・販売
@@ -854,7 +865,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           { link: { label: '予約と確保を開く', sectionId: 'booking-guard' } },
         ),
         row('store-hours.row-block-step', '予定ブロックの移動単位', '休憩・準備・記録・レジなどの予定ブロックを動かすときの刻みです。', [
-          num('store-hours.block-step', '予定ブロックの移動単位', opsConfig.blockStepMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
+          num('store-hours.block-step', '予定ブロックの移動単位', opsConfig.blockStepMin, 1, ctx.dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1167,7 +1178,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): Set
       block('people.equipment', typed ? fillWords(equipmentTitle, roomSlots) : '設備・枠', typed ? fillWords(equipmentNote, roomSlots) : 'この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。', beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
           seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', fillWords(classLabels.standard, roomSlots)], ['private', fillWords(classLabels.private, roomSlots)]]), r.room_class),
-          num(`people.cleanup-${r.id}`, fillWords(turnoverControl, { name: r.name, turnoverName }), r.cleanup_minutes, 0, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
+          num(`people.cleanup-${r.id}`, fillWords(turnoverControl, { name: r.name, turnoverName }), r.cleanup_minutes, 0, ctx.dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ])), {
         facts: [
           beds.length === 0
@@ -1909,7 +1920,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           source: 'コアは「分」で持ちます（2時間前 = 120分）',
         }),
         row('reserve.row-grid', 'お客様が選べる開始時刻', 'お客様がReserveで選べる開始時刻の刻みです。コースの長さはメニュー側の設定に従います。', [
-          num('reserve.grid', 'お客様が選べる開始時刻', opsConfig.reserveStartGridMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
+          num('reserve.grid', 'お客様が選べる開始時刻', opsConfig.reserveStartGridMin, 1, ctx.dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1918,7 +1929,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-session', '標準セッションの長さ', '1回分の施術の標準的な長さです。空き時間にこの長さが何回まるごと収まるかを先に数えます。', [
-          num('reserve.session', '標準セッションの長さ', opsConfig.standardSessionMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
+          num('reserve.session', '標準セッションの長さ', opsConfig.standardSessionMin, 1, ctx.dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1927,7 +1938,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-sellslot', '販売する枠の長さ', '今日の運営のボードが、まとまった空きを1つの「販売可能枠」として出すときの長さです。', [
-          num('reserve.sellslot', '販売する枠の長さ', opsConfig.sellSlotMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
+          num('reserve.sellslot', '販売する枠の長さ', opsConfig.sellSlotMin, 1, ctx.dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1936,7 +1947,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-gapfill', 'スキマ枠の販売', '予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。0にすると、スキマ枠そのものを販売しません。', [
-          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分', { zeroLabel: GAPFILL_ZERO_LABEL, ceilingFrom: WEEK_CEILING }),
+          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, ctx.dayLen, 1, '分', { zeroLabel: GAPFILL_ZERO_LABEL, ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
