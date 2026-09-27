@@ -1339,6 +1339,14 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect((await settingsHours(STORE.yokohama)).audit).toMatch(/（水曜・土曜を定休日に設定）$/)
   })
 
+  it('§v11 V11-7 — the month calendar counts each day in its OWN window: Thursday (11–22) and Monday (10–19) fit different numbers of courses', async () => {
+    withWeek()
+    const { calendar } = (await board(STORE.yokohama)) as unknown as { calendar: Array<{ m: number; d: number; wd: number; fits?: number; booked?: number }> }
+    const [mon, thu] = [21, 17].map((d) => calendar.find((c) => c.m === 9 && c.d === d)!) // no 横浜 booking on either day
+    expect([mon.wd, thu.wd, mon.booked, thu.booked]).toEqual([1, 4, 0, 0])
+    expect(thu.fits).toBeLessThan(mon.fits!) // the sample staff day starts at 10:00; Thursday's window opens at 11:00
+  })
+
   it('§v11 V11-6 P1 — never again: every live booking of the day lies inside the hours the board draws, today and tomorrow, on every store with core hours', async () => {
     let seen = 0
     for (const store of Object.keys(OWN_HOURS)) {

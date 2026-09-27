@@ -316,6 +316,8 @@ export default async function TodayPage({
     // 定休日 has no capacity to advertise — a closed day advertising capacity is
     // the impossible state, not a rounding question.
     const closed = planes.closedWeekdays.includes(p.wd)
+    // ⚖ §v11 V11-7 — the day's OWN window (a closed day counts 0 below; the shown pair keeps the read total).
+    const own = planes.weeklyHours[p.wd] ?? planes.operatingHours
     // ⚠ 勤務不可 belongs to ONE day, and to that day WHATEVER DAY IS ON SCREEN.
     // The absence comes from its own per-day door rather than from the shown
     // day's planes, so today's cell carries today's incident while the operator
@@ -327,8 +329,8 @@ export default async function TodayPage({
           shifts,
           qualifications: planes.staffQualifications,
           absence: absenceForDay(dayKey, absenceByDay),
-          open: planes.operatingHours.open,
-          close: planes.operatingHours.close,
+          open: own.open,
+          close: own.close,
           bookings: bookingsByDay.get(dayKey) ?? [],
           blocks: blocksForDay(dayKey, blocksByDay),
           sessionMin: planes.opsConfig.standardSessionMin,
