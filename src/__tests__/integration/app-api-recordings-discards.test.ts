@@ -455,10 +455,10 @@ describe('GET recordings/discards (+ /transcript) — a viewer WITHOUT all-store
     expect(listSegments).not.toHaveBeenCalled()
   })
 
-  it('…and the list does not show that row either (it could not place it in her stores)', async () => {
+  it('…and her LIST, whose recordings could not be read (this fake core has none), is a 502 — never an empty list (fix round 2)', async () => {
     const res = await LIST(listReq(), noParams)
-    expect(res.status).toBe(200)
-    expect((await res.json()).rows).toEqual([])
+    expect(res.status).toBe(502)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
   })
 
   it('an all-store viewer (the default owner / manager sets) is unchanged: the same row reads in full', async () => {

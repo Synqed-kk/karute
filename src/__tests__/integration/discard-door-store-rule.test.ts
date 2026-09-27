@@ -25,6 +25,10 @@ let ledger: Discard[] = []
 let recordings: Recording[] = []
 /** Session ids whose single-row read FAILS (not a 404) — an unknown store. */
 let rowReadFails = new Set<string>()
+/** The list's recordings WALK: fail outright, or report more rows than it
+ *  serves (a cut page budget) — fix round 2's "not an absence" cases. */
+let walkFails = false
+let walkReportsTotal: number | null = null
 const segmentsRead: string[] = []
 
 const discard = (sessionId: string, id: string): Discard => ({
@@ -58,8 +62,9 @@ const fakeClient = {
   },
   recordings: {
     async list(q: Record<string, unknown> = {}) {
+      if (walkFails) throw Object.assign(new Error('core 503'), { status: 503 })
       const page = Number(q.page ?? 1)
-      return { recordings: page === 1 ? recordings : [], total: recordings.length, page, page_size: 200 }
+      return { recordings: page === 1 ? recordings : [], total: walkReportsTotal ?? recordings.length, page, page_size: 200 }
     },
     async get(id: string) {
       if (rowReadFails.has(id)) throw Object.assign(new Error('core 503'), { status: 503 })
@@ -115,6 +120,8 @@ beforeEach(() => {
   ledger = [discard(S_A, 'd-a'), discard(S_B, 'd-b'), discard(S_N, 'd-n')]
   recordings = [rec(S_A, 'store-a'), rec(S_B, 'store-b'), rec(S_N, null), rec(S_KEPT, 'store-a')]
   rowReadFails = new Set()
+  walkFails = false
+  walkReportsTotal = null
   segmentsRead.length = 0
   actScope.current = ['store-a']
 })
@@ -196,16 +203,53 @@ describe('the 破棄の記録 list — the SAME store rule, same change', () => 
     expect(res.counts.total).toBe(2)
   })
 
-  it('a row the list could not place (recording detail unreadable) is hidden from a clamped viewer', async () => {
-    recordings = [rec(S_A, 'store-a')] // S_B and S_N are outside this read
-    const res = await listDiscardReasonsWithClient(client, 'business-fixture', CLAMPED_A)
-    expect(ids(res)).toEqual([S_A])
-  })
-
   it('an ALL-STORE viewer sees every row, placed or not', async () => {
     recordings = [rec(S_A, 'store-a')]
     const res = await listDiscardReasonsWithClient(client, 'business-fixture', ALL)
     expect(ids(res)).toEqual([S_A, S_B, S_N].sort())
+  })
+})
+
+// ── Fix round 2: a failed or cut walk is NOT an absence ─────────────────────
+describe('the 破棄の記録 list — the recordings walk reports its outcome (fix round 2)', () => {
+  it('(a) a CLAMPED viewer + a walk that FAILED → an error, never an empty list or zero counts', async () => {
+    walkFails = true
+    await expect(listDiscardReasonsWithClient(client, 'business-fixture', CLAMPED_A)).rejects.toThrow()
+    caps.current = new Set<Capability>(['staff.manage'])
+    await expect(listDiscardReasons()).resolves.toEqual({ ok: false, error: 'failed' })
+  })
+
+  it('(a) a CLAMPED viewer + a walk whose page budget was CUT → an error too', async () => {
+    walkReportsTotal = 100_000 // every slice reports far more than it serves
+    await expect(listDiscardReasonsWithClient(client, 'business-fixture', CLAMPED_A)).rejects.toThrow()
+  })
+
+  it('(b) a CLAMPED viewer + a COMPLETE walk + a SWEPT recording → the row is shown AND its words open — list and door agree row for row', async () => {
+    // S_B's and S_N's recordings are gone from core (swept): absent from the
+    // walk, 404 at the door. S_A is live in store-a; a store-b row is live too.
+    const S_LIVE_B = '0e0e0e0e-0000-4000-8000-00000000000e'
+    ledger = [...ledger, discard(S_LIVE_B, 'd-live-b')]
+    recordings = [rec(S_A, 'store-a'), rec(S_LIVE_B, 'store-b')]
+    const res = await listDiscardReasonsWithClient(client, 'business-fixture', CLAMPED_A)
+    const listed = new Set(res.rows.map((r) => r.recordingSessionId))
+    expect([...listed].sort()).toEqual([S_A, S_B, S_N].sort())
+    for (const id of [S_A, S_B, S_N, S_LIVE_B]) {
+      const opens = (await getDiscardTranscriptWithClient(client, id, CLAMPED_A)) !== 'forbidden'
+      expect({ id, listed: listed.has(id) }).toEqual({ id, listed: opens })
+    }
+    expect(res.counts.total).toBe(3)
+  })
+
+  it('(c) an ALL-STORE viewer + a walk that FAILED → rows and counts exactly as before (context is decoration)', async () => {
+    walkFails = true
+    const res = await listDiscardReasonsWithClient(client, 'business-fixture', ALL)
+    expect(res.rows.map((r) => r.recordingSessionId).sort()).toEqual([S_A, S_B, S_N].sort())
+    expect(res.counts.total).toBe(3)
+    expect(res.rows.every((r) => r.storeName === null && r.durationSeconds === null)).toBe(true)
+    caps.current = new Set(presetCapabilities('manager'))
+    const web = await listDiscardReasons()
+    if (!web.ok) throw new Error(`expected ok, got ${web.error}`)
+    expect(web.counts.total).toBe(3)
   })
 })
 
