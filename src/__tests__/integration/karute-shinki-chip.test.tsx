@@ -42,9 +42,10 @@ jest.mock('@/actions/karute', () => ({
   loadKaruteWindow: (...a: unknown[]) => loadKaruteWindow(...a),
 }))
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
 import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
+import { StaffSelector } from '@/components/staff/StaffSelector'
 
 const jstYmd = (daysAgo: number) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(
@@ -137,16 +138,25 @@ describe('switch OFF — the screen renders exactly as PR-1', () => {
     expect(visibleNames()).toEqual(ITEMS.map((i) => i.customerName))
   })
 
-  // S45 (rebased onto main's S44 layout): OFF = main's chip row, element for
-  // element — no chip, no extra wrapper, nothing pressable-and-pressed in it.
-  it('the chip row is exactly [month, 担当] — the same two children main renders', () => {
+  // S45 (rebased onto main's S44 layout), S46 (rebased onto option C): OFF =
+  // option C's chip row, element for element — no chip, no extra wrapper, no
+  // trim, nothing pressable-and-pressed in it outside the staff control's own
+  // segments.
+  it('the chip row is exactly [month, staff control] — the same two children option C renders', () => {
     renderList()
     const row = document.querySelector('[data-chip-row]')!
     const kids = Array.from(row.children) as HTMLElement[]
     expect(kids).toHaveLength(2)
     expect(within(kids[0]).getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })).toBeInTheDocument()
-    expect(within(kids[1]).getByRole('button', { name: /^(all|self)$/ })).toBeInTheDocument()
-    expect(row.querySelector('[aria-pressed]')).toBeNull()
+    expect(kids[1].querySelector('[data-staff-scope]')).not.toBeNull()
+    expect(within(kids[1]).getByRole('button', { name: 'all' })).toHaveAttribute('aria-pressed', 'true')
+    expect(row).not.toHaveAttribute('data-trim')
+    expect(row.className).toBe('flex flex-nowrap items-center gap-2')
+    expect(row.querySelector('[data-row-break]')).toBeNull()
+    const pressedOutsideControl = Array.from(row.querySelectorAll('[aria-pressed]')).filter(
+      (el) => !el.closest('[data-staff-scope]'),
+    )
+    expect(pressedOutsideControl).toEqual([])
   })
 })
 
@@ -179,18 +189,16 @@ describe('switch ON (test-only mock)', () => {
     mockSwitches.shinkiChip = true
   })
 
-  it('renders the chip between the month chip and 担当, OFF by default, outline', () => {
+  it('renders the chip between the month chip and the staff control, OFF by default, outline', () => {
     renderList()
     const chip = shinkiChip()
     expect(chip).toHaveAttribute('aria-pressed', 'false')
     expect(chip.className).not.toContain('bg-primary/8')
-    const row3 = chip.parentElement!
-    const buttons = Array.from(row3.children).flatMap((el) =>
-      el.tagName === 'BUTTON' ? [el] : Array.from(el.querySelectorAll(':scope > button')),
-    )
-    const idx = buttons.indexOf(chip)
-    expect(buttons[idx - 1].textContent).toMatch(/^\d{4}年\d{1,2}月/)
-    expect(buttons[idx + 1].textContent).toMatch(/^all$/)
+    expect(chip.parentElement).toHaveAttribute('data-chip-row')
+    const before = chip.previousElementSibling as HTMLElement
+    const after = chip.nextElementSibling as HTMLElement
+    expect(within(before).getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })).toBeInTheDocument()
+    expect(after.querySelector('[data-staff-scope]')).not.toBeNull()
   })
 
   it('counts ONLY === true rows — null and false never count', () => {
@@ -213,8 +221,8 @@ describe('switch ON (test-only mock)', () => {
 
   it('composes with the staff scope (AND) — the count moves with it', () => {
     renderList()
-    fireEvent.click(screen.getByRole('button', { name: /^(all|self)$/ }))
-    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    // Option C's control: 自分 is one tap.
+    fireEvent.click(screen.getByRole('button', { name: 'self' }))
     expect(shinkiCount()).toBe(2) // n3 is another staff's
     fireEvent.click(shinkiChip())
     expect(visibleNames()).toEqual(['顧客 n1', '顧客 n2'])
@@ -269,7 +277,7 @@ describe('switch ON (test-only mock)', () => {
 // the chip still toggles…'): the chip still toggles, no ✓ is drawn, its
 // contents keep their shape, and no inline transform/transition/will-change is
 // written anywhere in the chip row.
-describe('the on-state = the 担当 chip’s narrowed look — no ✓, nothing moves (switch ON)', () => {
+describe('the on-state = the narrowed-chip look (StaffSelector’s chip) — no ✓, nothing moves (switch ON)', () => {
   beforeEach(() => {
     mockSwitches.shinkiChip = true
   })
@@ -293,22 +301,34 @@ describe('the on-state = the 担当 chip’s narrowed look — no ✓, nothing m
     expect(chip).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('at rest and on, it wears exactly the 担当 chip’s classes (resting · narrowed)', () => {
-    renderList()
-    const staffChip = () => screen.getByRole('button', { name: /^(all|self)$/ })
+  // S46: option C replaced the カルテ tab's 担当 chip with the two-part
+  // control, so the look the 新規 chip was matched to is read off its source —
+  // StaffSelector's own chip trigger (the 担当 chip's code, unchanged), rendered
+  // on its own at rest (全スタッフ) and narrowed (自分).
+  it('at rest and on, it wears exactly StaffSelector’s chip classes (resting · narrowed)', () => {
     // The class sets, both directions, less shrink-0 (the month chip's wrapper
     // carries it; the 新規 chip is a bare child of the row).
-    const same = (a: Element, b: Element) => {
-      const set = (el: Element) =>
-        Array.from(el.classList).filter((c) => c !== 'shrink-0').sort()
-      expect(set(a)).toEqual(set(b))
+    const set = (el: Element) => Array.from(el.classList).filter((c) => c !== 'shrink-0').sort()
+    const selectorChip = (selected: string) => {
+      const r = render(
+        <StaffSelector
+          staffList={STAFF}
+          selected={selected}
+          onChange={() => {}}
+          scope={{ selfStaffId: 'staff-1', selfLabel: 'self', allLabel: 'all' }}
+        />,
+      )
+      const classes = set(r.container.querySelector('button')!)
+      r.unmount()
+      return classes
     }
-    same(shinkiChip(), staffChip()) // both at rest (全スタッフ)
-    fireEvent.click(staffChip())
-    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    const resting = selectorChip('all')
+    const narrowed = selectorChip('self')
+    expect(narrowed).toContain('bg-primary/8')
+    renderList()
+    expect(set(shinkiChip())).toEqual(resting)
     fireEvent.click(shinkiChip())
-    expect(staffChip()).toHaveTextContent(/^self$/)
-    same(shinkiChip(), staffChip()) // 新規 on · 担当 narrowed to 自分
+    expect(set(shinkiChip())).toEqual(narrowed)
     expect(shinkiChip().classList).toContain('bg-primary/8')
   })
 })
@@ -387,7 +407,7 @@ describe('switch ON — a discarded 新規 row · a degraded read · 共有 mode
     expect(visibleNames()).toEqual(['顧客 n1', '顧客 n2', '顧客 n3'])
   })
 
-  it('共有 mode: the count equals the rendered 新規 rows in that mode, and ANDs with 担当', async () => {
+  it('共有 mode: the count equals the rendered 新規 rows in that mode, and ANDs with the staff scope', async () => {
     const shared = [
       row('s1', true, { customerName: '共有 新規' }),
       row('s2', false, { customerName: '共有 再来' }),
@@ -419,10 +439,162 @@ describe('switch ON — a discarded 新規 row · a degraded read · 共有 mode
       'aria-pressed',
       'true',
     )
-    // AND with 担当 inside the mode: 自分 leaves s1 only.
-    fireEvent.click(screen.getByRole('button', { name: /^(all|self)$/ }))
-    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    // AND with the staff scope inside the mode: 自分 (one tap) leaves s1 only.
+    fireEvent.click(screen.getByRole('button', { name: 'self' }))
     expect(shinkiCount()).toBe(1)
     expect(shinkiCount()).toBe(renderedShinki(shared))
+  })
+})
+
+// S46 LEG 1b — the 新規 chip on top of option C: its count is trim step 2 of
+// the chip row (CHIP_ROW_STEPS = badgeOnly → shinkiCount → ownRow). jsdom has
+// no layout, so the row's widths are stubbed (the same seam option C's own
+// suite uses); the real px are the fit proof's
+// (scripts/fit-harness/shinki-on-c.mjs).
+describe('trim step 2 — the 新規 count (widths stubbed)', () => {
+  let rowWidth = 400
+  /** One-line natural width of the row as rendered right now: month chip 80;
+   *  the 新規 chip 60 + (its count while visible: 6 + 7 per digit); the staff
+   *  control 150 with a name, 90 as badge only / 全スタッフ; gaps 8. */
+  const natural = (row: Element) => {
+    const chip = row.querySelector(':scope > button[aria-pressed]')
+    const count = chip?.lastElementChild
+    const chipW = chip
+      ? 60 + (count && !count.classList.contains('sr-only') ? 6 + 7 * count.textContent!.length : 0)
+      : 0
+    const ctl = row.querySelector('[data-staff-scope]')
+    const ctlW = ctl ? (ctl.querySelector('.truncate') ? 150 : 90) : 0
+    return 80 + (chip ? 8 + chipW : 0) + (ctl ? 8 + ctlW : 0)
+  }
+  let spies: jest.SpyInstance[] = []
+  beforeEach(() => {
+    rowWidth = 400
+    const origRect = Element.prototype.getBoundingClientRect
+    spies = [
+      jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+        return this.hasAttribute('data-chip-row') ? rowWidth : 0
+      }),
+      jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        if (this.hasAttribute('data-chip-row')) {
+          const w = natural(this)
+          return { width: w, height: 36, top: 0, left: 0, right: w, bottom: 36, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+        }
+        return origRect.call(this)
+      }),
+    ]
+  })
+  afterEach(() => {
+    spies.forEach((s) => s.mockRestore())
+  })
+
+  const chipRow = () => document.querySelector<HTMLElement>('[data-chip-row]')!
+  const countSpan = () => shinkiChip().lastElementChild as HTMLElement
+  const wordSpan = () => shinkiChip().firstElementChild as HTMLElement
+  /** Mount at `width`, then pick 鈴木 花子 through the control's own list
+   *  (a pick restarts the walk). Her 新規 count is 1 (n3). */
+  const mountPicked = (width: number) => {
+    rowWidth = width
+    renderList()
+    fireEvent.click(screen.getByRole('button', { name: 'title' }))
+    fireEvent.click(screen.getByRole('option', { name: '鈴木 花子' }))
+    expect(screen.getByRole('button', { name: '鈴木 花子' })).toHaveAttribute('aria-pressed', 'true')
+  }
+
+  it('switch OFF: no chip, and step 2 is never in the walk (badge → own row directly)', () => {
+    // 鈴木 花子: 80 + 8 + 150 = 238; badge only 178. At 180: −58 → badge +2 → own row.
+    mountPicked(180)
+    expect(screen.queryByRole('button', { name: /^shinki/ })).not.toBeInTheDocument()
+    expect(chipRow()).toHaveAttribute('data-trim', 'badgeOnly ownRow')
+  })
+
+  describe('switch ON', () => {
+    beforeEach(() => {
+      mockSwitches.shinkiChip = true
+    })
+
+    // 鈴木 花子 (count 1): full 80+8+73+8+150 = 319 · badge 259 · no count 246.
+    it.each([
+      [400, undefined], // +81
+      [300, 'badgeOnly'], // −19 → badge +41
+      [260, 'badgeOnly shinkiCount'], // badge +1 → no count +14
+      [250, 'badgeOnly shinkiCount ownRow'], // no count +4 → own row
+    ])('at %ipx the walk applies the prefix %s — order badgeOnly → shinkiCount → ownRow', (w, trim) => {
+      mountPicked(w)
+      if (trim === undefined) expect(chipRow()).not.toHaveAttribute('data-trim')
+      else expect(chipRow()).toHaveAttribute('data-trim', trim)
+      const dropped = (trim ?? '').includes('shinkiCount')
+      expect(countSpan().classList.contains('sr-only')).toBe(dropped)
+      // Own row keeps the 新規 chip on line 1 with the month: the break sits
+      // after the chip, right before the control.
+      if ((trim ?? '').includes('ownRow')) {
+        expect(shinkiChip().nextElementSibling).toHaveAttribute('data-row-break')
+      }
+    })
+
+    it('全スタッフ (no name to trim): step 2 applies first, before the own row', () => {
+      // 全スタッフ (count 3): 80 + 8 + 73 + 8 + 90 = 259 → no count 246.
+      rowWidth = 262 // +3 → no count +16
+      renderList()
+      expect(chipRow()).toHaveAttribute('data-trim', 'shinkiCount')
+    })
+
+    it('the count dropped: 新規 stays visible, the number leaves the screen but stays spoken', () => {
+      // Untrimmed: the chip's accessible name = its word + its count.
+      mountPicked(400)
+      expect(chipRow()).not.toHaveAttribute('data-trim')
+      expect(screen.getByRole('button', { name: 'shinki 1' })).toBe(shinkiChip())
+      cleanup()
+      window.localStorage.clear()
+      // Step 2 applied: the same name — the count leaves the screen only.
+      mountPicked(260)
+      expect(chipRow()).toHaveAttribute('data-trim', 'badgeOnly shinkiCount')
+      expect(wordSpan()).toHaveTextContent('shinki')
+      expect(wordSpan().className).not.toContain('sr-only')
+      expect(countSpan().className).toContain('sr-only')
+      expect(countSpan()).toHaveTextContent('1')
+      expect(screen.getByRole('button', { name: 'shinki 1' })).toBe(shinkiChip())
+      // No aria-label: the name is the chip's own content (no new string).
+      expect(shinkiChip()).not.toHaveAttribute('aria-label')
+    })
+
+    it('a toggle keeps the same steps (the chip is as wide on as off)', () => {
+      mountPicked(260)
+      expect(chipRow()).toHaveAttribute('data-trim', 'badgeOnly shinkiCount')
+      fireEvent.click(shinkiChip())
+      expect(shinkiChip()).toHaveAttribute('aria-pressed', 'true')
+      expect(chipRow()).toHaveAttribute('data-trim', 'badgeOnly shinkiCount')
+      expect(countSpan().className).toContain('sr-only')
+    })
+
+    it('the count alone changing its digits re-walks: 12 → (下書き) 1 gives the count back', () => {
+      // 12 新規 rows, one of them 下書き. 全スタッフ: 80 + 8 + (60 + 6 + 14) + 8 + 90
+      // = 266; with 1 digit 259; no count 246.
+      const twelve = Array.from({ length: 12 }, (_, i) =>
+        row(`t${i}`, true, i === 0 ? { aiStatus: 'draft', summary: '' } : {}),
+      )
+      rowWidth = 270 // 266 → +4 → no count +24
+      renderList({ items: twelve, total: twelve.length })
+      expect(shinkiCount()).toBe(12)
+      expect(chipRow()).toHaveAttribute('data-trim', 'shinkiCount')
+      // Only the count changes (a state pill is not a width input) — 1 digit:
+      // 259 → +11, nothing to trim.
+      fireEvent.click(screen.getByRole('button', { name: /^filters\.draft/ }))
+      expect(shinkiCount()).toBe(1)
+      expect(chipRow()).not.toHaveAttribute('data-trim')
+      expect(countSpan().className).not.toContain('sr-only')
+    })
+
+    it('a count with more digits restarts the walk: back to 全スタッフ (3), the count is visible again', () => {
+      // 全スタッフ at 300: 259 → +41, nothing trimmed; a pick at 260 drops the
+      // count; 全スタッフ again re-walks from nothing trimmed.
+      mountPicked(260)
+      expect(chipRow()).toHaveAttribute('data-trim', 'badgeOnly shinkiCount')
+      rowWidth = 300
+      fireEvent.click(screen.getByRole('button', { name: 'title' }))
+      fireEvent.click(screen.getByRole('option', { name: 'all' }))
+      expect(chipRow()).not.toHaveAttribute('data-trim')
+      expect(countSpan().className).not.toContain('sr-only')
+      expect(shinkiCount()).toBe(3)
+    })
   })
 })
