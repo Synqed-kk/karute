@@ -17,6 +17,7 @@ import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import {
   SELF_ID,
   STAFF,
+  WIDE_ROSTER,
   customerRows,
   dayTotals,
   karuteItems,
@@ -81,7 +82,7 @@ function View() {
       discardedCount={12}
       initialWindowStart={null}
       initialHasMore={false}
-      staffList={STAFF}
+      staffList={q.get('roster') === 'wide' ? WIDE_ROSTER : STAFF}
       currentStaffId={SELF_ID}
       sharedCount={48}
       viewerHoldsViewShared

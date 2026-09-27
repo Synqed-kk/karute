@@ -9,7 +9,7 @@
 // Layout (⚖ カルテ TAB LOCKED 9/27 01:56 — supersedes 案C+'s row order):
 //   - Sticky title bar (カルテ + bell)
 //   - Search input (filter by customer / service / staff / summary) + ＋
-//   - One chip row: month (the month's name only, never a count) · 担当 dropdown
+//   - One chip row: month (the month's name only, never a count) · 自分 | 全スタッフ ⌄
 //   - The words row (すべて / 今週 / AI補完待ち / 下書き / 破棄済み [/ 共有])
 //   - Date-grouped records — each date renders a header
 //     "YYYY/MM/DD (曜) · 本日/昨日 · N件のカルテ" then the rows
@@ -37,7 +37,7 @@ import {
   SegmentedFilterBar,
   type WidthSteps,
 } from '@/components/customers/redesign/list/SegmentedFilterBar'
-import { StaffSelector } from '@/components/staff/StaffSelector'
+import { StaffScopeSegment } from '@/components/staff/StaffScopeSegment'
 import {
   rememberStaffScope,
   resolveStaffScope,
@@ -47,6 +47,7 @@ import {
 import { KaruteListRow, NoKaruteRevealRow, type NoKaruteCandidate } from './KaruteListRow'
 import { KaruteMonthSelector, shiftMonth } from './KaruteMonthSelector'
 import { NewKaruteDialog } from './NewKaruteDialog'
+import { useTrimSteps } from './trim-steps'
 import type { KaruteListFilter, KaruteListItem } from './types'
 import { loadKaruteWindow, revealNoKaruteCustomer } from '@/actions/karute'
 import { KARUTE_SESSION_DATE_EPOCH, karuteHasMore } from '@/lib/karute/karute-window'
@@ -182,6 +183,19 @@ const KARUTE_WORD_STEPS: Record<'ja' | 'en', Record<'withShared' | 'base', Width
   },
 }
 
+/** ⚖ S46 OPTION C — the chip row's trim order as the phone narrows (Liam's
+ *  own rule). A step applies only when every step before it still leaves
+ *  < 6px spare (trim-steps.ts):
+ *    1. 'badgeOnly' — the picked staffer shows as their badge only (the
+ *       control keeps the full name as its accessible name);
+ *    2. RESERVED — the 新規 chip's count. That chip lives on its own branch,
+ *       which inserts its step into CHIP_ROW_STEPS between 1 and 3;
+ *    3. 'ownRow' — the staff control drops to its own row.
+ *  A step with nothing to trim (no picked name → no 'badgeOnly') is left out
+ *  of the list, so the walk never spends a step on a no-op. */
+type ChipRowStep = 'badgeOnly' | 'ownRow'
+const CHIP_ROW_STEPS: readonly ChipRowStep[] = ['badgeOnly', 'ownRow']
+
 const isActiveKarute = (item: KaruteListItem) => !item.isDiscarded
 
 /**
@@ -294,7 +308,6 @@ export function KaruteRecordListView({
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
   const tCommon = useTranslations('common')
-  const tStaff = useTranslations('customers.list.staffFilter')
   const locale = useLocale()
   // URL-backed list state — back-navigation restores page + filters (same
   // pattern as the 顧客 list; search text deliberately stays local).
@@ -328,7 +341,7 @@ export function KaruteRecordListView({
   //    marked nothing. Same reasoning as the store-switch reset below, which
   //    clears the lens outright when the roster changes with the store.
   // Either collapses to 'all' HERE, and the list (applyScope, both calls),
-  // the 担当 chip (`selected`) and the URL writer all read this one value —
+  // the staff control (`selected`) and the URL writer all read this one value —
   // they can never disagree. The raw state keeps the pick, so a profile or a
   // roster that arrives later narrows again unchanged. ⚖ 退職スタッフのリンク =
   // 全員を表示 (Liam 9/27 01:56).
@@ -753,6 +766,26 @@ export function KaruteRecordListView({
     monthFloorRef.current = oldestLoadedMonth
   }
   const monthFloor = monthFloorRef.current
+
+  // The chip row's trim (option C). Its natural width depends on: the month
+  // label (locale + the month shown), the staff control's presence, 自分's
+  // presence, and the picked name.
+  const pickedStaffName = staffList.find((s) => s.id === effectiveStaffFilter)?.name ?? null
+  const {
+    ref: chipRowRef,
+    applied: chipRowTrimmed,
+    has: chipRowTrims,
+  } = useTrimSteps<ChipRowStep>(
+    pickedStaffName ? CHIP_ROW_STEPS : CHIP_ROW_STEPS.filter((s) => s !== 'badgeOnly'),
+    [
+      locale,
+      activeMonth ?? currentMonth,
+      staffList.length > 0 ? 'control' : 'none',
+      effectiveStaffFilter,
+      pickedStaffName ?? '',
+      currentStaffId ?? '',
+    ].join('|'),
+  )
 
   /** Leave month view — the accumulated default window is still in state, so
    *  this is a pure swap back with no fetch. */
@@ -1318,7 +1351,7 @@ export function KaruteRecordListView({
        *  is the one shared offset under the title bar on all three list
        *  pages. */}
       {/* ⚖ カルテ TAB LOCKED (Liam 9/27 01:56): search (＋ at its end) → the
-       *  chip row [month · 担当] → the words row → list (行の順 = チップが上).
+       *  chip row [month · 自分 | 全スタッフ ⌄] → the words row → list (行の順 = チップが上).
        *  No totals line (the 案C+ fold already removed it), no 「+ 新規カルテ」
        *  button (the circle is the add), no count on the month chip (月の件数 =
        *  オフ). 全件 still reads on すべて (the SAME storeUniverseTotal), the rest
@@ -1388,11 +1421,24 @@ export function KaruteRecordListView({
        *  next row pt-3 (12px), header rows gap-2 (8px), header → list mt-4
        *  (16px, the list card below). */}
       <div className="flex flex-col gap-2 pt-3">
-        {/* The chip row — ONE line, never wraps (⚖ FIT BY DESIGN 04:2x): the
-         *  month chip and the 担当 chip (StaffSelector's own anchored panel,
-         *  both edges clamped). The 新規 chip is PR-2's (its switch lives on
-         *  that branch), not on this one. */}
-        <div data-chip-row="" className="flex flex-nowrap items-center gap-2">
+        {/* The chip row — ONE line (⚖ FIT BY DESIGN 04:2x): the month chip
+         *  and the staff control (StaffSelector's own anchored panel, both
+         *  edges clamped). Where one line leaves < 6px spare it trims in
+         *  CHIP_ROW_STEPS order; only the last step ('ownRow') makes a second
+         *  line: the row wraps and a full-width 8px break (the header rows'
+         *  gap-2) puts the staff control on a row of its own, while whatever
+         *  sits before the break keeps line 1. The 新規 chip is PR-2's (its
+         *  switch lives on that branch), not on this one. */}
+        <div
+          ref={chipRowRef}
+          data-chip-row=""
+          data-trim={chipRowTrimmed.join(' ') || undefined}
+          className={
+            chipRowTrims('ownRow')
+              ? 'flex flex-wrap items-center gap-x-2'
+              : 'flex flex-nowrap items-center gap-2'
+          }
+        >
           <KaruteMonthSelector
             currentMonth={currentMonth}
             oldestMonth={monthFloor}
@@ -1400,23 +1446,21 @@ export function KaruteRecordListView({
             onSelect={(month) => void pickMonth(month)}
             busy={monthLoading}
           />
-          {/* 担当 — ONE dropdown chip carries 自分 / 全スタッフ / a name (same
-           *  'all' | 'self' | staffId keys). カルテ keeps this single chip
-           *  (⚖ 01:56 自分の切替 = チップ内); 予約/顧客 use the two-segment
-           *  control. Same gate the old row had. */}
+          {chipRowTrims('ownRow') && <div aria-hidden data-row-break="" className="h-2 basis-full" />}
+          {/* 自分 | 全スタッフ ⌄ — the SAME two-part control 顧客 and 予約 use
+           *  (⚖ S46 option C, Liam: the カルテ tab's single 担当 chip becomes
+           *  it). Same 'all' | 'self' | staffId keys, same remembered pick, same
+           *  gate the 担当 chip had (a roster to pick from). */}
           {staffList.length > 0 && (
-            <StaffSelector
+            <StaffScopeSegment
               staffList={staffList}
+              selfStaffId={currentStaffId ?? null}
               selected={effectiveStaffFilter}
               onChange={(next) => {
                 setStaffFilter(next as StaffFilterKey)
                 rememberStaffScope('records', currentStaffId, next)
               }}
-              scope={{
-                selfStaffId: currentStaffId ?? null,
-                selfLabel: tStaff('self'),
-                allLabel: tStaff('all'),
-              }}
+              badgeOnly={chipRowTrims('badgeOnly')}
             />
           )}
         </div>

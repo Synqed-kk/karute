@@ -9,9 +9,10 @@
  *     was retired by ⚖ 月の件数 = オフ, S44) — under the SAME honesty rules the line had (Greptile PR #775
  *     round 2: a failed count is never shown as a number, a failed main read
  *     shows no numbers at all);
- *   - the 担当 dropdown chip carries today's CustomersStaffFilter keys
- *     ('all' | 'self' | staffId) with no new meaning, names the current pick,
- *     and wears the R13 wash only while it narrows;
+ *   - the staff control (⚖ S46 option C: the 自分 | 全スタッフ ⌄ control 顧客
+ *     and 予約 use, replacing the 担当 chip) carries the same keys
+ *     ('all' | 'self' | staffId) with no new meaning and names the current
+ *     pick;
  *   - the ＋ opens the same manual-entry dialog the words CTA did.
  *
  * next-intl echoes the key + params (same idiom as the sibling suites), so
@@ -98,10 +99,14 @@ const renderList = (props: Partial<React.ComponentProps<typeof KaruteRecordListV
 /** The month chip — its accessible name is 「YYYY年M月」 (no count since S44). */
 const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月( \d+)?$/ })
 const allPill = () => screen.getByRole('button', { name: /^filters\.all/ })
-/** The 担当 dropdown chip — names the current pick ('all' / 'self' echo, or a
- *  staff name). */
-const staffChip = (name: RegExp | string = /^(all|self)$/) =>
-  screen.getByRole('button', { name })
+/** The 自分 | 全スタッフ ⌄ control (⚖ S46 option C — StaffScopeSegment, the
+ *  same control 顧客 and 予約 use): 自分 is its own segment ('self' echo);
+ *  segment 2's label names the state ('all' echo, or a picked staffer, spoken
+ *  by their FULL name); the chevron ('title' echo) opens the list. Its look
+ *  (on/off segments) is pinned in staff-scope-segment.test.tsx. */
+const selfSegment = () => screen.getByRole('button', { name: 'self' })
+const stateLabel = (name: RegExp | string = 'all') => screen.getByRole('button', { name })
+const chevron = () => screen.getByRole('button', { name: 'title' })
 
 beforeEach(() => {
   searchParams = new URLSearchParams()
@@ -165,21 +170,22 @@ describe('the folded numbers live on the controls, with the line’s honesty rul
   })
 })
 
-describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', () => {
-  it('is absent when there is no roster — the same gate the old row had', () => {
-    renderList({ staffList: [], currentStaffId: 'staff-1' })
+describe('the 自分 | 全スタッフ ⌄ control (⚖ S46 option C — replaces the 担当 chip)', () => {
+  it('is absent when there is no roster — the same gate the 担当 chip had', () => {
+    const { container } = renderList({ staffList: [], currentStaffId: 'staff-1' })
+    expect(container.querySelector('[data-staff-scope]')).toBeNull()
     expect(screen.queryByRole('button', { name: /^(all|self)$/ })).not.toBeInTheDocument()
   })
 
-  it('names 全スタッフ while nothing narrows, in the outline (non-wash) state', () => {
+  it('reads 全スタッフ while nothing narrows — segment 2 is the pressed one', () => {
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    expect(staffChip()).toHaveTextContent(/^all$/)
-    expect(staffChip().className).not.toContain('bg-primary/8')
+    expect(stateLabel()).toHaveAttribute('aria-pressed', 'true')
+    expect(selfSegment()).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('offers 自分 · 全スタッフ · the roster — same keys, 全スタッフ marked current', () => {
+  it('the chevron offers 自分 · 全スタッフ · the roster — same keys, 全スタッフ marked current', () => {
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    fireEvent.click(staffChip())
+    fireEvent.click(chevron())
     const listbox = screen.getByRole('listbox')
     const options = within(listbox).getAllByRole('option')
     // In this order, by accessible name (the avatar initials are aria-hidden).
@@ -198,36 +204,37 @@ describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', (
     )
   })
 
-  it('offers no 自分 row when the viewer has no staff profile', () => {
+  it('offers no 自分 — segment or row — when the viewer has no staff profile', () => {
     renderList({ staffList: STAFF, currentStaffId: null })
-    fireEvent.click(staffChip())
+    expect(screen.queryByRole('button', { name: 'self' })).not.toBeInTheDocument()
+    fireEvent.click(chevron())
     expect(screen.queryByRole('option', { name: 'self' })).not.toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'all' })).toBeInTheDocument()
   })
 
-  it('自分 narrows the list to the viewer’s rows, renames the chip and washes it', () => {
+  it('自分 narrows the list to the viewer’s rows in ONE tap', () => {
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    fireEvent.click(staffChip())
-    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    fireEvent.click(selfSegment())
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
-    expect(staffChip()).toHaveTextContent(/^self$/)
-    expect(staffChip().className).toContain('bg-primary/8')
-    expect(staffChip().className).toContain('text-primary')
+    expect(selfSegment()).toHaveAttribute('aria-pressed', 'true')
+    expect(stateLabel()).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByText('顧客 a1')).toBeInTheDocument()
     expect(screen.queryByText('他人 二郎')).not.toBeInTheDocument()
   })
 
-  it('a roster pick narrows to that staff and the chip names them; 全スタッフ returns', () => {
+  it('a roster pick narrows to that staff — family name shown, FULL name spoken; 全スタッフ returns', () => {
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    fireEvent.click(staffChip())
+    fireEvent.click(chevron())
     fireEvent.click(screen.getByRole('option', { name: '鈴木 花子' }))
-    expect(staffChip(/鈴木 花子/)).toBeInTheDocument()
+    const label = stateLabel('鈴木 花子')
+    expect(label).toHaveAttribute('aria-pressed', 'true')
+    expect(label.querySelector('.truncate')?.textContent).toBe('鈴木')
     expect(screen.getByText('他人 二郎')).toBeInTheDocument()
     expect(screen.queryByText('顧客 a1')).not.toBeInTheDocument()
 
-    fireEvent.click(staffChip(/鈴木 花子/))
+    fireEvent.click(chevron())
     fireEvent.click(screen.getByRole('option', { name: 'all' }))
-    expect(staffChip()).toHaveTextContent(/^all$/)
+    expect(stateLabel()).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('顧客 a1')).toBeInTheDocument()
     expect(screen.getByText('他人 二郎')).toBeInTheDocument()
   })
@@ -235,27 +242,26 @@ describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', (
   it('restores ?s=self from the URL (byte-identical initial params)', () => {
     searchParams = new URLSearchParams('s=self')
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    expect(staffChip()).toHaveTextContent(/^self$/)
+    expect(selfSegment()).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByText('他人 二郎')).not.toBeInTheDocument()
   })
 
   // S42: 'self' with no staff profile is ONE lens everywhere — the list view
-  // collapses it to 'all' before the list, the chip and the URL read it.
+  // collapses it to 'all' before the list, the control and the URL read it.
   describe('?s=self for a viewer with NO staff profile', () => {
     /** Every URL the writer replaced to — its `s` param, per call. */
     const writtenS = () =>
       mockReplace.mock.calls.map(([u]) => new URL(String(u), 'http://x').searchParams.get('s'))
 
-    it('the chip reads 全スタッフ with no wash, every row shows, and the URL carries no `s`', () => {
+    it('the control reads 全スタッフ, every row shows, and the URL carries no `s`', () => {
       searchParams = new URLSearchParams('s=self')
       renderList({ staffList: STAFF, currentStaffId: null })
-      expect(staffChip()).toHaveTextContent(/^all$/)
-      expect(staffChip().className).not.toContain('bg-primary/8')
-      expect(staffChip().className).not.toContain('text-primary')
+      expect(stateLabel()).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.queryByRole('button', { name: 'self' })).not.toBeInTheDocument()
       expect(screen.getByText('顧客 a1')).toBeInTheDocument()
       expect(screen.getByText('他人 二郎')).toBeInTheDocument()
       // The dropdown agrees: 全スタッフ is the current pick, 自分 is not offered.
-      fireEvent.click(staffChip())
+      fireEvent.click(chevron())
       expect(screen.getByRole('option', { name: 'all' })).toHaveAttribute('aria-selected', 'true')
       expect(screen.queryByRole('option', { name: 'self' })).not.toBeInTheDocument()
       const written = writtenS()
@@ -293,15 +299,14 @@ describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', (
     const writtenS = () =>
       mockReplace.mock.calls.map(([u]) => new URL(String(u), 'http://x').searchParams.get('s'))
 
-    it('the chip reads 全スタッフ with no wash, 全スタッフ is selected, every row shows, no `s`', () => {
+    it('the control reads 全スタッフ, 全スタッフ is selected, every row shows, no `s`', () => {
       searchParams = new URLSearchParams('s=staff-9')
       renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-      expect(staffChip()).toHaveTextContent(/^all$/)
-      expect(staffChip().className).not.toContain('bg-primary/8')
-      expect(staffChip().className).not.toContain('text-primary')
+      expect(stateLabel()).toHaveAttribute('aria-pressed', 'true')
+      expect(selfSegment()).toHaveAttribute('aria-pressed', 'false')
       expect(screen.getByText('顧客 a1')).toBeInTheDocument()
       expect(screen.getByText('他人 二郎')).toBeInTheDocument()
-      fireEvent.click(staffChip())
+      fireEvent.click(chevron())
       expect(screen.getByRole('option', { name: 'all' })).toHaveAttribute('aria-selected', 'true')
       expect(
         screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true'),
@@ -311,10 +316,10 @@ describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', (
       expect(written.every((v) => v === null)).toBe(true)
     })
 
-    it('control: a roster id narrows, the chip names them in the wash, the URL keeps `s`', () => {
+    it('control: a roster id narrows, the control names them, the URL keeps `s`', () => {
       searchParams = new URLSearchParams('s=staff-2')
       renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-      expect(staffChip(/鈴木 花子/).className).toContain('bg-primary/8')
+      expect(stateLabel('鈴木 花子')).toHaveAttribute('aria-pressed', 'true')
       expect(screen.getByText('他人 二郎')).toBeInTheDocument()
       expect(screen.queryByText('顧客 a1')).not.toBeInTheDocument()
       expect(writtenS().at(-1)).toBe('staff-2')
@@ -335,14 +340,14 @@ describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', (
       expect(screen.getByText('他人 二郎')).toBeInTheDocument()
       expect(writtenS().at(-1)).toBeNull()
       rerender(<KaruteRecordListView {...props} staffList={STAFF} />)
-      expect(staffChip(/鈴木 花子/)).toBeInTheDocument()
+      expect(stateLabel('鈴木 花子')).toBeInTheDocument()
       expect(screen.getByText('他人 二郎')).toBeInTheDocument()
       expect(screen.queryByText('顧客 a1')).not.toBeInTheDocument()
       expect(writtenS().at(-1)).toBe('staff-2')
     })
   })
 
-  it('the pills count AFTER the chip’s scope — 自分 moves 今週 with it', () => {
+  it('the pills count AFTER the control’s scope — 自分 moves 今週 with it', () => {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(new Date())
     renderList({
       staffList: STAFF,
@@ -355,8 +360,7 @@ describe('the 担当 dropdown chip (replaces the 自分/全スタッフ row)', (
     })
     const weekPill = () => screen.getByRole('button', { name: /^filters\.thisWeek/ })
     expect(weekPill().textContent).toBe('filters.thisWeek2')
-    fireEvent.click(staffChip())
-    fireEvent.click(screen.getByRole('option', { name: 'self' }))
+    fireEvent.click(selfSegment())
     expect(weekPill().textContent).toBe('filters.thisWeek1')
   })
 })
@@ -381,7 +385,7 @@ describe('the ＋ (manual entry) at the end of the search row', () => {
 })
 
 // ── ⚖ カルテ TAB LOCKED (Liam 9/27 01:56) — S44 ────────────────────────────
-// 行の順 = チップが上: search → the chip row [month · 担当] → the words row →
+// 行の順 = チップが上: search → the chip row [month · 自分 | 全スタッフ ⌄] → the words row →
 // list. 選択 = 太字＋青＋うすい下地, no ✓. 月の件数 = オフ. The remembered pick
 // (⚖ STAFF CONTROL 04:5x): URL > remembered > 全スタッフ, per person per tab.
 describe('カルテ TAB LOCKED — row order, the words row, the remembered pick', () => {
@@ -395,9 +399,11 @@ describe('カルテ TAB LOCKED — row order, the words row, the remembered pick
     expect(words).toBeTruthy()
     // DOCUMENT_POSITION_FOLLOWING: the words row comes after the chip row.
     expect(chips.compareDocumentPosition(words) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // The chip row holds the month chip and the 担当 chip — nothing else.
+    // The chip row holds the month chip and the staff control — nothing else.
+    expect(chips.children).toHaveLength(2)
     expect(within(chips as HTMLElement).getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })).toBeTruthy()
-    expect(within(chips as HTMLElement).getByRole('button', { name: /^all$/ })).toBeTruthy()
+    expect(chips.querySelector('[data-staff-scope]')).toBeTruthy()
+    expect(within(chips as HTMLElement).getByRole('button', { name: 'all' })).toBeTruthy()
     expect(words.getAttribute('data-words-row')).toBe('words')
   })
 
@@ -430,7 +436,7 @@ describe('カルテ TAB LOCKED — row order, the words row, the remembered pick
   it('no URL param: the remembered pick applies (karute:staffScope:records:<viewer>)', () => {
     window.localStorage.setItem('karute:staffScope:records:staff-1', 'staff-2')
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    expect(staffChip(/鈴木 花子/)).toBeInTheDocument()
+    expect(stateLabel('鈴木 花子')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByText('顧客 a1')).not.toBeInTheDocument()
     expect(screen.getByText('他人 二郎')).toBeInTheDocument()
   })
@@ -439,21 +445,20 @@ describe('カルテ TAB LOCKED — row order, the words row, the remembered pick
     window.localStorage.setItem('karute:staffScope:records:staff-1', 'staff-2')
     searchParams = new URLSearchParams('s=self')
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    expect(staffChip(/^self$/)).toBeInTheDocument()
+    expect(selfSegment()).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('a remembered staffer who left the roster reads 全スタッフ — label and list together', () => {
     window.localStorage.setItem('karute:staffScope:records:staff-1', 'staff-9')
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    expect(staffChip()).toHaveTextContent(/^all$/)
+    expect(stateLabel()).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('顧客 a1')).toBeInTheDocument()
     expect(screen.getByText('他人 二郎')).toBeInTheDocument()
   })
 
   it('a pick is remembered for this viewer, on this tab only', () => {
     renderList({ staffList: STAFF, currentStaffId: 'staff-1' })
-    fireEvent.click(staffChip())
-    fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: 'self' }))
+    fireEvent.click(selfSegment())
     expect(window.localStorage.getItem('karute:staffScope:records:staff-1')).toBe('self')
     expect(window.localStorage.getItem('karute:staffScope:customers:staff-1')).toBeNull()
   })
@@ -461,8 +466,8 @@ describe('カルテ TAB LOCKED — row order, the words row, the remembered pick
   it('a viewer with no staff profile: nothing remembered, nothing written', () => {
     window.localStorage.setItem('karute:staffScope:records:null', 'staff-2')
     renderList({ staffList: STAFF, currentStaffId: null })
-    expect(staffChip()).toHaveTextContent(/^all$/)
-    fireEvent.click(staffChip())
+    expect(stateLabel()).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(chevron())
     fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: '鈴木 花子' }))
     expect(Object.keys(window.localStorage).filter((k) => k !== 'karute:staffScope:records:null')).toEqual([])
   })

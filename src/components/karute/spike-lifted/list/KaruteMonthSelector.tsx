@@ -66,6 +66,22 @@ export function monthRange(newest: string, oldest: string): string[] {
   return out
 }
 
+/**
+ * The month CHIP's label (⚖ S46 option C, Liam's own idea): the month alone
+ * when it is in the list's current year (「9月」 / "Sep"), the year too for any
+ * other year (「2025年12月」 / "Dec 2025"). "Current year" is `currentMonth`'s —
+ * the list's own JST month, set once at mount — never the device clock, so a
+ * page left open across New Year cannot drift. The panel's rows do NOT use
+ * this: they keep their year always (formatMonth below).
+ */
+export function formatMonthChip(month: string, currentMonth: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: 'Asia/Tokyo',
+    ...(month.slice(0, 4) === currentMonth.slice(0, 4) ? {} : { year: 'numeric' as const }),
+    month: locale === 'ja' ? 'long' : 'short',
+  }).format(new Date(`${month}-01T00:00:00+09:00`))
+}
+
 export function KaruteMonthSelector({
   currentMonth,
   oldestMonth,
@@ -192,12 +208,15 @@ export function KaruteMonthSelector({
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-busy={busy}
+        // The spoken name is ALWAYS the full year + month, even while the
+        // visible label is the month alone (option C).
+        aria-label={formatMonth(shown)}
         className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
       >
         <Calendar size={13} className="shrink-0 text-muted-foreground" aria-hidden />
         {/* The month's NAME only, never a count (⚖ カルテ TAB LOCKED 9/27
-         *  01:56 月の件数 = オフ). */}
-        <span className="tabular-nums">{formatMonth(shown)}</span>
+         *  01:56 月の件数 = オフ); the year only when it is not this year. */}
+        <span className="tabular-nums">{formatMonthChip(shown, currentMonth, locale)}</span>
         <ChevronDown
           size={13}
           className={cn(

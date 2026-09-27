@@ -18,8 +18,11 @@
 //
 // Look = the app's own segment (the 自分/全スタッフ ScopeToggle this replaces,
 // CustomersStaffFilter.tsx / ReservationStaffFilter.tsx: h-9 track, p-0.5,
-// border, bg-muted/50, text-xs font-medium; segments px-3 gap-1.5, on =
-// bg-card + text-foreground + shadow-sm). No new sizes, no new type.
+// border, bg-muted/50, text-xs font-medium; segments px-3 gap-1.5). The
+// pressed segment = the repo's R13 selected recipe (CLAUDE.md): bg-primary/8 +
+// text-primary — the same tokens as StaffSelector's own narrowed trigger; a
+// segment has no border of its own, so no border-primary. No new sizes, no
+// new type.
 // Words = ONE pair of keys on both tabs (reservation.staffFilter).
 
 import { ChevronDown, User, Users } from 'lucide-react'
@@ -31,7 +34,7 @@ import {
 } from '@/components/staff/StaffSelector'
 import { cn } from '@/lib/utils'
 
-const SEGMENT_ON = 'bg-card text-foreground shadow-sm'
+const SEGMENT_ON = 'bg-primary/8 text-primary'
 const SEGMENT_OFF = 'text-muted-foreground hover:text-foreground'
 
 export function StaffScopeSegment({
@@ -39,6 +42,7 @@ export function StaffScopeSegment({
   selfStaffId,
   selected,
   onChange,
+  badgeOnly = false,
 }: {
   staffList: StaffSelectorEntry[]
   /** The viewer's own staff id; null hides 自分 (no profile, nothing to be). */
@@ -46,6 +50,10 @@ export function StaffScopeSegment({
   /** RESOLVED scope: 'all' | 'self' | a staff id ON staffList. */
   selected: string
   onChange: (next: string) => void
+  /** The カルテ chip row's trim step 1 (⚖ S46 option C): a picked staffer
+   *  shows as their badge only — the name text is left out; the label button
+   *  keeps the full name as its accessible name. Default = as before. */
+  badgeOnly?: boolean
 }) {
   const t = useTranslations('reservation.staffFilter')
   const tPanel = useTranslations('staffSelector')
@@ -103,6 +111,9 @@ export function StaffScopeSegment({
               // so it announces the popup; from 自分 it is a plain toggle.
               aria-haspopup={!isSelf && canOpen ? 'listbox' : undefined}
               aria-expanded={!isSelf && canOpen ? open : undefined}
+              // A picked staffer is spoken by their FULL name — the visible
+              // label is the family name only (S46).
+              aria-label={active ? active.name : undefined}
               onClick={() => {
                 if (isSelf) {
                   setOpen(false)
@@ -128,7 +139,9 @@ export function StaffScopeSegment({
                   >
                     {active.initials}
                   </span>
-                  <span className="max-w-[6rem] truncate">{familyName(active.name)}</span>
+                  {!badgeOnly && (
+                    <span className="max-w-[6rem] truncate">{familyName(active.name)}</span>
+                  )}
                 </>
               ) : (
                 <>
@@ -151,7 +164,10 @@ export function StaffScopeSegment({
                 <ChevronDown
                   size={13}
                   className={cn(
-                    'shrink-0 text-muted-foreground transition-transform',
+                    'shrink-0 transition-transform',
+                    // Inside the pressed segment the chevron takes the
+                    // segment's accent, as StaffSelector's narrowed chevron.
+                    isSelf ? 'text-muted-foreground' : 'text-primary',
                     open && 'rotate-180',
                   )}
                   aria-hidden
