@@ -42,10 +42,10 @@ import {
   listResources,
   listStaff,
   listStoreOptions,
-  readDayPlanes,
   readReserveCardColor,
   readShellIdentity,
   readStoreAddress,
+  readStoreHours,
   renderNow,
   type StoreLens,
 } from '@/business/lib/data'
@@ -203,9 +203,9 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   const [staff, menus, resources] = clamped
     ? await Promise.all([listStaff(lens), listMenus(lens), listResources(lens)])
     : [[], [], []]
-  // ⚖ §v11 V11-4 — under the practice switch the 営業時間 block states the BOARD's 営業時間 · 定休日: the door's
-  // one resolver, through the same day plane (V9-4's gap closes). OFF reads the fixture pair, exactly as before.
-  const hours = practiceTenant() !== null && clamped ? await readDayPlanes(lens, jstDayKey(now)) : { operatingHours, closedWeekday }
+  // ⚖ §v11 V11-4 — the 営業時間 block states the BOARD's 営業時間 · 定休日: under the practice switch the door's one
+  // resolver (V9-4's gap closes), OFF the fixture pair itself (data.ts's readStoreHours). No store → the shared pair.
+  const hours = clamped ? await readStoreHours(lens, jstDayKey(now)) : { operatingHours, closedWeekday }
 
   // ⚖ PR-3 §v3 V3-4 — THE MARK IS THE PLANE TABLE'S (the facade's readers, one
   // implementation): a block names the plane it shows and the table answers.
@@ -814,7 +814,8 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
       // core's `weekly_hours` is (`WeeklyHours`, dist/types.d.ts:1047-1050 — one
       // window per weekday, a null weekday meaning 定休日). The seven are
       // DERIVED here, once, from the single pair the board and Reserve already
-      // read (`fixtures-today.operatingHours` + `closedWeekday`): the settings
+      // read (`ctx.hours`: ⚖ §v11 the door's resolver under the switch, the
+      // fixture pair OFF): the settings
       // plane states no second copy of them (`fixtures-settings`'s own ADD-ONLY
       // law). `row.weekday` carries the day number so the payload can be read
       // back off the rendered rows rather than off an id format.

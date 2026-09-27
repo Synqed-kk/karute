@@ -635,6 +635,13 @@ async function storeHoursOf(actor: PracticeActor, lens: StoreLens, dayKey: numbe
   return { operatingHours: day.closed ? usual : { open: day.open, close: day.close }, closedWeekday: closedWeekdayOf(weekly), hoursSource: 'core' }
 }
 
+/** ⚖ §v11 V11-4 — 設定's light read: the store's 営業時間 · 定休日 for one day through the same resolver as the board. */
+export async function readStoreHours(lens: StoreLens, dayKey: number): Promise<StoreHours> {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  return storeHoursOf(actor, lens, dayKey)
+}
+
 export async function readDayPlanes(lens: StoreLens, dayKey: number) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)

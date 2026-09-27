@@ -353,6 +353,7 @@ const DOOR_READERS = [
   'readStoreAddress', // ⚖ A1b · K11 — the store's own address (lens first)
   'readCanManageCardColor', // ⚖ A2 · G5 — may this operator save the card colour (core's sheet)
   'readBookingColors', // 予約の色分け — org settings `booking_colors`, raw (no lens; today's board reads it)
+  'readStoreHours', // ⚖ §v11 V11-4 — a store's 営業時間 · 定休日 for one day (設定's read; lens first)
 ] as const
 /** ⚖ A2 (Liam 9/24) — the ONE writer beside them. */
 const DOOR_WRITERS = ['writeReserveCardColor'] as const
@@ -360,7 +361,7 @@ const DOOR_WRITERS = ['writeReserveCardColor'] as const
 const DOOR_HELPERS = ['canManageSettings', 'orgSettingsOf'] as const
 
 describe('the door', () => {
-  it('exports exactly the twenty readers and the one writer, and two helpers', () => {
+  it('exports exactly the twenty-one readers and the one writer, and two helpers', () => {
     expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, ...DOOR_WRITERS, ...DOOR_HELPERS].sort())
   })
   it('⚖ R-S39-1 — door-booking-colors.ts exports exactly the one writer', () => {

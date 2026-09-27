@@ -464,6 +464,14 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
   }
 }
 
+/** ⚖ §v11 V11-4 — a store's 営業時間 · 定休日 for one day, alone (設定's read; the board reads them in its
+ *  plane). OFF: the fixture pair itself, exactly the two constants 設定 read before. */
+export async function readStoreHours(lens: StoreLens, dayKey: number) {
+  if (practiceTenant() !== null) return door.readStoreHours(lens, dayKey)
+  assertLens(lens)
+  return { operatingHours, closedWeekday }
+}
+
 /** The 予約一覧 exception plane (asks C-1, C-2, C-5, C-6, C-10). Read as ONE
  *  call with the day planes it depends on for the SAME reason `readDayPlanes`
  *  bundles its three: a deadline read a moment apart from the shift that
