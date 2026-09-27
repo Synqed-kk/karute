@@ -37,6 +37,14 @@ const adoptTakeSession = jest.fn(async (_takeId: string, session: string, path: 
   store.meta = { ...store.meta, recordingSessionId: session, finalizedAt: 1, finalizedPath: path }
   return true
 })
+// S49 harness: secureTake stamps the row the attach minted through this door.
+// First write wins and a missing take is a no-op — the shape of take-store's
+// stampTakeSession (the real one is pinned in take-durability.test.ts).
+const stampTakeSession = jest.fn(async (_takeId: string, session: string) => {
+  if (!store.meta || store.meta.recordingSessionId) return false
+  store.meta = { ...store.meta, recordingSessionId: session }
+  return true
+})
 jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: async () => (store.meta ? { ...store.meta } : null),
   loadTakeBlob: async () => store.blob,
@@ -51,6 +59,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   // write — the shape of take-store's adoptTakeSession (the real one is pinned
   // in take-durability.test.ts, S34 T3/T7).
   adoptTakeSession: (id: string, session: string, path: string) => adoptTakeSession(id, session, path),
+  stampTakeSession: (id: string, session: string) => stampTakeSession(id, session),
   TERMINAL_SECURE_ERRORS: new Set(['reserved_elsewhere', 'exists', 'size_mismatch']),
 }))
 
@@ -77,7 +86,10 @@ const mintTakeUrl = jest.fn(
   }),
 )
 const finalizeTake = jest.fn(async (_input: Record<string, unknown>): Promise<{ ok: true } | { error: string }> => ({ ok: true }))
-const startSession = jest.fn(async () => null)
+// S49 harness: the session door answers the row a test names (null = it
+// failed, today's default). Reset before every case, so no answer leaks.
+let startSessionAnswer: { id: string } | null = null
+const startSession = jest.fn(async (_input?: Record<string, unknown>): Promise<{ id: string } | null> => startSessionAnswer)
 const prepareTranscription = jest.fn(async (_blob: Blob, finalizedPath: string | null, _opts?: unknown) => ({
   body: { path: finalizedPath ?? 'app_biz-1_server-named.webm' },
   path: finalizedPath ?? 'app_biz-1_server-named.webm',
@@ -90,7 +102,7 @@ jest.mock('@/lib/ports/recording-port', () => ({
     prepareTranscription: (b: Blob, p: string | null, o?: unknown) => prepareTranscription(b, p, o),
     mintTakeUrl: (t: string, m: string, s: string) => mintTakeUrl(t, m, s),
     finalizeTake: (i: Record<string, unknown>) => finalizeTake(i),
-    startSession: () => startSession(),
+    startSession: (i?: Record<string, unknown>) => startSession(i),
   }),
 }))
 
@@ -109,6 +121,7 @@ beforeEach(() => {
   jest.spyOn(console, 'warn').mockImplementation(() => {})
   store.meta = null
   store.blob = null
+  startSessionAnswer = null
 })
 
 describe('t1 — a fallback with a known session lands on the ORIGINAL row, no new row', () => {
