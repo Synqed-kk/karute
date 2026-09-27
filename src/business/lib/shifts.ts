@@ -126,7 +126,7 @@ export interface RosterMember {
  *  impossible state (⚖ 8/9: a person off and the assigned 担当 on the same day)
  *  out, rather than choosing a weekday that dodges the bookings: dodging would
  *  put the lens back into the answer. */
-export function restWeekday(seat: number, closedWd: number, todayWd: number): number {
+export function restWeekday(seat: number, closedWd: number | null, todayWd: number): number {
   const base = [2, 3, 4, 5, 0, 6].filter((wd) => wd !== closedWd && wd !== todayWd)
   return base[seat % base.length]
 }
@@ -144,7 +144,7 @@ export function buildRoster(
   shifts: FixtureShift[],
   qualifications: Record<string, string[]>,
   wages: Record<string, number>,
-  closedWd: number,
+  closedWd: number | null,
   todayKey: number,
 ): RosterMember[] {
   const byStaff = new Map(shifts.map((s) => [s.staff_id, s]))
@@ -251,7 +251,7 @@ function workCell(shift: FixtureShift, staged: boolean, answered: Cell['answered
 }
 
 export interface DayContext {
-  closedWd: number
+  closedWd: number | null
   todayKey: number
   absence: FixtureAbsence | null
   /** The days that hold a 希望休, as `editKey(staffId, dayKey)`. A set, because
@@ -400,7 +400,7 @@ export function resolveLeaveRequests(
   roster: RosterMember[],
   todayKey: number,
   byDay: Map<number, FixtureAppointment[]>,
-  closedWd: number,
+  closedWd: number | null,
   horizonDays = 45,
 ): ResolvedLeave[] {
   const byId = new Map(roster.map((m) => [m.id, m]))

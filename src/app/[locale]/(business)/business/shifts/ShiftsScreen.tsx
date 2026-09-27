@@ -159,7 +159,7 @@ export interface ShiftsProps {
   refusedActions: Array<{ label: string; title: string }>
   plane: {
     todayKey: number
-    closedWd: number
+    closedWd: number | null
     absence: FixtureAbsence | null
     roster: RosterModel[]
     leaves: LeaveModel[]

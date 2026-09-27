@@ -72,7 +72,7 @@ export function weekdayOf(y: number, m: number, d: number): number {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
 }
 
-export function monthCoords(now: Date, monthsAgo: number, closedWeekday: number): MonthCoords {
+export function monthCoords(now: Date, monthsAgo: number, closedWeekday: number | null): MonthCoords {
   const today = jstYmd(now)
   const absolute = today.y * 12 + (today.m - 1) - monthsAgo
   const y = Math.floor(absolute / 12)
