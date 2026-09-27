@@ -145,14 +145,10 @@ export async function POST(request: Request) {
       // No new refusal here: that this route asks no records.write at all is an
       // existing gap, recorded, not fixed in PR-5.
       //
-      //
-      // ⚖ AND THE REPLAY ONLY FOR THE CALLER'S OWN TAKE (S46). The replay is
-      // the one answer on this arm the URL's token never gates, so it also
-      // needs the row the client names to hold this key and to be the caller's
-      // (takeKeyHolder → assertRecorderOwnsRow). Anything else — no row, a
-      // colleague's, a failed read — gets no replay: Deepgram fetches the
-      // signed URL, whose token is then the proof, exactly as a paid call
-      // always was, and the paid answer is still remembered. No new refusal.
+      // ⚖ S46: the REPLAY (the one answer the URL token never gates) also needs
+      // the caller's own row (takeKeyHolder). Otherwise Deepgram fetches the
+      // signed URL — its token is the proof — and the paid answer is still
+      // remembered. No new refusal.
       const urlKey = storageKeyFromAudioUrl(audioUrl)
       const audioKey =
         isOwnRecordingKey(urlKey, meter.businessId) &&

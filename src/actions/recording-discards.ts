@@ -443,13 +443,10 @@ export async function listDiscardReasonsWithClient(
   // re-implementing the profile↔card join.
   const nameById = staffNameByIdAcrossCardsAndProfiles(roster, cards)
 
-  // ⚖ THE WORDS DOOR'S OWN STORE RULE, IN THE SAME CHANGE (S46 closure 3): a
-  // row whose words would refuse to open is not listed. One spelling —
-  // canViewAllInStore over readDoorStoreId, judged by the recording's store,
-  // exactly as getDiscardTranscriptWithClient judges it. A recording this read
-  // could not place (context degraded, or outside its window) is 'unreadable':
-  // hidden from a clamped viewer, never from an all-store one. The counts
-  // below follow the listed rows.
+  // ⚖ THE WORDS DOOR'S OWN STORE RULE (S46): a row whose words would refuse to
+  // open is not listed — the same canViewAllInStore/readDoorStoreId judgment.
+  // A recording this read could not place is 'unreadable': hidden from a
+  // clamped viewer, never from an all-store one. Counts follow the rows.
   const inReach = (sessionId: string) =>
     canViewAllInStore({
       canViewAll: true,
@@ -576,12 +573,9 @@ export type GetDiscardTranscriptResult =
  * read that FAILED is not one of them: it THROWS, and each door reports that it
  * could not look — never empty segments.
  *
- * SCOPE: since S46 it reads segments only for a session a staff member has
- * DISCARDED, in a store this viewer can see (the two checks below). The A2-2
- * actions are still the sole writers of segments in this repo — a kept
- * recording's transcript lives on its karute record, never here — so the
- * discarded check changes no real answer today; it is what keeps this door a
- * discard door if a FUTURE segments writer ever appears.
+ * SCOPE (S46): only a session a staff member DISCARDED, in a store this viewer
+ * can see. The A2-2 actions remain the sole segment writers, so the discarded
+ * check changes no answer today; it keeps this a discard door if that changes.
  */
 export async function getDiscardTranscriptWithClient(
   synqed: ReturnType<typeof newSynqedClient>,
@@ -595,15 +589,11 @@ export async function getDiscardTranscriptWithClient(
     }
   | 'forbidden'
 > {
-  // ⚖ TWO CHECKS ADDED, NOTHING CLOSED (S46 closure 3; Liam 9/27: a manager
-  // reads a DISCARDED recording's words in full, and still does). Before a word
-  // is read: (1) is this recording actually discarded by a staff member — the
-  // same ledger read the save door asks (readStaffDiscard); (2) is it in a store
-  // this viewer can see — canViewAllInStore over readDoorStoreId, the transcript
-  // doors' own spelling, judged by the recording row (no karute is read here, as
-  // the list beside it reads none). All-store reach passes on every store, a
-  // failed row read included; a clamped viewer fails closed on it. An
-  // unreadable ledger THROWS: "could not check" is never "discarded".
+  // ⚖ TWO CHECKS ADDED, NOTHING CLOSED (S46; Liam 9/27: a manager reads a
+  // DISCARDED recording's words in full). Before a word is read: discarded by
+  // staff (readStaffDiscard), and in a store this viewer can see
+  // (canViewAllInStore over readDoorStoreId, by the recording row — the list
+  // reads no karute either). An unreadable ledger THROWS, never "discarded".
   const [verdict, recording] = await Promise.all([
     readStaffDiscard(synqed, recordingSessionId),
     synqed.recordings
@@ -658,11 +648,9 @@ export async function getDiscardTranscriptWithClient(
   }
 }
 
-/** S46: the viewer's store reach for the two 破棄の記録 doors. All-store access
- *  answers null straight from the capability — the first line of
- *  resolveStoreScope itself — so an owner or preset manager never depends on a
- *  scope read here; anyone else gets the act scope, failing CLOSED to [] on a
- *  degraded or failed read (viewerScopeForActs). */
+/** S46: store reach for the two 破棄の記録 doors — all-store access is null
+ *  straight from the capability (resolveStoreScope's own first line), so owners
+ *  and preset managers never depend on a scope read; anyone else fails CLOSED. */
 async function discardViewerReach(caps: Set<Capability>): Promise<readonly string[] | null> {
   if (caps.has('stores.viewAll')) return null
   return (await import('@/lib/auth/store-scope')).viewerScopeForActs()

@@ -73,12 +73,9 @@ export async function enqueueRecordingJob(
     if (!isOwnRecordingKey(input.audioPath, businessId)) {
       return { error: 'recording not found in this business' }
     }
-    // ⚖ AND THE SESSION MUST HOLD THIS KEY, AND BE THE CALLER'S (S46). The
-    // session id is REQUIRED here and becomes the job's own session, so unlike
-    // the read doors a row that does not hold `audioPath` is refused too — else
-    // naming one's own session beside a colleague's key would pass. Compared in
-    // the LOGIN-id space the rows use (profileStaffId), never the job's card id
-    // below. Same refusal as the key fence above: no oracle, no new string.
+    // ⚖ S46: the REQUIRED session becomes the job's own, so it must hold this
+    // key AND be the caller's (takeKeyHolder, 'own' only) — compared on the
+    // LOGIN id (profileStaffId), never the job's card id. The fence's refusal.
     const holder = await takeKeyHolder(async () => synqed, input.audioPath, input.recordingSessionId, async () => {
       const pairHeld = holdsOwnerKeys(await getMyCapabilities())
       return {

@@ -223,9 +223,8 @@ export async function runAIPipeline(
       ctx.recordingSessionId
     if (!finalizedPath) attachOutcome = known ? 'attach_failed' : 'no_session'
   }
-  // S46: the row that reserved the finalized key rides beside it, so the door
-  // can ask whose take it is (takeKeyHolder). Re-read: the attach above may have
-  // just stamped it. None → the door keeps today's answer.
+  // S46: the row that reserved the finalized key rides beside it (re-read: the
+  // attach may have just stamped it). None → the door keeps today's answer.
   const takeRow =
     takeId && finalizedPath ? ((await readTakeSecureMeta(takeId))?.recordingSessionId ?? null) : null
   // ⚖ THE SAME OBJECT IS NEVER PAID FOR TWICE (recording hole PR-2). The

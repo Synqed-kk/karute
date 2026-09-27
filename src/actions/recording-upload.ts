@@ -264,11 +264,9 @@ export async function recordingFinalizedKey(input: {
  * make a foreign path yours); a THROW from the gate or the identity read, and a
  * storage failure, are infrastructure and answer 'upstream'.
  *
- * ⚖ AND THE ROW NAMES ITS RECORDER (S46). `recordingSessionId` is the row the
- * caller says holds this key; when it does, the take doors' own predicate
- * decides (takeKeyHolder → assertRecorderOwnsRow) and a colleague's take is
- * 'forbidden' before anything is signed. No row — the unbound fallback, an older
- * tab — keeps the tenant-only answer above until every take has one.
+ * ⚖ S46: a `recordingSessionId` holding this key names its recorder
+ * (takeKeyHolder) — a colleague's take is 'forbidden' before anything is signed;
+ * no row (the unbound fallback, an older tab) keeps the tenant-only answer.
  */
 export async function mintRecordingReadUrl(
   path: string,
@@ -281,8 +279,7 @@ export async function mintRecordingReadUrl(
     if (!(await can('records.write'))) return { error: 'forbidden' }
     const businessId = await getBusinessId()
     if (!isOwnRecordingKey(path, businessId)) return { error: 'forbidden' }
-    // The actor exactly as mintRecordingUploadUrl builds it: the cookie's own
-    // login id, and the store reach only when the owner's pair is held.
+    // The actor exactly as mintRecordingUploadUrl builds it.
     const holder = await takeKeyHolder(
       async () => newSynqedClient(businessId, await getCurrentAccessToken()),
       path,

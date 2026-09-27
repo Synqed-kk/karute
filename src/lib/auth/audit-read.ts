@@ -13,23 +13,12 @@ export function canReadAuditLog(caps: Set<Capability>): boolean {
 }
 
 /**
- * WHAT THE 監査ログ READ-OUT WITHHOLDS (S46 closure 1). A recording's storage
- * key is `app_<businessId>_<takeId>.<ext>` (key-grammar.ts composeTakeKey), and
- * the recording rows carry those ingredients — the take id, the file type, and
- * on a failed job the whole key — in `detail`. Handed to the client, they let
- * any 監査ログ reader rebuild a colleague's key byte for byte and walk it
- * through the four key-gated doors.
- *
- * READ-OUT ONLY, never at the write: the STORED rows keep every field, because
- * two server readers depend on them — the recordings inbox matches a capture
- * warning to its own row by `detail.take_id` (recordings/inbox-read.ts), and the
- * job worker recognises an already-empty take by `detail.audio_path`
- * (jobs/empty-transcript-memory.ts). Both read core directly, never through the
- * two doors that apply this (web listAuditLog, the phone audit-log route).
- *
- * No surface renders any of these keys (AuditLogSection reads other fields
- * only), so nothing a reader sees changes. Top-level only: detail is flat by the
- * ids-only law. Rows without any of them pass through as the same object.
+ * WHAT THE 監査ログ READ-OUT WITHHOLDS (S46): a take's storage key is
+ * `app_<businessId>_<takeId>.<ext>`, and recording rows carry its ingredients
+ * (take id, file type, on a failed job the whole key) in `detail`.
+ * READ-OUT ONLY: stored rows keep them — the recordings inbox matches capture
+ * warnings by `detail.take_id` and the worker's empty-transcript memory reads
+ * `detail.audio_path`, both straight from core. No surface renders these keys.
  */
 const READ_OUT_WITHHELD_DETAIL_KEYS = ['take_id', 'row_take_id', 'ext', 'audio_path'] as const
 

@@ -690,8 +690,7 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditL
     // audit row of this invocation carries.
     requestId: crypto.randomUUID(),
   }
-  // S46: the READ-OUT withholds a recording's storage-key ingredients; the
-  // twin (and every stored row) keeps them — see withholdKeyIngredients.
+  // S46: the read-out withholds storage-key ingredients (withholdKeyIngredients).
   const res = await listAuditLogWithClient(synqed, actor, filters)
   return res.ok ? { ...res, events: withholdKeyIngredients(res.events) } : res
 }

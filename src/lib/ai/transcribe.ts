@@ -363,11 +363,8 @@ export interface TranscriptionMeter {
    *  is the fence: a key that is not this business's take or rescue composes
    *  no memo key, and the call pays exactly as it did before. */
   audioKey?: string | null
-  /** S46: false = still WRITE the paid answer under `audioKey`, but never
-   *  REPLAY one. The web JSON arm's replay is the one answer its URL token never
-   *  gates, so it is replayed only for a take the caller proved is theirs
-   *  (takeKeyHolder); a paid call is token-proven and safe to remember. Absent
-   *  = today's behaviour for every other door. */
+  /** S46: false = WRITE the paid answer under `audioKey`, never REPLAY one —
+   *  the web JSON arm replays only a take the caller proved is theirs. */
   replayMemo?: boolean
 }
 

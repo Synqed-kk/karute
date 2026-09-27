@@ -27,7 +27,7 @@
 // — a manager LIST read never logs (web parity: the web action emits nothing),
 // and ⚖ 8/17 doc law keeps the reason text out of audit details regardless.
 
-import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
+import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
@@ -44,12 +44,21 @@ export const GET = facadeHandler('recordings.discards.list', async (ctx) => {
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
 
+  // S46: all-store access = every store, straight from the capability; anyone
+  // else the Bearer act scope, failing CLOSED to [] (web: discardViewerReach).
+  const caps = ctx.identity.capabilities
+  const allowedStoreIds = caps.has('stores.viewAll')
+    ? null
+    : await viewerAllowedStoreIds({
+        synqed,
+        authUserId: ctx.identity.authUserId,
+        capabilities: caps,
+        selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId).catch(() => null),
+      })
+
   let result
   try {
-    // S46: the words door's own store rule, applied to the list it opens from.
-    result = await listDiscardReasonsWithClient(synqed, businessId, {
-      allowedStoreIds: await discardViewerReachFacade(ctx, synqed),
-    })
+    result = await listDiscardReasonsWithClient(synqed, businessId, { allowedStoreIds })
   } catch (err) {
     // The twin THROWS on a failed read rather than answering an empty ledger,
     // so a transient core failure surfaces as 502 upstream_unavailable — the
@@ -68,19 +77,3 @@ export const GET = facadeHandler('recordings.discards.list', async (ctx) => {
 })
 
 export const OPTIONS = GET // facadeHandler short-circuits OPTIONS before auth.
-
-/** S46: the transcript route's own discardViewerReachFacade, line for line —
- *  all-store access = null from the capability; anyone else the Bearer act
- *  scope, failing CLOSED to [] (a route file may export only its handlers). */
-async function discardViewerReachFacade(
-  ctx: FacadeContext,
-  synqed: ReturnType<typeof newSynqedClient>,
-): Promise<readonly string[] | null> {
-  if (ctx.identity.capabilities.has('stores.viewAll')) return null
-  return viewerAllowedStoreIds({
-    synqed,
-    authUserId: ctx.identity.authUserId,
-    capabilities: ctx.identity.capabilities,
-    selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId).catch(() => null),
-  })
-}

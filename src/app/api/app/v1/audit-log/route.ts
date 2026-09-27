@@ -96,8 +96,7 @@ export const GET = facadeHandler('audit.list', async (ctx) => {
     requestId: ctx.meta.requestId,
   }
 
-  // S46: the phone READ-OUT withholds a recording's storage-key ingredients,
-  // exactly as the web action does (withholdKeyIngredients); stored rows keep them.
+  // S46: the read-out withholds storage-key ingredients, as web does.
   const res = await listAuditLogWithClient(synqed, actor, filters)
   return ok(
     ctx,

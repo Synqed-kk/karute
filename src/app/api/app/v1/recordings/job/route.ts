@@ -105,10 +105,8 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     ctx.identity.businessId,
   ).catch(() => selfStaffId)
 
-  // ⚖ AND THE SESSION MUST HOLD THIS KEY, AND BE THE CALLER'S (S46) — the web
-  // twin's rule, word for word: the session is required and becomes the job's
-  // own, so a row that does not hold `audioPath` is refused too. Compared in
-  // the LOGIN-id space (selfStaffId), never the job's card id (staffId above).
+  // ⚖ S46: the web twin's rule — the session must hold this key AND be the
+  // caller's, on the LOGIN id (selfStaffId), never the card id (staffId).
   const pairHeld = holdsOwnerKeys(ctx.identity.capabilities)
   const holder = await takeKeyHolder(
     async () => synqed,

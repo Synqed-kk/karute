@@ -80,11 +80,9 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   const reference =
     mode === 'off' ? null : await loadStaffReferenceForStaff(orgSettings, selfStaffId)
 
-  // ⚖ AND THE ROW NAMES ITS RECORDER (S46), before anything is signed. The
-  // login id (selfStaffId) the rows are stamped with, the owner's hand's reach
-  // only when the pair is held — the upload-url twin's own actor. A colleague's
-  // take answers this door's existing refusal (no oracle, no new string); no
-  // row keeps today's answer.
+  // ⚖ S46: the row names its recorder, before anything is signed (the
+  // upload-url twin's actor). A colleague's take gets this door's existing
+  // refusal; no row keeps today's answer.
   const pairHeld = holdsOwnerKeys(ctx.identity.capabilities)
   const holder = await takeKeyHolder(async () => synqed, path, parsed.data.recordingSessionId, async () => ({
     staffId: selfStaffId,
