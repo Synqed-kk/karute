@@ -105,6 +105,9 @@ export interface RosterMember {
   name: string
   /** null = no shift plane at all (a roster member nobody has scheduled). */
   shift: FixtureShift | null
+  /** ⚖ §v11 V11-16 — the shown days whose OWN served shift differs from `shift` (null = none that day);
+   *  absent when no day differs. `cellFor` reads a day here first, so a closed today never empties the week. */
+  days?: Record<number, FixtureShift | null>
   restWd: number | null
   wage: number | null
   qualifications: string[]
@@ -138,7 +141,9 @@ export function seatOf(staffId: string): number {
   return n
 }
 
-/** The store's shift board roster, in the door's own order. */
+/** The store's shift board roster, in the door's own order. ⚖ §v11 V11-16 — `byDay` (the door's per-day served
+ *  shifts over the shown days): the standing `shift` is today's, else the person's first served one in the range;
+ *  `days` holds only the days that differ from it. */
 export function buildRoster(
   staff: FixtureStaff[],
   shifts: FixtureShift[],
@@ -146,15 +151,22 @@ export function buildRoster(
   wages: Record<string, number>,
   closedWds: number[],
   todayKey: number,
+  byDay?: Map<number, FixtureShift[]>,
 ): RosterMember[] {
   const byStaff = new Map(shifts.map((s) => [s.staff_id, s]))
   const todayWd = ymdOf(todayKey).wd
+  const shown = [...(byDay ?? new Map<number, FixtureShift[]>())].sort(([a], [b]) => a - b)
+  const same = (a: FixtureShift | null, b: FixtureShift | null) =>
+    a === b || (a !== null && b !== null && a.staff_id === b.staff_id && a.start === b.start && a.end === b.end && JSON.stringify(a.breaks) === JSON.stringify(b.breaks))
   return staff.map((m) => {
-    const shift = byStaff.get(m.id) ?? null
+    const on = shown.map(([k, xs]) => [k, xs.find((s) => s.staff_id === m.id) ?? null] as const)
+    const shift = byStaff.get(m.id) ?? on.find(([, s]) => s !== null)?.[1] ?? null
+    const differ = on.filter(([, s]) => !same(s, shift))
     return {
       id: m.id,
       name: m.full_name,
       shift,
+      ...(differ.length > 0 ? { days: Object.fromEntries(differ) } : {}),
       restWd: shift ? restWeekday(seatOf(m.id), closedWds, todayWd) : null,
       wage: shift ? (wages[m.id] ?? null) : null,
       qualifications: qualifications[m.id] ?? [],
@@ -267,14 +279,15 @@ export interface DayContext {
 
 /** ONE cell, and the whole precedence in one place so no two surfaces can
  *  resolve the same day differently. Order, strongest first: the store is shut ·
- *  nobody has scheduled this person at all · this session staged an edit · the
+ *  this session staged an edit · nobody has scheduled this person that day · the
  *  勤務不可 recorded on the board (today only) · a 希望休 and its answer · the
  *  weekly day off · the standing shift. */
 export function cellFor(member: RosterMember, dayKey: number, ctx: DayContext): Cell {
   const wd = ymdOf(dayKey).wd
   if (ctx.closedWds.includes(wd)) return EMPTY_CELL('closed')
-  if (!member.shift) return EMPTY_CELL('none')
+  const shift = member.days && dayKey in member.days ? member.days[dayKey] : member.shift // ⚖ V11-16 — the day's own, ONE read
 
+  // A staged edit is this session's answer for the day — it lands whether or not a shift was served that day.
   const key = editKey(member.id, dayKey)
   const staged = ctx.shiftEdits.get(key)
   if (staged) {
@@ -282,11 +295,12 @@ export function cellFor(member: RosterMember, dayKey: number, ctx: DayContext): 
       ? { ...EMPTY_CELL('rest'), staged: true }
       : workCell({ staff_id: member.id, start: staged.start, end: staged.end, breaks: [] }, true, null)
   }
+  if (!shift) return EMPTY_CELL('none')
 
   // 勤務不可 — the board's own record, applied through the board's own rule, so
   // the two surfaces cut the same shift at the same minute.
   if (ctx.absence && ctx.absence.staff_id === member.id && dayKey === ctx.todayKey) {
-    const cut = effectiveShift(member.shift, ctx.absence)
+    const cut = effectiveShift(shift, ctx.absence)
     if (cut.end <= cut.start) return { ...EMPTY_CELL('rest'), afterFrom: ctx.absence.from }
     return {
       ...workCell(cut, false, null),
@@ -298,14 +312,14 @@ export function cellFor(member: RosterMember, dayKey: number, ctx: DayContext): 
   if (ctx.leaveKeys.has(key)) {
     const answer = ctx.leaveAnswers.get(key)?.answer ?? null
     if (answer === 'approved') return { ...EMPTY_CELL('rest'), answered: 'approved' }
-    if (answer === 'rejected') return workCell(member.shift, false, 'rejected')
+    if (answer === 'rejected') return workCell(shift, false, 'rejected')
     // UNANSWERED: THE ROSTER STILL STANDS. A request is not a day off until
     // somebody says yes, so the hours stay on the books and the 人件費 estimate
     // keeps costing them — which is also what makes APPROVING one visibly drop
     // both. Costing a pending request at zero would quietly assume every
     // request will be granted, and would make the approval a lever with no
     // effect on the two numbers it is about.
-    return { ...workCell(member.shift, false, null), kind: 'leave-pending' }
+    return { ...workCell(shift, false, null), kind: 'leave-pending' }
   }
 
   // The weekly day off — UNLESS this person is the assigned 担当 of a booking
@@ -313,7 +327,7 @@ export function cellFor(member: RosterMember, dayKey: number, ctx: DayContext): 
   // the impossible state ⚖ 8/9 forbids; the booking is the harder fact, so it
   // wins and the person is working.
   if (member.restWd !== null && wd === member.restWd && !ctx.bookedKeys.has(key)) return EMPTY_CELL('rest')
-  return workCell(member.shift, false, null)
+  return workCell(shift, false, null)
 }
 
 /** A booking whose assigned staff member is not on shift for it — the one

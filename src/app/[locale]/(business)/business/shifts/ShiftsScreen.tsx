@@ -88,6 +88,7 @@ export interface RosterModel {
   id: string
   name: string
   shift: FixtureShift | null
+  days?: Record<number, FixtureShift | null>
   restWd: number | null
   wage: number | null
   qualifications: string[]

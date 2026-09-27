@@ -37,6 +37,7 @@ import {
   listCustomers,
   listMenus,
   listStaff,
+  listShiftsByDay,
   listStoreOptions,
   readDayPlanes,
   readShellIdentity,
@@ -130,15 +131,6 @@ export default async function ShiftsPage({
   const maySeeLaborCost = shiftsPolicy.laborCostRoles.includes(shell.operator.role)
   const mayApproveLeave = shiftsPolicy.leaveApprovalRoles.includes(shell.operator.role)
 
-  const roster: RosterMember[] = buildRoster(
-    staff,
-    planes.shifts,
-    planes.staffQualifications,
-    maySeeLaborCost ? hourlyWage : {},
-    planes.closedWeekdays,
-    todayKey,
-  )
-
   // ── the calendar the URL asks for ─────────────────────────────────────────
   // Both periods are ABSOLUTE in the URL and clamped here: the pickers and the
   // arrows write the same parameter, so the two controls cannot hold different
@@ -164,6 +156,19 @@ export default async function ShiftsPage({
   const weekDays = weekCoords(todayKey, weekOffset)
   const month = monthCoords(todayKey, monthOffset)
   const shownDays = view === 'week' ? weekDays : month.days
+
+  // ⚖ §v11 V11-16 — every shown day reads ITS OWN served shifts (a closed today serves [] for today only);
+  // one day's shifts are never copied onto the week.
+  const shiftsByDay = await listShiftsByDay(lens, { from: shownDays[0], to: shownDays[shownDays.length - 1] })
+  const roster: RosterMember[] = buildRoster(
+    staff,
+    planes.shifts,
+    planes.staffQualifications,
+    maySeeLaborCost ? hourlyWage : {},
+    planes.closedWeekdays,
+    todayKey,
+    shiftsByDay,
+  )
 
   // ── the joins every day needs ─────────────────────────────────────────────
   const byDay = new Map<number, typeof appointments>()
@@ -439,6 +444,7 @@ export default async function ShiftsPage({
         id: m.id,
         name: m.name,
         shift: m.shift,
+        ...(m.days ? { days: m.days } : {}),
         restWd: m.restWd,
         wage: m.wage,
         qualifications: m.qualifications,

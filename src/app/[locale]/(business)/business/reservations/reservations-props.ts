@@ -30,6 +30,7 @@ import {
   listCustomers,
   listMenus,
   listResources,
+  listShiftsByDay,
   listStaff,
   listStoreOptions,
   readReservationPlanes,
@@ -129,8 +130,9 @@ export async function reservationsPropsFor(
   const now = renderNow()
   const from = jstSlot(0, 0, 0, now)
   const to = jstSlot(WINDOW_DAYS, 0, 0, now)
+  const todayKey = jstDayKey(now)
 
-  const [doorWindow, doorAll, customers, menus, staff, resources, planes] = await Promise.all([
+  const [doorWindow, doorAll, customers, menus, staff, resources, planes, shiftsByDay] = await Promise.all([
     listAppointments(lens, { from, to }),
     // The SAME lens, unwindowed — the customer's own past, which the 来店なし
     // memory below counts over. The window above is today-forward by design
@@ -141,6 +143,8 @@ export async function reservationsPropsFor(
     listStaff(lens),
     listResources(lens),
     readReservationPlanes(lens),
+    // ⚖ §v11 V11-16 — each row reads ITS day's served shifts; `to` = +7 because the window admits a row at 00:00 of day +7.
+    listShiftsByDay(lens, { from: todayKey, to: todayKey + WINDOW_DAYS }),
   ])
 
   // ⚠ THE LENS STILL DECIDES. A harness world is filtered by the door's own
@@ -164,9 +168,8 @@ export async function reservationsPropsFor(
   const resourceName = new Map(resources.map((r) => [r.id, r.name]))
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const recordById = new Map(exceptionPlane.map((r) => [r.appointment_id, r]))
-  const shiftOf = (id: string | null) => planes.shifts.find((s) => s.staff_id === id) ?? null
+  const shiftOf = (id: string | null, dayKey: number) => (shiftsByDay.get(dayKey) ?? []).find((s) => s.staff_id === id) ?? null
 
-  const todayKey = jstDayKey(now)
   const closeMinute = planes.operatingHours.close
 
   /** 来店なし memory's own scope, shaped once so the pure counter needs no
@@ -243,7 +246,7 @@ export async function reservationsPropsFor(
         // where the booking really does fall outside its staff member's day.
         // A2 fix — the real instants, not the minute-of-day pair (an overnight
         // booking's endMinute wraps smaller than its startMinute).
-        shiftWarning: shiftWarningOf(who, shiftOf(a.staff_id), a.starts_at, a.ends_at),
+        shiftWarning: shiftWarningOf(who, shiftOf(a.staff_id, dayKey), a.starts_at, a.ends_at),
         // 担当資格 for the accept dialog's middle segment — the roster's own 資格
         // plane, never a literal (see qualificationTextOf).
         qualificationText: qualificationTextOf(

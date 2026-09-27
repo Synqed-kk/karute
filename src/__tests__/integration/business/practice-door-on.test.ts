@@ -1190,9 +1190,11 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:00', { occupied_until: jst('16:10') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // core's cleanup
     expect(await day([live(STORE.devSalon, ROOM_B, '15:00', '16:30', { occupied_until: jst('15:30') })])).toEqual({ slots: ['slot-02~5a171878'], cards: [] }) // P5 — an earlier snapshot never shortens the span
     expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'CANCELLED' })])).toEqual(both)
-    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'NO_SHOW' })])).toEqual(both) // P4 — NO_SHOW is core's tombstone too
+    // ⚖ §v11 V11-11 (PR-B) — the next two rows sit on 店主 (seated p-05: no slot), so they keep testing the ROOM alone; on slot-01's
+    // own person (Invite Probe) the slot is refused by the person rule — pinned in P8 below.
+    expect(await day([live(STORE.devSalon, ROOM_B, '16:30', '17:00', { status: 'NO_SHOW', staff_id: CARD.owner })])).toEqual(both) // P4 — NO_SHOW is core's tombstone too
     expect(await day([live(STORE.devSalon, ROOM_A, '18:00', '18:30', { kind: 'BLOCK', customer_id: null })])).toEqual({ slots: ['slot-01~5a171878'], cards: ['dec-capacity~5a171878'] })
-    expect(await day([live(STORE.devSalon, ROOM_A, '16:00', '17:00')])).toEqual(both) // P6 — slot-01's exact window on ANOTHER room: 個室B stays free
+    expect(await day([live(STORE.devSalon, ROOM_A, '16:00', '17:00', { staff_id: CARD.owner })])).toEqual(both) // P6 — slot-01's exact window on ANOTHER room: 個室B stays free
     expect(await day([live(STORE.tokyo, 'bed-02', '16:00', '17:00')])).toEqual(both) // an exact twin's room is never checked
     // P7 — a block begun the day BEFORE runs from 00:00 on the displayed day: a 00:00–01:00 slot on 個室B is not served.
     fxSlots.push({ ...fxSlots[0], id: 'slot-night', start: 0, end: 60 })
@@ -1511,6 +1513,121 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const res = (await data.readReservationPlanes(STORE.gym)).absence
     expect([day?.staff_id, day?.from]).toEqual(['3c7ecb3b-24f6-413b-8292-5b9d5292e511', 21 * 60 + 30]) // was 13:00 (fixture); past her last row
     expect([cal, res]).toEqual([day, day])
+  })
+
+  it('§v11 V11-14 P8 — never again: no sample sell slot is served on its person\'s live row, twin or borrower; 予約一覧 and the badge follow', async () => {
+    // Dev Salon with its two rooms (slot-01 → Invite Probe, slot-02 → perry) and 東京 (slot-01 → 見本 しろう): each slot-01's person
+    // holds a live booking inside the slot's window, on NO room — the room rule alone would serve both.
+    const at = (hm: string) => new Date(`2026-09-14T${hm}:00+09:00`).toISOString()
+    const booked = (n: string, store: string, staff_id: string) => ({ ...APPOINTMENTS[0], id: `00000000-0000-4000-8000-0000000000${n}`, store_id: store, staff_id, menu_id: MENU.zenten, resource_id: null, starts_at: at('16:30'), ends_at: at('17:00'), status: 'SCHEDULED' as const })
+    const rows = [booked('e8', STORE.devSalon, CARD.probe), booked('e9', STORE.tokyo, liveIdOf('staff', 'p-04')!)]
+    const spy = withReads()
+    spy.resourcesList.mockImplementation(async (q?: { store_id?: string }) => ({ resources: q?.store_id !== STORE.devSalon ? [] : ['d2', 'd1'].map((n) => ({ id: `00000000-0000-4000-8000-0000000000${n}`, store_id: STORE.devSalon, name: `個室${n}`, note: null, room_class: 'standard' as const, cleanup_minutes: 0, display_order: 0, active: true, created_at: 'x', updated_at: 'x' })) }))
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const more = rows.filter((a) => (!q?.store_id || a.store_id === q.store_id) && (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) && (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)))
+      return (q?.page ?? 1) > 1 ? r : { ...r, appointments: [...r.appointments, ...more] }
+    })
+    const counts = await data.readUnresolvedCounts()
+    let served = 0
+    const [got, want]: object[][] = [[], []]
+    for (const store of ALL7) {
+      const [day, res] = [await data.readDayPlanes(store, TODAY), await data.readReservationPlanes(store)]
+      const live = (await data.listAppointments(store)).filter((a) => jstDayKey(a.starts_at) === TODAY && a.board_state !== null)
+      const onRow = (xs: typeof day.sellSlots) => xs.filter((x) => live.some((a) => a.staff_id === x.staff_id && jstMinuteOfDay(a.starts_at) < x.end && x.start < jstMinuteOfDay(a.ends_at))).map((x) => x.id)
+      served += day.sellSlots.length
+      got.push({ store, day: onRow(day.sellSlots), res: onRow(res.sellSlots), badge: counts.byStore[store] })
+      want.push({ store, day: [], res: [], badge: day.decisions.filter((d) => d.state === 'open').length })
+    }
+    expect({ got, served }).toEqual({ got: want, served: 2 }) // each store's slot-02 still stands — never a vacuous pass
+  })
+
+  // ⚖ §v11 V11-16 (PR-B2) — THE TUESDAY PROBLEM: 東京 and 自由が丘 are closed on Tuesdays, so on a Tuesday TODAY's served
+  // shifts are [] — and a page that applied today's row to every shown day emptied the whole week.
+  const TUESDAY = '2026-09-15T04:24:00Z' // 13:24 JST, the day after the recorded day
+  it('§v11 V11-16 P21 — never again: on a closed today the 勤務表 reads EVERY shown day\'s own served shift — cells, 勤務予定 N名, the 人件費 and 希望休 gates', async () => {
+    const ShiftsPage = (await import('@/app/[locale]/(business)/business/shifts/page')).default
+    const { bookedKeysOf, cellFor, editKey, laborCost, resolveLeaveRequests } = await import('@/business/lib/shifts')
+    const { leaveRequests } = await import('@/business/lib/fixtures-shifts')
+    type Props = import('@/app/[locale]/(business)/business/shifts/ShiftsScreen').ShiftsProps
+    jest.setSystemTime(new Date(TUESDAY))
+    try {
+      const [got, want]: object[][] = [[], []]
+      for (const store of [STORE.tokyo, STORE.jiyugaoka]) {
+        expect((await data.readDayPlanes(store, jstDayKey(new Date(TUESDAY)))).shifts).toEqual([]) // the precondition — never vacuous
+        for (const view of ['week', 'month']) {
+          const { plane, head } = ((await ShiftsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, view }) })) as unknown as { props: Props }).props
+          const served = await data.listShiftsByDay(store, { from: plane.days[0].dayKey, to: plane.days[plane.days.length - 1].dayKey })
+          const ctx = { closedWds: plane.closedWds, todayKey: plane.todayKey, absence: plane.absence, leaveKeys: new Set(plane.leaves.map((l) => editKey(l.staffId, l.dayKey))), bookedKeys: bookedKeysOf(plane.days), shiftEdits: new Map(), leaveAnswers: new Map() }
+          const priced: Array<{ staffId: string; workedMinutes: number }> = []
+          for (const day of plane.days.filter((d) => !d.closed)) for (const m of plane.roster) {
+            const s = served.get(day.dayKey)!.find((x) => x.staff_id === m.id) ?? null
+            const cell = cellFor(m, day.dayKey, ctx)
+            priced.push({ staffId: m.id, workedMinutes: cell.workedMinutes })
+            if (view !== 'week') continue
+            const rest = m.restWd === day.wd && !ctx.bookedKeys.has(editKey(m.id, day.dayKey))
+            got.push({ store, day: day.dayKey, who: m.name, cell: cell.kind === 'none' ? null : cell.kind === 'rest' ? 'rest' : [cell.start, cell.end, cell.breaks] })
+            want.push({ store, day: day.dayKey, who: m.name, cell: s === null ? null : rest ? 'rest' : [s.start, s.end, s.breaks] })
+          }
+          // ON prices by FIXTURE ids (hourlyWage, shifts/page.tsx), so every ON wage is null on ANY day: the pin re-applies
+          // buildRoster's own gate (`wage: shift ? rate : null`) to the props' standing row, with a flat rate.
+          const yen = laborCost(priced, plane.roster.map((m) => ({ ...m, wage: m.shift ? 1500 : null }))).yen
+          got.push({ store, view, chip: Number(/\d+/.exec(head.rosterChip)![0]) > 0, worked: priced.some((p) => p.workedMinutes > 0), yen: view === 'month' && yen > 0 })
+          want.push({ store, view, chip: true, worked: true, yen: view === 'month' })
+          if (store !== STORE.tokyo || view !== 'week') continue
+          // 希望休 — the fixture requests seated on 東京's own cards (an exact twin): each one on the roster still resolves. Asked
+          // booking-free (the recorded world holds no 東京 booking after 9/14): the gate under test is the standing row.
+          const asked = leaveRequests.map((r) => ({ ...r, staff_id: liveIdOf('staff', r.staff_id) ?? r.staff_id, overlapsBooking: false })).filter((r) => plane.roster.some((m) => m.id === r.staff_id))
+          got.push({ leaves: [...new Set(resolveLeaveRequests(asked, plane.roster, plane.todayKey, new Map(), plane.closedWds).map((l) => l.staffId))].sort() })
+          want.push({ leaves: [...new Set(asked.map((r) => r.staff_id))].sort() })
+          expect(asked.length).toBeGreaterThan(0)
+        }
+      }
+      expect(got).toEqual(want)
+    } finally {
+      jest.setSystemTime(new Date('2026-09-14T04:24:00Z'))
+    }
+  })
+
+  it('§v11 V11-16 P22 — never again: on a closed today 予約一覧 reads each row\'s OWN day\'s served shift — a Wednesday row inside its person\'s shift is never flagged; one outside still is', async () => {
+    const { reservationsProps } = await import('@/app/[locale]/(business)/business/reservations/reservations-props')
+    jest.setSystemTime(new Date(TUESDAY))
+    try {
+      const wed = jstDayKey(new Date(TUESDAY)) + 1
+      const shiro = liveIdOf('staff', 'p-04')!
+      const shift = (await data.listShiftsByDay(STORE.tokyo, { from: wed, to: wed })).get(wed)!.find((x) => x.staff_id === shiro)
+      expect(shift && [shift.start <= 11 * 60, shift.end >= 12 * 60, shift.end < 19 * 60]).toEqual([true, true, true]) // the precondition
+      // The harness's own world seam (the route never passes it): the rows reach 予約一覧, never the door's served day.
+      const base = (await data.listAppointments(STORE.tokyo)).find((a) => a.status !== 'cancelled')!
+      const at = (hm: string) => new Date(`2026-09-16T${hm}:00+09:00`).toISOString()
+      const row = (n: string, from: string, to: string) => ({ ...base, id: `00000000-0000-4000-8000-0000000000${n}`, staff_id: shiro, starts_at: at(from), ends_at: at(to) })
+      const { props } = await reservationsProps({ locale: 'ja', store: STORE.tokyo, world: { appointments: [row('f1', '11:00', '12:00'), row('f2', '19:00', '20:00')] } })
+      const warn = (n: string) => props.rows.find((r) => r.id === `00000000-0000-4000-8000-0000000000${n}`)?.shiftWarning
+      expect({ inside: warn('f1'), outside: warn('f2') }).toEqual({ inside: null, outside: '見本 しろう 10:00–18:00・この予約は120分超過' })
+    } finally {
+      jest.setSystemTime(new Date('2026-09-14T04:24:00Z'))
+    }
+  })
+
+  it('§v11 V11-16 P25 (stress M7) — 予約一覧 reads its LAST day too: a row at exactly 00:00 of day +7 (the window admits it) inside its person\'s served shift that day is never flagged', async () => {
+    const { reservationsProps } = await import('@/app/[locale]/(business)/business/reservations/reservations-props')
+    const last = TODAY + 7
+    const shiro = liveIdOf('staff', 'p-04')!
+    const midnight = new Date('2026-09-21T00:00:00+09:00').toISOString()
+    const row = { ...APPOINTMENTS[0], id: '00000000-0000-4000-8000-0000000000f3', store_id: STORE.tokyo, staff_id: shiro, menu_id: MENU.zenten, resource_id: null, starts_at: midnight, ends_at: new Date('2026-09-21T00:30:00+09:00').toISOString(), status: 'SCHEDULED' as const }
+    const spy = withReads()
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const more = [row].filter((a) => (!q?.store_id || a.store_id === q.store_id) && (!q?.from || Date.parse(a.starts_at) >= Date.parse(q.from)) && (!q?.to || Date.parse(a.starts_at) < Date.parse(q.to)))
+      return (q?.page ?? 1) > 1 ? r : { ...r, appointments: [...r.appointments, ...more] }
+    })
+    // The precondition: day +7 is open and the live row stretches しろう's served shift to hold it (V11-8).
+    const served = (await data.listShiftsByDay(STORE.tokyo, { from: last, to: last })).get(last)!.find((x) => x.staff_id === shiro)
+    expect(served && [weekdayOfKey(last), served.start, served.end >= 30]).toEqual([1, 0, true])
+    const { props } = await reservationsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.rows.filter((r) => r.id === row.id).map((r) => ({ dayKey: r.dayKey, shiftWarning: r.shiftWarning }))).toEqual([{ dayKey: last, shiftWarning: null }])
   })
 
   it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {
