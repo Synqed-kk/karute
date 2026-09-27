@@ -1404,11 +1404,11 @@ export function KaruteRecordListView({
          *  session without the recording flow; the bottom-nav 録音 stays the
          *  AI-assisted path) is a solid primary circle at the row's end, the
          *  search field's own 36px: the header cannot hold a third item beside
-         *  its centred title (mock D32). The search keeps the app's 10px
-         *  radius — the mock's full-round field is a token proposal (D33),
-         *  not built. */}
+         *  its centred title (mock D32). The search is the mock's full pill
+         *  (rounded-full), built on Liam's 9/27 word; the 顧客 tab's
+         *  CustomerSearchInput carries the same radius — one look. */}
         <div className="flex items-center gap-2 md:mt-4">
-          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-border bg-card px-3 focus-within:border-sky-500">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="16"
