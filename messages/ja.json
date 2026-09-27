@@ -2615,6 +2615,7 @@
           "session_cleanup": "録音を破棄",
           "share": "録音を共有",
           "take_named": "録音のアップロード先を発行（既存セッション）",
+          "take_bound_server_named": "録音のアップロード先を発行（新規セッション）",
           "store_write_refused": "店舗権限のない録音の破棄を拒否",
           "take_refused_has_record": "二重紐付けを拒否",
           "transcribe": "録音を文字起こし",

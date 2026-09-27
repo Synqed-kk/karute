@@ -69,6 +69,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `recording.play` | recording | live | `settings.auditLog.actions.recording.play` |
 | `recording.share` | recording | live | `settings.auditLog.actions.recording.share` |
 | `recording.store_write_refused` | recording | live | `settings.auditLog.actions.recording.store_write_refused` |
+| `recording.take_bound_server_named` | recording | live | `settings.auditLog.actions.recording.take_bound_server_named` |
 | `recording.take_named` | recording | live | `settings.auditLog.actions.recording.take_named` |
 | `recording.take_refused_has_record` | recording | live | `settings.auditLog.actions.recording.take_refused_has_record` |
 | `recording.transcribe` | recording | live | `settings.auditLog.actions.recording.transcribe` |
