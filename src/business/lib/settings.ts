@@ -1262,7 +1262,7 @@ export const WEEKDAY_OF: Record<number, WeekdayKey> = {
 /** The seven days this world actually has, derived ONCE from the pair the board
  *  reads. The closed weekday becomes `null` — 定休日 — and every other day
  *  carries the store's own window. */
-export function weeklyHoursFrom(open: string, close: string, closedWeekday: number | null): WeeklyHours {
+export function weeklyHoursFrom(open: string, close: string, closedWeekday: number): WeeklyHours {
   const out: WeeklyHours = {}
   for (const [num, key] of Object.entries(WEEKDAY_OF)) {
     out[key] = Number(num) === closedWeekday ? null : { open, close }

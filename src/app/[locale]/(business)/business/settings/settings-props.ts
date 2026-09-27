@@ -63,6 +63,7 @@ import {
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { boardNow, closedWeekday, operatingHours, opsConfig, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import { historyOperatorName, samplePart, sampleSelfId, sampleWhole, storeSample, type LabeledPlaneKey, type PlaneKey } from '@/business/lib/practice-door/sample-facade'
+import { weekFromPair, type StoreHours } from '@/business/lib/practice-door/store-hours'
 import { practiceTenant } from '@/business/lib/practice-door/switch'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
 import { countWord, GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
@@ -82,8 +83,6 @@ import {
   RAIL,
   sectionById,
   WEEK_CEILING,
-  WEEKDAY_OF,
-  weeklyHoursFrom,
   yen,
   type ControlOption,
   type RailEntry,
@@ -205,7 +204,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     : [[], [], []]
   // ⚖ §v11 V11-4 — the 営業時間 block states the BOARD's 営業時間 · 定休日: under the practice switch the door's one
   // resolver (V9-4's gap closes), OFF the fixture pair itself (data.ts's readStoreHours). No store → the shared pair.
-  const hours = clamped ? await readStoreHours(lens, jstDayKey(now)) : { operatingHours, closedWeekday }
+  const hours = clamped ? await readStoreHours(lens, jstDayKey(now)) : { operatingHours, weeklyHours: weekFromPair(operatingHours, [closedWeekday]), closedWeekdays: [closedWeekday] }
 
   // ⚖ PR-3 §v3 V3-4 — THE MARK IS THE PLANE TABLE'S (the facade's readers, one
   // implementation): a block names the plane it shows and the table answers.
@@ -224,8 +223,8 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     staff,
     menus,
     resources,
-    hours: { operatingHours: hours.operatingHours, closedWeekday: hours.closedWeekday },
-    dayLen: dayLenOf(hours.operatingHours, hours.closedWeekday),
+    hours: { operatingHours: hours.operatingHours, weeklyHours: hours.weeklyHours, closedWeekdays: hours.closedWeekdays },
+    dayLen: dayLenOf(hours.weeklyHours, hours.operatingHours),
     // 「最終同期は…分前」 — ONE TRUTH for the last sync: the shell's own stamp,
     // measured against the board's moment it was set before (data.ts / door.ts
     // `readShellIdentity`), never the wall clock.
@@ -342,9 +341,9 @@ interface Ctx {
   staff: Awaited<ReturnType<typeof listStaff>>
   menus: Awaited<ReturnType<typeof listMenus>>
   resources: Awaited<ReturnType<typeof listResources>>
-  /** ⚖ §v11 V11-4 — the 営業時間 block's pair + 定休日 (the board's own under the door; null = none), and the
-   *  length ceiling they give (`dayLenOf`). */
-  hours: { operatingHours: { open: number; close: number }; closedWeekday: number | null }
+  /** ⚖ §v11 V11-4/V11-7 — the 営業時間 block's WEEK + 定休日 (the board's own under the door; [] = none) and the day
+   *  shown's pair, and the length ceiling the week gives (`dayLenOf`). */
+  hours: Pick<StoreHours, 'operatingHours' | 'weeklyHours' | 'closedWeekdays'>
   dayLen: number
   syncMinutesAgo: number
   words: ResourceWords
@@ -749,18 +748,18 @@ function bookingGuard(base: SectionBase, ctx: Ctx): SettingsSection {
 // ⚖ D-36 — THE SERVER MAX FOR EVERY LENGTH ROW, hoisted to ONE module-level
 // value so `storeHours`, `peopleEquipment` and `reserveAcceptance` never
 // answer three different ceilings for the same store. Computed from the SAME
-// weekly rows `storeHours()` builds (`weeklyHoursFrom`) — the live twin,
+// weekly rows `storeHours()` builds (`ctx.hours.weeklyHours`) — the live twin,
 // `effectiveCeiling` (settings.ts), runs the identical `longestOpenDayMin`
 // once the reader edits a day, so the initial render and the live answer
-// cannot disagree. ⚖ §v11 V11-4 — per request (`ctx.dayLen`): under the door
-// the pair is the store's own. `dayLengthMin` is the fallback for the case
+// cannot disagree. ⚖ §v11 V11-4/V11-7 — per request (`ctx.dayLen`), from each
+// weekday's OWN window. `dayLengthMin` is the fallback for the case
 // `longestOpenDayMin` cannot occur on this fixture (every day closed) — the
 // same floor-at-1 answer the old direct read gave.
-const dayLenOf = (h: { open: number; close: number }, closedWd: number | null) => longestOpenDayMin(
-  Object.values(weeklyHoursFrom(hhmm(h.open), hhmm(h.close), closedWd)).map((day) => ({
+const dayLenOf = (week: StoreHours['weeklyHours'], h: StoreHours['operatingHours']) => longestOpenDayMin(
+  week.map((day) => ({
     on: day !== null,
-    open: day?.open ?? '',
-    close: day?.close ?? '',
+    open: day ? hhmm(day.open) : '',
+    close: day ? hhmm(day.close) : '',
   })),
 ) ?? dayLengthMin({ open: h.open, close: h.close })
 
@@ -787,11 +786,10 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
   }
   const p = storeBookingPolicy
   // ⚖ C1 — the plane boundary, and the ONE place the seven days come into being.
-  const { operatingHours, closedWeekday } = ctx.hours
+  const { operatingHours, weeklyHours, closedWeekdays } = ctx.hours
   const fallbackWindow = { open: hhmm(operatingHours.open), close: hhmm(operatingHours.close) }
-  const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWeekday)
-  // ⚖ §v11 V11-3 — a store open every day gets its own sentence, never 「曜を定休日に設定」.
-  const closedSet = closedWeekday === null ? '定休日なしに設定' : `${WEEKDAYS.find(([n]) => n === closedWeekday)?.[1] ?? ''}曜を定休日に設定`
+  // ⚖ §v11 V11-3/V11-7 — every closed day named (「火曜・土曜を定休日に設定」); a store open every day gets its own sentence.
+  const closedSet = closedWeekdays.length === 0 ? '定休日なしに設定' : `${closedWeekdays.map((wd) => `${WEEKDAYS.find(([n]) => n === wd)?.[1] ?? ''}曜`).join('・')}を定休日に設定`
   return {
     ...head,
     blocks: [
@@ -820,7 +818,8 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
       // law). `row.weekday` carries the day number so the payload can be read
       // back off the rendered rows rather than off an id format.
       block('store-hours.hours', '営業時間', '曜日ごとの通常営業です。定休日は「営業する」をオフにします。', WEEKDAYS.map(([dayIndex, name]) => {
-        const day = weekly[WEEKDAY_OF[dayIndex]] ?? null
+        const own = weeklyHours[dayIndex] // ⚖ §v11 V11-7 — this weekday's OWN window, never today's repeated
+        const day = own ? { open: hhmm(own.open), close: hhmm(own.close) } : null
         return {
           ...row(`store-hours.row-day-${dayIndex}`, `${name}曜`, '', [
             sw(`store-hours.day-${dayIndex}`, `${name}曜に営業する`, '営業', '定休日', day !== null),
