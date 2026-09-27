@@ -27,6 +27,17 @@ jest.mock('@supabase/supabase-js', () => ({
   createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'auth-user-1' } }, error: null }) } }),
 }))
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
+// Condition 5 (S50, 5A): the ON arm's bound row files ONE audit line. The
+// emitter is observed through this pass-through — by default it runs the REAL
+// audit() (console line + a core sink that has no env here, so it writes
+// nothing), and a case may swap one call for a throw.
+const auditFn = jest.fn((e: unknown) =>
+  (jest.requireActual('@/lib/audit') as typeof import('@/lib/audit')).audit(e as never),
+)
+jest.mock('@/lib/audit', () => ({
+  ...(jest.requireActual('@/lib/audit') as object),
+  audit: (e: unknown) => auditFn(e),
+}))
 
 const capabilities = { current: new Set<string>(['records.write']) }
 const roster = { current: [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }] }
@@ -562,6 +573,132 @@ describe('S35 C1 — the server-made row is born with the take length', () => {
       expect(res).toMatchObject({ path: expect.stringMatching(SERVER_KEY), recordingSessionId: null })
       expect(Object.keys(res).sort()).toEqual(TODAY_KEYS)
       expect(bindIdentity).not.toHaveBeenCalled()
+      expect(recordingsCreate).not.toHaveBeenCalled()
+    })
+  })
+})
+
+// ⚖ CONDITION 5 (recording-switches.ts), closed by an emitter (S50, 5A). The
+// ON arm's row create is its own act now: ONE ids-only row per BOUND mint,
+// attributed to the roster identity the row itself carries (bindIdentity —
+// NOT the actor's up-front staffId, which is null on a server-named body), in
+// the store the row was made in. Nothing on any other branch.
+describe('condition 5 — the ON arm’s bound row files ONE audit line', () => {
+  const BOUND = 'recording.take_bound_server_named'
+  const boundCalls = () =>
+    auditFn.mock.calls.filter((c) => (c[0] as { action?: string }).action === BOUND) as [Record<string, unknown>][]
+
+  describe('switch ON', () => {
+    forceSwitch(true)
+
+    it('t1: no_session → exactly ONE line: the new action, the row as target, the right business + store', async () => {
+      const res = await mint({ attachOutcome: 'no_session', customerId: 'cust-1', appointmentId: 'appt-1' })
+      if (!('url' in res)) throw new Error('expected a signed answer')
+      const take = SERVER_KEY.exec(res.path)![1]
+      expect(auditFn).toHaveBeenCalledTimes(1)
+      expect(boundCalls()).toHaveLength(1)
+      const [event] = boundCalls()[0]
+      expect(event).toEqual({
+        category: 'recording',
+        action: BOUND,
+        actorId: 'auth-user-1',
+        actorType: 'staff',
+        businessId: 'business-1',
+        severity: 'info',
+        targetType: 'recording',
+        targetId: 'sess-new',
+        storeId: 'store-1',
+        detail: { take_id: take, recording_session_id: 'sess-new', attach_outcome: 'no_session', reserved: true },
+        requestId: undefined,
+        source: 'facade',
+      })
+      // ⚖ 8/17 doc law + #1072: ids and flags only — no key, no url, no token,
+      // no customer, no appointment.
+      const printed = JSON.stringify(event)
+      for (const secret of [res.path, res.url, res.token, 'cust-1', 'appt-1']) expect(printed).not.toContain(secret)
+    })
+
+    it('t1b: an older client (field absent) → the same ONE line, attach_outcome null', async () => {
+      await expect(mint()).resolves.toMatchObject({ recordingSessionId: 'sess-new' })
+      expect(boundCalls()).toHaveLength(1)
+      expect(boundCalls()[0][0].detail).toMatchObject({ attach_outcome: null, recording_session_id: 'sess-new' })
+    })
+
+    it('t1c (phone door): the facade files it with the clamp’s store and the request id', async () => {
+      const res = await mintPOST(jreq({ ...auth, 'store-id': 'store-1' }, { stagedFor: null, attachOutcome: 'no_session' }), noRoute)
+      expect(res.status).toBe(200)
+      expect((await res.json()).recordingSessionId).toBe('sess-new')
+      expect(boundCalls()).toHaveLength(1)
+      expect(boundCalls()[0][0]).toMatchObject({
+        actorId: 'auth-user-1',
+        businessId: 'business-1',
+        storeId: 'store-1',
+        targetId: 'sess-new',
+        source: 'facade',
+        requestId: expect.any(String),
+      })
+    })
+
+    it('t3: attach_failed → no bind, no audit', async () => {
+      await expect(mint({ attachOutcome: 'attach_failed' })).resolves.toMatchObject({ recordingSessionId: null })
+      expect(recordingsCreate).not.toHaveBeenCalled()
+      expect(auditFn).not.toHaveBeenCalled()
+    })
+
+    it('the withheld branch (`exists`) → upstream, no audit', async () => {
+      info.mockImplementation(async () => ({ data: { size: 9 }, error: null }))
+      await expect(mint({ attachOutcome: 'no_session' })).resolves.toEqual({ error: 'upstream' })
+      expect(auditFn).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['the create throws', () => recordingsCreate.mockRejectedValueOnce(new Error('core down'))],
+      ['no staff or no store', () => bindIdentity.mockResolvedValueOnce(null)],
+      ['the identity lookup throws', () => bindIdentity.mockRejectedValueOnce(new Error('roster blip'))],
+    ])('kept unbound (%s) → today’s answer, no audit', async (_label, arrange) => {
+      arrange()
+      await expect(mint({ attachOutcome: 'no_session' })).resolves.toMatchObject({ recordingSessionId: null })
+      expect(auditFn).not.toHaveBeenCalled()
+    })
+
+    it('t4: the emit THROWING never fails the mint — the bound answer stands and the warn says why', async () => {
+      auditFn.mockImplementationOnce(() => {
+        throw new Error('sink boom')
+      })
+      const res = await mint({ attachOutcome: 'no_session' })
+      expect(res).toMatchObject({ recordingSessionId: 'sess-new', url: expect.any(String) })
+      expect(recordingsCreate).toHaveBeenCalledTimes(1)
+      expect(warned.some((w) => w.includes('bound-row audit threw') && w.includes('sink boom'))).toBe(true)
+    })
+
+    it('t4b: the REAL audit() with a failing core sink never fails the mint (the shared never-throws contract)', async () => {
+      const env = { url: process.env.SYNQED_CORE_URL, key: process.env.SYNQED_CORE_API_KEY }
+      process.env.SYNQED_CORE_URL = 'http://127.0.0.1:9'
+      process.env.SYNQED_CORE_API_KEY = 'dummy-not-live'
+      try {
+        // SynqedClient is a bare jest.fn() here: `.audit.log` is undefined, so the
+        // sink throws inside forwardToCore — exactly where a real outage lands.
+        const res = await mint({ attachOutcome: 'no_session' })
+        expect(res).toMatchObject({ recordingSessionId: 'sess-new' })
+        await new Promise((r) => setImmediate(r))
+        expect(warned.some((w) => w.includes('audit_sink_error') && w.includes(BOUND))).toBe(true)
+      } finally {
+        if (env.url === undefined) delete process.env.SYNQED_CORE_URL
+        else process.env.SYNQED_CORE_URL = env.url
+        if (env.key === undefined) delete process.env.SYNQED_CORE_API_KEY
+        else process.env.SYNQED_CORE_API_KEY = env.key
+      }
+    })
+  })
+
+  describe('switch OFF', () => {
+    forceSwitch(false)
+
+    it('t2: no_session → zero audit lines, zero rows', async () => {
+      await expect(mint({ attachOutcome: 'no_session', customerId: 'cust-1' })).resolves.toMatchObject({ recordingSessionId: null })
+      const phone = await mintPOST(jreq({ ...auth, 'store-id': 'store-1' }, { stagedFor: null, attachOutcome: 'no_session' }), noRoute)
+      expect(phone.status).toBe(200)
+      expect(auditFn).not.toHaveBeenCalled()
       expect(recordingsCreate).not.toHaveBeenCalled()
     })
   })
