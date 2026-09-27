@@ -256,17 +256,27 @@ export async function runAIPipeline(
   // STILL has no finalized key replays it: no mint, no PUT, no POST. A run that
   // has one replays only an answer paid for that very key — the fallback sent
   // the in-memory blob, the attach sends the stored bytes, and they can differ.
+  // ⚖ A FALLBACK ANSWER IS REPLAYED OR WRITTEN ONLY WHILE THE TAKE STILL HAS NO
+  // FINALIZED KEY — or has exactly the key that answer was paid for (S34's
+  // adoption secures the take at the fallback's own minted key). Another tab or
+  // the drain can finalize the take after this run read no key, from stored
+  // bytes the fallback never sent, so the key is RE-READ here, never taken from
+  // this run's start: with one, only an answer paid for it replays; with none,
+  // the fallback's. The write half lives in stampTakeTranscript (take-store),
+  // where the check and the write share one transaction.
   const transcribeOnce = async (): Promise<Awaited<ReturnType<Response['json']>>> => {
     const stored = takeId ? await readTakeTranscript(takeId) : null
+    const currentPath =
+      finalizedPath ?? (takeId ? ((await readTakeSecureMeta(takeId))?.finalizedPath ?? null) : null)
     if (
       stored &&
       stored.locale === locale &&
-      (finalizedPath ? stored.finalizedPath === finalizedPath : stored.fallback === true)
+      (currentPath ? stored.finalizedPath === currentPath : stored.fallback === true)
     ) {
       return stored.response
     }
     const slot = ctx.paidFallback
-    if (!finalizedPath && slot && slot.takeId === takeId && slot.locale === locale) {
+    if (!currentPath && slot && slot.takeId === takeId && slot.locale === locale) {
       return slot.response
     }
     const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
@@ -308,7 +318,10 @@ export async function runAIPipeline(
       if (takeId) await stampTakeTranscript(takeId, finalizedPath, locale, fresh)
     } else {
       // The fallback's answer names the key it was paid for (with the switch ON
-      // and no row, S34 just secured the take at that very key).
+      // and no row, S34 just secured the take at that very key). A take
+      // finalized at ANOTHER key meanwhile keeps its own stamp — the store
+      // refuses this write (see the rule above transcribeOnce); the chain's
+      // slot is still told, run-guarded as ever.
       if (takeId) await stampTakeTranscript(takeId, mintedPath, locale, fresh, true)
       ctx.onFallbackPaid?.({ takeId, locale, response: fresh })
     }

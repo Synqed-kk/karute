@@ -1136,9 +1136,19 @@ export async function stampTakeTranscript(
   /** C3: the unbound door answered (see `TakeMeta.transcript`). */
   fallback = false,
 ): Promise<void> {
-  await patchTakeMeta(takeId, {
-    transcript: { finalizedPath, locale, response, at: Date.now(), ...(fallback ? { fallback: true as const } : {}) },
-  })
+  await patchTakeMeta(
+    takeId,
+    {
+      transcript: { finalizedPath, locale, response, at: Date.now(), ...(fallback ? { fallback: true as const } : {}) },
+    },
+    // ⚖ C3: a fallback answer is written only while the take still has no
+    // finalized key — or has exactly the key it was paid for (S34's adoption).
+    // A slower fallback run landing after the take was finalized at another
+    // key would otherwise overwrite that key's paid answer, and the next retry
+    // would pay for it again. Checked HERE, in the write's own transaction, so
+    // there is no window between the check and the put (as markTakeSecureError).
+    fallback ? (meta) => !meta.finalizedPath || meta.finalizedPath === finalizedPath : undefined,
+  )
 }
 
 /** A2-2: mark a take as "discarded, words still owed". Written BEFORE anything
