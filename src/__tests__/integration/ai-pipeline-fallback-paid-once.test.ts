@@ -11,6 +11,9 @@
  *   · no finalized key → the fallback answer, same locale;
  *   · a finalized key → only an answer paid for THAT key (the fallback PUT the
  *     in-memory blob, the attach PUTs the stored bytes — they can differ).
+ * The key is the take's CURRENT one, re-read at the replay (C3 fold, Greptile
+ * 1+2): a take finalized underneath the run is never handed the fallback's
+ * answer, and a late fallback stamp never overwrites the finalized key's.
  *
  * Real ai-pipeline + secure-take + global-pipeline; the take store, the port,
  * the recorder and the network are faked. The fake port's unbound mint models
@@ -35,11 +38,15 @@ type Meta = {
   transcript?: Stamp
 }
 const store = { meta: null as Meta | null, blob: null as Blob | null }
+let onTranscriptRead: (() => void) | null = null
 // The shape of take-store's stampTakeTranscript: whole body + path + locale,
-// `fallback` only when the unbound door answered. A missing take is a no-op.
+// `fallback` only when the unbound door answered. A missing take is a no-op,
+// and a fallback answer never lands on a take finalized at ANOTHER key (the
+// store's own guard — take-durability.test.ts pins the real one).
 const stampTakeTranscript = jest.fn(
   async (_id: string, path: string, locale: string, response: unknown, fallback?: boolean) => {
     if (!store.meta) return
+    if (fallback && store.meta.finalizedPath && store.meta.finalizedPath !== path) return
     store.meta = {
       ...store.meta,
       transcript: { finalizedPath: path, locale, response, at: 1, ...(fallback ? { fallback: true as const } : {}) },
@@ -50,7 +57,13 @@ jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: async () => (store.meta ? { ...store.meta } : null),
   loadTakeBlob: async () => store.blob,
   ensureFinalizedPath: async (_id: string, meta: Meta) => meta.finalizedPath ?? null,
-  readTakeTranscript: async () => store.meta?.transcript ?? null,
+  readTakeTranscript: async () => {
+    // One shot: what another tab / the drain does between this run's start and its replay.
+    const underneath = onTranscriptRead
+    onTranscriptRead = null
+    underneath?.()
+    return store.meta?.transcript ?? null
+  },
   stampTakeTranscript: (id: string, path: string, locale: string, response: unknown, fallback?: boolean) =>
     stampTakeTranscript(id, path, locale, response, fallback),
   isStoppedTake: () => false,
@@ -191,6 +204,7 @@ beforeEach(() => {
   extractRefuses = false
   transcribeGates.length = 0
   posts.length = 0
+  onTranscriptRead = null
 })
 afterEach(() => globalPipeline.reset())
 
@@ -279,6 +293,86 @@ describe('⚖ C3 — the take remembers the fallback answer it paid for', () => 
       expect(prepareTranscription).toHaveBeenCalledTimes(1)
       expect(result.transcript).toBe('answer-1')
     })
+  })
+})
+
+describe('⚖ C3 fold — Greptile 1+2: a take finalized underneath the run', () => {
+  /** What the drain / another tab does: the take is secured at `path` from its stored bytes. */
+  const finalizeUnderneath = (path: string) => () => {
+    store.meta = { ...store.meta!, finalizedAt: 1, finalizedPath: path }
+  }
+
+  it('(g1) finalized between the run’s read and the replay → NO replay of the fallback answer; the door is asked once (parity with main)', async () => {
+    takeWhoseAttachFails(2)
+    extractRefuses = true
+    expect(await outcome(direct())).toBeInstanceOf(Error) // paid: the fallback, stamped at unbound(1)
+    expect(store.meta?.transcript).toMatchObject({ finalizedPath: unbound(1), fallback: true })
+    // Run 2 reads NO finalized key at its start (its attach fails again); the
+    // drain finalizes the take at F right before the replay.
+    onTranscriptRead = finalizeUnderneath(TAKE_KEY)
+    extractRefuses = false
+    const result = await direct()
+    expect(store.meta?.finalizedPath).toBe(TAKE_KEY)
+    expect(transcribePosts()).toBe(2)
+    expect(result.transcript).toBe('answer-2')
+    expect(prepareTranscription.mock.calls.map(([, path, opts]) => [path, opts])).toEqual([
+      [null, { attachOutcome: 'attach_failed' }],
+      [null, { attachOutcome: 'attach_failed' }],
+    ])
+    // …and that second fallback answer never lands on the finalized take.
+    expect(store.meta?.transcript).toMatchObject({ finalizedPath: unbound(1), response: { transcript: 'answer-1' }, fallback: true })
+  })
+
+  it('(g1) …the chain’s slot is not replayed onto a take finalized underneath either', async () => {
+    takeWhoseAttachFails(1)
+    const paidFallback = { takeId: TAKE, locale: 'ja', response: { transcript: 'slot-answer' } }
+    onTranscriptRead = finalizeUnderneath(TAKE_KEY)
+    const result = await direct('ja', { paidFallback })
+    expect(transcribePosts()).toBe(1)
+    expect(result.transcript).toBe('answer-1')
+  })
+
+  it('(g2) a slow fallback run’s stamp lands after a newer run paid for F → the take still names F; a third run replays F: TWO paid calls, not three', async () => {
+    takeWhoseAttachFails(1)
+    let openA!: () => void
+    transcribeGates.push(new Promise<void>((r) => (openA = r)))
+    const runA = direct() // no finalized key, attach fails → the fallback, its answer on the wire
+    for (let i = 0; i < 200 && transcribePosts() === 0; i++) await tick()
+    expect(transcribePosts()).toBe(1)
+    // Meanwhile the take is finalized at F, and run B (newer, another lock) transcribes F.
+    finalizeUnderneath(TAKE_KEY)()
+    const runB = await direct()
+    expect(runB.transcript).toBe('answer-2')
+    expect(prepareTranscription.mock.calls.map(([, path]) => path)).toEqual([null, TAKE_KEY])
+    openA() // A's paid answer lands LAST
+    expect((await runA).transcript).toBe('answer-1')
+    expect(store.meta?.transcript).toMatchObject({ finalizedPath: TAKE_KEY, locale: 'ja', response: { transcript: 'answer-2' } })
+    expect(store.meta?.transcript?.fallback).toBeUndefined()
+    const third = await direct()
+    expect(third.transcript).toBe('answer-2')
+    expect(transcribePosts()).toBe(2)
+  })
+
+  it('(g3) a take-less run has no take to re-read: its slot still replays with ZERO POSTs, whatever the store holds', async () => {
+    // The fake store answers every id; a guard that read a take for a take-less run would see F here.
+    store.meta = { recordingSessionId: SESSION, mimeType: 'audio/webm', finalizedAt: 1, finalizedPath: TAKE_KEY, startedAt: 0, updatedAt: 1 }
+    const paidFallback = { takeId: null, locale: 'ja', response: { transcript: 'remembered' } }
+    const result = await direct('ja', { paidFallback }, null)
+    expect(result.transcript).toBe('remembered')
+    expect(transcribePosts()).toBe(0)
+    expect(prepareTranscription).not.toHaveBeenCalled()
+  })
+
+  it('(g4′) finalized underneath at the fallback’s OWN minted key (another tab’s S34 adoption) → the answer paid for that key still replays, free', async () => {
+    takeWhoseAttachFails(2)
+    extractRefuses = true
+    expect(await outcome(direct())).toBeInstanceOf(Error) // paid: the fallback at unbound(1)
+    onTranscriptRead = finalizeUnderneath(unbound(1))
+    extractRefuses = false
+    const result = await direct()
+    expect(result.transcript).toBe('answer-1')
+    expect(transcribePosts()).toBe(1)
+    expect(prepareTranscription).toHaveBeenCalledTimes(1)
   })
 })
 
