@@ -20,6 +20,12 @@ export const STAFF = [
   { id: 'staff-4', name: '篠原 夢果', initials: '篠原' },
 ]
 
+/** S46 option C proof (staff-control-c.mjs, `&roster=wide` on the カルテ
+ *  tab): + an 8-character name registered without a space — familyName()
+ *  keeps all 8, the widest Japanese label the control can print (S45's
+ *  c-measure staff-8). */
+export const WIDE_ROSTER = [...STAFF, { id: 'staff-8', name: '勘解由小路美和子', initials: '勘解' }]
+
 // JST today at the harness clock (the page reads the real clock; fixture
 // dates are relative so 今週 always has rows).
 function ymd(daysAgo: number): string {
