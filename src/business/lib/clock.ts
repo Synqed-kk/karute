@@ -80,6 +80,13 @@ export function jstMinuteOfDay(iso: string | Date): number {
   return Math.floor((t - Math.floor(t / DAY_MS) * DAY_MS) / 60_000)
 }
 
+/** ⚖ §v11 V11-15(e) — a row's END on its START's JST day, the ONE rule the board and the practice door share: the
+ *  start plus the row's length in whole minutes (rounded up), clipped to 24:00. A row crossing midnight ends at 1440;
+ *  a row that does not end after it starts ends at or before its own start. */
+export function jstEndOnStartDay(startsAt: string, endsAt: string): number {
+  return Math.min(1440, jstMinuteOfDay(startsAt) + Math.ceil((Date.parse(endsAt) - Date.parse(startsAt)) / 60_000))
+}
+
 /** Same slot, `minutes` later — the ends_at half of a booking. */
 export function jstSlotEnd(
   dayOffset: number,

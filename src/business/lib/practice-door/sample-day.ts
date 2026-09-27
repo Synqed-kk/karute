@@ -3,7 +3,7 @@
 // Territory-local and pure: door.ts seats the fixture day exactly as before and hands each store's seated day here,
 // with the live rows it already read for that day. Who received which sample pattern (the seating) is not this file's.
 
-import { jstDayKey, jstMinuteOfDay } from '../clock'
+import { jstDayKey, jstEndOnStartDay, jstMinuteOfDay } from '../clock'
 import type { FixtureAbsence, FixtureShift } from '../fixtures-today'
 import { usualPairOf, weekdayOfKey, type StoreHours, type Window } from './store-hours'
 
@@ -23,8 +23,7 @@ export function liveSpans(rows: ReadonlyArray<{ id: string; kind: string; status
   return rows.flatMap((r): LiveSpan[] => {
     const ms = Date.parse(r.ends_at) - Date.parse(r.starts_at)
     if (!drawnRow(r) || r.staff_id === null || !(ms > 0) || jstDayKey(r.starts_at) !== dayKey) return []
-    const start = jstMinuteOfDay(r.starts_at)
-    return [{ id: r.id, staff: r.staff_id, start, end: Math.min(1440, start + Math.ceil(ms / 60_000)) }]
+    return [{ id: r.id, staff: r.staff_id, start: jstMinuteOfDay(r.starts_at), end: jstEndOnStartDay(r.starts_at, r.ends_at) }]
   })
 }
 

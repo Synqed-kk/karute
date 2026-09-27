@@ -26,7 +26,7 @@
 import { businessStrings } from '@/business/i18n'
 import { freePockets, kPackCount } from './canon-logic/availability'
 import type { BookingColors } from './booking-colors'
-import { jstDayKey, jstMinuteOfDay } from './clock'
+import { jstDayKey, jstEndOnStartDay, jstMinuteOfDay } from './clock'
 import type { FixtureAppointment, FixtureCustomer, FixtureMenu, FixtureStaff } from './fixtures'
 import type {
   FixtureAbsence,
@@ -47,20 +47,66 @@ export interface Hours {
   close: number
 }
 
-/** Percent placement on the timeline. The window is the store's open hours, so
- *  the hour ruler and the cards are the same axis by construction — canon's own
- *  sheet drew a 15-column ruler under 11 hours of cards, and the lines and the
- *  cards did not line up. */
+/** Percent placement on the timeline. The window is the board's DRAWN window
+ *  (`drawnWindow`), so the hour ruler and the cards are the same axis by
+ *  construction — canon's own sheet drew a 15-column ruler under 11 hours of
+ *  cards, and the lines and the cards did not line up.
+ *  ⚖ §v11 V11-15(d) — TOTAL, FINITE, INSIDE THE BOARD: both ends are clamped into
+ *  the window and an end before the start becomes the start, so `0 ≤ x ≤ 100`,
+ *  `0 ≤ w`, `x + w ≤ 100`. `w` keeps its formula and takes ONE clamp; a window
+ *  that does not open before it closes places nothing, never NaN. */
 export function place(start: number, end: number, hours: Hours): { x: number; w: number; startMin: number; endMin: number } {
   const span = hours.close - hours.open
-  const from = Math.max(start, hours.open)
-  const to = Math.min(end, hours.close)
+  if (!(span > 0)) return { x: 0, w: 0, startMin: hours.open, endMin: hours.open }
+  const from = Math.min(Math.max(start, hours.open), hours.close)
+  const to = Math.max(Math.min(end, hours.close), from)
+  const x = ((from - hours.open) / span) * 100
   return {
-    x: ((from - hours.open) / span) * 100,
-    w: (Math.max(to - from, 0) / span) * 100,
+    x,
+    w: Math.min((Math.max(to - from, 0) / span) * 100, 100 - x),
     startMin: from,
-    endMin: Math.max(to, from),
+    endMin: to,
   }
+}
+
+const floor60 = (m: number) => Math.floor(m / 60) * 60
+const ceil60 = (m: number) => Math.ceil(m / 60) * 60
+
+/** ⚖ §v11 V11-15(a)(f) — THE DRAWN WINDOW, the axis every card is placed on: the
+ *  store's own hours, grown to the whole hour around each booking that lies
+ *  outside them, clamped to [0, 1440]. Only bookings grow it (never a shift,
+ *  wash, break, absence, block or sell slot), and one inside the hours or
+ *  touching an edge grows nothing (V11-6 P1's boundary rule). A whole-hour pair
+ *  gives a whole-hour window, so the 30-minute lattice is unchanged; a
+ *  fractional pair with nothing outside is served as it is, as before (its own
+ *  question, not this one). A pair that does not open before it closes is a
+ *  contract violation the resolver never serves (store-hours.ts): one hour from
+ *  its opening hour ∪ the bookings, warned once per build — never NaN. */
+export function drawnWindow(hours: Hours, bookings: ReadonlyArray<{ startMinute: number; endMinute: number }>): Hours {
+  const broken = !(hours.close > hours.open)
+  if (broken) console.warn('[today board] store hours that do not open before they close — drawn as one hour:', hours)
+  let { open, close } = broken ? { open: floor60(hours.open), close: floor60(hours.open) + 60 } : hours
+  for (const b of bookings) {
+    if (!(b.endMinute > b.startMinute)) continue // never a card (buildLanes), so it grows nothing
+    if (b.startMinute < open) open = floor60(b.startMinute)
+    if (b.endMinute > close) close = ceil60(b.endMinute)
+  }
+  return { open: Math.max(0, open), close: Math.min(1440, close) }
+}
+
+/** ⚖ §v11 V11-15(c) — 営業時間外: where the drawn window runs past the store's
+ *  own hours, ONE band per side, drawn under the cards on every lane. It is not
+ *  a lane item (never an `.event`): it states that the store is closed then,
+ *  never 予約不可 — the booking sitting on it exists and is drawn. */
+export function offHoursBands(drawn: Hours, business: Hours): Array<{ key: string; x: number; w: number; title: string; time: string; label: string }> {
+  return [
+    ...(drawn.open < business.open
+      ? [{ key: 'before', ...place(drawn.open, business.open, drawn), title: '営業時間外', time: `${hhmm(business.open)}開店`, label: `${hhmm(business.open)}開店のため、それより前は営業時間外` }]
+      : []),
+    ...(drawn.close > business.close
+      ? [{ key: 'after', ...place(business.close, drawn.close, drawn), title: '営業時間外', time: `${hhmm(business.close)}閉店`, label: `${hhmm(business.close)}閉店のため、それより後は営業時間外` }]
+      : []),
+  ]
 }
 
 /** place()'s inverse for the drag layer: a percent offset back to the minute it
@@ -487,7 +533,10 @@ export interface BuildInput {
   blocks: FixtureBlock[]
   sellSlots: FixtureSellSlot[]
   decisions: FixtureDecision[]
+  /** The AXIS every item is placed on — the drawn window (`drawnWindow`). */
   hours: Hours
+  /** ⚖ §v11 V11-15(b) — the store's OWN hours, for the wash edges that mean 開店/閉店. Absent = `hours`. */
+  businessHours?: Hours
   /** The day being shown, as a JST day index (clock.jstDayKey). */
   dayKey: number
   operatorStaffId: string
@@ -545,7 +594,9 @@ export function dayBookings(input: BuildInput): BoardBooking[] {
     .map((a) => {
       const customer = customerById.get(a.customer_id)
       const startMinute = jstMinuteOfDay(a.starts_at)
-      const endMinute = jstMinuteOfDay(a.ends_at)
+      // ⚖ §v11 V11-15(e) — the practice door's rule (`liveSpans`, one helper): a row crossing midnight ends at 24:00
+      // here while its label keeps the real range; one that does not end after it starts is never a card.
+      const endMinute = jstEndOnStartDay(a.starts_at, a.ends_at)
       const resource = a.resource_id ? resourceById.get(a.resource_id) : undefined
       return {
         id: a.id,
@@ -559,7 +610,7 @@ export function dayBookings(input: BuildInput): BoardBooking[] {
         resourceName: resource?.name ?? '未定',
         startMinute,
         endMinute,
-        timeRange: `${hhmm(startMinute)}–${hhmm(endMinute)}`,
+        timeRange: `${hhmm(startMinute)}–${hhmm(jstMinuteOfDay(a.ends_at))}`,
         price: a.booked_price,
         category: customer
           ? bookingCategory(customer, priorVisits.get(a.customer_id) ?? 0)
@@ -624,11 +675,24 @@ export const STATE_LABEL: Record<NonNullable<BoardBooking['state']>, string> = {
   noshow: '来店なし',
 }
 
-/** Staff lanes then resource lanes, in canon's two groups. */
-export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLane[] {
+/** ⚖ §v11 V11-15(d) — a box `place()` gives no width, NOT DRAWN and named here instead (never rendered, never a DOM
+ *  attribute): a booking that does not end after it starts is `'zero-length'`; anything else `'outside-window'`. */
+export interface BoardDrop {
+  kind: BoardItem['kind']
+  id: string
+  reason: 'zero-length' | 'outside-window'
+}
+
+/** Staff lanes then resource lanes, in canon's two groups. Every item of the seven builders passes ONE gate: a
+ *  zero-width box is left off its lane and pushed to `dropped` (V11-15(d)). */
+export function buildLanes(input: BuildInput, bookings: BoardBooking[], dropped: BoardDrop[] = []): BoardLane[] {
   const { hours, absence } = input
+  const biz = input.businessHours ?? hours
   const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
   const lanes: BoardLane[] = []
+  const zeroLength = new Set(bookings.filter((b) => !(b.endMinute > b.startMinute)).map((b) => b.id))
+  const drawn = (items: BoardItem[]) =>
+    items.filter((i) => i.w > 0 || void dropped.push({ kind: i.kind, id: i.caseId ?? i.key, reason: i.caseId !== null && zeroLength.has(i.caseId) ? 'zero-length' : 'outside-window' }))
 
   // ⚖ D-53 (ak)/(al) N2c-2 R-2 — Home B: the booking's own room word, resolved
   // ONCE per booking so the staff-lane copy and the resource-lane copy of one
@@ -678,7 +742,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
       items.push({
         key: `${member.id}-absence`,
         kind: 'absence', state: null, category: null,
-        ...place(absence.from, hours.close, hours),
+        ...place(absence.from, biz.close, hours),
         title: '勤務不可', tag: '', time: `${hhmm(absence.from)}〜閉店`,
         ticketCat: null, ticketCore: null, held: false, micro: false, caseId: null,
         label: `${member.full_name}、${hhmm(absence.from)}以降 勤務不可`,
@@ -698,19 +762,19 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
     // Occupancy is unaffected — laneSpans() reads every item whatever its kind.
     const offShift: Array<{ title: string; from: number; to: number; time: string; label: string }> = shift
       ? [
-          ...(shift.start > hours.open
+          ...(shift.start > biz.open
             ? [
                 {
-                  title: '勤務前', from: hours.open, to: shift.start,
+                  title: '勤務前', from: biz.open, to: shift.start,
                   time: `開店〜${hhmm(shift.start)}`,
                   label: `${member.full_name}、${hhmm(shift.start)}開始のため、それより前は予約不可`,
                 },
               ]
             : []),
-          ...(shift.end < hours.close && !(absence && absence.staff_id === member.id)
+          ...(shift.end < biz.close && !(absence && absence.staff_id === member.id)
             ? [
                 {
-                  title: '終業', from: shift.end, to: hours.close,
+                  title: '終業', from: shift.end, to: biz.close,
                   time: `${hhmm(shift.end)}〜閉店`,
                   label: `${member.full_name}、${hhmm(shift.end)}以降、終業のため予約不可`,
                 },
@@ -721,9 +785,9 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
           // ponytail: canon's fixture is fully staffed, so it has no no-shift lane
           // and no wording to copy. Built's own sentence stays; only the paint moves.
           {
-            title: '本日勤務なし', from: hours.open, to: hours.close,
-            time: `${hhmm(hours.open)}〜${hhmm(hours.close)}`,
-            label: `${member.full_name}、${hhmm(hours.open)}から${hhmm(hours.close)}、本日勤務なし・予約不可`,
+            title: '本日勤務なし', from: biz.open, to: biz.close,
+            time: `${hhmm(biz.open)}〜${hhmm(biz.close)}`,
+            label: `${member.full_name}、${hhmm(biz.open)}から${hhmm(biz.close)}、本日勤務なし・予約不可`,
           },
         ]
     for (const off of offShift) {
@@ -746,7 +810,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
         : '本日シフトなし',
       absentNote: absence && absence.staff_id === member.id ? `${hhmm(absence.from)}以降 勤務不可` : null,
       mine: member.id === input.operatorStaffId,
-      items: items.sort((a, b) => a.x - b.x),
+      items: drawn(items).sort((a, b) => a.x - b.x),
       window: shift ? { from: shift.start, until: shift.end } : null,
       untilLabel: shift ? hhmm(shift.end) : null,
       listPrice: input.staffListPrice[member.id] ?? 0,
@@ -796,7 +860,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
         : resource.note,
       absentNote: null,
       mine: false,
-      items: items.sort((a, b) => a.x - b.x),
+      items: drawn(items).sort((a, b) => a.x - b.x),
       window: null,
       untilLabel: null,
       listPrice: 0,
