@@ -1006,10 +1006,17 @@ export async function mintTakeUploadUrl(
     if ('error' in signed) return signed
     // ⚖ A RECORDING THAT HAS A ROW NEVER GETS A SECOND ONE (S33). The client
     // says 'attach_failed' when its take's own row exists and attaching to it
-    // failed: that upload stays unbound in BOTH switch states. 'no_session' and
-    // an absent field (a client older than it) keep the switch's answer.
+    // failed: that upload stays unbound in BOTH switch states.
+    // ⚖ ONLY A CLIENT THAT ADOPTS THE ROW GETS ONE (S50, 5C). Only 'no_session'
+    // takes the switch's answer. A server-named body with NO attachOutcome is a
+    // client older than build 29 — the only two production callers always send
+    // it (ai-pipeline.ts sets it whenever its run reaches this door;
+    // discard-transcript.ts takes the staged arm) — and it stays unbound exactly
+    // as with the switch OFF: build ≤28 never adopts the row, so a row made for
+    // it could only be a stray. Liam 2026-09-28: builds two behind are expired
+    // (ledger karute-releases/ios/README.md — 31 shipped, 30 kept behind).
     const minted =
-      RECORDING_SWITCHES.bindUnboundUploads && input.attachOutcome !== 'attach_failed'
+      RECORDING_SWITCHES.bindUnboundUploads && input.attachOutcome === 'no_session'
         ? await bindServerNamedTake(synqed, actor, input, takeId, mimeType, signed)
         : { ...signed, recordingSessionId: null }
     // The per-business count of in-tab fallbacks (S33) — ids and flags only,
