@@ -5,7 +5,7 @@
 // grant — enforced HERE (the tab filter is exposure reduction, not security).
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { canReadAuditLog } from '@/lib/auth/audit-read'
+import { canReadAuditLog, withholdKeyIngredients } from '@/lib/auth/audit-read'
 import { audit } from '@/lib/audit'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { AUDIT_TARGET_TYPES } from '@/lib/audit-target-types'
@@ -690,7 +690,10 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditL
     // audit row of this invocation carries.
     requestId: crypto.randomUUID(),
   }
-  return listAuditLogWithClient(synqed, actor, filters)
+  // S46: the READ-OUT withholds a recording's storage-key ingredients; the
+  // twin (and every stored row) keeps them — see withholdKeyIngredients.
+  const res = await listAuditLogWithClient(synqed, actor, filters)
+  return res.ok ? { ...res, events: withholdKeyIngredients(res.events) } : res
 }
 
 // Core casts every id in customers.list's `ids` batch to UUID — ONE
