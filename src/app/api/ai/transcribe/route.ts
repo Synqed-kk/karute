@@ -11,8 +11,10 @@ import {
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
 import { auditWeb } from '@/lib/audit-web'
-import { can } from '@/lib/auth/require-permission'
+import { can, getMyCapabilities } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { takeKeyHolder } from '@/lib/recording/take-binding'
 
 export const maxDuration = 300
 
@@ -124,7 +126,7 @@ export async function POST(request: Request) {
     }
 
     if (contentType.includes('application/json')) {
-      const { audioUrl, locale: loc } = await request.json()
+      const { audioUrl, locale: loc, recordingSessionId } = await request.json()
       if (!audioUrl) {
         return NextResponse.json({ error: 'No audioUrl provided' }, { status: 400 })
       }
@@ -142,10 +144,26 @@ export async function POST(request: Request) {
       // the capability read failing, → no memo, and this pays exactly as before.
       // No new refusal here: that this route asks no records.write at all is an
       // existing gap, recorded, not fixed in PR-5.
+      //
+      // ⚖ AND ONLY FOR THE CALLER'S OWN TAKE (S46). The replay is the one
+      // answer on this arm the URL's token never gates, so it now also needs
+      // the row the client names to hold this key and to be the caller's
+      // (takeKeyHolder → assertRecorderOwnsRow). Anything else — no row, a
+      // colleague's, a failed read — simply gets no replay: Deepgram fetches
+      // the signed URL, whose token is then the proof, exactly as a paid call
+      // always was. Still no new refusal on this arm.
       const urlKey = storageKeyFromAudioUrl(audioUrl)
       const audioKey =
         isOwnRecordingKey(urlKey, meter.businessId) &&
-        (await can('records.write').catch(() => false))
+        (await can('records.write').catch(() => false)) &&
+        (await takeKeyHolder(async () => meter.synqed, urlKey, recordingSessionId, async () => {
+          const capabilities = await getMyCapabilities()
+          const pairHeld = holdsOwnerKeys(capabilities)
+          const allowedStoreIds = pairHeld
+            ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
+            : null
+          return { staffId: meter.staffId, businessId: meter.businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
+        })) === 'own'
           ? urlKey
           : null
       const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey }, {

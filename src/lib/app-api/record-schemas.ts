@@ -268,6 +268,9 @@ export const TranscribeSchema = z
   .object({
     path: z.string().max(MAX_STORAGE_PATH_CHARS),
     locale: z.string().max(MAX_LOCALE_CHARS).optional(),
+    // S46: the row the phone says holds `path` (takeKeyHolder). Absent on every
+    // build already installed — that keeps today's answer.
+    recordingSessionId: z.string().max(MAX_ID_CHARS).nullish(),
   })
   .strict()
 

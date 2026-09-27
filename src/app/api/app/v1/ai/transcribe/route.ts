@@ -24,6 +24,9 @@ import {
 } from '@/lib/ai/transcribe'
 import { TranscribeSchema } from '@/lib/app-api/record-schemas'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { takeKeyHolder } from '@/lib/recording/take-binding'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -76,6 +79,28 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
   const reference =
     mode === 'off' ? null : await loadStaffReferenceForStaff(orgSettings, selfStaffId)
+
+  // ⚖ AND THE ROW NAMES ITS RECORDER (S46), before anything is signed. The
+  // login id (selfStaffId) the rows are stamped with, the owner's hand's reach
+  // only when the pair is held — the upload-url twin's own actor. A colleague's
+  // take answers this door's existing refusal (no oracle, no new string); no
+  // row keeps today's answer.
+  const pairHeld = holdsOwnerKeys(ctx.identity.capabilities)
+  const holder = await takeKeyHolder(async () => synqed, path, parsed.data.recordingSessionId, async () => ({
+    staffId: selfStaffId,
+    businessId: ctx.identity.businessId,
+    holdsOwnerKeys: pairHeld,
+    allowedStoreIds: pairHeld
+      ? await viewerAllowedStoreIds({
+          synqed,
+          authUserId: ctx.identity.authUserId,
+          capabilities: ctx.identity.capabilities,
+          selfStaffId,
+        })
+      : null,
+  }))
+  if (holder === 'foreign') throw new AppApiError('not_found', 'recording not found in this business')
+  if (holder === 'unreadable') throw new AppApiError('upstream_unavailable', 'could not read the recording')
 
   // Mint our OWN signed READ url from the tenant-proven path.
   const { data: signed, error: signErr } = await supabase.storage

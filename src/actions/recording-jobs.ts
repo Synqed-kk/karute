@@ -20,6 +20,7 @@ import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { resolveStoreScope, viewerScopeForActs } from '@/lib/auth/store-scope'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { takeKeyHolder } from '@/lib/recording/take-binding'
 import {
   enqueueFromSessionWithClient,
   type EnqueueFromSessionInput,
@@ -72,6 +73,23 @@ export async function enqueueRecordingJob(
     if (!isOwnRecordingKey(input.audioPath, businessId)) {
       return { error: 'recording not found in this business' }
     }
+    // ⚖ AND THE SESSION MUST HOLD THIS KEY, AND BE THE CALLER'S (S46). The
+    // session id is REQUIRED here and becomes the job's own session, so unlike
+    // the read doors a row that does not hold `audioPath` is refused too — else
+    // naming one's own session beside a colleague's key would pass. Compared in
+    // the LOGIN-id space the rows use (profileStaffId), never the job's card id
+    // below. Same refusal as the key fence above: no oracle, no new string.
+    const holder = await takeKeyHolder(async () => synqed, input.audioPath, input.recordingSessionId, async () => {
+      const pairHeld = holdsOwnerKeys(await getMyCapabilities())
+      return {
+        staffId: profileStaffId,
+        businessId,
+        holdsOwnerKeys: pairHeld,
+        allowedStoreIds: pairHeld ? await viewerScopeForActs() : null,
+      }
+    })
+    if (holder === 'unreadable') return { error: 'Failed to enqueue the recording job.' }
+    if (holder !== 'own') return { error: 'recording not found in this business' }
     // The worker runs without a session — attribution is captured NOW, at
     // enqueue, from the signed-in recorder (same rule as the interactive save).
     const staffId = profileStaffId

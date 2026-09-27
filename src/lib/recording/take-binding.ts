@@ -15,7 +15,7 @@
 // argument, so as client-invokable actions these would take any tenant's word
 // for who the caller is.
 
-import type { Recording } from '@synqed-kk/client'
+import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { ownerHandReach } from '@/lib/auth/recording-acl'
 
@@ -219,4 +219,56 @@ export function assertRecorderOwnsRow(
   })
     ? null
     : { error: 'forbidden' }
+}
+
+/** A core row id — it rides into a core URL path (recordings.get), so anything
+ *  that is not exactly a uuid is never sent there. */
+const ROW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Who a take key belongs to, as far as the row the caller named can say. */
+export type TakeKeyHolder = 'own' | 'foreign' | 'no_row' | 'unreadable'
+
+/**
+ * WHOSE TAKE IS THIS KEY? — the four key doors' ownership question (S46,
+ * closure 2): the read-url action, the two transcribe routes, the two enqueue
+ * doors. Each used to prove only that a CLIENT-NAMED key is this business's
+ * take (isOwnRecordingKey), never that it is the caller's.
+ *
+ * Core has no lookup by storage key, so the client names the ROW beside the
+ * key. The row counts only if its own pointer IS this key — core's unique index
+ * lets a key sit on at most one row, and a pointer is never re-pointed
+ * (mint-take-url.ts planReservation) — and then the take doors' own predicate
+ * decides, with no second spelling: own session, or the owner's hand within
+ * store reach (assertRecorderOwnsRow). `actor.staffId` is the LOGIN id the rows
+ * are stamped with — never a job's staff CARD id (the card/login split refuses
+ * honest recorders, discard-transcript.core.ts).
+ *
+ * `no_row` = no row id, not a uuid, a 404, or a row that does not hold this key:
+ * the server-named fallback take while bindUnboundUploads is off (or kept
+ * unbound), and every build already on a phone, which sends no row. The
+ * read-url and transcribe doors keep today's answer for it; only the enqueue
+ * door, whose row is required and becomes the job's own session, refuses it.
+ * Client and actor are both LAZY: a call that names no row touches nothing it
+ * did not touch before, and the actor is resolved only once a row holds the
+ * key. A failed read or actor lookup is `unreadable` — never a yes.
+ */
+export async function takeKeyHolder(
+  synqed: () => Promise<Pick<SynqedClient, 'recordings'>>,
+  key: string,
+  recordingSessionId: unknown,
+  actor: () => Promise<Parameters<typeof assertRecorderOwnsRow>[1]>,
+): Promise<TakeKeyHolder> {
+  if (typeof recordingSessionId !== 'string' || !ROW_ID.test(recordingSessionId)) return 'no_row'
+  let row: Recording
+  try {
+    row = await (await synqed()).recordings.get(recordingSessionId)
+  } catch (err) {
+    return statusOf(err) === 404 ? 'no_row' : 'unreadable'
+  }
+  if (row.audio_storage_path !== key) return 'no_row'
+  try {
+    return assertRecorderOwnsRow(row, await actor()) ? 'foreign' : 'own'
+  } catch {
+    return 'unreadable'
+  }
 }
