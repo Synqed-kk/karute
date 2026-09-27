@@ -1483,6 +1483,14 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     }
   })
 
+  it('§v11 V11-12 (Greptile P2 on #1071) — one 今日の運営 render reads the calendar range ONCE (listBlocksByDay and listShiftsByDay share it) and today once', async () => {
+    const spy = withReads()
+    await board(STORE.gym)
+    const iso = (k: number) => new Date(k * 86_400_000 - 9 * 3_600_000).toISOString() // 00:00 JST of day k (the door's dayStartIso)
+    const reads = (from: number, to: number) => spy.appointmentsList.mock.calls.filter(([q]) => q?.store_id === STORE.gym && q.from === iso(from) && q.to === iso(to) && (q.page ?? 1) === 1).length
+    expect({ calendar: reads(TODAY - 46, TODAY + 46), today: reads(TODAY - 1, TODAY + 1) }).toEqual({ calendar: 1, today: 1 })
+  })
+
   it('§v11 V11-12 — the readers agree on a day where the 勤務不可 GENUINELY moves: the gym\'s だいち, 13:00 → 21:30 on day, calendar and 予約一覧', async () => {
     const day = (await data.readDayPlanes(STORE.gym, TODAY)).absence
     const cal = (await data.listAbsenceByDay(STORE.gym, { from: TODAY, to: TODAY })).get(TODAY)

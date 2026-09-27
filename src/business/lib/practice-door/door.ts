@@ -199,7 +199,7 @@ function blockPieces(row: CoreAppointment): Array<[number, FixtureBlock]> {
  *  inclusive) for the lens — the BLOCKs grouped by day.
  *  The query starts a day EARLY so an overnight block begun on from−1 still
  *  reaches `from` (its from−1 piece is dropped by the key filter). */
-async function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
+async function readDayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
   const rows = await coreAppointments(actor, lens, { from: dayStartIso(range.from - 1), to: dayStartIso(range.to + 1) })
   const pieces = rows
     .filter((r) => r.kind === 'BLOCK')
@@ -210,6 +210,16 @@ async function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange) {
     blocksByDay: new Map(keys.map((k) => [k, pieces.filter(([p]) => p === k).map(([, b]) => b)])),
     rows, // ⚖ R10 — the same read's rows, for the day's room occupancy
   }
+}
+/** ⚖ §v11 V11-12 (Greptile P2 on #1071) — ONE read per lens + range per request: the calendar's range is asked by
+ *  listBlocksByDay AND listShiftsByDay, today's by readDayPlanes AND listAbsenceByDay. Kept on the actor's bound reads
+ *  as `orgSettingsOf` keeps its answer (a keyed slot, never a Map: this folder's fence bans `.set(`); the key carries
+ *  the actor's visible stores, the read's only other input. */
+const ROWS_ONCE = Symbol('day rows, once per lens + range')
+function dayRows(actor: PracticeActor, lens: StoreLens, range: DayRange): ReturnType<typeof readDayRows> {
+  const reads: PracticeActor['reads'] & { [ROWS_ONCE]?: Record<string, ReturnType<typeof readDayRows>> } = actor.reads
+  const once = (reads[ROWS_ONCE] ??= {})
+  return (once[JSON.stringify([visibleIds(actor), lens, range.from, range.to])] ??= readDayRows(actor, lens, range))
 }
 
 export async function listStoreOptions(): Promise<FixtureStore[]> {
