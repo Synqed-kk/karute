@@ -184,6 +184,8 @@ export const CUSTOMERS: Customer[] = [
 export function membership(storeId: string): string[] {
   const twinOf: Record<string, string> = { [STORE.tokyo]: STORE_A, [STORE.yokohama]: STORE_B }
   if (storeId === STORE.laEstro) return [KOBAYASHI]
+  // ⚖ §v11 (Greptile P2) — the gym and 自由が丘 twin no fixture store: their members are the customers their own recorded bookings name.
+  if (storeId === STORE.gym || storeId === STORE.jiyugaoka) return [...new Set(APPOINTMENTS.filter((a) => a.store_id === storeId && a.kind === 'BOOKING').map((a) => a.customer_id!))]
   const fixtureStore = twinOf[storeId]
   if (!fixtureStore) return []
   const ids = new Set(
@@ -265,16 +267,18 @@ export const APPOINTMENTS: Appointment[] = [
 // ⚖ §v11 — the gym's and 自由が丘's days, INVENTED in this file's style at the starts and lengths the probe
 // MEASURED live on 9/27 (DIAGNOSIS A1 · B1 · B4 · B6; blocks-ebisu-1440*.json), set on the recorded today (9/14)
 // and tomorrow (9/15): outside the old shared 10–19 window, inside each store's own (07–22 · 10–20).
-const gymDay = (n: number, starts: string, minutes: number, customer: string, price: number) =>
-  booking(`00000000-0000-4000-8000-00000000c3${String(n).padStart(2, '0')}`, starts, customer, CARD.musubi, STORE.gym, MENU.zenten, minutes, price, 'SCHEDULED')
+// Each booking's customer is its own recorded row (unseeded, no member number), named as the probe read the live card.
+const G = (n: number) => `00000000-0000-4000-8000-00000000cc${String(n).padStart(2, '0')}`
+CUSTOMERS.push(...['松田 亜希子', '加藤 麻美', '清水 亮', '森 大樹', '近藤 雄一', '高橋 美穂', '井上 拓也', '小林 健太郎', '鈴木 拓海', '斎藤 美紀', '上田 彩']
+  .map((name, i) => customer(G(i + 1), name, null)))
+const gymDay = (n: number, starts: string, minutes: number, price: number) =>
+  booking(`00000000-0000-4000-8000-00000000c3${String(n).padStart(2, '0')}`, starts, G(n), CARD.musubi, STORE.gym, MENU.zenten, minutes, price, 'SCHEDULED')
 APPOINTMENTS.push(
-  gymDay(1, '2026-09-14T07:00', 30, C.itsuki, 6600), gymDay(2, '2026-09-14T07:00', 60, C.umi, 11000),
-  gymDay(3, '2026-09-14T13:00', 75, C.eita, 11000), gymDay(4, '2026-09-14T18:30', 90, C.kaeru, 16500),
-  gymDay(5, '2026-09-14T19:00', 60, C.kiri, 11000), gymDay(6, '2026-09-14T20:30', 60, C.kurara, 11000),
-  gymDay(7, '2026-09-14T20:30', 60, C.nagi, 11000),
-  gymDay(8, '2026-09-15T07:00', 30, C.itsuki, 6600), gymDay(9, '2026-09-15T20:30', 60, C.umi, 11000),
-  gymDay(10, '2026-09-15T20:30', 60, C.eita, 11000),
-  booking('00000000-0000-4000-8000-00000000e301', '2026-09-14T18:30', C.kaeru, CARD.musubi, STORE.jiyugaoka, MENU.zenten, 60, 6600, 'SCHEDULED'),
+  gymDay(1, '2026-09-14T07:00', 30, 6600), gymDay(2, '2026-09-14T07:00', 60, 11000), gymDay(3, '2026-09-14T13:00', 75, 11000),
+  gymDay(4, '2026-09-14T18:30', 90, 16500), gymDay(5, '2026-09-14T19:00', 60, 11000), gymDay(6, '2026-09-14T20:30', 60, 11000),
+  gymDay(7, '2026-09-14T20:30', 60, 11000),
+  gymDay(8, '2026-09-15T07:00', 30, 6600), gymDay(9, '2026-09-15T20:30', 60, 11000), gymDay(10, '2026-09-15T20:30', 60, 11000),
+  booking('00000000-0000-4000-8000-00000000e301', '2026-09-14T18:30', G(11), CARD.musubi, STORE.jiyugaoka, MENU.zenten, 60, 6600, 'SCHEDULED'),
 )
 
 type Policy = Awaited<ReturnType<CoreReads['storePolicyGet']>>

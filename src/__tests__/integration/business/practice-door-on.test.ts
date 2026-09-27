@@ -172,7 +172,7 @@ describe('(1) OWNER — viewAll', () => {
       source: '', identity_check: null, ticket_balance: null, wallet_balance: null, merge_status: 'none', duplicate_of: null,
       consent: null, line_linked: false, party: [], thin: false, external_owner: false, note: null, vip: false,
     }])
-    expect(await data.listCustomers(VIEW_ALL)).toHaveLength(14)
+    expect(await data.listCustomers(VIEW_ALL)).toHaveLength(14 + 11) // ⚖ §v11 — + the gym's and 自由が丘's own 11
   })
 
   it('listCustomers: literal membership anchors from fixtures.ts, independent of the membership() helper', async () => {
