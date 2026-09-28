@@ -78,18 +78,18 @@ describe('StaffScopeSegment — render states', () => {
     render(<Harness initial="s2" />)
     expect(within(screen.getByRole('button', { name: /勅使河原/ })).getByText('勅使河原')).toBeInTheDocument()
   })
-  it('the pressed segment wears the R13 selected recipe (bg-primary/8 text-primary), the other stays quiet', () => {
+  it('the pressed segment wears the R13 selected wash (bg-primary/8) with the accent’s darker pair for its label (text-primary-hover, AA over the muted track), the other stays quiet', () => {
     const { unmount } = render(<Harness initial="all" />)
     // Segment 2 = the capsule around the label button and the chevron.
     const seg2 = screen.getByRole('button', { name: '全スタッフ' }).parentElement as HTMLElement
-    expect(seg2).toHaveClass('bg-primary/8', 'text-primary')
+    expect(seg2).toHaveClass('bg-primary/8', 'text-primary-hover')
     expect(seg2.className).not.toMatch(/bg-card|shadow-sm|bg-(foreground|black)/)
     expect(chevron().querySelector('svg')).toHaveClass('text-primary')
     expect(selfBtn()).not.toHaveClass('bg-primary/8')
     expect(selfBtn()).toHaveClass('text-muted-foreground')
     unmount()
     render(<Harness initial="self" />)
-    expect(selfBtn()).toHaveClass('bg-primary/8', 'text-primary')
+    expect(selfBtn()).toHaveClass('bg-primary/8', 'text-primary-hover')
     const quiet = screen.getByRole('button', { name: '全スタッフ' }).parentElement as HTMLElement
     expect(quiet).not.toHaveClass('bg-primary/8')
     expect(quiet).toHaveClass('text-muted-foreground')
