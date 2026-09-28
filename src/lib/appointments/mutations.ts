@@ -623,8 +623,10 @@ export async function markNoShowAppointmentCore(
 }
 
 /**
- * Reschedules and/or reassigns a booking (patch-style: only provided fields
- * change; no other appointment field is ever touched). `patch.staffId` is
+ * Reschedules and/or reassigns a booking (patch-style: only what the patch
+ * names changes — the staff, the time, or both; no other appointment field is
+ * ever touched. A time change always reaches core as the whole judged
+ * interval, see ⚖ W0.5 fix 1 below). `patch.staffId` is
  * already in CORE's staff.id space — the caller (the web action) does the
  * profiles.id → staff.id translation via resolveSynqedStaffId before calling
  * in, the same contract createAppointmentCore's deps.synqedStaffId has.
@@ -655,6 +657,15 @@ export async function markNoShowAppointmentCore(
  * endsAt with startsAt), but the contract was open. Any time field now opens
  * the gate, and the patch is normalised to ONE effective interval
  * (effectiveInterval) before it is judged, on every day it touches.
+ *
+ * ⚖ W0.5 fix 1 (2026-09-28): the payload used to carry only the fields the
+ * patch named. Core fills an omitted starts_at/ends_at from the stored row and
+ * never derives ends_at from duration_minutes (a label there), so the judged
+ * interval and the stored one could differ — a start-only move of 17:00–18:00
+ * to 16:00 was judged 16:00–17:00 and stored 16:00–18:00. Whenever the time
+ * gate opens, core now gets the WHOLE judged interval: starts_at, ends_at, and
+ * duration_minutes as the judged whole minutes. A patch that touches no time
+ * field sends exactly what it named.
  */
 export async function updateAppointmentCore(
   synqed: MutationClient,

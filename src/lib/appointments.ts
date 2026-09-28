@@ -125,6 +125,10 @@ export type BookingTimePatch = { startsAt?: string; endsAt?: string; durationMin
  * minutes, or a time that does not parse → refused. Pure: no store, no throw.
  * The stored row is `null` for a caller with no row in hand — then the patch
  * must name its own start.
+ *
+ * The interval returned here is the one core stores: updateAppointmentCore
+ * sends it WHOLE (starts_at, ends_at, duration_minutes), never only the fields
+ * the patch named — core would fill the rest from the stored row (W0.5 fix 1).
  */
 export function effectiveInterval(
   current: { startsAt: string; endsAt: string } | null,
