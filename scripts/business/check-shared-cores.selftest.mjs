@@ -13,7 +13,13 @@
 // never hands one around — aliases, destructuring, .bind/.call/.apply,
 // indirect calls and shadowing all fail); c1–c6 pin the audit classes
 // (Greptile G3: core-emits only for a proven AUDITED_CORES symbol, a
-// caller-emits write needs its own trace/receipt row and audit call).
+// caller-emits write needs its own trace/receipt row and audit call);
+// new-1–new-16 pin THE RETURN-PATH CHECK (Greptile P1 #4: every non-error
+// return of a function holding a caller-emits site is dominated by an audit
+// emit — the shared emission walker, run with writePairs [] so it never needs
+// the SDK; new-7 carries member calls to prove that path; new-13/new-14 pin
+// that the walked function is the node holding the site, never a lookup by
+// name; new-15 the foreign emit names; new-16 the function's own audit site).
 // The real-tree verdict (judgeTree) never asserts a literal site count: zero
 // findings, and every site met is an approved one whose row is in that
 // tree's own JSON — r1 runs the same verdict on a fixture door WITH approved
@@ -60,6 +66,14 @@ const MUT = "import { updateAppointmentCore } from '@/lib/appointments/mutations
 const AUDIT = "import { audit } from '@/lib/audit'\n"
 const CUST = "import { createCustomerWithClient } from '@/lib/customers/customers.core'\n"
 const custRow = (symbol, cls) => ({ module: 'src/lib/customers/customers.core', call: 'createCustomerWithClient', symbol, class: cls })
+// THE RETURN-PATH CHECK fixtures (new-1…new-16).
+const DURABLE = "import { auditDurable } from '@/lib/audit'\n"
+const A = "audit({ action: 'customer.create', source: 'business' })"
+const CORE = 'createCustomerWithClient(a.c, a.f)'
+const UNAUDITED = (symbol = 'createCustomer') => `unaudited write: ${symbol} needs an audit on every return path`
+const callerEmits = (symbol = 'createCustomer') => (c) => [...c, custRow(symbol, 'caller-emits')]
+// line 1 CUST, line 2 AUDIT, line 3 the function, its body from line 4.
+const createCustomer = (body) => ({ [DOOR]: CUST + AUDIT + 'export async function createCustomer(a) {\n' + body + '\n}\n' })
 
 // [case, files to write, calls transform, expected sorted labels, optional name check]
 const CASES = [
@@ -162,11 +176,58 @@ const CASES = [
     (c) => [...c, custRow('createCustomer', 'caller-emits')], [], { sites: 2 }],
   ['c4 the same pair, but the door writes without its audit() call → unaudited write at the site',
     { [DOOR]: CUST + "export async function createCustomer(a) {\n  return createCustomerWithClient(a.c, a.f)\n}\n" },
-    (c) => [...c, custRow('createCustomer', 'caller-emits')], ['unaudited write: createCustomer needs an audit row'], { line: 3, sites: 1 }],
+    (c) => [...c, custRow('createCustomer', 'caller-emits')], [UNAUDITED()], { line: 3, sites: 1, offender: 'line 3: return createCustomerWithClient' }],
   ['c5 an audited core (updateAppointmentCore) filed as caller-emits → bad calls row (class does not fit the call)',
     {}, (c) => c.map((r) => (r.call === 'updateAppointmentCore' ? { ...r, class: 'caller-emits' } : r)), ['bad calls row (class does not fit the call)']],
   ['c6 an AUDITED_CORES symbol marked unproven is not an audited core → the real core-emits row fails',
     { [POLICY]: unprovenPolicy }, null, ['bad calls row (not an audited core)']],
+  ['new-1 audit() only inside if (false) {} → unaudited write (the success return is not dominated)',
+    createCustomer(`  const r = await createCustomerWithClient(a.c, { ...a.f, tags: a.tags.join(',') })\n  if (false) {\n    ${A}\n  }\n  return r`),
+    callerEmits(), [UNAUDITED()], { line: 4, sites: 2, offender: 'line 8: return r' }],
+  ['new-2 audit() only in the catch → unaudited write (the try\'s success return)',
+    createCustomer(`  try {\n    const r = await ${CORE}\n    return r\n  } catch (e) {\n    ${A}\n    throw e\n  }`),
+    callerEmits(), [UNAUDITED()], { line: 5, sites: 2, offender: 'line 6: return r' }],
+  ['new-3 audit() textually after the return (dead code) → unaudited write',
+    createCustomer(`  const r = await ${CORE}\n  return r\n  ${A}`),
+    callerEmits(), [UNAUDITED()], { line: 4, sites: 2, offender: 'line 5: return r' }],
+  ['new-4 audit() only inside a nested function that is never invoked → unaudited write',
+    createCustomer(`  const r = await ${CORE}\n  function later() {\n    ${A}\n  }\n  return r`),
+    callerEmits(), [UNAUDITED()], { line: 4, sites: 2, offender: 'line 8: return r' }],
+  ['new-5 auditDurable() only inside if (false) {} (the receipt row) → unaudited write',
+    { [DOOR]: CUST + DURABLE + `export async function setCustomerConsent(a) {\n  const r = await ${CORE}\n  if (false) {\n    await auditDurable({ action: 'customer.consent', source: 'business' })\n  }\n  return r\n}\n` },
+    callerEmits('setCustomerConsent'), [UNAUDITED('setCustomerConsent')], { line: 4, sites: 2, offender: 'line 8: return r' }],
+  ['new-6 audit() unconditionally BEFORE the core call, then return → OK',
+    createCustomer(`  ${A}\n  const r = await ${CORE}\n  return r`), callerEmits(), [], { sites: 2 }],
+  ['new-7 the core call, then audit() in sequence (c3 shape, member calls in the audit detail — no SDK needed) → OK',
+    createCustomer(`  const r = await ${CORE}\n  audit({ action: 'customer.create', source: 'business', detail: JSON.stringify(a.f), tags: a.tags.join(',') })\n  return r`),
+    callerEmits(), [], { sites: 2 }],
+  ['new-8 return doCreate(a) — one-level call-through to a nested helper that does core call + audit → OK',
+    createCustomer(`  const doCreate = async (x) => {\n    const r = await createCustomerWithClient(x.c, x.f)\n    ${A}\n    return r\n  }\n  return doCreate(a)`),
+    callerEmits(), [], { sites: 2 }],
+  ['new-9 a side-effect helper (emitAudit(); return r) → unaudited write (walker limitation, pinned by design)',
+    createCustomer(`  const emitAudit = () => {\n    ${A}\n  }\n  const r = await ${CORE}\n  emitAudit()\n  return r`),
+    callerEmits(), [UNAUDITED()], { line: 7, sites: 2, offender: 'line 9: return r' }],
+  ['new-10 early return { ok: false, reason } and early return null BEFORE the core call → OK (error-shaped / bare)',
+    createCustomer(`  if (!a.f) return { ok: false, reason: 'no fields' }\n  if (!a.c) return null\n  const r = await ${CORE}\n  ${A}\n  return r`),
+    callerEmits(), [], { sites: 2 }],
+  ['new-11 two return paths, the audit on one only → unaudited write naming the second return',
+    createCustomer(`  if (a.x) {\n    const r = await ${CORE}\n    ${A}\n    return r\n  }\n  const r2 = await ${CORE}\n  return r2`),
+    callerEmits(), [UNAUDITED()], { line: 5, sites: 3, offender: 'line 10: return r2' }],
+  ['new-12 an early return WITH A VALUE before the core call (not error-shaped) → unaudited write (the convention: emit first or restructure)',
+    createCustomer(`  if (a.existing) return a.existing\n  const r = await ${CORE}\n  ${A}\n  return r`),
+    callerEmits(), [UNAUDITED()], { line: 5, sites: 2, offender: 'line 4: return a.existing' }],
+  ['new-13 an exported const over a two-callback wrapper — the core call in the first, audit() in the second → unaudited write (the walked function is the one holding the site)',
+    { [DOOR]: CUST + AUDIT + `export const createCustomer = wrap(async (a) => {\n  return ${CORE}\n}, async () => {\n  ${A}\n  return 1\n})\n` },
+    callerEmits(), [UNAUDITED()], { line: 4, sites: 2, offender: 'no audit()/auditDurable() call in createCustomer' }],
+  ['new-14 a same-named method declared first (a decoy a lookup by name would walk) → the real function is walked: unaudited write',
+    { [DOOR]: CUST + AUDIT + `const decoy = {\n  createCustomer() {\n    return null\n  },\n}\nexport async function createCustomer(a) {\n  if (a.x) {\n    ${A}\n  }\n  return ${CORE}\n}\n` },
+    callerEmits(), [UNAUDITED()], { line: 12, sites: 2, offender: 'line 12: return createCustomerWithClient' }],
+  ['new-15 a local logFacadeAudit() stand-in dominating the return (the real audit() dead) → foreign emit name (declaration + call)',
+    { [DOOR]: CUST + AUDIT + `export async function createCustomer(a) {\n  const r = await ${CORE}\n  if (false) {\n    ${A}\n  }\n  logFacadeAudit()\n  return r\n}\nfunction logFacadeAudit() {\n  return 1\n}\n` },
+    callerEmits(), ['foreign emit name', 'foreign emit name'], { sites: 2 }],
+  ['new-16 the core call, then return null, no audit() anywhere → unaudited write (the function\'s own audit site is required)',
+    createCustomer(`  await ${CORE}\n  return null`),
+    callerEmits(), [UNAUDITED()], { line: 4, sites: 1, offender: 'no audit()/auditDurable() call in createCustomer' }],
 ]
 
 /** The verdict CI relies on for a whole tree: zero findings, every site met is
@@ -198,6 +259,7 @@ try {
     const got = findings.map((f) => f.label).sort()
     let ok = JSON.stringify(got) === JSON.stringify([...expected].sort())
     if (ok && extra.name) ok = findings.some((f) => f.name === extra.name)
+    if (ok && extra.offender) ok = findings.some((f) => f.name.includes(extra.offender))
     if (ok && extra.line !== undefined) ok = findings.some((f) => f.line === extra.line)
     if (ok && extra.rel) ok = findings.every((f) => f.rel === extra.rel)
     if (ok && extra.sites !== undefined) ok = stats.sites === extra.sites

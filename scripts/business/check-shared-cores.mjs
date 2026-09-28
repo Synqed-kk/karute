@@ -68,9 +68,38 @@
 //          caller) ·
 //        caller-emits ⇔ any other core: the door function emits the audit
 //          itself, so the row needs, for the SAME symbol, a trace or receipt
-//          row, and in the door every caller-emits site needs an audit() /
-//          auditDurable() site in the same function — else `unaudited write:
-//          <symbol> needs an audit row`.
+//          row (else `unaudited write: <symbol> needs an audit row`), and in
+//          the door the function holding the site must pass THE RETURN-PATH
+//          CHECK below.
+//      THE RETURN-PATH CHECK (Greptile P1 #4). The exact function node that
+//      holds a caller-emits site — the one rule 3 resolved its symbol from
+//      (the top-level exported function, or the function argument of an
+//      exported const's call), never a lookup by name — must (i) itself
+//      contain an approved audit() / auditDurable() site, and (ii) pass the
+//      shared emission walker (scripts/audit/emission-walker.mjs, the one
+//      CP2/CP7 prove the audited cores with — never a second copy): every
+//      non-error return path lexically dominated by an emit. Else ONE
+//      finding per function, `unaudited write: <symbol> needs an audit on
+//      every return path`, the offenders one per line. The convention a door
+//      function follows: a block body; the audit call INLINE on the success
+//      path (before or after the core call, in a block every success return
+//      sits inside), or ONE-level `return helper(…)` call-through to a helper
+//      nested in the same function that does both. A side-effect helper call
+//      (`emitAudit(); return r`) is NOT accepted — the walker's limitation, by
+//      design, pinned by the selftest. An early return BEFORE the core call
+//      is exempt only when error-shaped (`{ ok: false, … }`, `{ error: … }`,
+//      a 4xx/5xx status) or bare / null / undefined; an early return with any
+//      other value is flagged — emit first, or restructure. audit() /
+//      auditDurable() are called by their own names (the walker knows emits
+//      by name; an import alias is not one), and the walker's other emit
+//      names (auditWeb, logFacadeAudit) FAIL anywhere in the door as `foreign
+//      emit name` — a local stand-in would read as an audit. The walker gets
+//      `writePairs: []`: the audit-gates job installs no SDK, and the door
+//      holds no SDK client (data-access rule 1, CP3's "writers" rows), so it
+//      never reads client.d.ts. Inherited from the walker unchanged (not this
+//      fence's to widen): a return inside a catch, a bare / null return and
+//      an error-shaped value are exempt WHEREVER they sit — a door function
+//      never returns those shapes after a successful write.
 //   5. A deny-set NAME bound or referenced in ANY territory file other than
 //      through an import from its listed module (a local copy, a
 //      re-implementation, a relay import from elsewhere) FAILS. Property
@@ -100,6 +129,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
 import { loadTerritory } from './check-business-isolation.mjs'
 import { parseAuditedCores } from '../audit/parse-audit-source.mjs'
+import { emitsOnEveryNonErrorPath, EMIT_NAMES } from '../audit/emission-walker.mjs'
 
 // (c) Territory's own pre-existing names that collide with a deny-set name —
 // NOT the core's binding (no import of a listed module in these files; rule 2
@@ -135,6 +165,9 @@ const CLASS_OF_CALL = new Map([
   ['audit', 'trace'],
   ['auditDurable', 'receipt'],
 ])
+// The walker's emit names the door may never use: it emits through audit() /
+// auditDurable() from src/lib/audit only (THE RETURN-PATH CHECK).
+const FOREIGN_EMIT_NAMES = new Set([...EMIT_NAMES].filter((n) => !CLASS_OF_CALL.has(n)))
 const ROUTE_FILE = /(?:^|\/)route\.[cm]?[jt]sx?$/
 const ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
 
@@ -343,11 +376,12 @@ function bindingKeyText(pn) {
   return null
 }
 
-/** The enclosing top-level EXPORTED function's name, or undefined. */
+/** The enclosing top-level EXPORTED function — its name and the function
+ *  node itself (the node THE RETURN-PATH CHECK walks) — or undefined. */
 function enclosingExportedFunction(node, sf, exportedLocals) {
   let top = node
   while (top.parent && top.parent !== sf) top = top.parent
-  if (ts.isFunctionDeclaration(top) && top.name && (hasExport(top) || exportedLocals.has(top.name.text))) return top.name.text
+  if (ts.isFunctionDeclaration(top) && top.name && (hasExport(top) || exportedLocals.has(top.name.text))) return { name: top.name.text, fn: top }
   if (ts.isVariableStatement(top)) {
     for (const d of top.declarationList.declarations) {
       if (!ts.isIdentifier(d.name) || !(hasExport(top) || exportedLocals.has(d.name.text))) continue
@@ -356,9 +390,9 @@ function enclosingExportedFunction(node, sf, exportedLocals) {
       while (init && (ts.isParenthesizedExpression(init) || ts.isAsExpression(init) || ts.isSatisfiesExpression?.(init))) init = init.expression
       if (init && ts.isCallExpression(init)) {
         const fnArg = init.arguments.find((a) => (ts.isArrowFunction(a) || ts.isFunctionExpression(a)) && node.pos >= a.pos && node.end <= a.end)
-        if (fnArg) return d.name.text
+        if (fnArg) return { name: d.name.text, fn: fnArg }
       }
-      if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) return d.name.text
+      if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) return { name: d.name.text, fn: init }
     }
   }
   return undefined
@@ -460,6 +494,10 @@ function scanFile(ctx, rel, text, findings, stats) {
     if (ts.isIdentifier(node) && isValueName(node)) {
       const text = node.text
       const bound = bindings.get(text)
+      // THE RETURN-PATH CHECK — a walker emit name other than audit /
+      // auditDurable, anywhere in the door (a local stand-in would read as
+      // an audit to the walker).
+      if (isDoor && FOREIGN_EMIT_NAMES.has(text)) add(node, 'foreign emit name', `${text} (the door emits through audit() / auditDurable() only)`)
       // A name inside an import/export declaration OF a listed module: rule 2
       // already judged that declaration.
       let decl = node.parent
@@ -478,11 +516,16 @@ function scanFile(ctx, rel, text, findings, stats) {
       } else if (bound && isDoor && !isDeclarationName(node)) {
         // A SITE (rule 3): the callee of a direct call.
         stats.sites++
-        const symbol = enclosingExportedFunction(node, sf, exportedLocals)
+        const enclosing = enclosingExportedFunction(node, sf, exportedLocals)
+        const symbol = enclosing?.name
         const row = symbol === undefined ? undefined : ctx.calls.find((r) => r.module === bound.module && r.call === bound.name && r.symbol === symbol)
         if (ctx.never.includes(bound.name)) add(node, 'never', bound.name)
         else if (!row) add(node, 'no calls row', `${bound.name} in ${symbol ?? '<no exported function>'}`)
-        else stats.approved.push({ module: row.module, call: row.call, symbol: row.symbol, class: row.class, line: lineOf(sf, node) })
+        else {
+          const site = { module: row.module, call: row.call, symbol: row.symbol, class: row.class, line: lineOf(sf, node) }
+          stats.approved.push(site)
+          ctx.doorSites.push({ ...site, fn: enclosing.fn })
+        }
       } else if (!bound && denyNames.has(text)) {
         // Rule 5 — the name without its import, minus the three exemptions.
         const exempt = allowed.has(text) || doorOwn.has(text) || (isRoute && ROUTE_METHODS.has(text) && !importedNames.has(text))
@@ -553,7 +596,9 @@ export function scanSharedCores(root, { allowNames = ALLOW_NAMES } = {}) {
     const dir = join(root, prefix)
     if (existsSync(dir)) walk(dir, files)
   }
-  const ctx = { modules: sc.modules, doorFile: sc.doorFile, never: sc.never, calls: sc.calls, denyNames, exportsByModule, allowNames }
+  // doorSites = every approved site with the function node that holds it
+  // (THE RETURN-PATH CHECK reads them).
+  const ctx = { modules: sc.modules, doorFile: sc.doorFile, never: sc.never, calls: sc.calls, denyNames, exportsByModule, allowNames, doorSites: [] }
   // sites = every site met (approved or not); approved = one entry per site that
   // matched its row (the selftest's real-tree check reads it — CI stays green
   // when the door lands with approved sites).
@@ -562,11 +607,24 @@ export function scanSharedCores(root, { allowNames = ALLOW_NAMES } = {}) {
     const rel = relative(root, file).split(sep).join('/')
     scanFile(ctx, rel, readFileSync(file, 'utf8'), findings, stats)
   }
-  // Rule 4, in the door: a caller-emits site's function must itself emit.
-  const emitting = new Set(stats.approved.filter((s) => s.class === 'trace' || s.class === 'receipt').map((s) => s.symbol))
-  for (const s of stats.approved) {
-    if (s.class === 'caller-emits' && !emitting.has(s.symbol)) {
-      findings.push({ rel: sc.doorFile, line: s.line, label: `unaudited write: ${s.symbol} needs an audit row`, name: `${s.module}#${s.call} (no audit()/auditDurable() call in ${s.symbol})` })
+  // Rule 4, in the door — THE RETURN-PATH CHECK: each function holding a
+  // caller-emits site holds an audit()/auditDurable() site of its own AND
+  // passes the shared emission walker (no SDK: writePairs []). One finding per
+  // function, at its first caller-emits site.
+  const emitFns = new Set(ctx.doorSites.filter((s) => s.class === 'trace' || s.class === 'receipt').map((s) => s.fn))
+  const judged = new Set()
+  for (const s of ctx.doorSites) {
+    if (s.class !== 'caller-emits' || judged.has(s.fn)) continue
+    judged.add(s.fn)
+    const offenders = emitFns.has(s.fn) ? [] : [`no audit()/auditDurable() call in ${s.symbol}`]
+    offenders.push(...emitsOnEveryNonErrorPath(s.fn, { writePairs: [] }).offenders)
+    if (offenders.length) {
+      findings.push({
+        rel: sc.doorFile,
+        line: s.line,
+        label: `unaudited write: ${s.symbol} needs an audit on every return path`,
+        name: `${s.module}#${s.call}${offenders.map((o) => `\n    ${o}`).join('')}`,
+      })
     }
   }
   findings.sort((a, b) => a.rel.localeCompare(b.rel) || a.line - b.line || a.label.localeCompare(b.label))

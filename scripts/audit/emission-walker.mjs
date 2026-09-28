@@ -44,7 +44,7 @@ import { staticAccessName, calleeObject } from './ast-access.mjs'
 // scanner in this suite that recognizes an emit must know all three names, or
 // a durable writer is invisible to the proof net (CP2/CP4/CP5/CP7 each carry
 // the same widened set).
-const EMIT_NAMES = new Set(['audit', 'auditWeb', 'auditDurable', 'logFacadeAudit'])
+export const EMIT_NAMES = new Set(['audit', 'auditWeb', 'auditDurable', 'logFacadeAudit'])
 const SUPABASE_WRITE_VERBS = new Set(['insert', 'update', 'upsert', 'delete'])
 
 /** @typedef {ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.MethodDeclaration} FnLike */
