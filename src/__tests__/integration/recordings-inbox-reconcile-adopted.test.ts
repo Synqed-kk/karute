@@ -33,10 +33,16 @@ type Meta = {
   startedAt: number
   updatedAt: number
 }
-/** `listed` = the real listOwnTakes would return this take right now. It is
- *  false inside the 20 s ACTIVE_GRACE_MS after the last flush
- *  (take-store.ts:1559) — the window a fast failure's first fold lands in. */
-const store = { meta: null as Meta | null, blob: null as Blob | null, listed: true }
+/** The real flush grace, copied — take-store is mocked in this file, so it
+ *  cannot be imported: take-store.ts:48 `const ACTIVE_GRACE_MS = 20_000`, read
+ *  at :1559 `if (now - lastActivity < ACTIVE_GRACE_MS) continue`. */
+const ACTIVE_GRACE_MS = 20_000
+/** How long ago the take last flushed (its `updatedAt`) — the two sides of that
+ *  grace. IN_GRACE: the window a fast failure's first fold lands in; the real
+ *  listOwnTakes hides the take. PAST_GRACE: quiet long enough; it is listed. */
+const IN_GRACE_MS = 1_000
+const PAST_GRACE_MS = 60_000
+const store = { meta: null as Meta | null, blob: null as Blob | null }
 const markTakeFinalized = jest.fn(async (_takeId: string, path: string) => {
   if (store.meta) store.meta = { ...store.meta, finalizedAt: 1, finalizedPath: path }
 })
@@ -50,9 +56,12 @@ const stampTakeSession = jest.fn(async (_takeId: string, session: string) => {
 const deleteTake = jest.fn<Promise<void>, [takeId: string]>(async () => {})
 const settleTakeAfterSave = jest.fn<Promise<void>, [takeId: string]>(async () => {})
 /** The real gates this models: owner + exclude (take-store.ts:1547), bytes on
- *  disk (:1557 lastSeq), the flush grace (:1559) as `listed`. */
+ *  disk (:1557 lastSeq), and the flush grace (:1559) read off the take's own
+ *  `updatedAt` as the real store reads it (`lastActivity = m.updatedAt ??
+ *  m.startedAt`, :1524) — so a fixture's timestamp and whether the take is
+ *  listed cannot disagree. */
 const listOwnTakes = jest.fn(async (exclude: ReadonlyArray<string | null | undefined> = []) =>
-  store.meta && store.blob && store.listed && !exclude.includes(TAKE)
+  store.meta && store.blob && Date.now() - store.meta.updatedAt >= ACTIVE_GRACE_MS && !exclude.includes(TAKE)
     ? [
         {
           takeId: TAKE,
@@ -158,13 +167,21 @@ const takeFacts = () => ({
   destroyCalls: deleteTake.mock.calls.length + settleTakeAfterSave.mock.calls.length,
 })
 const TAKE_UNTOUCHED = { kept: true, row: ROW_X, key: TAKE_KEY, destroyCalls: 0 }
+/** Time passing for the take: its stamps move back by `ms` — what the clock
+ *  moving on looks like to the store's `Date.now() - updatedAt` read. */
+const ageTake = (ms: number) => {
+  if (store.meta) store.meta = { ...store.meta, startedAt: store.meta.startedAt - ms, updatedAt: store.meta.updatedAt - ms }
+}
 
 /** THE REAL PATH: a take with bytes and no row; the recording's run starts with
  *  no session (both mints failed); the attach mints X and stamps it on the take
  *  (secureTake → stampTakeSession), ai-pipeline.ts:263 hands X to the run
- *  (onSessionAdopted → adoptRecordingSession), and the transcribe door fails. */
-async function adoptedRunThatFails() {
-  store.meta = { mimeType: 'audio/webm', durationMs: 42_000, startedAt: Date.now() - 60_000, updatedAt: Date.now() - 1_000 }
+ *  (onSessionAdopted → adoptRecordingSession), and the transcribe door fails.
+ *  `quietForMs` = how long ago the take last flushed: which side of the listing
+ *  grace every fold of the case sees it on. */
+async function adoptedRunThatFails(quietForMs: number) {
+  const updatedAt = Date.now() - quietForMs
+  store.meta = { mimeType: 'audio/webm', durationMs: 42_000, startedAt: updatedAt - 59_000, updatedAt }
   store.blob = new Blob(['stored'], { type: 'audio/webm' })
   const adopt = jest.spyOn(globalPipeline, 'adoptRecordingSession')
   globalPipeline.start(memory, {
@@ -217,7 +234,6 @@ beforeEach(() => {
   jest.spyOn(console, 'info').mockImplementation(() => {})
   store.meta = null
   store.blob = null
-  store.listed = true
   transcribeAnswer = 'refused'
   // The error transition itself triggers a fold (armPipelineWatch); until a
   // test names its rows, that fold sees nothing and reconciles nothing.
@@ -232,7 +248,7 @@ afterEach(() => {
 
 describe('S52-A — the reconcile on a take adopted mid-run (real adoption door)', () => {
   it('(a) failed + canRetry (the take is on this device) → the card stands down; the take, its row stamp and ONE 再試行 door remain', async () => {
-    await adoptedRunThatFails()
+    await adoptedRunThatFails(PAST_GRACE_MS)
     await foldWith([session({ jobStatus: 'FAILED', jobLastError: 'boom' })])
 
     expect(cardFacts()).toEqual(STOOD_DOWN)
@@ -246,8 +262,7 @@ describe('S52-A — the reconcile on a take adopted mid-run (real adoption door)
   })
 
   it('(b) failed + serverAudio (the take is inside its flush grace) → stands down; once listed, the SAME row carries the take — still one row', async () => {
-    await adoptedRunThatFails()
-    store.listed = false
+    await adoptedRunThatFails(IN_GRACE_MS)
     await foldWith([session({ jobStatus: 'FAILED', jobLastError: 'boom', serverAudio: 'object' })])
 
     expect(cardFacts()).toEqual(STOOD_DOWN)
@@ -258,7 +273,7 @@ describe('S52-A — the reconcile on a take adopted mid-run (real adoption door)
 
     // The grace passes: the device's take now pairs with X (inbox.ts:437-451),
     // the take path wins the 再試行 (inbox.ts:561-565), and no twin appears.
-    store.listed = true
+    ageTake(PAST_GRACE_MS)
     await foldWith([session({ jobStatus: 'FAILED', jobLastError: 'boom', serverAudio: 'object' })])
     expect(rowsFor()).toEqual([
       expect.objectContaining({ state: 'failed', takeId: TAKE, canRetry: true }),
@@ -268,7 +283,7 @@ describe('S52-A — the reconcile on a take adopted mid-run (real adoption door)
   })
 
   it('(c) discarded by a colleague → stands down; the row is inert and the take is still kept, unchanged', async () => {
-    await adoptedRunThatFails()
+    await adoptedRunThatFails(PAST_GRACE_MS)
     await foldWith([session({ discardedByStaff: true })])
 
     expect(cardFacts()).toEqual(STOOD_DOWN)
@@ -279,8 +294,7 @@ describe('S52-A — the reconcile on a take adopted mid-run (real adoption door)
   })
 
   it('control — failed with NO way forward (no listed take, no server object) → the card, its session and its blob all stay', async () => {
-    await adoptedRunThatFails()
-    store.listed = false
+    await adoptedRunThatFails(IN_GRACE_MS)
     await foldWith([session({ jobStatus: 'FAILED', jobLastError: 'boom' })])
 
     expect(rowsFor()).toEqual([
@@ -298,7 +312,7 @@ describe('S52-A — the reconcile on a take adopted mid-run (real adoption door)
 
   it('control (F3) — an adopted run that fails EMPTY-TRANSCRIPT keeps the card (its 破棄 door) even against a failed + canRetry row', async () => {
     transcribeAnswer = 'empty'
-    await adoptedRunThatFails()
+    await adoptedRunThatFails(PAST_GRACE_MS)
     expect(globalPipeline.error).toBe('empty-transcript')
     await foldWith([session({ jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' })])
 
