@@ -33,6 +33,13 @@ jest.mock('@/lib/karute/take-store', () => ({
   deleteTake: jest.fn(),
   stampTakeSession: jest.fn(),
 }))
+// An early real neighbour-prefetch warm can consume a response queued for the foreground fetch, or inflate call counts, on a slow runner (CI run 36444001618) —
+// mocked out here, same pattern as thin-appointments-month-door.test.tsx; the warm's own behaviour is pinned in thin-screen-neighbours.test.ts (~165-218).
+jest.mock('../../../thin/data/screen-neighbours', () => ({
+  ...jest.requireActual('../../../thin/data/screen-neighbours'),
+  warmAppointmentNeighbours: jest.fn(),
+  cancelNeighbourWarm: jest.fn(),
+}))
 
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
