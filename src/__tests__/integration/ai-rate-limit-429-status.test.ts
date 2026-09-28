@@ -2,7 +2,7 @@
 // ONLY truthy return to a literal status 429. The four legacy /api/ai/*
 // routes' rewrap comment (extract/summarize/suggestions/transcribe route.ts)
 // says "status is always 429 here" and depends on that being a LITERAL for
-// CP7's audit-writer walker (helpers/audit-emission.ts's
+// CP7's audit-writer walker (scripts/audit/emission-walker.mjs's
 // hasStatusProperty4xx5xx exemption matches a numeric literal in the return
 // expression's subtree, not a traced variable) — this is the tripwire: if
 // enforceAiRateLimit ever grows a second truthy status (e.g. a distinct code

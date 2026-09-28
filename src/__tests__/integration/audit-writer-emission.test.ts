@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
 import { AUDITED_CORES } from '@/lib/audit-policy'
-import { findSymbol, emitsOnEveryNonErrorPath } from './helpers/audit-emission'
+import { findSymbol, emitsOnEveryNonErrorPath } from '../../../scripts/audit/emission-walker.mjs'
 import { srcFiles } from './helpers/src-files'
 
 const ROOT = process.cwd()

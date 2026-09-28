@@ -3,6 +3,10 @@
 // INSTALLED SDK (node_modules/@synqed-kk/client/dist), never hardcoded, so a
 // dist-format or SDK-version change is caught by the sentinel/floor
 // assertions in audit-sdk-write-sites.test.ts, not silently under-derived.
+//
+// Plain ESM + JSDoc types (moved from src/__tests__/integration/helpers/
+// sdk-write-methods.ts, 2026-09-28) so plain `node` can import it — the CI
+// audit-gates job installs only `typescript` — alongside jest (CP3).
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
@@ -10,42 +14,46 @@ import ts from 'typescript'
 const SDK_DIST = join(process.cwd(), 'node_modules/@synqed-kk/client/dist')
 const WRITE_VERBS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-export interface WritePair {
-  prop: string
-  method: string
-}
+/** @typedef {{ prop: string, method: string }} WritePair */
 
 /** Per-class derivation result — `methodCount` lets callers enforce the
  *  per-class parse floor (contract §8 CP3 amendment: a class yielding zero
  *  methods is a loud parse failure, guarding a core-side codegen change that
- *  silently shrinks the write set). */
-export interface ClassDerivation {
-  prop: string
-  className: string
-  methodCount: number
-  writes: WritePair[]
-}
+ *  silently shrinks the write set).
+ *  @typedef {{ prop: string, className: string, methodCount: number, writes: WritePair[] }} ClassDerivation */
 
-function classToModule(dts: string): Map<string, string> {
-  const out = new Map<string, string>()
+/** @param {string} dts
+ *  @returns {Map<string, string>} */
+function classToModule(dts) {
+  /** @type {Map<string, string>} */
+  const out = new Map()
   const re = /import \{ (\w+) \} from '\.\/([\w-]+)\.js';/g
-  let m: RegExpExecArray | null
+  /** @type {RegExpExecArray | null} */
+  let m
   while ((m = re.exec(dts))) out.set(m[1], m[2])
   return out
 }
 
-function classProps(dts: string): [string, string][] {
-  const out: [string, string][] = []
+/** @param {string} dts
+ *  @returns {[string, string][]} */
+function classProps(dts) {
+  /** @type {[string, string][]} */
+  const out = []
   const re = /^\s{4}(\w+): (\w+Client);$/gm
-  let m: RegExpExecArray | null
+  /** @type {RegExpExecArray | null} */
+  let m
   while ((m = re.exec(dts))) out.push([m[1], m[2]])
   return out
 }
 
-function methodBodies(jsSource: string): { name: string; bodyText: string }[] {
+/** @param {string} jsSource
+ *  @returns {{ name: string, bodyText: string }[]} */
+function methodBodies(jsSource) {
   const sf = ts.createSourceFile('__m__.js', jsSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
-  const out: { name: string; bodyText: string }[] = []
-  function visit(node: ts.Node): void {
+  /** @type {{ name: string, bodyText: string }[]} */
+  const out = []
+  /** @param {ts.Node} node */
+  function visit(node) {
     if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.body) {
       out.push({ name: node.name.text, bodyText: node.body.getText() })
     }
@@ -57,8 +65,9 @@ function methodBodies(jsSource: string): { name: string; bodyText: string }[] {
 
 /** Per-class breakdown (for the per-class parse floor) + the flat write-pair
  *  list. Throws if client.d.ts itself can't be found/parsed at all — that IS
- *  a loud failure (never a silently-empty derivation). */
-export function deriveSdkClasses(): ClassDerivation[] {
+ *  a loud failure (never a silently-empty derivation).
+ *  @returns {ClassDerivation[]} */
+export function deriveSdkClasses() {
   const dtsPath = join(SDK_DIST, 'client.d.ts')
   if (!existsSync(dtsPath)) {
     throw new Error(`SDK derivation: ${dtsPath} not found — @synqed-kk/client dist layout changed?`)
@@ -66,7 +75,8 @@ export function deriveSdkClasses(): ClassDerivation[] {
   const dts = readFileSync(dtsPath, 'utf8')
   const modules = classToModule(dts)
   const props = classProps(dts)
-  const out: ClassDerivation[] = []
+  /** @type {ClassDerivation[]} */
+  const out = []
   for (const [prop, className] of props) {
     const mod = modules.get(className)
     if (!mod) {
@@ -78,7 +88,8 @@ export function deriveSdkClasses(): ClassDerivation[] {
     }
     const js = readFileSync(jsPath, 'utf8')
     const methods = methodBodies(js).filter((m) => m.name !== 'constructor')
-    const writes: WritePair[] = []
+    /** @type {WritePair[]} */
+    const writes = []
     for (const { name, bodyText } of methods) {
       let verb = 'GET'
       const verbMatch = /method:\s*'(\w+)'/.exec(bodyText)
@@ -91,6 +102,7 @@ export function deriveSdkClasses(): ClassDerivation[] {
   return out
 }
 
-export function deriveWriteMethods(): WritePair[] {
+/** @returns {WritePair[]} */
+export function deriveWriteMethods() {
   return deriveSdkClasses().flatMap((c) => c.writes)
 }

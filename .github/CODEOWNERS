@@ -27,9 +27,9 @@
 # Only the helpers the protected suites execute through (blind round,
 # 2026-07-28: the whole-dir glob owner-gated four generic mock helpers that
 # ordinary feature tests edit routinely).
-/src/__tests__/integration/helpers/audit-emission.ts @alee046
-/src/__tests__/integration/helpers/ast-access.ts @alee046
-/src/__tests__/integration/helpers/sdk-write-methods.ts @alee046
+# (The emission walker + its two siblings moved to scripts/audit/ on
+# 2026-09-28 — emission-walker.mjs, ast-access.mjs, sdk-write-methods.mjs —
+# and are owned by the /scripts/audit/ line above.)
 /src/__tests__/integration/helpers/src-files.ts @alee046
 /src/__tests__/integration/helpers/audit-lines.ts @alee046
 # jest plumbing the protected suites execute through (fresh-eyes fix round
