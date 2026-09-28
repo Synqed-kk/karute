@@ -18,6 +18,12 @@ jest.mock('@/lib/global-recorder', () => ({
 const takes = new Map<string, { finalizedPath?: string; transcript?: unknown }>()
 jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: async (takeId: string) => takes.get(takeId) ?? null,
+  // S53 A4: the fallback's key pin, with the store's C3 guard.
+  pinTakeFallback: async (takeId: string, pin: { finalizedPath: string }) => {
+    const meta = takes.get(takeId)
+    if (meta && (!meta.finalizedPath || meta.finalizedPath === pin.finalizedPath))
+      (meta as Record<string, unknown>).fallbackPin = { ...pin, at: 1 }
+  },
   ensureFinalizedPath: async (_takeId: string, meta: { finalizedPath?: string }) =>
     meta.finalizedPath ?? null,
   readTakeTranscript: async (takeId: string) => takes.get(takeId)?.transcript ?? null,

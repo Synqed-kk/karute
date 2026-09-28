@@ -40,6 +40,8 @@ jest.mock('@/lib/karute/take-store', () => ({
   // ai-pipeline-transcript-checkpoint.test.ts's).
   readTakeTranscript: async () => null,
   stampTakeTranscript: async () => {},
+  // S53 A4: the fallback's key pin (take-store's own is pinned in take-durability).
+  pinTakeFallback: async () => {},
 }))
 
 const apiFetch = jest.fn(async (url: string) => {
