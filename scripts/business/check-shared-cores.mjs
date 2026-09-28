@@ -54,9 +54,23 @@
 //      not judged: an object that could hold a core can only come from a
 //      reference this rule already fails, or from an import the isolation
 //      test's FILE_ALLOWED_TARGETS refuses. Type positions are not sites.
-//   4. Every row must name a listed module, a real export of it, a class in
-//      {core-emits, trace, receipt} that fits the call (audit ⇔ trace,
-//      auditDurable ⇔ receipt) and no `never` call — a typo never passes.
+//   4. Every row must name a listed module, a real export of it, no `never`
+//      call, and a class in {core-emits, caller-emits, trace, receipt} that
+//      fits the call — a typo never passes (Greptile G3):
+//        audit ⇔ trace · auditDurable ⇔ receipt ·
+//        core-emits ⇔ the call is a PROVEN audited core of that module: a
+//          `symbols[]` name of the module file's AUDITED_CORES entry and not
+//          in its `unproven[]` — exactly the set CP7 (src/__tests__/
+//          integration/audit-writer-emission.test.ts) proves "emits on every
+//          non-error path"; anything else as core-emits FAILS `not an audited
+//          core` (createCustomerWithClient / createPackWithClient write with
+//          no audit row of their own — customers.core.ts leaves it to the
+//          caller) ·
+//        caller-emits ⇔ any other core: the door function emits the audit
+//          itself, so the row needs, for the SAME symbol, a trace or receipt
+//          row, and in the door every caller-emits site needs an audit() /
+//          auditDurable() site in the same function — else `unaudited write:
+//          <symbol> needs an audit row`.
 //   5. A deny-set NAME bound or referenced in ANY territory file other than
 //      through an import from its listed module (a local copy, a
 //      re-implementation, a relay import from elsewhere) FAILS. Property
@@ -113,9 +127,10 @@ export const ALLOW_NAMES = [
   },
 ]
 
-const CLASSES = new Set(['core-emits', 'trace', 'receipt'])
+const CLASSES = new Set(['core-emits', 'caller-emits', 'trace', 'receipt'])
 // The class a call's row must carry: audit() is a trace, auditDurable() a
-// receipt, and every other call is a core that writes its own audit row.
+// receipt; every other call is core-emits when it is a proven audited core
+// (provenAuditedCores below) and caller-emits otherwise.
 const CLASS_OF_CALL = new Map([
   ['audit', 'trace'],
   ['auditDurable', 'receipt'],
@@ -204,6 +219,43 @@ function valueExports(sf) {
     }
   }
   return { names, star }
+}
+
+/** Proven audited cores per file: each AUDITED_CORES entry's `symbols[]`
+ *  minus its `unproven[].symbol` — the cores CP7 proves write their own audit
+ *  row on every non-error path. `symbols` comes from CP8's parser (`cores`);
+ *  `unproven` is read here by AST (that shared parser returns { file,
+ *  symbols } only and three gates consume it — left untouched). A shape this
+ *  reader cannot judge throws: it never reads as "nothing unproven". */
+function provenAuditedCores(policyText, cores) {
+  const unreadable = () => {
+    throw new Error("src/lib/audit-policy.ts: AUDITED_CORES `unproven` unreadable — the audited-core set cannot be built")
+  }
+  const lit = (n) => (n && (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) ? n.text : undefined)
+  const keyOf = (p) => (ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) ? p.name.text : unreadable())
+  const sf = ts.createSourceFile('audit-policy.ts', policyText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  let arr
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue
+    for (const d of st.declarationList.declarations) if (ts.isIdentifier(d.name) && d.name.text === 'AUDITED_CORES') arr = d.initializer
+  }
+  if (!arr || !ts.isArrayLiteralExpression(arr)) unreadable()
+  const proven = new Map()
+  for (const e of cores) proven.set(e.file, new Set([...(proven.get(e.file) ?? []), ...e.symbols]))
+  for (const el of arr.elements) {
+    if (!ts.isObjectLiteralExpression(el)) unreadable()
+    const file = lit(el.properties.find((p) => keyOf(p) === 'file')?.initializer)
+    const un = el.properties.find((p) => keyOf(p) === 'unproven')
+    if (!un) continue
+    if (!file || !ts.isArrayLiteralExpression(un.initializer)) unreadable()
+    for (const u of un.initializer.elements) {
+      if (!ts.isObjectLiteralExpression(u)) unreadable()
+      const symbol = lit(u.properties.find((p) => keyOf(p) === 'symbol')?.initializer)
+      if (!symbol) unreadable()
+      proven.get(file)?.delete(symbol)
+    }
+  }
+  return proven
 }
 
 /** The whole sharedCores block, validated for shape (a malformed config
@@ -430,7 +482,7 @@ function scanFile(ctx, rel, text, findings, stats) {
         const row = symbol === undefined ? undefined : ctx.calls.find((r) => r.module === bound.module && r.call === bound.name && r.symbol === symbol)
         if (ctx.never.includes(bound.name)) add(node, 'never', bound.name)
         else if (!row) add(node, 'no calls row', `${bound.name} in ${symbol ?? '<no exported function>'}`)
-        else stats.approved.push({ module: row.module, call: row.call, symbol: row.symbol, line: lineOf(sf, node) })
+        else stats.approved.push({ module: row.module, call: row.call, symbol: row.symbol, class: row.class, line: lineOf(sf, node) })
       } else if (!bound && denyNames.has(text)) {
         // Rule 5 — the name without its import, minus the three exemptions.
         const exempt = allowed.has(text) || doorOwn.has(text) || (isRoute && ROUTE_METHODS.has(text) && !importedNames.has(text))
@@ -459,6 +511,7 @@ export function scanSharedCores(root, { allowNames = ALLOW_NAMES } = {}) {
 
   // Rule 1 — the deny set, from the real files.
   const exportsByModule = new Map()
+  const fileOfModule = new Map()
   for (const mod of sc.modules) {
     const file = resolveModuleFile(root, mod)
     if (!file) {
@@ -468,9 +521,12 @@ export function scanSharedCores(root, { allowNames = ALLOW_NAMES } = {}) {
     const { names, star } = valueExports(sourceFileOf(file, readFileSync(join(root, file), 'utf8')))
     if (star) findings.push({ rel: file, line: 0, label: 'module has export * (deny set unreadable)', name: mod })
     exportsByModule.set(mod, names)
+    fileOfModule.set(mod, file)
   }
-  const cores = parseAuditedCores(readFileSync(join(root, 'src/lib/audit-policy.ts'), 'utf8'))
+  const policyText = readFileSync(join(root, 'src/lib/audit-policy.ts'), 'utf8')
+  const cores = parseAuditedCores(policyText)
   if (cores === null) throw new Error("src/lib/audit-policy.ts: AUDITED_CORES unreadable by CP8's parser — the deny set cannot be built")
+  const proven = provenAuditedCores(policyText, cores)
   const denyNames = new Set([...[...exportsByModule.values()].flatMap((s) => [...s]), ...cores.flatMap((e) => e.symbols)])
 
   // Rule 4 — every row names something real.
@@ -480,8 +536,15 @@ export function scanSharedCores(root, { allowNames = ALLOW_NAMES } = {}) {
     if (!sc.modules.includes(r.module)) bad('module not in modules')
     else if (!exportsByModule.get(r.module)?.has(r.call)) bad('call is not an export of its module')
     else if (sc.never.includes(r.call)) bad('call is in never')
-    else if (!CLASSES.has(r.class)) bad('class is not core-emits | trace | receipt')
-    else if (r.class !== (CLASS_OF_CALL.get(r.call) ?? 'core-emits')) bad('class does not fit the call')
+    else if (!CLASSES.has(r.class)) bad('class is not core-emits | caller-emits | trace | receipt')
+    else {
+      const fits = CLASS_OF_CALL.get(r.call) ?? (proven.get(fileOfModule.get(r.module))?.has(r.call) ? 'core-emits' : 'caller-emits')
+      if (r.class === 'core-emits' && fits === 'caller-emits') bad('not an audited core')
+      else if (r.class !== fits) bad('class does not fit the call')
+      else if (r.class === 'caller-emits' && !sc.calls.some((a) => a.symbol === r.symbol && (a.class === 'trace' || a.class === 'receipt'))) {
+        findings.push({ rel: configRel, line: at, label: `unaudited write: ${r.symbol} needs an audit row`, name: `${r.module}#${r.call}` })
+      }
+    }
   }
 
   // Rules 2, 3, 5 — every territory file.
@@ -498,6 +561,13 @@ export function scanSharedCores(root, { allowNames = ALLOW_NAMES } = {}) {
   for (const file of files) {
     const rel = relative(root, file).split(sep).join('/')
     scanFile(ctx, rel, readFileSync(file, 'utf8'), findings, stats)
+  }
+  // Rule 4, in the door: a caller-emits site's function must itself emit.
+  const emitting = new Set(stats.approved.filter((s) => s.class === 'trace' || s.class === 'receipt').map((s) => s.symbol))
+  for (const s of stats.approved) {
+    if (s.class === 'caller-emits' && !emitting.has(s.symbol)) {
+      findings.push({ rel: sc.doorFile, line: s.line, label: `unaudited write: ${s.symbol} needs an audit row`, name: `${s.module}#${s.call} (no audit()/auditDurable() call in ${s.symbol})` })
+    }
   }
   findings.sort((a, b) => a.rel.localeCompare(b.rel) || a.line - b.line || a.label.localeCompare(b.label))
   return { findings, stats }

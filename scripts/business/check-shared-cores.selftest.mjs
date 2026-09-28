@@ -11,7 +11,9 @@
 // rule-5 exemptions, row-shape checks, type positions, const-arrow symbols);
 // p1–p8 pin the strict position rule (Greptile G2: the door calls a core, it
 // never hands one around — aliases, destructuring, .bind/.call/.apply,
-// indirect calls and shadowing all fail).
+// indirect calls and shadowing all fail); c1–c6 pin the audit classes
+// (Greptile G3: core-emits only for a proven AUDITED_CORES symbol, a
+// caller-emits write needs its own trace/receipt row and audit call).
 // The real-tree verdict (judgeTree) never asserts a literal site count: zero
 // findings, and every site met is an approved one whose row is in that
 // tree's own JSON — r1 runs the same verdict on a fixture door WITH approved
@@ -40,6 +42,12 @@ const copy = (rel) => {
 }
 for (const mod of realConfig.sharedCores.modules) copy(`${mod}.ts`)
 copy('src/lib/audit-policy.ts')
+const POLICY = 'src/lib/audit-policy.ts'
+const realPolicy = readFileSync(join(repo, POLICY), 'utf8')
+// c6's policy: the mutations entry marks updateAppointmentCore `unproven`.
+const MUT_ENTRY_END = "      'updateAppointmentCore',\n    ],\n  },"
+if (realPolicy.split(MUT_ENTRY_END).length !== 2) throw new Error('selftest: the mutations AUDITED_CORES entry moved — re-anchor c6')
+const unprovenPolicy = realPolicy.replace(MUT_ENTRY_END, "      'updateAppointmentCore',\n    ],\n    unproven: [{ symbol: 'updateAppointmentCore', reason: 'selftest fixture' }],\n  },")
 
 /** Write the config with sharedCores.calls transformed (the real rows by default). */
 const setCalls = (fn = (c) => c) =>
@@ -50,6 +58,8 @@ const clearTerritory = () => {
 
 const MUT = "import { updateAppointmentCore } from '@/lib/appointments/mutations'\n"
 const AUDIT = "import { audit } from '@/lib/audit'\n"
+const CUST = "import { createCustomerWithClient } from '@/lib/customers/customers.core'\n"
+const custRow = (symbol, cls) => ({ module: 'src/lib/customers/customers.core', call: 'createCustomerWithClient', symbol, class: cls })
 
 // [case, files to write, calls transform, expected sorted labels, optional name check]
 const CASES = [
@@ -143,6 +153,20 @@ const CASES = [
     { [DOOR]: MUT + 'export async function moveBooking(a) {\n  const updateStaffCore = a\n  return updateAppointmentCore(updateStaffCore)\n}\n' +
       'function helper(updateAppointmentCore) {\n  return 1\n}\n' },
     null, ['deny-set name without import', 'shadowing a deny-set name', 'shadowing a deny-set name'], { sites: 1 }],
+  ['c1 a core-emits row for createCustomerWithClient (writes, emits no audit row) → bad calls row (not an audited core)',
+    {}, (c) => [...c, custRow('createCustomer', 'core-emits')], ['bad calls row (not an audited core)']],
+  ['c2 a caller-emits row with no trace/receipt row for its symbol → unaudited write',
+    {}, (c) => [...c, custRow('addCustomer', 'caller-emits')], ['unaudited write: addCustomer needs an audit row']],
+  ['c3 a valid caller-emits + trace pair, the door calling both inside createCustomer → OK',
+    { [DOOR]: CUST + AUDIT + "export async function createCustomer(a) {\n  const r = await createCustomerWithClient(a.c, a.f)\n  audit({ action: 'customer.create', source: 'business' })\n  return r\n}\n" },
+    (c) => [...c, custRow('createCustomer', 'caller-emits')], [], { sites: 2 }],
+  ['c4 the same pair, but the door writes without its audit() call → unaudited write at the site',
+    { [DOOR]: CUST + "export async function createCustomer(a) {\n  return createCustomerWithClient(a.c, a.f)\n}\n" },
+    (c) => [...c, custRow('createCustomer', 'caller-emits')], ['unaudited write: createCustomer needs an audit row'], { line: 3, sites: 1 }],
+  ['c5 an audited core (updateAppointmentCore) filed as caller-emits → bad calls row (class does not fit the call)',
+    {}, (c) => c.map((r) => (r.call === 'updateAppointmentCore' ? { ...r, class: 'caller-emits' } : r)), ['bad calls row (class does not fit the call)']],
+  ['c6 an AUDITED_CORES symbol marked unproven is not an audited core → the real core-emits row fails',
+    { [POLICY]: unprovenPolicy }, null, ['bad calls row (not an audited core)']],
 ]
 
 /** The verdict CI relies on for a whole tree: zero findings, every site met is
@@ -167,6 +191,7 @@ let failed = 0
 try {
   for (const [name, files, calls, expected, extra = {}] of CASES) {
     clearTerritory()
+    write(POLICY, realPolicy)
     setCalls(calls ?? undefined)
     for (const [rel, src] of Object.entries(files)) write(rel, src)
     const { findings, stats } = scanSharedCores(root)
@@ -182,6 +207,7 @@ try {
   // r1 — the real-tree verdict on a fixture tree whose door HAS approved sites
   // (the shape Business PR (2) lands): must pass, sites counted, not assumed 0.
   clearTerritory()
+  write(POLICY, realPolicy)
   setCalls()
   write(DOOR, MUT + AUDIT +
     'export async function moveBooking(a) {\n  return updateAppointmentCore(a.c, a.id, a.p, a.actor, a.h, a.s)\n}\n' +
