@@ -356,6 +356,7 @@ import { POST as facadeTranscribePOST } from '@/app/api/app/v1/ai/transcribe/rou
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { runMeteredTranscription } from '@/lib/ai/transcribe'
+import { readTranscriptMemo } from '@/lib/recording/transcript-memo'
 import { can } from '@/lib/auth/require-permission'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
 
@@ -2113,5 +2114,50 @@ describe('charge once — the durable transcript memo', () => {
     expect(second.receipt.replayed).toBe(false)
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  // ⚖ S53 A3 — THE MEMO IS WRITTEN BEFORE THE TRUE-UP. The true-up is up to
+  // three core calls and a second of waits; a process that dies inside it (the
+  // 300 s limit, a crash) used to take the PAID answer with it, and the next
+  // attempt paid again. A true-up that never finishes is exactly that death as
+  // the code sees it: the memo must already be readable while it hangs.
+  it('a3 the TRUE-UP never finishes (the process dies inside it) → the paid answer is already remembered, and the next call replays it', async () => {
+    // 600,000 B → 100 s → a 1 ¢ reserve; the 5,400 s answer owes a 44 ¢ true-up.
+    headBytes.current = 600_000
+    let trueUpStarted = false
+    recordUsage
+      .mockResolvedValueOnce(undefined) // the reserve lands
+      .mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>(() => {}) // …and the true-up never returns
+      })
+
+    void call(AUDIO)
+    while (!trueUpStarted) await new Promise(setImmediate)
+
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    const memo = await readTranscriptMemo(memoKey(AUDIO))
+    expect(memo).toMatchObject({ state: 'hit', memo: { v: 1, duration_seconds: 5400, result: { transcript: 'こんにちは' } } })
+
+    // The retry after that death reads it: no second provider call.
+    const retry = await call(AUDIO)
+    expect(retry.receipt.replayed).toBe(true)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a3 a true-up that is LOST (three failures) still leaves exactly one memo, written before the ledger calls', async () => {
+    headBytes.current = 600_000
+    recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    const paid = await call(AUDIO)
+
+    expect(paid.receipt.debit_recorded).toBe(false)
+    expect(storageUpload).toHaveBeenCalledTimes(1)
+    // The memo write precedes the first true-up attempt in the call order.
+    const uploadOrder = storageUpload.mock.invocationCallOrder[0]
+    const trueUpOrder = recordUsage.mock.invocationCallOrder[1]
+    expect(uploadOrder).toBeLessThan(trueUpOrder)
+    err.mockRestore()
   })
 })
