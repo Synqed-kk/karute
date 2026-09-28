@@ -200,6 +200,8 @@ const transcribeStatus: Array<number | undefined> = []
  *  true = the phone door) and the body a refused POST's 404 carries (default: not the phone door's code). */
 let portRefuses404 = false
 let refusalBody404 = '{"error":"refused"}'
+/** S55 — the body a refused POST's NON-404 answer carries (default: no door code). */
+let refusalBodyOther = '{"error":"refused"}'
 let paidCalls = 0
 jest.mock('@/lib/ports/data-port', () => ({
   getDataPort: () => ({
@@ -211,9 +213,12 @@ jest.mock('@/lib/ports/data-port', () => ({
         onTranscribeReached?.()
         const refusedWith = transcribeStatus.shift()
         if (refusedWith) {
-          const body = refusedWith === 404 ? refusalBody404 : '{"error":"refused"}'
-          const json = async () => JSON.parse(body) as unknown // no body / a page → throws, as a real Response's
-          return { ok: false, status: refusedWith, text: async () => body, json, clone: () => ({ json }) } as unknown as Response
+          const body = refusedWith === 404 ? refusalBody404 : refusalBodyOther
+          // S55 — a REAL Fetch Response (Node's own undici), never a stand-in: its body reads ONCE. fetchWithRetry
+          // reads this answer's text for its error message BEFORE the pipeline's catch runs, so the 404 rule can
+          // only see the body through the clone() it took first — a second read of the same object throws
+          // 'Body is unusable: Body has already been read', as on the phone. No body / a page → .json() throws.
+          return new Response(body, { status: refusedWith })
         }
         const key = String((JSON.parse(init?.body ?? '{}') as { path?: unknown }).path)
         const remembered = serverMemo?.get(key)
@@ -301,6 +306,7 @@ beforeEach(() => {
   transcribeStatus.length = 0
   portRefuses404 = false
   refusalBody404 = '{"error":"refused"}'
+  refusalBodyOther = '{"error":"refused"}'
   adoptLost = 0
   serverMemo = null
   onTranscribeReached = null
@@ -1270,5 +1276,65 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
     expect(globalPipeline.state).toBe('review')
     expect(mints()).toBe(1)
     expect(paidCalls).toBe(1)
+  })
+
+  // ⚖ S55 stress — the 404 rule's other edges. (g3 is the refused arm above: a real Response, so t10e fails the
+  // moment the rule reads the answer itself instead of its clone.)
+  it.each([
+    ['a 403 (refused on the first answer)', () => transcribeStatus.push(403)],
+    ['a 500, twice', () => transcribeStatus.push(500, 500)],
+  ])('(g1) phone: %s whose body carries the door’s own not_found code → NOT retired (only a 404 is the key refusal): the error stands and the next 再試行 re-presents the same key', async (_name, refuse) => {
+    phoneDoor()
+    refusalBodyOther = doorBody('not_found')
+    stuckTake()
+    await lostFirstRun()
+    refuse()
+    await retry()
+    expect(globalPipeline.state).toBe('error')
+    expect(retireTakeFallback).not.toHaveBeenCalled()
+    expect(store.meta?.fallbackPin?.retiredAt).toBeUndefined()
+    expect(chainSlot()?.retiredAt).toBeUndefined()
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(prepareTranscription.mock.calls.slice(1).map(([, path]) => path)).toEqual([K, K])
+    expect(mints()).toBe(1)
+    expect(paidCalls).toBe(1)
+  })
+
+  it('(g2) phone: an UNPINNED run (a fresh mint — no pin read at its start) meets the door’s 404 not_found → nothing to retire: no take mark, no chain-slot call, no TypeError; the ordinary “Transcription failed”', async () => {
+    phoneDoor()
+    stuckTake()
+    const onFallbackRetired = jest.fn()
+    transcribeStatus.push(404, 404)
+    const err = await outcome(direct('ja', { onFallbackRetired }))
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(TypeError)
+    expect((err as Error).message).toMatch(/^Transcription failed: /)
+    expect(mints()).toBe(1)
+    expect(paidCalls).toBe(0)
+    expect(retireTakeFallback).not.toHaveBeenCalled()
+    expect(onFallbackRetired).not.toHaveBeenCalled()
+    // The key this run pinned before its POST is not one it read, so it is not this run's to retire.
+    expect(store.meta?.fallbackPin).toMatchObject({ finalizedPath: K })
+    expect(store.meta?.fallbackPin?.retiredAt).toBeUndefined()
+
+    const next = await outcome(direct('ja', { onFallbackRetired }))
+    expect(next).toBe('ok')
+    expect(prepareTranscription.mock.calls.map(([, path]) => path)).toEqual([null, K])
+    expect(mints()).toBe(1)
+    expect(paidCalls).toBe(1)
+  })
+
+  it('(g4) phone: a 404 whose body is not JSON (a platform page) on a pinned run → the ordinary “Transcription failed: HTTP 404…”, never a raw JSON SyntaxError; not retired', async () => {
+    phoneDoor('The page could not be found\n\nNOT_FOUND\n')
+    bareTake()
+    const left: Pin = { finalizedPath: K, recordingSessionId: R, locale: 'ja', audio: fp(memory, 42), at: 1 }
+    store.meta = { ...store.meta!, fallbackPin: left }
+    transcribeStatus.push(404, 404)
+    const err = await outcome(direct('ja'))
+    expect(err).not.toBeInstanceOf(SyntaxError)
+    expect((err as Error).message).toMatch(/^Transcription failed: HTTP 404: The page could not be found/)
+    expect(retireTakeFallback).not.toHaveBeenCalled()
+    expect(store.meta?.fallbackPin).toEqual(left)
   })
 })
