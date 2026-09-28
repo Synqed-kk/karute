@@ -93,7 +93,10 @@ describe('P2 — an end-only stretch past closing is REFUSED', () => {
 })
 
 describe('the gate’s other shapes, through the one effective interval', () => {
-  it('an end-only stretch INSIDE hours passes, and core still gets exactly { ends_at } (payload unchanged)', async () => {
+  // ⚖ W0.5 fix 1 — FLIPPED: this pinned `{ ends_at }` alone. Core keeps the
+  // stored start and a stale duration_minutes label from such a payload; the
+  // judged interval now goes whole (booking-judged-interval-payload.test.ts).
+  it('an end-only change INSIDE hours passes, and core gets the whole judged interval', async () => {
     const c = client()
     const result = await updateAppointmentCore(
       c.synqed as never,
@@ -104,7 +107,11 @@ describe('the gate’s other shapes, through the one effective interval', () => 
       VIEW_ALL,
     )
     expect(result).toEqual({ success: true })
-    expect(c.update).toHaveBeenCalledWith('appt-1', { ends_at: '2026-09-15T08:45:00.000Z' })
+    expect(c.update).toHaveBeenCalledWith('appt-1', {
+      starts_at: '2026-09-15T08:00:00.000Z',
+      ends_at: '2026-09-15T08:45:00.000Z',
+      duration_minutes: 45,
+    })
     // The day was judged — the policy read happened.
     expect(c.policyGet).toHaveBeenCalledWith('store-ginza')
   })

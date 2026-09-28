@@ -356,7 +356,12 @@ describe('Migrated appointment actions', () => {
       })
     })
 
-    it('partial update omits ends_at if only duration changes', async () => {
+    // ⚖ W0.5 fix 1 — FLIPPED. This used to pin `{ duration_minutes: 45 }`
+    // alone ("partial update omits ends_at if only duration changes"). Core
+    // never derives ends_at from duration_minutes (a label there), so that
+    // payload left the stored 10:00–11:00 untouched while the app judged
+    // 10:00–10:45. A time patch now always carries the effective pair.
+    it('a time patch always carries the effective pair', async () => {
       appointments.get.mockResolvedValue({
         status: 'SCHEDULED',
         customer_id: 'cust-1',
@@ -370,6 +375,8 @@ describe('Migrated appointment actions', () => {
       await updateAppointment('appt-1', { durationMinutes: 45 })
 
       expect(appointments.update).toHaveBeenCalledWith('appt-1', {
+        starts_at: '2026-05-10T01:00:00.000Z',
+        ends_at: '2026-05-10T01:45:00.000Z',
         duration_minutes: 45,
       })
     })
