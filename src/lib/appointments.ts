@@ -23,10 +23,14 @@ export interface AppointmentInput {
 }
 
 /** The store-side half of the hours question, for ONE day. Fetched by
- *  src/lib/appointments/day-hours.ts — the same four inputs the 予約 screens
+ *  src/lib/appointments/day-hours.ts — the same inputs the 予約 screens
  *  resolve their 休 cells from, so the door and the screen can never disagree
- *  about whether a day is closed. */
-export type BookingDayHours = Pick<DayHoursInput, 'weeklyHours' | 'closedDates' | 'orgSaved'>
+ *  about whether a day is closed. `specialOpenDays` (⚖ W0.5) stays optional
+ *  like its DayHoursInput source: absent = the store declared no 臨時営業日. */
+export type BookingDayHours = Pick<
+  DayHoursInput,
+  'weeklyHours' | 'closedDates' | 'specialOpenDays' | 'orgSaved'
+>
 
 /**
  * The house `{ error }` shape, with the closed-day refusal's provenance riding
@@ -113,6 +117,7 @@ export async function validateAppointmentTime(
     date: startDate,
     weeklyHours: dayHours.weeklyHours,
     closedDates: dayHours.closedDates,
+    specialOpenDays: dayHours.specialOpenDays,
     orgHours: normalizeOperatingHours(operatingHours),
     orgSaved: dayHours.orgSaved,
   })

@@ -1,8 +1,9 @@
 // ⚖ PKT-1c-C — the ONE read behind the closed-day booking door.
 //
 // The 予約 screens already resolve a day's hours through resolveDayHours off
-// four inputs (the store's own weekly_hours, its 臨時休業 dates, the
-// business-wide blob, and which of that blob's weekdays a human really saved).
+// five inputs (the store's own weekly_hours, its 臨時休業 dates, its 臨時営業日
+// — special_open_days, ⚖ W0.5 — the business-wide blob, and which of that
+// blob's weekdays a human really saved).
 // The WRITE path has to ask the same question about exactly ONE day, so this is
 // that same fetch shape (src/actions/appointments-window.ts:109-146) narrowed to
 // a single date — never a window, never a second resolver.
@@ -43,7 +44,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
-import type { WeekdayKey } from '@/lib/operating-hours'
+import { specialOpenDaysByDate, type WeekdayKey } from '@/lib/operating-hours'
 import type { BookingDayHours } from '@/lib/appointments'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 
@@ -53,7 +54,10 @@ type StorePolicyReader = {
 }
 
 /** The store said nothing about this day. Never closed on its own: the org blob
- *  below still gets its say, and a day nobody saved anywhere stays open. */
+ *  below still gets its say, and a day nobody saved anywhere stays open.
+ *  No 臨時営業日 either — `specialOpenDays` is left ABSENT, which the resolver
+ *  reads as "the store declared none" (DayHoursInput): the same answer as an
+ *  empty map, in the shape this function has always returned. */
 export function orgOnlyDayHours(orgSaved: readonly WeekdayKey[] | undefined): BookingDayHours {
   return {
     weeklyHours: null,
@@ -111,6 +115,13 @@ export async function fetchBookingDayHours(
 
   return {
     weeklyHours: policy.status === 'fulfilled' ? (policy.value?.weekly_hours ?? null) : null,
+    // ⚖ W0.5 — the SAME policy object already in hand. It used to be read for
+    // weekly_hours and its special_open_days dropped on the floor, so a day
+    // the store explicitly opened (and core accepts) was refused here. A
+    // failed read knows no special day, exactly as it knows no weekly hours.
+    specialOpenDays: specialOpenDaysByDate(
+      policy.status === 'fulfilled' ? policy.value?.special_open_days : null,
+    ),
     closedDates: new Set(
       closed.status === 'fulfilled' ? closed.value.closed_days.map((d) => d.date) : [],
     ),
