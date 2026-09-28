@@ -18,6 +18,7 @@ import {
 } from '@/lib/ai-rate-limit'
 import { AppApiError } from '@/lib/app-api/errors'
 import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 /** S53 A2 — the phone door's own words for the same state (v1 route, the
  *  `holder === 'unreadable'` refusal), so both doors answer one sentence. */
@@ -599,6 +600,25 @@ export async function runMeteredTranscription(
 
   const durationSec = billedSeconds(result)
   const durationSeconds = Math.round(durationSec)
+  const remember = async (): Promise<void> => {
+    if (memoKey === null) return
+    const again = memoRead?.state === 'corrupt' ? await readTranscriptMemo(memoKey) : null
+    if (again?.state !== 'hit') {
+      await writeTranscriptMemo(
+        memoKey,
+        {
+          v: 1,
+          result,
+          duration_seconds: durationSeconds,
+          written_at: new Date().toISOString(),
+        },
+        { repair: memoRead?.state === 'corrupt' },
+      )
+    }
+  }
+  // OFF (RECORDING_SWITCHES.transcribePaidOnce) = the pre-S53 order: the memo
+  // after the true-up, below.
+  const memoFirst = RECORDING_SWITCHES.transcribePaidOnce
 
   // The provider answered, so the money is spent whether or not the true-up
   // lands — remember the answer so this audio is never paid for again.
@@ -619,21 +639,7 @@ export async function runMeteredTranscription(
   // audio in the same language, and the caller still gets it), anything else
   // repairs; an upsert onto nothing simply creates. Whatever lands between the
   // re-check and the upsert is another PAID answer, never garbage.
-  if (memoKey !== null) {
-    const again = memoRead?.state === 'corrupt' ? await readTranscriptMemo(memoKey) : null
-    if (again?.state !== 'hit') {
-      await writeTranscriptMemo(
-        memoKey,
-        {
-          v: 1,
-          result,
-          duration_seconds: durationSeconds,
-          written_at: new Date().toISOString(),
-        },
-        { repair: memoRead?.state === 'corrupt' },
-      )
-    }
-  }
+  if (memoFirst) await remember()
 
   // ── THE TRUE-UP ───────────────────────────────────────────────────────────
   // The ledger already holds the reserve. Only a provider answer LONGER than
@@ -650,6 +656,7 @@ export async function runMeteredTranscription(
       delta > 0 ? await reportTranscriptionUsageWithClient(meter.synqed, delta) : true,
     replayed: false,
   }
+  if (!memoFirst) await remember()
 
   // ONE receipt per call. The two interactive routes already emit their own
   // recording.transcribe row (web: auditWeb; facade: the hook map) and carry

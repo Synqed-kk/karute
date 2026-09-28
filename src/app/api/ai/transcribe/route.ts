@@ -15,6 +15,7 @@ import { can, getMyCapabilities } from '@/lib/auth/require-permission'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { takeKeyHolder } from '@/lib/recording/take-binding'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 export const maxDuration = 300
 
@@ -172,7 +173,8 @@ export async function POST(request: Request) {
               return { staffId: meter.staffId, businessId: meter.businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
             })
       const replayMemo = holder === 'own'
-      const memoHitRefuses = holder === 'unreadable'
+      // OFF (RECORDING_SWITCHES.transcribePaidOnce) = the pre-S53 answer: pays.
+      const memoHitRefuses = RECORDING_SWITCHES.transcribePaidOnce && holder === 'unreadable'
       const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey, replayMemo, memoHitRefuses }, {
         audio: { url: audioUrl },
         locale: (loc ?? 'ja') === 'en' ? 'en' : 'ja',
