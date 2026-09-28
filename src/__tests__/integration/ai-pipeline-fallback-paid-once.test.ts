@@ -476,6 +476,29 @@ describe('⚖ C3 fold — Greptile P1: a fallback answer replays only onto the a
     expect(transcribePosts()).toBe(1)
     expect(store.meta?.transcript).toMatchObject({ finalizedPath: unbound(1), response: { transcript: 'answer-1' }, audio: fp(memory, 42) })
   })
+
+  it('(f5) S51 — the same size and length in a DIFFERENT type is different audio: the door is asked again (slot and stamp)', async () => {
+    const webm = new Blob(['x'.repeat(1000)], { type: 'audio/webm' })
+    const mp4 = new Blob(['x'.repeat(1000)], { type: 'audio/mp4' })
+    const paidAudio = { size: 1000, type: 'audio/webm', durationSeconds: 12.5 }
+    expect([fp(webm, 12.5), fp(mp4, 12.5)]).toEqual([paidAudio, { ...paidAudio, type: 'audio/mp4' }])
+    const len = { durationSeconds: 12.5 }
+    // The chain's slot (take-less): the same audio replays; only the type differs → asked.
+    const paidFallback = { takeId: null, locale: 'ja', response: { transcript: 'paid-for-webm' }, audio: paidAudio }
+    expect((await recovery(webm, { paidFallback, ...len }, null)).transcript).toBe('paid-for-webm')
+    expect(transcribePosts()).toBe(0)
+    expect((await recovery(mp4, { paidFallback, ...len }, null)).transcript).toBe('answer-1')
+    expect(transcribePosts()).toBe(1)
+    // The take's own fallback stamp: the same rule.
+    takeWhoseAttachFails(2)
+    const stamp = { finalizedPath: unbound(7), locale: 'ja', response: { transcript: 'paid-for-webm' }, at: 1, fallback: true as const, audio: paidAudio }
+    store.meta = { ...store.meta!, transcript: stamp }
+    expect((await recovery(webm, len)).transcript).toBe('paid-for-webm')
+    expect(transcribePosts()).toBe(1)
+    expect((await recovery(mp4, len)).transcript).toBe('answer-2')
+    expect(transcribePosts()).toBe(2)
+    expect(prepareTranscription.mock.calls.at(-1)).toEqual([mp4, null, { attachOutcome: 'attach_failed' }])
+  })
 })
 
 describe('⚖ C3 — a take-less run chain keeps its paid answer on globalPipeline', () => {

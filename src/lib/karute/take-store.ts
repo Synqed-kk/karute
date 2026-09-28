@@ -453,7 +453,14 @@ let dbPromise: Promise<IDBDatabase | null> | null = null
  *  A null used to be held for the whole page life, so one blocked or failed
  *  open at the first flush left every take on the page memory-only however
  *  long the recording ran — and the recorder's revive could never reach a
- *  store that had come back. The next call opens again. */
+ *  store that had come back. The next call opens again.
+ *
+ *  ⚖ …AND A CLOSED CONNECTION IS NOT KEPT EITHER (S51). A connection the
+ *  browser closes later (storage eviction, OS pressure) or lets go for another
+ *  tab's upgrade used to stay cached: every later transaction threw into its
+ *  caller's catch, every write answered false, and the page went memory-only.
+ *  Allowed by the code; no field report. The next call after a close opens
+ *  again. */
 function openDb(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise
   const opening: Promise<IDBDatabase | null> = new Promise((resolve) => {
@@ -467,7 +474,18 @@ function openDb(): Promise<IDBDatabase | null> {
         if (!db.objectStoreNames.contains(SEGMENTS))
           db.createObjectStore(SEGMENTS, { keyPath: ['takeId', 'seq'] })
       }
-      open.onsuccess = () => resolve(open.result)
+      open.onsuccess = () => {
+        const db = open.result
+        // Only ever drops THIS open's promise, never a newer one.
+        db.onversionchange = () => {
+          if (dbPromise === opening) dbPromise = null
+          db.close()
+        }
+        db.onclose = () => {
+          if (dbPromise === opening) dbPromise = null
+        }
+        resolve(db)
+      }
       open.onerror = () => {
         console.error('[take-store] open failed:', open.error)
         resolve(null)

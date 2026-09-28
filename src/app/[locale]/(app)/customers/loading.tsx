@@ -7,14 +7,18 @@ export default function CustomersLoading() {
           <div className="h-7 w-32 rounded bg-muted md:h-8 md:w-36" />
           <div className="h-3.5 w-56 rounded bg-muted" />
         </div>
-        <div className="h-9 w-36 rounded-[10px] bg-muted" />
       </div>
 
-      {/* Filter / search bar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div data-testid="list-search-skeleton" className="h-9 flex-1 rounded-full bg-muted md:max-w-sm" />
-        <div className="h-8 w-20 rounded-full bg-muted" />
+      {/* Search + the add circle at the row's end — the live row's order and
+       *  gap (CustomersListView). The filter chip keeps its own line: the live
+       *  search row holds nothing else. */}
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div data-testid="list-search-skeleton" className="box-content h-9 flex-1 rounded-full border border-border bg-muted md:max-w-sm" />
+        </div>
+        <div className="size-9 shrink-0 rounded-full bg-muted" />
       </div>
+      <div className="h-8 w-20 rounded-full bg-muted" />
 
       {/* List rows */}
       <div className="rounded-2xl border border-border bg-card shadow-sm">

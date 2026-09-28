@@ -235,8 +235,34 @@ class FakeIDB {
     this.stores.set(name, s)
     return s
   }
+  /** ⚖ S51 — A CONNECTION HAS A LIFE OF ITS OWN. Every `indexedDB.open` below
+   *  hands out its own connection over this one database (`Object.create`, so
+   *  the stores are shared), the way a real IDBDatabase is: the browser can
+   *  close one while the next open gets a live one. A script's own `close()`
+   *  fires no `close` event — the real API's rule; only `forceClose()` (the
+   *  browser: eviction, OS pressure) does. */
+  /** …and the database has a VERSION (S51 fold). Only `fakeDb`'s is ever
+   *  written; a connection reads it through the prototype. 0 = not created
+   *  yet — the first `open(name, 1)` upgrades it to 1. */
+  version = 0
+  closed = false
+  closeCalls = 0
+  onclose: (() => void) | null = null
+  onversionchange: (() => void) | null = null
+  close() {
+    this.closeCalls++
+    this.closed = true
+  }
+  forceClose() {
+    this.closed = true
+    this.onclose?.()
+  }
   // Args ignored — the shim scopes stores per call, not per transaction.
   transaction() {
+    if (this.closed)
+      throw Object.assign(new Error('The database connection is closing. (test)'), {
+        name: 'InvalidStateError',
+      })
     // ⚖ AND IT IS ALL OR NOTHING (fix round 18). Real IndexedDB ABORTS the whole
     // transaction when one request errors and rolls back every write it already
     // made. The shim used to leave the earlier ones standing, so "the tail bytes
@@ -352,18 +378,49 @@ class FakeIDB {
 }
 
 const fakeDb = new FakeIDB()
+/** S51: every connection the shim handed out, in order — the length is how a
+ *  REOPEN is counted, the last one is the store's current connection. */
+const connections: FakeIDB[] = []
 ;(globalThis as unknown as { indexedDB: unknown }).indexedDB = {
-  open: () => {
+  /** ⚖ S51 fold — the real API's three version rules (an upgrade test that
+   *  never changes the version cannot prove the upgrade path). The same
+   *  version → a fresh connection. A higher one → every OTHER open connection
+   *  is sent `versionchange` first, and the upgrade runs only if they all let
+   *  go; one still holding on → `blocked` (the shim stops there — the real
+   *  request would wait; no test here needs the wait). A lower one →
+   *  `VersionError`. A request that never became a connection is marked
+   *  closed, so it never counts as one holding on. Stores are
+   *  create-if-missing, so an upgrade touches no data. */
+  open: (_name: string, version?: number) => {
+    const connection = Object.create(fakeDb) as FakeIDB
+    connections.push(connection)
     const req = {
-      result: fakeDb,
-      error: null,
+      result: connection,
+      error: null as { name: string } | null,
       onupgradeneeded: null as (() => void) | null,
       onsuccess: null as (() => void) | null,
       onerror: null as (() => void) | null,
       onblocked: null as (() => void) | null,
     }
+    const want = version ?? Math.max(fakeDb.version, 1)
     queueMicrotask(() => {
-      if (fakeDb.stores.size === 0) req.onupgradeneeded?.()
+      if (want < fakeDb.version) {
+        connection.closed = true
+        req.error = { name: 'VersionError' }
+        req.onerror?.()
+        return
+      }
+      if (want > fakeDb.version) {
+        const holding = () => connections.filter((c) => c !== connection && !c.closed)
+        holding().forEach((c) => c.onversionchange?.())
+        if (holding().length > 0) {
+          connection.closed = true
+          req.onblocked?.()
+          return
+        }
+        req.onupgradeneeded?.()
+        fakeDb.version = want
+      }
       req.onsuccess?.()
     })
     return req
@@ -5441,6 +5498,141 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     } finally {
       idb.indexedDB.open = realOpen
     }
+  })
+
+  // ⚖ S51 — …and a CLOSED connection is not kept either. Each case takes a
+  // FRESH module (as T1), so the connection it opens is `connections[before]`.
+  const freshStore = () => {
+    let store!: typeof import('@/lib/karute/take-store')
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      store = require('@/lib/karute/take-store')
+    })
+    return store
+  }
+  /** One segment write with the fake clock run through its retry window, so a
+   *  store still holding a dead connection spends its three tries and answers. */
+  const appendSettled = async (store: ReturnType<typeof freshStore>, takeId: string) => {
+    const wrote = store.appendTakeSegment(takeId, 0, new Blob(['aaa']))
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    return wrote
+  }
+
+  it('S51 T-A1 a connection the browser closed is not kept: the next write opens again and lands', async () => {
+    const store = freshStore()
+    const before = connections.length
+    expect(await store.createTake(takeMeta('ta1'))).toBe(true)
+    const opened = connections.length
+    connections[before].forceClose() // eviction, OS pressure
+    expect({ wrote: await appendSettled(store, 'ta1'), reopens: connections.length - opened }).toEqual({
+      wrote: true,
+      reopens: 1,
+    })
+    expect(metaOf('ta1')).toMatchObject({ ownerUid: 'staff-A', lastSeq: 0 })
+    expect(segmentOf('ta1', 0)).toBeDefined()
+  })
+
+  /** Another tab opens this database at `version` — the real way a
+   *  `versionchange` reaches the store's connection (the test no longer fires
+   *  the event by hand). Answers how that tab's request ended. */
+  const upgradeFromAnotherTab = (version: number) =>
+    new Promise<{ ended: 'success' | 'blocked' | 'error'; db: FakeIDB }>((resolve) => {
+      const idb = globalThis as unknown as {
+        indexedDB: {
+          open: (
+            name: string,
+            version: number,
+          ) => {
+            result: FakeIDB
+            onsuccess: (() => void) | null
+            onblocked: (() => void) | null
+            onerror: (() => void) | null
+          }
+        }
+      }
+      const r = idb.indexedDB.open('karute_takes', version) // take-store's DB_NAME
+      r.onsuccess = () => resolve({ ended: 'success', db: r.result })
+      r.onblocked = () => resolve({ ended: 'blocked', db: r.result })
+      r.onerror = () => resolve({ ended: 'error', db: r.result })
+    })
+
+  // The app opens this database at version 1 only, and nothing else opens it
+  // today. A foreign upgrade is the standard reason a tab goes memory-only until
+  // reload — NOT a loss path this fix creates: the pre-existing limit, made visible.
+  it('S51 T-A2 another tab’s upgrade: the connection is let go so the upgrade succeeds; the store never keeps the dead connection (its own reopen at version 1 is refused — memory-only until reload)', async () => {
+    const store = freshStore()
+    const before = connections.length
+    expect(await store.createTake(takeMeta('ta2'))).toBe(true)
+    const mine = connections[before]
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const tab = await upgradeFromAnotherTab(2)
+    try {
+      expect({ upgrade: tab.ended, version: fakeDb.version, closeCalls: mine.closeCalls }).toEqual({
+        upgrade: 'success', // not 'blocked': the whole reason the handler closes
+        version: 2,
+        closeCalls: 1,
+      })
+      const opened = connections.length
+      const first = await appendSettled(store, 'ta2') // a FRESH open, never the dead connection…
+      const firstReopens = connections.length - opened
+      const second = await appendSettled(store, 'ta2') // …and its refusal is not cached (S36)
+      const refusals = errors.mock.calls.filter(
+        ([what, err]) =>
+          what === '[take-store] open failed:' &&
+          (err as { name?: string } | null)?.name === 'VersionError',
+      ).length
+      expect({
+        wrote: [first, second],
+        reopens: [firstReopens, connections.length - opened],
+        refusals,
+      }).toEqual({ wrote: [false, false], reopens: [1, 2], refusals: 2 })
+    } finally {
+      // Back to the world every other test runs in: that tab gone, version 1
+      // (a real browser would need deleteDatabase for the second half).
+      tab.db.close()
+      fakeDb.version = 1
+      errors.mockRestore()
+    }
+  })
+
+  it('S51 T-A2b another tab opening at the SAME version asks nothing: the store’s connection is untouched and its next write lands on it', async () => {
+    const store = freshStore()
+    const before = connections.length
+    expect(await store.createTake(takeMeta('ta2b'))).toBe(true)
+    const mine = connections[before]
+    const tab = await upgradeFromAnotherTab(1) // the same version: no upgrade, so no versionchange
+    try {
+      const opened = connections.length
+      // The handler always closes, so a versionchange would show as a close here.
+      expect({
+        tab: tab.ended,
+        closeCalls: mine.closeCalls,
+        closed: mine.closed,
+        wrote: await appendSettled(store, 'ta2b'),
+        reopens: connections.length - opened,
+      }).toEqual({ tab: 'success', closeCalls: 0, closed: false, wrote: true, reopens: 0 })
+    } finally {
+      tab.db.close() // a tab left holding on would block the next upgrade
+    }
+  })
+
+  // The late event is a CLOSE only. S51 fold: the old connection's late
+  // `versionchange` is gone — the real API sends it only to connections still
+  // open, and an open connection is always the store's current one, so no
+  // faithful route reaches that case. The close guard below is unchanged.
+  it('S51 T-A3 an old connection’s late close never drops the newer one', async () => {
+    const store = freshStore()
+    const before = connections.length
+    expect(await store.createTake(takeMeta('ta3'))).toBe(true)
+    const opened = connections.length
+    const old = connections[before]
+    old.forceClose()
+    const reopening = store.createTake(takeMeta('ta3-b')) // the reopen is in flight…
+    old.forceClose() // …and the OLD connection's close lands late
+    const wrote = [await reopening, await appendSettled(store, 'ta3')]
+    old.forceClose() // …or later still, after the new one is up
+    wrote.push(await appendSettled(store, 'ta3'))
+    expect({ wrote, reopens: connections.length - opened }).toEqual({ wrote: [true, true, true], reopens: 1 })
   })
 
   it('T7 createTake on a row that already exists is refused, and the row is untouched', async () => {

@@ -285,7 +285,7 @@ export const AUDITED_CORES: {
   // row through startRecordingSessionWithClient (session-mint.ts), which
   // carries no audit() and is NOT covered by auditTakeNamed; a karute save
   // reaches it only where the client adopts that row's id (S34: the web from
-  // its deploy, the phone from build 29; build-28 phones do not) — otherwise it
+  // its deploy, the phone from build 29; older builds are expired) — otherwise it
   // shows only as an inbox 復元可能/失敗 row — and an upload whose recording already has a row never
   // reaches it (S33 'attach_failed'), see audit.ts's map entry) and carries no audit() of its own, so
   // CP7's registry-reality cross-check (exported symbols only) can never
