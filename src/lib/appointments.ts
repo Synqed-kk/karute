@@ -179,9 +179,20 @@ export function effectiveInterval(
   return { startsAt, endsAt }
 }
 
+/** What the hours judgement reads: a create's input as it arrived, or a
+ *  reschedule's effective interval — plus, for the reschedule, the EXACT end
+ *  instant it judged (⚖ W0.5 fix 2). */
+export type BookingTimeInput = AppointmentInput & {
+  /** The exact end (ISO): updateAppointmentCore's effectiveInterval end,
+   *  seconds and all, while `durationMinutes` stays its whole-minute label.
+   *  Absent = startTime + durationMinutes (a create). */
+  endTime?: string
+}
+
 /** One calendar day of a booking's interval: the instant whose JST day it is
  *  judged on, the weekday the org blob's fallback window is read for, and the
- *  minutes of that day the booking occupies ([fromMinute, toMinute], 0–1440). */
+ *  minutes of that day the booking occupies ([fromMinute, toMinute], 0–1440,
+ *  exact — fractional when an instant carries seconds). */
 type BookingDaySegment = {
   at: Date
   dayKey: WeekdayKey
@@ -196,14 +207,23 @@ type BookingDaySegment = {
  *  ⚖ W0.5 fix 2 — JST for every caller: the day, its weekday and its minutes
  *  are JST's (jst.ts), never a caller-supplied offset. The closed/special
  *  lookup keys by ymdInJst, so a walk cut on any other clock could skip the
- *  JST day a booking touches (23:30–00:30 JST on a UTC clock is one day). */
-function bookingSpan(input: AppointmentInput) {
+ *  JST day a booking touches (23:30–00:30 JST on a UTC clock is one day).
+ *
+ *  Exact instants: the positions are minutes since JST midnight of the start's
+ *  day, from the real instants (17:30:30 → 1050.5, 18:00:15 → 1080.25). A
+ *  rounded position judged an interval core never stores — a legacy row with
+ *  seconds, stretched to 18:00:15, was judged as ending at 18:00. */
+function bookingSpan(input: BookingTimeInput) {
   const start = new Date(input.startTime)
+  const end =
+    input.endTime !== undefined
+      ? new Date(input.endTime)
+      : new Date(start.getTime() + input.durationMinutes * 60_000)
   const midnight = jstWallTimeToDate(ymdInJst(start), '00:00')
-  const minuteOfDay = Math.floor((start.getTime() - midnight.getTime()) / 60_000)
-  const endMinute = minuteOfDay + input.durationMinutes
+  const minuteOfDay = (start.getTime() - midnight.getTime()) / 60_000
+  const endMinute = (end.getTime() - midnight.getTime()) / 60_000
   // How many midnights the interval runs past: its end is exclusive, so a
-  // booking ending exactly at 24:00 touches ONE day.
+  // booking ending exactly at 24:00:00.000 touches ONE day (24:00:15, two).
   const lastDayIndex = Math.max(0, Math.ceil(endMinute / 1440) - 1)
   return { start, minuteOfDay, endMinute, lastDayIndex }
 }
@@ -212,7 +232,7 @@ function bookingSpan(input: AppointmentInput) {
  *  it does not run past midnight) — the fetch's range end (day-hours.ts), cut
  *  from the same arithmetic as the walk below. Assumes the input already
  *  passed validateAppointmentInput. */
-export function bookingLastDay(input: AppointmentInput): Date {
+export function bookingLastDay(input: BookingTimeInput): Date {
   const { start, lastDayIndex } = bookingSpan(input)
   return new Date(start.getTime() + lastDayIndex * 86_400_000)
 }
@@ -220,7 +240,7 @@ export function bookingLastDay(input: AppointmentInput): Date {
 /** Every calendar day the booking touches, in order, lazily — the walk stops
  *  at the first refused day, so only a store open around the clock on every
  *  day a long booking crosses ever walks it whole. */
-function* bookingDaySegments(input: AppointmentInput): Generator<BookingDaySegment> {
+function* bookingDaySegments(input: BookingTimeInput): Generator<BookingDaySegment> {
   const { start, minuteOfDay, endMinute, lastDayIndex } = bookingSpan(input)
   for (let k = 0; k <= lastDayIndex; k++) {
     // JST has no DST, so one day is exactly 86,400,000 ms and `at` lands on
@@ -236,12 +256,20 @@ function* bookingDaySegments(input: AppointmentInput): Generator<BookingDaySegme
 }
 
 export async function validateAppointmentTime(
-  input: AppointmentInput,
+  input: BookingTimeInput,
   operatingHours: unknown,
   dayHours: BookingDayHours,
 ): Promise<BookingTimeRefusal | null> {
   const inputError = validateAppointmentInput(input)
   if (inputError) return inputError
+  // An exact end that does not parse, or is not after the start, judges
+  // nothing (NaN compares false everywhere below — a silent accept).
+  if (
+    input.endTime !== undefined &&
+    !(new Date(input.endTime).getTime() > new Date(input.startTime).getTime())
+  ) {
+    return { error: 'Invalid appointment end time.' }
+  }
 
   const orgHours = normalizeOperatingHours(operatingHours)
 

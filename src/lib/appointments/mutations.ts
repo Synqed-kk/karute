@@ -720,9 +720,10 @@ export async function updateAppointmentCore(
       )
       if ('error' in interval) return interval
       const startTime = interval.startsAt.toISOString()
-      // Whole minutes, rounded UP: the judged interval covers the stored one
-      // even when a legacy row carries seconds, so it can never run past a
-      // close the real row runs past.
+      // Whole minutes, rounded UP — the LABEL (core's duration_minutes). The
+      // hours judge never reads it for the end: a legacy row with seconds made
+      // start-floor + ceil ≠ the real end (17:30:30 → 18:00:15 was judged as
+      // 17:30 + 30 = 18:00), so the exact end rides in as endTime below.
       const durationMinutes = Math.ceil(
         (interval.endsAt.getTime() - interval.startsAt.getTime()) / 60_000,
       )
@@ -741,6 +742,9 @@ export async function updateAppointmentCore(
         clientId: appt.customer_id,
         startTime,
         durationMinutes,
+        // ⚖ W0.5 fix 2 — the judge compares the EXACT end (seconds and all),
+        // the instant core receives below; durationMinutes stays the label.
+        endTime: interval.endsAt.toISOString(),
         // No offset: the judgement is JST-only for every caller (W0.5 fix 2).
       }
       const dayHours = await fetchBookingDayHours(
