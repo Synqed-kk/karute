@@ -377,6 +377,7 @@ import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { runMeteredTranscription } from '@/lib/ai/transcribe'
 import { readTranscriptMemo } from '@/lib/recording/transcript-memo'
+import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { can } from '@/lib/auth/require-permission'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
@@ -2620,6 +2621,10 @@ describe('charge once — the durable transcript memo', () => {
     const first = call(AUDIO)
     while (transcribeUrlWithDeepgram.mock.calls.length < 1) await new Promise(setImmediate)
     expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now() + 300_000)
+    // S54 B: written with the ONE shared TTL the client's still-working deadline reads.
+    const expiresAt = JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at
+    expect(expiresAt).toBeGreaterThan(Date.now() + TRANSCRIPT_LEASE_TTL_MS - 5_000)
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + TRANSCRIPT_LEASE_TTL_MS)
 
     const second = await call(AUDIO).then(() => 'answered', (e: unknown) => e)
     expect(second).toMatchObject({ code: 'conflict', detail: { reason: 'transcribing' } })

@@ -221,6 +221,12 @@ const net: Array<'lose' | 'unreached' | 'drop' | undefined> = []
 /** Holds a delivered-or-lost response after the server finished (the kill). */
 const responseHolds: Array<Promise<void> | undefined> = []
 const inFlight: Array<Promise<unknown>> = []
+/** S54 B: every wait a served 409 asked for (web: `Retry-After`; phone: the
+ *  body's `error.retry_after_seconds`) — the run's still-working pause, made
+ *  immediate below like the 1.5 s one — and a hook told of each 409 served. */
+const stillWorkingWaits = new Set<number>()
+let onStillWorking: (() => void) | null = null
+let stillWorkingServed = 0
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const bearer = () => {
   const now = Math.floor(Date.now() / 1000)
@@ -248,6 +254,12 @@ jest.mock('@/lib/ports/data-port', () => ({
           throw new TypeError('Failed to fetch')
         }
         const res = await served
+        if (res.status === 409) {
+          const asked = res.headers.get('Retry-After') ?? (await res.clone().json()).error?.retry_after_seconds
+          stillWorkingWaits.add(Number(asked) * 1000)
+          stillWorkingServed++
+          onStillWorking?.()
+        }
         const hold = responseHolds.shift()
         if (hold) await hold
         if (how === 'lose') throw new TypeError('Failed to fetch')
@@ -259,11 +271,13 @@ jest.mock('@/lib/ports/data-port', () => ({
   }),
 }))
 
-// fetchWithRetry's 1.5 s pause before its one re-POST — immediate here.
+// fetchWithRetry's 1.5 s pause before its one re-POST, and (S54 B) the wait a
+// served 409 asked for (the lease's seconds left) — immediate here.
 const realSetTimeout = global.setTimeout
 jest
   .spyOn(global, 'setTimeout')
-  .mockImplementation(((fn: () => void, ms?: number) => realSetTimeout(fn, ms === 1500 ? 0 : ms)) as typeof setTimeout)
+  .mockImplementation(((fn: () => void, ms?: number) =>
+    realSetTimeout(fn, ms === 1500 || (ms !== undefined && stillWorkingWaits.has(ms)) ? 0 : ms)) as typeof setTimeout)
 // The meter's HEAD for the reserve's size.
 global.fetch = (async () => ({ headers: new Headers({ 'content-length': '360000' }) })) as unknown as typeof fetch
 
@@ -297,6 +311,9 @@ beforeEach(() => {
   responseHolds.length = 0
   inFlight.length = 0
   mints.length = 0
+  stillWorkingWaits.clear()
+  onStillWorking = null
+  stillWorkingServed = 0
   store.meta = null
 })
 afterEach(async () => {
@@ -370,20 +387,25 @@ const blip = (ctx: RunContext) => {
 }
 
 /** E2 (the race, S53 A5): the first POST's connection drops while the server is
- *  still inside the provider; the inner re-POST reaches it meanwhile. Then the
- *  first finishes, and a 再試行 follows if the run ended in error. */
+ *  still inside the provider; the inner re-POST reaches it meanwhile. With the
+ *  lease that re-POST is answered 409 — and (S54 B) the run stays on
+ *  「文字起こし中...」 (never the error card, never a 再試行): the first call is
+ *  let finish at that 409, the run waits what it asked and asks again, and the
+ *  saved answer replays. */
 const e2 = async (ctx: RunContext) => {
   let finish!: () => void
   providerHolds.push(new Promise<void>((r) => (finish = r)))
   net.push('drop', undefined)
+  onStillWorking = () => {
+    expect(globalPipeline.state).toBe('processing')
+    expect(globalPipeline.step).toBe('transcribing')
+    finish()
+  }
   globalPipeline.start(memory, ctx)
   await settle()
   finish()
   await Promise.allSettled(inFlight)
-  if (globalPipeline.state === 'error') {
-    globalPipeline.retry()
-    await settle()
-  }
+  await settle()
   expect(globalPipeline.state).toBe('review')
 }
 
@@ -431,6 +453,8 @@ describe.each(LAYERS)('paid calls — %s', (_label, fixOn, flipOn, column) => {
       platform = door
       await event(setup())
       expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes((door === 'web' ? web : phone)[column])
+      // S54 B: the race meets the lease's 409 (and rides it out) exactly when the fix is ON.
+      if (event === e2) expect(stillWorkingServed > 0).toBe(fixOn)
     })
   })
 })

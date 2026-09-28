@@ -13,6 +13,7 @@ import {
 } from '@/lib/karute/take-store'
 import { ensureAudioOnServer } from '@/lib/recording/secure-take'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
@@ -86,6 +87,50 @@ async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
       throw secondError
     }
   }
+}
+
+/**
+ * ⚖ A 409 FROM THE TRANSCRIBE DOOR IS "STILL WORKING", NEVER AN ERROR (S54 B).
+ * With transcribePaidOnce ON, a call on audio that another call is inside the
+ * provider for is answered 409 and pays nothing (the S53 A5 lease). The run
+ * stays on 「文字起こし中...」, waits what the door asked, and sends the SAME
+ * request again — that re-POST is the poll: 409 again while the lease holds,
+ * the saved answer once the first call finished, one payment if the holder
+ * died and its lease expired. Past the lease's own life (the SAME constant the
+ * server writes it with, plus one wait) the 409 goes back to fetchWithRetry
+ * exactly as before: one 1.5 s re-send, then the error card — honest by then.
+ * Opt-in: only the transcribe call wraps its request in this; every other
+ * status, and every other caller of fetchWithRetry, is untouched. Switch OFF:
+ * no door answers 409, so this never waits.
+ */
+function whileStillTranscribing(send: () => Promise<Response>): () => Promise<Response> {
+  let deadline: number | null = null
+  return async () => {
+    for (;;) {
+      const res = await send()
+      if (res.status !== 409) return res
+      const waitMs = await stillWorkingWaitMs(res)
+      deadline ??= Date.now() + TRANSCRIPT_LEASE_TTL_MS + waitMs
+      if (Date.now() + waitMs > deadline) return res
+      await new Promise((resolve) => setTimeout(resolve, waitMs))
+    }
+  }
+}
+
+/** The wait a 409 asked for: the `Retry-After` header (web door), else the
+ *  body's `error.retry_after_seconds` (phone door — the facade's errorBody
+ *  carries the meter's detail and sets no header), else 5 s; never under 1 s.
+ *  Read from a clone, so the body stays whole for fetchWithRetry. */
+async function stillWorkingWaitMs(res: Response): Promise<number> {
+  let seconds = Number(res.headers.get('Retry-After') ?? NaN)
+  if (!Number.isFinite(seconds)) {
+    try {
+      seconds = Number((await res.clone().json())?.error?.retry_after_seconds ?? NaN)
+    } catch {
+      // Not JSON: the floor below.
+    }
+  }
+  return Math.max(1, Number.isFinite(seconds) ? seconds : 5) * 1000
 }
 
 // ⚖ One tab at a time per finalized object: the browser's own cross-tab lock
@@ -527,18 +572,20 @@ export async function runAIPipeline(
 
     let status = 0 // the LAST answer's status (0 = none: a network error)
     let keyRefusal: Response | null = null // a copy of the LAST answer, kept only for the 404 rule below
-    const transcribeRes = await fetchWithRetry(async () => {
-      status = 0
-      keyRefusal = null
-      const res = await getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...transcribeBody, locale }),
-      })
-      status = res.status
-      if (status === 404 && recordingPort.refusesMissingKeyWith404) keyRefusal = res.clone()
-      return res
-    }).catch(async (err) => {
+    const transcribeRes = await fetchWithRetry(
+      whileStillTranscribing(async () => {
+        status = 0
+        keyRefusal = null
+        const res = await getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...transcribeBody, locale }),
+        })
+        status = res.status
+        if (status === 404 && recordingPort.refusesMissingKeyWith404) keyRefusal = res.clone()
+        return res
+      }),
+    ).catch(async (err) => {
       // The 404 rule — retired only when BOTH hold: (1) this port's door answers 404 for a refused key and
       // nothing else (the phone door; the web door never answers 404, so a 404 there is the platform's — a
       // deploy window, a misrouted base), and (2) the LAST answer's body carries that door's own code,

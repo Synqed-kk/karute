@@ -2,6 +2,7 @@ import 'server-only'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isDuplicateRefusal } from '@/lib/recording/assembler'
 import { isStorageNotFound, warnStorageUnknown } from '@/lib/recording/take-binding'
+import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 
 // ⚖ CHARGE ONCE (PR-5). The provider's answer for one audio object in one
 // language, kept BESIDE that audio in the same bucket, under the key
@@ -150,9 +151,6 @@ export async function writeTranscriptMemo(
 // ends, whatever the outcome; a holder that died leaves it until it expires,
 // and expiry falls open to paying. The memo is always read first, so a lease
 // never stands in front of an answer that already exists.
-
-/** Longer than any holder can live: the 300 s function limit on every door. */
-export const TRANSCRIPT_LEASE_TTL_MS = 330_000
 
 type TranscriptLease = { v: 1; expires_at: number }
 
