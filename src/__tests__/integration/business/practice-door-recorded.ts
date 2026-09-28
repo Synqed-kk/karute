@@ -58,8 +58,14 @@ export const GYM = {
 const T0 = '2026-09-15T05:00:00Z'
 const stamp = { created_at: T0, updated_at: T0 }
 
+/** SDK 1.36 (#1080) adds `Store.photo_url` and 17 StoreBookingPolicy dials. They enter the rows through two SEPARATELY
+ *  declared objects spread into every recorded literal (STORE_136_FIELDS here, POLICY_136_FIELDS below): TypeScript's
+ *  excess-property check does not reach spread members, so the same rows compile on 1.34 (names not in the type) and on
+ *  1.36 (names required, supplied, each value checked against the SDK's own type). Values READ LIVE 2026-09-28T07:14:14Z
+ *  (GET only — stores.list · storePolicies.get, behind the Dev Salon guard): photo_url is null at all seven stores. */
+const STORE_136_FIELDS: { photo_url: string | null } = { photo_url: null }
 const store = (id: string, name: string, is_primary: boolean, active = true): Store =>
-  ({ id, business_id: TENANT, name, address: null, phone: null, is_primary, active, ...stamp })
+  ({ id, business_id: TENANT, name, address: null, phone: null, is_primary, active, ...stamp, ...STORE_136_FIELDS })
 export const STORES: Store[] = [
   store(STORE.devSalon, 'Dev Salon', true),
   store(STORE.devGinza, 'Dev 銀座', false),
@@ -316,12 +322,28 @@ APPOINTMENTS.push(
 )
 
 type Policy = Awaited<ReturnType<CoreReads['storePolicyGet']>>
+/** SDK 1.36's 17 new StoreBookingPolicy dials — the shape its types.d.ts declares, restated because 1.34 has no such
+ *  names (why a spread: STORE_136_FIELDS). READ LIVE 2026-09-28T07:14:14Z, identical at all seven recorded stores
+ *  (default- and custom-source alike). */
+type Policy136Fields = {
+  override_roles: string[]; override_locked_out: string[]; override_hold_to_confirm: boolean; override_strict_wall: boolean
+  min_sellable_min: number; gap_fill_min_min: number | null; held_rank_access: 'closed' | 'silver' | 'gold' | 'platinum'
+  release_held_roles: string[]; booking_step_min: number; block_step_min: number; gap_fill_discount_pct: number | null
+  lead_time_min: number | null; reserve_start_grid_min: 15 | 30 | 60 | null; standard_session_min: number | null
+  price_lock_during_recalc: boolean | null; breaks_paid: boolean; special_open_days: { date: string; open: string; close: string }[]
+}
+const POLICY_136_FIELDS: Policy136Fields = {
+  override_roles: ['オーナー', '店舗管理者', 'スタッフ'], override_locked_out: [], override_hold_to_confirm: true, override_strict_wall: false,
+  min_sellable_min: 30, gap_fill_min_min: null, held_rank_access: 'closed', release_held_roles: ['オーナー', '店舗管理者'],
+  booking_step_min: 30, block_step_min: 15, gap_fill_discount_pct: null, lead_time_min: null, reserve_start_grid_min: null,
+  standard_session_min: null, price_lock_during_recalc: null, breaks_paid: false, special_open_days: [],
+}
 /** ⚖ §v11 — core's store policies as READ LIVE 2026-09-27T05:47:19Z (14:47 JST, CENSUS-S18.md § A):
  *  weekly_hours · source · updated_at verbatim. The census read no other dial, so those carry neutral
- *  values the door never reads. */
+ *  values the door never reads — except the 1.36 dials, READ LIVE 9/28 (POLICY_136_FIELDS). */
 const policy = (store_id: string, source: Policy['source'], updated_at: string | null, weekly_hours: Policy['weekly_hours']): Policy => ({
   store_id, booking_open_days: 0, cutoff_minutes: 0, cancel_free_until_hours: 0, cancel_late_pct: 0, no_show_pct: 0,
-  gap_guard_mode: 'OFF', new_client_session_minutes: 60, weekly_hours, source, updated_by: null, updated_at,
+  gap_guard_mode: 'OFF', new_client_session_minutes: 60, weekly_hours, source, updated_by: null, updated_at, ...POLICY_136_FIELDS,
 })
 const every = (open: string, close: string, tue: { open: string; close: string } | null = { open, close }) =>
   ({ mon: { open, close }, tue, wed: { open, close }, thu: { open, close }, fri: { open, close }, sat: { open, close }, sun: { open, close } })
