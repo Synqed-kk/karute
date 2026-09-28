@@ -19,6 +19,7 @@ import { SynqedError, type SynqedClient } from '@synqed-kk/client'
 import type { AppointmentInput, BookingTimeRefusal } from '@/lib/appointments'
 import {
   bookingLastDay,
+  effectiveInterval,
   validateAppointmentInput,
   validateAppointmentTime,
 } from '@/lib/appointments'
@@ -646,6 +647,14 @@ export async function markNoShowAppointmentCore(
  *     staffer happens to be looking at.
  * Whatever the patch leaves out falls back to the booking's stored value, so a
  * duration-only edit is still judged against the real start.
+ *
+ * ⚖ W0.5 X11 (2026-09-28): the gate used to ask only `startsAt` and
+ * `durationMinutes`, so a patch carrying `endsAt` ALONE — an end-only stretch
+ * past closing — skipped the hours question entirely and went straight to
+ * core, which has no time-of-day check. Latent (the one caller always sends
+ * endsAt with startsAt), but the contract was open. Any time field now opens
+ * the gate, and the patch is normalised to ONE effective interval
+ * (effectiveInterval) before it is judged, on every day it touches.
  */
 export async function updateAppointmentCore(
   synqed: MutationClient,
@@ -676,18 +685,28 @@ export async function updateAppointmentCore(
     // ⚖ PKT-1c-C S3 — a reschedule goes through the same door. Only a patch
     // that MOVES the booking in time is judged; a staff-only reassign leaves the
     // time untouched and has no hours question to answer.
-    if (patch.startsAt !== undefined || patch.durationMinutes !== undefined) {
-      const startTime = patch.startsAt ?? appt.starts_at
-      // `duration_minutes` is nullable on core's row (BLOCK rows and some
-      // imports carry none), while starts_at/ends_at never are — so the span is
-      // the honest fallback, not a made-up default that would refuse the edit
-      // with the wrong reason.
-      const durationMinutes =
-        patch.durationMinutes ??
-        appt.duration_minutes ??
-        Math.round(
-          (new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime()) / 60_000,
-        )
+    // ⚖ W0.5 X11 — "moves in time" includes the END: an end-only stretch is a
+    // time change like any other.
+    if (
+      patch.startsAt !== undefined ||
+      patch.endsAt !== undefined ||
+      patch.durationMinutes !== undefined
+    ) {
+      // ONE interval, whatever shape the patch has. The stored interval is
+      // starts_at/ends_at, which core's row always carries (duration_minutes is
+      // a nullable label on BLOCK rows and some imports — never the fallback).
+      const interval = effectiveInterval(
+        { startsAt: appt.starts_at, endsAt: appt.ends_at },
+        patch,
+      )
+      if ('error' in interval) return interval
+      const startTime = interval.startsAt.toISOString()
+      // Whole minutes, rounded UP: the judged interval covers the stored one
+      // even when a legacy row carries seconds, so it can never run past a
+      // close the real row runs past.
+      const durationMinutes = Math.ceil(
+        (interval.endsAt.getTime() - interval.startsAt.getTime()) / 60_000,
+      )
       // ⚖ R1-2 — the same rule as create: the day is judged against the store
       // the row LANDS in. A row whose store_id is null (BLOCK rows, some
       // imports) used to reach `fetchBookingDayHours(null)`, which asks nobody
@@ -698,26 +717,26 @@ export async function updateAppointmentCore(
       const landingStoreId =
         appt.store_id ??
         (landingStaffId ? await defaultBookingStore(synqed, landingStaffId) : null)
+      const timeInput = {
+        staffProfileId: patch.staffId ?? '',
+        clientId: appt.customer_id,
+        startTime,
+        durationMinutes,
+        // karute is JST-only (the same rule getAppointmentsByDate states at
+        // src/actions/appointments.ts) and the dialog already hard-codes it:
+        // JST is UTC+9 with no DST, so getTimezoneOffset semantics = -540.
+        tzOffsetMinutes: -540,
+      }
       const dayHours = await fetchBookingDayHours(
         synqed,
         landingStoreId,
-        new Date(startTime),
+        interval.startsAt,
         hours.orgSaved,
+        // Every day the interval touches (X11), from the same arithmetic the
+        // walk inside validateAppointmentTime uses.
+        bookingLastDay(timeInput),
       )
-      const timeError = await validateAppointmentTime(
-        {
-          staffProfileId: patch.staffId ?? '',
-          clientId: appt.customer_id,
-          startTime,
-          durationMinutes,
-          // karute is JST-only (the same rule getAppointmentsByDate states at
-          // src/actions/appointments.ts) and the dialog already hard-codes it:
-          // JST is UTC+9 with no DST, so getTimezoneOffset semantics = -540.
-          tzOffsetMinutes: -540,
-        },
-        hours.operatingHours,
-        dayHours,
-      )
+      const timeError = await validateAppointmentTime(timeInput, hours.operatingHours, dayHours)
       // Refused before `appointments.update` — the existing row is not touched
       // and no audit row claims it was.
       if (timeError) return timeError
