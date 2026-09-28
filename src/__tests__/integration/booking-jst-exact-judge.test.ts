@@ -11,6 +11,7 @@
  *   17:30:30–17:59:30 patched { endsAt: 18:00:15 } was judged as
  *   17:30 + ceil(29.75) = 18:00 (≤ close, accepted) while core received
  *   18:00:15. FAILS on 9e19f4b96, PASSES on the fix (P14c, the create twin, too).
+ *   P14d pins the exact end's own guard (added with the fix).
  * P15 — the day count uses the exact end: 24:00:00.000 touches ONE day,
  *   24:00:15 touches two.
  *
@@ -101,6 +102,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { POST as createPOST } from '@/app/api/app/v1/appointments/route'
 import { createAppointmentCore, updateAppointmentCore } from '@/lib/appointments/mutations'
+import { validateAppointmentTime } from '@/lib/appointments'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -272,6 +274,19 @@ describe('ruling 2 — the judge compares EXACT instants; the label stays the ce
     )
     expect(result).toMatchObject({ code: 'outside_hours', params: { open: '10:00', close: '18:00' } })
     expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it('P14d: an exact end that does not parse, or is not after the start, is refused — never judged as NaN (a silent accept)', async () => {
+    const at = { staffProfileId: 'staff-1', clientId: 'cust-1', startTime: '2026-09-15T08:30:00.000Z', durationMinutes: 30 }
+    const day = { weeklyHours: CLOSES_1800 as never, closedDates: new Set<string>(), orgSaved: new Set<never>() }
+    for (const endTime of ['later', '2026-09-15T08:30:00.000Z', '2026-09-15T08:00:00.000Z']) {
+      await expect(validateAppointmentTime({ ...at, endTime }, null, day)).resolves.toEqual({
+        error: 'Invalid appointment end time.',
+      })
+    }
+    await expect(
+      validateAppointmentTime({ ...at, endTime: '2026-09-15T08:59:59.999Z' }, null, day),
+    ).resolves.toBeNull()
   })
 
   it('P15: the day count uses the exact end — 24:00:00.000 touches ONE day (a closed D+1 is not its question), 24:00:15 touches two', async () => {
