@@ -7,11 +7,11 @@ export default function KaruteLoading() {
           <div className="h-8 w-28 rounded bg-muted md:h-9 md:w-32" />
           <div className="h-4 w-72 rounded bg-muted" />
         </div>
-        <div className="h-10 w-36 rounded-[10px] bg-muted" />
+        <div className="size-9 rounded-full bg-muted" />
       </div>
 
       {/* Search bar */}
-      <div data-testid="list-search-skeleton" className="h-11 rounded-full bg-muted" />
+      <div data-testid="list-search-skeleton" className="box-content h-9 rounded-full border border-border bg-muted" />
 
       {/* 4 status filter chips — matches the live list (レビュー要
        *  was dropped in PR #63 because no data path assigned it).

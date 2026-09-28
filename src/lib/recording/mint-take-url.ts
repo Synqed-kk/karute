@@ -328,7 +328,7 @@ function auditTakeNamed(
 /**
  * ⚖ CONDITION 5, CLOSED BY AN EMITTER (S50, 5A — recording-switches.ts). The
  * row the switch-ON server-named arm creates is its OWN act: no karute save or
- * 破棄 is guaranteed ever to name it (a build-28 phone never adopts it; the O4
+ * 破棄 is guaranteed ever to name it (the O4
  * race; a superseded run; a take nobody acts on). So the create files its own
  * row, the sibling of auditTakeNamed — ids and flags only (⚖ 8/17 doc law; no
  * key, no url: #1072 withholds storage-key fields), `reserved` always true
