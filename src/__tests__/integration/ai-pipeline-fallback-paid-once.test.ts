@@ -1184,7 +1184,6 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
 
   it.each([
     ['the door’s 502 (unreadable — a core read blip)', () => transcribeStatus.push(502, 502)],
-    ['a 409', () => transcribeStatus.push(409, 409)],
     ['a 429 (the ceiling)', () => transcribeStatus.push(429)],
     ['a 503', () => transcribeStatus.push(503, 503)],
     ['a 403 (the plan / capability gate — not this key)', () => transcribeStatus.push(403)],
@@ -1208,6 +1207,30 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
     expect(globalPipeline.state).toBe('review')
     expect(mints()).toBe(1)
     expect(paidCalls).toBe(1)
+  })
+
+  // Branch 3 (S54 B): a 409 is STILL WORKING, never the error card, so its t10b row asserts that instead: the
+  // run waits what the 409 asked (none named → 5 s, made immediate here), re-POSTs the SAME key, and the
+  // remembered answer replays — no 再試行, nothing retired, nothing paid twice.
+  it('(t10b) a 409 → the pin is NOT retired: the run stays still-working (S54 B), re-POSTs the same key, and the remembered answer replays', async () => {
+    const wait = jest.mocked(global.setTimeout).getMockImplementation()!
+    jest.mocked(global.setTimeout).mockImplementation(((fn: () => void, ms?: number) => wait(fn, ms === 5_000 ? 0 : ms)) as typeof setTimeout)
+    try {
+      stuckTake()
+      await lostFirstRun()
+      transcribeStatus.push(409, 409)
+      await retry()
+      expect(transcribeStatus).toEqual([]) // both 409s were met, then the replay
+      expect(globalPipeline.state).toBe('review')
+      expect(retireTakeFallback).not.toHaveBeenCalled()
+      expect(store.meta?.fallbackPin?.retiredAt).toBeUndefined()
+      expect(chainSlot()?.retiredAt).toBeUndefined()
+      expect(prepareTranscription.mock.calls.slice(1).map(([, path]) => path)).toEqual([K])
+      expect(mints()).toBe(1)
+      expect(paidCalls).toBe(1)
+    } finally {
+      jest.mocked(global.setTimeout).mockImplementation(wait)
+    }
   })
 
   it('(t10b) switch transcribePaidOnce OFF: a pin left by an ON run is not read, and a 404 retires nothing (OFF == today)', async () => {
