@@ -375,7 +375,8 @@ const SCENARIOS: Scenario[] = [
   ['normal take F · E1', () => (takeFinalizedAtF(), ctxFor(TAKE, SESSION)), e1, [1, 1, 1, 1], [1, 1, 1, 1]],
   ['normal take F · E3', () => (takeFinalizedAtF(), ctxFor(TAKE, SESSION)), e3, [1, 1, 1, 1], [1, 1, 1, 1]],
   ['normal take F · core blip on the retry', () => (takeFinalizedAtF(), ctxFor(TAKE, SESSION)), blip, [2, 2, 1, 1], [1, 1, 1, 1]],
-  // S53 A1 (the web door replays 'no_row' too, awaiting Liam's ruling) turns
+  // S53 A1 (the web door replays 'no_row' too; ruling given — Liam,
+  // 2026-09-28 19:5x JST: 「I think both. Yes to both.」) turns
   // every web fix-ON cell whose key no row holds from 2 into 1 — the phone
   // door's answer since S46.
   ['no_session with a take · E1', () => (bareTake(), ctxFor(TAKE)), e1, [2, 1, 1, 1], [1, 1, 1, 1]],
