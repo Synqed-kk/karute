@@ -16,7 +16,36 @@ export type TranscriptMemo = {
   result: Record<string, unknown>
   duration_seconds: number
   written_at: string
+  /** Present only when the paid answer ran LONGER than the reserve, i.e. a
+   *  true-up was owed (see TranscriptTrueUp). Absent = nothing owed, or a memo
+   *  written after its true-up had already run (every memo before S56). */
+  trueUp?: TranscriptTrueUp
 }
+
+/** ⚖ THE TRUE-UP MARK (S56, PR 1 Greptile Finding 1). The meter writes the memo
+ *  BEFORE the ledger true-up (S53 A3), so a process that dies between the two
+ *  used to leave a memo that replays forever while the difference between the
+ *  reserve and the real cost was never recorded. The memo now says so itself:
+ *  written `pending` with the numbers BEFORE the true-up, rewritten `recorded`
+ *  only after the ledger took it. A replay that finds `pending` records the
+ *  delta then (runMeteredTranscription). Soft and self-retrying: a failed
+ *  attempt stays `pending` with one more attempt counted — never cleared, never
+ *  deleted. Numbers only (cents, counts, a time) — never a word of the
+ *  transcript, never a key. */
+export type TranscriptTrueUp = {
+  status: 'pending' | 'recorded'
+  reserveCents: number
+  costCents: number
+  deltaCents: number
+  attempts: number
+  lastError?: string
+  updatedAt: number
+}
+
+/** What a write did: `written` = this object is now ours; `taken` = the
+ *  duplicate refusal, another caller's copy stands; `failed` = storage erred or
+ *  threw (already warned) and the object's state is unknown. */
+export type TranscriptMemoWrite = 'written' | 'taken' | 'failed'
 
 /** What the read found. `corrupt` is PROVEN garbage — the object came back and
  *  its body is not a v1 memo — and is the one state the next paid write may
@@ -81,18 +110,30 @@ export async function readTranscriptMemo(key: string): Promise<TranscriptMemoRea
  * corrupt; then, and only then, the write replaces it. Otherwise it is
  * create-only, and a duplicate refusal is two doors that paid in the same
  * moment: the first copy stands, and that is silent.
+ *
+ * `mark` (S56) is the one other replacing write: the SAME memo rewritten with
+ * its true-up mark moved on (recorded, or one more attempt) — by the caller
+ * that wrote it `pending` a moment before, or by a replay that read it
+ * `pending`. The result, duration and written_at ride along unchanged.
  */
 export async function writeTranscriptMemo(
   key: string,
   memo: TranscriptMemo,
-  opts: { repair: boolean },
-): Promise<void> {
+  opts: { repair: boolean; mark?: boolean },
+): Promise<TranscriptMemoWrite> {
   try {
     const { error } = await createServiceClient()
       .storage.from('recordings')
-      .upload(key, JSON.stringify(memo), { contentType: 'application/json', upsert: opts.repair })
-    if (error && !isDuplicateRefusal(error)) warnStorageUnknown('transcript-memo.write', error)
+      .upload(key, JSON.stringify(memo), {
+        contentType: 'application/json',
+        upsert: opts.repair || opts.mark === true,
+      })
+    if (!error) return 'written'
+    if (isDuplicateRefusal(error)) return 'taken'
+    warnStorageUnknown('transcript-memo.write', error)
+    return 'failed'
   } catch (err) {
     warnStorageUnknown('transcript-memo.write', err)
+    return 'failed'
   }
 }

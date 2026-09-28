@@ -2222,7 +2222,10 @@ describe('charge once — the durable transcript memo', () => {
     const paid = await call(AUDIO)
 
     expect(paid.receipt.debit_recorded).toBe(false)
-    expect(storageUpload).toHaveBeenCalledTimes(1)
+    // S56: two writes, ONE memo — the `pending` memo, then the same object with
+    // the lost attempt counted on its mark (upsert onto itself).
+    expect(storageUpload).toHaveBeenCalledTimes(2)
+    expect(memoStore.size).toBe(1)
     // The memo write precedes the first true-up attempt in the call order.
     const uploadOrder = storageUpload.mock.invocationCallOrder[0]
     const trueUpOrder = recordUsage.mock.invocationCallOrder[1]
@@ -2265,5 +2268,221 @@ describe('charge once — the durable transcript memo', () => {
       err.mockRestore()
       off.restore()
     }
+  })
+
+  // ⚖ S56 — THE TRUE-UP MARK (PR 1 Greptile Finding 1: "Memo can hide unpaid
+  // usage"). The memo is written BEFORE the true-up (A3), so a process that
+  // died between the two left a memo that replayed with a hardcoded
+  // `debit_recorded: true` while the delta was never recorded. The memo now
+  // carries the debt: `pending` before the ledger is asked, `recorded` only
+  // after it answered; a replay that reads `pending` records the delta first.
+  // 600,000 B → 100 s → a 1 ¢ reserve; the 5,400 s answer costs 45 ¢ → 44 ¢ owed.
+  describe('s56 the true-up mark — a replay never hides an unrecorded delta', () => {
+    const DELTA = 44
+    const stored = () => JSON.parse(memoStore.get(memoKey(AUDIO))!) as Record<string, unknown> & {
+      trueUp?: Record<string, unknown>
+    }
+    const uploadBody = (i: number) =>
+      JSON.parse(storageUpload.mock.calls[i][1] as string) as { trueUp?: Record<string, unknown> }
+    const deltaCalls = () => recordUsage.mock.calls.filter((c) => (c as unknown[])[3] === DELTA)
+
+    beforeEach(() => {
+      headBytes.current = 600_000
+    })
+
+    it('s56 t1 order: the memo lands `pending` BEFORE recordUsage(delta), and is rewritten `recorded` AFTER it', async () => {
+      const paid = await call(AUDIO)
+
+      expect(paid.receipt).toEqual({
+        duration_seconds: 5400,
+        cost_cents: 45,
+        cents_reserved: 1,
+        debit_recorded: true,
+        replayed: false,
+      })
+      expect(recordUsage.mock.calls).toEqual([
+        ['transcribe', null, null, 1],
+        ['transcribe', null, null, DELTA],
+      ])
+      expect(storageUpload).toHaveBeenCalledTimes(2)
+      // Call ORDER, not counts: pending write < the true-up < the recorded rewrite.
+      const [pendingAt, recordedAt] = storageUpload.mock.invocationCallOrder
+      const trueUpAt = recordUsage.mock.invocationCallOrder[1]
+      expect(pendingAt).toBeLessThan(trueUpAt)
+      expect(trueUpAt).toBeLessThan(recordedAt)
+      expect(uploadBody(0).trueUp).toMatchObject({
+        status: 'pending',
+        reserveCents: 1,
+        costCents: 45,
+        deltaCents: DELTA,
+        attempts: 0,
+      })
+      expect(storageUpload.mock.calls[0][2]).toEqual({ contentType: 'application/json', upsert: false })
+      expect(uploadBody(1).trueUp).toMatchObject({ status: 'recorded', deltaCents: DELTA, attempts: 1 })
+      expect(uploadBody(1).trueUp).not.toHaveProperty('lastError')
+      // The rewrite replaces the SAME memo — the answer rides along unchanged.
+      expect(storageUpload.mock.calls[1][2]).toEqual({ contentType: 'application/json', upsert: true })
+      expect(memoStore.size).toBe(1)
+      expect(stored().result).toEqual(paid.result)
+    })
+
+    it('s56 t2 the writer is exhausted → debit_recorded false, mark left `pending`; the next replay records the delta ONCE → `recorded`, true', async () => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      recordUsage.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('core down'))
+        .mockRejectedValueOnce(new Error('core down')).mockRejectedValueOnce(new Error('core down'))
+
+      const paid = await call(AUDIO)
+      expect(paid.receipt.debit_recorded).toBe(false)
+      expect(stored().trueUp).toMatchObject({
+        status: 'pending',
+        deltaCents: DELTA,
+        attempts: 1,
+        lastError: 'ledger_unavailable',
+      })
+
+      recordUsage.mockClear()
+      const replay = await call(AUDIO)
+
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(consume).toHaveBeenCalledTimes(1)
+      expect(recordUsage.mock.calls).toEqual([['transcribe', null, null, DELTA]])
+      expect(replay.receipt).toEqual({
+        duration_seconds: 5400,
+        cost_cents: 0,
+        cents_reserved: 0,
+        debit_recorded: true,
+        replayed: true,
+      })
+      expect(replay.result).toEqual(paid.result)
+      expect(stored().trueUp).toMatchObject({ status: 'recorded', deltaCents: DELTA, attempts: 2 })
+      err.mockRestore()
+    })
+
+    it('s56 t2b the process DIES between the memo and the true-up (Greptile’s case) → the replay records the delta exactly once', async () => {
+      let trueUpStarted = false
+      recordUsage.mockResolvedValueOnce(undefined).mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>(() => {}) // the death: the true-up never returns
+      })
+      void call(AUDIO)
+      while (!trueUpStarted) await new Promise(setImmediate)
+      expect(stored().trueUp).toMatchObject({ status: 'pending', deltaCents: DELTA, attempts: 0 })
+
+      const replay = await call(AUDIO)
+
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      // reserve, the dead true-up, and ONE delta from the replay.
+      expect(deltaCalls()).toHaveLength(2)
+      expect(recordUsage.mock.calls[2]).toEqual(['transcribe', null, null, DELTA])
+      expect(replay.receipt.debit_recorded).toBe(true)
+      expect(replay.receipt.replayed).toBe(true)
+      expect(stored().trueUp).toMatchObject({ status: 'recorded', attempts: 1 })
+    })
+
+    it('s56 t3 replay after success: `recorded` → the replay never calls recordUsage, and debit_recorded is true', async () => {
+      await call(AUDIO)
+      expect(stored().trueUp).toMatchObject({ status: 'recorded' })
+      recordUsage.mockClear()
+      storageUpload.mockClear()
+
+      const replay = await call(AUDIO)
+
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(replay.receipt.debit_recorded).toBe(true)
+      expect(replay.receipt.replayed).toBe(true)
+    })
+
+    it('s56 t4 the replay keeps failing → the answer still comes back, debit_recorded false, the mark still `pending` with the attempt counted — never cleared, never deleted', async () => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+
+      const paid = await call(AUDIO)
+      const replay = await call(AUDIO)
+
+      expect(replay.result).toEqual(paid.result)
+      expect(replay.receipt.debit_recorded).toBe(false)
+      expect(replay.receipt.replayed).toBe(true)
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      // three attempts on the paid call, three on the replay — all for the delta.
+      expect(deltaCalls()).toHaveLength(6)
+      expect(memoStore.size).toBe(1)
+      expect(stored().result).toEqual(paid.result)
+      expect(stored().trueUp).toMatchObject({
+        status: 'pending',
+        deltaCents: DELTA,
+        attempts: 2,
+        lastError: 'ledger_unavailable',
+      })
+      err.mockRestore()
+    })
+
+    it('s56 t5 no delta (the reserve covered it) → no mark at all; the replay is true and calls nothing', async () => {
+      headBytes.current = 32_400_000 // 5,400 s reserved = 45 ¢ = the cost
+      const paid = await call(AUDIO)
+      expect(paid.receipt.debit_recorded).toBe(true)
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+      expect(stored()).not.toHaveProperty('trueUp')
+      recordUsage.mockClear()
+
+      const replay = await call(AUDIO)
+
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(replay.receipt.debit_recorded).toBe(true)
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+    })
+
+    it('s56 t6 a memo with NO mark (the only shape origin/main writes — after its true-up ran) → replays true, no ledger call, no write', async () => {
+      const legacy = JSON.stringify({ v: 1, result: { transcript: 'legacy' }, duration_seconds: 5400, written_at: '' })
+      memoStore.set(memoKey(AUDIO), legacy)
+
+      const replay = await call(AUDIO)
+
+      expect(replay.result).toEqual({ transcript: 'legacy' })
+      expect(replay.receipt).toEqual({
+        duration_seconds: 5400,
+        cost_cents: 0,
+        cents_reserved: 0,
+        debit_recorded: true,
+        replayed: true,
+      })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(memoStore.get(memoKey(AUDIO))).toBe(legacy)
+    })
+
+    it('s56 t7 a mark this code cannot read → debit_recorded false (never proven), no number invented, nothing rewritten', async () => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      const odd = JSON.stringify({
+        v: 1,
+        result: { transcript: 'odd' },
+        duration_seconds: 5400,
+        written_at: '',
+        trueUp: { status: 'pending', deltaCents: 'forty-four', attempts: 0 },
+      })
+      memoStore.set(memoKey(AUDIO), odd)
+
+      const replay = await call(AUDIO)
+
+      expect(replay.result).toEqual({ transcript: 'odd' })
+      expect(replay.receipt.debit_recorded).toBe(false)
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(err).toHaveBeenCalledTimes(1)
+      err.mockRestore()
+    })
+
+    it('s56 t8 switch OFF → the pre-S53 order writes NO mark (the true-up already ran to its end)', async () => {
+      const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+      try {
+        const paid = await call(AUDIO)
+        expect(paid.receipt.debit_recorded).toBe(true)
+        expect(storageUpload).toHaveBeenCalledTimes(1)
+        expect(storageUpload.mock.invocationCallOrder[0]).toBeGreaterThan(recordUsage.mock.invocationCallOrder[1])
+        expect(stored()).not.toHaveProperty('trueUp')
+      } finally {
+        off.restore()
+      }
+    })
   })
 })
