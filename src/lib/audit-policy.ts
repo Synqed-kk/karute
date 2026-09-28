@@ -641,6 +641,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-24',
   },
   {
+    file: 'src/lib/recording/transcript-memo.ts',
+    call: 'storage.recordings.upload',
+    symbols: ['takeTranscriptLease', 'releaseTranscriptLease'],
+    justification:
+      "S53 A5 (the double-pay fix's lease, on Liam's word per transcribe.ts): a coordination marker, not an act — `trc/<audio>.<locale>.lease.json` carries only an expiry time (no transcript, no customer, no id beyond the key the memo already has). Its one caller is runMeteredTranscription (src/lib/ai/transcribe.ts): written create-only BEFORE the reserve so a second call on the same audio does not pay while the first is inside the provider, taken over (upsert) only once it has EXPIRED or been released, and released (upsert as already expired — never deleted) on every way out of that call. Every call it guards files its own audit row already (the route's auditWeb / the facade hook's FACADE_AUDIT_MAP['ai.transcribe'] row / the meter's auditTranscriptionReceipt or auditTranscriptionRefused); a row per lease write would be two to three rows per transcription describing none of its substance. Best-effort and never throws: a write that fails only means the call pays as it did before the lease existed.",
+    dated: '2026-09-28',
+  },
+  {
     file: 'src/lib/customers/customers.core.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],

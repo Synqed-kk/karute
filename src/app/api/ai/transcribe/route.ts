@@ -259,6 +259,16 @@ export async function POST(request: Request) {
     if (error instanceof AppApiError && error.code === 'upstream_unavailable') {
       return NextResponse.json({ error: error.message }, { status: 502 })
     }
+    // ⚖ S53 A5: another call is transcribing this audio right now — nothing
+    // was spent; retry. A literal 409, the facade twin's own status for
+    // `conflict` (errors.ts), so both doors answer one word.
+    if (error instanceof AppApiError && error.code === 'conflict') {
+      const retryAfter = Number(error.detail?.retry_after_seconds)
+      return NextResponse.json(
+        { error: error.message, reason: 'transcribing' },
+        { status: 409, headers: { 'Retry-After': String(Number.isFinite(retryAfter) ? retryAfter : 5) } },
+      )
+    }
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('[/api/ai/transcribe]', message)
     return NextResponse.json(
