@@ -320,6 +320,14 @@ export async function runAIPipeline(
     ) {
       return slot.response
     }
+    // ⚖ THE MINTED ROW IS ADOPTED THE MOMENT ITS AUDIO LANDS (S53-B, structural
+    // review Finding 10). The port calls `onUploaded` after its PUT and before
+    // anything else it does can fail (the web arm's read-URL mint), so a failure
+    // there leaves this take on its row and the run retryable — never real audio
+    // on a row nothing names. A port that answers without calling it (the phone:
+    // nothing between its PUT and its answer) is adopted from the answer, as
+    // before. Once per mint either way.
+    const upload = { adopted: false }
     const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
       await recordingPort.prepareTranscription(
         audioBlob,
@@ -336,8 +344,12 @@ export async function runAIPipeline(
             : takeRow
               ? { takeRow }
               : undefined,
+        async (row, at) => {
+          await adoptMintedSession(takeId, row, at, ctx)
+          upload.adopted = true
+        },
       )
-    if (minted) await adoptMintedSession(takeId, minted, mintedPath, ctx)
+    if (minted && !upload.adopted) await adoptMintedSession(takeId, minted, mintedPath, ctx)
 
     const transcribeRes = await fetchWithRetry(() =>
       getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {

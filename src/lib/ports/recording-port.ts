@@ -167,6 +167,13 @@ export interface RecordingPipelinePort {
    * the row the server-named arm just created for this upload — so the caller
    * can ADOPT it (ai-pipeline.ts). null when nothing was minted (the finalized
    * path) or the server named no row (switch OFF, an older server).
+   *
+   * ⚖ …AND THE ROW IS HANDED OVER THE MOMENT ITS AUDIO LANDS (S53-B, structural
+   * review Finding 10). `onUploaded` is called with that row and the key, after
+   * the bytes are at the key and BEFORE any later step of this leg can fail. An
+   * arm with a step after its PUT (the web arm's read-URL mint) must call it
+   * there; an arm with none may leave it uncalled — the caller adopts from the
+   * answer instead. Never called with no row, and a throw in it fails the leg.
    */
   prepareTranscription(
     blob: Blob,
@@ -187,6 +194,7 @@ export interface RecordingPipelinePort {
        *  beside the key for takeKeyHolder. */
       takeRow?: string | null
     },
+    onUploaded?: (recordingSessionId: string, path: string) => Promise<void>,
   ): Promise<{ body: Record<string, unknown>; path: string; recordingSessionId: string | null }>
   /**
    * The finalized KEY this take's audio was sealed under — composed, never
@@ -470,7 +478,7 @@ export const webRecordingPort: RecordingPipelinePort = {
   // fix. See the flag doc.
   supportsServerJob: false,
   supportsDiscardTranscript: true,
-  async prepareTranscription(blob, finalizedPath, opts) {
+  async prepareTranscription(blob, finalizedPath, opts, onUploaded) {
     const { mintRecordingUploadUrl, mintRecordingReadUrl } = await uploadActions()
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key. The read url is minted server-side over that key through
@@ -525,6 +533,14 @@ export const webRecordingPort: RecordingPipelinePort = {
         await putTake(minted.url, blob, minted.contentType)
         path = minted.path
       }
+      // ⚖ THE ROW IS HANDED OVER BEFORE THE READ URL IS ASKED FOR (S53-B,
+      // Finding 10). The audio is at `path` now, and the read-URL mint below can
+      // still fail (a core blip, a dropped action on bad Wi-Fi). Adopted only
+      // after it, that failure left real audio on a row nothing named: a 復元可能
+      // row whose 保存する paid again and made a second karute. The caller adopts
+      // it here instead, so the same failure leaves the take on its row and the
+      // run retryable.
+      if (recordingSessionId) await onUploaded?.(recordingSessionId, minted.path)
     }
     // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
     // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
