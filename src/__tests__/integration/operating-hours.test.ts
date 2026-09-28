@@ -2,7 +2,6 @@ import {
   DEFAULT_OPERATING_HOURS,
   normalizeOperatingHours,
   validateDailyOperatingHours,
-  utcToLocalDayAndMinute,
 } from '@/lib/operating-hours'
 import {
   validateAppointmentTime,
@@ -35,14 +34,6 @@ describe('operating hours utilities', () => {
     expect(normalized.mon).toEqual(DEFAULT_OPERATING_HOURS.mon)
     expect(normalized.tue).toEqual({ openMinute: 480, closeMinute: 1200 })
     expect(normalized.sun).toEqual(DEFAULT_OPERATING_HOURS.sun)
-  })
-
-  it('derives local day and minute using timezone offset', () => {
-    const source = new Date('2026-03-16T23:30:00.000Z')
-    const result = utcToLocalDayAndMinute(source, -60)
-
-    expect(result.dayKey).toBe('tue')
-    expect(result.minuteOfDay).toBe(30)
   })
 })
 

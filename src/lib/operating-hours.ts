@@ -138,20 +138,6 @@ export function getOperatingHoursForDate(hours: OperatingHours | null | undefine
   return normalized[getWeekdayKey(date)]
 }
 
-export function utcToLocalDayAndMinute(date: Date, tzOffsetMinutes: number): {
-  dayKey: WeekdayKey
-  minuteOfDay: number
-} {
-  // timezoneOffset follows Date#getTimezoneOffset semantics (UTC - local).
-  // local time is therefore UTC - offset.
-  const localDate = new Date(date.getTime() - tzOffsetMinutes * 60_000)
-
-  return {
-    dayKey: JS_DAY_TO_KEY[localDate.getUTCDay()] ?? 'mon',
-    minuteOfDay: localDate.getUTCHours() * 60 + localDate.getUTCMinutes(),
-  }
-}
-
 // ── THE 予約 NUMBERS' HOURS SOURCE — one resolver, one home ─────────────────
 //
 // ⚠ TWO NULLS, TWO MEANINGS (mirrored from src/business/lib/settings.ts:1156-1160,
