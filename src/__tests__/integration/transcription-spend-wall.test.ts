@@ -375,7 +375,14 @@ import { POST as webTranscribePOST } from '@/app/api/ai/transcribe/route'
 import { POST as facadeTranscribePOST } from '@/app/api/app/v1/ai/transcribe/route'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { runMeteredTranscription } from '@/lib/ai/transcribe'
+import {
+  LEASE_TAKEOVER_RESERVE_MS,
+  LEASE_WORKER_FUNCTION_LIMIT_MS,
+  LEASE_WORKER_WAIT_MS,
+  TRANSCRIPTION_IN_PROGRESS,
+  runMeteredTranscription,
+} from '@/lib/ai/transcribe'
+import { maxDuration as JOB_ROUTE_MAX_DURATION_S } from '@/app/api/jobs/process/route'
 import { readTranscriptMemo } from '@/lib/recording/transcript-memo'
 import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
@@ -2720,19 +2727,199 @@ describe('charge once — the durable transcript memo', () => {
     expect(rows('recording.transcribe')[0].detail).toMatchObject({ door: 'job', replayed: true, cost_cents: 0 })
   }, 15_000)
 
-  it('a5 the WORKER on a lease that never clears waits its bounded time, then PAYS — it never throws to requeue', async () => {
+  // ⚖ S56 — REWRITTEN. This row asserted that the worker, on a lease that
+  // never clears, waited 90 s and then PAID. That was the double pay: a live
+  // lease at 90 s is a holder still inside its 300 s function, not a dead one.
+  // It now asserts the opposite: the wait runs its whole budget, then the job
+  // FAILS with the retryable conflict word (core requeues while attempts
+  // remain) — no provider call, no reserve, no complete().
+  it('a5 → S56 the WORKER on a lease that never clears waits its budget, then THROWS the retryable conflict — fail() (core requeues), never a payment, never complete()', async () => {
     jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
     afterThis.push(() => jest.useRealTimers())
     liveLease(AUDIO)
     jobOn(AUDIO)
     const run = processRecordingJobs(10_000_000)
-    for (let i = 0; i < 60 && transcribeUrlWithDeepgram.mock.calls.length === 0; i++) {
+    for (let i = 0; i < 80 && fail.mock.calls.length === 0; i++) {
       await jest.advanceTimersByTimeAsync(3_000)
     }
     await run
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+    expect(fail).toHaveBeenCalledTimes(1)
+    expect(fail).toHaveBeenCalledWith('job-1', `transcription_failed: ${TRANSCRIPTION_IN_PROGRESS}`)
+    expect(memoStore.has(`trc/${AUDIO}.ja.json`)).toBe(false)
+    // Never its own lease: the only lease is the holder's, still live.
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now())
+  })
+
+  // ── ⚖ S56 — THE WORKER DOOR NEVER PAYS AGAINST A LIVE LEASE ───────────────
+  // Fake timers, as the row above: the wait is LEASE_WORKER_WAIT_MS of 3 s
+  // polls (LEASE_POLL_MS). `settle` records how a call ended without awaiting
+  // it, so a row can say "not yet" at a given clock; `flush` lets the storage
+  // fakes' promises (and Blob reads) run without moving the fake clock.
+  const doorCall = (door: 'job' | 'from_session' | 'discard' | 'web' | 'app') =>
+    runMeteredTranscription(
+      { synqed: fakeClient as unknown as Pick<SynqedClient, 'aiRateLimit'>, businessId: 'biz-1', door, audioKey: AUDIO },
+      { audio: { url: 'https://x/audio' }, locale: 'ja', diarize: true, reference: null, mode: 'off', businessType: null },
+    )
+  type Settled = { done: boolean; value?: Awaited<ReturnType<typeof doorCall>>; error?: unknown }
+  const settle = (p: ReturnType<typeof doorCall>): Settled => {
+    const out: Settled = { done: false }
+    p.then(
+      (value) => Object.assign(out, { done: true, value }),
+      (error: unknown) => Object.assign(out, { done: true, error }),
+    )
+    return out
+  }
+  const flush = async () => {
+    for (let i = 0; i < 25; i++) await new Promise(setImmediate)
+  }
+  const tick = async (ms: number) => {
+    await jest.advanceTimersByTimeAsync(ms)
+    await flush()
+  }
+  const fakeClock = () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    afterThis.push(() => jest.useRealTimers())
+  }
+  const untilSettled = async (out: Settled) => {
+    for (let i = 0; i < 40 && !out.done; i++) await tick(0)
+  }
+  const takeovers = () => leaseUpload.mock.calls.filter((c) => (c[2] as { upsert?: boolean } | undefined)?.upsert === true)
+
+  it.each(['job', 'from_session', 'discard'] as const)(
+    'w1 (S56) the %s door on a lease live for the WHOLE wait, no answer ever lands → after its budget it THROWS the retryable conflict (seconds left on the lease): no provider call, no reserve, no memo, no lease of its own',
+    async (door) => {
+      fakeClock()
+      liveLease(AUDIO) // 330 s from now: live well past the 135 s budget
+      const out = settle(doorCall(door))
+      await flush()
+      // The budget is asked at the top of each 3 s look: the first look at or past it throws.
+      const throwAt = Math.ceil(LEASE_WORKER_WAIT_MS / 3_000) * 3_000
+      for (let t = 3_000; t < throwAt; t += 3_000) await tick(3_000)
+      await tick(2_999)
+      // One millisecond short of that look: still waiting (a bare 90 s would have ended it long ago).
+      expect(out.done).toBe(false)
+      await tick(1)
+      await untilSettled(out)
+      expect(out.done).toBe(true)
+      expect(out.error).toMatchObject({
+        code: 'conflict',
+        message: TRANSCRIPTION_IN_PROGRESS,
+        // 330 s lease − 135 s waited = 195 s left, and never under 1.
+        detail: { reason: 'transcribing', retry_after_seconds: Math.ceil((330_000 - throwAt) / 1000) },
+      })
+      expect((out.error as { detail: { retry_after_seconds: number } }).detail.retry_after_seconds).toBeGreaterThanOrEqual(1)
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(consume).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled() // no memo written
+      expect(takeovers()).toEqual([]) // never took the lease over
+      // Every lease write was a refused create-only attempt; the holder's lease stands, untouched.
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now())
+    },
+  )
+
+  it('w1b (S56) the lease clears only in the LAST poll gap, after the last look inside the budget → no takeover past the budget: one free memo read, then the throw (retry_after ≥ 1)', async () => {
+    fakeClock()
+    // The last in-budget look is at budget − 3 s (still live); the lease ends 0.5 s before the budget does.
+    liveLease(AUDIO, LEASE_WORKER_WAIT_MS - 500)
+    const out = settle(doorCall('job'))
+    await flush()
+    for (let t = 3_000; t <= LEASE_WORKER_WAIT_MS; t += 3_000) await tick(3_000)
+    await untilSettled(out)
+    expect(out.done).toBe(true)
+    expect(out.error).toMatchObject({ code: 'conflict', detail: { reason: 'transcribing', retry_after_seconds: 1 } })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+    expect(takeovers()).toEqual([])
+  })
+
+  it('w2 (S56) the answer lands MID-WAIT → the next look replays it: no provider call, no reserve, no ceiling', async () => {
+    fakeClock()
+    liveLease(AUDIO)
+    const out = settle(doorCall('job'))
+    await flush()
+    await tick(3_000)
+    await tick(3_000)
+    expect(out.done).toBe(false)
+    memoStore.set(`trc/${AUDIO}.ja.json`, JSON.stringify({ v: 1, result: { ...deepgramResult }, duration_seconds: 5400, written_at: '' }))
+    await tick(3_000) // the very next look (9 s) re-reads the memo — long before the budget ends
+    expect(out.done).toBe(true)
+    expect(out.error).toBeUndefined()
+    expect(out.value?.receipt).toMatchObject({ replayed: true, cost_cents: 0, cents_reserved: 0 })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
+    expect(takeovers()).toEqual([])
+  })
+
+  it('w3 (S56) the lease EXPIRES mid-wait with budget left → the worker takes it over, pays exactly once, writes the memo, releases the lease on the way out', async () => {
+    fakeClock()
+    liveLease(AUDIO, 7_000) // the holder died: its lease ends 7 s in, the budget is 135 s
+    const out = settle(doorCall('job'))
+    await flush()
+    await tick(3_000)
+    await tick(3_000)
+    expect(out.done).toBe(false)
+    await tick(3_000) // 9 s: expired → taken over (upsert) → pays
+    await untilSettled(out)
+    expect(out.done).toBe(true)
+    expect(out.error).toBeUndefined()
+    expect(out.value?.receipt.replayed).toBe(false)
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
-    expect(fail).not.toHaveBeenCalled()
-    expect(complete).toHaveBeenCalledTimes(1)
+    expect(takeovers()).toHaveLength(2) // the takeover, then the release (both upserts)
+    expect(JSON.parse(takeovers()[0][1] as string).expires_at).toBeGreaterThan(Date.now())
+    expect(memoStore.has(`trc/${AUDIO}.ja.json`)).toBe(true)
+    // Released in the finally — overwritten as expired, never deleted.
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+  })
+
+  it('w4 (S56) the wait budget is DERIVED from the worker function limit, never a bare number: budget = limit − reserve, over the old 90 s, under the limit, and the limit is the job route’s own maxDuration', () => {
+    expect(LEASE_WORKER_FUNCTION_LIMIT_MS).toBe(JOB_ROUTE_MAX_DURATION_S * 1000)
+    expect(LEASE_TAKEOVER_RESERVE_MS).toBeGreaterThan(0)
+    expect(LEASE_WORKER_WAIT_MS).toBe(LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS)
+    expect(LEASE_WORKER_WAIT_MS).toBeGreaterThan(90_000)
+    expect(LEASE_WORKER_WAIT_MS).toBeLessThan(LEASE_WORKER_FUNCTION_LIMIT_MS)
+    // and the lease outlives any holder the worker waits on
+    expect(TRANSCRIPT_LEASE_TTL_MS).toBeGreaterThan(LEASE_WORKER_FUNCTION_LIMIT_MS)
+  })
+
+  it.each(['web', 'app'] as const)(
+    'w5 (S56) the %s door still answers a live lease AT ONCE (unchanged): no wait, the lease’s own seconds left, nothing spent',
+    async (door) => {
+      fakeClock()
+      liveLease(AUDIO, 60_000)
+      const out = settle(doorCall(door))
+      await flush() // no timer is advanced: an answer here is an answer with no wait
+      expect(out.done).toBe(true)
+      expect(out.error).toMatchObject({
+        code: 'conflict',
+        message: TRANSCRIPTION_IN_PROGRESS,
+        detail: { reason: 'transcribing', retry_after_seconds: 60 },
+      })
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(consume).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(takeovers()).toEqual([])
+    },
+  )
+
+  it('w6 (S56) storage will not answer about the lease → the worker still pays at once (the documented fail-open, unchanged)', async () => {
+    fakeClock()
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    afterThis.push(() => warn.mockRestore())
+    liveLease(AUDIO)
+    leaseUpload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'storage down' } } as never)
+    const out = settle(doorCall('job'))
+    await flush()
+    await untilSettled(out)
+    expect(out.done).toBe(true)
+    expect(out.error).toBeUndefined()
+    expect(out.value?.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
   })
 })
 

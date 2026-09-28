@@ -594,11 +594,55 @@ export async function runMeteredTranscription(
   }
 }
 
-/** S53 A5: how long a worker door waits for another call's answer on a live
- *  lease before it pays anyway — inside its own 300 s function, and never by
- *  throwing (core requeues a failed job at once, which would burn its attempts
- *  in seconds and mark a healthy job FAILED). The interactive doors never wait. */
-const LEASE_WORKER_WAIT_MS = 90_000
+/** ⚖ S56 — THE WORKER DOOR NEVER PAYS AGAINST A LIVE LEASE. How long a door
+ *  that waits (the job worker; the discard door rides the same branch) waits on
+ *  another call's live lease for that call's answer. The interactive doors
+ *  never wait. Derived from the worker's function, never a bare number:
+ *   - the function limit is 300 s: `export const maxDuration = 300` on the job
+ *     route (src/app/api/jobs/process/route.ts), the one route that runs the
+ *     worker — pinned to that export by a test;
+ *   - a TAKEOVER (the lease expired or was released mid-wait, so this call
+ *     now pays) must still finish its OWN paid call, write the memo, and leave
+ *     the route time to file complete/fail. The route already keeps 30 s for
+ *     that report (it stops claiming at 270 s of 300). No provider timeout
+ *     exists to size the paid call by: the Deepgram requests carry no abort
+ *     signal (src/lib/deepgram.ts), and the speaker-id pass that runs beside
+ *     them stops at 60 s (src/lib/speaker-id/openai.ts, TIMEOUT_MS). The paid
+ *     call is bounded only by the function itself;
+ *   - so what is left after the report headroom is split EVENLY between the
+ *     wait and a takeover's paid call: 135 s each. The even split is the one
+ *     judgement here, because nothing in this repo says how long a
+ *     transcription takes.
+ *  The budget runs from the wait's own start. A job the route claimed late in
+ *  its 270 s has less than the limit left: the platform then ends the WAIT (no
+ *  lease held, nothing paid) or, rarely, a takeover's call (the crash window
+ *  the memo-first write already names).
+ *
+ *  AT THE END OF THE WAIT WITH NO ANSWER, THE DOOR THROWS the same retryable
+ *  `conflict` word the interactive doors answer, and pays nothing — the lease
+ *  was live at its last look, and past the budget it never takes one over.
+ *  (Until S56 it waited 90 s and then paid, so a holder slower than 90 s — well
+ *  inside its own 300 s function and the 330 s lease — was paid for twice.)
+ *  The worker wraps the throw as `transcription_failed` (process-recording.ts,
+ *  asStageFailure) and calls recordingJobs.fail(id, error), whose SDK contract
+ *  is "requeues while attempts remain, else FAILED". The SDK has no "retry
+ *  later" verb and no delay: RecordingJobClient is enqueue / claim / complete /
+ *  fail, and fail() carries only the message. Core's attempt count and requeue
+ *  delay are not known here. So each requeued attempt spends ITS OWN wait
+ *  budget, never seconds; and a job that ends FAILED while the holder finishes
+ *  has lost nothing: the holder writes the memo, and any later attempt (a
+ *  requeue, or the 再試行 that re-arms a FAILED job through enqueue) replays it
+ *  free. The discard door catches the throw as its own retryable `failed`
+ *  (discard-transcript.core.ts). `retry_after_seconds` rides the error for
+ *  parity with the interactive doors; neither of these two callers reads it. */
+export const LEASE_WORKER_FUNCTION_LIMIT_MS = 300_000
+/** The job route's own headroom for its final complete/fail report. */
+const LEASE_WORKER_REPORT_HEADROOM_MS = 30_000
+/** Headroom + an even half of the rest (see above): 165 s. */
+export const LEASE_TAKEOVER_RESERVE_MS =
+  LEASE_WORKER_REPORT_HEADROOM_MS + (LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_WORKER_REPORT_HEADROOM_MS) / 2
+/** The limit less the reserve: 135 s. */
+export const LEASE_WORKER_WAIT_MS = LEASE_WORKER_FUNCTION_LIMIT_MS - LEASE_TAKEOVER_RESERVE_MS
 const LEASE_POLL_MS = 3_000
 
 async function meteredTranscription(
@@ -663,16 +707,32 @@ async function meteredTranscription(
   // and pays exactly as before. `busy` = another call is inside the provider
   // for this audio right now: the memo is re-read (it may have just landed);
   // the two interactive doors then answer a retryable 409 and pay nothing,
-  // and a worker door waits for the answer inside its own budget, then pays
-  // anyway rather than throw. `unknown` (storage would not say) pays, as the
-  // memo read's own fail-open rule does.
+  // and a worker door waits for the answer inside its own budget
+  // (LEASE_WORKER_WAIT_MS); a lease still live at the end of it gets the same
+  // retryable conflict, never a payment (S56). `unknown` (storage would not
+  // say) pays, as the memo read's own fail-open rule does.
   if (
     memoKey !== null &&
     RECORDING_SWITCHES.transcribePaidOnce &&
     (meter.replayMemo !== false || meter.memoHitRefuses === true)
   ) {
     const waitUntil = Date.now() + LEASE_WORKER_WAIT_MS
+    let busyUntil = 0
     for (;;) {
+      // ⚖ S56: THE BUDGET IS ASKED BEFORE THE TAKE. Past it, a waiting door
+      // never takes the lease over — a takeover pays, and it would start with
+      // less than LEASE_TAKEOVER_RESERVE_MS left — so it reads the memo one last
+      // time (free) and throws. Never true on the first pass, and never reached
+      // again by the two interactive doors, which answer on their first busy
+      // look below.
+      if (Date.now() >= waitUntil) {
+        const last = await readTranscriptMemo(memoKey)
+        if (last.state === 'hit') return await answerFromMemo(memoKey, last.memo)
+        throw new AppApiError('conflict', TRANSCRIPTION_IN_PROGRESS, {
+          reason: 'transcribing',
+          retry_after_seconds: Math.max(1, Math.ceil((busyUntil - Date.now()) / 1000)),
+        })
+      }
       const taken = await takeTranscriptLease(memoKey)
       if (taken.state === 'held') {
         lease.key = memoKey
@@ -687,7 +747,7 @@ async function meteredTranscription(
           retry_after_seconds: Math.max(1, Math.ceil((taken.until - Date.now()) / 1000)),
         })
       }
-      if (Date.now() >= waitUntil) break
+      busyUntil = taken.until
       await new Promise((resolve) => setTimeout(resolve, LEASE_POLL_MS))
     }
   }
