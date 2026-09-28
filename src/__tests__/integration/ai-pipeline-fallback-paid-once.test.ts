@@ -44,7 +44,7 @@ type Meta = {
   transcript?: Stamp
   fallbackPin?: Pin
 }
-type Pin = { finalizedPath: string; recordingSessionId: string | null; locale: string; audio: Audio; at: number }
+type Pin = { finalizedPath: string; recordingSessionId: string | null; locale: string; audio: Audio; at: number; retiredAt?: number; retiredReason?: string }
 const store = { meta: null as Meta | null, blob: null as Blob | null }
 let onTranscriptRead: (() => void) | null = null
 // The shape of take-store's stampTakeTranscript: whole body + path + locale,
@@ -75,8 +75,25 @@ const pinTakeFallback = jest.fn(async (_id: string, pin: Omit<Pin, 'at'>) => {
   if (store.meta.finalizedPath && store.meta.finalizedPath !== pin.finalizedPath) return
   store.meta = { ...store.meta, fallbackPin: { ...pin, at: 1 } }
 })
+// S54 F10: exactly this key's pin is MARKED retired, once — never deleted (take-durability pins the real one).
+const retireTakeFallback = jest.fn(async (_id: string, path: string, retiredAt: number, retiredReason: string) => {
+  const pin = store.meta?.fallbackPin
+  if (!store.meta || !pin || pin.finalizedPath !== path || pin.retiredAt) return
+  store.meta = { ...store.meta, fallbackPin: { ...pin, retiredAt, retiredReason } }
+})
+// First stamp wins; the take is secured at the minted key in the same write
+// (take-durability.test.ts pins the real one). S54 F9: `adoptLost` counts down
+// writes that are LOST (patchTakeMeta's tries exhausted → false, nothing written).
+let adoptLost = 0
+const adoptTakeSession = jest.fn(async (_id: string, session: string, path: string) => {
+  if (adoptLost-- > 0) return false
+  if (!store.meta || store.meta.recordingSessionId || store.meta.finalizedAt) return false
+  store.meta = { ...store.meta, recordingSessionId: session, finalizedAt: 1, finalizedPath: path }
+  return true
+})
 jest.mock('@/lib/karute/take-store', () => ({
   pinTakeFallback: (id: string, pin: Omit<Pin, 'at'>) => pinTakeFallback(id, pin),
+  retireTakeFallback: (id: string, path: string, at: number, reason: string) => retireTakeFallback(id, path, at, reason),
   readTakeSecureMeta: async () => (store.meta ? { ...store.meta } : null),
   loadTakeBlob: async () => store.blob,
   ensureFinalizedPath: async (_id: string, meta: Meta) => meta.finalizedPath ?? null,
@@ -95,13 +112,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   },
   markTakeSecureError: async () => {},
   markTakeStartBoundAttempted: async () => {},
-  // First stamp wins; the take is secured at the minted key in the same write
-  // (take-durability.test.ts pins the real one).
-  adoptTakeSession: async (_id: string, session: string, path: string) => {
-    if (!store.meta || store.meta.recordingSessionId || store.meta.finalizedAt) return false
-    store.meta = { ...store.meta, recordingSessionId: session, finalizedAt: 1, finalizedPath: path }
-    return true
-  },
+  adoptTakeSession: (id: string, session: string, path: string) => adoptTakeSession(id, session, path),
   stampTakeSession: async (_id: string, session: string) => {
     if (!store.meta || store.meta.recordingSessionId) return false
     store.meta = { ...store.meta, recordingSessionId: session }
@@ -131,6 +142,10 @@ const startSession = jest.fn(async (_input?: Record<string, unknown>) => startSe
 // unbound door: a NEW key every mint (mint-take-url.ts:910), a row only when
 // the switch is ON and no row is known (mint-take-url.ts:952-955).
 let unboundSeq = 0
+/** S54: the hand-over the pipeline passed to the LAST port call — kept aside so
+ *  every recorded call stays exactly what it was (the web arm fakes call it). */
+type OnUploaded = (row: string, path: string) => Promise<void>
+let lastOnUploaded: OnUploaded | undefined
 const prepareTranscription = jest.fn(
   async (_blob: Blob, finalizedPath: string | null, opts?: { attachOutcome?: string; takeRow?: string }) => {
     if (finalizedPath) {
@@ -146,8 +161,10 @@ const prepareTranscription = jest.fn(
 jest.mock('@/lib/ports/recording-port', () => ({
   getRecordingPipelinePort: () => ({
     aiBase: '/api/ai',
-    prepareTranscription: (b: Blob, p: string | null, o?: { attachOutcome?: string; takeRow?: string }) =>
-      prepareTranscription(b, p, o),
+    prepareTranscription: (b: Blob, p: string | null, o?: { attachOutcome?: string; takeRow?: string }, u?: OnUploaded) => {
+      lastOnUploaded = u
+      return prepareTranscription(b, p, o)
+    },
     mintTakeUrl: (t: string, m: string, s: string) => mintTakeUrl(t, m, s),
     finalizeTake: (i: Record<string, unknown>) => finalizeTake(i),
     startSession: (i?: Record<string, unknown>) => startSession(i),
@@ -173,6 +190,9 @@ const transcribeNet: Array<'lose' | 'unreached' | undefined> = []
 let serverMemo: Map<string, unknown> | null = null
 /** Called the moment a /transcribe POST reaches the server (S53 A4). */
 let onTranscribeReached: (() => void) | null = null
+/** S54 F10 — a refusal status for the next REACHED /transcribe POSTs, in order
+ *  (undefined = answered): the door refuses before anything is paid. */
+const transcribeStatus: Array<number | undefined> = []
 let paidCalls = 0
 jest.mock('@/lib/ports/data-port', () => ({
   getDataPort: () => ({
@@ -182,6 +202,9 @@ jest.mock('@/lib/ports/data-port', () => ({
         const net = transcribeNet.shift()
         if (net === 'unreached') throw new TypeError('Failed to fetch')
         onTranscribeReached?.()
+        const refusedWith = transcribeStatus.shift()
+        if (refusedWith)
+          return { ok: false, status: refusedWith, text: async () => '{"error":"refused"}' } as unknown as Response
         const key = String((JSON.parse(init?.body ?? '{}') as { path?: unknown }).path)
         const remembered = serverMemo?.get(key)
         let body: unknown
@@ -264,6 +287,8 @@ beforeEach(() => {
   extractRefuses = false
   transcribeGates.length = 0
   transcribeNet.length = 0
+  transcribeStatus.length = 0
+  adoptLost = 0
   serverMemo = null
   onTranscribeReached = null
   paidCalls = 0
@@ -940,6 +965,223 @@ describe('⚖ S53 A4 — a key the fallback PUT is re-presented, never re-minted
       expect(paidCalls).toBe(1)
     } finally {
       replaced.restore()
+    }
+  })
+})
+
+// ── ⚖ S54 fix round (fresh-eyes F9/F10) ────────────────────────────────────
+// F9: a re-presented key names its row, and the port names none on that arm —
+// so a first attempt whose adoption was LOST left the take unlinked for good.
+// The pin's row is asked for again on every pinned run (first stamp wins, so a
+// linked take is a no-op). F10: a key the server refuses OUTRIGHT (the web
+// read-URL door's 'forbidden', the phone door's 404) is MARKED retired on the
+// take and on the chain's slot — kept, never deleted — and never re-presented;
+// the next 再試行 mints fresh, today's run. Every other failure keeps the pin.
+describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the server refuses is retired, never deleted', () => {
+  forceSwitch(true) // bindUnboundUploads ON: the mint names a row (R)
+  beforeEach(() => {
+    serverMemo = new Map()
+  })
+  type RunContext = Parameters<typeof globalPipeline.start>[1]
+  const K = unbound(1)
+  const R = 'rs_minted_1'
+  /** A take with no row and no finalized key; the attach cannot land. */
+  const bareTake = () => {
+    store.meta = { mimeType: 'audio/webm', durationMs: 42_000, startedAt: 0, updatedAt: 1 }
+    store.blob = new Blob(['stored'], { type: 'audio/webm' })
+    refuseTakeMints = 99
+  }
+  /** Check 10's state: the take's adoption NEVER lands, so it keeps no finalized key and its pin is read. */
+  const stuckTake = () => {
+    bareTake()
+    adoptLost = 99
+  }
+  const ctx = (): RunContext =>
+    ({ locale: 'ja', customers: [], takeId: TAKE, duration: 42, recordingSessionId: null, serverRowMissing: true }) as RunContext
+  const takeless = { locale: 'ja', customers: [], takeId: null, recordingSessionId: null, serverRowMissing: true } as RunContext
+  const mints = () => prepareTranscription.mock.calls.filter(([, path]) => path === null).length
+  const chainSlot = () => (globalPipeline as unknown as { fallbackPin: Pin & { path?: string } | null }).fallbackPin
+  const chainRow = () => (globalPipeline as unknown as { context: { recordingSessionId: string | null } | null }).context?.recordingSessionId
+  /** The web arm's order on a mint (S53-B): PUT → hand-over (onUploaded) → read URL. */
+  const webArmOnce = () =>
+    prepareTranscription.mockImplementationOnce(async (_b, _p, opts) => {
+      const n = ++unboundSeq
+      const row = opts?.attachOutcome === 'no_session' ? `rs_minted_${n}` : null
+      if (row) await lastOnUploaded?.(row, unbound(n))
+      return { body: row ? { path: unbound(n), recordingSessionId: row } : { path: unbound(n) }, path: unbound(n), recordingSessionId: row }
+    })
+  /** The web port's read-URL door answers for the re-presented key (recording-port.ts). */
+  const readUrlRefuses = (refusal: 'forbidden' | 'upstream') =>
+    prepareTranscription.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('could not mint a read URL'), { refusal })
+    })
+  /** Run 1: the paid answer is lost (paid, remembered, never received); the take is pinned at K. */
+  const lostFirstRun = async (context: RunContext = ctx()) => {
+    transcribeNet.push('lose', 'unreached')
+    globalPipeline.start(memory, context)
+    await settle()
+    expect(globalPipeline.state).toBe('error')
+    expect(paidCalls).toBe(1)
+  }
+  const retry = async () => {
+    globalPipeline.retry()
+    await settle()
+  }
+
+  it('(t9a) the first attempt’s adoption was LOST twice (hand-over + answer) and its answer lost → the 再試行 re-presents K AND links the take to R; ONE paid call, no new mint', async () => {
+    bareTake()
+    webArmOnce()
+    adoptLost = 2
+    let reached = 0
+    onTranscribeReached = () => {
+      reached++
+    }
+    await lostFirstRun()
+    expect(adoptTakeSession.mock.calls).toEqual([[TAKE, R, K], [TAKE, R, K]])
+    expect(store.meta?.recordingSessionId).toBeUndefined()
+    expect(store.meta?.fallbackPin).toMatchObject({ finalizedPath: K, recordingSessionId: R })
+
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(prepareTranscription.mock.calls[1].slice(1, 3)).toEqual([K, { takeRow: R }])
+    expect(adoptTakeSession).toHaveBeenCalledTimes(3)
+    expect(adoptTakeSession).toHaveBeenLastCalledWith(TAKE, R, K)
+    expect(store.meta).toMatchObject({ recordingSessionId: R, finalizedPath: K })
+    expect(chainRow()).toBe(R)
+    expect(mints()).toBe(1)
+    expect(paidCalls).toBe(1)
+    expect(reached).toBe(2) // the lost POST and the replayed one — Deepgram ran once
+  })
+
+  it('(t9b) the first attempt’s adoption LANDED → the 再試行 asks K as the take’s own key: the pin is not read, no second adoption', async () => {
+    bareTake()
+    webArmOnce()
+    await lostFirstRun()
+    expect(adoptTakeSession).toHaveBeenCalledTimes(1)
+    expect(store.meta).toMatchObject({ recordingSessionId: R, finalizedPath: K })
+
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(adoptTakeSession).toHaveBeenCalledTimes(1)
+    expect(prepareTranscription.mock.calls[1].slice(1, 3)).toEqual([K, { takeRow: R }])
+    expect(store.meta?.recordingSessionId).toBe(R)
+    expect(paidCalls).toBe(1)
+  })
+
+  it('(t9b) a take stamped with ANOTHER row after its pin → the re-link is asked and refused (first stamp wins): the take keeps its row, the run is not told R', async () => {
+    bareTake()
+    webArmOnce()
+    adoptLost = 2
+    await lostFirstRun()
+    store.meta = { ...store.meta!, recordingSessionId: 'rs_late_stamp' } // a late start-mint answer, say
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(adoptTakeSession).toHaveBeenCalledTimes(3)
+    expect(adoptTakeSession).toHaveBeenLastCalledWith(TAKE, R, K)
+    expect(store.meta?.recordingSessionId).toBe('rs_late_stamp')
+    expect(store.meta?.finalizedPath).toBeUndefined()
+    expect(chainRow()).toBeNull()
+    expect(paidCalls).toBe(1)
+  })
+
+  it('(t10c) a hand-over whose write was LOST gets its second chance from the answer in the SAME run (the fresh-eyes surviving mutant)', async () => {
+    bareTake()
+    webArmOnce()
+    adoptLost = 1
+    await direct()
+    expect(adoptTakeSession).toHaveBeenCalledTimes(2)
+    expect(store.meta).toMatchObject({ recordingSessionId: R, finalizedPath: K })
+  })
+
+  it('(t10a) web: the read-URL door refuses the re-presented key (forbidden) → the pin is MARKED retired on the take AND the chain slot, kept whole; the error stands, nothing minted; the next 再試行 mints fresh and pays', async () => {
+    stuckTake()
+    await lostFirstRun()
+    const pinned = store.meta?.fallbackPin
+    readUrlRefuses('forbidden')
+    await retry()
+    expect(globalPipeline.state).toBe('error')
+    expect(mints()).toBe(1)
+    expect(paidCalls).toBe(1)
+    expect(retireTakeFallback).toHaveBeenCalledWith(TAKE, K, expect.any(Number), 'read_url_forbidden')
+    expect(store.meta?.fallbackPin).toEqual({ ...pinned, retiredAt: expect.any(Number), retiredReason: 'read_url_forbidden' })
+    expect(chainSlot()).toMatchObject({ path: K, recordingSessionId: R, retiredAt: expect.any(Number), retiredReason: 'read_url_forbidden' })
+
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(mints()).toBe(2)
+    expect(paidCalls).toBe(2)
+  })
+
+  it('(t10a) phone: the door answers 404 for the re-presented key (not this business’s / a colleague’s row) → retired on the take and the slot; the next 再試行 mints fresh', async () => {
+    stuckTake()
+    await lostFirstRun()
+    transcribeStatus.push(404, 404) // fetchWithRetry asks twice; nothing is paid
+    await retry()
+    expect(globalPipeline.state).toBe('error')
+    expect(mints()).toBe(1)
+    expect(store.meta?.fallbackPin).toMatchObject({ finalizedPath: K, retiredAt: expect.any(Number), retiredReason: 'transcribe_404' })
+    expect(chainSlot()).toMatchObject({ path: K, retiredReason: 'transcribe_404' })
+
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(mints()).toBe(2)
+    expect(paidCalls).toBe(2)
+  })
+
+  it('(t10a) take-less: a 404 retires the chain slot’s pin (no take to mark); the next 再試行 mints fresh', async () => {
+    await lostFirstRun(takeless)
+    transcribeStatus.push(404, 404)
+    await retry()
+    expect(globalPipeline.state).toBe('error')
+    expect(retireTakeFallback).not.toHaveBeenCalled()
+    expect(chainSlot()).toMatchObject({ takeId: null, path: K, retiredReason: 'transcribe_404' })
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(mints()).toBe(2)
+    expect(paidCalls).toBe(2)
+  })
+
+  it.each([
+    ['the door’s 502 (unreadable — a core read blip)', () => transcribeStatus.push(502, 502)],
+    ['a 409', () => transcribeStatus.push(409, 409)],
+    ['a 429 (the ceiling)', () => transcribeStatus.push(429)],
+    ['a 503', () => transcribeStatus.push(503, 503)],
+    ['a 403 (the plan / capability gate — not this key)', () => transcribeStatus.push(403)],
+    ['a network error, twice', () => transcribeNet.push('unreached', 'unreached')],
+    ['a 404 then a network error (the LAST answer decides)', () => {
+      transcribeStatus.push(404)
+      transcribeNet.push(undefined, 'unreached')
+    }],
+    ['the read-URL door’s upstream (a blip)', () => readUrlRefuses('upstream')],
+  ])('(t10b) %s → the pin is NOT retired: the error stands and the next 再試行 re-presents the same key', async (_name, refuse) => {
+    stuckTake()
+    await lostFirstRun()
+    refuse()
+    await retry()
+    expect(globalPipeline.state).toBe('error')
+    expect(retireTakeFallback).not.toHaveBeenCalled()
+    expect(store.meta?.fallbackPin?.retiredAt).toBeUndefined()
+    expect(chainSlot()?.retiredAt).toBeUndefined()
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(mints()).toBe(1)
+    expect(paidCalls).toBe(1)
+  })
+
+  it('(t10b) switch transcribePaidOnce OFF: a pin left by an ON run is not read, and a 404 retires nothing (OFF == today)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      bareTake()
+      const left: Pin = { finalizedPath: K, recordingSessionId: R, locale: 'ja', audio: fp(memory, 42), at: 1 }
+      store.meta = { ...store.meta!, fallbackPin: left }
+      transcribeStatus.push(404, 404)
+      expect(await outcome(direct())).toBeInstanceOf(Error)
+      expect(mints()).toBe(1)
+      expect(retireTakeFallback).not.toHaveBeenCalled()
+      expect(pinTakeFallback).not.toHaveBeenCalled()
+      expect(store.meta?.fallbackPin).toEqual(left)
+    } finally {
+      off.restore()
     }
   })
 })

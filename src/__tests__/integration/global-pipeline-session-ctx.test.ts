@@ -69,6 +69,8 @@ describe('globalPipeline prompt-anchor ctx', () => {
       onFallbackPaid: expect.any(Function),
       fallbackPin: null,
       onFallbackPinned: expect.any(Function),
+      // S54 F10: and the writer that marks that key's pin retired.
+      onFallbackRetired: expect.any(Function),
     })
   })
 

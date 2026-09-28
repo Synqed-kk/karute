@@ -504,6 +504,7 @@ import {
   readTakeTranscript,
   adoptTakeSession,
   pinTakeFallback,
+  retireTakeFallback,
   TERMINAL_SECURE_ERRORS,
   writeTakeHeartbeat,
 } from '@/lib/karute/take-store'
@@ -1061,6 +1062,33 @@ describe('pinTakeFallback — the key a fallback is about to pay for (S53 A4)', 
     expect((await readTakeSecureMeta(takeId))?.fallbackPin?.finalizedPath).toBe(U)
     await pinTakeFallback(takeId, { finalizedPath: F, recordingSessionId: 'sess-x', locale: 'ja', audio })
     expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: F, recordingSessionId: 'sess-x' })
+  })
+})
+
+// ⚖ S54 F10 — a refused key's pin is MARKED retired in the write's own
+// transaction, never deleted: exactly that key's pin, once, the owner's only.
+describe('retireTakeFallback — a refused key’s pin is marked, never deleted (S54 F10)', () => {
+  const audio = { size: 1234, type: 'audio/webm', durationSeconds: 42 }
+  it('marks exactly this key’s pin once, every field kept; another key, another staffer and a second retire write nothing', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const U = 'app_biz-1_server-named-1.webm'
+    await pinTakeFallback(takeId, { finalizedPath: U, recordingSessionId: 'sess-u', locale: 'ja', audio })
+    const pinned = (await readTakeSecureMeta(takeId))?.fallbackPin
+    expect(pinned).toMatchObject({ finalizedPath: U, recordingSessionId: 'sess-u', at: expect.any(Number) })
+
+    await retireTakeFallback(takeId, 'app_biz-1_server-named-2.webm', 5, 'transcribe_404')
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toEqual(pinned)
+    mockUid = 'staff-B'
+    await retireTakeFallback(takeId, U, 6, 'transcribe_404')
+    mockUid = 'staff-A'
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toEqual(pinned)
+
+    await retireTakeFallback(takeId, U, 7, 'read_url_forbidden')
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toEqual({ ...pinned, retiredAt: 7, retiredReason: 'read_url_forbidden' })
+    await retireTakeFallback(takeId, U, 8, 'transcribe_404')
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toEqual({ ...pinned, retiredAt: 7, retiredReason: 'read_url_forbidden' })
   })
 })
 

@@ -7,6 +7,7 @@ import {
   pinTakeFallback,
   readTakeSecureMeta,
   readTakeTranscript,
+  retireTakeFallback,
   stampTakeTranscript,
   type TakeAudioFingerprint,
 } from '@/lib/karute/take-store'
@@ -133,6 +134,8 @@ export type PipelineContext = {
   fallbackPin?: FallbackPin | null
   /** Told the key the moment it is pinned, before the POST. */
   onFallbackPinned?: (pin: FallbackPin) => void
+  /** ⚖ S54 F10: told the pin, marked retired, when the server refused its key. */
+  onFallbackRetired?: (pin: FallbackPin) => void
 }
 
 /** ⚖ S53 A4: a key the fallback PUT and was about to pay for — whose take
@@ -144,6 +147,9 @@ export type FallbackPin = {
   recordingSessionId: string | null
   locale: string
   audio: TakeAudioFingerprint
+  /** ⚖ S54 F10: set when the server refused this key outright — never re-presented. */
+  retiredAt?: number
+  retiredReason?: string
 }
 
 /** One fallback transcription the chain paid for: whose take (null = none),
@@ -216,10 +222,10 @@ async function adoptMintedSession(
 /** The take's stored pin in the chain's shape (S53 A4). */
 function toChainPin(
   takeId: string,
-  pin: { finalizedPath: string; recordingSessionId: string | null; locale: string; audio: TakeAudioFingerprint } | undefined,
+  pin: { finalizedPath: string; recordingSessionId: string | null; locale: string; audio: TakeAudioFingerprint; retiredAt?: number } | undefined,
 ): FallbackPin | null {
   return pin
-    ? { takeId, path: pin.finalizedPath, recordingSessionId: pin.recordingSessionId, locale: pin.locale, audio: pin.audio }
+    ? { takeId, path: pin.finalizedPath, recordingSessionId: pin.recordingSessionId, locale: pin.locale, audio: pin.audio, ...(pin.retiredAt ? { retiredAt: pin.retiredAt } : {}) }
     : null
 }
 
@@ -377,8 +383,8 @@ export async function runAIPipeline(
     //
     // S54 — composed with S53 A4 (below). The hand-over rides the MINT arm only:
     // a re-presented pin names a key already PUT, so its port call mints and
-    // uploads nothing and the hook never fires there — any row it names is
-    // adopted from the answer, as before. For a minted key the order is: pin
+    // uploads nothing and the hook never fires there. S54 F9: its row is asked for again from the PIN
+    // below (a lost first adoption is linked there; first stamp wins, so a linked take is a no-op). For a minted key the order is: pin
     // read (none matched) → mint + PUT → hand-over (adoption) → read URL → pin
     // written → the paid POST.
     const upload = { adopted: false }
@@ -401,14 +407,24 @@ export async function runAIPipeline(
             ctx.fallbackPin ?? null,
           ].find(
             (pin): pin is FallbackPin =>
-              !!pin && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
+              !!pin && !pin.retiredAt && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
           ) ?? null)
-    const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } = pinned
-      ? await recordingPort.prepareTranscription(
-          audioBlob,
-          pinned.path,
-          pinned.recordingSessionId ? { takeRow: pinned.recordingSessionId } : undefined,
-        )
+    // ⚖ S54 F10 — A KEY THE SERVER REFUSES OUTRIGHT IS RETIRED, NEVER DELETED: only the web read-URL door's
+    // 'forbidden' or the phone door's 404 (never a blip, 'unreadable' 502, a 403 gate, 429, 409 or 5xx). The
+    // mark (take + chain slot) makes the matcher above skip it, so the next 再試行 mints fresh — today's run.
+    const retire = async (retiredReason: string) => {
+      if (!pinned) return
+      const retiredAt = Date.now()
+      if (takeId) await retireTakeFallback(takeId, pinned.path, retiredAt, retiredReason)
+      ctx.onFallbackRetired?.({ ...pinned, retiredAt, retiredReason })
+    }
+    const prepared = pinned
+      ? await recordingPort
+          .prepareTranscription(audioBlob, pinned.path, pinned.recordingSessionId ? { takeRow: pinned.recordingSessionId } : undefined)
+          .catch(async (err: unknown) => {
+            if ((err as { refusal?: unknown } | null)?.refusal === 'forbidden') await retire('read_url_forbidden')
+            throw err
+          })
       : await recordingPort.prepareTranscription(
           audioBlob,
           finalizedPath,
@@ -428,6 +444,9 @@ export async function runAIPipeline(
             upload.adopted = await adoptMintedSession(takeId, row, at, ctx)
           },
         )
+    const { body: transcribeBody, path: mintedPath } = prepared
+    // S54 F9: a re-presented key's row comes from the pin (the port names none).
+    const minted = pinned ? pinned.recordingSessionId : prepared.recordingSessionId
     if (minted && !upload.adopted) await adoptMintedSession(takeId, minted, mintedPath, ctx)
     // The fallback's PUT has landed (prepareTranscription throws before this
     // otherwise): pin the key BEFORE the POST can pay for it — on the take (the
@@ -445,13 +464,18 @@ export async function runAIPipeline(
       ctx.onFallbackPinned?.(pin)
     }
 
-    const transcribeRes = await fetchWithRetry(() =>
-      getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
+    let status = 0 // the LAST answer's status (0 = none: a network error)
+    const transcribeRes = await fetchWithRetry(async () => {
+      status = 0
+      const res = await getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...transcribeBody, locale }),
-      }),
-    ).catch((err) => {
+      })
+      status = res.status
+      return res
+    }).catch(async (err) => {
+      if (status === 404) await retire('transcribe_404')
       throw new Error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`)
     })
 

@@ -192,6 +192,17 @@ describe('webRecordingPort — the minted row is handed over between the PUT and
     expect(onUploaded).not.toHaveBeenCalled()
   })
 
+  it('S54 F10: the read-URL door’s answer rides on the throw as `refusal` — forbidden (this key) vs upstream (a blip)', async () => {
+    for (const error of ['forbidden', 'upstream'] as const) {
+      mintRecordingReadUrl.mockResolvedValueOnce({ error })
+      const thrown = await webRecordingPort
+        .prepareTranscription(memory, 'app_biz-1_server-named-1.webm', { takeRow: 'rs-x' })
+        .then(() => null, (e: unknown) => e)
+      expect(thrown).toEqual(new Error('could not mint a read URL'))
+      expect((thrown as { refusal?: unknown }).refusal).toBe(error)
+    }
+  })
+
   it('a throw in the hand-over fails the leg before the read-URL mint', async () => {
     const onUploaded = jest.fn(async () => {
       throw new Error('IndexedDB closed')

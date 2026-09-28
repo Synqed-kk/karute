@@ -416,6 +416,9 @@ export type TakeFallbackPin = {
   locale: string
   audio: TakeAudioFingerprint
   at: number
+  /** ⚖ S54 F10: the server refused this key outright — kept, never re-presented. */
+  retiredAt?: number
+  retiredReason?: string
 }
 
 /** ⚖ C3 fold (Greptile P1): the audio a fallback transcription actually sent —
@@ -780,7 +783,7 @@ export async function detachTakeFromRecordedSession(takeId: string): Promise<boo
  *  so nothing a null-uid mark writes is ever visible to a colleague. */
 async function patchTakeMeta(
   takeId: string,
-  patch: Partial<TakeMeta>,
+  patch: Partial<TakeMeta> | ((meta: TakeMeta) => Partial<TakeMeta>),
   when?: (meta: TakeMeta) => boolean,
   opts?: { gate?: 'require' | 'compare' },
 ): Promise<boolean> {
@@ -794,7 +797,7 @@ async function patchTakeMeta(
       const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
       if (!meta || (uid && meta.ownerUid !== uid)) return false
       if (when && !when(meta)) return false
-      await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
+      await req(tx.objectStore(TAKES).put({ ...meta, ...(typeof patch === 'function' ? patch(meta) : patch) }))
       return true
     } catch (err) {
       console.error('[take-store] patchTakeMeta failed:', err)
@@ -1234,6 +1237,16 @@ export async function pinTakeFallback(
     takeId,
     { fallbackPin: { ...pin, at: Date.now() } },
     (meta) => !meta.finalizedPath || meta.finalizedPath === pin.finalizedPath,
+  )
+}
+
+/** ⚖ S54 F10: the server refused the pinned key outright — MARK the pin retired (kept whole, never
+ *  deleted; ai-pipeline never re-presents it). Exactly this key's pin, once; owner-gated, no-throw. */
+export async function retireTakeFallback(takeId: string, finalizedPath: string, retiredAt: number, retiredReason: string) {
+  await patchTakeMeta(
+    takeId,
+    (meta) => ({ fallbackPin: { ...(meta.fallbackPin as TakeFallbackPin), retiredAt, retiredReason } }),
+    (meta) => meta.fallbackPin?.finalizedPath === finalizedPath && !meta.fallbackPin.retiredAt,
   )
 }
 
