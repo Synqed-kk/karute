@@ -574,26 +574,19 @@ export async function runMeteredTranscription(
     throw err
   }
 
-  // ── THE TRUE-UP ───────────────────────────────────────────────────────────
-  // The ledger already holds the reserve. Only a provider answer LONGER than
-  // the estimate needs a second row; a shorter one leaves the over-reservation
-  // standing (no refund call exists, and erring toward stopping early is the
-  // ruling), so the debit is already recorded by definition.
   const durationSec = billedSeconds(result)
-  const costCents = estimateTranscriptionCostCents(durationSec)
-  const delta = costCents - reserveCents
-  const receipt: TranscriptionReceipt = {
-    duration_seconds: Math.round(durationSec),
-    cost_cents: costCents,
-    cents_reserved: reserveCents,
-    debit_recorded:
-      delta > 0 ? await reportTranscriptionUsageWithClient(meter.synqed, delta) : true,
-    replayed: false,
-  }
+  const durationSeconds = Math.round(durationSec)
 
   // The provider answered, so the money is spent whether or not the true-up
-  // landed — remember the answer so this audio is never paid for again.
+  // lands — remember the answer so this audio is never paid for again.
   // Best-effort: writeTranscriptMemo never throws.
+  // ⚖ AND IT IS WRITTEN BEFORE THE TRUE-UP (S53 A3). The memo does not depend
+  // on the ledger, and the true-up is up to three core calls with a second of
+  // waits between them (ai-rate-limit.ts, DEBIT_RETRY_WAITS_MS). Behind it, a
+  // process that died in that second (the 300 s function limit, a crash) lost
+  // a PAID answer with no memo, and the next attempt paid again. The window
+  // between the provider's answer and the memo is now the memo write alone —
+  // narrowed, never closed: a death inside the write itself still pays twice.
   // A PROVEN-corrupt memo is replaced by this answer; any other state writes
   // create-only, so a readable memo is never overwritten by the normal path.
   //
@@ -611,12 +604,28 @@ export async function runMeteredTranscription(
         {
           v: 1,
           result,
-          duration_seconds: receipt.duration_seconds,
+          duration_seconds: durationSeconds,
           written_at: new Date().toISOString(),
         },
         { repair: memoRead?.state === 'corrupt' },
       )
     }
+  }
+
+  // ── THE TRUE-UP ───────────────────────────────────────────────────────────
+  // The ledger already holds the reserve. Only a provider answer LONGER than
+  // the estimate needs a second row; a shorter one leaves the over-reservation
+  // standing (no refund call exists, and erring toward stopping early is the
+  // ruling), so the debit is already recorded by definition.
+  const costCents = estimateTranscriptionCostCents(durationSec)
+  const delta = costCents - reserveCents
+  const receipt: TranscriptionReceipt = {
+    duration_seconds: durationSeconds,
+    cost_cents: costCents,
+    cents_reserved: reserveCents,
+    debit_recorded:
+      delta > 0 ? await reportTranscriptionUsageWithClient(meter.synqed, delta) : true,
+    replayed: false,
   }
 
   // ONE receipt per call. The two interactive routes already emit their own
