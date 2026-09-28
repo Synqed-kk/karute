@@ -248,6 +248,14 @@ jobs:
       - name: Business data-access guard
         run: node scripts/business/check-business-data-access.mjs
 
+      - name: Shared-cores fence selftest
+        # ⚖ 2026-09-28 (W0 PR (1)): the live run below scans a territory with
+        # zero sites until the door file lands — these fixtures pin every rule.
+        run: node scripts/business/check-shared-cores.selftest.mjs
+
+      - name: Shared-cores fence
+        run: node scripts/business/check-shared-cores.mjs
+
       - name: Audit weakening gate
         # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's
         # default shallow clone has no refs/remotes/origin/main until this
