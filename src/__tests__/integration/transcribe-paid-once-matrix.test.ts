@@ -369,6 +369,24 @@ const blip = (ctx: RunContext) => {
   return runAndRetry(ctx)
 }
 
+/** E2 (the race, S53 A5): the first POST's connection drops while the server is
+ *  still inside the provider; the inner re-POST reaches it meanwhile. Then the
+ *  first finishes, and a 再試行 follows if the run ended in error. */
+const e2 = async (ctx: RunContext) => {
+  let finish!: () => void
+  providerHolds.push(new Promise<void>((r) => (finish = r)))
+  net.push('drop', undefined)
+  globalPipeline.start(memory, ctx)
+  await settle()
+  finish()
+  await Promise.allSettled(inFlight)
+  if (globalPipeline.state === 'error') {
+    globalPipeline.retry()
+    await settle()
+  }
+  expect(globalPipeline.state).toBe('review')
+}
+
 type Cell = [fixOffFlipOff: number, fixOffFlipOn: number, fixOnFlipOff: number, fixOnFlipOn: number]
 type Scenario = [name: string, setup: () => RunContext, event: (ctx: RunContext) => Promise<void>, web: Cell, phone: Cell]
 const SCENARIOS: Scenario[] = [
@@ -385,6 +403,9 @@ const SCENARIOS: Scenario[] = [
   ['attach_failed · E3', () => (takeWithRow(), ctxFor(TAKE, SESSION)), e3, [2, 2, 1, 1], [2, 2, 1, 1]],
   ['take-less · E1', () => ctxFor(null), e1, [2, 1, 1, 1], [1, 1, 1, 1]],
   ['take-less · E3', () => ctxFor(null), e3, [2, 2, 1, 1], [2, 2, 1, 1]],
+  // S53 A5 (the lease, awaiting Liam's word): the race pays once only with it.
+  ['normal take F · E2 (the race)', () => (takeFinalizedAtF(), ctxFor(TAKE, SESSION)), e2, [2, 2, 1, 1], [2, 2, 1, 1]],
+  ['no_session with a take · E2 (the race)', () => (bareTake(), ctxFor(TAKE)), e2, [2, 2, 1, 1], [2, 2, 1, 1]],
 ]
 const LAYERS: Array<[label: string, fixOn: boolean, flipOn: boolean, column: 0 | 1 | 2 | 3]> = [
   ['fix OFF · flip OFF (today)', false, false, 0],

@@ -96,3 +96,107 @@ export async function writeTranscriptMemo(
     warnStorageUnknown('transcript-memo.write', err)
   }
 }
+
+// ⚖ S53 A5 — THE "TRANSCRIBING NOW" LEASE (awaits Liam's word: transcribe.ts's
+// own reservation, "a create-only lease object with a TTL, on Liam's word").
+// The memo is written AFTER the money moves, so two calls on the same audio
+// inside the provider at once both missed it and both paid (a retry 1.5 s
+// after a dropped connection, a quick 再試行 tap). The lease is written BEFORE
+// the reserve, beside the memo in the same bucket — a storage object, never a
+// database row — and names only when it stops counting. It is never deleted:
+// the holder RELEASES it (overwrites it as already expired) when its call
+// ends, whatever the outcome; a holder that died leaves it until it expires,
+// and expiry falls open to paying. The memo is always read first, so a lease
+// never stands in front of an answer that already exists.
+
+/** Longer than any holder can live: the 300 s function limit on every door. */
+export const TRANSCRIPT_LEASE_TTL_MS = 330_000
+
+type TranscriptLease = { v: 1; expires_at: number }
+
+/** The lease's key: the memo's own, one suffix further — `trc/<audio>.<locale>.lease.json`.
+ *  It parses as no key kind at all (the grammar's transcript arm needs the
+ *  locale last), so no fence anywhere can mistake it for audio or a memo. */
+export function transcriptLeaseKey(memoKey: string): string {
+  return memoKey.replace(/\.json$/, '.lease.json')
+}
+
+/**
+ * Try to hold the lease. `held` = this call may pay (it wrote the lease, or
+ * took over one that had expired or been released); `busy` = another call is
+ * transcribing this audio now, until `until` (epoch ms); `unknown` = storage
+ * would not say — the caller pays, exactly as before the lease existed (the
+ * memo read's own fail-open rule). Never throws.
+ */
+export async function takeTranscriptLease(
+  memoKey: string,
+  now = Date.now(),
+): Promise<{ state: 'held' } | { state: 'busy'; until: number } | { state: 'unknown' }> {
+  const key = transcriptLeaseKey(memoKey)
+  const body = (at: number) => JSON.stringify({ v: 1, expires_at: at } satisfies TranscriptLease)
+  try {
+    const created = await createServiceClient()
+      .storage.from('recordings')
+      .upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: false })
+    if (!created.error) return { state: 'held' }
+    if (!isDuplicateRefusal(created.error)) {
+      warnStorageUnknown('transcript-lease.take', created.error)
+      return { state: 'unknown' }
+    }
+    const until = await readLeaseUntil(key)
+    if (until === null) return { state: 'unknown' }
+    if (until > now) return { state: 'busy', until }
+    // Expired or released: take it over. Two callers taking over one expired
+    // lease in the same instant both pay — the fall-open, bounded and stated.
+    const taken = await createServiceClient()
+      .storage.from('recordings')
+      .upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: true })
+    if (taken.error) {
+      warnStorageUnknown('transcript-lease.takeover', taken.error)
+      return { state: 'unknown' }
+    }
+    return { state: 'held' }
+  } catch (err) {
+    warnStorageUnknown('transcript-lease.take', err)
+    return { state: 'unknown' }
+  }
+}
+
+/** Is the lease still live? A missing or unreadable one is not (fail open). */
+export async function transcriptLeaseLive(memoKey: string, now = Date.now()): Promise<boolean> {
+  const until = await readLeaseUntil(transcriptLeaseKey(memoKey))
+  return until !== null && until > now
+}
+
+/** Release a lease this call holds — overwritten as already expired, never
+ *  deleted. Best-effort and silent on failure: an unreleased lease simply
+ *  expires. Never throws. */
+export async function releaseTranscriptLease(memoKey: string): Promise<void> {
+  try {
+    const { error } = await createServiceClient()
+      .storage.from('recordings')
+      .upload(transcriptLeaseKey(memoKey), JSON.stringify({ v: 1, expires_at: 0 } satisfies TranscriptLease), {
+        contentType: 'application/json',
+        upsert: true,
+      })
+    if (error) warnStorageUnknown('transcript-lease.release', error)
+  } catch (err) {
+    warnStorageUnknown('transcript-lease.release', err)
+  }
+}
+
+/** The lease's expiry, or null when it cannot be read (missing, garbage, error). */
+async function readLeaseUntil(key: string): Promise<number | null> {
+  try {
+    const { data, error } = await createServiceClient().storage.from('recordings').download(key)
+    if (error || !data) {
+      if (error && !isStorageNotFound(error)) warnStorageUnknown('transcript-lease.read', error)
+      return null
+    }
+    const lease = JSON.parse(await data.text()) as Partial<TranscriptLease> | null
+    return lease?.v === 1 && typeof lease.expires_at === 'number' ? lease.expires_at : null
+  } catch (err) {
+    warnStorageUnknown('transcript-lease.read', err)
+    return null
+  }
+}

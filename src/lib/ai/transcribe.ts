@@ -23,9 +23,17 @@ import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 /** S53 A2 — the phone door's own words for the same state (v1 route, the
  *  `holder === 'unreadable'` refusal), so both doors answer one sentence. */
 export const TRANSCRIPTION_OWNER_UNREADABLE = 'could not read the recording'
+/** S53 A5 — another call is transcribing this audio right now (409, retryable). */
+export const TRANSCRIPTION_IN_PROGRESS = 'this recording is being transcribed — try again shortly'
 import { audit } from '@/lib/audit'
 import { composeTranscriptKey } from '@/lib/recording/key-grammar'
-import { readTranscriptMemo, writeTranscriptMemo } from '@/lib/recording/transcript-memo'
+import {
+  readTranscriptMemo,
+  releaseTranscriptLease,
+  takeTranscriptLease,
+  writeTranscriptMemo,
+  type TranscriptMemo,
+} from '@/lib/recording/transcript-memo'
 import type { OrgSettings } from '@/actions/org-settings'
 
 /**
@@ -501,6 +509,29 @@ export async function runMeteredTranscription(
   meter: TranscriptionMeter,
   params: Parameters<typeof runTranscription>[0],
 ): Promise<{ result: Record<string, unknown>; receipt: TranscriptionReceipt }> {
+  // ⚖ S53 A5: a lease this call took is released on EVERY way out — paid,
+  // refused, or the provider failing — so only a holder that DIED leaves one
+  // standing, and that one expires (TRANSCRIPT_LEASE_TTL_MS).
+  const lease: { key: string | null } = { key: null }
+  try {
+    return await meteredTranscription(meter, params, lease)
+  } finally {
+    if (lease.key !== null) await releaseTranscriptLease(lease.key)
+  }
+}
+
+/** S53 A5: how long a worker door waits for another call's answer on a live
+ *  lease before it pays anyway — inside its own 300 s function, and never by
+ *  throwing (core requeues a failed job at once, which would burn its attempts
+ *  in seconds and mark a healthy job FAILED). The interactive doors never wait. */
+const LEASE_WORKER_WAIT_MS = 90_000
+const LEASE_POLL_MS = 3_000
+
+async function meteredTranscription(
+  meter: TranscriptionMeter,
+  params: Parameters<typeof runTranscription>[0],
+  lease: { key: string | null },
+): Promise<{ result: Record<string, unknown>; receipt: TranscriptionReceipt }> {
   // ── THE MEMO, BEFORE ANYTHING THAT COSTS (PR-5, charge once) ──────────────
   // Read ahead of the ceiling too: a replay spends nothing, so it must not
   // spend the hourly count either. Keyed by (business, audio, language) and
@@ -527,12 +558,12 @@ export async function runMeteredTranscription(
   // S46 fence never answered) nor re-bought: the caller retries, and the retry
   // that can read the row replays. First-time audio (a miss) still pays — no
   // availability is lost to a blip.
-  if (memoRead?.state === 'hit' && meter.replayMemo === false) {
-    throw new AppApiError('upstream_unavailable', TRANSCRIPTION_OWNER_UNREADABLE)
-  }
-  if (memoRead?.state === 'hit') {
+  const answerFromMemo = (memo: TranscriptMemo) => {
+    if (meter.replayMemo === false) {
+      throw new AppApiError('upstream_unavailable', TRANSCRIPTION_OWNER_UNREADABLE)
+    }
     const receipt: TranscriptionReceipt = {
-      duration_seconds: memoRead.memo.duration_seconds,
+      duration_seconds: memo.duration_seconds,
       cost_cents: 0,
       cents_reserved: 0,
       debit_recorded: true,
@@ -543,7 +574,43 @@ export async function runMeteredTranscription(
     if (meter.door === 'job' || meter.door === 'from_session' || meter.door === 'discard') {
       auditTranscriptionReceipt(meter, receipt)
     }
-    return { result: memoRead.memo.result, receipt }
+    return { result: memo.result, receipt }
+  }
+  if (memoRead?.state === 'hit') return answerFromMemo(memoRead.memo)
+
+  // ── THE LEASE, BEFORE THE CEILING AND THE RESERVE (S53 A5) ────────────────
+  // Only a caller that could be ANSWERED from a memo takes part: one that pays
+  // regardless (a colleague's key, a key with no memo) gains nothing by waiting
+  // and pays exactly as before. `busy` = another call is inside the provider
+  // for this audio right now: the memo is re-read (it may have just landed);
+  // the two interactive doors then answer a retryable 409 and pay nothing,
+  // and a worker door waits for the answer inside its own budget, then pays
+  // anyway rather than throw. `unknown` (storage would not say) pays, as the
+  // memo read's own fail-open rule does.
+  if (
+    memoKey !== null &&
+    RECORDING_SWITCHES.transcribePaidOnce &&
+    (meter.replayMemo !== false || meter.memoHitRefuses === true)
+  ) {
+    const waitUntil = Date.now() + LEASE_WORKER_WAIT_MS
+    for (;;) {
+      const taken = await takeTranscriptLease(memoKey)
+      if (taken.state === 'held') {
+        lease.key = memoKey
+        break
+      }
+      if (taken.state === 'unknown') break
+      const landed = await readTranscriptMemo(memoKey)
+      if (landed.state === 'hit') return answerFromMemo(landed.memo)
+      if (meter.door === 'web' || meter.door === 'app') {
+        throw new AppApiError('conflict', TRANSCRIPTION_IN_PROGRESS, {
+          reason: 'transcribing',
+          retry_after_seconds: Math.max(1, Math.ceil((taken.until - Date.now()) / 1000)),
+        })
+      }
+      if (Date.now() >= waitUntil) break
+      await new Promise((resolve) => setTimeout(resolve, LEASE_POLL_MS))
+    }
   }
 
   try {

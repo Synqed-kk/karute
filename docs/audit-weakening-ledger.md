@@ -643,3 +643,15 @@
 - 2026-09-24 · SDK_WRITE_ALLOWLIST:src/business/lib/practice-door/door.ts::orgSettings.upsert · the Business card-colour writer (A2): one key, palette-or-null, settings.manage, read-before-write; server log line per write, core audit row = R5 later · Fable 5.1 (lead, R-A2-4/R-A2-11) under the 7/27 parity rule · Liam's 9/24 fence yes · Liam is told before the merge word · core audit row = R5
 - 2026-09-25 · SDK_WRITE_ALLOWLIST:src/business/lib/practice-door/door-booking-colors.ts::orgSettings.upsert · the Business booking-colours writer (予約の色分け, per store): one key (the whole per-store map), closed palette, settings.manage + a store the operator may see, read-before-write; server log line per write, core audit row = R5 later · Opus 5.5 builder on PKT-S38-COLORS-PR2 R8 + the lead's R-S39-1 under the 7/27 parity rule · ⚖ Liam 9/25 「make it work」 · Liam's per-change word before the merge
 - 2026-09-25 · SDK_WRITE_ALLOWLIST:src/business/lib/practice-door/door-booking-colors.ts::orgSettings.upsert · shape change, same grant and symbol: 予約の色分け writes ONE key PER STORE (`booking_colors:<storeId>`, sent alone; core merges top-level keys, so the same-instant cross-store race is gone); the legacy `booking_colors` map is read-only (never written, never removed); closed palette, settings.manage + a store the operator may see, read-before-write · Opus 5.5 builder on PKT-S41-COLORS-PR2C R-S41-1 · ⚖ Liam 9/25 「Yeah okay, go with A」 · Liam's per-change word before the merge
+- 2026-09-28 · SDK_WRITE_ALLOWLIST:src/lib/recording/transcript-memo.ts::storage.recordings.upload#takeTranscriptLease · S53 A5,
+  the double-pay fix's "transcribing now" lease: a create-only storage object beside the memo
+  (trc/<audio>.<locale>.lease.json) holding only an expiry time, written before the reserve so a
+  second call on the same audio does not pay while the first is inside the provider; taken over
+  (upsert) only once expired or released. A coordination marker for a call that already files its
+  own receipt/refusal row, not an act of its own; no transcript, no customer. · RULING PENDING —
+  Liam's word (transcribe.ts reserves the lease to him; VERDICT-S53-LEG2, lead's pick yes). Built
+  as its own last commit by the S53-A builder; it does not merge without that word.
+- 2026-09-28 · SDK_WRITE_ALLOWLIST:src/lib/recording/transcript-memo.ts::storage.recordings.upload#releaseTranscriptLease · S53 A5,
+  the same lease's release: overwritten as already expired (never deleted) on every way out of
+  the call that took it, so only a holder that died leaves a live lease, and that one expires
+  after 330 s. · RULING PENDING — Liam's word, as the entry above; does not merge without it.

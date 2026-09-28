@@ -233,13 +233,33 @@ const storageUpload = jest.fn(
     return { data: { path: key }, error: null }
   },
 )
+// ⚖ S53 A5 — the "transcribing now" lease lives beside the memo
+// (`trc/<audio>.<locale>.lease.json`). Its I/O goes to its OWN map and mocks,
+// so every PR-5 pin above keeps counting memo reads and writes only.
+const leaseStore = new Map<string, string>()
+const isLease = (key: unknown) => typeof key === 'string' && key.endsWith('.lease.json')
+const leaseDownload = jest.fn(async (key: string) => {
+  const body = leaseStore.get(key)
+  return body === undefined
+    ? { data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } }
+    : { data: new Blob([body]), error: null }
+})
+const leaseUpload = jest.fn(async (key: string, body: string, opts?: { upsert?: boolean }) => {
+  if (leaseStore.has(key) && !opts?.upsert) {
+    return { data: null, error: { statusCode: '409', message: 'The resource already exists' } }
+  }
+  leaseStore.set(key, body)
+  return { data: { path: key }, error: null }
+})
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
       from: () => ({
         createSignedUrl,
-        download: (...a: unknown[]) => storageDownload(...(a as [string])),
-        upload: (...a: unknown[]) => storageUpload(...(a as [string, string])),
+        download: (...a: unknown[]) =>
+          isLease(a[0]) ? leaseDownload(...(a as [string])) : storageDownload(...(a as [string])),
+        upload: (...a: unknown[]) =>
+          isLease(a[0]) ? leaseUpload(...(a as [string, string])) : storageUpload(...(a as [string, string])),
         info: jest.fn(async () => ({ data: { size: 1 }, error: null })),
       }),
     },
@@ -415,6 +435,7 @@ beforeEach(() => {
   })
   listSegments.mockResolvedValue({ segments: [] })
   memoStore.clear()
+  leaseStore.clear()
   // Reset, for the same reason as consume: the t2c rows whose key fails the
   // grammar never reach `can`, and their queued answer must not leak.
   ;(can as jest.Mock).mockReset()
@@ -1916,6 +1937,8 @@ describe('the release — a provider that ANSWERS non-2xx gives the reserve back
 // writes it only AFTER the provider answered. The assertions count the
 // PROVIDER mock, the consume and the reserve — the three things that cost.
 describe('charge once — the durable transcript memo', () => {
+  const afterThis: Array<() => void> = []
+  afterEach(() => afterThis.splice(0).forEach((undo) => undo()))
   const AUDIO = conformingKey('biz-1')
   const memoKey = (audio: string, locale: 'ja' | 'en' = 'ja') => `trc/${audio}.${locale}.json`
   const call = (audioKey: string | null | undefined, locale = 'ja') =>
@@ -2197,7 +2220,10 @@ describe('charge once — the durable transcript memo', () => {
   // Both callers miss before either provider answers, so each pays once —
   // what every call did before PR-5 — and the loser's write meets the
   // duplicate refusal: ONE memo object, and no warn.
-  it('t13 two interleaved callers both miss → two charges, ONE memo, the loser’s write silent, both answered', async () => {
+  // S53 A5 closes this race with the lease (below); OFF keeps this answer exactly.
+  it('t13 (switch OFF) two interleaved callers both miss → two charges, ONE memo, the loser’s write silent, both answered', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    afterThis.push(() => off.restore())
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     let release!: (r: DeepgramTranscribeResult) => void
     transcribeUrlWithDeepgram.mockImplementationOnce(
@@ -2306,5 +2332,150 @@ describe('charge once — the durable transcript memo', () => {
       err.mockRestore()
       off.restore()
     }
+  })
+
+  // ── ⚖ S53 A5 — THE "TRANSCRIBING NOW" LEASE ───────────────────────────────
+  const leaseKey = (audio: string) => `trc/${audio}.ja.lease.json`
+  const liveLease = (audio: string, ms = 330_000) =>
+    leaseStore.set(leaseKey(audio), JSON.stringify({ v: 1, expires_at: Date.now() + ms }))
+
+  it('a5 E2 — a second call while the first is INSIDE the provider → 409, nothing consumed, reserved or paid; the answer then replays: ONE paid call', async () => {
+    let release!: (r: DeepgramTranscribeResult) => void
+    transcribeUrlWithDeepgram.mockImplementationOnce(
+      () => new Promise<DeepgramTranscribeResult>((resolve) => (release = resolve)),
+    )
+    const first = call(AUDIO)
+    while (transcribeUrlWithDeepgram.mock.calls.length < 1) await new Promise(setImmediate)
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBeGreaterThan(Date.now() + 300_000)
+
+    const second = await call(AUDIO).then(() => 'answered', (e: unknown) => e)
+    expect(second).toMatchObject({ code: 'conflict', detail: { reason: 'transcribing' } })
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(consume).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+
+    release({ ...deepgramResult })
+    await first
+    // Released on the way out — overwritten as expired, never deleted.
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    const third = await call(AUDIO)
+    expect(third.receipt.replayed).toBe(true)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a5 a live lease AND a memo → the memo replays (it is read first; the lease is never consulted)', async () => {
+    await call(AUDIO)
+    liveLease(AUDIO)
+    leaseUpload.mockClear()
+    const again = await call(AUDIO)
+    expect(again.receipt.replayed).toBe(true)
+    expect(leaseUpload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a5 an EXPIRED lease (its holder died) → falls open: taken over, paid, released', async () => {
+    liveLease(AUDIO, -1)
+    const paid = await call(AUDIO)
+    expect(paid.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(leaseUpload).toHaveBeenCalledWith(leaseKey(AUDIO), expect.any(String), expect.objectContaining({ upsert: true }))
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+  })
+
+  it('a5 the holder’s provider FAILS → the lease is released on the way out, and the retry pays at once (never blocked for the TTL)', async () => {
+    transcribeUrlWithDeepgram.mockRejectedValueOnce(new Error('socket hang up'))
+    await expect(call(AUDIO)).rejects.toThrow('socket hang up')
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    const retry = await call(AUDIO)
+    expect(retry.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(2)
+  })
+
+  it('a5 storage will not answer the lease → pays exactly as before (fail open)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    leaseUpload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'storage down' } } as never)
+    const paid = await call(AUDIO)
+    expect(paid.receipt.replayed).toBe(false)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('a5 switch OFF → no lease is read or written at all', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    afterThis.push(() => off.restore())
+    liveLease(AUDIO)
+    leaseUpload.mockClear()
+    await call(AUDIO)
+    expect(leaseUpload).not.toHaveBeenCalled()
+    expect(leaseDownload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a5 a caller that pays regardless (replayMemo false — a colleague’s key) never waits on, nor takes, the lease', async () => {
+    liveLease(AUDIO)
+    leaseUpload.mockClear()
+    await runMeteredTranscription(
+      { synqed: fakeClient as unknown as Pick<SynqedClient, 'aiRateLimit'>, businessId: 'biz-1', door: 'web', audioKey: AUDIO, replayMemo: false },
+      { audio: { url: 'https://x/audio' }, locale: 'ja', diarize: true, reference: null, mode: 'off', businessType: null },
+    )
+    expect(leaseUpload).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  const jobOn = (audio: string) => {
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, audio_path: audio } })
+      .mockResolvedValueOnce(null)
+  }
+
+  it('a5 the WORKER on a live lease WAITS — the answer lands meanwhile → it replays; complete(), never fail() (no requeue)', async () => {
+    liveLease(AUDIO)
+    jobOn(AUDIO)
+    const run = processRecordingJobs(10_000)
+    // The other call finishes while the worker waits: its memo lands, its lease is released.
+    while (leaseDownload.mock.calls.length < 1) await new Promise(setImmediate)
+    memoStore.set(`trc/${AUDIO}.ja.json`, JSON.stringify({ v: 1, result: { ...deepgramResult }, duration_seconds: 5400, written_at: '' }))
+    await run
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(fail).not.toHaveBeenCalled()
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({ door: 'job', replayed: true, cost_cents: 0 })
+  }, 15_000)
+
+  it('a5 the WORKER on a lease that never clears waits its bounded time, then PAYS — it never throws to requeue', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    afterThis.push(() => jest.useRealTimers())
+    liveLease(AUDIO)
+    jobOn(AUDIO)
+    const run = processRecordingJobs(10_000_000)
+    for (let i = 0; i < 60 && transcribeUrlWithDeepgram.mock.calls.length === 0; i++) {
+      await jest.advanceTimersByTimeAsync(3_000)
+    }
+    await run
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(fail).not.toHaveBeenCalled()
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('S53 A5 — the web door answers a live lease with a retryable 409', () => {
+  it('409 + Retry-After, nothing spent (the caller’s OWN row — independent of A1)', async () => {
+    const key = conformingKey('business-1')
+    const row = '5a0e0c1d-2b3c-4d5e-8f60-718293a4b5c6'
+    jest.mocked(getCurrentUserStaffId).mockResolvedValue('login-recorder')
+    recordingsGet.mockResolvedValue({ id: row, business_id: 'business-1', staff_id: 'login-recorder', store_id: 'store-a', audio_storage_path: key, duration_seconds: 60, customer_id: 'cust-1' } as never)
+    leaseStore.set(`trc/${key}.ja.lease.json`, JSON.stringify({ v: 1, expires_at: Date.now() + 60_000 }))
+    const res = await webTranscribePOST(
+      new Request('https://s/api/ai/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ audioUrl: `https://test-local.supabase.co/storage/v1/object/sign/recordings/${key}?token=t`, locale: 'ja', recordingSessionId: row }),
+      }),
+    ).finally(() => jest.mocked(getCurrentUserStaffId).mockResolvedValue(null))
+    expect(res.status).toBe(409)
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0)
+    expect(await res.json()).toMatchObject({ reason: 'transcribing' })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
   })
 })
