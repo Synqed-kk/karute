@@ -1233,6 +1233,48 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
     }
   })
 
+  // S56 STRESS LENS — the 409→404 chain (the one composition S55-E named as untested:
+  // "No test drives a 409 followed by a 404 on the same POST chain"). Send #1 = still-working
+  // (409, no wait named → the 5 s floor, compressed like the t10b test above). Send #2 = the
+  // whileStillTranscribing loop's OWN continuation/poll re-POST — the SAME chain — meets a
+  // genuine phone-door not_found 404. Since that 404 bubbles out of the still-working wrapper as
+  // a plain fetchWithRetry failure, fetchWithRetry's OWN pre-existing 1.5 s resend fires next
+  // (unrelated to this PR, unchanged): send #3 is fed the same not_found 404 so the chain resolves
+  // to a genuine, honest failure rather than an unfed queue accidentally paying. Asserts: the pin
+  // is soft-retired (KEPT, never deleted), no second paid call, the truthful blocked/error state
+  // (not a stale success), and the next 再試行 mints fresh exactly like a plain 404 (t10a).
+  it('(t10-chain, S56 stress) 409 (still working) then 404 (not_found) on the SAME POST chain → the pin IS soft-retired (kept, not deleted), nothing paid twice, the state is truthful', async () => {
+    const wait = jest.mocked(global.setTimeout).getMockImplementation()!
+    jest.mocked(global.setTimeout).mockImplementation(((fn: () => void, ms?: number) => wait(fn, ms === 5_000 ? 0 : ms)) as typeof setTimeout)
+    try {
+      phoneDoor()
+      stuckTake()
+      await lostFirstRun()
+      // #1 still-working 409 (the wrapper's poll loop) · #2 the SAME chain's continuation meets
+      // the door's own not_found 404 · #3 fetchWithRetry's pre-existing 1.5 s resend meets it again.
+      transcribeStatus.push(409, 404, 404)
+      await retry()
+      expect(transcribeStatus).toEqual([]) // all three answers were consumed by this one chain
+      expect(globalPipeline.state).toBe('error') // truthful: never a stale/false success
+      expect(mints()).toBe(1) // no new mint from the retire path itself
+      expect(paidCalls).toBe(1) // nothing paid on the 409 leg, the 404 leg, or the resend
+      // SOFT-RETIRED, i.e. KEPT (never deleted) with a retiredAt/retiredReason stamp:
+      expect(store.meta?.fallbackPin).toBeDefined()
+      expect(store.meta?.fallbackPin).toMatchObject({ finalizedPath: K, retiredAt: expect.any(Number), retiredReason: 'transcribe_404' })
+      expect(chainSlot()).toMatchObject({ path: K, retiredReason: 'transcribe_404' })
+      expect(retireTakeFallback).toHaveBeenCalledWith(TAKE, K, expect.any(Number), 'transcribe_404')
+
+      // the next 再試行 mints fresh, exactly like a plain 404 (t10a) — the transcript/answer path
+      // is never lost, it simply starts over on a fresh key:
+      await retry()
+      expect(globalPipeline.state).toBe('review')
+      expect(mints()).toBe(2)
+      expect(paidCalls).toBe(2)
+    } finally {
+      jest.mocked(global.setTimeout).mockImplementation(wait)
+    }
+  })
+
   it('(t10b) switch transcribePaidOnce OFF: a pin left by an ON run is not read, and a 404 retires nothing (OFF == today)', async () => {
     const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
     try {
