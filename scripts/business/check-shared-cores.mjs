@@ -372,10 +372,10 @@ function scanFile(ctx, rel, text, findings, stats) {
         // A SITE (rule 3).
         stats.sites++
         const symbol = enclosingExportedFunction(node, sf, exportedLocals)
+        const row = symbol === undefined ? undefined : ctx.calls.find((r) => r.module === bound.module && r.call === bound.name && r.symbol === symbol)
         if (ctx.never.includes(bound.name)) add(node, 'never', bound.name)
-        else if (!ctx.calls.some((r) => r.module === bound.module && r.call === bound.name && symbol !== undefined && r.symbol === symbol)) {
-          add(node, 'no calls row', `${bound.name} in ${symbol ?? '<no exported function>'}`)
-        }
+        else if (!row) add(node, 'no calls row', `${bound.name} in ${symbol ?? '<no exported function>'}`)
+        else stats.approved.push({ module: row.module, call: row.call, symbol: row.symbol, line: lineOf(sf, node) })
       } else if (!bound && denyNames.has(text)) {
         // Rule 5 — the name without its import, minus the three exemptions.
         const exempt = allowed.has(text) || doorOwn.has(text) || (isRoute && ROUTE_METHODS.has(text) && !importedNames.has(text))
@@ -436,7 +436,10 @@ export function scanSharedCores(root, { allowNames = ALLOW_NAMES } = {}) {
     if (existsSync(dir)) walk(dir, files)
   }
   const ctx = { modules: sc.modules, doorFile: sc.doorFile, never: sc.never, calls: sc.calls, denyNames, exportsByModule, allowNames }
-  const stats = { files: files.length, modules: sc.modules.length, denyNames: denyNames.size, sites: 0 }
+  // sites = every site met (approved or not); approved = one entry per site that
+  // matched its row (the selftest's real-tree check reads it — CI stays green
+  // when the door lands with approved sites).
+  const stats = { files: files.length, modules: sc.modules.length, denyNames: denyNames.size, sites: 0, approved: [] }
   for (const file of files) {
     const rel = relative(root, file).split(sep).join('/')
     scanFile(ctx, rel, readFileSync(file, 'utf8'), findings, stats)

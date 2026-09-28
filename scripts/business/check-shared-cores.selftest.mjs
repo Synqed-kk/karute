@@ -9,6 +9,10 @@
 // is judged against the real exports, never a stand-in list. d1–d13 are the
 // packet's cases; e1–e10 pin the rest (require(), built specifiers, relays, copies, the three
 // rule-5 exemptions, row-shape checks, type positions, const-arrow symbols).
+// The real-tree verdict (judgeTree) never asserts a literal site count: zero
+// findings, and every site met is an approved one whose row is in that
+// tree's own JSON — r1 runs the same verdict on a fixture door WITH approved
+// sites, so the door landing in Business PR (2) cannot turn this step red.
 // Exit 1 on any mismatch; the case table prints either way.
 
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, cpSync, rmSync } from 'node:fs'
@@ -110,6 +114,23 @@ const CASES = [
     null, ['no calls row'], { name: 'updateAppointmentCore in <no exported function>' }],
 ]
 
+/** The verdict CI relies on for a whole tree: zero findings, every site met is
+ *  an approved one (sites === approved), and every approved site names a row
+ *  of THAT tree's own calls list. rowsWithSite is computed from the JSON —
+ *  never a literal (0 on the real tree today; the door lands in PR (2)). */
+function judgeTree(treeRoot) {
+  const { findings, stats } = scanSharedCores(treeRoot)
+  const calls = JSON.parse(readFileSync(join(treeRoot, CONFIG), 'utf8')).sharedCores.calls
+  const key = (r) => `${r.module}#${r.call} in ${r.symbol}`
+  const hit = new Set(stats.approved.map(key))
+  const rowsWithSite = calls.filter((r) => hit.has(key(r))).length
+  const ok = findings.length === 0 && stats.sites === stats.approved.length && rowsWithSite === hit.size
+  const got =
+    findings.map((f) => `${f.rel}:${f.line} ${f.label} — ${f.name}`).join(' | ') ||
+    `OK (${stats.sites} sites, ${rowsWithSite} of ${calls.length} calls rows with a site)`
+  return { ok, got, stats, rowsWithSite }
+}
+
 const rows = []
 let failed = 0
 try {
@@ -126,15 +147,26 @@ try {
     if (!ok) failed++
     rows.push({ ok, name, expected: expected.join(', ') || 'OK', got: findings.map((f) => `${f.rel}:${f.line} ${f.label} — ${f.name}`).join(' | ') || 'OK' })
   }
+  // r1 — the real-tree verdict on a fixture tree whose door HAS approved sites
+  // (the shape Business PR (2) lands): must pass, sites counted, not assumed 0.
+  clearTerritory()
+  setCalls()
+  write(DOOR, MUT + AUDIT +
+    'export async function moveBooking(a) {\n  return updateAppointmentCore(a.c, a.id, a.p, a.actor, a.h, a.s)\n}\n' +
+    "export async function createCustomer(a) {\n  audit({ action: 'customer.create', source: 'business' })\n  return a\n}\n")
+  const fx = judgeTree(root)
+  const fxOk = fx.ok && fx.stats.sites === 2 && fx.rowsWithSite === 2
+  if (!fxOk) failed++
+  rows.push({ ok: fxOk, name: 'r1 real-tree verdict on a fixture door with two approved sites → OK (sites 2, rows with a site 2)', expected: 'OK (2 sites, 2 of 3 calls rows with a site)', got: fx.got })
 } finally {
   rmSync(root, { recursive: true, force: true })
 }
 
-// The REAL repo, as CI runs it: green, zero sites.
-const real = scanSharedCores(repo)
-const realOk = real.findings.length === 0 && real.stats.sites === 0
-if (!realOk) failed++
-rows.push({ ok: realOk, name: 'real tree → OK line, zero sites', expected: 'OK', got: real.findings.map((f) => `${f.rel}:${f.line} ${f.label} — ${f.name}`).join(' | ') || `OK (${real.stats.sites} sites)` })
+// The REAL repo, as CI runs it: zero findings, every site approved (the count
+// is whatever the tree holds — 0 today, computed by judgeTree, never assumed).
+const real = judgeTree(repo)
+if (!real.ok) failed++
+rows.push({ ok: real.ok, name: 'real tree → OK line, zero findings, every site approved', expected: 'OK', got: real.got })
 
 for (const r of rows) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}\n        expected: ${r.expected}\n        got:      ${r.got}`)
 if (failed) {
