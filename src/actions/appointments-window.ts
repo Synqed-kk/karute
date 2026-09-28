@@ -31,6 +31,7 @@ import { coreBusinessType } from '@/lib/welcome/business-types'
 import {
   jstWindowDays,
   resolveWindowHours,
+  specialOpenDaysByDate,
   type DayHoursFact,
   type WeekdayKey,
 } from '@/lib/operating-hours'
@@ -170,6 +171,10 @@ export async function getAppointmentWindow(
     ? resolveWindowHours(span.days, {
         weeklyHours: policy?.weekly_hours ?? null,
         closedDates: new Set(closed.closed_days.map((d) => d.date)),
+        // ⚖ W0.5 — the same policy read's 臨時営業日, so the week/month cells
+        // paint a special opening open, exactly as the booking door now takes
+        // a booking on it (day-hours.ts). One resolver, one answer.
+        specialOpenDays: specialOpenDaysByDate(policy?.special_open_days),
         orgHours: orgSettings?.operating_hours,
         orgSaved: new Set<WeekdayKey>(orgSettings?.operating_hours_saved ?? []),
       })
