@@ -181,8 +181,8 @@ export function utcToLocalDayAndMinute(date: Date, tzOffsetMinutes: number): {
 
 /** What one JST day's hours actually are, and how much we may claim about them.
  *  `saved` = a human really set this day (a 臨時営業日, a store weekly_hours
- *  entry, a closed date, or a saved org blob day) — the 稼働/空き conjunct. `closed` = 定休日 or
- *  臨時休業. `minutes` is 0 when closed.
+ *  entry, a closed date, or a saved org blob day) — the 稼働/空き conjunct.
+ *  `closed` = 定休日 or 臨時休業. `minutes` is 0 when closed.
  *
  *  `source` is the same fact with its PROVENANCE kept (C3 E6/E21): an org-blob
  *  day is a business-wide DEFAULT rather than a declaration about this store,

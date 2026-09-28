@@ -4,9 +4,10 @@
 // five inputs (the store's own weekly_hours, its 臨時休業 dates, its 臨時営業日
 // — special_open_days, ⚖ W0.5 — the business-wide blob, and which of that
 // blob's weekdays a human really saved).
-// The WRITE path has to ask the same question about exactly ONE day, so this is
-// that same fetch shape (src/actions/appointments-window.ts:109-146) narrowed to
-// a single date — never a window, never a second resolver.
+// The WRITE path has to ask the same question about the day ONE booking sits
+// on, so this is that same fetch shape (src/actions/appointments-window.ts)
+// narrowed to that date — or, ⚖ W0.5 X11, to the run of days a booking that
+// crosses midnight touches — never a screen's window, never a second resolver.
 //
 // ⚖ R1-10 — and the fact this door refuses on IS shown: BOOKING_SWITCHES
 // .closedDays goes ON with this branch, so the week row and the day numbers
