@@ -169,19 +169,29 @@ export function takeLengthSeconds(durationMs: number | undefined): number | unde
  * SECURED at `path` in the same write — its audio is on that row now, so no
  * drain retries it under its own key (Greptile #1039). Switch OFF → the server
  * answers null and this is never called.
+ *
+ * Answers whether the take was ADOPTED — true only when the store reported the
+ * write (or there was no take to write to). false is every other outcome: the
+ * run's context already names a session (no store call at all), the store's
+ * first-stamp-wins brace refused it, or the write was lost after the store's
+ * own retries. The caller treats all three alike (S53-B fold 1): not handed
+ * over yet, so it asks again from the answer — where the first two answer
+ * false again and write nothing, and the third gets its second chance, exactly
+ * as before the hand-over existed.
  */
 async function adoptMintedSession(
   takeId: string | null,
   recordingSessionId: string,
   path: string,
   ctx: PipelineContext,
-): Promise<void> {
+): Promise<boolean> {
   const adopted =
     !ctx.recordingSessionId &&
     (takeId ? await adoptTakeSession(takeId, recordingSessionId, path) : true)
   if (adopted) ctx.onSessionAdopted?.(recordingSessionId)
   // Ids and a flag only — never a customer, never a key.
   console.info('[ai-pipeline] adopted minted session', { takeId, adopted })
+  return adopted
 }
 
 export async function runAIPipeline(
@@ -326,7 +336,15 @@ export async function runAIPipeline(
     // there leaves this take on its row and the run retryable — never real audio
     // on a row nothing names. A port that answers without calling it (the phone:
     // nothing between its PUT and its answer) is adopted from the answer, as
-    // before. Once per mint either way.
+    // before. One adoption per mint either way.
+    //
+    // ⚖ …AND THE HAND-OVER COUNTS ONLY WHEN THE WRITE LANDED (fold 1, Greptile
+    // P1). The store answers false without throwing when the write is lost, so
+    // `upload.adopted` is the store's own answer — never "the callback ran". A
+    // hand-over that did not land falls through to the attempt after the answer,
+    // exactly as before this round. A false that is the first-stamp-wins brace
+    // is asked once more there and refused again in its own transaction:
+    // nothing is written twice.
     const upload = { adopted: false }
     const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
       await recordingPort.prepareTranscription(
@@ -345,8 +363,7 @@ export async function runAIPipeline(
               ? { takeRow }
               : undefined,
         async (row, at) => {
-          await adoptMintedSession(takeId, row, at, ctx)
-          upload.adopted = true
+          upload.adopted = await adoptMintedSession(takeId, row, at, ctx)
         },
       )
     if (minted && !upload.adopted) await adoptMintedSession(takeId, minted, mintedPath, ctx)

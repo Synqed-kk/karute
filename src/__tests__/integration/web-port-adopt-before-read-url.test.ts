@@ -257,3 +257,53 @@ describe('⚖ Finding 10 — a landed upload whose read-URL mint fails is never 
     expect(transcribeBodies).toEqual([{ audioUrl: expect.stringContaining(key(1)), locale: 'ja' }])
   })
 })
+
+describe('⚖ fold 1 — the hand-over counts only when the adoption write landed (Greptile P1)', () => {
+  it('the early write is lost (the store answers false) → the attempt after the answer still puts the take on X at U; the 再試行 mints nothing and pays once, on X', async () => {
+    rowlessTake()
+    // The real store never throws here: a thrown write is retried inside
+    // patchTakeMeta (STAMP_WRITE_TRIES) and then answered false.
+    adoptTakeSession.mockResolvedValueOnce(false)
+    const ctx = { durationSeconds: 42, onSessionAdopted: jest.fn() }
+
+    expect(await outcome(runAIPipeline(memory, TAKE, 'ja', () => {}, ctx))).toBe('ok')
+    // Asked twice: the hand-over (lost), then from the port's answer (landed).
+    expect(adoptTakeSession.mock.calls).toEqual([
+      [TAKE, row(1), key(1)],
+      [TAKE, row(1), key(1)],
+    ])
+    const [, secondAt] = adoptTakeSession.mock.invocationCallOrder
+    const [readAt] = mintRecordingReadUrl.mock.invocationCallOrder
+    expect(readAt).toBeLessThan(secondAt)
+    expect(store.meta).toMatchObject({ recordingSessionId: row(1), finalizedPath: key(1) })
+    expect(ctx.onSessionAdopted.mock.calls).toEqual([[row(1)]])
+    expect(transcribeBodies).toHaveLength(1)
+
+    // The 再試行 of the same take: its finalized key is X's — no mint, no PUT, no X2 …
+    expect(await outcome(run())).toBe('ok')
+    expect(mintRecordingUploadUrl).toHaveBeenCalledTimes(1)
+    expect(put).toHaveBeenCalledTimes(1)
+    // … and its one paid call is on X's own key and row.
+    expect(transcribeBodies).toHaveLength(2)
+    expect(transcribeBodies.at(-1)).toEqual({
+      audioUrl: expect.stringContaining(key(1)),
+      recordingSessionId: row(1),
+      locale: 'ja',
+    })
+  })
+
+  it('a first-stamp-wins false is asked once more from the answer and refused again — the row the take already names is never written over', async () => {
+    rowlessTake()
+    // Another writer stamped the take first; the store's brace refuses this one.
+    adoptTakeSession.mockImplementationOnce(async () => {
+      store.meta = { ...store.meta!, recordingSessionId: 'rs-other', finalizedAt: 1, finalizedPath: 'app_biz-1_other.webm' }
+      return false
+    })
+    const ctx = { durationSeconds: 42, onSessionAdopted: jest.fn() }
+
+    expect(await outcome(runAIPipeline(memory, TAKE, 'ja', () => {}, ctx))).toBe('ok')
+    expect(adoptTakeSession).toHaveBeenCalledTimes(2)
+    expect(store.meta).toMatchObject({ recordingSessionId: 'rs-other', finalizedPath: 'app_biz-1_other.webm' })
+    expect(ctx.onSessionAdopted).not.toHaveBeenCalled()
+  })
+})
