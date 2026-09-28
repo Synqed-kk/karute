@@ -1121,7 +1121,8 @@ describe('the web route (cookie door)', () => {
   })
 
   // ⚖ S53 A1 — THIS PIN IS FLIPPED ON PURPOSE (it reverses the S46 line in
-  // the route, awaiting Liam's ruling). S46 read "no row → no replay": the
+  // the route; ruling given — Liam, 2026-09-28 19:5x JST:
+  // 「I think both. Yes to both.」). S46 read "no row → no replay": the
   // unbound fallback's automatic re-POST of the SAME key after a lost response
   // paid twice on the web door. A1 replays 'no_row' too, and grants nothing
   // new: the phone door already replays 'no_row' (v1 route, :86-101), and the
