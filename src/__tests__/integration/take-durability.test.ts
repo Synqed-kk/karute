@@ -235,8 +235,34 @@ class FakeIDB {
     this.stores.set(name, s)
     return s
   }
+  /** ⚖ S51 — A CONNECTION HAS A LIFE OF ITS OWN. Every `indexedDB.open` below
+   *  hands out its own connection over this one database (`Object.create`, so
+   *  the stores are shared), the way a real IDBDatabase is: the browser can
+   *  close one while the next open gets a live one. A script's own `close()`
+   *  fires no `close` event — the real API's rule; only `forceClose()` (the
+   *  browser: eviction, OS pressure) does. */
+  closed = false
+  closeCalls = 0
+  onclose: (() => void) | null = null
+  onversionchange: (() => void) | null = null
+  close() {
+    this.closeCalls++
+    this.closed = true
+  }
+  forceClose() {
+    this.closed = true
+    this.onclose?.()
+  }
+  /** Another tab / a newer app version asks to upgrade this database. */
+  simulateVersionChange() {
+    this.onversionchange?.()
+  }
   // Args ignored — the shim scopes stores per call, not per transaction.
   transaction() {
+    if (this.closed)
+      throw Object.assign(new Error('The database connection is closing. (test)'), {
+        name: 'InvalidStateError',
+      })
     // ⚖ AND IT IS ALL OR NOTHING (fix round 18). Real IndexedDB ABORTS the whole
     // transaction when one request errors and rolls back every write it already
     // made. The shim used to leave the earlier ones standing, so "the tail bytes
@@ -352,10 +378,15 @@ class FakeIDB {
 }
 
 const fakeDb = new FakeIDB()
+/** S51: every connection the shim handed out, in order — the length is how a
+ *  REOPEN is counted, the last one is the store's current connection. */
+const connections: FakeIDB[] = []
 ;(globalThis as unknown as { indexedDB: unknown }).indexedDB = {
   open: () => {
+    const connection = Object.create(fakeDb) as FakeIDB
+    connections.push(connection)
     const req = {
-      result: fakeDb,
+      result: connection,
       error: null,
       onupgradeneeded: null as (() => void) | null,
       onsuccess: null as (() => void) | null,
@@ -5441,6 +5472,67 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     } finally {
       idb.indexedDB.open = realOpen
     }
+  })
+
+  // ⚖ S51 — …and a CLOSED connection is not kept either. Each case takes a
+  // FRESH module (as T1), so the connection it opens is `connections[before]`.
+  const freshStore = () => {
+    let store!: typeof import('@/lib/karute/take-store')
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      store = require('@/lib/karute/take-store')
+    })
+    return store
+  }
+  /** One segment write with the fake clock run through its retry window, so a
+   *  store still holding a dead connection spends its three tries and answers. */
+  const appendSettled = async (store: ReturnType<typeof freshStore>, takeId: string) => {
+    const wrote = store.appendTakeSegment(takeId, 0, new Blob(['aaa']))
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    return wrote
+  }
+
+  it('S51 T-A1 a connection the browser closed is not kept: the next write opens again and lands', async () => {
+    const store = freshStore()
+    const before = connections.length
+    expect(await store.createTake(takeMeta('ta1'))).toBe(true)
+    const opened = connections.length
+    connections[before].forceClose() // eviction, OS pressure
+    expect({ wrote: await appendSettled(store, 'ta1'), reopens: connections.length - opened }).toEqual({
+      wrote: true,
+      reopens: 1,
+    })
+    expect(metaOf('ta1')).toMatchObject({ ownerUid: 'staff-A', lastSeq: 0 })
+    expect(segmentOf('ta1', 0)).toBeDefined()
+  })
+
+  it('S51 T-A2 another tab’s upgrade: the connection is let go, and the next write opens again', async () => {
+    const store = freshStore()
+    const before = connections.length
+    expect(await store.createTake(takeMeta('ta2'))).toBe(true)
+    const opened = connections.length
+    connections[before].simulateVersionChange()
+    expect({
+      closeCalls: connections[before].closeCalls,
+      wrote: await appendSettled(store, 'ta2'),
+      reopens: connections.length - opened,
+    }).toEqual({ closeCalls: 1, wrote: true, reopens: 1 })
+  })
+
+  it('S51 T-A3 an old connection’s late close or upgrade request never drops the newer one', async () => {
+    const store = freshStore()
+    const before = connections.length
+    expect(await store.createTake(takeMeta('ta3'))).toBe(true)
+    const opened = connections.length
+    const old = connections[before]
+    old.forceClose()
+    const reopening = store.createTake(takeMeta('ta3-b')) // the reopen is in flight…
+    old.forceClose() // …and the OLD connection's close lands late
+    old.simulateVersionChange() // …so does its upgrade request (both handlers share the guard)
+    const wrote = [await reopening, await appendSettled(store, 'ta3')]
+    old.forceClose() // …or later still, after the new one is up
+    wrote.push(await appendSettled(store, 'ta3'))
+    expect({ wrote, reopens: connections.length - opened }).toEqual({ wrote: [true, true, true], reopens: 1 })
   })
 
   it('T7 createTake on a row that already exists is refused, and the row is untouched', async () => {
