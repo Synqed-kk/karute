@@ -4,6 +4,7 @@ import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import {
   adoptTakeSession,
   ensureFinalizedPath,
+  pinTakeFallback,
   readTakeSecureMeta,
   readTakeTranscript,
   stampTakeTranscript,
@@ -125,6 +126,23 @@ export type PipelineContext = {
   paidFallback?: PaidFallback | null
   /** Told the fallback answer the moment it is paid for, so the chain keeps it. */
   onFallbackPaid?: (answer: PaidFallback) => void
+  /** ⚖ S53 A4: the key this run CHAIN's fallback PUT and was about to pay for
+   *  (global-pipeline keeps it across retry(), clears it in start()/reset()) —
+   *  a take-less run's only memory of it. */
+  fallbackPin?: FallbackPin | null
+  /** Told the key the moment it is pinned, before the POST. */
+  onFallbackPinned?: (pin: FallbackPin) => void
+}
+
+/** ⚖ S53 A4: a key the fallback PUT and was about to pay for — whose take
+ *  (null = none), which row the mint named (null = none), which locale, and the
+ *  audio it carries. Re-presented only onto a run about to send the same. */
+export type FallbackPin = {
+  takeId: string | null
+  path: string
+  recordingSessionId: string | null
+  locale: string
+  audio: TakeAudioFingerprint
 }
 
 /** One fallback transcription the chain paid for: whose take (null = none),
@@ -192,6 +210,16 @@ async function adoptMintedSession(
   // Ids and a flag only — never a customer, never a key.
   console.info('[ai-pipeline] adopted minted session', { takeId, adopted })
   return adopted
+}
+
+/** The take's stored pin in the chain's shape (S53 A4). */
+function toChainPin(
+  takeId: string,
+  pin: { finalizedPath: string; recordingSessionId: string | null; locale: string; audio: TakeAudioFingerprint } | undefined,
+): FallbackPin | null {
+  return pin
+    ? { takeId, path: pin.finalizedPath, recordingSessionId: pin.recordingSessionId, locale: pin.locale, audio: pin.audio }
+    : null
 }
 
 export async function runAIPipeline(
@@ -345,28 +373,73 @@ export async function runAIPipeline(
     // exactly as before this round. A false that is the first-stamp-wins brace
     // is asked once more there and refused again in its own transaction:
     // nothing is written twice.
+    //
+    // S54 — composed with S53 A4 (below). The hand-over rides the MINT arm only:
+    // a re-presented pin names a key already PUT, so its port call mints and
+    // uploads nothing and the hook never fires there — any row it names is
+    // adopted from the answer, as before. For a minted key the order is: pin
+    // read (none matched) → mint + PUT → hand-over (adoption) → read URL → pin
+    // written → the paid POST.
     const upload = { adopted: false }
-    const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
-      await recordingPort.prepareTranscription(
-        audioBlob,
-        finalizedPath,
-        attachOutcome === 'no_session'
-          ? {
-              attachOutcome,
-              customerId: ctx.customerId,
-              appointmentId: ctx.appointmentId,
-              durationSeconds: takeLengthSeconds(meta?.durationMs),
-            }
-          : attachOutcome
-            ? { attachOutcome }
-            : takeRow
-              ? { takeRow }
-              : undefined,
-        async (row, at) => {
-          upload.adopted = await adoptMintedSession(takeId, row, at, ctx)
-        },
-      )
+    // ⚖ S53 A4 — A KEY ALREADY PUT FOR THIS AUDIO IS RE-PRESENTED, NEVER
+    // RE-MINTED. The unbound door draws a new key on every mint, so an answer
+    // this device never RECEIVED (the response lost, the app killed mid-POST)
+    // used to be bought again under a fresh key the server could not link to
+    // the first. The fallback now pins its key before it pays (below); a run
+    // with still no finalized key, the same locale and the same audio sends
+    // THAT key again, through a fresh read, and the server's memo for it
+    // replays. Never once the take is finalized at ANY key (`currentPath`, the
+    // C3 rule above): a finalized key names its own bytes and is asked as such.
+    const pinned = currentPath
+      ? null
+      : [
+          takeId ? toChainPin(takeId, (await readTakeSecureMeta(takeId))?.fallbackPin) : null,
+          ctx.fallbackPin ?? null,
+        ].find(
+          (pin): pin is FallbackPin =>
+            !!pin && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
+        ) ?? null
+    const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } = pinned
+      ? await recordingPort.prepareTranscription(
+          audioBlob,
+          pinned.path,
+          pinned.recordingSessionId ? { takeRow: pinned.recordingSessionId } : undefined,
+        )
+      : await recordingPort.prepareTranscription(
+          audioBlob,
+          finalizedPath,
+          attachOutcome === 'no_session'
+            ? {
+                attachOutcome,
+                customerId: ctx.customerId,
+                appointmentId: ctx.appointmentId,
+                durationSeconds: takeLengthSeconds(meta?.durationMs),
+              }
+            : attachOutcome
+              ? { attachOutcome }
+              : takeRow
+                ? { takeRow }
+                : undefined,
+          async (row, at) => {
+            upload.adopted = await adoptMintedSession(takeId, row, at, ctx)
+          },
+        )
     if (minted && !upload.adopted) await adoptMintedSession(takeId, minted, mintedPath, ctx)
+    // The fallback's PUT has landed (prepareTranscription throws before this
+    // otherwise): pin the key BEFORE the POST can pay for it — on the take (the
+    // store's C3 guard: never onto a take finalized at another key) and on the
+    // chain's slot for a take-less run.
+    if (!finalizedPath && !pinned) {
+      const pin: FallbackPin = { takeId, path: mintedPath, recordingSessionId: minted ?? null, locale, audio }
+      if (takeId)
+        await pinTakeFallback(takeId, {
+          finalizedPath: mintedPath,
+          recordingSessionId: pin.recordingSessionId,
+          locale,
+          audio,
+        })
+      ctx.onFallbackPinned?.(pin)
+    }
 
     const transcribeRes = await fetchWithRetry(() =>
       getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {

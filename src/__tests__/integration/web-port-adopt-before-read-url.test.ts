@@ -36,6 +36,7 @@ type Meta = {
   startedAt: number
   updatedAt: number
   transcript?: unknown
+  fallbackPin?: unknown
 }
 const store = { meta: null as Meta | null }
 // First stamp wins, and the take is secured at the minted key in the same
@@ -53,6 +54,12 @@ jest.mock('@/lib/karute/take-store', () => ({
   readTakeTranscript: async () => null,
   stampTakeTranscript: async () => {},
   adoptTakeSession: (id: string, session: string, path: string) => adoptTakeSession(id, session, path),
+  // The S53 A4 pin, the real one's rule (take-store.ts pinTakeFallback): written
+  // unless the take is already finalized at ANOTHER key.
+  pinTakeFallback: async (_id: string, pin: { finalizedPath: string }) => {
+    if (store.meta && (!store.meta.finalizedPath || store.meta.finalizedPath === pin.finalizedPath))
+      store.meta = { ...store.meta, fallbackPin: { ...pin, at: 1 } }
+  },
   isStoppedTake: () => false,
   markTakeFinalized: async () => {},
   markTakeSecureError: async () => {},

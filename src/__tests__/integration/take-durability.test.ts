@@ -503,6 +503,7 @@ import {
   stampTakeTranscript,
   readTakeTranscript,
   adoptTakeSession,
+  pinTakeFallback,
   TERMINAL_SECURE_ERRORS,
   writeTakeHeartbeat,
 } from '@/lib/karute/take-store'
@@ -1039,6 +1040,27 @@ describe('stampTakeTranscript — a fallback answer never overwrites a finalized
     const kept = await readTakeTranscript(takeId)
     expect(kept).toMatchObject({ finalizedPath: F, response: { transcript: 'paid-for-F' } })
     expect(kept?.audio).toBeUndefined()
+  })
+})
+
+// ⚖ S53 A4 — the fallback's key pin: the stamp's C3 guard, in the same
+// transaction, and read back through readTakeSecureMeta (what ai-pipeline reads).
+describe('pinTakeFallback — the key a fallback is about to pay for (S53 A4)', () => {
+  const audio = { size: 1234, type: 'audio/webm', durationSeconds: 42 }
+  it('no key → pinned and readable; finalized at F → a pin for another key is refused; F itself may be pinned', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const U = 'app_biz-1_server-named-1.webm'
+    await pinTakeFallback(takeId, { finalizedPath: U, recordingSessionId: null, locale: 'ja', audio })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: U, recordingSessionId: null, locale: 'ja', audio })
+
+    const F = `app_biz-1_${takeId}.webm`
+    await markTakeFinalized(takeId, F)
+    await pinTakeFallback(takeId, { finalizedPath: 'app_biz-1_server-named-2.webm', recordingSessionId: null, locale: 'ja', audio })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin?.finalizedPath).toBe(U)
+    await pinTakeFallback(takeId, { finalizedPath: F, recordingSessionId: 'sess-x', locale: 'ja', audio })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: F, recordingSessionId: 'sess-x' })
   })
 })
 

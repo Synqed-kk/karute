@@ -3,6 +3,7 @@
 import {
   runAIPipeline,
   EmptyTranscriptError,
+  type FallbackPin,
   type PaidFallback,
   type PipelineStep,
   type PipelineResult,
@@ -307,6 +308,11 @@ class GlobalPipeline {
    *  durably on its own stamp). Cleared by start()/reset() with the rest of the
    *  run; a superseded run's late answer is dropped. */
   private paidFallback: PaidFallback | null = null
+  /** ⚖ S53 A4: the key THIS run chain's fallback PUT and was about to pay for —
+   *  kept across retry() so a 再試行 after a lost response re-presents it (the
+   *  server's memo for it replays) instead of minting and paying under a new
+   *  key. Same lifetime as `paidFallback`. */
+  private fallbackPin: FallbackPin | null = null
   private listeners = new Set<Listener>()
   /**
    * Identifies the live run. A new start()/retry() supersedes an in-flight run,
@@ -352,6 +358,7 @@ class GlobalPipeline {
     this.blob = blob
     this.context = context
     this.paidFallback = null
+    this.fallbackPin = null
     this.state = 'processing'
     this.step = 'transcribing'
     this.result = null
@@ -437,6 +444,10 @@ class GlobalPipeline {
           paidFallback: this.paidFallback,
           onFallbackPaid: (answer) => {
             if (runId === this.runId) this.paidFallback = answer
+          },
+          fallbackPin: this.fallbackPin,
+          onFallbackPinned: (pin) => {
+            if (runId === this.runId) this.fallbackPin = pin
           },
         },
       )
@@ -781,6 +792,7 @@ class GlobalPipeline {
     this.context = null
     this.blob = null
     this.paidFallback = null
+    this.fallbackPin = null
     this.serverSavedRecordId = null
     this.savedRecordId = null
     this.serverOwned = false
