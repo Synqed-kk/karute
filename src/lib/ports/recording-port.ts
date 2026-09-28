@@ -558,7 +558,8 @@ export const webRecordingPort: RecordingPipelinePort = {
     // key's row (the take's own, or the fallback mint's) rides to both doors.
     const row = (finalizedPath ? opts?.takeRow : recordingSessionId) ?? null
     const read = await mintRecordingReadUrl(path, row)
-    if ('error' in read) throw new Error('could not mint a read URL')
+    // S54 F10: `refusal` names the kind — 'forbidden' refuses THIS key (terminal), 'upstream' is a blip.
+    if ('error' in read) throw Object.assign(new Error('could not mint a read URL'), { refusal: read.error })
     return {
       body: row ? { audioUrl: read.url, recordingSessionId: row } : { audioUrl: read.url },
       path,

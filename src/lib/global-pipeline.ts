@@ -449,6 +449,9 @@ class GlobalPipeline {
           onFallbackPinned: (pin) => {
             if (runId === this.runId) this.fallbackPin = pin
           },
+          onFallbackRetired: (pin) => {
+            if (runId === this.runId) this.fallbackPin = pin
+          },
         },
       )
       if (runId !== this.runId) return
