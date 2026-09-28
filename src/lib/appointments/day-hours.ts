@@ -67,7 +67,11 @@ export function orgOnlyDayHours(orgSaved: readonly WeekdayKey[] | undefined): Bo
 }
 
 /**
- * The store's own hours facts for the ONE JST day `date` falls on.
+ * The store's own hours facts for the JST day `date` falls on — and, when
+ * `lastDay` is given, for every JST day from there through `lastDay`'s (⚖ W0.5
+ * X11: a booking that runs past midnight is judged on each day it touches, so
+ * its 臨時休業 read must cover them all). The weekly hours and the 臨時営業日
+ * are the whole policy either way; only the closed-days range widens.
  *
  * `storeId` is the booking's store as its door already clamped it (the web
  * action's cookie clamp / the facade's store-id header clamp) — never guessed,
@@ -80,6 +84,10 @@ export async function fetchBookingDayHours(
   storeId: string | null | undefined,
   date: Date,
   orgSaved: readonly WeekdayKey[] | undefined,
+  /** The instant of the LAST day the booking touches (appointments.ts
+   *  bookingLastDay). Absent, invalid, or not after `date` → `date`'s day
+   *  alone, the one-day read every caller made before. */
+  lastDay?: Date,
 ): Promise<BookingDayHours> {
   // ⚖ MERGE #937 fix round 1, B2 — a layer switched OFF must reproduce the
   // behaviour from before this round. The same no-store-facts answer this
@@ -96,7 +104,11 @@ export async function fetchBookingDayHours(
   if (!storeId || Number.isNaN(date.getTime())) return orgOnlyDayHours(orgSaved)
 
   const ymd = ymdInJst(date)
-  const nextDay = new Date(date.getTime() + 86_400_000)
+  const through =
+    lastDay && !Number.isNaN(lastDay.getTime()) && lastDay.getTime() > date.getTime()
+      ? lastDay
+      : date
+  const nextDay = new Date(through.getTime() + 86_400_000)
 
   // The async wrappers are not decoration: they turn a SYNCHRONOUS throw (a
   // client whose storePolicies namespace is missing) into a rejection, so it
@@ -105,7 +117,8 @@ export async function fetchBookingDayHours(
   const [policy, closed] = await Promise.allSettled([
     (async () => synqed.storePolicies.get(storeId))(),
     // `to` is EXCLUSIVE (the SDK's own contract, dist/store-policies.d.ts), so
-    // one day is [ymd, ymd+1). JST has no DST — one day is exactly 86,400,000 ms.
+    // one day is [ymd, ymd+1) and a run of days is [ymd, last+1). JST has no
+    // DST — one day is exactly 86,400,000 ms.
     (async () =>
       synqed.storePolicies.listClosedDays(storeId, { from: ymd, to: ymdInJst(nextDay) }))(),
   ])

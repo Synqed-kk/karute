@@ -17,7 +17,11 @@
 
 import { SynqedError, type SynqedClient } from '@synqed-kk/client'
 import type { AppointmentInput, BookingTimeRefusal } from '@/lib/appointments'
-import { validateAppointmentInput, validateAppointmentTime } from '@/lib/appointments'
+import {
+  bookingLastDay,
+  validateAppointmentInput,
+  validateAppointmentTime,
+} from '@/lib/appointments'
 import {
   CANCEL_REASON_SAME_DAY_CONTACT,
   CANCEL_REASONS,
@@ -197,7 +201,15 @@ export async function createAppointmentCore(
     // Isolation is unchanged: this id is the door's clamped store, or one
     // derived server-side from the booked staff's own assignment / the tenant
     // primary — never client input, and never another store.
-    const dayHours = await fetchBookingDayHours(synqed, storeId, startTime, deps.orgSaved)
+    // ⚖ W0.5 X11 — through the LAST day the booking touches: one running past
+    // midnight is judged on both days, so both days' 臨時休業 are read.
+    const dayHours = await fetchBookingDayHours(
+      synqed,
+      storeId,
+      startTime,
+      deps.orgSaved,
+      bookingLastDay(input),
+    )
     const hoursError = await validateAppointmentTime(input, deps.operatingHours, dayHours)
     // Refused BEFORE anything reaches core: no appointment row, and no audit row
     // claiming one (⚖ PKT-1c-C S4 — the audit() call below is the only writer in
