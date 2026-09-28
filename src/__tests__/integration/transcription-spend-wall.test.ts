@@ -1128,6 +1128,60 @@ describe('the web route (cookie door)', () => {
     expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), expect.anything())
   })
 
+  // ── S53 A2: a core read blip never buys the same audio twice ─────────────
+  const coreBlips = () =>
+    recordingsGet.mockRejectedValueOnce(Object.assign(new Error('core 500'), { status: 500 }))
+
+  it('a2 core blip + a paid answer already remembered → retryable 502, Deepgram NOT asked, nothing reserved', async () => {
+    await seedMemo()
+    recordUsage.mockClear()
+    coreBlips()
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).toBe('could not read the recording')
+    expect(storageDownload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`)
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+  })
+
+  it('a2 core blip + nothing remembered → pays exactly as before (no availability lost), and the answer is remembered', async () => {
+    coreBlips()
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).transcript).toBe('こんにちは')
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(memoStore.has(`trc/${OWN_TAKE}.ja.json`)).toBe(true)
+  })
+
+  it('a2 the blip clears → the retry replays: ONE provider call across paid → 502 → replay (the phone door’s shape)', async () => {
+    ownRowHolds(OWN_TAKE)
+    try {
+      const body = { audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }
+      expect((await webTranscribePOST(post(body))).status).toBe(200)
+      coreBlips()
+      expect((await webTranscribePOST(post(body))).status).toBe(502)
+      const replay = await webTranscribePOST(post(body))
+      expect(replay.status).toBe(200)
+      expect((await replay.json()).transcript).toBe('こんにちは')
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  it("a2 a colleague's row still pays (the S46 fence is unchanged — only 'unreadable' reads the memo)", async () => {
+    await seedMemo()
+    ownRowHolds(OWN_TAKE, 'login-colleague')
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
   it('t10 a non-URL never reaches the parse — the SSRF guard answers 400 first, nothing read', async () => {
     const res = await webTranscribePOST(post({ audioUrl: 'not a url', locale: 'ja' }))
 

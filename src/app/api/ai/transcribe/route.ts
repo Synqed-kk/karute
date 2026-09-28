@@ -149,23 +149,31 @@ export async function POST(request: Request) {
       // the caller's own row (takeKeyHolder). Otherwise Deepgram fetches the
       // signed URL — its token is the proof — and the paid answer is still
       // remembered. No new refusal.
+      //
+      // ⚖ S53 A2: a core read blip ('unreadable') is not "no replay, pay
+      // again". The memo is read; a paid answer already there answers the
+      // retryable 502 the phone door gives the same state (v1 route), and pays
+      // nothing — the retry that can read the row replays. A miss pays as before.
       const urlKey = storageKeyFromAudioUrl(audioUrl)
       const audioKey =
         isOwnRecordingKey(urlKey, meter.businessId) &&
         (await can('records.write').catch(() => false))
           ? urlKey
           : null
-      const replayMemo =
-        audioKey !== null &&
-        (await takeKeyHolder(async () => meter.synqed, audioKey, recordingSessionId, async () => {
-          const capabilities = await getMyCapabilities()
-          const pairHeld = holdsOwnerKeys(capabilities)
-          const allowedStoreIds = pairHeld
-            ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
-            : null
-          return { staffId: meter.staffId, businessId: meter.businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
-        })) === 'own'
-      const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey, replayMemo }, {
+      const holder =
+        audioKey === null
+          ? null
+          : await takeKeyHolder(async () => meter.synqed, audioKey, recordingSessionId, async () => {
+              const capabilities = await getMyCapabilities()
+              const pairHeld = holdsOwnerKeys(capabilities)
+              const allowedStoreIds = pairHeld
+                ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
+                : null
+              return { staffId: meter.staffId, businessId: meter.businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
+            })
+      const replayMemo = holder === 'own'
+      const memoHitRefuses = holder === 'unreadable'
+      const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey, replayMemo, memoHitRefuses }, {
         audio: { url: audioUrl },
         locale: (loc ?? 'ja') === 'en' ? 'en' : 'ja',
         diarize,

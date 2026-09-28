@@ -18,6 +18,10 @@ import {
 } from '@/lib/ai-rate-limit'
 import { AppApiError } from '@/lib/app-api/errors'
 import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
+
+/** S53 A2 — the phone door's own words for the same state (v1 route, the
+ *  `holder === 'unreadable'` refusal), so both doors answer one sentence. */
+export const TRANSCRIPTION_OWNER_UNREADABLE = 'could not read the recording'
 import { audit } from '@/lib/audit'
 import { composeTranscriptKey } from '@/lib/recording/key-grammar'
 import { readTranscriptMemo, writeTranscriptMemo } from '@/lib/recording/transcript-memo'
@@ -366,6 +370,13 @@ export interface TranscriptionMeter {
   /** S46: false = WRITE the paid answer under `audioKey`, never REPLAY one —
    *  the web JSON arm replays only a take the caller proved is theirs. */
   replayMemo?: boolean
+  /** S53 A2: with `replayMemo` false, the caller could not READ whose take this
+   *  is (a core blip — takeKeyHolder's 'unreadable'). The memo is then read but
+   *  never replayed: a remembered answer means this audio was already paid for,
+   *  so the call answers the retryable `upstream_unavailable` (502 on both
+   *  routes — the phone door's own answer for the same state) and pays nothing;
+   *  a miss pays exactly as before. */
+  memoHitRefuses?: boolean
 }
 
 /** A duration is usable only when it is a real, positive number of seconds. */
@@ -505,7 +516,19 @@ export async function runMeteredTranscription(
   // a TTL, on Liam's word — not built here, because a stuck lease would block
   // paying at all.
   const memoKey = composeTranscriptKey(meter.businessId, meter.audioKey, params.locale)?.key ?? null
-  const memoRead = memoKey === null || meter.replayMemo === false ? null : await readTranscriptMemo(memoKey)
+  const memoRead =
+    memoKey === null || (meter.replayMemo === false && meter.memoHitRefuses !== true)
+      ? null
+      : await readTranscriptMemo(memoKey)
+  // ⚖ S53 A2 — A PAID ANSWER WHOSE OWNER COULD NOT BE READ IS NOT PAID AGAIN.
+  // The web door used to turn a core read blip into "no replay" and pay a
+  // second time for audio it had already paid for. It is neither replayed (the
+  // S46 fence never answered) nor re-bought: the caller retries, and the retry
+  // that can read the row replays. First-time audio (a miss) still pays — no
+  // availability is lost to a blip.
+  if (memoRead?.state === 'hit' && meter.replayMemo === false) {
+    throw new AppApiError('upstream_unavailable', TRANSCRIPTION_OWNER_UNREADABLE)
+  }
   if (memoRead?.state === 'hit') {
     const receipt: TranscriptionReceipt = {
       duration_seconds: memoRead.memo.duration_seconds,
