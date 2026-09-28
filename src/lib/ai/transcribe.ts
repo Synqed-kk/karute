@@ -618,9 +618,10 @@ async function meteredTranscription(
   // exactly what every call did before PR-5; the loser's write meets the
   // duplicate refusal and the first copy stands. The doors that matter (an
   // in-tab save then the job door; a reload) are sequential, so the live
-  // exposure is a double-submit. Upgrade path: a create-only lease object with
-  // a TTL, on Liam's word — not built here, because a stuck lease would block
-  // paying at all.
+  // exposure is a double-submit. The upgrade path — a create-only lease object
+  // with a TTL — IS built here (S53 A5, the lease below, switch ON), on Liam's
+  // word, given 2026-09-28 19:5x JST: 「I think both. Yes to both.」 A stuck
+  // lease never blocks paying: it expires and falls open to paying.
   const memoKey = composeTranscriptKey(meter.businessId, meter.audioKey, params.locale)?.key ?? null
   const memoRead =
     memoKey === null || (meter.replayMemo === false && meter.memoHitRefuses !== true)

@@ -404,7 +404,8 @@ const SCENARIOS: Scenario[] = [
   ['attach_failed · E3', () => (takeWithRow(), ctxFor(TAKE, SESSION)), e3, [2, 2, 1, 1], [2, 2, 1, 1]],
   ['take-less · E1', () => ctxFor(null), e1, [2, 1, 1, 1], [1, 1, 1, 1]],
   ['take-less · E3', () => ctxFor(null), e3, [2, 2, 1, 1], [2, 2, 1, 1]],
-  // S53 A5 (the lease, awaiting Liam's word): the race pays once only with it.
+  // S53 A5 (the lease; ruling given — Liam, 2026-09-28 19:5x JST: 「I think both. Yes to both.」):
+  // the race pays once only with it.
   ['normal take F · E2 (the race)', () => (takeFinalizedAtF(), ctxFor(TAKE, SESSION)), e2, [2, 2, 1, 1], [2, 2, 1, 1]],
   ['no_session with a take · E2 (the race)', () => (bareTake(), ctxFor(TAKE)), e2, [2, 2, 1, 1], [2, 2, 1, 1]],
 ]

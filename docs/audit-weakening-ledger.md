@@ -649,10 +649,10 @@
   (trc/<audio>.<locale>.lease.json) holding only an expiry time, written before the reserve so a
   second call on the same audio does not pay while the first is inside the provider; taken over
   (upsert) only once expired or released. A coordination marker for a call that already files its
-  own receipt/refusal row, not an act of its own; no transcript, no customer. · RULING PENDING —
-  Liam's word (transcribe.ts reserves the lease to him; VERDICT-S53-LEG2, lead's pick yes). Built
-  as its own last commit by the S53-A builder; it does not merge without that word.
+  own receipt/refusal row, not an act of its own; no transcript, no customer. · RULING GIVEN —
+  Liam, 2026-09-28 19:5x JST: 「I think both. Yes to both.」 (transcribe.ts reserved the lease to
+  him; VERDICT-S53-LEG2, lead's pick yes). Built as its own last commit by the S53-A builder.
 - 2026-09-28 · SDK_WRITE_ALLOWLIST:src/lib/recording/transcript-memo.ts::storage.recordings.upload#releaseTranscriptLease · S53 A5,
   the same lease's release: overwritten as already expired (never deleted) on every way out of
   the call that took it, so only a holder that died leaves a live lease, and that one expires
-  after 330 s. · RULING PENDING — Liam's word, as the entry above; does not merge without it.
+  after 330 s. · RULING GIVEN — Liam, 2026-09-28 19:5x JST: 「I think both. Yes to both.」, as the entry above.

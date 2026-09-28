@@ -138,8 +138,9 @@ export async function writeTranscriptMemo(
   }
 }
 
-// ⚖ S53 A5 — THE "TRANSCRIBING NOW" LEASE (awaits Liam's word: transcribe.ts's
-// own reservation, "a create-only lease object with a TTL, on Liam's word").
+// ⚖ S53 A5 — THE "TRANSCRIBING NOW" LEASE (transcribe.ts reserved "a
+// create-only lease object with a TTL" to Liam's word; ruling given — Liam,
+// 2026-09-28 19:5x JST: 「I think both. Yes to both.」).
 // The memo is written AFTER the money moves, so two calls on the same audio
 // inside the provider at once both missed it and both paid (a retry 1.5 s
 // after a dropped connection, a quick 再試行 tap). The lease is written BEFORE
