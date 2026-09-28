@@ -161,6 +161,9 @@ const prepareTranscription = jest.fn(
 jest.mock('@/lib/ports/recording-port', () => ({
   getRecordingPipelinePort: () => ({
     aiBase: '/api/ai',
+    get refusesMissingKeyWith404() {
+      return portRefuses404
+    },
     prepareTranscription: (b: Blob, p: string | null, o?: { attachOutcome?: string; takeRow?: string }, u?: OnUploaded) => {
       lastOnUploaded = u
       return prepareTranscription(b, p, o)
@@ -193,6 +196,10 @@ let onTranscribeReached: (() => void) | null = null
 /** S54 F10 — a refusal status for the next REACHED /transcribe POSTs, in order
  *  (undefined = answered): the door refuses before anything is paid. */
 const transcribeStatus: Array<number | undefined> = []
+/** S54 delta read — the port's `refusesMissingKeyWith404` (false = the web door, which never answers 404;
+ *  true = the phone door) and the body a refused POST's 404 carries (default: not the phone door's code). */
+let portRefuses404 = false
+let refusalBody404 = '{"error":"refused"}'
 let paidCalls = 0
 jest.mock('@/lib/ports/data-port', () => ({
   getDataPort: () => ({
@@ -203,8 +210,11 @@ jest.mock('@/lib/ports/data-port', () => ({
         if (net === 'unreached') throw new TypeError('Failed to fetch')
         onTranscribeReached?.()
         const refusedWith = transcribeStatus.shift()
-        if (refusedWith)
-          return { ok: false, status: refusedWith, text: async () => '{"error":"refused"}' } as unknown as Response
+        if (refusedWith) {
+          const body = refusedWith === 404 ? refusalBody404 : '{"error":"refused"}'
+          const json = async () => JSON.parse(body) as unknown // no body / a page → throws, as a real Response's
+          return { ok: false, status: refusedWith, text: async () => body, json, clone: () => ({ json }) } as unknown as Response
+        }
         const key = String((JSON.parse(init?.body ?? '{}') as { path?: unknown }).path)
         const remembered = serverMemo?.get(key)
         let body: unknown
@@ -239,6 +249,7 @@ global.fetch = put as unknown as typeof fetch
 import { EmptyTranscriptError, runAIPipeline, type PipelineContext } from '@/lib/ai-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import { AppApiError, errorBody } from '@/lib/app-api/errors'
 
 const memory = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
 /** A recovery's audio, assembled from the take's saved segments: the tail was never saved. */
@@ -288,6 +299,8 @@ beforeEach(() => {
   transcribeGates.length = 0
   transcribeNet.length = 0
   transcribeStatus.length = 0
+  portRefuses404 = false
+  refusalBody404 = '{"error":"refused"}'
   adoptLost = 0
   serverMemo = null
   onTranscribeReached = null
@@ -1027,6 +1040,14 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
     globalPipeline.retry()
     await settle()
   }
+  /** The phone door's OWN key refusal, built by its own code (app/v1/ai/transcribe/route.ts:54 + :100 → errors.ts errorBody). */
+  const doorBody = (code: 'not_found' | 'no_audio', message = 'recording not found in this business') =>
+    JSON.stringify(errorBody(new AppApiError(code, message)))
+  /** This run's port is the PHONE's (refusesMissingKeyWith404: true); its 404s carry `body`. */
+  const phoneDoor = (body = doorBody('not_found')) => {
+    portRefuses404 = true
+    refusalBody404 = body
+  }
 
   it('(t9a) the first attempt’s adoption was LOST twice (hand-over + answer) and its answer lost → the 再試行 re-presents K AND links the take to R; ONE paid call, no new mint', async () => {
     bareTake()
@@ -1112,7 +1133,8 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
     expect(paidCalls).toBe(2)
   })
 
-  it('(t10a) phone: the door answers 404 for the re-presented key (not this business’s / a colleague’s row) → retired on the take and the slot; the next 再試行 mints fresh', async () => {
+  it('(t10a · t10g) phone: the door answers 404 for the re-presented key (not this business’s / a colleague’s row) → retired on the take and the slot; the next 再試行 mints fresh', async () => {
+    phoneDoor()
     stuckTake()
     await lostFirstRun()
     transcribeStatus.push(404, 404) // fetchWithRetry asks twice; nothing is paid
@@ -1128,7 +1150,8 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
     expect(paidCalls).toBe(2)
   })
 
-  it('(t10a) take-less: a 404 retires the chain slot’s pin (no take to mark); the next 再試行 mints fresh', async () => {
+  it('(t10a) take-less, phone: the door’s 404 retires the chain slot’s pin (no take to mark); the next 再試行 mints fresh', async () => {
+    phoneDoor()
     await lostFirstRun(takeless)
     transcribeStatus.push(404, 404)
     await retry()
@@ -1148,7 +1171,8 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
     ['a 503', () => transcribeStatus.push(503, 503)],
     ['a 403 (the plan / capability gate — not this key)', () => transcribeStatus.push(403)],
     ['a network error, twice', () => transcribeNet.push('unreached', 'unreached')],
-    ['a 404 then a network error (the LAST answer decides)', () => {
+    ['a phone-door 404 then a network error (the LAST answer decides)', () => {
+      phoneDoor()
       transcribeStatus.push(404)
       transcribeNet.push(undefined, 'unreached')
     }],
@@ -1174,6 +1198,7 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
       bareTake()
       const left: Pin = { finalizedPath: K, recordingSessionId: R, locale: 'ja', audio: fp(memory, 42), at: 1 }
       store.meta = { ...store.meta!, fallbackPin: left }
+      phoneDoor()
       transcribeStatus.push(404, 404)
       expect(await outcome(direct())).toBeInstanceOf(Error)
       expect(mints()).toBe(1)
@@ -1183,5 +1208,67 @@ describe('⚖ S54 F9/F10 — a pinned 再試行 re-links its row; a key the serv
     } finally {
       off.restore()
     }
+  })
+
+  // ⚖ S54 delta read — a 404 retires the pin ONLY as the phone door's own key refusal: the port says its door
+  // answers 404 for a refused key (the web door never answers 404 at all) AND the body carries that door's code.
+  it.each([
+    ['carrying the phone door’s own code (only the port rule stands)', doorBody('not_found')],
+    ['a platform page (a deploy window / a misrouted base)', 'The page could not be found\n\nNOT_FOUND\n'],
+    ['no body', ''],
+  ])('(t10d) web: the POST answers 404 %s → the pin is NOT retired: the error stands and the next 再試行 re-presents the same key', async (_name, body) => {
+    refusalBody404 = body // portRefuses404 stays false: the web door
+    stuckTake()
+    await lostFirstRun()
+    transcribeStatus.push(404, 404)
+    await retry()
+    expect(globalPipeline.state).toBe('error')
+    expect(retireTakeFallback).not.toHaveBeenCalled()
+    expect(store.meta?.fallbackPin?.retiredAt).toBeUndefined()
+    expect(chainSlot()?.retiredAt).toBeUndefined()
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(mints()).toBe(1)
+    expect(paidCalls).toBe(1)
+  })
+
+  it('(t10e) phone: a 404 carrying the door’s own code → the pin is retired on the take AND told to the chain slot, and the error is rethrown; nothing minted, nothing paid', async () => {
+    phoneDoor()
+    bareTake()
+    const left: Pin = { finalizedPath: K, recordingSessionId: R, locale: 'ja', audio: fp(memory, 42), at: 1 }
+    store.meta = { ...store.meta!, fallbackPin: left }
+    const onFallbackRetired = jest.fn()
+    transcribeStatus.push(404, 404)
+    const err = await outcome(direct('ja', { onFallbackRetired }))
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toMatch(/^Transcription failed: /)
+    expect(mints()).toBe(0)
+    expect(paidCalls).toBe(0)
+    expect(retireTakeFallback).toHaveBeenCalledWith(TAKE, K, expect.any(Number), 'transcribe_404')
+    expect(store.meta?.fallbackPin).toEqual({ ...left, retiredAt: expect.any(Number), retiredReason: 'transcribe_404' })
+    expect(onFallbackRetired).toHaveBeenCalledWith(
+      expect.objectContaining({ takeId: TAKE, path: K, recordingSessionId: R, retiredAt: expect.any(Number), retiredReason: 'transcribe_404' }),
+    )
+  })
+
+  it.each([
+    ['another code of the same door (no_audio)', doorBody('no_audio', 'no audio')],
+    ['the web door’s string shape naming not_found', '{"error":"not_found"}'],
+    ['a platform page', 'The page could not be found\n\nNOT_FOUND\n'],
+    ['no body', ''],
+  ])('(t10f) phone: a 404 with %s → the pin is NOT retired: the error stands and the next 再試行 re-presents the same key', async (_name, body) => {
+    phoneDoor(body)
+    stuckTake()
+    await lostFirstRun()
+    transcribeStatus.push(404, 404)
+    await retry()
+    expect(globalPipeline.state).toBe('error')
+    expect(retireTakeFallback).not.toHaveBeenCalled()
+    expect(store.meta?.fallbackPin?.retiredAt).toBeUndefined()
+    expect(chainSlot()?.retiredAt).toBeUndefined()
+    await retry()
+    expect(globalPipeline.state).toBe('review')
+    expect(mints()).toBe(1)
+    expect(paidCalls).toBe(1)
   })
 })
