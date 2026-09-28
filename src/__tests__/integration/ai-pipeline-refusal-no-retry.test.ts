@@ -271,6 +271,74 @@ describe('fetchWithRetry — a 409 from the transcribe door is still working (S5
     expect(posts()).toHaveLength(1)
   })
 
+  // ⚖ S55 — THE CLIENT CAPS ONE WAIT AT 10 s. Both doors name the lease's full seconds left (up to the
+  // TTL), so an uncapped wait held the pill ~5½ min after a first call that finished in seconds. The
+  // loop re-asks after each capped wait until an answer or the unchanged deadline (t4 / c4).
+  it.each([
+    ['web (Retry-After: 300)', () => web409('300')],
+    ['phone (body retry_after_seconds: 300)', () => phone409(300)],
+  ] as const)('c1 (S55) %s → the run waits the 10 s cap, not 300 s, then re-POSTs the SAME request', async (_door, conflict) => {
+    doors([conflict, () => json(200, SAVED)])
+    const run = start()
+    await advance(9_999)
+    expect(posts()).toHaveLength(1)
+    expect(run.settled).toBe(false)
+    await advance(1)
+    await expect(run.promise).resolves.toMatchObject({ transcript: SAVED.transcript })
+    expect(posts()).toHaveLength(2)
+    expect(posts()[1][1]).toEqual(posts()[0][1])
+    expect(prepareTranscription).toHaveBeenCalledTimes(1)
+    expect(steps).not.toContain('error')
+  })
+
+  it('c2 (S55) a wait under the cap is unchanged: 3 s → 3 s; Retry-After: 0 → still the 1 s floor', async () => {
+    doors([() => web409('3'), () => web409('0'), () => json(200, SAVED)])
+    const run = start()
+    await advance(2_999)
+    expect(posts()).toHaveLength(1)
+    await advance(1)
+    expect(posts()).toHaveLength(2)
+    await advance(999)
+    expect(posts()).toHaveLength(2)
+    await advance(1)
+    await expect(run.promise).resolves.toMatchObject({ transcript: SAVED.transcript })
+    expect(posts()).toHaveLength(3)
+  })
+
+  it('c3 (S55) 409 (300 s) → 409 (290 s) → 200: two capped waits, the SAME request each time, paid once, no new mint', async () => {
+    doors([() => web409('300'), () => phone409(290), () => json(200, SAVED)])
+    const run = start()
+    await advance(9_999)
+    expect(posts()).toHaveLength(1)
+    await advance(1)
+    expect(posts()).toHaveLength(2)
+    await advance(9_999)
+    expect(posts()).toHaveLength(2)
+    expect(run.settled).toBe(false)
+    await advance(1)
+    await expect(run.promise).resolves.toMatchObject({ transcript: SAVED.transcript })
+    expect(posts()).toHaveLength(3)
+    // The pin: every re-POST is the first request, byte for byte — one prepare (the only mint), one 200 (the only payment).
+    expect(posts()[1][1]).toEqual(posts()[0][1])
+    expect(posts()[2][1]).toEqual(posts()[0][1])
+    expect(prepareTranscription).toHaveBeenCalledTimes(1)
+    expect(steps).not.toContain('error')
+  })
+
+  it('c4 (S55) 409 (300 s) forever → capped waits until the unchanged deadline (TTL + one wait), then today’s error — never an infinite loop', async () => {
+    doors([() => web409('300')])
+    const run = start()
+    await advance(TRANSCRIPT_LEASE_TTL_MS, 500)
+    expect(run.settled).toBe(false)
+    // The deadline (first 409 + TTL + one capped wait) plus one cap bounds the whole wait.
+    await advance(10_000 + 10_000, 500)
+    expect(run.settled).toBe(true)
+    await expect(run.promise).rejects.toThrow(/^Transcription failed: HTTP 409/)
+    expect(posts()).toHaveLength(Math.floor(TRANSCRIPT_LEASE_TTL_MS / 10_000) + 3)
+    await advance(60_000, 1_000)
+    expect(posts()).toHaveLength(Math.floor(TRANSCRIPT_LEASE_TTL_MS / 10_000) + 3)
+  })
+
   it('t9 a 409 asking for no wait (Retry-After: 0) still waits the 1 s floor — never a tight loop', async () => {
     doors([() => web409('0'), () => json(200, SAVED)])
     const run = start()

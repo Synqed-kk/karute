@@ -256,7 +256,8 @@ jest.mock('@/lib/ports/data-port', () => ({
         const res = await served
         if (res.status === 409) {
           const asked = res.headers.get('Retry-After') ?? (await res.clone().json()).error?.retry_after_seconds
-          stillWorkingWaits.add(Number(asked) * 1000)
+          // …and (S55) the same wait as the client caps it — both made immediate below.
+          stillWorkingWaits.add(Number(asked) * 1000).add(Math.min(Number(asked) * 1000, STILL_WORKING_WAIT_CAP_MS))
           stillWorkingServed++
           onStillWorking?.()
         }
@@ -282,6 +283,7 @@ jest
 global.fetch = (async () => ({ headers: new Headers({ 'content-length': '360000' }) })) as unknown as typeof fetch
 
 import { globalPipeline } from '@/lib/global-pipeline'
+import { STILL_WORKING_WAIT_CAP_MS } from '@/lib/ai-pipeline'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { POST as webTranscribePOST } from '@/app/api/ai/transcribe/route'
 import { POST as facadeTranscribePOST } from '@/app/api/app/v1/ai/transcribe/route'

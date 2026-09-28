@@ -93,8 +93,8 @@ async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
  * ⚖ A 409 FROM THE TRANSCRIBE DOOR IS "STILL WORKING", NEVER AN ERROR (S54 B).
  * With transcribePaidOnce ON, a call on audio that another call is inside the
  * provider for is answered 409 and pays nothing (the S53 A5 lease). The run
- * stays on 「文字起こし中...」, waits what the door asked, and sends the SAME
- * request again — that re-POST is the poll: 409 again while the lease holds,
+ * stays on 「文字起こし中...」, waits what the door asked (capped: S55 below), and
+ * sends the SAME request again — that re-POST is the poll: 409 again while the lease holds,
  * the saved answer once the first call finished, one payment if the holder
  * died and its lease expired. Past the lease's own life (the SAME constant the
  * server writes it with, plus one wait) the 409 goes back to fetchWithRetry
@@ -117,10 +117,17 @@ function whileStillTranscribing(send: () => Promise<Response>): () => Promise<Re
   }
 }
 
+/** ⚖ S55 — ONE wait between re-asks is never longer than this. Both doors name the lease's
+ *  full seconds left (up to the TTL), so an uncapped wait held the pill ~5½ min after a first
+ *  call that finished in seconds. A capped wait can end while the lease still holds: the loop
+ *  above just asks again (a 409 again, nothing paid) until an answer or its unchanged deadline.
+ *  An engineering poll interval, not a business duration — no store setting. */
+export const STILL_WORKING_WAIT_CAP_MS = 10_000
+
 /** The wait a 409 asked for: the `Retry-After` header (web door), else the
  *  body's `error.retry_after_seconds` (phone door — the facade's errorBody
- *  carries the meter's detail and sets no header), else 5 s; never under 1 s.
- *  Read from a clone, so the body stays whole for fetchWithRetry. */
+ *  carries the meter's detail and sets no header), else 5 s; never under 1 s,
+ *  never over the cap. Read from a clone, so the body stays whole for fetchWithRetry. */
 async function stillWorkingWaitMs(res: Response): Promise<number> {
   let seconds = Number(res.headers.get('Retry-After') ?? NaN)
   if (!Number.isFinite(seconds)) {
@@ -130,7 +137,7 @@ async function stillWorkingWaitMs(res: Response): Promise<number> {
       // Not JSON: the floor below.
     }
   }
-  return Math.max(1, Number.isFinite(seconds) ? seconds : 5) * 1000
+  return Math.max(1_000, Math.min((Number.isFinite(seconds) ? seconds : 5) * 1000, STILL_WORKING_WAIT_CAP_MS))
 }
 
 // ⚖ One tab at a time per finalized object: the browser's own cross-tab lock
