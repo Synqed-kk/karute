@@ -11,6 +11,7 @@ import {
   type TakeAudioFingerprint,
 } from '@/lib/karute/take-store'
 import { ensureAudioOnServer } from '@/lib/recording/secure-take'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
@@ -357,15 +358,18 @@ export async function runAIPipeline(
     // THAT key again, through a fresh read, and the server's memo for it
     // replays. Never once the take is finalized at ANY key (`currentPath`, the
     // C3 rule above): a finalized key names its own bytes and is asked as such.
-    const pinned = currentPath
-      ? null
-      : [
-          takeId ? toChainPin(takeId, (await readTakeSecureMeta(takeId))?.fallbackPin) : null,
-          ctx.fallbackPin ?? null,
-        ].find(
-          (pin): pin is FallbackPin =>
-            !!pin && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
-        ) ?? null
+    // OFF (RECORDING_SWITCHES.transcribePaidOnce) = no pin is read or written.
+    const pinning = RECORDING_SWITCHES.transcribePaidOnce
+    const pinned =
+      currentPath || !pinning
+        ? null
+        : ([
+            takeId ? toChainPin(takeId, (await readTakeSecureMeta(takeId))?.fallbackPin) : null,
+            ctx.fallbackPin ?? null,
+          ].find(
+            (pin): pin is FallbackPin =>
+              !!pin && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
+          ) ?? null)
     const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } = pinned
       ? await recordingPort.prepareTranscription(
           audioBlob,
@@ -393,7 +397,7 @@ export async function runAIPipeline(
     // otherwise): pin the key BEFORE the POST can pay for it — on the take (the
     // store's C3 guard: never onto a take finalized at another key) and on the
     // chain's slot for a take-less run.
-    if (!finalizedPath && !pinned) {
+    if (pinning && !finalizedPath && !pinned) {
       const pin: FallbackPin = { takeId, path: mintedPath, recordingSessionId: minted ?? null, locale, audio }
       if (takeId)
         await pinTakeFallback(takeId, {

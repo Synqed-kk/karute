@@ -889,6 +889,25 @@ describe('⚖ S53 A4 — a key the fallback PUT is re-presented, never re-minted
     expect(globalPipeline['fallbackPin']).toBeNull()
   })
 
+  it('a6 switch transcribePaidOnce OFF → the pre-S53 run: no pin written or read, the 再試行 mints and PAYS again', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      bareTake()
+      transcribeNet.push('lose', 'unreached')
+      globalPipeline.start(memory, ctx())
+      await settle()
+      expect(store.meta?.fallbackPin).toBeUndefined()
+      expect(pinTakeFallback).not.toHaveBeenCalled()
+      globalPipeline.retry()
+      await settle()
+      expect(globalPipeline.state).toBe('review')
+      expect(mints()).toBe(2)
+      expect(paidCalls).toBe(2)
+    } finally {
+      off.restore()
+    }
+  })
+
   it('switch ON: the pin carries the row the mint named, and the re-presented key rides with it', async () => {
     const replaced = jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', true)
     try {

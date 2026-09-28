@@ -357,6 +357,7 @@ import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { runMeteredTranscription } from '@/lib/ai/transcribe'
 import { readTranscriptMemo } from '@/lib/recording/transcript-memo'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { can } from '@/lib/auth/require-permission'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
 
@@ -1179,6 +1180,20 @@ describe('the web route (cookie door)', () => {
       expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
     } finally {
       jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  it('a6 switch OFF → the pre-S53 answer: core blip + a remembered answer PAYS again (no memo read)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      await seedMemo()
+      coreBlips()
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      off.restore()
     }
   })
 
@@ -2213,5 +2228,42 @@ describe('charge once — the durable transcript memo', () => {
     const trueUpOrder = recordUsage.mock.invocationCallOrder[1]
     expect(uploadOrder).toBeLessThan(trueUpOrder)
     err.mockRestore()
+  })
+
+  it('a6 the switch ships ON (2026-09-28, S53)', () => {
+    expect(RECORDING_SWITCHES.transcribePaidOnce).toBe(true)
+  })
+
+  it('a6 switch OFF → the pre-S53 order: a true-up that never finishes leaves NO memo (the answer dies with the process)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      headBytes.current = 600_000
+      let trueUpStarted = false
+      recordUsage.mockResolvedValueOnce(undefined).mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>(() => {})
+      })
+      void call(AUDIO)
+      while (!trueUpStarted) await new Promise(setImmediate)
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(memoStore.size).toBe(0)
+    } finally {
+      off.restore()
+    }
+  })
+
+  it('a6 switch OFF → a lost true-up still writes the memo, AFTER the ledger calls (the pre-S53 order)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      headBytes.current = 600_000
+      recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+      await call(AUDIO)
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+      expect(storageUpload.mock.invocationCallOrder[0]).toBeGreaterThan(recordUsage.mock.invocationCallOrder[3])
+    } finally {
+      err.mockRestore()
+      off.restore()
+    }
   })
 })
