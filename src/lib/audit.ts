@@ -81,7 +81,8 @@ export interface AuditEvent {
  *      init) it degrades to plain fire-and-forget. Skipped when the event
  *      has no businessId (core writes are tenant-scoped; the console line
  *      still records it — e.g. pre-auth PIN lockouts). */
-export function audit(e: AuditEvent): void {
+export function audit(event: AuditEvent): void {
+  const e = stampBusinessVia(event)
   emitConsoleLine(e)
 
   if (e.businessId) {
@@ -138,10 +139,25 @@ function emitConsoleLine(e: AuditEvent): void {
  *
  *  No businessId → { ok: false }: core writes are tenant-scoped, so there is
  *  no durable row to promise. The console line still recorded the event. */
-export async function auditDurable(e: AuditEvent): Promise<{ ok: boolean; rowId?: string }> {
+export async function auditDurable(event: AuditEvent): Promise<{ ok: boolean; rowId?: string }> {
+  const e = stampBusinessVia(event)
   emitConsoleLine(e)
   if (!e.businessId) return { ok: false }
   return forwardToCore(e, e.businessId)
+}
+
+/** ⚖ S24 (PLAN-BUSINESS-LIVE v2.2 §2 S2) — the ONE home of the desk's stamp,
+ *  applied at the top of audit() and auditDurable(), so it reaches BOTH sinks:
+ *  an event whose `source` is 'business' carries `detail.via: 'business'` on
+ *  the console line AND the durable row (forwardToCore sends no `source`
+ *  column, so without this a desk write reads exactly like a phone write in
+ *  the 監査ログ). Added, never overwriting a caller's own `detail.via`;
+ *  `detail` is created when absent. Every other source gets the SAME object
+ *  back, untouched — byte-identical output. No core stamps anything itself:
+ *  the emit sites keep `source: actor.source`. */
+function stampBusinessVia(e: AuditEvent): AuditEvent {
+  if (e.source !== 'business' || e.detail?.via !== undefined) return e
+  return { ...e, detail: { ...e.detail, via: 'business' } }
 }
 
 // App severities are richer than core's column enum — map, don't drop:
