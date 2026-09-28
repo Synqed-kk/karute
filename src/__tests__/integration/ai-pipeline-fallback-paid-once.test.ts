@@ -724,6 +724,24 @@ describe.each(LAYERS)('layer matrix — %s', (_label, switchOn, attachRow) => {
     expect(globalPipeline.context?.recordingSessionId).toBe(switchOn ? 'rs_minted_1' : null)
   })
 
+  it('(e) S53 — a LOST response, then 再試行 → ONE paid call in every layer (the key is re-presented or finalized)', async () => {
+    serverMemo = new Map()
+    store.meta = { mimeType: 'audio/webm', durationMs: 42_000, startedAt: 0, updatedAt: 1 }
+    store.blob = new Blob(['stored'], { type: 'audio/webm' })
+    transcribeNet.push('lose', 'unreached')
+    globalPipeline.start(memory, takeCtx())
+    await settle()
+    expect(globalPipeline.state).toBe('error')
+    globalPipeline.retry()
+    await settle()
+    expect(globalPipeline.state).toBe('review')
+    expect(paidCalls).toBe(1)
+    const asked = prepareTranscription.mock.calls.map(([, path]) => path)
+    // #1074: the attach finalized the take · ON: S34 adopted it at the paid key ·
+    // OFF: S53 A4 re-presents the pinned key. Either way the 再試行 names U1, never a new mint.
+    expect(asked).toEqual(attachRow ? [TAKE_KEY, TAKE_KEY] : [null, unbound(1)])
+  })
+
   it('(d) an empty transcript on the fallback arm → EmptyTranscriptError each time, ZERO POSTs after the first', async () => {
     // No row at start, bytes stored, the take-key mint refuses: the fallback arm in every layer
     // (with #1074's layer the attach mints X first → attach_failed, which never binds).
