@@ -375,13 +375,16 @@ const SCENARIOS: Scenario[] = [
   ['normal take F · E1', () => (takeFinalizedAtF(), ctxFor(TAKE, SESSION)), e1, [1, 1, 1, 1], [1, 1, 1, 1]],
   ['normal take F · E3', () => (takeFinalizedAtF(), ctxFor(TAKE, SESSION)), e3, [1, 1, 1, 1], [1, 1, 1, 1]],
   ['normal take F · core blip on the retry', () => (takeFinalizedAtF(), ctxFor(TAKE, SESSION)), blip, [2, 2, 1, 1], [1, 1, 1, 1]],
-  ['no_session with a take · E1', () => (bareTake(), ctxFor(TAKE)), e1, [2, 1, 2, 1], [1, 1, 1, 1]],
-  ['no_session with a take · E3', () => (bareTake(), ctxFor(TAKE)), e3, [2, 1, 2, 1], [2, 1, 1, 1]],
-  ['no_session · app killed mid-POST → recovery', () => (bareTake(), ctxFor(TAKE)), kill, [2, 1, 2, 1], [2, 1, 1, 1]],
-  ['attach_failed · E1', () => (takeWithRow(), ctxFor(TAKE, SESSION)), e1, [2, 2, 2, 2], [1, 1, 1, 1]],
-  ['attach_failed · E3', () => (takeWithRow(), ctxFor(TAKE, SESSION)), e3, [2, 2, 2, 2], [2, 2, 1, 1]],
-  ['take-less · E1', () => ctxFor(null), e1, [2, 1, 2, 1], [1, 1, 1, 1]],
-  ['take-less · E3', () => ctxFor(null), e3, [2, 2, 2, 1], [2, 2, 1, 1]],
+  // S53 A1 (the web door replays 'no_row' too, awaiting Liam's ruling) turns
+  // every web fix-ON cell whose key no row holds from 2 into 1 — the phone
+  // door's answer since S46.
+  ['no_session with a take · E1', () => (bareTake(), ctxFor(TAKE)), e1, [2, 1, 1, 1], [1, 1, 1, 1]],
+  ['no_session with a take · E3', () => (bareTake(), ctxFor(TAKE)), e3, [2, 1, 1, 1], [2, 1, 1, 1]],
+  ['no_session · app killed mid-POST → recovery', () => (bareTake(), ctxFor(TAKE)), kill, [2, 1, 1, 1], [2, 1, 1, 1]],
+  ['attach_failed · E1', () => (takeWithRow(), ctxFor(TAKE, SESSION)), e1, [2, 2, 1, 1], [1, 1, 1, 1]],
+  ['attach_failed · E3', () => (takeWithRow(), ctxFor(TAKE, SESSION)), e3, [2, 2, 1, 1], [2, 2, 1, 1]],
+  ['take-less · E1', () => ctxFor(null), e1, [2, 1, 1, 1], [1, 1, 1, 1]],
+  ['take-less · E3', () => ctxFor(null), e3, [2, 2, 1, 1], [2, 2, 1, 1]],
 ]
 const LAYERS: Array<[label: string, fixOn: boolean, flipOn: boolean, column: 0 | 1 | 2 | 3]> = [
   ['fix OFF · flip OFF (today)', false, false, 0],

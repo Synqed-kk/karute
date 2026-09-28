@@ -172,7 +172,18 @@ export async function POST(request: Request) {
                 : null
               return { staffId: meter.staffId, businessId: meter.businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
             })
-      const replayMemo = holder === 'own'
+      // ⚖ S53 A1 — REVERSES THE S46 LINE ABOVE for a key NO row holds
+      // ('no_row': the unbound fallback, a take whose row is not yet known),
+      // awaiting Liam's ruling. It grants nothing new: the phone door already
+      // replays 'no_row' (v1 route, takeKeyHolder then the meter), and this
+      // app's read-URL door already hands any same-tenant records.write holder
+      // a signed URL for a 'no_row' key (recording-upload.ts,
+      // mintRecordingReadUrl — TENANT-ONLY). The fence is unchanged — this
+      // tenant's own take key AND records.write (above) — and a colleague's
+      // row ('foreign') still never replays. Without it, the automatic re-POST
+      // of the SAME key after a lost response paid twice on this door.
+      const replayMemo =
+        holder === 'own' || (RECORDING_SWITCHES.transcribePaidOnce && holder === 'no_row')
       // OFF (RECORDING_SWITCHES.transcribePaidOnce) = the pre-S53 answer: pays.
       const memoHitRefuses = RECORDING_SWITCHES.transcribePaidOnce && holder === 'unreadable'
       const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey, replayMemo, memoHitRefuses }, {

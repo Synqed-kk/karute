@@ -1120,13 +1120,54 @@ describe('the web route (cookie door)', () => {
     }
   })
 
-  it('s46 no row (unbound fallback / an older tab) → the words still come back (paid), and the answer is still remembered', async () => {
+  // ⚖ S53 A1 — THIS PIN IS FLIPPED ON PURPOSE (it reverses the S46 line in
+  // the route, awaiting Liam's ruling). S46 read "no row → no replay": the
+  // unbound fallback's automatic re-POST of the SAME key after a lost response
+  // paid twice on the web door. A1 replays 'no_row' too, and grants nothing
+  // new: the phone door already replays 'no_row' (v1 route, :86-101), and the
+  // read-URL door already hands any same-tenant records.write holder a signed
+  // URL for a 'no_row' key (recording-upload.ts, mintRecordingReadUrl). The
+  // fence (own tenant's take key + records.write) and the 'foreign' refusal
+  // are unchanged — t2c and the colleague's-row case above still pay.
+  it('S53 A1 (was s46) no row (unbound fallback / an older tab) → the memo is READ: the first call pays and is remembered, the same key again REPLAYS', async () => {
     const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
     expect(res.status).toBe(200)
     expect((await res.json()).transcript).toBe('こんにちは')
-    expect(storageDownload).not.toHaveBeenCalled()
+    expect(storageDownload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`)
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
     expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), expect.anything())
+
+    const again = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+    expect(again.status).toBe(200)
+    expect((await again.json()).transcript).toBe('こんにちは')
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('S53 A1 switch OFF → the S46 answer exactly: no row → no memo read, it pays, and the answer is still remembered', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).transcript).toBe('こんにちは')
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), expect.anything())
+    } finally {
+      off.restore()
+    }
+  })
+
+  it("S53 A1 a colleague's row with a remembered answer → still NO replay (the fence A1 leaves standing)", async () => {
+    await seedMemo()
+    ownRowHolds(OWN_TAKE, 'login-colleague')
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
   })
 
   // ── S53 A2: a core read blip never buys the same audio twice ─────────────
