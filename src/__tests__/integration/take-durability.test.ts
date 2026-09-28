@@ -503,6 +503,8 @@ import {
   stampTakeTranscript,
   readTakeTranscript,
   adoptTakeSession,
+  pinTakeFallback,
+  retireTakeFallback,
   TERMINAL_SECURE_ERRORS,
   writeTakeHeartbeat,
 } from '@/lib/karute/take-store'
@@ -1039,6 +1041,54 @@ describe('stampTakeTranscript — a fallback answer never overwrites a finalized
     const kept = await readTakeTranscript(takeId)
     expect(kept).toMatchObject({ finalizedPath: F, response: { transcript: 'paid-for-F' } })
     expect(kept?.audio).toBeUndefined()
+  })
+})
+
+// ⚖ S53 A4 — the fallback's key pin: the stamp's C3 guard, in the same
+// transaction, and read back through readTakeSecureMeta (what ai-pipeline reads).
+describe('pinTakeFallback — the key a fallback is about to pay for (S53 A4)', () => {
+  const audio = { size: 1234, type: 'audio/webm', durationSeconds: 42 }
+  it('no key → pinned and readable; finalized at F → a pin for another key is refused; F itself may be pinned', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const U = 'app_biz-1_server-named-1.webm'
+    await pinTakeFallback(takeId, { finalizedPath: U, recordingSessionId: null, locale: 'ja', audio })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: U, recordingSessionId: null, locale: 'ja', audio })
+
+    const F = `app_biz-1_${takeId}.webm`
+    await markTakeFinalized(takeId, F)
+    await pinTakeFallback(takeId, { finalizedPath: 'app_biz-1_server-named-2.webm', recordingSessionId: null, locale: 'ja', audio })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin?.finalizedPath).toBe(U)
+    await pinTakeFallback(takeId, { finalizedPath: F, recordingSessionId: 'sess-x', locale: 'ja', audio })
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toMatchObject({ finalizedPath: F, recordingSessionId: 'sess-x' })
+  })
+})
+
+// ⚖ S54 F10 — a refused key's pin is MARKED retired in the write's own
+// transaction, never deleted: exactly that key's pin, once, the owner's only.
+describe('retireTakeFallback — a refused key’s pin is marked, never deleted (S54 F10)', () => {
+  const audio = { size: 1234, type: 'audio/webm', durationSeconds: 42 }
+  it('marks exactly this key’s pin once, every field kept; another key, another staffer and a second retire write nothing', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const U = 'app_biz-1_server-named-1.webm'
+    await pinTakeFallback(takeId, { finalizedPath: U, recordingSessionId: 'sess-u', locale: 'ja', audio })
+    const pinned = (await readTakeSecureMeta(takeId))?.fallbackPin
+    expect(pinned).toMatchObject({ finalizedPath: U, recordingSessionId: 'sess-u', at: expect.any(Number) })
+
+    await retireTakeFallback(takeId, 'app_biz-1_server-named-2.webm', 5, 'transcribe_404')
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toEqual(pinned)
+    mockUid = 'staff-B'
+    await retireTakeFallback(takeId, U, 6, 'transcribe_404')
+    mockUid = 'staff-A'
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toEqual(pinned)
+
+    await retireTakeFallback(takeId, U, 7, 'read_url_forbidden')
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toEqual({ ...pinned, retiredAt: 7, retiredReason: 'read_url_forbidden' })
+    await retireTakeFallback(takeId, U, 8, 'transcribe_404')
+    expect((await readTakeSecureMeta(takeId))?.fallbackPin).toEqual({ ...pinned, retiredAt: 7, retiredReason: 'read_url_forbidden' })
   })
 })
 
