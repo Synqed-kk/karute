@@ -88,10 +88,14 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending, className }: 
     // both loaded and pending at 393 (T-5 proof). So the 11 px shims cannot
     // shrink the block and the list card beneath keeps its own seam instead
     // of jumping.
+    //
+    // S52 B2 — below 430px the 14px between pairs steps to 8px (4px inside a
+    // pair stays): at 375–402 the four cells ran past the track (the 月 card
+    // clips them). The type never changes; only the air between pairs.
     <div
       data-day-line
       className={cn(
-        'mb-2 flex min-h-[calc(1.25em+0.25rem)] items-center gap-[14px] whitespace-nowrap py-0.5 text-[13px] leading-[1.25]',
+        'mb-2 flex min-h-[calc(1.25em+0.25rem)] items-center gap-[14px] whitespace-nowrap py-0.5 text-[13px] leading-[1.25] max-[430px]:gap-2',
         className,
       )}
     >

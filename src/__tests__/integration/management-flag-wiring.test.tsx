@@ -61,7 +61,10 @@ jest.mock('@/components/reservation/ReservationGrid', () => ({ ReservationGrid: 
 jest.mock('@/components/karute/spike-lifted/reservation/ReservationMobileAgenda', () => ({
   ReservationMobileAgenda: () => null,
 }))
-type ReservationStaffFilterProps = { staffList?: { id: string; isManagement?: boolean }[] } | null
+type ReservationStaffFilterProps = {
+  staffList?: { id: string; isManagement?: boolean }[]
+  operatorId?: string | null
+} | null
 let capturedReservationStaffFilterProps: ReservationStaffFilterProps = null
 jest.mock('@/components/karute/spike-lifted/reservation/ReservationStaffFilter', () => ({
   ReservationStaffFilter: (props: unknown) => {
@@ -168,6 +171,48 @@ describe('AppointmentsView → NewBookingDialog / ReservationStaffFilter wiring 
     expect(
       capturedReservationStaffFilterProps?.staffList?.find((s) => s.id === SATO.id)?.isManagement,
     ).toBe(false)
+  })
+})
+
+describe('AppointmentsView → ReservationStaffFilter operatorId (S52 B1 — one identity for the remembered pick)', () => {
+  // カルテ and 顧客 key the remembered pick by the roster-gated staff id
+  // (getCurrentUserStaffId: null when the login has no staff card). The page
+  // hands the view `activeStaffId` = that id, or the FIRST staffer when the
+  // viewer is not on this roster — so neither raw prop alone is the identity.
+  const renderView = (activeStaffId: string | null, authProfileId: string | null) =>
+    render(
+      <AppointmentsView
+        staff={[SATO, KITANO]}
+        activeStaffId={activeStaffId}
+        authProfileId={authProfileId}
+        customers={[]}
+        locale="ja"
+        orgSettings={null}
+        initialView="day"
+        selectedDateIso="2026-08-18T00:00:00.000Z"
+        weekData={null}
+        weekStartIso={null}
+        monthData={null}
+        monthStartIso={null}
+        dayTotals={null}
+        soloMode={false}
+        reservationViews={[]}
+        reservationStaff={[]}
+        colorRosterIds={[]}
+        businessHours={{ start: 10, end: 19 }}
+        staffFilter="all"
+        menus={[]}
+        loadMonthCells={async () => []}
+      />,
+    )
+  it('a viewer on the roster keys by their own staff id', () => {
+    renderView(SATO.id, SATO.id)
+    expect(capturedReservationStaffFilterProps?.operatorId).toBe(SATO.id)
+  })
+  it('a login without a staff card remembers nothing — never under its raw auth id, never under the fallback staffer', () => {
+    // The page's fallback: activeStaffId = staff[0] when the viewer is off the roster.
+    renderView(SATO.id, 'auth-1')
+    expect(capturedReservationStaffFilterProps?.operatorId).toBeNull()
   })
 })
 

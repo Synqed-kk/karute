@@ -20,7 +20,8 @@
 // CustomersStaffFilter.tsx / ReservationStaffFilter.tsx: h-9 track, p-0.5,
 // border, bg-muted/50, text-xs font-medium; segments px-3 gap-1.5). The
 // pressed segment = the repo's R13 selected recipe (CLAUDE.md): bg-primary/8 +
-// text-primary — the same tokens as StaffSelector's own narrowed trigger; a
+// the accent as text (its darker pair here, S52 B4 below) — StaffSelector's
+// own narrowed trigger wears the same wash; a
 // segment has no border of its own, so no border-primary. No new sizes, no
 // new type.
 // Words = ONE pair of keys on both tabs (reservation.staffFilter).
@@ -34,7 +35,11 @@ import {
 } from '@/components/staff/StaffSelector'
 import { cn } from '@/lib/utils'
 
-const SEGMENT_ON = 'bg-primary/8 text-primary'
+// S52 B4 — the pressed LABEL reads in the accent's darker pair
+// (--primary-hover, globals.css): text-primary over this control's muted
+// track + the 8% wash is 4.44:1, under AA; the pair gives 5.76:1.
+// This is the AA exception written into CLAUDE.md's selected/pressed-state rule.
+const SEGMENT_ON = 'bg-primary/8 text-primary-hover'
 const SEGMENT_OFF = 'text-muted-foreground hover:text-foreground'
 
 export function StaffScopeSegment({
@@ -100,7 +105,7 @@ export function StaffScopeSegment({
            *  two read as one segment. */}
           <div
             className={cn(
-              'inline-flex items-stretch rounded-full transition-all',
+              'relative inline-flex items-stretch rounded-full transition-all',
               isSelf ? SEGMENT_OFF : SEGMENT_ON,
             )}
           >
@@ -159,7 +164,16 @@ export function StaffScopeSegment({
                 aria-controls={open ? listboxId : undefined}
                 data-staff-scope-chevron=""
                 onClick={() => setOpen(!open)}
-                className="inline-flex items-center rounded-full pl-[3px] pr-3"
+                // S52 B3 — a bigger tap target, no layout change: a transparent
+                // ::after, placed on the capsule (so this button's own box and
+                // width stay as they were), spans the track's full height (36)
+                // and reaches its right edge (-3 = p-0.5 + the border). Its LEFT
+                // edge = this button's own left edge, never over the label: from
+                // 自分 the label is a plain toggle (the TAP RULE), so a strip of
+                // it must not open the list. Width 31 = this button's 28
+                // (pl-[3px] + the 13px glyph + pr-3) + those 3px — change one,
+                // change the other (staff-scope-segment.test.tsx pins the sum).
+                className="inline-flex items-center rounded-full pl-[3px] pr-3 after:absolute after:-inset-y-[3px] after:-right-[3px] after:w-[31px]"
               >
                 <ChevronDown
                   size={13}
