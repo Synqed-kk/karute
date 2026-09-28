@@ -172,6 +172,53 @@ function sameAudio(paid: TakeAudioFingerprint | undefined, now: TakeAudioFingerp
     : paid.durationSeconds === now.durationSeconds
 }
 
+/** ⚖ S56 (PR 1 Greptile Finding 2): the hex SHA-256 of the exact bytes, by
+ *  Web Crypto — this file runs on the device (the thin bundle imports it via
+ *  global-pipeline), where `crypto.subtle` is native, async and costs the
+ *  bundle nothing. The phone shell's page is a secure context
+ *  (capacitor://localhost: a scheme-handler scheme on a localhost host — both
+ *  potentially trustworthy in WebKit's SecurityOrigin), so `subtle` exists
+ *  there; where it does not (an insecure origin) or the digest throws, the
+ *  answer is `undefined` and ONE line says so — a pin then carries no hash and
+ *  never matches: the run mints fresh and pays once more, the safe direction. */
+async function digestSha256(data: Blob | ArrayBuffer): Promise<string | undefined> {
+  const subtle = globalThis.crypto?.subtle
+  try {
+    if (!subtle) throw new Error('no_subtle')
+    const bytes = data instanceof ArrayBuffer ? data : await data.arrayBuffer()
+    const hash = new Uint8Array(await subtle.digest('SHA-256', bytes))
+    return Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('')
+  } catch {
+    // A flag only — never the bytes, never a key.
+    console.info('[ai-pipeline] audio digest unavailable', { subtle: !!subtle })
+    return undefined
+  }
+}
+
+/** ⚖ S56 (PR 1 Greptile Finding 2): A PIN IS RE-PRESENTED ONLY ONTO THE SAME
+ *  BYTES. Re-presenting a key makes the server transcribe the object already
+ *  under it — so a recovered blob with the same size, type and length but
+ *  different bytes used to skip its own upload and get the OLD recording's
+ *  words. The candidates have already passed the cheap coarse check
+ *  (sameAudio — no hashing unless one could match); the first whose stored
+ *  hash equals this audio's wins. A hash-less pin, on either side, NEVER
+ *  matches. No pin-writing code is on origin/main (git grep -e fallbackPin -e
+ *  transcribePaidOnce origin/main -- src thin: 0 hits), so no hash-less pin
+ *  exists in the field; from this change every pin carries a hash, and a
+ *  hash-less one from a preview rig simply never matches. */
+async function pinForSameBytes(
+  candidates: FallbackPin[],
+  audioDigest: () => Promise<string | undefined>,
+): Promise<FallbackPin | null> {
+  for (const pin of candidates) {
+    const paid = pin.audio.sha256
+    if (paid === undefined) continue
+    const now = await audioDigest()
+    if (now !== undefined && paid === now) return pin
+  }
+  return null
+}
+
 /**
  * ⚖ THE ROW THE SERVER MAKES IS BORN WITH ITS LENGTH (S35 C1). That row is
  * never finalized, so it carries what finalize writes on a row that had one
@@ -399,16 +446,24 @@ export async function runAIPipeline(
     // C3 rule above): a finalized key names its own bytes and is asked as such.
     // OFF (RECORDING_SWITCHES.transcribePaidOnce) = no pin is read or written.
     const pinning = RECORDING_SWITCHES.transcribePaidOnce
+    // ⚖ S56: …AND ONLY ONTO THE SAME BYTES (pinForSameBytes). The hash of THIS
+    // blob — the bytes a fresh mint would PUT — is taken at most once per
+    // attempt, and only when a pin passed the coarse check or one is written.
+    let nowDigest: Promise<string | undefined> | undefined
+    const audioDigest = () => (nowDigest ??= digestSha256(audioBlob))
     const pinned =
       currentPath || !pinning
         ? null
-        : ([
-            takeId ? toChainPin(takeId, (await readTakeSecureMeta(takeId))?.fallbackPin) : null,
-            ctx.fallbackPin ?? null,
-          ].find(
-            (pin): pin is FallbackPin =>
-              !!pin && !pin.retiredAt && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
-          ) ?? null)
+        : await pinForSameBytes(
+            [
+              takeId ? toChainPin(takeId, (await readTakeSecureMeta(takeId))?.fallbackPin) : null,
+              ctx.fallbackPin ?? null,
+            ].filter(
+              (pin): pin is FallbackPin =>
+                !!pin && !pin.retiredAt && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
+            ),
+            audioDigest,
+          )
     // ⚖ S54 F10 — A KEY THE SERVER REFUSES OUTRIGHT IS RETIRED, NEVER DELETED: only the web read-URL door's
     // 'forbidden' or the phone door's own key refusal (the 404 rule at the POST below; never a blip, 'unreadable'
     // 502, a 403 gate, 429, 409 or 5xx). The mark (take + chain slot) makes the matcher above skip it, so the
@@ -453,14 +508,19 @@ export async function runAIPipeline(
     // otherwise): pin the key BEFORE the POST can pay for it — on the take (the
     // store's C3 guard: never onto a take finalized at another key) and on the
     // chain's slot for a take-less run.
+    // ⚖ S56: the pin carries the hash of the bytes that PUT just sent
+    // (audioBlob — the blob prepareTranscription uploaded). No hash (no
+    // `subtle`) → a pin that never matches, the safe direction.
     if (pinning && !finalizedPath && !pinned) {
-      const pin: FallbackPin = { takeId, path: mintedPath, recordingSessionId: minted ?? null, locale, audio }
+      const sha256 = await audioDigest()
+      const pinAudio: TakeAudioFingerprint = sha256 === undefined ? audio : { ...audio, sha256 }
+      const pin: FallbackPin = { takeId, path: mintedPath, recordingSessionId: minted ?? null, locale, audio: pinAudio }
       if (takeId)
         await pinTakeFallback(takeId, {
           finalizedPath: mintedPath,
           recordingSessionId: pin.recordingSessionId,
           locale,
-          audio,
+          audio: pinAudio,
         })
       ctx.onFallbackPinned?.(pin)
     }

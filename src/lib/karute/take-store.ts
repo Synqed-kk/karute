@@ -423,11 +423,19 @@ export type TakeFallbackPin = {
 
 /** ⚖ C3 fold (Greptile P1): the audio a fallback transcription actually sent —
  *  the blob's byte size and type, plus the run's measured length when the run
- *  knew one. Cheap on purpose (no hashing megabytes on a phone). A recovery
- *  run assembles the take from its saved segments, which can be SHORTER than
- *  the in-memory recording the first fallback sent (a tail that was never
- *  saved) — a different size, so that answer is not replayed onto it. */
-export type TakeAudioFingerprint = { size: number; type: string; durationSeconds?: number }
+ *  knew one. Cheap on purpose for the answer STAMP (no hashing megabytes on a
+ *  phone). A recovery run assembles the take from its saved segments, which
+ *  can be SHORTER than the in-memory recording the first fallback sent (a tail
+ *  that was never saved) — a different size, so that answer is not replayed
+ *  onto it.
+ *  ⚖ S56 (PR 1 Greptile Finding 2): `sha256` — hex SHA-256 of the exact bytes
+ *  the fallback PUT — is carried by the KEY PIN only (`TakeFallbackPin.audio`),
+ *  because a re-presented key makes the server transcribe the object ALREADY
+ *  under that key: the same size, type and length over different bytes would
+ *  be the old recording's words. Optional in the stored shape (IndexedDB holds
+ *  the whole meta object, DB version 1, no schema or migration): a pin written
+ *  without it reads back as a pin with no hash, which never matches. */
+export type TakeAudioFingerprint = { size: number; type: string; durationSeconds?: number; sha256?: string }
 
 /** What a pending discard-transcript needs to finish after a reload — the
  *  discard's own session id and duration, not the take's (the gate may have
