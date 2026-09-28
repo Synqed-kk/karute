@@ -211,14 +211,16 @@ function writePairs() {
 // silent miss here).
 
 /** @param {ts.CallExpression} node
+ *  @param {WritePair[] | undefined} pairs — the caller's list (see
+ *    emitsOnEveryNonErrorPath); undefined = derive from the installed SDK
  *  @returns {boolean} */
-function sdkWriteCallMatch(node) {
+function sdkWriteCallMatch(node, pairs) {
   const method = staticAccessName(node.expression)
   const receiver = calleeObject(node.expression)
   if (!method || !receiver) return false
   const prop = staticAccessName(receiver) ?? (ts.isIdentifier(receiver) ? receiver.text : undefined)
   if (!prop) return false
-  return writePairs().some((p) => p.prop === prop && p.method === method)
+  return (pairs ?? writePairs()).some((p) => p.prop === prop && p.method === method)
 }
 
 /** @param {ts.CallExpression} node
@@ -412,8 +414,9 @@ function hasStatusProperty4xx5xx(expr) {
 
 /** @param {FnLike} fn
  *  @param {Set<FnLike>} seen
+ *  @param {WritePair[] | undefined} [pairs]
  *  @returns {WalkResult} */
-function walk(fn, seen, depth = 0) {
+function walk(fn, seen, depth = 0, pairs) {
   const sf = fn.getSourceFile()
   // Defense in depth (contract §8 fix round 1 #9): findSymbol already skips
   // bodyless declarations, so this should be unreachable — but a body-less
@@ -455,7 +458,7 @@ function walk(fn, seen, depth = 0) {
       if (helper && !seen.has(helper)) {
         const nextSeen = new Set(seen)
         nextSeen.add(helper)
-        const result = walk(helper, nextSeen, depth + 1)
+        const result = walk(helper, nextSeen, depth + 1, pairs)
         if (result.ok && result.emitsUnconditionally) return true
       }
     }
@@ -470,14 +473,14 @@ function walk(fn, seen, depth = 0) {
    *  @param {Set<FnLike>} writeSeen
    *  @returns {boolean} */
   function isWriteCall(node, writeSeen) {
-    if (sdkWriteCallMatch(node) || rawSupabaseWriteMatch(node) || authAdminOrStorageWriteMatch(node)) return true
+    if (sdkWriteCallMatch(node, pairs) || rawSupabaseWriteMatch(node) || authAdminOrStorageWriteMatch(node)) return true
     if (ts.isIdentifier(node.expression)) {
       const helper = helpers.get(node.expression.text)
       if (helper && !writeSeen.has(helper)) {
         const nextSeen = new Set(writeSeen)
         nextSeen.add(helper)
         if (containsWriteCall(helper, nextSeen)) return true
-        if (walk(helper, nextSeen).emitsUnconditionally) return true
+        if (walk(helper, nextSeen, 0, pairs).emitsUnconditionally) return true
       }
     }
     return false
@@ -542,8 +545,14 @@ function walk(fn, seen, depth = 0) {
 }
 
 /** @param {FnLike} fn
+ *  @param {{ writePairs?: WritePair[] }} [options] — `writePairs`: the SDK
+ *    write methods to treat as writes, used INSTEAD of reading the installed
+ *    SDK (sdk-write-methods.mjs). Omitted = today's behaviour exactly (CP2 /
+ *    CP7 / CP3). A plain-node caller in a job without the SDK passes its own
+ *    list — scripts/business/check-shared-cores.mjs passes [] (the Business
+ *    door holds no SDK client), so the walker never reaches client.d.ts.
  *  @returns {{ ok: boolean, offenders: string[] }} */
-export function emitsOnEveryNonErrorPath(fn) {
-  const { ok, offenders } = walk(fn, new Set([fn]))
+export function emitsOnEveryNonErrorPath(fn, { writePairs: pairs } = {}) {
+  const { ok, offenders } = walk(fn, new Set([fn]), 0, pairs)
   return { ok, offenders }
 }

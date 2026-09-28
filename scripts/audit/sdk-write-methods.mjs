@@ -6,7 +6,10 @@
 //
 // Plain ESM + JSDoc types (moved from src/__tests__/integration/helpers/
 // sdk-write-methods.ts, 2026-09-28) so plain `node` can import it — the CI
-// audit-gates job installs only `typescript` — alongside jest (CP3).
+// audit-gates job installs only `typescript` — alongside jest (CP3). That
+// job has NO SDK, so a plain-node caller of the emission walker passes its
+// own `writePairs` and never reaches deriveSdkClasses()
+// (scripts/business/check-shared-cores.mjs).
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
