@@ -1,9 +1,11 @@
-import type { WeeklyHours } from '@synqed-kk/client'
-import { partsInJst, ymdInJst } from '@/lib/date/jst'
+import type { SpecialOpenDay, WeeklyHours } from '@synqed-kk/client'
+import { jstWallTimeToDate, partsInJst, ymdInJst } from '@/lib/date/jst'
 import { jstMidnight } from '@/lib/date/calendar-range'
 // Type-only, so nothing of the capacity module enters this graph at runtime.
 // One spelling of provenance for the whole app: the resolver below produces it
-// and the capacity module consumes it, so the two can never drift.
+// and the capacity module consumes it, so the two can never drift. The resolver
+// says ONE thing more ('special', a 臨時営業日 — DayHoursSource below), and the
+// one place facts become capacity inputs narrows it back (reservation.ts).
 import type { HoursSource } from '@/lib/capacity/capacity'
 
 export type WeekdayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
@@ -136,20 +138,6 @@ export function getOperatingHoursForDate(hours: OperatingHours | null | undefine
   return normalized[getWeekdayKey(date)]
 }
 
-export function utcToLocalDayAndMinute(date: Date, tzOffsetMinutes: number): {
-  dayKey: WeekdayKey
-  minuteOfDay: number
-} {
-  // timezoneOffset follows Date#getTimezoneOffset semantics (UTC - local).
-  // local time is therefore UTC - offset.
-  const localDate = new Date(date.getTime() - tzOffsetMinutes * 60_000)
-
-  return {
-    dayKey: JS_DAY_TO_KEY[localDate.getUTCDay()] ?? 'mon',
-    minuteOfDay: localDate.getUTCHours() * 60 + localDate.getUTCMinutes(),
-  }
-}
-
 // ── THE 予約 NUMBERS' HOURS SOURCE — one resolver, one home ─────────────────
 //
 // ⚠ TWO NULLS, TWO MEANINGS (mirrored from src/business/lib/settings.ts:1156-1160,
@@ -161,14 +149,26 @@ export function utcToLocalDayAndMinute(date: Date, tzOffsetMinutes: number): {
 // store must never be closed for a whole week by a save that said nothing.
 // One key is enough to switch the store's own week on.
 //
-// Precedence, per day: an ad-hoc 臨時休業 date → the store's own weekly_hours →
-// the business-wide operating_hours blob → the 10:00–24:00 default (hoursSaved
-// false). Nothing else in the 予約 numbers may resolve hours.
+// Precedence, per day (⚖ G17 — core's own order): a 臨時営業日 (the store's
+// special_open_days entry for that date) → an ad-hoc 臨時休業 date → the store's
+// own weekly_hours → the business-wide operating_hours blob → the 10:00–24:00
+// default (hoursSaved false). Nothing else in the 予約 numbers may resolve hours.
+//
+// Why a special opening outranks a closure: core's requireStoreOpen lets a
+// special_open_days entry override BOTH a 定休日 and a 臨時休業 row for its date
+// (synqed-core appointment.service.ts, hasSpecialOpening — CORE-10). Resolving
+// the other way round, the app would paint 休 on, and refuse, a day the store
+// explicitly opened and core itself accepts. Core stops at "is the day open";
+// the app also holds the special day to its OWN open/close (core has no
+// time-of-day check at all, so the app stays the stricter layer). A special
+// day whose window is malformed (not HH:MM, or close ≤ open) vouches for
+// nothing: it is IGNORED with one log line and the chain goes on — so a
+// broken special day on a 臨時休業 date stays closed, never opens.
 
 /** What one JST day's hours actually are, and how much we may claim about them.
- *  `saved` = a human really set this day (a store weekly_hours entry, a closed
- *  date, or a saved org blob day) — the 稼働/空き conjunct. `closed` = 定休日 or
- *  臨時休業. `minutes` is 0 when closed.
+ *  `saved` = a human really set this day (a 臨時営業日, a store weekly_hours
+ *  entry, a closed date, or a saved org blob day) — the 稼働/空き conjunct.
+ *  `closed` = 定休日 or 臨時休業. `minutes` is 0 when closed.
  *
  *  `source` is the same fact with its PROVENANCE kept (C3 E6/E21): an org-blob
  *  day is a business-wide DEFAULT rather than a declaration about this store,
@@ -180,10 +180,11 @@ export type DayHoursFact = {
   openMinute: number
   closeMinute: number
   saved: boolean
-  /** 'store' = this store's own weekly_hours day or one of its closed dates ·
-   *  'org' = a weekday the business saved in the org blob · 'default' = the
-   *  10:00–24:00 fallback nobody set. */
-  source: HoursSource
+  /** 'special' = a 臨時営業日 this store declared for this one date, with its
+   *  own window · 'store' = this store's own weekly_hours day or one of its
+   *  closed dates · 'org' = a weekday the business saved in the org blob ·
+   *  'default' = the 10:00–24:00 fallback nobody set. */
+  source: DayHoursSource
   closed: boolean
   /** ⚖ R1-7 — WHICH closed, decided HERE and nowhere else: 'closed_date' = an
    *  ad-hoc 臨時休業 date · 'weekday' = the weekly hours. The booking door
@@ -192,6 +193,20 @@ export type DayHoursFact = {
    *  them silently. Absent on an open day, which has no such answer. */
   kind?: 'weekday' | 'closed_date'
 }
+
+/** The resolver's provenance: the capacity module's three plus 'special'.
+ *
+ *  Kept apart from HoursSource ON PURPOSE. HoursSource is also a WIRE enum —
+ *  `hoursSource` in appointments-screen-dto.ts, which the thin bundle parses
+ *  from a BAKED copy — so a fourth value there would fail the parse and blank
+ *  the 予約 screen on every phone baked before it. A special day is the
+ *  store's own declaration, so where facts become capacity inputs
+ *  (reservation.ts capacityFactsFor) it narrows to 'store': 空き may ride it
+ *  exactly as it rides a weekly_hours day (E21). */
+export type DayHoursSource = HoursSource | 'special'
+
+/** One 臨時営業日's own window, as core stores it ('HH:MM'). */
+export type SpecialOpenHours = Pick<SpecialOpenDay, 'open' | 'close'>
 
 /** Both closed paths are the STORE speaking: an ad-hoc 臨時休業 date and a
  *  weekly_hours day the store left out (its 定休日) are equally that store's
@@ -230,15 +245,71 @@ export interface DayHoursInput {
   weeklyHours: WeeklyHours | null
   /** 臨時休業 dates as JST YYYY-MM-DD. */
   closedDates: ReadonlySet<string>
+  /** 臨時営業日 — the store's `special_open_days`, JST YYYY-MM-DD → that date's
+   *  own window (specialOpenDaysByDate builds it). OPTIONAL, and absent means
+   *  the store declared none: exactly the answer every caller gave before this
+   *  field was read, so a caller that never learned of it keeps its behaviour. */
+  specialOpenDays?: ReadonlyMap<string, SpecialOpenHours>
   orgHours: OperatingHours | null | undefined
   /** The org blob weekdays a human actually saved (savedWeekdays). */
   orgSaved: ReadonlySet<WeekdayKey>
 }
 
+/** A store's `special_open_days` (StoreBookingPolicy, SDK ≥ 1.36 — always an
+ *  array on the read side) as the resolver's map. Keyed by the date string
+ *  EXACTLY as core stores it: core's own check (requireStoreOpen →
+ *  hasSpecialOpening) matches `entry.date === <JST YYYY-MM-DD>`, and the
+ *  resolver looks each day up by ymdInJst — the same spelling on both sides.
+ *  The first entry for a date wins; anything that is not an entry with a
+ *  string date is skipped here, and a malformed WINDOW is the resolver's to
+ *  judge (it logs and ignores it) — one parse, one home. */
+export function specialOpenDaysByDate(
+  days: readonly SpecialOpenDay[] | null | undefined,
+): Map<string, SpecialOpenHours> {
+  const byDate = new Map<string, SpecialOpenHours>()
+  if (!Array.isArray(days)) return byDate
+  for (const day of days as readonly unknown[]) {
+    if (!day || typeof day !== 'object') continue
+    const entry = day as Partial<SpecialOpenDay>
+    if (typeof entry.date !== 'string' || byDate.has(entry.date)) continue
+    byDate.set(entry.date, { open: entry.open as string, close: entry.close as string })
+  }
+  return byDate
+}
+
+/** A special day the resolver could not honour. The date only — never the
+ *  policy body — so the store's owner can be pointed at the one entry to fix. */
+function logIgnoredSpecialDay(ymd: string): void {
+  console.error(
+    `[day-hours] 臨時営業日 ${ymd} ignored — its window is not HH:MM with open before close; the day resolves as if it had none`,
+  )
+}
+
 export function resolveDayHours(input: DayHoursInput): DayHoursFact {
   const key = getWeekdayKey(input.date)
+  const ymd = ymdInJst(input.date)
 
-  if (input.closedDates.has(ymdInJst(input.date))) return closedFact('closed_date')
+  // ⚖ G17 — a 臨時営業日 FIRST, ahead of the closed date (core's order). It
+  // opens a 定休日 and a 臨時休業 date alike, on its own window.
+  const special = input.specialOpenDays?.get(ymd)
+  if (special) {
+    const open = minuteOfHhmm(special.open)
+    const close = minuteOfHhmm(special.close)
+    if (open != null && close != null && open < close) {
+      return {
+        minutes: close - open,
+        openMinute: open,
+        closeMinute: close,
+        saved: true,
+        source: 'special',
+        closed: false,
+      }
+    }
+    // Malformed: vouches for nothing. Said once, then the chain decides.
+    logIgnoredSpecialDay(ymd)
+  }
+
+  if (input.closedDates.has(ymd)) return closedFact('closed_date')
 
   const weekly = input.weeklyHours
   // An object with NO keys at all is not "closed every day" — it is a store
@@ -317,4 +388,39 @@ export function resolveWindowHours(
   const facts = new Map<string, DayHoursFact>()
   for (const date of days) facts.set(ymdInJst(date), resolveDayHours({ ...ctx, date }))
   return facts
+}
+
+/** ⚖ W0.5 — the read W2 needs before a store shortens a day (no caller in
+ *  this PR beyond its test): which bookings would the proposed hours STRAND?
+ *
+ *  Every row whose time on JST day `ymd` falls outside `fact`'s window — or,
+ *  when `fact` is closed, every row that touches the day at all. A row that
+ *  crosses midnight is judged by its part ON `ymd` only; the other day's part
+ *  is that day's question. Pure and caller-scoped: the caller hands the rows
+ *  it counts (terminal rows filtered or not is its call) and the fact it
+ *  proposes — e.g. tomorrow closing at 17:00 — keyed by the same JST day the
+ *  facts map uses. A row whose instants do not parse or do not run forwards
+ *  is on no day, and a `ymd` that is not a real JST calendar day strands
+ *  nothing. */
+export function bookingsOutsideHours<T extends { starts_at: string; ends_at: string }>(
+  bookings: readonly T[],
+  fact: DayHoursFact,
+  ymd: string,
+): T[] {
+  const dayStart = jstWallTimeToDate(ymd, '00:00')
+  if (Number.isNaN(dayStart.getTime()) || ymdInJst(dayStart) !== ymd) return []
+  const dayStartMs = dayStart.getTime()
+  // JST has no DST: one day is exactly 86,400,000 ms.
+  const dayEndMs = dayStartMs + 86_400_000
+
+  return bookings.filter((b) => {
+    const startMs = Date.parse(b.starts_at)
+    const endMs = Date.parse(b.ends_at)
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return false
+    if (endMs <= dayStartMs || startMs >= dayEndMs) return false // not on this day
+    if (fact.closed) return true
+    const fromMinute = (Math.max(startMs, dayStartMs) - dayStartMs) / 60_000
+    const toMinute = (Math.min(endMs, dayEndMs) - dayStartMs) / 60_000
+    return fromMinute < fact.openMinute || toMinute > fact.closeMinute
+  })
 }

@@ -2143,7 +2143,6 @@ export const createAppointment = async (input: {
   clientId: string
   startTime: string
   durationMinutes: number
-  tzOffsetMinutes?: number
   title?: string
   notes?: string
   menuId?: string

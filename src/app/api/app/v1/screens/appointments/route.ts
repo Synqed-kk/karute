@@ -56,6 +56,7 @@ import {
 import {
   jstWindowDays,
   resolveWindowHours,
+  specialOpenDaysByDate,
   type WeekdayKey,
 } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
@@ -322,6 +323,9 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     const hoursFacts = resolveWindowHours(span.days, {
       weeklyHours: policy?.weekly_hours ?? null,
       closedDates: new Set(closedDays.closed_days.map((d) => d.date)),
+      // ⚖ W0.5 — the same policy read's 臨時営業日 (see appointments-window.ts):
+      // the phone's cells and the booking door answer a special day alike.
+      specialOpenDays: specialOpenDaysByDate(policy?.special_open_days),
       orgHours: orgSettings?.operating_hours,
       orgSaved: new Set<WeekdayKey>(orgSettings?.operating_hours_saved ?? []),
     })

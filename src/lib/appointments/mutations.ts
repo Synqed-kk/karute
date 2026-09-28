@@ -17,7 +17,12 @@
 
 import { SynqedError, type SynqedClient } from '@synqed-kk/client'
 import type { AppointmentInput, BookingTimeRefusal } from '@/lib/appointments'
-import { validateAppointmentInput, validateAppointmentTime } from '@/lib/appointments'
+import {
+  bookingLastDay,
+  effectiveInterval,
+  validateAppointmentInput,
+  validateAppointmentTime,
+} from '@/lib/appointments'
 import {
   CANCEL_REASON_SAME_DAY_CONTACT,
   CANCEL_REASONS,
@@ -197,7 +202,15 @@ export async function createAppointmentCore(
     // Isolation is unchanged: this id is the door's clamped store, or one
     // derived server-side from the booked staff's own assignment / the tenant
     // primary — never client input, and never another store.
-    const dayHours = await fetchBookingDayHours(synqed, storeId, startTime, deps.orgSaved)
+    // ⚖ W0.5 X11 — through the LAST day the booking touches: one running past
+    // midnight is judged on both days, so both days' 臨時休業 are read.
+    const dayHours = await fetchBookingDayHours(
+      synqed,
+      storeId,
+      startTime,
+      deps.orgSaved,
+      bookingLastDay(input),
+    )
     const hoursError = await validateAppointmentTime(input, deps.operatingHours, dayHours)
     // Refused BEFORE anything reaches core: no appointment row, and no audit row
     // claiming one (⚖ PKT-1c-C S4 — the audit() call below is the only writer in
@@ -610,8 +623,10 @@ export async function markNoShowAppointmentCore(
 }
 
 /**
- * Reschedules and/or reassigns a booking (patch-style: only provided fields
- * change; no other appointment field is ever touched). `patch.staffId` is
+ * Reschedules and/or reassigns a booking (patch-style: only what the patch
+ * names changes — the staff, the time, or both; no other appointment field is
+ * ever touched. A time change always reaches core as the whole judged
+ * interval, see ⚖ W0.5 fix 1 below). `patch.staffId` is
  * already in CORE's staff.id space — the caller (the web action) does the
  * profiles.id → staff.id translation via resolveSynqedStaffId before calling
  * in, the same contract createAppointmentCore's deps.synqedStaffId has.
@@ -634,6 +649,23 @@ export async function markNoShowAppointmentCore(
  *     staffer happens to be looking at.
  * Whatever the patch leaves out falls back to the booking's stored value, so a
  * duration-only edit is still judged against the real start.
+ *
+ * ⚖ W0.5 X11 (2026-09-28): the gate used to ask only `startsAt` and
+ * `durationMinutes`, so a patch carrying `endsAt` ALONE — an end-only stretch
+ * past closing — skipped the hours question entirely and went straight to
+ * core, which has no time-of-day check. Latent (the one caller always sends
+ * endsAt with startsAt), but the contract was open. Any time field now opens
+ * the gate, and the patch is normalised to ONE effective interval
+ * (effectiveInterval) before it is judged, on every day it touches.
+ *
+ * ⚖ W0.5 fix 1 (2026-09-28): the payload used to carry only the fields the
+ * patch named. Core fills an omitted starts_at/ends_at from the stored row and
+ * never derives ends_at from duration_minutes (a label there), so the judged
+ * interval and the stored one could differ — a start-only move of 17:00–18:00
+ * to 16:00 was judged 16:00–17:00 and stored 16:00–18:00. Whenever the time
+ * gate opens, core now gets the WHOLE judged interval: starts_at, ends_at, and
+ * duration_minutes as the judged whole minutes. A patch that touches no time
+ * field sends exactly what it named.
  */
 export async function updateAppointmentCore(
   synqed: MutationClient,
@@ -661,21 +693,40 @@ export async function updateAppointmentCore(
       return { error: 'A cancelled or no-show booking cannot be edited.' }
     }
 
+    // ⚖ W0.5 fix 1 — the interval judged below is the interval core stores.
+    // Core fills an omitted starts_at/ends_at from the stored row and never
+    // derives ends_at from duration_minutes (a label there), so a payload of
+    // only the named fields lands a DIFFERENT booking than the one judged
+    // (stored 17:00–18:00 + { startsAt: 16:00 } → judged 16:00–17:00, stored
+    // 16:00–18:00). Set only when the time gate opens and the door says yes.
+    let judged: { starts_at: string; ends_at: string; duration_minutes: number } | null = null
+
     // ⚖ PKT-1c-C S3 — a reschedule goes through the same door. Only a patch
     // that MOVES the booking in time is judged; a staff-only reassign leaves the
     // time untouched and has no hours question to answer.
-    if (patch.startsAt !== undefined || patch.durationMinutes !== undefined) {
-      const startTime = patch.startsAt ?? appt.starts_at
-      // `duration_minutes` is nullable on core's row (BLOCK rows and some
-      // imports carry none), while starts_at/ends_at never are — so the span is
-      // the honest fallback, not a made-up default that would refuse the edit
-      // with the wrong reason.
-      const durationMinutes =
-        patch.durationMinutes ??
-        appt.duration_minutes ??
-        Math.round(
-          (new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime()) / 60_000,
-        )
+    // ⚖ W0.5 X11 — "moves in time" includes the END: an end-only stretch is a
+    // time change like any other.
+    if (
+      patch.startsAt !== undefined ||
+      patch.endsAt !== undefined ||
+      patch.durationMinutes !== undefined
+    ) {
+      // ONE interval, whatever shape the patch has. The stored interval is
+      // starts_at/ends_at, which core's row always carries (duration_minutes is
+      // a nullable label on BLOCK rows and some imports — never the fallback).
+      const interval = effectiveInterval(
+        { startsAt: appt.starts_at, endsAt: appt.ends_at },
+        patch,
+      )
+      if ('error' in interval) return interval
+      const startTime = interval.startsAt.toISOString()
+      // Whole minutes, rounded UP — the LABEL (core's duration_minutes). The
+      // hours judge never reads it for the end: a legacy row with seconds made
+      // start-floor + ceil ≠ the real end (17:30:30 → 18:00:15 was judged as
+      // 17:30 + 30 = 18:00), so the exact end rides in as endTime below.
+      const durationMinutes = Math.ceil(
+        (interval.endsAt.getTime() - interval.startsAt.getTime()) / 60_000,
+      )
       // ⚖ R1-2 — the same rule as create: the day is judged against the store
       // the row LANDS in. A row whose store_id is null (BLOCK rows, some
       // imports) used to reach `fetchBookingDayHours(null)`, which asks nobody
@@ -686,29 +737,36 @@ export async function updateAppointmentCore(
       const landingStoreId =
         appt.store_id ??
         (landingStaffId ? await defaultBookingStore(synqed, landingStaffId) : null)
+      const timeInput = {
+        staffProfileId: patch.staffId ?? '',
+        clientId: appt.customer_id,
+        startTime,
+        durationMinutes,
+        // ⚖ W0.5 fix 2 — the judge compares the EXACT end (seconds and all),
+        // the instant core receives below; durationMinutes stays the label.
+        endTime: interval.endsAt.toISOString(),
+        // No offset: the judgement is JST-only for every caller (W0.5 fix 2).
+      }
       const dayHours = await fetchBookingDayHours(
         synqed,
         landingStoreId,
-        new Date(startTime),
+        interval.startsAt,
         hours.orgSaved,
+        // Every day the interval touches (X11), from the same arithmetic the
+        // walk inside validateAppointmentTime uses.
+        bookingLastDay(timeInput),
       )
-      const timeError = await validateAppointmentTime(
-        {
-          staffProfileId: patch.staffId ?? '',
-          clientId: appt.customer_id,
-          startTime,
-          durationMinutes,
-          // karute is JST-only (the same rule getAppointmentsByDate states at
-          // src/actions/appointments.ts) and the dialog already hard-codes it:
-          // JST is UTC+9 with no DST, so getTimezoneOffset semantics = -540.
-          tzOffsetMinutes: -540,
-        },
-        hours.operatingHours,
-        dayHours,
-      )
+      const timeError = await validateAppointmentTime(timeInput, hours.operatingHours, dayHours)
       // Refused before `appointments.update` — the existing row is not touched
       // and no audit row claims it was.
       if (timeError) return timeError
+      // What was judged is what core gets: the whole pair, and the label as
+      // the judged whole minutes (an end-only stretch never leaves it stale).
+      judged = {
+        starts_at: startTime,
+        ends_at: interval.endsAt.toISOString(),
+        duration_minutes: durationMinutes,
+      }
     }
 
     const sdkPatch: {
@@ -718,9 +776,13 @@ export async function updateAppointmentCore(
       duration_minutes?: number
     } = {}
     if (patch.staffId !== undefined) sdkPatch.staff_id = patch.staffId
-    if (patch.startsAt !== undefined) sdkPatch.starts_at = patch.startsAt
-    if (patch.endsAt !== undefined) sdkPatch.ends_at = patch.endsAt
-    if (patch.durationMinutes !== undefined) sdkPatch.duration_minutes = patch.durationMinutes
+    // A time patch sends the WHOLE judged interval, never only the fields it
+    // named; a patch that touched no time field adds none.
+    if (judged) {
+      sdkPatch.starts_at = judged.starts_at
+      sdkPatch.ends_at = judged.ends_at
+      sdkPatch.duration_minutes = judged.duration_minutes
+    }
 
     // No provided fields → no mutation → no audit row: calling update({})
     // would be a no-op write that still logged a "something changed" row.

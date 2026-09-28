@@ -287,7 +287,6 @@ describe('T1 misfile regression — NewBookingDialog with a management viewer', 
       clientId: 'cust-1',
       startTime: '2026-08-18T02:00:00.000Z', // 11:00 JST
       durationMinutes: 60,
-      tzOffsetMinutes: -540,
       title: undefined,
       menuId: undefined,
     })

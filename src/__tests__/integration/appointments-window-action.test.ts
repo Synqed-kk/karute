@@ -291,3 +291,38 @@ describe('⚖ S7 — the fetch starts one JST day EARLY (the window-edge leak)',
     expect(win.hoursFacts.map(([ymd]) => ymd)).toEqual(['2026-09-15'])
   })
 })
+
+// ⚖ W0.5 (PR A) — the web window reads the SAME policy's 臨時営業日, so the
+// week/month cells paint a special opening open exactly where the booking door
+// (day-hours.ts) now takes a booking on it. One resolver, one answer.
+describe('⚖ W0.5 — the window read carries 臨時営業日 into the hours facts', () => {
+  it('a special opening on a 臨時休業 date resolves OPEN on its own window', async () => {
+    const s = await spies()
+    s.policyGet.mockResolvedValue({
+      weekly_hours: { tue: { open: '10:00', close: '20:00' } },
+      special_open_days: [{ date: '2026-09-15', open: '12:00', close: '16:00' }],
+    })
+    s.closedDays.mockResolvedValue({ closed_days: [{ date: '2026-09-15' }] })
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    expect(win.hoursFacts).toEqual([
+      [
+        '2026-09-15',
+        {
+          minutes: 240,
+          openMinute: 720,
+          closeMinute: 960,
+          saved: true,
+          source: 'special',
+          closed: false,
+        },
+      ],
+    ])
+  })
+
+  it('the same closed date with no special entry stays closed (unchanged)', async () => {
+    const s = await spies()
+    s.closedDays.mockResolvedValue({ closed_days: [{ date: '2026-09-15' }] })
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    expect(win.hoursFacts[0][1]).toMatchObject({ closed: true, kind: 'closed_date' })
+  })
+})

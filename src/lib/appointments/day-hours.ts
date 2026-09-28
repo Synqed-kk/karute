@@ -1,11 +1,13 @@
 // ⚖ PKT-1c-C — the ONE read behind the closed-day booking door.
 //
 // The 予約 screens already resolve a day's hours through resolveDayHours off
-// four inputs (the store's own weekly_hours, its 臨時休業 dates, the
-// business-wide blob, and which of that blob's weekdays a human really saved).
-// The WRITE path has to ask the same question about exactly ONE day, so this is
-// that same fetch shape (src/actions/appointments-window.ts:109-146) narrowed to
-// a single date — never a window, never a second resolver.
+// five inputs (the store's own weekly_hours, its 臨時休業 dates, its 臨時営業日
+// — special_open_days, ⚖ W0.5 — the business-wide blob, and which of that
+// blob's weekdays a human really saved).
+// The WRITE path has to ask the same question about the day ONE booking sits
+// on, so this is that same fetch shape (src/actions/appointments-window.ts)
+// narrowed to that date — or, ⚖ W0.5 X11, to the run of days a booking that
+// crosses midnight touches — never a screen's window, never a second resolver.
 //
 // ⚖ R1-10 — and the fact this door refuses on IS shown: BOOKING_SWITCHES
 // .closedDays goes ON with this branch, so the week row and the day numbers
@@ -43,7 +45,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
-import type { WeekdayKey } from '@/lib/operating-hours'
+import { specialOpenDaysByDate, type WeekdayKey } from '@/lib/operating-hours'
 import type { BookingDayHours } from '@/lib/appointments'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 
@@ -53,7 +55,10 @@ type StorePolicyReader = {
 }
 
 /** The store said nothing about this day. Never closed on its own: the org blob
- *  below still gets its say, and a day nobody saved anywhere stays open. */
+ *  below still gets its say, and a day nobody saved anywhere stays open.
+ *  No 臨時営業日 either — `specialOpenDays` is left ABSENT, which the resolver
+ *  reads as "the store declared none" (DayHoursInput): the same answer as an
+ *  empty map, in the shape this function has always returned. */
 export function orgOnlyDayHours(orgSaved: readonly WeekdayKey[] | undefined): BookingDayHours {
   return {
     weeklyHours: null,
@@ -63,7 +68,11 @@ export function orgOnlyDayHours(orgSaved: readonly WeekdayKey[] | undefined): Bo
 }
 
 /**
- * The store's own hours facts for the ONE JST day `date` falls on.
+ * The store's own hours facts for the JST day `date` falls on — and, when
+ * `lastDay` is given, for every JST day from there through `lastDay`'s (⚖ W0.5
+ * X11: a booking that runs past midnight is judged on each day it touches, so
+ * its 臨時休業 read must cover them all). The weekly hours and the 臨時営業日
+ * are the whole policy either way; only the closed-days range widens.
  *
  * `storeId` is the booking's store as its door already clamped it (the web
  * action's cookie clamp / the facade's store-id header clamp) — never guessed,
@@ -76,6 +85,10 @@ export async function fetchBookingDayHours(
   storeId: string | null | undefined,
   date: Date,
   orgSaved: readonly WeekdayKey[] | undefined,
+  /** The instant of the LAST day the booking touches (appointments.ts
+   *  bookingLastDay). Absent, invalid, or not after `date` → `date`'s day
+   *  alone, the one-day read every caller made before. */
+  lastDay?: Date,
 ): Promise<BookingDayHours> {
   // ⚖ MERGE #937 fix round 1, B2 — a layer switched OFF must reproduce the
   // behaviour from before this round. The same no-store-facts answer this
@@ -92,7 +105,11 @@ export async function fetchBookingDayHours(
   if (!storeId || Number.isNaN(date.getTime())) return orgOnlyDayHours(orgSaved)
 
   const ymd = ymdInJst(date)
-  const nextDay = new Date(date.getTime() + 86_400_000)
+  const through =
+    lastDay && !Number.isNaN(lastDay.getTime()) && lastDay.getTime() > date.getTime()
+      ? lastDay
+      : date
+  const nextDay = new Date(through.getTime() + 86_400_000)
 
   // The async wrappers are not decoration: they turn a SYNCHRONOUS throw (a
   // client whose storePolicies namespace is missing) into a rejection, so it
@@ -101,7 +118,8 @@ export async function fetchBookingDayHours(
   const [policy, closed] = await Promise.allSettled([
     (async () => synqed.storePolicies.get(storeId))(),
     // `to` is EXCLUSIVE (the SDK's own contract, dist/store-policies.d.ts), so
-    // one day is [ymd, ymd+1). JST has no DST — one day is exactly 86,400,000 ms.
+    // one day is [ymd, ymd+1) and a run of days is [ymd, last+1). JST has no
+    // DST — one day is exactly 86,400,000 ms.
     (async () =>
       synqed.storePolicies.listClosedDays(storeId, { from: ymd, to: ymdInJst(nextDay) }))(),
   ])
@@ -111,6 +129,13 @@ export async function fetchBookingDayHours(
 
   return {
     weeklyHours: policy.status === 'fulfilled' ? (policy.value?.weekly_hours ?? null) : null,
+    // ⚖ W0.5 — the SAME policy object already in hand. It used to be read for
+    // weekly_hours and its special_open_days dropped on the floor, so a day
+    // the store explicitly opened (and core accepts) was refused here. A
+    // failed read knows no special day, exactly as it knows no weekly hours.
+    specialOpenDays: specialOpenDaysByDate(
+      policy.status === 'fulfilled' ? policy.value?.special_open_days : null,
+    ),
     closedDates: new Set(
       closed.status === 'fulfilled' ? closed.value.closed_days.map((d) => d.date) : [],
     ),

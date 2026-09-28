@@ -1060,3 +1060,43 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(res.status).toBe(502)
   })
 })
+
+// ⚖ W0.5 (PR A) — the phone's 予約 route reads the SAME policy's 臨時営業日.
+// Two things are pinned at the wire: the special Wednesday reaches the phone
+// OPEN while a plain Wednesday stays 休, and the resolver's 'special'
+// provenance never reaches `hoursSource` — the DTO parse on this route (and in
+// every baked thin bundle) knows only 'store' | 'org' | 'default', so a leak
+// would 500 this route and blank older phones.
+describe('⚖ W0.5 — a 臨時営業日 reaches the phone open, and the wire still parses', () => {
+  const WEEK_WED_CLOSED = {
+    mon: { open: '10:00', close: '19:00' },
+    tue: { open: '10:00', close: '19:00' },
+    wed: null,
+    thu: { open: '10:00', close: '19:00' },
+    fri: { open: '10:00', close: '19:00' },
+    sat: { open: '10:00', close: '19:00' },
+    sun: { open: '10:00', close: '19:00' },
+  }
+
+  it('the special Wednesday is open, the plain one is still 休, and no "special" rides the DTO', async () => {
+    ;(fakeClient.storePolicies.get as jest.Mock).mockImplementationOnce(async () => ({
+      weekly_hours: WEEK_WED_CLOSED,
+      special_open_days: [{ date: '2026-09-16', open: '12:00', close: '18:00' }],
+      source: 'custom',
+    }))
+    // A real divisor roster, so the special day computes a capacity (and a
+    // hoursSource) rather than stopping at 'roster-unknown'.
+    storeDivisorRosterForBusiness.mockResolvedValue(new Set(['staff-core-1']))
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-16'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const dto = AppointmentsScreenDTO.parse(body.data ?? body)
+    const cell = (id: string) => dto.monthData!.find((c) => c.id === id)!
+    expect(cell('2026-09-16').closed).toBe(false)
+    expect(cell('2026-09-23').closed).toBe(true)
+    expect(JSON.stringify(body)).not.toContain('"special"')
+  })
+})
