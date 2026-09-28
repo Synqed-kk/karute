@@ -1,17 +1,22 @@
 export default function KaruteLoading() {
   return (
     <div className="mx-auto flex w-full max-w-6xl animate-pulse flex-col gap-4 p-4 md:gap-5 md:p-6">
-      {/* Header: title + stats + CTA */}
+      {/* Header: title + stats */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="h-8 w-28 rounded bg-muted md:h-9 md:w-32" />
           <div className="h-4 w-72 rounded bg-muted" />
         </div>
-        <div className="size-9 rounded-full bg-muted" />
       </div>
 
-      {/* Search bar */}
-      <div data-testid="list-search-skeleton" className="box-content h-9 rounded-full border border-border bg-muted" />
+      {/* Search + the add circle at the row's end — the live row's order and
+       *  gap (KaruteRecordListView). */}
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div data-testid="list-search-skeleton" className="box-content h-9 rounded-full border border-border bg-muted" />
+        </div>
+        <div className="size-9 shrink-0 rounded-full bg-muted" />
+      </div>
 
       {/* 4 status filter chips — matches the live list (レビュー要
        *  was dropped in PR #63 because no data path assigned it).
