@@ -288,7 +288,12 @@ function capacityFactsFor(
           ? {
               openMs: dayStartMs + hoursFact.openMinute * 60_000,
               closeMs: dayStartMs + hoursFact.closeMinute * 60_000,
-              source: hoursFact.source,
+              // ⚖ W0.5 — a 臨時営業日 is the STORE's own declaration for that
+              // date, so to capacity it is 'store' (空き may ride it, E21).
+              // Narrowed HERE, the one place facts become capacity inputs, so
+              // the wire's hoursSource enum — parsed by the thin bundle from a
+              // baked copy — never carries a value an older phone rejects.
+              source: hoursFact.source === 'special' ? 'store' : hoursFact.source,
               closed: hoursFact.closed,
             }
           : null,
