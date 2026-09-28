@@ -50,7 +50,7 @@ export type InviteClient = Pick<SynqedClient, 'invites' | 'audit'> &
 /** Identity + provenance a Bearer/cookie caller feeds an invite write core. */
 type InviteWriteDeps = {
   actorId: string | null
-  source: 'web' | 'facade'
+  source: 'web' | 'facade' | 'business'
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. */
   requestId?: string

@@ -7,7 +7,11 @@
 // check-business-isolation.mjs); territory list is shared via
 // business-territory.json. ONE named outward exception (⚖ Liam 9/19, the
 // practice-salon door): src/business/lib/practice-door/core-reach.ts may
-// import the core client factory, see FILE_ALLOWED_TARGETS.
+// import the core client factory, see FILE_ALLOWED_TARGETS. ⚖ 2026-09-28
+// (PLAN-BUSINESS-LIVE v2.2 §2 S1, W0 PR (1)): a second row, keyed by
+// business-territory.json's sharedCores.doorFile, lets that ONE file import the
+// phone's shared mutation cores (sharedCores.modules, read from the JSON, never
+// retyped) — and only src/business/lib/data.ts may import the door file.
 //
 // Scanner lessons inherited from the #660/#661 guard work: three independent
 // per-form regexes, never one combined alternation (a spanning wildcard let a
@@ -34,9 +38,16 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 
 const ROOT = process.cwd()
-const territory: string[] = JSON.parse(
+const fences: { territory: string[]; sharedCores: { doorFile: string; modules: string[] } } = JSON.parse(
   readFileSync(join(ROOT, 'scripts/business/business-territory.json'), 'utf8'),
-).territory
+)
+const territory: string[] = fences.territory
+// ⚖ 2026-09-28 — the shared-cores door (W0 PR (1)): one file, the listed
+// modules, one importer. scripts/business/check-shared-cores.mjs is the call-
+// site half (which calls, from which exported function); this suite is the
+// import half.
+const SHARED_CORES = fences.sharedCores
+const DOOR_IMPORTERS = ['src/business/lib/data.ts']
 
 // Territory prefixes carry a trailing '/', so a plain startsWith misses the
 // root itself: an extensionless barrel import (`@/business` → src/business/
@@ -172,6 +183,11 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   // stays an offender. DESIGN-PRACTICE-DOOR.md §9.
   const FILE_ALLOWED_TARGETS: Record<string, string[]> = {
     'src/business/lib/practice-door/core-reach.ts': ['src/lib/synqed/client'],
+    // ⚖ 2026-09-28 (PLAN-BUSINESS-LIVE v2.2 §2 S1) — the desk writes through the
+    // phone's own cores from ONE file. Keyed and valued straight from the JSON,
+    // so the fence and this allowlist can never disagree; judged on the RESOLVED
+    // target like the row above (a barrel such as `@/lib/appointments` stays out).
+    [SHARED_CORES.doorFile]: SHARED_CORES.modules,
   }
   // Bare packages: the render runtime only. `node:` builtins ride along because
   // the territory's own test file reads fixtures off disk — stdlib reaches no
@@ -279,6 +295,73 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     expect(outwardOffense('@/lib/synqed/client', from)).not.toBeNull()
     expect(outwardOffense('@synqed-kk/client', door)).not.toBeNull()
     expect(outwardOffense('@/lib/staff', door)).not.toBeNull()
+  })
+
+  // ⚖ 2026-09-28 (W0 PR (1)) — the shared-cores door, judged like the factory door above.
+  it('the shared-cores door: doorFile may import exactly the JSON modules, nothing else, and no other file may', () => {
+    expect(SHARED_CORES.doorFile).toBe('src/business/lib/practice-door/door-writes.ts')
+    expect(inTerritory(SHARED_CORES.doorFile)).toBe(true)
+    expect(SHARED_CORES.modules.length).toBeGreaterThan(0)
+    expect(FILE_ALLOWED_TARGETS[SHARED_CORES.doorFile]).toBe(SHARED_CORES.modules)
+    const door = SHARED_CORES.doorFile
+    for (const mod of SHARED_CORES.modules) {
+      // Either spelling from the door; neither from data.ts or core-reach.ts.
+      expect(outwardOffense(`@/${mod.slice('src/'.length)}`, door)).toBeNull()
+      expect(outwardOffense(`../../../${mod.slice('src/'.length)}`, door)).toBeNull()
+      expect(outwardOffense(`@/${mod.slice('src/'.length)}`, 'src/business/lib/data.ts')).not.toBeNull()
+      expect(outwardOffense(`@/${mod.slice('src/'.length)}`, 'src/business/lib/practice-door/core-reach.ts')).not.toBeNull()
+    }
+    // A neighbour of a listed module, a barrel, and the audit POLICY stay out.
+    expect(outwardOffense('@/lib/audit-policy', door)).not.toBeNull()
+    expect(outwardOffense('@/lib/appointments', door)).not.toBeNull()
+    expect(outwardOffense('@/lib/customers/customers', door)).not.toBeNull()
+    expect(outwardOffense('@/lib/synqed/client', door)).not.toBeNull()
+  })
+
+  /** Every scanned file (both walks) whose import resolves to the door file. */
+  function importersOfDoor(scanned: Array<{ rel: string; src: string }>): string[] {
+    const doorModule = SHARED_CORES.doorFile.replace(/\.[cm]?[jt]sx?$/, '')
+    const out = new Set<string>()
+    for (const { rel, src } of scanned) {
+      for (const [, re] of IMPORT_FORMS) {
+        re.lastIndex = 0
+        for (let m = re.exec(src); m; m = re.exec(src)) {
+          const target = resolveSpecifier(m[1], rel)
+          if (target !== null && target.replace(/\.[cm]?[jt]sx?$/, '') === doorModule) out.add(rel)
+        }
+      }
+    }
+    return [...out].sort()
+  }
+
+  it('the shared-cores door file has ONE possible importer: src/business/lib/data.ts', () => {
+    const scanned = [...files, ...businessFiles].map((f) => ({
+      rel: f.slice(ROOT.length + 1),
+      src: stripFullLineComments(readFileSync(f, 'utf8')),
+    }))
+    const strays = importersOfDoor(scanned).filter((rel) => !DOOR_IMPORTERS.includes(rel))
+    expect(strays).toEqual([])
+  })
+
+  it('the one-importer pin bites (self-check): both spellings resolve, data.ts passes, anything else is a stray', () => {
+    // Spliced, so this file's own text never holds a Business import form.
+    const rel = './door-writes'
+    const alias = `@/${SHARED_CORES.doorFile.slice('src/'.length).replace(/\.ts$/, '')}`
+    const fixtures = [
+      { rel: 'src/business/lib/data.ts', src: `import { moveBooking } from '${alias}'` },
+      { rel: 'src/business/lib/practice-door/other.ts', src: `import { moveBooking } from '${rel}'` },
+      { rel: 'src/business/screens/Home.tsx', src: `const d = await import('${alias}')` },
+      { rel: 'src/business/lib/practice-door/near.ts', src: `import { x } from './door-writes-helpers'` },
+    ]
+    expect(importersOfDoor(fixtures)).toEqual([
+      'src/business/lib/data.ts',
+      'src/business/lib/practice-door/other.ts',
+      'src/business/screens/Home.tsx',
+    ])
+    expect(importersOfDoor(fixtures).filter((r) => !DOOR_IMPORTERS.includes(r))).toEqual([
+      'src/business/lib/practice-door/other.ts',
+      'src/business/screens/Home.tsx',
+    ])
   })
 
   it('the rendered-test door: one folder, one file shape, two specifiers, bare only', () => {

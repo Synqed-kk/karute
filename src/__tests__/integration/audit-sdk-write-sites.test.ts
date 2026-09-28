@@ -11,10 +11,10 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import ts from 'typescript'
 import { AUDITED_CORES, SDK_WRITE_ALLOWLIST, RAW_SUPABASE_WRITE_ALLOWLIST } from '@/lib/audit-policy'
-import { findSymbol } from './helpers/audit-emission'
-import { deriveSdkClasses, deriveWriteMethods, type WritePair } from './helpers/sdk-write-methods'
+import { findSymbol } from '../../../scripts/audit/emission-walker.mjs'
+import { deriveSdkClasses, deriveWriteMethods, type WritePair } from '../../../scripts/audit/sdk-write-methods.mjs'
 import { srcFiles } from './helpers/src-files'
-import { staticAccessName, calleeObject, isComputedAccess, rootIdentifierName, accessChain } from './helpers/ast-access'
+import { staticAccessName, calleeObject, isComputedAccess, rootIdentifierName, accessChain } from '../../../scripts/audit/ast-access.mjs'
 
 const ROOT = process.cwd()
 const STORAGE_WRITE_METHODS = new Set(['upload', 'remove', 'update', 'move', 'copy'])

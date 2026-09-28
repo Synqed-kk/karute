@@ -27,21 +27,31 @@
 // (a call-through target whose own unresolved return is itself another
 // call-through) is flagged with a distinguishing offender message rather
 // than silently recursing further.
+//
+// Plain ESM + JSDoc types (moved from src/__tests__/integration/helpers/
+// audit-emission.ts, 2026-09-28, logic unchanged) so plain `node` can import
+// it — the CI audit-gates job installs only `typescript`. Consumers: CP2
+// (audit-coveredby), CP7 (audit-writer-emission), CP3 (audit-sdk-write-sites,
+// findSymbol) and scripts/business/check-shared-cores.mjs.
 import ts from 'typescript'
-import { deriveWriteMethods, type WritePair } from './sdk-write-methods'
-import { staticAccessName, calleeObject } from './ast-access'
+import { deriveWriteMethods } from './sdk-write-methods.mjs'
+import { staticAccessName, calleeObject } from './ast-access.mjs'
+
+/** @typedef {import('./sdk-write-methods.mjs').WritePair} WritePair */
 
 // 'auditDurable' (recording-integrity A1) is the third emit primitive — the
 // awaited/durable variant of audit() for rows that ARE the deliverable. Every
 // scanner in this suite that recognizes an emit must know all three names, or
 // a durable writer is invisible to the proof net (CP2/CP4/CP5/CP7 each carry
 // the same widened set).
-const EMIT_NAMES = new Set(['audit', 'auditWeb', 'auditDurable', 'logFacadeAudit'])
+export const EMIT_NAMES = new Set(['audit', 'auditWeb', 'auditDurable', 'logFacadeAudit'])
 const SUPABASE_WRITE_VERBS = new Set(['insert', 'update', 'upsert', 'delete'])
 
-type FnLike = ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.MethodDeclaration
+/** @typedef {ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.MethodDeclaration} FnLike */
 
-function isFnLike(node: ts.Node): node is FnLike {
+/** @param {ts.Node} node
+ *  @returns {node is FnLike} */
+function isFnLike(node) {
   return (
     ts.isFunctionDeclaration(node) ||
     ts.isArrowFunction(node) ||
@@ -52,12 +62,15 @@ function isFnLike(node: ts.Node): node is FnLike {
 
 /** Unwrap to the function-like value itself, or — the facade-wrapped idiom
  *  `export const GET = facadeHandler('key', async (ctx) => {...})` — the
- *  LAST function-typed argument of the call (contract §8 v2 Deliverable 3). */
-function unwrapFnLike(expr: ts.Expression | undefined): FnLike | null {
+ *  LAST function-typed argument of the call (contract §8 v2 Deliverable 3).
+ *  @param {ts.Expression | undefined} expr
+ *  @returns {FnLike | null} */
+function unwrapFnLike(expr) {
   if (!expr) return null
   if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return expr
   if (ts.isCallExpression(expr)) {
-    let last: FnLike | null = null
+    /** @type {FnLike | null} */
+    let last = null
     for (const arg of expr.arguments) {
       if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) last = arg
     }
@@ -76,11 +89,16 @@ function unwrapFnLike(expr: ts.Expression | undefined): FnLike | null {
  *  keeps scanning for the real implementation sharing that name (contract §8
  *  fix round 1 #9) — resolving to a signature would give the walker zero
  *  returns and zero emits, which reads as a vacuous PASS, not the loud
- *  failure a body-less symbol should be. */
-export function findSymbol(sourceText: string, symbolName: string): FnLike | null {
+ *  failure a body-less symbol should be.
+ *  @param {string} sourceText
+ *  @param {string} symbolName
+ *  @returns {FnLike | null} */
+export function findSymbol(sourceText, symbolName) {
   const sf = ts.createSourceFile('__scan__.tsx', sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-  let found: FnLike | null = null
-  function visit(node: ts.Node): void {
+  /** @type {FnLike | null} */
+  let found = null
+  /** @param {ts.Node} node */
+  function visit(node) {
     if (found) return
     if (ts.isFunctionDeclaration(node) && node.name?.text === symbolName && node.body) {
       found = node
@@ -103,18 +121,25 @@ export function findSymbol(sourceText: string, symbolName: string): FnLike | nul
   return found
 }
 
-function fnBody(fn: FnLike): ts.Block | null {
+/** @param {FnLike} fn
+ *  @returns {ts.Block | null} */
+function fnBody(fn) {
   return fn.body && ts.isBlock(fn.body) ? fn.body : null
 }
 
-function isEmitCall(node: ts.Node): boolean {
+/** @param {ts.Node} node
+ *  @returns {boolean} */
+function isEmitCall(node) {
   return ts.isCallExpression(node) && ts.isIdentifier(node.expression) && EMIT_NAMES.has(node.expression.text)
 }
 
-function forEachOwn(root: FnLike, visitor: (n: ts.Node) => void): void {
+/** @param {FnLike} root
+ *  @param {(n: ts.Node) => void} visitor */
+function forEachOwn(root, visitor) {
   const body = fnBody(root)
   if (!body) return
-  function walk(node: ts.Node): void {
+  /** @param {ts.Node} node */
+  function walk(node) {
     if (node !== root && isFnLike(node)) return // stop at nested closures
     visitor(node)
     ts.forEachChild(node, walk)
@@ -122,16 +147,22 @@ function forEachOwn(root: FnLike, visitor: (n: ts.Node) => void): void {
   ts.forEachChild(body, walk)
 }
 
-function ownEmitCalls(root: FnLike): ts.CallExpression[] {
-  const out: ts.CallExpression[] = []
+/** @param {FnLike} root
+ *  @returns {ts.CallExpression[]} */
+function ownEmitCalls(root) {
+  /** @type {ts.CallExpression[]} */
+  const out = []
   forEachOwn(root, (n) => {
-    if (isEmitCall(n)) out.push(n as ts.CallExpression)
+    if (isEmitCall(n)) out.push(/** @type {ts.CallExpression} */ (n))
   })
   return out
 }
 
-function ownReturns(root: FnLike): ts.ReturnStatement[] {
-  const out: ts.ReturnStatement[] = []
+/** @param {FnLike} root
+ *  @returns {ts.ReturnStatement[]} */
+function ownReturns(root) {
+  /** @type {ts.ReturnStatement[]} */
+  const out = []
   forEachOwn(root, (n) => {
     if (ts.isReturnStatement(n)) out.push(n)
   })
@@ -142,10 +173,14 @@ function ownReturns(root: FnLike): ts.ReturnStatement[] {
  *  call-through rule's "declared in the same file" scope (covers both the
  *  nested-closure emitSave idiom and cross-declaration *Core/*WithClient
  *  helpers this codebase uses throughout). Last declaration wins on a name
- *  collision (none observed in this codebase). */
-function sameFileDeclarations(sf: ts.SourceFile): Map<string, FnLike> {
-  const out = new Map<string, FnLike>()
-  function visit(node: ts.Node): void {
+ *  collision (none observed in this codebase).
+ *  @param {ts.SourceFile} sf
+ *  @returns {Map<string, FnLike>} */
+function sameFileDeclarations(sf) {
+  /** @type {Map<string, FnLike>} */
+  const out = new Map()
+  /** @param {ts.Node} node */
+  function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name) {
       out.set(node.name.text, node)
     }
@@ -159,8 +194,10 @@ function sameFileDeclarations(sf: ts.SourceFile): Map<string, FnLike> {
   return out
 }
 
-let _writePairs: WritePair[] | null = null
-function writePairs(): WritePair[] {
+/** @type {WritePair[] | null} */
+let _writePairs = null
+/** @returns {WritePair[]} */
+function writePairs() {
   if (!_writePairs) _writePairs = deriveWriteMethods()
   return _writePairs
 }
@@ -173,16 +210,22 @@ function writePairs(): WritePair[] {
 // job — see audit-sdk-write-sites.test.ts's findComputedDispatch — not a
 // silent miss here).
 
-function sdkWriteCallMatch(node: ts.CallExpression): boolean {
+/** @param {ts.CallExpression} node
+ *  @param {WritePair[] | undefined} pairs — the caller's list (see
+ *    emitsOnEveryNonErrorPath); undefined = derive from the installed SDK
+ *  @returns {boolean} */
+function sdkWriteCallMatch(node, pairs) {
   const method = staticAccessName(node.expression)
   const receiver = calleeObject(node.expression)
   if (!method || !receiver) return false
   const prop = staticAccessName(receiver) ?? (ts.isIdentifier(receiver) ? receiver.text : undefined)
   if (!prop) return false
-  return writePairs().some((p) => p.prop === prop && p.method === method)
+  return (pairs ?? writePairs()).some((p) => p.prop === prop && p.method === method)
 }
 
-function rawSupabaseWriteMatch(node: ts.CallExpression): boolean {
+/** @param {ts.CallExpression} node
+ *  @returns {boolean} */
+function rawSupabaseWriteMatch(node) {
   const verb = staticAccessName(node.expression)
   const receiver = calleeObject(node.expression)
   if (!verb || !receiver) return false
@@ -197,8 +240,10 @@ function rawSupabaseWriteMatch(node: ts.CallExpression): boolean {
 const STORAGE_WRITE_METHODS = new Set(['upload', 'remove', 'update', 'move', 'copy'])
 
 /** CP3c third surface: `.auth.admin.<method>(` (excluding obvious reads) and
- *  `.storage.from(bucket).<upload|remove|update|move|copy>(`. */
-function authAdminOrStorageWriteMatch(node: ts.CallExpression): boolean {
+ *  `.storage.from(bucket).<upload|remove|update|move|copy>(`.
+ *  @param {ts.CallExpression} node
+ *  @returns {boolean} */
+function authAdminOrStorageWriteMatch(node) {
   const method = staticAccessName(node.expression)
   const receiver = calleeObject(node.expression)
   if (!method || !receiver) return false
@@ -214,8 +259,10 @@ function authAdminOrStorageWriteMatch(node: ts.CallExpression): boolean {
 /** The object literal a return statement's value resolves to, for shape
  *  checks — either the literal itself, or (the route-handler idiom) the
  *  first ObjectLiteralExpression argument of a wrapping call like
- *  `NextResponse.json({ error: '...' }, { status: 400 })`. */
-function returnedObjectLiteral(expr: ts.Expression | undefined): ts.ObjectLiteralExpression | null {
+ *  `NextResponse.json({ error: '...' }, { status: 400 })`.
+ *  @param {ts.Expression | undefined} expr
+ *  @returns {ts.ObjectLiteralExpression | null} */
+function returnedObjectLiteral(expr) {
   if (!expr) return null
   if (ts.isObjectLiteralExpression(expr)) return expr
   if (ts.isCallExpression(expr)) {
@@ -225,7 +272,9 @@ function returnedObjectLiteral(expr: ts.Expression | undefined): ts.ObjectLitera
   return null
 }
 
-function shapeExempt(expr: ts.Expression | undefined): boolean {
+/** @param {ts.Expression | undefined} expr
+ *  @returns {boolean} */
+function shapeExempt(expr) {
   const obj = returnedObjectLiteral(expr)
   if (!obj) return false
   for (const prop of obj.properties) {
@@ -245,8 +294,12 @@ function shapeExempt(expr: ts.Expression | undefined): boolean {
   return false
 }
 
-function isInsideCatchClause(node: ts.Node, stopAt: ts.Node): boolean {
-  let cur: ts.Node | undefined = node.parent
+/** @param {ts.Node} node
+ *  @param {ts.Node} stopAt
+ *  @returns {boolean} */
+function isInsideCatchClause(node, stopAt) {
+  /** @type {ts.Node | undefined} */
+  let cur = node.parent
   while (cur && cur !== stopAt) {
     if (ts.isCatchClause(cur)) return true
     if (isFnLike(cur) && cur !== stopAt) return false
@@ -255,14 +308,21 @@ function isInsideCatchClause(node: ts.Node, stopAt: ts.Node): boolean {
   return false
 }
 
-function isBareNullish(expr: ts.Expression | undefined): boolean {
+/** @param {ts.Expression | undefined} expr
+ *  @returns {boolean} */
+function isBareNullish(expr) {
   if (!expr) return true
   return expr.kind === ts.SyntaxKind.NullKeyword || expr.getText().trim() === 'undefined'
 }
 
-function blockChain(node: ts.Node, root: ts.Node): ts.Node[] {
-  const chain: ts.Node[] = []
-  let cur: ts.Node | undefined = node
+/** @param {ts.Node} node
+ *  @param {ts.Node} root
+ *  @returns {ts.Node[]} */
+function blockChain(node, root) {
+  /** @type {ts.Node[]} */
+  const chain = []
+  /** @type {ts.Node | undefined} */
+  let cur = node
   while (cur && cur !== root) {
     // CaseClause/DefaultClause are chain boundaries too (contract §8 fix
     // round 1 #5) — an emit in `case 1:` must not dominate a return in
@@ -276,7 +336,10 @@ function blockChain(node: ts.Node, root: ts.Node): ts.Node[] {
   return chain
 }
 
-function isPrefix(a: ts.Node[], b: ts.Node[]): boolean {
+/** @param {ts.Node[]} a
+ *  @param {ts.Node[]} b
+ *  @returns {boolean} */
+function isPrefix(a, b) {
   if (a.length > b.length) return false
   return a.every((n, i) => n === b[i])
 }
@@ -289,8 +352,10 @@ function isPrefix(a: ts.Node[], b: ts.Node[]): boolean {
  *  though the TryStatement node itself isn't a ReturnStatement/
  *  ThrowStatement). Conservative elsewhere (switch, labeled, etc. → false,
  *  i.e. "check it" — never a false negative that hides a real fall-through,
- *  only possible false positives that just mean one extra offender line). */
-function alwaysTerminates(stmt: ts.Statement): boolean {
+ *  only possible false positives that just mean one extra offender line).
+ *  @param {ts.Statement} stmt
+ *  @returns {boolean} */
+function alwaysTerminates(stmt) {
   if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt)) return true
   if (ts.isBlock(stmt)) {
     return stmt.statements.length > 0 && alwaysTerminates(stmt.statements[stmt.statements.length - 1])
@@ -309,20 +374,20 @@ function alwaysTerminates(stmt: ts.Statement): boolean {
   return false
 }
 
-interface WalkResult {
-  ok: boolean
-  offenders: string[]
-  emitsUnconditionally: boolean
-}
+/** @typedef {{ ok: boolean, offenders: string[], emitsUnconditionally: boolean }} WalkResult */
 
 /** AST-based status exemption (contract §8 fix round 1 #6 — replaces a
  *  getText() regex, which matched inside STRING LITERALS too, e.g. a
  *  `{ message: "status: 404 ..." }` return with no real status field at
  *  all): a PropertyAssignment literally named `status` anywhere in the
  *  return expression's subtree whose initializer is or contains a numeric
- *  literal in the 4xx/5xx range. */
-function hasStatusProperty4xx5xx(expr: ts.Expression): boolean {
-  function containsNumericCode(n: ts.Node): boolean {
+ *  literal in the 4xx/5xx range.
+ *  @param {ts.Expression} expr
+ *  @returns {boolean} */
+function hasStatusProperty4xx5xx(expr) {
+  /** @param {ts.Node} n
+   *  @returns {boolean} */
+  function containsNumericCode(n) {
     if (ts.isNumericLiteral(n)) {
       const v = Number(n.text)
       if (v >= 400 && v < 600) return true
@@ -334,7 +399,8 @@ function hasStatusProperty4xx5xx(expr: ts.Expression): boolean {
     return hit
   }
   let found = false
-  function visit(node: ts.Node): void {
+  /** @param {ts.Node} node */
+  function visit(node) {
     if (found) return
     if (ts.isPropertyAssignment(node)) {
       const name = ts.isIdentifier(node.name) ? node.name.text : ts.isStringLiteral(node.name) ? node.name.text : null
@@ -346,7 +412,11 @@ function hasStatusProperty4xx5xx(expr: ts.Expression): boolean {
   return found
 }
 
-function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
+/** @param {FnLike} fn
+ *  @param {Set<FnLike>} seen
+ *  @param {WritePair[] | undefined} [pairs]
+ *  @returns {WalkResult} */
+function walk(fn, seen, depth = 0, pairs) {
   const sf = fn.getSourceFile()
   // Defense in depth (contract §8 fix round 1 #9): findSymbol already skips
   // bodyless declarations, so this should be unreachable — but a body-less
@@ -362,8 +432,10 @@ function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
   /** Is `ret`'s expression itself a call-through-shaped reference to a
    *  same-file local helper (regardless of whether it resolved)? Used only
    *  to give the "flatten or emit inline" hint when depth capping is what
-   *  blocked resolution. */
-  function callThroughTarget(ret: ts.ReturnStatement): FnLike | undefined {
+   *  blocked resolution.
+   *  @param {ts.ReturnStatement} ret
+   *  @returns {FnLike | undefined} */
+  function callThroughTarget(ret) {
     const expr = ret.expression
     if (expr && ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {
       return helpers.get(expr.expression.text)
@@ -371,7 +443,9 @@ function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
     return undefined
   }
 
-  function isDominated(ret: ts.ReturnStatement): boolean {
+  /** @param {ts.ReturnStatement} ret
+   *  @returns {boolean} */
+  function isDominated(ret) {
     for (const emit of emits) {
       if (emit.getEnd() > ret.getStart()) continue
       if (isPrefix(blockChain(emit, fn), blockChain(ret, fn))) return true
@@ -384,7 +458,7 @@ function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
       if (helper && !seen.has(helper)) {
         const nextSeen = new Set(seen)
         nextSeen.add(helper)
-        const result = walk(helper, nextSeen, depth + 1)
+        const result = walk(helper, nextSeen, depth + 1, pairs)
         if (result.ok && result.emitsUnconditionally) return true
       }
     }
@@ -395,20 +469,26 @@ function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
   // exemption). A "write" is a direct SDK/raw-supabase/auth-admin/storage
   // call, or a call to a same-file helper that is itself (recursively) a
   // write or an unconditional emitter.
-  function isWriteCall(node: ts.CallExpression, writeSeen: Set<FnLike>): boolean {
-    if (sdkWriteCallMatch(node) || rawSupabaseWriteMatch(node) || authAdminOrStorageWriteMatch(node)) return true
+  /** @param {ts.CallExpression} node
+   *  @param {Set<FnLike>} writeSeen
+   *  @returns {boolean} */
+  function isWriteCall(node, writeSeen) {
+    if (sdkWriteCallMatch(node, pairs) || rawSupabaseWriteMatch(node) || authAdminOrStorageWriteMatch(node)) return true
     if (ts.isIdentifier(node.expression)) {
       const helper = helpers.get(node.expression.text)
       if (helper && !writeSeen.has(helper)) {
         const nextSeen = new Set(writeSeen)
         nextSeen.add(helper)
         if (containsWriteCall(helper, nextSeen)) return true
-        if (walk(helper, nextSeen).emitsUnconditionally) return true
+        if (walk(helper, nextSeen, 0, pairs).emitsUnconditionally) return true
       }
     }
     return false
   }
-  function containsWriteCall(target: FnLike, writeSeen: Set<FnLike>): boolean {
+  /** @param {FnLike} target
+   *  @param {Set<FnLike>} writeSeen
+   *  @returns {boolean} */
+  function containsWriteCall(target, writeSeen) {
     let found = false
     forEachOwn(target, (n) => {
       if (found) return
@@ -419,13 +499,15 @@ function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
   // Tracked as a position, not the node itself — TS can't reliably narrow a
   // `ts.CallExpression | null` local reassigned inside the forEachOwn
   // closure back at the read site below.
-  let anchorPos: number | null = null
+  /** @type {number | null} */
+  let anchorPos = null
   forEachOwn(fn, (n) => {
     if (anchorPos !== null) return
     if (ts.isCallExpression(n) && isWriteCall(n, new Set([fn]))) anchorPos = n.getStart()
   })
 
-  const offenders: string[] = []
+  /** @type {string[]} */
+  const offenders = []
   for (const ret of returns) {
     if (isDominated(ret)) continue
     if (isInsideCatchClause(ret, fn)) continue
@@ -462,7 +544,15 @@ function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
   return { ok: offenders.length === 0, offenders, emitsUnconditionally }
 }
 
-export function emitsOnEveryNonErrorPath(fn: FnLike): { ok: boolean; offenders: string[] } {
-  const { ok, offenders } = walk(fn, new Set([fn]))
+/** @param {FnLike} fn
+ *  @param {{ writePairs?: WritePair[] }} [options] — `writePairs`: the SDK
+ *    write methods to treat as writes, used INSTEAD of reading the installed
+ *    SDK (sdk-write-methods.mjs). Omitted = today's behaviour exactly (CP2 /
+ *    CP7 / CP3). A plain-node caller in a job without the SDK passes its own
+ *    list — scripts/business/check-shared-cores.mjs passes [] (the Business
+ *    door holds no SDK client), so the walker never reaches client.d.ts.
+ *  @returns {{ ok: boolean, offenders: string[] }} */
+export function emitsOnEveryNonErrorPath(fn, { writePairs: pairs } = {}) {
+  const { ok, offenders } = walk(fn, new Set([fn]), 0, pairs)
   return { ok, offenders }
 }

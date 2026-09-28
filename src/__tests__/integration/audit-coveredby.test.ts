@@ -2,7 +2,7 @@
 // DECISIONS row carrying a structured `coveredBy` citation ('src/path/
 // file.ts#symbolName') must point at a REAL writer: the file exists, the
 // symbol resolves, and it emits on every non-error-classified return path
-// (the shared walker, helpers/audit-emission.ts). Every `pendingWave` string
+// (the shared walker, scripts/audit/emission-walker.mjs). Every `pendingWave` string
 // is a dated tracked-TODO, listed here as a CI-visible inventory (contract
 // CP2) so a wave slipping past its own date is visible in the passing-run log,
 // not just buried in a comment.
@@ -14,7 +14,7 @@ import {
   type FacadeAuditRule,
   type ApiRouteDecision,
 } from '@/lib/audit'
-import { findSymbol, emitsOnEveryNonErrorPath } from './helpers/audit-emission'
+import { findSymbol, emitsOnEveryNonErrorPath } from '../../../scripts/audit/emission-walker.mjs'
 
 const ROOT = process.cwd()
 const PENDING_WAVE_RE = /^Wave [A-Z]+ — \d{4}-\d{2}-\d{2}$/
