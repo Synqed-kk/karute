@@ -2484,5 +2484,58 @@ describe('charge once — the durable transcript memo', () => {
         off.restore()
       }
     })
+
+    // ⚖ S56 (stress lens N1): the mark belongs ONLY to the caller whose write CREATED the memo.
+    // t8 above proves a duplicate refusal is silent, but with no delta owed (the suite's default
+    // 90-minute HEAD) — no mark exists there, so ownership is never asked. Here a delta IS owed:
+    // a caller that lost the create race still asks the ledger for its OWN delta, and never
+    // rewrites (upsert, `mark: true`) the winner's memo — its answer and its mark — with its own.
+    it.each([
+      ['the ledger takes the delta', true],
+      ['the ledger is exhausted', false],
+    ] as const)('s56 t9 a delta is owed and the memo write meets a DUPLICATE refusal (%s) → this call owns no mark: no rewrite, the standing memo byte-for-byte, debit_recorded = the ledger’s answer', async (_label, lands) => {
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      if (!lands) {
+        recordUsage.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('core down'))
+          .mockRejectedValueOnce(new Error('core down')).mockRejectedValueOnce(new Error('core down'))
+      }
+      // Another caller's paid answer already stands — with ITS OWN `pending` mark.
+      const standing = JSON.stringify({
+        v: 1,
+        result: { transcript: 'the other caller' },
+        duration_seconds: 5400,
+        written_at: '2026-09-29T00:00:00.000Z',
+        trueUp: { status: 'pending', reserveCents: 1, costCents: 45, deltaCents: DELTA, attempts: 0, updatedAt: 1 },
+      })
+      memoStore.set(memoKey(AUDIO), standing)
+      // Our read misses (the other caller had not landed yet); our write then meets its copy.
+      storageDownload.mockResolvedValueOnce({
+        data: null,
+        error: { status: 400, statusCode: '404', message: 'Object not found' },
+      })
+      try {
+        const res = await call(AUDIO)
+
+        expect(res.receipt.replayed).toBe(false)
+        expect(res.result.transcript).toBe('こんにちは')
+        expect(res.receipt.debit_recorded).toBe(lands)
+        // THIS call's own delta: recorded once when the ledger takes it; when it is exhausted,
+        // only the writer's own three attempts — never a second round.
+        expect(deltaCalls()).toHaveLength(lands ? 1 : 3)
+        // ONE write — the create-only attempt the duplicate refusal answered. No `mark: true`
+        // upsert follows it.
+        expect(storageUpload).toHaveBeenCalledTimes(1)
+        expect(storageUpload.mock.calls[0][2]).toEqual({ contentType: 'application/json', upsert: false })
+        expect(uploadBody(0).trueUp).toMatchObject({ status: 'pending', deltaCents: DELTA, attempts: 0 })
+        // The standing memo — answer and mark — is untouched, byte for byte.
+        expect(memoStore.size).toBe(1)
+        expect(memoStore.get(memoKey(AUDIO))).toBe(standing)
+        expect(warn).not.toHaveBeenCalled()
+      } finally {
+        err.mockRestore()
+        warn.mockRestore()
+      }
+    })
   })
 })

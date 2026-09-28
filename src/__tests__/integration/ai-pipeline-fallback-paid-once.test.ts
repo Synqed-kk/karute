@@ -1475,4 +1475,39 @@ describe('⚖ S56 — a pin is re-presented only onto the SAME BYTES (content ha
       digest.mockRestore()
     }
   })
+
+  // ⚖ S56 (stress lens N8): h4 has no `subtle` from the FIRST run, so its pin never carries a
+  // hash and is skipped before the current digest is even asked. Here the pin DOES carry a
+  // hash (run 1 had a working `subtle`) and passes the coarse check; only THIS attempt's digest
+  // is unavailable. An unknown current hash is never a match — above all for different bytes of
+  // the same size, where a match would hand back the OLD take's words for new audio.
+  it('h6 a HASHED pin passes the coarse check but THIS attempt’s digest is unavailable → NO match: a fresh mint + PUT of the new bytes, the old path never re-presented, ONE line', async () => {
+    bareTake()
+    await lostFirstRun()
+    expect(store.meta?.fallbackPin?.audio).toEqual(await pinFp(memory, 42))
+    expect(store.meta?.fallbackPin?.audio).toHaveProperty('sha256')
+    expect(digestLines()).toHaveLength(0)
+    const twin = new Blob(['IN-MEMORY: EVERY CHUNK THE RECORDER CAPTURED'], { type: 'audio/webm' })
+    expect(twin.size).toBe(memory.size) // the coarse fields agree — the pin is a candidate
+    const digest = jest.spyOn(globalThis.crypto.subtle, 'digest').mockRejectedValue(new Error('digest failed'))
+    try {
+      const res = await run(twin)
+
+      // Asked once for this attempt (the match check); the new pin's write reuses that answer.
+      expect(digest).toHaveBeenCalledTimes(1)
+      expect(digestLines()).toHaveLength(1)
+      expect(digestLines()[0][1]).toEqual({ subtle: true })
+      expect(mints()).toBe(2)
+      expect(prepareTranscription.mock.calls[1][0]).toBe(twin)
+      expect(prepareTranscription.mock.calls[1][1]).toBeNull()
+      expect(prepareTranscription.mock.calls.map(([, path]) => path)).not.toContain(unbound(1))
+      expect(paidCalls).toBe(2)
+      expect(res.transcript).toBe('answer-2')
+      // The new pin carries no hash (none could be taken): it too never matches.
+      expect(store.meta?.fallbackPin).toMatchObject({ finalizedPath: unbound(2), audio: fp(twin, 42) })
+      expect(store.meta?.fallbackPin?.audio).not.toHaveProperty('sha256')
+    } finally {
+      digest.mockRestore()
+    }
+  })
 })
