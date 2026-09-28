@@ -682,6 +682,14 @@ export async function updateAppointmentCore(
       return { error: 'A cancelled or no-show booking cannot be edited.' }
     }
 
+    // ⚖ W0.5 fix 1 — the interval judged below is the interval core stores.
+    // Core fills an omitted starts_at/ends_at from the stored row and never
+    // derives ends_at from duration_minutes (a label there), so a payload of
+    // only the named fields lands a DIFFERENT booking than the one judged
+    // (stored 17:00–18:00 + { startsAt: 16:00 } → judged 16:00–17:00, stored
+    // 16:00–18:00). Set only when the time gate opens and the door says yes.
+    let judged: { starts_at: string; ends_at: string; duration_minutes: number } | null = null
+
     // ⚖ PKT-1c-C S3 — a reschedule goes through the same door. Only a patch
     // that MOVES the booking in time is judged; a staff-only reassign leaves the
     // time untouched and has no hours question to answer.
@@ -740,6 +748,13 @@ export async function updateAppointmentCore(
       // Refused before `appointments.update` — the existing row is not touched
       // and no audit row claims it was.
       if (timeError) return timeError
+      // What was judged is what core gets: the whole pair, and the label as
+      // the judged whole minutes (an end-only stretch never leaves it stale).
+      judged = {
+        starts_at: startTime,
+        ends_at: interval.endsAt.toISOString(),
+        duration_minutes: durationMinutes,
+      }
     }
 
     const sdkPatch: {
@@ -749,9 +764,13 @@ export async function updateAppointmentCore(
       duration_minutes?: number
     } = {}
     if (patch.staffId !== undefined) sdkPatch.staff_id = patch.staffId
-    if (patch.startsAt !== undefined) sdkPatch.starts_at = patch.startsAt
-    if (patch.endsAt !== undefined) sdkPatch.ends_at = patch.endsAt
-    if (patch.durationMinutes !== undefined) sdkPatch.duration_minutes = patch.durationMinutes
+    // A time patch sends the WHOLE judged interval, never only the fields it
+    // named; a patch that touched no time field adds none.
+    if (judged) {
+      sdkPatch.starts_at = judged.starts_at
+      sdkPatch.ends_at = judged.ends_at
+      sdkPatch.duration_minutes = judged.duration_minutes
+    }
 
     // No provided fields → no mutation → no audit row: calling update({})
     // would be a no-op write that still logged a "something changed" row.
