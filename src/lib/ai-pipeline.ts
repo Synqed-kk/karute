@@ -410,8 +410,9 @@ export async function runAIPipeline(
               !!pin && !pin.retiredAt && pin.takeId === takeId && pin.locale === locale && sameAudio(pin.audio, audio),
           ) ?? null)
     // ⚖ S54 F10 — A KEY THE SERVER REFUSES OUTRIGHT IS RETIRED, NEVER DELETED: only the web read-URL door's
-    // 'forbidden' or the phone door's 404 (never a blip, 'unreadable' 502, a 403 gate, 429, 409 or 5xx). The
-    // mark (take + chain slot) makes the matcher above skip it, so the next 再試行 mints fresh — today's run.
+    // 'forbidden' or the phone door's own key refusal (the 404 rule at the POST below; never a blip, 'unreadable'
+    // 502, a 403 gate, 429, 409 or 5xx). The mark (take + chain slot) makes the matcher above skip it, so the
+    // next 再試行 mints fresh — today's run.
     const retire = async (retiredReason: string) => {
       if (!pinned) return
       const retiredAt = Date.now()
@@ -465,17 +466,25 @@ export async function runAIPipeline(
     }
 
     let status = 0 // the LAST answer's status (0 = none: a network error)
+    let keyRefusal: Response | null = null // a copy of the LAST answer, kept only for the 404 rule below
     const transcribeRes = await fetchWithRetry(async () => {
       status = 0
+      keyRefusal = null
       const res = await getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...transcribeBody, locale }),
       })
       status = res.status
+      if (status === 404 && recordingPort.refusesMissingKeyWith404) keyRefusal = res.clone()
       return res
     }).catch(async (err) => {
-      if (status === 404) await retire('transcribe_404')
+      // The 404 rule — retired only when BOTH hold: (1) this port's door answers 404 for a refused key and
+      // nothing else (the phone door; the web door never answers 404, so a 404 there is the platform's — a
+      // deploy window, a misrouted base), and (2) the LAST answer's body carries that door's own code,
+      // 'not_found'. Any other 404 keeps the pin: the error stands and the next 再試行 re-presents the key.
+      const code = keyRefusal && (await keyRefusal.json().catch(() => null))?.error?.code
+      if (code === 'not_found') await retire('transcribe_404')
       throw new Error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`)
     })
 

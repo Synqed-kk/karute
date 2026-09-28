@@ -119,6 +119,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
   // stamp and collection sweep are SHARED code that was already correct and now
   // simply runs. Its audio leg is the take's own finalized object (PR4).
   supportsDiscardTranscript: true,
+  refusesMissingKeyWith404: true,
   async prepareTranscription(blob, finalizedPath, opts) {
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key, so the facade is simply handed that path — and it deletes

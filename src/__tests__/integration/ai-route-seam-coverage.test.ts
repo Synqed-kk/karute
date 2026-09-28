@@ -38,4 +38,9 @@ describe('aiBase seam coverage (F-9b/c/d)', () => {
     expect(webRecordingPort.aiBase).toBe('/api/ai')
     expect(viteRecordingPort.aiBase).toBe('/api/app/v1/ai')
   })
+
+  it('(t10h) S54 delta read — the 404 rule is declared per door: thin yes (the phone door answers 404 only for a refused key), web no (that door never answers 404)', () => {
+    expect(viteRecordingPort.refusesMissingKeyWith404).toBe(true)
+    expect(webRecordingPort.refusesMissingKeyWith404).toBe(false)
+  })
 })

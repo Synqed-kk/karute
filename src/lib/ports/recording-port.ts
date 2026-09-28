@@ -114,6 +114,12 @@ export interface RecordingPipelinePort {
    */
   supportsDiscardTranscript: boolean
   /**
+   * ⚖ S54 delta read: whether this world's /transcribe door answers 404 for a refused
+   * key and nothing else (its `not_found`). Thin: yes (the phone door). Web: no — that
+   * door never answers 404, so a 404 there is the platform's and never retires a pin.
+   */
+  refusesMissingKeyWith404: boolean
+  /**
    * The transcribe leg's request body for this take.
    *
    * ⚖ THE FINALIZED OBJECT IS THE OBJECT (capture pipeline PR4). `finalizedPath`
@@ -478,6 +484,7 @@ export const webRecordingPort: RecordingPipelinePort = {
   // fix. See the flag doc.
   supportsServerJob: false,
   supportsDiscardTranscript: true,
+  refusesMissingKeyWith404: false,
   async prepareTranscription(blob, finalizedPath, opts, onUploaded) {
     const { mintRecordingUploadUrl, mintRecordingReadUrl } = await uploadActions()
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
