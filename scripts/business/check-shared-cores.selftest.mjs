@@ -8,7 +8,10 @@
 // is built from COPIES of the real module files + audit-policy.ts, so a case
 // is judged against the real exports, never a stand-in list. d1–d13 are the
 // packet's cases; e1–e10 pin the rest (require(), built specifiers, relays, copies, the three
-// rule-5 exemptions, row-shape checks, type positions, const-arrow symbols).
+// rule-5 exemptions, row-shape checks, type positions, const-arrow symbols);
+// p1–p8 pin the strict position rule (Greptile G2: the door calls a core, it
+// never hands one around — aliases, destructuring, .bind/.call/.apply,
+// indirect calls and shadowing all fail).
 // The real-tree verdict (judgeTree) never asserts a literal site count: zero
 // findings, and every site met is an approved one whose row is in that
 // tree's own JSON — r1 runs the same verdict on a fixture door WITH approved
@@ -64,8 +67,9 @@ const CASES = [
   ['d5 alias `as u` then u(...) with no row for its function → no calls row',
     { [DOOR]: "import { updateAppointmentCore as u } from '@/lib/appointments/mutations'\nexport async function moveLater(a) {\n  return u(a)\n}\n" },
     null, ['no calls row'], { name: 'updateAppointmentCore in moveLater' }],
-  ['d6 run(updateAppointmentCore) — passed as a value, no row → no calls row',
-    { [DOOR]: MUT + 'export async function queueMove(a) {\n  return run(updateAppointmentCore, a)\n}\n' }, null, ['no calls row']],
+  ['d6 run(updateAppointmentCore) — passed as a value → deny-set name in non-call position (G2: never a site)',
+    { [DOOR]: MUT + 'export async function queueMove(a) {\n  return run(updateAppointmentCore, a)\n}\n' }, null, ['deny-set name in non-call position'],
+    { name: 'updateAppointmentCore', line: 3 }],
   ['d7 a NON-door territory file importing customers.core → import outside doorFile',
     { 'src/business/lib/data.ts': "import { createCustomerWithClient } from '@/lib/customers/customers.core'\nexport const x = 1\n" }, null, ['import outside doorFile']],
   ['d8 export { createCustomerWithClient } from a listed module → re-export',
@@ -109,9 +113,36 @@ const CASES = [
     ['bad calls row (module not in modules)']],
   ['e9 typeof updateAppointmentCore in a TYPE is not a site → OK',
     { [DOOR]: MUT + 'export type Mover = typeof updateAppointmentCore\n' }, null, [], { sites: 0 }],
-  ['e10 an exported const arrow is a symbol too; a module-level value pass has none',
+  ['e10 an exported const arrow is a symbol too (its call is OK); a module-level value export → non-call position',
     { [DOOR]: MUT + 'export const moveBooking = async (a) => updateAppointmentCore(a)\nexport const handle = updateAppointmentCore\n' },
-    null, ['no calls row'], { name: 'updateAppointmentCore in <no exported function>' }],
+    null, ['deny-set name in non-call position'], { name: 'updateAppointmentCore', line: 3, sites: 1 }],
+  ['p1 alias in moveBooking (f = updateAppointmentCore), then f(...) from another function → FAIL at the alias line',
+    { [DOOR]: MUT + 'let f\nexport async function moveBooking(a) {\n  f = updateAppointmentCore\n  return updateAppointmentCore(a)\n}\n' +
+      'export async function moveLater(a) {\n  return f(a)\n}\n' }, null, ['deny-set name in non-call position'],
+    { name: 'updateAppointmentCore', line: 4, sites: 1 }],
+  ['p2 an import alias handed on (const f = u) → non-call position, named through its alias',
+    { [DOOR]: "import { updateAppointmentCore as u } from '@/lib/appointments/mutations'\nexport async function moveBooking(a) {\n  const f = u\n  return f(a)\n}\n" },
+    null, ['deny-set name in non-call position'], { name: 'u → updateAppointmentCore', line: 3 }],
+  ['p3 const { updateAppointmentCore: u } = mod → non-call position (destructuring a deny-set name)',
+    { [DOOR]: 'export async function moveBooking(mod) {\n  const { updateAppointmentCore: u } = mod\n  return u(mod)\n}\n' },
+    null, ['deny-set name in non-call position'], { name: 'updateAppointmentCore', line: 2 }],
+  ['p4 updateAppointmentCore.bind(...) inside moveBooking (row present) → non-call position',
+    { [DOOR]: MUT + 'export async function moveBooking(a) {\n  const g = updateAppointmentCore.bind(null, a)\n  return g()\n}\n' },
+    null, ['deny-set name in non-call position'], { line: 3, sites: 0 }],
+  ['p5 .call(...) and .apply(...) inside moveBooking (row present) → two non-call positions',
+    { [DOOR]: MUT + 'export async function moveBooking(a) {\n  await updateAppointmentCore.call(null, a)\n  return updateAppointmentCore.apply(null, [a])\n}\n' },
+    null, ['deny-set name in non-call position', 'deny-set name in non-call position'], { sites: 0 }],
+  ['p6 indirect forms — (0, x)(…), (x as any)(…), new x(…), x`…`, typeof x in a value → five non-call positions',
+    { [DOOR]: MUT + 'export async function moveBooking(a) {\n  (0, updateAppointmentCore)(a)\n  ;(updateAppointmentCore as any)(a)\n' +
+      '  new (updateAppointmentCore as any)(a)\n  updateAppointmentCore`${a}`\n  return typeof updateAppointmentCore === "function"\n}\n' },
+    null, Array(5).fill('deny-set name in non-call position'), { sites: 0 }],
+  ['p7 await updateAppointmentCore(...) inside moveBooking, row present → OK (the direct call is the one legal position)',
+    { [DOOR]: MUT + 'export async function moveBooking(a) {\n  const r = await updateAppointmentCore(a.c, a.id, a.p, a.actor, a.h, a.s)\n  return r\n}\n' },
+    null, [], { sites: 1 }],
+  ['p8 shadowing — a local named like a deny-set name (its use: without import), and a param named like an imported core → shadowing a deny-set name',
+    { [DOOR]: MUT + 'export async function moveBooking(a) {\n  const updateStaffCore = a\n  return updateAppointmentCore(updateStaffCore)\n}\n' +
+      'function helper(updateAppointmentCore) {\n  return 1\n}\n' },
+    null, ['deny-set name without import', 'shadowing a deny-set name', 'shadowing a deny-set name'], { sites: 1 }],
 ]
 
 /** The verdict CI relies on for a whole tree: zero findings, every site met is
@@ -142,6 +173,7 @@ try {
     const got = findings.map((f) => f.label).sort()
     let ok = JSON.stringify(got) === JSON.stringify([...expected].sort())
     if (ok && extra.name) ok = findings.some((f) => f.name === extra.name)
+    if (ok && extra.line !== undefined) ok = findings.some((f) => f.line === extra.line)
     if (ok && extra.rel) ok = findings.every((f) => f.rel === extra.rel)
     if (ok && extra.sites !== undefined) ok = stats.sites === extra.sites
     if (!ok) failed++

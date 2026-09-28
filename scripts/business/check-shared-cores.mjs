@@ -29,15 +29,31 @@
 //      other import of a listed module FAILS outside the door; an import()/
 //      require() whose specifier is BUILT (not a literal) FAILS everywhere —
 //      it cannot be judged.
-//   3. In the door, every VALUE reference to a binding imported from a listed
-//      module (a call, a `.then` callee, an argument, a property access, a
-//      shorthand property, an export specifier …) is a SITE; its symbol is the
-//      enclosing top-level EXPORTED function (declaration, or an exported
-//      const whose initializer is a function, directly or as a call's
-//      function argument). A site with no exactly-matching row FAILS; a
-//      `never` call FAILS even with a row. Aliases resolve to the exported
-//      name (`import { updateAppointmentCore as u }`: `u(…)` is an
-//      updateAppointmentCore site). Type positions are not sites.
+//   3. THE STRICT POSITION RULE (Greptile G2). In the door, a binding imported
+//      from a listed module may appear ONLY as the callee of a direct call —
+//      `x(…)`, `await x(…)`, `x?.(…)`, `x<T>(…)` — and that call is a SITE;
+//      its symbol is the enclosing top-level EXPORTED function (declaration,
+//      or an exported const whose initializer is a function, directly or as a
+//      call's function argument). A site with no exactly-matching row FAILS; a
+//      `never` call FAILS even with a row. EVERY other value position — a
+//      variable initializer, an assignment's right side, an argument (a
+//      `.then` callback included), a property access on it (.bind / .call /
+//      .apply …), an array or object member, a return value, a default
+//      parameter, an export, `typeof` in a value, `(0, x)(…)`, `(x as T)(…)`,
+//      `new x(…)`, a tagged template — FAILS `deny-set name in non-call
+//      position`, and so does destructuring a deny-set name out of anything
+//      (`const { updateAppointmentCore: u } = …`). Any local binding in the
+//      door (const / let / var / param / destructuring / function / class /
+//      catch) whose name is a deny-set name, or the local name of an imported
+//      core, FAILS `shadowing a deny-set name` (the one exemption is (b)
+//      below: the door's own row-symbol function itself). The door CALLS
+//      cores; it never hands them around — so no alias tracking is needed:
+//      with passing-as-value illegal, an alias cannot be made. An import alias
+//      resolves to the exported name (`import { updateAppointmentCore as u }`:
+//      `u(…)` is an updateAppointmentCore site). Property NAMES (`obj.x`) are
+//      not judged: an object that could hold a core can only come from a
+//      reference this rule already fails, or from an import the isolation
+//      test's FILE_ALLOWED_TARGETS refuses. Type positions are not sites.
 //   4. Every row must name a listed module, a real export of it, a class in
 //      {core-emits, trace, receipt} that fits the call (audit ⇔ trace,
 //      auditDurable ⇔ receipt) and no `never` call — a typo never passes.
@@ -249,6 +265,32 @@ function isDeclarationName(id) {
   )
 }
 
+/** Is this identifier the name an import declaration binds (judged by rule 2
+ *  or rule 5, never as a shadow)? */
+function isImportName(id) {
+  const p = id.parent
+  return ts.isImportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p) || ts.isImportEqualsDeclaration(p)
+}
+
+/** Is this identifier the name of a TOP-LEVEL exported function declaration
+ *  or exported const (the door's own row-symbol functions)? */
+function isTopLevelExportName(id, sf) {
+  const p = id.parent
+  if (ts.isFunctionDeclaration(p) && p.parent === sf && p.name === id) return hasExport(p)
+  if (ts.isVariableDeclaration(p) && p.name === id) {
+    const st = p.parent?.parent
+    return !!st && ts.isVariableStatement(st) && st.parent === sf && hasExport(st)
+  }
+  return false
+}
+
+/** The key text of a destructuring property name (`{ key: local }`), or null. */
+function bindingKeyText(pn) {
+  if (ts.isIdentifier(pn) || ts.isStringLiteral(pn) || ts.isNoSubstitutionTemplateLiteral(pn)) return pn.text
+  if (ts.isComputedPropertyName(pn) && (ts.isStringLiteral(pn.expression) || ts.isNoSubstitutionTemplateLiteral(pn.expression))) return pn.expression.text
+  return null
+}
+
 /** The enclosing top-level EXPORTED function's name, or undefined. */
 function enclosingExportedFunction(node, sf, exportedLocals) {
   let top = node
@@ -358,6 +400,11 @@ function scanFile(ctx, rel, text, findings, stats) {
       const mod = spec && listedModuleOf(spec, rel, modules)
       if (mod) add(node, 'dynamic import', mod)
     }
+    // Rule 3 — destructuring a deny-set name out of anything, in the door.
+    if (isDoor && ts.isBindingElement(node) && node.propertyName) {
+      const key = bindingKeyText(node.propertyName)
+      if (key !== null && denyNames.has(key)) add(node.propertyName, 'deny-set name in non-call position', key)
+    }
     if (ts.isIdentifier(node) && isValueName(node)) {
       const text = node.text
       const bound = bindings.get(text)
@@ -368,8 +415,16 @@ function scanFile(ctx, rel, text, findings, stats) {
       const inListedDecl = !!(decl && !ts.isSourceFile(decl) && decl.moduleSpecifier && listedModuleOf(specOf(decl.moduleSpecifier) ?? '', rel, modules))
       if (inListedDecl) {
         // judged by rule 2
+      } else if (isDoor && isDeclarationName(node) && !isImportName(node) && (denyNames.has(text) || bindings.has(text))) {
+        // Rule 3 — a local binding named like a core (or like an imported
+        // core's local alias) shadows it; only the door's own row-symbol
+        // function itself is exempt (rule 5 (b)).
+        if (!(doorOwn.has(text) && isTopLevelExportName(node, sf))) add(node, 'shadowing a deny-set name', text)
+      } else if (bound && isDoor && !isDeclarationName(node) && !(ts.isCallExpression(node.parent) && node.parent.expression === node)) {
+        // Rule 3 — the core handed around instead of called.
+        add(node, 'deny-set name in non-call position', text === bound.name ? text : `${text} → ${bound.name}`)
       } else if (bound && isDoor && !isDeclarationName(node)) {
-        // A SITE (rule 3).
+        // A SITE (rule 3): the callee of a direct call.
         stats.sites++
         const symbol = enclosingExportedFunction(node, sf, exportedLocals)
         const row = symbol === undefined ? undefined : ctx.calls.find((r) => r.module === bound.module && r.call === bound.name && r.symbol === symbol)
