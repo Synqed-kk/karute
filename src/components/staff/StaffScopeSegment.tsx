@@ -100,7 +100,7 @@ export function StaffScopeSegment({
            *  two read as one segment. */}
           <div
             className={cn(
-              'inline-flex items-stretch rounded-full transition-all',
+              'relative inline-flex items-stretch rounded-full transition-all',
               isSelf ? SEGMENT_OFF : SEGMENT_ON,
             )}
           >
@@ -159,7 +159,11 @@ export function StaffScopeSegment({
                 aria-controls={open ? listboxId : undefined}
                 data-staff-scope-chevron=""
                 onClick={() => setOpen(!open)}
-                className="inline-flex items-center rounded-full pl-[3px] pr-3"
+                // S52 B3 — a 36×36 tap target, no layout change: a transparent
+                // ::after, placed on the capsule (so this button's own box and
+                // width stay as they were), spans the track's full height and
+                // reaches its right edge — 36px wide, 5px of it over the label.
+                className="inline-flex items-center rounded-full pl-[3px] pr-3 after:absolute after:-inset-y-[3px] after:-right-[3px] after:w-9"
               >
                 <ChevronDown
                   size={13}
