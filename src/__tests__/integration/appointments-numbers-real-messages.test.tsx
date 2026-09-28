@@ -84,7 +84,7 @@ afterEach(() => {
 describe('the day line never prints a naked count (R3-5)', () => {
   it.each([
     ['ja', '11件予約'],
-    ['en', '11Bookings'],
+    ['en', '11Appts'],
   ])('%s: the count carries its own word', (loc, expected) => {
     locale = loc
     const { container } = render(
@@ -133,7 +133,7 @@ describe('the week GRID keeps its own label + countValue (R3-5)', () => {
 
   it.each([
     ['ja', '予約', '11件'],
-    ['en', 'Bookings', '11'],
+    ['en', 'Appts', '11'],
   ])('%s: the cell is label + value', (loc, label, value) => {
     locale = loc
     const { container } = render(

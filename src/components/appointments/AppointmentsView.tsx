@@ -960,7 +960,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         }))}
         selfStaffId={props.activeStaffId}
         selected={props.staffFilter}
-        operatorId={props.authProfileId}
+        // ⚖ ONE identity for the remembered pick (staff-scope.ts): the roster-
+        // gated staff id カルテ and 顧客 key by. Not the raw auth id (a login
+        // with no staff card), and not activeStaffId alone — off the roster
+        // the page falls back to the FIRST staffer, somebody else's row.
+        operatorId={props.activeStaffId === props.authProfileId ? props.activeStaffId : null}
         prependSlot={
           <DayWeekMonthToggle
             view={view}

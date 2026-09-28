@@ -180,10 +180,10 @@
     "weekRows": {
       "summaryRange": "{from}–{to}",
       "sep": "·",
-      "count": "Bookings",
-      "utilization": "Utilization",
+      "count": "Appts",
+      "utilization": "Util.",
       "free": "Free",
-      "bookedTime": "Booked time",
+      "bookedTime": "Booked",
       "new": "New",
       "returning": "Returning",
       "cancelled": "Cancelled",

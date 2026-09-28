@@ -11,7 +11,8 @@
  */
 import { presetCapabilities, type Capability } from '@/lib/auth/permissions'
 
-type Discard = { id: string; recording_session_id: string; source: string; reason: string; created_at: string; discarded_by: string }
+// `recording_session_id` is nullable as on @synqed-kk/client 1.36 (a discard held against a karute record alone).
+type Discard = { id: string; recording_session_id: string | null; source: string; reason: string; created_at: string; discarded_by: string }
 type Recording = { id: string; created_at: string; duration_seconds: number | null; customer_id: string | null; store_id: string | null }
 
 const NOW = Date.now()
@@ -112,6 +113,7 @@ import {
   listDiscardReasons,
   listDiscardReasonsWithClient,
 } from '@/actions/recording-discards'
+import { DiscardReasonsListDTO } from '@/lib/app-api/discard-reasons-dto'
 
 const client = fakeClient as unknown as Parameters<typeof getDiscardTranscriptWithClient>[0]
 const ALL = { allowedStoreIds: null }
@@ -210,6 +212,26 @@ describe('the 破棄の記録 list — the SAME store rule, same change', () => 
     recordings = [rec(S_A, 'store-a')]
     const res = await listDiscardReasonsWithClient(client, 'business-fixture', ALL)
     expect(ids(res)).toEqual([S_A, S_B, S_N].sort())
+  })
+})
+
+// ── SDK 1.36: a discard with NO recording session (#1080 fix round 1) ───────
+describe('the 破棄の記録 list — a record-only discard (null recording_session_id) is filtered, never cast through', () => {
+  it('the two session rows come back, the null row is absent, nothing throws — both viewers, and the phone DTO parses the list', async () => {
+    const recordOnly: Discard = { ...discard(S_A, 'd-record-only'), recording_session_id: null }
+    ledger = [discard(S_A, 'd-a'), recordOnly, discard(S_N, 'd-n')]
+    const getSpy = jest.spyOn(fakeClient.recordings, 'get')
+    for (const viewer of [ALL, CLAMPED_A]) {
+      const res = await listDiscardReasonsWithClient(client, 'business-fixture', viewer)
+      expect(res.rows.map((r) => r.id).sort()).toEqual(['d-a', 'd-n'])
+      expect(res.rows.map((r) => r.recordingSessionId).sort()).toEqual([S_A, S_N].sort())
+      expect(res.counts.total).toBe(2)
+      // The phone door parses this exact result (discard-reasons-dto.ts); one
+      // null session in it would fail the WHOLE list there.
+      expect(() => DiscardReasonsListDTO.parse(res)).not.toThrow()
+    }
+    // The clamped viewer's per-row reach never asked core for a null session.
+    expect(getSpy).not.toHaveBeenCalledWith(null)
   })
 })
 
