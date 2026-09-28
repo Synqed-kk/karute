@@ -1,5 +1,5 @@
 import type { SpecialOpenDay, WeeklyHours } from '@synqed-kk/client'
-import { partsInJst, ymdInJst } from '@/lib/date/jst'
+import { jstWallTimeToDate, partsInJst, ymdInJst } from '@/lib/date/jst'
 import { jstMidnight } from '@/lib/date/calendar-range'
 // Type-only, so nothing of the capacity module enters this graph at runtime.
 // One spelling of provenance for the whole app: the resolver below produces it
@@ -402,4 +402,39 @@ export function resolveWindowHours(
   const facts = new Map<string, DayHoursFact>()
   for (const date of days) facts.set(ymdInJst(date), resolveDayHours({ ...ctx, date }))
   return facts
+}
+
+/** ⚖ W0.5 — the read W2 needs before a store shortens a day (no caller in
+ *  this PR beyond its test): which bookings would the proposed hours STRAND?
+ *
+ *  Every row whose time on JST day `ymd` falls outside `fact`'s window — or,
+ *  when `fact` is closed, every row that touches the day at all. A row that
+ *  crosses midnight is judged by its part ON `ymd` only; the other day's part
+ *  is that day's question. Pure and caller-scoped: the caller hands the rows
+ *  it counts (terminal rows filtered or not is its call) and the fact it
+ *  proposes — e.g. tomorrow closing at 17:00 — keyed by the same JST day the
+ *  facts map uses. A row whose instants do not parse or do not run forwards
+ *  is on no day, and a `ymd` that is not a real JST calendar day strands
+ *  nothing. */
+export function bookingsOutsideHours<T extends { starts_at: string; ends_at: string }>(
+  bookings: readonly T[],
+  fact: DayHoursFact,
+  ymd: string,
+): T[] {
+  const dayStart = jstWallTimeToDate(ymd, '00:00')
+  if (Number.isNaN(dayStart.getTime()) || ymdInJst(dayStart) !== ymd) return []
+  const dayStartMs = dayStart.getTime()
+  // JST has no DST: one day is exactly 86,400,000 ms.
+  const dayEndMs = dayStartMs + 86_400_000
+
+  return bookings.filter((b) => {
+    const startMs = Date.parse(b.starts_at)
+    const endMs = Date.parse(b.ends_at)
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return false
+    if (endMs <= dayStartMs || startMs >= dayEndMs) return false // not on this day
+    if (fact.closed) return true
+    const fromMinute = (Math.max(startMs, dayStartMs) - dayStartMs) / 60_000
+    const toMinute = (Math.min(endMs, dayEndMs) - dayStartMs) / 60_000
+    return fromMinute < fact.openMinute || toMinute > fact.closeMinute
+  })
 }
