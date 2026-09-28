@@ -401,7 +401,13 @@ export async function listDiscardReasonsWithClient(
   // same best-effort terms. Skipped entirely on an empty ledger: there is
   // nothing to enrich, and a business with no discards should pay no reads for
   // the screen that says so.
-  const usable = events.filter((e) => e?.id && e.reason)
+  // @synqed-kk/client 1.36 widened `recording_session_id` to `string | null`
+  // (core can now hold a discard against a karute record alone). This list has
+  // only ever carried session discards; the cast keeps its runtime exactly as
+  // on 1.34 — how a record-only row should read here is its own question.
+  const usable = events.filter((e) => e?.id && e.reason) as Array<
+    (typeof events)[number] & { recording_session_id: string }
+  >
   // `reduce`, not `Math.min(...spread)`: the spread puts one ARGUMENT on the
   // stack per discard, and this line sits in the twin body that throws by
   // contract — outside every guard the enrichment carries. At today's 4,000 cap

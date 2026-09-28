@@ -12,7 +12,11 @@ function headersToRecord(headers?: HeadersInit): Record<string, string> {
 class ActorSynqedClient extends SynqedClient {
   constructor(
     config: ConstructorParameters<typeof SynqedClient>[0],
-    private readonly accessToken?: string,
+    // Named apart from the SDK base class's own private `accessToken`
+    // (@synqed-kk/client 1.36): TypeScript refuses a subclass that redeclares a
+    // base private. The base one stays unset, so this class alone still adds
+    // the Authorization header, exactly as on 1.34.
+    private readonly actorAccessToken?: string,
   ) {
     super(config)
   }
@@ -25,10 +29,10 @@ class ActorSynqedClient extends SynqedClient {
    *  no header is sent — core mints its own. */
   private withActorHeaders<T extends { headers?: HeadersInit }>(init?: T): T | undefined {
     const requestId = getRequestId()
-    if (!this.accessToken && !requestId) return init
+    if (!this.actorAccessToken && !requestId) return init
 
     const headers: Record<string, string> = headersToRecord(init?.headers)
-    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`
+    if (this.actorAccessToken) headers.Authorization = `Bearer ${this.actorAccessToken}`
     if (requestId) headers['x-request-id'] = requestId
 
     return { ...init, headers } as unknown as T

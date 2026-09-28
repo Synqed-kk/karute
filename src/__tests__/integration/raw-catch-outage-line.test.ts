@@ -115,12 +115,14 @@ const JA = JSON.parse(readFileSync(join(process.cwd(), 'messages', 'ja.json'), '
 const FAILURE_LINE: string = JA.common.somethingWentWrong
 const DENIAL = 'You do not have permission to perform this action.'
 
-/** The SDK's own class, byte-for-byte (node_modules/@synqed-kk/client/dist/client.js:145-151). */
+/** The SDK's own class, byte-for-byte (node_modules/@synqed-kk/client/dist/client.js:156-165, 1.36). */
 class SynqedError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  code?: string
+  constructor(status: number, message: string, code?: string) {
     super(message)
     this.status = status
+    this.code = code
     this.name = 'SynqedError'
   }
 }
@@ -166,7 +168,10 @@ describe('classifyCoreThrow — maps ONLY the two SDK outage shapes onto the typ
     const sdk = readFileSync(join(process.cwd(), 'node_modules', '@synqed-kk', 'client', 'dist', 'client.js'), 'utf8')
     expect(sdk).toContain("this.name = 'SynqedError';")
     expect(sdk).toContain('this.status = status;')
-    expect(sdk).toContain('throw new SynqedError(res.status,')
+    // 1.36 builds the error in one helper (responseError) and every non-2xx
+    // path throws what it returns — still a SynqedError carrying res.status.
+    expect(sdk).toContain('throw await this.responseError(res);')
+    expect(sdk).toContain('return new SynqedError(res.status,')
   })
 
   it('a throwing status or name getter → the SAME object back, never a throw inside the catch', () => {
