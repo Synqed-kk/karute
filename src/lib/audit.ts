@@ -1117,4 +1117,18 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       "Business booking colours (org settings' booking_colors, the per-store map, closed palette, settings.manage + a store the operator may see) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule); one structured server log line per real write; core audit row = R5 (later).",
     dated: '2026-09-25',
   },
+  // ⚖ S24 (PLAN-BUSINESS-LIVE v2.2 §3 W0, batched ahead in W0 PR (1)) — SYNQED Business's first door route, the
+  // booking move. Unlike the two settings rows above it IS audited, and not by Business: the route calls the
+  // phone's own reschedule core through the ONE shared-cores door file (business-territory.json "sharedCores"),
+  // and that core files the same booking.update row a phone reschedule does — `source: 'business'`, stamped
+  // `detail.via: 'business'` in audit.ts. The route file lands with the door in W0 PR (2); until then the row is
+  // a dated tracked-TODO (CP2's /^Wave [A-Z]+ — YYYY-MM-DD$/ shape).
+  'business/booking-move': {
+    kind: 'mutation',
+    justification:
+      "Business booking move (W0 PR (2) — route lands with the door) — coveredBy updateAppointmentCore's booking.update emit (src/lib/appointments/mutations.ts, the phone's own reschedule core, reached through the one sharedCores door file with source 'business' → detail.via 'business'); the route emits nothing of its own, so one move = one row.",
+    dated: '2026-09-28',
+    pendingWave: 'Wave W — 2026-09-28',
+    coveredBy: 'src/lib/appointments/mutations.ts#updateAppointmentCore',
+  },
 }
