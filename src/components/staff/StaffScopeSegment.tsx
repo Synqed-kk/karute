@@ -163,11 +163,16 @@ export function StaffScopeSegment({
                 aria-controls={open ? listboxId : undefined}
                 data-staff-scope-chevron=""
                 onClick={() => setOpen(!open)}
-                // S52 B3 — a 36×36 tap target, no layout change: a transparent
+                // S52 B3 — a bigger tap target, no layout change: a transparent
                 // ::after, placed on the capsule (so this button's own box and
-                // width stay as they were), spans the track's full height and
-                // reaches its right edge — 36px wide, 5px of it over the label.
-                className="inline-flex items-center rounded-full pl-[3px] pr-3 after:absolute after:-inset-y-[3px] after:-right-[3px] after:w-9"
+                // width stay as they were), spans the track's full height (36)
+                // and reaches its right edge (-3 = p-0.5 + the border). Its LEFT
+                // edge = this button's own left edge, never over the label: from
+                // 自分 the label is a plain toggle (the TAP RULE), so a strip of
+                // it must not open the list. Width 31 = this button's 28
+                // (pl-[3px] + the 13px glyph + pr-3) + those 3px — change one,
+                // change the other (staff-scope-segment.test.tsx pins the sum).
+                className="inline-flex items-center rounded-full pl-[3px] pr-3 after:absolute after:-inset-y-[3px] after:-right-[3px] after:w-[31px]"
               >
                 <ChevronDown
                   size={13}

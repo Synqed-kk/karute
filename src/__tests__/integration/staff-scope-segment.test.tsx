@@ -199,3 +199,51 @@ describe('StaffScopeSegment — the list is StaffSelector’s own panel', () => 
     expect(screen.queryByRole('button', { name: 'スタッフで絞り込み' })).toBeNull()
   })
 })
+
+describe('StaffScopeSegment — the chevron tap box (S52 B3)', () => {
+  // jsdom lays nothing out and never hit-tests a ::after, so the box is rebuilt
+  // from the very classes that draw it (the numbers the browser uses), and each
+  // point is then tapped on the element that box says owns it. The real-browser
+  // sweep (elementFromPoint + mouse taps in headless Chromium) is in the build
+  // record. x = px from the chevron button's left edge = the label's right edge.
+  const tw = (cls: string, prop: string): number => {
+    const m = cls.match(new RegExp(`(?:^|\\s)${prop}-(\\[(\\d+(?:\\.\\d+)?)px\\]|\\d+(?:\\.\\d+)?)(?=\\s|$)`))
+    if (!m) throw new Error(`no ${prop}-* in "${cls}"`)
+    return m[2] !== undefined ? Number(m[2]) : Number(m[1]) * 4
+  }
+  const geometry = () => {
+    const ch = chevron()
+    const track = ch.closest('[data-staff-scope]') as HTMLElement
+    const inset = tw(track.className, 'p') + (/(?:^|\s)border(?=\s|$)/.test(track.className) ? 1 : 0)
+    const glyph = Number(ch.querySelector('svg')?.getAttribute('width'))
+    const button = tw(ch.className, 'pl') + glyph + tw(ch.className, 'pr')
+    const right = tw(ch.className, 'after:-right')
+    const width = tw(ch.className, 'after:w')
+    const boxLeft = button + right - width
+    const height = tw(track.className, 'h') - 2 * inset + 2 * tw(ch.className, 'after:-inset-y')
+    return { inset, glyph, button, right, width, boxLeft, height }
+  }
+
+  it('the box stops at the label’s edge — from 自分 the old 5px overlap strip is the label’s plain toggle (全スタッフ), the chevron’s centre still opens the list', () => {
+    const calls: string[] = []
+    const { unmount } = render(<Harness initial="self" onChange={(n) => calls.push(n)} />)
+    const g = geometry()
+    // Full track height, out to the track's outer edge and no further, and
+    // not one px over the label (nor short of it — as wide as the room allows).
+    expect(g).toMatchObject({ inset: 3, glyph: 13, button: 28, right: 3, width: 31, boxLeft: 0, height: 36 })
+    const owner = (x: number) =>
+      x >= g.boxLeft && x < g.button + g.right ? chevron() : screen.getByRole('button', { name: '全スタッフ' })
+    // The strip the first B3 box (w-9 = 36) laid over the label: x = −5 … −1.
+    for (let x = -5; x <= -1; x++) expect(owner(x)).not.toBe(chevron())
+    fireEvent.click(owner(-3))
+    expect(calls).toEqual(['all'])
+    expect(screen.queryByRole('listbox')).toBeNull()
+    unmount()
+
+    render(<Harness initial="self" />)
+    const centre = tw(chevron().className, 'pl') + g.glyph / 2
+    expect(owner(centre)).toBe(chevron())
+    fireEvent.click(owner(centre))
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+  })
+})
