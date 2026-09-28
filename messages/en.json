@@ -181,7 +181,7 @@
       "summaryRange": "{from}–{to}",
       "sep": "·",
       "count": "Appts",
-      "utilization": "Filled",
+      "utilization": "Util.",
       "free": "Free",
       "bookedTime": "Booked",
       "new": "New",
