@@ -57,19 +57,20 @@ describe('appointment operating hours validation', () => {
     sun: { openMinute: 10 * 60, closeMinute: 18 * 60 },
   }
 
-  function input(startTime: string, durationMinutes: number, tzOffsetMinutes: number): AppointmentInput {
+  // ⚖ W0.5 fix 2 — the judgement reads JST for every caller; no offset rides
+  // in, so each instant below is written as the JST wall time it means.
+  function input(startTime: string, durationMinutes: number): AppointmentInput {
     return {
       staffProfileId: 'staff-id',
       clientId: 'client-id',
       startTime,
       durationMinutes,
-      tzOffsetMinutes,
     }
   }
 
   it('accepts appointments fully within configured hours', async () => {
     const result = await validateAppointmentTime(
-      input('2026-03-16T11:00:00.000Z', 60, 0),
+      input('2026-03-16T02:00:00.000Z', 60), // 11:00 JST
       operatingHours,
       NO_STORE,
     )
@@ -79,7 +80,7 @@ describe('appointment operating hours validation', () => {
 
   it('rejects appointments that start before open', async () => {
     const result = await validateAppointmentTime(
-      input('2026-03-16T09:30:00.000Z', 30, 0),
+      input('2026-03-16T00:30:00.000Z', 30), // 09:30 JST
       operatingHours,
       NO_STORE,
     )
@@ -91,14 +92,14 @@ describe('appointment operating hours validation', () => {
     })
   })
 
-  it('uses local day derived from timezone offset for validation', async () => {
+  it('uses the JST day for validation, never a caller offset', async () => {
     const daySpecificHours = {
       ...operatingHours,
       tue: { openMinute: 8 * 60, closeMinute: 9 * 60 },
     }
 
     const result = await validateAppointmentTime(
-      input('2026-03-16T23:30:00.000Z', 30, -60),
+      input('2026-03-16T15:30:00.000Z', 30), // Tuesday 00:30 JST
       daySpecificHours,
       NO_STORE,
     )

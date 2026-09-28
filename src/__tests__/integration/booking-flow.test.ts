@@ -189,17 +189,13 @@ describe('Booking creation flow', () => {
     appointments.create.mockResolvedValue({ id: 'should-not-fire' })
 
     // 06:00 JST (= 21:00 UTC the previous day) — before the 09:00 open. The
-    // real dialog (NewBookingDialog) hard-codes JST as tzOffsetMinutes: -540
-    // (getTimezoneOffset semantics: negative when local is ahead of UTC) rather
-    // than reading the runner's tz, so reproduce that exactly. Using an explicit
-    // UTC instant + fixed offset keeps this deterministic in any runner timezone
-    // (the old `-getTimezoneOffset()` had the wrong sign and only passed in UTC).
+    // judgement reads JST for every caller (W0.5 fix 2), never the runner's tz,
+    // so an explicit UTC instant keeps this deterministic in any runner timezone.
     const result = await createAppointment({
       staffProfileId: 'staff-1',
       clientId: 'cust-9',
       startTime: '2026-05-19T21:00:00.000Z',
       durationMinutes: 60,
-      tzOffsetMinutes: -540,
     })
 
     expect('error' in result).toBe(true)
@@ -330,7 +326,6 @@ describe('Booking creation flow — audit', () => {
         clientId: 'cust-9',
         startTime: '2026-05-19T21:00:00.000Z',
         durationMinutes: 60,
-        tzOffsetMinutes: -540,
       })
       expect('error' in result).toBe(true)
     })

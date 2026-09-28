@@ -741,10 +741,7 @@ export async function updateAppointmentCore(
         clientId: appt.customer_id,
         startTime,
         durationMinutes,
-        // karute is JST-only (the same rule getAppointmentsByDate states at
-        // src/actions/appointments.ts) and the dialog already hard-codes it:
-        // JST is UTC+9 with no DST, so getTimezoneOffset semantics = -540.
-        tzOffsetMinutes: -540,
+        // No offset: the judgement is JST-only for every caller (W0.5 fix 2).
       }
       const dayHours = await fetchBookingDayHours(
         synqed,

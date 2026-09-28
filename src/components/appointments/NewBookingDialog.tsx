@@ -271,12 +271,9 @@ export function NewBookingDialog({
       clientId,
       startTime: startJst.toISOString(),
       durationMinutes,
-      // utcToLocalDayAndMinute (the validator) uses getTimezoneOffset
-      // semantics: positive when local is behind UTC, negative when ahead.
-      // JST is UTC+9 with no DST → always -540. Hard-coding decouples this
-      // from the browser's tz, so a traveler in PDT still gets their input
-      // interpreted as JST (which is what the form labels say).
-      tzOffsetMinutes: -540,
+      // No clock offset: the hours judgement reads JST for every caller
+      // (W0.5 fix 2), so a traveler in PDT is still judged in JST — which is
+      // what the form labels say.
       title: service.trim() || undefined,
       // Free text books without one; core validates ownership and snapshots
       // the price itself.

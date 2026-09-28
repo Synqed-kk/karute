@@ -1,22 +1,21 @@
 import {
   formatMinuteOfDay,
+  getWeekdayKey,
   normalizeOperatingHours,
   resolveDayHours,
-  utcToLocalDayAndMinute,
   type DayHoursInput,
   type WeekdayKey,
 } from '@/lib/operating-hours'
-import { ymdInJst } from '@/lib/date/jst'
+import { jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
 
-// karute is JST-only, and the day is already resolved in JST, so default to JST's getTimezoneOffset value.
-const JST_TZ_OFFSET_MINUTES = -540
-
+// ⚖ W0.5 fix 2 — no clock offset rides in. karute is JST-only, so the hours
+// judgement is too: every day, weekday and minute below is read in JST
+// (src/lib/date/jst.ts), whatever the caller's device clock says.
 export interface AppointmentInput {
   staffProfileId: string
   clientId: string
   startTime: string
   durationMinutes: number
-  tzOffsetMinutes?: number
   title?: string
   notes?: string
   /** Catalog menu the booking is linked to (camelCase here, menu_id at the
@@ -190,20 +189,23 @@ type BookingDaySegment = {
   toMinute: number
 }
 
-/** The minute arithmetic every day segment is cut from — ONE reading of the
- *  caller's offset, shared by the walk and by the fetch range, so the days the
- *  door asks core about and the days it judges can never differ. */
+/** The minute arithmetic every day segment is cut from — ONE reading, shared
+ *  by the walk and by the fetch range, so the days the door asks core about
+ *  and the days it judges can never differ.
+ *
+ *  ⚖ W0.5 fix 2 — JST for every caller: the day, its weekday and its minutes
+ *  are JST's (jst.ts), never a caller-supplied offset. The closed/special
+ *  lookup keys by ymdInJst, so a walk cut on any other clock could skip the
+ *  JST day a booking touches (23:30–00:30 JST on a UTC clock is one day). */
 function bookingSpan(input: AppointmentInput) {
   const start = new Date(input.startTime)
-  const tzOffsetMinutes = Number.isFinite(input.tzOffsetMinutes)
-    ? (input.tzOffsetMinutes as number)
-    : JST_TZ_OFFSET_MINUTES
-  const { dayKey, minuteOfDay } = utcToLocalDayAndMinute(start, tzOffsetMinutes)
+  const midnight = jstWallTimeToDate(ymdInJst(start), '00:00')
+  const minuteOfDay = Math.floor((start.getTime() - midnight.getTime()) / 60_000)
   const endMinute = minuteOfDay + input.durationMinutes
   // How many midnights the interval runs past: its end is exclusive, so a
   // booking ending exactly at 24:00 touches ONE day.
   const lastDayIndex = Math.max(0, Math.ceil(endMinute / 1440) - 1)
-  return { start, tzOffsetMinutes, dayKey, minuteOfDay, endMinute, lastDayIndex }
+  return { start, minuteOfDay, endMinute, lastDayIndex }
 }
 
 /** The instant of the LAST calendar day a booking touches (its start day when
@@ -219,17 +221,15 @@ export function bookingLastDay(input: AppointmentInput): Date {
  *  at the first refused day, so only a store open around the clock on every
  *  day a long booking crosses ever walks it whole. */
 function* bookingDaySegments(input: AppointmentInput): Generator<BookingDaySegment> {
-  const { start, tzOffsetMinutes, dayKey, minuteOfDay, endMinute, lastDayIndex } =
-    bookingSpan(input)
-  yield { at: start, dayKey, fromMinute: minuteOfDay, toMinute: Math.min(endMinute, 1440) }
-  for (let k = 1; k <= lastDayIndex; k++) {
+  const { start, minuteOfDay, endMinute, lastDayIndex } = bookingSpan(input)
+  for (let k = 0; k <= lastDayIndex; k++) {
     // JST has no DST, so one day is exactly 86,400,000 ms and `at` lands on
     // the next JST calendar day at the same wall time.
     const at = new Date(start.getTime() + k * 86_400_000)
     yield {
       at,
-      dayKey: utcToLocalDayAndMinute(at, tzOffsetMinutes).dayKey,
-      fromMinute: 0,
+      dayKey: getWeekdayKey(at),
+      fromMinute: k === 0 ? minuteOfDay : 0,
       toMinute: Math.min(endMinute - k * 1440, 1440),
     }
   }
@@ -265,8 +265,8 @@ export async function validateAppointmentTime(
     //
     // The DAY is resolved in JST (resolveDayHours → partsInJst / ymdInJst), like
     // every other 予約 surface — so the day the staffer sees marked 休 is
-    // exactly the day refused. The open/close-minute check below keeps its own
-    // client-tz-offset reading when an explicit offset is supplied.
+    // exactly the day refused. The open/close-minute check below reads the
+    // same JST day (⚖ W0.5 fix 2: no caller offset reaches the judgement).
     //
     // This runs BEFORE the window check on purpose: a closed day has no window,
     // and 「営業時間内(00:00〜00:00)に設定してください」 would be nonsense.

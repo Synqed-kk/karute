@@ -243,14 +243,19 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
       expect(result).toMatchObject({ code: 'closed_day', level: 'store', kind: 'weekday' })
     })
 
-    it('t4 keeps an explicit UTC offset instead of the JST default', async () => {
+    // ⚖ W0.5 fix 2 — the judgement is JST-only: a caller's offset (here a UTC
+    // clock, 0) is never read. 22:30 JST + 60 min runs past the 22:00 close.
+    it('t4 ignores an explicit UTC offset — the judgement is JST-only', async () => {
       const result = await validateAppointmentTime(
-        { ...inputWithoutOffset('2026-05-12T13:30:00.000Z'), tzOffsetMinutes: 0 },
+        Object.assign(inputWithoutOffset('2026-05-12T13:30:00.000Z'), { tzOffsetMinutes: 0 }),
         ORG_HOURS,
         dayHours({ weeklyHours: STORE_1000_2200 as never }),
       )
 
-      expect(result).toBeNull()
+      expect(result).toMatchObject({
+        code: 'outside_hours',
+        params: { open: '10:00', close: '22:00' },
+      })
     })
 
     it.each(['00:00', '08:59'])(
@@ -280,11 +285,8 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
       ['numeric string', '0'],
     ])('t6 defaults %s to JST and refuses 22:30 past closing', async (_label, offset) => {
       const result = await validateAppointmentTime(
-        {
-          ...inputWithoutOffset('2026-05-12T13:30:00.000Z'),
-          // Exercise malformed runtime values at the validator boundary too.
-          tzOffsetMinutes: offset as number | undefined,
-        },
+        // Exercise malformed runtime values at the validator boundary too.
+        Object.assign(inputWithoutOffset('2026-05-12T13:30:00.000Z'), { tzOffsetMinutes: offset }),
         ORG_HOURS,
         dayHours({ weeklyHours: STORE_1000_2200 as never }),
       )
@@ -440,7 +442,7 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
       }
 
       const result = await validateAppointmentTime(
-        { ...bookingInput(TUE_1300_JST), durationMinutes: 30, tzOffsetMinutes: 0 },
+        Object.assign({ ...bookingInput(TUE_1300_JST), durationMinutes: 30 }, { tzOffsetMinutes: 0 }),
         ORG_HOURS,
         dayHours({ weeklyHours: mondayOpenTuesdayShort as never }),
       )

@@ -34,6 +34,7 @@ const CreateAppointmentSchema = z
     clientId: z.string().min(1),
     startTime: z.string().min(1),
     durationMinutes: z.number().int().positive(),
+    // Accepted for old clients, never read: the judgement is JST-only (W0.5 fix 2).
     tzOffsetMinutes: z.number().optional(),
     title: z.string().optional(),
     notes: z.string().optional(),
