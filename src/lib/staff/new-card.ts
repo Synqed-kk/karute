@@ -39,7 +39,7 @@ export type NewCardClient = Pick<SynqedClient, 'staff'> &
 export interface NewCardDeps {
   /** Audit actor for the placement row. */
   actorId: string | null
-  source: 'web' | 'facade'
+  source: 'web' | 'facade' | 'business'
   requestId?: string
   /** The CREATOR's own allowed stores; `null` = EXPLICITLY unclamped
    *  (stores.viewAll, or a floating creator in a one-store salon). REQUIRED

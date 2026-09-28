@@ -45,7 +45,7 @@ import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 type BookingActor = {
   actorId: string | null
   businessId: string | null
-  source: 'web' | 'facade'
+  source: 'web' | 'facade' | 'business'
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. Optional only because a couple of tests construct a
    *  BookingActor without it — every real caller threads it. */

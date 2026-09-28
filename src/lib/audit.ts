@@ -63,7 +63,9 @@ export interface AuditEvent {
    *  with `Array.isArray` — this just lets the emitter TYPE what it sends. */
   detail?: Record<string, string | number | boolean | null | string[]>
   requestId?: string
-  source: 'facade' | 'web' | 'system'
+  /** 'business' = SYNQED Business (the computer version) writing through the
+   *  phone's own shared cores — stamped as `detail.via` below, one home. */
+  source: 'facade' | 'web' | 'system' | 'business'
 }
 
 /** Emit one audit event. Two sinks, by design (§4):
