@@ -227,6 +227,9 @@ const inFlight: Array<Promise<unknown>> = []
 const stillWorkingWaits = new Set<number>()
 let onStillWorking: (() => void) | null = null
 let stillWorkingServed = 0
+/** S55: every /transcribe POST body sent, in order, and every timer the run asked for (the capped waits). */
+const transcribePosted: string[] = []
+const timersAsked: number[] = []
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const bearer = () => {
   const now = Math.floor(Date.now() / 1000)
@@ -246,6 +249,7 @@ jest.mock('@/lib/ports/data-port', () => ({
   getDataPort: () => ({
     apiFetch: async (url: string, init: { body: string }) => {
       if (url.endsWith('/transcribe')) {
+        transcribePosted.push(init.body)
         const how = net.shift()
         if (how === 'unreached') throw new TypeError('Failed to fetch')
         const served = serve(url, init.body)
@@ -277,8 +281,9 @@ jest.mock('@/lib/ports/data-port', () => ({
 const realSetTimeout = global.setTimeout
 jest
   .spyOn(global, 'setTimeout')
-  .mockImplementation(((fn: () => void, ms?: number) =>
-    realSetTimeout(fn, ms === 1500 || (ms !== undefined && stillWorkingWaits.has(ms)) ? 0 : ms)) as typeof setTimeout)
+  .mockImplementation(((fn: () => void, ms?: number) => (
+    timersAsked.push(ms ?? 0), realSetTimeout(fn, ms === 1500 || (ms !== undefined && stillWorkingWaits.has(ms)) ? 0 : ms)
+  )) as typeof setTimeout)
 // The meter's HEAD for the reserve's size.
 global.fetch = (async () => ({ headers: new Headers({ 'content-length': '360000' }) })) as unknown as typeof fetch
 
@@ -316,6 +321,8 @@ beforeEach(() => {
   stillWorkingWaits.clear()
   onStillWorking = null
   stillWorkingServed = 0
+  transcribePosted.length = 0
+  timersAsked.length = 0
   store.meta = null
 })
 afterEach(async () => {
@@ -457,6 +464,77 @@ describe.each(LAYERS)('paid calls — %s', (_label, fixOn, flipOn, column) => {
       expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes((door === 'web' ? web : phone)[column])
       // S54 B: the race meets the lease's 409 (and rides it out) exactly when the fix is ON.
       if (event === e2) expect(stillWorkingServed > 0).toBe(fixOn)
+    })
+  })
+})
+
+// ── S55 r1 — A MANUAL 再試行 WHILE ATTEMPT 1 IS STILL LIVE AND HOLDS THE LEASE ──
+// Since S54 B the E2 race recovers by the client's own 409 wait, so no cell above fires
+// globalPipeline.retry() while a first attempt is still inside the provider (VERIFY-S55-PR3-MATRIX).
+// r1 restores that coverage on the lost row (no_session with a take), fix ON, both flip layers,
+// both doors, and asserts the OUTCOME only: the same pinned key on every POST, paid once, no new
+// mint, `review`, one transcript. r1a — the tab lock (navigator.locks) is live, so attempt 1 holds
+// it; r1b — no lock at all (a relaunched app, a second tab): the retry's POST meets the lease's 409
+// and rides it out through the capped wait loop.
+const KEY = /app_business-1_[0-9a-f-]{36}\.webm/
+const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
+  let finish!: () => void
+  providerHolds.push(new Promise<void>((r) => (finish = r)))
+  // r1a: attempt 1 finishes once the 再試行 is queued (or at a 409, where the lock does not order the two);
+  // r1b: attempt 1 finishes only at the SECOND 409, so the retry first rides two capped waits.
+  onStillWorking = lock === 'held' ? () => finish() : () => stillWorkingServed >= 2 && finish()
+  if (lock === 'absent') Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+  try {
+    expect(typeof navigator.locks?.request).toBe(lock === 'held' ? 'function' : 'undefined')
+    globalPipeline.start(memory, ctx)
+    for (let i = 0; i < 200 && transcribeUrlWithDeepgram.mock.calls.length === 0; i++) await tick()
+    // Attempt 1 is inside the provider: its POST holds the lease (and, in r1a, the tab lock).
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(globalPipeline.state).toBe('processing')
+    globalPipeline.retry() // the manual 再試行 while attempt 1 is still live
+    for (let i = 0; i < 40; i++) await tick()
+    if (lock === 'held') finish()
+    for (let i = 0; i < 4 && globalPipeline.state === 'processing'; i++) {
+      await settle()
+      await Promise.allSettled(inFlight)
+    }
+  } finally {
+    if (lock === 'absent') delete (navigator as { locks?: unknown }).locks
+  }
+  expect(globalPipeline.state).toBe('review')
+  expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1) // paid once
+  expect(mints).toHaveLength(1) // attempt 1's own mint; the 再試行 mints none
+  expect(new Set(transcribePosted.map((body) => body.match(KEY)?.[0]))).toEqual(new Set([mints[0]])) // one key, pinned
+  expect((globalPipeline.result as { transcript?: string } | null)?.transcript).toBe('answer-1') // one transcript
+  if (lock === 'absent') {
+    // The lease's 409 was met at least twice, and every wait the run took for it was the capped one.
+    expect(stillWorkingServed).toBeGreaterThanOrEqual(2)
+    expect(timersAsked.filter((ms) => ms === STILL_WORKING_WAIT_CAP_MS).length).toBeGreaterThanOrEqual(2)
+    expect(timersAsked.filter((ms) => ms > STILL_WORKING_WAIT_CAP_MS && stillWorkingWaits.has(ms))).toEqual([])
+  }
+}
+
+describe.each([
+  ['flip OFF', false],
+  ['flip ON', true],
+] as const)('S55 r1 — a manual 再試行 while attempt 1 is live and holds the lease · fix ON · %s', (_label, flipOn) => {
+  let restore: Array<{ restore(): void }> = []
+  beforeEach(() => {
+    restore = [
+      jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', true),
+      jest.replaceProperty(RECORDING_SWITCHES as { bindUnboundUploads: boolean }, 'bindUnboundUploads', flipOn),
+    ]
+  })
+  afterEach(() => restore.forEach((r) => r.restore()))
+
+  describe.each(['web', 'phone'] as const)('%s', (door) => {
+    it.each([
+      ['r1a the tab lock held by attempt 1', 'held'],
+      ['r1b no tab lock (a relaunched app, a second tab)', 'absent'],
+    ] as const)('%s → the same key, paid once, no new mint, review, one transcript', async (_name, lock) => {
+      platform = door
+      bareTake()
+      await r1(ctxFor(TAKE), lock)
     })
   })
 })
