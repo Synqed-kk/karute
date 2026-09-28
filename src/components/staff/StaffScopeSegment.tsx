@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils'
 // S52 B4 — the pressed LABEL reads in the accent's darker pair
 // (--primary-hover, globals.css): text-primary over this control's muted
 // track + the 8% wash is 4.44:1, under AA; the pair gives 5.76:1.
+// This is the AA exception written into CLAUDE.md's selected/pressed-state rule.
 const SEGMENT_ON = 'bg-primary/8 text-primary-hover'
 const SEGMENT_OFF = 'text-muted-foreground hover:text-foreground'
 

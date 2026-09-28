@@ -10,7 +10,9 @@ The interactive accent is blue-600 `#2563eb` (dark mode `#60a5fa`), carried by
 shipped by the `@synqed-kk/ui` karute theme.
 
 - Selected/pressed state (tabs, filters, chips, options): `bg-primary/8
-  text-primary` + `border-primary` where the control has a border. Never a
+  text-primary` + `border-primary` where the control has a border — or
+  `text-primary-hover` (the same hue, darker) where `text-primary` on the
+  `bg-primary/8` wash fails 4.5:1; the wash stays. Never a
   solid dark fill. (/8 not /10: accent text on the 10% wash computes to
   4.49:1 — just under WCAG AA; 8% passes.)
 - Commit/primary action (save, create, confirm): `bg-primary
