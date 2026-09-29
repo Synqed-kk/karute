@@ -104,6 +104,11 @@ MUTANTS = [
      [(LINK, "        !a.cancelled_at && a.status !== 'CANCELLED',\n",
        "        LINKABLE_STATUSES.has(a.status) && !a.cancelled_at, // M-O12\n")],
      [AUTO_T], ['B-1 A5a: the real visit 09:00–10:00 already COMPLETED']),
+    # M-O13 — the facade converge searches the request's store again (commit 11, SF-1)
+    ('M-O13', "the converge's auto-link is handed the request store, not the record's",
+     [(CORE, '        autoLinked = await autoLink({ storeId: existing.store_id ?? null })\n',
+       '        autoLinked = await autoLink({ storeId: payload.store_id ?? null }) // M-O13\n')],
+     [SAVE_T], ['SF-1 F-1: a converge onto a store-A karute', "SF-1 F-1b: the same converge finds the karute's OWN store-A booking"]),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',

@@ -228,10 +228,12 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       return fate.link
     },
     !input.appointmentId && recordingSessionId
-      ? async () => {
+      ? async (record) => {
+          // SF-1: the RECORD's store (a converge keeps the existing one), never
+          // this request's clamp store.
           const auto = await resolveAutoAppointmentLink(synqed as unknown as SynqedClient, {
             customerId: input.customerId,
-            storeId,
+            storeId: record.storeId,
             recordingSessionId,
           })
           autoLink = auto.link

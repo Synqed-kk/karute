@@ -870,4 +870,29 @@ describe('POST /api/app/v1/karute (save) — S7 the unambiguous booking is linke
     expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: 'appt-first' })
     expect(client.appointments.list).not.toHaveBeenCalled()
   })
+  // S67 fix round 2, commit 11 (SF-1; the attack's F-1 / F-1b): on a converge
+  // the auto-link searches the KARUTE's own store, never the request's.
+  const inStore = (id: string, storeId: string) => ({ ...appt(id, '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z'), store_id: storeId })
+  const convergeInOtherStore = () => {
+    existingBySession.current = {
+      id: 'kar-existing', transcript: 'old', store_id: 'store-daikanyama', customer_id: 'cust-1', appointment_id: null,
+    } as never
+  }
+  it('SF-1 F-1: a converge onto a store-A karute from a store-B request never links the store-B booking', async () => {
+    attach([inStore('appt-store-B', 'store-ginza')])
+    convergeInOtherStore()
+    const { reply, row } = await save()
+    expect(client.appointments.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-daikanyama' }))
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: null })
+    expect(reply.appointment_link).toBe('none')
+    expect(row.detail).toMatchObject({ appointment_link: 'none', appointment_id: null })
+  })
+  it("SF-1 F-1b: the same converge finds the karute's OWN store-A booking", async () => {
+    attach([inStore('appt-store-A', 'store-daikanyama')])
+    convergeInOtherStore()
+    const { reply, row } = await save()
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: 'appt-store-A' })
+    expect(reply.appointment_link).toBe('auto_linked')
+    expect(row.detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-store-A' })
+  })
 })

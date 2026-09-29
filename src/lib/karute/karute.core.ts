@@ -107,8 +107,13 @@ export async function createOrUpdateKaruteRecord(
   /** S7 (PR-O commit 4): the facade's auto-link (resolveAutoAppointmentLink,
    *  never throws). Run ONLY when the write names no booking and the record
    *  keeps none; its value rides the one karute.save row as appointment_link.
-   *  Omitted (the web doors) = no auto-link, as before. */
-  autoLink?: () => Promise<{ link: AutoAppointmentLink; appointmentId: string | null }>,
+   *  Omitted (the web doors) = no auto-link, as before.
+   *  S67 fix round 2, commit 11 (SF-1): it is handed the RECORD's own store —
+   *  on a converge the existing record's store_id (the update never moves it,
+   *  CEILING F-7 below), on a create the payload's — never the request's
+   *  lens, so a booking of another store never links to this karute. The
+   *  worker's upsert follows the same rule. */
+  autoLink?: (record: { storeId: string | null }) => Promise<{ link: AutoAppointmentLink; appointmentId: string | null }>,
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
   // S7: set by the auto-link below when it ran; the row names the booking it
   // linked and why (auto_linked · ambiguous · none).
@@ -206,7 +211,7 @@ export async function createOrUpdateKaruteRecord(
       const omitEntries = entriesMode === 'fill-if-empty' && existingHasEntries
       let appointmentId = keepLinkUnlessGiven(existing, payload)
       if (!appointmentId && autoLink) {
-        autoLinked = await autoLink()
+        autoLinked = await autoLink({ storeId: existing.store_id ?? null })
         appointmentId = autoLinked.appointmentId
       }
       await synqed.karuteRecords.update(existing.id, {
@@ -249,7 +254,7 @@ export async function createOrUpdateKaruteRecord(
       })
     }
   }
-  if (!payload.appointment_id && autoLink) autoLinked = await autoLink()
+  if (!payload.appointment_id && autoLink) autoLinked = await autoLink({ storeId: payload.store_id ?? null })
   const record = await synqed.karuteRecords.create(
     autoLinked?.appointmentId ? { ...payload, appointment_id: autoLinked.appointmentId } : payload,
   )
