@@ -17,7 +17,7 @@ import {
   reportTranscriptionUsageWithClient,
 } from '@/lib/ai-rate-limit'
 import { AppApiError } from '@/lib/app-api/errors'
-import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
+import { AUDIO_UNREADABLE, TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
 import { audit } from '@/lib/audit'
 import { composeTranscriptKey } from '@/lib/recording/key-grammar'
 import { readTranscriptMemo, writeTranscriptMemo } from '@/lib/recording/transcript-memo'
@@ -333,10 +333,10 @@ function estimateSecondsFromBytes(bytes: number): number {
  *  this server-only one — change one, change both. */
 const RESERVE_HEAD_TIMEOUT_MS = 10_000
 
-/** The word an unreadable audio is refused with — the facade code, the web
- *  route's flat `error`, and the job's `last_error` sentinel
- *  (process-recording.ts JOB_SENTINELS) all read this one string. */
-export const AUDIO_UNREADABLE = 'audio_unreadable'
+/** The word an unreadable audio is refused with — declared once in the
+ *  thin-safe job-errors.ts (the audit page's reason table reads it too) and
+ *  re-exported here for this module's existing readers. */
+export { AUDIO_UNREADABLE }
 
 /** The meter's refusal of an audio whose head opens with NO container the
  *  recorders make (S60 A3). The facade's own error class, so the facade

@@ -180,9 +180,11 @@ const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
 export const DIAG_MAX_SEQ = MAX_SEGMENT_SEQ
 /** Most segments a diag may count — every seq 0..DIAG_MAX_SEQ once. */
 export const DIAG_MAX_SEQ_COUNT = MAX_SEGMENT_SEQ + 1
-/** Largest blob a diag may report — the same 2 GiB ceiling as the finalize
- *  schema's MAX_TAKE_BYTES below (declared there, after this schema is built). */
-export const DIAG_MAX_BLOB_BYTES = 2 * 1024 * 1024 * 1024
+/** The largest take a finalize may name — 2 GiB. Declared ONCE, here, above
+ *  the diag schema, so the finalize schema below and the diag read one ceiling. */
+export const MAX_TAKE_BYTES = 2 * 1024 * 1024 * 1024
+/** Largest blob a diag may report — a diag may not report a blob larger than a take may be. */
+export const DIAG_MAX_BLOB_BYTES = MAX_TAKE_BYTES
 /** A byte's value — `first_byte` is the blob's first byte as a number. */
 export const DIAG_MAX_BYTE_VALUE = 255
 /** Ceiling for each event counter (store errors, hides, freezes, null
@@ -304,8 +306,8 @@ export const UploadUrlMintSchema = z
 // key on that row before any byte can exist, so a finalize that cannot name its
 // row is a finalize for a take this server never bound.
 // The two numbers get ceilings for the same reason: durationSeconds is WRITTEN
-// onto the core row, and a take of zero bytes is not a take at all.
-const MAX_TAKE_BYTES = 2 * 1024 * 1024 * 1024
+// onto the core row, and a take of zero bytes is not a take at all (the byte
+// ceiling is MAX_TAKE_BYTES, declared once above TakeDiagSchema).
 export const FinalizeTakeSchema = z
   .object({
     takeId: z.string().uuid(),

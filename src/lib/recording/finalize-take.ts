@@ -199,8 +199,9 @@ async function probeTakeHead(key: string): Promise<ProbeResult> {
  * unauthorized caller never learns whether a key exists. The BYTE check comes
  * before any audit row too (fix round 7) — no branch files a record of audio
  * the bucket does not hold. Nothing here deletes, and nothing here mints a row
- * or a key. Its ONE storage write (S60 A2) is the create-only `refused` mark on
- * a take whose bytes are no recording (take-mark.ts#markTake, under `mrk/`) —
+ * or a key. Its only storage writes (S60 A2 + A4b) are the create-only marks —
+ * `refused` on a take whose bytes are no recording, `partial` when the phone
+ * says the blob is not the whole take (take-mark.ts#markTake, under `mrk/`) —
  * never an overwrite, never the take's own object.
  *
  * PROCESSING is deliberately never WRITTEN: that status means "a job is
@@ -370,7 +371,17 @@ export async function finalizeTakeWithClient(
     // Switch OFF → no sign, no fetch, no mark: the answers are today's.
     if (RECORDING_SWITCHES.finalizeProbe) {
       const probe = await probeTakeHead(key)
-      if (probe.state === 'unknown') return { error: 'failed' }
+      if (probe.state === 'unknown') {
+        // Fail closed (frozen R2), but never silently: codes and numbers only,
+        // never the key or the URL — a signing/Range/timeout problem shows the
+        // day it happens.
+        console.warn('[finalize-take] probe unknown', {
+          recordingSessionId: row.id,
+          reason: probe.reason,
+          bytesRead: probe.bytesRead ?? null,
+        })
+        return { error: 'failed' }
+      }
       if (probe.state === 'unreadable') {
         const facts = { bytes: input.byteLength, first_byte: probe.firstByte }
         const marked = await markTake(createServiceClient(), actor.businessId, key, 'refused', facts)

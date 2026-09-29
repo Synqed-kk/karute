@@ -713,8 +713,15 @@ function emitTranscribeFailedIfExhausted(
       max_attempts: job.max_attempts,
       // The stage's code IS the classification (recording hole PR-1); the
       // raw error line never enters this row — it stays in last_error and the
-      // console line only. 'other' = thrown outside the three stages.
-      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : (stage ?? 'other'),
+      // console line only. 'other' = thrown outside the three stages. The
+      // meter's unreadable-audio sentinel (S60 A3) passes through un-staged,
+      // so it is named by its own word, never folded into 'other'.
+      reason:
+        message === 'EMPTY_TRANSCRIPT'
+          ? 'empty_transcript'
+          : message === AUDIO_UNREADABLE
+            ? AUDIO_UNREADABLE
+            : (stage ?? 'other'),
     },
     requestId: `job:${job.id}:failed`,
     source: 'system',

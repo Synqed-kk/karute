@@ -3,6 +3,7 @@
 // §1: "if it is >10 lines") — several small pure functions, each with its own
 // table/boundary test, none of them React.
 import type { AuditLogEvent } from '@/actions/audit-log'
+import { AUDIO_UNREADABLE } from '@/lib/recording/job-errors'
 
 /** I2 — which settings.auditLog.automation.* key names the job that wrote a
  *  system-actor row, or null for today's plain システム label. Specific
@@ -63,13 +64,15 @@ export function karuteMissingReasonKey(reason: unknown): string | null {
 
 /** I6 — recording.transcribe_failed's detail.reason is already spelled as
  *  the key suffix at the writer (process-recording.ts emitTranscribeFailedIfExhausted:
- *  'empty_transcript' | the three StageFailure codes | 'other') — just gate it
- *  to the real values, never pass an unknown string through as a key. */
+ *  'empty_transcript' | the three StageFailure codes | AUDIO_UNREADABLE |
+ *  'other') — just gate it to the real values, never pass an unknown string
+ *  through as a key. */
 const TRANSCRIBE_FAILED_REASONS: ReadonlySet<unknown> = new Set([
   'empty_transcript',
   'transcription_failed',
   'ai_failed',
   'karute_save_failed',
+  AUDIO_UNREADABLE,
   'other',
 ])
 export function transcribeFailedReasonKey(reason: unknown): string | null {

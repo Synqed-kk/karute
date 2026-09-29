@@ -350,6 +350,10 @@ import { AudioUnreadableError, runMeteredTranscription } from '@/lib/ai/transcri
 import { AppApiError } from '@/lib/app-api/errors'
 import { can } from '@/lib/auth/require-permission'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
+import { POST as facadeDiscardTranscriptPOST } from '@/app/api/app/v1/recordings/discards/transcript/route'
+import { transcribeAndPersistDiscard } from '@/actions/recording-discard-transcript'
+import { resolveSelfStaffId as resolveSelfStaffIdMock } from '@/lib/app-api/customer-facade'
+import { getCurrentUserStaffId as getCurrentUserStaffIdMock } from '@/lib/staff'
 
 const OWN_KEY = conformingKey('biz-1')
 const baseJob = {
@@ -599,6 +603,87 @@ describe('S60 A3 — every door answers the refusal in its own shape', () => {
     expect(fail).toHaveBeenCalledWith('job-1', 'audio_unreadable')
     expect(complete).not.toHaveBeenCalled()
     nothingSpent()
+  })
+  it('job door, the exhausting round → fail(id, "audio_unreadable") AND the transcribe_failed row names the reason, never "other"', async () => {
+    probeHead.current = HEADERLESS_HEAD
+    const exhausted = { ...baseJob, attempts: 3, max_attempts: 3 }
+    claim.mockResolvedValueOnce(exhausted).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...exhausted, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'audio_unreadable')
+    const failedRows = rows('recording.transcribe_failed')
+    expect(failedRows).toHaveLength(1)
+    expect((failedRows[0].detail as Record<string, unknown>).reason).toBe('audio_unreadable')
+    expect(complete).not.toHaveBeenCalled()
+    nothingSpent()
+  })
+})
+
+// S5 — the discard door's two wrappers, driven end to end with an unreadable
+// object: each passes the core's `failed` through unchanged (REV 2.3 A2).
+describe('S60 A3 — the discard door\'s two wrappers answer `failed` on the wire', () => {
+  const DISCARD_KEY = conformingKey('business-1')
+  const arrangeDiscard = () => {
+    probeHead.current = HEADERLESS_HEAD
+    listDiscards.mockResolvedValue({
+      events: [{ id: 'd-1', recording_session_id: 'sess-1', source: 'STAFF', reason: '事故' }],
+    })
+    recordingsGet.mockResolvedValue({ duration_seconds: 60, customer_id: 'cust-1', audio_storage_path: DISCARD_KEY })
+    return jest.spyOn(console, 'warn').mockImplementation(() => {})
+  }
+  const refusedLine = (warn: jest.SpyInstance) => {
+    const lines = warn.mock.calls.filter((c) => c[0] === '[discard-transcript] refused')
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(String(lines[0][1]))).toEqual({
+      reason: 'audio_unreadable',
+      recording_session_id: 'sess-1',
+      first_byte: 0,
+      bytes_read: 14,
+    })
+  }
+  const input = { recordingSessionId: 'sess-1', audioPath: DISCARD_KEY, durationSeconds: 600, locale: 'ja' }
+
+  it('facade POST → HTTP 200 {error:"failed"}, the refused line, nothing spent', async () => {
+    const warn = arrangeDiscard()
+    ;(resolveSelfStaffIdMock as jest.Mock).mockResolvedValueOnce('staff-1')
+    const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
+    const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    const now = Math.floor(Date.now() / 1000)
+    const header = b64({ alg: 'HS256', typ: 'JWT' })
+    const payload = b64({ sub: 'auth-user-1', iss: ISSUER, aud: 'authenticated', exp: now + 3600, iat: now })
+    const sig = createHmac('sha256', SECRET).update(`${header}.${payload}`).digest('base64url')
+
+    const res = await facadeDiscardTranscriptPOST(
+      new Request('https://s/api/app/v1/recordings/discards/transcript', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${header}.${payload}.${sig}`, 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+      { params: Promise.resolve({}) },
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ error: 'failed' })
+    refusedLine(warn)
+    expect(upsertSegments).not.toHaveBeenCalled()
+    nothingSpent()
+    warn.mockRestore()
+  })
+
+  it('cookie action → {error:"failed"}, the refused line, nothing spent', async () => {
+    const warn = arrangeDiscard()
+    ;(getCurrentUserStaffIdMock as jest.Mock).mockResolvedValueOnce('staff-A').mockResolvedValueOnce('staff-A')
+
+    const out = await transcribeAndPersistDiscard(input)
+
+    expect(out).toEqual({ error: 'failed' })
+    refusedLine(warn)
+    expect(upsertSegments).not.toHaveBeenCalled()
+    nothingSpent()
+    warn.mockRestore()
   })
 })
 

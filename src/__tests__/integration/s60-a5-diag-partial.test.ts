@@ -10,7 +10,6 @@
  * The switch `finalizeProbe` OFF gates every mark: the fields are accepted,
  * folded into the log line only, and nothing is written.
  */
-jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
 
 const auditFn = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
@@ -62,8 +61,10 @@ jest.mock('@/lib/supabase/service', () => ({
 import { OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 import {
   DIAG_CODE_MAX_CHARS,
+  DIAG_MAX_BLOB_BYTES,
   DIAG_MAX_BYTE_VALUE,
   FinalizeTakeSchema,
+  MAX_TAKE_BYTES,
   UploadUrlMintSchema,
 } from '@/lib/app-api/record-schemas'
 import { finalizeTakeWithClient, type FinalizeTakeActor } from '@/lib/recording/finalize-take'
@@ -167,6 +168,10 @@ describe('diag validation — numbers, flags and one short code, nothing else', 
     expect(finalizeParses({ ...DIAG, first_byte: DIAG_MAX_BYTE_VALUE + 1 })).toBe(false)
     expect(mintParses({ ...DIAG, seq_min: -1 })).toBe(false)
     expect(mintParses({ ...DIAG, hidden_count: 1.5 })).toBe(false)
+  })
+
+  it('reads ONE take-byte ceiling — the diag may not report a blob larger than a take may be', () => {
+    expect(DIAG_MAX_BLOB_BYTES).toBe(MAX_TAKE_BYTES)
   })
 
   it('rejects an unknown key (strict)', () => {

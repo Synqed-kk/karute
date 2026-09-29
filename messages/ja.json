@@ -2674,6 +2674,7 @@
         "transcription_failed": "文字起こしエラー",
         "ai_failed": "AI処理エラー",
         "karute_save_failed": "カルテ保存エラー",
+        "audio_unreadable": "音声を読み取れません",
         "warned_device": "端末保存の警告あり",
         "warned_server": "サーバー送信の警告あり",
         "other": "その他"

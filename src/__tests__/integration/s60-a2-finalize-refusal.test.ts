@@ -9,7 +9,6 @@
  * retryable `failed`, nothing written. Switch OFF → no sign, no fetch, no mark,
  * the answer byte-identical to a readable take's.
  */
-jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
 
 const auditFn = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
@@ -181,17 +180,22 @@ describe('the probe never runs where the answer is already settled', () => {
 
 describe('an unknown probe is today’s retryable failed — never a refusal', () => {
   it.each([
-    ['416', () => fetchMock.mockImplementation(rangedHeadFetch(416, new Uint8Array(0)))],
-    ['timeout', () => fetchMock.mockRejectedValue(Object.assign(new Error('t'), { name: 'TimeoutError' }))],
-    ['a head shorter than 12 bytes', () => fetchMock.mockImplementation(rangedHeadFetch(206, new Uint8Array(5)))],
-    ['signing answers an error', () => createSignedUrl.mockResolvedValueOnce({ data: null, error: { message: 'x' } })],
-    ['signing throws', () => createSignedUrl.mockRejectedValueOnce(new Error('sign down'))],
-  ])('%s → failed, no mark, no row, no duration', async (_label, arrange) => {
+    ['416', () => fetchMock.mockImplementation(rangedHeadFetch(416, new Uint8Array(0))), 'http_416', null],
+    ['timeout', () => fetchMock.mockRejectedValue(Object.assign(new Error('t'), { name: 'TimeoutError' })), 'timeout', null],
+    ['a head shorter than 12 bytes', () => fetchMock.mockImplementation(rangedHeadFetch(206, new Uint8Array(5))), 'short_head', 5],
+    ['signing answers an error', () => createSignedUrl.mockResolvedValueOnce({ data: null, error: { message: 'x' } }), 'sign_failed', null],
+    ['signing throws', () => createSignedUrl.mockRejectedValueOnce(new Error('sign down')), 'sign_failed', null],
+  ])('%s → failed, no mark, no row, no duration', async (_label, arrange, reason, bytesRead) => {
     arrange()
     await expect(finalize()).resolves.toEqual({ error: 'failed' })
     expect(upload).not.toHaveBeenCalled()
     expect(auditFn).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
+    // S4 — the fail-closed path is observable: exactly ONE structured line,
+    // codes and numbers only (never the key, never the URL).
+    const lines = (console.warn as jest.Mock).mock.calls.filter(([tag]) => tag === '[finalize-take] probe unknown')
+    expect(lines).toEqual([['[finalize-take] probe unknown', { recordingSessionId: SESSION, reason, bytesRead }]])
+    expect(JSON.stringify(lines)).not.toContain(KEY)
   })
 })
 

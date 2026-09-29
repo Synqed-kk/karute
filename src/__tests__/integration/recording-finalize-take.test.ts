@@ -13,9 +13,6 @@
  *   5. it never regresses a terminal status, and a repeat writes nothing and
  *      files no second audit row.
  */
-// reason: S60 A2 — finalize now reaches take-mark.ts → assembler.ts, whose SDK
-// import is ESM-only under Jest; nothing here calls the SDK.
-jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
 const auditFn = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
 
