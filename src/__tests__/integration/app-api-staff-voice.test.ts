@@ -218,6 +218,49 @@ describe('POST /api/app/v1/staff/[id]/voice', () => {
     expect((await res.json()).ok).toBe(true)
   })
 
+  // S60 A0 — the route's own policy (WebM + MP4 only, 8-byte floor) pinned at
+  // every byte length and for every container the recorders can negotiate,
+  // written and run green against the inline check BEFORE the shared sniff
+  // replaced it, so the extraction is proven behaviour-identical.
+  it('voice policy: an Ogg head is refused (a container the recorders negotiate, not one this route accepts)', async () => {
+    const ogg = [0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0, 0, 0, 0, 0] // 'OggS'
+    const fd = new FormData()
+    fd.set('audio', audioFile(ogg, 'audio/ogg', 'voice.ogg'))
+    const res = await POST(postReq('auth-user-1', fd), params('auth-user-1'))
+    expect(res.status).toBe(400)
+    expect(storageUpload).not.toHaveBeenCalled()
+  })
+
+  it('voice policy: a WAV head is refused (RIFF…WAVE, not a container this route accepts)', async () => {
+    const wav = [0x52, 0x49, 0x46, 0x46, 0x24, 0, 0, 0, 0x57, 0x41, 0x56, 0x45] // 'RIFF' .. 'WAVE'
+    const fd = new FormData()
+    fd.set('audio', audioFile(wav, 'audio/wav', 'voice.wav'))
+    const res = await POST(postReq('auth-user-1', fd), params('auth-user-1'))
+    expect(res.status).toBe(400)
+    expect(storageUpload).not.toHaveBeenCalled()
+  })
+
+  it('voice policy: a 7-byte file is refused even when it opens with the WebM magic (the 8-byte floor)', async () => {
+    const fd = new FormData()
+    fd.set('audio', audioFile(WEBM_MAGIC.slice(0, 7)))
+    const res = await POST(postReq('auth-user-1', fd), params('auth-user-1'))
+    expect(res.status).toBe(400)
+    expect(storageUpload).not.toHaveBeenCalled()
+  })
+
+  it('voice policy: exactly 8 bytes is enough for WebM and for MP4 (ftyp ending at byte 8)', async () => {
+    for (const [bytes, type, name] of [
+      [WEBM_MAGIC.slice(0, 8), 'audio/webm', 'voice.webm'],
+      [[0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70], 'audio/mp4', 'voice.mp4'],
+    ] as Array<[number[], string, string]>) {
+      const fd = new FormData()
+      fd.set('audio', audioFile(bytes, type, name))
+      const res = await POST(postReq('auth-user-1', fd), params('auth-user-1'))
+      expect(res.status).toBe(200)
+      expect((await res.json()).ok).toBe(true)
+    }
+  })
+
   it('optional audioRef is validated the SAME way when present', async () => {
     const fake = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     const fd = new FormData()
