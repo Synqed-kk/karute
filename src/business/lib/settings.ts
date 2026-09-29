@@ -973,18 +973,24 @@ export function controlIdsOfBlock(block: SettingsBlock): string[] {
  *  of both. Both maps are EDITS: an entry exists only where this browser has
  *  changed something, and a block with no entry falls back to the payload's own
  *  items, on both the live side and the saved side. */
-export type CollectionRows = Record<string, ReadonlyArray<{ id: string; title: string; note: string }>>
+export type CollectionRows = Record<string, ReadonlyArray<{ id: string; title: string; note: string; open?: string; close?: string }>>
 
 /** The rows a block holds right now: this browser's edit, else the payload's. */
-export function rowsOfBlock(block: SettingsBlock, rows: CollectionRows): ReadonlyArray<{ id: string; title: string; note: string }> {
-  return rows[block.id] ?? block.collection?.items ?? []
+export function rowsOfBlock(block: SettingsBlock, rows: CollectionRows): CollectionRows[string] {
+  const own = rows[block.id]
+  if (own) return own
+  if (block.collection) return block.collection.items
+  // ⚖ PKT-S30 F10 (R-A) — 特別営業日 is the same kind of list in the OFF world: its rows (date = id)
+  // live in the same map, so a draft add/remove is an unsaved change exactly like 臨時休業's.
+  if (block.specialDays) return block.specialDays.items.map((d) => ({ id: d.date, title: d.title, note: `${d.open}〜${d.close}`, open: d.open, close: d.close }))
+  return []
 }
 
 /** How many ROWS of this block differ from what was saved — an added day and a
  *  removed day are one change each, which is what a reader counts. The DATE is
  *  the row's identity (the wire's own rule), so the comparison is on ids. */
 export function rowChanges(block: SettingsBlock, rows: CollectionRows, saved: CollectionRows): number {
-  if (block.collection === null) return 0
+  if (block.collection === null && block.specialDays === null) return 0
   const now = new Set(rowsOfBlock(block, rows).map((r) => r.id))
   const was = new Set(rowsOfBlock(block, saved).map((r) => r.id))
   let n = 0

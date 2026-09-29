@@ -46,10 +46,36 @@ export const ADD_PENDING_LABEL = '追加中'
 export const REMOVE_PENDING_LABEL = '取り消し中'
 /** A write that did not land (core / tenant refusal, or no answer at all). */
 export const GENERIC_FAIL_LINE = 'いまは保存できないため、時間をおいてもう一度保存してください（予定の一覧はこれまでのままです）。'
-/** ⚖ PKT-S30 F10 — the OFF world (the practice door is off): 特別営業日 has no local draft to add to,
- *  so its 追加 says so instead of doing nothing. Register = the page's own OFF-world line
- *  「保存はこの画面の中だけに反映されます（実データ接続後に本保存）。」 (settings-props.ts demoSaveLine). */
-export const SPECIAL_OFF_WORLD_LINE = 'この画面では特別営業日を追加できません（実データ接続後に追加できます）。'
+/** Validation lines the door (door-writes.ts MSG) and the OFF-world draft add both print. */
+export const PICK_DATE_LINE = '日付を選んでください。'
+export const PICK_TIME_LINE = '時刻を選んでください。'
+export const OPEN_NOT_BEFORE_CLOSE_LINE = '閉店時刻は開店時刻より後にしてください。'
+export const DUPLICATE_SPECIAL_LINE = 'その日はすでに特別営業日です'
+
+/** ⚖ PKT-S30 F10 (lead's RUN 3 re-ruling R-A) — the OFF world (the practice door is off): 特別営業日
+ *  gets EXACTLY 臨時休業's OFF behaviour — a page-local draft add/remove that counts as an unsaved
+ *  change (settings.ts rowChanges) and 保存 commits locally (the page's demoSaveLine explains it).
+ *  A draft row is `{ id: date, title, note: 'open〜close', open, close }` — the date is its identity,
+ *  as it is core's (one 特別営業日 per date). `rows` UNCHANGED (a copy) on a refusal. */
+export type SpecialDraftRow = { id: string; title: string; note: string; open?: string; close?: string }
+export function addSpecialDraft(
+  rows: ReadonlyArray<SpecialDraftRow>,
+  rawDate: string,
+  rawOpen: string,
+  rawClose: string,
+  titleOf: (iso: string) => string,
+): { rows: SpecialDraftRow[]; error: string | null } {
+  const date = rawDate.trim()
+  const open = rawOpen.trim()
+  const close = rawClose.trim()
+  if (date === '') return { rows: [...rows], error: PICK_DATE_LINE }
+  if (open === '' || close === '') return { rows: [...rows], error: PICK_TIME_LINE }
+  if (open >= close) return { rows: [...rows], error: OPEN_NOT_BEFORE_CLOSE_LINE }
+  if (rows.some((r) => r.id === date)) return { rows: [...rows], error: DUPLICATE_SPECIAL_LINE }
+  const row: SpecialDraftRow = { id: date, title: titleOf(date), note: `${open}〜${close}`, open, close }
+  const at = rows.findIndex((r) => r.id > date)
+  return { rows: at === -1 ? [...rows, row] : [...rows.slice(0, at), row, ...rows.slice(at)], error: null }
+}
 
 /** ⚖ PKT-S30 F12 — the badge rule's ONE home: a 特別営業日 badges when its date is ALSO a 臨時休業
  *  date — computed from the CLOSURES list, never from the special list (R3). settings-props.ts

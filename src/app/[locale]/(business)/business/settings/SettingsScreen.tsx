@@ -85,7 +85,7 @@ import {
   GENERIC_FAIL_LINE,
   READ_ONLY_NOTE,
   REMOVE_PENDING_LABEL,
-  SPECIAL_OFF_WORLD_LINE,
+  addSpecialDraft,
   specialDayBadge,
   type ClosureCore,
   type SpecialCore,
@@ -758,6 +758,26 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setValues((prev) => ({ ...prev, [coll.dateControlId]: '', [coll.reasonControlId]: '' }))
   }, [values, listRows])
 
+  /** ⚖ PKT-S30 F10 (R-A) — 特別営業日 in the OFF world: EXACTLY 臨時休業's OFF behaviour above — a
+   *  page-local draft in the same `listRows` map, so an add or a remove is an unsaved change and 保存
+   *  commits it locally (demoSaveLine says so). Never a refusal, never a no-op. */
+  const addSpecialRow = useCallback((block: SettingsBlock) => {
+    const sd = block.specialDays
+    if (!sd) return
+    const next = addSpecialDraft(rowsOfBlock(block, listRows), String(values[sd.dateControlId] ?? ''), String(values[sd.openControlId] ?? ''), String(values[sd.closeControlId] ?? ''), dayTitle)
+    setListErrors((prev) => ({ ...prev, [block.id]: next.error ?? '' }))
+    if (next.error !== null) return
+    setListRows((prev) => ({ ...prev, [block.id]: next.rows }))
+    setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
+  }, [values, listRows])
+
+  const removeSpecialRow = useCallback((block: SettingsBlock, date: string) => {
+    if (!block.specialDays) return
+    const rows = rowsOfBlock(block, listRows)
+    setListErrors((prev) => ({ ...prev, [block.id]: '' }))
+    setListRows((prev) => ({ ...prev, [block.id]: rows.filter((r) => r.id !== date) }))
+  }, [listRows])
+
   const removeFromCollection = useCallback((block: SettingsBlock, rowId: string) => {
     const coll = block.collection
     if (!coll) return
@@ -864,6 +884,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSavedRows((prev) => {
       const next = { ...prev }
       for (const b of target.blocks) if (b.collection !== null) next[b.id] = rowsOfBlock(b, listRows)
+      // ⚖ PKT-S30 F10 (R-A) — the OFF world's 特別営業日 draft is committed the same way.
+      for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)
       return next
     })
     setCommitted((prev) => ({ ...prev, [target.id]: true }))
@@ -1618,13 +1640,18 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   // ⚖ PKT-S29-B1 — 臨時休業 goes LIVE the moment `props.saveStoreDays` is
                   // handed over (the door is ON and a store is selected); OFF/no-store
                   // keeps today's local-only behaviour byte for byte (`listRows`/`addRow`/
-                  // `removeFromCollection`, untouched below). 特別営業日 is LIVE-only — it
-                  // never existed in the OFF draft model, so its OFF behaviour is simply
-                  // "no writer, nothing sent" (R8's own honest-empty-state world).
+                  // `removeFromCollection`, untouched below). ⚖ PKT-S30 F10 (R-A) — 特別営業日's
+                  // OFF world is the SAME local draft (`addSpecialRow`/`removeSpecialRow`), its
+                  // badge asked of `specialDayBadge` against the draft 臨時休業 rows (OFF ids = dates).
                   const closuresLive = b.id === STORE_HOURS_CLOSURES_ID && props.saveStoreDays
                   const readOnlyNote = props.saveStoreDays && (props.saveStoreDays.canWrite === false || storeDaysRevoked) ? READ_ONLY_NOTE : null
                   const closureDisplay = liveClosures === null ? null : liveClosures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))
-                  const specialDisplay = liveSpecial === null ? null : liveSpecial.map((d) => ({ date: d.date, title: dayTitle(d.date), open: d.open, close: d.close, badge: specialDayBadge(d.date, liveClosures ?? []) }))
+                  const specialLive = b.id === STORE_HOURS_SPECIAL_ID && props.saveStoreDays
+                  const offClosureBlock = section.blocks.find((x) => x.id === STORE_HOURS_CLOSURES_ID)
+                  const offClosureDates = offClosureBlock ? rowsOfBlock(offClosureBlock, listRows).map((r) => ({ date: r.id })) : []
+                  const specialDisplay = specialLive
+                    ? liveSpecial === null ? null : liveSpecial.map((d) => ({ date: d.date, title: dayTitle(d.date), open: d.open, close: d.close, badge: specialDayBadge(d.date, liveClosures ?? []) }))
+                    : b.specialDays ? rowsOfBlock(b, listRows).map((r) => ({ date: r.id, title: r.title, open: r.open ?? '', close: r.close ?? '', badge: specialDayBadge(r.id, offClosureDates) })) : null
                   return (
                     <Block
                       key={b.id}
@@ -1646,12 +1673,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
                       onListAdd={closuresLive ? () => void addClosureLive(b, props.saveStoreDays!) : () => addRow(b)}
                       onListRemove={closuresLive ? (rowId) => void removeClosureLive(rowId, props.saveStoreDays!) : (rowId) => removeFromCollection(b, rowId)}
                       specialRows={b.specialDays ? specialDisplay : null}
-                      specialError={b.id === STORE_HOURS_SPECIAL_ID ? specialError : null}
+                      specialError={specialLive ? specialError : b.specialDays ? listErrors[b.id] || null : null}
                       specialReadOnly={b.id === STORE_HOURS_SPECIAL_ID ? readOnlyNote : null}
                       specialPending={b.id === STORE_HOURS_SPECIAL_ID ? specialPending : null}
-                      // ⚖ PKT-S30 F10 — OFF: 特別営業日 has no draft to add to; 追加 says so (never a silent no-op).
-                      onSpecialAdd={() => (props.saveStoreDays ? void addSpecialLive(b, props.saveStoreDays) : setSpecialError(SPECIAL_OFF_WORLD_LINE))}
-                      onSpecialRemove={(date) => (props.saveStoreDays ? void removeSpecialLive(date, props.saveStoreDays) : undefined)}
+                      // ⚖ PKT-S30 F10 (R-A) — OFF: the local draft, exactly like 臨時休業's OFF add/remove.
+                      onSpecialAdd={() => (specialLive ? void addSpecialLive(b, props.saveStoreDays!) : addSpecialRow(b))}
+                      onSpecialRemove={(date) => (specialLive ? void removeSpecialLive(date, props.saveStoreDays!) : removeSpecialRow(b, date))}
                       reduced={reduced}
                     />
                   )

@@ -93,6 +93,7 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
+import { addSpecialDraft } from '@/business/lib/store-days-state'
 import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
@@ -2482,6 +2483,41 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     )
     expect(commit).toContain('setSavedRows((prev) => {')
     expect(commit).toContain('for (const b of target.blocks) if (b.collection !== null) next[b.id] = rowsOfBlock(b, listRows)')
+  })
+
+  it('⚖ PKT-S30 F10 (R-A) — an OFF-world 特別営業日 row added or removed IS an unsaved change, like the 臨時休業 one', async () => {
+    // The mirror of the S17 B2 pin above: in the OFF world 特別営業日 gets EXACTLY 臨時休業's OFF
+    // behaviour — a page-local draft in the same rows map, counted, committed by 保存. Never a refusal.
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'store-hours')
+    const seed = seedOf(props)
+    const sp = sec.blocks.find((b) => b.id === 'store-hours.special-open')!
+    const coll = sec.blocks.find((b) => b.id === 'store-hours.closures')!
+    expect(sp.specialDays).not.toBeNull()
+    const base = rowsOfBlock(sp, {})
+    expect(sectionDirty(sec, seed, seed, {}, {})).toBe(false)
+
+    const added = addSpecialDraft(base, '2026-12-24', '10:00', '18:00', dayTitle)
+    expect(added.error).toBeNull()
+    expect(added.rows).toContainEqual({ id: '2026-12-24', title: '12月24日(木)', note: '10:00〜18:00', open: '10:00', close: '18:00' })
+    const live = { [sp.id]: added.rows }
+    expect(rowChanges(sp, live, {})).toBe(1)
+    expect(blockDirty(sp, seed, seed, live, {})).toBe(true)
+    expect(blockDirty(coll, seed, seed, live, {})).toBe(false)
+    expect(sectionDirty(sec, seed, seed, live, {})).toBe(true)
+    expect(changedCount(sec, seed, seed, live, {})).toBe(1)
+    // …removed again is back to clean; committed (保存) is clean too.
+    expect(sectionDirty(sec, seed, seed, { [sp.id]: base }, {})).toBe(false)
+    expect(sectionDirty(sec, seed, seed, live, live)).toBe(false)
+    // …a refused draft add leaves the rows as they were (a copy), with the door's own words.
+    expect(addSpecialDraft(added.rows, '2026-12-24', '10:00', '18:00', dayTitle)).toEqual({ rows: added.rows, error: 'その日はすでに特別営業日です' })
+    expect(addSpecialDraft(base, '', '10:00', '18:00', dayTitle).error).toBe('日付を選んでください。')
+    expect(addSpecialDraft(base, '2026-12-25', '18:00', '10:00', dayTitle).error).toBe('閉店時刻は開店時刻より後にしてください。')
+    // …and the screen really wires the OFF world to the draft (the refusal line is gone), and 保存 commits it.
+    expect(SCREEN_CODE).toContain(': addSpecialRow(b))}')
+    expect(SCREEN_CODE).toContain(': removeSpecialRow(b, date))}')
+    expect(SCREEN_CODE).toContain('for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)')
+    expect(SCREEN_CODE).not.toContain('実データ接続後に追加できます')
   })
 
   it('⚖ C1 — a day switched OFF sends `null` for THAT DAY, and never a null object', async () => {

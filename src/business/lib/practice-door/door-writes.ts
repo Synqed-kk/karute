@@ -31,7 +31,7 @@ import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { jstYmd, renderNow } from '../clock'
 import type { CoreReads } from './core-reach'
-import { GENERIC_FAIL_LINE, READ_ONLY_NOTE, specialDayBadge } from '../store-days-state'
+import { DUPLICATE_SPECIAL_LINE, GENERIC_FAIL_LINE, OPEN_NOT_BEFORE_CLOSE_LINE, PICK_DATE_LINE, PICK_TIME_LINE, READ_ONLY_NOTE, specialDayBadge } from '../store-days-state'
 
 // ── shared result shapes ─────────────────────────────────────────────────────
 
@@ -61,14 +61,14 @@ export type SetSpecialOpenDaysResult = { ok: true; specialOpenDays: SpecialOpenD
 const MSG = {
   invalidDate: '存在しない日付です。',
   pastDate: '過ぎた日付です',
-  openNotBeforeClose: '閉店時刻は開店時刻より後にしてください。',
-  duplicateSpecial: 'その日はすでに特別営業日です',
+  openNotBeforeClose: OPEN_NOT_BEFORE_CLOSE_LINE,
+  duplicateSpecial: DUPLICATE_SPECIAL_LINE,
   duplicateClosure: 'その日はすでに臨時休業です',
   readOnly: READ_ONLY_NOTE,
   // ⚖ PKT-S30 P3-5 — the section's own empty-date line (settings-props.ts emptyDateError), and
   // the same shape for an empty time (no sibling time line exists).
-  pickDate: '日付を選んでください。',
-  pickTime: '時刻を選んでください。',
+  pickDate: PICK_DATE_LINE,
+  pickTime: PICK_TIME_LINE,
   // ⚖ PKT-S30 P3-3 — core's own cap (specialOpenDaysSchema.max(366), CORE-READ-B1.md:171), counted
   // on core's WHOLE array (past entries included): a validation refusal, never "try later".
   specialCap: '特別営業日は366件までのため、これ以上追加できません。',
