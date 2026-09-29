@@ -4484,6 +4484,8 @@ describe('⚖ PR-3 — the mark’s strings are the mock’s, verbatim', () => {
       partJoin: '、',
       topNote: '練習用の事業',
       topNoteLabel: '練習用の事業 — 実在の店舗の予約・お客様ではありません',
+      // ⚖ S36 R35 — the bar's stamp where its commit reaches sample blocks only (door ON + 臨時休業 live).
+      pageOnlyStamp: '✓ この画面だけに反映しました',
     })
     expect(businessStrings.settings.typeUnset).toBe('未設定')
     expect(businessStrings.settings.pvNoteExample).toBe('いまの設定での見え方（表示例）')

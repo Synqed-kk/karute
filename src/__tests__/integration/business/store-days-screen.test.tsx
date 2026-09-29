@@ -492,3 +492,109 @@ describe('B2 act 1 honest lines', () => {
     expect(s1Blocks()).toContain('st-blk-store-hours.closures')
   })
 })
+
+// ⚖ S36 R35 — B2 act 1b: the bar's 保存する under the door commits the SAMPLE blocks only (page
+// state; nothing is sent), so its stamp says so. ONE predicate drives the stamp AND the hidden footer.
+describe('B2 act 1b honest stamp', () => {
+  const PAGE_ONLY = '✓ この画面だけに反映しました'
+  const FOOT = '保存はこの画面の中だけに反映されます（実データ接続後に本保存）。'
+  const HOURS = 'store-hours.hours'
+  // the fixture's own saveStampTime: read off the page element the route builds, then rendered
+  let time = ''
+  const stampTime = () => time
+  const mountT = async (store: string) => {
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section: 'store-hours' }) })) as ReactElement<{ saveStampTime: string }>
+    time = el.props.saveStampTime
+    expect(time).toMatch(/^\d{1,2}:\d{2}$/)
+    render(el)
+    await act(async () => {})
+  }
+  const stamps = () => [...document.querySelectorAll('.st-save-line [role="status"]')].map((n) => n.textContent ?? '')
+  const mainText = () => document.querySelector('.st-main')?.textContent ?? ''
+  const footerShown = () => [...document.querySelectorAll('p.st-foot')].some((p) => p.textContent === FOOT)
+  const saveBtn = () => [...document.querySelectorAll('button.st-save')].find((b) => /保存する/.test(b.textContent ?? '')) as HTMLButtonElement
+  // one edit in the 営業時間 sample block: the first enabled time field moves by a minute
+  const editHours = () => {
+    const f = [...(blockEl(HOURS)?.querySelectorAll('input[type="time"]') ?? [])].find((i) => !(i as HTMLInputElement).disabled) as HTMLInputElement
+    expect(f).toBeDefined()
+    fireEvent.change(f, { target: { value: f.value === '09:01' ? '09:02' : '09:01' } })
+  }
+  const editAndSave = async () => {
+    editHours()
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    const sent = fetchLog.length
+    await act(async () => { saveBtn().click() })
+    await settle()
+    return fetchLog.length - sent
+  }
+  it('(a) door ON: 保存する stamps 「この画面だけに反映しました <time>」, never 「保存しました」, sends nothing', async () => {
+    await mountT(STORE.tokyo)
+    const sent = await editAndSave()
+    expect(sent).toBe(0)
+    expect(stamps()).toHaveLength(1)
+    expect(stamps()[0]).toBe(`${PAGE_ONLY} ${stampTime()}`)
+    expect(mainText()).not.toContain('✓ 保存しました')
+    expect(document.body.textContent).not.toContain('✓ 保存しました')
+    expect(stamps()[0]).not.toMatch(/変更した設定/)
+  })
+  it('(b) door OFF: the same edit + 保存する → 「✓ 保存しました <time>」, the footer shows, the new string is absent', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await mountT(STORE_A)
+    const sent = await editAndSave()
+    expect(sent).toBe(0)
+    expect(stamps()[0]).toBe(`✓ 保存しました ${stampTime()}`)
+    expect(footerShown()).toBe(true)
+    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+  })
+  // (c) — the ON worlds where the footer shows today. Neither is reachable through the routing in this
+  // suite (every store the owner can open, La Estro included, renders 臨時休業 under the door — probed
+  // S36), so both are CONSTRUCTED from the real ON page element, as the act 1 row-6 case is:
+  // c1 = the all-stores lens's gate (saveStoreDays undefined, R32); c2 = the door ON over a 営業時間
+  // section that holds no 臨時休業 block (the untwinned / no-closures world).
+  const onElement = async () => {
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ sections: SettingsSection[]; saveStoreDays?: unknown; saveStampTime: string }>
+    time = el.props.saveStampTime
+    return el
+  }
+  it('(c) door ON, the worlds where the footer shows (constructed): footer present, the new string absent, the stamp is 保存しました', async () => {
+    const el = await onElement()
+    expect(el.props.saveStoreDays).toBeDefined()
+    render(cloneElement(el, { saveStoreDays: undefined }))
+    await act(async () => {})
+    expect(footerShown()).toBe(true)
+    await editAndSave()
+    expect(stamps()[0]).toBe(`✓ 保存しました ${stampTime()}`)
+    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+    cleanup()
+    const el2 = await onElement()
+    const sections = el2.props.sections.map((x) => (x.id !== 'store-hours' ? x : { ...x, blocks: x.blocks.filter((b) => b.id !== 'store-hours.closures') }))
+    render(cloneElement(el2, { sections }))
+    await act(async () => {})
+    expect(blockEl('store-hours.closures')).toBeNull()
+    expect(footerShown()).toBe(true)
+    await editAndSave()
+    expect(stamps()[0]).toBe(`✓ 保存しました ${stampTime()}`)
+    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+  })
+  it('(d) truth table, same render: footer hidden ⟺ the stamp is the new string (ON and OFF)', async () => {
+    for (const on of [true, false]) {
+      if (on) process.env.BUSINESS_PRACTICE_TENANT = TENANT
+      else delete process.env.BUSINESS_PRACTICE_TENANT
+      await mountT(on ? STORE.tokyo : STORE_A)
+      await editAndSave()
+      const stamp = stamps()[0]
+      expect(stamp === `${PAGE_ONLY} ${stampTime()}`).toBe(!footerShown())
+      expect(footerShown()).toBe(!on)
+      cleanup()
+    }
+  })
+  it('(e) the string has one home: absent from SettingsScreen.tsx, present in the i18n file', () => {
+    const fs = jest.requireActual('node:fs') as typeof import('node:fs')
+    const path = jest.requireActual('node:path') as typeof import('node:path')
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx'), 'utf8')
+    const i18n = fs.readFileSync(path.join(process.cwd(), 'src/business/i18n/ja.json'), 'utf8')
+    expect(src).not.toContain(PAGE_ONLY)
+    expect(i18n).toContain(`"pageOnlyStamp": "${PAGE_ONLY}"`)
+    expect(JA.sampleMark.pageOnlyStamp).toBe(PAGE_ONLY)
+  })
+})
