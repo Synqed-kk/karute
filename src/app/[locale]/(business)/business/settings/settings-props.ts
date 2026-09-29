@@ -213,7 +213,9 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   // ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE while the door is ON and a store is selected; `null` = OFF
   // or no store (the OLD fixture / honest-empty-state branches below), never confused with a FAILED
   // read (`{ ok: false }`, R7 — "failed is not unset").
-  const storeDaysRead: StoreDaysReadResult | null = clamped && practiceTenant() !== null ? await readStoreDays(storeId!) : null
+  // ⚖ PKT-S30 P3-13 — and only when the two blocks will RENDER: storeHours() returns before building
+  // them when this store has no dials (`d === null` → the 店舗情報-only section), so no read is spent then.
+  const storeDaysRead: StoreDaysReadResult | null = clamped && practiceTenant() !== null && dials !== null ? await readStoreDays(storeId!) : null
 
   // ⚖ PR-3 §v3 V3-4 — THE MARK IS THE PLANE TABLE'S (the facade's readers, one
   // implementation): a block names the plane it shows and the table answers.
