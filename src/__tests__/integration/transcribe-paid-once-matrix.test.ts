@@ -477,13 +477,50 @@ describe.each(LAYERS)('paid calls — %s', (_label, fixOn, flipOn, column) => {
 // it; r1b — no lock at all (a relaunched app, a second tab): the retry's POST meets the lease's 409
 // and rides it out through the capped wait loop.
 const KEY = /app_business-1_[0-9a-f-]{36}\.webm/
+// r1a runs ONE test lock manager on every runtime (Node 20 on CI has no navigator; Node 24's native
+// manager is shadowed for the cell), so CI and local prove the same thing. Its surface is exactly what
+// production calls (ai-pipeline.ts withTranscribeLock): request(name, fn) — exclusive, FIFO per name,
+// held until fn settles. An options argument throws, so a production change that starts using one is caught.
+const testLockManager = () => {
+  const tails = new Map<string, Promise<unknown>>()
+  const requests: string[] = []
+  const request = <T,>(name: string, ...rest: unknown[]): Promise<T> => {
+    const fn = rest[0]
+    if (rest.length !== 1 || typeof fn !== 'function') throw new Error('test lock manager: options unsupported')
+    requests.push(name)
+    const run = (tails.get(name) ?? Promise.resolve()).then(() => (fn as () => Promise<T>)())
+    tails.set(name, run.then(() => undefined, () => undefined))
+    return run
+  }
+  return { request, requests }
+}
+// Put `locks` on navigator for the cell (creating a minimal navigator only where the runtime has none);
+// restore() leaves the global exactly as found.
+const installLocks = (locks: unknown) => {
+  const hadNavigator = typeof globalThis.navigator !== 'undefined'
+  if (!hadNavigator) Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true, writable: true })
+  const originalLocks = navigator.locks
+  const ownLocks = Object.getOwnPropertyDescriptor(navigator, 'locks')
+  Object.defineProperty(navigator, 'locks', { value: locks, configurable: true })
+  const restore = () => {
+    if (ownLocks) Object.defineProperty(navigator, 'locks', ownLocks)
+    else delete (navigator as { locks?: unknown }).locks
+    if (!hadNavigator) delete (globalThis as { navigator?: unknown }).navigator
+  }
+  const expectRestored = () => {
+    if (hadNavigator) expect(navigator.locks).toBe(originalLocks)
+    else expect(typeof globalThis.navigator).toBe('undefined')
+  }
+  return { restore, expectRestored }
+}
 const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
   let finish!: () => void
   providerHolds.push(new Promise<void>((r) => (finish = r)))
   // r1a: attempt 1 finishes once the 再試行 is queued (or at a 409, where the lock does not order the two);
   // r1b: attempt 1 finishes only at the SECOND 409, so the retry first rides two capped waits.
   onStillWorking = lock === 'held' ? () => finish() : () => stillWorkingServed >= 2 && finish()
-  if (lock === 'absent') Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+  const lockManager = testLockManager()
+  const locks = installLocks(lock === 'held' ? lockManager : undefined)
   try {
     expect(typeof navigator.locks?.request).toBe(lock === 'held' ? 'function' : 'undefined')
     globalPipeline.start(memory, ctx)
@@ -499,8 +536,9 @@ const r1 = async (ctx: RunContext, lock: 'held' | 'absent') => {
       await Promise.allSettled(inFlight)
     }
   } finally {
-    if (lock === 'absent') delete (navigator as { locks?: unknown }).locks
+    locks.restore()
   }
+  locks.expectRestored()
   expect(globalPipeline.state).toBe('review')
   expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1) // paid once
   expect(mints).toHaveLength(1) // attempt 1's own mint; the 再試行 mints none
