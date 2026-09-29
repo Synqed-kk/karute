@@ -154,3 +154,24 @@ describe('R14 — the page maps the locked actors’ line into saveStoreDays.loc
     expect(note).not.toBe(READ_ONLY_NOTE)
   })
 })
+
+describe('B2 act 1 honest lines — markLine rides the sample mark', () => {
+  const S1 = 'サンプルのため、ここで変更しても店舗の設定としては保存されません。実データがつながると、ここから設定できます。'
+  const SAMPLE_IDS = ['store-hours.info', 'store-hours.hours', 'store-hours.ops']
+  it('door ON: the three sample blocks carry mark + markLine; the live blocks carry neither', async () => {
+    const b = await blocks()
+    for (const id of SAMPLE_IDS) {
+      expect(b[id].sample).toBeDefined()
+      expect(b[id].markLine).toBe(S1)
+    }
+    for (const id of ['store-hours.closures', 'store-hours.special-open']) {
+      expect(b[id].sample).toBeUndefined()
+      expect(b[id].markLine).toBeUndefined()
+    }
+  })
+  it('door OFF: no block carries a markLine', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const b = await blocks()
+    for (const blk of Object.values(b)) expect(blk.markLine).toBeUndefined()
+  })
+})
