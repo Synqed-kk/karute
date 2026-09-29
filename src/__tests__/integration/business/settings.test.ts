@@ -93,7 +93,7 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
-import { addSpecialDraft } from '@/business/lib/store-days-state'
+import { addSpecialDraft, applyClosureAdded, applySpecialOpenDays } from '@/business/lib/store-days-state'
 import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
@@ -2518,6 +2518,34 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(SCREEN_CODE).toContain(': removeSpecialRow(b, date))}')
     expect(SCREEN_CODE).toContain('for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)')
     expect(SCREEN_CODE).not.toContain('実データ接続後に追加できます')
+  })
+
+  it('⚖ PKT-S30 F4 — in the ON world dirty/unsaved state ignores BOTH store-days blocks, even with pending rows', async () => {
+    // ON: each write is core's own at once; the rows the screen holds live in liveClosures /
+    // liveSpecial (the reducers' output), NEVER in the section's rows map — so the save bar
+    // never counts them, however many rows are pending or landed.
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'store-hours')
+    const seed = seedOf(props)
+    const coll = sec.blocks.find((b) => b.id === 'store-hours.closures')!
+    const sp = sec.blocks.find((b) => b.id === 'store-hours.special-open')!
+    const heldClosures = applyClosureAdded([], { ok: true, value: { id: 'uuid-1', date: '2026-12-24', reason: null } })
+    const heldSpecial = applySpecialOpenDays([], { ok: true, value: [{ date: '2026-12-25', open: '10:00', close: '18:00' }] })
+    expect(heldClosures).toHaveLength(1)
+    expect(heldSpecial).toHaveLength(1)
+    for (const b of [coll, sp]) {
+      expect(rowChanges(b, {}, {})).toBe(0)
+      expect(blockDirty(b, seed, seed, {}, {})).toBe(false)
+    }
+    expect(sectionDirty(sec, seed, seed, {}, {})).toBe(false)
+    expect(changedCount(sec, seed, seed, {}, {})).toBe(0)
+    // …because none of the four LIVE callbacks touches the rows maps.
+    for (const name of ['addClosureLive', 'removeClosureLive', 'addSpecialLive', 'removeSpecialLive']) {
+      const from = SCREEN_CODE.indexOf(`const ${name} = useCallback`)
+      expect(from).toBeGreaterThan(-1)
+      const body = SCREEN_CODE.slice(from, SCREEN_CODE.indexOf('}, [', from))
+      expect({ name, touchesRows: /setListRows|setSavedRows/.test(body) }).toEqual({ name, touchesRows: false })
+    }
   })
 
   it('⚖ C1 — a day switched OFF sends `null` for THAT DAY, and never a null object', async () => {
