@@ -15,19 +15,11 @@
  * settings.manage, no HQ grant; actor C = STYLIST, no settings.manage.
  */
 
-jest.mock('@synqed-kk/client', () => {
-  class SynqedError extends Error {
-    status: number
-    code?: string
-    constructor(status: number, message: string, code?: string) {
-      super(message)
-      this.status = status
-      this.code = code
-      this.name = 'SynqedError'
-    }
-  }
-  return { SynqedClient: class {}, SynqedError }
-})
+// The SDK ships raw ESM this jest setup does not transform (same stub as
+// practice-door-write.test.ts) — needed only because `jest.requireActual`
+// below still evaluates the REAL core-reach.ts, which reaches the SDK through
+// @/lib/synqed/client; door-writes.ts itself never imports '@synqed-kk/client'.
+jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 jest.mock('@/business/lib/practice-door/core-reach', () => {
   const actual = jest.requireActual('@/business/lib/practice-door/core-reach')
@@ -40,14 +32,14 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
   return {
     ...actual,
     clientFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.reads),
-    storeDaysWriterFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.writerFor(admitted), mockCore.writer),
+    storeDaysWriterFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.writerFor(admitted), { storePolicies: mockCore.writer }),
     auditWriterFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.auditWriterFor(admitted), { log: mockCore.auditLog }),
   }
 })
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import * as doorWrites from '@/business/lib/practice-door/door-writes'
+import * as data from '@/business/lib/data'
 
 const TENANT = 'fb44dd68-4af7-44b0-8cc7-4ee10c54491d'
 const STORE_ID = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -61,9 +53,9 @@ const staffRow = (id: string, user_id: string, name: string, role: Staff['role']
   id, business_id: TENANT, user_id, name, name_kana: null, email: `${user_id}@test.local`, role, is_active: true, avatar_url: null, created_at: 'x', updated_at: 'x',
 })
 const STAFF: Staff[] = [
-  staffRow('staff-owner', 'login-owner', 'オーナー', 'owner'),
-  staffRow('staff-admin', 'login-admin', '管理者', 'manager'),
-  staffRow('staff-stylist', 'login-stylist', 'スタイリスト', 'practitioner'),
+  staffRow('staff-owner', 'login-owner', 'オーナー', 'OWNER'),
+  staffRow('staff-admin', 'login-admin', '管理者', 'ADMIN'),
+  staffRow('staff-stylist', 'login-stylist', 'スタイリスト', 'STYLIST'),
 ]
 const sheet = (staff_id: string, role: Sheet['role'], coarse_role: Sheet['coarse_role'], capabilities: string[], visible_store_ids: string[] | null): Sheet =>
   ({ staff_id, role, coarse_role, capabilities, visible_store_ids, money_scope: null, version: '1.0' })
@@ -91,7 +83,7 @@ function baseReads(): CoreReads {
   return {
     storesList: async () => ({ stores: STORES }),
     staffList: async () => ({ staff: STAFF, total: STAFF.length, page: 1, page_size: 200 }),
-    staffStoresList: async () => ({ assignments: [] }),
+    staffStoresList: async () => ({ assignments: {} }),
     answerSheet: async (id: string) => {
       const s = SHEETS[id]
       if (!s) throw new Error(`no sheet for ${id}`)
@@ -158,7 +150,7 @@ afterEach(() => {
 describe('P-B1-1 — add a special day as OWNER', () => {
   it('sends EXACTLY ONE set(storeId, { acting_staff_id, special_open_days }) with the full sorted array; zero closed-day calls; the badge only on the row sharing a closure date', async () => {
     mockCore.writer.set.mockResolvedValueOnce({ ...BASE_POLICY, special_open_days: [SPECIAL_1020, { date: '2026-11-10', open: '11:00', close: '15:00' }] })
-    const result = await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-11-10', open: '11:00', close: '15:00' })
+    const result = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-10', open: '11:00', close: '15:00' })
     expect(result).toEqual({ ok: true, specialOpenDays: [SPECIAL_1020, { date: '2026-11-10', open: '11:00', close: '15:00' }] })
     expect(mockCore.writer.set).toHaveBeenCalledTimes(1)
     expect(mockCore.writer.set.mock.calls[0]).toEqual([
@@ -169,8 +161,8 @@ describe('P-B1-1 — add a special day as OWNER', () => {
     expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
     expect(mockCore.writer.removeClosedDay).not.toHaveBeenCalled()
     if (result.ok) {
-      expect(doorWrites.specialDayBadge('2026-11-10', [CLOSURE_C1, CLOSURE_C2])).toBe('臨時休業より優先')
-      expect(doorWrites.specialDayBadge('2026-10-20', [CLOSURE_C1, CLOSURE_C2])).toBeNull()
+      expect(data.specialDayBadge('2026-11-10', [CLOSURE_C1, CLOSURE_C2])).toBe('臨時休業より優先')
+      expect(data.specialDayBadge('2026-10-20', [CLOSURE_C1, CLOSURE_C2])).toBeNull()
     }
   })
 })
@@ -178,7 +170,7 @@ describe('P-B1-1 — add a special day as OWNER', () => {
 describe('P-B1-2 — remove a special day as OWNER', () => {
   it('sends set with the remaining array only', async () => {
     mockCore.writer.set.mockResolvedValueOnce({ ...BASE_POLICY, special_open_days: [] })
-    const result = await doorWrites.removeSpecialOpenDay(STORE_ID, '2026-10-20')
+    const result = await data.removeStoreSpecialOpenDay(STORE_ID, '2026-10-20')
     expect(result).toEqual({ ok: true, specialOpenDays: [] })
     expect(mockCore.writer.set.mock.calls[0]).toEqual([STORE_ID, { acting_staff_id: 'staff-owner', special_open_days: [] }])
   })
@@ -186,33 +178,33 @@ describe('P-B1-2 — remove a special day as OWNER', () => {
 
 describe('P-B1-3 — door validation refuses BEFORE any core call', () => {
   it('past date refused, today accepted (special)', async () => {
-    expect(await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-09-28', open: '11:00', close: '15:00' })).toEqual({ ok: false, reason: 'invalid', message: '過ぎた日付です' })
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-09-28', open: '11:00', close: '15:00' })).toEqual({ ok: false, reason: 'invalid', message: '過ぎた日付です' })
     expect(mockCore.writer.set).not.toHaveBeenCalled()
     mockCore.writer.set.mockResolvedValueOnce({ ...BASE_POLICY })
-    await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-09-29', open: '11:00', close: '15:00' })
+    await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-09-29', open: '11:00', close: '15:00' })
     expect(mockCore.writer.set).toHaveBeenCalledTimes(1)
   })
   it('past date refused, today accepted (closure)', async () => {
-    expect(await doorWrites.addClosedDay(STORE_ID, { date: '2026-09-28', reason: '' })).toEqual({ ok: false, reason: 'invalid', message: '過ぎた日付です' })
+    expect(await data.addStoreClosedDay(STORE_ID, { date: '2026-09-28', reason: '' })).toEqual({ ok: false, reason: 'invalid', message: '過ぎた日付です' })
     expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
     mockCore.writer.addClosedDay.mockResolvedValueOnce({ id: 'c9', store_id: STORE_ID, date: '2026-09-29', reason: null, created_by: null, created_at: 'x' })
-    await doorWrites.addClosedDay(STORE_ID, { date: '2026-09-29', reason: '' })
+    await data.addStoreClosedDay(STORE_ID, { date: '2026-09-29', reason: '' })
     expect(mockCore.writer.addClosedDay).toHaveBeenCalledTimes(1)
   })
   it('open 25:00 refused; close 24:00 accepted; open after close refused; malformed date refused', async () => {
-    expect(await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '25:00', close: '19:00' })).toEqual({ ok: false, reason: 'invalid', message: '閉店時刻は開店時刻より後にしてください。' })
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '25:00', close: '19:00' })).toEqual({ ok: false, reason: 'invalid', message: '閉店時刻は開店時刻より後にしてください。' })
     mockCore.writer.set.mockResolvedValueOnce({ ...BASE_POLICY })
-    const okClose = await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-12-02', open: '20:00', close: '24:00' })
+    const okClose = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-02', open: '20:00', close: '24:00' })
     expect(okClose.ok).toBe(true)
-    expect(await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-12-03', open: '15:00', close: '11:00' })).toEqual({ ok: false, reason: 'invalid', message: '閉店時刻は開店時刻より後にしてください。' })
-    expect(await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-02-30', open: '10:00', close: '19:00' })).toEqual({ ok: false, reason: 'invalid', message: '存在しない日付です。' })
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-03', open: '15:00', close: '11:00' })).toEqual({ ok: false, reason: 'invalid', message: '閉店時刻は開店時刻より後にしてください。' })
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-02-30', open: '10:00', close: '19:00' })).toEqual({ ok: false, reason: 'invalid', message: '存在しない日付です。' })
   })
   it('a second 2026-10-20 refused as a duplicate special day, zero core calls', async () => {
-    expect(await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-10-20', open: '09:00', close: '10:00' })).toEqual({ ok: false, reason: 'invalid', message: 'その日はすでに特別営業日です' })
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-10-20', open: '09:00', close: '10:00' })).toEqual({ ok: false, reason: 'invalid', message: 'その日はすでに特別営業日です' })
     expect(mockCore.writer.set).not.toHaveBeenCalled()
   })
   it('2026-10-08 closure again refused as a duplicate closure, zero core calls', async () => {
-    expect(await doorWrites.addClosedDay(STORE_ID, { date: '2026-10-08', reason: '' })).toEqual({ ok: false, reason: 'invalid', message: 'その日はすでに臨時休業です' })
+    expect(await data.addStoreClosedDay(STORE_ID, { date: '2026-10-08', reason: '' })).toEqual({ ok: false, reason: 'invalid', message: 'その日はすでに臨時休業です' })
     expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
   })
 })
@@ -221,12 +213,12 @@ describe('P-B1-4 — capability, honest', () => {
   it('actor B (ADMIN, settings.manage, no HQ grant): read-only + the sentence + zero writes; the grants check runs exactly once', async () => {
     as('login-admin')
     const spied = withReads()
-    const result = await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '10:00', close: '11:00' })
+    const result = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '10:00', close: '11:00' })
     expect(result).toEqual({ ok: false, reason: 'forbidden', message: '変更には本部の権限が必要です。' })
     expect(mockCore.writer.set).not.toHaveBeenCalled()
     expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(1)
     // a second write attempt by the SAME actor never asks core the grant question twice (memoized per actor).
-    await doorWrites.addClosedDay(STORE_ID, { date: '2026-12-02', reason: '' })
+    await data.addStoreClosedDay(STORE_ID, { date: '2026-12-02', reason: '' })
     expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(1)
   })
   it('actor B with a live HQ_ADMIN grant: writes go through', async () => {
@@ -234,35 +226,44 @@ describe('P-B1-4 — capability, honest', () => {
     const spied = withReads()
     spied.businessGrantsCheck.mockResolvedValue({ granted: true })
     mockCore.writer.set.mockResolvedValueOnce({ ...BASE_POLICY })
-    const result = await doorWrites.addSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '10:00', close: '11:00' })
+    const result = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '10:00', close: '11:00' })
     expect(result.ok).toBe(true)
   })
   it('actor C (STYLIST, no settings.manage): forbidden, zero writes, no grants check (settings.manage fails first)', async () => {
     as('login-stylist')
     const spied = withReads()
-    const result = await doorWrites.addClosedDay(STORE_ID, { date: '2026-12-01', reason: '' })
+    const result = await data.addStoreClosedDay(STORE_ID, { date: '2026-12-01', reason: '' })
     expect(result).toEqual({ ok: false, reason: 'forbidden', message: '変更には本部の権限が必要です。' })
     expect(spied.businessGrantsCheck).not.toHaveBeenCalled()
   })
   it('a store outside the actor\'s view is forbidden before any call', async () => {
     as('login-admin') // visible_store_ids: [STORE_ID] only
-    const result = await doorWrites.addClosedDay(OTHER_STORE_ID, { date: '2026-12-01', reason: '' })
+    const result = await data.addStoreClosedDay(OTHER_STORE_ID, { date: '2026-12-01', reason: '' })
     expect(result).toEqual({ ok: false, reason: 'forbidden', message: '変更には本部の権限が必要です。' })
     expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
   })
 })
 
+/** door-writes.ts recognises a core refusal by SHAPE, never `instanceof` (its
+ *  own file never imports '@synqed-kk/client' — business-isolation.test.ts's
+ *  pin). A plain Error with the same shape (`name`, `status`, `message`)
+ *  exercises the exact same branch without this test importing the SDK either. */
+const fakeSynqedError = (status: number, message: string): Error => {
+  const e = new Error(message) as Error & { status: number }
+  e.name = 'SynqedError'
+  e.status = status
+  return e
+}
+
 describe('P-B1-5 — core refusals that pass the door, mapped', () => {
   it('409 duplicate closed day → the JP sibling; list unchanged', async () => {
-    const { SynqedError } = jest.requireMock('@synqed-kk/client') as { SynqedError: new (s: number, m: string) => Error }
-    mockCore.writer.addClosedDay.mockRejectedValueOnce(new SynqedError(409, 'This date is already a closed day for the store.'))
-    const result = await doorWrites.addClosedDay(STORE_ID, { date: '2026-12-25', reason: '' })
+    mockCore.writer.addClosedDay.mockRejectedValueOnce(fakeSynqedError(409, 'This date is already a closed day for the store.'))
+    const result = await data.addStoreClosedDay(STORE_ID, { date: '2026-12-25', reason: '' })
     expect(result).toEqual({ ok: false, reason: 'invalid', message: 'その日はすでに臨時休業です' })
   })
   it('a generic 500 → the generic line, English logged to console.warn, never to the screen', async () => {
-    const { SynqedError } = jest.requireMock('@synqed-kk/client') as { SynqedError: new (s: number, m: string) => Error }
-    mockCore.writer.addClosedDay.mockRejectedValueOnce(new SynqedError(500, 'boom'))
-    const result = await doorWrites.addClosedDay(STORE_ID, { date: '2026-12-26', reason: '' })
+    mockCore.writer.addClosedDay.mockRejectedValueOnce(fakeSynqedError(500, 'boom'))
+    const result = await data.addStoreClosedDay(STORE_ID, { date: '2026-12-26', reason: '' })
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.message).not.toContain('boom')
@@ -276,22 +277,22 @@ describe('P-B1-6 — a failed read is an error state', () => {
   it('get throws → { ok: false }, never a silent empty list', async () => {
     const spied = withReads()
     spied.storePolicyGet.mockRejectedValueOnce(new Error('core outage'))
-    const result = await doorWrites.readStoreDays(STORE_ID)
+    const result = await data.readStoreDays(STORE_ID)
     expect(result.ok).toBe(false)
     expect(error).toHaveBeenCalled()
   })
   it('listClosedDays throws → { ok: false }', async () => {
     const spied = withReads()
     spied.storePolicyListClosedDays.mockRejectedValueOnce(new Error('core outage'))
-    const result = await doorWrites.readStoreDays(STORE_ID)
+    const result = await data.readStoreDays(STORE_ID)
     expect(result.ok).toBe(false)
   })
   it('a successful read returns both lists fresh, never memoized across two calls', async () => {
     const spied = withReads()
-    const first = await doorWrites.readStoreDays(STORE_ID)
+    const first = await data.readStoreDays(STORE_ID)
     expect(first.ok).toBe(true)
-    await doorWrites.addClosedDay(STORE_ID, { date: '2026-12-27', reason: '' }).catch(() => {})
-    await doorWrites.readStoreDays(STORE_ID)
+    await data.addStoreClosedDay(STORE_ID, { date: '2026-12-27', reason: '' }).catch(() => {})
+    await data.readStoreDays(STORE_ID)
     // storePolicyGet is called at least twice across the two readStoreDays() calls — never cached.
     expect(spied.storePolicyGet.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
@@ -300,7 +301,7 @@ describe('P-B1-6 — a failed read is an error state', () => {
 describe('R6 fold — closure removal audit', () => {
   it('removeClosedDay: core is called with (storeId, id, acting_staff_id); the door records its own audit.log after success', async () => {
     mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
-    const result = await doorWrites.removeClosedDay(STORE_ID, 'c1')
+    const result = await data.removeStoreClosedDay(STORE_ID, 'c1')
     expect(result).toEqual({ ok: true })
     expect(mockCore.writer.removeClosedDay).toHaveBeenCalledWith(STORE_ID, 'c1', 'staff-owner')
     expect(mockCore.auditLog).toHaveBeenCalledTimes(1)
@@ -308,7 +309,7 @@ describe('R6 fold — closure removal audit', () => {
   })
   it('addClosedDay carries the SDK audit payload (actor_type + action)', async () => {
     mockCore.writer.addClosedDay.mockResolvedValueOnce({ id: 'c9', store_id: STORE_ID, date: '2026-12-28', reason: null, created_by: null, created_at: 'x' })
-    await doorWrites.addClosedDay(STORE_ID, { date: '2026-12-28', reason: '' })
+    await data.addStoreClosedDay(STORE_ID, { date: '2026-12-28', reason: '' })
     expect(mockCore.writer.addClosedDay.mock.calls[0][1]).toMatchObject({
       date: '2026-12-28', acting_staff_id: 'staff-owner',
       audit: { actor_type: 'staff', actor_id: 'staff-owner', category: 'settings', action: 'store_closed_day.add', target_type: 'store_closed_day' },
@@ -319,8 +320,8 @@ describe('R6 fold — closure removal audit', () => {
 describe('OFF — the practice door unset', () => {
   it('every export answers tenant, zero core calls, before the SDK ever loads', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect(await doorWrites.readStoreDays(STORE_ID)).toEqual({ ok: false, reason: 'tenant', message: expect.any(String) })
-    expect(await doorWrites.addClosedDay(STORE_ID, { date: '2026-12-01', reason: '' })).toEqual({ ok: false, reason: 'tenant', message: expect.any(String) })
+    expect(await data.readStoreDays(STORE_ID)).toEqual({ ok: false, reason: 'tenant', message: expect.any(String) })
+    expect(await data.addStoreClosedDay(STORE_ID, { date: '2026-12-01', reason: '' })).toEqual({ ok: false, reason: 'tenant', message: expect.any(String) })
     expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
   })
 })

@@ -21,21 +21,27 @@
 // the one SDK call → refusal mapping in the outer catch. `readStoreDays`
 // skips the capability step (R8: a read-only actor still sees the lists).
 
-// ⚠ NO top-level VALUE import of '@synqed-kk/client' here (only `import type`,
-// erased at compile time): settings-props.ts imports this file's pure copy
-// constants + `specialDayBadge` UNCONDITIONALLY (every render, OFF included),
-// and a static `import { SynqedError } from '@synqed-kk/client'` would load
-// the raw SDK on the OFF path too — the same reason door.ts/actor.ts keep
-// `./core-reach` a LAZY import. `SynqedError` is resolved lazily inside
-// `mapCoreError` instead, which only ever runs after `admitActor()` has
-// already confirmed the practice door is ON.
-import type { SpecialOpenDay, StoreClosedDay } from '@synqed-kk/client'
+// ⚠ NO import of '@synqed-kk/client' anywhere in this file, bare or `import
+// type` — data.ts is this file's ONLY importer (the shared-cores door's own
+// isolation pin, business-isolation.test.ts), settings-props.ts reaches its
+// pure copy constants + `specialDayBadge` THROUGH data.ts, never directly, and
+// even a type-only import of the bare package is refused by the business
+// play-phase fence (check-business-data-access.mjs, "flagged DELIBERATELY").
+// Every type below is derived from `CoreReads`/`CoreClient` instead (same
+// trick practice-door-recorded.ts uses), and `SynqedError` is recognised by
+// shape (`isSynqedError`) rather than `instanceof` — no import needed either way.
 import { practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { jstYmd, renderNow } from '../clock'
+import type { CoreReads } from './core-reach'
 
 // ── shared result shapes ─────────────────────────────────────────────────────
+
+type StorePolicy = Awaited<ReturnType<CoreReads['storePolicyGet']>>
+export type SpecialOpenDay = StorePolicy['special_open_days'][number]
+type ClosedDaysRead = Awaited<ReturnType<CoreReads['storePolicyListClosedDays']>>
+export type StoreClosedDay = ClosedDaysRead['closed_days'][number]
 
 export interface StoreDaysRead {
   closures: StoreClosedDay[]
@@ -165,10 +171,17 @@ function validateSpecialTimes(open: string, close: string): string | null {
 
 // ── R4 — core refusals that pass the door, mapped ONE table ─────────────────
 
-async function mapCoreError(e: unknown, reach: typeof import('./core-reach')): Promise<Refusal> {
+/** Recognised by SHAPE, never `instanceof` — this file imports no SDK class
+ *  (see the file header): the SDK's own `SynqedError` sets `name` in its
+ *  constructor and always carries a numeric `status` + string `message`
+ *  (`Error`'s own field), which is enough to tell it apart from a plain throw. */
+function isSynqedError(e: unknown): e is { name: string; status: number; message: string } {
+  return e instanceof Error && e.name === 'SynqedError' && typeof (e as { status?: unknown }).status === 'number'
+}
+
+function mapCoreError(e: unknown, reach: typeof import('./core-reach')): Refusal {
   if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant', message: MSG.genericFail }
-  const { SynqedError } = await import('@synqed-kk/client')
-  if (e instanceof SynqedError) {
+  if (isSynqedError(e)) {
     if (e.status === 403) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
     if (e.message === 'This date is already a closed day for the store.') {
       return { ok: false, reason: 'invalid', message: MSG.duplicateClosure }
@@ -246,18 +259,7 @@ export async function addClosedDay(storeId: string, input: { date: string; reaso
     // ⚖ lead's fold #2 — AuditEventInput requires actor_type + category + action;
     // core's own store_policy.edit row is a DIFFERENT write (setPolicy only) —
     // this is the closure add's own event, opted into via the SDK's `audit` field.
-    const row = await writer.addClosedDay(storeId, {
-      date: input.date,
-      reason: input.reason === '' ? null : input.reason,
-      acting_staff_id: actor.sheet.staff_id,
-      audit: {
-        actor_type: 'staff',
-        actor_id: actor.sheet.staff_id,
-        category: 'settings',
-        action: 'store_closed_day.add',
-        target_type: 'store_closed_day',
-      },
-    })
+    const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: input.reason === '' ? null : input.reason, acting_staff_id: actor.sheet.staff_id, audit: { actor_type: 'staff', actor_id: actor.sheet.staff_id, category: 'settings', action: 'store_closed_day.add', target_type: 'store_closed_day' } })
     console.info(
       '[business store days]',
       JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'closure.add', date: row.date, at: renderNow().toISOString() }),
@@ -288,7 +290,7 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
     const { closed_days: before } = await actor.reads.storePolicyListClosedDays(storeId, { from: todayJst() })
     const row = before.find((c) => c.id === id) ?? null
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
-    await writer.removeClosedDay(storeId, id, actor.sheet.staff_id)
+    await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)
     try {
       const auditWriter = reach.auditWriterFor({ businessId: actor.businessId })
       await auditWriter.log({
@@ -326,7 +328,7 @@ export async function setSpecialOpenDays(storeId: string, next: SpecialOpenDay[]
   if (!(await canWriteStoreDaysFor(actor, storeId))) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
   try {
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
-    const saved = await writer.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
+    const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
     console.info(
       '[business store days]',
       JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'special.set', count: saved.special_open_days.length, at: renderNow().toISOString() }),
@@ -358,7 +360,7 @@ export async function addSpecialOpenDay(storeId: string, input: { date: string; 
       a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
     )
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
-    const saved = await writer.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
+    const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
     console.info(
       '[business store days]',
       JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'special.add', date: input.date, at: renderNow().toISOString() }),
@@ -378,7 +380,7 @@ export async function removeSpecialOpenDay(storeId: string, date: string): Promi
     const policy = await actor.reads.storePolicyGet(storeId)
     const next = policy.special_open_days.filter((d) => d.date !== date)
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
-    const saved = await writer.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
+    const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
     console.info(
       '[business store days]',
       JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'special.remove', date, at: renderNow().toISOString() }),

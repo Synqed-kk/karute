@@ -73,6 +73,9 @@ describe('the switch', () => {
 const READS = [
   'answerSheet',
   'appointmentsList',
+  // ⚖ PKT-S29-B1 — three new bound reads for the store-days door.
+  'auditList',
+  'businessGrantsCheck',
   'customerVisits',
   'customersList',
   'menusList',
@@ -81,6 +84,7 @@ const READS = [
   'staffList',
   'staffStoresList',
   'storePolicyGet',
+  'storePolicyListClosedDays',
   'storesList',
 ]
 

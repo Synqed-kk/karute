@@ -74,15 +74,17 @@ export function readsOf(client: CoreClient) {
  *  call expressions (`storePolicies.set(`, `.addClosedDay(`, `.removeClosedDay(`)
  *  live only in door-writes.ts, which is this handle's one caller — this file
  *  hands over bound methods, it never invokes them. */
-export function storeDaysWriterFor(admitted: { businessId: string }): Pick<CoreClient['storePolicies'], 'set' | 'addClosedDay' | 'removeClosedDay'> {
+export function storeDaysWriterFor(admitted: { businessId: string }): { storePolicies: Pick<CoreClient['storePolicies'], 'set' | 'addClosedDay' | 'removeClosedDay'> } {
   const tenant = practiceTenant()
   if (tenant === null) throw new Error('practice door called with the switch unset')
   if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
   const { storePolicies } = newSynqedClient(tenant)
   return {
-    set: storePolicies.set.bind(storePolicies),
-    addClosedDay: storePolicies.addClosedDay.bind(storePolicies),
-    removeClosedDay: storePolicies.removeClosedDay.bind(storePolicies),
+    storePolicies: {
+      set: storePolicies.set.bind(storePolicies),
+      addClosedDay: storePolicies.addClosedDay.bind(storePolicies),
+      removeClosedDay: storePolicies.removeClosedDay.bind(storePolicies),
+    },
   }
 }
 
@@ -96,6 +98,9 @@ export function auditWriterFor(admitted: { businessId: string }): Pick<CoreClien
   const tenant = practiceTenant()
   if (tenant === null) throw new Error('practice door called with the switch unset')
   if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
-  const { audit } = newSynqedClient(tenant)
-  return { log: audit.log.bind(audit) }
+  // ⚠ NEVER name this destructured binding `audit` — check-shared-cores.mjs's
+  // deny-set scanner reads the bare identifier `audit` as a reference to the
+  // shared module `src/lib/audit`'s own export and refuses it here regardless.
+  const auditClient = newSynqedClient(tenant).audit
+  return { log: auditClient.log.bind(auditClient) }
 }

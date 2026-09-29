@@ -302,6 +302,18 @@ export async function removeStoreSpecialOpenDay(storeId: string, date: string): 
   return doorWrites.removeSpecialOpenDay(storeId, date)
 }
 
+/** ⚖ PKT-S29-B1 — the door's own pure copy + the badge rule, re-exported: data.ts is
+ *  door-writes.ts's ONE importer (business-isolation.test.ts's "shared-cores door file
+ *  has ONE possible importer" pin), so settings-props.ts reaches these THROUGH here,
+ *  never by importing the door file directly. Types re-exported too (StoreDaysReadResult
+ *  and friends) for the same reason. */
+export const specialDayBadge = doorWrites.specialDayBadge
+export const SPECIAL_OPEN_DAYS_NOTE = doorWrites.SPECIAL_OPEN_DAYS_NOTE
+export const READ_FAILURE_LINE = doorWrites.READ_FAILURE_LINE
+export type StoreDaysReadResult = doorWrites.StoreDaysReadResult
+export type StoreClosedDay = doorWrites.StoreClosedDay
+export type SpecialOpenDay = doorWrites.SpecialOpenDay
+
 /** ⚖ A1b · K11 — the store's address as the Reserve card's cover prints it; null = none
  *  (the cover then shows Reserve's own no-address shape). ON: the door's own store record.
  *  OFF: the play-phase store's SAMPLE address — the same 店舗情報 dial the 設定 room shows. */
