@@ -1022,7 +1022,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'storePolicies.removeClosedDay',
     symbols: ['removeClosedDay'],
     justification:
-      'PKT-S29-B1 — the 臨時休業 remove writer: same guard as the two writers above; core\'s SDK method takes no audit payload and hard-deletes the row (a flagged exception to "nothing deleted, soft only" — PR body carries it as a core ask), so the door records its own audit event via a second write-only handle whose audit row (audit.log, one site under removeClosedDay) is written BEFORE the delete — no row, no removal; a failed delete gets a best-effort \'failed\' row (PKT-S32 R19).',
+      'PKT-S29-B1 — the 臨時休業 remove writer: same guard as the two writers above; core\'s SDK method takes no audit payload and hard-deletes the row (a flagged exception to "nothing deleted, soft only" — PR body carries it as a core ask), so the door records its own audit events via a second write-only handle (audit.log, one site under removeClosedDay): a store_closed_day.remove_attempt row BEFORE the delete — blocking, no row, no removal — and a store_closed_day.remove row only AFTER a successful delete, best-effort; a remove row always means a completed removal (PKT-S32 R19/R21).',
     dated: '2026-09-29',
   },
   {
@@ -1030,7 +1030,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'audit.log',
     symbols: ['removeClosedDay'],
     justification:
-      'PKT-S30 F6 · PKT-S32 R19 — the closure-removal audit event: core\'s SDK removeClosedDay takes no audit payload and hard-deletes the row, so the door writes store_closed_day.remove itself through core-reach.ts\'s write-only `{ audit: { log } }` handle (same nested shape as the storePolicies handle, so CP3 sees the site) — BEFORE the delete (detail.phase \'requested\'; no row within the bound → the removal is refused, nothing deleted) and, if the delete then fails, a best-effort second row (phase \'failed\'). One call site, bounded by AUDIT_LOG_BOUND_MS. A \'requested\' row records an ATTEMPT, not a completed removal — a late audit, a failed delete or the midnight re-check (PKT-S32 R20) can refuse after the row landed; the closure\'s presence in core is the truth.',
+      'PKT-S30 F6 · PKT-S32 R19/R20/R21 — the closure-removal audit events: core\'s SDK removeClosedDay takes no audit payload and hard-deletes the row, so the door writes its own rows through core-reach.ts\'s write-only `{ audit: { log } }` handle (same nested shape as the storePolicies handle, so CP3 sees the site), one call site, each bounded by AUDIT_LOG_BOUND_MS: store_closed_day.remove_attempt BEFORE the delete — blocking (no row within the bound → the removal is refused, nothing deleted; the midnight re-check can still refuse after it) — and store_closed_day.remove only AFTER a successful delete, best-effort (a failure is warned, the removal stands). An attempt row is NOT a completed removal; a remove row always is. A failed delete writes no further row: the attempt row + the closure still in core is the truth.',
     dated: '2026-09-29',
   },
 ]

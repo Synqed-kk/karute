@@ -379,13 +379,14 @@ export async function addClosedDay(storeId: string, input: { date: string; reaso
  *  deleted, soft only" rule, flagged in the PR body as a core ask, not fixed
  *  here. The door records its own audit event for the removal through the
  *  write-only `{ audit: { log } }` handle.
- *  ⚖ PKT-S32 R19 — that row is written BEFORE core's hard delete: no row → no
- *  removal (refused, nothing deleted); a delete that then fails gets a
- *  best-effort second row (phase 'failed'), so the history stays truthful.
+ *  ⚖ PKT-S32 R19/R21 — a `remove_attempt` row is written BEFORE core's hard
+ *  delete (no row → no removal: refused, nothing deleted); the `remove` row is
+ *  written only AFTER a successful delete (best-effort), so a `remove` row
+ *  always means a completed removal.
  *  ⚖ PKT-S30 F9 — the fresh read (no from-date filter) already lacks the id →
  *  another admin removed it: ok, no core call, the list refreshed from that read.
  *  P3-9 — a closure dated before today is a record: refused, no write — no
- *  audit row either (⚖ PKT-S32 R19: the row is written only for a removal that is attempted). */
+ *  audit row either (⚖ PKT-S32 R19: rows are written only for a removal that is attempted). */
 export async function removeClosedDay(storeId: string, id: string): Promise<RemoveClosedDayResult> {
   if (practiceTenant() === null) return TENANT_REFUSAL
   if (typeof id !== 'string' || !UUID_RE.test(id)) return invalid(MSG.genericFail)
@@ -400,16 +401,14 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
     if (isPastDate(row.date)) return invalid(MSG.pastDate)
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     const reason = row.reason ?? ''
-    // ⚖ PKT-S31 R2 (bound + warn shape kept) · ⚖ PKT-S32 R19 (supersedes R2's order) — the audit row is
-    // written FIRST, raced against AUDIT_LOG_BOUND_MS; a sync throw, a rejection or no answer in time
-    // REFUSES the removal and core's hard delete is never called. ONE audit.log call site, directly in
-    // this function (the allowlisted symbol): pass 'requested' always, pass 'failed' only when the
-    // delete then throws — a best-effort second row; its refusal is mapped exactly as before.
-    let deleteFailure: { e: unknown } | null = null
-    for (const phase of ['requested', 'failed'] as const) {
-      if (phase === 'failed' && deleteFailure === null) break
-      const failed = deleteFailure
-      const extra = failed !== null && isSynqedError(failed.e) ? { error_status: failed.e.status } : {}
+    // ⚖ PKT-S31 R2 (bound + warn shape kept) · ⚖ PKT-S32 R19/R21 — two rows, ONE audit.log call site, directly
+    // in this function (the allowlisted symbol), each raced against AUDIT_LOG_BOUND_MS:
+    //   1. store_closed_day.remove_attempt BEFORE core's hard delete — blocking: a sync throw, a rejection or
+    //      no answer in time REFUSES the removal and the delete is never called (no row, no removal);
+    //   2. store_closed_day.remove only AFTER a successful delete — best-effort: a failure is warned and the
+    //      completed removal still answers ok. A `remove` row always means a completed removal.
+    // A delete that throws writes no further row: the attempt row + the closure still in core is the truth.
+    for (const action of ['store_closed_day.remove_attempt', 'store_closed_day.remove'] as const) {
       const auditProblem = await withinAuditBound(
         (async () => {
           const auditHandle = reach.auditWriterFor({ businessId: actor.businessId })
@@ -417,20 +416,19 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
             actor_type: 'staff',
             actor_id: actor.sheet.staff_id,
             category: 'settings',
-            action: 'store_closed_day.remove',
+            action,
             target_type: 'store_closed_day',
             target_id: row.id,
             store_id: storeId,
             target_label: row.date,
-            detail: { date: row.date, reason, phase, ...extra },
+            detail: { date: row.date, reason },
           })
         })(),
       )
-      if (phase === 'failed') {
-        // the 'requested' row stands and the closure is still in core — the history stays truthful.
+      if (action === 'store_closed_day.remove') {
         if (auditProblem !== null) {
           console.warn(
-            '[business store days] audit "failed" row not written after a refused removal:',
+            '[business store days] removal completed; its completion row was not written (the attempt row stands):',
             JSON.stringify({ store_id: storeId, target_id: row.id, date: row.date, reason, problem: auditProblem }),
           )
         }
@@ -444,15 +442,14 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
         )
         return { ok: false, reason: 'core', message: MSG.genericFail }
       }
-      // ⚖ PKT-S32 R20 — re-checked after the audit wait (up to AUDIT_LOG_BOUND_MS): a closure that became a record meanwhile is never deleted; the 'requested' row stands as the attempt.
+      // ⚖ PKT-S32 R20 — re-checked after the audit wait (up to AUDIT_LOG_BOUND_MS): a closure that became a record meanwhile is never deleted; the attempt row stands as the attempt.
       if (isPastDate(row.date)) return invalid(MSG.pastDate)
       try {
         await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)
       } catch (e) {
-        deleteFailure = { e }
+        return writeFailed(e, admitted) // R1 memo on 403, as before; no further row
       }
     }
-    if (deleteFailure !== null) return writeFailed(deleteFailure.e, admitted) // R1 memo on 403, as before
     console.info(
       '[business store days]',
       JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'closure.remove', date: row.date, at: renderNow().toISOString() }),
