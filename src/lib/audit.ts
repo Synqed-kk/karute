@@ -1131,4 +1131,33 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     pendingWave: 'Wave W — 2026-09-28',
     coveredBy: 'src/lib/appointments/mutations.ts#updateAppointmentCore',
   },
+  // ⚖ PKT-S29-B0b — rows-before-sites for the store-days write door (same shape as #1091); door-writes.ts is not on main yet, so no coveredBy.
+  'business/store-days/closures': {
+    POST: {
+      kind: 'skip',
+      justification:
+        "Business store-days closures (臨時休業) (POST) — the door records the audit event itself (door-writes.ts); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
+      dated: '2026-09-29',
+    },
+    DELETE: {
+      kind: 'skip',
+      justification:
+        "Business store-days closures (臨時休業) (DELETE) — the door records the audit event itself (door-writes.ts); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
+      dated: '2026-09-29',
+    },
+  },
+  'business/store-days/special': {
+    POST: {
+      kind: 'skip',
+      justification:
+        "Business store-days special open days (臨時営業) (POST) — the door records the audit event itself (door-writes.ts); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
+      dated: '2026-09-29',
+    },
+    DELETE: {
+      kind: 'skip',
+      justification:
+        "Business store-days special open days (臨時営業) (DELETE) — the door records the audit event itself (door-writes.ts); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
+      dated: '2026-09-29',
+    },
+  },
 }
