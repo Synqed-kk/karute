@@ -193,7 +193,7 @@ const ALLOW = [
     count: 1,
     reason:
       '⚖ R-A2-7 (orgSettingsWriterFor: a write-only { orgSettings: { upsert } } handle, the two tenant throws before the client is built) + ' +
-      'R-A2-15(5) (Liam 9/24 「go」): the ONE bound write method in territory, feeding door.ts\'s one pinned writer line',
+      'R-A2-15(5) (Liam 9/24 「go」): the first bound write method in territory, feeding door.ts\'s one pinned writer line',
   },
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
