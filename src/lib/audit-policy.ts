@@ -1001,6 +1001,38 @@ export const SDK_WRITE_ALLOWLIST: {
       'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). ⚖ Liam 9/25 「make it work」 (PKT-S38 R3/R8, R-S39-1) + ⚖ Liam 9/25 A (PKT-S41 R-S41-1): 予約の色分け — one key per store (booking_colors:<storeId>, sent alone; the legacy booking_colors map is read-only), closed palette, settings.manage + a store the operator may see, read-before-write; one structured server log line per real write; a core audit row is R5 (later).',
     dated: '2026-09-25',
   },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'storePolicies.set',
+    symbols: ['setSpecialOpenDays'],
+    justification:
+      'PKT-S29-B1 — the 特別営業日 (special_open_days) writer: a store the operator may see, settings.manage AND core\'s own HQ_ADMIN grant (businessGrants.check, memoized per actor — an OWNER passes by role), read-before-write (get fresh, next = current ± one entry, sorted, nothing else in the body), one structured server log line per real write; core\'s own store_policy.edit audit row covers this write server-side (EV/CORE-READ-B1.md Q5).',
+    dated: '2026-09-29',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'storePolicies.addClosedDay',
+    symbols: ['addClosedDay'],
+    justification:
+      'PKT-S29-B1 — the 臨時休業 add writer: same guard as the special-days writer above (store visibility, settings.manage, HQ_ADMIN), a fresh read refuses a duplicate date before core is ever asked, one structured server log line per real write; the door opts into the SDK\'s own `audit` payload on this call (store_closed_day.add), since core does not default one for closed-day writes (EV/CORE-READ-B1.md Q5).',
+    dated: '2026-09-29',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'storePolicies.removeClosedDay',
+    symbols: ['removeClosedDay'],
+    justification:
+      'PKT-S29-B1 — the 臨時休業 remove writer: same guard as the two writers above; core\'s SDK method takes no audit payload and hard-deletes the row (a flagged exception to "nothing deleted, soft only" — PR body carries it as a core ask), so the door records its own audit events via a second write-only handle (audit.log, one site under removeClosedDay): a store_closed_day.remove_attempt row BEFORE the delete — blocking, no row, no removal — and a store_closed_day.remove row only AFTER a successful delete, best-effort; a remove row always means a completed removal (PKT-S32 R19/R21).',
+    dated: '2026-09-29',
+  },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'audit.log',
+    symbols: ['removeClosedDay'],
+    justification:
+      'PKT-S30 F6 · PKT-S32 R19/R20/R21 — the closure-removal audit events: core\'s SDK removeClosedDay takes no audit payload and hard-deletes the row, so the door writes its own rows through core-reach.ts\'s write-only `{ audit: { log } }` handle (same nested shape as the storePolicies handle, so CP3 sees the site), one call site, each bounded by AUDIT_LOG_BOUND_MS: store_closed_day.remove_attempt BEFORE the delete — blocking (no row within the bound → the removal is refused, nothing deleted; the midnight re-check can still refuse after it) — and store_closed_day.remove only AFTER a successful delete, best-effort (a failure is warned, the removal stands). An attempt row is NOT a completed removal; a remove row always is. A failed delete writes no further row: the attempt row + the closure still in core is the truth.',
+    dated: '2026-09-29',
+  },
 ]
 
 // ── RAW_SUPABASE_WRITE_ALLOWLIST ─────────────────────────────────────────────

@@ -25,6 +25,7 @@ import { jstDayKey, jstSlotEnd, renderNow } from './clock'
 import { practiceTenant } from './practice-door/switch'
 import * as door from './practice-door/door'
 import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
+import * as doorWrites from './practice-door/door-writes'
 import { weekFromPair } from './practice-door/store-hours'
 import {
   appointments,
@@ -267,6 +268,60 @@ export async function writeReserveCardColor(next: string | null): Promise<door.W
 export async function writeBookingColors(storeId: string, colors: unknown): Promise<WriteBookingColorsResult> {
   return doorWriteBookingColors(storeId, colors)
 }
+
+/** ⚖ PKT-S29-B1 — one store's 臨時休業 + 特別営業日, through the door. OFF: no read at all — the
+ *  OFF-world render is settings-props.ts's own fixture branch (臨時休業) / honest empty state
+ *  (特別営業日, R8), never this function. Called ONLY while the practice door is ON. */
+export async function readStoreDays(storeId: string): Promise<doorWrites.StoreDaysReadResult> {
+  return doorWrites.readStoreDays(storeId)
+}
+
+/** ⚖ PKT-S29-B1 R2 — may the admitted operator write EITHER list for this store? ⚖ PKT-S31 R9 —
+ *  three answers ('writable' | 'read-only' | 'unknown'); OFF answers 'read-only' (no writer); the
+ *  page asks only while the door is ON. */
+export async function readCanWriteStoreDays(storeId: string): Promise<doorWrites.StoreDaysWriteState> {
+  if (practiceTenant() === null) return 'read-only'
+  return doorWrites.canWriteStoreDays(storeId)
+}
+
+/** Tests only: forget the door's memoized HQ grants (door-writes.ts F12 memo). */
+export function forgetStoreDaysGrants(): void {
+  doorWrites.forgetStoreDaysGrants()
+}
+
+export async function addStoreClosedDay(storeId: string, input: { date: string; reason: string }): Promise<doorWrites.AddClosedDayResult> {
+  return doorWrites.addClosedDay(storeId, input)
+}
+
+export async function removeStoreClosedDay(storeId: string, id: string): Promise<doorWrites.RemoveClosedDayResult> {
+  return doorWrites.removeClosedDay(storeId, id)
+}
+
+export async function addStoreSpecialOpenDay(
+  storeId: string,
+  input: { date: string; open: string; close: string },
+): Promise<doorWrites.SetSpecialOpenDaysResult> {
+  return doorWrites.addSpecialOpenDay(storeId, input)
+}
+
+export async function removeStoreSpecialOpenDay(storeId: string, date: string): Promise<doorWrites.SetSpecialOpenDaysResult> {
+  return doorWrites.removeSpecialOpenDay(storeId, date)
+}
+
+/** ⚖ PKT-S29-B1 — the door's own pure copy + the badge rule, re-exported: data.ts is
+ *  door-writes.ts's ONE importer (business-isolation.test.ts's "shared-cores door file
+ *  has ONE possible importer" pin), so settings-props.ts reaches these THROUGH here,
+ *  never by importing the door file directly. Types re-exported too (StoreDaysReadResult
+ *  and friends) for the same reason. */
+export const specialDayBadge = doorWrites.specialDayBadge
+export const SPECIAL_OPEN_DAYS_NOTE = doorWrites.SPECIAL_OPEN_DAYS_NOTE
+export const READ_FAILURE_LINE = doorWrites.READ_FAILURE_LINE
+export const READ_ONLY_NOTE = doorWrites.READ_ONLY_NOTE
+export const applySpecialOpenDays = doorWrites.applySpecialOpenDays
+export type StoreDaysWriteState = doorWrites.StoreDaysWriteState
+export type StoreDaysReadResult = doorWrites.StoreDaysReadResult
+export type StoreClosedDay = doorWrites.StoreClosedDay
+export type SpecialOpenDay = doorWrites.SpecialOpenDay
 
 /** ⚖ A1b · K11 — the store's address as the Reserve card's cover prints it; null = none
  *  (the cover then shows Reserve's own no-address shape). ON: the door's own store record.
