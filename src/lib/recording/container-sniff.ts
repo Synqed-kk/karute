@@ -111,21 +111,27 @@ const HTTP_OK = 200
 export type ProbeResult =
   | { state: 'readable'; kind: ContainerKind }
   | { state: 'unreadable'; firstByte: number; bytesRead: number }
-  | { state: 'unknown'; reason: string }
+  | { state: 'unknown'; reason: string; bytesRead?: number }
 
 /** Probe the head of the object behind `signedUrl`. 206 (Range honoured) and
  *  200 (Range ignored, the whole object streams) are both accepted: either
- *  way the body is read from its stream only until PROBE_HEAD_BYTES are held,
- *  then the reader is cancelled — the body is never buffered whole. */
+ *  way the body is read from its stream only until PROBE_MIN_HEAD_BYTES are
+ *  held (or it ends), then the reader is cancelled — the body is never
+ *  buffered whole. The guarantee is on what is EXAMINED (at most
+ *  PROBE_HEAD_BYTES), not on transport bytes: a platform may deliver a first
+ *  chunk of any size (REV 2.3 A4'). The timeout bounds every read as well as
+ *  the fetch, so a stalled body answers `unknown`. */
 export async function probeObjectHead(
   signedUrl: string,
   opts?: { timeoutMs?: number },
 ): Promise<ProbeResult> {
   const timeoutMs = opts?.timeoutMs ?? PROBE_HEAD_TIMEOUT_MS
+  const signal = AbortSignal.timeout(timeoutMs)
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   try {
     const res = await fetch(signedUrl, {
       headers: { Range: PROBE_RANGE },
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     })
     if (res.status !== HTTP_PARTIAL_CONTENT && res.status !== HTTP_OK) {
       res.body?.cancel().catch(() => {})
@@ -137,21 +143,32 @@ export async function probeObjectHead(
     // room left, so what the probe holds never exceeds PROBE_HEAD_BYTES.
     const head = new Uint8Array(PROBE_HEAD_BYTES)
     let held = 0
-    const reader = res.body.getReader()
-    while (held < PROBE_HEAD_BYTES) {
-      const { done, value } = await reader.read()
-      if (done) break
+    reader = res.body.getReader()
+    const timedOut = new Promise<never>((_resolve, reject) => {
+      if (signal.aborted) reject(signal.reason)
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    })
+    timedOut.catch(() => {})
+    let ended = false
+    while (held < PROBE_MIN_HEAD_BYTES) {
+      const { done, value } = await Promise.race([reader.read(), timedOut])
+      if (done) {
+        ended = true
+        break
+      }
       const take = Math.min(value.length, PROBE_HEAD_BYTES - held)
       head.set(value.subarray(0, take), held)
       held += take
     }
-    if (held >= PROBE_HEAD_BYTES) reader.cancel().catch(() => {})
+    if (!ended) reader.cancel().catch(() => {})
 
-    if (held < PROBE_MIN_HEAD_BYTES) return { state: 'unknown', reason: 'short_head' }
+    if (held < PROBE_MIN_HEAD_BYTES) return { state: 'unknown', reason: 'short_head', bytesRead: held }
+    // The sniff receives at most PROBE_HEAD_BYTES (64): `held` never exceeds the buffer.
     const sniff = sniffContainer(head.subarray(0, held))
     if (sniff.kind !== 'unknown') return { state: 'readable', kind: sniff.kind }
     return { state: 'unreadable', firstByte: sniff.firstByte, bytesRead: sniff.bytesRead }
   } catch (err) {
+    reader?.cancel().catch(() => {})
     // A DOMException (the timeout) is not always `instanceof Error` across
     // realms, so read its name directly.
     const name = (err as { name?: unknown } | null)?.name

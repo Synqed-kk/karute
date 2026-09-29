@@ -6,8 +6,19 @@
 //   - TOTALITY: every MIME the key grammar admits (MIME_TO_EXT) and every MIME
 //     the two recorders negotiate resolves to a kind that has a signature —
 //     adding a MIME without a signature fails here
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+// reason: global-recorder.ts reaches actions/recordings → the ESM-only SDK and
+// next/cache, which jest cannot parse — the repo's own seam mocks (recorder-is-live.test.ts); no assertion reads them.
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: class {},
+  SynqedError: class extends Error {},
+}))
+// reason: the same seam — next/cache is imported on the recorder's action path, never called here.
+jest.mock('next/cache', () => ({
+  revalidatePath: jest.fn(),
+  updateTag: jest.fn(),
+  unstable_cache: (fn: unknown) => fn,
+}))
+
 import {
   CONTAINER_KIND_BY_EXT,
   CONTAINER_SIGNATURES,
@@ -15,6 +26,8 @@ import {
   type ContainerKind,
 } from '@/lib/recording/container-sniff'
 import { MIME_TO_EXT } from '@/lib/recording/key-grammar'
+import { RECORDER_MIME_CANDIDATES as GLOBAL_RECORDER_MIMES } from '@/lib/global-recorder'
+import { RECORDER_MIME_CANDIDATES as MEDIA_RECORDER_MIMES } from '@/hooks/use-media-recorder'
 
 const bytes = (...xs: number[]) => new Uint8Array(xs)
 const ascii = (s: string) => Array.from(s, (c) => c.charCodeAt(0))
@@ -91,20 +104,14 @@ describe('sniffContainer — totality against the grammar and the recorders', ()
     for (const mime of mimes) expectSniffable(mime)
   })
 
-  // The recorders' negotiated lists are function-local consts in 'use client'
-  // modules (global-recorder.ts is thin-bundled); exporting them would change
-  // bundled code, so the list is read from the source instead — the same
-  // source-pin idiom other suites use. A MIME added there without a signature
-  // fails here.
+  // The recorders' negotiated lists are the exported arrays each
+  // getSupportedMimeType() reads (REV 2.3 A6) — the REAL lists, imported, never
+  // the source text. A MIME added to either without a signature fails here.
   it.each([
-    ['src/lib/global-recorder.ts'],
-    ['src/hooks/use-media-recorder.ts'],
-  ])('every MIME %s negotiates has a signature', (file) => {
-    const src = readFileSync(join(process.cwd(), file), 'utf8')
-    const fn = src.slice(src.indexOf('function getSupportedMimeType'))
-    const list = /const formats = \[([\s\S]*?)\]/.exec(fn)
-    expect(list).not.toBeNull()
-    const mimes = Array.from(list![1].matchAll(/'([^']+)'/g), (m) => m[1])
+    ['src/lib/global-recorder.ts', GLOBAL_RECORDER_MIMES],
+    ['src/hooks/use-media-recorder.ts', MEDIA_RECORDER_MIMES],
+  ] as const)('every MIME %s negotiates has a signature', (_file, list) => {
+    const mimes: readonly string[] = list
     expect(mimes.length).toBeGreaterThanOrEqual(4)
     for (const mime of mimes) expectSniffable(mime)
   })

@@ -3,7 +3,8 @@
 // bodies. Pins:
 //   - the request is a ranged GET: `Range: bytes=0-63`, with a timeout signal
 //   - 206 and 200 are both accepted; a 200 streaming a whole 1 MB object is
-//     read only until 64 bytes are held, then the reader is cancelled
+//     read only until >= 12 bytes are held (or it ends), then the reader is
+//     cancelled; the examined head = the first min(held, 64) bytes (REV 2.3 A4')
 //   - >= 12 bytes held + a known container → readable; + none → unreadable
 //     (firstByte / bytesRead as numbers)
 //   - < 12 bytes → unknown `short_head`; 416 / 404 / timeout / a throw → unknown
@@ -94,13 +95,12 @@ describe('probeObjectHead — readable / unreadable', () => {
     await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'readable', kind: 'webm' })
   })
 
-  it('200 streaming a 1 MB object → readable, and the reader is cancelled after <= 64 bytes pulled', async () => {
+  // REV 2.3 A4: the transport-byte count is not a guarantee and is no longer asserted.
+  it('200 streaming a 1 MB object → readable, and the reader is cancelled once >= 12 bytes are held', async () => {
     const big = new Uint8Array(1024 * 1024)
     big.set(WEBM_HEAD, 0)
     const tally = answer(200, big, 16)!
     await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'readable', kind: 'webm' })
-    expect(tally.pulled).toBeLessThanOrEqual(64)
-    expect(tally.pulled).toBe(64)
     expect(tally.cancelled).toBe(true)
   })
 
@@ -117,10 +117,11 @@ describe('probeObjectHead — readable / unreadable', () => {
     await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unreadable', firstByte: 0, bytesRead: 14 })
   })
 
-  it('a headerless 1 MB object → unreadable with bytesRead capped at 64', async () => {
+  // REV 2.3 A4': 10-byte chunks → two reads hold 20 (>= 12), then cancel → bytesRead 20.
+  it('a headerless 1 MB object in 10-byte chunks → unreadable, bytesRead 20', async () => {
     const big = new Uint8Array(1024 * 1024).fill(0xa3)
     answer(206, big, 10)
-    await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unreadable', firstByte: 0xa3, bytesRead: 64 })
+    await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unreadable', firstByte: 0xa3, bytesRead: 20 })
   })
 
   it('a body of exactly 12 bytes of ogg → readable ogg', async () => {
@@ -132,12 +133,12 @@ describe('probeObjectHead — readable / unreadable', () => {
 describe('probeObjectHead — unknown (never a refusal)', () => {
   it('a body of 5 bytes → unknown short_head', async () => {
     answer(206, WEBM_HEAD.subarray(0, 5))
-    await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unknown', reason: 'short_head' })
+    await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unknown', reason: 'short_head', bytesRead: 5 })
   })
 
   it('a body of 11 zero bytes → unknown short_head, not unreadable', async () => {
     answer(200, new Uint8Array(11))
-    await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unknown', reason: 'short_head' })
+    await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unknown', reason: 'short_head', bytesRead: 11 })
   })
 
   it.each([416, 403, 404, 500, 503])('HTTP %i → unknown', async (status) => {
@@ -175,5 +176,95 @@ describe('probeObjectHead — unknown (never a refusal)', () => {
     })
     fetchMock.mockResolvedValueOnce(new Response(body, { status: 206 }))
     await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unknown', reason: 'fetch_failed' })
+  })
+})
+
+// REV 2.3 A4/A4' — the honest guarantee: read until >= 12 bytes are HELD (or
+// the stream ends), then cancel; EXAMINE the first min(held, 64) bytes, and
+// bytesRead is that examined count. What a platform delivered in a read is not
+// bounded. The sniff's input bound is asserted through bytesRead <= 64 on every
+// answer that carries it.
+function readerBody(chunks: Array<Uint8Array | 'hang'>, cancelImpl?: () => Promise<void>) {
+  const tally = { reads: 0, cancelled: 0 }
+  let i = 0
+  const reader = {
+    read: jest.fn(() => {
+      tally.reads++
+      const c = chunks[i++]
+      if (c === 'hang') return new Promise<never>(() => {})
+      return Promise.resolve(c ? { done: false, value: c } : { done: true, value: undefined })
+    }),
+    cancel: jest.fn(() => {
+      tally.cancelled++
+      return cancelImpl ? cancelImpl() : Promise.resolve()
+    }),
+    releaseLock: jest.fn(),
+  }
+  const res = { status: 206, body: { getReader: () => reader, cancel: () => Promise.resolve() } }
+  return { res, tally }
+}
+
+/** Every non-short verdict that carries bytesRead examined 12..64 bytes. */
+function expectExamined(r: Awaited<ReturnType<typeof probeObjectHead>>) {
+  if (r.state !== 'unreadable') return
+  expect(r.bytesRead).toBeGreaterThanOrEqual(PROBE_MIN_HEAD_BYTES)
+  expect(r.bytesRead).toBeLessThanOrEqual(PROBE_HEAD_BYTES)
+}
+
+describe('probeObjectHead — REV 2.3 A4 read/cancel guarantee', () => {
+  it('an oversized first chunk (1 MB in ONE read) → verdict from its head, exactly one read(), cancel() called', async () => {
+    const big = new Uint8Array(1024 * 1024)
+    big.set(WEBM_HEAD, 0)
+    const { res, tally } = readerBody([big])
+    fetchMock.mockResolvedValueOnce(res)
+    await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'readable', kind: 'webm' })
+    expect(tally.reads).toBe(1)
+    expect(tally.cancelled).toBe(1)
+  })
+
+  it('a fragmented body (3 × 5-byte chunks, more behind) → reads until >= 12 bytes, then cancels', async () => {
+    const z = () => new Uint8Array(5)
+    const { res, tally } = readerBody([z(), z(), z(), z(), z(), z()])
+    fetchMock.mockResolvedValueOnce(res)
+    const r = await probeObjectHead(URL_)
+    expect(r).toEqual({ state: 'unreadable', firstByte: 0, bytesRead: 15 })
+    expectExamined(r)
+    expect(tally.reads).toBe(3)
+    expect(tally.cancelled).toBe(1)
+  })
+
+  it('a headerless 1 MB in ONE read → one read, cancel(), bytesRead 64', async () => {
+    const { res, tally } = readerBody([new Uint8Array(1024 * 1024).fill(0xa3)])
+    fetchMock.mockResolvedValueOnce(res)
+    const r = await probeObjectHead(URL_)
+    expect(r).toEqual({ state: 'unreadable', firstByte: 0xa3, bytesRead: 64 })
+    expectExamined(r)
+    expect(tally.reads).toBe(1)
+    expect(tally.cancelled).toBe(1)
+  })
+
+  it('5 bytes then EOF → unknown short_head, bytesRead 5, nothing to cancel', async () => {
+    const { res, tally } = readerBody([new Uint8Array(5)])
+    fetchMock.mockResolvedValueOnce(res)
+    await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unknown', reason: 'short_head', bytesRead: 5 })
+    expect(tally.reads).toBe(2)
+    expect(tally.cancelled).toBe(0)
+  })
+
+  it('a reader that never resolves → the timeout fires → unknown timeout', async () => {
+    const { res, tally } = readerBody([new Uint8Array(5), 'hang'])
+    fetchMock.mockResolvedValueOnce(res)
+    await expect(probeObjectHead(URL_, { timeoutMs: 5 })).resolves.toEqual({ state: 'unknown', reason: 'timeout' })
+    expect(tally.reads).toBe(2)
+  })
+
+  it('cancel() rejecting → the verdict still returns', async () => {
+    const big = new Uint8Array(1024 * 1024).fill(0xa3)
+    const { res, tally } = readerBody([big], () => Promise.reject(new TypeError('cancel failed')))
+    fetchMock.mockResolvedValueOnce(res)
+    const r = await probeObjectHead(URL_)
+    expect(r).toEqual({ state: 'unreadable', firstByte: 0xa3, bytesRead: 64 })
+    expectExamined(r)
+    expect(tally.cancelled).toBe(1)
   })
 })
