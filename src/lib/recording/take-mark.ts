@@ -56,6 +56,16 @@ type TakeMarkBody = Omit<TakeMark, 'partial'> & { partial?: true }
 
 export type MarkTakeResult = 'created' | 'exists' | 'error'
 
+/** A mark on a staged copy, answered WITH the copy it names (S67 fix round 1,
+ *  Greptile thread 1): `target` is the parsed staged target the ONE parser
+ *  produced for the mark's name — never re-derived from the string — and
+ *  `key` is the full mark key, so a caller can tell a webm copy's mark from
+ *  an mp4 copy's mark of the same session. */
+export type StagedMark = TakeMark & {
+  target: { sessionId: string; uuid: string; ext: string }
+  key: string
+}
+
 /** The one storage handle this module needs — a service-role client, handed in
  *  by the caller that already holds it. */
 type MarkClient = Pick<SupabaseClient, 'storage'>
@@ -224,7 +234,8 @@ const STAGED_MARK_LIST_LIMIT = 100
 
 /**
  * Every mark on the staged copies of ONE recording session, ordered by `at`,
- * the LATEST LAST. NEVER throws. (PR-K, A4.)
+ * the LATEST LAST, each with the copy it names (`target`, `key`). NEVER
+ * throws. (PR-K, A4.)
  *
  * ONE BOUNDED LISTING, and the only listing of marks there is: the folder
  * `mrk/stg/`, filtered to the names that start `<businessId>_<sessionId>_` —
@@ -237,7 +248,7 @@ export async function readStagedMarks(
   client: MarkClient,
   businessId: string,
   sessionId: string,
-): Promise<TakeMark[]> {
+): Promise<StagedMark[]> {
   const folder = `${MARK_PREFIX}stg`
   let names: string[]
   try {
@@ -257,7 +268,7 @@ export async function readStagedMarks(
     return []
   }
   const found = await Promise.all(
-    names.map(async (name): Promise<TakeMark | null> => {
+    names.map(async (name): Promise<StagedMark | null> => {
       const key = `${folder}/${name}`
       const parsed = parseRecordingKey(key, businessId)
       if (parsed?.kind !== 'mark' || parsed.target.kind !== 'staged' || parsed.target.sessionId !== sessionId) {
@@ -274,7 +285,8 @@ export async function readStagedMarks(
           warnStorageUnknown('take-mark.corrupt', null)
           return null
         }
-        return mark
+        const { sessionId: targetSession, uuid, ext } = parsed.target
+        return { ...mark, target: { sessionId: targetSession, uuid, ext }, key }
       } catch (err) {
         warnStorageUnknown('take-mark.read', err)
         return null
@@ -282,6 +294,6 @@ export async function readStagedMarks(
     }),
   )
   return found
-    .filter((m): m is TakeMark => m !== null)
+    .filter((m): m is StagedMark => m !== null)
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
 }
