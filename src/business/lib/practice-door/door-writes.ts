@@ -464,7 +464,8 @@ async function setSpecialOpenDays(storeId: string, plan: SpecialPlan, admitted: 
     // ⚖ PKT-S31 R4 — the user's own entry already passed this door's validation, so a core validation
     // refusal (a 4xx that is not 403 or the 409 duplicate) is about core's array, never the user's
     // times: the generic line on screen, core's words + the dates sent in the log.
-    // ⚖ PKT-S32 R15 — core's duplicate MESSAGE is matched first, whatever the status (409 or not).
+    // ⚖ PKT-S32 R15 — core's duplicate MESSAGE is matched before the status branch (a 422 duplicate still prints the duplicate line).
+    // ⚖ R17 — a 403 never takes this path: it stays forbidden below, so R1 clears the memo.
     if (isSynqedError(e) && e.status !== 403 && isDuplicateSpecial(e)) return { ok: false, reason: 'invalid', message: MSG.duplicateSpecial }
     if (isSynqedError(e) && e.status >= 400 && e.status < 500 && e.status !== 403 && e.status !== 409) {
       console.warn('[business store days] core refused the special days set:', e.status, e.message, JSON.stringify(next.map((d) => d.date)))

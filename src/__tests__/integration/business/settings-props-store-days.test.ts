@@ -24,10 +24,9 @@ import { requireBusinessAdmission } from '@/business/lib/admission'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import type { SettingsBlock, SettingsProps } from '@/business/lib/settings'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import { LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
+import { CARD, LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
 import { storeDaysLockedNote } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { READ_FAILURE_LINE, READ_ONLY_NOTE } from '@/business/lib/data'
-import { CARD } from './practice-door-recorded'
 
 type CD = { id: string; store_id: string; date: string; reason: string | null; created_by: string | null; created_at: string }
 const C1: CD = { id: 'c1', store_id: STORE.tokyo, date: '2026-10-08', reason: '店内研修（テスト）', created_by: null, created_at: 'x' }
