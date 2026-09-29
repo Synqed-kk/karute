@@ -198,14 +198,26 @@ const ALLOW = [
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
     label: 'bound write method .X.bind(',
-    match: [
-      'set: storePolicies.set.bind(storePolicies)',
-      'addClosedDay: storePolicies.addClosedDay.bind(storePolicies)',
-      'removeClosedDay: storePolicies.removeClosedDay.bind(storePolicies)',
-    ],
-    count: 3,
+    match: ['set: storePolicies.set.bind(storePolicies)'],
+    count: 1,
     reason:
-      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies } handle carries three write methods (set · addClosedDay · removeClosedDay), the two tenant throws before the client is built; feeds door-writes.ts\'s three pinned store-days writer calls',
+      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies } handle, the two tenant throws before the client is built; the full-array write behind door-writes.ts\'s setSpecialOpenDays',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['addClosedDay: storePolicies.addClosedDay.bind(storePolicies)'],
+    count: 1,
+    reason:
+      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies } handle, the two tenant throws before the client is built; the closure add carrying the audit payload, behind door-writes.ts\'s addClosedDay',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['removeClosedDay: storePolicies.removeClosedDay.bind(storePolicies)'],
+    count: 1,
+    reason:
+      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies } handle, the two tenant throws before the client is built; core\'s hard delete behind door-writes.ts\'s removeClosedDay',
   },
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
