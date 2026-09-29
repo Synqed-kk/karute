@@ -183,7 +183,7 @@ describe('layer-on — the cost, measured: the same number of storage calls as b
     expect(mockStray).toEqual([])
   })
 
-  it('finalize, a headerless take + partial: info, one sign, ONE refused upload — as before PR-K', async () => {
+  it('finalize, a headerless take + partial: info, one sign, ONE refused upload + ONE partial upload (fix round 1)', async () => {
     mockShape.methods = ['info', 'createSignedUrl', 'upload']
     mockHeld.set(KEY, 1024)
     await expect(finalize({ partial: true })).resolves.toEqual({ error: 'unreadable_object' })
@@ -191,6 +191,8 @@ describe('layer-on — the cost, measured: the same number of storage calls as b
       ['info', KEY],
       ['createSignedUrl', KEY],
       ['upload', composeMarkKey(BIZ, KEY, 'refused')!.key],
+      // Changed in fix round 1, Greptile #1099 thread 3 (PRRT_kwDOSCB5RM6nQm0W): a partial:true body also gets the create-only partial mark (ON state only).
+      ['upload', composeMarkKey(BIZ, KEY, 'partial')!.key],
     ])
     expect(mockStray).toEqual([])
   })

@@ -390,6 +390,22 @@ export async function finalizeTakeWithClient(
           ...facts,
           partial: input.partial === true,
         })
+        // S67 fix round 1 (Greptile #1099 thread 3): the refused mark keeps the
+        // FIRST caller's claim (create-only, never edited — M7), so a later
+        // `partial: true` is never lost: the take ALSO receives the create-only
+        // `partial` mark on its take key (`created` the first time the phone
+        // says so, `exists` after). A flag for PR-R, not an act: NO audit row;
+        // written only once the refusal stands, and it never changes the answer.
+        if (input.partial === true && (marked === 'created' || marked === 'exists')) {
+          const partialMark = await markTake(createServiceClient(), actor.businessId, key, 'partial', facts)
+          if (partialMark !== 'created' && partialMark !== 'exists') {
+            console.warn('[finalize-take] mark not landed', {
+              recordingSessionId: row.id,
+              kind: 'partial',
+              answer: partialMark,
+            })
+          }
+        }
         if (marked === 'created') return emitFinalizeRefused(actor, row.id, facts)
         if (marked !== 'exists') {
           // S63 FIX-3 (Greptile thread 1): the mark did NOT land — no durable

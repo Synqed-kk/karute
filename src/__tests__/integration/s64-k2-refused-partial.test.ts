@@ -101,11 +101,12 @@ afterAll(() => {
 })
 
 describe('an unreadable take the phone said was partial', () => {
-  it('ONE refused mark whose SIX-key body says partial:true, no partial mark, ONE audit row then none, unreadable_object both times', async () => {
+  it('ONE refused mark whose SIX-key body says partial:true, plus ONE partial mark, ONE audit row then none, unreadable_object both times', async () => {
     await expect(finalize({ partial: true })).resolves.toEqual({ error: 'unreadable_object' })
     await expect(finalize({ partial: true })).resolves.toEqual({ error: 'unreadable_object' })
-    expect([...stored.keys()]).toEqual([REFUSED])
-    expect(stored.has(PARTIAL)).toBe(false)
+    // Changed in fix round 1, Greptile #1099 thread 3 (PRRT_kwDOSCB5RM6nQm0W): a partial:true body also gets the create-only partial mark (refused created then exists; partial created then exists).
+    expect([...stored.keys()]).toEqual([REFUSED, PARTIAL])
+    expect(stored.has(PARTIAL)).toBe(true)
     const body = bodyAt(REFUSED)
     expect(Object.keys(body).sort()).toEqual(['at', 'bytes', 'first_byte', 'kind', 'partial', 'v'])
     expect(body).toEqual(expect.objectContaining({ v: 1, kind: 'refused', bytes: 1024, first_byte: 0, partial: true }))
@@ -116,7 +117,11 @@ describe('an unreadable take the phone said was partial', () => {
   it('reads back as partial:true', async () => {
     await finalize({ partial: true })
     const marks = await readTakeMarks(markClient(), BIZ, KEY)
-    expect(marks).toEqual([expect.objectContaining({ kind: 'refused', partial: true })])
+    // Changed in fix round 1, Greptile #1099 thread 3 (PRRT_kwDOSCB5RM6nQm0W): the refused mark (first by `at`, MARK_KINDS on a tie) plus the partial mark.
+    expect(marks).toEqual([
+      expect.objectContaining({ kind: 'refused', partial: true }),
+      expect.objectContaining({ kind: 'partial' }),
+    ])
   })
 })
 
@@ -153,5 +158,38 @@ describe('an old body and a readable take', () => {
     expect([...stored.keys()]).toEqual([PARTIAL])
     expect(Object.keys(bodyAt(PARTIAL)).sort()).toEqual(['at', 'bytes', 'first_byte', 'kind', 'v'])
     expect(actions()).toEqual(['recording.capture_finalized'])
+  })
+})
+
+describe('a later partial claim is never lost (Greptile #1099 thread 3 (PRRT_kwDOSCB5RM6nQm0W), fix round 1 commit 6)', () => {
+  it('no partial → refused only; retry partial:true → refused exists + partial created; third → both exists; ONE audit row', async () => {
+    const answersOf = async () =>
+      Promise.all(upload.mock.results.map(async (r, i) => [upload.mock.calls[i][0], (await r.value).error ? 'exists' : 'created'] as const))
+
+    await expect(finalize()).resolves.toEqual({ error: 'unreadable_object' })
+    expect(await answersOf()).toEqual([[REFUSED, 'created']])
+    expect('partial' in bodyAt(REFUSED)).toBe(false)
+    expect(stored.has(PARTIAL)).toBe(false)
+    expect(actions()).toEqual(['recording.finalize_refused'])
+
+    upload.mockClear()
+    await expect(finalize({ partial: true })).resolves.toEqual({ error: 'unreadable_object' })
+    expect(await answersOf()).toEqual([
+      [REFUSED, 'exists'],
+      [PARTIAL, 'created'],
+    ])
+    expect('partial' in bodyAt(REFUSED)).toBe(false)
+    expect(bodyAt(PARTIAL)).toEqual(expect.objectContaining({ v: 1, kind: 'partial', bytes: 1024, first_byte: 0 }))
+    expect(actions()).toEqual(['recording.finalize_refused'])
+
+    upload.mockClear()
+    await expect(finalize({ partial: true })).resolves.toEqual({ error: 'unreadable_object' })
+    expect(await answersOf()).toEqual([
+      [REFUSED, 'exists'],
+      [PARTIAL, 'exists'],
+    ])
+    expect([...stored.keys()]).toEqual([REFUSED, PARTIAL])
+    expect(actions()).toEqual(['recording.finalize_refused'])
+    expect(update).not.toHaveBeenCalled()
   })
 })

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PR-K mutation proof (PACKET-S64-PRK commit 3; RULING A8 adds M-K7..M-K9,
 drops M-K5 as never-had; S67 fix round 1 adds M-K10/M-K11 = the attacker's
-X2/X3 on the staged reader). Each mutant breaks ONE rule of 「a mark names an
+X2/X3 on the staged reader, and M-K12 = the unreadable branch's partial mark). Each mutant breaks ONE rule of 「a mark names an
 object the server named」 or of the refused mark's partial flag; a NAMED test
 file must go red for it (KILLED). Run from the repo root on a COMMITTED tree:
 
@@ -81,6 +81,10 @@ MUTANTS = [
      [(MARK, '    .filter((m): m is StagedMark => m !== null)\n    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))\n',
        '    .filter((m): m is StagedMark => m !== null)\n    .reverse() // M-K11\n')],
      [STAGED_READER]),
+    ('M-K12', FINALIZE, 'the extra partial write in the unreadable branch removed (Greptile thread 3)',
+     [(FINALIZE, "        if (input.partial === true && (marked === 'created' || marked === 'exists')) {\n",
+       "        if (false) { // M-K12\n")],
+     [K2_TESTS]),
 ]
 
 
