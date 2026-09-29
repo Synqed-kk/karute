@@ -19,6 +19,7 @@ import {
 import { AppApiError } from '@/lib/app-api/errors'
 import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import { JOB_ROUTE_FUNCTION_LIMIT_MS } from '@/lib/jobs/job-route-limit'
 import {
   transcriptionReceiptSeverity,
   type TranscriptionDebitDeferred,
@@ -617,7 +618,9 @@ export async function runMeteredTranscription(
  *  never wait. Derived from the worker's function, never a bare number:
  *   - the function limit is 300 s: `export const maxDuration = 300` on the job
  *     route (src/app/api/jobs/process/route.ts), the one route that runs the
- *     worker — pinned to that export by a test;
+ *     worker — read from src/lib/jobs/job-route-limit.ts, pinned to that export
+ *     by a test, and fed another limit by a second test so the two numbers
+ *     below must follow it (S57: a bare 135 s would pass the first alone);
  *   - a TAKEOVER (the lease expired or was released mid-wait, so this call
  *     now pays) must still finish its OWN paid call, write the memo, and leave
  *     the route time to file complete/fail. The route already keeps 30 s for
@@ -652,7 +655,7 @@ export async function runMeteredTranscription(
  *  free. The discard door catches the throw as its own retryable `failed`
  *  (discard-transcript.core.ts). `retry_after_seconds` rides the error for
  *  parity with the interactive doors; neither of these two callers reads it. */
-export const LEASE_WORKER_FUNCTION_LIMIT_MS = 300_000
+export const LEASE_WORKER_FUNCTION_LIMIT_MS = JOB_ROUTE_FUNCTION_LIMIT_MS
 /** The job route's own headroom for its final complete/fail report. */
 const LEASE_WORKER_REPORT_HEADROOM_MS = 30_000
 /** Headroom + an even half of the rest (see above): 165 s. */

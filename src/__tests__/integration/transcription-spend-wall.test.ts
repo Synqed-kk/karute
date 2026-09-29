@@ -849,6 +849,35 @@ describe('the discard-words door', () => {
     })
   })
 
+  // X9 (S56 stress): the discard door rides the worker's wait; a lease that stays live for the
+  // whole budget ends in the retryable conflict, which THIS door's own catch must turn into its
+  // retryable `failed` — never a throw out of the door, never a payment.
+  it('x9 (S57) a lease live for the WHOLE wait → the conflict at the budget is caught by the discard door: { error: failed }, nothing paid, reserved or written', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      leaseStore.set(`trc/${OWN_KEY}.ja.lease.json`, JSON.stringify({ v: 1, expires_at: Date.now() + 330_000 }))
+      const out: { done: boolean; value?: unknown; error?: unknown } = { done: false }
+      transcribeAndPersistDiscardWithClient(discardCore, actor, input).then(
+        (value) => Object.assign(out, { done: true, value }),
+        (error: unknown) => Object.assign(out, { done: true, error }),
+      )
+      for (let i = 0; i < 80 && !out.done; i++) await jest.advanceTimersByTimeAsync(3_000)
+      expect(out.done).toBe(true)
+      expect(out.error).toBeUndefined()
+      expect(out.value).toEqual({ error: 'failed' })
+      // The door's own line names the conflict it caught.
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('[discard-transcript] transcribe failed') && (c[1] as { code?: string })?.code === 'conflict')).toBe(true)
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(consume).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(upsertSegments).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+      jest.useRealTimers()
+    }
+  })
+
   it('allowed → the words land, the minutes are debited once, and ONE receipt says door discard', async () => {
     const res = await transcribeAndPersistDiscardWithClient(discardCore, actor, input)
 
@@ -2966,6 +2995,21 @@ describe('charge once — the durable transcript memo', () => {
     expect(LEASE_WORKER_WAIT_MS).toBeLessThan(LEASE_WORKER_FUNCTION_LIMIT_MS)
     // and the lease outlives any holder the worker waits on
     expect(TRANSCRIPT_LEASE_TTL_MS).toBeGreaterThan(LEASE_WORKER_FUNCTION_LIMIT_MS)
+  })
+
+  // X5 (S56 stress): w4 alone passes a budget typed as a bare 135_000, because that number
+  // happens to equal the derivation at 300 s. Fed another limit, the constants must follow it.
+  it('w4b (S57, X5) the budget FOLLOWS the limit it is derived from: fed a 200 s limit, the takeover reserve is 115 s and the wait 85 s — a budget typed as a bare number fails here', async () => {
+    let m!: typeof import('@/lib/ai/transcribe')
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('@/lib/jobs/job-route-limit', () => ({ JOB_ROUTE_FUNCTION_LIMIT_MS: 200_000 }))
+      m = await import('@/lib/ai/transcribe')
+    })
+    expect(m.LEASE_WORKER_FUNCTION_LIMIT_MS).toBe(200_000)
+    expect(m.LEASE_TAKEOVER_RESERVE_MS).toBe(30_000 + (200_000 - 30_000) / 2)
+    expect(m.LEASE_WORKER_WAIT_MS).toBe(200_000 - (30_000 + (200_000 - 30_000) / 2))
+    // …and the real module, untouched by the reload, still reads the job route's own 300 s.
+    expect(LEASE_WORKER_WAIT_MS).toBe(135_000)
   })
 
   it.each(['web', 'app'] as const)(
