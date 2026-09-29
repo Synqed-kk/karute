@@ -129,6 +129,11 @@ MUTANTS = [
      [SAVE_T, f'{IT}/karute-save-audit.test.ts'],
      ["booking not found → 200, saved in the caller's store, link dropped",
       'booking not found → saved, one karute.save row with severity notice and appointment_link appointment_not_found']),
+    # M-O11 — the worker's row computes appointment_link locally again (commit 9)
+    ('M-O11', "the worker's row drops the one link expression (a local null)",
+     [(WORKER, '      appointment_link: appointmentLinkOf(null, autoLinked?.link),\n', '      appointment_link: null, // M-O11\n')],
+     [JOB_T], ['S7-job: one booking in its window → created on it; the row says auto_linked',
+               'S7-job: two bookings → ambiguous, no link']),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)
     ('M-G1', '`return await emitSave(...)` (the S67 list failure)',
      [(CORE, '  return emitSave({ id: record.id, fresh: true,', '  return await emitSave({ id: record.id, fresh: true,')],

@@ -46,7 +46,7 @@ import {
   REVISIT_NOT_ELIGIBLE,
 } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
-import { keepLinkUnlessGiven, resolveAutoAppointmentLink, type AutoAppointmentLink } from '@/lib/karute/appointment-link'
+import { appointmentLinkOf, keepLinkUnlessGiven, resolveAutoAppointmentLink, type AutoAppointmentLink } from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
 import { writeOutcomeFate } from '@/lib/karute/outcome-fate'
@@ -560,8 +560,10 @@ async function processJob(job: RecordingJob): Promise<string> {
       appointment_id: payload.appointment_id ?? autoLinked?.appointmentId ?? null,
       // S7 (PR-O commit 4): when the job named no booking and the record had
       // none — the auto-link's answer (auto_linked · ambiguous · none); null
-      // when no auto-link ran. The same vocabulary as the facade's row.
-      appointment_link: autoLinked?.link ?? null,
+      // when no auto-link ran. The same vocabulary as the facade's row, through
+      // the ONE expression (appointmentLinkOf); the worker has no degraded-
+      // booking reason, so it passes null for it.
+      appointment_link: appointmentLinkOf(null, autoLinked?.link),
       // S5: what became of the staff's answer (written · kept · skipped:… ·
       // failed:<ref>) — a short reference, never the technical cause.
       outcome_link: fate.link,
