@@ -227,10 +227,16 @@ export async function readTakeMarks(
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
 }
 
-/** How many names the one listing may answer — a session stages one copy per
- *  take and a copy carries at most one mark per kind, so this is far above
- *  anything real; it bounds the listing, it is not a page size to walk. */
-const STAGED_MARK_LIST_LIMIT = 100
+/** How many names ONE page of the listing asks for. The listing is WALKED
+ *  (S67 fix round 1, Greptile thread 2): `offset` advances by this until a page
+ *  comes back shorter than it, so no mark is ever silently left out. */
+const STAGED_MARK_PAGE_SIZE = 100
+
+/** The hard ceiling on pages walked for ONE session — 50 pages = 5,000 names,
+ *  far above anything real (a copy carries at most one mark per kind). Hitting
+ *  it warns once (`take-mark.list.ceiling`) and the marks gathered so far are
+ *  still answered — never a throw, never `[]` because of the ceiling. */
+const STAGED_MARK_MAX_PAGES = 50
 
 /**
  * Every mark on the staged copies of ONE recording session, ordered by `at`,
@@ -239,7 +245,9 @@ const STAGED_MARK_LIST_LIMIT = 100
  *
  * ONE BOUNDED LISTING, and the only listing of marks there is: the folder
  * `mrk/stg/`, filtered to the names that start `<businessId>_<sessionId>_` —
- * one session, never `seg/`, never the bucket root. Storage's filter is a
+ * one session, never `seg/`, never the bucket root — walked page by page up to
+ * STAGED_MARK_MAX_PAGES. A page that fails ends the walk with a warning; the
+ * names already listed are still read (a first page that fails answers `[]`). Storage's filter is a
  * pattern match, so every name it answers is read back through the ONE parser
  * and kept only when it is this business's mark on a staged copy of THIS
  * session; then each is downloaded and read like readTakeMarks reads its own.
@@ -250,22 +258,31 @@ export async function readStagedMarks(
   sessionId: string,
 ): Promise<StagedMark[]> {
   const folder = `${MARK_PREFIX}stg`
-  let names: string[]
-  try {
-    const { data, error } = await client.storage.from('recordings').list(folder, {
-      limit: STAGED_MARK_LIST_LIMIT,
-      offset: 0,
-      search: `${businessId}_${sessionId}_`,
-      sortBy: { column: 'name', order: 'asc' },
-    })
-    if (error || !data) {
-      warnStorageUnknown('take-mark.list', error ?? null)
-      return []
+  const names: string[] = []
+  let page = 0
+  for (; page < STAGED_MARK_MAX_PAGES; page++) {
+    let size: number
+    try {
+      const { data, error } = await client.storage.from('recordings').list(folder, {
+        limit: STAGED_MARK_PAGE_SIZE,
+        offset: page * STAGED_MARK_PAGE_SIZE,
+        search: `${businessId}_${sessionId}_`,
+        sortBy: { column: 'name', order: 'asc' },
+      })
+      if (error || !data) {
+        warnStorageUnknown('take-mark.list', error ?? null)
+        break
+      }
+      for (const f of data) names.push(f.name)
+      size = data.length
+    } catch (err) {
+      warnStorageUnknown('take-mark.list', err)
+      break
     }
-    names = data.map((f) => f.name)
-  } catch (err) {
-    warnStorageUnknown('take-mark.list', err)
-    return []
+    if (size < STAGED_MARK_PAGE_SIZE) break
+  }
+  if (page === STAGED_MARK_MAX_PAGES) {
+    warnStorageUnknown('take-mark.list.ceiling', { status: STAGED_MARK_MAX_PAGES })
   }
   const found = await Promise.all(
     names.map(async (name): Promise<StagedMark | null> => {

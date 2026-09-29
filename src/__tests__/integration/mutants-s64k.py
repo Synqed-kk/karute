@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """PR-K mutation proof (PACKET-S64-PRK commit 3; RULING A8 adds M-K7..M-K9,
-drops M-K5 as never-had). Each mutant breaks ONE rule of 「a mark names an
+drops M-K5 as never-had; S67 fix round 1 adds M-K10/M-K11 = the attacker's
+X2/X3 on the staged reader). Each mutant breaks ONE rule of 「a mark names an
 object the server named」 or of the refused mark's partial flag; a NAMED test
 file must go red for it (KILLED). Run from the repo root on a COMMITTED tree:
 
@@ -38,6 +39,8 @@ SITES = f'{IT}/s64-k1-takeid-sites.test.ts'
 K2_TESTS = f'{IT}/s64-k2-refused-partial.test.ts'
 LAYER = f'{IT}/s64-k3-layer-off.test.ts'
 A5 = f'{IT}/s60-a5-diag-partial.test.ts'
+# S67 fix round 1 (Greptile #1099 thread 2, attack SF2): the attacker's X2 / X3.
+STAGED_READER = f'{IT}/s67-k-staged-reader.test.ts'
 
 STAGED_TARGET = "    slot === 'staged' ? { door: 'staged', key: composed.key } : null,\n"
 
@@ -71,6 +74,13 @@ MUTANTS = [
     ('M-K9', MARK, 'markTake accepts a staged key (the finalize path can write a staged mark)',
      [(MARK, "    if (parseRecordingKey(takeKey, businessId)?.kind !== 'take') return 'error'\n", '    // M-K9: take-key guard removed\n')],
      [K1_TESTS]),
+    ('M-K10', MARK, 'the staged listing page size 100 -> 1 (the attacker\'s X2)',
+     [(MARK, 'const STAGED_MARK_PAGE_SIZE = 100\n', 'const STAGED_MARK_PAGE_SIZE = 1 // M-K10\n')],
+     [STAGED_READER]),
+    ('M-K11', MARK, 'readStagedMarks unsorted, reversed (the attacker\'s X3)',
+     [(MARK, '    .filter((m): m is StagedMark => m !== null)\n    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))\n',
+       '    .filter((m): m is StagedMark => m !== null)\n    .reverse() // M-K11\n')],
+     [STAGED_READER]),
 ]
 
 

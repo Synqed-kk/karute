@@ -5,6 +5,12 @@
  * readStagedMarks answers each mark WITH the parsed staged target the ONE
  * parser produced for its name, plus the full mark key — two copies of one
  * session (webm + mp4) each marked → two entries, each naming its own copy.
+ *
+ * Commit 5 「the staged listing never drops a mark」 (thread 2, attack SF2):
+ * the listing is walked page by page (offset += page size until a short page),
+ * up to a hard ceiling of 50 pages that warns once and still answers what it
+ * gathered; the order contract 「latest LAST」 is pinned. Kills the attacker's
+ * X2 (page size) and X3 (sort) — mutants-s64k.py M-K10 / M-K11.
  */
 import { composeMarkKey, composeStagedKey, MARK_PREFIX, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { markStagedCopy, readStagedMarks } from '@/lib/recording/take-mark'
@@ -94,5 +100,74 @@ describe('a staged mark says which copy it names (commit 4, thread 1)', () => {
     const found = await readStagedMarks(b.client, BIZ, SESSION)
     expect(found.map((m) => m.key)).toEqual([good])
     expect(b.download.mock.calls.map(([k]) => k)).toEqual([good])
+  })
+})
+
+/** The i-th staged copy's uuid — lowercase hex, distinct per i. */
+const uuidOf = (i: number) => `0f8c6c9a-3f2d-4a71-9b5e-${i.toString(16).padStart(12, '0')}`
+const markNameOf = (uuid: string) => `${FOLDER}/${BIZ}_${SESSION}_${uuid}.webm.partial.json`
+const bodyAt = (at: string, bytes = 1) => JSON.stringify({ v: 1, kind: 'partial', at, bytes, first_byte: 26 })
+const atOf = (i: number) => new Date(Date.UTC(2026, 8, 30, 0, 0, 0, i)).toISOString()
+const ceilingWarnings = () =>
+  (console.warn as jest.Mock).mock.calls.filter(([line]) => String(line).includes('"where":"take-mark.list.ceiling"'))
+
+describe('the staged listing never drops a mark (commit 5, thread 2)', () => {
+  it('(a) 150 names → 150 marks answered; list called twice, offset 0 then 100, page size 100', async () => {
+    const initial: Record<string, string> = {}
+    for (let i = 0; i < 150; i++) initial[markNameOf(uuidOf(i))] = bodyAt(atOf(i))
+    expect(parseRecordingKey(markNameOf(uuidOf(149)), BIZ)?.kind).toBe('mark')
+    const b = bucket(initial)
+    const found = await readStagedMarks(b.client, BIZ, SESSION)
+    expect(found).toHaveLength(150)
+    expect(new Set(found.map((m) => m.target.uuid)).size).toBe(150)
+    expect(b.list).toHaveBeenCalledTimes(2)
+    expect(b.list.mock.calls.map(([, o]) => [o.offset, o.limit])).toEqual([
+      [0, 100],
+      [100, 100],
+    ])
+    expect(ceilingWarnings()).toEqual([])
+  })
+
+  it('(b) latest LAST: names in reverse alphabetical order with ascending `at` → answered sorted by `at`', async () => {
+    // Reverse alphabetical names, ascending `at`: name z… is the oldest.
+    const ordered = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map(uuidOf)
+    const initial: Record<string, string> = {}
+    ordered.forEach((u, i) => (initial[markNameOf(u)] = bodyAt(atOf(i))))
+    const b = bucket(initial)
+    const found = await readStagedMarks(b.client, BIZ, SESSION)
+    expect(found.map((m) => m.target.uuid)).toEqual(ordered)
+    expect(found.map((m) => m.at)).toEqual(ordered.map((_u, i) => atOf(i)))
+  })
+
+  it('(b′) latest LAST when `at` order is neither the name order nor its reverse', async () => {
+    // name order 0,1,2,3 ; `at` order 2,0,3,1 → answered 2,0,3,1.
+    const rank = [1, 3, 0, 2]
+    const initial: Record<string, string> = {}
+    rank.forEach((r, i) => (initial[markNameOf(uuidOf(i))] = bodyAt(atOf(r))))
+    const b = bucket(initial)
+    const found = await readStagedMarks(b.client, BIZ, SESSION)
+    expect(found.map((m) => m.target.uuid)).toEqual([2, 0, 3, 1].map(uuidOf))
+  })
+
+  it('(c) the ceiling: 50 full pages → the 5,000 marks so far + ONE ceiling warning, never a throw', async () => {
+    const initial: Record<string, string> = {}
+    for (let i = 0; i < 5_050; i++) initial[markNameOf(uuidOf(i))] = bodyAt(atOf(i % 1000))
+    const b = bucket(initial)
+    const found = await readStagedMarks(b.client, BIZ, SESSION)
+    expect(b.list).toHaveBeenCalledTimes(50)
+    expect(b.list.mock.calls.at(-1)![1].offset).toBe(4_900)
+    expect(found).toHaveLength(5_000)
+    expect(ceilingWarnings()).toHaveLength(1)
+  })
+
+  it('a later page that fails ends the walk with a warning; the names already listed are still answered', async () => {
+    const initial: Record<string, string> = {}
+    for (let i = 0; i < 120; i++) initial[markNameOf(uuidOf(i))] = bodyAt(atOf(i))
+    const b = bucket(initial)
+    const real = b.list.getMockImplementation()!
+    b.list.mockImplementationOnce(real).mockResolvedValueOnce({ data: null as never, error: { status: 500 } as never })
+    const found = await readStagedMarks(b.client, BIZ, SESSION)
+    expect(b.list).toHaveBeenCalledTimes(2)
+    expect(found).toHaveLength(100)
   })
 })
