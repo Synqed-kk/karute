@@ -67,6 +67,14 @@ export async function writeOutcomeFate(
     outcomeMissing?: OutcomeMissingReason | null
     /** The log prefix each writer already used ('[karute.save]' / '[job]'). */
     logTag: string
+    /** SF-7 (S67 fix round 2, commit 17): the worker's run is STALE by the
+     *  time it converges (R-O4: it must never clobber what staff set since).
+     *  On a converge (`fresh` false) with an answer, a DECIDED answer already
+     *  on record (isDecidedOutcome — the skip path's predicate) is kept, not
+     *  overwritten; the read is strict, as the skip path's: a read that fails
+     *  is `failed:<ref>` (the job fails and its requeue asks again), never a
+     *  blind write. The facade (the staff's own newest answer) never sets it. */
+    keepDecidedAnswer?: boolean
   },
 ): Promise<OutcomeFate> {
   const failed = (cause: unknown): OutcomeFate => {
@@ -97,6 +105,16 @@ export async function writeOutcomeFate(
       if (isDecidedOutcome(recorded)) return { link: 'kept' }
     }
     return { link: `skipped:${input.outcomeMissing ?? 'not_sent'}` }
+  }
+
+  if (input.keepDecidedAnswer && !input.fresh) {
+    let recorded: { outcome?: string | null } | null
+    try {
+      recorded = await synqed.karuteOutcomes.get(input.karuteRecordId)
+    } catch (err) {
+      return failed(err)
+    }
+    if (isDecidedOutcome(recorded)) return { link: 'kept' }
   }
 
   let result: { error?: string }

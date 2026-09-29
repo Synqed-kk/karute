@@ -142,6 +142,14 @@ MUTANTS = [
     ('M-O18', "no session start reads as 'none' (the same word as no booking)",
      [(LINK, "      return { link: 'skipped:no_session_start', appointmentId: null }\n", '      return none // M-O18\n')],
      [AUTO_T, JOB_T], ['no start → skipped:no_session_start', 'SF-6 W1: an older job with no session start']),
+    # M-O19 — the worker clobbers a decided answer / files it under the stale customer (commit 17, SF-7)
+    ('M-O19a', "the worker's mid-run converge overwrites a decided answer (no keep-decided check)",
+     [(FATE, '    if (isDecidedOutcome(recorded)) return { link: \'kept\' }\n  }\n\n  let result',
+       '  }\n\n  let result')],
+     [JOB_T], ['SF-7 W10: a mid-run converge onto a record whose staff set no_deal since']),
+    ('M-O19b', "the worker files the answer under the payload's stale customer",
+     [(WORKER, '    customerId: recordCustomerId,\n', '    customerId: payload.customer_id, // M-O19b\n')],
+     [JOB_T], ["SF-7: a mid-run converge onto a re-pointed record with no decided answer → written under the record's current customer"]),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',

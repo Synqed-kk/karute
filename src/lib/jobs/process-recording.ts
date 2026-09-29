@@ -509,7 +509,15 @@ async function processJob(job: RecordingJob): Promise<string> {
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the
   // same record instead of duplicating it.
-  const { id: record, storeId: persistedStoreId, fresh, autoLinked, appointmentId: linkedId, keptLink } = await upsertKaruteRecord(synqed, job, payload, {
+  const {
+    id: record,
+    storeId: persistedStoreId,
+    customerId: recordCustomerId,
+    fresh,
+    autoLinked,
+    appointmentId: linkedId,
+    keptLink,
+  } = await upsertKaruteRecord(synqed, job, payload, {
     transcript,
     summary: summary.result.summary,
     entries: extraction.result.entries,
@@ -536,14 +544,20 @@ async function processJob(job: RecordingJob): Promise<string> {
   // a label write that fails becomes the fate `failed:<ref>`, the row below is
   // emitted, and only THEN does the job fail (the rethrow after it) so core's
   // requeue converges on the SAME record through the skip path.
+  // SF-7 (S67 fix round 2, commit 17): the answer is filed under the RECORD's
+  // current customer (a record re-pointed since the enqueue belongs to the
+  // person it now names — the skip path's rule), and a mid-run converge never
+  // overwrites a DECIDED answer staff set since (keepDecidedAnswer →
+  // isDecidedOutcome, the skip path's predicate).
   const fate = await writeOutcomeFate(synqed, {
     karuteRecordId: record,
-    customerId: payload.customer_id,
+    customerId: recordCustomerId,
     staffId: payload.staff_id,
     fresh,
     outcome: payload.outcome,
     outcomeMissing: payload.outcome_missing,
     logTag: '[job]',
+    keepDecidedAnswer: true,
   })
   const actorUserId = await resolveActorUserId(synqed, payload.staff_id)
   audit({
@@ -562,7 +576,8 @@ async function processJob(job: RecordingJob): Promise<string> {
     detail: {
       via: 'job_pipeline',
       recording_session_id: job.recording_session_id,
-      customer_id: payload.customer_id,
+      // SF-7: the customer the record carries (a re-pointed record's own).
+      customer_id: recordCustomerId,
       staff_id: payload.staff_id,
       // PR B2 §3: the thread page's join key — the payload carries it
       // straight from the enqueue door.
@@ -617,6 +632,9 @@ async function upsertKaruteRecord(
 ): Promise<{
   id: string
   storeId: string | null
+  /** SF-7: the customer the record carries after this write (the worker's
+   *  update never moves it; a converge keeps the existing record's). */
+  customerId: string
   fresh: boolean
   autoLinked: { link: AutoAppointmentLink; appointmentId: string | null } | null
   /** SF-5: the record's EFFECTIVE booking link after this write. */
@@ -702,7 +720,15 @@ async function upsertKaruteRecord(
     // CEILING (mirrors lib/karute/karute.core.ts fix round 2): store_id does NOT move
     // with this update, so the persisted store is still the EXISTING record's
     // — already in hand from the lookup, no second read.
-    return { id: existing.id, storeId: existing.store_id, fresh: false, autoLinked, appointmentId, keptLink }
+    return {
+      id: existing.id,
+      storeId: existing.store_id,
+      customerId: existing.customer_id ?? payload.customer_id,
+      fresh: false,
+      autoLinked,
+      appointmentId,
+      keptLink,
+    }
   }
   // 施術メニュー from the linked booking — best-effort: a missing/deleted
   // booking just leaves service null and the カルテ list shows its honest '—'.
@@ -740,6 +766,7 @@ async function upsertKaruteRecord(
   return {
     id: record.id,
     storeId: record.store_id ?? payload.store_id ?? null,
+    customerId: payload.customer_id,
     fresh: true,
     autoLinked,
     appointmentId,

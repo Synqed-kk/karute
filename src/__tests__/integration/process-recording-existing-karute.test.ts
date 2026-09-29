@@ -648,6 +648,62 @@ describe('S2/S5 — the worker\'s karute.save row carries the answer\'s fate', (
   })
 })
 
+// SF-7 (S67 fix round 2, commit 17; the attack's W10 / W10b): the worker's
+// mid-run converge files the answer under the RECORD's current customer and
+// never overwrites a DECIDED answer staff set since — the skip path's rule,
+// through the same isDecidedOutcome.
+describe('SF-7 — the worker never clobbers a decided answer', () => {
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  const REPOINTED = { id: 'record-existing', store_id: 'store-A', customer_id: 'cust-NEW', appointment_id: 'appt-new' }
+  const saveRow = () => {
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+  const midRun = async () => {
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce(REPOINTED as never)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status: 'revisit', isFirstVisit: false } } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+  }
+
+  it('SF-7 W10: a mid-run converge onto a record whose staff set no_deal since → not overwritten, the row says kept', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal' })
+    await midRun()
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(saveRow()).toMatchObject({ outcome_link: 'kept', customer_id: 'cust-NEW', appointment_id: 'appt-new' })
+  })
+  it('SF-7: a mid-run converge onto a re-pointed record with no decided answer → written under the record\'s current customer', async () => {
+    karuteOutcomesGet.mockResolvedValue(null)
+    await midRun()
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, expect.objectContaining({ customerId: 'cust-NEW', status: 'revisit' }))
+    expect(saveRow()).toMatchObject({ outcome_link: 'written', customer_id: 'cust-NEW' })
+  })
+  it('SF-7: a 保留 placeholder on the record is not decided → the real label lands over it', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'pending' })
+    await midRun()
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(saveRow()).toMatchObject({ outcome_link: 'written' })
+  })
+  it('SF-7 W10b (unchanged): the SKIP path on the same re-pointed record with a decided answer → no write, no row', async () => {
+    getByRecordingSession.mockResolvedValue(REPOINTED as never)
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal' })
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status: 'revisit', isFirstVisit: false } } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')).toHaveLength(0)
+  })
+})
+
 // S7 (PR-O commit 4): the worker links the ONE unambiguous booking through the
 // same resolveAutoAppointmentLink — with the session start the enqueue door
 // stamped on the payload (the worker never reads the session row).
