@@ -1136,13 +1136,13 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     POST: {
       kind: 'skip',
       justification:
-        "Business store-days closures (臨時休業) (POST) — the door records the audit event itself (door-writes.ts); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
+        "Business store-days closures (臨時休業) (POST) — the door's addClosedDay carries the audit payload into the SDK call and core writes the audit row; the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
       dated: '2026-09-29',
     },
     DELETE: {
       kind: 'skip',
       justification:
-        "Business store-days closures (臨時休業) (DELETE) — the door records the audit event itself (door-writes.ts); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
+        "Business store-days closures (臨時休業) (DELETE) — core hard-deletes the row and takes no audit payload; the door records its own audit.log event after the removal (door-writes.ts removeClosedDay); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
       dated: '2026-09-29',
     },
   },
@@ -1150,13 +1150,13 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     POST: {
       kind: 'skip',
       justification:
-        "Business store-days special open days (臨時営業) (POST) — the door records the audit event itself (door-writes.ts); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
+        "Business store-days special open days (特別営業日) (POST) — one storePolicies.set of the full array; core writes the store_policy.edit audit row itself; the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
       dated: '2026-09-29',
     },
     DELETE: {
       kind: 'skip',
       justification:
-        "Business store-days special open days (臨時営業) (DELETE) — the door records the audit event itself (door-writes.ts); the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
+        "Business store-days special open days (特別営業日) (DELETE) — one storePolicies.set of the full array; core writes the store_policy.edit audit row itself; the route emits nothing of its own. coveredBy lands with door-writes.ts in the store-days write-door PR.",
       dated: '2026-09-29',
     },
   },
