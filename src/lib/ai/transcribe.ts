@@ -19,6 +19,11 @@ import {
 import { AppApiError } from '@/lib/app-api/errors'
 import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import {
+  transcriptionReceiptSeverity,
+  type TranscriptionDebitDeferred,
+  type TranscriptionReceipt,
+} from '@/lib/ai/transcription-receipt'
 
 /** S53 A2 — the phone door's own words for the same state (v1 route, the
  *  `holder === 'unreadable'` refusal), so both doors answer one sentence. */
@@ -32,6 +37,8 @@ import {
   releaseTranscriptLease,
   takeTranscriptLease,
   writeTranscriptMemo,
+  type HeldTranscriptLease,
+  type TranscriptLeaseTake,
   type TranscriptMemo,
   type TranscriptTrueUp,
 } from '@/lib/recording/transcript-memo'
@@ -405,24 +412,6 @@ function billedSeconds(result: Record<string, unknown>): number {
   return positiveSeconds(result.durationSec) ?? UNKNOWN_DURATION_FLOOR_SECONDS
 }
 
-/** WHAT THE METER DID, for the doors that file their OWN receipt row (the two
- *  interactive routes) — handed back from the call itself rather than
- *  recomputed, because `debit_recorded` is an OUTCOME: no second pass over the
- *  provider's body could ever know it (fix round 2, Greptile P1). */
-export interface TranscriptionReceipt {
-  duration_seconds: number
-  cost_cents: number
-  /** What the ledger was told BEFORE the provider ran. `cost_cents` is the
-   *  truth; the ledger holds the GREATER of the two, because the reserve is
-   *  never refunded (fix round 4). */
-  cents_reserved: number
-  /** false = the money was spent and the ledger is short by the true-up. */
-  debit_recorded: boolean
-  /** true = answered from the durable memo: no provider call, no ceiling
-   *  consumed, no ledger row (PR-5, charge once). false on every paid call. */
-  replayed: boolean
-}
-
 /** THE RECEIPT — ids and numbers only, never a word of the transcript. Private
  *  and unconditional so the emission walker can prove it (CP7); the CALLER
  *  decides whether this door files one (see runMeteredTranscription).
@@ -439,10 +428,11 @@ function auditTranscriptionReceipt(
   meter: TranscriptionMeter,
   receipt: TranscriptionReceipt,
 ): void {
+  const severity = transcriptionReceiptSeverity(receipt)
   audit({
     category: 'recording',
     action: 'recording.transcribe',
-    ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
+    ...(severity ? { severity } : {}),
     actorId: null,
     actorType: 'system',
     businessId: meter.businessId,
@@ -520,6 +510,19 @@ async function moveTrueUpMark(
   )
 }
 
+/** What a replay's owed true-up came to (see finishOwedTrueUp). */
+type TrueUpSettled = { recorded: boolean; deferred?: TranscriptionDebitDeferred }
+
+/** A mark this code can act on: `pending` with a real, positive delta. */
+function readableOwedMark(mark: TranscriptTrueUp): boolean {
+  return mark.status === 'pending' && typeof mark.deltaCents === 'number' && Number.isFinite(mark.deltaCents) && mark.deltaCents > 0
+}
+
+function unreadableMark(): TrueUpSettled {
+  console.error('[ai-usage] transcription true-up mark unreadable; the debt cannot be proven recorded')
+  return { recorded: false }
+}
+
 /**
  * ⚖ THE REPLAY'S debit_recorded IS THE TRUTH (S56, PR 1 Greptile Finding 1).
  * It used to be a hardcoded `true`, so a memo whose true-up never ran (the
@@ -534,10 +537,20 @@ async function moveTrueUpMark(
  *   memo AFTER the true-up has run to its end — landed, or written down as
  *   `debit_recorded: false` on that call's own receipt — so such a memo never
  *   has a true-up left for a replay to finish.
- * - `pending` → the delta is recorded NOW, before the answer goes back; true
- *   → the mark is rewritten `recorded`; false → the mark stays `pending` with
- *   the attempt counted (soft, self-retrying on the next replay) and the
- *   receipt says false. The answer is returned either way.
+ * - `pending` → ⚖ S57, THE LEASE BEFORE THE LEDGER (Greptile round 2 on #1086,
+ *   finding 1, thread PRRT_kwDOSCB5RM6mzfjr: "Concurrent retries double-charge
+ *   true-ups"). The usage writer has no dedupe key, so a replay that recorded
+ *   the delta while the paying call was still recording it charged it twice.
+ *   A replay now records an owed delta ONLY while it holds this audio's lease
+ *   (recordOwedTrueUp takes the held-lease proof as a parameter). It takes the
+ *   lease once — never waits: it already has the answer to give back — and:
+ *   held → recordOwedTrueUp; busy → it never records, and says so
+ *   (`lease_busy`: the holder records it); storage would not say → it never
+ *   records (`storage_unknown`). The answer is returned either way, and the
+ *   debt stays owed — the memo remains the retry trigger. This is the rule
+ *   whatever the switch: an owed debt an ON deploy left is recorded under the
+ *   lease on an OFF deploy too (the only way OFF ever touches the lease — no
+ *   memo written before S56 carries a mark).
  * - A mark this code cannot read (not `pending`/`recorded`, or no positive
  *   delta) → false: the debt cannot be proven paid, and no number is invented
  *   to charge. One line, numbers never.
@@ -546,21 +559,42 @@ async function finishOwedTrueUp(
   meter: TranscriptionMeter,
   key: string,
   memo: TranscriptMemo,
-): Promise<boolean> {
+  takeLease: () => Promise<TranscriptLeaseTake>,
+): Promise<TrueUpSettled> {
   const mark = memo.trueUp
-  if (mark === undefined || mark.status === 'recorded') return true
-  if (mark.status !== 'pending' || !(typeof mark.deltaCents === 'number' && mark.deltaCents > 0)) {
-    console.error('[ai-usage] transcription true-up mark unreadable; the debt cannot be proven recorded')
-    return false
-  }
+  if (mark === undefined || mark.status === 'recorded') return { recorded: true }
+  if (!readableOwedMark(mark)) return unreadableMark()
+  const taken = await takeLease()
+  if (taken.state === 'busy') return { recorded: false, deferred: 'lease_busy' }
+  if (taken.state === 'unknown') return { recorded: false, deferred: 'storage_unknown' }
+  return recordOwedTrueUp(meter, key, taken.lease)
+}
+
+/** ⚖ S57 — THE ONE PLACE A REPLAY RECORDS AN OWED TRUE-UP, and it cannot be
+ *  called without the lease: `held` is the proof only takeTranscriptLease
+ *  makes, checked again at run time against the memo's own key. Under the
+ *  lease the memo is re-read first — the call that held the lease before this
+ *  one may have finished the debt — and only a mark still `pending` is asked
+ *  for. */
+async function recordOwedTrueUp(
+  meter: TranscriptionMeter,
+  key: string,
+  held: HeldTranscriptLease,
+): Promise<TrueUpSettled> {
+  if (held.memoKey !== key) throw new Error('an owed true-up is recorded only under its own audio\'s lease')
+  const now = await readTranscriptMemo(key)
+  if (now.state !== 'hit') return { recorded: false, deferred: 'storage_unknown' }
+  const mark = now.memo.trueUp
+  if (mark === undefined || mark.status === 'recorded') return { recorded: true }
+  if (!readableOwedMark(mark)) return unreadableMark()
   const recorded = await reportTranscriptionUsageWithClient(meter.synqed, mark.deltaCents)
   await moveTrueUpMark(
     key,
-    memo,
+    now.memo,
     { ...mark, attempts: Number.isFinite(mark.attempts) ? mark.attempts : 0 },
     recorded,
   )
-  return recorded
+  return { recorded }
 }
 
 /**
@@ -677,20 +711,35 @@ async function meteredTranscription(
   // S46 fence never answered) nor re-bought: the caller retries, and the retry
   // that can read the row replays. First-time audio (a miss) still pays — no
   // availability is lost to a blip.
-  const answerFromMemo = async (key: string, memo: TranscriptMemo) => {
+  // A take of the lease by a REPLAY (finishOwedTrueUp asks for one only when
+  // the memo still owes a true-up): once, never a wait; a held lease is
+  // released in runMeteredTranscription's finally like any other.
+  const takeOnce = async (key: string): Promise<TranscriptLeaseTake> => {
+    const taken = await takeTranscriptLease(key)
+    if (taken.state === 'held') lease.key = key
+    return taken
+  }
+  const answerFromMemo = async (
+    key: string,
+    memo: TranscriptMemo,
+    takeLease: () => Promise<TranscriptLeaseTake>,
+  ) => {
     if (meter.replayMemo === false) {
       throw new AppApiError('upstream_unavailable', TRANSCRIPTION_OWNER_UNREADABLE)
     }
+    // ⚖ A REPLAY FINISHES AN OWED TRUE-UP BEFORE IT ANSWERS (S56, Finding 1)
+    // — awaited, so the receipt is the ledger's answer or the true-up's own
+    // state, never a hope — and ONLY UNDER THE LEASE (S57, finishOwedTrueUp).
+    // Every replay site below (the first read, and the lease loop's re-reads)
+    // answers through here, so none of them hardcodes the outcome.
+    const settled = await finishOwedTrueUp(meter, key, memo, takeLease)
     const receipt: TranscriptionReceipt = {
       duration_seconds: memo.duration_seconds,
       cost_cents: 0,
       cents_reserved: 0,
-      // ⚖ A REPLAY FINISHES AN OWED TRUE-UP BEFORE IT ANSWERS (S56, Finding 1)
-      // — awaited, so the receipt is the ledger's answer, not a hope. Every
-      // replay site below (the first read, and the lease loop's re-reads)
-      // answers through here, so none of them hardcodes the outcome.
-      debit_recorded: await finishOwedTrueUp(meter, key, memo),
+      debit_recorded: settled.recorded,
       replayed: true,
+      ...(settled.deferred ? { debit_deferred_reason: settled.deferred } : {}),
     }
     // The same three-door rule as the paid path below: the row shows the door
     // ran and paid nothing.
@@ -699,7 +748,9 @@ async function meteredTranscription(
     }
     return { result: memo.result, receipt }
   }
-  if (memoRead?.state === 'hit' && memoKey !== null) return await answerFromMemo(memoKey, memoRead.memo)
+  if (memoRead?.state === 'hit' && memoKey !== null) {
+    return await answerFromMemo(memoKey, memoRead.memo, () => takeOnce(memoKey))
+  }
 
   // ── THE LEASE, BEFORE THE CEILING AND THE RESERVE (S53 A5) ────────────────
   // Only a caller that could be ANSWERED from a memo takes part: one that pays
@@ -727,7 +778,7 @@ async function meteredTranscription(
       // look below.
       if (Date.now() >= waitUntil) {
         const last = await readTranscriptMemo(memoKey)
-        if (last.state === 'hit') return await answerFromMemo(memoKey, last.memo)
+        if (last.state === 'hit') return await answerFromMemo(memoKey, last.memo, () => takeOnce(memoKey))
         throw new AppApiError('conflict', TRANSCRIPTION_IN_PROGRESS, {
           reason: 'transcribing',
           retry_after_seconds: Math.max(1, Math.ceil((busyUntil - Date.now()) / 1000)),
@@ -744,12 +795,12 @@ async function meteredTranscription(
         // look; an interactive door whose first read missed just before the holder
         // finished). The re-read is free; a miss or a corrupt memo pays as before.
         const mine = await readTranscriptMemo(memoKey)
-        if (mine.state === 'hit') return await answerFromMemo(memoKey, mine.memo)
+        if (mine.state === 'hit') return await answerFromMemo(memoKey, mine.memo, async () => taken)
         break
       }
       if (taken.state === 'unknown') break
       const landed = await readTranscriptMemo(memoKey)
-      if (landed.state === 'hit') return await answerFromMemo(memoKey, landed.memo)
+      if (landed.state === 'hit') return await answerFromMemo(memoKey, landed.memo, () => takeOnce(memoKey))
       if (meter.door === 'web' || meter.door === 'app') {
         throw new AppApiError('conflict', TRANSCRIPTION_IN_PROGRESS, {
           reason: 'transcribing',
@@ -899,9 +950,15 @@ async function meteredTranscription(
   //      closable only by an idempotency key on the usage writer — a core ask.
   //      A memo write whose outcome storage would not tell us ('failed') is the
   //      same class: if it did land, its `pending` mark is never moved on here.
-  //  (b) two replays of one take at the same moment can both read `pending`
-  //      and both record the delta. PR 3's lease closes the concurrent retry
-  //      on the client; nothing here does.
+  //  (b) a replay that reads `pending` while THIS call is still recording its
+  //      delta used to record it too (Greptile round 2 on #1086, finding 1).
+  //      Closed by the lease since S57: a replay records an owed delta only
+  //      while it holds the lease (finishOwedTrueUp), and this call holds it
+  //      until its finally — unless it pays WITHOUT the lease (storage would
+  //      not answer about it, or a caller that pays regardless, or two callers
+  //      taking one expired lease over at once): then a replay that does win
+  //      the lease can still record this call's delta alongside it. Stated,
+  //      never hidden: an over-count of one delta, the safe direction.
   let debitRecorded = true
   if (delta > 0) {
     debitRecorded = await reportTranscriptionUsageWithClient(meter.synqed, delta)

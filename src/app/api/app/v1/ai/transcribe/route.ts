@@ -22,6 +22,7 @@ import {
   speakerIdMode,
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
+import { transcriptionReceiptSeverity } from '@/lib/ai/transcription-receipt'
 import { TranscribeSchema } from '@/lib/app-api/record-schemas'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { takeKeyHolder } from '@/lib/recording/take-binding'
@@ -134,12 +135,16 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   // The spend wall's numbers ride the hook's OWN recording.transcribe row
   // (FACADE_AUDIT_MAP['ai.transcribe']) rather than a second one from the
   // meter: one call, one receipt. Six keys with staff_id (PR-5 added
-  // `replayed`), still well inside the hook's cap of 8. The receipt is server-side only — the client is
+  // `replayed`) — seven on a replay that left an owed true-up to the lease's
+  // holder (S57, `debit_deferred_reason`) — still inside the hook's cap of 8. The receipt is server-side only — the client is
   // answered with `result`, the provider body, exactly as before.
   // staff_id: selfStaffId, already resolved above — never a second lookup.
   // This door names a storage path, never a customer, so no customer_id key.
   ctx.auditDetail = { ...receipt, ...(selfStaffId ? { staff_id: selfStaffId } : {}) }
-  if (!receipt.debit_recorded) ctx.auditSeverity = 'warning'
+  // Severity: the meter's ONE rule (S57) — a lease-busy replay is filed soft,
+  // never as a lost debit.
+  const severity = transcriptionReceiptSeverity(receipt)
+  if (severity) ctx.auditSeverity = severity
   return ok(ctx, result)
 })
 

@@ -10,6 +10,7 @@ import {
   speakerIdMode,
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
+import { transcriptionReceiptSeverity } from '@/lib/ai/transcription-receipt'
 import { auditWeb } from '@/lib/audit-web'
 import { can, getMyCapabilities } from '@/lib/auth/require-permission'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
@@ -204,10 +205,13 @@ export async function POST(request: Request) {
       // reference — never a second lookup. This door has no customer in
       // scope (a raw upload, no session binding), so the key is omitted
       // rather than written null (§v2, matches the refusal row's rule).
+      // Severity: the meter's ONE rule (S57) — a lease-busy replay is filed
+      // soft, never as a lost debit.
+      const severity = transcriptionReceiptSeverity(receipt)
       await auditWeb({
         category: 'recording',
         action: 'recording.transcribe',
-        ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
+        ...(severity ? { severity } : {}),
         detail: { ...receipt, ...(meter.staffId ? { staff_id: meter.staffId } : {}) },
         requestId: crypto.randomUUID(),
       })

@@ -154,6 +154,20 @@ export async function writeTranscriptMemo(
 
 type TranscriptLease = { v: 1; expires_at: number }
 
+declare const HELD: unique symbol
+/** ⚖ S57 — PROOF THAT THIS CALL HOLDS THE LEASE on `memoKey`. Only
+ *  takeTranscriptLease makes one (the brand cannot be written anywhere else
+ *  without a cast), so a function that takes it as a parameter cannot be
+ *  called by a caller that did not win the lease — the replay's true-up
+ *  recorder in ai/transcribe.ts (Greptile round 2 on #1086, finding 1). */
+export type HeldTranscriptLease = { readonly memoKey: string; readonly [HELD]: true }
+
+/** What one take of the lease answered (see takeTranscriptLease). */
+export type TranscriptLeaseTake =
+  | { state: 'held'; lease: HeldTranscriptLease }
+  | { state: 'busy'; until: number }
+  | { state: 'unknown' }
+
 /** The lease's key: the memo's own, one suffix further — `trc/<audio>.<locale>.lease.json`.
  *  It parses as no key kind at all (the grammar's transcript arm needs the
  *  locale last), so no fence anywhere can mistake it for audio or a memo. */
@@ -168,17 +182,15 @@ export function transcriptLeaseKey(memoKey: string): string {
  * would not say — the caller pays, exactly as before the lease existed (the
  * memo read's own fail-open rule). Never throws.
  */
-export async function takeTranscriptLease(
-  memoKey: string,
-  now = Date.now(),
-): Promise<{ state: 'held' } | { state: 'busy'; until: number } | { state: 'unknown' }> {
+export async function takeTranscriptLease(memoKey: string, now = Date.now()): Promise<TranscriptLeaseTake> {
   const key = transcriptLeaseKey(memoKey)
+  const held = (): TranscriptLeaseTake => ({ state: 'held', lease: { memoKey } as HeldTranscriptLease })
   const body = (at: number) => JSON.stringify({ v: 1, expires_at: at } satisfies TranscriptLease)
   try {
     const created = await createServiceClient()
       .storage.from('recordings')
       .upload(key, body(now + TRANSCRIPT_LEASE_TTL_MS), { contentType: 'application/json', upsert: false })
-    if (!created.error) return { state: 'held' }
+    if (!created.error) return held()
     if (!isDuplicateRefusal(created.error)) {
       warnStorageUnknown('transcript-lease.take', created.error)
       return { state: 'unknown' }
@@ -195,7 +207,7 @@ export async function takeTranscriptLease(
       warnStorageUnknown('transcript-lease.takeover', taken.error)
       return { state: 'unknown' }
     }
-    return { state: 'held' }
+    return held()
   } catch (err) {
     warnStorageUnknown('transcript-lease.take', err)
     return { state: 'unknown' }
