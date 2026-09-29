@@ -445,11 +445,11 @@ describe('PKT-S30 F7 — one admit, one get, one set per public call', () => {
 })
 
 describe('PKT-S30 F8 — a grant-check outage is cannot-verify, never a crash or a forbidden', () => {
-  it('readCanWriteStoreDays answers false (read-only) and logs when the grant check throws', async () => {
+  it('readCanWriteStoreDays answers unknown (never read-only) and logs when the grant check throws', async () => {
     as('login-admin')
     const spied = withReads()
     spied.businessGrantsCheck.mockRejectedValue(new Error('grants down'))
-    await expect(data.readCanWriteStoreDays(STORE_ID)).resolves.toBe(false)
+    await expect(data.readCanWriteStoreDays(STORE_ID)).resolves.toBe('unknown')
     expect(error).toHaveBeenCalled()
   })
   it('a write whose grant check throws maps to `core` (503 honesty), zero writes', async () => {
@@ -553,7 +553,7 @@ describe('PKT-S30 F1 — store isolation through visibleIds(actor): a store outs
     expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toEqual(FORBID)
     expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '10:00', close: '11:00' })).toEqual(FORBID)
     expect(await data.removeStoreSpecialOpenDay(STORE_ID, '2026-10-20')).toEqual(FORBID)
-    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe(false)
+    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe('read-only')
     // BEFORE any SDK call: no write, no audit, no writer handle built, no store-days read of STORE_ID.
     expectWrites()
     expect(mockCore.writerFor).not.toHaveBeenCalled()
@@ -584,12 +584,12 @@ describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove
     as('login-admin')
     const spied = withReads()
     spied.businessGrantsCheck.mockResolvedValue({ granted: true })
-    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe(true)
+    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe('writable')
     spied.businessGrantsCheck.mockResolvedValue({ granted: false }) // revoked in core after the memo
     mockCore.writer.addClosedDay.mockRejectedValueOnce(fakeSynqedError(403, 'Forbidden'))
     const r = await data.addStoreClosedDay(STORE_ID, { date: '2026-11-20', reason: '' })
     expect(r).toMatchObject({ ok: false, reason: 'forbidden' })
-    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe(false)
+    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe('read-only')
     expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(2)
   })
   it.each([
@@ -599,7 +599,7 @@ describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove
     as('login-admin')
     const spied = withReads()
     spied.businessGrantsCheck.mockResolvedValue({ granted: true })
-    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe(true)
+    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe('writable')
     expect(await write()).toMatchObject({ ok: false, reason: 'forbidden' })
     await data.readCanWriteStoreDays(STORE_ID)
     expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(2)

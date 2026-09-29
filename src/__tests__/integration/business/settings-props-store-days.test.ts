@@ -25,6 +25,7 @@ import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import type { SettingsBlock, SettingsProps } from '@/business/lib/settings'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
+import { storeDaysLockedNote } from '@/app/[locale]/(business)/business/settings/settings-props'
 
 type CD = { id: string; store_id: string; date: string; reason: string | null; created_by: string | null; created_at: string }
 const C1: CD = { id: 'c1', store_id: STORE.tokyo, date: '2026-10-08', reason: '店内研修（テスト）', created_by: null, created_at: 'x' }
@@ -100,5 +101,16 @@ describe('F3 — settings-props, LIVE store-days blocks', () => {
     expect(b['store-hours.special-open'].specialDays).toBeNull()
     expect(b['store-hours.special-open'].facts).toContain(FAIL_LINE)
     expect(b['store-hours.closures'].collection!.items.map((r) => r.date)).toEqual(['2026-10-08', '2026-11-10'])
+  })
+})
+
+// ⚖ PKT-S31 R9 — the grant check's three answers, each mapped to exactly one line (no new copy).
+describe('R9 — store-days write state → the line shown instead of add/remove', () => {
+  it("'writable' → no line (the controls)", () => expect(storeDaysLockedNote('writable')).toBeNull())
+  it("'read-only' → the permission line", () => expect(storeDaysLockedNote('read-only')).toBe('変更には本部の権限が必要です。'))
+  it("'unknown' → the section's own read-failure line, never the permission line", () => expect(storeDaysLockedNote('unknown')).toBe(FAIL_LINE))
+  it('the page hands the mapped line to the screen: an OWNER (core’s requireHqAdmin passes by role) → null', async () => {
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ saveStoreDays?: { lockedNote: string | null } }>
+    expect(el.props.saveStoreDays).toMatchObject({ storeId: STORE.tokyo, lockedNote: null })
   })
 })

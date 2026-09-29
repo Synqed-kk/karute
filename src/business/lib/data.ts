@@ -276,10 +276,11 @@ export async function readStoreDays(storeId: string): Promise<doorWrites.StoreDa
   return doorWrites.readStoreDays(storeId)
 }
 
-/** ⚖ PKT-S29-B1 R2 — may the admitted operator write EITHER list for this store? OFF answers
- *  false (no writer); the page asks only while the door is ON. */
-export async function readCanWriteStoreDays(storeId: string): Promise<boolean> {
-  if (practiceTenant() === null) return false
+/** ⚖ PKT-S29-B1 R2 — may the admitted operator write EITHER list for this store? ⚖ PKT-S31 R9 —
+ *  three answers ('writable' | 'read-only' | 'unknown'); OFF answers 'read-only' (no writer); the
+ *  page asks only while the door is ON. */
+export async function readCanWriteStoreDays(storeId: string): Promise<doorWrites.StoreDaysWriteState> {
+  if (practiceTenant() === null) return 'read-only'
   return doorWrites.canWriteStoreDays(storeId)
 }
 
@@ -315,6 +316,9 @@ export async function removeStoreSpecialOpenDay(storeId: string, date: string): 
 export const specialDayBadge = doorWrites.specialDayBadge
 export const SPECIAL_OPEN_DAYS_NOTE = doorWrites.SPECIAL_OPEN_DAYS_NOTE
 export const READ_FAILURE_LINE = doorWrites.READ_FAILURE_LINE
+export const READ_ONLY_NOTE = doorWrites.READ_ONLY_NOTE
+export const applySpecialOpenDays = doorWrites.applySpecialOpenDays
+export type StoreDaysWriteState = doorWrites.StoreDaysWriteState
 export type StoreDaysReadResult = doorWrites.StoreDaysReadResult
 export type StoreClosedDay = doorWrites.StoreClosedDay
 export type SpecialOpenDay = doorWrites.SpecialOpenDay

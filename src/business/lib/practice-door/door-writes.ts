@@ -31,7 +31,7 @@ import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { jstYmd, renderNow } from '../clock'
 import type { CoreReads } from './core-reach'
-import { DUPLICATE_SPECIAL_LINE, GENERIC_FAIL_LINE, OPEN_NOT_BEFORE_CLOSE_LINE, PICK_DATE_LINE, PICK_TIME_LINE, READ_ONLY_NOTE, specialDayBadge } from '../store-days-state'
+import { applySpecialOpenDays, DUPLICATE_SPECIAL_LINE, GENERIC_FAIL_LINE, OPEN_NOT_BEFORE_CLOSE_LINE, PICK_DATE_LINE, PICK_TIME_LINE, READ_ONLY_NOTE, specialDayBadge } from '../store-days-state'
 
 // ── shared result shapes ─────────────────────────────────────────────────────
 
@@ -134,15 +134,18 @@ export function forgetStoreDaysGrants(): void {
  *  (b) `settings.manage` — the section's own gate (`canManageSettings`, door.ts).
  *  (c) core's actual write guard, `requireHqAdmin`: OWNER by role, else a live
  *  HQ_ADMIN grant (`isHqAdmin` above). */
-export async function canWriteStoreDays(storeId: string): Promise<boolean> {
+/** ⚖ PKT-S31 R9 — tri-state end to end: 'unknown' = core did not answer the actor or grant question
+ *  (never read as a refusal); 'read-only' = core answered and this actor may not write. */
+export type StoreDaysWriteState = 'writable' | 'read-only' | 'unknown'
+export async function canWriteStoreDays(storeId: string): Promise<StoreDaysWriteState> {
   // ⚖ PKT-S30 F8 — the card-colour sibling's shape (door.ts readCanManageCardColor): an actor or
-  // grant-check outage = cannot verify → read-only, logged; never a crash of 設定.
+  // grant-check outage = cannot verify → 'unknown', logged; never a crash of 設定.
   try {
     const actor = await practiceActor()
-    return await canWriteStoreDaysFor(actor, storeId)
+    return (await canWriteStoreDaysFor(actor, storeId)) ? 'writable' : 'read-only'
   } catch (e) {
     console.error('[business store days] core did not answer:', e instanceof Error ? e.message : String(e))
-    return false
+    return 'unknown'
   }
 }
 async function canWriteStoreDaysFor(actor: PracticeActor, storeId: string): Promise<boolean> {
@@ -504,5 +507,6 @@ export async function removeSpecialOpenDay(storeId: string, date: string): Promi
 
 // ── the badge (R3/R8) — computed from CLOSURES, never from the special list ─
 
-/** ⚖ PKT-S30 F12 — the badge rule's one home is store-days-state.ts; re-exported for data.ts. */
-export { specialDayBadge }
+/** ⚖ PKT-S30 F12 — the badge rule's one home is store-days-state.ts; re-exported for data.ts.
+ *  ⚖ PKT-S31 R5/R9 — so are the 特別営業日 order (`applySpecialOpenDays`) and the read-only line. */
+export { applySpecialOpenDays, READ_ONLY_NOTE, specialDayBadge }

@@ -34,7 +34,7 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { practiceDoorOn, readBookingColors, readCanManageCardColor, readCanWriteStoreDays } from '@/business/lib/data'
 import { SettingsScreen } from './SettingsScreen'
-import { settingsProps } from './settings-props'
+import { settingsProps, storeDaysLockedNote } from './settings-props'
 import './settings.css'
 
 export default async function SettingsPage({
@@ -73,10 +73,10 @@ export default async function SettingsPage({
   // truth; no second sheet read). OFF, or no store / a shut gate (bookingColors null): no prop, today's render.
   const saveBookingColors = saveCardColor && bookingColors ? { businessId: saveCardColor.businessId, storeId: storeKey, canSave: saveCardColor.canSave, colors: bookingColors } : undefined
   // ⚖ PKT-S29-B1 — 臨時休業・特別営業日's save, for the lens store: LIVE while the door is ON and a
-  // store is selected; `canWrite` is R2's own answer (store visibility + settings.manage + HQ_ADMIN),
-  // asked once here rather than per add/remove press.
+  // store is selected; R2's own answer (store visibility + settings.manage + HQ_ADMIN), asked once here
+  // rather than per add/remove press — ⚖ PKT-S31 R9: three states, mapped to a line by settings-props.ts.
   const saveStoreDays = practiceDoorOn() && storeKey !== 'all-stores'
-    ? { businessId: admitted.businessId, storeId: storeKey, canWrite: await readCanWriteStoreDays(storeKey) }
+    ? { businessId: admitted.businessId, storeId: storeKey, lockedNote: storeDaysLockedNote(await readCanWriteStoreDays(storeKey)) }
     : undefined
   return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} saveStoreDays={saveStoreDays} />
 }

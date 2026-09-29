@@ -59,3 +59,10 @@ describe('F2 — applySpecialOpenDays', () => {
     expect(snap(next)).toBe(before)
   })
 })
+
+describe('PKT-S31 R5 — applySpecialOpenDays is the ONE home for order', () => {
+  it('an unsorted core answer is committed sorted by date', () => {
+    const next = applySpecialOpenDays(null, { ok: true, value: [{ date: '2026-12-01', open: '10:00', close: '12:00' }, { date: '2026-10-20', open: '10:00', close: '19:00' }] })
+    expect(next!.map((d) => d.date)).toEqual(['2026-10-20', '2026-12-01'])
+  })
+})

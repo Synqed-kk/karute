@@ -33,7 +33,9 @@ export function applyClosureRemoved(prev: ClosureCore[] | null, answer: WriteAns
 /** 特別営業日 written (add or remove): core's WHOLE array replaces the list, as returned. */
 export function applySpecialOpenDays(prev: SpecialCore[] | null, answer: WriteAnswer<SpecialCore[]>): SpecialCore[] | null {
   if (!answer.ok) return prev
-  return answer.value.map((d) => ({ date: d.date, open: d.open, close: d.close }))
+  // ⚖ PKT-S31 R5 — the ONE home for order: core's list is committed sorted by date (presentation only;
+  // the door still hands back core's data untouched).
+  return answer.value.map((d) => ({ date: d.date, open: d.open, close: d.close })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
 }
 
 // ── ⚖ PKT-S30 P3-12 — ONE home for the store-days copy both sides print ──────────────────────────

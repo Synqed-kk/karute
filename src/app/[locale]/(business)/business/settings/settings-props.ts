@@ -42,7 +42,9 @@ import {
   listResources,
   listStaff,
   listStoreOptions,
+  applySpecialOpenDays,
   READ_FAILURE_LINE,
+  READ_ONLY_NOTE,
   readReserveCardColor,
   readShellIdentity,
   readStoreAddress,
@@ -54,6 +56,7 @@ import {
   type StoreDaysReadResult,
   type StoreLens,
 } from '@/business/lib/data'
+import type { StoreDaysWriteState } from '@/business/lib/data'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import {
   AUDIT_CATEGORIES,
@@ -1017,8 +1020,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
             ? null
             : {
                 items: liveSpecial
-                  ? [...liveSpecial]
-                      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+                  ? (applySpecialOpenDays(null, { ok: true, value: liveSpecial }) ?? [])
                       .map((s) => ({ date: s.date, title: dayTitle(s.date), open: s.open, close: s.close, badge: specialDayBadge(s.date, liveClosures ?? []) }))
                   : [],
                 dateControlId: 'store-hours.special-date',
@@ -1033,6 +1035,14 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
     ],
     persist: null,
   }
+}
+
+/** ⚖ PKT-S31 R9 — the grant check's three answers, mapped ONCE: 'writable' → the add/remove controls
+ *  (no line); 'read-only' → the permission line; 'unknown' (core did not answer) → the section's own
+ *  read-failure line. Both non-writable states hide add/remove (SettingsScreen shows the line instead). */
+export function storeDaysLockedNote(state: StoreDaysWriteState): string | null {
+  if (state === 'writable') return null
+  return state === 'read-only' ? READ_ONLY_NOTE : READ_FAILURE_LINE
 }
 
 /** ⚖ C7 — one place turns a role KEY into the word a reader sees, and it is the

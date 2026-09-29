@@ -448,7 +448,8 @@ const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
 // this file NEVER imports door-writes.ts (a server-only module; see its own
 // header on why a 'use client' file must not). ⚖ PKT-S30 P3-12 / F2 — the copy
 // and the list reducers come from store-days-state.ts, their one (pure) home.
-export type StoreDaysSave = { businessId: string; storeId: string; canWrite: boolean }
+/** `lockedNote` null = writable; otherwise the line shown INSTEAD of add/remove (PKT-S31 R9, settings-props.ts storeDaysLockedNote). */
+export type StoreDaysSave = { businessId: string; storeId: string; lockedNote: string | null }
 const STORE_HOURS_CLOSURES_ID = 'store-hours.closures'
 const STORE_HOURS_SPECIAL_ID = 'store-hours.special-open'
 const CLOSURES_URL = '/api/business/store-days/closures'
@@ -1644,7 +1645,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   // OFF world is the SAME local draft (`addSpecialRow`/`removeSpecialRow`), its
                   // badge asked of `specialDayBadge` against the draft 臨時休業 rows (OFF ids = dates).
                   const closuresLive = b.id === STORE_HOURS_CLOSURES_ID && props.saveStoreDays
-                  const readOnlyNote = props.saveStoreDays && (props.saveStoreDays.canWrite === false || storeDaysRevoked) ? READ_ONLY_NOTE : null
+                  const readOnlyNote = props.saveStoreDays ? props.saveStoreDays.lockedNote ?? (storeDaysRevoked ? READ_ONLY_NOTE : null) : null
                   const closureDisplay = liveClosures === null ? null : liveClosures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))
                   const specialLive = b.id === STORE_HOURS_SPECIAL_ID && props.saveStoreDays
                   const offClosureBlock = section.blocks.find((x) => x.id === STORE_HOURS_CLOSURES_ID)
