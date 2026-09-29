@@ -65,6 +65,13 @@ jest.mock('@/actions/org-settings', () => ({
 // GET .../rest/v1/profiles call lands as fetchMock's call #0 and drains the
 // single shared Deepgram Response's body before Deepgram is ever reached.
 // Stubbing the staff-id boundary closes that off at its source.
+// S60 A3: the stored object is a good webm take by default — the probe's own ranged GET is s60-a1's subject, so this suite's fetch counts stay the reserve HEAD + Deepgram; the headerless cases below run the REAL probe once.
+const probeObjectHead = jest.fn(async (..._a: unknown[]) => ({ state: 'readable' as const, kind: 'webm' as const }))
+jest.mock('@/lib/recording/container-sniff', () => ({
+  ...jest.requireActual('@/lib/recording/container-sniff'),
+  probeObjectHead: (...a: unknown[]) => probeObjectHead(...a),
+}))
+
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => null),
   getBusinessId: jest.fn(async () => 'biz-1'),
@@ -396,6 +403,50 @@ describe('POST /api/ai/transcribe', () => {
 
         expect(response.status).toBe(400)
         expect(fetchMock).not.toHaveBeenCalled()
+      },
+    })
+  })
+
+  // S60 A3 (REV 2.3 A7): 14 bytes with no container signature — the meter
+  // refuses on both arms before any spend; `'fake-audio'` above (10 bytes) is
+  // below the 12-byte floor, so it stays on today's path.
+  it('answers 422 audio_unreadable for 14 headerless bytes on the FormData arm, before Deepgram', async () => {
+    const formData = new FormData()
+    formData.append('audio', new Blob([new Uint8Array(14)], { type: 'audio/webm' }), 'audio.webm')
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({ method: 'POST', body: formData })
+
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({ error: 'audio_unreadable' })
+        expect(fetchMock).not.toHaveBeenCalled()
+      },
+    })
+  })
+
+  it('answers 422 audio_unreadable for a stored object whose head is 14 headerless bytes (JSON arm), before Deepgram', async () => {
+    probeObjectHead.mockImplementationOnce(
+      jest.requireActual('@/lib/recording/container-sniff').probeObjectHead,
+    )
+    fetchMock.mockImplementation(async () => new Response(new Uint8Array(14), { status: 206 }))
+    const audioUrl = 'https://test-dummy.supabase.co/storage/v1/object/sign/audio.webm?token=abc'
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audioUrl, locale: 'en' }),
+        })
+
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({ error: 'audio_unreadable' })
+        // Only the probe's ranged GET — no reserve HEAD, no Deepgram.
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ Range: 'bytes=0-63' })
       },
     })
   })

@@ -65,6 +65,7 @@ describe('transcribeFailedReasonKey (I6)', () => {
     ['transcription_failed', 'reason.transcription_failed'],
     ['ai_failed', 'reason.ai_failed'],
     ['karute_save_failed', 'reason.karute_save_failed'],
+    ['audio_unreadable', 'reason.audio_unreadable'],
     ['something_else', null],
     [undefined, null],
   ]

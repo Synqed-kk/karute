@@ -38,6 +38,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { enrollVoiceActionCore, revokeVoiceActionCore } from '@/actions/voice'
+import { sniffContainer, type ContainerKind } from '@/lib/recording/container-sniff'
 
 export const runtime = 'nodejs'
 
@@ -52,18 +53,22 @@ async function staffId(ctx: FacadeContext<Params>): Promise<string> {
   return id
 }
 
-/** Magic-byte sniff over the two containers VoiceEnrollmentDialog's
- *  MediaRecorder can actually produce (no mimeType override is passed, so
- *  the browser's own default applies). Same idiom as
+/** This route's own policy: the two containers VoiceEnrollmentDialog's
+ *  MediaRecorder can actually produce (no mimeType override is passed, so the
+ *  browser's own default applies) — WebM/EBML (Chrome/Firefox) and
+ *  ISO-BMFF/MP4 (Safari). The shared sniff also knows Ogg and WAV; this route
+ *  still refuses them. */
+const VOICE_ALLOWED_CONTAINERS: ReadonlySet<ContainerKind> = new Set<ContainerKind>(['webm', 'mp4'])
+
+/** Magic-byte sniff through the ONE shared container table
+ *  (src/lib/recording/container-sniff.ts). Same idiom as
  *  customers/[id]/photos/route.ts's looksLikeImage — a container check, not
  *  a decoder. */
 async function looksLikeAudio(file: File): Promise<boolean> {
   const head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
   if (head.length < 8) return false
-  if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return true // WebM/EBML
-  const ascii = (from: number, to: number) => String.fromCharCode(...head.slice(from, to))
-  if (ascii(4, 8) === 'ftyp') return true // ISO-BMFF (MP4/M4A — Safari default)
-  return false
+  const { kind } = sniffContainer(head)
+  return kind !== 'unknown' && VOICE_ALLOWED_CONTAINERS.has(kind)
 }
 
 /** Validates one multipart audio field against the trust boundary above.

@@ -140,16 +140,19 @@ const STOP_PUMP_BUDGET_MS = 20_000
 // exactly what it does today.
 const SECURE_SETTLE_BELT_MS = 120_000
 
+/** The MIME types this recorder negotiates, in preference order. Exported so
+ *  the container-sniff totality test pins every one against a signature. */
+export const RECORDER_MIME_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+  'audio/wav',
+] as const
+
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
-  const formats = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/mp4',
-    'audio/ogg;codecs=opus',
-    'audio/wav',
-  ]
-  return formats.find(f => MediaRecorder.isTypeSupported(f)) ?? ''
+  return RECORDER_MIME_CANDIDATES.find(f => MediaRecorder.isTypeSupported(f)) ?? ''
 }
 
 /** One take's persistence state (fix round 20). Everything a queued take-write

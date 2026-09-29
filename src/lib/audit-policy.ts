@@ -79,6 +79,7 @@ export const AUDIT_ACTIONS = [
   'recording.capture_unlinked',
   'recording.capture_warned',
   'recording.discard',
+  'recording.finalize_refused',
   'recording.karute_missing',
   'recording.no_sessions_today',
   'recording.play',
@@ -235,6 +236,10 @@ export const AUDITED_CORES: {
   // The take-finalize choke point (capture pipeline PR2) — its recordings
   // .update write sits inside the same symbol as its emit (via emitFinalized,
   // the emitSave call-through idiom), so no SDK_WRITE_ALLOWLIST row is needed.
+  // S60 A2: its unreadable-take refusal emits recording.finalize_refused the
+  // same way (via emitFinalizeRefused); the create-only `refused` mark it
+  // writes is a storage upload in take-mark.ts#markTake, which carries its OWN
+  // SDK_WRITE_ALLOWLIST row — nothing in this symbol's span uploads.
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
@@ -639,6 +644,14 @@ export const SDK_WRITE_ALLOWLIST: {
     justification:
       "PR-5 (charge once): the durable memo of a transcription the meter has ALREADY PAID FOR — a side-effect of an already-audited call, not an act of its own. Its one caller is runMeteredTranscription (src/lib/ai/transcribe.ts), and only after the provider answered, i.e. only on a PAID call; every door files its own recording.transcribe receipt row for that same call (web: the route's auditWeb; facade: the hook's FACADE_AUDIT_MAP['ai.transcribe'] row; job/from_session/discard: the meter's auditTranscriptionReceipt), which the write precedes by one call-frame and never prevents — writeTranscriptMemo never throws. A second row here would double-count one act, and ⚖ 8/17 doc law keeps the CONTENT (the transcript itself) out of any audit detail, which is exactly what this call stores. Create-only (upsert:false) except the one repair case: when the read before the call PROVED the existing `trc/` object corrupt (not a v1 memo), the paid answer replaces that garbage — unless a re-read immediately before the write finds that another caller has already repaired it, in which case that memo is left standing. A readable memo is never replaced, and nothing is ever deleted.",
     dated: '2026-09-24',
+  },
+  {
+    file: 'src/lib/recording/take-mark.ts',
+    call: 'storage.recordings.upload',
+    symbols: ['markTake'],
+    justification:
+      "S60 PR-A (A4): durable refusal/partial flag, never overwritten. The create-only (upsert:false) PUT of a tiny JSON mark `{ v, kind, at, bytes, first_byte }` at mrk/<take key>.<kind>.json — numbers and flags only, never audio content. Two callers, two kinds today, the same create-only rule for both. (1) `refused`: finalizeTakeWithClient (AUDITED_CORES, from S60 A2) — the durable half of an audited act, not an act of its own — files the one recording.finalize_refused row only when this call answers 'created', so a phone re-finalizing the same refused take every minute gets the same answer and files no second row. (2) `partial`: finalizeTakeWithClient's fresh path (A4b) and mintTakeUploadUrl's markPartialAtMint (src/lib/recording/mint-take-url.ts, A1/A4b — both the server-named and the staged door) mark a take the phone says is not whole; that write files NO audit row (a flag for PR-R, not an act). A duplicate is refused by storage and answered 'exists' (storage-duplicate.ts#isDuplicateRefusal); markTake never throws. Nothing is ever deleted or edited — a later mark of a later kind (rescued / regenerated) supersedes it (M7).",
+    dated: '2026-09-29',
   },
   {
     file: 'src/lib/customers/customers.core.ts',

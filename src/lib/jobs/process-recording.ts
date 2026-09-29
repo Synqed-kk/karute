@@ -18,7 +18,11 @@
 
 import { SynqedClient, type KaruteRecord, type RecordingJob } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
-import { runMeteredTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
+import {
+  runMeteredTranscription,
+  speakerIdMode,
+  loadStaffReferenceForStaff,
+} from '@/lib/ai/transcribe'
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
@@ -28,6 +32,7 @@ import { readStaffDiscard } from '@/lib/recording/staff-discard'
 import { hasRememberedEmptyTranscript } from '@/lib/jobs/empty-transcript-memory'
 import {
   AI_SPEND_LIMIT,
+  AUDIO_UNREADABLE,
   DISCARDED_BY_STAFF,
   DISCARD_LEDGER_UNREADABLE,
   TRANSCRIPTION_LEDGER_UNAVAILABLE,
@@ -126,6 +131,10 @@ const JOB_SENTINELS: ReadonlySet<string> = new Set([
   AI_SPEND_LIMIT,
   DISCARD_LEDGER_UNREADABLE,
   TRANSCRIPTION_LEDGER_UNAVAILABLE,
+  // The meter's refusal of audio with no recorder container (S60 A3): the job
+  // records fail(id, 'audio_unreadable'). Core still re-arms by attempts —
+  // the sentinel names the reason, it does not stop the re-arm (core's ask).
+  AUDIO_UNREADABLE,
 ])
 
 /** A stage's rejection, named by its stage (recording hole PR-1) — unless it
@@ -704,8 +713,15 @@ function emitTranscribeFailedIfExhausted(
       max_attempts: job.max_attempts,
       // The stage's code IS the classification (recording hole PR-1); the
       // raw error line never enters this row — it stays in last_error and the
-      // console line only. 'other' = thrown outside the three stages.
-      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : (stage ?? 'other'),
+      // console line only. 'other' = thrown outside the three stages. The
+      // meter's unreadable-audio sentinel (S60 A3) passes through un-staged,
+      // so it is named by its own word, never folded into 'other'.
+      reason:
+        message === 'EMPTY_TRANSCRIPT'
+          ? 'empty_transcript'
+          : message === AUDIO_UNREADABLE
+            ? AUDIO_UNREADABLE
+            : (stage ?? 'other'),
     },
     requestId: `job:${job.id}:failed`,
     source: 'system',
