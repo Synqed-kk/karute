@@ -87,6 +87,7 @@ import {
   READ_ONLY_NOTE,
   REMOVE_PENDING_LABEL,
   addSpecialDraft,
+  specialCloseOf,
   specialDayBadge,
   type ClosureCore,
   type SpecialCore,
@@ -588,6 +589,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const [specialPending, setSpecialPending] = useState<string | null>(null)
   const [specialError, setSpecialError] = useState<string | null>(null)
   const specialBusy = useRef(false)
+  /** ⚖ S34 act 0 — 特別営業日's 24:00閉店 switch; the typed 閉店 value is kept while it is ON. */
+  const [closeAtMidnight, setCloseAtMidnight] = useState(false)
   /** ⚖ PKT-S30 Also-noted A — a write answered `forbidden`: both store-days blocks turn read-only. */
   const [storeDaysRevoked, setStoreDaysRevoked] = useState(false)
   const [results, setResults] = useState<Record<string, string>>({})
@@ -767,12 +770,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const addSpecialRow = useCallback((block: SettingsBlock) => {
     const sd = block.specialDays
     if (!sd) return
-    const next = addSpecialDraft(rowsOfBlock(block, listRows), String(values[sd.dateControlId] ?? ''), String(values[sd.openControlId] ?? ''), String(values[sd.closeControlId] ?? ''), dayTitle)
+    const next = addSpecialDraft(rowsOfBlock(block, listRows), String(values[sd.dateControlId] ?? ''), String(values[sd.openControlId] ?? ''), specialCloseOf(closeAtMidnight, String(values[sd.closeControlId] ?? '')), dayTitle)
     setListErrors((prev) => ({ ...prev, [block.id]: next.error ?? '' }))
     if (next.error !== null) return
     setListRows((prev) => ({ ...prev, [block.id]: next.rows }))
     setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
-  }, [values, listRows])
+    setCloseAtMidnight(false)
+  }, [values, listRows, closeAtMidnight])
 
   const removeSpecialRow = useCallback((block: SettingsBlock, date: string) => {
     if (!block.specialDays) return
@@ -847,7 +851,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSpecialError(null)
     const date = String(values[sd.dateControlId] ?? '')
     const open = String(values[sd.openControlId] ?? '')
-    const close = String(values[sd.closeControlId] ?? '')
+    const close = specialCloseOf(closeAtMidnight, String(values[sd.closeControlId] ?? ''))
     const result = await postAddSpecialOpenDay(save, date, open, close)
     specialBusy.current = false
     setSpecialPending(null)
@@ -858,7 +862,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
       return
     }
     setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
-  }, [values])
+    setCloseAtMidnight(false)
+  }, [values, closeAtMidnight])
 
   const removeSpecialLive = useCallback(async (date: string, save: StoreDaysSave) => {
     if (specialBusy.current) return
