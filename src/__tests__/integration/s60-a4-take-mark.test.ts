@@ -32,11 +32,10 @@ describe('the mrk/ grammar slot', () => {
     const composed = composeMarkKey(BIZ, takeKey, mark)
     expect(composed).not.toBeNull()
     expect(composed!.key).toBe(`${MARK_PREFIX}${takeKey}.${mark}.json`)
+    // PR-K K1 (licensed): RULING A2 nests the target, and N1 needs no top-level takeId on a mark.
     expect(parseRecordingKey(composed!.key, BIZ)).toEqual({
       kind: 'mark',
-      takeKey,
-      takeId: TAKE_ID,
-      ext: 'webm',
+      target: { kind: 'take', takeId: TAKE_ID, ext: 'webm' },
       mark,
     })
   })

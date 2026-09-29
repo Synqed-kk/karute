@@ -5,8 +5,8 @@
  * nothing change. `diag` is numbers, flags and one short code — bounded, strict,
  * no free text. `partial: true` writes ONE create-only `partial` mark: at the
  * mint for the server-named door (on its own key, after signing) and for the
- * STAGED door (on the ORIGINAL take key, composed from the staged slot's uuid —
- * none when that uuid is the random fallback), and on finalize's fresh path.
+ * STAGED door (on the STAGED key it composed for that copy — PR-K A1; none
+ * when the slot's uuid is the random fallback), and on finalize's fresh path.
  * The switch `finalizeProbe` OFF gates every mark: the fields are accepted,
  * folded into the log line only, and nothing is written.
  */
@@ -247,31 +247,39 @@ describe('the server-named door', () => {
   })
 })
 
-describe('the staged door (REV 2.3 A1) — the mark lands on the ORIGINAL take key', () => {
-  it('the actual staged body with partial:true → exactly one partial mark on the take key, after signing', async () => {
+// PR-K K5: RULING A1 — the staged mark lives on the STAGED key, row pointer or not.
+describe('the staged door (PR-K A1) — the mark lands on the STAGED key', () => {
+  // PR-K K5: RULING A1 — the staged mark lives on the STAGED key, row pointer or not.
+  it('the actual staged body with partial:true → exactly one partial mark on the staged key, after signing', async () => {
     const res = await mint({ ...STAGED_BODY, partial: true, diag: DIAG })
     expect(res).toEqual(expect.objectContaining({ path: stagedKey(), recordingSessionId: SESSION }))
     expect(createSignedUploadUrl).toHaveBeenCalledTimes(1)
     expect(upload).toHaveBeenCalledTimes(1)
-    expect(upload.mock.calls[0][0]).toBe(markKey(KEY))
+    // PR-K K5: RULING A1 — the staged mark lives on the STAGED key, row pointer or not.
+    expect(upload.mock.calls[0][0]).toBe(markKey(stagedKey()))
     expect(markBodies()).toEqual([expect.objectContaining({ kind: 'partial' })])
     expect(upload.mock.invocationCallOrder[0]).toBeGreaterThan(createSignedUploadUrl.mock.invocationCallOrder[0])
     expect(logged('[mint-take-url] staged upload')).toEqual([
-      expect.objectContaining({ slot: 'take', partial: true, mark: 'created', ...FLAT_DIAG }),
+      // PR-K K4/K5: the slot union is 'staged' | 'random_fallback'; 'take' is gone.
+      expect.objectContaining({ slot: 'staged', partial: true, mark: 'created', ...FLAT_DIAG }),
     ])
   })
 
-  it('the row outranks the hint: no stagedTake, the row pointer names the take → the mark is on that take', async () => {
+  // PR-K K5: RULING A1 — the staged mark lives on the STAGED key, row pointer or not.
+  it('the row outranks the hint: no stagedTake, the row pointer names the take → the mark is on that take\'s staged copy', async () => {
     await mint({ stagedFor: SESSION, mimeType: 'audio/webm', partial: true })
-    expect(upload.mock.calls.map(([k]) => k)).toEqual([markKey(KEY)])
+    // PR-K K5: RULING A1 — the staged mark lives on the STAGED key, row pointer or not.
+    expect(upload.mock.calls.map(([k]) => k)).toEqual([markKey(stagedKey())])
   })
 
-  it('the existing-object sub-branch → nothing signed, still exactly one partial mark on the take key', async () => {
+  // PR-K K5: RULING A1 — the staged mark lives on the STAGED key, row pointer or not.
+  it('the existing-object sub-branch → nothing signed, still exactly one partial mark on the staged key', async () => {
     held.set(stagedKey(), 900)
     const res = await mint({ ...STAGED_BODY, partial: true })
     expect(res).toEqual(expect.objectContaining({ path: stagedKey(), existingSize: 900 }))
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
-    expect(upload.mock.calls.map(([k]) => k)).toEqual([markKey(KEY)])
+    // PR-K K5: RULING A1 — the staged mark lives on the STAGED key, row pointer or not.
+    expect(upload.mock.calls.map(([k]) => k)).toEqual([markKey(stagedKey())])
   })
 
   it('signing fails → no mark', async () => {

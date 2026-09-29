@@ -2,11 +2,25 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isDuplicateRefusal } from '@/lib/recording/storage-duplicate'
 import { isStorageNotFound, warnStorageUnknown } from '@/lib/recording/take-binding'
-import { composeMarkKey, MARK_KINDS, type MarkKind } from '@/lib/recording/key-grammar'
+import {
+  composeMarkKey,
+  MARK_KINDS,
+  MARK_PREFIX,
+  parseRecordingKey,
+  type MarkKind,
+} from '@/lib/recording/key-grammar'
 
 // ⚖ THE DURABLE TAKE MARK (S60 PR-A, A4). The server's verdict on the object
 // under ONE take key, kept beside it in the same bucket under the key
-// composeMarkKey names (`mrk/<take key>.<mark kind>.json`). Finalize refuses a
+// composeMarkKey names (`mrk/<take key>.<mark kind>.json`).
+//
+// ⚖ …AND ON A STAGED COPY, UNDER ITS OWN KEY (PR-K, A1/A3/A4). A mark names an
+// object the server named: the staged door's `partial` lands on the STAGED key
+// it composed for that copy (`mrk/<staged key>.partial.json`, markStagedCopy),
+// never on a take key recomposed from the request. Two homes, by door, never a
+// shared key: markTake refuses a staged key, markStagedCopy refuses a take key,
+// and staged marks are read by ONE bounded listing per session
+// (readStagedMarks). Finalize refuses a
 // headerless object ONCE and remembers it here, so a phone that re-finalizes
 // the same take every minute gets the same answer and files no second audit
 // row; PR-R and PR-C read the same object as their flag.
@@ -44,8 +58,9 @@ type MarkClient = Pick<SupabaseClient, 'storage'>
  * stands — the same answer the first writer got), `error` for everything else
  * (a key the grammar refuses, a storage failure, a throw).
  *
- * `takeKey` must be `businessId`'s own TAKE key; anything else composes to
- * nothing and answers `error` without a storage call.
+ * `takeKey` must be `businessId`'s own TAKE key; anything else — a staged
+ * copy included (its mark is markStagedCopy's, PR-K A3) — answers `error`
+ * without a storage call.
  */
 export async function markTake(
   client: MarkClient,
@@ -55,11 +70,51 @@ export async function markTake(
   facts: { bytes: number | null; first_byte: number | null },
 ): Promise<MarkTakeResult> {
   try {
+    if (parseRecordingKey(takeKey, businessId)?.kind !== 'take') return 'error'
     const composed = composeMarkKey(businessId, takeKey, mark)
     if (composed === null) return 'error'
     const body: TakeMark = {
       v: 1,
       kind: mark,
+      at: new Date().toISOString(),
+      bytes: facts.bytes,
+      first_byte: facts.first_byte,
+    }
+    const { error } = await client.storage
+      .from('recordings')
+      .upload(composed.key, JSON.stringify(body), { upsert: false, contentType: 'application/json' })
+    if (!error) return 'created'
+    if (isDuplicateRefusal(error)) return 'exists'
+    warnStorageUnknown('take-mark.write', error)
+    return 'error'
+  } catch (err) {
+    warnStorageUnknown('take-mark.write', err)
+    return 'error'
+  }
+}
+
+/**
+ * Write the ONE `partial` mark on ONE staged copy, create-only (PR-K, A1/A3).
+ * Same answers and the same never-throw contract as markTake; its only caller
+ * is the mint's staged branch (mint-take-url.ts#markPartialAtMint).
+ *
+ * `stagedKey` must be `businessId`'s own STAGED key — the key the door composed
+ * for THAT copy; a take key or anything else answers `error` without a storage
+ * call, so this writer can never land a mark in the take's home.
+ */
+export async function markStagedCopy(
+  client: MarkClient,
+  businessId: string,
+  stagedKey: string,
+  facts: { bytes: number | null; first_byte: number | null },
+): Promise<MarkTakeResult> {
+  try {
+    if (parseRecordingKey(stagedKey, businessId)?.kind !== 'staged') return 'error'
+    const composed = composeMarkKey(businessId, stagedKey, 'partial')
+    if (composed === null) return 'error'
+    const body: TakeMark = {
+      v: 1,
+      kind: 'partial',
       at: new Date().toISOString(),
       bytes: facts.bytes,
       first_byte: facts.first_byte,
@@ -118,6 +173,8 @@ export async function readTakeMarks(
   businessId: string,
   takeKey: string,
 ): Promise<TakeMark[]> {
+  // The take-key contract (PR-K, A3): a staged copy's marks are readStagedMarks'.
+  if (parseRecordingKey(takeKey, businessId)?.kind !== 'take') return []
   const found = await Promise.all(
     MARK_KINDS.map(async (kind): Promise<TakeMark | null> => {
       try {
@@ -134,6 +191,75 @@ export async function readTakeMarks(
         }
         const mark = readMarkBody(await data.text())
         if (mark === null || mark.kind !== kind) {
+          warnStorageUnknown('take-mark.corrupt', null)
+          return null
+        }
+        return mark
+      } catch (err) {
+        warnStorageUnknown('take-mark.read', err)
+        return null
+      }
+    }),
+  )
+  return found
+    .filter((m): m is TakeMark => m !== null)
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+}
+
+/** How many names the one listing may answer — a session stages one copy per
+ *  take and a copy carries at most one mark per kind, so this is far above
+ *  anything real; it bounds the listing, it is not a page size to walk. */
+const STAGED_MARK_LIST_LIMIT = 100
+
+/**
+ * Every mark on the staged copies of ONE recording session, ordered by `at`,
+ * the LATEST LAST. NEVER throws. (PR-K, A4.)
+ *
+ * ONE BOUNDED LISTING, and the only listing of marks there is: the folder
+ * `mrk/stg/`, filtered to the names that start `<businessId>_<sessionId>_` —
+ * one session, never `seg/`, never the bucket root. Storage's filter is a
+ * pattern match, so every name it answers is read back through the ONE parser
+ * and kept only when it is this business's mark on a staged copy of THIS
+ * session; then each is downloaded and read like readTakeMarks reads its own.
+ */
+export async function readStagedMarks(
+  client: MarkClient,
+  businessId: string,
+  sessionId: string,
+): Promise<TakeMark[]> {
+  const folder = `${MARK_PREFIX}stg`
+  let names: string[]
+  try {
+    const { data, error } = await client.storage.from('recordings').list(folder, {
+      limit: STAGED_MARK_LIST_LIMIT,
+      offset: 0,
+      search: `${businessId}_${sessionId}_`,
+      sortBy: { column: 'name', order: 'asc' },
+    })
+    if (error || !data) {
+      warnStorageUnknown('take-mark.list', error ?? null)
+      return []
+    }
+    names = data.map((f) => f.name)
+  } catch (err) {
+    warnStorageUnknown('take-mark.list', err)
+    return []
+  }
+  const found = await Promise.all(
+    names.map(async (name): Promise<TakeMark | null> => {
+      const key = `${folder}/${name}`
+      const parsed = parseRecordingKey(key, businessId)
+      if (parsed?.kind !== 'mark' || parsed.target.kind !== 'staged' || parsed.target.sessionId !== sessionId) {
+        return null
+      }
+      try {
+        const { data, error } = await client.storage.from('recordings').download(key)
+        if (error || !data) {
+          warnStorageUnknown('take-mark.read', error ?? null)
+          return null
+        }
+        const mark = readMarkBody(await data.text())
+        if (mark === null || mark.kind !== parsed.mark) {
           warnStorageUnknown('take-mark.corrupt', null)
           return null
         }
