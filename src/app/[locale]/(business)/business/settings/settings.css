@@ -733,7 +733,6 @@ html:has(.biz .page.pg-settings) {
 /* ⚖ S34 act 0 — 特別営業日's fixed 24:00 close: the same box as .is-time, greyed (MOCK-S34-ACT0 v1),
    and the 24:00閉店 switch sits on the fields' 30px line. */
 .biz .pg-settings .st-input.is-fixed { background: var(--st-soft); color: var(--ink-3); cursor: default; }
-.biz .pg-settings .st-input.is-fixed:focus { outline: none; }
 .biz .pg-settings .st-coll-field > .st-switchline { min-height: 30px; }
 .biz .pg-settings .st-input.is-empty { border-color: var(--orange); }
 .biz .pg-settings .st-textline { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; max-width: 320px; }

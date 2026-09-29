@@ -93,7 +93,6 @@ export function addSpecialDraft(
  *  which stays in state while the switch is ON, so turning it OFF gives the previous value back. */
 export const MIDNIGHT_CLOSE = '24:00'
 export const CLOSE_AT_MIDNIGHT_LABEL = '24:00閉店'
-export const CLOSE_AT_MIDNIGHT_ARIA = '24:00に閉店する'
 export const MIDNIGHT_CLOSE_BOX_ARIA = '閉店 24:00'
 export function specialCloseOf(closeAtMidnight: boolean, typedClose: string): string {
   return closeAtMidnight ? MIDNIGHT_CLOSE : typedClose

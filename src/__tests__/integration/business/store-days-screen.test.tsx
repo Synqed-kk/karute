@@ -341,7 +341,7 @@ describe('PKT-S33-B1B-FIX-2 — the store-hours footer follows the door', () => 
 
 describe('S34 act 0 — 特別営業日 can close at 24:00 (the 24:00閉店 switch beside 閉店)', () => {
   const SPECIAL = 'store-hours.special-open'
-  const midnightSwitch = () => within(blockEl(SPECIAL)!).getByRole('switch', { name: '24:00に閉店する' })
+  const midnightSwitch = () => within(blockEl(SPECIAL)!).getByRole('switch', { name: '24:00閉店' })
   const specialPosts = () => fetchLog.filter((f) => f.url.includes('/special') && f.method === 'POST')
   it('ON: the time field is replaced by a read-only 24:00 box, the door receives close "24:00", the saved row prints 10:00〜24:00', async () => {
     await mount()
@@ -394,7 +394,7 @@ describe('S34 act 0 — the OFF world: a 24:00 special day is a local draft too'
     delete process.env.BUSINESS_PRACTICE_TENANT
     await mount(STORE_A)
     const SPECIAL = 'store-hours.special-open'
-    const midnightSwitch = () => within(blockEl(SPECIAL)!).getByRole('switch', { name: '24:00に閉店する' })
+    const midnightSwitch = () => within(blockEl(SPECIAL)!).getByRole('switch', { name: '24:00閉店' })
     expect(unsavedMarks()).toBe(0)
     typeSpecial('2026-11-17', '10:00', '19:00')
     fireEvent.click(midnightSwitch())

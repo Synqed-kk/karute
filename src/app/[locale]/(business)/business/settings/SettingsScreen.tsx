@@ -87,7 +87,6 @@ import {
   READ_ONLY_NOTE,
   REMOVE_PENDING_LABEL,
   addSpecialDraft,
-  CLOSE_AT_MIDNIGHT_ARIA,
   CLOSE_AT_MIDNIGHT_LABEL,
   MIDNIGHT_CLOSE,
   MIDNIGHT_CLOSE_BOX_ARIA,
@@ -2485,6 +2484,7 @@ function SpecialDaysCollection({
   const dateId = `${block.id}-date`
   const openId = `${block.id}-open`
   const closeId = `${block.id}-close`
+  const midnightLabelId = `${block.id}-midnight-label`
   const noop = () => {}
   const busy = pending !== null
   const inert = busy ? ({ 'aria-disabled': 'true' as const } as const) : {}
@@ -2569,10 +2569,10 @@ function SpecialDaysCollection({
             )}
           </label>
           <div className="st-coll-field">
-            <span>{CLOSE_AT_MIDNIGHT_LABEL}</span>
+            <span id={midnightLabelId}>{CLOSE_AT_MIDNIGHT_LABEL}</span>
             <Switch
               on={closeAtMidnight}
-              aria={CLOSE_AT_MIDNIGHT_ARIA}
+              ariaLabelledBy={midnightLabelId}
               inert={inert}
               reduced={reduced}
               onToggle={busy ? noop : onCloseAtMidnight}
@@ -3228,6 +3228,7 @@ function Segment({
 function Switch({
   on,
   aria,
+  ariaLabelledBy,
   onLabel,
   offLabel,
   inert,
@@ -3235,7 +3236,11 @@ function Switch({
   onToggle,
 }: {
   on: boolean
-  aria: string
+  /** The accessible name when no visible label names the switch. */
+  aria?: string
+  /** WCAG 2.5.3 — a switch with its own visible field label is named BY it (aria-labelledby
+   *  instead of aria-label), so the spoken name contains the visible text. */
+  ariaLabelledBy?: string
   /** Optional: a switch that has its own field label (特別営業日's 24:00閉店) shows no state word. */
   onLabel?: string
   offLabel?: string
@@ -3282,7 +3287,7 @@ function Switch({
         className="st-switch"
         role="switch"
         aria-checked={on}
-        aria-label={aria}
+        {...(ariaLabelledBy !== undefined ? { 'aria-labelledby': ariaLabelledBy } : { 'aria-label': aria })}
         {...inert}
         onClick={onToggle}
       >
