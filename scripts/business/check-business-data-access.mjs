@@ -17,10 +17,12 @@
 //      A write method handed out BOUND — `.upsert.bind(`, any of the write
 //      verbs below — is the same reach without the `(` right after the name,
 //      so it is banned on its own (⚖ Liam 9/24, R-A2-15 §5; LOCK3 coldread
-//      Finding 2). ONE named exception: core-reach.ts's write-only handle
-//      `client.orgSettings.upsert.bind(client.orgSettings)` (R-A2-7), count 1
-//      — see ALLOW. Known ceiling: `.call(` / `.apply(`, bracket access and
-//      a plain-variable alias before `.bind(` still need AST alias tracking.
+//      Finding 2). The named exceptions are core-reach.ts's bound
+//      handles (orgSettings.upsert · storePolicies set/addClosedDay/
+//      removeClosedDay · audit.log), each pinned by exact text and count
+//      (R-A2-7 for the first) — see ALLOW. Known ceiling: `.call(` /
+//      `.apply(`, bracket access and a plain-variable alias before
+//      `.bind(` still need AST alias tracking.
 //   3. Supabase / service-client READS are legal in EXACTLY two lock files,
 //      src/business/lib/grants.ts and src/business/lib/admission.ts, so the
 //      workspace-grant lock stays real config, not a fixture. Everywhere else
@@ -135,7 +137,7 @@ const CALL_PATTERNS = [
   { re: /\.rpc\s*\(/g, label: 'write call .rpc(', scope: EVERYWHERE },
   // A bound write method is the same reach, one step removed (R-A2-15 §5).
   {
-    re: /\.(insert|update|upsert|delete|rpc|create|save|set)\s*\.\s*bind\s*\(/g,
+    re: /\.(insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay)\s*\.\s*bind\s*\(/g,
     label: 'bound write method .X.bind(',
     scope: EVERYWHERE,
   },
@@ -192,7 +194,39 @@ const ALLOW = [
     count: 1,
     reason:
       '⚖ R-A2-7 (orgSettingsWriterFor: a write-only { orgSettings: { upsert } } handle, the two tenant throws before the client is built) + ' +
-      'R-A2-15(5) (Liam 9/24 「go」): the ONE bound write method in territory, feeding door.ts\'s one pinned writer line',
+      'R-A2-15(5) (Liam 9/24 「go」): the first bound write method in territory, feeding door.ts\'s one pinned writer line',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['set: storePolicies.set.bind(storePolicies)'],
+    count: 1,
+    reason:
+      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies } handle, the two tenant throws before the client is built; the full-array write behind door-writes.ts\'s setSpecialOpenDays',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['addClosedDay: storePolicies.addClosedDay.bind(storePolicies)'],
+    count: 1,
+    reason:
+      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies } handle, the two tenant throws before the client is built; the closure add carrying the audit payload, behind door-writes.ts\'s addClosedDay',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['removeClosedDay: storePolicies.removeClosedDay.bind(storePolicies)'],
+    count: 1,
+    reason:
+      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies } handle, the two tenant throws before the client is built; core\'s hard delete behind door-writes.ts\'s removeClosedDay',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['audit: { log: auditClient.log.bind(auditClient) }'],
+    count: 1,
+    reason:
+      '⚖ PKT-S29-B0b (store-days write door): the write-only { audit: { log } } handle, the two tenant throws before the client is built; feeds door-writes.ts\'s one audit.log call after a closure removal (core hard-deletes, takes no audit payload)',
   },
 ]
 

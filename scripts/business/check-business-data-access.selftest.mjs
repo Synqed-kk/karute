@@ -294,7 +294,7 @@ clear('src/business/lib')
 
 // 17e. RED — every write verb, including a whitespace/newline-split
 //      `.x\n  .bind (` (the regex spans it; the finding is on the verb's line).
-const verbs = ['insert', 'update', 'upsert', 'delete', 'rpc', 'create', 'save', 'set']
+const verbs = ['insert', 'update', 'upsert', 'delete', 'rpc', 'create', 'save', 'set', 'log', 'addClosedDay', 'removeClosedDay']
 write('src/business/screens/Bound.tsx', verbs.map((v) => `const b_${v} = h.${v}.bind(h)`).join('\n') + '\nconst split = h.upsert\n  .bind (h)\n')
 const bindVerbs = scanDataAccess(root)
 assert.equal(bindVerbs.length, verbs.length + 1, `expected every verb flagged, got ${JSON.stringify(bindVerbs)}`)
@@ -361,8 +361,40 @@ assert.equal(colorsNearMiss.length, 1, `expected the near-miss write flagged, go
 assert.equal(colorsNearMiss[0].label, 'write call .upsert(')
 clear('src/business/lib')
 
+// 20. B0b — the store-days write door's verbs and pins (PKT-S29-B0b).
+// 20a. RED — each new verb bound in a territory file that is not core-reach.ts.
+for (const v of ['log', 'addClosedDay', 'removeClosedDay']) {
+  write('src/business/screens/NewVerb.tsx', `const b = x.${v}.bind(x)\n`)
+  const f = scanDataAccess(root)
+  assert.equal(f.length, 1, `20a ${v}: expected 1 finding, got ${JSON.stringify(f)}`)
+  assert.equal(f[0].label, 'bound write method .X.bind(', `20a ${v}`)
+  clear('src/business/screens')
+}
+// 20b. GREEN — each pinned core-reach.ts text alone is exempt.
+const PINS = [
+  '      set: storePolicies.set.bind(storePolicies),\n',
+  '      addClosedDay: storePolicies.addClosedDay.bind(storePolicies),\n',
+  '      removeClosedDay: storePolicies.removeClosedDay.bind(storePolicies),\n',
+  '  return { audit: { log: auditClient.log.bind(auditClient) } }\n',
+]
+for (const pin of PINS) {
+  write(reachPath, pin)
+  assert.deepEqual(scanDataAccess(root), [], `20b: ${pin.trim()} should be exempt`)
+}
+// 20c. RED — the removeClosedDay pin twice: 2 > 1 (fails closed).
+write(reachPath, PINS[2] + PINS[2])
+const rcOver = scanDataAccess(root)
+assert.equal(rcOver.length, 2, `20c: expected 2 over-budget findings, got ${JSON.stringify(rcOver)}`)
+assert.ok(rcOver.every((f) => f.label === 'allowlist over budget (2 > 1 pinned)'))
+// 20d. RED — drift: the audit pin with the local renamed matches no ALLOW.
+write(reachPath, '  return { audit: { log: audit.log.bind(audit) } }\n')
+const drift = scanDataAccess(root)
+assert.equal(drift.length, 1, `20d: expected the renamed local flagged, got ${JSON.stringify(drift)}`)
+assert.equal(drift[0].label, 'bound write method .X.bind(')
+clear('src/business/lib')
+
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 39 cases green')
+console.log('✓ business data-access guard selftest: 48 cases green')

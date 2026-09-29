@@ -1131,4 +1131,33 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     pendingWave: 'Wave W — 2026-09-28',
     coveredBy: 'src/lib/appointments/mutations.ts#updateAppointmentCore',
   },
+  // ⚖ PKT-S29-B0b — store-days write door route rows (rows-before-sites, as #1091 did for the territory rows); door-writes.ts is not on main yet and these four writes emit through the SDK, never a bare audit( call, so no coveredBy symbol exists for them.
+  'business/store-days/closures': {
+    POST: {
+      kind: 'skip',
+      justification:
+        "Business store-days closures (臨時休業) (POST) — the door's addClosedDay carries the audit payload into the SDK call and core writes the audit row; the route emits nothing of its own. Covered by that; no coveredBy symbol exists for these SDK-emitted writes.",
+      dated: '2026-09-29',
+    },
+    DELETE: {
+      kind: 'skip',
+      justification:
+        "Business store-days closures (臨時休業) (DELETE) — core hard-deletes the row and takes no audit payload; the door records its own audit.log event after the removal (door-writes.ts removeClosedDay); the route emits nothing of its own. Covered by the audit.log event the door's removeClosedDay records after the removal; no coveredBy symbol exists for these SDK-emitted writes.",
+      dated: '2026-09-29',
+    },
+  },
+  'business/store-days/special': {
+    POST: {
+      kind: 'skip',
+      justification:
+        "Business store-days special open days (特別営業日) (POST) — one storePolicies.set of the full array; core writes the store_policy.edit audit row itself; the route emits nothing of its own. Covered by core's own store_policy.edit row; no coveredBy symbol exists for these SDK-emitted writes.",
+      dated: '2026-09-29',
+    },
+    DELETE: {
+      kind: 'skip',
+      justification:
+        "Business store-days special open days (特別営業日) (DELETE) — one storePolicies.set of the full array; core writes the store_policy.edit audit row itself; the route emits nothing of its own. Covered by core's own store_policy.edit row; no coveredBy symbol exists for these SDK-emitted writes.",
+      dated: '2026-09-29',
+    },
+  },
 }
