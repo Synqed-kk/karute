@@ -117,6 +117,11 @@ MUTANTS = [
      [(CORE, '          service: payload.service ?? (await menuOfAutoLinked(synqed.appointments, autoLinked)),\n',
        '          service: payload.service, // M-O14b\n')],
      [SAVE_T], ['SF-2 F-2: a create auto-linked']),
+    # M-O15 — a 保留 placeholder reads as a decided answer again (commit 13, SF-3(b))
+    ('M-O15', 'isDecidedOutcome counts the pending placeholder as decided (the fate says kept; the worker skip path refuses the real label)',
+     [(FATE, "  return !!row && row.outcome !== 'pending'\n", '  return !!row // M-O15\n')],
+     [SAVE_T, JOB_T], ['SF-3 M1: a converge with no answer over a 保留 placeholder is never kept',
+                       'T9 existing record + a recorded PENDING (保留) row']),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',

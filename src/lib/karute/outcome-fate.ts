@@ -20,7 +20,8 @@ import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
  * `outcome_link: <fate>`.
  *
  *   written                 the answer is on record
- *   kept                    no answer sent; the record already had one (a converge)
+ *   kept                    no answer sent; the record already had a DECIDED one
+ *                           (a converge; a 保留 placeholder is not decided)
  *   skipped:<reason>        no answer written: not_returning (the revisit guard
  *                           refused it) · not_sent (no answer, no reason given —
  *                           an old client) · the client's own reason
@@ -41,6 +42,17 @@ export interface OutcomeFate {
 }
 
 export type OutcomeFateClient = OutcomeWriteClient
+
+/** SF-3(b) (S67 fix round 2, commit 13): the ONE decided-answer predicate. A
+ *  karute_outcomes row is the staff's DECIDED answer unless it is the 保留
+ *  (`pending`) placeholder — a placeholder is not a choice (Business
+ *  auto-flips a stale 保留 to 不成約 after 14 days), so a real answer may
+ *  land over it and it is never reported as `kept`. Shared by the fate's
+ *  kept-read below and the worker's existing-karute skip path
+ *  (process-recording.ts) — one definition, never two spellings. */
+export function isDecidedOutcome(row: { outcome?: string | null } | null | undefined): boolean {
+  return !!row && row.outcome !== 'pending'
+}
 
 export async function writeOutcomeFate(
   synqed: OutcomeFateClient,
@@ -72,16 +84,17 @@ export async function writeOutcomeFate(
 
   if (!input.outcome) {
     if (!input.fresh) {
-      // A converge with no answer: an answer an earlier save wrote stays.
+      // A converge with no answer: a DECIDED answer an earlier save wrote
+      // stays (a 保留 placeholder is not one — isDecidedOutcome).
       // A read failure only means "cannot say it was kept" — never a failure.
       // try/await, not .catch(): a synchronous throw must not escape either.
-      let recorded: unknown = null
+      let recorded: { outcome?: string | null } | null = null
       try {
         recorded = await synqed.karuteOutcomes.get(input.karuteRecordId)
       } catch {
         recorded = null
       }
-      if (recorded) return { link: 'kept' }
+      if (isDecidedOutcome(recorded)) return { link: 'kept' }
     }
     return { link: `skipped:${input.outcomeMissing ?? 'not_sent'}` }
   }

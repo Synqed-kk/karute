@@ -55,7 +55,7 @@ import {
 } from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
-import { writeOutcomeFate } from '@/lib/karute/outcome-fate'
+import { isDecidedOutcome, writeOutcomeFate } from '@/lib/karute/outcome-fate'
 
 /** The enqueue payload contract (client → core job row → this worker). */
 export interface RecordingJobPayload {
@@ -309,7 +309,9 @@ async function processJob(job: RecordingJob): Promise<string> {
     // stale 保留 to 不成約 after 14 days; losing the real label here would be
     // silent and permanent).
     const recordedOutcome = payload.outcome ? await synqed.karuteOutcomes.get(existing.id) : null
-    if (payload.outcome && (!recordedOutcome || recordedOutcome.outcome === 'pending')) {
+    // The decided-answer test is the ONE predicate the save's fate uses
+    // (isDecidedOutcome; S67 fix round 2, commit 13).
+    if (payload.outcome && !isDecidedOutcome(recordedOutcome)) {
       // Discard check #2 (skip path) — the LAST read before the write,
       // mirroring the normal path's check #2 below: a discard that landed
       // after check #1 and before this late label write still wins.

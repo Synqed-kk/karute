@@ -745,6 +745,33 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
 
+  // S67 fix round 2, commit 13 (SF-3(b); the attack's M1): a 保留 placeholder
+  // is not a decided answer (isDecidedOutcome, the worker's own rule).
+  it('SF-3 M1: a converge with no answer over a 保留 placeholder is never kept → skipped:not_sent', async () => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old' }
+    outcomeGet.mockResolvedValueOnce({ outcome: 'pending' })
+    const { reply, row } = await save({ recordingSessionId: 'rec-1' })
+    expect(reply.outcome).toEqual({ written: false, reason: 'not_sent' })
+    expect(row.detail.outcome_link).toBe('skipped:not_sent')
+    expect(outcomeUpsert).not.toHaveBeenCalled()
+  })
+  it('SF-3 M1: a new answer over a 保留 placeholder replaces it → written', async () => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old' }
+    outcomeGet.mockResolvedValue({ outcome: 'pending' })
+    const { reply, row } = await save({ recordingSessionId: 'rec-1', outcome: { status: 'success' } })
+    expect(reply.outcome).toEqual({ written: true })
+    expect(row.detail.outcome_link).toBe('written')
+    expect(outcomeUpsert).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'success' }))
+  })
+  it('SF-3: a converge with no answer over a DECIDED answer (no_deal) → kept', async () => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old' }
+    outcomeGet.mockResolvedValueOnce({ outcome: 'no_deal' })
+    const { reply, row } = await save({ recordingSessionId: 'rec-1' })
+    expect(reply.outcome).toEqual({ written: false, reason: 'kept' })
+    expect(row.detail.outcome_link).toBe('kept')
+    expect(outcomeUpsert).not.toHaveBeenCalled()
+  })
+
   it('S2/S5-facade skipped:not_sent: an old client sends no answer and no reason', async () => {
     const { reply, row } = await save()
     expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
