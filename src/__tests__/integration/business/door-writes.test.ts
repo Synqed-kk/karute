@@ -638,6 +638,7 @@ describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove
     expect(mockCore.writer.removeClosedDay).toHaveBeenCalledTimes(0)
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0][0])).toContain('nothing removed')
+    expect(JSON.parse(String(warn.mock.calls[0][1])).target_id).toBe(CLOSURE_C2.id) // T8 (PKT-S32 R20)
     const line = String(warn.mock.calls[0][1])
     expect(line).toContain(STORE_ID)
     expect(line).toContain('2026-11-10')
@@ -748,6 +749,23 @@ describe('PKT-S32 R19 — audit-first closure removal', () => {
     mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
     await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)
     expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(1)
+  })
+  it('T7 (PKT-S32 R20): the JST day turns during the audit wait → 過ぎた日付です, the requested row stands, no delete', async () => {
+    jest.setSystemTime(new Date('2026-09-29T14:59:58Z')) // 23:59:58 JST
+    const TODAY_CLOSURE = { ...CLOSURE_C2, date: '2026-09-29' }
+    const spied = withReads()
+    spied.storePolicyListClosedDays.mockResolvedValue({ closed_days: [TODAY_CLOSURE] })
+    mockCore.auditLog = jest.fn(() => new Promise((res) => setTimeout(() => res({}), 3000)))
+    let settled: unknown = 'pending'
+    const pending = data.removeStoreClosedDay(STORE_ID, TODAY_CLOSURE.id).then((r) => (settled = r))
+    for (let i = 0; i < 40; i++) await new Promise((res) => setImmediate(res))
+    expect(settled).toBe('pending')
+    expect(mockCore.auditLog).toHaveBeenCalledTimes(1)
+    jest.advanceTimersByTime(3000) // 00:00:01 JST the next day
+    await pending
+    expect(settled).toEqual({ ok: false, reason: 'invalid', message: '過ぎた日付です' })
+    expectWrites({ auditLog: 1 })
+    expect(mockCore.auditLog.mock.calls[0][0].detail).toMatchObject({ date: '2026-09-29', phase: 'requested' })
   })
   it('T6: audit ok + delete throws + the failed row rejects → the refusal unchanged, one warn about the failed row', async () => {
     mockCore.writer.removeClosedDay.mockRejectedValueOnce(fakeSynqedError(503, 'unavailable'))

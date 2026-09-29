@@ -431,7 +431,7 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
         if (auditProblem !== null) {
           console.warn(
             '[business store days] audit "failed" row not written after a refused removal:',
-            JSON.stringify({ store_id: storeId, date: row.date, reason, problem: auditProblem }),
+            JSON.stringify({ store_id: storeId, target_id: row.id, date: row.date, reason, problem: auditProblem }),
           )
         }
         break
@@ -440,10 +440,12 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
         // ⚖ PKT-S30 F11 · ⚖ PKT-S32 R19 — warn, never console.error: nothing was removed.
         console.warn(
           '[business store days] audit record refused the removal (nothing removed):',
-          JSON.stringify({ store_id: storeId, date: row.date, reason, problem: auditProblem }),
+          JSON.stringify({ store_id: storeId, target_id: row.id, date: row.date, reason, problem: auditProblem }),
         )
         return { ok: false, reason: 'core', message: MSG.genericFail }
       }
+      // ⚖ PKT-S32 R20 — re-checked after the audit wait (up to AUDIT_LOG_BOUND_MS): a closure that became a record meanwhile is never deleted; the 'requested' row stands as the attempt.
+      if (isPastDate(row.date)) return invalid(MSG.pastDate)
       try {
         await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)
       } catch (e) {

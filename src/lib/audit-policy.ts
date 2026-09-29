@@ -1030,7 +1030,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'audit.log',
     symbols: ['removeClosedDay'],
     justification:
-      'PKT-S30 F6 · PKT-S32 R19 — the closure-removal audit event: core\'s SDK removeClosedDay takes no audit payload and hard-deletes the row, so the door writes store_closed_day.remove itself through core-reach.ts\'s write-only `{ audit: { log } }` handle (same nested shape as the storePolicies handle, so CP3 sees the site) — BEFORE the delete (detail.phase \'requested\'; no row within the bound → the removal is refused, nothing deleted) and, if the delete then fails, a best-effort second row (phase \'failed\'). One call site, bounded by AUDIT_LOG_BOUND_MS.',
+      'PKT-S30 F6 · PKT-S32 R19 — the closure-removal audit event: core\'s SDK removeClosedDay takes no audit payload and hard-deletes the row, so the door writes store_closed_day.remove itself through core-reach.ts\'s write-only `{ audit: { log } }` handle (same nested shape as the storePolicies handle, so CP3 sees the site) — BEFORE the delete (detail.phase \'requested\'; no row within the bound → the removal is refused, nothing deleted) and, if the delete then fails, a best-effort second row (phase \'failed\'). One call site, bounded by AUDIT_LOG_BOUND_MS. A \'requested\' row records an ATTEMPT, not a completed removal — a late audit, a failed delete or the midnight re-check (PKT-S32 R20) can refuse after the row landed; the closure\'s presence in core is the truth.',
     dated: '2026-09-29',
   },
 ]
