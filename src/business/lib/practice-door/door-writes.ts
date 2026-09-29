@@ -7,8 +7,8 @@
 //
 // FENCE ROWS — the business-territory.json "writers" rows for the three
 // store-policy call sites landed in their own non-Business PR (#1091, merged);
-// the fourth write, the closure-removal `audit.log`, gets its row in the
-// chore PR chore/w05-b0b-store-days-audit-rows. With those rows present CP3
+// the fourth write, the closure-removal `audit.log`, has its row on main too
+// (#1092, merged). With those rows present CP3
 // (check-business-data-access.mjs + audit-sdk-write-sites.test.ts) is green.
 //
 // Same guard order as door.ts:494-524's `writeReserveCardColor` (quoted in
@@ -99,9 +99,10 @@ export const READ_FAILURE_LINE = MSG.readFailure
 // `.delete(` / `.create(` token in practice-door/ outside the named writer lines; a record with
 // `delete` behaves the same. Keys always contain ':', so no key can meet an Object.prototype name.
 const HQ_GRANTED: Record<string, Promise<boolean>> = {}
+const grantKey = (actor: PracticeActor): string => `${actor.businessId}:${actor.sheet.staff_id}`
 async function isHqAdmin(actor: PracticeActor): Promise<boolean> {
   if (actor.sheet.coarse_role === 'OWNER') return true
-  const key = `${actor.businessId}:${actor.sheet.staff_id}`
+  const key = grantKey(actor)
   const check = (HQ_GRANTED[key] ??= actor.reads.businessGrantsCheck(actor.card.id).then((r) => r.granted))
   try {
     const granted = await check
@@ -210,6 +211,13 @@ function isSynqedError(e: unknown): e is { name: string; status: number; message
   return e instanceof Error && e.name === 'SynqedError' && typeof (e as { status?: unknown }).status === 'number'
 }
 
+/** ⚖ PKT-S31 R1 — core's own 403 on ANY of the three writes means the grant is gone: the actor's memo
+ *  entry is cleared BEFORE the refusal is mapped, so the next render asks core again (no TTL). */
+function writeFailed(e: unknown, { actor, reach }: Admitted): Refusal {
+  if (isSynqedError(e) && e.status === 403) delete HQ_GRANTED[grantKey(actor)]
+  return mapCoreError(e, reach)
+}
+
 function mapCoreError(e: unknown, reach: typeof import('./core-reach')): Refusal {
   if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant', message: MSG.genericFail }
   if (isSynqedError(e)) {
@@ -305,8 +313,26 @@ export async function readStoreDays(storeId: string): Promise<StoreDaysReadResul
 
 // ── R6 — closures: addClosedDay / removeClosedDay ───────────────────────────
 
+// internal safety bound after core's hard delete already happened — not a store setting
+const AUDIT_LOG_BOUND_MS = 5000
+
+/** null = the audit call answered in time; otherwise why it did not (rejection, sync throw, timeout). */
+async function withinAuditBound(work: Promise<void>): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const bound = new Promise<string>((resolve) => {
+    timer = setTimeout(() => resolve(`no answer within ${AUDIT_LOG_BOUND_MS} ms`), AUDIT_LOG_BOUND_MS)
+  })
+  try {
+    return await Promise.race([work.then(() => null, (e: unknown) => (e instanceof Error ? e.message : String(e))), bound])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function addClosedDay(storeId: string, input: { date: string; reason: string }): Promise<AddClosedDayResult> {
   if (practiceTenant() === null) return TENANT_REFUSAL
+  // ⚖ PKT-S31 R6 — trim first, then '' → null (a spaces-only reason is no reason).
+  const reason = input.reason.trim()
   const dateProblem = validateDate(input.date)
   if (dateProblem) return invalid(dateProblem)
   const admitted = await admitWriter(storeId)
@@ -326,15 +352,15 @@ export async function addClosedDay(storeId: string, input: { date: string; reaso
     // (AddClosedDayInput.audit is a full AuditEventInput, so it carries `detail`).
     // ⚖ PKT-S30 F11 — which day, which store, why: store_id + target_label (the date) +
     // detail { date, reason } (reason '' when none, never omitted).
-    const addEvent = { actor_type: 'staff' as const, actor_id: actor.sheet.staff_id, category: 'settings', action: 'store_closed_day.add', target_type: 'store_closed_day', store_id: storeId, target_label: input.date, detail: { date: input.date, reason: input.reason } }
-    const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: input.reason === '' ? null : input.reason, acting_staff_id: actor.sheet.staff_id, audit: addEvent })
+    const addEvent = { actor_type: 'staff' as const, actor_id: actor.sheet.staff_id, category: 'settings', action: 'store_closed_day.add', target_type: 'store_closed_day', store_id: storeId, target_label: input.date, detail: { date: input.date, reason } }
+    const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: reason === '' ? null : reason, acting_staff_id: actor.sheet.staff_id, audit: addEvent })
     console.info(
       '[business store days]',
       JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'closure.add', date: row.date, at: renderNow().toISOString() }),
     )
     return { ok: true, row }
   } catch (e) {
-    return mapCoreError(e, reach)
+    return writeFailed(e, admitted)
   }
 }
 
@@ -362,7 +388,10 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
     if (isPastDate(row.date)) return invalid(MSG.pastDate)
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)
-    try {
+    // ⚖ PKT-S31 R2 — the audit call is raced against AUDIT_LOG_BOUND_MS; a sync throw, a rejection
+    // or no answer in time is warned (store_id + date + the removed row's reason, lost otherwise) and
+    // the completed removal still answers ok.
+    const audited = (async () => {
       const auditHandle = reach.auditWriterFor({ businessId: actor.businessId })
       await auditHandle.audit.log({
         actor_type: 'staff',
@@ -375,9 +404,14 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
         target_label: row.date,
         detail: { date: row.date, reason: row.reason ?? '' },
       })
-    } catch (auditErr) {
+    })()
+    const auditProblem = await withinAuditBound(audited)
+    if (auditProblem !== null) {
       // ⚖ PKT-S30 F11 — warn, never console.error: the removal itself succeeded.
-      console.warn('[business store days] audit record failed after a real removal:', auditErr instanceof Error ? auditErr.message : String(auditErr))
+      console.warn(
+        '[business store days] audit record failed after a real removal:',
+        JSON.stringify({ store_id: storeId, date: row.date, reason: row.reason ?? '', problem: auditProblem }),
+      )
     }
     console.info(
       '[business store days]',
@@ -385,7 +419,7 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
     )
     return { ok: true, closures: upcoming(all.filter((c) => c.id !== id)) }
   } catch (e) {
-    return mapCoreError(e, reach)
+    return writeFailed(e, admitted)
   }
 }
 
@@ -394,43 +428,22 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
 /** How the next array is computed from core's FRESH array (read immediately before the write). */
 type SpecialPlan = (current: SpecialOpenDay[]) => { next: SpecialOpenDay[] } | { unchanged: true } | Refusal
 
-function specialListProblem(list: SpecialOpenDay[]): string | null {
-  const seen = new Set<string>()
-  for (const d of list) {
-    if (!isRealCalendarDate(d.date)) return MSG.invalidDate
-    const times = validateSpecialTimes(d.open, d.close)
-    if (times) return times
-    if (seen.has(d.date)) return MSG.duplicateSpecial
-    seen.add(d.date)
-  }
-  return null
-}
-
 /** R1's own primitive and the ONE place `storePolicies.set` is invoked. ⚖ PKT-S30 F7 — admit ONCE
  *  (a wrapper passes its own admission in; a direct caller is admitted here) → ONE fresh `get` →
- *  compute next → ONE `set` with the FULL array, sorted. P3-4 — a direct caller's array replaces the
- *  entries from today on; past entries in core's array are sent back unchanged (nothing deleted).
+ *  compute next → ONE `set` with the FULL array, sorted. ⚖ PKT-S31 R7 — NOT exported: no caller
+ *  outside this file ever sent a whole array, so the array form is gone; the add/remove wrappers
+ *  (validated + admitted) are the only way in. Past entries in core's array ride back unchanged.
  *  The only remaining lost-update window is between that `get` and the `set` (core's `set` takes no
  *  precondition — a core ask in the PR body). */
-export async function setSpecialOpenDays(storeId: string, input: SpecialOpenDay[] | SpecialPlan, pre?: Admitted): Promise<SetSpecialOpenDaysResult> {
-  let plan: SpecialPlan
-  if (typeof input === 'function') plan = input
-  else {
-    if (practiceTenant() === null) return TENANT_REFUSAL
-    const problem = specialListProblem(input)
-    if (problem) return invalid(problem)
-    const upcoming = input.filter((d) => !isPastDate(d.date))
-    plan = (current) => ({ next: [...current.filter((d) => isPastDate(d.date)), ...upcoming].sort(byDate) })
-  }
-  const admitted = pre ?? (await admitWriter(storeId))
-  if (!admitted.ok) return admitted
+async function setSpecialOpenDays(storeId: string, plan: SpecialPlan, admitted: Admitted): Promise<SetSpecialOpenDaysResult> {
   const { actor, reach } = admitted
+  let next: SpecialOpenDay[] = []
   try {
     const current = (await actor.reads.storePolicyGet(storeId)).special_open_days
     const planned = plan(current)
     if ('ok' in planned) return planned
     if ('unchanged' in planned) return { ok: true, specialOpenDays: fromToday(current) }
-    const next = planned.next
+    next = planned.next
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
     console.info(
@@ -439,7 +452,14 @@ export async function setSpecialOpenDays(storeId: string, input: SpecialOpenDay[
     )
     return { ok: true, specialOpenDays: fromToday(saved.special_open_days) }
   } catch (e) {
-    return mapCoreError(e, reach)
+    // ⚖ PKT-S31 R4 — the user's own entry already passed this door's validation, so a core validation
+    // refusal (a 4xx that is not 403 or the 409 duplicate) is about core's array, never the user's
+    // times: the generic line on screen, core's words + the dates sent in the log.
+    if (isSynqedError(e) && e.status >= 400 && e.status < 500 && e.status !== 403 && e.status !== 409) {
+      console.warn('[business store days] core refused the special days set:', e.status, e.message, JSON.stringify(next.map((d) => d.date)))
+      return { ok: false, reason: 'core', message: MSG.genericFail }
+    }
+    return writeFailed(e, admitted)
   }
 }
 
@@ -474,7 +494,10 @@ export async function removeSpecialOpenDay(storeId: string, date: string): Promi
   if (!admitted.ok) return admitted
   return setSpecialOpenDays(
     storeId,
-    (current) => (current.some((d) => d.date === date) ? { next: current.filter((d) => d.date !== date).sort(byDate) } : { unchanged: true }),
+    (current) => {
+      if (isPastDate(date)) return invalid(MSG.pastDate) // ⚖ PKT-S31 R3 — re-checked at write time, like the closure removal
+      return current.some((d) => d.date === date) ? { next: current.filter((d) => d.date !== date).sort(byDate) } : { unchanged: true }
+    },
     admitted,
   )
 }

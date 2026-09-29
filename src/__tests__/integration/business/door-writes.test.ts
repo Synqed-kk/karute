@@ -40,6 +40,7 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import * as data from '@/business/lib/data'
+import { DUPLICATE_SPECIAL_LINE, GENERIC_FAIL_LINE } from '@/business/lib/store-days-state'
 
 const TENANT = 'fb44dd68-4af7-44b0-8cc7-4ee10c54491d'
 const STORE_ID = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -486,7 +487,7 @@ describe('PKT-S30 F11 — closure audit payloads say which day, which store, why
     mockCore.auditLog.mockRejectedValueOnce(new Error('audit down'))
     const r = await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)
     expect(r.ok).toBe(true)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('audit record failed'), 'audit down')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('audit record failed'), expect.stringContaining('audit down'))
     expect(error).not.toHaveBeenCalled()
   })
 })
@@ -574,5 +575,89 @@ describe('PKT-S30 F1 — store isolation through visibleIds(actor): a store outs
     const r = await data.addStoreClosedDay(STORE_ID, { date: '2026-12-01', reason: '' })
     expect(r.ok).toBe(true)
     expectWrites({ addClosedDay: 1 })
+  })
+})
+
+// ⚖ PKT-S31 fix run 2 — read2's attack cases (Opus A1/B1/C3/D1/F8-reason), kept as regressions.
+describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove, core validation, trimmed reason', () => {
+  it('R1: a 403 on a write clears the actor’s memoized grant — the next capability check asks core again and reads not-writable', async () => {
+    as('login-admin')
+    const spied = withReads()
+    spied.businessGrantsCheck.mockResolvedValue({ granted: true })
+    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe(true)
+    spied.businessGrantsCheck.mockResolvedValue({ granted: false }) // revoked in core after the memo
+    mockCore.writer.addClosedDay.mockRejectedValueOnce(fakeSynqedError(403, 'Forbidden'))
+    const r = await data.addStoreClosedDay(STORE_ID, { date: '2026-11-20', reason: '' })
+    expect(r).toMatchObject({ ok: false, reason: 'forbidden' })
+    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe(false)
+    expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(2)
+  })
+  it.each([
+    ['remove closure', () => { mockCore.writer.removeClosedDay.mockRejectedValueOnce(fakeSynqedError(403, 'Forbidden')); return data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id) }],
+    ['set special days', () => { mockCore.writer.set.mockRejectedValueOnce(fakeSynqedError(403, 'Forbidden')); return data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' }) }],
+  ])('R1: a 403 on %s clears the memo too', async (_name, write) => {
+    as('login-admin')
+    const spied = withReads()
+    spied.businessGrantsCheck.mockResolvedValue({ granted: true })
+    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe(true)
+    expect(await write()).toMatchObject({ ok: false, reason: 'forbidden' })
+    await data.readCanWriteStoreDays(STORE_ID)
+    expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(2)
+  })
+  it('R2: audit.log never answers → the removal still answers ok once the bound passes, one warn carrying store_id, date and reason', async () => {
+    mockCore.auditLog = jest.fn(() => new Promise(() => {}))
+    let settled: unknown = 'pending'
+    const pending = data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id).then((r) => (settled = r))
+    for (let i = 0; i < 40; i++) await new Promise((res) => setImmediate(res))
+    expect(settled).toBe('pending')
+    expect(mockCore.writer.removeClosedDay).toHaveBeenCalledTimes(1)
+    jest.advanceTimersByTime(5000)
+    await pending
+    expect(settled).toMatchObject({ ok: true })
+    expect(warn).toHaveBeenCalledTimes(1)
+    const line = String(warn.mock.calls[0][1])
+    expect(line).toContain(STORE_ID)
+    expect(line).toContain('2026-11-10')
+    expect(line).toContain('棚卸し')
+    expect(line).toContain('no answer within 5000 ms')
+  })
+  it('R2: a synchronous throw from the audit handle or the log call → ok, warned with the reason', async () => {
+    mockCore.auditWriterFor = jest.fn(() => { throw new Error('sync boom') })
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toMatchObject({ ok: true })
+    mockCore.auditWriterFor = jest.fn()
+    mockCore.auditLog = jest.fn(() => { throw new Error('sync log') })
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toMatchObject({ ok: true })
+    expect(warn.mock.calls.map((c) => String(c[1]))).toEqual([expect.stringContaining('sync boom'), expect.stringContaining('sync log')])
+    expect(String(warn.mock.calls[1][1])).toContain('棚卸し')
+  })
+  it('R3: special REMOVE of “today” whose JST day turns during the read → 過ぎた日付です, no set', async () => {
+    jest.setSystemTime(new Date('2026-09-29T14:59:59.900Z')) // 23:59:59.9 JST
+    const spied = withReads()
+    spied.storePolicyGet.mockImplementation(async () => {
+      jest.setSystemTime(new Date('2026-09-29T15:00:00.100Z')) // 00:00:00.1 JST the next day
+      return { ...BASE_POLICY, special_open_days: [{ date: '2026-09-29', open: '10:00', close: '12:00' }, SPECIAL_1020] }
+    })
+    const r = await data.removeStoreSpecialOpenDay(STORE_ID, '2026-09-29')
+    expect(r).toEqual({ ok: false, reason: 'invalid', message: '過ぎた日付です' })
+    expectWrites()
+  })
+  it('R4: core refuses the set with a validation 400 after the user’s entry passed → the generic line, core’s words + the dates logged', async () => {
+    const spied = withReads()
+    spied.storePolicyGet.mockResolvedValue({ ...BASE_POLICY, special_open_days: [{ date: '2026-01-05', open: '10:00', close: '10:00' }, SPECIAL_1020] })
+    mockCore.writer.set.mockRejectedValueOnce(fakeSynqedError(400, 'open must be before close'))
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' })
+    expect(r).toEqual({ ok: false, reason: 'core', message: GENERIC_FAIL_LINE })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('special days set'), 400, 'open must be before close', JSON.stringify(['2026-01-05', '2026-10-20', '2026-11-20']))
+  })
+  it('R4: the 409 duplicate keeps its own line', async () => {
+    mockCore.writer.set.mockRejectedValueOnce(fakeSynqedError(409, 'Special open dates must be unique'))
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' })
+    expect(r).toEqual({ ok: false, reason: 'invalid', message: DUPLICATE_SPECIAL_LINE })
+  })
+  it('R6: a spaces-only closure reason is trimmed, then sent as null (audit detail reason "")', async () => {
+    mockCore.writer.addClosedDay.mockImplementation(async (_s: string, b: { date: string; reason: string | null }) => ({ ...CLOSURE_C1, id: 'eeeeeeee-0000-4000-8000-00000000000e', date: b.date, reason: b.reason }))
+    await data.addStoreClosedDay(STORE_ID, { date: '2026-11-21', reason: '   ' })
+    await data.addStoreClosedDay(STORE_ID, { date: '2026-11-22', reason: '  棚卸し ' })
+    expect(mockCore.writer.addClosedDay.mock.calls.map((c) => [c[1].reason, c[1].audit.detail.reason])).toEqual([[null, ''], ['棚卸し', '棚卸し']])
   })
 })

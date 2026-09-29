@@ -1283,7 +1283,7 @@ describe('the fixture data door', () => {
     // ⚖ PKT-S29-B1 — the store-days writer's lines. ⚖ PKT-S30 F13 (tightening) — `.set(` appears ONCE:
     // since F7 the add/remove wrappers reach core only through setSpecialOpenDays' one admitted set.
     { file: 'door-writes.ts', line: 'await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })', count: 1 },
-    { file: 'door-writes.ts', line: "const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: input.reason === '' ? null : input.reason, acting_staff_id: actor.sheet.staff_id, audit: addEvent })", count: 1 },
+    { file: 'door-writes.ts', line: "const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: reason === '' ? null : reason, acting_staff_id: actor.sheet.staff_id, audit: addEvent })", count: 1 },
     { file: 'door-writes.ts', line: 'await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)', count: 1 },
     // ⚖ PKT-S30 F6 — the closure-removal audit event, the door's fourth SDK write (`audit.log`).
     { file: 'door-writes.ts', line: 'await auditHandle.audit.log({', count: 1 },
