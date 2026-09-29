@@ -534,3 +534,45 @@ describe('PKT-S30 F12 + P3-3/4/5 — memo per actor; validation lines', () => {
     expectWrites()
   })
 })
+
+describe('PKT-S30 F1 — store isolation through visibleIds(actor): a store outside the view is forbidden before any SDK call', () => {
+  // Hand-built actors (the recorded SHEETS cannot shape them): each sees ONLY the OTHER store, never STORE_ID.
+  const SCOPED = staffRow('staff-scoped', 'login-scoped', '店舗限定', 'OWNER')
+  function actorSeeingOnlyOther(sheetRow: Sheet, granted: boolean): Spied {
+    as('login-scoped')
+    const spied = withReads()
+    spied.staffList.mockResolvedValue({ staff: [...STAFF, { ...SCOPED, role: sheetRow.coarse_role as Staff['role'] }], total: STAFF.length + 1, page: 1, page_size: 200 })
+    spied.answerSheet.mockImplementation(async (id: string) => (id === 'staff-scoped' ? sheetRow : SHEETS[id]))
+    spied.businessGrantsCheck.mockResolvedValue({ granted })
+    return spied
+  }
+  async function everyWriteForbidden(spied: Spied): Promise<void> {
+    const FORBID = { ok: false, reason: 'forbidden', message: '変更には本部の権限が必要です。' }
+    expect(await data.addStoreClosedDay(STORE_ID, { date: '2026-12-01', reason: '' })).toEqual(FORBID)
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toEqual(FORBID)
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '10:00', close: '11:00' })).toEqual(FORBID)
+    expect(await data.removeStoreSpecialOpenDay(STORE_ID, '2026-10-20')).toEqual(FORBID)
+    expect(await data.readCanWriteStoreDays(STORE_ID)).toBe(false)
+    // BEFORE any SDK call: no write, no audit, no writer handle built, no store-days read of STORE_ID.
+    expectWrites()
+    expect(mockCore.writerFor).not.toHaveBeenCalled()
+    expect(mockCore.auditWriterFor).not.toHaveBeenCalled()
+    expect(spied.storePolicyGet).not.toHaveBeenCalled()
+    expect(spied.storePolicyListClosedDays).not.toHaveBeenCalled()
+  }
+  it('OWNER, settings.manage, NO stores.viewAll, visible_store_ids [OTHER] → every write to STORE_ID forbidden, zero calls', async () => {
+    const spied = actorSeeingOnlyOther(sheet('staff-scoped', 'owner', 'OWNER', ['settings.manage'], [OTHER_STORE_ID]), true)
+    await everyWriteForbidden(spied)
+  })
+  it('variant 2: ADMIN + a granted HQ_ADMIN, visible_store_ids [OTHER] → the grant does not widen the view', async () => {
+    const spied = actorSeeingOnlyOther(sheet('staff-scoped', 'manager', 'ADMIN', ['settings.manage'], [OTHER_STORE_ID]), true)
+    await everyWriteForbidden(spied)
+  })
+  it('the same actor WITH stores.viewAll → allowed (viewAll sees every tenant store)', async () => {
+    actorSeeingOnlyOther(sheet('staff-scoped', 'owner', 'OWNER', ['settings.manage', 'stores.viewAll'], [OTHER_STORE_ID]), true)
+    mockCore.writer.addClosedDay.mockResolvedValueOnce({ id: 'c9c9c9c9-0000-4000-8000-000000000009', store_id: STORE_ID, date: '2026-12-01', reason: null, created_by: null, created_at: 'x' })
+    const r = await data.addStoreClosedDay(STORE_ID, { date: '2026-12-01', reason: '' })
+    expect(r.ok).toBe(true)
+    expectWrites({ addClosedDay: 1 })
+  })
+})
