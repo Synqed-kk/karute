@@ -3388,6 +3388,35 @@ describe('charge once — the durable transcript memo', () => {
       const taken = warn.mock.calls.filter((c) => String(c[0]).includes('already recorded'))
       expect(taken).toHaveLength(1)
     })
+
+    it('f2c the true-up object cannot be read (storage erred) → the replay never records and never takes the lease: debit_recorded false, storage_unknown', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => warn.mockRestore())
+      seedMemo('owed')
+      trueUpDownload.mockResolvedValueOnce({ data: null, error: { status: 500, statusCode: '500', message: 'storage down' } } as never)
+      leaseUpload.mockClear()
+      const res = await call(AUDIO)
+      expect(res.receipt).toMatchObject({ replayed: true, debit_recorded: false, debit_deferred_reason: 'storage_unknown' })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(leaseUpload).not.toHaveBeenCalled()
+      expect(trueUpUpload).not.toHaveBeenCalled()
+    })
+
+    it('f2d UNDER the lease the recorded fact is read AGAIN: the call that held the lease before this one recorded it between this replay’s first read and its take → true, and the ledger is never asked twice', async () => {
+      seedMemo('owed')
+      // This replay's FIRST (free) read still finds no object; by the time it holds the lease the
+      // previous holder has recorded the delta and created it.
+      trueUpDownload.mockImplementationOnce(async () => {
+        trueUpStore.set(`trc/${AUDIO}.ja.trueup.json`, JSON.stringify({ v: 1, deltaCents: 44, recorded_at: '' }))
+        return { data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } } as never
+      })
+      const res = await call(AUDIO)
+      expect(res.receipt).toEqual({ duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: true, replayed: true })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(trueUpDownload).toHaveBeenCalledTimes(2)
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    })
   })
 })
 
