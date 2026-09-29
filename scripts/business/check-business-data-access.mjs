@@ -205,7 +205,7 @@ const ALLOW = [
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
     label: 'bound write method .X.bind(',
-    match: ['audit: { log: audit.log.bind(audit) }'],
+    match: ['audit: { log: auditClient.log.bind(auditClient) }'],
     count: 1,
     reason:
       '⚖ PKT-S29-B0b (store-days write door): the write-only { audit: { log } } handle, the two tenant throws before the client is built; feeds door-writes.ts\'s one audit.log call after a closure removal (core hard-deletes, takes no audit payload)',
