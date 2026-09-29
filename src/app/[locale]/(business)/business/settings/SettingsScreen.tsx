@@ -78,6 +78,20 @@ import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFa
 import { Collapse, DetailToggle } from './Collapse'
 import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSection'
 import {
+  ADD_PENDING_LABEL,
+  applyClosureAdded,
+  applyClosureRemoved,
+  applyClosuresReplaced,
+  applySpecialOpenDays,
+  GENERIC_FAIL_LINE,
+  READ_ONLY_NOTE,
+  REMOVE_PENDING_LABEL,
+  addSpecialDraft,
+  specialDayBadge,
+  type ClosureCore,
+  type SpecialCore,
+} from '@/business/lib/store-days-state'
+import {
   isIntegerTextAtLeast,
   StorePolicySection,
   STORE_POLICY_ANCHORS,
@@ -96,6 +110,7 @@ import {
   clampInt,
   commitNumberField,
   controlIdsOf,
+  dayTitle,
   effectiveCeiling,
   effectiveLock,
   fillTemplate,
@@ -197,6 +212,26 @@ function seedOf(props: SettingsProps): Record<string, RowValue> {
     if (section.cardLook) out[CARD_COLOR_ID] = section.cardLook.value ?? ''
   }
   return out
+}
+
+/** ⚖ PKT-S29-B1 — the payload's own 臨時休業 rows, taken once (`null` = a
+ *  failed read, R7; never confused with "no block on this section"). */
+function seedLiveClosures(props: SettingsProps): ClosureCore[] | null {
+  for (const s of props.sections) {
+    const b = s.blocks.find((x) => x.id === STORE_HOURS_CLOSURES_ID)
+    if (b) return b.collection ? b.collection.items.map((r) => ({ id: r.id, date: r.date ?? r.id, reason: r.note === '' ? null : r.note })) : null
+  }
+  return null
+}
+/** The payload's own 特別営業日 rows, RAW (date/open/close only — the badge is
+ *  re-asked of `specialDayBadge`, its one home, against the CURRENT 臨時休業 list:
+ *  R3, "computed from the CLOSURES list"). */
+function seedLiveSpecial(props: SettingsProps): SpecialCore[] | null {
+  for (const s of props.sections) {
+    const b = s.blocks.find((x) => x.id === STORE_HOURS_SPECIAL_ID)
+    if (b) return b.specialDays ? b.specialDays.items.map(({ date, open, close }) => ({ date, open, close })) : null
+  }
+  return null
 }
 
 function kindsOf(props: SettingsProps): Record<string, ControlKind> {
@@ -318,7 +353,7 @@ export function jumpAnchorsOf(sectionId: string | undefined, blocks: ReadonlyArr
  *  of truth is settings.css's `html:has(.biz .page.pg-settings) { --st-topbar: 62px }`; a suite pins the two equal. */
 const TOPBAR_FALLBACK_PX = 62
 
-export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave }
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null; saveCardColor?: CardSave; saveBookingColors?: BookingSave; saveStoreDays?: StoreDaysSave }
 
 /** ⚖ A2 (Liam 9/24) — カードの見た目's REAL save. page.tsx hands over the admitted business ONLY while the
  *  practice door is ON; absent = today's page-local commit, and nothing is ever sent. */
@@ -404,6 +439,100 @@ const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（ボードの色はこれまでのままです）。',
 }
 
+// ── ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE (Liam 9/28 20:0x) ──────────────
+//
+// Mirrored from the card-colour / 予約の色分け writers above, with one shape
+// difference: door-writes.ts already returns a READY JP message per refusal
+// (R4's own mapping table lives server-side), so the fetch wrappers below
+// read `message` straight off the response rather than keeping a second
+// reason→copy table here. Copy is the R9 copy round's own folded verdicts —
+// this file NEVER imports door-writes.ts (a server-only module; see its own
+// header on why a 'use client' file must not). ⚖ PKT-S30 P3-12 / F2 — the copy
+// and the list reducers come from store-days-state.ts, their one (pure) home.
+/** `lockedNote` null = writable; otherwise the line shown INSTEAD of add/remove (PKT-S31 R9, settings-props.ts storeDaysLockedNote). */
+export type StoreDaysSave = { businessId: string; storeId: string; lockedNote: string | null }
+const STORE_HOURS_CLOSURES_ID = 'store-hours.closures'
+const STORE_HOURS_SPECIAL_ID = 'store-hours.special-open'
+const CLOSURES_URL = '/api/business/store-days/closures'
+const SPECIAL_URL = '/api/business/store-days/special'
+
+/** `forbidden` = the door answered 403 at write time (⚖ PKT-S30 Also-noted A): the capability
+ *  changed under the user, so the block turns read-only. */
+type StoreDaysFail = { ok: false; message: string; forbidden: boolean }
+
+function storeDaysFail(body: unknown): StoreDaysFail {
+  const b = body as { message?: unknown; reason?: unknown } | null
+  const m = b?.message
+  return { ok: false, message: typeof m === 'string' && m !== '' ? m : GENERIC_FAIL_LINE, forbidden: b?.reason === 'forbidden' }
+}
+const NO_ANSWER: StoreDaysFail = { ok: false, message: GENERIC_FAIL_LINE, forbidden: false }
+
+async function postAddClosedDay(save: StoreDaysSave, date: string, reason: string): Promise<{ ok: true; row: { id: string; date: string; reason: string | null } } | StoreDaysFail> {
+  try {
+    const res = await fetch(CLOSURES_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
+      body: JSON.stringify({ storeId: save.storeId, date, reason }),
+    })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; row?: unknown }
+    const row = answer.row as { id?: unknown; date?: unknown; reason?: unknown } | undefined
+    if (res.ok && answer.ok === true && row && typeof row.id === 'string' && typeof row.date === 'string') {
+      return { ok: true, row: { id: row.id, date: row.date, reason: typeof row.reason === 'string' ? row.reason : null } }
+    }
+    return storeDaysFail(body)
+  } catch {
+    return NO_ANSWER
+  }
+}
+
+/** `closures` = the door's refreshed list (⚖ PKT-S33 F1), `null` when the answer carries none. */
+async function deleteClosedDay(save: StoreDaysSave, id: string): Promise<{ ok: true; closures: ClosureCore[] | null } | StoreDaysFail> {
+  try {
+    const url = `${CLOSURES_URL}?storeId=${encodeURIComponent(save.storeId)}&id=${encodeURIComponent(id)}`
+    const res = await fetch(url, { method: 'DELETE', headers: { 'x-expected-business': save.businessId } })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; closures?: unknown }
+    if (res.ok && answer.ok === true) return { ok: true, closures: Array.isArray(answer.closures) ? (answer.closures as ClosureCore[]) : null }
+    return storeDaysFail(body)
+  } catch {
+    return NO_ANSWER
+  }
+}
+
+async function postAddSpecialOpenDay(save: StoreDaysSave, date: string, open: string, close: string): Promise<{ ok: true; days: SpecialCore[] } | StoreDaysFail> {
+  try {
+    const res = await fetch(SPECIAL_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-expected-business': save.businessId },
+      body: JSON.stringify({ storeId: save.storeId, date, open, close }),
+    })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; specialOpenDays?: unknown }
+    if (res.ok && answer.ok === true && Array.isArray(answer.specialOpenDays)) {
+      return { ok: true, days: answer.specialOpenDays as SpecialCore[] }
+    }
+    return storeDaysFail(body)
+  } catch {
+    return NO_ANSWER
+  }
+}
+
+async function deleteSpecialOpenDay(save: StoreDaysSave, date: string): Promise<{ ok: true; days: SpecialCore[] } | StoreDaysFail> {
+  try {
+    const url = `${SPECIAL_URL}?storeId=${encodeURIComponent(save.storeId)}&date=${encodeURIComponent(date)}`
+    const res = await fetch(url, { method: 'DELETE', headers: { 'x-expected-business': save.businessId } })
+    const body: unknown = await res.json().catch(() => null)
+    const answer = (body ?? {}) as { ok?: unknown; specialOpenDays?: unknown }
+    if (res.ok && answer.ok === true && Array.isArray(answer.specialOpenDays)) {
+      return { ok: true, days: answer.specialOpenDays as SpecialCore[] }
+    }
+    return storeDaysFail(body)
+  } catch {
+    return NO_ANSWER
+  }
+}
+
 export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
    *  panel always shows something (the opening section); on a phone the rail IS
@@ -445,6 +574,22 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚖ PKT-S38 — why the last real 予約の色分け save did not land (null = none, or it did). */
   const [bookingFail, setBookingFail] = useState<CardSaveReason | null>(null)
   const bookingSaving = useRef(false)
+  /** ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE while `props.saveStoreDays` is set: each
+   *  own state (never `listRows`/`savedRows` — R8, the save bar never counts them),
+   *  seeded once from the payload, updated only from core's OWN returned array/row.
+   *  `null` = a failed read (R7); `[]` = a real, empty list. One `useRef` guard per
+   *  list (never both writes in flight at once), `pending` names WHICH control is
+   *  busy ('add' or the specific row's id/date) for the per-row disabled state. */
+  const [liveClosures, setLiveClosures] = useState<ClosureCore[] | null>(() => seedLiveClosures(props))
+  const [closurePending, setClosurePending] = useState<string | null>(null)
+  const [closureError, setClosureError] = useState<string | null>(null)
+  const closureBusy = useRef(false)
+  const [liveSpecial, setLiveSpecial] = useState<SpecialCore[] | null>(() => seedLiveSpecial(props))
+  const [specialPending, setSpecialPending] = useState<string | null>(null)
+  const [specialError, setSpecialError] = useState<string | null>(null)
+  const specialBusy = useRef(false)
+  /** ⚖ PKT-S30 Also-noted A — a write answered `forbidden`: both store-days blocks turn read-only. */
+  const [storeDaysRevoked, setStoreDaysRevoked] = useState(false)
   const [results, setResults] = useState<Record<string, string>>({})
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [tourIdx, setTourIdx] = useState(-1)
@@ -616,6 +761,26 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setValues((prev) => ({ ...prev, [coll.dateControlId]: '', [coll.reasonControlId]: '' }))
   }, [values, listRows])
 
+  /** ⚖ PKT-S30 F10 (R-A) — 特別営業日 in the OFF world: EXACTLY 臨時休業's OFF behaviour above — a
+   *  page-local draft in the same `listRows` map, so an add or a remove is an unsaved change and 保存
+   *  commits it locally (demoSaveLine says so). Never a refusal, never a no-op. */
+  const addSpecialRow = useCallback((block: SettingsBlock) => {
+    const sd = block.specialDays
+    if (!sd) return
+    const next = addSpecialDraft(rowsOfBlock(block, listRows), String(values[sd.dateControlId] ?? ''), String(values[sd.openControlId] ?? ''), String(values[sd.closeControlId] ?? ''), dayTitle)
+    setListErrors((prev) => ({ ...prev, [block.id]: next.error ?? '' }))
+    if (next.error !== null) return
+    setListRows((prev) => ({ ...prev, [block.id]: next.rows }))
+    setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
+  }, [values, listRows])
+
+  const removeSpecialRow = useCallback((block: SettingsBlock, date: string) => {
+    if (!block.specialDays) return
+    const rows = rowsOfBlock(block, listRows)
+    setListErrors((prev) => ({ ...prev, [block.id]: '' }))
+    setListRows((prev) => ({ ...prev, [block.id]: rows.filter((r) => r.id !== date) }))
+  }, [listRows])
+
   const removeFromCollection = useCallback((block: SettingsBlock, rowId: string) => {
     const coll = block.collection
     if (!coll) return
@@ -623,6 +788,92 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setListErrors((prev) => ({ ...prev, [block.id]: '' }))
     setListRows((prev) => ({ ...prev, [block.id]: rows.filter((r) => r.id !== rowId) }))
   }, [listRows])
+
+  /** ⚖ PKT-S29-B1 R8 — 臨時休業's LIVE add: ONE immediate `addClosedDay`, the
+   *  card-colour pattern's own useRef guard (never both a closure write and
+   *  another closure write in flight at once). The committed row is core's
+   *  OWN returned row (`result.row`), never the echoed input — same law as
+   *  every other real writer on this page. */
+  const addClosureLive = useCallback(async (block: SettingsBlock, save: StoreDaysSave) => {
+    const coll = block.collection
+    if (!coll || closureBusy.current) return
+    closureBusy.current = true
+    setClosurePending('add')
+    setClosureError(null)
+    const date = String(values[coll.dateControlId] ?? '')
+    const reason = String(values[coll.reasonControlId] ?? '')
+    const result = await postAddClosedDay(save, date, reason)
+    closureBusy.current = false
+    setClosurePending(null)
+    setLiveClosures((prev) => applyClosureAdded(prev, result.ok ? { ok: true, value: result.row } : { ok: false }))
+    if (!result.ok) {
+      setClosureError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
+      return
+    }
+    setValues((prev) => ({ ...prev, [coll.dateControlId]: '', [coll.reasonControlId]: '' }))
+  }, [values])
+
+  const removeClosureLive = useCallback(async (rowId: string, save: StoreDaysSave) => {
+    if (closureBusy.current) return
+    closureBusy.current = true
+    setClosurePending(rowId)
+    setClosureError(null)
+    const result = await deleteClosedDay(save, rowId)
+    closureBusy.current = false
+    setClosurePending(null)
+    // ⚖ PKT-S33 F1 — an ok remove takes the door's refreshed list (as 特別営業日 do); only an answer
+    // without one (defensive) falls back to dropping the row locally.
+    setLiveClosures((prev) =>
+      result.ok && result.closures !== null
+        ? applyClosuresReplaced(result.closures)
+        : applyClosureRemoved(prev, result.ok ? { ok: true, value: rowId } : { ok: false }),
+    )
+    if (!result.ok) {
+      setClosureError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
+    }
+  }, [])
+
+  /** ⚖ PKT-S29-B1 R8 — 特別営業日's LIVE add/remove: the door returns the
+   *  FULL array every time (R5 — read-before-write, sorted), so the screen
+   *  simply replaces its local state with core's answer; it never assembles
+   *  the next array itself. */
+  const addSpecialLive = useCallback(async (block: SettingsBlock, save: StoreDaysSave) => {
+    const sd = block.specialDays
+    if (!sd || specialBusy.current) return
+    specialBusy.current = true
+    setSpecialPending('add')
+    setSpecialError(null)
+    const date = String(values[sd.dateControlId] ?? '')
+    const open = String(values[sd.openControlId] ?? '')
+    const close = String(values[sd.closeControlId] ?? '')
+    const result = await postAddSpecialOpenDay(save, date, open, close)
+    specialBusy.current = false
+    setSpecialPending(null)
+    setLiveSpecial((prev) => applySpecialOpenDays(prev, result.ok ? { ok: true, value: result.days } : { ok: false }))
+    if (!result.ok) {
+      setSpecialError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
+      return
+    }
+    setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
+  }, [values])
+
+  const removeSpecialLive = useCallback(async (date: string, save: StoreDaysSave) => {
+    if (specialBusy.current) return
+    specialBusy.current = true
+    setSpecialPending(date)
+    setSpecialError(null)
+    const result = await deleteSpecialOpenDay(save, date)
+    specialBusy.current = false
+    setSpecialPending(null)
+    setLiveSpecial((prev) => applySpecialOpenDays(prev, result.ok ? { ok: true, value: result.days } : { ok: false }))
+    if (!result.ok) {
+      setSpecialError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
+    }
+  }, [])
 
   const commitSection = useCallback((target: SettingsSection) => {
     const ids = controlIdsOf(target)
@@ -642,6 +893,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSavedRows((prev) => {
       const next = { ...prev }
       for (const b of target.blocks) if (b.collection !== null) next[b.id] = rowsOfBlock(b, listRows)
+      // ⚖ PKT-S30 F10 (R-A) — the OFF world's 特別営業日 draft is committed the same way.
+      for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)
       return next
     })
     setCommitted((prev) => ({ ...prev, [target.id]: true }))
@@ -1392,27 +1645,53 @@ export function SettingsScreen(props: SettingsScreenProps) {
             columnAnd(
               <div className="st-main">
                 {section.sampleNone && <NoSample />}
-                {section.blocks.map((b) => (
-                  <Block
-                    key={b.id}
-                    block={b}
-                    section={section}
-                    values={values}
-                    onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}
-                    labelFor={labelFor}
-                    result={results[b.id] ?? null}
-                    error={actionErrors[b.id] ?? null}
-                    onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
-                    onLink={(id) => openSection(id, false)}
-                    openRows={openRows}
-                    onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
-                    listRows={b.collection ? rowsOfBlock(b, listRows) : null}
-                    listError={listErrors[b.id] ?? null}
-                    onListAdd={() => addRow(b)}
-                    onListRemove={(rowId) => removeFromCollection(b, rowId)}
-                    reduced={reduced}
-                  />
-                ))}
+                {section.blocks.map((b) => {
+                  // ⚖ PKT-S29-B1 — 臨時休業 goes LIVE the moment `props.saveStoreDays` is
+                  // handed over (the door is ON and a store is selected); OFF/no-store
+                  // keeps today's local-only behaviour byte for byte (`listRows`/`addRow`/
+                  // `removeFromCollection`, untouched below). ⚖ PKT-S30 F10 (R-A) — 特別営業日's
+                  // OFF world is the SAME local draft (`addSpecialRow`/`removeSpecialRow`), its
+                  // badge asked of `specialDayBadge` against the draft 臨時休業 rows (OFF ids = dates).
+                  const closuresLive = b.id === STORE_HOURS_CLOSURES_ID && props.saveStoreDays
+                  const readOnlyNote = props.saveStoreDays ? props.saveStoreDays.lockedNote ?? (storeDaysRevoked ? READ_ONLY_NOTE : null) : null
+                  const closureDisplay = liveClosures === null ? null : liveClosures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))
+                  const specialLive = b.id === STORE_HOURS_SPECIAL_ID && props.saveStoreDays
+                  const offClosureBlock = section.blocks.find((x) => x.id === STORE_HOURS_CLOSURES_ID)
+                  const offClosureDates = offClosureBlock ? rowsOfBlock(offClosureBlock, listRows).map((r) => ({ date: r.id })) : []
+                  const specialDisplay = specialLive
+                    ? liveSpecial === null ? null : liveSpecial.map((d) => ({ date: d.date, title: dayTitle(d.date), open: d.open, close: d.close, badge: specialDayBadge(d.date, liveClosures ?? []) }))
+                    : b.specialDays ? rowsOfBlock(b, listRows).map((r) => ({ date: r.id, title: r.title, open: r.open ?? '', close: r.close ?? '', badge: specialDayBadge(r.id, offClosureDates) })) : null
+                  return (
+                    <Block
+                      key={b.id}
+                      block={b}
+                      section={section}
+                      values={values}
+                      onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}
+                      labelFor={labelFor}
+                      result={results[b.id] ?? null}
+                      error={actionErrors[b.id] ?? null}
+                      onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
+                      onLink={(id) => openSection(id, false)}
+                      openRows={openRows}
+                      onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
+                      listRows={closuresLive ? closureDisplay : b.collection ? rowsOfBlock(b, listRows) : null}
+                      listError={closuresLive ? closureError : listErrors[b.id] ?? null}
+                      listReadOnly={closuresLive ? readOnlyNote : null}
+                      listPending={closuresLive ? closurePending : null}
+                      onListAdd={closuresLive ? () => void addClosureLive(b, props.saveStoreDays!) : () => addRow(b)}
+                      onListRemove={closuresLive ? (rowId) => void removeClosureLive(rowId, props.saveStoreDays!) : (rowId) => removeFromCollection(b, rowId)}
+                      specialRows={b.specialDays ? specialDisplay : null}
+                      specialError={specialLive ? specialError : b.specialDays ? listErrors[b.id] || null : null}
+                      specialReadOnly={b.id === STORE_HOURS_SPECIAL_ID ? readOnlyNote : null}
+                      specialPending={b.id === STORE_HOURS_SPECIAL_ID ? specialPending : null}
+                      // ⚖ PKT-S30 F10 (R-A) — OFF: the local draft, exactly like 臨時休業's OFF add/remove.
+                      onSpecialAdd={() => (specialLive ? void addSpecialLive(b, props.saveStoreDays!) : addSpecialRow(b))}
+                      onSpecialRemove={(date) => (specialLive ? void removeSpecialLive(date, props.saveStoreDays!) : removeSpecialRow(b, date))}
+                      reduced={reduced}
+                    />
+                  )
+                })}
                 {/* ⚖ S17 fix round 3 · R3-1 — THE STANDING FOOTNOTE IS IN FLOW,
                     NOT IN THE STICKY CARD. At ① the save card is stuck to the
                     bottom of the phone's own screen, so every sentence inside it
@@ -1437,7 +1716,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           {section.blocks.length > 1 && <p className="st-foot">{props.demoSaveLine}</p>}
                         </>
                       )
-                    : <p className="st-foot">{props.demoSaveLine}</p>}
+                    : props.saveStoreDays && section.blocks.some((x) => x.id === STORE_HOURS_CLOSURES_ID)
+                      ? null /* ⚖ PKT-S33-B1B-FIX-2 — door ON: 臨時休業/特別営業日 write to core; the page-local line would be false */
+                      : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
               sideNode(
                 section.blocks.map((b) => ({ id: b.id, title: wordsRoomBlock(section, b.id, values)?.title ?? b.title })),
@@ -1794,8 +2075,16 @@ function Block({
   onToggleRow,
   listRows,
   listError,
+  listReadOnly,
+  listPending,
   onListAdd,
   onListRemove,
+  specialRows,
+  specialError,
+  specialReadOnly,
+  specialPending,
+  onSpecialAdd,
+  onSpecialRemove,
   reduced,
 }: {
   block: SettingsBlock
@@ -1811,10 +2100,24 @@ function Block({
   onToggleRow: (rowId: string) => void
   /** ⚖ C2 — the live rows of a block that is a collection, `null` for every
    *  other block. */
-  listRows: ReadonlyArray<{ id: string; title: string; note: string }> | null
+  listRows: ReadonlyArray<{ id: string; title: string; note: string; date?: string }> | null
   listError: string | null
+  /** ⚖ PKT-S29-B1 R2 — non-null = read-only, the sentence to show, zero write
+   *  attempts on any press. `null` everywhere the block is not store-days. */
+  listReadOnly: string | null
+  /** ⚖ PKT-S29-B1 R8 — which control is mid-write: `'add'` or a specific row's
+   *  id, `null` when nothing is in flight. */
+  listPending: string | null
   onListAdd: () => void
   onListRemove: (rowId: string) => void
+  /** ⚖ PKT-S29-B1 — 特別営業日's own live rows, `null` for every other block
+   *  (including a FAILED read, R7 — never `[]` standing in for a failure). */
+  specialRows: Array<{ date: string; title: string; open: string; close: string; badge: string | null }> | null
+  specialError: string | null
+  specialReadOnly: string | null
+  specialPending: string | null
+  onSpecialAdd: () => void
+  onSpecialRemove: (date: string) => void
   reduced: boolean
 }) {
   const [markOpen, setMarkOpen] = useState(false)
@@ -1881,10 +2184,27 @@ function Block({
           coll={block.collection}
           rows={listRows}
           error={listError}
+          readOnly={listReadOnly}
+          pending={listPending}
           values={values}
           onChange={onChange}
           onAdd={onListAdd}
           onRemove={onListRemove}
+        />
+      )}
+
+      {block.specialDays && specialRows !== null && (
+        <SpecialDaysCollection
+          block={block}
+          sd={block.specialDays}
+          rows={specialRows}
+          error={specialError}
+          readOnly={specialReadOnly}
+          pending={specialPending}
+          values={values}
+          onChange={onChange}
+          onAdd={onSpecialAdd}
+          onRemove={onSpecialRemove}
         />
       )}
 
@@ -2010,6 +2330,8 @@ function Collection({
   coll,
   rows,
   error,
+  readOnly,
+  pending,
   values,
   onChange,
   onAdd,
@@ -2019,6 +2341,13 @@ function Collection({
   coll: NonNullable<SettingsBlock['collection']>
   rows: ReadonlyArray<{ id: string; title: string; note: string }>
   error: string | null
+  /** ⚖ PKT-S29-B1 R2 — non-null = a store-days block a non-HQ actor may only
+   *  READ: the add form is hidden, every row's 取り消す is disabled, and this
+   *  sentence prints once. `null` on every OFF/local (draft-model) collection. */
+  readOnly: string | null
+  /** ⚖ PKT-S29-B1 R8 — `'add'` or the row id mid-write; disables just that
+   *  control (the card-colour pattern's own useRef guard, made visible). */
+  pending: string | null
   values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void
   onAdd: () => void
@@ -2026,6 +2355,14 @@ function Collection({
 }) {
   const dateId = `${block.id}-date`
   const reasonId = `${block.id}-reason`
+  const noop = () => {}
+  /** ⚖ the room's own accessibility law (settings.test.ts "the ACCESSIBLE NAME
+   *  of a locked control…"): a busy control stays FOCUSABLE — `aria-disabled`,
+   *  never `disabled` — so its state is reachable by keyboard/screen reader;
+   *  the handler still needs SOMETHING while busy (a no-op), never `undefined`
+   *  (a controlled `value` with no `onChange` warns on every render). */
+  const busy = pending !== null
+  const inert = busy ? ({ 'aria-disabled': 'true' as const } as const) : {}
   return (
     <div className="st-coll">
       {rows.length === 0 ? (
@@ -2037,46 +2374,166 @@ function Collection({
               <div className="st-coll-title">{r.title}</div>
               {r.note && <div className="st-coll-note">{r.note}</div>}
             </div>
-            <button
-              type="button"
-              className="st-coll-del"
-              /* ⚠ THE ROW'S SUBJECT RIDES THE BUTTON'S OWN NAME. A column of
-                 buttons all called 「取り消す」 is a screen reader hearing the
-                 same word six times with no way to tell which day it removes. */
-              aria-label={`${r.title}の臨時休業を${coll.removeLabel}`}
-              onClick={() => onRemove(r.id)}
-            >
-              {coll.removeLabel}
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                className="st-coll-del"
+                /* ⚠ THE ROW'S SUBJECT RIDES THE BUTTON'S OWN NAME. A column of
+                   buttons all called 「取り消す」 is a screen reader hearing the
+                   same word six times with no way to tell which day it removes. */
+                aria-label={`${r.title}の臨時休業を${coll.removeLabel}`}
+                {...inert}
+                onClick={busy ? noop : () => onRemove(r.id)}
+              >
+                {pending === r.id ? REMOVE_PENDING_LABEL : coll.removeLabel}
+              </button>
+            )}
           </div>
         ))
       )}
-      <div className="st-coll-add">
-        <label className="st-coll-field" htmlFor={dateId}>
-          <span>日付</span>
-          <input
-            id={dateId}
-            className="st-input is-date"
-            type="date"
-            value={String(values[coll.dateControlId] ?? '')}
-            onChange={(e) => onChange(coll.dateControlId, e.target.value)}
-          />
-        </label>
-        <label className="st-coll-field" htmlFor={reasonId}>
-          <span>理由</span>
-          <input
-            id={reasonId}
-            className="st-input"
-            type="text"
-            maxLength={40}
-            placeholder="設備メンテナンスのため"
-            value={String(values[coll.reasonControlId] ?? '')}
-            onChange={(e) => onChange(coll.reasonControlId, e.target.value)}
-          />
-        </label>
-        <button type="button" className="st-act" onClick={onAdd}>{coll.addLabel}</button>
-        {error && <p className="st-coll-error" role="status">{error}</p>}
-      </div>
+      {readOnly ? (
+        <p className="st-coll-readonly" role="status">{readOnly}</p>
+      ) : (
+        <div className="st-coll-add">
+          <label className="st-coll-field" htmlFor={dateId}>
+            <span>日付</span>
+            <input
+              id={dateId}
+              className="st-input is-date"
+              type="date"
+              {...inert}
+              value={String(values[coll.dateControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(coll.dateControlId, e.target.value)}
+            />
+          </label>
+          <label className="st-coll-field" htmlFor={reasonId}>
+            <span>理由</span>
+            <input
+              id={reasonId}
+              className="st-input"
+              type="text"
+              maxLength={40}
+              placeholder="設備メンテナンスのため"
+              {...inert}
+              value={String(values[coll.reasonControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(coll.reasonControlId, e.target.value)}
+            />
+          </label>
+          <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
+            {pending === 'add' ? ADD_PENDING_LABEL : coll.addLabel}
+          </button>
+          {error && <p className="st-coll-error" role="status">{error}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** ⚖ PKT-S29-B1 R8 — 特別営業日's own add/remove list: date + 開店 + 閉店, a
+ *  badge when the same date is also a 臨時休業 (computed by the caller from
+ *  the CLOSURES list — R3), and no `reason` field (core's `SpecialOpenDay`
+ *  carries none). Same shape as `Collection` otherwise: real keyboard-reachable
+ *  controls, a live-region refusal, a sentence for the empty state. */
+function SpecialDaysCollection({
+  block,
+  sd,
+  rows,
+  error,
+  readOnly,
+  pending,
+  values,
+  onChange,
+  onAdd,
+  onRemove,
+}: {
+  block: SettingsBlock
+  sd: NonNullable<SettingsBlock['specialDays']>
+  rows: ReadonlyArray<{ date: string; title: string; open: string; close: string; badge: string | null }>
+  error: string | null
+  readOnly: string | null
+  pending: string | null
+  values: Record<string, RowValue>
+  onChange: (id: string, v: RowValue) => void
+  onAdd: () => void
+  onRemove: (date: string) => void
+}) {
+  const dateId = `${block.id}-date`
+  const openId = `${block.id}-open`
+  const closeId = `${block.id}-close`
+  const noop = () => {}
+  const busy = pending !== null
+  const inert = busy ? ({ 'aria-disabled': 'true' as const } as const) : {}
+  return (
+    <div className="st-coll">
+      {rows.length === 0 ? (
+        <p className="st-coll-empty">{sd.emptyLine}</p>
+      ) : (
+        rows.map((r) => (
+          <div className="st-coll-row" key={r.date}>
+            <div className="st-coll-what">
+              <div className="st-coll-title">
+                {r.title}
+                {r.badge && <span className="st-chip">{r.badge}</span>}
+              </div>
+              <div className="st-coll-note">{r.open}〜{r.close}</div>
+            </div>
+            {!readOnly && (
+              <button
+                type="button"
+                className="st-coll-del"
+                aria-label={`${r.title}の特別営業日を${sd.removeLabel}`}
+                {...inert}
+                onClick={busy ? noop : () => onRemove(r.date)}
+              >
+                {pending === r.date ? REMOVE_PENDING_LABEL : sd.removeLabel}
+              </button>
+            )}
+          </div>
+        ))
+      )}
+      {readOnly ? (
+        <p className="st-coll-readonly" role="status">{readOnly}</p>
+      ) : (
+        <div className="st-coll-add">
+          <label className="st-coll-field" htmlFor={dateId}>
+            <span>日付</span>
+            <input
+              id={dateId}
+              className="st-input is-date"
+              type="date"
+              {...inert}
+              value={String(values[sd.dateControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(sd.dateControlId, e.target.value)}
+            />
+          </label>
+          <label className="st-coll-field" htmlFor={openId}>
+            <span>開店</span>
+            <input
+              id={openId}
+              className="st-input is-time"
+              type="time"
+              {...inert}
+              value={String(values[sd.openControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(sd.openControlId, e.target.value)}
+            />
+          </label>
+          <label className="st-coll-field" htmlFor={closeId}>
+            <span>閉店</span>
+            <input
+              id={closeId}
+              className="st-input is-time"
+              type="time"
+              {...inert}
+              value={String(values[sd.closeControlId] ?? '')}
+              onChange={busy ? noop : (e) => onChange(sd.closeControlId, e.target.value)}
+            />
+          </label>
+          <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
+            {pending === 'add' ? ADD_PENDING_LABEL : sd.addLabel}
+          </button>
+          {error && <p className="st-coll-error" role="status">{error}</p>}
+        </div>
+      )}
     </div>
   )
 }

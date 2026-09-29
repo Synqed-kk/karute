@@ -32,9 +32,10 @@
 //    — the type note is printed beside the row, and the suite pins that.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { practiceDoorOn, readBookingColors, readCanManageCardColor } from '@/business/lib/data'
+import { practiceDoorOn, readBookingColors, readCanManageCardColor, readCanWriteStoreDays } from '@/business/lib/data'
 import { SettingsScreen } from './SettingsScreen'
 import { settingsProps } from './settings-props'
+import { storeDaysLockedNote } from './settings-props'
 import './settings.css'
 
 export default async function SettingsPage({
@@ -72,5 +73,11 @@ export default async function SettingsPage({
   // ⚖ PKT-S38 R7 — and 予約の色分け's save, for the lens store: the SAME canSave answer (settings.manage is one
   // truth; no second sheet read). OFF, or no store / a shut gate (bookingColors null): no prop, today's render.
   const saveBookingColors = saveCardColor && bookingColors ? { businessId: saveCardColor.businessId, storeId: storeKey, canSave: saveCardColor.canSave, colors: bookingColors } : undefined
-  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} />
+  // ⚖ PKT-S29-B1 — 臨時休業・特別営業日's save, for the lens store: LIVE while the door is ON and a
+  // store is selected; R2's own answer (store visibility + settings.manage + HQ_ADMIN), asked once here
+  // rather than per add/remove press — ⚖ PKT-S31 R9: three states, mapped to a line by settings-props.ts.
+  const saveStoreDays = practiceDoorOn() && storeKey !== 'all-stores'
+    ? { businessId: admitted.businessId, storeId: storeKey, lockedNote: storeDaysLockedNote(await readCanWriteStoreDays(storeKey)) }
+    : undefined
+  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} saveCardColor={saveCardColor} saveBookingColors={saveBookingColors} saveStoreDays={saveStoreDays} />
 }
