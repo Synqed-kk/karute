@@ -233,6 +233,11 @@ export async function enqueueFromSessionWithClient(
   // The device-side save (actions/recording-jobs.ts `enqueueRecordingJob`) still
   // stamps the saver's active scope: it holds the take and never reads the row,
   // so it adopts this rule on its next touch, not here.
+  // SF-6 (S67 fix round 2): a row with no start is LOGGED, never silent; the
+  // worker then says skipped:no_session_start.
+  if (!row.created_at) {
+    console.warn(JSON.stringify({ evt: 'session_start_unread', recordingSessionId: input.recordingSessionId, cause: 'no created_at' }))
+  }
   const payload: RecordingJobPayload = {
     customer_id: input.customerId,
     staff_id: actor.jobStaffId,

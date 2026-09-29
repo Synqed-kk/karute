@@ -529,4 +529,17 @@ describe('POST recordings/job — S7 session_started_at on the payload', () => {
     expect(ok.status).toBe(200)
     expect((jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }])[0].payload.session_started_at).toBe('2026-09-29T07:44:39Z')
   })
+  // SF-6 (S67 fix round 2, commit 16; NIT-2): the stamp's read failing is
+  // logged, never silent — and still never a refusal.
+  it('SF-6: the session-start read fails → enqueued without a start, and the failure is logged once', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    recordingsGet
+      .mockImplementationOnce(async () => ownRow())
+      .mockImplementationOnce(async () => { throw new Error('core down') })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    expect((jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }])[0].payload.session_started_at).toBeUndefined()
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"session_start_unread"'))).toHaveLength(1)
+    warn.mockRestore()
+  })
 })

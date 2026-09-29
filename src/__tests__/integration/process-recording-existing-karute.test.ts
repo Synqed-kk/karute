@@ -695,10 +695,16 @@ describe('S7 — the worker links the unambiguous booking at save', () => {
     expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
     expect(detail.appointment_link).toBe('ambiguous')
   })
-  it('S7-job: an older job with no session start → none, no link', async () => {
+  // SF-6 (S67 fix round 2, commit 16; the attack's W1): its own word, never
+  // 'none' (was 'none' in commit 4), logged once.
+  it('SF-6 W1: an older job with no session start → skipped:no_session_start, no link, no list read, logged once', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const detail = await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], {})
-    expect(detail.appointment_link).toBe('none')
+    expect(detail.appointment_link).toBe('skipped:no_session_start')
     expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"auto_link_skipped"'))).toHaveLength(1)
+    warn.mockRestore()
   })
   it('S7-job: a job that names its booking never runs the auto-link', async () => {
     const detail = await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], { appointment_id: 'appt-given', session_started_at: '2026-09-29T07:44:39Z' })

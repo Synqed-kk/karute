@@ -106,10 +106,16 @@ describe('S7 — resolveAutoAppointmentLink, the guardrail', () => {
     list.mockRejectedValueOnce(new Error('core down'))
     expect(await run(c)).toEqual({ link: 'none', appointmentId: null })
   })
-  it('a caller that already holds the start (the worker) → no session read; no start → none', async () => {
-    const { c, recordingsGet } = client([booking()])
+  // SF-6 (S67 fix round 2, commit 16): no start = NOT evaluated, its own word
+  // (was 'none', the same word as "no booking qualifies").
+  it('a caller that already holds the start (the worker) → no session read; no start → skipped:no_session_start', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { c, recordingsGet, list } = client([booking()])
     expect((await run(c, { sessionStartedAt: SESSION_START })).link).toBe('auto_linked')
-    expect((await run(c, { sessionStartedAt: null })).link).toBe('none')
+    expect(await run(c, { sessionStartedAt: null })).toEqual({ link: 'skipped:no_session_start', appointmentId: null })
     expect(recordingsGet).not.toHaveBeenCalled()
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"auto_link_skipped"'))).toHaveLength(1)
+    warn.mockRestore()
   })
 })

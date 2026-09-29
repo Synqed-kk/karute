@@ -101,7 +101,11 @@ export function keepLinkUnlessGiven(
  *
  * NEVER THROWS: a read that fails links nothing ('none'), the save goes on.
  */
-export type AutoAppointmentLink = 'auto_linked' | 'ambiguous' | 'none'
+/** SF-6 (S67 fix round 2, commit 16): `skipped:no_session_start` = the save
+ *  had no session start to judge by (a job queued before the enqueue doors
+ *  stamped one, or a stamp the door could not read) — NOT evaluated, never
+ *  the same word as `none` ("no booking qualifies"). */
+export type AutoAppointmentLink = 'auto_linked' | 'ambiguous' | 'none' | 'skipped:no_session_start'
 const LINKABLE_STATUSES = new Set(['SCHEDULED', 'IN_PROGRESS'])
 
 function jstDayOf(iso: string): string {
@@ -127,7 +131,14 @@ export async function resolveAutoAppointmentLink(
       input.sessionStartedAt === undefined
         ? (await synqed.recordings.get(input.recordingSessionId))?.created_at
         : input.sessionStartedAt
-    if (!startIso) return none
+    if (!startIso) {
+      // SF-6: logged once per save — the only trace of an auto-link that
+      // could not be evaluated.
+      console.warn(
+        JSON.stringify({ evt: 'auto_link_skipped', reason: 'no_session_start', recordingSessionId: input.recordingSessionId }),
+      )
+      return { link: 'skipped:no_session_start', appointmentId: null }
+    }
     const day = jstDayOf(startIso)
     const res = await synqed.appointments.list({
       customer_id: input.customerId,
@@ -195,7 +206,8 @@ export async function menuOfAutoLinked(
 /** R-O9 (i): the ONE expression for `appointment_link` — both writers'
  *  karute.save rows and the facade save's reply take the value here, so they
  *  can never drift. It keeps its meaning on main: what the AUTO-link did.
- *  The closed set: `kept | auto_linked | ambiguous | none`, plus a given
+ *  The closed set: `kept | auto_linked | ambiguous | none` (+
+ *  `skipped:no_session_start`, SF-6: not evaluated), plus a given
  *  booking's degraded reason (appointment_not_found · appointment_out_of_scope
  *  · appointment_unreadable). null = the booking was given by the payload (or
  *  no auto-link ran at all: a save with no session, the web doors).

@@ -138,6 +138,10 @@ MUTANTS = [
     ('M-O17c', "the worker's row names the payload's booking, not the record's",
      [(WORKER, '      appointment_id: linkedId,\n', '      appointment_id: payload.appointment_id ?? autoLinked?.appointmentId ?? null, // M-O17c\n')],
      [JOB_T], ['SF-5 F-6: a kept-link converge → the row says kept']),
+    # M-O18 — a job with no session start says 'none' again (commit 16, SF-6)
+    ('M-O18', "no session start reads as 'none' (the same word as no booking)",
+     [(LINK, "      return { link: 'skipped:no_session_start', appointmentId: null }\n", '      return none // M-O18\n')],
+     [AUTO_T, JOB_T], ['no start → skipped:no_session_start', 'SF-6 W1: an older job with no session start']),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',

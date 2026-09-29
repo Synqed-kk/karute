@@ -346,4 +346,15 @@ describe('POST recordings/job/from-session — S7 session_started_at on the payl
     const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
     expect(call.payload.session_started_at).toBe('2026-09-29T07:44:39Z')
   })
+  // SF-6 (S67 fix round 2, commit 16; NIT-2): a row with no start is logged.
+  it('SF-6: a row without created_at → no start on the payload, logged once', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    recordingsGet.mockImplementationOnce(async () => ({ ...current.row, created_at: undefined }) as never)
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.session_started_at).toBeUndefined()
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"session_start_unread"'))).toHaveLength(1)
+    warn.mockRestore()
+  })
 })
