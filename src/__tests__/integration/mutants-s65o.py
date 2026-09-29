@@ -122,6 +122,13 @@ MUTANTS = [
      [(FATE, '        ref,\n', '        ref: randomUUID().slice(0, 8), // M-O9\n')],
      [SAVE_T, JOB_T], ['one reference joins the log line and the audit row (the write errors)',
                        'one reference joins the log line and the audit row (the write THROWS)']),
+    # M-O10 — the one appointment_link expression loses the degraded reason
+    # (commit 8): BOTH the reply and the row must go red — both call it.
+    ('M-O10', 'appointmentLinkOf drops the degraded-booking reason',
+     [(LINK, '  return linkReason ?? autoLink ?? null\n', '  return autoLink ?? null // M-O10\n')],
+     [SAVE_T, f'{IT}/karute-save-audit.test.ts'],
+     ["booking not found → 200, saved in the caller's store, link dropped",
+      'booking not found → saved, one karute.save row with severity notice and appointment_link appointment_not_found']),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)
     ('M-G1', '`return await emitSave(...)` (the S67 list failure)',
      [(CORE, '  return emitSave({ id: record.id, fresh: true,', '  return await emitSave({ id: record.id, fresh: true,')],

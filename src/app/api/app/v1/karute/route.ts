@@ -25,6 +25,7 @@ import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { writeOutcomeFate, outcomeReply, type OutcomeLink } from '@/lib/karute/outcome-fate'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import {
+  appointmentLinkOf,
   readAppointmentForSave,
   resolveAutoAppointmentLink,
   type AppointmentLinkReason,
@@ -253,8 +254,9 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
 
   // S2: the save answers with the answer's fate and the booking link's
   // (additive — an older client reads `id` and ignores the rest).
-  // appointment_link = the SAME value the karute.save row carries (one vocabulary).
-  return ok(ctx, { id, outcome: outcomeReply(outcomeLink), appointment_link: linkReason ?? autoLink })
+  // appointment_link = the SAME value the karute.save row carries (one vocabulary,
+  // one expression: appointmentLinkOf).
+  return ok(ctx, { id, outcome: outcomeReply(outcomeLink), appointment_link: appointmentLinkOf(linkReason, autoLink) })
 })
 
 export const OPTIONS = POST // facadeHandler short-circuits OPTIONS before auth.

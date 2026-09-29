@@ -164,3 +164,14 @@ export async function resolveAutoAppointmentLink(
     return none
   }
 }
+
+/** R-O9 (i): the ONE expression for `appointment_link` — the facade save's
+ *  reply and its karute.save row both compute the value here, so the two can
+ *  never drift: a given booking that degraded says why; otherwise the
+ *  auto-link's answer when it ran; otherwise null. */
+export function appointmentLinkOf(
+  linkReason: AppointmentLinkReason | null,
+  autoLink: AutoAppointmentLink | null | undefined,
+): AppointmentLinkReason | AutoAppointmentLink | null {
+  return linkReason ?? autoLink ?? null
+}

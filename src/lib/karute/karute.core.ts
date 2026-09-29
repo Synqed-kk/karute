@@ -40,7 +40,7 @@ import type { SessionCategory } from '@/components/karute/redesign/detail/Curren
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
-import { keepLinkUnlessGiven, type AppointmentLinkReason, type AutoAppointmentLink } from '@/lib/karute/appointment-link'
+import { appointmentLinkOf, keepLinkUnlessGiven, type AppointmentLinkReason, type AutoAppointmentLink } from '@/lib/karute/appointment-link'
 import type { OutcomeLink } from '@/lib/karute/outcome-fate'
 
 /**
@@ -144,7 +144,7 @@ export async function createOrUpdateKaruteRecord(
         // Why the booking link degraded (not found / out of scope /
         // unreadable) — null on a normal save, never undefined. S7: when the
         // save named no booking, the auto-link's own answer instead.
-        appointment_link: linkReason ?? autoLinked?.link ?? null,
+        appointment_link: appointmentLinkOf(linkReason, autoLinked?.link),
         // S5: the answer's fate, beside the booking's (facade + worker only).
         ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),
       },
