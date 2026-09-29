@@ -939,8 +939,10 @@ export async function mintTakeUploadUrl(
   const businessId = actor.businessId
 
   // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). It is still
-  // ROW-LESS — nothing is reserved, nothing is written, nothing is audited —
-  // but it is no longer ANONYMOUS: the key carries the session, so the
+  // ROW-LESS — nothing is reserved and nothing is audited; since A4b it writes
+  // the `partial` take mark (`notePartialAtStagedMint` → `markPartialAtMint`)
+  // when the body says `partial` — but it is no longer ANONYMOUS: the key
+  // carries the session, so the
   // transcribe door can check the binding rather than accept any same-tenant
   // key as that discard's audio. The row is read only to prove the caller may
   // record onto it — and since fix round 4 (G2) that proof is STRICTER than the
