@@ -1282,10 +1282,12 @@ describe('the fixture data door', () => {
     { file: 'door-writes.ts', line: 'await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })', count: 3 },
     { file: 'door-writes.ts', line: "const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: input.reason === '' ? null : input.reason, acting_staff_id: actor.sheet.staff_id, audit: { actor_type: 'staff', actor_id: actor.sheet.staff_id, category: 'settings', action: 'store_closed_day.add', target_type: 'store_closed_day' } })", count: 1 },
     { file: 'door-writes.ts', line: 'await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)', count: 1 },
+    // ⚖ PKT-S30 F6 — the closure-removal audit event, the door's fourth SDK write (`audit.log`).
+    { file: 'door-writes.ts', line: 'await auditHandle.audit.log({', count: 1 },
   ]
   const DOOR_FORBIDDEN = [
     'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
-    '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
+    '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(', '.log(',
     '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
   ]
   function doorHits(sources: Array<[string, string]>): string[] {
@@ -1341,10 +1343,11 @@ describe('the fixture data door', () => {
   // three more, all in core-reach.ts, all write-only handles for door-writes.ts's own four exports.
   it('R-A2-7/PKT-S29-B1: every bound mutator is core-reach.ts’s own write-only handle — once each, nowhere else in practice-door/', () => {
     const binds = doorSources().flatMap(([name, src]) =>
-      [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
+      [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|log|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
     )
     expect(binds.sort()).toEqual([
       'core-reach.ts: addClosedDay.bind(',
+      'core-reach.ts: log.bind(',
       'core-reach.ts: removeClosedDay.bind(',
       'core-reach.ts: set.bind(',
       'core-reach.ts: upsert.bind(',

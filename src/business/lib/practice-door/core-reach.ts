@@ -94,13 +94,16 @@ export function storeDaysWriterFor(admitted: { businessId: string }): { storePol
  *  throws, write-only: `log` and nothing else. Never used for the read half
  *  (`auditList` above serves that; a writer and a reader are two different
  *  truths on this door, same as every other writer/reader pair here). */
-export function auditWriterFor(admitted: { businessId: string }): Pick<CoreClient['audit'], 'log'> {
+export function auditWriterFor(admitted: { businessId: string }): { audit: Pick<CoreClient['audit'], 'log'> } {
   const tenant = practiceTenant()
   if (tenant === null) throw new Error('practice door called with the switch unset')
   if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
-  // ⚠ NEVER name this destructured binding `audit` — check-shared-cores.mjs's
-  // deny-set scanner reads the bare identifier `audit` as a reference to the
-  // shared module `src/lib/audit`'s own export and refuses it here regardless.
+  // ⚖ PKT-S30 F6 — the SAME nested shape as storeDaysWriterFor (`{ storePolicies: … }`), so the
+  // call site reads `.audit.log(` and CP3 (check-business-data-access.mjs) ties it back to the
+  // SDK's `audit.log` write: allowlist row in src/lib/audit-policy.ts, writers row in
+  // business-territory.json, bind-scan ALLOW entry for this exact line.
+  // The local stays `auditClient`: a bare `audit` is a deny-set name for check-shared-cores.mjs
+  // (src/lib/audit's own export), and B0b's CP3 ALLOW names this exact line.
   const auditClient = newSynqedClient(tenant).audit
-  return { log: auditClient.log.bind(auditClient) }
+  return { audit: { log: auditClient.log.bind(auditClient) } }
 }

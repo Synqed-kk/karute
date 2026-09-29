@@ -292,8 +292,8 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)
     try {
-      const auditWriter = reach.auditWriterFor({ businessId: actor.businessId })
-      await auditWriter.log({
+      const auditHandle = reach.auditWriterFor({ businessId: actor.businessId })
+      await auditHandle.audit.log({
         actor_type: 'staff',
         actor_id: actor.sheet.staff_id,
         category: 'settings',

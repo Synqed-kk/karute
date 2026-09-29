@@ -1025,6 +1025,14 @@ export const SDK_WRITE_ALLOWLIST: {
       'PKT-S29-B1 — the 臨時休業 remove writer: same guard as the two writers above; core\'s SDK method takes no audit payload and hard-deletes the row (a flagged exception to "nothing deleted, soft only" — PR body carries it as a core ask), so the door records its own audit event via a second write-only handle (audit.log) after a successful removal, never blocking the removal on that event\'s own success.',
     dated: '2026-09-29',
   },
+  {
+    file: 'src/business/lib/practice-door/door-writes.ts',
+    call: 'audit.log',
+    symbols: ['removeClosedDay'],
+    justification:
+      'PKT-S30 F6 — the closure-removal audit event: core\'s SDK removeClosedDay takes no audit payload and hard-deletes the row, so after a successful removal the door records store_closed_day.remove itself through core-reach.ts\'s write-only `{ audit: { log } }` handle (same nested shape as the storePolicies handle, so CP3 sees the site); a failed audit write is logged, never turned into a refusal of a removal core already completed.',
+    dated: '2026-09-29',
+  },
 ]
 
 // ── RAW_SUPABASE_WRITE_ALLOWLIST ─────────────────────────────────────────────

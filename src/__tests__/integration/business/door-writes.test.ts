@@ -33,7 +33,7 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
     ...actual,
     clientFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.reads),
     storeDaysWriterFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.writerFor(admitted), { storePolicies: mockCore.writer }),
-    auditWriterFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.auditWriterFor(admitted), { log: mockCore.auditLog }),
+    auditWriterFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.auditWriterFor(admitted), { audit: { log: mockCore.auditLog } }),
   }
 })
 
