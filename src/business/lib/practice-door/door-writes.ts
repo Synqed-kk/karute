@@ -112,8 +112,15 @@ async function isHqAdmin(actor: PracticeActor): Promise<boolean> {
  *  (c) core's actual write guard, `requireHqAdmin`: OWNER by role, else a live
  *  HQ_ADMIN grant (`isHqAdmin` above). */
 export async function canWriteStoreDays(storeId: string): Promise<boolean> {
-  const actor = await practiceActor()
-  return canWriteStoreDaysFor(actor, storeId)
+  // ⚖ PKT-S30 F8 — the card-colour sibling's shape (door.ts readCanManageCardColor): an actor or
+  // grant-check outage = cannot verify → read-only, logged; never a crash of 設定.
+  try {
+    const actor = await practiceActor()
+    return await canWriteStoreDaysFor(actor, storeId)
+  } catch (e) {
+    console.error('[business store days] core did not answer:', e instanceof Error ? e.message : String(e))
+    return false
+  }
 }
 async function canWriteStoreDaysFor(actor: PracticeActor, storeId: string): Promise<boolean> {
   if (!visibleIds(actor).includes(storeId)) return false
@@ -228,7 +235,13 @@ async function admitActor(): Promise<Admitted | Refusal> {
 async function admitWriter(storeId: string): Promise<Admitted | Refusal> {
   const admitted = await admitActor()
   if (!admitted.ok) return admitted
-  if (!(await canWriteStoreDaysFor(admitted.actor, storeId))) return FORBIDDEN
+  // ⚖ PKT-S30 F8 — the capability check sits INSIDE the try: a thrown grant check is core's
+  // failure (`core` → 503 honesty), never a `forbidden`.
+  try {
+    if (!(await canWriteStoreDaysFor(admitted.actor, storeId))) return FORBIDDEN
+  } catch (e) {
+    return mapCoreError(e, admitted.reach)
+  }
   return admitted
 }
 

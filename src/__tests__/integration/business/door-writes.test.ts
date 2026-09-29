@@ -410,3 +410,23 @@ describe('PKT-S30 F7 — one admit, one get, one set per public call', () => {
   })
 })
 
+describe('PKT-S30 F8 — a grant-check outage is cannot-verify, never a crash or a forbidden', () => {
+  it('readCanWriteStoreDays answers false (read-only) and logs when the grant check throws', async () => {
+    as('login-admin')
+    const spied = withReads()
+    spied.businessGrantsCheck.mockRejectedValue(new Error('grants down'))
+    await expect(data.readCanWriteStoreDays(STORE_ID)).resolves.toBe(false)
+    expect(error).toHaveBeenCalled()
+  })
+  it('a write whose grant check throws maps to `core` (503 honesty), zero writes', async () => {
+    as('login-admin')
+    const spied = withReads()
+    spied.businessGrantsCheck.mockRejectedValue(new Error('grants down'))
+    const r = await data.addStoreClosedDay(STORE_ID, { date: '2026-12-01', reason: '' })
+    expect(r).toMatchObject({ ok: false, reason: 'core' })
+    expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
+    expect(mockCore.writer.set).not.toHaveBeenCalled()
+    expect(mockCore.writer.removeClosedDay).not.toHaveBeenCalled()
+  })
+})
+
