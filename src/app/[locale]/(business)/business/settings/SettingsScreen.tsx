@@ -1716,7 +1716,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           {section.blocks.length > 1 && <p className="st-foot">{props.demoSaveLine}</p>}
                         </>
                       )
-                    : <p className="st-foot">{props.demoSaveLine}</p>}
+                    : props.saveStoreDays && section.blocks.some((x) => x.id === STORE_HOURS_CLOSURES_ID)
+                      ? null /* ⚖ PKT-S33-B1B-FIX-2 — door ON: 臨時休業/特別営業日 write to core; the page-local line would be false */
+                      : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
               sideNode(
                 section.blocks.map((b) => ({ id: b.id, title: wordsRoomBlock(section, b.id, values)?.title ?? b.title })),

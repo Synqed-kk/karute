@@ -40,6 +40,7 @@ import { STORE_A } from '@/business/lib/fixtures'
 import { READ_FAILURE_LINE, READ_ONLY_NOTE } from '@/business/lib/data'
 import { storeDaysLockedNote } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { screen, within } from '@testing-library/react'
+import JA from '@/business/i18n/ja.json'
 
 type CD = { id: string; store_id: string; date: string; reason: string | null; created_by: string | null; created_at: string }
 const C1: CD = { id: 'c1', store_id: STORE.tokyo, date: '2026-10-08', reason: '店内研修（テスト）', created_by: null, created_at: 'x' }
@@ -316,5 +317,24 @@ describe('R14 — locked actors: the mapped line in both blocks, no add / remove
     expect(document.body.textContent!.split(line).length - 1).toBe(2)
     expect(screen.queryByRole('button', { name: /追加/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /取り消す/ })).toBeNull()
+  })
+})
+
+// ⚖ PKT-S33-B1B-FIX-2 (Greptile P2 on #1094) — the section's page-local footer (demoSaveLine,
+// settings-props.ts) is FALSE while the door is ON (臨時休業 / 特別営業日 write to core), so the
+// store-hours section drops it; the OFF world keeps it. The sample blocks keep their own markNote.
+describe('PKT-S33-B1B-FIX-2 — the store-hours footer follows the door', () => {
+  const DEMO_SAVE_LINE = '保存はこの画面の中だけに反映されます（実データ接続後に本保存）。'
+  const footLines = () => [...document.querySelectorAll('.st-main p.st-foot')].map((p) => p.textContent)
+  it('(a) ON world: no page-local footer; the sample blocks still carry their own sample line', async () => {
+    await mount()
+    expect(document.querySelector('.st-main')).not.toBeNull()
+    expect(footLines()).not.toContain(DEMO_SAVE_LINE)
+    expect(document.querySelector('.st-main')!.textContent).toContain(JA.sampleMark.markNote)
+  })
+  it('(b) OFF world: the page-local footer is there', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await mount(STORE_A)
+    expect(footLines()).toContain(DEMO_SAVE_LINE)
   })
 })
