@@ -87,6 +87,10 @@ import {
   READ_ONLY_NOTE,
   REMOVE_PENDING_LABEL,
   addSpecialDraft,
+  CLOSE_AT_MIDNIGHT_LABEL,
+  MIDNIGHT_CLOSE,
+  MIDNIGHT_CLOSE_BOX_ARIA,
+  specialCloseOf,
   specialDayBadge,
   type ClosureCore,
   type SpecialCore,
@@ -588,6 +592,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const [specialPending, setSpecialPending] = useState<string | null>(null)
   const [specialError, setSpecialError] = useState<string | null>(null)
   const specialBusy = useRef(false)
+  /** ⚖ S34 act 0 — 特別営業日's 24:00閉店 switch; the typed 閉店 value is kept while it is ON. */
+  const [closeAtMidnight, setCloseAtMidnight] = useState(false)
   /** ⚖ PKT-S30 Also-noted A — a write answered `forbidden`: both store-days blocks turn read-only. */
   const [storeDaysRevoked, setStoreDaysRevoked] = useState(false)
   const [results, setResults] = useState<Record<string, string>>({})
@@ -767,12 +773,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const addSpecialRow = useCallback((block: SettingsBlock) => {
     const sd = block.specialDays
     if (!sd) return
-    const next = addSpecialDraft(rowsOfBlock(block, listRows), String(values[sd.dateControlId] ?? ''), String(values[sd.openControlId] ?? ''), String(values[sd.closeControlId] ?? ''), dayTitle)
+    const next = addSpecialDraft(rowsOfBlock(block, listRows), String(values[sd.dateControlId] ?? ''), String(values[sd.openControlId] ?? ''), specialCloseOf(closeAtMidnight, String(values[sd.closeControlId] ?? '')), dayTitle)
     setListErrors((prev) => ({ ...prev, [block.id]: next.error ?? '' }))
     if (next.error !== null) return
     setListRows((prev) => ({ ...prev, [block.id]: next.rows }))
     setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
-  }, [values, listRows])
+    setCloseAtMidnight(false)
+  }, [values, listRows, closeAtMidnight])
 
   const removeSpecialRow = useCallback((block: SettingsBlock, date: string) => {
     if (!block.specialDays) return
@@ -847,7 +854,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSpecialError(null)
     const date = String(values[sd.dateControlId] ?? '')
     const open = String(values[sd.openControlId] ?? '')
-    const close = String(values[sd.closeControlId] ?? '')
+    const close = specialCloseOf(closeAtMidnight, String(values[sd.closeControlId] ?? ''))
     const result = await postAddSpecialOpenDay(save, date, open, close)
     specialBusy.current = false
     setSpecialPending(null)
@@ -858,7 +865,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
       return
     }
     setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
-  }, [values])
+    setCloseAtMidnight(false)
+  }, [values, closeAtMidnight])
 
   const removeSpecialLive = useCallback(async (date: string, save: StoreDaysSave) => {
     if (specialBusy.current) return
@@ -1688,6 +1696,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
                       // ⚖ PKT-S30 F10 (R-A) — OFF: the local draft, exactly like 臨時休業's OFF add/remove.
                       onSpecialAdd={() => (specialLive ? void addSpecialLive(b, props.saveStoreDays!) : addSpecialRow(b))}
                       onSpecialRemove={(date) => (specialLive ? void removeSpecialLive(date, props.saveStoreDays!) : removeSpecialRow(b, date))}
+                      closeAtMidnight={closeAtMidnight}
+                      onCloseAtMidnight={() => setCloseAtMidnight((on) => !on)}
                       reduced={reduced}
                     />
                   )
@@ -2085,6 +2095,8 @@ function Block({
   specialPending,
   onSpecialAdd,
   onSpecialRemove,
+  closeAtMidnight,
+  onCloseAtMidnight,
   reduced,
 }: {
   block: SettingsBlock
@@ -2118,6 +2130,9 @@ function Block({
   specialPending: string | null
   onSpecialAdd: () => void
   onSpecialRemove: (date: string) => void
+  /** ⚖ S34 act 0 — 特別営業日's 24:00閉店 switch (page state; only that block reads it). */
+  closeAtMidnight: boolean
+  onCloseAtMidnight: () => void
   reduced: boolean
 }) {
   const [markOpen, setMarkOpen] = useState(false)
@@ -2205,6 +2220,9 @@ function Block({
           onChange={onChange}
           onAdd={onSpecialAdd}
           onRemove={onSpecialRemove}
+          closeAtMidnight={closeAtMidnight}
+          onCloseAtMidnight={onCloseAtMidnight}
+          reduced={reduced}
         />
       )}
 
@@ -2445,6 +2463,9 @@ function SpecialDaysCollection({
   onChange,
   onAdd,
   onRemove,
+  closeAtMidnight,
+  onCloseAtMidnight,
+  reduced,
 }: {
   block: SettingsBlock
   sd: NonNullable<SettingsBlock['specialDays']>
@@ -2456,10 +2477,14 @@ function SpecialDaysCollection({
   onChange: (id: string, v: RowValue) => void
   onAdd: () => void
   onRemove: (date: string) => void
+  closeAtMidnight: boolean
+  onCloseAtMidnight: () => void
+  reduced: boolean
 }) {
   const dateId = `${block.id}-date`
   const openId = `${block.id}-open`
   const closeId = `${block.id}-close`
+  const midnightLabelId = `${block.id}-midnight-label`
   const noop = () => {}
   const busy = pending !== null
   const inert = busy ? ({ 'aria-disabled': 'true' as const } as const) : {}
@@ -2519,15 +2544,40 @@ function SpecialDaysCollection({
           </label>
           <label className="st-coll-field" htmlFor={closeId}>
             <span>閉店</span>
-            <input
-              id={closeId}
-              className="st-input is-time"
-              type="time"
-              {...inert}
-              value={String(values[sd.closeControlId] ?? '')}
-              onChange={busy ? noop : (e) => onChange(sd.closeControlId, e.target.value)}
-            />
+            {/* ⚖ S34 act 0 — ON: a read-only 24:00 box stands in place of the time field (which
+                cannot type 24:00); the typed value stays in state for OFF. */}
+            {closeAtMidnight ? (
+              <input
+                id={closeId}
+                className="st-input is-time is-fixed"
+                type="text"
+                value={MIDNIGHT_CLOSE}
+                readOnly
+                aria-readonly="true"
+                tabIndex={-1}
+                aria-label={MIDNIGHT_CLOSE_BOX_ARIA}
+              />
+            ) : (
+              <input
+                id={closeId}
+                className="st-input is-time"
+                type="time"
+                {...inert}
+                value={String(values[sd.closeControlId] ?? '')}
+                onChange={busy ? noop : (e) => onChange(sd.closeControlId, e.target.value)}
+              />
+            )}
           </label>
+          <div className="st-coll-field">
+            <span id={midnightLabelId}>{CLOSE_AT_MIDNIGHT_LABEL}</span>
+            <Switch
+              on={closeAtMidnight}
+              ariaLabelledBy={midnightLabelId}
+              inert={inert}
+              reduced={reduced}
+              onToggle={busy ? noop : onCloseAtMidnight}
+            />
+          </div>
           <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
             {pending === 'add' ? ADD_PENDING_LABEL : sd.addLabel}
           </button>
@@ -3178,6 +3228,7 @@ function Segment({
 function Switch({
   on,
   aria,
+  ariaLabelledBy,
   onLabel,
   offLabel,
   inert,
@@ -3185,9 +3236,14 @@ function Switch({
   onToggle,
 }: {
   on: boolean
-  aria: string
-  onLabel: string
-  offLabel: string
+  /** The accessible name when no visible label names the switch. */
+  aria?: string
+  /** WCAG 2.5.3 — a switch with its own visible field label is named BY it (aria-labelledby
+   *  instead of aria-label), so the spoken name contains the visible text. */
+  ariaLabelledBy?: string
+  /** Optional: a switch that has its own field label (特別営業日's 24:00閉店) shows no state word. */
+  onLabel?: string
+  offLabel?: string
   inert: InertProps
   reduced: boolean
   onToggle?: () => void
@@ -3223,13 +3279,15 @@ function Switch({
 
   return (
     <div className="st-switchline">
-      <span className={`st-state${on ? ' is-on' : ''}`}>{on ? onLabel : offLabel}</span>
+      {onLabel !== undefined && offLabel !== undefined && (
+        <span className={`st-state${on ? ' is-on' : ''}`}>{on ? onLabel : offLabel}</span>
+      )}
       <button
         type="button"
         className="st-switch"
         role="switch"
         aria-checked={on}
-        aria-label={aria}
+        {...(ariaLabelledBy !== undefined ? { 'aria-labelledby': ariaLabelledBy } : { 'aria-label': aria })}
         {...inert}
         onClick={onToggle}
       >

@@ -86,6 +86,18 @@ export function addSpecialDraft(
   return { rows: at === -1 ? [...rows, row] : [...rows.slice(0, at), row, ...rows.slice(at)], error: null }
 }
 
+/** ⚖ S34 act 0 — a 特別営業日 may close at midnight. The door already takes `24:00` (door-writes.ts
+ *  CLOSE_TIME_RE) and the draft check above is a plain `open >= close` string compare, which `24:00`
+ *  passes against any real open time — so no second pattern here. The native time field cannot type
+ *  `24:00`, so a switch stands beside 閉店: ON → the close is `24:00`; OFF → the time field's own value,
+ *  which stays in state while the switch is ON, so turning it OFF gives the previous value back. */
+export const MIDNIGHT_CLOSE = '24:00'
+export const CLOSE_AT_MIDNIGHT_LABEL = '24:00閉店'
+export const MIDNIGHT_CLOSE_BOX_ARIA = '閉店 24:00'
+export function specialCloseOf(closeAtMidnight: boolean, typedClose: string): string {
+  return closeAtMidnight ? MIDNIGHT_CLOSE : typedClose
+}
+
 /** ⚖ PKT-S30 F12 — the badge rule's ONE home: a 特別営業日 badges when its date is ALSO a 臨時休業
  *  date — computed from the CLOSURES list, never from the special list (R3). settings-props.ts
  *  stamps `items[].badge` with it; the screen re-asks it after a live 臨時休業 write. */

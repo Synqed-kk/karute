@@ -215,6 +215,17 @@ describe('P-B1-3 — door validation refuses BEFORE any core call', () => {
     expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-02-30', open: '10:00', close: '19:00' })).toEqual({ ok: false, reason: 'invalid', message: '存在しない日付です' })
     expectWrites({ set: 1 }) // only the accepted 24:00 add wrote
   })
+  it('S34 act 0 — the 24:00 edge: 24:30 refused, open 24:00 refused (open must stay before close), 23:59〜24:00 accepted', async () => {
+    const refused = { ok: false, reason: 'invalid', message: '閉店時刻は開店時刻より後にしてください。' }
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-04', open: '10:00', close: '24:30' })).toEqual(refused)
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-05', open: '24:00', close: '24:00' })).toEqual(refused)
+    expectWrites()
+    mockCore.writer.set.mockResolvedValueOnce({ ...BASE_POLICY })
+    const edge = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-06', open: '23:59', close: '24:00' })
+    expect(edge.ok).toBe(true)
+    expect(mockCore.writer.set).toHaveBeenCalledTimes(1)
+    expectWrites({ set: 1 })
+  })
   it('a second 2026-10-20 refused as a duplicate special day, zero core calls', async () => {
     expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-10-20', open: '09:00', close: '10:00' })).toEqual({ ok: false, reason: 'invalid', message: 'その日はすでに特別営業日です' })
     expect(mockCore.writer.set).not.toHaveBeenCalled()
