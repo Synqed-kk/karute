@@ -93,6 +93,7 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
+import { addSpecialDraft, applyClosureAdded, applySpecialOpenDays } from '@/business/lib/store-days-state'
 import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
@@ -1928,6 +1929,11 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // `emptyDateError`, and every item's `title`/`note` — are NOT skipped, and
     // the sample below proves the walk still reaches them.
     'dateControlId', 'reasonControlId',
+    // ⚖ PKT-S29-B1 — 特別営業日's own two control ids (`SettingsSpecialDays.openControlId` /
+    // `closeControlId`), same shape as the closure collection's pair above: an id the
+    // SCREEN uses, never a string a reader meets. Its visible words — `addLabel`,
+    // `removeLabel`, `emptyLine`, and every item's `title`/`open`/`close` — are NOT skipped.
+    'openControlId', 'closeControlId',
   ])
   /** ⚠ THE SKIP IS BY PATH, AND THE BATTERY PROVED WHY once already: the trace
    *  card's lines are `{ label, value }` and that `value` is a SENTENCE the
@@ -2144,7 +2150,8 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
       // …and the section really carries its blocks, rather than the designed
       // no-store panel a null lens would render.
       const hours = props.sections.find((s) => s.id === 'store-hours')!
-      expect({ store, blocks: hours.blocks.length }).toEqual({ store, blocks: 4 })
+      // ⚖ PKT-S29-B1 — 5, not 4: 特別営業日 joined 臨時休業 as its own block.
+      expect({ store, blocks: hours.blocks.length }).toEqual({ store, blocks: 5 })
       expect({ store, kicker: hours.kicker }).not.toEqual({ store, kicker: '店舗を選んでください' })
     }
   })
@@ -2478,6 +2485,69 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(commit).toContain('for (const b of target.blocks) if (b.collection !== null) next[b.id] = rowsOfBlock(b, listRows)')
   })
 
+  it('⚖ PKT-S30 F10 (R-A) — an OFF-world 特別営業日 row added or removed IS an unsaved change, like the 臨時休業 one', async () => {
+    // The mirror of the S17 B2 pin above: in the OFF world 特別営業日 gets EXACTLY 臨時休業's OFF
+    // behaviour — a page-local draft in the same rows map, counted, committed by 保存. Never a refusal.
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'store-hours')
+    const seed = seedOf(props)
+    const sp = sec.blocks.find((b) => b.id === 'store-hours.special-open')!
+    const coll = sec.blocks.find((b) => b.id === 'store-hours.closures')!
+    expect(sp.specialDays).not.toBeNull()
+    const base = rowsOfBlock(sp, {})
+    expect(sectionDirty(sec, seed, seed, {}, {})).toBe(false)
+
+    const added = addSpecialDraft(base, '2026-12-24', '10:00', '18:00', dayTitle)
+    expect(added.error).toBeNull()
+    expect(added.rows).toContainEqual({ id: '2026-12-24', title: '12月24日(木)', note: '10:00〜18:00', open: '10:00', close: '18:00' })
+    const live = { [sp.id]: added.rows }
+    expect(rowChanges(sp, live, {})).toBe(1)
+    expect(blockDirty(sp, seed, seed, live, {})).toBe(true)
+    expect(blockDirty(coll, seed, seed, live, {})).toBe(false)
+    expect(sectionDirty(sec, seed, seed, live, {})).toBe(true)
+    expect(changedCount(sec, seed, seed, live, {})).toBe(1)
+    // …removed again is back to clean; committed (保存) is clean too.
+    expect(sectionDirty(sec, seed, seed, { [sp.id]: base }, {})).toBe(false)
+    expect(sectionDirty(sec, seed, seed, live, live)).toBe(false)
+    // …a refused draft add leaves the rows as they were (a copy), with the door's own words.
+    expect(addSpecialDraft(added.rows, '2026-12-24', '10:00', '18:00', dayTitle)).toEqual({ rows: added.rows, error: 'その日はすでに特別営業日です' })
+    expect(addSpecialDraft(base, '', '10:00', '18:00', dayTitle).error).toBe('日付を選んでください。')
+    expect(addSpecialDraft(base, '2026-12-25', '18:00', '10:00', dayTitle).error).toBe('閉店時刻は開店時刻より後にしてください。')
+    // …and the screen really wires the OFF world to the draft (the refusal line is gone), and 保存 commits it.
+    expect(SCREEN_CODE).toContain(': addSpecialRow(b))}')
+    expect(SCREEN_CODE).toContain(': removeSpecialRow(b, date))}')
+    expect(SCREEN_CODE).toContain('for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)')
+    expect(SCREEN_CODE).not.toContain('実データ接続後に追加できます')
+  })
+
+  it('⚖ PKT-S30 F4 — in the ON world dirty/unsaved state ignores BOTH store-days blocks, even with pending rows', async () => {
+    // ON: each write is core's own at once; the rows the screen holds live in liveClosures /
+    // liveSpecial (the reducers' output), NEVER in the section's rows map — so the save bar
+    // never counts them, however many rows are pending or landed.
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'store-hours')
+    const seed = seedOf(props)
+    const coll = sec.blocks.find((b) => b.id === 'store-hours.closures')!
+    const sp = sec.blocks.find((b) => b.id === 'store-hours.special-open')!
+    const heldClosures = applyClosureAdded([], { ok: true, value: { id: 'uuid-1', date: '2026-12-24', reason: null } })
+    const heldSpecial = applySpecialOpenDays([], { ok: true, value: [{ date: '2026-12-25', open: '10:00', close: '18:00' }] })
+    expect(heldClosures).toHaveLength(1)
+    expect(heldSpecial).toHaveLength(1)
+    for (const b of [coll, sp]) {
+      expect(rowChanges(b, {}, {})).toBe(0)
+      expect(blockDirty(b, seed, seed, {}, {})).toBe(false)
+    }
+    expect(sectionDirty(sec, seed, seed, {}, {})).toBe(false)
+    expect(changedCount(sec, seed, seed, {}, {})).toBe(0)
+    // …because none of the four LIVE callbacks touches the rows maps.
+    for (const name of ['addClosureLive', 'removeClosureLive', 'addSpecialLive', 'removeSpecialLive']) {
+      const from = SCREEN_CODE.indexOf(`const ${name} = useCallback`)
+      expect(from).toBeGreaterThan(-1)
+      const body = SCREEN_CODE.slice(from, SCREEN_CODE.indexOf('}, [', from))
+      expect({ name, touchesRows: /setListRows|setSavedRows/.test(body) }).toEqual({ name, touchesRows: false })
+    }
+  })
+
   it('⚖ C1 — a day switched OFF sends `null` for THAT DAY, and never a null object', async () => {
     const props = await room({ store: STORE_A })
     const hours = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.hours')!
@@ -2550,12 +2620,17 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const block = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.closures')!
     const coll = block.collection!
     expect(block.title).toBe('臨時休業')
-    // ⚠ 特別営業 IS GONE FROM THE PAGE, AND FROM THE PLANE BEHIND IT. Core has no
-    // field for it (registry ⑨ `special_open_days`), and a control that offers a
-    // value the store cannot save is a lie with a picture on it. The `kind`
-    // discriminator went with it, so a later round cannot quietly re-derive the
-    // option from data that is still there.
+    // ⚖ PKT-S29-B1 (9/29) — 特別営業日 IS BACK, under its OWN dial (⚖ Liam 9/28
+    // 20:0x ruling superseding the 9/6 removal this test used to pin: core has
+    // carried `special_open_days` since CORE-10, 9/14). It is its own block —
+    // never folded into 臨時休業's own object — so 臨時休業's block still never
+    // mentions it, exactly as before.
     expect(JSON.stringify(block)).not.toContain('特別営業')
+    const specialBlock = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.special-open')!
+    expect(specialBlock.title).toBe('特別営業日')
+    expect(specialBlock.specialDays).not.toBeNull()
+    // `kind`-style fixture discriminator stays gone (R10: fixtures-settings.ts is untouched — no fixture
+    // field for 特別営業日 was ever added; the live block above reads through the door, not a fixture).
     expect(JSON.stringify(storeDials)).not.toContain('特別営業')
     expect(JSON.stringify(storeDials)).not.toContain("'extra'")
     // …and no closure's REASON describes the opposite of a closure. A row that
