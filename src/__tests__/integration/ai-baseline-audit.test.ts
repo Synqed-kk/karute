@@ -140,6 +140,11 @@ const runKaruteChat = jest.fn(async () => ({
   contextLabel: undefined as string | undefined,
   usage: null as { tokensIn: number; tokensOut: number } | null,
 }))
+// S60 A3: the stored object is a good webm take — the meter's head probe (s60-a1/a3's subject) must not be handed the queued Deepgram answer.
+jest.mock('@/lib/recording/container-sniff', () => ({
+  ...jest.requireActual('@/lib/recording/container-sniff'),
+  probeObjectHead: async () => ({ state: 'readable', kind: 'webm' }),
+}))
 jest.mock('@/lib/ai/karute-chat', () => ({
   ...jest.requireActual('@/lib/ai/karute-chat'),
   runKaruteChat: (...args: unknown[]) => runKaruteChat(...(args as [])),

@@ -18,7 +18,12 @@
 
 import { SynqedClient, type KaruteRecord, type RecordingJob } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
-import { runMeteredTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
+import {
+  AUDIO_UNREADABLE,
+  runMeteredTranscription,
+  speakerIdMode,
+  loadStaffReferenceForStaff,
+} from '@/lib/ai/transcribe'
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
@@ -126,6 +131,10 @@ const JOB_SENTINELS: ReadonlySet<string> = new Set([
   AI_SPEND_LIMIT,
   DISCARD_LEDGER_UNREADABLE,
   TRANSCRIPTION_LEDGER_UNAVAILABLE,
+  // The meter's refusal of audio with no recorder container (S60 A3): the job
+  // records fail(id, 'audio_unreadable'). Core still re-arms by attempts —
+  // the sentinel names the reason, it does not stop the re-arm (core's ask).
+  AUDIO_UNREADABLE,
 ])
 
 /** A stage's rejection, named by its stage (recording hole PR-1) — unless it
