@@ -192,13 +192,30 @@ export async function menuOfAutoLinked(
   }
 }
 
-/** R-O9 (i): the ONE expression for `appointment_link` — the facade save's
- *  reply and its karute.save row both compute the value here, so the two can
- *  never drift: a given booking that degraded says why; otherwise the
- *  auto-link's answer when it ran; otherwise null. */
+/** R-O9 (i): the ONE expression for `appointment_link` — both writers'
+ *  karute.save rows and the facade save's reply take the value here, so they
+ *  can never drift. It keeps its meaning on main: what the AUTO-link did.
+ *  The closed set: `kept | auto_linked | ambiguous | none`, plus a given
+ *  booking's degraded reason (appointment_not_found · appointment_out_of_scope
+ *  · appointment_unreadable). null = the booking was given by the payload (or
+ *  no auto-link ran at all: a save with no session, the web doors).
+ *    - a given booking that degraded → why
+ *    - `kept` (S67 fix round 2, commit 15, SF-5) → the save named no booking
+ *      and an existing link stayed through the converge (never `none` while
+ *      the record is linked)
+ *    - otherwise the auto-link's answer when it ran; otherwise null. */
+export type AppointmentLinkValue = AppointmentLinkReason | AutoAppointmentLink | 'kept' | null
 export function appointmentLinkOf(
   linkReason: AppointmentLinkReason | null,
   autoLink: AutoAppointmentLink | null | undefined,
-): AppointmentLinkReason | AutoAppointmentLink | null {
-  return linkReason ?? autoLink ?? null
+  kept = false,
+): AppointmentLinkValue {
+  return linkReason ?? (kept ? 'kept' : (autoLink ?? null))
+}
+
+/** SF-5: an existing link KEPT through a converge = the write named no
+ *  booking and the record still carries one (keepLinkUnlessGiven's answer).
+ *  One spelling for both converges. */
+export function isKeptLink(write: { appointment_id?: string | null }, linked: string | null): boolean {
+  return !write.appointment_id && linked !== null
 }

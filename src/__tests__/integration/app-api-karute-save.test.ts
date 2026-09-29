@@ -519,7 +519,8 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
     jest.mocked(resolveStoreForRequest).mockResolvedValueOnce({ storeId: 'store-ginza', allowedStoreIds: ['store-ginza'] })
   const notFound = () => Object.assign(new Error('no such appointment'), { status: 404 })
   const blip = () => Object.assign(new Error('upstream'), { status: 503 })
-  type SaveReply = { outcome: { written: boolean; reason?: string }; appointment_link: string | null }
+  // SF-5 (S67 fix round 2, commit 15): the reply names the record's EFFECTIVE booking id beside appointment_link.
+  type SaveReply = { outcome: { written: boolean; reason?: string }; appointment_id: string | null; appointment_link: string | null }
   const saveWith = async (appointmentId: string, reply: SaveReply) => {
     const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId }), noRoute)
     expect(res.status).toBe(200)
@@ -532,7 +533,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
   it('booking in scope → the booking\'s store, link and menu kept, a normal audit row', async () => {
     ginzaClamp()
     fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 'VIP施術' })
-    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
+    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_id: 'ap-g', appointment_link: null })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: 'VIP施術' }))
     expect(row.severity).toBeUndefined()
     expect(row.detail).toHaveProperty('appointment_link', null)
@@ -541,7 +542,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
   it('booking not found → 200, saved in the caller\'s store, link dropped, one read, notice row', async () => {
     ginzaClamp()
     fakeClient.appointments.get.mockRejectedValueOnce(notFound())
-    const row = await saveWith('ap-gone', { outcome: { written: false, reason: 'not_sent' }, appointment_link: 'appointment_not_found' })
+    const row = await saveWith('ap-gone', { outcome: { written: false, reason: 'not_sent' }, appointment_id: null, appointment_link: 'appointment_not_found' })
     expect(fakeClient.appointments.get).toHaveBeenCalledTimes(1)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }))
     expect(row).toMatchObject({ action: 'karute.save', severity: 'notice', detail: { appointment_link: 'appointment_not_found' } })
@@ -550,7 +551,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
   it('booking in another store → 200 (no refusal), saved in the caller\'s store, link and menu dropped, notice row', async () => {
     ginzaClamp()
     fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-daikanyama', title: '代官山の施術' })
-    const row = await saveWith('ap-x', { outcome: { written: false, reason: 'not_sent' }, appointment_link: 'appointment_out_of_scope' })
+    const row = await saveWith('ap-x', { outcome: { written: false, reason: 'not_sent' }, appointment_id: null, appointment_link: 'appointment_out_of_scope' })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }))
     expect(row).toMatchObject({ severity: 'notice', detail: { appointment_link: 'appointment_out_of_scope' } })
   })
@@ -560,7 +561,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
     fakeClient.appointments.get
       .mockRejectedValueOnce(blip())
       .mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 'VIP施術' })
-    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
+    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_id: 'ap-g', appointment_link: null })
     expect(fakeClient.appointments.get).toHaveBeenCalledTimes(2)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: 'VIP施術' }))
     expect(row.severity).toBeUndefined()
@@ -570,7 +571,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
   it('booking unreadable twice → 200, saved in the caller\'s store, link KEPT, no menu, notice row', async () => {
     ginzaClamp()
     fakeClient.appointments.get.mockRejectedValueOnce(blip()).mockRejectedValueOnce(blip())
-    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_link: 'appointment_unreadable' })
+    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_id: 'ap-g', appointment_link: 'appointment_unreadable' })
     expect(fakeClient.appointments.get).toHaveBeenCalledTimes(2)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: null }))
     expect(row).toMatchObject({ severity: 'notice', detail: { appointment_link: 'appointment_unreadable' } })
@@ -579,7 +580,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
     // Pins the `apptStore &&` guard on the facade door (web twin in karute-store-stamp.test.ts).
     ginzaClamp()
     fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: null, title: 'ストア無し施術' })
-    const row = await saveWith('ap-n', { outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
+    const row = await saveWith('ap-n', { outcome: { written: false, reason: 'not_sent' }, appointment_id: 'ap-n', appointment_link: null })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: null, appointment_id: 'ap-n', service: 'ストア無し施術' }))
     expect(row.severity).toBeUndefined()
     expect(row.detail).toHaveProperty('appointment_link', null)
@@ -730,7 +731,7 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
 
   it('S2/S5-facade written: the answer lands, THEN the one row says written', async () => {
     const { reply, row } = await save({ outcome: { status: 'success' } })
-    expect(reply).toEqual({ id: 'kar-new', outcome: { written: true }, appointment_link: null })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: true }, appointment_id: null, appointment_link: null })
     expect(row.detail.outcome_link).toBe('written')
     expect(outcomeUpsert.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
   })
@@ -740,7 +741,7 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
     outcomeGet.mockResolvedValueOnce({ outcome: 'success' })
     const { reply, row } = await save({ recordingSessionId: 'rec-1' })
     // S7 (commit 4): a session save with no booking now asks the auto-link — no booking readable here → 'none'.
-    expect(reply).toEqual({ id: 'kar-existing', outcome: { written: false, reason: 'kept' }, appointment_link: 'none' })
+    expect(reply).toEqual({ id: 'kar-existing', outcome: { written: false, reason: 'kept' }, appointment_id: null, appointment_link: 'none' })
     expect(row.detail.outcome_link).toBe('kept')
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
@@ -774,20 +775,20 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
 
   it('S2/S5-facade skipped:not_sent: an old client sends no answer and no reason', async () => {
     const { reply, row } = await save()
-    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'not_sent' }, appointment_id: null, appointment_link: null })
     expect(row.detail.outcome_link).toBe('skipped:not_sent')
     expect(outcomeGet).not.toHaveBeenCalled()
   })
 
   it('S2/S5-facade skipped:<client reason>: the client says why no answer rides the save', async () => {
     const { reply, row } = await save({ outcomeMissing: 'never_asked' })
-    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'never_asked' }, appointment_link: null })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'never_asked' }, appointment_id: null, appointment_link: null })
     expect(row.detail.outcome_link).toBe('skipped:never_asked')
   })
 
   it('S2/S5-facade skipped:not_returning: the revisit guard refuses 既存のお客様 — saved, the refusal is said', async () => {
     const { reply, row } = await save({ outcome: { status: 'revisit', isFirstVisit: false } })
-    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'not_returning' }, appointment_link: null })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'not_returning' }, appointment_id: null, appointment_link: null })
     expect(row.detail.outcome_link).toBe('skipped:not_returning')
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
@@ -795,7 +796,7 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
   it('S2/S5-facade failed (the write errors): saved, one row with failed:<ref>, never the technical cause', async () => {
     outcomeUpsert.mockRejectedValueOnce(new Error('core down at 10.0.0.7'))
     const { reply, row } = await save({ outcome: { status: 'success' } })
-    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'write_failed' }, appointment_link: null })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'write_failed' }, appointment_id: null, appointment_link: null })
     expect(row.detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
     expect(JSON.stringify(reply)).not.toContain('core down')
   })
@@ -809,7 +810,7 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
       .mockImplementationOnce(() => { throw new Error('sync boom') })
     const { reply, row } = await save({ outcome: { status: 'revisit', isFirstVisit: false } })
     expect(customersGet).toHaveBeenCalledTimes(2)
-    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'write_failed' }, appointment_link: null })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'write_failed' }, appointment_id: null, appointment_link: null })
     expect(row.detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
@@ -930,5 +931,22 @@ describe('POST /api/app/v1/karute (save) — S7 the unambiguous booking is linke
     expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: 'appt-store-A' })
     expect(reply.appointment_link).toBe('auto_linked')
     expect(row.detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-store-A' })
+  })
+  // S67 fix round 2, commit 15 (SF-5; the attack's F-6): the row and the reply
+  // tell the record's EFFECTIVE link; `kept` when an existing link stayed;
+  // null = the booking was given by the payload.
+  it('SF-5 F-6: a kept-link converge → row and reply say kept + the record\'s link, never null / none', async () => {
+    attach([appt('appt-other', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', customer_id: 'cust-1', appointment_id: 'appt-first' } as never
+    const { reply, row } = await save()
+    expect(row.detail).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+    expect(reply).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
+  it('SF-5: a payload-named booking → appointment_link null + the named id, in the row and the reply', async () => {
+    attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 't' })
+    const { reply, row } = await save({ appointmentId: 'ap-given' })
+    expect(row.detail).toMatchObject({ appointment_link: null, appointment_id: 'ap-given' })
+    expect(reply).toMatchObject({ appointment_link: null, appointment_id: 'ap-given' })
   })
 })

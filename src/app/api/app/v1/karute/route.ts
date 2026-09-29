@@ -25,12 +25,10 @@ import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { writeOutcomeFate, outcomeReply, type OutcomeLink } from '@/lib/karute/outcome-fate'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import {
-  appointmentLinkOf,
   readAppointmentForSave,
   resolveAutoAppointmentLink,
   type AppointmentLinkReason,
   type AppointmentRead,
-  type AutoAppointmentLink,
 } from '@/lib/karute/appointment-link'
 import type { SynqedClient, Appointment } from '@synqed-kk/client'
 
@@ -186,9 +184,8 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
   // S7 (PR-O commit 4): a save that names NO booking may link the ONE
   // unambiguous booking of this session's day (resolveAutoAppointmentLink —
   // the function the worker shares); needs the session for its start.
-  let autoLink: AutoAppointmentLink | null = null
   const recordingSessionId = input.recordingSessionId ?? null
-  const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(
+  const { id, fresh, transcriptChanged, appointmentId: linkedId, appointmentLink } = await createOrUpdateKaruteRecord(
     synqed as unknown as SynqedClient,
     {
       customer_id: input.customerId,
@@ -231,13 +228,11 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       ? async (record) => {
           // SF-1: the RECORD's store (a converge keeps the existing one), never
           // this request's clamp store.
-          const auto = await resolveAutoAppointmentLink(synqed as unknown as SynqedClient, {
+          return resolveAutoAppointmentLink(synqed as unknown as SynqedClient, {
             customerId: input.customerId,
             storeId: record.storeId,
             recordingSessionId,
           })
-          autoLink = auto.link
-          return auto
         }
       : undefined,
   )
@@ -257,8 +252,14 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
   // S2: the save answers with the answer's fate and the booking link's
   // (additive — an older client reads `id` and ignores the rest).
   // appointment_link = the SAME value the karute.save row carries (one vocabulary,
-  // one expression: appointmentLinkOf).
-  return ok(ctx, { id, outcome: outcomeReply(outcomeLink), appointment_link: appointmentLinkOf(linkReason, autoLink) })
+  // one expression: appointmentLinkOf, computed once inside the save). SF-5:
+  // appointment_id = the record's EFFECTIVE link after the save, as the row.
+  return ok(ctx, {
+    id,
+    outcome: outcomeReply(outcomeLink),
+    appointment_id: linkedId,
+    appointment_link: appointmentLink,
+  })
 })
 
 export const OPTIONS = POST // facadeHandler short-circuits OPTIONS before auth.

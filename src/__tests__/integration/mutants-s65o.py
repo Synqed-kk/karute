@@ -127,6 +127,17 @@ MUTANTS = [
      [(GUARD, '    if (count > 0 || rows.length < PRIOR_VISIT_PAGE_SIZE) return count\n', '    return count // M-O16\n')],
      [RULE_T, ENQ_T], ['SF-4 F-5: own record + 2 same-day placeholders', 'SF-4 M5: the enqueue exclusion',
                        'SF-4 M5: three same-day placeholders']),
+    # M-O17 — the row / reply stop telling the record's link (commit 15, SF-5)
+    ('M-O17a', 'appointmentLinkOf loses `kept` (a kept link reads as null again)',
+     [(LINK, "  return linkReason ?? (kept ? 'kept' : (autoLink ?? null))\n", '  return linkReason ?? autoLink ?? null // M-O17a\n')],
+     [SAVE_T, JOB_T], ['SF-5 F-6: a kept-link converge → row and reply say kept', 'SF-5 F-6: a kept-link converge → the row says kept']),
+    ('M-O17b', "the facade's row and reply name the payload's booking, not the record's",
+     [(CORE, "    const result = { ...persisted, appointmentLink:",
+       "    persisted.appointmentId = payload.appointment_id ?? autoLinked?.appointmentId ?? null // M-O17b\n    const result = { ...persisted, appointmentLink:")],
+     [SAVE_T], ['SF-5 F-6: a kept-link converge → row and reply say kept']),
+    ('M-O17c', "the worker's row names the payload's booking, not the record's",
+     [(WORKER, '      appointment_id: linkedId,\n', '      appointment_id: payload.appointment_id ?? autoLinked?.appointmentId ?? null, // M-O17c\n')],
+     [JOB_T], ['SF-5 F-6: a kept-link converge → the row says kept']),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',
@@ -153,13 +164,13 @@ MUTANTS = [
     # M-O10 — the one appointment_link expression loses the degraded reason
     # (commit 8): BOTH the reply and the row must go red — both call it.
     ('M-O10', 'appointmentLinkOf drops the degraded-booking reason',
-     [(LINK, '  return linkReason ?? autoLink ?? null\n', '  return autoLink ?? null // M-O10\n')],
+     [(LINK, "  return linkReason ?? (kept ? 'kept' : (autoLink ?? null))\n", "  return kept ? 'kept' : (autoLink ?? null) // M-O10\n")],
      [SAVE_T, f'{IT}/karute-save-audit.test.ts'],
      ["booking not found → 200, saved in the caller's store, link dropped",
       'booking not found → saved, one karute.save row with severity notice and appointment_link appointment_not_found']),
     # M-O11 — the worker's row computes appointment_link locally again (commit 9)
     ('M-O11', "the worker's row drops the one link expression (a local null)",
-     [(WORKER, '      appointment_link: appointmentLinkOf(null, autoLinked?.link),\n', '      appointment_link: null, // M-O11\n')],
+     [(WORKER, '      appointment_link: appointmentLinkOf(null, autoLinked?.link, keptLink),\n', '      appointment_link: null, // M-O11\n')],
      [JOB_T], ['S7-job: one booking in its window → created on it; the row says auto_linked',
                'S7-job: two bookings → ambiguous, no link']),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)

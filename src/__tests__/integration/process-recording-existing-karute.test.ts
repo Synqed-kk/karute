@@ -531,6 +531,21 @@ describe('S4 — the worker converge never clears a booking link', () => {
     const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' }, { appointment_id: 'appt-new' })
     expect(sent).toMatchObject({ appointment_id: 'appt-new' })
   })
+  // S67 fix round 2, commit 15 (SF-5; the attack's F-6 / W10 row): the worker's
+  // row tells the record's EFFECTIVE link — `kept` + the id, never null.
+  const saveRow = () => {
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+  it('SF-5 F-6: a kept-link converge → the row says kept + the record\'s link', async () => {
+    await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
+  it('SF-5: a job that names its booking → the row says null + the named id', async () => {
+    await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' }, { appointment_id: 'appt-new' })
+    expect(saveRow()).toMatchObject({ appointment_link: null, appointment_id: 'appt-new' })
+  })
 })
 
 // S2 + S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): the worker writes the

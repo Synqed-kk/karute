@@ -48,6 +48,7 @@ import {
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import {
   appointmentLinkOf,
+  isKeptLink,
   keepLinkUnlessGiven,
   menuOfAutoLinked,
   resolveAutoAppointmentLink,
@@ -508,7 +509,7 @@ async function processJob(job: RecordingJob): Promise<string> {
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the
   // same record instead of duplicating it.
-  const { id: record, storeId: persistedStoreId, fresh, autoLinked } = await upsertKaruteRecord(synqed, job, payload, {
+  const { id: record, storeId: persistedStoreId, fresh, autoLinked, appointmentId: linkedId, keptLink } = await upsertKaruteRecord(synqed, job, payload, {
     transcript,
     summary: summary.result.summary,
     entries: extraction.result.entries,
@@ -565,13 +566,17 @@ async function processJob(job: RecordingJob): Promise<string> {
       staff_id: payload.staff_id,
       // PR B2 §3: the thread page's join key — the payload carries it
       // straight from the enqueue door.
-      appointment_id: payload.appointment_id ?? autoLinked?.appointmentId ?? null,
+      // SF-5 (S67 fix round 2, commit 15): the record's EFFECTIVE link after
+      // the write (a kept link, the auto-linked booking, or the named one) —
+      // never the payload's.
+      appointment_id: linkedId,
       // S7 (PR-O commit 4): when the job named no booking and the record had
-      // none — the auto-link's answer (auto_linked · ambiguous · none); null
-      // when no auto-link ran. The same vocabulary as the facade's row, through
-      // the ONE expression (appointmentLinkOf); the worker has no degraded-
-      // booking reason, so it passes null for it.
-      appointment_link: appointmentLinkOf(null, autoLinked?.link),
+      // none — the auto-link's answer (auto_linked · ambiguous · none); SF-5:
+      // `kept` when an existing link stayed; null when the job named its
+      // booking. The same vocabulary as the facade's row, through the ONE
+      // expression (appointmentLinkOf); the worker has no degraded-booking
+      // reason, so it passes null for it.
+      appointment_link: appointmentLinkOf(null, autoLinked?.link, keptLink),
       // S5: what became of the staff's answer (written · kept · skipped:… ·
       // failed:<ref>) — a short reference, never the technical cause.
       outcome_link: fate.link,
@@ -614,6 +619,10 @@ async function upsertKaruteRecord(
   storeId: string | null
   fresh: boolean
   autoLinked: { link: AutoAppointmentLink; appointmentId: string | null } | null
+  /** SF-5: the record's EFFECTIVE booking link after this write. */
+  appointmentId: string | null
+  /** SF-5: an existing link stayed through this converge (isKeptLink). */
+  keptLink: boolean
 }> {
   const entries = result.entries.map((e) => ({
     category: e.category.toUpperCase() as
@@ -670,6 +679,7 @@ async function upsertKaruteRecord(
       customer_id: existing.customer_id ?? null,
       appointment_id: payload.appointment_id ?? null,
     })
+    const keptLink = isKeptLink({ appointment_id: payload.appointment_id ?? null }, appointmentId)
     const autoLinked = appointmentId
       ? null
       : await resolveAutoAppointmentLink(synqed, {
@@ -692,7 +702,7 @@ async function upsertKaruteRecord(
     // CEILING (mirrors lib/karute/karute.core.ts fix round 2): store_id does NOT move
     // with this update, so the persisted store is still the EXISTING record's
     // — already in hand from the lookup, no second read.
-    return { id: existing.id, storeId: existing.store_id, fresh: false, autoLinked }
+    return { id: existing.id, storeId: existing.store_id, fresh: false, autoLinked, appointmentId, keptLink }
   }
   // 施術メニュー from the linked booking — best-effort: a missing/deleted
   // booking just leaves service null and the カルテ list shows its honest '—'.
@@ -727,7 +737,14 @@ async function upsertKaruteRecord(
     duration_minutes: durationMinutesFromSeconds(payload.duration_seconds),
     entries,
   })
-  return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null, fresh: true, autoLinked }
+  return {
+    id: record.id,
+    storeId: record.store_id ?? payload.store_id ?? null,
+    fresh: true,
+    autoLinked,
+    appointmentId,
+    keptLink: false,
+  }
 }
 
 /** 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-

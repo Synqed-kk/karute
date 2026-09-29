@@ -42,9 +42,11 @@ import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
 import {
   appointmentLinkOf,
+  isKeptLink,
   keepLinkUnlessGiven,
   menuOfAutoLinked,
   type AppointmentLinkReason,
+  type AppointmentLinkValue,
   type AutoAppointmentLink,
 } from '@/lib/karute/appointment-link'
 import type { OutcomeLink } from '@/lib/karute/outcome-fate'
@@ -120,11 +122,31 @@ export async function createOrUpdateKaruteRecord(
    *  lens, so a booking of another store never links to this karute. The
    *  worker's upsert follows the same rule. */
   autoLink?: (record: { storeId: string | null }) => Promise<{ link: AutoAppointmentLink; appointmentId: string | null }>,
-): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
+): Promise<{
+  id: string
+  fresh: boolean
+  transcriptChanged: boolean
+  storeId: string | null
+  /** SF-5: the record's EFFECTIVE booking link after this save (never the
+   *  payload's) and its appointment_link — the same values the karute.save
+   *  row carries, handed back so the facade's reply says exactly what the row
+   *  says. */
+  appointmentId: string | null
+  appointmentLink: AppointmentLinkValue
+}> {
   // S7: set by the auto-link below when it ran; the row names the booking it
   // linked and why (auto_linked · ambiguous · none).
   let autoLinked: { link: AutoAppointmentLink; appointmentId: string | null } | null = null
-  const emitSave = async (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
+  const emitSave = async (saved: {
+    id: string
+    fresh: boolean
+    transcriptChanged: boolean
+    storeId: string | null
+    appointmentId: string | null
+    keptLink: boolean
+  }) => {
+    const { keptLink, ...persisted } = saved
+    const result = { ...persisted, appointmentLink: appointmentLinkOf(linkReason, autoLinked?.link, keptLink) }
     const outcomeLink = outcomeFate ? await outcomeFate({ id: result.id, fresh: result.fresh }) : undefined
     audit({
       category: 'karute',
@@ -151,11 +173,14 @@ export async function createOrUpdateKaruteRecord(
         transcript_changed: result.transcriptChanged,
         customer_id: payload.customer_id ?? null,
         recording_session_id: payload.recording_session_id ?? null,
-        appointment_id: payload.appointment_id ?? autoLinked?.appointmentId ?? null,
+        // SF-5: the record's EFFECTIVE link after the save (a kept link, the
+        // auto-linked booking, or the given one) — never the payload's.
+        appointment_id: result.appointmentId,
         // Why the booking link degraded (not found / out of scope /
         // unreadable) — null on a normal save, never undefined. S7: when the
-        // save named no booking, the auto-link's own answer instead.
-        appointment_link: appointmentLinkOf(linkReason, autoLinked?.link),
+        // save named no booking, the auto-link's own answer instead; SF-5:
+        // `kept` when an existing link stayed (appointmentLinkOf).
+        appointment_link: result.appointmentLink,
         // S5: the answer's fate, beside the booking's (facade + worker only).
         ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),
       },
@@ -216,6 +241,7 @@ export async function createOrUpdateKaruteRecord(
       const existingHasEntries = Array.isArray(existing.entries) && existing.entries.length > 0
       const omitEntries = entriesMode === 'fill-if-empty' && existingHasEntries
       let appointmentId = keepLinkUnlessGiven(existing, payload)
+      const keptLink = isKeptLink(payload, appointmentId)
       if (!appointmentId && autoLink) {
         autoLinked = await autoLink({ storeId: existing.store_id ?? null })
         appointmentId = autoLinked.appointmentId
@@ -257,6 +283,8 @@ export async function createOrUpdateKaruteRecord(
         // the persisted store is still the EXISTING record's — already in
         // hand from the lookup, no second read.
         storeId: existing.store_id,
+        appointmentId: appointmentId ?? null,
+        keptLink,
       })
     }
   }
@@ -272,7 +300,14 @@ export async function createOrUpdateKaruteRecord(
         }
       : payload,
   )
-  return emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
+  return emitSave({
+    id: record.id,
+    fresh: true,
+    transcriptChanged: true,
+    storeId: record.store_id ?? payload.store_id ?? null,
+    appointmentId: autoLinked?.appointmentId ?? payload.appointment_id ?? null,
+    keptLink: false,
+  })
 }
 
 /**
