@@ -51,6 +51,9 @@ export function applySpecialOpenDays(prev: SpecialCore[] | null, answer: WriteAn
 export const SPECIAL_OPEN_DAYS_BADGE = '臨時休業より優先'
 /** The read-only line (R2 — the copy round's folded verdict). */
 export const READ_ONLY_NOTE = '変更には本部の権限が必要です。'
+/** ⚖ S35 B2 act 1 (S2) — a LIVE block's add/remove is already saved; the save bar is not its step.
+ *  LABEL CHECK: the page's save button renders 「保存する」 (SettingsScreen), so the quote says that. */
+export const LIVE_SAVE_LINE = '「追加」「取り消す」を押すとすぐ保存されるため、この画面の「保存する」を押す必要はありません。'
 export const ADD_PENDING_LABEL = '追加中'
 export const REMOVE_PENDING_LABEL = '取り消し中'
 /** A write that did not land (core / tenant refusal, or no answer at all). */

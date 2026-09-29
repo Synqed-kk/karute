@@ -84,6 +84,7 @@ import {
   applyClosuresReplaced,
   applySpecialOpenDays,
   GENERIC_FAIL_LINE,
+  LIVE_SAVE_LINE,
   READ_ONLY_NOTE,
   REMOVE_PENDING_LABEL,
   addSpecialDraft,
@@ -1669,10 +1670,18 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   const specialDisplay = specialLive
                     ? liveSpecial === null ? null : liveSpecial.map((d) => ({ date: d.date, title: dayTitle(d.date), open: d.open, close: d.close, badge: specialDayBadge(d.date, liveClosures ?? []) }))
                     : b.specialDays ? rowsOfBlock(b, listRows).map((r) => ({ date: r.id, title: r.title, open: r.open ?? '', close: r.close ?? '', badge: specialDayBadge(r.id, offClosureDates) })) : null
+                  // ⚖ S35 B2 act 1 (S2) — the live line, ONLY where a press really saves: the door handed
+                  // the store over, the actor may write (no read-only line), and the block holds its LIVE
+                  // read — 臨時休業: a `collection` and no sample mark (a failed read carries no collection;
+                  // storeDaysRead === null carries the sample mark); 特別営業日: `specialDays` present (null on
+                  // a failed read) and its sibling 臨時休業 read live (no sample mark).
+                  const liveSaves = readOnlyNote === null && (
+                    (Boolean(closuresLive) && b.collection !== null && b.sample === undefined)
+                    || (Boolean(specialLive) && b.specialDays !== null && offClosureBlock !== undefined && offClosureBlock.sample === undefined))
                   return (
                     <Block
                       key={b.id}
-                      block={b}
+                      block={liveSaves ? { ...b, facts: [LIVE_SAVE_LINE, ...b.facts] } : b}
                       section={section}
                       values={values}
                       onChange={liveColors ? (id, next) => { setBookingFail(null); setValue(id, next) } : setValue}
