@@ -51,7 +51,7 @@ type Reason = 'forbidden' | 'tenant' | 'invalid' | 'core'
 type Refusal = { ok: false; reason: Reason; message: string }
 export type StoreDaysReadResult = ({ ok: true } & StoreDaysRead) | Refusal
 export type AddClosedDayResult = { ok: true; row: StoreClosedDay } | Refusal
-export type RemoveClosedDayResult = { ok: true } | Refusal
+export type RemoveClosedDayResult = { ok: true; closures: StoreClosedDay[] } | Refusal
 export type SetSpecialOpenDaysResult = { ok: true; specialOpenDays: SpecialOpenDay[] } | Refusal
 
 // ── R9 copy (Opus author + Sonnet blind pass, EV/copy/) ─────────────────────
@@ -197,26 +197,44 @@ function mapCoreError(e: unknown, reach: typeof import('./core-reach')): Refusal
   return { ok: false, reason: 'core', message: MSG.genericFail }
 }
 
-// ── admission (steps 1-3 of the guard order, shared by all four exports) ────
+// ── admission (shared by all four exports) ──────────────────────────────────
 
 interface Admitted {
   ok: true
   actor: PracticeActor
   reach: typeof import('./core-reach')
 }
+const TENANT_REFUSAL: Refusal = { ok: false, reason: 'tenant', message: MSG.genericFail }
+const FORBIDDEN: Refusal = { ok: false, reason: 'forbidden', message: MSG.readOnly }
+const invalid = (message: string): Refusal => ({ ok: false, reason: 'invalid', message })
+
 async function admitActor(): Promise<Admitted | Refusal> {
-  if (practiceTenant() === null) return { ok: false, reason: 'tenant', message: MSG.genericFail }
+  if (practiceTenant() === null) return TENANT_REFUSAL
   const reach = await import('./core-reach') // lazy, like door.ts: the OFF path never loads the SDK
   let actor: PracticeActor
   try {
     actor = await practiceActor()
   } catch (e) {
-    if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant', message: MSG.genericFail }
+    if (e instanceof reach.PracticeTenantMismatch) return TENANT_REFUSAL
     console.error('[business store days] core did not answer:', e instanceof Error ? e.message : String(e))
     return { ok: false, reason: 'core', message: MSG.genericFail }
   }
   return { ok: true, actor, reach }
 }
+
+/** ⚖ PKT-S30 F7 / P3-1 — ONE admission per public write: actor → capability (isolation, settings.manage,
+ *  HQ grant). The pure validation already ran before this (door.ts:494-524's order: OFF → validation →
+ *  lazy import → actor → capability → read-before-write → the one SDK call). */
+async function admitWriter(storeId: string): Promise<Admitted | Refusal> {
+  const admitted = await admitActor()
+  if (!admitted.ok) return admitted
+  if (!(await canWriteStoreDaysFor(admitted.actor, storeId))) return FORBIDDEN
+  return admitted
+}
+
+const byDate = <T extends { date: string }>(a: T, b: T): number => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+// Core's StoreClosedDay ids are uuids (P3-8): anything else is refused before any call.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // ── R1/R5/R7 — readStoreDays ─────────────────────────────────────────────────
 
@@ -229,7 +247,7 @@ export async function readStoreDays(storeId: string): Promise<StoreDaysReadResul
   const admitted = await admitActor()
   if (!admitted.ok) return admitted
   const { actor, reach } = admitted
-  if (!visibleIds(actor).includes(storeId)) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
+  if (!visibleIds(actor).includes(storeId)) return FORBIDDEN
   try {
     const [policy, closedDays] = await Promise.all([
       actor.reads.storePolicyGet(storeId),
@@ -244,17 +262,19 @@ export async function readStoreDays(storeId: string): Promise<StoreDaysReadResul
 // ── R6 — closures: addClosedDay / removeClosedDay ───────────────────────────
 
 export async function addClosedDay(storeId: string, input: { date: string; reason: string }): Promise<AddClosedDayResult> {
-  const admitted = await admitActor()
+  if (practiceTenant() === null) return TENANT_REFUSAL
+  const dateProblem = validateDate(input.date)
+  if (dateProblem) return invalid(dateProblem)
+  const admitted = await admitWriter(storeId)
   if (!admitted.ok) return admitted
   const { actor, reach } = admitted
-  if (!(await canWriteStoreDaysFor(actor, storeId))) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
-  const dateProblem = validateDate(input.date)
-  if (dateProblem) return { ok: false, reason: 'invalid', message: dateProblem }
   try {
     // R3 — a fresh read decides "already a closure" before core is ever asked
     // (never memoized: a second add in the same render re-reads).
     const { closed_days: before } = await actor.reads.storePolicyListClosedDays(storeId, { from: todayJst() })
-    if (before.some((c) => c.date === input.date)) return { ok: false, reason: 'invalid', message: MSG.duplicateClosure }
+    if (before.some((c) => c.date === input.date)) return invalid(MSG.duplicateClosure)
+    // Also-noted B — the store's JST day may have turned since validation: re-checked at write time.
+    if (isPastDate(input.date)) return invalid(MSG.pastDate)
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     // ⚖ lead's fold #2 — AuditEventInput requires actor_type + category + action;
     // core's own store_policy.edit row is a DIFFERENT write (setPolicy only) —
@@ -274,21 +294,24 @@ export async function addClosedDay(storeId: string, input: { date: string; reaso
  *  takes NO audit payload and HARD-DELETES the row (`tx.storeClosedDay.delete`,
  *  EV/CORE-READ-B1.md Q2) — a genuine exception to the standing "nothing
  *  deleted, soft only" rule, flagged in the PR body as a core ask, not fixed
- *  here. Since `dist/audit.d.ts` DOES expose a write method (`audit.log`), the
- *  door records its own audit event for the removal, through a second
- *  write-only handle (`auditWriterFor`) — a failed audit call is logged and
- *  never turned into a refusal of a removal core already completed. */
+ *  here. The door records its own audit event for the removal through the
+ *  write-only `{ audit: { log } }` handle — a failed audit call is logged and
+ *  never turned into a refusal of a removal core already completed.
+ *  ⚖ PKT-S30 F9 — the fresh read (no from-date filter) already lacks the id →
+ *  another admin removed it: ok, no core call, the list refreshed from that read.
+ *  P3-9 — a closure dated before today is a record: refused, no write. */
 export async function removeClosedDay(storeId: string, id: string): Promise<RemoveClosedDayResult> {
-  const admitted = await admitActor()
+  if (practiceTenant() === null) return TENANT_REFUSAL
+  if (typeof id !== 'string' || !UUID_RE.test(id)) return invalid(MSG.genericFail)
+  const admitted = await admitWriter(storeId)
   if (!admitted.ok) return admitted
   const { actor, reach } = admitted
-  if (!(await canWriteStoreDaysFor(actor, storeId))) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
-  if (typeof id !== 'string' || id === '') return { ok: false, reason: 'invalid', message: MSG.genericFail }
   try {
-    // A fresh read gives the row's own content for the audit event — core's
-    // removeClosedDay answers `void`, never the row it deleted.
-    const { closed_days: before } = await actor.reads.storePolicyListClosedDays(storeId, { from: todayJst() })
-    const row = before.find((c) => c.id === id) ?? null
+    const { closed_days: all } = await actor.reads.storePolicyListClosedDays(storeId)
+    const upcoming = (rows: StoreClosedDay[]) => rows.filter((c) => !isPastDate(c.date))
+    const row = all.find((c) => c.id === id)
+    if (!row) return { ok: true, closures: upcoming(all) }
+    if (isPastDate(row.date)) return invalid(MSG.pastDate)
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)
     try {
@@ -300,33 +323,63 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
         action: 'store_closed_day.remove',
         target_type: 'store_closed_day',
         target_id: id,
-        detail: row ? { date: row.date, reason: row.reason } : null,
+        detail: { date: row.date, reason: row.reason },
       })
     } catch (auditErr) {
       console.error('[business store days] audit record failed after a real removal:', auditErr instanceof Error ? auditErr.message : String(auditErr))
     }
     console.info(
       '[business store days]',
-      JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'closure.remove', date: row?.date ?? null, at: renderNow().toISOString() }),
+      JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'closure.remove', date: row.date, at: renderNow().toISOString() }),
     )
-    return { ok: true }
+    return { ok: true, closures: upcoming(all.filter((c) => c.id !== id)) }
   } catch (e) {
     return mapCoreError(e, reach)
   }
 }
 
-// ── R5 — special days: setSpecialOpenDays (+ add/remove-one convenience) ────
+// ── R5 — special days: setSpecialOpenDays (+ add/remove-one) ────────────────
 
-/** R1's own primitive: sends the FULL next array, sorted, nothing else in the
- *  body (R5). `addSpecialOpenDay`/`removeSpecialOpenDay` below assemble `next`
- *  from a fresh read and call this — it is the ONE place `storePolicies.set`
- *  is invoked. */
-export async function setSpecialOpenDays(storeId: string, next: SpecialOpenDay[]): Promise<SetSpecialOpenDaysResult> {
-  const admitted = await admitActor()
+/** How the next array is computed from core's FRESH array (read immediately before the write). */
+type SpecialPlan = (current: SpecialOpenDay[]) => { next: SpecialOpenDay[] } | { unchanged: true } | Refusal
+
+function specialListProblem(list: SpecialOpenDay[]): string | null {
+  const seen = new Set<string>()
+  for (const d of list) {
+    if (!isRealCalendarDate(d.date)) return MSG.invalidDate
+    const times = validateSpecialTimes(d.open, d.close)
+    if (times) return times
+    if (seen.has(d.date)) return MSG.duplicateSpecial
+    seen.add(d.date)
+  }
+  return null
+}
+
+/** R1's own primitive and the ONE place `storePolicies.set` is invoked. ⚖ PKT-S30 F7 — admit ONCE
+ *  (a wrapper passes its own admission in; a direct caller is admitted here) → ONE fresh `get` →
+ *  compute next → ONE `set` with the FULL array, sorted. P3-4 — a direct caller's array replaces the
+ *  entries from today on; past entries in core's array are sent back unchanged (nothing deleted).
+ *  The only remaining lost-update window is between that `get` and the `set` (core's `set` takes no
+ *  precondition — a core ask in the PR body). */
+export async function setSpecialOpenDays(storeId: string, input: SpecialOpenDay[] | SpecialPlan, pre?: Admitted): Promise<SetSpecialOpenDaysResult> {
+  let plan: SpecialPlan
+  if (typeof input === 'function') plan = input
+  else {
+    if (practiceTenant() === null) return TENANT_REFUSAL
+    const problem = specialListProblem(input)
+    if (problem) return invalid(problem)
+    const upcoming = input.filter((d) => !isPastDate(d.date))
+    plan = (current) => ({ next: [...current.filter((d) => isPastDate(d.date)), ...upcoming].sort(byDate) })
+  }
+  const admitted = pre ?? (await admitWriter(storeId))
   if (!admitted.ok) return admitted
   const { actor, reach } = admitted
-  if (!(await canWriteStoreDaysFor(actor, storeId))) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
   try {
+    const current = (await actor.reads.storePolicyGet(storeId)).special_open_days
+    const planned = plan(current)
+    if ('ok' in planned) return planned
+    if ('unchanged' in planned) return { ok: true, specialOpenDays: current }
+    const next = planned.next
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
     console.info(
@@ -339,48 +392,40 @@ export async function setSpecialOpenDays(storeId: string, next: SpecialOpenDay[]
   }
 }
 
-/** Read-before-write (R5): `get` fresh → next = current ± one entry, sorted
- *  ascending by date → `setSpecialOpenDays` (never a second, duplicate SDK
- *  call site of its own — CP3/business-territory.json's writers row is keyed
- *  to `setSpecialOpenDays` alone, so this convenience wrapper DELEGATES the
- *  actual write rather than repeating `writer.storePolicies.set(` here).
- *  Validation (R3) runs before the read, so a malformed add never touches
- *  core at all. */
+/** Add one entry: validation (R3) before anything, ONE admission, then `setSpecialOpenDays`'s own
+ *  get → next → set (never a second call site of `storePolicies.set` — CP3's writers row is keyed
+ *  to `setSpecialOpenDays` alone). */
 export async function addSpecialOpenDay(storeId: string, input: { date: string; open: string; close: string }): Promise<SetSpecialOpenDaysResult> {
-  const admitted = await admitActor()
+  if (practiceTenant() === null) return TENANT_REFUSAL
+  const problem = validateDate(input.date) ?? validateSpecialTimes(input.open, input.close)
+  if (problem) return invalid(problem)
+  const admitted = await admitWriter(storeId)
   if (!admitted.ok) return admitted
-  const { actor } = admitted
-  if (!(await canWriteStoreDaysFor(actor, storeId))) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
-  const dateProblem = validateDate(input.date)
-  if (dateProblem) return { ok: false, reason: 'invalid', message: dateProblem }
-  const timeProblem = validateSpecialTimes(input.open, input.close)
-  if (timeProblem) return { ok: false, reason: 'invalid', message: timeProblem }
-  try {
-    const policy = await actor.reads.storePolicyGet(storeId)
-    const current = policy.special_open_days
-    if (current.some((d) => d.date === input.date)) return { ok: false, reason: 'invalid', message: MSG.duplicateSpecial }
-    if (current.length >= MAX_SPECIAL_DAYS) return { ok: false, reason: 'invalid', message: MSG.genericFail }
-    const next = [...current, { date: input.date, open: input.open, close: input.close }].sort((a, b) =>
-      a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-    )
-    return setSpecialOpenDays(storeId, next)
-  } catch (e) {
-    return mapCoreError(e, admitted.reach)
-  }
+  return setSpecialOpenDays(
+    storeId,
+    (current) => {
+      if (isPastDate(input.date)) return invalid(MSG.pastDate) // Also-noted B — re-checked at write time
+      if (current.some((d) => d.date === input.date)) return invalid(MSG.duplicateSpecial)
+      if (current.length >= MAX_SPECIAL_DAYS) return invalid(MSG.genericFail)
+      return { next: [...current, { date: input.date, open: input.open, close: input.close }].sort(byDate) }
+    },
+    admitted,
+  )
 }
 
+/** Remove one entry (P3-2: the body is the FULL sorted array, like add). A date the fresh read lacks
+ *  → ok with core's array, no `set` (P3-1). */
 export async function removeSpecialOpenDay(storeId: string, date: string): Promise<SetSpecialOpenDaysResult> {
-  const admitted = await admitActor()
+  if (practiceTenant() === null) return TENANT_REFUSAL
+  const problem = validateDate(date)
+  if (problem) return invalid(problem)
+  const admitted = await admitWriter(storeId)
   if (!admitted.ok) return admitted
-  const { actor } = admitted
-  if (!(await canWriteStoreDaysFor(actor, storeId))) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
-  try {
-    const policy = await actor.reads.storePolicyGet(storeId)
-    const next = policy.special_open_days.filter((d) => d.date !== date)
-    return setSpecialOpenDays(storeId, next)
-  } catch (e) {
-    return mapCoreError(e, admitted.reach)
-  }
+  return setSpecialOpenDays(
+    storeId,
+    (current) => (current.some((d) => d.date === date) ? { next: current.filter((d) => d.date !== date).sort(byDate) } : { unchanged: true }),
+    admitted,
+  )
 }
 
 // ── the badge (R3/R8) — computed from CLOSURES, never from the special list ─

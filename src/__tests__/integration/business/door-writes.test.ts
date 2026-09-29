@@ -67,8 +67,8 @@ const SHEETS: Record<string, Sheet> = {
 const store = (id: string, name: string): Store => ({ id, business_id: TENANT, name, address: null, phone: null, photo_url: null, is_primary: false, active: true, created_at: 'x', updated_at: 'x' })
 const STORES: Store[] = [store(STORE_ID, 'テスト東京店'), store(OTHER_STORE_ID, 'テスト横浜店')]
 
-const CLOSURE_C1 = { id: 'c1', store_id: STORE_ID, date: '2026-10-08', reason: '店内研修（テスト）', created_by: null, created_at: 'x' }
-const CLOSURE_C2 = { id: 'c2', store_id: STORE_ID, date: '2026-11-10', reason: '棚卸し', created_by: null, created_at: 'x' }
+const CLOSURE_C1 = { id: 'c1c1c1c1-0000-4000-8000-000000000001', store_id: STORE_ID, date: '2026-10-08', reason: '店内研修（テスト）', created_by: null, created_at: 'x' }
+const CLOSURE_C2 = { id: 'c2c2c2c2-0000-4000-8000-000000000002', store_id: STORE_ID, date: '2026-11-10', reason: '棚卸し', created_by: null, created_at: 'x' }
 const SPECIAL_1020 = { date: '2026-10-20', open: '10:00', close: '19:00' }
 const BASE_POLICY = {
   store_id: STORE_ID, override_roles: [], override_locked_out: [], override_hold_to_confirm: true, override_strict_wall: false,
@@ -301,11 +301,11 @@ describe('P-B1-6 — a failed read is an error state', () => {
 describe('R6 fold — closure removal audit', () => {
   it('removeClosedDay: core is called with (storeId, id, acting_staff_id); the door records its own audit.log after success', async () => {
     mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
-    const result = await data.removeStoreClosedDay(STORE_ID, 'c1')
-    expect(result).toEqual({ ok: true })
-    expect(mockCore.writer.removeClosedDay).toHaveBeenCalledWith(STORE_ID, 'c1', 'staff-owner')
+    const result = await data.removeStoreClosedDay(STORE_ID, CLOSURE_C1.id)
+    expect(result).toEqual({ ok: true, closures: [CLOSURE_C2] })
+    expect(mockCore.writer.removeClosedDay).toHaveBeenCalledWith(STORE_ID, CLOSURE_C1.id, 'staff-owner')
     expect(mockCore.auditLog).toHaveBeenCalledTimes(1)
-    expect(mockCore.auditLog.mock.calls[0][0]).toMatchObject({ action: 'store_closed_day.remove', category: 'settings', target_type: 'store_closed_day', target_id: 'c1' })
+    expect(mockCore.auditLog.mock.calls[0][0]).toMatchObject({ action: 'store_closed_day.remove', category: 'settings', target_type: 'store_closed_day', target_id: CLOSURE_C1.id })
   })
   it('addClosedDay carries the SDK audit payload (actor_type + action)', async () => {
     mockCore.writer.addClosedDay.mockResolvedValueOnce({ id: 'c9', store_id: STORE_ID, date: '2026-12-28', reason: null, created_by: null, created_at: 'x' })
@@ -325,3 +325,88 @@ describe('OFF — the practice door unset', () => {
     expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
   })
 })
+
+// ⚖ PKT-S30 F7 / F9 / P3-1 / P3-2 / P3-8 / P3-9 — one admission, one get, one set; no-op short-circuits.
+describe('PKT-S30 F7 — one admit, one get, one set per public call', () => {
+  const W = ['set', 'addClosedDay', 'removeClosedDay'] as const
+  function sequence(spied: Spied): string[] {
+    const order: string[] = []
+    for (const k of Object.keys(spied) as Array<keyof Spied>) {
+      const inner = spied[k].getMockImplementation()!
+      spied[k].mockImplementation((...a: unknown[]) => (order.push(k), (inner as (...x: unknown[]) => unknown)(...a)))
+    }
+    for (const k of W) {
+      const inner = mockCore.writer[k].getMockImplementation()
+      mockCore.writer[k].mockImplementation((...a: unknown[]) => (order.push(k), inner ? (inner as (...x: unknown[]) => unknown)(...a) : undefined))
+    }
+    return order
+  }
+  it('add: exactly one get and one set, the get immediately before the set (the only remaining window)', async () => {
+    mockCore.writer.set.mockResolvedValue({ ...BASE_POLICY })
+    const order = sequence(withReads())
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '10:00', close: '11:00' })
+    expect(r.ok).toBe(true)
+    expect(order.filter((k) => k === 'storePolicyGet')).toHaveLength(1)
+    expect(order.filter((k) => k === 'set')).toHaveLength(1)
+    expect(order.slice(-2)).toEqual(['storePolicyGet', 'set'])
+    expect(order.filter((k) => k === 'answerSheet')).toHaveLength(1) // admitted ONCE
+  })
+  it('remove: one get, one set, the body is the FULL sorted array (P3-2)', async () => {
+    const spied = withReads()
+    spied.storePolicyGet.mockResolvedValue({ ...BASE_POLICY, special_open_days: [{ date: '2026-12-09', open: '10:00', close: '11:00' }, SPECIAL_1020, { date: '2026-11-01', open: '10:00', close: '11:00' }] })
+    mockCore.writer.set.mockResolvedValue({ ...BASE_POLICY })
+    const order = sequence(spied)
+    await data.removeStoreSpecialOpenDay(STORE_ID, '2026-10-20')
+    expect(order.filter((k) => k === 'storePolicyGet')).toHaveLength(1)
+    expect(mockCore.writer.set).toHaveBeenCalledTimes(1)
+    expect(mockCore.writer.set.mock.calls[0][1].special_open_days.map((d: { date: string }) => d.date)).toEqual(['2026-11-01', '2026-12-09'])
+  })
+  it('remove of a date the fresh read lacks: ok, NO set (P3-1)', async () => {
+    const r = await data.removeStoreSpecialOpenDay(STORE_ID, '2026-12-24')
+    expect(r).toEqual({ ok: true, specialOpenDays: [SPECIAL_1020] })
+    expect(mockCore.writer.set).not.toHaveBeenCalled()
+  })
+  it('F9: a closure another admin already removed → ok, list refreshed from the read, no core delete, no error line', async () => {
+    const spied = withReads()
+    spied.storePolicyListClosedDays.mockResolvedValue({ closed_days: [CLOSURE_C2] })
+    const r = await data.removeStoreClosedDay(STORE_ID, CLOSURE_C1.id)
+    expect(r).toEqual({ ok: true, closures: [CLOSURE_C2] })
+    expect(mockCore.writer.removeClosedDay).not.toHaveBeenCalled()
+    expect(mockCore.auditLog).not.toHaveBeenCalled()
+    expect(error).not.toHaveBeenCalled()
+    expect(spied.storePolicyListClosedDays.mock.calls[0]).toEqual([STORE_ID]) // read WITHOUT the from-date filter
+  })
+  it('P3-8: a non-uuid closure id is refused before ANY call', async () => {
+    const spied = withReads()
+    const r = await data.removeStoreClosedDay(STORE_ID, 'c1')
+    expect(r).toMatchObject({ ok: false, reason: 'invalid' })
+    for (const fn of Object.values(spied)) expect(fn).not.toHaveBeenCalled()
+    for (const k of W) expect(mockCore.writer[k]).not.toHaveBeenCalled()
+  })
+  it('P3-9: removing a closure dated before today → 過ぎた日付です, zero writes', async () => {
+    const spied = withReads()
+    spied.storePolicyListClosedDays.mockResolvedValue({ closed_days: [{ ...CLOSURE_C1, date: '2026-09-28' }] })
+    const r = await data.removeStoreClosedDay(STORE_ID, CLOSURE_C1.id)
+    expect(r).toEqual({ ok: false, reason: 'invalid', message: '過ぎた日付です' })
+    expect(mockCore.writer.removeClosedDay).not.toHaveBeenCalled()
+    expect(mockCore.auditLog).not.toHaveBeenCalled()
+  })
+  it('P3-1: validation before admission — a bad date asks core nothing', async () => {
+    const spied = withReads()
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-02-30', open: '10:00', close: '11:00' })
+    expect(r).toMatchObject({ ok: false, reason: 'invalid' })
+    for (const fn of Object.values(spied)) expect(fn).not.toHaveBeenCalled()
+    for (const k of W) expect(mockCore.writer[k]).not.toHaveBeenCalled()
+  })
+  it('Also-noted B: the JST day turns between validation and write → refused at write time, no set', async () => {
+    const spied = withReads()
+    spied.storePolicyGet.mockImplementation(async () => {
+      jest.setSystemTime(new Date('2026-09-29T15:00:01Z')) // 00:00:01 JST on 9/30
+      return { ...BASE_POLICY }
+    })
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-09-29', open: '10:00', close: '11:00' })
+    expect(r).toEqual({ ok: false, reason: 'invalid', message: '過ぎた日付です' })
+    expect(mockCore.writer.set).not.toHaveBeenCalled()
+  })
+})
+
