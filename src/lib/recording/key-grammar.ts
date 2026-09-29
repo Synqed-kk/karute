@@ -24,17 +24,23 @@
 //     staged      stg/<businessId>_<recordingSessionId>_<lowercase uuid>.<ext>
 //     rescue      rsc/app_<businessId>_<lowercase uuid>.<ext>
 //     transcript  trc/<a take or rescue key of the same business>.<ja|en>.json
-//     mark        mrk/<a take key of the same business>.<mark kind>.json
+//     mark        mrk/<a take or staged key of the same business>.<mark kind>.json
 //
-// ⚖ A MARK IS A DURABLE FLAG ON ONE TAKE (S60 PR-A, A4). The server's
-// create-only verdict about the object under a take key — `refused` (its head
-// is no container), `partial`, and the two PR-R/PR-C supersessions `rescued`
-// and `regenerated` — written by src/lib/recording/take-mark.ts. Nested under
-// its own prefix (never the bucket root, which /api/cleanup lists; never
-// `seg/`, which the assembler lists), named for a TAKE only: a rescue is the
-// server's own rebuild and is never marked. Not `trc/`: that area is the paid
-// answer, locale-typed and repairable, and a mark is never overwritten. Audio
-// of neither kind — no fence below admits it.
+// ⚖ A MARK IS A DURABLE FLAG ON ONE OBJECT THE SERVER NAMED (S60 PR-A, A4;
+// PR-K). The server's create-only verdict about the object under a take key
+// or a staged key — `refused` (its head is no container), `partial`, and the
+// two PR-R/PR-C supersessions `rescued` and `regenerated` — written by
+// src/lib/recording/take-mark.ts. TWO HOMES, BY DOOR, never a shared key:
+// finalize marks the TAKE key (markTake); the staged door marks the STAGED
+// key it composed for that copy (markStagedCopy), which carries the row's
+// session and names an object that can actually arrive. Nested under its own
+// prefix (never the bucket root, which /api/cleanup lists; never `seg/`,
+// which the assembler lists). A rescue is the server's own rebuild and is
+// never marked. Not `trc/`: that area is the paid answer, locale-typed and
+// repairable, and a mark is never overwritten. Audio of neither kind — no
+// fence below admits it — and its parse NESTS the object it names under
+// `target`, so a mark result carries no top-level `takeId` and no
+// `'takeId' in parsed` reader can mistake it for a take.
 //
 // ⚖ THE TRANSCRIPT IS THE PAID ANSWER, KEPT BESIDE ITS AUDIO (PR-5, charge
 // once). The meter writes the provider's answer here after it paid for it and
@@ -136,7 +142,13 @@ export type ParsedRecordingKey =
   | { kind: 'staged'; recordingSessionId: string; ext: string }
   | { kind: 'rescue'; takeId: string; ext: string }
   | { kind: 'transcript'; audioKey: string; locale: 'ja' | 'en' }
-  | { kind: 'mark'; takeKey: string; takeId: string; ext: string; mark: MarkKind }
+  | {
+      kind: 'mark'
+      target:
+        | { kind: 'take'; takeId: string; ext: string }
+        | { kind: 'staged'; sessionId: string; uuid: string; ext: string }
+      mark: MarkKind
+    }
 
 /** `<stem>.<ext>` split on the LAST dot, ext from the closed set or nothing. */
 function splitExtension(name: string): { stem: string; ext: string } | null {
@@ -241,10 +253,12 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
   }
 
   if (key.startsWith(MARK_PREFIX)) {
-    // mrk/<take key>.<mark kind>.json — the transcript branch's shape above,
-    // with ONE narrowing: the remainder must read back as this business's TAKE.
-    // A rescue, a memo, a segment, a staged copy and another tenant's key are
-    // all refused by that one read.
+    // mrk/<take or staged key>.<mark kind>.json — the transcript branch's
+    // shape above, with ONE narrowing: the remainder must read back as this
+    // business's TAKE or STAGED copy (PR-K: the two objects a mark may name).
+    // A rescue, a memo, a segment, a mark and another tenant's key are all
+    // refused by that one read. The target is NESTED, never spread: a mark is
+    // not a take, so nothing take-shaped sits at the top of this result.
     const rest = key.slice(MARK_PREFIX.length)
     if (!rest.endsWith(MARK_SUFFIX)) return null
     const named = rest.slice(0, -MARK_SUFFIX.length)
@@ -252,10 +266,23 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
     if (dot <= 0) return null
     const mark = named.slice(dot + 1)
     if (!(MARK_KINDS as readonly string[]).includes(mark)) return null
-    const takeKey = named.slice(0, dot)
-    const take = parseRecordingKey(takeKey, businessId)
-    if (take?.kind !== 'take') return null
-    return { kind: 'mark', takeKey, takeId: take.takeId, ext: take.ext, mark: mark as MarkKind }
+    const targetKey = named.slice(0, dot)
+    const target = parseRecordingKey(targetKey, businessId)
+    if (target?.kind === 'take') {
+      return { kind: 'mark', target: { kind: 'take', takeId: target.takeId, ext: target.ext }, mark: mark as MarkKind }
+    }
+    if (target?.kind === 'staged') {
+      // The staged read above proved the uuid slot: the fixed-width stretch
+      // right before `.<ext>`.
+      const end = targetKey.length - target.ext.length - 1
+      const uuid = targetKey.slice(end - UUID_LENGTH, end)
+      return {
+        kind: 'mark',
+        target: { kind: 'staged', sessionId: target.recordingSessionId, uuid, ext: target.ext },
+        mark: mark as MarkKind,
+      }
+    }
+    return null
   }
 
   const body = parseTakeBody(key, prefix)
@@ -435,12 +462,15 @@ export function composeTranscriptKey(
 }
 
 /**
- * Compose the TAKE-MARK key for one take and one mark kind (S60 A4) — where
- * take-mark.ts keeps the server's durable, create-only verdict on that take.
+ * Compose the MARK key for one object and one mark kind (S60 A4; PR-K) — where
+ * take-mark.ts keeps the server's durable, create-only verdict on that object.
  *
- * `takeKey` must already be this business's TAKE: a mark is named for the
- * phone's own object and nothing else, so a rescue, a staged copy, a segment,
- * a memo or another tenant's key is null, as is a kind outside MARK_KINDS.
+ * `targetKey` must already be this business's TAKE or STAGED copy: a mark
+ * names an object the server named and nothing else, so a rescue, a segment,
+ * a memo, a mark or another tenant's key is null, as is a kind outside
+ * MARK_KINDS. WHICH of the two a caller may mark is the writer's contract, not
+ * this composer's: markTake refuses a staged key and markStagedCopy a take key
+ * (take-mark.ts) — two homes, by door, never a shared key.
  *
  * SAME SELF-CHECK CONTRACT as composeTranscriptKey: the composition is parsed
  * back with the SAME parser and compared field by field, so reaching the throw
@@ -451,14 +481,24 @@ export function composeTranscriptKey(
  */
 export function composeMarkKey(
   businessId: string,
-  takeKey: unknown,
+  targetKey: unknown,
   mark: unknown,
 ): { key: string } | null {
-  if (parseRecordingKey(takeKey, businessId)?.kind !== 'take') return null
+  const target = parseRecordingKey(targetKey, businessId)
+  if (target?.kind !== 'take' && target?.kind !== 'staged') return null
   if (typeof mark !== 'string' || !(MARK_KINDS as readonly string[]).includes(mark)) return null
-  const key = `${MARK_PREFIX}${takeKey as string}.${mark}${MARK_SUFFIX}`
+  const key = `${MARK_PREFIX}${targetKey as string}.${mark}${MARK_SUFFIX}`
   const parsed = parseRecordingKey(key, businessId)
-  if (parsed?.kind !== 'mark' || parsed.takeKey !== takeKey || parsed.mark !== mark) {
+  const same =
+    parsed?.kind === 'mark' &&
+    parsed.mark === mark &&
+    parsed.target.ext === target.ext &&
+    (target.kind === 'take'
+      ? parsed.target.kind === 'take' && parsed.target.takeId === target.takeId
+      : parsed.target.kind === 'staged' &&
+        parsed.target.sessionId === target.recordingSessionId &&
+        (targetKey as string).endsWith(`_${parsed.target.uuid}.${target.ext}`))
+  if (!same) {
     throw new Error('composed mark key failed its own grammar')
   }
   return { key }
@@ -587,13 +627,17 @@ export function composeSegmentKey(
  * `crypto.randomUUID` on the DEVICE, which cannot name its take at all) is the
  * named ceiling here, and its copies stay unfindable exactly as every copy was
  * before this round.
+ *
+ * The `uuid` the slot ended up holding is answered too (PR-K, A6): it is the
+ * one fact that tells the staged door whether the slot is the take it asked
+ * for or the random fallback — only the former is a copy worth marking.
  */
 export function composeStagedKey(
   businessId: string,
   recordingSessionId: unknown,
   mimeType: unknown,
   slot?: unknown,
-): { key: string; ext: string; contentType: string } | null {
+): { key: string; ext: string; contentType: string; uuid: string } | null {
   if (typeof recordingSessionId !== 'string' || !TAKE_UUID.test(recordingSessionId)) return null
   const contentType = normalizeAudioMime(mimeType)
   if (contentType === null) return null
@@ -603,7 +647,7 @@ export function composeStagedKey(
   if (parseRecordingKey(key, businessId)?.kind !== 'staged') {
     throw new Error('composed staged key failed its own grammar')
   }
-  return { key, ext, contentType }
+  return { key, ext, contentType, uuid }
 }
 
 /**
