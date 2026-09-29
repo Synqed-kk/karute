@@ -148,7 +148,8 @@ MUTANTS = [
        '  }\n\n  let result')],
      [JOB_T], ['SF-7 W10: a mid-run converge onto a record whose staff set no_deal since']),
     ('M-O19b', "the worker files the answer under the payload's stale customer",
-     [(WORKER, '    customerId: recordCustomerId,\n', '    customerId: payload.customer_id, // M-O19b\n')],
+     [(WORKER, '    customerId: recordCustomerId,\n    staffId: payload.staff_id,\n',
+       '    customerId: payload.customer_id, // M-O19b\n    staffId: payload.staff_id,\n')],
      [JOB_T], ["SF-7: a mid-run converge onto a re-pointed record with no decided answer → written under the record's current customer"]),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
