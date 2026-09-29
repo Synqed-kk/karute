@@ -26,6 +26,8 @@ import type { SettingsBlock, SettingsProps } from '@/business/lib/settings'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import { LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
 import { storeDaysLockedNote } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { READ_FAILURE_LINE, READ_ONLY_NOTE } from '@/business/lib/data'
+import { CARD } from './practice-door-recorded'
 
 type CD = { id: string; store_id: string; date: string; reason: string | null; created_by: string | null; created_at: string }
 const C1: CD = { id: 'c1', store_id: STORE.tokyo, date: '2026-10-08', reason: '店内研修（テスト）', created_by: null, created_at: 'x' }
@@ -36,10 +38,21 @@ const BADGE = '臨時休業より優先'
 const stub = {
   getThrows: false,
   listThrows: false,
+  asAdmin: false,
+  grantThrows: false,
   reads(): CoreReads {
     const base = recordedReads({ closedDays: { [STORE.tokyo]: [C1, C2] }, hqGranted: false })
     return {
       ...base,
+      // ⚖ PKT-S32 R14 — the OWNER's login answered by core as an ADMIN (settings.manage + viewAll, no grant)
+      answerSheet: async (id: string) => {
+        const s = await base.answerSheet(id)
+        return stub.asAdmin && id === CARD.owner ? { ...s, role: 'manager', coarse_role: 'ADMIN', capabilities: ['settings.manage', 'stores.viewAll'], visible_store_ids: null } : s
+      },
+      businessGrantsCheck: async (id: string) => {
+        if (stub.grantThrows) throw new Error('core outage (grants)')
+        return base.businessGrantsCheck(id)
+      },
       storePolicyGet: async (id: string) => {
         if (stub.getThrows) throw new Error('core outage (get)')
         const p = await base.storePolicyGet(id)
@@ -58,6 +71,8 @@ beforeEach(() => {
   process.env.BUSINESS_PRACTICE_TENANT = TENANT
   stub.getThrows = false
   stub.listThrows = false
+  stub.asAdmin = false
+  stub.grantThrows = false
   ;(requireBusinessAdmission as jest.Mock).mockResolvedValue({ userId: LOGIN.owner, email: null, businessId: TENANT })
   jest.spyOn(console, 'error').mockImplementation(() => {})
   jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -112,5 +127,31 @@ describe('R9 — store-days write state → the line shown instead of add/remove
   it('the page hands the mapped line to the screen: an OWNER (core’s requireHqAdmin passes by role) → null', async () => {
     const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ saveStoreDays?: { lockedNote: string | null } }>
     expect(el.props.saveStoreDays).toMatchObject({ storeId: STORE.tokyo, lockedNote: null })
+  })
+})
+
+// ⚖ PKT-S32 R14 — the page's mapping for the two locked actors (strings from the source, never retyped).
+describe('R14 — the page maps the locked actors’ line into saveStoreDays.lockedNote', () => {
+  const lockedNote = async () => {
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ saveStoreDays?: { storeId: string; lockedNote: string | null } }>
+    expect(el.props.saveStoreDays).toBeDefined()
+    expect(el.props.saveStoreDays!.storeId).toBe(STORE.tokyo)
+    return el.props.saveStoreDays!.lockedNote
+  }
+  it('the two lines are real and distinct', () => {
+    expect(READ_ONLY_NOTE.length).toBeGreaterThan(0)
+    expect(READ_FAILURE_LINE.length).toBeGreaterThan(0)
+    expect(READ_ONLY_NOTE).not.toBe(READ_FAILURE_LINE)
+  })
+  it('a non-OWNER without the HQ grant → the read-only line', async () => {
+    stub.asAdmin = true
+    expect(await lockedNote()).toBe(READ_ONLY_NOTE)
+  })
+  it('the grant check throws → the section’s own failure line (unknown), never the read-only line', async () => {
+    stub.asAdmin = true
+    stub.grantThrows = true
+    const note = await lockedNote()
+    expect(note).toBe(READ_FAILURE_LINE)
+    expect(note).not.toBe(READ_ONLY_NOTE)
   })
 })

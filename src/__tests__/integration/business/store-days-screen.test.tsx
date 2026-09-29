@@ -37,6 +37,9 @@ import { CARD, LOGIN, STORE, TENANT, recordedReads } from './practice-door-recor
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
 import type { ReactElement } from 'react'
 import { STORE_A } from '@/business/lib/fixtures'
+import { READ_FAILURE_LINE, READ_ONLY_NOTE } from '@/business/lib/data'
+import { storeDaysLockedNote } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { screen, within } from '@testing-library/react'
 
 type CD = { id: string; store_id: string; date: string; reason: string | null; created_by: string | null; created_at: string }
 const C1: CD = { id: 'c1', store_id: STORE.tokyo, date: '2026-10-08', reason: '店内研修（テスト）', created_by: null, created_at: 'x' }
@@ -48,11 +51,13 @@ const mockUi = {
   getThrows: false,
   listThrows: false,
   granted: false,
+  grantThrows: false,
   sheetOverride: {} as Record<string, unknown>,
   reads(): CoreReads {
     const base = recordedReads({ closedDays: { [STORE.tokyo]: mockUi.closures }, hqGranted: mockUi.granted })
     return {
       ...base,
+      businessGrantsCheck: async (id: string) => { if (mockUi.grantThrows) throw new Error('core outage (grants)'); return base.businessGrantsCheck(id) },
       answerSheet: async (id: string) => (mockUi.sheetOverride[id] as Awaited<ReturnType<CoreReads['answerSheet']>>) ?? base.answerSheet(id),
       storePolicyGet: async (id: string) => {
         if (mockUi.getThrows) throw new Error('core outage (get)')
@@ -92,6 +97,7 @@ beforeEach(() => {
   mockUi.getThrows = false
   mockUi.listThrows = false
   mockUi.granted = false
+  mockUi.grantThrows = false
   mockUi.sheetOverride = {}
   admission.mockResolvedValue({ userId: LOGIN.owner, email: null, businessId: TENANT })
   fetchLog = []
@@ -226,5 +232,34 @@ describe('F10 (R-A) — the OFF world: 特別営業日 is a local draft, like �
     await settle()
     expect(rowsText('store-hours.closures').join('|')).toContain('12月1日')
     expect(unsavedMarks()).toBe(0)
+  })
+})
+
+// ⚖ PKT-S32 R14 — the page's R9 mapping reaches the SCREEN: a signed-in non-OWNER without the grant
+// ('read-only') and a grant check that throws ('unknown') each show their ONE mapped line in BOTH
+// blocks, with no 追加 and no 取り消す anywhere (m20: a screen that ignores lockedNote goes red here).
+describe('R14 — locked actors: the mapped line in both blocks, no add / remove controls', () => {
+  const nonOwner = () => {
+    // the OWNER's own login, answered by core as an ADMIN (settings.manage + viewAll, no HQ grant)
+    mockUi.sheetOverride = { [CARD.owner]: { staff_id: CARD.owner, role: 'manager', coarse_role: 'ADMIN', capabilities: ['settings.manage', 'stores.viewAll'], visible_store_ids: null, money_scope: null, version: '1.1' } }
+  }
+  it.each([
+    ['read-only', () => { nonOwner() }, READ_ONLY_NOTE, READ_FAILURE_LINE],
+    ['unknown', () => { nonOwner(); mockUi.grantThrows = true }, READ_FAILURE_LINE, READ_ONLY_NOTE],
+  ] as const)("'%s' actor", async (state, arrange, line, otherLine) => {
+    expect(storeDaysLockedNote(state)).toBe(line) // exactly the line the page maps for this state
+    arrange()
+    await mount()
+    for (const id of ['store-hours.closures', 'store-hours.special-open']) {
+      const blk = blockEl(id)!
+      expect(blk).not.toBeNull()
+      expect(within(blk).getAllByText(line, { exact: false }).length).toBeGreaterThanOrEqual(1)
+      expect(text(id)).not.toContain(otherLine)
+      expect(addBtn(id)).toBeUndefined()
+      expect(blk.querySelectorAll('button.st-coll-del').length).toBe(0)
+    }
+    expect(document.body.textContent!.split(line).length - 1).toBe(2)
+    expect(screen.queryByRole('button', { name: /追加/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /取り消す/ })).toBeNull()
   })
 })
