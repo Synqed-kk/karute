@@ -1004,7 +1004,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/business/lib/practice-door/door-writes.ts',
     call: 'storePolicies.set',
-    symbols: ['setSpecialOpenDays', 'addSpecialOpenDay', 'removeSpecialOpenDay'],
+    symbols: ['setSpecialOpenDays'],
     justification:
       'PKT-S29-B1 — the 特別営業日 (special_open_days) writer: a store the operator may see, settings.manage AND core\'s own HQ_ADMIN grant (businessGrants.check, memoized per actor — an OWNER passes by role), read-before-write (get fresh, next = current ± one entry, sorted, nothing else in the body), one structured server log line per real write; core\'s own store_policy.edit audit row covers this write server-side (EV/CORE-READ-B1.md Q5).',
     dated: '2026-09-29',

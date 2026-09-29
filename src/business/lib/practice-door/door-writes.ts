@@ -340,12 +340,16 @@ export async function setSpecialOpenDays(storeId: string, next: SpecialOpenDay[]
 }
 
 /** Read-before-write (R5): `get` fresh → next = current ± one entry, sorted
- *  ascending by date → `set`. Validation (R3) runs before the read, so a
- *  malformed add never touches core at all. */
+ *  ascending by date → `setSpecialOpenDays` (never a second, duplicate SDK
+ *  call site of its own — CP3/business-territory.json's writers row is keyed
+ *  to `setSpecialOpenDays` alone, so this convenience wrapper DELEGATES the
+ *  actual write rather than repeating `writer.storePolicies.set(` here).
+ *  Validation (R3) runs before the read, so a malformed add never touches
+ *  core at all. */
 export async function addSpecialOpenDay(storeId: string, input: { date: string; open: string; close: string }): Promise<SetSpecialOpenDaysResult> {
   const admitted = await admitActor()
   if (!admitted.ok) return admitted
-  const { actor, reach } = admitted
+  const { actor } = admitted
   if (!(await canWriteStoreDaysFor(actor, storeId))) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
   const dateProblem = validateDate(input.date)
   if (dateProblem) return { ok: false, reason: 'invalid', message: dateProblem }
@@ -359,35 +363,23 @@ export async function addSpecialOpenDay(storeId: string, input: { date: string; 
     const next = [...current, { date: input.date, open: input.open, close: input.close }].sort((a, b) =>
       a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
     )
-    const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
-    const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
-    console.info(
-      '[business store days]',
-      JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'special.add', date: input.date, at: renderNow().toISOString() }),
-    )
-    return { ok: true, specialOpenDays: saved.special_open_days }
+    return setSpecialOpenDays(storeId, next)
   } catch (e) {
-    return mapCoreError(e, reach)
+    return mapCoreError(e, admitted.reach)
   }
 }
 
 export async function removeSpecialOpenDay(storeId: string, date: string): Promise<SetSpecialOpenDaysResult> {
   const admitted = await admitActor()
   if (!admitted.ok) return admitted
-  const { actor, reach } = admitted
+  const { actor } = admitted
   if (!(await canWriteStoreDaysFor(actor, storeId))) return { ok: false, reason: 'forbidden', message: MSG.readOnly }
   try {
     const policy = await actor.reads.storePolicyGet(storeId)
     const next = policy.special_open_days.filter((d) => d.date !== date)
-    const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
-    const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
-    console.info(
-      '[business store days]',
-      JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'special.remove', date, at: renderNow().toISOString() }),
-    )
-    return { ok: true, specialOpenDays: saved.special_open_days }
+    return setSpecialOpenDays(storeId, next)
   } catch (e) {
-    return mapCoreError(e, reach)
+    return mapCoreError(e, admitted.reach)
   }
 }
 
