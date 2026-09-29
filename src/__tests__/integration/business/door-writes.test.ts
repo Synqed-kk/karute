@@ -604,6 +604,26 @@ describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove
     await data.readCanWriteStoreDays(STORE_ID)
     expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(2)
   })
+  // ⚖ PKT-S32 R16 — the negative side of R1: ONLY a 403 clears the memo. A 409 or a 503 on any of the
+  // three writes keeps it, so a second write by the same granted actor never asks core the grant question again.
+  const R16_WRITES: Array<[string, (status: number) => void, () => Promise<unknown>]> = [
+    ['add closure', (status) => { mockCore.writer.addClosedDay.mockRejectedValueOnce(fakeSynqedError(status, 'refused')) }, () => data.addStoreClosedDay(STORE_ID, { date: '2026-11-20', reason: '' })],
+    ['remove closure', (status) => { mockCore.writer.removeClosedDay.mockRejectedValueOnce(fakeSynqedError(status, 'refused')) }, () => data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)],
+    ['set special days', (status) => { mockCore.writer.set.mockRejectedValueOnce(fakeSynqedError(status, 'refused')) }, () => data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' })],
+  ]
+  it.each(R16_WRITES.flatMap(([name, refuse, write]) => [
+    [name, 409, 1, refuse, write] as const,
+    [name, 503, 1, refuse, write] as const,
+    [name, 403, 2, refuse, write] as const,
+  ]))('R16: %s refused with %i, then a second write → the grant check ran %i time(s)', async (_name, status, checks, refuse, write) => {
+    as('login-admin')
+    const spied = withReads()
+    spied.businessGrantsCheck.mockResolvedValue({ granted: true })
+    refuse(status)
+    expect(await write()).toMatchObject({ ok: false })
+    await write()
+    expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(checks)
+  })
   it('R2: audit.log never answers → the removal still answers ok once the bound passes, one warn carrying store_id, date and reason', async () => {
     mockCore.auditLog = jest.fn(() => new Promise(() => {}))
     let settled: unknown = 'pending'
