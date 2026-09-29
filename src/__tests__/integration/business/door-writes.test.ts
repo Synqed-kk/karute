@@ -654,6 +654,18 @@ describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove
     const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' })
     expect(r).toEqual({ ok: false, reason: 'invalid', message: DUPLICATE_SPECIAL_LINE })
   })
+  it('R15: core’s duplicate MESSAGE wins over the status — a 422 “Special open dates must be unique” → the duplicate line', async () => {
+    mockCore.writer.set.mockRejectedValueOnce(fakeSynqedError(422, 'Special open dates must be unique'))
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' })
+    expect(r).toEqual({ ok: false, reason: 'invalid', message: DUPLICATE_SPECIAL_LINE })
+    expectWrites({ set: 1 })
+  })
+  it('R15: any other core validation message at 400 still takes R4’s generic line', async () => {
+    mockCore.writer.set.mockRejectedValueOnce(fakeSynqedError(400, 'open must be before close'))
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' })
+    expect(r).toEqual({ ok: false, reason: 'core', message: GENERIC_FAIL_LINE })
+    expect(r).not.toEqual(expect.objectContaining({ message: DUPLICATE_SPECIAL_LINE }))
+  })
   it('R6: a spaces-only closure reason is trimmed, then sent as null (audit detail reason "")', async () => {
     mockCore.writer.addClosedDay.mockImplementation(async (_s: string, b: { date: string; reason: string | null }) => ({ ...CLOSURE_C1, id: 'eeeeeeee-0000-4000-8000-00000000000e', date: b.date, reason: b.reason }))
     await data.addStoreClosedDay(STORE_ID, { date: '2026-11-21', reason: '   ' })

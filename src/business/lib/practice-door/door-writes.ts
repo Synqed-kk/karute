@@ -221,6 +221,12 @@ function writeFailed(e: unknown, { actor, reach }: Admitted): Refusal {
   return mapCoreError(e, reach)
 }
 
+/** Core's own words for a duplicate special date — the message is the truth (its status is UNVERIFIED).
+ *  ONE exact-equality comparison, shared by mapCoreError and the special-days set (PKT-S32 R15). */
+function isDuplicateSpecial(e: { message: string }): boolean {
+  return e.message === 'Special open dates must be unique'
+}
+
 function mapCoreError(e: unknown, reach: typeof import('./core-reach')): Refusal {
   if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant', message: MSG.genericFail }
   if (isSynqedError(e)) {
@@ -228,7 +234,7 @@ function mapCoreError(e: unknown, reach: typeof import('./core-reach')): Refusal
     if (e.message === 'This date is already a closed day for the store.') {
       return { ok: false, reason: 'invalid', message: MSG.duplicateClosure }
     }
-    if (e.message === 'Special open dates must be unique') return { ok: false, reason: 'invalid', message: MSG.duplicateSpecial }
+    if (isDuplicateSpecial(e)) return { ok: false, reason: 'invalid', message: MSG.duplicateSpecial }
     if (e.message === 'open must be before close') return { ok: false, reason: 'invalid', message: MSG.openNotBeforeClose }
     if (e.message === 'date is not a real calendar date') return { ok: false, reason: 'invalid', message: MSG.invalidDate }
     // English never reaches the screen (R4) — logged for whoever reads the server console.
@@ -458,6 +464,8 @@ async function setSpecialOpenDays(storeId: string, plan: SpecialPlan, admitted: 
     // ⚖ PKT-S31 R4 — the user's own entry already passed this door's validation, so a core validation
     // refusal (a 4xx that is not 403 or the 409 duplicate) is about core's array, never the user's
     // times: the generic line on screen, core's words + the dates sent in the log.
+    // ⚖ PKT-S32 R15 — core's duplicate MESSAGE is matched first, whatever the status (409 or not).
+    if (isSynqedError(e) && e.status !== 403 && isDuplicateSpecial(e)) return { ok: false, reason: 'invalid', message: MSG.duplicateSpecial }
     if (isSynqedError(e) && e.status >= 400 && e.status < 500 && e.status !== 403 && e.status !== 409) {
       console.warn('[business store days] core refused the special days set:', e.status, e.message, JSON.stringify(next.map((d) => d.date)))
       return { ok: false, reason: 'core', message: MSG.genericFail }
