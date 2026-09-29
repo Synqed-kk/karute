@@ -148,6 +148,7 @@ import {
   extFromMime,
   MIME_TO_EXT,
 } from '@/lib/recording/key-grammar'
+import { transcriptLeaseKey, transcriptTrueUpKey } from '@/lib/recording/transcript-memo'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
@@ -1895,6 +1896,30 @@ describe('composeTranscriptKey — the paid answer, named for its audio', () => 
     expect(looksLikeRecordingKey('trc')).toBe(false)
     expect(looksLikeRecordingKey(memo)).toBe(false)
     expect(looksLikeRecordingKey(composeTranscriptKey('biz-1', take(), 'ja')!.key)).toBe(false)
+  })
+
+  // ⚖ S58 (blind read finding 5): the lease and the true-up object live beside the memo, one
+  // suffix further — and parse as NO key kind, so no fence or sweep can mistake either for audio
+  // or for a memo.
+  it.each([
+    ['take', take],
+    ['rescue', rescue],
+  ])('s58 the lease and true-up keys of a %s memo parse as NO key kind, in both languages', (_label, audio) => {
+    for (const locale of ['ja', 'en'] as const) {
+      const memo = composeTranscriptKey('biz-1', audio(), locale)!.key
+      const lease = transcriptLeaseKey(memo)
+      const trueUp = transcriptTrueUpKey(memo)
+      expect(lease).toBe(`trc/${audio()}.${locale}.lease.json`)
+      expect(trueUp).toBe(`trc/${audio()}.${locale}.trueup.json`)
+      for (const key of [lease, trueUp]) {
+        expect(parseRecordingKey(key, 'biz-1')).toBeNull()
+        expect(parseRecordingKey(key, 'biz-2')).toBeNull()
+        expect(isOwnRecordingKey(key, 'biz-1')).toBe(false)
+        expect(isOwnAudioKey(key, 'biz-1')).toBe(false)
+        expect(isStagedKeyFor(key, 'biz-1', SESSION_UUID)).toBe(false)
+        expect(looksLikeRecordingKey(key)).toBe(false)
+      }
+    }
   })
 })
 
