@@ -35,7 +35,8 @@ import { requireBusinessAdmission } from '@/business/lib/admission'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import { CARD, LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import type { ReactElement } from 'react'
+import { cloneElement, type ReactElement } from 'react'
+import type { SettingsSection } from '@/business/lib/settings'
 import { STORE_A } from '@/business/lib/fixtures'
 import { READ_FAILURE_LINE, READ_ONLY_NOTE } from '@/business/lib/data'
 import { storeDaysLockedNote } from '@/app/[locale]/(business)/business/settings/settings-props'
@@ -467,4 +468,27 @@ describe('B2 act 1 honest lines', () => {
   })
   // (the all-stores lens is not drivable here: `defaultStoreId` clamps any ?store= to a store the
   // actor sees, and a storeless actor is the only route to it — its S2 gate is saveStoreDays === undefined.)
+  // Row 6 (storeDaysRead === null → 臨時休業 is itself a sample) cannot be reached through the real
+  // routing (dials === null returns early), so this CONSTRUCTED case pins SettingsScreen's guard as
+  // written: the real ON page element, saveStoreDays SET, with 臨時休業 re-dressed as a sample block
+  // (mark + markLine, collection kept) and 特別営業日 left as the router built it.
+  it('row 6 (constructed): 臨時休業 carries a sample mark under a live door → S2 on neither block, S1 on 臨時休業', async () => {
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ sections: SettingsSection[]; saveStoreDays?: unknown }>
+    expect(el.props.saveStoreDays).toBeDefined()
+    const hours = el.props.sections.find((x) => x.id === 'store-hours')!
+    const mark = hours.blocks.find((x) => x.id === 'store-hours.info')!.sample
+    expect(mark).toBeDefined()
+    const sections = el.props.sections.map((x) => (x.id !== 'store-hours' ? x : {
+      ...x,
+      blocks: x.blocks.map((b) => (b.id === CLOSURES ? { ...b, sample: mark, markLine: S1 } : b)),
+    }))
+    expect(sections.find((x) => x.id === 'store-hours')!.blocks.find((b) => b.id === CLOSURES)!.collection).not.toBeNull()
+    render(cloneElement(el, { sections }))
+    await act(async () => {})
+    expect(facts(CLOSURES)).not.toContain(S2)
+    expect(facts(SPECIAL)).not.toContain(S2)
+    expect(count(S2)).toBe(0)
+    expect(text(CLOSURES)).toContain(S1)
+    expect(s1Blocks()).toContain('st-blk-store-hours.closures')
+  })
 })
