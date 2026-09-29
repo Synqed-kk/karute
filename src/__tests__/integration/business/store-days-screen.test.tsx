@@ -211,6 +211,35 @@ describe('Also-noted A — a `forbidden` answer at write time', () => {
   })
 })
 
+// ⚖ PKT-S33 F1 — an ok remove takes the door's refreshed `closures` list (its FRESH read), not a local drop.
+describe('PKT-S33 F1 — 臨時休業 remove takes the door’s refreshed list', () => {
+  const delFirst = async () => {
+    await act(async () => { (blockEl('store-hours.closures')!.querySelector('button.st-coll-del') as HTMLButtonElement).click() })
+    await settle()
+  }
+  it('ok:true with closures:[Y] (Y unknown to the screen) → the list is exactly [Y]', async () => {
+    await mount()
+    expect(rowsText('store-hours.closures')).toHaveLength(2)
+    const Y = { id: 'srv-y', store_id: STORE.tokyo, date: '2026-12-15', reason: '他の管理者が追加', created_by: null, created_at: 'x' }
+    reply = (url, method) => (url.includes('/closures') && method === 'DELETE' ? { status: 200, body: { ok: true, closures: [Y] } } : { status: 500, body: null })
+    await delFirst()
+    const rows = rowsText('store-hours.closures')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toContain('12月15日')
+    expect(rows[0]).toContain('他の管理者が追加')
+    expect(rows.join('|')).not.toContain('10月8日')
+    expect(rows.join('|')).not.toContain('11月10日')
+  })
+  it('defensive: ok:true without closures → the removed row goes, the rest is unchanged', async () => {
+    await mount()
+    const before = rowsText('store-hours.closures')
+    reply = (url, method) => (url.includes('/closures') && method === 'DELETE' ? { status: 200, body: { ok: true } } : { status: 500, body: null })
+    await delFirst()
+    expect(rowsText('store-hours.closures')).toEqual([before[1]])
+    expect(before[0]).toContain('10月8日')
+  })
+})
+
 describe('F10 (R-A) — the OFF world: 特別営業日 is a local draft, like 臨時休業', () => {
   it('a draft add shows the row, counts as an unsaved change, sends nothing, and never refuses', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT

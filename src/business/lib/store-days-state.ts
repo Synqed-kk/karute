@@ -30,6 +30,12 @@ export function applyClosureRemoved(prev: ClosureCore[] | null, answer: WriteAns
   return prev.filter((r) => r.id !== id)
 }
 
+/** 臨時休業 removed, the door's answer: its refreshed list (from its FRESH read) replaces the local one
+ *  wholesale — every row the door sent, in date order (stable, as `applyClosureAdded` orders). */
+export function applyClosuresReplaced(list: ReadonlyArray<ClosureCore>): ClosureCore[] {
+  return list.map((r) => ({ id: r.id, date: r.date, reason: r.reason ?? null })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+}
+
 /** 特別営業日 written (add or remove): core's WHOLE array replaces the list, as returned. */
 export function applySpecialOpenDays(prev: SpecialCore[] | null, answer: WriteAnswer<SpecialCore[]>): SpecialCore[] | null {
   if (!answer.ok) return prev

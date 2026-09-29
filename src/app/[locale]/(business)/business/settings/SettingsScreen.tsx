@@ -81,6 +81,7 @@ import {
   ADD_PENDING_LABEL,
   applyClosureAdded,
   applyClosureRemoved,
+  applyClosuresReplaced,
   applySpecialOpenDays,
   GENERIC_FAIL_LINE,
   READ_ONLY_NOTE,
@@ -485,13 +486,14 @@ async function postAddClosedDay(save: StoreDaysSave, date: string, reason: strin
   }
 }
 
-async function deleteClosedDay(save: StoreDaysSave, id: string): Promise<{ ok: true } | StoreDaysFail> {
+/** `closures` = the door's refreshed list (⚖ PKT-S33 F1), `null` when the answer carries none. */
+async function deleteClosedDay(save: StoreDaysSave, id: string): Promise<{ ok: true; closures: ClosureCore[] | null } | StoreDaysFail> {
   try {
     const url = `${CLOSURES_URL}?storeId=${encodeURIComponent(save.storeId)}&id=${encodeURIComponent(id)}`
     const res = await fetch(url, { method: 'DELETE', headers: { 'x-expected-business': save.businessId } })
     const body: unknown = await res.json().catch(() => null)
-    const answer = (body ?? {}) as { ok?: unknown }
-    if (res.ok && answer.ok === true) return { ok: true }
+    const answer = (body ?? {}) as { ok?: unknown; closures?: unknown }
+    if (res.ok && answer.ok === true) return { ok: true, closures: Array.isArray(answer.closures) ? (answer.closures as ClosureCore[]) : null }
     return storeDaysFail(body)
   } catch {
     return NO_ANSWER
@@ -820,7 +822,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const result = await deleteClosedDay(save, rowId)
     closureBusy.current = false
     setClosurePending(null)
-    setLiveClosures((prev) => applyClosureRemoved(prev, result.ok ? { ok: true, value: rowId } : { ok: false }))
+    // ⚖ PKT-S33 F1 — an ok remove takes the door's refreshed list (as 特別営業日 do); only an answer
+    // without one (defensive) falls back to dropping the row locally.
+    setLiveClosures((prev) =>
+      result.ok && result.closures !== null
+        ? applyClosuresReplaced(result.closures)
+        : applyClosureRemoved(prev, result.ok ? { ok: true, value: rowId } : { ok: false }),
+    )
     if (!result.ok) {
       setClosureError(result.message)
       if (result.forbidden) setStoreDaysRevoked(true)
