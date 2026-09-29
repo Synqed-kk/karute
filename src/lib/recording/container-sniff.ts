@@ -77,3 +77,84 @@ export function sniffContainer(head: Uint8Array): SniffResult {
   }
   return { kind: 'unknown', firstByte, bytesRead: head.length }
 }
+
+// ── The byte-bounded head probe (S60 A1) ─────────────────────────────────────
+//
+// Reads at most PROBE_HEAD_BYTES of a stored object through its signed URL and
+// answers what the head says. Tri-state, and only `unreadable` is a verdict:
+//   - `readable`   — at least PROBE_MIN_HEAD_BYTES held and the head opens with
+//                    a known container.
+//   - `unreadable` — at least PROBE_MIN_HEAD_BYTES held and the head matches
+//                    NONE of the containers the recorders negotiate.
+//   - `unknown`    — anything else (a throw, the timeout, a non-2xx, no body,
+//                    a head too short to judge). Never a refusal: the caller
+//                    answers what it answers today.
+// The verdict is never keyed on the extension. The probe never throws.
+
+/** The ranged GET asks for bytes 0..63 — enough for every signature above
+ *  (the longest ends at byte 12) with room to spare. */
+export const PROBE_HEAD_BYTES = 64
+
+/** Fewer bytes than this and the head is too short to be judged unreadable:
+ *  the longest signature (WAV: RIFF@0 + WAVE@8) needs 12. */
+export const PROBE_MIN_HEAD_BYTES = 12
+
+/** Same value as RESERVE_HEAD_TIMEOUT_MS (transcribe.ts); one storage class,
+ *  one patience. Two named constants, cross-referenced: this module is
+ *  client-safe and must not import the server-only meter. */
+export const PROBE_HEAD_TIMEOUT_MS = 10_000
+
+const PROBE_RANGE = `bytes=0-${PROBE_HEAD_BYTES - 1}`
+const HTTP_PARTIAL_CONTENT = 206
+const HTTP_OK = 200
+
+export type ProbeResult =
+  | { state: 'readable'; kind: ContainerKind }
+  | { state: 'unreadable'; firstByte: number; bytesRead: number }
+  | { state: 'unknown'; reason: string }
+
+/** Probe the head of the object behind `signedUrl`. 206 (Range honoured) and
+ *  200 (Range ignored, the whole object streams) are both accepted: either
+ *  way the body is read from its stream only until PROBE_HEAD_BYTES are held,
+ *  then the reader is cancelled — the body is never buffered whole. */
+export async function probeObjectHead(
+  signedUrl: string,
+  opts?: { timeoutMs?: number },
+): Promise<ProbeResult> {
+  const timeoutMs = opts?.timeoutMs ?? PROBE_HEAD_TIMEOUT_MS
+  try {
+    const res = await fetch(signedUrl, {
+      headers: { Range: PROBE_RANGE },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (res.status !== HTTP_PARTIAL_CONTENT && res.status !== HTTP_OK) {
+      res.body?.cancel().catch(() => {})
+      return { state: 'unknown', reason: `http_${res.status}` }
+    }
+    if (!res.body) return { state: 'unknown', reason: 'no_body' }
+
+    // A fixed PROBE_HEAD_BYTES buffer: each chunk is copied in only up to the
+    // room left, so what the probe holds never exceeds PROBE_HEAD_BYTES.
+    const head = new Uint8Array(PROBE_HEAD_BYTES)
+    let held = 0
+    const reader = res.body.getReader()
+    while (held < PROBE_HEAD_BYTES) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const take = Math.min(value.length, PROBE_HEAD_BYTES - held)
+      head.set(value.subarray(0, take), held)
+      held += take
+    }
+    if (held >= PROBE_HEAD_BYTES) reader.cancel().catch(() => {})
+
+    if (held < PROBE_MIN_HEAD_BYTES) return { state: 'unknown', reason: 'short_head' }
+    const sniff = sniffContainer(head.subarray(0, held))
+    if (sniff.kind !== 'unknown') return { state: 'readable', kind: sniff.kind }
+    return { state: 'unreadable', firstByte: sniff.firstByte, bytesRead: sniff.bytesRead }
+  } catch (err) {
+    // A DOMException (the timeout) is not always `instanceof Error` across
+    // realms, so read its name directly.
+    const name = (err as { name?: unknown } | null)?.name
+    return { state: 'unknown', reason: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'fetch_failed' }
+  }
+}
