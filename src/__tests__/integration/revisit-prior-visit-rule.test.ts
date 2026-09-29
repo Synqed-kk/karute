@@ -109,3 +109,50 @@ describe('R-O7 consumer — the write refusal inherits the rule (setKaruteOutcom
     expect(upsert).toHaveBeenCalledTimes(1)
   })
 })
+
+// S67 fix round 2, commit 14 (SF-4; the attack's F-5 / M5): the prior-visit
+// read pages on past the own record and same-day placeholders — they can
+// never push a regular's real past karute off a 3-row page (a regression vs
+// base, which counted them). The mock honours page/page_size like core.
+describe('SF-4 — the revisit guard never pages a regular off the list', () => {
+  const ph = (id: string): Row => ({ ...SAME_DAY_PLACEHOLDER, id })
+  const PAST: Row = { id: 'k-past', status: 'COMPLETED', recording_session_id: 'sess-0', created_at: '2026-08-01T03:00:00Z' }
+  const paged = (rows: Row[]) => {
+    const made = client({ customer: FIRST_TIMER, rows })
+    const list = jest.fn(async (q: { page?: number; page_size: number }) => {
+      const page = q.page ?? 1
+      return { karute_records: rows.slice((page - 1) * q.page_size, page * q.page_size) }
+    })
+    made.c.karuteRecords.list = list as never
+    return { ...made, list }
+  }
+
+  it('SF-4 F-5: own record + 2 same-day placeholders on page 1, the real past karute on page 2 → returning (stale signals)', async () => {
+    const { c, list } = paged([OWN, ph('d1'), ph('d2'), PAST])
+    expect(await guard(c)).toBe('returning')
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'cust-1', page: 2, page_size: 3 }))
+  })
+  it('SF-4 F-5 at the write refusal: the same regular\'s 既存のお客様 label is written', async () => {
+    const { c, upsert } = paged([OWN, ph('d1'), ph('d2'), PAST])
+    expect(await setKaruteOutcomeWithClient(c as never, {
+      karuteRecordId: 'own-ai', customerId: 'cust-1', status: 'revisit', isFirstVisit: false, decidedBy: 'staff-1',
+    })).toEqual({})
+    expect(upsert).toHaveBeenCalledTimes(1)
+  })
+  it('SF-4 M5: the enqueue exclusion with THREE same-day placeholders + a past karute → returning', async () => {
+    const { c } = paged([ph('d3'), ph('d2'), ph('d1'), PAST])
+    expect(await guard(c, { recordingSessionId: 'sess-1' })).toBe('returning')
+  })
+  it('SF-4: a first-timer whose list ends after the placeholders stays not_returning (the short page ends the read)', async () => {
+    const { c, list } = paged([OWN, ph('d1'), ph('d2')])
+    expect(await guard(c)).toBe('not_returning')
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+  it('SF-4: a list still full of placeholders at the page bound is NOT KNOWN (unknown, never a 0)', async () => {
+    const { c, list } = paged([OWN, ...Array.from({ length: 40 }, (_, i) => ph(`d${i}`))])
+    expect(await guard(c)).toBe('unknown')
+    // 10 pages per read, the guard's one retry of a failed read → 20.
+    expect(list).toHaveBeenCalledTimes(20)
+  })
+})
+

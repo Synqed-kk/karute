@@ -122,6 +122,11 @@ MUTANTS = [
      [(FATE, "  return !!row && row.outcome !== 'pending'\n", '  return !!row // M-O15\n')],
      [SAVE_T, JOB_T], ['SF-3 M1: a converge with no answer over a 保留 placeholder is never kept',
                        'T9 existing record + a recorded PENDING (保留) row']),
+    # M-O16 — the guard reads ONE page again (commit 14, SF-4; the base regression)
+    ('M-O16', 'the prior-visit read stops after page 1 (placeholders push a regular off the page)',
+     [(GUARD, '    if (count > 0 || rows.length < PRIOR_VISIT_PAGE_SIZE) return count\n', '    return count // M-O16\n')],
+     [RULE_T, ENQ_T], ['SF-4 F-5: own record + 2 same-day placeholders', 'SF-4 M5: the enqueue exclusion',
+                       'SF-4 M5: three same-day placeholders']),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',

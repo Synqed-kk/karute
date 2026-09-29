@@ -501,6 +501,23 @@ describe("POST recordings/job — R-O7 a same-day 仮カルテ placeholder is no
     expect(res.status).toBe(200)
     expect(jobsEnqueue).toHaveBeenCalledTimes(1)
   })
+  // S67 fix round 2, commit 14 (SF-4; the attack's M5): three same-day
+  // placeholders fill page 1 — the regular's past karute on page 2 still counts.
+  it('SF-4 M5: three same-day placeholders + a past karute on page 2 → returning, enqueued', async () => {
+    const rows = [
+      { ...(placeholder('2026-09-29') as object), id: 'd3' },
+      { ...(placeholder('2026-09-29') as object), id: 'd2' },
+      { ...(placeholder('2026-09-29') as object), id: 'd1' },
+      { id: 'k-past', status: 'COMPLETED', recording_session_id: 'sess-0', created_at: '2026-08-01T03:00:00Z' },
+    ]
+    listKaruteRecords.mockImplementation((async (q: { page?: number; page_size: number }) => {
+      const page = q.page ?? 1
+      return { karute_records: rows.slice((page - 1) * q.page_size, page * q.page_size) }
+    }) as never)
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, revisitBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
+  })
 })
 
 // S7 (PR-O commit 4): the enqueue door stamps the session's start on the job

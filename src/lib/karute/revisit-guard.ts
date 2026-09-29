@@ -91,16 +91,53 @@ type GuardKaruteRow = PriorVisitRow & { id: string; recording_session_id?: strin
  *  anchor that cannot be read counts every row — exactly the pre-R-O7
  *  behaviour, never a silent narrowing. */
 async function priorVisitCount(
-  synqed: RevisitGuardClient,
   rows: GuardKaruteRow[],
   isOwnSession: (row: GuardKaruteRow) => boolean,
-  exclude: RevisitExclusion,
+  anchorDayOf: () => Promise<string | null>,
 ): Promise<number> {
   const others = rows.filter((row) => !isOwnSession(row))
   if (!others.some(isProvisionalKaruteRow)) return others.length
-  const anchorDay = await resolveAnchorDayJst(synqed, rows, exclude)
+  const anchorDay = await anchorDayOf()
   if (anchorDay === null) return others.length
   return others.filter((row) => countsAsPriorVisit(row, anchorDay)).length
+}
+
+/** SF-4 (S67 fix round 2, commit 14): the page size and the page bound of the
+ *  prior-visit read. 3 per page as before (the session's OWN record plus
+ *  headroom); the read goes on to the next page while every row it has seen
+ *  is the own record or a same-day placeholder, so placeholders can never
+ *  push a regular's real past karute off the page (the base counted them;
+ *  R-O7 filters them, so a single page is no longer enough). */
+const PRIOR_VISIT_PAGE_SIZE = 3
+const PRIOR_VISIT_MAX_PAGES = 10
+/** Thrown when the bound is reached with the list not ended: the count is NOT
+ *  KNOWN — a failed read, never a 0. The guard then answers 'unknown' (unless
+ *  another signal already says returning), which the post-persist write
+ *  refusal (onUnverifiable 'write') treats as returning, so a regular is never
+ *  hidden; the enqueue doors treat it as a retryable blip, never a refusal. */
+class PriorVisitReadUnbounded extends Error {}
+
+/** Pages the customer's karute rows until one counts as a prior visit or the
+ *  list ends (a short page — never core's `total`). */
+async function readPriorVisitCount(
+  synqed: RevisitGuardClient,
+  customerId: string,
+  isOwnSession: (row: GuardKaruteRow) => boolean,
+  exclude: RevisitExclusion,
+): Promise<number> {
+  const seen: GuardKaruteRow[] = []
+  // The anchor is read at most ONCE per guard call, and only when a
+  // placeholder is seen.
+  let anchor: Promise<string | null> | undefined
+  const anchorDayOf = () => (anchor ??= resolveAnchorDayJst(synqed, seen, exclude))
+  for (let page = 1; page <= PRIOR_VISIT_MAX_PAGES; page++) {
+    const res = await synqed.karuteRecords.list({ customer_id: customerId, page, page_size: PRIOR_VISIT_PAGE_SIZE })
+    const rows = res.karute_records ?? []
+    seen.push(...rows)
+    const count = await priorVisitCount(seen, isOwnSession, anchorDayOf)
+    if (count > 0 || rows.length < PRIOR_VISIT_PAGE_SIZE) return count
+  }
+  throw new PriorVisitReadUnbounded('prior-visit read reached its page bound')
 }
 
 /** The JST day of the recording session's START (the session row's
@@ -164,10 +201,9 @@ export async function isReturningCustomerServerSide(
         : settle(
             // page_size 3, not 1: this feeds a `> 0` test, but the session's OWN
             // record is in the list and gets filtered out, so one row of headroom
-            // is not enough to see a genuine prior record behind it.
-            synqed.karuteRecords
-              .list({ customer_id: customerId, page_size: 3 })
-              .then((r) => priorVisitCount(synqed, r.karute_records ?? [], isOwnSession, exclude)),
+            // is not enough to see a genuine prior record behind it. SF-4: and
+            // the read pages on past the own record and same-day placeholders.
+            readPriorVisitCount(synqed, customerId, isOwnSession, exclude),
           ),
     ])
 
