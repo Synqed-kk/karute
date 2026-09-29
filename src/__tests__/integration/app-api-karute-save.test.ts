@@ -870,6 +870,15 @@ describe('POST /api/app/v1/karute (save) — S7 the unambiguous booking is linke
     expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: 'appt-first' })
     expect(client.appointments.list).not.toHaveBeenCalled()
   })
+  // S67 fix round 2, commit 12 (SF-2; the attack's F-2): the auto-linked
+  // booking's menu fills the new karute through the ONE fill the worker shares.
+  it('SF-2 F-2: a create auto-linked to a booking titled カット stamps that menu (the same as the worker)', async () => {
+    attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 'カット' })
+    await save()
+    expect(fakeClient.appointments.get).toHaveBeenCalledWith('appt-1')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1', service: 'カット' }))
+  })
   // S67 fix round 2, commit 11 (SF-1; the attack's F-1 / F-1b): on a converge
   // the auto-link searches the KARUTE's own store, never the request's.
   const inStore = (id: string, storeId: string) => ({ ...appt(id, '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z'), store_id: storeId })

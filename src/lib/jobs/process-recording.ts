@@ -46,7 +46,13 @@ import {
   REVISIT_NOT_ELIGIBLE,
 } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
-import { appointmentLinkOf, keepLinkUnlessGiven, resolveAutoAppointmentLink, type AutoAppointmentLink } from '@/lib/karute/appointment-link'
+import {
+  appointmentLinkOf,
+  keepLinkUnlessGiven,
+  menuOfAutoLinked,
+  resolveAutoAppointmentLink,
+  type AutoAppointmentLink,
+} from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
 import { writeOutcomeFate } from '@/lib/karute/outcome-fate'
@@ -699,8 +705,10 @@ async function upsertKaruteRecord(
         sessionStartedAt: payload.session_started_at ?? null,
       })
   const appointmentId = payload.appointment_id ?? autoLinked?.appointmentId ?? null
-  const linkedAppointment = appointmentId
-    ? await synqed.appointments.get(appointmentId).catch(() => null)
+  // The NAMED booking's menu: this door's own fill, unchanged. SF-2: an
+  // auto-linked booking's menu comes from the ONE fill the facade shares.
+  const linkedAppointment = payload.appointment_id
+    ? await synqed.appointments.get(payload.appointment_id).catch(() => null)
     : null
   const record = await synqed.karuteRecords.create({
     customer_id: payload.customer_id,
@@ -711,7 +719,9 @@ async function upsertKaruteRecord(
     status: 'DRAFT',
     transcript: result.transcript,
     ai_summary: result.summary,
-    service: linkedAppointment?.title ?? null,
+    service: payload.appointment_id
+      ? (linkedAppointment?.title ?? null)
+      : await menuOfAutoLinked(synqed.appointments, autoLinked),
     duration_minutes: durationMinutesFromSeconds(payload.duration_seconds),
     entries,
   })

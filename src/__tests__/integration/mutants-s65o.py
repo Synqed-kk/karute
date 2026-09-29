@@ -109,6 +109,14 @@ MUTANTS = [
      [(CORE, '        autoLinked = await autoLink({ storeId: existing.store_id ?? null })\n',
        '        autoLinked = await autoLink({ storeId: payload.store_id ?? null }) // M-O13\n')],
      [SAVE_T], ['SF-1 F-1: a converge onto a store-A karute', "SF-1 F-1b: the same converge finds the karute's OWN store-A booking"]),
+    # M-O14 — the two doors fill the menu differently again (commit 12, SF-2)
+    ('M-O14a', 'the one menu fill loses the booking title (both doors lose the menu)',
+     [(LINK, '    return (booking as { title?: string | null } | null)?.title ?? null\n', '    return null // M-O14a\n')],
+     [SAVE_T, JOB_T], ['SF-2 F-2: a create auto-linked', 'SF-2 W-F2: a create auto-linked']),
+    ('M-O14b', 'the facade create skips the one menu fill (the S67 divergence)',
+     [(CORE, '          service: payload.service ?? (await menuOfAutoLinked(synqed.appointments, autoLinked)),\n',
+       '          service: payload.service, // M-O14b\n')],
+     [SAVE_T], ['SF-2 F-2: a create auto-linked']),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',

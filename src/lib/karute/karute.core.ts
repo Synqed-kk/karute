@@ -40,7 +40,13 @@ import type { SessionCategory } from '@/components/karute/redesign/detail/Curren
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
-import { appointmentLinkOf, keepLinkUnlessGiven, type AppointmentLinkReason, type AutoAppointmentLink } from '@/lib/karute/appointment-link'
+import {
+  appointmentLinkOf,
+  keepLinkUnlessGiven,
+  menuOfAutoLinked,
+  type AppointmentLinkReason,
+  type AutoAppointmentLink,
+} from '@/lib/karute/appointment-link'
 import type { OutcomeLink } from '@/lib/karute/outcome-fate'
 
 /**
@@ -255,8 +261,16 @@ export async function createOrUpdateKaruteRecord(
     }
   }
   if (!payload.appointment_id && autoLink) autoLinked = await autoLink({ storeId: payload.store_id ?? null })
+  // SF-2: an auto-linked create takes the booking's menu through the ONE fill
+  // the worker's create shares (menuOfAutoLinked).
   const record = await synqed.karuteRecords.create(
-    autoLinked?.appointmentId ? { ...payload, appointment_id: autoLinked.appointmentId } : payload,
+    autoLinked?.appointmentId
+      ? {
+          ...payload,
+          appointment_id: autoLinked.appointmentId,
+          service: payload.service ?? (await menuOfAutoLinked(synqed.appointments, autoLinked)),
+        }
+      : payload,
   )
   return emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
 }

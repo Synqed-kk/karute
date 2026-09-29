@@ -665,6 +665,13 @@ describe('S7 — the worker links the unambiguous booking at save', () => {
     expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1' }))
     expect(detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-1' })
   })
+  // S67 fix round 2, commit 12 (SF-2; the attack's W-F2 twin of F-2).
+  it('SF-2 W-F2: a create auto-linked to a booking titled カット stamps that menu (the same as the facade)', async () => {
+    appointmentsGet.mockResolvedValueOnce({ title: 'カット' } as never)
+    await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], { session_started_at: '2026-09-29T07:44:39Z' })
+    expect(appointmentsGet).toHaveBeenCalledWith('appt-1')
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1', service: 'カット' }))
+  })
   it('S7-job: two bookings → ambiguous, no link', async () => {
     const detail = await run(
       [appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z'), appt('appt-2', '2026-09-29T10:00:00Z', '2026-09-29T11:00:00Z')],

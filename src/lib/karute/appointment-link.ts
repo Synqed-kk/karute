@@ -172,6 +172,26 @@ export async function resolveAutoAppointmentLink(
   }
 }
 
+/** SF-2 (S67 fix round 2, commit 12): the 施術メニュー a NEW karute takes
+ *  from the booking the auto-link chose — ONE function for both creates (the
+ *  facade's, inside createOrUpdateKaruteRecord, and the worker's upsert), so
+ *  the same booking gives the same menu at either door. It reads the booking
+ *  by id exactly as the worker always did for its linked booking; best-effort:
+ *  an unreadable booking leaves the menu null (the カルテ list shows its
+ *  honest '—'). A NAMED booking's menu stays each door's own fill, unchanged. */
+export async function menuOfAutoLinked(
+  appointments: Pick<SynqedClient['appointments'], 'get'>,
+  autoLinked: { appointmentId: string | null } | null,
+): Promise<string | null> {
+  if (!autoLinked?.appointmentId) return null
+  try {
+    const booking = await appointments.get(autoLinked.appointmentId)
+    return (booking as { title?: string | null } | null)?.title ?? null
+  } catch {
+    return null
+  }
+}
+
 /** R-O9 (i): the ONE expression for `appointment_link` — the facade save's
  *  reply and its karute.save row both compute the value here, so the two can
  *  never drift: a given booking that degraded says why; otherwise the
