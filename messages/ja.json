@@ -2609,6 +2609,7 @@
           "capture_unlinked": "録音の音声が記録に紐付かず",
           "capture_warned": "録音中に警告を表示",
           "discard": "録音を破棄",
+          "finalize_refused": "読み取れない録音の保存を拒否",
           "karute_missing": "カルテ未保存",
           "no_sessions_today": "本日の録音なし",
           "play": "録音を再生",

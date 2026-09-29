@@ -61,4 +61,13 @@ export const RECORDING_SWITCHES = {
   bindUnboundUploads: false,
   /** The recorder's yellow notice (PR-6): during a recording, tell staff this phone cannot save (audio goes straight to the server) or the server is not receiving (audio is kept on the phone), and file one `recording.capture_warned` fact per reason a take shows. Default ON, 2026-09-26. OFF = PR-6 never computes, never renders, never writes the fact — pre-PR-6 behaviour exactly. Client code: a flip reaches the phone with its next bake. */
   captureWarningNotice: true,
+  /** The head probe on a stored take (S60 PR-A). Gates BOTH the finalize probe
+   *  (A2, finalize-take.ts: an unreadable object is refused — no duration, one
+   *  create-only `refused` mark, one recording.finalize_refused row) and the
+   *  meter probe (A3, transcribe.ts: an unreadable object is refused before
+   *  any rate-limit consume, reserve or provider call). Default ON,
+   *  2026-09-29. OFF = zero extra storage calls (no sign, no ranged GET, no
+   *  mark) and byte-identical answers — pre-PR-A behaviour exactly.
+   *  Server-side: a flip lands with the deploy. */
+  finalizeProbe: true,
 } as const

@@ -49,6 +49,9 @@ import {
   statusOf,
   warnStorageUnknown,
 } from '@/lib/recording/take-binding'
+import { probeObjectHead, type ProbeResult } from '@/lib/recording/container-sniff'
+import { markTake } from '@/lib/recording/take-mark'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 type Core = Pick<SynqedClient, 'recordings'>
 
@@ -116,8 +119,17 @@ export type FinalizeTakeResult =
         | 'superseded'
         | 'object_missing'
         | 'size_mismatch'
+        | 'unreadable_object'
         | 'failed'
     }
+
+/** How long the signed READ URL the finalize probe fetches through lives. It
+ *  is used once, immediately, for one 64-byte ranged GET — so it only needs to
+ *  outlive that request (PROBE_HEAD_TIMEOUT_MS, container-sniff.ts), and a
+ *  URL that leaked would expire before it was useful. Beside the playback
+ *  TTL's rationale (PLAYBACK_URL_TTL_S, playback-url.ts), deliberately far
+ *  shorter: nobody plays through this one. */
+export const FINALIZE_PROBE_URL_TTL_S = 60
 
 /**
  * Does the object this take claims actually exist, and is it the size claimed?
@@ -151,6 +163,25 @@ async function objectVerdict(
 }
 
 /**
+ * Are the bytes behind this take's key a recording at all? (S60 A2.) Signs ONE
+ * short-lived read URL and hands it to probeObjectHead, which reads at most 64
+ * bytes. A signing failure — an error answer or a throw — is `unknown`: storage
+ * did not answer the question, and `unknown` never refuses a take.
+ */
+async function probeTakeHead(key: string): Promise<ProbeResult> {
+  try {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase.storage
+      .from('recordings')
+      .createSignedUrl(key, FINALIZE_PROBE_URL_TTL_S)
+    if (error || !data?.signedUrl) return { state: 'unknown', reason: 'sign_failed' }
+    return await probeObjectHead(data.signedUrl)
+  } catch {
+    return { state: 'unknown', reason: 'sign_failed' }
+  }
+}
+
+/**
  * Write the take's duration and status onto the row that reserved its key.
  *
  * ORDER IS THE FENCE. The key is composed from the caller's take id and
@@ -159,7 +190,10 @@ async function objectVerdict(
  * RESERVATION are both proved before the object is even looked up, so an
  * unauthorized caller never learns whether a key exists. The BYTE check comes
  * before any audit row too (fix round 7) — no branch files a record of audio
- * the bucket does not hold. Nothing here deletes, and nothing here mints.
+ * the bucket does not hold. Nothing here deletes, and nothing here mints a row
+ * or a key. Its ONE storage write (S60 A2) is the create-only `refused` mark on
+ * a take whose bytes are no recording (take-mark.ts#markTake, under `mrk/`) —
+ * never an overwrite, never the take's own object.
  *
  * PROCESSING is deliberately never WRITTEN: that status means "a job is
  * running" and belongs to enqueue (PR3/PR4). Finalize says UPLOADING — the
@@ -314,6 +348,29 @@ export async function finalizeTakeWithClient(
       )
     }
 
+    // S60 A2 — ARE THE BYTES A RECORDING? Reached only for a row this call is
+    // about to finalize: not superseded, not already finalized, the object
+    // proven present (`ok` / `size_unknown`). The answer decides whether the
+    // duration below may be stamped at all:
+    //  - readable → on exactly as before.
+    //  - unknown (sign failed, timeout, non-2xx, a head under 12 bytes) →
+    //    today's retryable `failed`; nothing written, never a refusal.
+    //  - unreadable → the take is REFUSED: no duration, no capture_finalized.
+    //    The refusal is recorded ONCE as a create-only `refused` mark; only the
+    //    call whose create landed files the audit row, so a phone re-finalizing
+    //    every 60 s writes no second row. Every call answers the same code.
+    // Switch OFF → no sign, no fetch, no mark: the answers are today's.
+    if (RECORDING_SWITCHES.finalizeProbe) {
+      const probe = await probeTakeHead(key)
+      if (probe.state === 'unknown') return { error: 'failed' }
+      if (probe.state === 'unreadable') {
+        const facts = { bytes: input.byteLength, first_byte: probe.firstByte }
+        const marked = await markTake(createServiceClient(), actor.businessId, key, 'refused', facts)
+        if (marked === 'created') return emitFinalizeRefused(actor, row.id, facts)
+        return { error: 'unreadable_object' }
+      }
+    }
+
     const durationSeconds = Math.floor(input.durationSeconds)
     // The POINTER is not written here — the mint wrote it and the comparison
     // above just proved it is this exact key. What finalize adds is what the
@@ -397,6 +454,45 @@ function emitFinalized(
     source: actor.source,
   })
   return result
+}
+
+/**
+ * The ONE audit row for a take refused as unreadable (S60 A2) — filed only by
+ * the call whose create-only `refused` mark landed, so one refusal is one row
+ * however often the phone retries. ⚖ 8/17 doc law and S60 R3 — NUMBERS AND
+ * FLAGS ONLY: `bytes` is the take's byte length, `first_byte` the head's
+ * first byte as a number; NO head bytes, no hex, no key. The two flags are
+ * constant `false` by construction — an unreadable head matched neither the
+ * WebM (EBML at 0) nor the MP4 (`ftyp` at 4) signature.
+ *
+ * EMITS AND RETURNS, same emitSave idiom as emitFinalized: called only from
+ * inside finalizeTakeWithClient, the symbol the coverage registry pins.
+ */
+function emitFinalizeRefused(
+  actor: FinalizeTakeActor,
+  recordingSessionId: string,
+  facts: { bytes: number; first_byte: number },
+): FinalizeTakeResult {
+  audit({
+    category: 'recording',
+    action: 'recording.finalize_refused',
+    actorId: actor.staffId,
+    actorType: 'staff',
+    businessId: actor.businessId,
+    targetType: 'recording',
+    targetId: recordingSessionId,
+    severity: 'notice',
+    detail: {
+      reason: 'unreadable_object',
+      bytes: facts.bytes,
+      first_byte: facts.first_byte,
+      ebml_at_0: false,
+      ftyp_at_4: false,
+    },
+    requestId: actor.requestId,
+    source: actor.source,
+  })
+  return { error: 'unreadable_object' }
 }
 
 /**

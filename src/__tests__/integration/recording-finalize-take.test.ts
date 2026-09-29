@@ -13,6 +13,9 @@
  *   5. it never regresses a terminal status, and a repeat writes nothing and
  *      files no second audit row.
  */
+// reason: S60 A2 — finalize now reaches take-mark.ts → assembler.ts, whose SDK
+// import is ESM-only under Jest; nothing here calls the SDK.
+jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
 const auditFn = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
 
@@ -29,10 +32,18 @@ const info = jest.fn(
     error: null,
   }),
 )
+// reason: S60 A2 — the finalize head probe signs a read URL (answered here) and
+// fetches 64 bytes through it (the ranged stub below, a real webm head).
+const createSignedUrl = jest.fn(async (key: string, _ttl: number) => ({
+  data: { signedUrl: `https://proj.supabase.co/sign/${key}` } as { signedUrl: string } | null,
+  error: null as { message: string } | null,
+}))
 jest.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({ storage: { from: (_b: string) => ({ info }) } }),
+  // reason: S60 A2 — finalize now signs one short read URL for its head probe.
+  createServiceClient: () => ({ storage: { from: (_b: string) => ({ info, createSignedUrl }) } }),
 }))
 
+import { rangedHeadFetch, WEBM_HEAD } from './helpers/container-head-fetch' // reason: S60 A2 probe stub
 import { finalizeTakeWithClient, type FinalizeTakeActor } from '@/lib/recording/finalize-take'
 import { assertRecorderOwnsRow } from '@/lib/recording/take-binding'
 import { TAKE_UUID_FIXTURE as TAKE } from './helpers/recording-key-fixtures'
@@ -112,6 +123,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   jest.spyOn(console, 'warn').mockImplementation(() => {})
   info.mockResolvedValue({ data: { size: 1024 }, error: null })
+  // reason: S60 A2 — the head probe reads a real webm head, so every take here stays readable.
+  global.fetch = jest.fn(rangedHeadFetch(206, WEBM_HEAD)) as unknown as typeof fetch
   get.mockResolvedValue(row())
   create.mockResolvedValue(row({ id: 'sess-new' }))
   update.mockImplementation(async (id: string) => row({ id }))

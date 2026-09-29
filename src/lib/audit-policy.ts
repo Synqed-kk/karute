@@ -79,6 +79,7 @@ export const AUDIT_ACTIONS = [
   'recording.capture_unlinked',
   'recording.capture_warned',
   'recording.discard',
+  'recording.finalize_refused',
   'recording.karute_missing',
   'recording.no_sessions_today',
   'recording.play',
@@ -235,6 +236,10 @@ export const AUDITED_CORES: {
   // The take-finalize choke point (capture pipeline PR2) — its recordings
   // .update write sits inside the same symbol as its emit (via emitFinalized,
   // the emitSave call-through idiom), so no SDK_WRITE_ALLOWLIST row is needed.
+  // S60 A2: its unreadable-take refusal emits recording.finalize_refused the
+  // same way (via emitFinalizeRefused); the create-only `refused` mark it
+  // writes is a storage upload in take-mark.ts#markTake, which carries its OWN
+  // SDK_WRITE_ALLOWLIST row — nothing in this symbol's span uploads.
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
