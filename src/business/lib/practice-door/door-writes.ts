@@ -5,15 +5,11 @@
 // `storePolicies.removeClosedDay` — core-reach.ts hands over only the bound
 // client handle (`storeDaysWriterFor`), it never calls them itself.
 //
-// ⚠ FENCE SEQUENCING (lead's fold, PKT-S29-B1 stage report) — the
-// business-territory.json "writers" rows for these three call sites are
-// landing in their OWN, non-Business PR: check-business-isolation.mjs's own
-// header states that list "is outside territory on purpose: it lands in its
-// own non-Business PR before any territory code that writes," exactly the
-// precedent door.ts's card-colour writer and door-booking-colors.ts's writer
-// followed. Until that PR merges, CP3's business-writer pairing test
-// (audit-sdk-write-sites.test.ts) reports these three sites as unpaired — a
-// KNOWN, EXPECTED red, not a defect in this file.
+// FENCE ROWS — the business-territory.json "writers" rows for the three
+// store-policy call sites landed in their own non-Business PR (#1091, merged);
+// the fourth write, the closure-removal `audit.log`, gets its row in the
+// chore PR chore/w05-b0b-store-days-audit-rows. With those rows present CP3
+// (check-business-data-access.mjs + audit-sdk-write-sites.test.ts) is green.
 //
 // Same guard order as door.ts:494-524's `writeReserveCardColor` (quoted in
 // EV/CENSUS-B1-S29.md §1a): OFF check → lazy `import('./core-reach')` →
@@ -66,6 +62,13 @@ const MSG = {
   duplicateSpecial: 'その日はすでに特別営業日です',
   duplicateClosure: 'その日はすでに臨時休業です',
   readOnly: '変更には本部の権限が必要です。',
+  // ⚖ PKT-S30 P3-5 — the section's own empty-date line (settings-props.ts emptyDateError), and
+  // the same shape for an empty time (no sibling time line exists).
+  pickDate: '日付を選んでください。',
+  pickTime: '時刻を選んでください。',
+  // ⚖ PKT-S30 P3-3 — core's own cap (specialOpenDaysSchema.max(366), CORE-READ-B1.md:171), counted
+  // on core's WHOLE array (past entries included): a validation refusal, never "try later".
+  specialCap: '特別営業日は366件までのため、これ以上追加できません。',
   genericFail: 'いまは保存できないため、時間をおいてもう一度保存してください（予定の一覧はこれまでのままです）。',
   readFailure: 'いまは予定を読み込めないため、時間をおいてページを再読み込みしてください。',
 } as const
@@ -88,11 +91,31 @@ export const REMOVE_PENDING_LABEL = '取り消し中'
  *  bound reads, like door.ts's `orgSettingsOf`'s `ORG_ONCE`) — P-B1-4 pins that
  *  a second write attempt by the same actor never asks core the grant
  *  question twice. */
-const HQ_ONCE = Symbol('HQ_ADMIN check, once per actor')
+// ⚖ PKT-S30 F12 — memoized in THIS module, keyed by business_id + staff_id (one entry per
+// admitted actor, so it never grows past the actors of one process). Only a live grant is kept:
+// a refusal (not granted) or a failed check clears the entry, so the next write asks core again.
+// A grant revoked after it was cached still meets core's own requireHqAdmin on the write (403 →
+// `forbidden`, read-only line) — the memo can never widen what core allows.
+// A keyed record rather than a Map: the door scan (foundation.test.ts) forbids every `.set(` /
+// `.delete(` / `.create(` token in practice-door/ outside the named writer lines; a record with
+// `delete` behaves the same. Keys always contain ':', so no key can meet an Object.prototype name.
+const HQ_GRANTED: Record<string, Promise<boolean>> = {}
 async function isHqAdmin(actor: PracticeActor): Promise<boolean> {
   if (actor.sheet.coarse_role === 'OWNER') return true
-  const reads: PracticeActor['reads'] & { [HQ_ONCE]?: Promise<boolean> } = actor.reads
-  return (reads[HQ_ONCE] ??= actor.reads.businessGrantsCheck(actor.card.id).then((r) => r.granted))
+  const key = `${actor.businessId}:${actor.sheet.staff_id}`
+  const check = (HQ_GRANTED[key] ??= actor.reads.businessGrantsCheck(actor.card.id).then((r) => r.granted))
+  try {
+    const granted = await check
+    if (!granted) delete HQ_GRANTED[key]
+    return granted
+  } catch (e) {
+    delete HQ_GRANTED[key]
+    throw e
+  }
+}
+/** Drops every memoized grant (tests; a process that must forget grants). */
+export function forgetStoreDaysGrants(): void {
+  for (const key of Object.keys(HQ_GRANTED)) delete HQ_GRANTED[key]
 }
 
 /** ⚖ R2 — may this actor write EITHER list for this store?
@@ -159,6 +182,7 @@ function isPastDate(date: string): boolean {
 }
 
 function validateDate(date: string): string | null {
+  if (date === '') return MSG.pickDate
   if (!isRealCalendarDate(date)) return MSG.invalidDate
   if (isPastDate(date)) return MSG.pastDate
   return null
@@ -170,6 +194,7 @@ function validateDate(date: string): string | null {
  *  can only reach the door through a bypassed control, and folds into the
  *  same "fix the times" refusal rather than a second, rarer message. */
 function validateSpecialTimes(open: string, close: string): string | null {
+  if (open === '' || close === '') return MSG.pickTime
   if (!TIME_RE.test(open)) return MSG.openNotBeforeClose
   if (!CLOSE_TIME_RE.test(close)) return MSG.openNotBeforeClose
   if (!(open < close)) return MSG.openNotBeforeClose
@@ -245,6 +270,9 @@ async function admitWriter(storeId: string): Promise<Admitted | Refusal> {
   return admitted
 }
 
+/** ⚖ PKT-S30 P3-4 — 特別営業日 are LISTED from today (store JST day), like closures; past entries
+ *  stay in core's array untouched and ride back unchanged in every `set`. */
+const fromToday = (days: SpecialOpenDay[]): SpecialOpenDay[] => days.filter((d) => !isPastDate(d.date))
 const byDate = <T extends { date: string }>(a: T, b: T): number => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
 // Core's StoreClosedDay ids are uuids (P3-8): anything else is refused before any call.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -266,7 +294,7 @@ export async function readStoreDays(storeId: string): Promise<StoreDaysReadResul
       actor.reads.storePolicyGet(storeId),
       actor.reads.storePolicyListClosedDays(storeId, { from: todayJst() }),
     ])
-    return { ok: true, closures: closedDays.closed_days, specialOpenDays: policy.special_open_days }
+    return { ok: true, closures: closedDays.closed_days, specialOpenDays: fromToday(policy.special_open_days) }
   } catch (e) {
     return mapCoreError(e, reach)
   }
@@ -398,7 +426,7 @@ export async function setSpecialOpenDays(storeId: string, input: SpecialOpenDay[
     const current = (await actor.reads.storePolicyGet(storeId)).special_open_days
     const planned = plan(current)
     if ('ok' in planned) return planned
-    if ('unchanged' in planned) return { ok: true, specialOpenDays: current }
+    if ('unchanged' in planned) return { ok: true, specialOpenDays: fromToday(current) }
     const next = planned.next
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     const saved = await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })
@@ -406,7 +434,7 @@ export async function setSpecialOpenDays(storeId: string, input: SpecialOpenDay[
       '[business store days]',
       JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'special.set', count: saved.special_open_days.length, at: renderNow().toISOString() }),
     )
-    return { ok: true, specialOpenDays: saved.special_open_days }
+    return { ok: true, specialOpenDays: fromToday(saved.special_open_days) }
   } catch (e) {
     return mapCoreError(e, reach)
   }
@@ -426,7 +454,7 @@ export async function addSpecialOpenDay(storeId: string, input: { date: string; 
     (current) => {
       if (isPastDate(input.date)) return invalid(MSG.pastDate) // Also-noted B — re-checked at write time
       if (current.some((d) => d.date === input.date)) return invalid(MSG.duplicateSpecial)
-      if (current.length >= MAX_SPECIAL_DAYS) return invalid(MSG.genericFail)
+      if (current.length >= MAX_SPECIAL_DAYS) return invalid(MSG.specialCap)
       return { next: [...current, { date: input.date, open: input.open, close: input.close }].sort(byDate) }
     },
     admitted,

@@ -133,6 +133,7 @@ beforeEach(() => {
   mockCore.auditWriterFor = jest.fn()
   mockCore.auditLog = jest.fn().mockResolvedValue({})
   admission.mockClear()
+  data.forgetStoreDaysGrants()
   as('login-owner')
   info = jest.spyOn(console, 'info').mockImplementation(() => {})
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -217,9 +218,12 @@ describe('P-B1-4 — capability, honest', () => {
     expect(result).toEqual({ ok: false, reason: 'forbidden', message: '変更には本部の権限が必要です。' })
     expect(mockCore.writer.set).not.toHaveBeenCalled()
     expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(1)
-    // a second write attempt by the SAME actor never asks core the grant question twice (memoized per actor).
+    // ⚖ PKT-S30 F12 — a refusal clears the memo: a second attempt by the SAME denied actor asks again
+    // (a grant given in between takes effect); the "once per actor" pin is on a GRANTED actor (F12 block).
     await data.addStoreClosedDay(STORE_ID, { date: '2026-12-02', reason: '' })
-    expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(1)
+    expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(2)
+    expect(mockCore.writer.set).not.toHaveBeenCalled()
+    expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
   })
   it('actor B with a live HQ_ADMIN grant: writes go through', async () => {
     as('login-admin')
@@ -454,6 +458,48 @@ describe('PKT-S30 F11 — closure audit payloads say which day, which store, why
     expect(r.ok).toBe(true)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('audit record failed'), 'audit down')
     expect(error).not.toHaveBeenCalled()
+  })
+})
+
+describe('PKT-S30 F12 + P3-3/4/5 — memo per actor; validation lines', () => {
+  it('F12: a granted ADMIN is checked ONCE across an add + a remove, with a FRESH reads object per call', async () => {
+    as('login-admin')
+    const first = withReads()
+    first.businessGrantsCheck.mockResolvedValue({ granted: true })
+    mockCore.writer.addClosedDay.mockResolvedValueOnce({ ...CLOSURE_C1, id: 'c9', date: '2026-12-28' })
+    expect((await data.addStoreClosedDay(STORE_ID, { date: '2026-12-28', reason: '' })).ok).toBe(true)
+    const second = withReads() // a new object: a memo hung on the reads object could not survive this
+    second.businessGrantsCheck.mockResolvedValue({ granted: true })
+    mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
+    expect((await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).ok).toBe(true)
+    expect(first.businessGrantsCheck.mock.calls.length + second.businessGrantsCheck.mock.calls.length).toBe(1)
+  })
+  it('P3-3: core’s 366 cap (whole array, past included) is a validation line, zero writes', async () => {
+    const spied = withReads()
+    const full = Array.from({ length: 366 }, (_, i) => ({ date: new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10), open: '10:00', close: '11:00' }))
+    spied.storePolicyGet.mockResolvedValue({ ...BASE_POLICY, special_open_days: full })
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2027-06-01', open: '10:00', close: '11:00' })
+    expect(r).toEqual({ ok: false, reason: 'invalid', message: '特別営業日は366件までのため、これ以上追加できません。' })
+    expect(mockCore.writer.set).not.toHaveBeenCalled()
+  })
+  it('P3-4: past special days are not listed, but ride back unchanged in the set', async () => {
+    const spied = withReads()
+    const PAST = { date: '2026-09-01', open: '10:00', close: '11:00' }
+    spied.storePolicyGet.mockResolvedValue({ ...BASE_POLICY, special_open_days: [PAST, SPECIAL_1020] })
+    const read = await data.readStoreDays(STORE_ID)
+    expect(read.ok && read.specialOpenDays).toEqual([SPECIAL_1020])
+    mockCore.writer.set.mockImplementation(async (_s: string, b: { special_open_days: unknown[] }) => ({ ...BASE_POLICY, special_open_days: b.special_open_days }))
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '10:00', close: '11:00' })
+    expect(mockCore.writer.set.mock.calls[0][1].special_open_days[0]).toEqual(PAST)
+    expect(r).toEqual({ ok: true, specialOpenDays: [SPECIAL_1020, { date: '2026-12-01', open: '10:00', close: '11:00' }] })
+  })
+  it('P3-5: empty date → 日付を選んでください。 / empty time → 時刻を選んでください。, zero calls', async () => {
+    const spied = withReads()
+    expect(await data.addStoreClosedDay(STORE_ID, { date: '', reason: '' })).toEqual({ ok: false, reason: 'invalid', message: '日付を選んでください。' })
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-01', open: '', close: '11:00' })).toEqual({ ok: false, reason: 'invalid', message: '時刻を選んでください。' })
+    for (const fn of Object.values(spied)) expect(fn).not.toHaveBeenCalled()
+    expect(mockCore.writer.set).not.toHaveBeenCalled()
+    expect(mockCore.writer.addClosedDay).not.toHaveBeenCalled()
   })
 })
 

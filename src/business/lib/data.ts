@@ -283,6 +283,11 @@ export async function readCanWriteStoreDays(storeId: string): Promise<boolean> {
   return doorWrites.canWriteStoreDays(storeId)
 }
 
+/** Tests only: forget the door's memoized HQ grants (door-writes.ts F12 memo). */
+export function forgetStoreDaysGrants(): void {
+  doorWrites.forgetStoreDaysGrants()
+}
+
 export async function addStoreClosedDay(storeId: string, input: { date: string; reason: string }): Promise<doorWrites.AddClosedDayResult> {
   return doorWrites.addClosedDay(storeId, input)
 }
