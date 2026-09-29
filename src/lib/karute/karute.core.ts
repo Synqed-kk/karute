@@ -233,7 +233,10 @@ export async function createOrUpdateKaruteRecord(
         appointment_id: appointmentId,
         ...(omitEntries ? {} : { entries: payload.entries }),
       })
-      return await emitSave({
+      // A bare `return emitSave(...)`, never `return await …`: the audit gates'
+      // walker (scripts/audit/emission-walker.mjs, CP2/CP7) accepts a return as
+      // emit-dominated only as a direct call-through to a same-file emitter.
+      return emitSave({
         id: existing.id,
         fresh: false,
         // The retry EDITED the transcript → there's genuinely new material
@@ -250,7 +253,7 @@ export async function createOrUpdateKaruteRecord(
   const record = await synqed.karuteRecords.create(
     autoLinked?.appointmentId ? { ...payload, appointment_id: autoLinked.appointmentId } : payload,
   )
-  return await emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
+  return emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
 }
 
 /**
