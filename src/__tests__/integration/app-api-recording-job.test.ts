@@ -454,3 +454,27 @@ describe('POST recordings/job — the row names its recorder (S46)', () => {
     expect(call.payload.staff_id).toBe('synqed-auth-user-1')
   })
 })
+
+// R-O8 (PR-O, RULING-S67-PRO-STOP2): outcome_missing at the enqueue door. A body
+// carrying outcomeMissing puts it on the job payload (the worker hands it to
+// writeOutcomeFate — pinned in process-recording-existing-karute "S2/S5-job
+// skipped:<client reason>"); a build-31 body without it enqueues as before.
+describe('POST recordings/job — R-O8 outcome_missing at the door', () => {
+  it('a body with outcomeMissing → payload.outcome_missing carries it', async () => {
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, { ...validBody, outcomeMissing: 'no_stamp' }), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.outcome_missing).toBe('no_stamp')
+  })
+  it('a body without it (build 31) → enqueued as before, no outcome_missing value', async () => {
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.outcome_missing).toBeUndefined()
+  })
+  it('an unknown reason → 400 at the door, no enqueue', async () => {
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, { ...validBody, outcomeMissing: 'forgot' }), noRoute)
+    expect(res.status).toBe(400)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+})

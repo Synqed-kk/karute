@@ -319,3 +319,20 @@ describe('POST recordings/job/from-session', () => {
     })
   })
 })
+
+// R-O8 (PR-O, RULING-S67-PRO-STOP2): outcome_missing at the 録音履歴 from-session
+// door — same contract as the enqueue door.
+describe('POST recordings/job/from-session — R-O8 outcome_missing at the door', () => {
+  it('a body with outcomeMissing → payload.outcome_missing carries it', async () => {
+    const res = await POST(req({ ...auth, ...idem }, { ...validBody, outcomeMissing: 'unanswered_recovery' }), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.outcome_missing).toBe('unanswered_recovery')
+  })
+  it('a body without it (build 31) → enqueued as before, no outcome_missing value', async () => {
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.outcome_missing).toBeUndefined()
+  })
+})
