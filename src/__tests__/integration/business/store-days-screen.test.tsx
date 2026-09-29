@@ -35,7 +35,8 @@ import { requireBusinessAdmission } from '@/business/lib/admission'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import { CARD, LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import type { ReactElement } from 'react'
+import { cloneElement, type ReactElement } from 'react'
+import type { SettingsSection } from '@/business/lib/settings'
 import { STORE_A } from '@/business/lib/fixtures'
 import { READ_FAILURE_LINE, READ_ONLY_NOTE } from '@/business/lib/data'
 import { storeDaysLockedNote } from '@/app/[locale]/(business)/business/settings/settings-props'
@@ -407,5 +408,87 @@ describe('S34 act 0 — the OFF world: a 24:00 special day is a local draft too'
     expect(midnightSwitch().getAttribute('aria-checked')).toBe('false')
     expect(input(`${SPECIAL}-close`)!.type).toBe('time')
     expect(fetchLog).toEqual([])
+  })
+})
+
+// ⚖ S35 B2 act 1 — the two honest lines on 店舗情報・営業時間, per block, against the truth table:
+// S1 (sample blocks) prints exactly where a sample mark prints; S2 (live blocks) prints only where a
+// press really saves (door ON + a store, writable, the live read held).
+describe('B2 act 1 honest lines', () => {
+  const S1 = 'サンプルのため、ここで変更しても店舗の設定としては保存されません。実データがつながると、ここから設定できます。'
+  const S2 = '「追加」「取り消す」を押すとすぐ保存されるため、この画面の「保存する」を押す必要はありません。'
+  const CLOSURES = 'store-hours.closures'
+  const SPECIAL = 'store-hours.special-open'
+  const count = (line: string) => (document.querySelector('.st-main')?.textContent ?? '').split(line).length - 1
+  const s1Blocks = () => [...document.querySelectorAll('.st-main section.st-block')].filter((s) => (s.textContent ?? '').includes(S1)).map((s) => s.id)
+  // a block "carries a mark" when it prints a mark note other than S1 itself
+  const markedBlocks = () => [...document.querySelectorAll('.st-main section.st-block')]
+    .filter((s) => [...s.querySelectorAll('p.sample-mark-note')].some((p) => p.textContent !== S1)).map((s) => s.id)
+  const facts = (id: string) => [...(blockEl(id)?.querySelectorAll('p.st-fact') ?? [])].map((p) => p.textContent)
+  const nonOwner = () => {
+    mockUi.sheetOverride = { [CARD.owner]: { staff_id: CARD.owner, role: 'manager', coarse_role: 'ADMIN', capabilities: ['settings.manage', 'stores.viewAll'], visible_store_ids: null, money_scope: null, version: '1.1' } }
+  }
+  it('door OFF: neither line anywhere', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await mount(STORE_A)
+    expect(document.querySelector('.st-main')).not.toBeNull()
+    expect(count(S1)).toBe(0)
+    expect(count(S2)).toBe(0)
+    expect(markedBlocks()).toEqual([])
+  })
+  it('door ON + a store, writable: S1 on the three sample blocks only, S2 first on 臨時休業 and 特別営業日', async () => {
+    await mount()
+    expect(s1Blocks()).toEqual(['st-blk-store-hours.info', 'st-blk-store-hours.hours', 'st-blk-store-hours.ops'])
+    expect(s1Blocks()).toEqual(markedBlocks())
+    expect(count(S2)).toBe(2)
+    expect(facts(CLOSURES)[0]).toBe(S2)
+    expect(facts(CLOSURES)[1]).toBe('臨時休業にすると、その日にすでに入っている予約へ店舗都合の連絡が必要になります。')
+    expect(facts(SPECIAL)[0]).toBe(S2)
+  })
+  it('door ON + a store, read-only: S2 absent (the read-only line stands alone); S1 unchanged', async () => {
+    nonOwner()
+    await mount()
+    expect(count(READ_ONLY_NOTE)).toBe(2)
+    expect(count(S2)).toBe(0)
+    expect(s1Blocks()).toEqual(['st-blk-store-hours.info', 'st-blk-store-hours.hours', 'st-blk-store-hours.ops'])
+  })
+  it('door ON + a store, 臨時休業 read failed: S2 absent on 臨時休業, still on 特別営業日 (its read held)', async () => {
+    mockUi.listThrows = true
+    await mount()
+    expect(text(CLOSURES)).toContain(READ_FAILURE_LINE)
+    expect(facts(CLOSURES)).not.toContain(S2)
+    expect(facts(SPECIAL)[0]).toBe(S2)
+  })
+  it('door ON + a store, both reads failed: S2 absent on both', async () => {
+    mockUi.listThrows = true
+    mockUi.getThrows = true
+    await mount()
+    expect(count(S2)).toBe(0)
+    expect(text(SPECIAL)).toContain(READ_FAILURE_LINE)
+  })
+  // (the all-stores lens is not drivable here: `defaultStoreId` clamps any ?store= to a store the
+  // actor sees, and a storeless actor is the only route to it — its S2 gate is saveStoreDays === undefined.)
+  // Row 6 (storeDaysRead === null → 臨時休業 is itself a sample) cannot be reached through the real
+  // routing (dials === null returns early), so this CONSTRUCTED case pins SettingsScreen's guard as
+  // written: the real ON page element, saveStoreDays SET, with 臨時休業 re-dressed as a sample block
+  // (mark + markLine, collection kept) and 特別営業日 left as the router built it.
+  it('row 6 (constructed): 臨時休業 carries a sample mark under a live door → S2 on neither block, S1 on 臨時休業', async () => {
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ sections: SettingsSection[]; saveStoreDays?: unknown }>
+    expect(el.props.saveStoreDays).toBeDefined()
+    const hours = el.props.sections.find((x) => x.id === 'store-hours')!
+    const mark = hours.blocks.find((x) => x.id === 'store-hours.info')!.sample
+    expect(mark).toBeDefined()
+    const sections = el.props.sections.map((x) => (x.id !== 'store-hours' ? x : {
+      ...x,
+      blocks: x.blocks.map((b) => (b.id === CLOSURES ? { ...b, sample: mark, markLine: S1 } : b)),
+    }))
+    expect(sections.find((x) => x.id === 'store-hours')!.blocks.find((b) => b.id === CLOSURES)!.collection).not.toBeNull()
+    render(cloneElement(el, { sections }))
+    await act(async () => {})
+    expect(facts(CLOSURES)).not.toContain(S2)
+    expect(facts(SPECIAL)).not.toContain(S2)
+    expect(count(S2)).toBe(0)
+    expect(text(CLOSURES)).toContain(S1)
+    expect(s1Blocks()).toContain('st-blk-store-hours.closures')
   })
 })

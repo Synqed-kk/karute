@@ -462,6 +462,13 @@ const row = (
   ...(extra.weekday !== undefined ? { weekday: extra.weekday } : {}),
 })
 
+/** ⚖ S35 B2 act 1 (S1) — a SAMPLE block's edits are not the store's settings; sits beside
+ *  demoSaveLine's truth (the page's own persistence line) and prints only under the block's mark. */
+export const SAMPLE_BLOCK_SAVE_LINE = 'サンプルのため、ここで変更しても店舗の設定としては保存されません。実データがつながると、ここから設定できます。'
+/** The mark and its line travel together: no mark (door OFF, plane live) → neither. */
+const sampled = (mark: SampleMark | undefined): { sample?: SampleMark; markLine?: string } =>
+  mark ? { sample: mark, markLine: SAMPLE_BLOCK_SAVE_LINE } : {}
+
 const block = (
   id: string,
   title: string,
@@ -491,6 +498,7 @@ const block = (
   // switch-OFF payload never grows a key.
   ...(extra.sample ? { sample: extra.sample } : {}),
   ...(extra.sampleNone ? { sampleNone: true as const } : {}),
+  ...(extra.sample && extra.markLine ? { markLine: extra.markLine } : {}),
 })
 
 const BUSINESS_SCOPE = '事業全体'
@@ -832,7 +840,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           ro('store-hours.photo', '店舗写真', d.profile.photo ?? '未設定'),
         ], { scopeLabel: STORE_SCOPE }),
       ], {
-        sample: ctx.samplePart('storeProfile'),
+        ...sampled(ctx.samplePart('storeProfile')),
         facts: ['店舗写真の登録はこれから用意します。それまでは未設定のまま表示されます。'],
       }),
       // ⚖ S17 · C1 — SEVEN DAYS, EACH WITH ITS OWN PAIR, because that is what
@@ -861,7 +869,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           weekday: dayIndex,
         }
       }), {
-        sample: ctx.sampleWhole('operatingHours'),
+        ...sampled(ctx.sampleWhole('operatingHours')),
         layout: 'week',
         // ⚖ C1 — THE SENTENCE READS THE SEVEN, and it had to stop being a fact.
         // 「いまの営業時間は10:00〜19:00、定休日は月曜です」 was true of the ONE pair
@@ -958,7 +966,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           },
         }),
       ], {
-        sample: ctx.sampleWhole('opsConfig'),
+        ...sampled(ctx.sampleWhole('opsConfig')),
         // ⚖ S17 — the sentence describes ONLY the dials this block still holds. A
         // preview naming a control that moved would be a dead lever with words.
         preview: {
@@ -984,7 +992,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
         closuresFailed
           ? { facts: [READ_FAILURE_LINE] }
           : {
-              sample: storeDaysRead === null ? ctx.sampleWhole('closures') : undefined,
+              ...sampled(storeDaysRead === null ? ctx.sampleWhole('closures') : undefined),
               collection: {
                 items: liveClosures
                   ? liveClosures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))

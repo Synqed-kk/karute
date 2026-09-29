@@ -154,3 +154,47 @@ describe('R14 — the page maps the locked actors’ line into saveStoreDays.loc
     expect(note).not.toBe(READ_ONLY_NOTE)
   })
 })
+
+describe('B2 act 1 markLine on the props', () => {
+  const S1 = 'サンプルのため、ここで変更しても店舗の設定としては保存されません。実データがつながると、ここから設定できます。'
+  const SAMPLE_IDS = ['store-hours.info', 'store-hours.hours', 'store-hours.ops']
+  it('door ON: the three sample blocks carry mark + markLine; the live blocks carry neither', async () => {
+    const b = await blocks()
+    for (const id of SAMPLE_IDS) {
+      expect(b[id].sample).toBeDefined()
+      expect(b[id].markLine).toBe(S1)
+    }
+    for (const id of ['store-hours.closures', 'store-hours.special-open']) {
+      expect(b[id].sample).toBeUndefined()
+      expect(b[id].markLine).toBeUndefined()
+    }
+  })
+  it('row 7 — door ON, dials === null for the store: only 店舗情報, sampleNone and NO markLine', async () => {
+    // settings-props.ts routes a dials-null store to storeHours() only when it has NO fixture twin
+    // (`sampleSelfId('stores', id) === null`; a twinned store takes noStore instead) — so row 7 is
+    // asked of every recorded store the door gives no twin, and there must be at least one.
+    const { settingsProps } = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    const { sampleSelfId } = await import('@/business/lib/practice-door/sample-facade')
+    const untwinned = Object.values(STORE).filter((id) => sampleSelfId('stores', id) === null)
+    expect(untwinned.length).toBeGreaterThan(0)
+    let reached = 0
+    for (const id of untwinned) {
+      const { props, storeKey } = await settingsProps({ locale: 'ja', store: id, section: 'store-hours', world: { dials: null } })
+      if (storeKey !== id) continue // not a store this actor sees: clamped away, not row 7
+      reached++
+      const sec = props.sections.find((s) => s.id === 'store-hours')!
+      expect(sec.blocks.map((b) => b.id)).toEqual(['store-hours.info'])
+      const info = sec.blocks[0]
+      expect(info.sampleNone).toBe(true)
+      expect(info.sample).toBeUndefined()
+      expect(info.markLine).toBeUndefined()
+      expect(sec.persist).toBeNull()
+    }
+    expect(reached).toBeGreaterThan(0)
+  })
+  it('door OFF: no block carries a markLine', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const b = await blocks()
+    for (const blk of Object.values(b)) expect(blk.markLine).toBeUndefined()
+  })
+})
