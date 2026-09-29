@@ -328,7 +328,7 @@ describe('P-B1-6 — a failed read is an error state', () => {
 })
 
 describe('R6 fold — closure removal audit', () => {
-  it('removeClosedDay: core is called with (storeId, id, acting_staff_id); the door records its own audit.log after success', async () => {
+  it('removeClosedDay: core is called with (storeId, id, acting_staff_id); the door records its own audit.log (before the delete, PKT-S32 R19)', async () => {
     mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
     const result = await data.removeStoreClosedDay(STORE_ID, CLOSURE_C1.id)
     expect(result).toEqual({ ok: true, closures: [CLOSURE_C2] })
@@ -474,20 +474,21 @@ describe('PKT-S30 F11 — closure audit payloads say which day, which store, why
       store_id: STORE_ID, target_label: '2026-12-28', detail: { date: '2026-12-28', reason: '' },
     })
   })
-  it('remove: target_id = row.id, store_id, target_label = the date, detail { date, reason }', async () => {
+  it('remove: target_id = row.id, store_id, target_label = the date, detail { date, reason, phase: requested }', async () => {
     mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
     await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)
     expect(mockCore.auditLog.mock.calls[0][0]).toEqual({
       actor_type: 'staff', actor_id: 'staff-owner', category: 'settings', action: 'store_closed_day.remove', target_type: 'store_closed_day',
-      target_id: CLOSURE_C2.id, store_id: STORE_ID, target_label: '2026-11-10', detail: { date: '2026-11-10', reason: '棚卸し' },
+      target_id: CLOSURE_C2.id, store_id: STORE_ID, target_label: '2026-11-10', detail: { date: '2026-11-10', reason: '棚卸し', phase: 'requested' },
     })
   })
-  it('remove: a failed audit write logs at warn, never console.error, and the removal still answers ok', async () => {
+  it('remove: a failed audit write logs at warn, never console.error, and REFUSES the removal (PKT-S32 R19: no row, no removal)', async () => {
     mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
     mockCore.auditLog.mockRejectedValueOnce(new Error('audit down'))
     const r = await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)
-    expect(r.ok).toBe(true)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('audit record failed'), expect.stringContaining('audit down'))
+    expect(r).toEqual({ ok: false, reason: 'core', message: GENERIC_FAIL_LINE })
+    expect(mockCore.writer.removeClosedDay).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('audit record refused the removal'), expect.stringContaining('audit down'))
     expect(error).not.toHaveBeenCalled()
   })
 })
@@ -624,30 +625,37 @@ describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove
     await write()
     expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(checks)
   })
-  it('R2: audit.log never answers → the removal still answers ok once the bound passes, one warn carrying store_id, date and reason', async () => {
+  it('R2 → PKT-S32 R19 T1: audit.log never answers → the removal is REFUSED once the bound passes, core delete never called, one warn carrying store_id, date and reason', async () => {
     mockCore.auditLog = jest.fn(() => new Promise(() => {}))
     let settled: unknown = 'pending'
     const pending = data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id).then((r) => (settled = r))
     for (let i = 0; i < 40; i++) await new Promise((res) => setImmediate(res))
     expect(settled).toBe('pending')
-    expect(mockCore.writer.removeClosedDay).toHaveBeenCalledTimes(1)
+    expect(mockCore.writer.removeClosedDay).toHaveBeenCalledTimes(0)
     jest.advanceTimersByTime(5000)
     await pending
-    expect(settled).toMatchObject({ ok: true })
+    expect(settled).toEqual({ ok: false, reason: 'core', message: GENERIC_FAIL_LINE })
+    expect(mockCore.writer.removeClosedDay).toHaveBeenCalledTimes(0)
     expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain('nothing removed')
     const line = String(warn.mock.calls[0][1])
     expect(line).toContain(STORE_ID)
     expect(line).toContain('2026-11-10')
     expect(line).toContain('棚卸し')
     expect(line).toContain('no answer within 5000 ms')
   })
-  it('R2: a synchronous throw from the audit handle or the log call → ok, warned with the reason', async () => {
+  it('R2 → PKT-S32 R19 T2: a synchronous throw from the audit handle or the log call, or a rejection → REFUSED, zero deletes, warned with the reason', async () => {
+    const REFUSED = { ok: false, reason: 'core', message: GENERIC_FAIL_LINE }
     mockCore.auditWriterFor = jest.fn(() => { throw new Error('sync boom') })
-    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toMatchObject({ ok: true })
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toEqual(REFUSED)
     mockCore.auditWriterFor = jest.fn()
     mockCore.auditLog = jest.fn(() => { throw new Error('sync log') })
-    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toMatchObject({ ok: true })
-    expect(warn.mock.calls.map((c) => String(c[1]))).toEqual([expect.stringContaining('sync boom'), expect.stringContaining('sync log')])
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toEqual(REFUSED)
+    mockCore.auditLog = jest.fn().mockRejectedValue(new Error('async reject'))
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toEqual(REFUSED)
+    expect(mockCore.writer.removeClosedDay).toHaveBeenCalledTimes(0)
+    expect(warn.mock.calls.map((c) => String(c[1]))).toEqual([expect.stringContaining('sync boom'), expect.stringContaining('sync log'), expect.stringContaining('async reject')])
+    for (const c of warn.mock.calls) expect(String(c[0])).toContain('nothing removed')
     expect(String(warn.mock.calls[1][1])).toContain('棚卸し')
   })
   it('R3: special REMOVE of “today” whose JST day turns during the read → 過ぎた日付です, no set', async () => {
@@ -702,5 +710,56 @@ describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove
     await data.addStoreClosedDay(STORE_ID, { date: '2026-11-21', reason: '   ' })
     await data.addStoreClosedDay(STORE_ID, { date: '2026-11-22', reason: '  棚卸し ' })
     expect(mockCore.writer.addClosedDay.mock.calls.map((c) => [c[1].reason, c[1].audit.detail.reason])).toEqual([[null, ''], ['棚卸し', '棚卸し']])
+  })
+})
+
+// ⚖ PKT-S32 R19 — closure removal writes its audit row BEFORE core's hard delete: no row, no removal.
+describe('PKT-S32 R19 — audit-first closure removal', () => {
+  it('T3: audit ok + delete ok → ok, list without the row, ONE requested row, the delete called AFTER the audit', async () => {
+    mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
+    const r = await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)
+    expect(r).toEqual({ ok: true, closures: [CLOSURE_C1] })
+    expectWrites({ removeClosedDay: 1, auditLog: 1 })
+    expect(mockCore.auditLog.mock.calls[0][0]).toMatchObject({ action: 'store_closed_day.remove', target_id: CLOSURE_C2.id, detail: { date: '2026-11-10', reason: '棚卸し', phase: 'requested' } })
+    expect(mockCore.auditLog.mock.calls[0][0].detail).toEqual({ date: '2026-11-10', reason: '棚卸し', phase: 'requested' })
+    expect(mockCore.auditLog.mock.invocationCallOrder[0]).toBeLessThan(mockCore.writer.removeClosedDay.mock.invocationCallOrder[0])
+  })
+  it('T4: audit ok + delete throws 403 → forbidden, grant memo cleared, a second row phase failed + error_status 403', async () => {
+    as('login-admin')
+    const spied = withReads()
+    spied.businessGrantsCheck.mockResolvedValue({ granted: true })
+    mockCore.writer.removeClosedDay.mockRejectedValueOnce(fakeSynqedError(403, 'Forbidden'))
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toMatchObject({ ok: false, reason: 'forbidden' })
+    expect(mockCore.auditLog).toHaveBeenCalledTimes(2)
+    expect(mockCore.auditLog.mock.calls[0][0].detail).toEqual({ date: '2026-11-10', reason: '棚卸し', phase: 'requested' })
+    expect(mockCore.auditLog.mock.calls[1][0]).toMatchObject({ action: 'store_closed_day.remove', target_id: CLOSURE_C2.id, detail: { date: '2026-11-10', reason: '棚卸し', phase: 'failed', error_status: 403 } })
+    mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
+    await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id) // R1: the second write re-checks the grant
+    expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(2)
+  })
+  it('T5: audit ok + delete throws 503 → the generic line, memo kept, second row failed + error_status 503', async () => {
+    as('login-admin')
+    const spied = withReads()
+    spied.businessGrantsCheck.mockResolvedValue({ granted: true })
+    mockCore.writer.removeClosedDay.mockRejectedValueOnce(fakeSynqedError(503, 'unavailable'))
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toEqual({ ok: false, reason: 'core', message: GENERIC_FAIL_LINE })
+    expect(mockCore.auditLog).toHaveBeenCalledTimes(2)
+    expect(mockCore.auditLog.mock.calls[1][0].detail).toEqual({ date: '2026-11-10', reason: '棚卸し', phase: 'failed', error_status: 503 })
+    mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
+    await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)
+    expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(1)
+  })
+  it('T6: audit ok + delete throws + the failed row rejects → the refusal unchanged, one warn about the failed row', async () => {
+    mockCore.writer.removeClosedDay.mockRejectedValueOnce(fakeSynqedError(503, 'unavailable'))
+    mockCore.auditLog = jest.fn().mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('audit down'))
+    expect(await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)).toEqual({ ok: false, reason: 'core', message: GENERIC_FAIL_LINE })
+    expect(mockCore.auditLog).toHaveBeenCalledTimes(2)
+    // the other warn is mapCoreError's existing 'core refused:' line for the 503 (unchanged)
+    const failedRowWarns = warn.mock.calls.filter((c) => String(c[0]).includes('"failed" row not written'))
+    expect(failedRowWarns).toHaveLength(1)
+    expect(String(failedRowWarns[0][1])).toContain('audit down')
+    expect(String(failedRowWarns[0][1])).toContain(STORE_ID)
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('nothing removed'))).toHaveLength(0)
+    expect(error).not.toHaveBeenCalled()
   })
 })
