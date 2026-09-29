@@ -43,6 +43,7 @@ import {
   type HeldTranscriptLease,
   type TranscriptLeaseTake,
   type TranscriptMemo,
+  type TranscriptMemoWrite,
   type TranscriptTrueUpOwed,
 } from '@/lib/recording/transcript-memo'
 import type { OrgSettings } from '@/actions/org-settings'
@@ -483,8 +484,21 @@ function auditTranscriptionRefused(meter: TranscriptionMeter, err: AppApiError):
   })
 }
 
-/** What a replay's owed true-up came to (see finishOwedTrueUp). */
-type TrueUpSettled = { recorded: boolean; deferred?: TranscriptionDebitDeferred }
+/** What a replay's owed true-up came to (see finishOwedTrueUp). `markFailed`
+ *  = the ledger recorded it but its true-up marker would not land (S58). */
+type TrueUpSettled = { recorded: boolean; deferred?: TranscriptionDebitDeferred; markFailed?: true }
+
+/** ⚖ S58 — WRITE THE TRUE-UP MARKER AND READ ITS ANSWER: the one helper both
+ *  recorders use (recordOwedTrueUp and the paying call). A 'failed' write is
+ *  retried exactly once, at once — no sleep, no loop; 'taken' (another call
+ *  marked it) counts as marked. The final answer goes back so the caller can
+ *  put a marker that still failed on the receipt (`debit_mark: 'failed'`,
+ *  filed at warning) instead of leaving it to the writer's console line. */
+async function markTrueUpRecorded(key: string, deltaCents: number): Promise<TranscriptMemoWrite> {
+  const first = await recordTranscriptTrueUp(key, deltaCents)
+  if (first !== 'failed') return first
+  return recordTranscriptTrueUp(key, deltaCents)
+}
 
 /** The delta a memo says its answer owes: null = nothing owed (no numbers —
  *  no delta was owed, or a memo written after its true-up had run); a real,
@@ -564,8 +578,12 @@ async function finishOwedTrueUp(
  *  before this one may have recorded it — and only a debt still owed is asked
  *  for. Recorded → the true-up object is created (create-only, never
  *  upserted); a `false` from the writer leaves the debt owed for the next
- *  replay (the writer's own line says so). The memo itself is never written
- *  here. */
+ *  replay (the writer's own line says so). A true-up object that would not
+ *  land (S58) is retried once, then filed at warning (`debit_mark: 'failed'`):
+ *  the debt still reads as owed, and a later replay under the lease records
+ *  it AGAIN — once per replay, until the marker can be written. Closable only
+ *  by an idempotency key on the usage writer (the queued core ask). The memo
+ *  itself is never written here. */
 async function recordOwedTrueUp(
   meter: TranscriptionMeter,
   key: string,
@@ -577,8 +595,9 @@ async function recordOwedTrueUp(
   if (now === 'recorded') return { recorded: true }
   if (now === 'unknown') return { recorded: false, deferred: 'storage_unknown' }
   const recorded = await reportTranscriptionUsageWithClient(meter.synqed, deltaCents)
-  if (recorded) await recordTranscriptTrueUp(key, deltaCents)
-  return { recorded }
+  if (!recorded) return { recorded }
+  const mark = await markTrueUpRecorded(key, deltaCents)
+  return mark === 'failed' ? { recorded, markFailed: true } : { recorded }
 }
 
 /**
@@ -726,6 +745,7 @@ async function meteredTranscription(
       debit_recorded: settled.recorded,
       replayed: true,
       ...(settled.deferred ? { debit_deferred_reason: settled.deferred } : {}),
+      ...(settled.markFailed ? { debit_mark: 'failed' as const } : {}),
     }
     // The same three-door rule as the paid path below: the row shows the door
     // ran and paid nothing.
@@ -932,6 +952,11 @@ async function meteredTranscription(
   //      core ask. A memo write whose outcome storage would not tell us
   //      ('failed'), and a true-up object that would not land, are the same
   //      class: if the memo did land, its debt is never answered for here.
+  //      Except (S58): a true-up object that would not land is retried once,
+  //      then filed at warning (`debit_mark: 'failed'`) — and while the marker
+  //      keeps failing, EVERY later lease-winning replay records the delta
+  //      AGAIN, once per replay (each filed at warning, countable), until the
+  //      marker can be written. Same core ask closes it.
   //  (b) a replay that finds the debt owed while THIS call is still recording its
   //      delta used to record it too (Greptile round 2 on #1086, finding 1).
   //      Closed by the lease since S57: a replay records an owed delta only
@@ -942,9 +967,14 @@ async function meteredTranscription(
   //      the lease can still record this call's delta alongside it. Stated,
   //      never hidden: an over-count of one delta, the safe direction.
   let debitRecorded = true
+  // S58: the marker's answer is read (one retry, then `debit_mark: 'failed'`
+  // on the receipt, filed at warning) — see markTrueUpRecorded.
+  let markFailed = false
   if (delta > 0) {
     debitRecorded = await reportTranscriptionUsageWithClient(meter.synqed, delta)
-    if (debitRecorded && ownsDebt && memoKey !== null) await recordTranscriptTrueUp(memoKey, delta)
+    if (debitRecorded && ownsDebt && memoKey !== null) {
+      markFailed = (await markTrueUpRecorded(memoKey, delta)) === 'failed'
+    }
   }
   const receipt: TranscriptionReceipt = {
     duration_seconds: durationSeconds,
@@ -952,6 +982,7 @@ async function meteredTranscription(
     cents_reserved: reserveCents,
     debit_recorded: debitRecorded,
     replayed: false,
+    ...(markFailed ? { debit_mark: 'failed' as const } : {}),
   }
   if (!memoFirst) await remember()
 

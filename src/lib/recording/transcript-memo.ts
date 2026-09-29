@@ -183,9 +183,13 @@ export async function readTranscriptTrueUp(memoKey: string): Promise<'recorded' 
 /** Write down that the ledger took this audio's owed true-up — create-only,
  *  never upserted. `taken` = it was already recorded (another call recorded a
  *  true-up for this audio too — possible only where the lease fell open; one
- *  line says so); `failed` = storage would not take it (warned): the debt then
- *  still reads as owed, and a later replay under the lease records it once
- *  more — an over-count, the safe direction. Never throws. */
+ *  line says so); `failed` = storage would not take it (warned). Its callers
+ *  (transcribe.ts markTrueUpRecorded, S58) retry a failed write once, then
+ *  file the receipt at warning (`debit_mark: 'failed'`): the debt still reads
+ *  as owed, and a later replay under the lease records it AGAIN — once per
+ *  replay, until the marker can be written — an over-count, the safe
+ *  direction, closable only by an idempotency key on the usage writer (the
+ *  queued core ask). Never throws. */
 export async function recordTranscriptTrueUp(memoKey: string, deltaCents: number): Promise<TranscriptMemoWrite> {
   const record: TranscriptTrueUpRecord = { v: 1, deltaCents, recorded_at: new Date().toISOString() }
   try {

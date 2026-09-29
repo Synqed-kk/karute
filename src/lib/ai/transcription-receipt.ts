@@ -34,6 +34,14 @@ export interface TranscriptionReceipt {
    *  call may record (the lease, or the true-up's state, could not be read).
    *  The debt stays owed either way, and the memo stays its retry trigger. */
   debit_deferred_reason?: TranscriptionDebitDeferred
+  /** ⚖ S58 — present ONLY when the ledger DID record this call's delta
+   *  (`debit_recorded: true`) and the true-up marker that says so would not
+   *  land, retried once: 'failed'. The debt then still reads as owed, and a
+   *  later replay under the lease records the delta AGAIN — once per replay,
+   *  until the marker can be written (closable only by an idempotency key on
+   *  the usage writer, the queued core ask). Filed at 'warning' so every such
+   *  over-count is countable. Absent on every other receipt. */
+  debit_mark?: 'failed'
 }
 
 /** Why a replay left an owed true-up for another call (see the receipt). */
@@ -44,7 +52,8 @@ export type TranscriptionDebitDeferred = 'lease_busy' | 'storage_unknown'
  *  JSON arm; the facade route's ctx.auditSeverity). 'warning' = a debit no call can show recorded and no
  *  live call is recording: a true-up the writer gave up on, a true-up this code
  *  cannot read, or one this call could not prove it may record
- *  ('storage_unknown'). A LEASE-BUSY replay is NOT a lost debit — the call
+ *  ('storage_unknown'), or (S58) a debit recorded whose true-up marker would
+ *  not land (`debit_mark: 'failed'` — the next replay records it again). A LEASE-BUSY replay is NOT a lost debit — the call
  *  holding the lease is the one that records it — so its row is filed at the
  *  default severity, still with `debit_recorded: false` and
  *  `debit_deferred_reason: 'lease_busy'` in its detail: soft, countable by that
@@ -53,6 +62,7 @@ export type TranscriptionDebitDeferred = 'lease_busy' | 'storage_unknown'
  *  untouched by ruling: it passes no audio key, so it never replays and never
  *  defers, and the two rules give the same answer there. */
 export function transcriptionReceiptSeverity(receipt: TranscriptionReceipt): 'warning' | undefined {
+  if (receipt.debit_mark === 'failed') return 'warning'
   if (receipt.debit_recorded) return undefined
   return receipt.debit_deferred_reason === 'lease_busy' ? undefined : 'warning'
 }

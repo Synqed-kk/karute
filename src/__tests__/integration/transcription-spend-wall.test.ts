@@ -3418,6 +3418,151 @@ describe('charge once — the durable transcript memo', () => {
       expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
     })
   })
+
+  // ── ⚖ S58 M1 — THE TRUE-UP MARKER'S WRITE RESULT IS READ ──────────────────────────────────────────
+  // Blind read S58 #1: both recorders ignored recordTranscriptTrueUp's answer, so a marker that would
+  // not land left the ledger holding the delta, the receipt saying `debit_recorded: true` soft, and
+  // no object — every later lease-winning replay then recorded the delta again, silently. Now: one
+  // retry, then `debit_mark: 'failed'` on the receipt and a warning row. 600,000 B → 1 ¢ reserve,
+  // 45 ¢ cost → 44 ¢ delta (F1_DELTA).
+  describe('s58 M1 the true-up marker: one retry, then a warning row and an honest receipt', () => {
+    beforeEach(() => {
+      headBytes.current = 600_000
+    })
+    const MARK_FAILED = { data: null, error: { statusCode: '500', message: 'storage write refused' } }
+    const MARK_TAKEN = { data: null, error: { statusCode: '409', message: 'The resource already exists' } }
+    /** The marker upload fails for as long as the test runs. Bounded at 50 only so an UNBOUNDED retry
+     *  (mutant X3) terminates and is counted instead of starving the event loop. */
+    const markerAlwaysFails = () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => warn.mockRestore())
+      const real = trueUpUpload.getMockImplementation()!
+      trueUpUpload.mockImplementation(async (...a: Parameters<typeof real>) =>
+        trueUpUpload.mock.calls.length > 50 ? real(...a) : (MARK_FAILED as never))
+      afterThis.push(() => trueUpUpload.mockImplementation(real))
+    }
+    const markerFailsOnceThen = (second?: typeof MARK_TAKEN) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      afterThis.push(() => warn.mockRestore())
+      trueUpUpload.mockResolvedValueOnce(MARK_FAILED as never)
+      if (second) trueUpUpload.mockResolvedValueOnce(second as never)
+    }
+    const REPLAY_TODAY = { duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: true, replayed: true }
+    const PAID_TODAY = { duration_seconds: 5400, cost_cents: 45, cents_reserved: 1, debit_recorded: true, replayed: false }
+    const receiptRows = () => rows('recording.transcribe')
+
+    it('s58 m1 — m1a replay path: the ledger records, the marker fails TWICE → debit_recorded true + debit_mark failed, warning, upload 2×, ledger 1×', async () => {
+      markerAlwaysFails()
+      seedMemo('owed')
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ ...REPLAY_TODAY, debit_mark: 'failed' })
+      expect(transcriptionReceiptSeverity(res.receipt)).toBe('warning')
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(false)
+      expect(receiptRows()).toHaveLength(1)
+      expect(receiptRows()[0].severity).toBe('warning')
+      expect(receiptRows()[0].detail).toMatchObject({ debit_recorded: true, debit_mark: 'failed', replayed: true })
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    })
+
+    it('s58 m1 — m1b replay path: the marker fails once then lands → written, NO mark field, upload 2×, ledger 1×, soft', async () => {
+      markerFailsOnceThen()
+      seedMemo('owed')
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(REPLAY_TODAY)
+      expect(transcriptionReceiptSeverity(res.receipt)).toBeUndefined()
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(true)
+      expect(receiptRows()[0].severity).toBeUndefined()
+    })
+
+    it('s58 m1 — m1c payer path: the paying call’s own marker fails TWICE → debit_recorded true + debit_mark failed, warning, upload 2×, ledger delta 1×', async () => {
+      markerAlwaysFails()
+      const res = await doorCall('job')
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(res.receipt).toEqual({ ...PAID_TODAY, debit_mark: 'failed' })
+      expect(transcriptionReceiptSeverity(res.receipt)).toBe('warning')
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(false)
+      expect(receiptRows()).toHaveLength(1)
+      expect(receiptRows()[0].severity).toBe('warning')
+      expect(receiptRows()[0].detail).toMatchObject({ debit_recorded: true, debit_mark: 'failed', replayed: false })
+    })
+
+    it('s58 m1 — m1d payer path: the marker fails once then lands → written, NO mark field, upload 2×, ledger delta 1×, soft', async () => {
+      markerFailsOnceThen()
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(PAID_TODAY)
+      expect(transcriptionReceiptSeverity(res.receipt)).toBeUndefined()
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(f1DeltaCalls()).toHaveLength(1)
+      expect(debtRecorded()).toBe(true)
+      expect(receiptRows()[0].severity).toBeUndefined()
+    })
+
+    // THE RESIDUAL, pinned as visible behaviour: while the marker keeps failing, every lease-winning
+    // replay records the delta AGAIN — closable only by an idempotency key on the usage writer (the
+    // queued core ask). What this pins is that each over-count files its own warning row.
+    it('s58 m1 — m1e THE RESIDUAL: after m1a a second lease-winning replay records the delta AGAIN and files a SECOND warning row (countable, never silent)', async () => {
+      markerAlwaysFails()
+      seedMemo('owed')
+      const first = await doorCall('job')
+      expect(first.receipt).toEqual({ ...REPLAY_TODAY, debit_mark: 'failed' })
+      const second = await doorCall('job')
+      expect(second.receipt).toEqual({ ...REPLAY_TODAY, debit_mark: 'failed' })
+      expect(f1DeltaCalls()).toHaveLength(2)
+      expect(trueUpUpload).toHaveBeenCalledTimes(4)
+      expect(receiptRows()).toHaveLength(2)
+      expect(receiptRows().map((r) => r.severity)).toEqual(['warning', 'warning'])
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    })
+
+    it('s58 m1 — m1f happy path: a replay and a payer whose markers land first time carry EXACTLY today’s keys (whole-receipt equality), upload 1× each, soft', async () => {
+      seedMemo('owed')
+      const replay = await doorCall('job')
+      expect(replay.receipt).toEqual(REPLAY_TODAY)
+      expect(Object.keys(replay.receipt).sort()).toEqual(Object.keys(REPLAY_TODAY).sort())
+      expect(trueUpUpload).toHaveBeenCalledTimes(1)
+
+      memoStore.clear()
+      trueUpStore.clear()
+      trueUpUpload.mockClear()
+      const paid = await doorCall('job')
+      expect(paid.receipt).toEqual(PAID_TODAY)
+      expect(Object.keys(paid.receipt).sort()).toEqual(Object.keys(PAID_TODAY).sort())
+      expect(trueUpUpload).toHaveBeenCalledTimes(1)
+      expect(receiptRows().map((r) => r.severity)).toEqual([undefined, undefined])
+    })
+
+    it('s58 m1 — m1g the retry meets TAKEN (another call marked it) → counted as marked: no mark field, soft, upload 2×', async () => {
+      markerFailsOnceThen(MARK_TAKEN)
+      seedMemo('owed')
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(REPLAY_TODAY)
+      expect(transcriptionReceiptSeverity(res.receipt)).toBeUndefined()
+      expect(trueUpUpload).toHaveBeenCalledTimes(2)
+      expect(receiptRows()[0].severity).toBeUndefined()
+    })
+
+    it('s58 m1 — layer-off: switch OFF never attempts a marker, so a failing marker store changes nothing: no mark field, no upload, soft', async () => {
+      const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+      afterThis.push(() => off.restore())
+      markerAlwaysFails()
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(PAID_TODAY)
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      expect(receiptRows()[0].severity).toBeUndefined()
+    })
+
+    it('s58 m1 — the severity rule, ONE home: debit_mark failed → warning even with debit_recorded true', () => {
+      expect(transcriptionReceiptSeverity({ ...PAID_TODAY, debit_mark: 'failed' })).toBe('warning')
+      expect(transcriptionReceiptSeverity({ ...REPLAY_TODAY, debit_mark: 'failed' })).toBe('warning')
+      expect(transcriptionReceiptSeverity(PAID_TODAY)).toBeUndefined()
+    })
+  })
 })
 
 describe('S53 A5 — the web door answers a live lease with a retryable 409', () => {
