@@ -212,7 +212,7 @@ describe('P-B1-3 — door validation refuses BEFORE any core call', () => {
     const okClose = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-02', open: '20:00', close: '24:00' })
     expect(okClose.ok).toBe(true)
     expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-12-03', open: '15:00', close: '11:00' })).toEqual({ ok: false, reason: 'invalid', message: '閉店時刻は開店時刻より後にしてください。' })
-    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-02-30', open: '10:00', close: '19:00' })).toEqual({ ok: false, reason: 'invalid', message: '存在しない日付です。' })
+    expect(await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-02-30', open: '10:00', close: '19:00' })).toEqual({ ok: false, reason: 'invalid', message: '存在しない日付です' })
     expectWrites({ set: 1 }) // only the accepted 24:00 add wrote
   })
   it('a second 2026-10-20 refused as a duplicate special day, zero core calls', async () => {

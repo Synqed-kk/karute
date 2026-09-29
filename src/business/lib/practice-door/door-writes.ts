@@ -59,7 +59,7 @@ export type SetSpecialOpenDaysResult = { ok: true; specialOpenDays: SpecialOpenD
 // every other line here is either a ⚖ ruled string (past-date, both
 // duplicates) or the copy round's KEPT draft.
 const MSG = {
-  invalidDate: '存在しない日付です。',
+  invalidDate: '存在しない日付です',
   pastDate: '過ぎた日付です',
   openNotBeforeClose: OPEN_NOT_BEFORE_CLOSE_LINE,
   duplicateSpecial: DUPLICATE_SPECIAL_LINE,
