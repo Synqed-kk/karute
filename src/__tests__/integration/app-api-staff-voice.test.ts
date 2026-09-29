@@ -80,6 +80,19 @@ jest.mock('@/actions/org-settings', () => ({
   writeOrgSettingsBlobWithClient: (...a: unknown[]) => writeOrgSettingsBlobWithClient(...a),
 }))
 
+// reason: S60 REV 2.3 A6 — the shared sniff runs for real, wrapped in a spy so
+// the adoption test below can prove the route judges heads through it.
+const mockSniffCalls = jest.fn()
+jest.mock('@/lib/recording/container-sniff', () => {
+  const actual = jest.requireActual('@/lib/recording/container-sniff')
+  return {
+    ...actual,
+    sniffContainer: (head: Uint8Array) => {
+      mockSniffCalls(head)
+      return actual.sniffContainer(head)
+    },
+  }
+})
 import { POST, DELETE } from '@/app/api/app/v1/staff/[id]/voice/route'
 import { auditLines } from './helpers/audit-lines'
 
@@ -259,6 +272,15 @@ describe('POST /api/app/v1/staff/[id]/voice', () => {
       expect(res.status).toBe(200)
       expect((await res.json()).ok).toBe(true)
     }
+  })
+
+  it('adoption (S60 REV 2.3 A6): the route judges the head through the ONE shared sniff, never its own bytes check', async () => {
+    const fd = new FormData()
+    fd.set('audio', audioFile())
+    const res = await POST(postReq('auth-user-1', fd), params('auth-user-1'))
+    expect(res.status).toBe(200)
+    expect(mockSniffCalls).toHaveBeenCalledTimes(1)
+    expect(Array.from(mockSniffCalls.mock.calls[0][0] as Uint8Array)).toEqual(WEBM_MAGIC)
   })
 
   it('optional audioRef is validated the SAME way when present', async () => {
