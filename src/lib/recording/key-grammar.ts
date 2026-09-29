@@ -17,13 +17,24 @@
 // A minted key is the ONLY legitimate source of one (mintRecordingUploadUrl in
 // src/actions/recording-upload.ts and the upload-url facade twin compose it
 // byte-identically), so the grammar is matched POSITIVELY and anything else is
-// refused. Five shapes, ONE parser:
+// refused. Six shapes, ONE parser:
 //
 //     take        app_<businessId>_<lowercase uuid>.<ext>
 //     segment     seg/app_<businessId>_<lowercase uuid>/<6-digit seq>.<ext>
 //     staged      stg/<businessId>_<recordingSessionId>_<lowercase uuid>.<ext>
 //     rescue      rsc/app_<businessId>_<lowercase uuid>.<ext>
 //     transcript  trc/<a take or rescue key of the same business>.<ja|en>.json
+//     mark        mrk/<a take key of the same business>.<mark kind>.json
+//
+// ⚖ A MARK IS A DURABLE FLAG ON ONE TAKE (S60 PR-A, A4). The server's
+// create-only verdict about the object under a take key — `refused` (its head
+// is no container), `partial`, and the two PR-R/PR-C supersessions `rescued`
+// and `regenerated` — written by src/lib/recording/take-mark.ts. Nested under
+// its own prefix (never the bucket root, which /api/cleanup lists; never
+// `seg/`, which the assembler lists), named for a TAKE only: a rescue is the
+// server's own rebuild and is never marked. Not `trc/`: that area is the paid
+// answer, locale-typed and repairable, and a mark is never overwritten. Audio
+// of neither kind — no fence below admits it.
 //
 // ⚖ THE TRANSCRIPT IS THE PAID ANSWER, KEPT BESIDE ITS AUDIO (PR-5, charge
 // once). The meter writes the provider's answer here after it paid for it and
@@ -80,6 +91,13 @@ const TRANSCRIPT_PREFIX = 'trc/'
 const TRANSCRIPT_SUFFIX = '.json'
 /** Closed set — the two languages runTranscription asks the provider in. */
 const TRANSCRIPT_LOCALES: readonly string[] = ['ja', 'en']
+/** The durable take-mark area (S60 A4) — see the header's `mark` shape. */
+export const MARK_PREFIX = 'mrk/'
+const MARK_SUFFIX = '.json'
+/** Closed set — every kind a take mark can carry, all four from day one so
+ *  PR-R (`rescued`) and PR-C (`regenerated`) add no grammar. */
+export const MARK_KINDS = ['refused', 'partial', 'rescued', 'regenerated'] as const
+export type MarkKind = (typeof MARK_KINDS)[number]
 const UUID_LENGTH = 36
 /**
  * The CLOSED container map — the one place a recorder MIME becomes a key
@@ -118,6 +136,7 @@ export type ParsedRecordingKey =
   | { kind: 'staged'; recordingSessionId: string; ext: string }
   | { kind: 'rescue'; takeId: string; ext: string }
   | { kind: 'transcript'; audioKey: string; locale: 'ja' | 'en' }
+  | { kind: 'mark'; takeKey: string; takeId: string; ext: string; mark: MarkKind }
 
 /** `<stem>.<ext>` split on the LAST dot, ext from the closed set or nothing. */
 function splitExtension(name: string): { stem: string; ext: string } | null {
@@ -219,6 +238,24 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
     const audio = parseRecordingKey(audioKey, businessId)
     if (audio?.kind !== 'take' && audio?.kind !== 'rescue') return null
     return { kind: 'transcript', audioKey, locale: locale as 'ja' | 'en' }
+  }
+
+  if (key.startsWith(MARK_PREFIX)) {
+    // mrk/<take key>.<mark kind>.json — the transcript branch's shape above,
+    // with ONE narrowing: the remainder must read back as this business's TAKE.
+    // A rescue, a memo, a segment, a staged copy and another tenant's key are
+    // all refused by that one read.
+    const rest = key.slice(MARK_PREFIX.length)
+    if (!rest.endsWith(MARK_SUFFIX)) return null
+    const named = rest.slice(0, -MARK_SUFFIX.length)
+    const dot = named.lastIndexOf('.')
+    if (dot <= 0) return null
+    const mark = named.slice(dot + 1)
+    if (!(MARK_KINDS as readonly string[]).includes(mark)) return null
+    const takeKey = named.slice(0, dot)
+    const take = parseRecordingKey(takeKey, businessId)
+    if (take?.kind !== 'take') return null
+    return { kind: 'mark', takeKey, takeId: take.takeId, ext: take.ext, mark: mark as MarkKind }
   }
 
   const body = parseTakeBody(key, prefix)
@@ -393,6 +430,36 @@ export function composeTranscriptKey(
   const parsed = parseRecordingKey(key, businessId)
   if (parsed?.kind !== 'transcript' || parsed.audioKey !== audioKey || parsed.locale !== locale) {
     throw new Error('composed transcript key failed its own grammar')
+  }
+  return { key }
+}
+
+/**
+ * Compose the TAKE-MARK key for one take and one mark kind (S60 A4) — where
+ * take-mark.ts keeps the server's durable, create-only verdict on that take.
+ *
+ * `takeKey` must already be this business's TAKE: a mark is named for the
+ * phone's own object and nothing else, so a rescue, a staged copy, a segment,
+ * a memo or another tenant's key is null, as is a kind outside MARK_KINDS.
+ *
+ * SAME SELF-CHECK CONTRACT as composeTranscriptKey: the composition is parsed
+ * back with the SAME parser and compared field by field, so reaching the throw
+ * means this composer and the grammar have drifted apart — a bug here, never
+ * caller input.
+ *
+ * `businessId` is the caller's OWN verified tenant — never a request field.
+ */
+export function composeMarkKey(
+  businessId: string,
+  takeKey: unknown,
+  mark: unknown,
+): { key: string } | null {
+  if (parseRecordingKey(takeKey, businessId)?.kind !== 'take') return null
+  if (typeof mark !== 'string' || !(MARK_KINDS as readonly string[]).includes(mark)) return null
+  const key = `${MARK_PREFIX}${takeKey as string}.${mark}${MARK_SUFFIX}`
+  const parsed = parseRecordingKey(key, businessId)
+  if (parsed?.kind !== 'mark' || parsed.takeKey !== takeKey || parsed.mark !== mark) {
+    throw new Error('composed mark key failed its own grammar')
   }
   return { key }
 }

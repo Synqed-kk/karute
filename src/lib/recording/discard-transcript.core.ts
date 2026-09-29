@@ -23,7 +23,13 @@ import { isOwnAudioKey, isOwnRecordingKey, isStagedKeyFor, parseRecordingKey } f
 import { resolveTakeAudio } from '@/lib/recording/take-audio'
 import { isConsentCurrent } from '@/lib/consent'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
-import { runMeteredTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
+import { AUDIO_UNREADABLE } from '@/lib/recording/job-errors'
+import {
+  AudioUnreadableError,
+  runMeteredTranscription,
+  speakerIdMode,
+  loadStaffReferenceForStaff,
+} from '@/lib/ai/transcribe'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 
 /**
@@ -451,6 +457,25 @@ export async function transcribeAndPersistDiscardWithClient(
     // nothing this may destroy.
     return text ? { ok: true } : { skipped: 'empty' }
   } catch (err) {
+    // ⚖ AN UNREADABLE AUDIO STILL ANSWERS `failed` ON THE WIRE (S60 A2, REV
+    // 2.3). Build-31 phones treat any discard answer other than `failed` as
+    // settled, stamp the take done and may TTL-prune a staged take — the only
+    // good copy. So the reason is kept in this ONE structured log line, not in
+    // the answer; PR-B changes the wire word once the phone can read it. Cost:
+    // a build-31 retry keeps its sweep loop — one 64-byte probe per sweep, no
+    // consume, no reserve, no provider call.
+    if (err instanceof AudioUnreadableError) {
+      console.warn(
+        '[discard-transcript] refused',
+        JSON.stringify({
+          reason: AUDIO_UNREADABLE,
+          recording_session_id: input.recordingSessionId,
+          first_byte: err.firstByte,
+          bytes_read: err.bytesRead,
+        }),
+      )
+      return { error: 'failed' }
+    }
     // A SPEND-WALL refusal lands here too, and `failed` is the right answer for
     // it: retryable, and cheap — one refused ledger read per record-page mount
     // and no money, until the rolling window frees and the sweep succeeds.

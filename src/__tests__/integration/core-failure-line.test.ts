@@ -36,6 +36,7 @@ const ANSWERS_THE_LINE: Record<AppApiErrorCode, boolean> = {
   no_audio: false,
   conflict: false,
   not_returning: false,
+  audio_unreadable: false, // S60 A3: the new 422 code placed in the exhaustive table (not a failure-line code)
   rate_limited: false,
   not_implemented: false,
   jwks_unavailable: false,

@@ -11,20 +11,23 @@ export interface RecordingResult {
   durationMs: number
 }
 
+/** The MIME types this recorder negotiates, in preference order. Exported so
+ *  the container-sniff totality test pins every one against a signature. */
+export const RECORDER_MIME_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+  'audio/wav',
+] as const
+
 /**
  * Negotiate the best supported audio format at runtime.
  * Priority: webm/opus (best compression) → webm → mp4 (iOS Safari) → ogg → wav (fallback)
  * NEVER hardcode a format — iOS Safari < 18.4 does not support audio/webm.
  */
 function getSupportedMimeType(): string {
-  const formats = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/mp4',
-    'audio/ogg;codecs=opus',
-    'audio/wav',
-  ]
-  return formats.find(f => MediaRecorder.isTypeSupported(f)) ?? ''
+  return RECORDER_MIME_CANDIDATES.find(f => MediaRecorder.isTypeSupported(f)) ?? ''
 }
 
 export function useMediaRecorder() {

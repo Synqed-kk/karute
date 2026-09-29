@@ -17,10 +17,17 @@ import {
   reportTranscriptionUsageWithClient,
 } from '@/lib/ai-rate-limit'
 import { AppApiError } from '@/lib/app-api/errors'
-import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
+import { AUDIO_UNREADABLE, TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
 import { audit } from '@/lib/audit'
 import { composeTranscriptKey } from '@/lib/recording/key-grammar'
 import { readTranscriptMemo, writeTranscriptMemo } from '@/lib/recording/transcript-memo'
+import {
+  PROBE_HEAD_BYTES,
+  PROBE_MIN_HEAD_BYTES,
+  probeObjectHead,
+  sniffContainer,
+} from '@/lib/recording/container-sniff'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import type { OrgSettings } from '@/actions/org-settings'
 
 /**
@@ -319,8 +326,51 @@ function estimateSecondsFromBytes(bytes: number): number {
 }
 
 /** The reserve's HEAD is its own request, so a storage server that has stopped
- *  answering costs the wall ten seconds, not the caller's whole timeout. */
+ *  answering costs the wall ten seconds, not the caller's whole timeout.
+ *  Same value as PROBE_HEAD_TIMEOUT_MS (container-sniff.ts, the S60 head
+ *  probe): one storage class, one patience. Two named constants,
+ *  cross-referenced, because that module is client-safe and must not import
+ *  this server-only one — change one, change both. */
 const RESERVE_HEAD_TIMEOUT_MS = 10_000
+
+/** The word an unreadable audio is refused with — declared once in the
+ *  thin-safe job-errors.ts (the audit page's reason table reads it too) and
+ *  re-exported here for this module's existing readers. */
+export { AUDIO_UNREADABLE }
+
+/** The meter's refusal of an audio whose head opens with NO container the
+ *  recorders make (S60 A3). The facade's own error class, so the facade
+ *  normaliser passes it through as 422 `audio_unreadable` (never `internal`),
+ *  and its message is EXACTLY `audio_unreadable` — the job's sentinel matches
+ *  the message. The head facts ride as numbers on the error for server-side
+ *  logs only; they are NOT `detail`, so they never reach a response body. */
+export class AudioUnreadableError extends AppApiError {
+  readonly firstByte: number
+  readonly bytesRead: number
+  constructor(head: { firstByte: number; bytesRead: number }) {
+    super('audio_unreadable', AUDIO_UNREADABLE)
+    this.firstByte = head.firstByte
+    this.bytesRead = head.bytesRead
+  }
+}
+
+/** The head facts when the audio is UNREADABLE, else null (readable or
+ *  unknown — unknown is never a refusal). URL arm: the byte-bounded ranged
+ *  probe. Buffer arm: the same sniff over the same first PROBE_HEAD_BYTES,
+ *  with the same floor — fewer than PROBE_MIN_HEAD_BYTES is unknown. Never
+ *  keyed on a file extension or a MIME type; never writes anything. */
+async function unreadableHead(
+  audio: TranscriptionAudio,
+): Promise<{ firstByte: number; bytesRead: number } | null> {
+  if ('buffer' in audio) {
+    const head = audio.buffer.subarray(0, PROBE_HEAD_BYTES)
+    if (head.length < PROBE_MIN_HEAD_BYTES) return null
+    const sniff = sniffContainer(head)
+    return sniff.kind === 'unknown' ? { firstByte: sniff.firstByte, bytesRead: sniff.bytesRead } : null
+  }
+  const probe = await probeObjectHead(audio.url)
+  return probe.state === 'unreadable' ? { firstByte: probe.firstByte, bytesRead: probe.bytesRead } : null
+}
 
 /** The audio's size in bytes for the reserve: the buffer's own length, or a
  *  HEAD on the signed URL. Unreadable — no content-length, zero, a throw, the
@@ -520,6 +570,19 @@ export async function runMeteredTranscription(
       auditTranscriptionReceipt(meter, receipt)
     }
     return { result: memoRead.memo.result, receipt }
+  }
+
+  // ── THE HEAD, BEFORE ANYTHING THAT COSTS (S60 A3, one choke point) ────────
+  // After the memo (a hit was already paid for, so it is answered as before)
+  // and BEFORE the ceiling, the reserve and the provider: an audio that opens
+  // with no container the recorders make is refused here, at every door, for
+  // one 64-byte probe and nothing else — no rate-limit consume, no ledger row,
+  // no Deepgram call. The meter writes NO mark (M2: the web JSON arm is not
+  // take-owner gated); marks are finalize's alone. `unknown` proceeds exactly
+  // as today. Behind the same switch as the finalize probe: OFF = no probe.
+  if (RECORDING_SWITCHES.finalizeProbe) {
+    const unreadable = await unreadableHead(params.audio)
+    if (unreadable) throw new AudioUnreadableError(unreadable)
   }
 
   try {
