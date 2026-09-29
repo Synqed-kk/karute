@@ -786,6 +786,32 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
     expect(row.detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
+
+  // R-O9 (ii): ONE reference joins the server log line and the audit row —
+  // the ref is generated once per failed write (outcome-fate.ts failed()).
+  const loggedRefs = () =>
+    error.mock.calls
+      .map((c) => { try { return JSON.parse(String(c[0])) as { evt?: string; ref?: string } } catch { return null } })
+      .filter((line) => line?.evt === 'outcome_write_failed')
+      .map((line) => line?.ref)
+
+  it('one reference joins the log line and the audit row (the write errors)', async () => {
+    outcomeUpsert.mockRejectedValueOnce(new Error('core down at 10.0.0.7'))
+    const { row } = await save({ outcome: { status: 'success' } })
+    const link = String(row.detail.outcome_link)
+    expect(link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(loggedRefs()).toEqual([link.slice('failed:'.length)])
+  })
+
+  it('one reference joins the log line and the audit row (the write THROWS)', async () => {
+    customersGet
+      .mockImplementationOnce(async (id: string) => ({ id, name: 'Y' }))
+      .mockImplementationOnce(() => { throw new Error('sync boom') })
+    const { row } = await save({ outcome: { status: 'revisit', isFirstVisit: false } })
+    const link = String(row.detail.outcome_link)
+    expect(link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(loggedRefs()).toEqual([link.slice('failed:'.length)])
+  })
 })
 
 // S7 (PR-O commit 4): the facade save links the ONE unambiguous booking of the
