@@ -656,3 +656,10 @@
   the same lease's release: overwritten as already expired (never deleted) on every way out of
   the call that took it, so only a holder that died leaves a live lease, and that one expires
   after 330 s. · RULING GIVEN — Liam, 2026-09-28 19:5x JST: 「I think both. Yes to both.」, as the entry above.
+- 2026-09-29 · SDK_WRITE_ALLOWLIST:src/lib/recording/transcript-memo.ts::storage.recordings.upload#recordTranscriptTrueUp · S57
+  (Greptile round 2 on #1086, finding 2, "Mark updates overwrite concurrent repairs"): the true-up's
+  recorded fact moves out of the memo into its own create-only object, trc/<audio>.<locale>.trueup.json —
+  numbers only (the delta in cents, a time), created ONCE by the call that just had the ledger take the
+  owed delta, never upserted, never deleted. The S56 2026-09-29 line (the memo's own `mark` upsert,
+  writeTranscriptMemo) is REMOVED by the same change: the memo is written once (create-only, or the
+  corrupt repair) and never rewritten for a mark · Opus 5.5 builder on PACKET-S57-ONE-PR.md (lead Fable 5.1)

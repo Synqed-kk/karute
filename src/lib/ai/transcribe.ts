@@ -34,13 +34,15 @@ import { audit } from '@/lib/audit'
 import { composeTranscriptKey } from '@/lib/recording/key-grammar'
 import {
   readTranscriptMemo,
+  readTranscriptTrueUp,
+  recordTranscriptTrueUp,
   releaseTranscriptLease,
   takeTranscriptLease,
   writeTranscriptMemo,
   type HeldTranscriptLease,
   type TranscriptLeaseTake,
   type TranscriptMemo,
-  type TranscriptTrueUp,
+  type TranscriptTrueUpOwed,
 } from '@/lib/recording/transcript-memo'
 import type { OrgSettings } from '@/actions/org-settings'
 
@@ -480,46 +482,21 @@ function auditTranscriptionRefused(meter: TranscriptionMeter, err: AppApiError):
   })
 }
 
-/** The word a lost true-up leaves on its mark — the reserve refusal's own
- *  reason word; the writer never hands back its error (ai-rate-limit.ts). */
-const TRUE_UP_NOT_RECORDED = 'ledger_unavailable'
-
-/** Rewrite a memo's true-up mark after the ledger answered: `recorded`, or
- *  still `pending` with the attempt counted. Best-effort — writeTranscriptMemo
- *  never throws, and a rewrite that cannot land leaves the mark `pending`
- *  (the next replay asks again: residual (a), the over-count direction). */
-async function moveTrueUpMark(
-  key: string,
-  memo: TranscriptMemo,
-  mark: TranscriptTrueUp,
-  recorded: boolean,
-): Promise<void> {
-  await writeTranscriptMemo(
-    key,
-    {
-      ...memo,
-      trueUp: {
-        ...mark,
-        status: recorded ? 'recorded' : 'pending',
-        attempts: mark.attempts + 1,
-        updatedAt: Date.now(),
-        ...(recorded ? {} : { lastError: TRUE_UP_NOT_RECORDED }),
-      },
-    },
-    { repair: false, mark: true },
-  )
-}
-
 /** What a replay's owed true-up came to (see finishOwedTrueUp). */
 type TrueUpSettled = { recorded: boolean; deferred?: TranscriptionDebitDeferred }
 
-/** A mark this code can act on: `pending` with a real, positive delta. */
-function readableOwedMark(mark: TranscriptTrueUp): boolean {
-  return mark.status === 'pending' && typeof mark.deltaCents === 'number' && Number.isFinite(mark.deltaCents) && mark.deltaCents > 0
+/** The delta a memo says its answer owes: null = nothing owed (no numbers —
+ *  no delta was owed, or a memo written after its true-up had run); a real,
+ *  positive number of cents; or 'unreadable'. */
+function owedDeltaCents(memo: TranscriptMemo): number | null | 'unreadable' {
+  const owed = memo.trueUp
+  if (owed === undefined) return null
+  const d = owed.deltaCents
+  return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : 'unreadable'
 }
 
-function unreadableMark(): TrueUpSettled {
-  console.error('[ai-usage] transcription true-up mark unreadable; the debt cannot be proven recorded')
+function unreadableTrueUp(): TrueUpSettled {
+  console.error('[ai-usage] transcription true-up unreadable; the debt cannot be proven recorded')
   return { recorded: false }
 }
 
@@ -529,15 +506,19 @@ function unreadableMark(): TrueUpSettled {
  * process died between the memo and the ledger) replayed forever while the
  * difference stayed unrecorded.
  *
- * - No mark, or `recorded` → true, and that is now the truth: the RESERVE was
- *   recorded before the provider ran (a refused reserve never pays, never
- *   writes a memo), and either no delta was owed (a mark is written only when
- *   one is) or it is recorded. No mark also covers every memo written before
- *   this change: `origin/main`'s meter (the only merged one) writes the
- *   memo AFTER the true-up has run to its end — landed, or written down as
- *   `debit_recorded: false` on that call's own receipt — so such a memo never
- *   has a true-up left for a replay to finish.
- * - `pending` → ⚖ S57, THE LEASE BEFORE THE LEDGER (Greptile round 2 on #1086,
+ * - No debt in the memo, or its true-up object exists → true, and that is now
+ *   the truth: the RESERVE was recorded before the provider ran (a refused
+ *   reserve never pays, never writes a memo), and either no delta was owed (the
+ *   memo carries a debt only when one is) or it is recorded — ⚖ S57, that
+ *   fact has ONE home, the create-only true-up object (transcript-memo.ts,
+ *   recordTranscriptTrueUp), never the memo (Greptile round 2 on #1086,
+ *   finding 2). No debt also covers every memo written before this change:
+ *   `origin/main`'s meter (the only merged one) writes the memo AFTER the
+ *   true-up has run to its end — landed, or written down as `debit_recorded:
+ *   false` on that call's own receipt — so such a memo never has a true-up left
+ *   for a replay to finish.
+ * - Owed (the memo names a debt, no true-up object answers for it) →
+ *   ⚖ S57, THE LEASE BEFORE THE LEDGER (Greptile round 2 on #1086,
  *   finding 1, thread PRRT_kwDOSCB5RM6mzfjr: "Concurrent retries double-charge
  *   true-ups"). The usage writer has no dedupe key, so a replay that recorded
  *   the delta while the paying call was still recording it charged it twice.
@@ -546,14 +527,15 @@ function unreadableMark(): TrueUpSettled {
  *   lease once — never waits: it already has the answer to give back — and:
  *   held → recordOwedTrueUp; busy → it never records, and says so
  *   (`lease_busy`: the holder records it); storage would not say → it never
- *   records (`storage_unknown`). The answer is returned either way, and the
- *   debt stays owed — the memo remains the retry trigger. This is the rule
- *   whatever the switch: an owed debt an ON deploy left is recorded under the
- *   lease on an OFF deploy too (the only way OFF ever touches the lease — no
- *   memo written before S56 carries a mark).
- * - A mark this code cannot read (not `pending`/`recorded`, or no positive
- *   delta) → false: the debt cannot be proven paid, and no number is invented
- *   to charge. One line, numbers never.
+ *   records (`storage_unknown`) — the same when the true-up object itself
+ *   cannot be read. The answer is returned either way, and the debt stays owed
+ *   — the memo remains the retry trigger. This is the rule whatever the switch:
+ *   an owed debt an ON deploy left is recorded under the lease on an OFF deploy
+ *   too (the only way OFF ever touches the lease — no memo written before S56
+ *   carries a debt).
+ * - A debt this code cannot read (no positive delta) → false: the debt cannot
+ *   be proven paid, and no number is invented to charge. One line, numbers
+ *   never.
  */
 async function finishOwedTrueUp(
   meter: TranscriptionMeter,
@@ -561,39 +543,40 @@ async function finishOwedTrueUp(
   memo: TranscriptMemo,
   takeLease: () => Promise<TranscriptLeaseTake>,
 ): Promise<TrueUpSettled> {
-  const mark = memo.trueUp
-  if (mark === undefined || mark.status === 'recorded') return { recorded: true }
-  if (!readableOwedMark(mark)) return unreadableMark()
+  const delta = owedDeltaCents(memo)
+  if (delta === null) return { recorded: true }
+  if (delta === 'unreadable') return unreadableTrueUp()
+  // A free read of the recorded fact first: a recorded debt needs no lease.
+  const seen = await readTranscriptTrueUp(key)
+  if (seen === 'recorded') return { recorded: true }
+  if (seen === 'unknown') return { recorded: false, deferred: 'storage_unknown' }
   const taken = await takeLease()
   if (taken.state === 'busy') return { recorded: false, deferred: 'lease_busy' }
   if (taken.state === 'unknown') return { recorded: false, deferred: 'storage_unknown' }
-  return recordOwedTrueUp(meter, key, taken.lease)
+  return recordOwedTrueUp(meter, key, delta, taken.lease)
 }
 
 /** ⚖ S57 — THE ONE PLACE A REPLAY RECORDS AN OWED TRUE-UP, and it cannot be
  *  called without the lease: `held` is the proof only takeTranscriptLease
  *  makes, checked again at run time against the memo's own key. Under the
- *  lease the memo is re-read first — the call that held the lease before this
- *  one may have finished the debt — and only a mark still `pending` is asked
- *  for. */
+ *  lease the recorded fact is read again first — the call that held the lease
+ *  before this one may have recorded it — and only a debt still owed is asked
+ *  for. Recorded → the true-up object is created (create-only, never
+ *  upserted); a `false` from the writer leaves the debt owed for the next
+ *  replay (the writer's own line says so). The memo itself is never written
+ *  here. */
 async function recordOwedTrueUp(
   meter: TranscriptionMeter,
   key: string,
+  deltaCents: number,
   held: HeldTranscriptLease,
 ): Promise<TrueUpSettled> {
   if (held.memoKey !== key) throw new Error('an owed true-up is recorded only under its own audio\'s lease')
-  const now = await readTranscriptMemo(key)
-  if (now.state !== 'hit') return { recorded: false, deferred: 'storage_unknown' }
-  const mark = now.memo.trueUp
-  if (mark === undefined || mark.status === 'recorded') return { recorded: true }
-  if (!readableOwedMark(mark)) return unreadableMark()
-  const recorded = await reportTranscriptionUsageWithClient(meter.synqed, mark.deltaCents)
-  await moveTrueUpMark(
-    key,
-    now.memo,
-    { ...mark, attempts: Number.isFinite(mark.attempts) ? mark.attempts : 0 },
-    recorded,
-  )
+  const now = await readTranscriptTrueUp(key)
+  if (now === 'recorded') return { recorded: true }
+  if (now === 'unknown') return { recorded: false, deferred: 'storage_unknown' }
+  const recorded = await reportTranscriptionUsageWithClient(meter.synqed, deltaCents)
+  if (recorded) await recordTranscriptTrueUp(key, deltaCents)
   return { recorded }
 }
 
@@ -871,26 +854,27 @@ async function meteredTranscription(
   // the estimate needs a second row; a shorter one leaves the over-reservation
   // standing (no refund call exists, and erring toward stopping early is the
   // ruling), so the debit is already recorded by definition. Computed HERE,
-  // from the provider's own length, so the memo below can carry the mark.
+  // from the provider's own length, so the memo below can carry the debt.
   const costCents = estimateTranscriptionCostCents(durationSec)
   const delta = costCents - reserveCents
   // OFF (RECORDING_SWITCHES.transcribePaidOnce) = the pre-S53 order: the memo
-  // after the true-up, below, and with no mark (it would have nothing to do:
+  // after the true-up, below, and with no debt (it would have nothing to do:
   // the true-up has already run to its end when that memo is written).
   const memoFirst = RECORDING_SWITCHES.transcribePaidOnce
   let writtenAt = ''
-  const memoOf = (trueUp?: TranscriptTrueUp): TranscriptMemo => ({
+  const memoOf = (trueUp?: TranscriptTrueUpOwed): TranscriptMemo => ({
     v: 1,
     result,
     duration_seconds: durationSeconds,
     written_at: writtenAt,
     ...(trueUp ? { trueUp } : {}),
   })
-  /** true only when THIS call's write created the object — then, and only
-   *  then, this call owns the mark it wrote and may move it on. A yield to
-   *  another caller's repair, a duplicate refusal (another caller's copy
-   *  stands) or a storage error is not ours to rewrite. */
-  const remember = async (trueUp?: TranscriptTrueUp): Promise<boolean> => {
+  /** true only when THIS call's write created (or repaired) the object —
+   *  then, and only then, the debt the memo names is this call's own, and this
+   *  call may write down that it was recorded. A yield to another caller's
+   *  repair, a duplicate refusal (another caller's copy stands, with ITS debt)
+   *  or a storage error is not ours to answer for. */
+  const remember = async (trueUp?: TranscriptTrueUpOwed): Promise<boolean> => {
     if (memoKey === null) return false
     const again = memoRead?.state === 'corrupt' ? await readTranscriptMemo(memoKey) : null
     if (again?.state === 'hit') return false
@@ -900,20 +884,12 @@ async function meteredTranscription(
     })
     return landed === 'written'
   }
-  // The mark, when a true-up is owed: written `pending` WITH the memo, before
-  // the ledger is asked, so no moment exists in which the memo replays and the
-  // debt is not written down beside it.
-  const owed: TranscriptTrueUp | undefined =
-    delta > 0
-      ? {
-          status: 'pending',
-          reserveCents,
-          costCents,
-          deltaCents: delta,
-          attempts: 0,
-          updatedAt: Date.now(),
-        }
-      : undefined
+  // The debt, when a true-up is owed: written WITH the memo, before the ledger
+  // is asked, so no moment exists in which the memo replays and the debt is not
+  // written down beside it. Written once — the memo is never rewritten for it
+  // (S57): whether it is recorded is the true-up object's to say.
+  const owed: TranscriptTrueUpOwed | undefined =
+    delta > 0 ? { reserveCents, costCents, deltaCents: delta } : undefined
 
   // The provider answered, so the money is spent whether or not the true-up
   // lands — remember the answer so this audio is never paid for again.
@@ -934,23 +910,26 @@ async function meteredTranscription(
   // audio in the same language, and the caller still gets it), anything else
   // repairs; an upsert onto nothing simply creates. Whatever lands between the
   // re-check and the upsert is another PAID answer, never garbage.
-  const ownsMark = memoFirst ? await remember(owed) : false
+  const ownsDebt = memoFirst ? await remember(owed) : false
 
   // ── THE TRUE-UP ───────────────────────────────────────────────────────────
-  // ⚖ AND THE MARK MOVES ONLY ON THE LEDGER'S ANSWER (S56, Finding 1). The
-  // usage writer has NO dedupe (ai-rate-limit.ts: every recordUsage call is a
-  // fresh row; the SDK takes no idempotency key), so "charged once" comes
-  // from the mark alone: asked while `pending`, rewritten `recorded` only
-  // after the ledger took it; a `false` leaves it `pending` with the attempt
-  // counted, and the next replay asks again.
+  // ⚖ AND "RECORDED" IS WRITTEN DOWN ONLY ON THE LEDGER'S ANSWER (S56, Finding
+  // 1; its home since S57 — Greptile round 2 on #1086, finding 2 — is the
+  // create-only true-up object, never the memo). The usage writer has NO dedupe
+  // (ai-rate-limit.ts: every recordUsage call is a fresh row; the SDK takes no
+  // idempotency key), so "charged once" comes from that object alone: created
+  // only after the ledger took the delta, by the call whose memo names the
+  // debt; a `false` creates nothing, the debt stays owed, and the next replay
+  // (under the lease) asks again.
   // TWO RESIDUALS, NAMED — allowed by the code, never hidden:
   //  (a) a process that dies AFTER the ledger took the delta and BEFORE the
-  //      rewrite below leaves the mark `pending`, and the next replay records
-  //      the delta ONE extra time (an over-count, the safe direction). Narrow;
-  //      closable only by an idempotency key on the usage writer — a core ask.
-  //      A memo write whose outcome storage would not tell us ('failed') is the
-  //      same class: if it did land, its `pending` mark is never moved on here.
-  //  (b) a replay that reads `pending` while THIS call is still recording its
+  //      true-up object is created leaves the debt owed, and the next replay
+  //      records the delta ONE extra time (an over-count, the safe direction).
+  //      Narrow; closable only by an idempotency key on the usage writer — a
+  //      core ask. A memo write whose outcome storage would not tell us
+  //      ('failed'), and a true-up object that would not land, are the same
+  //      class: if the memo did land, its debt is never answered for here.
+  //  (b) a replay that finds the debt owed while THIS call is still recording its
   //      delta used to record it too (Greptile round 2 on #1086, finding 1).
   //      Closed by the lease since S57: a replay records an owed delta only
   //      while it holds the lease (finishOwedTrueUp), and this call holds it
@@ -962,9 +941,7 @@ async function meteredTranscription(
   let debitRecorded = true
   if (delta > 0) {
     debitRecorded = await reportTranscriptionUsageWithClient(meter.synqed, delta)
-    if (ownsMark && memoKey !== null && owed) {
-      await moveTrueUpMark(memoKey, memoOf(owed), owed, debitRecorded)
-    }
+    if (debitRecorded && ownsDebt && memoKey !== null) await recordTranscriptTrueUp(memoKey, delta)
   }
   const receipt: TranscriptionReceipt = {
     duration_seconds: durationSeconds,

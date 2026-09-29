@@ -18,29 +18,28 @@ export type TranscriptMemo = {
   duration_seconds: number
   written_at: string
   /** Present only when the paid answer ran LONGER than the reserve, i.e. a
-   *  true-up was owed (see TranscriptTrueUp). Absent = nothing owed, or a memo
-   *  written after its true-up had already run (every memo before S56). */
-  trueUp?: TranscriptTrueUp
+   *  true-up was owed (see TranscriptTrueUpOwed). Absent = nothing owed, or a
+   *  memo written after its true-up had already run (every memo before S56). */
+  trueUp?: TranscriptTrueUpOwed
 }
 
-/** ⚖ THE TRUE-UP MARK (S56, PR 1 Greptile Finding 1). The meter writes the memo
- *  BEFORE the ledger true-up (S53 A3), so a process that dies between the two
- *  used to leave a memo that replays forever while the difference between the
- *  reserve and the real cost was never recorded. The memo now says so itself:
- *  written `pending` with the numbers BEFORE the true-up, rewritten `recorded`
- *  only after the ledger took it. A replay that finds `pending` records the
- *  delta then (runMeteredTranscription). Soft and self-retrying: a failed
- *  attempt stays `pending` with one more attempt counted — never cleared, never
- *  deleted. Numbers only (cents, counts, a time) — never a word of the
- *  transcript, never a key. */
-export type TranscriptTrueUp = {
-  status: 'pending' | 'recorded'
+/** ⚖ WHAT THE ANSWER OWES THE LEDGER (S56, PR 1 Greptile Finding 1; S57). The
+ *  meter writes the memo BEFORE the ledger true-up (S53 A3), so a process that
+ *  dies between the two used to leave a memo that replays forever while the
+ *  difference between the reserve and the real cost was never recorded. The
+ *  memo now carries the debt's numbers, written ONCE with the answer, before
+ *  the ledger is asked — and never rewritten (S57, Greptile round 2 on #1086,
+ *  finding 2: a rewrite of the whole memo could revert another call's repair
+ *  or flip "recorded" back). Whether the debt is RECORDED is not the memo's to
+ *  say: that fact has ONE home, the create-only true-up object beside it
+ *  (transcriptTrueUpKey / recordTranscriptTrueUp below). A debt the memo names
+ *  and no true-up object answers for is owed — the retry trigger, soft and
+ *  self-retrying: nothing cleared, nothing deleted. Numbers only — never a
+ *  word of the transcript, never a key. */
+export type TranscriptTrueUpOwed = {
   reserveCents: number
   costCents: number
   deltaCents: number
-  attempts: number
-  lastError?: string
-  updatedAt: number
 }
 
 /** What a write did: `written` = this object is now ours; `taken` = the
@@ -112,22 +111,22 @@ export async function readTranscriptMemo(key: string): Promise<TranscriptMemoRea
  * create-only, and a duplicate refusal is two doors that paid in the same
  * moment: the first copy stands, and that is silent.
  *
- * `mark` (S56) is the one other replacing write: the SAME memo rewritten with
- * its true-up mark moved on (recorded, or one more attempt) — by the caller
- * that wrote it `pending` a moment before, or by a replay that read it
- * `pending`. The result, duration and written_at ride along unchanged.
+ * Those are the only two writes a memo ever sees. ⚖ S57: it is NEVER rewritten
+ * for its true-up (the S56 `mark` upsert is gone — Greptile round 2 on #1086,
+ * finding 2): the debt's numbers are written once, with the answer, and the
+ * recorded fact lives in its own create-only object (recordTranscriptTrueUp).
  */
 export async function writeTranscriptMemo(
   key: string,
   memo: TranscriptMemo,
-  opts: { repair: boolean; mark?: boolean },
+  opts: { repair: boolean },
 ): Promise<TranscriptMemoWrite> {
   try {
     const { error } = await createServiceClient()
       .storage.from('recordings')
       .upload(key, JSON.stringify(memo), {
         contentType: 'application/json',
-        upsert: opts.repair || opts.mark === true,
+        upsert: opts.repair,
       })
     if (!error) return 'written'
     if (isDuplicateRefusal(error)) return 'taken'
@@ -135,6 +134,76 @@ export async function writeTranscriptMemo(
     return 'failed'
   } catch (err) {
     warnStorageUnknown('transcript-memo.write', err)
+    return 'failed'
+  }
+}
+
+// ⚖ S57 — THE TRUE-UP'S RECORDED FACT: ONE HOME, CREATE-ONLY (Greptile round 2
+// on #1086, finding 2, thread PRRT_kwDOSCB5RM6mzfjy: "Mark updates overwrite
+// concurrent repairs"). Until S57 the memo itself was rewritten (a whole-object
+// upsert) to move its mark to `recorded`, so one call's rewrite could replace
+// another call's valid repair, or flip `recorded` back to `pending` and let a
+// later replay charge the delta again. Not every memo write is made under the
+// lease — a caller that pays when storage will not answer about the lease, a
+// caller that pays regardless (a colleague's key), and two callers taking one
+// expired lease over at once all write without holding it alone — so the lease
+// could not make that rewrite safe. The fact now lives BESIDE the memo in its
+// own object, `trc/<audio>.<locale>.trueup.json`: created ONCE, create-only,
+// by the call that just had the ledger take the owed delta, and never upserted,
+// never deleted. Once it exists the debt is recorded, and nothing can un-record
+// it. Numbers only (the delta in cents and when it was recorded) — never a word
+// of the transcript, never a key.
+
+type TranscriptTrueUpRecord = { v: 1; deltaCents: number; recorded_at: string }
+
+/** The true-up object's key: the memo's own, one suffix further —
+ *  `trc/<audio>.<locale>.trueup.json`. Like the lease's, it parses as no key
+ *  kind at all (the grammar's transcript arm needs the locale last). */
+export function transcriptTrueUpKey(memoKey: string): string {
+  return memoKey.replace(/\.json$/, '.trueup.json')
+}
+
+/** Is this audio's owed true-up recorded? `recorded` = the object exists (its
+ *  existence IS the fact); `absent` = storage says there is none; `unknown` =
+ *  storage would not say (warned once) — the caller never records on that.
+ *  Never throws. */
+export async function readTranscriptTrueUp(memoKey: string): Promise<'recorded' | 'absent' | 'unknown'> {
+  try {
+    const { data, error } = await createServiceClient().storage.from('recordings').download(transcriptTrueUpKey(memoKey))
+    if (!error && data) return 'recorded'
+    if (error && isStorageNotFound(error)) return 'absent'
+    warnStorageUnknown('transcript-trueup.read', error ?? null)
+    return 'unknown'
+  } catch (err) {
+    warnStorageUnknown('transcript-trueup.read', err)
+    return 'unknown'
+  }
+}
+
+/** Write down that the ledger took this audio's owed true-up — create-only,
+ *  never upserted. `taken` = it was already recorded (another call recorded a
+ *  true-up for this audio too — possible only where the lease fell open; one
+ *  line says so); `failed` = storage would not take it (warned): the debt then
+ *  still reads as owed, and a later replay under the lease records it once
+ *  more — an over-count, the safe direction. Never throws. */
+export async function recordTranscriptTrueUp(memoKey: string, deltaCents: number): Promise<TranscriptMemoWrite> {
+  const record: TranscriptTrueUpRecord = { v: 1, deltaCents, recorded_at: new Date().toISOString() }
+  try {
+    const { error } = await createServiceClient()
+      .storage.from('recordings')
+      .upload(transcriptTrueUpKey(memoKey), JSON.stringify(record), {
+        contentType: 'application/json',
+        upsert: false,
+      })
+    if (!error) return 'written'
+    if (isDuplicateRefusal(error)) {
+      console.warn('[ai-usage] a transcription true-up was already recorded for this audio (a second recorder: the lease fell open)')
+      return 'taken'
+    }
+    warnStorageUnknown('transcript-trueup.write', error)
+    return 'failed'
+  } catch (err) {
+    warnStorageUnknown('transcript-trueup.write', err)
     return 'failed'
   }
 }
