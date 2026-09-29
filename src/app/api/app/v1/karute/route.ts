@@ -22,7 +22,7 @@ import { SaveKaruteSchema } from '@/lib/app-api/record-schemas'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { createOrUpdateKaruteRecord } from '@/lib/karute/karute.core'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
-import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
+import { writeOutcomeFate, outcomeReply, type OutcomeLink } from '@/lib/karute/outcome-fate'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { readAppointmentForSave, type AppointmentLinkReason, type AppointmentRead } from '@/lib/karute/appointment-link'
 import type { SynqedClient, Appointment } from '@synqed-kk/client'
@@ -169,6 +169,13 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
     clamp,
   )
 
+  // S2/S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): the coaching label is
+  // written INSIDE the save, after the record and before its one karute.save
+  // row (deferred emit), by the fate function the worker shares. It never
+  // throws — the karute is already durable, so a label problem never turns a
+  // persisted save into a failure response (Greptile #689 r2); it becomes the
+  // fate the row and this reply carry instead.
+  let outcomeLink: OutcomeLink = 'skipped:not_sent'
   const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(
     synqed as unknown as SynqedClient,
     {
@@ -195,32 +202,20 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
     input.entriesMode,
     lockScope,
     linkReason,
-  )
-
-  // Best-effort outcome (the coaching label) — never gate the save on it.
-  if (input.outcome) {
-    const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
-      karuteRecordId: id,
-      customerId: input.customerId,
-      status: input.outcome.status,
-      reason: input.outcome.reason ?? null,
-      isFirstVisit: input.outcome.isFirstVisit,
-      decidedBy: staffId,
-      // Post-persist: the karute is already durable above.
-      onUnverifiable: 'write',
-    })
-    // The karute is ALREADY PERSISTED above, so a label problem must never
-    // turn into a failure response for a save that durably succeeded. Same
-    // shape as the worker: keep the record, drop the label, warn. Pre-validating
-    // instead would be worse — a transient fail-closed guard read would 400 a
-    // legitimate save. Every OTHER outcome-write error stays ignored exactly as
-    // it was before this PR (best-effort, never gates the save).
-    if (outcomeResult.error === REVISIT_NOT_ELIGIBLE) {
-      console.warn('[karute.save] revisit rejected server-side; record kept, label dropped', {
-        karuteRecordId: id,
+    async (saved) => {
+      const fate = await writeOutcomeFate(synqed as unknown as SynqedClient, {
+        karuteRecordId: saved.id,
+        customerId: input.customerId,
+        staffId,
+        fresh: saved.fresh,
+        outcome: input.outcome ?? null,
+        outcomeMissing: input.outcomeMissing ?? null,
+        logTag: '[karute.save]',
       })
-    }
-  }
+      outcomeLink = fate.link
+      return fate.link
+    },
+  )
 
   // Best-effort memory ingest — identity-threaded gate (businessId); fresh saves
   // or edited-transcript retries only. Never throws.
@@ -234,7 +229,9 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
     })
   }
 
-  return ok(ctx, { id })
+  // S2: the save answers with the answer's fate and the booking link's
+  // (additive — an older client reads `id` and ignores the rest).
+  return ok(ctx, { id, outcome: outcomeReply(outcomeLink), appointment_link: linkReason })
 })
 
 export const OPTIONS = POST // facadeHandler short-circuits OPTIONS before auth.

@@ -519,10 +519,12 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
     jest.mocked(resolveStoreForRequest).mockResolvedValueOnce({ storeId: 'store-ginza', allowedStoreIds: ['store-ginza'] })
   const notFound = () => Object.assign(new Error('no such appointment'), { status: 404 })
   const blip = () => Object.assign(new Error('upstream'), { status: 503 })
-  const saveWith = async (appointmentId: string) => {
+  type SaveReply = { outcome: { written: boolean; reason?: string }; appointment_link: string | null }
+  const saveWith = async (appointmentId: string, reply: SaveReply) => {
     const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId }), noRoute)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ id: 'kar-new' })
+    // S2 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O1): the save now answers with the answer's and the booking's fate — still an exact pin.
+    expect(await res.json()).toEqual({ id: 'kar-new', ...reply })
     expect(audit).toHaveBeenCalledTimes(1)
     return audit.mock.calls[0][0] as { action: string; severity?: string; detail: Record<string, unknown> }
   }
@@ -530,7 +532,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
   it('booking in scope → the booking\'s store, link and menu kept, a normal audit row', async () => {
     ginzaClamp()
     fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 'VIP施術' })
-    const row = await saveWith('ap-g')
+    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: 'VIP施術' }))
     expect(row.severity).toBeUndefined()
     expect(row.detail).toHaveProperty('appointment_link', null)
@@ -539,7 +541,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
   it('booking not found → 200, saved in the caller\'s store, link dropped, one read, notice row', async () => {
     ginzaClamp()
     fakeClient.appointments.get.mockRejectedValueOnce(notFound())
-    const row = await saveWith('ap-gone')
+    const row = await saveWith('ap-gone', { outcome: { written: false, reason: 'not_sent' }, appointment_link: 'appointment_not_found' })
     expect(fakeClient.appointments.get).toHaveBeenCalledTimes(1)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }))
     expect(row).toMatchObject({ action: 'karute.save', severity: 'notice', detail: { appointment_link: 'appointment_not_found' } })
@@ -548,7 +550,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
   it('booking in another store → 200 (no refusal), saved in the caller\'s store, link and menu dropped, notice row', async () => {
     ginzaClamp()
     fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-daikanyama', title: '代官山の施術' })
-    const row = await saveWith('ap-x')
+    const row = await saveWith('ap-x', { outcome: { written: false, reason: 'not_sent' }, appointment_link: 'appointment_out_of_scope' })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: null, service: null }))
     expect(row).toMatchObject({ severity: 'notice', detail: { appointment_link: 'appointment_out_of_scope' } })
   })
@@ -558,7 +560,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
     fakeClient.appointments.get
       .mockRejectedValueOnce(blip())
       .mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 'VIP施術' })
-    const row = await saveWith('ap-g')
+    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
     expect(fakeClient.appointments.get).toHaveBeenCalledTimes(2)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: 'VIP施術' }))
     expect(row.severity).toBeUndefined()
@@ -568,7 +570,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
   it('booking unreadable twice → 200, saved in the caller\'s store, link KEPT, no menu, notice row', async () => {
     ginzaClamp()
     fakeClient.appointments.get.mockRejectedValueOnce(blip()).mockRejectedValueOnce(blip())
-    const row = await saveWith('ap-g')
+    const row = await saveWith('ap-g', { outcome: { written: false, reason: 'not_sent' }, appointment_link: 'appointment_unreadable' })
     expect(fakeClient.appointments.get).toHaveBeenCalledTimes(2)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-ginza', appointment_id: 'ap-g', service: null }))
     expect(row).toMatchObject({ severity: 'notice', detail: { appointment_link: 'appointment_unreadable' } })
@@ -577,7 +579,7 @@ describe('POST /api/app/v1/karute (save) — a booking that cannot be used never
     // Pins the `apptStore &&` guard on the facade door (web twin in karute-store-stamp.test.ts).
     ginzaClamp()
     fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: null, title: 'ストア無し施術' })
-    const row = await saveWith('ap-n')
+    const row = await saveWith('ap-n', { outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: null, appointment_id: 'ap-n', service: 'ストア無し施術' }))
     expect(row.severity).toBeUndefined()
     expect(row.detail).toHaveProperty('appointment_link', null)
@@ -700,5 +702,87 @@ describe('POST /api/app/v1/karute (save) — S4 the converge never clears a book
   it('S4-facade: a re-point to another customer with no booking moves both — the old booking never rides along (E-1)', async () => {
     const sent = await converge({ customer_id: 'cust-OTHER', appointment_id: 'appt-first' })
     expect(sent).toMatchObject({ customer_id: 'cust-1', appointment_id: null })
+  })
+})
+
+// S2 + S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): the save answers with the
+// answer's fate, and the ONE karute.save row carries it as outcome_link — the
+// outcome write runs first (deferred emit), so the row is emitted exactly once
+// and still emitted when the write fails.
+describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the answer\'s fate', () => {
+  let warn: jest.SpyInstance
+  let error: jest.SpyInstance
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    error = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warn.mockRestore()
+    error.mockRestore()
+  })
+  const save = async (body: Record<string, unknown> = {}) => {
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, ...body }), noRoute)
+    expect(res.status).toBe(200)
+    const saveRows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(saveRows).toHaveLength(1)
+    return { reply: await res.json(), row: saveRows[0][0] as { detail: Record<string, unknown> } }
+  }
+
+  it('S2/S5-facade written: the answer lands, THEN the one row says written', async () => {
+    const { reply, row } = await save({ outcome: { status: 'success' } })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: true }, appointment_link: null })
+    expect(row.detail.outcome_link).toBe('written')
+    expect(outcomeUpsert.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
+  })
+
+  it('S2/S5-facade kept: a converge with no answer keeps the answer already on record', async () => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old' }
+    outcomeGet.mockResolvedValueOnce({ outcome: 'success' })
+    const { reply, row } = await save({ recordingSessionId: 'rec-1' })
+    expect(reply).toEqual({ id: 'kar-existing', outcome: { written: false, reason: 'kept' }, appointment_link: null })
+    expect(row.detail.outcome_link).toBe('kept')
+    expect(outcomeUpsert).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-facade skipped:not_sent: an old client sends no answer and no reason', async () => {
+    const { reply, row } = await save()
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'not_sent' }, appointment_link: null })
+    expect(row.detail.outcome_link).toBe('skipped:not_sent')
+    expect(outcomeGet).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-facade skipped:<client reason>: the client says why no answer rides the save', async () => {
+    const { reply, row } = await save({ outcomeMissing: 'never_asked' })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'never_asked' }, appointment_link: null })
+    expect(row.detail.outcome_link).toBe('skipped:never_asked')
+  })
+
+  it('S2/S5-facade skipped:not_returning: the revisit guard refuses 既存のお客様 — saved, the refusal is said', async () => {
+    const { reply, row } = await save({ outcome: { status: 'revisit', isFirstVisit: false } })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'not_returning' }, appointment_link: null })
+    expect(row.detail.outcome_link).toBe('skipped:not_returning')
+    expect(outcomeUpsert).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-facade failed (the write errors): saved, one row with failed:<ref>, never the technical cause', async () => {
+    outcomeUpsert.mockRejectedValueOnce(new Error('core down at 10.0.0.7'))
+    const { reply, row } = await save({ outcome: { status: 'success' } })
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'write_failed' }, appointment_link: null })
+    expect(row.detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(JSON.stringify(reply)).not.toContain('core down')
+  })
+
+  it('S2/S5-facade failed (the write THROWS): the row is still emitted exactly once, the save still answers 200', async () => {
+    // A real throw out of setKaruteOutcomeWithClient: the revisit guard's
+    // customer read throws SYNCHRONOUSLY (the route's own tenancy read, the
+    // first customers.get call, stays healthy).
+    customersGet
+      .mockImplementationOnce(async (id: string) => ({ id, name: 'Y' }))
+      .mockImplementationOnce(() => { throw new Error('sync boom') })
+    const { reply, row } = await save({ outcome: { status: 'revisit', isFirstVisit: false } })
+    expect(customersGet).toHaveBeenCalledTimes(2)
+    expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'write_failed' }, appointment_link: null })
+    expect(row.detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(outcomeUpsert).not.toHaveBeenCalled()
   })
 })

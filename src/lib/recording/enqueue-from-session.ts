@@ -38,6 +38,7 @@ import { isReturningCustomerServerSide } from '@/lib/karute/revisit-guard'
 import type { FinalizeTakeActor } from '@/lib/recording/finalize-take'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
 
 type Core = Pick<
   SynqedClient,
@@ -70,6 +71,8 @@ export interface EnqueueFromSessionInput {
   appointmentId?: string | null
   locale?: string
   outcome?: SessionOutcome
+  /** S2 (PR-O): why no outcome rides this job — the karute.save row's reason. */
+  outcomeMissing?: OutcomeMissingReason | null
 }
 
 export type EnqueueFromSessionResult =
@@ -239,6 +242,7 @@ export async function enqueueFromSessionWithClient(
     locale: input.locale ?? 'ja',
     duration_seconds: row.duration_seconds ?? undefined,
     outcome: input.outcome,
+    outcome_missing: input.outcomeMissing ?? undefined,
   }
 
   try {

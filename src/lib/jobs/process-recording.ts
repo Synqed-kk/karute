@@ -48,6 +48,8 @@ import {
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { keepLinkUnlessGiven } from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
+import { writeOutcomeFate } from '@/lib/karute/outcome-fate'
 
 /** The enqueue payload contract (client → core job row → this worker). */
 export interface RecordingJobPayload {
@@ -68,6 +70,9 @@ export interface RecordingJobPayload {
    *  silently lost label has no retry path of its own, and failing the whole
    *  job is what gets one. Absent = no outcome to write. */
   outcome?: SessionOutcome
+  /** S2 (PR-O): the client's reason for sending NO outcome — recorded as the
+   *  karute.save row's `outcome_link: skipped:<reason>`. Absent = not_sent. */
+  outcome_missing?: OutcomeMissingReason
 }
 
 function coreClient(businessId: string): SynqedClient {
@@ -490,7 +495,7 @@ async function processJob(job: RecordingJob): Promise<string> {
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the
   // same record instead of duplicating it.
-  const { id: record, storeId: persistedStoreId } = await upsertKaruteRecord(synqed, job, payload, {
+  const { id: record, storeId: persistedStoreId, fresh } = await upsertKaruteRecord(synqed, job, payload, {
     transcript,
     summary: summary.result.summary,
     entries: extraction.result.entries,
@@ -503,13 +508,29 @@ async function processJob(job: RecordingJob): Promise<string> {
   // actorId's contract is the auth uid, so translate via the roster. An
   // unwired recorder degrades to null (viewer renders 不明) — never emit the
   // wrong id-space; the synqed id stays in detail for forensics.
-  // ⚖ FIX ROUND 1 (packet B, 2026-09-19): this sits directly after the
-  // upsert and AHEAD OF the outcome label below, not after it — a label
-  // write that throws requeues the job into the existing-karute skip path
-  // above, which by design emits no save row, so this row must already be
-  // down before that throw can happen. Cannot double-log: once the record
+  // ⚖ FIX ROUND 1 (packet B, 2026-09-19): this row must be down BEFORE a
+  // failed label write fails the job — a requeue lands in the existing-karute
+  // skip path above, which by design emits no save row. (Since PR-O the label
+  // is written first but a failure no longer throws until after this row.) Cannot double-log: once the record
   // exists, a requeue of this same job never reaches this line again (the
   // pre-spend check returns from the skip path first).
+  //
+  // S2/S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): DEFERRED EMIT. The
+  // coaching label (packet 22 B4) is written FIRST, by the ONE fate function
+  // the facade save shares (writeOutcomeFate, never throws), so this row can
+  // carry `outcome_link: <fate>`. The fix-round-1 guarantee above still holds:
+  // a label write that fails becomes the fate `failed:<ref>`, the row below is
+  // emitted, and only THEN does the job fail (the rethrow after it) so core's
+  // requeue converges on the SAME record through the skip path.
+  const fate = await writeOutcomeFate(synqed, {
+    karuteRecordId: record,
+    customerId: payload.customer_id,
+    staffId: payload.staff_id,
+    fresh,
+    outcome: payload.outcome,
+    outcomeMissing: payload.outcome_missing,
+    logTag: '[job]',
+  })
   const actorUserId = await resolveActorUserId(synqed, payload.staff_id)
   audit({
     category: 'karute',
@@ -532,6 +553,9 @@ async function processJob(job: RecordingJob): Promise<string> {
       // PR B2 §3: the thread page's join key — the payload carries it
       // straight from the enqueue door.
       appointment_id: payload.appointment_id ?? null,
+      // S5: what became of the staff's answer (written · kept · skipped:… ·
+      // failed:<ref>) — a short reference, never the technical cause.
+      outcome_link: fate.link,
     },
     // PR-M5 piece ④: job/system paths use the job id as requestId (no HTTP
     // request scope exists here — the job id is the correlating identifier).
@@ -539,14 +563,10 @@ async function processJob(job: RecordingJob): Promise<string> {
     source: 'system',
   })
 
-  // Coaching label (packet 22 B4) — same idempotent upsert the interactive
-  // save uses (writeSessionOutcome, packet B 2026-09-19 — shared with the
-  // existing-karute skip path above). UNLIKE the interactive call site, a
-  // write failure here THROWS: failing the whole job lets core's requeue
-  // converge on the SAME record (the upsert above is idempotent too, and PR4
-  // leaves the audio in place for that re-run).
-  if (payload.outcome) {
-    await writeSessionOutcome(synqed, record, payload.staff_id, payload.customer_id, payload.outcome)
+  // A failed label write fails the job AFTER its row is down (as before: the
+  // same error writeSessionOutcome threw), so core requeues it.
+  if (fate.link.startsWith('failed:')) {
+    throw fate.cause instanceof Error ? fate.cause : new Error(`outcome write failed: ${String(fate.cause)}`)
   }
 
   // 5. ⚖ THE AUDIO STAYS (capture pipeline PR4). A completed job used to delete
@@ -570,7 +590,7 @@ async function upsertKaruteRecord(
   job: RecordingJob,
   payload: RecordingJobPayload,
   result: { transcript: string; summary: string; entries: ExtractedEntry[] },
-): Promise<{ id: string; storeId: string | null }> {
+): Promise<{ id: string; storeId: string | null; fresh: boolean }> {
   const entries = result.entries.map((e) => ({
     category: e.category.toUpperCase() as
       | 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE'
@@ -636,7 +656,7 @@ async function upsertKaruteRecord(
     // CEILING (mirrors lib/karute/karute.core.ts fix round 2): store_id does NOT move
     // with this update, so the persisted store is still the EXISTING record's
     // — already in hand from the lookup, no second read.
-    return { id: existing.id, storeId: existing.store_id }
+    return { id: existing.id, storeId: existing.store_id, fresh: false }
   }
   // 施術メニュー from the linked booking — best-effort: a missing/deleted
   // booking just leaves service null and the カルテ list shows its honest '—'.
@@ -656,7 +676,7 @@ async function upsertKaruteRecord(
     duration_minutes: durationMinutesFromSeconds(payload.duration_seconds),
     entries,
   })
-  return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null }
+  return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null, fresh: true }
 }
 
 /** 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-

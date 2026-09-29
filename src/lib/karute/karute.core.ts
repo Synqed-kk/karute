@@ -41,6 +41,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
 import { keepLinkUnlessGiven, type AppointmentLinkReason } from '@/lib/karute/appointment-link'
+import type { OutcomeLink } from '@/lib/karute/outcome-fate'
 
 /**
  * Create the karute record — or, if this recording session was ALREADY saved,
@@ -98,8 +99,14 @@ export async function createOrUpdateKaruteRecord(
    *  notice + detail.appointment_link. Null = a normal save; every other
    *  caller takes the default. */
   linkReason: AppointmentLinkReason | null = null,
+  /** S2/S5 (PR-O, RULING-S67-PRO-STOP1 R-O2) — DEFERRED EMIT: the facade save
+   *  hands its outcome write here (writeOutcomeFate, never throws); it runs
+   *  AFTER the record write and BEFORE the one karute.save row, which then
+   *  carries `outcome_link: <fate>`. Omitted (the web doors) = no key. */
+  outcomeFate?: (saved: { id: string; fresh: boolean }) => Promise<OutcomeLink>,
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
-  const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
+  const emitSave = async (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
+    const outcomeLink = outcomeFate ? await outcomeFate({ id: result.id, fresh: result.fresh }) : undefined
     audit({
       category: 'karute',
       action: 'karute.save',
@@ -129,6 +136,8 @@ export async function createOrUpdateKaruteRecord(
         // Why the booking link degraded (not found / out of scope /
         // unreadable) — null on a normal save, never undefined.
         appointment_link: linkReason,
+        // S5: the answer's fate, beside the booking's (facade + worker only).
+        ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),
       },
       requestId: actor.requestId,
       source: actor.source,
@@ -210,7 +219,7 @@ export async function createOrUpdateKaruteRecord(
         appointment_id: keepLinkUnlessGiven(existing, payload),
         ...(omitEntries ? {} : { entries: payload.entries }),
       })
-      return emitSave({
+      return await emitSave({
         id: existing.id,
         fresh: false,
         // The retry EDITED the transcript → there's genuinely new material
@@ -224,7 +233,7 @@ export async function createOrUpdateKaruteRecord(
     }
   }
   const record = await synqed.karuteRecords.create(payload)
-  return emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
+  return await emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
 }
 
 /**

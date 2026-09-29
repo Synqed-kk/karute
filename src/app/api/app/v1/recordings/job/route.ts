@@ -159,6 +159,7 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     locale: parsed.data.locale ?? 'ja',
     duration_seconds: parsed.data.durationSeconds,
     outcome: parsed.data.outcome ?? undefined,
+    outcome_missing: parsed.data.outcomeMissing ?? undefined,
   }
 
   try {

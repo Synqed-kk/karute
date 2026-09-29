@@ -532,3 +532,81 @@ describe('S4 — the worker converge never clears a booking link', () => {
     expect(sent).toMatchObject({ appointment_id: 'appt-new' })
   })
 })
+
+// S2 + S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): the worker writes the
+// answer FIRST (the fate function it shares with the facade save), then emits
+// its ONE karute.save row carrying outcome_link; a failed write still gets its
+// row, and only then fails the job so core requeues it (fix round 1 kept).
+describe('S2/S5 — the worker\'s karute.save row carries the answer\'s fate', () => {
+  let warn: jest.SpyInstance
+  let error: jest.SpyInstance
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    error = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warn.mockRestore()
+    error.mockRestore()
+  })
+  const run = async (payload: Record<string, unknown>) => {
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, ...payload } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+
+  it('S2/S5-job written: the label lands before the row, the row says written', async () => {
+    const detail = await run({ outcome: { status: 'success' } })
+    expect(detail.outcome_link).toBe('written')
+    expect(setKaruteOutcomeWithClient.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
+    expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+  })
+
+  it('S2/S5-job kept: a mid-run converge with no label keeps the label already on record', async () => {
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({ id: 'record-existing', store_id: null, customer_id: 'cust-1' } as never)
+    karuteOutcomesGet.mockResolvedValueOnce({ outcome: 'success' } as never)
+    const detail = await run({})
+    expect(detail.outcome_link).toBe('kept')
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-job skipped:not_sent: an old client queued no label and no reason', async () => {
+    const detail = await run({})
+    expect(detail.outcome_link).toBe('skipped:not_sent')
+  })
+
+  it('S2/S5-job skipped:<client reason>: the job payload says why no label rides it', async () => {
+    const detail = await run({ outcome_missing: 'unanswered_recovery' })
+    expect(detail.outcome_link).toBe('skipped:unanswered_recovery')
+  })
+
+  it('S2/S5-job skipped:not_returning: the guard refuses the revisit label — record kept, job completes', async () => {
+    setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'revisit_not_eligible' })
+    const detail = await run({ outcome: { status: 'revisit' } })
+    expect(detail.outcome_link).toBe('skipped:not_returning')
+    expect(complete).toHaveBeenCalled()
+    expect(fail).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-job failed (the write errors): one row with failed:<ref> (no cause), THEN the job fails as before', async () => {
+    setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'upstream down' })
+    const detail = await run({ outcome: { status: 'success' } })
+    expect(detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('outcome write failed: upstream down'))
+    expect(fail.mock.invocationCallOrder[0]).toBeGreaterThan(audit.mock.invocationCallOrder[0])
+    expect(complete).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-job failed (the write THROWS): the row is still emitted exactly once, the job fails with the original error', async () => {
+    setKaruteOutcomeWithClient.mockRejectedValueOnce(new Error('boom'))
+    const detail = await run({ outcome: { status: 'success' } })
+    expect(detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('boom'))
+    expect(complete).not.toHaveBeenCalled()
+  })
+})
