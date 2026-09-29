@@ -42,13 +42,21 @@ import {
   listResources,
   listStaff,
   listStoreOptions,
+  applySpecialOpenDays,
+  READ_FAILURE_LINE,
+  READ_ONLY_NOTE,
   readReserveCardColor,
   readShellIdentity,
   readStoreAddress,
+  readStoreDays,
   readStoreHours,
   renderNow,
+  specialDayBadge,
+  SPECIAL_OPEN_DAYS_NOTE,
+  type StoreDaysReadResult,
   type StoreLens,
 } from '@/business/lib/data'
+import type { StoreDaysWriteState } from '@/business/lib/data'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import {
   AUDIT_CATEGORIES,
@@ -205,6 +213,12 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   // ⚖ §v11 V11-4 — the 営業時間 block states the BOARD's 営業時間 · 定休日: under the practice switch the door's one
   // resolver (V9-4's gap closes), OFF the fixture pair itself (data.ts's readStoreHours). No store → the shared pair.
   const hours = clamped ? await readStoreHours(lens, jstDayKey(now)) : { operatingHours, weeklyHours: weekFromPair(operatingHours, [closedWeekday]), closedWeekdays: [closedWeekday] }
+  // ⚖ PKT-S29-B1 — 臨時休業・特別営業日, LIVE while the door is ON and a store is selected; `null` = OFF
+  // or no store (the OLD fixture / honest-empty-state branches below), never confused with a FAILED
+  // read (`{ ok: false }`, R7 — "failed is not unset").
+  // ⚖ PKT-S30 P3-13 — and only when the two blocks will RENDER: storeHours() returns before building
+  // them when this store has no dials (`d === null` → the 店舗情報-only section), so no read is spent then.
+  const storeDaysRead: StoreDaysReadResult | null = clamped && practiceTenant() !== null && dials !== null ? await readStoreDays(storeId!) : null
 
   // ⚖ PR-3 §v3 V3-4 — THE MARK IS THE PLANE TABLE'S (the facade's readers, one
   // implementation): a block names the plane it shows and the table answers.
@@ -239,6 +253,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     cardStore,
     cardAddress,
     bookingColors,
+    storeDaysRead,
   }
 
   const sections = RAIL.map((entry) => buildSection(entry, ctx))
@@ -360,6 +375,9 @@ interface Ctx {
   cardAddress: string | null
   /** ⚖ PKT-S38 R7 — the lens store's live 予約の色分け (null = the sample plane; see settingsProps). */
   bookingColors: BookingColors | null
+  /** ⚖ PKT-S29-B1 — the lens store's live 臨時休業・特別営業日 (readStoreDays); `null` = OFF or no
+   *  store, `{ ok: false }` = a genuine failed read (R7), never confused with each other. */
+  storeDaysRead: StoreDaysReadResult | null
 }
 
 const opts = (pairs: Array<[string, string]>): ControlOption[] => pairs.map(([value, label]) => ({ value, label }))
@@ -464,6 +482,7 @@ const block = (
   action: extra.action ?? null,
   audit: extra.audit ?? null,
   collection: extra.collection ?? null,
+  specialDays: extra.specialDays ?? null,
   ...(extra.words ? { words: extra.words } : {}),
   ...(extra.layout ? { layout: extra.layout } : {}),
   ...(extra.flag ? { flag: extra.flag } : {}),
@@ -770,6 +789,14 @@ const WEEKDAYS: Array<[number, string]> = [
 ]
 
 function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
+  // ⚖ PKT-S29-B1 — a local alias so every branch below narrows normally.
+  const storeDaysRead = ctx.storeDaysRead
+  // ⚖ PKT-S30 P3-10 — each block honest on its own: one failed list shows ITS failure line, the other
+  // list still shows its rows. `null` below = OFF/no store (the sample/empty branches), not a failure.
+  const liveClosures = storeDaysRead?.ok ? storeDaysRead.closures : null
+  const liveSpecial = storeDaysRead?.ok ? storeDaysRead.specialOpenDays : null
+  const closuresFailed = storeDaysRead !== null && liveClosures === null
+  const specialFailed = storeDaysRead !== null && liveSpecial === null
   const head = {
     ...base,
     kicker: '店舗運営',
@@ -939,39 +966,83 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
         },
         links: [{ label: 'お客様が選べる開始時刻はReserve受付で', sectionId: 'reserve-acceptance' }],
       }),
-      // ⚖ S17 · C2 — 臨時休業 IS AN ADD/REMOVE LIST, and 特別営業 IS GONE.
-      // The wire is `listClosedDays` / `addClosedDay` / `removeClosedDay`
-      // (dist/store-policies.d.ts:20-27) over `StoreClosedDay { date, reason }`
-      // (dist/types.d.ts:1081-1089), with a 409 on a date that is already
-      // closed. The first cut offered a per-date segment of 臨時休業 / 特別営業 /
-      // 通常営業, which could neither add nor remove a day and offered 特別営業 —
-      // a value core has no field for at all (registry ⑨ `special_open_days`;
-      // named in the report and in the Anthony column list, never on screen).
-      block('store-hours.closures', '臨時休業', '通常の営業時間を休みにする、その日限りの予定です。', [], {
-        sample: ctx.sampleWhole('closures'),
-        collection: {
-          // ⚖ F9 — ONE FORMATTER, and the id is what it reads. A seeded row and
-          // an added row used to be titled by two different code paths, so the
-          // list changed calendars the moment 追加 was pressed.
-          items: d.closures.map((c) => {
-            const date = isoDay(dayFrom(ctx.now, c.dayOffset))
-            return { id: date, title: dayTitle(date), note: c.note }
-          }),
-          dateControlId: 'store-hours.closure-date',
-          reasonControlId: 'store-hours.closure-reason',
-          addLabel: '追加',
-          removeLabel: '取り消す',
-          emptyLine: '臨時休業の予定はありません。',
-          // The wire's own 409, spoken at the press instead of after it.
-          duplicateError: 'その日はすでに臨時休業です',
-          emptyDateError: '日付を選んでください。',
-        },
-        facts: ['臨時休業にすると、その日にすでに入っている予約へ店舗都合の連絡が必要になります。'],
-        audit: d.closures.length === 0 ? null : `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -1))}（臨時休業を追加）`,
+      // ⚖ PKT-S29-B1 (⚖ Liam 9/28 20:0x, superseding the 9/6 removal — core has
+      // carried `special_open_days` since CORE-10, 9/14) — 臨時休業 goes LIVE
+      // (add/remove reach core through door-writes.ts the moment they are
+      // pressed — R8: this block LEAVES the section's draft/save-bar model,
+      // see `blockDirty`/`rowChanges` in settings.ts, which never see an entry
+      // for this block's id once the screen stops feeding `listRows`/
+      // `savedRows` for it) and 特別営業日 RETURNS under its own dial, right
+      // below. The wire is `get` / `set` / `listClosedDays` / `addClosedDay` /
+      // `removeClosedDay` (dist/store-policies.d.ts), guarded by core's own
+      // `requireHqAdmin` (EV/CORE-READ-B1.md Q1) — `canWriteStoreDays` (R2).
+      block(
+        'store-hours.closures',
+        '臨時休業',
+        '通常の営業時間を休みにする、その日限りの予定です。',
+        [],
+        closuresFailed
+          ? { facts: [READ_FAILURE_LINE] }
+          : {
+              sample: storeDaysRead === null ? ctx.sampleWhole('closures') : undefined,
+              collection: {
+                items: liveClosures
+                  ? liveClosures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))
+                  : d.closures.map((c) => {
+                      const date = isoDay(dayFrom(ctx.now, c.dayOffset))
+                      return { id: date, date, title: dayTitle(date), note: c.note }
+                    }),
+                dateControlId: 'store-hours.closure-date',
+                reasonControlId: 'store-hours.closure-reason',
+                addLabel: '追加',
+                removeLabel: '取り消す',
+                emptyLine: '臨時休業の予定はありません。',
+                // The wire's own 409, spoken at the press instead of after it — the OFF/local branch's
+                // own pre-check; the LIVE branch's refusals are door-writes.ts's own (R3/R4), returned
+                // ready-made from the write itself.
+                duplicateError: 'その日はすでに臨時休業です',
+                emptyDateError: '日付を選んでください。',
+              },
+              facts: ['臨時休業にすると、その日にすでに入っている予約へ店舗都合の連絡が必要になります。'],
+              // ⚖ this line stays ONE LINE on purpose (settings.test.ts's own source-regex
+              // scan for `audit:` + `dayFrom(ctx.now, N)` reads the receipt's date offset
+              // off this exact shape) — LIVE (storeDaysRead?.ok) never fabricates one.
+              audit: (storeDaysRead?.ok || d.closures.length === 0) ? null : `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -1))}（臨時休業を追加）`,
+            },
+      ),
+      // ⚖ PKT-S29-B1 R8 — 特別営業日, the collection's sibling: LIVE while the
+      // door is ON (badge computed from the CLOSURES array, never the special
+      // list — R3); the OFF/no-store world is the honest empty state (R8; no
+      // fixture field exists for this, R10 — fixtures-settings.ts is untouched).
+      block('store-hours.special-open', '特別営業日', SPECIAL_OPEN_DAYS_NOTE, [], {
+        specialDays:
+          specialFailed
+            ? null
+            : {
+                items: liveSpecial
+                  ? (applySpecialOpenDays(null, { ok: true, value: liveSpecial }) ?? [])
+                      .map((s) => ({ date: s.date, title: dayTitle(s.date), open: s.open, close: s.close, badge: specialDayBadge(s.date, liveClosures ?? []) }))
+                  : [],
+                dateControlId: 'store-hours.special-date',
+                openControlId: 'store-hours.special-open-time',
+                closeControlId: 'store-hours.special-close-time',
+                addLabel: '追加',
+                removeLabel: '取り消す',
+                emptyLine: '特別営業日の予定はありません。',
+              },
+        facts: specialFailed ? [READ_FAILURE_LINE] : [],
       }),
     ],
     persist: null,
   }
+}
+
+/** ⚖ PKT-S31 R9 — the grant check's three answers, mapped ONCE: 'writable' → the add/remove controls
+ *  (no line); 'read-only' → the permission line; 'unknown' (core did not answer) → the section's own
+ *  read-failure line. Both non-writable states hide add/remove (SettingsScreen shows the line instead). */
+export function storeDaysLockedNote(state: StoreDaysWriteState): string | null {
+  if (state === 'writable') return null
+  return state === 'read-only' ? READ_ONLY_NOTE : READ_FAILURE_LINE
 }
 
 /** ⚖ C7 — one place turns a role KEY into the word a reader sees, and it is the
