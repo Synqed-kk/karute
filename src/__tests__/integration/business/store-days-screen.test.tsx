@@ -240,6 +240,32 @@ describe('PKT-S33 F1 — 臨時休業 remove takes the door’s refreshed list',
   })
 })
 
+// ⚖ PKT-S33 F4 — an `invalid` refusal: the door's message is printed verbatim (the UI keeps no copy),
+// the form keeps its values, and the block is NOT revoked.
+describe('PKT-S33 F4 — an `invalid` refusal passes the door’s message through', () => {
+  it.each([['過ぎた日付です'], ['特別営業日は366日までです']])('400 invalid 「%s」 → printed exactly, form kept, controls stay', async (message) => {
+    await mount()
+    const before = rowsText('store-hours.closures')
+    reply = (url, method) => (url.includes('/closures') && method === 'POST' ? { status: 400, body: { ok: false, reason: 'invalid', message } } : { status: 500, body: null })
+    fireEvent.change(input('store-hours.closures-date')!, { target: { value: '2026-12-01' } })
+    fireEvent.change(input('store-hours.closures-reason')!, { target: { value: '入力した理由' } })
+    await act(async () => { addBtn('store-hours.closures')!.click() })
+    await settle()
+    const err = blockEl('store-hours.closures')!.querySelector('p.st-coll-error') as HTMLParagraphElement | null
+    expect(err).not.toBeNull()
+    expect(err!.getAttribute('role')).toBe('status')
+    expect(err!.textContent).toBe(message)
+    expect(input('store-hours.closures-date')!.value).toBe('2026-12-01')
+    expect(input('store-hours.closures-reason')!.value).toBe('入力した理由')
+    expect(rowsText('store-hours.closures')).toEqual(before)
+    for (const id of ['store-hours.closures', 'store-hours.special-open']) {
+      expect(addBtn(id)).toBeDefined()
+      expect(blockEl(id)!.querySelectorAll('button.st-coll-del').length).toBeGreaterThan(0)
+      expect(text(id)).not.toContain(READ_ONLY_NOTE)
+    }
+  })
+})
+
 describe('F10 (R-A) — the OFF world: 特別営業日 is a local draft, like 臨時休業', () => {
   it('a draft add shows the row, counts as an unsaved change, sends nothing, and never refuses', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
