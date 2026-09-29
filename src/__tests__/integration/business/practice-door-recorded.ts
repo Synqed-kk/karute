@@ -396,6 +396,10 @@ export interface RecordedOptions {
   backwardsBlock?: boolean
   /** Adds a gym booking wholly after the gym's close + one after テスト横浜店's sample close (⚖ §v11 V11-15(i), B2). */
   outOfHours?: boolean
+  /** ⚖ PKT-S29-B1 — this actor holds a live HQ_ADMIN grant (businessGrants.check answers `granted: true`). */
+  hqGranted?: boolean
+  /** ⚖ PKT-S29-B1 — the store's 臨時休業 rows, by store id (default: none anywhere). */
+  closedDays?: Record<string, { id: string; store_id: string; date: string; reason: string | null; created_by: string | null; created_at: string }[]>
 }
 
 function paged<T>(rows: T[], q: { page?: number; page_size?: number } | undefined, force?: number) {
@@ -449,5 +453,12 @@ export function recordedReads(o: RecordedOptions = {}): CoreReads {
       if (!p) throw new Error(`recorded: no store policy for ${id}`)
       return p
     },
+    // ⚖ PKT-S29-B1 — the store's 臨時休業 rows; `range` is accepted (matching
+    // the SDK signature) but not applied — no recorded fixture needs it yet.
+    storePolicyListClosedDays: async (id) => ({ closed_days: o.closedDays?.[id] ?? [] }),
+    // ⚖ PKT-S29-B1 R2(c) — false unless the test opts in (`hqGranted: true`);
+    // an OWNER-role actor never calls this at all (isHqAdmin short-circuits).
+    businessGrantsCheck: async () => ({ granted: o.hqGranted ?? false }),
+    auditList: async () => ({ events: [], total: 0, page: 1, page_size: 20 }),
   }
 }

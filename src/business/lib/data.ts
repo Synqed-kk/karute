@@ -25,6 +25,7 @@ import { jstDayKey, jstSlotEnd, renderNow } from './clock'
 import { practiceTenant } from './practice-door/switch'
 import * as door from './practice-door/door'
 import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
+import * as doorWrites from './practice-door/door-writes'
 import { weekFromPair } from './practice-door/store-hours'
 import {
   appointments,
@@ -266,6 +267,39 @@ export async function writeReserveCardColor(next: string | null): Promise<door.W
  *  the door. OFF has no writer — the door answers 'tenant' before anything else. */
 export async function writeBookingColors(storeId: string, colors: unknown): Promise<WriteBookingColorsResult> {
   return doorWriteBookingColors(storeId, colors)
+}
+
+/** ⚖ PKT-S29-B1 — one store's 臨時休業 + 特別営業日, through the door. OFF: no read at all — the
+ *  OFF-world render is settings-props.ts's own fixture branch (臨時休業) / honest empty state
+ *  (特別営業日, R8), never this function. Called ONLY while the practice door is ON. */
+export async function readStoreDays(storeId: string): Promise<doorWrites.StoreDaysReadResult> {
+  return doorWrites.readStoreDays(storeId)
+}
+
+/** ⚖ PKT-S29-B1 R2 — may the admitted operator write EITHER list for this store? OFF answers
+ *  false (no writer); the page asks only while the door is ON. */
+export async function readCanWriteStoreDays(storeId: string): Promise<boolean> {
+  if (practiceTenant() === null) return false
+  return doorWrites.canWriteStoreDays(storeId)
+}
+
+export async function addStoreClosedDay(storeId: string, input: { date: string; reason: string }): Promise<doorWrites.AddClosedDayResult> {
+  return doorWrites.addClosedDay(storeId, input)
+}
+
+export async function removeStoreClosedDay(storeId: string, id: string): Promise<doorWrites.RemoveClosedDayResult> {
+  return doorWrites.removeClosedDay(storeId, id)
+}
+
+export async function addStoreSpecialOpenDay(
+  storeId: string,
+  input: { date: string; open: string; close: string },
+): Promise<doorWrites.SetSpecialOpenDaysResult> {
+  return doorWrites.addSpecialOpenDay(storeId, input)
+}
+
+export async function removeStoreSpecialOpenDay(storeId: string, date: string): Promise<doorWrites.SetSpecialOpenDaysResult> {
+  return doorWrites.removeSpecialOpenDay(storeId, date)
 }
 
 /** ⚖ A1b · K11 — the store's address as the Reserve card's cover prints it; null = none
