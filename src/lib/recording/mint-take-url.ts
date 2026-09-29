@@ -103,7 +103,7 @@ import {
   type StartRecordingSessionResult,
 } from '@/lib/recording/session-mint'
 import { settleUnboundBind } from '@/lib/recording/unbound-bind'
-import type { MarkTakeResult } from '@/lib/recording/take-mark'
+import { markTake, type MarkTakeResult } from '@/lib/recording/take-mark'
 
 // ⚖ UPDATE 25 GROUP B, d4: commitReservation's legacy write needs the karute
 // probe (the retired session-cleanup's idiom) — widened here rather than passed as
@@ -725,10 +725,6 @@ async function markPartialAtMint(
   if (!input.partial) return null
   if (!RECORDING_SWITCHES.finalizeProbe) return 'switch_off'
   if (takeKey === null) return 'no_take_key'
-  // Loaded HERE, not at the top: take-mark → assembler → this module is a
-  // cycle, and assembler drags the core SDK into every importer of the mint.
-  // Only a `partial` body with the switch ON ever reaches this line.
-  const { markTake } = await import('@/lib/recording/take-mark')
   return markTake(createServiceClient(), businessId, takeKey, 'partial', {
     bytes: input.diag?.blob_bytes ?? null,
     first_byte: input.diag?.first_byte ?? null,

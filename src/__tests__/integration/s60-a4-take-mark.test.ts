@@ -7,11 +7,6 @@
 //   - markTake: created / exists (the duplicate shapes) / error, never throws;
 //     create-only; the body is numbers and flags only
 //   - readTakeMarks: four targeted downloads, no listing; latest by `at` last
-// reason: take-mark.ts shares assembler.ts#isDuplicateRefusal, and assembler
-// pulls the ESM-only SDK in at import time — the same stub recording-assembler
-// and its siblings use. Nothing here reaches the SDK.
-jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
-
 import {
   composeMarkKey,
   composeRescueKey,

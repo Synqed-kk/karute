@@ -93,6 +93,7 @@ import {
   parseSegmentFolder,
 } from '@/lib/recording/key-grammar'
 import { objectExists } from '@/lib/recording/mint-take-url'
+import { isDuplicateRefusal } from '@/lib/recording/storage-duplicate'
 import { newSynqedClient } from '@/lib/synqed/client'
 
 /** How long the newest segment must be untouched before a take counts as
@@ -432,20 +433,6 @@ export function longestPrefix(seqs: number[]): { prefix: number[]; firstGap: num
   }
   const firstGap = prefix.length === sorted.length ? null : prefix.length
   return { prefix, firstGap }
-}
-
-/** Storage's "this key is already taken". The signed-upload endpoint has
- *  answered HTTP 400 with the real code demoted into the body
- *  (`{"statusCode":"409","error":"Duplicate"}`) — read as a plain 400 it looks
- *  retryable, which is how storage-put.ts#putSaysAlreadyThere came to exist.
- *  Same three spellings here, on the service-role client's own error object.
- *  Exported for the transcript memo's upload (transcript-memo.ts), which asks
- *  the same question of the same client — one predicate, never a twin. */
-export function isDuplicateRefusal(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const e = error as { status?: unknown; statusCode?: unknown; message?: unknown }
-  if (e.status === 409 || e.statusCode === '409' || e.statusCode === 409) return true
-  return typeof e.message === 'string' && /already exists|duplicate/i.test(e.message)
 }
 
 /** The ONE warn line this job emits per failure. IDS, STATUS AND STAGE ONLY —
