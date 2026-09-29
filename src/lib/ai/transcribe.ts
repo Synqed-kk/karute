@@ -502,12 +502,20 @@ async function markTrueUpRecorded(key: string, deltaCents: number): Promise<Tran
 
 /** The delta a memo says its answer owes: null = nothing owed (no numbers —
  *  no delta was owed, or a memo written after its true-up had run); a real,
- *  positive number of cents; or 'unreadable'. */
+ *  positive number of cents; or 'unreadable'.
+ *  ⚖ S58 — a bad object never bricks an audio, and never erases a debt: ONLY
+ *  a missing `trueUp` (undefined) means nothing owed. A `trueUp` of null or
+ *  any other non-object (a string, a number; an array reaches the delta
+ *  check and lands there too) is 'unreadable' — it used to throw a TypeError
+ *  on every call for that audio; now it charges nothing, files a warning and
+ *  stays owed. Only a positive SAFE INTEGER of cents is a delta — a fraction
+ *  is 'unreadable' the same way. No upper cap: only integrality is enforced. */
 function owedDeltaCents(memo: TranscriptMemo): number | null | 'unreadable' {
-  const owed = memo.trueUp
+  const owed: unknown = memo.trueUp
   if (owed === undefined) return null
-  const d = owed.deltaCents
-  return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : 'unreadable'
+  if (owed === null || typeof owed !== 'object') return 'unreadable'
+  const d = (owed as { deltaCents?: unknown }).deltaCents
+  return Number.isSafeInteger(d) && (d as number) > 0 ? (d as number) : 'unreadable'
 }
 
 function unreadableTrueUp(): TrueUpSettled {

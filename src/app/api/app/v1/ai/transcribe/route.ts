@@ -136,7 +136,9 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   // (FACADE_AUDIT_MAP['ai.transcribe']) rather than a second one from the
   // meter: one call, one receipt. Six keys with staff_id (PR-5 added
   // `replayed`) — seven on a replay that left an owed true-up to the lease's
-  // holder (S57, `debit_deferred_reason`) — still inside the hook's cap of 8. The receipt is server-side only — the client is
+  // holder (S57, `debit_deferred_reason`), or seven on a call whose true-up
+  // marker would not land (S58, `debit_mark`; the two never co-occur) — still
+  // inside the hook's cap of 8. The receipt is server-side only — the client is
   // answered with `result`, the provider body, exactly as before.
   // staff_id: selfStaffId, already resolved above — never a second lookup.
   // This door names a storage path, never a customer, so no customer_id key.

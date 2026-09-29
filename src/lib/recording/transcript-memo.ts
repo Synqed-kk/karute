@@ -268,7 +268,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
       warnStorageUnknown('transcript-lease.take', created.error)
       return { state: 'unknown' }
     }
-    const until = await readLeaseUntil(key)
+    const until = await readLeaseUntil(key, now)
     if (until === null) return { state: 'unknown' }
     if (until > now) return { state: 'busy', until }
     // Expired or released: take it over. Two callers taking over one expired
@@ -289,7 +289,7 @@ export async function takeTranscriptLease(memoKey: string, now = Date.now()): Pr
 
 /** Is the lease still live? A missing or unreadable one is not (fail open). */
 export async function transcriptLeaseLive(memoKey: string, now = Date.now()): Promise<boolean> {
-  const until = await readLeaseUntil(transcriptLeaseKey(memoKey))
+  const until = await readLeaseUntil(transcriptLeaseKey(memoKey), now)
   return until !== null && until > now
 }
 
@@ -310,8 +310,16 @@ export async function releaseTranscriptLease(memoKey: string): Promise<void> {
   }
 }
 
-/** The lease's expiry, or null when it cannot be read (missing, garbage, error). */
-async function readLeaseUntil(key: string): Promise<number | null> {
+/** ⚖ S58 — the clock-skew tolerance on a lease's expiry: how far past this
+ *  server's own `now + TRANSCRIPT_LEASE_TTL_MS` another server's clock may
+ *  have written it. A tolerance between clocks, not a business duration. */
+const LEASE_CLOCK_SKEW_MS = 60_000
+
+/** The lease's expiry, or null when it cannot be read (missing, garbage, error).
+ *  ⚖ S58 — an expiry no call could have written (not a finite number, or past
+ *  `now + TRANSCRIPT_LEASE_TTL_MS + LEASE_CLOCK_SKEW_MS`) is unreadable too,
+ *  warned: it falls open to paying, never busy forever. */
+async function readLeaseUntil(key: string, now: number): Promise<number | null> {
   try {
     const { data, error } = await createServiceClient().storage.from('recordings').download(key)
     if (error || !data) {
@@ -319,7 +327,12 @@ async function readLeaseUntil(key: string): Promise<number | null> {
       return null
     }
     const lease = JSON.parse(await data.text()) as Partial<TranscriptLease> | null
-    return lease?.v === 1 && typeof lease.expires_at === 'number' ? lease.expires_at : null
+    if (lease?.v !== 1 || typeof lease.expires_at !== 'number') return null
+    if (!Number.isFinite(lease.expires_at) || lease.expires_at > now + TRANSCRIPT_LEASE_TTL_MS + LEASE_CLOCK_SKEW_MS) {
+      warnStorageUnknown('transcript-lease.expiry', null)
+      return null
+    }
+    return lease.expires_at
   } catch (err) {
     warnStorageUnknown('transcript-lease.read', err)
     return null

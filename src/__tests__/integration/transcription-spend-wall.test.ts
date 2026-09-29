@@ -410,7 +410,7 @@ import {
 } from '@/lib/ai/transcribe'
 import { transcriptionReceiptSeverity } from '@/lib/ai/transcription-receipt'
 import { maxDuration as JOB_ROUTE_MAX_DURATION_S } from '@/app/api/jobs/process/route'
-import { readTranscriptMemo } from '@/lib/recording/transcript-memo'
+import { readTranscriptMemo, takeTranscriptLease, transcriptLeaseLive } from '@/lib/recording/transcript-memo'
 import { TRANSCRIPT_LEASE_TTL_MS } from '@/lib/recording/transcript-lease-ttl'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { can } from '@/lib/auth/require-permission'
@@ -3561,6 +3561,110 @@ describe('charge once — the durable transcript memo', () => {
       expect(transcriptionReceiptSeverity({ ...PAID_TODAY, debit_mark: 'failed' })).toBe('warning')
       expect(transcriptionReceiptSeverity({ ...REPLAY_TODAY, debit_mark: 'failed' })).toBe('warning')
       expect(transcriptionReceiptSeverity(PAID_TODAY)).toBeUndefined()
+    })
+  })
+
+  // ── ⚖ S58 M2 — A BAD MEMO OR LEASE OBJECT NEVER BRICKS AN AUDIO ──────────────────────────────────
+  // The Opus attack (build-s58/ATTACK-S58.md, findings 4 · 5 · 6; fixtures from
+  // build-s58/evidence-attack/meter-attack.test.ts C1 and B6): a `trueUp` of null threw on every call;
+  // a fractional delta was debited as-is; a lease expiry of 1e400 (→ Infinity) made the audio busy
+  // forever. Each guard falls back to the path the code already has for "unreadable".
+  describe('s58 M2 a bad memo or lease object never bricks an audio', () => {
+    beforeEach(() => {
+      headBytes.current = 600_000
+    })
+    const REPLAY_TODAY = { duration_seconds: 5400, cost_cents: 0, cents_reserved: 0, debit_recorded: true, replayed: true }
+    const seedTrueUp = (trueUp: unknown) =>
+      memoStore.set(memoKey(AUDIO), JSON.stringify({ v: 1, result: { transcript: 'the held answer' }, duration_seconds: 5400, written_at: '', trueUp }))
+    const quiet = () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+      afterThis.push(() => { warn.mockRestore(); err.mockRestore() })
+      return { warn, err }
+    }
+    const expiryWarned = (warn: jest.SpyInstance) =>
+      warn.mock.calls.some((c) => typeof c[0] === 'string' && c[0].includes('"where":"transcript-lease.expiry"'))
+
+    it('s58 m2 — m2a a memo whose trueUp is NULL → no throw: UNREADABLE — the answer replays, the ledger is never asked, debit_recorded false, a warning row (a corrupted field never erases a debt)', async () => {
+      const { err } = quiet()
+      seedTrueUp(null)
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ ...REPLAY_TODAY, debit_recorded: false })
+      expect(res.result).toEqual({ transcript: 'the held answer' })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(rows('recording.transcribe')[0].severity).toBe('warning')
+      expect(err).toHaveBeenCalled()
+    })
+
+    it.each([
+      ['a string', 'x'],
+      ['a number', 5],
+    ])('s58 m2 — m2a′ a memo whose trueUp is %s → no throw: UNREADABLE — ledger never asked, debit_recorded false, a warning row', async (_label, trueUp) => {
+      quiet()
+      seedTrueUp(trueUp)
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ ...REPLAY_TODAY, debit_recorded: false })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(rows('recording.transcribe')[0].severity).toBe('warning')
+    })
+
+    it('s58 m2 — m2b a FRACTIONAL delta (1.5) → unreadable: the ledger is never asked, debit_recorded false, warning, the memo untouched', async () => {
+      const { err } = quiet()
+      seedTrueUp({ reserveCents: 1, costCents: 2.5, deltaCents: 1.5 })
+      const before = memoStore.get(memoKey(AUDIO))
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual({ ...REPLAY_TODAY, debit_recorded: false })
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(trueUpUpload).not.toHaveBeenCalled()
+      expect(rows('recording.transcribe')[0].severity).toBe('warning')
+      expect(memoStore.get(memoKey(AUDIO))).toBe(before)
+      expect(err).toHaveBeenCalled()
+    })
+
+    it('s58 m2 — m2b′ a HUGE but safe-integer delta (1e12) is recorded as-is — only integrality is enforced, never an invented cap', async () => {
+      seedTrueUp({ reserveCents: 1, costCents: 1e12 + 1, deltaCents: 1e12 })
+      const res = await doorCall('job')
+      expect(res.receipt).toEqual(REPLAY_TODAY)
+      expect(recordUsage.mock.calls).toEqual([['transcribe', null, null, 1e12]])
+    })
+
+    it.each([
+      ['1e400 (→ Infinity, the attack’s body)', '{"v":1,"expires_at":1e400}'],
+      ['a finite expiry a trillion ms out', () => JSON.stringify({ v: 1, expires_at: Date.now() + 1e12 })],
+    ])('s58 m2 — m2c a lease expiring at %s → UNREADABLE: warned, the call falls open and pays (never busy forever)', async (_label, body) => {
+      const { warn } = quiet()
+      leaseStore.set(leaseKey(AUDIO), typeof body === 'string' ? body : body())
+      const paid = await call(AUDIO)
+      expect(paid.receipt.replayed).toBe(false)
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(expiryWarned(warn)).toBe(true)
+      // The memo lands, so the next call replays: the bad lease ends here.
+      const again = await call(AUDIO)
+      expect(again.receipt.replayed).toBe(true)
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    })
+
+    it('s58 m2 — m2c′ a lease 30 s past the TTL (inside the clock-skew allowance) is still a live lease → 409, nothing paid', async () => {
+      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: Date.now() + TRANSCRIPT_LEASE_TTL_MS + 30_000 }))
+      const second = await call(AUDIO).then(() => 'answered', (e: unknown) => e)
+      expect(second).toMatchObject({ code: 'conflict', detail: { reason: 'transcribing' } })
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    })
+
+    it('s58 m2 — m2c″ the boundary: EXACTLY now + TTL + 60 s → busy; one ms past → unreadable (unknown, warned)', async () => {
+      const { warn } = quiet()
+      const NOW = 1_700_000_000_000
+      const BOUND = NOW + TRANSCRIPT_LEASE_TTL_MS + 60_000
+      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND }))
+      expect(await takeTranscriptLease(memoKey(AUDIO), NOW)).toEqual({ state: 'busy', until: BOUND })
+      expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(true)
+      expect(expiryWarned(warn)).toBe(false)
+      leaseStore.set(leaseKey(AUDIO), JSON.stringify({ v: 1, expires_at: BOUND + 1 }))
+      expect(await takeTranscriptLease(memoKey(AUDIO), NOW)).toEqual({ state: 'unknown' })
+      expect(await transcriptLeaseLive(memoKey(AUDIO), NOW)).toBe(false)
+      expect(expiryWarned(warn)).toBe(true)
     })
   })
 })
