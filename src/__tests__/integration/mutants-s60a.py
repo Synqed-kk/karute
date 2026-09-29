@@ -49,7 +49,20 @@ MUTANTS = [
       (METER, RELEASE_ANCHOR, METER_PROBE_BLOCK + RELEASE_ANCHOR)],
      [f'{IT}/s60-a3-meter-refusal.test.ts']),
     ('M-A3', FINALIZE, '`unknown` treated as `unreadable` (refused, audited)',
-     [(FINALIZE, "      if (probe.state === 'unknown') return { error: 'failed' }\n",
+     # S63 re-anchor: S62 (S4) grew the one-line `unknown` return into a block
+     # with its warn line; the mutant replaces the WHOLE block with the same
+     # refusing line as before, so the mutated program is unchanged.
+     [(FINALIZE, "      if (probe.state === 'unknown') {\n"
+       "        // Fail closed (frozen R2), but never silently: codes and numbers only,\n"
+       "        // never the key or the URL — a signing/Range/timeout problem shows the\n"
+       "        // day it happens.\n"
+       "        console.warn('[finalize-take] probe unknown', {\n"
+       "          recordingSessionId: row.id,\n"
+       "          reason: probe.reason,\n"
+       "          bytesRead: probe.bytesRead ?? null,\n"
+       "        })\n"
+       "        return { error: 'failed' }\n"
+       "      }\n",
        "      if (probe.state === 'unknown') return emitFinalizeRefused(actor, row.id, { bytes: input.byteLength, first_byte: -1 }) // M-A3\n")],
      [f'{IT}/s60-a2-finalize-refusal.test.ts']),
     ('M-A4', FINALIZE, 'audit row on every attempt (ignores `exists`)',
