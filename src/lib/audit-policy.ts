@@ -1022,7 +1022,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'storePolicies.removeClosedDay',
     symbols: ['removeClosedDay'],
     justification:
-      'PKT-S29-B1 — the 臨時休業 remove writer: same guard as the two writers above; core\'s SDK method takes no audit payload and hard-deletes the row (a flagged exception to "nothing deleted, soft only" — PR body carries it as a core ask), so the door records its own audit event via a second write-only handle (audit.log) after a successful removal, never blocking the removal on that event\'s own success.',
+      'PKT-S29-B1 — the 臨時休業 remove writer: same guard as the two writers above; core\'s SDK method takes no audit payload and hard-deletes the row (a flagged exception to "nothing deleted, soft only" — PR body carries it as a core ask), so the door records its own audit event via a second write-only handle whose audit row (audit.log, one site under removeClosedDay) is written BEFORE the delete — no row, no removal; a failed delete gets a best-effort \'failed\' row (PKT-S32 R19).',
     dated: '2026-09-29',
   },
   {
