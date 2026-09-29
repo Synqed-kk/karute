@@ -40,7 +40,7 @@ import type { SessionCategory } from '@/components/karute/redesign/detail/Curren
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
-import { keepLinkUnlessGiven, type AppointmentLinkReason } from '@/lib/karute/appointment-link'
+import { keepLinkUnlessGiven, type AppointmentLinkReason, type AutoAppointmentLink } from '@/lib/karute/appointment-link'
 import type { OutcomeLink } from '@/lib/karute/outcome-fate'
 
 /**
@@ -104,7 +104,15 @@ export async function createOrUpdateKaruteRecord(
    *  AFTER the record write and BEFORE the one karute.save row, which then
    *  carries `outcome_link: <fate>`. Omitted (the web doors) = no key. */
   outcomeFate?: (saved: { id: string; fresh: boolean }) => Promise<OutcomeLink>,
+  /** S7 (PR-O commit 4): the facade's auto-link (resolveAutoAppointmentLink,
+   *  never throws). Run ONLY when the write names no booking and the record
+   *  keeps none; its value rides the one karute.save row as appointment_link.
+   *  Omitted (the web doors) = no auto-link, as before. */
+  autoLink?: () => Promise<{ link: AutoAppointmentLink; appointmentId: string | null }>,
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
+  // S7: set by the auto-link below when it ran; the row names the booking it
+  // linked and why (auto_linked · ambiguous · none).
+  let autoLinked: { link: AutoAppointmentLink; appointmentId: string | null } | null = null
   const emitSave = async (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
     const outcomeLink = outcomeFate ? await outcomeFate({ id: result.id, fresh: result.fresh }) : undefined
     audit({
@@ -132,10 +140,11 @@ export async function createOrUpdateKaruteRecord(
         transcript_changed: result.transcriptChanged,
         customer_id: payload.customer_id ?? null,
         recording_session_id: payload.recording_session_id ?? null,
-        appointment_id: payload.appointment_id ?? null,
+        appointment_id: payload.appointment_id ?? autoLinked?.appointmentId ?? null,
         // Why the booking link degraded (not found / out of scope /
-        // unreadable) — null on a normal save, never undefined.
-        appointment_link: linkReason,
+        // unreadable) — null on a normal save, never undefined. S7: when the
+        // save named no booking, the auto-link's own answer instead.
+        appointment_link: linkReason ?? autoLinked?.link ?? null,
         // S5: the answer's fate, beside the booking's (facade + worker only).
         ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),
       },
@@ -195,6 +204,11 @@ export async function createOrUpdateKaruteRecord(
       // entries still go through.
       const existingHasEntries = Array.isArray(existing.entries) && existing.entries.length > 0
       const omitEntries = entriesMode === 'fill-if-empty' && existingHasEntries
+      let appointmentId = keepLinkUnlessGiven(existing, payload)
+      if (!appointmentId && autoLink) {
+        autoLinked = await autoLink()
+        appointmentId = autoLinked.appointmentId
+      }
       await synqed.karuteRecords.update(existing.id, {
         // E-1 (fix round 1): the CUSTOMER moves with the update. Without it a
         // save that re-points to a different customer — the recovery banner's
@@ -216,7 +230,7 @@ export async function createOrUpdateKaruteRecord(
         // S4 (PR-O, O1/V4): a save with no booking never clears the link an
         // earlier save wrote for the SAME customer; a re-point (customer_id
         // above changes) still moves the booking with it — keepLinkUnlessGiven.
-        appointment_id: keepLinkUnlessGiven(existing, payload),
+        appointment_id: appointmentId,
         ...(omitEntries ? {} : { entries: payload.entries }),
       })
       return await emitSave({
@@ -232,7 +246,10 @@ export async function createOrUpdateKaruteRecord(
       })
     }
   }
-  const record = await synqed.karuteRecords.create(payload)
+  if (!payload.appointment_id && autoLink) autoLinked = await autoLink()
+  const record = await synqed.karuteRecords.create(
+    autoLinked?.appointmentId ? { ...payload, appointment_id: autoLinked.appointmentId } : payload,
+  )
   return await emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
 }
 

@@ -160,6 +160,12 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     duration_seconds: parsed.data.durationSeconds,
     outcome: parsed.data.outcome ?? undefined,
     outcome_missing: parsed.data.outcomeMissing ?? undefined,
+    // S7 (PR-O commit 4): the session's start for the worker's auto-link —
+    // best-effort (a failed read = no auto-link evidence, never a refusal).
+    session_started_at: await synqed.recordings
+      .get(parsed.data.recordingSessionId)
+      .then((r) => r?.created_at ?? undefined)
+      .catch(() => undefined),
   }
 
   try {

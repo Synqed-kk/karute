@@ -1,0 +1,94 @@
+// S7 (PR-O commit 4; O2 + V5; RULING-S67-PRO-STOP2 R-O10): the ONE auto-link
+// function. Each guardrail condition under its own test; the window is the
+// booking's OWN duration on each side (no constant). The two callers (facade
+// save, worker) are pinned in app-api-karute-save / process-recording-existing-karute.
+import { resolveAutoAppointmentLink } from '@/lib/karute/appointment-link'
+
+const SESSION_START = '2026-09-29T07:44:39Z' // 16:44 JST
+type Appt = {
+  id: string; customer_id: string | null; store_id: string | null; starts_at: string; ends_at: string
+  duration_minutes: number | null; status: string; cancelled_at: string | null
+}
+const booking = (over: Partial<Appt> = {}): Appt => ({
+  id: 'appt-1', customer_id: 'cust-1', store_id: 'store-A',
+  starts_at: '2026-09-29T07:30:00Z', ends_at: '2026-09-29T08:30:00Z', // 16:30–17:30 JST
+  duration_minutes: 60, status: 'SCHEDULED', cancelled_at: null, ...over,
+})
+function client(appts: Appt[], linked: Array<{ appointment_id: string; recording_session_id: string | null }> = []) {
+  const list = jest.fn(async () => ({ appointments: appts }))
+  const recordingsGet = jest.fn(async () => ({ id: 'sess-1', created_at: SESSION_START }))
+  const karuteList = jest.fn(async () => ({ karute_records: linked }))
+  return {
+    list, recordingsGet, karuteList,
+    c: { appointments: { list }, recordings: { get: recordingsGet }, karuteRecords: { list: karuteList } } as never,
+  }
+}
+const input = { customerId: 'cust-1', storeId: 'store-A', recordingSessionId: 'sess-1' }
+const run = (c: never, over: Partial<typeof input & { sessionStartedAt: string | null }> = {}) =>
+  resolveAutoAppointmentLink(c, { ...input, ...over })
+
+describe('S7 — resolveAutoAppointmentLink, the guardrail', () => {
+  it('the one booking of the session\'s day, same customer + store, SCHEDULED, unlinked, in its window → auto_linked', async () => {
+    const { c, list } = client([booking()])
+    expect(await run(c)).toEqual({ link: 'auto_linked', appointmentId: 'appt-1' })
+    expect(list).toHaveBeenCalledWith({
+      customer_id: 'cust-1', store_id: 'store-A',
+      from: '2026-09-28T15:00:00.000Z', to: '2026-09-29T14:59:59.999Z', page_size: 50,
+    })
+  })
+  it('condition 1 — another customer\'s booking → none', async () => {
+    expect((await run(client([booking({ customer_id: 'cust-2' })]).c)).link).toBe('none')
+  })
+  it('condition 2 — a booking in another store → none', async () => {
+    expect((await run(client([booking({ store_id: 'store-B' })]).c)).link).toBe('none')
+  })
+  it('condition 3 — a booking on another JST day → none', async () => {
+    expect((await run(client([booking({ starts_at: '2026-09-29T15:30:00Z', ends_at: '2026-09-29T16:30:00Z' })]).c)).link).toBe('none')
+  })
+  it('condition 3 at midnight — a booking just past midnight is another day even inside its window → none', async () => {
+    // session 23:51 JST 9/29; a 60-min booking 00:10–01:10 JST 9/30 (window 23:10–02:10) — inside the window, not the session's day.
+    const late = booking({ starts_at: '2026-09-29T15:10:00Z', ends_at: '2026-09-29T16:10:00Z' })
+    expect((await run(client([late]).c, { sessionStartedAt: '2026-09-29T14:51:00Z' })).link).toBe('none')
+  })
+  it('condition 4 — status: IN_PROGRESS links; COMPLETED / NO_SHOW / CANCELLED never', async () => {
+    expect((await run(client([booking({ status: 'IN_PROGRESS' })]).c)).link).toBe('auto_linked')
+    for (const status of ['COMPLETED', 'NO_SHOW', 'CANCELLED']) {
+      expect((await run(client([booking({ status })]).c)).link).toBe('none')
+    }
+  })
+  it('condition 5 — a cancelled booking (cancelled_at set) → none', async () => {
+    expect((await run(client([booking({ cancelled_at: '2026-09-29T01:00:00Z' })]).c)).link).toBe('none')
+  })
+  it('condition 6 — another karute already points at it → none; this session\'s own karute does not count', async () => {
+    expect((await run(client([booking()], [{ appointment_id: 'appt-1', recording_session_id: 'sess-other' }]).c)).link).toBe('none')
+    expect((await run(client([booking()], [{ appointment_id: 'appt-1', recording_session_id: 'sess-1' }]).c)).link).toBe('auto_linked')
+  })
+  it('condition 7 — TWO bookings that day → ambiguous, no link', async () => {
+    const second = booking({ id: 'appt-2', starts_at: '2026-09-29T10:00:00Z', ends_at: '2026-09-29T11:00:00Z' })
+    expect(await run(client([booking(), second]).c)).toEqual({ link: 'ambiguous', appointmentId: null })
+  })
+  it('the window is the booking\'s OWN duration on each side (no constant)', async () => {
+    // 60-min booking 17:40–18:40 JST → window 16:40–19:40: 16:44 inside.
+    expect((await run(client([booking({ starts_at: '2026-09-29T08:40:00Z', ends_at: '2026-09-29T09:40:00Z' })]).c)).link).toBe('auto_linked')
+    // 60-min booking 18:00–19:00 → window 17:00–20:00: 16:44 outside.
+    expect((await run(client([booking({ starts_at: '2026-09-29T09:00:00Z', ends_at: '2026-09-29T10:00:00Z' })]).c)).link).toBe('none')
+    // 30-min booking 17:20–17:50 → window 16:50–18:20: 16:44 outside (a 60-min rule would have linked it).
+    expect((await run(client([booking({ starts_at: '2026-09-29T08:20:00Z', ends_at: '2026-09-29T08:50:00Z', duration_minutes: 30 })]).c)).link).toBe('none')
+    // after the booking: 60-min 15:00–16:00 → window 14:00–17:00: 16:44 inside.
+    expect((await run(client([booking({ starts_at: '2026-09-29T06:00:00Z', ends_at: '2026-09-29T07:00:00Z' })]).c)).link).toBe('auto_linked')
+  })
+  it('a booking with no length links nothing', async () => {
+    expect((await run(client([booking({ ends_at: '2026-09-29T07:30:00Z', duration_minutes: null })]).c)).link).toBe('none')
+  })
+  it('never throws: a failed read → none', async () => {
+    const { c, list } = client([booking()])
+    list.mockRejectedValueOnce(new Error('core down'))
+    expect(await run(c)).toEqual({ link: 'none', appointmentId: null })
+  })
+  it('a caller that already holds the start (the worker) → no session read; no start → none', async () => {
+    const { c, recordingsGet } = client([booking()])
+    expect((await run(c, { sessionStartedAt: SESSION_START })).link).toBe('auto_linked')
+    expect((await run(c, { sessionStartedAt: null })).link).toBe('none')
+    expect(recordingsGet).not.toHaveBeenCalled()
+  })
+})

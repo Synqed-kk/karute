@@ -739,7 +739,8 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
     existingBySession.current = { id: 'kar-existing', transcript: 'old' }
     outcomeGet.mockResolvedValueOnce({ outcome: 'success' })
     const { reply, row } = await save({ recordingSessionId: 'rec-1' })
-    expect(reply).toEqual({ id: 'kar-existing', outcome: { written: false, reason: 'kept' }, appointment_link: null })
+    // S7 (commit 4): a session save with no booking now asks the auto-link — no booking readable here → 'none'.
+    expect(reply).toEqual({ id: 'kar-existing', outcome: { written: false, reason: 'kept' }, appointment_link: 'none' })
     expect(row.detail.outcome_link).toBe('kept')
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
@@ -784,5 +785,63 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
     expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'write_failed' }, appointment_link: null })
     expect(row.detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
     expect(outcomeUpsert).not.toHaveBeenCalled()
+  })
+})
+
+// S7 (PR-O commit 4): the facade save links the ONE unambiguous booking of the
+// session's day when the save names none — through resolveAutoAppointmentLink,
+// the function the worker shares. The reply and the one karute.save row carry
+// the SAME appointment_link value (R-O9 (i): one vocabulary).
+describe('POST /api/app/v1/karute (save) — S7 the unambiguous booking is linked at save', () => {
+  const client = fakeClient as unknown as Record<string, Record<string, unknown>>
+  const appt = (id: string, startsAt: string, endsAt: string) => ({
+    id, customer_id: 'cust-1', store_id: 'store-ginza', starts_at: startsAt, ends_at: endsAt,
+    duration_minutes: 60, status: 'SCHEDULED', cancelled_at: null,
+  })
+  const attach = (appts: object[]) => {
+    jest.mocked(resolveStoreForRequest).mockResolvedValueOnce({ storeId: 'store-ginza', allowedStoreIds: ['store-ginza'] })
+    client.recordings = { get: jest.fn(async () => ({ id: 'rec-1', created_at: '2026-09-29T07:44:39Z' })) }
+    client.appointments.list = jest.fn(async () => ({ appointments: appts }))
+  }
+  afterEach(() => {
+    delete client.recordings
+    delete client.appointments.list
+  })
+  const save = async (body: Record<string, unknown> = {}) => {
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1', ...body }), noRoute)
+    expect(res.status).toBe(200)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return { reply: await res.json(), row: rows[0][0] as { severity?: string; detail: Record<string, unknown> } }
+  }
+
+  it('S7-facade: one booking in its window → the record is created ON it; reply and row say auto_linked', async () => {
+    attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
+    const { reply, row } = await save()
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1' }))
+    expect(reply.appointment_link).toBe('auto_linked')
+    expect(row.detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-1' })
+    expect(row.severity).toBeUndefined()
+  })
+  it('S7-facade: two bookings that day → no link; reply and row say ambiguous', async () => {
+    attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z'), appt('appt-2', '2026-09-29T10:00:00Z', '2026-09-29T11:00:00Z')])
+    const { reply, row } = await save()
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect(reply.appointment_link).toBe('ambiguous')
+    expect(row.detail).toMatchObject({ appointment_link: 'ambiguous', appointment_id: null })
+  })
+  it('S7-facade: a save that NAMES a booking never runs the auto-link', async () => {
+    attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
+    fakeClient.appointments.get.mockResolvedValueOnce({ staff_id: 'x', store_id: 'store-ginza', title: 't' })
+    const { reply } = await save({ appointmentId: 'ap-given' })
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(reply.appointment_link).toBeNull()
+  })
+  it('S7-facade: a converge whose record keeps its link never re-points it', async () => {
+    attach([appt('appt-other', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', customer_id: 'cust-1', appointment_id: 'appt-first' } as never
+    await save()
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: 'appt-first' })
+    expect(client.appointments.list).not.toHaveBeenCalled()
   })
 })

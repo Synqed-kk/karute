@@ -46,7 +46,7 @@ import {
   REVISIT_NOT_ELIGIBLE,
 } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
-import { keepLinkUnlessGiven } from '@/lib/karute/appointment-link'
+import { keepLinkUnlessGiven, resolveAutoAppointmentLink, type AutoAppointmentLink } from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
 import { writeOutcomeFate } from '@/lib/karute/outcome-fate'
@@ -73,6 +73,11 @@ export interface RecordingJobPayload {
   /** S2 (PR-O): the client's reason for sending NO outcome — recorded as the
    *  karute.save row's `outcome_link: skipped:<reason>`. Absent = not_sent. */
   outcome_missing?: OutcomeMissingReason
+  /** S7 (PR-O commit 4): the recording session's START (its row's
+   *  created_at), stamped by the enqueue doors that read the row, so the
+   *  auto-link never makes the worker read it. Absent (an older job) = no
+   *  auto-link evidence → 'none'. */
+  session_started_at?: string | null
 }
 
 function coreClient(businessId: string): SynqedClient {
@@ -495,7 +500,7 @@ async function processJob(job: RecordingJob): Promise<string> {
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the
   // same record instead of duplicating it.
-  const { id: record, storeId: persistedStoreId, fresh } = await upsertKaruteRecord(synqed, job, payload, {
+  const { id: record, storeId: persistedStoreId, fresh, autoLinked } = await upsertKaruteRecord(synqed, job, payload, {
     transcript,
     summary: summary.result.summary,
     entries: extraction.result.entries,
@@ -552,7 +557,11 @@ async function processJob(job: RecordingJob): Promise<string> {
       staff_id: payload.staff_id,
       // PR B2 §3: the thread page's join key — the payload carries it
       // straight from the enqueue door.
-      appointment_id: payload.appointment_id ?? null,
+      appointment_id: payload.appointment_id ?? autoLinked?.appointmentId ?? null,
+      // S7 (PR-O commit 4): when the job named no booking and the record had
+      // none — the auto-link's answer (auto_linked · ambiguous · none); null
+      // when no auto-link ran. The same vocabulary as the facade's row.
+      appointment_link: autoLinked?.link ?? null,
       // S5: what became of the staff's answer (written · kept · skipped:… ·
       // failed:<ref>) — a short reference, never the technical cause.
       outcome_link: fate.link,
@@ -590,7 +599,12 @@ async function upsertKaruteRecord(
   job: RecordingJob,
   payload: RecordingJobPayload,
   result: { transcript: string; summary: string; entries: ExtractedEntry[] },
-): Promise<{ id: string; storeId: string | null; fresh: boolean }> {
+): Promise<{
+  id: string
+  storeId: string | null
+  fresh: boolean
+  autoLinked: { link: AutoAppointmentLink; appointmentId: string | null } | null
+}> {
   const entries = result.entries.map((e) => ({
     category: e.category.toUpperCase() as
       | 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE'
@@ -640,6 +654,21 @@ async function upsertKaruteRecord(
         confidence: e.confidence,
         is_manual: true,
       }))
+    // S7 (PR-O commit 4): no booking named and none kept → the ONE auto-link
+    // the facade save shares, in the record's OWN store.
+    let appointmentId = keepLinkUnlessGiven(existing, {
+      customer_id: existing.customer_id ?? null,
+      appointment_id: payload.appointment_id ?? null,
+    })
+    const autoLinked = appointmentId
+      ? null
+      : await resolveAutoAppointmentLink(synqed, {
+          customerId: existing.customer_id ?? payload.customer_id,
+          storeId: existing.store_id ?? null,
+          recordingSessionId: job.recording_session_id,
+          sessionStartedAt: payload.session_started_at ?? null,
+        })
+    appointmentId = appointmentId ?? autoLinked?.appointmentId ?? null
     await synqed.karuteRecords.update(existing.id, {
       transcript: result.transcript,
       ai_summary: result.summary,
@@ -648,26 +677,34 @@ async function upsertKaruteRecord(
       // earlier save wrote. This update never moves customer_id, so the
       // record's customer after the write is the existing one — the SAME
       // rule as karute.core (keepLinkUnlessGiven).
-      appointment_id: keepLinkUnlessGiven(existing, {
-        customer_id: existing.customer_id ?? null,
-        appointment_id: payload.appointment_id ?? null,
-      }),
+      appointment_id: appointmentId,
     })
     // CEILING (mirrors lib/karute/karute.core.ts fix round 2): store_id does NOT move
     // with this update, so the persisted store is still the EXISTING record's
     // — already in hand from the lookup, no second read.
-    return { id: existing.id, storeId: existing.store_id, fresh: false }
+    return { id: existing.id, storeId: existing.store_id, fresh: false, autoLinked }
   }
   // 施術メニュー from the linked booking — best-effort: a missing/deleted
   // booking just leaves service null and the カルテ list shows its honest '—'.
-  const linkedAppointment = payload.appointment_id
-    ? await synqed.appointments.get(payload.appointment_id).catch(() => null)
+  // S7 (PR-O commit 4): a job that names no booking may link the ONE
+  // unambiguous booking of its session's day (resolveAutoAppointmentLink).
+  const autoLinked = payload.appointment_id
+    ? null
+    : await resolveAutoAppointmentLink(synqed, {
+        customerId: payload.customer_id,
+        storeId: payload.store_id ?? null,
+        recordingSessionId: job.recording_session_id,
+        sessionStartedAt: payload.session_started_at ?? null,
+      })
+  const appointmentId = payload.appointment_id ?? autoLinked?.appointmentId ?? null
+  const linkedAppointment = appointmentId
+    ? await synqed.appointments.get(appointmentId).catch(() => null)
     : null
   const record = await synqed.karuteRecords.create({
     customer_id: payload.customer_id,
     staff_id: payload.staff_id,
     store_id: payload.store_id ?? null,
-    appointment_id: payload.appointment_id ?? null,
+    appointment_id: appointmentId,
     recording_session_id: job.recording_session_id,
     status: 'DRAFT',
     transcript: result.transcript,
@@ -676,7 +713,7 @@ async function upsertKaruteRecord(
     duration_minutes: durationMinutesFromSeconds(payload.duration_seconds),
     entries,
   })
-  return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null, fresh: true }
+  return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null, fresh: true, autoLinked }
 }
 
 /** 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-

@@ -70,3 +70,97 @@ export function keepLinkUnlessGiven(
   if ((write.customer_id ?? null) !== (existing.customer_id ?? null)) return null
   return existing.appointment_id ?? null
 }
+
+/**
+ * S7 (PR-O commit 4; O2 + V5 + F1; RULING-S67-PRO-STOP2 R-O10): the
+ * UNAMBIGUOUS booking is linked at save — ONE function, called by the facade
+ * save (through createOrUpdateKaruteRecord) and the job worker's upsert, and
+ * only when the save names NO booking and the record carries none.
+ *
+ * The guardrail — every condition must hold, anything else links nothing:
+ *   1 the booking is the SAME customer's
+ *   2 in the SAME store as the karute
+ *   3 on the recording session's JST day
+ *   4 status SCHEDULED | IN_PROGRESS (the SDK has no CONFIRMED)
+ *   5 not cancelled (cancelled_at unset)
+ *   6 no OTHER karute already points at it
+ *   7 EXACTLY ONE such booking that day — two or more → 'ambiguous'
+ *   and the session's START falls inside the booking's own window widened by
+ *   the booking's OWN duration on each side (no constant — ⚖ NO HARDCODED
+ *   DURATIONS; a booking with no length links nothing).
+ * The booking's SCHEDULED status is not evidence of attendance — the karute
+ * is; the link is a karute→booking pointer that turns 未記録 into 記録済 on
+ * the 予約 tab and changes no count (packs/reconcile.ts reads it, writes
+ * nothing).
+ *
+ * NEVER THROWS: a read that fails links nothing ('none'), the save goes on.
+ */
+export type AutoAppointmentLink = 'auto_linked' | 'ambiguous' | 'none'
+const LINKABLE_STATUSES = new Set(['SCHEDULED', 'IN_PROGRESS'])
+
+function jstDayOf(iso: string): string {
+  return new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
+}
+
+export async function resolveAutoAppointmentLink(
+  synqed: Pick<SynqedClient, 'appointments' | 'recordings' | 'karuteRecords'>,
+  input: {
+    customerId: string
+    storeId: string | null
+    recordingSessionId: string
+    /** The session's START (its row's created_at). `undefined` = read the row
+     *  here (the facade save); a string/null = the caller already has it — the
+     *  worker takes it off the job payload, because the worker never reads
+     *  the session row (recording-adopted-row-retry-o3 pins that). */
+    sessionStartedAt?: string | null
+  },
+): Promise<{ link: AutoAppointmentLink; appointmentId: string | null }> {
+  const none = { link: 'none' as const, appointmentId: null }
+  try {
+    const startIso =
+      input.sessionStartedAt === undefined
+        ? (await synqed.recordings.get(input.recordingSessionId))?.created_at
+        : input.sessionStartedAt
+    if (!startIso) return none
+    const day = jstDayOf(startIso)
+    const res = await synqed.appointments.list({
+      customer_id: input.customerId,
+      store_id: input.storeId ?? undefined,
+      from: new Date(`${day}T00:00:00+09:00`).toISOString(),
+      to: new Date(`${day}T23:59:59.999+09:00`).toISOString(),
+      page_size: 50,
+    })
+    const sameDay = (res.appointments ?? []).filter(
+      (a) =>
+        a.customer_id === input.customerId &&
+        (a.store_id ?? null) === input.storeId &&
+        jstDayOf(a.starts_at) === day &&
+        LINKABLE_STATUSES.has(a.status) &&
+        !a.cancelled_at,
+    )
+    if (sameDay.length > 1) return { link: 'ambiguous', appointmentId: null }
+    const booking = sameDay[0]
+    if (!booking) return none
+
+    const startsMs = Date.parse(booking.starts_at)
+    const endsMs = Date.parse(booking.ends_at)
+    const ownMs =
+      Number.isFinite(endsMs) && endsMs > startsMs
+        ? endsMs - startsMs
+        : (booking.duration_minutes ?? 0) * 60_000
+    if (!(ownMs > 0)) return none
+    const sessionMs = Date.parse(startIso)
+    if (sessionMs < startsMs - ownMs || sessionMs > startsMs + 2 * ownMs) return none
+
+    // No OTHER karute may already point at this booking (this session's own
+    // record, on a converge, is not "other").
+    const linked = await synqed.karuteRecords.list({ appointment_id: booking.id, page_size: 5 })
+    const other = (linked.karute_records ?? []).some(
+      (k) => k.appointment_id === booking.id && k.recording_session_id !== input.recordingSessionId,
+    )
+    if (other) return none
+    return { link: 'auto_linked', appointmentId: booking.id }
+  } catch {
+    return none
+  }
+}

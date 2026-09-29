@@ -336,3 +336,14 @@ describe('POST recordings/job/from-session — R-O8 outcome_missing at the door'
     expect(call.payload.outcome_missing).toBeUndefined()
   })
 })
+
+// S7 (PR-O commit 4): the from-session door stamps the session's start from the row it reads.
+describe('POST recordings/job/from-session — S7 session_started_at on the payload', () => {
+  it('a row with created_at → the payload carries it', async () => {
+    recordingsGet.mockImplementationOnce(async () => ({ ...current.row, created_at: '2026-09-29T07:44:39Z' }) as never)
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.session_started_at).toBe('2026-09-29T07:44:39Z')
+  })
+})

@@ -610,3 +610,55 @@ describe('S2/S5 — the worker\'s karute.save row carries the answer\'s fate', (
     expect(complete).not.toHaveBeenCalled()
   })
 })
+
+// S7 (PR-O commit 4): the worker links the ONE unambiguous booking through the
+// same resolveAutoAppointmentLink — with the session start the enqueue door
+// stamped on the payload (the worker never reads the session row).
+describe('S7 — the worker links the unambiguous booking at save', () => {
+  const client = fakeClient as unknown as Record<string, Record<string, unknown>>
+  const appt = (id: string, startsAt: string, endsAt: string) => ({
+    id, customer_id: 'cust-1', store_id: 'store-A', starts_at: startsAt, ends_at: endsAt,
+    duration_minutes: 60, status: 'SCHEDULED', cancelled_at: null,
+  })
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  afterEach(() => {
+    delete client.appointments.list
+    delete client.karuteRecords.list
+  })
+  const run = async (appts: object[], payload: Record<string, unknown>) => {
+    client.appointments.list = jest.fn(async () => ({ appointments: appts }))
+    client.karuteRecords.list = jest.fn(async () => ({ karute_records: [] }))
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, store_id: 'store-A', ...payload } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+
+  it('S7-job: one booking in its window → created on it; the row says auto_linked', async () => {
+    const detail = await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], { session_started_at: '2026-09-29T07:44:39Z' })
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1' }))
+    expect(detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-1' })
+  })
+  it('S7-job: two bookings → ambiguous, no link', async () => {
+    const detail = await run(
+      [appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z'), appt('appt-2', '2026-09-29T10:00:00Z', '2026-09-29T11:00:00Z')],
+      { session_started_at: '2026-09-29T07:44:39Z' },
+    )
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect(detail.appointment_link).toBe('ambiguous')
+  })
+  it('S7-job: an older job with no session start → none, no link', async () => {
+    const detail = await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], {})
+    expect(detail.appointment_link).toBe('none')
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+  })
+  it('S7-job: a job that names its booking never runs the auto-link', async () => {
+    const detail = await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], { appointment_id: 'appt-given', session_started_at: '2026-09-29T07:44:39Z' })
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(detail.appointment_link).toBeNull()
+  })
+})

@@ -243,6 +243,8 @@ export async function enqueueFromSessionWithClient(
     duration_seconds: row.duration_seconds ?? undefined,
     outcome: input.outcome,
     outcome_missing: input.outcomeMissing ?? undefined,
+    // S7 (PR-O commit 4): the session's start, from the row in hand.
+    session_started_at: row.created_at ?? undefined,
   }
 
   try {

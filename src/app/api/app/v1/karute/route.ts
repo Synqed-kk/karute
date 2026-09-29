@@ -24,7 +24,13 @@ import { createOrUpdateKaruteRecord } from '@/lib/karute/karute.core'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { writeOutcomeFate, outcomeReply, type OutcomeLink } from '@/lib/karute/outcome-fate'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
-import { readAppointmentForSave, type AppointmentLinkReason, type AppointmentRead } from '@/lib/karute/appointment-link'
+import {
+  readAppointmentForSave,
+  resolveAutoAppointmentLink,
+  type AppointmentLinkReason,
+  type AppointmentRead,
+  type AutoAppointmentLink,
+} from '@/lib/karute/appointment-link'
 import type { SynqedClient, Appointment } from '@synqed-kk/client'
 
 export const runtime = 'nodejs'
@@ -176,6 +182,11 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
   // persisted save into a failure response (Greptile #689 r2); it becomes the
   // fate the row and this reply carry instead.
   let outcomeLink: OutcomeLink = 'skipped:not_sent'
+  // S7 (PR-O commit 4): a save that names NO booking may link the ONE
+  // unambiguous booking of this session's day (resolveAutoAppointmentLink —
+  // the function the worker shares); needs the session for its start.
+  let autoLink: AutoAppointmentLink | null = null
+  const recordingSessionId = input.recordingSessionId ?? null
   const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(
     synqed as unknown as SynqedClient,
     {
@@ -215,6 +226,17 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       outcomeLink = fate.link
       return fate.link
     },
+    !input.appointmentId && recordingSessionId
+      ? async () => {
+          const auto = await resolveAutoAppointmentLink(synqed as unknown as SynqedClient, {
+            customerId: input.customerId,
+            storeId,
+            recordingSessionId,
+          })
+          autoLink = auto.link
+          return auto
+        }
+      : undefined,
   )
 
   // Best-effort memory ingest — identity-threaded gate (businessId); fresh saves
@@ -231,7 +253,8 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
 
   // S2: the save answers with the answer's fate and the booking link's
   // (additive — an older client reads `id` and ignores the rest).
-  return ok(ctx, { id, outcome: outcomeReply(outcomeLink), appointment_link: linkReason })
+  // appointment_link = the SAME value the karute.save row carries (one vocabulary).
+  return ok(ctx, { id, outcome: outcomeReply(outcomeLink), appointment_link: linkReason ?? autoLink })
 })
 
 export const OPTIONS = POST // facadeHandler short-circuits OPTIONS before auth.

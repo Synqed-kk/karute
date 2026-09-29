@@ -502,3 +502,14 @@ describe("POST recordings/job — R-O7 a same-day 仮カルテ placeholder is no
     expect(jobsEnqueue).toHaveBeenCalledTimes(1)
   })
 })
+
+// S7 (PR-O commit 4): the enqueue door stamps the session's start on the job
+// payload so the worker's auto-link never reads the session row.
+describe('POST recordings/job — S7 session_started_at on the payload', () => {
+  it('the row\'s created_at rides the payload; an unreadable row leaves it absent (no refusal)', async () => {
+    recordingsGet.mockImplementation(async () => ({ ...ownRow(), created_at: '2026-09-29T07:44:39Z' }) as never)
+    const ok = await jobPOST(jreq('POST', { ...auth, ...idem }, validBody), noRoute)
+    expect(ok.status).toBe(200)
+    expect((jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }])[0].payload.session_started_at).toBe('2026-09-29T07:44:39Z')
+  })
+})
