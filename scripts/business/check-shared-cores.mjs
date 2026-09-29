@@ -95,7 +95,7 @@
 //      names (auditWeb, logFacadeAudit) FAIL anywhere in the door as `foreign
 //      emit name` — a local stand-in would read as an audit. The walker gets
 //      `writePairs: []`: the audit-gates job installs no SDK, and the door
-//      holds no SDK client (data-access rule 1, CP3's "writers" rows), so it
+//      reaches core only through the bound handles in core-reach.ts (data-access rule 1, CP3's "writers" rows), so it
 //      never reads client.d.ts. Inherited from the walker unchanged (not this
 //      fence's to widen): a return inside a catch, a bare / null return and
 //      an error-shaped value are exempt WHEREVER they sit — a door function
