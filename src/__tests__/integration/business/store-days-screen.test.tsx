@@ -596,5 +596,41 @@ describe('B2 act 1b honest stamp', () => {
     expect(src).not.toContain(PAGE_ONLY)
     expect(i18n).toContain(`"pageOnlyStamp": "${PAGE_ONLY}"`)
     expect(JA.sampleMark.pageOnlyStamp).toBe(PAGE_ONLY)
+    // ⚖ R37 — one predicate, two sites: a second copy of the expression at either site would pass every behaviour test (attack M5); the shape is pinned here.
+    expect(src.split(/\bstoreDaysLive\b/).length - 1).toBe(3)
+    expect(src.split('blocks.some((x) => x.id === STORE_HOURS_CLOSURES_ID)').length - 1).toBe(1)
+  })
+  // ⚖ R37 (attack M7) — the honest stamp is a COMMITTED stamp: before any press the bar says 変更はありません.
+  it('(f) door ON, no edit, no save: 「変更はありません」, the page-only string absent', async () => {
+    await mountT(STORE.tokyo)
+    expect(stamps()).toEqual(['変更はありません'])
+    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+  })
+  // ⚖ R37 (attack M9/M10) — a live block that cannot write (revoked mid-session, or locked from the start)
+  // does not make the bar's commit real: it still reaches the sample blocks only, so the stamp stays honest.
+  const honestAfterSave = async () => {
+    const sent = await editAndSave()
+    expect(sent).toBe(0)
+    expect(stamps()).toEqual([`${PAGE_ONLY} ${stampTime()}`])
+    expect(document.body.textContent).not.toContain('✓ 保存しました')
+  }
+  it('(g) door ON, the write revoked mid-session (403 → storeDaysRevoked): sample edit + 保存する → the honest stamp', async () => {
+    await mountT(STORE.tokyo)
+    reply = () => ({ status: 403, body: { ok: false, reason: 'forbidden', message: '変更には本部の権限が必要です。' } })
+    fireEvent.change(input('store-hours.closures-date')!, { target: { value: '2026-12-01' } })
+    await act(async () => { addBtn('store-hours.closures')!.click() })
+    await settle()
+    expect(addBtn('store-hours.closures')).toBeUndefined()
+    expect(text('store-hours.closures')).toContain(READ_ONLY_NOTE)
+    await honestAfterSave()
+  })
+  it('(h) door ON, saveStoreDays.lockedNote set (the actor may not write): sample edit + 保存する → the honest stamp', async () => {
+    mockUi.sheetOverride = { [CARD.owner]: { staff_id: CARD.owner, role: 'manager', coarse_role: 'ADMIN', capabilities: ['settings.manage', 'stores.viewAll'], visible_store_ids: null, money_scope: null, version: '1.1' } }
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ saveStampTime: string; saveStoreDays?: { lockedNote: string | null } }>
+    expect(el.props.saveStoreDays?.lockedNote).toBe(READ_ONLY_NOTE)
+    time = el.props.saveStampTime
+    render(el)
+    await act(async () => {})
+    await honestAfterSave()
   })
 })
