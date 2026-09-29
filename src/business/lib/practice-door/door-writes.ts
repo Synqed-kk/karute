@@ -31,6 +31,7 @@ import { practiceTenant } from './switch'
 import { canManageSettings } from './door'
 import { jstYmd, renderNow } from '../clock'
 import type { CoreReads } from './core-reach'
+import { GENERIC_FAIL_LINE, READ_ONLY_NOTE, specialDayBadge } from '../store-days-state'
 
 // ── shared result shapes ─────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ const MSG = {
   openNotBeforeClose: '閉店時刻は開店時刻より後にしてください。',
   duplicateSpecial: 'その日はすでに特別営業日です',
   duplicateClosure: 'その日はすでに臨時休業です',
-  readOnly: '変更には本部の権限が必要です。',
+  readOnly: READ_ONLY_NOTE,
   // ⚖ PKT-S30 P3-5 — the section's own empty-date line (settings-props.ts emptyDateError), and
   // the same shape for an empty time (no sibling time line exists).
   pickDate: '日付を選んでください。',
@@ -69,18 +70,14 @@ const MSG = {
   // ⚖ PKT-S30 P3-3 — core's own cap (specialOpenDaysSchema.max(366), CORE-READ-B1.md:171), counted
   // on core's WHOLE array (past entries included): a validation refusal, never "try later".
   specialCap: '特別営業日は366件までのため、これ以上追加できません。',
-  genericFail: 'いまは保存できないため、時間をおいてもう一度保存してください（予定の一覧はこれまでのままです）。',
+  genericFail: GENERIC_FAIL_LINE,
   readFailure: 'いまは予定を読み込めないため、時間をおいてページを再読み込みしてください。',
 } as const
-/** 特別営業日 block note (R8) and the badge (R3/R8 folded — see MSG above for
- *  the badge itself); both live here so the UI layer imports copy from ONE
- *  home rather than restating it. */
+/** 特別営業日 block note (R8) + the read-failure line, reached by settings-props.ts through data.ts.
+ *  ⚖ PKT-S30 P3-12 — the badge, the read-only line and the pending labels live in
+ *  store-days-state.ts (the copy the client screen prints too); this file imports them. */
 export const SPECIAL_OPEN_DAYS_NOTE = '通常の営業時間とは別に営業する、その日限りの予定です。'
-export const SPECIAL_OPEN_DAYS_BADGE = '臨時休業より優先'
 export const READ_FAILURE_LINE = MSG.readFailure
-export const READ_ONLY_NOTE = MSG.readOnly
-export const ADD_PENDING_LABEL = '追加中'
-export const REMOVE_PENDING_LABEL = '取り消し中'
 
 // ── R2 — capability, honest ──────────────────────────────────────────────────
 
@@ -478,10 +475,5 @@ export async function removeSpecialOpenDay(storeId: string, date: string): Promi
 
 // ── the badge (R3/R8) — computed from CLOSURES, never from the special list ─
 
-/** 「臨時休業の日に特別営業」→ folded to 「臨時休業より優先」(copy round). A
- *  special day badges when its date is ALSO a closure date — the source of
- *  truth is the CLOSURES array, never the special list itself (R3: "computed
- *  from the CLOSURES list, never from the special list"). */
-export function specialDayBadge(date: string, closures: readonly StoreClosedDay[]): string | null {
-  return closures.some((c) => c.date === date) ? SPECIAL_OPEN_DAYS_BADGE : null
-}
+/** ⚖ PKT-S30 F12 — the badge rule's one home is store-days-state.ts; re-exported for data.ts. */
+export { specialDayBadge }

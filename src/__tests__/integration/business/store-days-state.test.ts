@@ -1,5 +1,5 @@
 // ⚖ PKT-S30 F2 (m6 + m15) — the store-days reducers: core's answer is the only thing committed.
-import { applyClosureAdded, applyClosureRemoved, applySpecialOpenDays, type ClosureCore, type SpecialCore } from '@/business/lib/practice-door/store-days-state'
+import { applyClosureAdded, applyClosureRemoved, applySpecialOpenDays, type ClosureCore, type SpecialCore } from '@/business/lib/store-days-state'
 
 const A: ClosureCore = { id: '11111111-1111-4111-8111-111111111111', date: '2026-11-04', reason: '棚卸し' }
 const B: ClosureCore = { id: '22222222-2222-4222-8222-222222222222', date: '2026-11-20', reason: null }

@@ -78,6 +78,19 @@ import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFa
 import { Collapse, DetailToggle } from './Collapse'
 import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSection'
 import {
+  ADD_PENDING_LABEL,
+  applyClosureAdded,
+  applyClosureRemoved,
+  applySpecialOpenDays,
+  GENERIC_FAIL_LINE,
+  READ_ONLY_NOTE,
+  REMOVE_PENDING_LABEL,
+  SPECIAL_OFF_WORLD_LINE,
+  specialDayBadge,
+  type ClosureCore,
+  type SpecialCore,
+} from '@/business/lib/store-days-state'
+import {
   isIntegerTextAtLeast,
   StorePolicySection,
   STORE_POLICY_ANCHORS,
@@ -202,17 +215,17 @@ function seedOf(props: SettingsProps): Record<string, RowValue> {
 
 /** ⚖ PKT-S29-B1 — the payload's own 臨時休業 rows, taken once (`null` = a
  *  failed read, R7; never confused with "no block on this section"). */
-function seedLiveClosures(props: SettingsProps): LiveClosureRow[] | null {
+function seedLiveClosures(props: SettingsProps): ClosureCore[] | null {
   for (const s of props.sections) {
     const b = s.blocks.find((x) => x.id === STORE_HOURS_CLOSURES_ID)
-    if (b) return b.collection ? b.collection.items.map((r) => ({ id: r.id, date: r.date ?? r.id, title: r.title, note: r.note })) : null
+    if (b) return b.collection ? b.collection.items.map((r) => ({ id: r.id, date: r.date ?? r.id, reason: r.note === '' ? null : r.note })) : null
   }
   return null
 }
 /** The payload's own 特別営業日 rows, RAW (date/open/close only — the badge is
- *  recomputed live against the CURRENT 臨時休業 list, never frozen at seed
- *  time: R3, "computed from the CLOSURES list"). */
-function seedLiveSpecial(props: SettingsProps): SpecialOpenDayLite[] | null {
+ *  re-asked of `specialDayBadge`, its one home, against the CURRENT 臨時休業 list:
+ *  R3, "computed from the CLOSURES list"). */
+function seedLiveSpecial(props: SettingsProps): SpecialCore[] | null {
   for (const s of props.sections) {
     const b = s.blocks.find((x) => x.id === STORE_HOURS_SPECIAL_ID)
     if (b) return b.specialDays ? b.specialDays.items.map(({ date, open, close }) => ({ date, open, close })) : null
@@ -433,25 +446,24 @@ const BOOKING_SAVE_FAIL: Record<CardSaveReason, string> = {
 // read `message` straight off the response rather than keeping a second
 // reason→copy table here. Copy is the R9 copy round's own folded verdicts —
 // this file NEVER imports door-writes.ts (a server-only module; see its own
-// header on why a 'use client' file must not).
+// header on why a 'use client' file must not). ⚖ PKT-S30 P3-12 / F2 — the copy
+// and the list reducers come from store-days-state.ts, their one (pure) home.
 export type StoreDaysSave = { businessId: string; storeId: string; canWrite: boolean }
 const STORE_HOURS_CLOSURES_ID = 'store-hours.closures'
 const STORE_HOURS_SPECIAL_ID = 'store-hours.special-open'
 const CLOSURES_URL = '/api/business/store-days/closures'
 const SPECIAL_URL = '/api/business/store-days/special'
-const STORE_DAYS_READ_ONLY_NOTE = '変更には本部の権限が必要です。'
-const STORE_DAYS_ADD_PENDING = '追加中'
-const STORE_DAYS_REMOVE_PENDING = '取り消し中'
-const STORE_DAYS_GENERIC_FAIL = 'いまは保存できないため、時間をおいてもう一度保存してください（予定の一覧はこれまでのままです）。'
 
-type StoreDaysFail = { ok: false; message: string }
-type LiveClosureRow = { id: string; date: string; title: string; note: string }
-type LiveSpecialRow = { date: string; title: string; open: string; close: string; badge: string | null }
+/** `forbidden` = the door answered 403 at write time (⚖ PKT-S30 Also-noted A): the capability
+ *  changed under the user, so the block turns read-only. */
+type StoreDaysFail = { ok: false; message: string; forbidden: boolean }
 
-function storeDaysMessage(body: unknown): string {
-  const m = (body as { message?: unknown } | null)?.message
-  return typeof m === 'string' && m !== '' ? m : STORE_DAYS_GENERIC_FAIL
+function storeDaysFail(body: unknown): StoreDaysFail {
+  const b = body as { message?: unknown; reason?: unknown } | null
+  const m = b?.message
+  return { ok: false, message: typeof m === 'string' && m !== '' ? m : GENERIC_FAIL_LINE, forbidden: b?.reason === 'forbidden' }
 }
+const NO_ANSWER: StoreDaysFail = { ok: false, message: GENERIC_FAIL_LINE, forbidden: false }
 
 async function postAddClosedDay(save: StoreDaysSave, date: string, reason: string): Promise<{ ok: true; row: { id: string; date: string; reason: string | null } } | StoreDaysFail> {
   try {
@@ -466,9 +478,9 @@ async function postAddClosedDay(save: StoreDaysSave, date: string, reason: strin
     if (res.ok && answer.ok === true && row && typeof row.id === 'string' && typeof row.date === 'string') {
       return { ok: true, row: { id: row.id, date: row.date, reason: typeof row.reason === 'string' ? row.reason : null } }
     }
-    return { ok: false, message: storeDaysMessage(body) }
+    return storeDaysFail(body)
   } catch {
-    return { ok: false, message: STORE_DAYS_GENERIC_FAIL }
+    return NO_ANSWER
   }
 }
 
@@ -479,21 +491,13 @@ async function deleteClosedDay(save: StoreDaysSave, id: string): Promise<{ ok: t
     const body: unknown = await res.json().catch(() => null)
     const answer = (body ?? {}) as { ok?: unknown }
     if (res.ok && answer.ok === true) return { ok: true }
-    return { ok: false, message: storeDaysMessage(body) }
+    return storeDaysFail(body)
   } catch {
-    return { ok: false, message: STORE_DAYS_GENERIC_FAIL }
+    return NO_ANSWER
   }
 }
 
-type SpecialOpenDayLite = { date: string; open: string; close: string }
-const SPECIAL_BADGE = '臨時休業より優先'
-function specialRowsOf(days: SpecialOpenDayLite[], closureDates: ReadonlySet<string>): LiveSpecialRow[] {
-  return [...days]
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-    .map((s) => ({ date: s.date, title: dayTitle(s.date), open: s.open, close: s.close, badge: closureDates.has(s.date) ? SPECIAL_BADGE : null }))
-}
-
-async function postAddSpecialOpenDay(save: StoreDaysSave, date: string, open: string, close: string): Promise<{ ok: true; days: SpecialOpenDayLite[] } | StoreDaysFail> {
+async function postAddSpecialOpenDay(save: StoreDaysSave, date: string, open: string, close: string): Promise<{ ok: true; days: SpecialCore[] } | StoreDaysFail> {
   try {
     const res = await fetch(SPECIAL_URL, {
       method: 'POST',
@@ -503,26 +507,26 @@ async function postAddSpecialOpenDay(save: StoreDaysSave, date: string, open: st
     const body: unknown = await res.json().catch(() => null)
     const answer = (body ?? {}) as { ok?: unknown; specialOpenDays?: unknown }
     if (res.ok && answer.ok === true && Array.isArray(answer.specialOpenDays)) {
-      return { ok: true, days: answer.specialOpenDays as SpecialOpenDayLite[] }
+      return { ok: true, days: answer.specialOpenDays as SpecialCore[] }
     }
-    return { ok: false, message: storeDaysMessage(body) }
+    return storeDaysFail(body)
   } catch {
-    return { ok: false, message: STORE_DAYS_GENERIC_FAIL }
+    return NO_ANSWER
   }
 }
 
-async function deleteSpecialOpenDay(save: StoreDaysSave, date: string): Promise<{ ok: true; days: SpecialOpenDayLite[] } | StoreDaysFail> {
+async function deleteSpecialOpenDay(save: StoreDaysSave, date: string): Promise<{ ok: true; days: SpecialCore[] } | StoreDaysFail> {
   try {
     const url = `${SPECIAL_URL}?storeId=${encodeURIComponent(save.storeId)}&date=${encodeURIComponent(date)}`
     const res = await fetch(url, { method: 'DELETE', headers: { 'x-expected-business': save.businessId } })
     const body: unknown = await res.json().catch(() => null)
     const answer = (body ?? {}) as { ok?: unknown; specialOpenDays?: unknown }
     if (res.ok && answer.ok === true && Array.isArray(answer.specialOpenDays)) {
-      return { ok: true, days: answer.specialOpenDays as SpecialOpenDayLite[] }
+      return { ok: true, days: answer.specialOpenDays as SpecialCore[] }
     }
-    return { ok: false, message: storeDaysMessage(body) }
+    return storeDaysFail(body)
   } catch {
-    return { ok: false, message: STORE_DAYS_GENERIC_FAIL }
+    return NO_ANSWER
   }
 }
 
@@ -573,14 +577,16 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  `null` = a failed read (R7); `[]` = a real, empty list. One `useRef` guard per
    *  list (never both writes in flight at once), `pending` names WHICH control is
    *  busy ('add' or the specific row's id/date) for the per-row disabled state. */
-  const [liveClosures, setLiveClosures] = useState<LiveClosureRow[] | null>(() => seedLiveClosures(props))
+  const [liveClosures, setLiveClosures] = useState<ClosureCore[] | null>(() => seedLiveClosures(props))
   const [closurePending, setClosurePending] = useState<string | null>(null)
   const [closureError, setClosureError] = useState<string | null>(null)
   const closureBusy = useRef(false)
-  const [liveSpecial, setLiveSpecial] = useState<SpecialOpenDayLite[] | null>(() => seedLiveSpecial(props))
+  const [liveSpecial, setLiveSpecial] = useState<SpecialCore[] | null>(() => seedLiveSpecial(props))
   const [specialPending, setSpecialPending] = useState<string | null>(null)
   const [specialError, setSpecialError] = useState<string | null>(null)
   const specialBusy = useRef(false)
+  /** ⚖ PKT-S30 Also-noted A — a write answered `forbidden`: both store-days blocks turn read-only. */
+  const [storeDaysRevoked, setStoreDaysRevoked] = useState(false)
   const [results, setResults] = useState<Record<string, string>>({})
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [tourIdx, setTourIdx] = useState(-1)
@@ -776,11 +782,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const result = await postAddClosedDay(save, date, reason)
     closureBusy.current = false
     setClosurePending(null)
+    setLiveClosures((prev) => applyClosureAdded(prev, result.ok ? { ok: true, value: result.row } : { ok: false }))
     if (!result.ok) {
       setClosureError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
       return
     }
-    setLiveClosures((prev) => [...(prev ?? []), { id: result.row.id, date: result.row.date, title: dayTitle(result.row.date), note: result.row.reason ?? '' }])
     setValues((prev) => ({ ...prev, [coll.dateControlId]: '', [coll.reasonControlId]: '' }))
   }, [values])
 
@@ -792,11 +799,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const result = await deleteClosedDay(save, rowId)
     closureBusy.current = false
     setClosurePending(null)
+    setLiveClosures((prev) => applyClosureRemoved(prev, result.ok ? { ok: true, value: rowId } : { ok: false }))
     if (!result.ok) {
       setClosureError(result.message)
-      return
+      if (result.forbidden) setStoreDaysRevoked(true)
     }
-    setLiveClosures((prev) => (prev ?? []).filter((r) => r.id !== rowId))
   }, [])
 
   /** ⚖ PKT-S29-B1 R8 — 特別営業日's LIVE add/remove: the door returns the
@@ -815,11 +822,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const result = await postAddSpecialOpenDay(save, date, open, close)
     specialBusy.current = false
     setSpecialPending(null)
+    setLiveSpecial((prev) => applySpecialOpenDays(prev, result.ok ? { ok: true, value: result.days } : { ok: false }))
     if (!result.ok) {
       setSpecialError(result.message)
+      if (result.forbidden) setStoreDaysRevoked(true)
       return
     }
-    setLiveSpecial(result.days.map(({ date, open, close }) => ({ date, open, close })))
     setValues((prev) => ({ ...prev, [sd.dateControlId]: '', [sd.openControlId]: '', [sd.closeControlId]: '' }))
   }, [values])
 
@@ -831,11 +839,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const result = await deleteSpecialOpenDay(save, date)
     specialBusy.current = false
     setSpecialPending(null)
+    setLiveSpecial((prev) => applySpecialOpenDays(prev, result.ok ? { ok: true, value: result.days } : { ok: false }))
     if (!result.ok) {
       setSpecialError(result.message)
-      return
+      if (result.forbidden) setStoreDaysRevoked(true)
     }
-    setLiveSpecial(result.days.map(({ date, open, close }) => ({ date, open, close })))
   }, [])
 
   const commitSection = useCallback((target: SettingsSection) => {
@@ -1614,8 +1622,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   // never existed in the OFF draft model, so its OFF behaviour is simply
                   // "no writer, nothing sent" (R8's own honest-empty-state world).
                   const closuresLive = b.id === STORE_HOURS_CLOSURES_ID && props.saveStoreDays
-                  const readOnlyNote = props.saveStoreDays && props.saveStoreDays.canWrite === false ? STORE_DAYS_READ_ONLY_NOTE : null
-                  const specialDisplay = liveSpecial === null ? null : specialRowsOf(liveSpecial, new Set((liveClosures ?? []).map((r) => r.date)))
+                  const readOnlyNote = props.saveStoreDays && (props.saveStoreDays.canWrite === false || storeDaysRevoked) ? READ_ONLY_NOTE : null
+                  const closureDisplay = liveClosures === null ? null : liveClosures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))
+                  const specialDisplay = liveSpecial === null ? null : liveSpecial.map((d) => ({ date: d.date, title: dayTitle(d.date), open: d.open, close: d.close, badge: specialDayBadge(d.date, liveClosures ?? []) }))
                   return (
                     <Block
                       key={b.id}
@@ -1630,7 +1639,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                       onLink={(id) => openSection(id, false)}
                       openRows={openRows}
                       onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
-                      listRows={closuresLive ? liveClosures : b.collection ? rowsOfBlock(b, listRows) : null}
+                      listRows={closuresLive ? closureDisplay : b.collection ? rowsOfBlock(b, listRows) : null}
                       listError={closuresLive ? closureError : listErrors[b.id] ?? null}
                       listReadOnly={closuresLive ? readOnlyNote : null}
                       listPending={closuresLive ? closurePending : null}
@@ -1640,7 +1649,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
                       specialError={b.id === STORE_HOURS_SPECIAL_ID ? specialError : null}
                       specialReadOnly={b.id === STORE_HOURS_SPECIAL_ID ? readOnlyNote : null}
                       specialPending={b.id === STORE_HOURS_SPECIAL_ID ? specialPending : null}
-                      onSpecialAdd={() => (props.saveStoreDays ? void addSpecialLive(b, props.saveStoreDays) : undefined)}
+                      // ⚖ PKT-S30 F10 — OFF: 特別営業日 has no draft to add to; 追加 says so (never a silent no-op).
+                      onSpecialAdd={() => (props.saveStoreDays ? void addSpecialLive(b, props.saveStoreDays) : setSpecialError(SPECIAL_OFF_WORLD_LINE))}
                       onSpecialRemove={(date) => (props.saveStoreDays ? void removeSpecialLive(date, props.saveStoreDays) : undefined)}
                       reduced={reduced}
                     />
@@ -2337,7 +2347,7 @@ function Collection({
                 {...inert}
                 onClick={busy ? noop : () => onRemove(r.id)}
               >
-                {pending === r.id ? STORE_DAYS_REMOVE_PENDING : coll.removeLabel}
+                {pending === r.id ? REMOVE_PENDING_LABEL : coll.removeLabel}
               </button>
             )}
           </div>
@@ -2372,7 +2382,7 @@ function Collection({
             />
           </label>
           <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
-            {pending === 'add' ? STORE_DAYS_ADD_PENDING : coll.addLabel}
+            {pending === 'add' ? ADD_PENDING_LABEL : coll.addLabel}
           </button>
           {error && <p className="st-coll-error" role="status">{error}</p>}
         </div>
@@ -2437,7 +2447,7 @@ function SpecialDaysCollection({
                 {...inert}
                 onClick={busy ? noop : () => onRemove(r.date)}
               >
-                {pending === r.date ? STORE_DAYS_REMOVE_PENDING : sd.removeLabel}
+                {pending === r.date ? REMOVE_PENDING_LABEL : sd.removeLabel}
               </button>
             )}
           </div>
@@ -2481,7 +2491,7 @@ function SpecialDaysCollection({
             />
           </label>
           <button type="button" className="st-act" {...inert} onClick={busy ? noop : onAdd}>
-            {pending === 'add' ? STORE_DAYS_ADD_PENDING : sd.addLabel}
+            {pending === 'add' ? ADD_PENDING_LABEL : sd.addLabel}
           </button>
           {error && <p className="st-coll-error" role="status">{error}</p>}
         </div>

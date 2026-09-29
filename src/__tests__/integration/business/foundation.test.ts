@@ -937,6 +937,9 @@ describe('the fixture data door', () => {
         '@/business/lib/guide',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
+        // ⚖ PKT-S30 F2 / P3-12 — the store-days reducers + copy: pure, no imports (so no path to the
+        // practice door, which is why it lives beside settings.ts rather than in practice-door/).
+        '@/business/lib/store-days-state',
         // ⚖ S17 STEP 1 — the room's ONE integrator. Every moving thing on the
         // page (the segment's thumb, the switch's thumb, the 詳しく panel's
         // height, the save card's rise) is driven by `makeSpring`; a second
