@@ -36,7 +36,10 @@ import {
 //
 // ⚖ NUMBERS AND FLAGS ONLY. The body is `{ v, kind, at, bytes, first_byte }`:
 // the object's size and its first byte as a number — never a byte array, never
-// audio content (R3).
+// audio content (R3). A `refused` mark of a take the phone said was not whole
+// adds ONE flag, `partial: true` (PR-K N-3, A5) — written only when true, the
+// key OMITTED otherwise (never `partial: null`), so every other body keeps its
+// five keys; read back, a body without it answers `partial: null`.
 
 export type TakeMark = {
   v: 1
@@ -44,7 +47,12 @@ export type TakeMark = {
   at: string
   bytes: number | null
   first_byte: number | null
+  /** true only when the stored body says so; null for a body without it. */
+  partial: true | null
 }
+
+/** What is PUT: the five keys, plus `partial` only when it is true. */
+type TakeMarkBody = Omit<TakeMark, 'partial'> & { partial?: true }
 
 export type MarkTakeResult = 'created' | 'exists' | 'error'
 
@@ -67,18 +75,19 @@ export async function markTake(
   businessId: string,
   takeKey: string,
   mark: MarkKind,
-  facts: { bytes: number | null; first_byte: number | null },
+  facts: { bytes: number | null; first_byte: number | null; partial?: boolean },
 ): Promise<MarkTakeResult> {
   try {
     if (parseRecordingKey(takeKey, businessId)?.kind !== 'take') return 'error'
     const composed = composeMarkKey(businessId, takeKey, mark)
     if (composed === null) return 'error'
-    const body: TakeMark = {
+    const body: TakeMarkBody = {
       v: 1,
       kind: mark,
       at: new Date().toISOString(),
       bytes: facts.bytes,
       first_byte: facts.first_byte,
+      ...(facts.partial === true ? { partial: true as const } : {}),
     }
     const { error } = await client.storage
       .from('recordings')
@@ -112,7 +121,7 @@ export async function markStagedCopy(
     if (parseRecordingKey(stagedKey, businessId)?.kind !== 'staged') return 'error'
     const composed = composeMarkKey(businessId, stagedKey, 'partial')
     if (composed === null) return 'error'
-    const body: TakeMark = {
+    const body: TakeMarkBody = {
       v: 1,
       kind: 'partial',
       at: new Date().toISOString(),
@@ -133,7 +142,8 @@ export async function markStagedCopy(
 }
 
 /** A stored body read back — a v1 mark of a known kind with a real timestamp,
- *  or null. */
+ *  or null. A body without `partial` (every body before PR-K, and every body
+ *  but a partial take's refusal after it) reads `partial: null`. */
 function readMarkBody(text: string): TakeMark | null {
   let m: Partial<TakeMark> | null
   try {
@@ -155,6 +165,7 @@ function readMarkBody(text: string): TakeMark | null {
     at: m.at,
     bytes: typeof m.bytes === 'number' ? m.bytes : null,
     first_byte: typeof m.first_byte === 'number' ? m.first_byte : null,
+    partial: m.partial === true ? true : null,
   }
 }
 

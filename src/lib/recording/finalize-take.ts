@@ -384,7 +384,12 @@ export async function finalizeTakeWithClient(
       }
       if (probe.state === 'unreadable') {
         const facts = { bytes: input.byteLength, first_byte: probe.firstByte }
-        const marked = await markTake(createServiceClient(), actor.businessId, key, 'refused', facts)
+        // PR-K N-3: the refusal carries what the phone said about the blob —
+        // `partial: true` in the mark body only when the body said so (A5).
+        const marked = await markTake(createServiceClient(), actor.businessId, key, 'refused', {
+          ...facts,
+          partial: input.partial === true,
+        })
         if (marked === 'created') return emitFinalizeRefused(actor, row.id, facts)
         if (marked !== 'exists') {
           // S63 FIX-3 (Greptile thread 1): the mark did NOT land — no durable
