@@ -12,12 +12,16 @@ restoration with `git diff --quiet` — no test run (the syntax check of this
 script). Every mutant is a targeted text edit whose anchor must match EXACTLY
 once; the file's original bytes are written back after each run, then
 `git diff --quiet` proves it. Output: a table `id · target · expected killer ·
-killed?`. A survivor is printed as SURVIVED, never hidden.
+killed?`. A survivor is printed as SURVIVED, never hidden. KILLED means the
+named tests failed on assertion (Jest's JSON report); a run that proves
+nothing (no JSON, a runtime-errored suite, zero tests) is BROKEN, not killed.
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
+import tempfile
 
 IT = 'src/__tests__/integration'
 FINALIZE = 'src/lib/recording/finalize-take.ts'
@@ -141,6 +145,46 @@ def restore(originals):
         raise SystemExit(f'RESTORE FAILED: git diff is not quiet on {list(originals)}')
 
 
+def run_killers(killers, env):
+    """S63 FIX-3 (Greptile thread 5, codex 14, D6): a KILL is the named tests
+    FAILING ON ASSERTION, never any nonzero exit. Jest writes its JSON report;
+    KILLED requires it to parse, success false, numFailedTests > 0 and
+    numRuntimeErrorTestSuites == 0. SURVIVED requires the same report with
+    success true. Anything else (no JSON, a runtime-errored suite, zero tests)
+    is BROKEN — never counted as killed. Returns (verdict, why, failed names)."""
+    fd, out = tempfile.mkstemp(prefix='mutants-s60a-', suffix='.json')
+    os.close(fd)
+    os.unlink(out)
+    try:
+        subprocess.run(['npx', 'jest', *killers, '--silent', '--json', '--outputFile', out], env=env,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            with open(out, encoding='utf-8') as f:
+                rep = json.load(f)
+        except (OSError, ValueError) as e:
+            return 'BROKEN', f'no parseable jest JSON ({type(e).__name__})', []
+    finally:
+        if os.path.exists(out):
+            os.unlink(out)
+    total = rep.get('numTotalTests', 0)
+    failed_n = rep.get('numFailedTests', 0)
+    runtime = rep.get('numRuntimeErrorTestSuites', 0)
+    success = rep.get('success')
+    if runtime != 0:
+        return 'BROKEN', f'{runtime} runtime-errored suite(s)', []
+    if not total:
+        return 'BROKEN', 'zero tests ran', []
+    if success is False and failed_n > 0:
+        names = [a.get('fullName') or a.get('title') or '?'
+                 for tr in rep.get('testResults', [])
+                 for a in tr.get('assertionResults', [])
+                 if a.get('status') == 'failed']
+        return 'KILLED', '', names
+    if success is True and failed_n == 0:
+        return 'SURVIVED', '', []
+    return 'BROKEN', f'success={success} numFailedTests={failed_n}', []
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--only', help='run one mutant id')
@@ -165,9 +209,11 @@ def main():
                 subprocess.run(['git', '--no-pager', 'diff', '--stat', '--', *originals])
                 verdict = 'dry-run'
             else:
-                r = subprocess.run(['npx', 'jest', *killers, '--silent'], env=env,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                verdict = 'KILLED' if r.returncode != 0 else 'SURVIVED'
+                verdict, why, failed = run_killers(killers, env)
+                if verdict == 'BROKEN':
+                    print(f'BROKEN {mid} {why}')
+                for name in failed:
+                    print(f'  {mid} killed by: {name}')
         finally:
             restore(originals)
         rows.append((mid, f'{target} — {what}', ' + '.join(os.path.basename(k) for k in killers), verdict))
@@ -177,7 +223,7 @@ def main():
         print(' · '.join(row))
     whole = subprocess.run(['git', 'diff', '--quiet']).returncode == 0
     print(f'restored: git diff --quiet → {"clean" if whole else "DIRTY"}')
-    if not whole or any(r[3] == 'SURVIVED' for r in rows):
+    if not whole or any(r[3] in ('SURVIVED', 'BROKEN') for r in rows):
         sys.exit(1)
 
 
