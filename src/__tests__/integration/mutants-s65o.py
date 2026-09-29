@@ -99,6 +99,11 @@ MUTANTS = [
      [(LINK, '    if (sessionMs < startsMs - ownMs || sessionMs > startsMs + 2 * ownMs) return none\n',
        '    if (sessionMs < startsMs - 60 * 60_000 || sessionMs > startsMs + 120 * 60_000) return none // M-O7f\n')],
      [AUTO_T], ["the window is the booking's OWN duration on each side"]),
+    # M-O12 — the status filter moves back before the count (S67 fix round 2, commit 10, B-1)
+    ('M-O12', 'the two-booking count sees only SCHEDULED/IN_PROGRESS again (a COMPLETED visit + the next booking links the next)',
+     [(LINK, "        !a.cancelled_at && a.status !== 'CANCELLED',\n",
+       "        LINKABLE_STATUSES.has(a.status) && !a.cancelled_at, // M-O12\n")],
+     [AUTO_T], ['B-1 A5a: the real visit 09:00–10:00 already COMPLETED']),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',

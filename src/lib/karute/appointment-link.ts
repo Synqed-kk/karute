@@ -82,9 +82,15 @@ export function keepLinkUnlessGiven(
  *   2 in the SAME store as the karute
  *   3 on the recording session's JST day
  *   4 status SCHEDULED | IN_PROGRESS (the SDK has no CONFIRMED)
- *   5 not cancelled (cancelled_at unset)
+ *   5 not cancelled (cancelled_at unset, status not CANCELLED)
  *   6 no OTHER karute already points at it
- *   7 EXACTLY ONE such booking that day — two or more → 'ambiguous'
+ *   7 EXACTLY ONE booking that day — two or more → 'ambiguous'. Counted
+ *     BEFORE the status check (S67 fix round 2, B-1): every booking of the
+ *     customer in that store on that day that is not cancelled counts —
+ *     COMPLETED, NO_SHOW, SCHEDULED, IN_PROGRESS alike. A real visit already
+ *     checked out plus the next booking is TWO bookings, never a link to the
+ *     next one (a wrong link is worse than no link). The one booking then
+ *     still has to pass 4–6 and the window.
  *   and the session's START falls inside the booking's own window widened by
  *   the booking's OWN duration on each side (no constant — ⚖ NO HARDCODED
  *   DURATIONS; a booking with no length links nothing).
@@ -130,17 +136,18 @@ export async function resolveAutoAppointmentLink(
       to: new Date(`${day}T23:59:59.999+09:00`).toISOString(),
       page_size: 50,
     })
+    // Condition 7 counts every NOT-CANCELLED booking of the day, whatever its
+    // status (B-1); the status check (4) runs on the one booking after.
     const sameDay = (res.appointments ?? []).filter(
       (a) =>
         a.customer_id === input.customerId &&
         (a.store_id ?? null) === input.storeId &&
         jstDayOf(a.starts_at) === day &&
-        LINKABLE_STATUSES.has(a.status) &&
-        !a.cancelled_at,
+        !a.cancelled_at && a.status !== 'CANCELLED',
     )
     if (sameDay.length > 1) return { link: 'ambiguous', appointmentId: null }
     const booking = sameDay[0]
-    if (!booking) return none
+    if (!booking || !LINKABLE_STATUSES.has(booking.status)) return none
 
     const startsMs = Date.parse(booking.starts_at)
     const endsMs = Date.parse(booking.ends_at)

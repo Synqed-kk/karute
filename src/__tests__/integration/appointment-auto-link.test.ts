@@ -67,6 +67,27 @@ describe('S7 — resolveAutoAppointmentLink, the guardrail', () => {
     const second = booking({ id: 'appt-2', starts_at: '2026-09-29T10:00:00Z', ends_at: '2026-09-29T11:00:00Z' })
     expect(await run(client([booking(), second]).c)).toEqual({ link: 'ambiguous', appointmentId: null })
   })
+  // S67 fix round 2, B-1 (the attack's A5a/A5b): condition 7 counts every
+  // booking of the day that is not cancelled, BEFORE the status check.
+  it('B-1 A5a: the real visit 09:00–10:00 already COMPLETED + the next 10:00–11:00 SCHEDULED, session 09:05 → ambiguous, no link', async () => {
+    const real = booking({ id: 'appt-real', starts_at: '2026-09-29T00:00:00Z', ends_at: '2026-09-29T01:00:00Z', status: 'COMPLETED' })
+    const next = booking({ id: 'appt-next', starts_at: '2026-09-29T01:00:00Z', ends_at: '2026-09-29T02:00:00Z' })
+    expect(await run(client([real, next]).c, { sessionStartedAt: '2026-09-29T00:05:00Z' })).toEqual({ link: 'ambiguous', appointmentId: null })
+  })
+  it('B-1: a NO_SHOW or IN_PROGRESS booking beside a SCHEDULED one is two bookings → ambiguous', async () => {
+    for (const status of ['NO_SHOW', 'IN_PROGRESS']) {
+      const other = booking({ id: 'appt-x', starts_at: '2026-09-29T01:00:00Z', ends_at: '2026-09-29T02:00:00Z', status })
+      expect((await run(client([booking(), other]).c)).link).toBe('ambiguous')
+    }
+  })
+  it('B-1: a CANCELLED booking (status or cancelled_at) beside a SCHEDULED one does not count → the SCHEDULED one links', async () => {
+    const other = (over: Partial<Appt>) => booking({ id: 'appt-x', starts_at: '2026-09-29T01:00:00Z', ends_at: '2026-09-29T02:00:00Z', ...over })
+    expect(await run(client([booking(), other({ status: 'CANCELLED' })]).c)).toEqual({ link: 'auto_linked', appointmentId: 'appt-1' })
+    expect(await run(client([booking(), other({ cancelled_at: '2026-09-28T23:00:00Z' })]).c)).toEqual({ link: 'auto_linked', appointmentId: 'appt-1' })
+  })
+  it('B-1: one COMPLETED booking only, in its window → none (counted, then refused by status)', async () => {
+    expect(await run(client([booking({ status: 'COMPLETED' })]).c)).toEqual({ link: 'none', appointmentId: null })
+  })
   it('the window is the booking\'s OWN duration on each side (no constant)', async () => {
     // 60-min booking 17:40–18:40 JST → window 16:40–19:40: 16:44 inside.
     expect((await run(client([booking({ starts_at: '2026-09-29T08:40:00Z', ends_at: '2026-09-29T09:40:00Z' })]).c)).link).toBe('auto_linked')
