@@ -31,7 +31,8 @@ export function applyClosureRemoved(prev: ClosureCore[] | null, answer: WriteAns
 }
 
 /** 臨時休業 removed, the door's answer: its refreshed list (from its FRESH read) replaces the local one
- *  wholesale — every row the door sent, in date order (stable, as `applyClosureAdded` orders). */
+ *  wholesale — every row the door sent, in date order — a stable sort, so same-date rows keep the
+ *  door's order (the same order `applyClosureAdded` produces by inserting after same-date rows). */
 export function applyClosuresReplaced(list: ReadonlyArray<ClosureCore>): ClosureCore[] {
   return list.map((r) => ({ id: r.id, date: r.date, reason: r.reason ?? null })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
 }
