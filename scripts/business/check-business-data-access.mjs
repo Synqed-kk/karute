@@ -20,8 +20,9 @@
 //      Finding 2). The named exceptions are core-reach.ts's bound
 //      handles (orgSettings.upsert · storePolicies set/addClosedDay/
 //      removeClosedDay · audit.log), each pinned by exact text and count
-//      (R-A2-7 for the first) — see ALLOW. Known ceiling: `.call(` / `.apply(`, bracket access and
-//      a plain-variable alias before `.bind(` still need AST alias tracking.
+//      (R-A2-7 for the first) — see ALLOW. Known ceiling: `.call(` /
+//      `.apply(`, bracket access and a plain-variable alias before
+//      `.bind(` still need AST alias tracking.
 //   3. Supabase / service-client READS are legal in EXACTLY two lock files,
 //      src/business/lib/grants.ts and src/business/lib/admission.ts, so the
 //      workspace-grant lock stays real config, not a fixture. Everywhere else
