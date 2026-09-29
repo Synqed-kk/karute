@@ -34,7 +34,8 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { practiceDoorOn, readBookingColors, readCanManageCardColor, readCanWriteStoreDays } from '@/business/lib/data'
 import { SettingsScreen } from './SettingsScreen'
-import { settingsProps, storeDaysLockedNote } from './settings-props'
+import { settingsProps } from './settings-props'
+import { storeDaysLockedNote } from './settings-props'
 import './settings.css'
 
 export default async function SettingsPage({
