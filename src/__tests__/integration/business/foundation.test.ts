@@ -1280,9 +1280,9 @@ describe('the fixture data door', () => {
   const WRITERS = [
     { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 },
     { file: 'door-booking-colors.ts', line: 'orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })', count: 1 },
-    // ⚖ PKT-S29-B1 — the store-days writer's three lines: `.set(` appears identically in all three
-    // exported functions (setSpecialOpenDays / addSpecialOpenDay / removeSpecialOpenDay), count 3.
-    { file: 'door-writes.ts', line: 'await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })', count: 3 },
+    // ⚖ PKT-S29-B1 — the store-days writer's lines. ⚖ PKT-S30 F13 (tightening) — `.set(` appears ONCE:
+    // since F7 the add/remove wrappers reach core only through setSpecialOpenDays' one admitted set.
+    { file: 'door-writes.ts', line: 'await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })', count: 1 },
     { file: 'door-writes.ts', line: "const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: input.reason === '' ? null : input.reason, acting_staff_id: actor.sheet.staff_id, audit: addEvent })", count: 1 },
     { file: 'door-writes.ts', line: 'await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)', count: 1 },
     // ⚖ PKT-S30 F6 — the closure-removal audit event, the door's fourth SDK write (`audit.log`).
