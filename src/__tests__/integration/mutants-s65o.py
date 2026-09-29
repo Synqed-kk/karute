@@ -188,7 +188,7 @@ MUTANTS = [
                'S7-job: two bookings → ambiguous, no link']),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)
     ('M-G1', '`return await emitSave(...)` (the S67 list failure)',
-     [(CORE, '  return emitSave({ id: record.id, fresh: true,', '  return await emitSave({ id: record.id, fresh: true,')],
+     [(CORE, '  return emitSave({\n    id: record.id,\n', '  return await emitSave({\n    id: record.id,\n')],
      [CP2_T, CP7_T], ['createOrUpdateKaruteRecord resolves and emits on every non-error path']),
 ]
 
