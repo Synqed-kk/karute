@@ -386,6 +386,17 @@ export async function finalizeTakeWithClient(
         const facts = { bytes: input.byteLength, first_byte: probe.firstByte }
         const marked = await markTake(createServiceClient(), actor.businessId, key, 'refused', facts)
         if (marked === 'created') return emitFinalizeRefused(actor, row.id, facts)
+        if (marked !== 'exists') {
+          // S63 FIX-3 (Greptile thread 1): the mark did NOT land — no durable
+          // refusal, no audit row. Never tell the phone 「refused」 then: answer
+          // today's retryable `failed` (frozen R2) and say so once (codes only).
+          console.warn('[finalize-take] mark not landed', {
+            recordingSessionId: row.id,
+            kind: 'refused',
+            answer: marked,
+          })
+          return { error: 'failed' }
+        }
         return { error: 'unreadable_object' }
       }
     }
@@ -405,6 +416,16 @@ export async function finalizeTakeWithClient(
             first_byte: input.diag?.first_byte ?? null,
           })
         : null
+    if (partialMark !== null && partialMark !== 'created' && partialMark !== 'exists') {
+      // S63 FIX-3 (Greptile thread 3): the flag did not land — say so once
+      // (codes only); the answer is unchanged, a good take is never failed
+      // because a flag did not land.
+      console.warn('[finalize-take] mark not landed', {
+        recordingSessionId: row.id,
+        kind: 'partial',
+        answer: partialMark,
+      })
+    }
     if (input.partial != null || input.diag) {
       console.info('[finalize-take] take diag', {
         recordingSessionId: row.id,

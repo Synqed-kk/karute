@@ -154,11 +154,62 @@ describe('a headerless object is refused', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
-  it('a mark write that errors still refuses, and files no row', async () => {
+  // S63 FIX-3 / Greptile thread 1: a mark that did not land answers retryable failed
+  it('a mark write that errors answers retryable failed, files no row, stamps nothing, and says so once', async () => {
     upload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'boom' } })
-    await expect(finalize()).resolves.toEqual({ error: 'unreadable_object' })
+    await expect(finalize()).resolves.toEqual({ error: 'failed' })
+    expect(upload).toHaveBeenCalledTimes(1)
     expect(auditFn).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
+    const lines = (console.warn as jest.Mock).mock.calls.filter(([tag]) => tag === '[finalize-take] mark not landed')
+    expect(lines).toEqual([
+      ['[finalize-take] mark not landed', { recordingSessionId: SESSION, kind: 'refused', answer: 'error' }],
+    ])
+    expect(JSON.stringify(lines)).not.toContain(KEY)
+    expect(JSON.stringify(lines)).not.toContain(TAKE)
+  })
+
+  it('a mark create that lands files ONE row; an existing mark files none — and neither logs a not-landed line', async () => {
+    await expect(finalize()).resolves.toEqual({ error: 'unreadable_object' })
+    expect(actions()).toEqual(['recording.finalize_refused'])
+    auditFn.mockClear()
+    await expect(finalize()).resolves.toEqual({ error: 'unreadable_object' })
+    expect(auditFn).not.toHaveBeenCalled()
+    const lines = (console.warn as jest.Mock).mock.calls.filter(([tag]) => tag === '[finalize-take] mark not landed')
+    expect(lines).toEqual([])
+  })
+})
+
+describe('a partial mark that did not land never changes the answer (S63 FIX-3, Greptile thread 3)', () => {
+  const partialInput = { ...input, partial: true }
+  const finalizePartial = () => finalizeTakeWithClient(synqed, actor, partialInput)
+  const notLanded = () =>
+    (console.warn as jest.Mock).mock.calls.filter(([tag]) => tag === '[finalize-take] mark not landed')
+
+  it('landed → ok, one partial mark, no not-landed line', async () => {
+    jest.spyOn(console, 'info').mockImplementation(() => {})
+    await expect(finalizePartial()).resolves.toEqual({ ok: true, recordingSessionId: SESSION })
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(upload.mock.calls[0][1])).toEqual(expect.objectContaining({ kind: 'partial' }))
+    expect(notLanded()).toEqual([])
+  })
+
+  it('not landed → the answer, the update and the audit identical to the landed case; exactly one line, kind partial', async () => {
+    jest.spyOn(console, 'info').mockImplementation(() => {})
+    const landed = await finalizePartial()
+    const landedUpdate = update.mock.calls
+    const landedAudit = auditFn.mock.calls
+    jest.clearAllMocks()
+    marks.clear()
+    upload.mockResolvedValueOnce({ data: null, error: { statusCode: '500', message: 'boom' } })
+    const failed = await finalizePartial()
+    expect(JSON.stringify(failed)).toBe(JSON.stringify(landed))
+    expect(update.mock.calls).toEqual(landedUpdate)
+    expect(auditFn.mock.calls).toEqual(landedAudit)
+    expect(notLanded()).toEqual([
+      ['[finalize-take] mark not landed', { recordingSessionId: SESSION, kind: 'partial', answer: 'error' }],
+    ])
+    expect(JSON.stringify(notLanded())).not.toContain(KEY)
   })
 })
 
