@@ -641,6 +641,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-09-24',
   },
   {
+    file: 'src/lib/recording/take-mark.ts',
+    call: 'storage.recordings.upload',
+    symbols: ['markTake'],
+    justification:
+      "S60 PR-A (A4): durable refusal/partial flag, never overwritten. The create-only (upsert:false) PUT of a tiny JSON mark `{ v, kind, at, bytes, first_byte }` at mrk/<take key>.<kind>.json — numbers and flags only, never audio content. It is the durable half of an audited act, not an act of its own: its caller (finalizeTakeWithClient, AUDITED_CORES, from S60 A2) files the one recording.finalize_refused row only when this call answers 'created', so a phone re-finalizing the same refused take every minute gets the same answer and files no second row. A duplicate is refused by storage and answered 'exists'; markTake never throws. Nothing is ever deleted or edited — a later mark of a later kind (rescued / regenerated) supersedes it (M7).",
+    dated: '2026-09-29',
+  },
+  {
     file: 'src/lib/customers/customers.core.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
