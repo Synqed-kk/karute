@@ -940,8 +940,15 @@ export async function mintTakeUploadUrl(
 
   // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). It is still
   // ROW-LESS — nothing is reserved and nothing is audited; since A4b it writes
-  // the `partial` take mark (`notePartialAtStagedMint` → `markPartialAtMint`)
-  // when the body says `partial` — but it is no longer ANONYMOUS: the key
+  // ONE create-only `partial` take mark (`notePartialAtStagedMint` →
+  // `markPartialAtMint`), and only when ALL of these hold: the door's own
+  // refusals passed and its arm settled (an existing object whose size it
+  // answers, or a successful sign — a sign error writes nothing); the body
+  // says `partial: true` (a `diag` alone only logs); the
+  // `RECORDING_SWITCHES.finalizeProbe` switch is ON (else `switch_off`,
+  // nothing written); and the take key composes from `rowTake ?? stagedTake`
+  // (a random-fallback slot or a composer failure names no take:
+  // `no_take_key`, nothing written). It is no longer ANONYMOUS: the key
   // carries the session, so the
   // transcribe door can check the binding rather than accept any same-tenant
   // key as that discard's audio. The row is read only to prove the caller may

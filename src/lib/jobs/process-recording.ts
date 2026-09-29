@@ -19,7 +19,6 @@
 import { SynqedClient, type KaruteRecord, type RecordingJob } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
-  AUDIO_UNREADABLE,
   runMeteredTranscription,
   speakerIdMode,
   loadStaffReferenceForStaff,
@@ -33,6 +32,7 @@ import { readStaffDiscard } from '@/lib/recording/staff-discard'
 import { hasRememberedEmptyTranscript } from '@/lib/jobs/empty-transcript-memory'
 import {
   AI_SPEND_LIMIT,
+  AUDIO_UNREADABLE,
   DISCARDED_BY_STAFF,
   DISCARD_LEDGER_UNREADABLE,
   TRANSCRIPTION_LEDGER_UNAVAILABLE,

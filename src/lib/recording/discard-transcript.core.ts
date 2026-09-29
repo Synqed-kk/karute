@@ -23,8 +23,8 @@ import { isOwnAudioKey, isOwnRecordingKey, isStagedKeyFor, parseRecordingKey } f
 import { resolveTakeAudio } from '@/lib/recording/take-audio'
 import { isConsentCurrent } from '@/lib/consent'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
+import { AUDIO_UNREADABLE } from '@/lib/recording/job-errors'
 import {
-  AUDIO_UNREADABLE,
   AudioUnreadableError,
   runMeteredTranscription,
   speakerIdMode,
