@@ -390,13 +390,31 @@ export async function finalizeTakeWithClient(
           ...facts,
           partial: input.partial === true,
         })
+        if (marked !== 'created' && marked !== 'exists') {
+          // S63 FIX-3 (Greptile thread 1): the mark did NOT land — no durable
+          // refusal, no audit row, and no partial flag either. Never tell the
+          // phone 「refused」 then: answer today's retryable `failed` (frozen
+          // R2) and say so once (codes only).
+          console.warn('[finalize-take] mark not landed', {
+            recordingSessionId: row.id,
+            kind: 'refused',
+            answer: marked,
+          })
+          return { error: 'failed' }
+        }
+        // The refusal stands. Only the call whose create landed files the audit
+        // row — and files it NOW, straight after the mark, with nothing written
+        // in between (S67 fix round 1, commit 7: the refusal is audited before
+        // the partial flag).
+        if (marked === 'created') emitFinalizeRefused(actor, row.id, facts)
         // S67 fix round 1 (Greptile #1099 thread 3): the refused mark keeps the
         // FIRST caller's claim (create-only, never edited — M7), so a later
         // `partial: true` is never lost: the take ALSO receives the create-only
         // `partial` mark on its take key (`created` the first time the phone
         // says so, `exists` after). A flag for PR-R, not an act: NO audit row;
-        // written only once the refusal stands, and it never changes the answer.
-        if (input.partial === true && (marked === 'created' || marked === 'exists')) {
+        // written only AFTER the refusal stands and is audited, and it never
+        // changes the answer.
+        if (input.partial === true) {
           const partialMark = await markTake(createServiceClient(), actor.businessId, key, 'partial', facts)
           if (partialMark !== 'created' && partialMark !== 'exists') {
             console.warn('[finalize-take] mark not landed', {
@@ -406,18 +424,7 @@ export async function finalizeTakeWithClient(
             })
           }
         }
-        if (marked === 'created') return emitFinalizeRefused(actor, row.id, facts)
-        if (marked !== 'exists') {
-          // S63 FIX-3 (Greptile thread 1): the mark did NOT land — no durable
-          // refusal, no audit row. Never tell the phone 「refused」 then: answer
-          // today's retryable `failed` (frozen R2) and say so once (codes only).
-          console.warn('[finalize-take] mark not landed', {
-            recordingSessionId: row.id,
-            kind: 'refused',
-            answer: marked,
-          })
-          return { error: 'failed' }
-        }
+        // emitFinalizeRefused answers this same code; one answer for every call.
         return { error: 'unreadable_object' }
       }
     }

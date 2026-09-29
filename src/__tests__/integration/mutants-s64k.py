@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """PR-K mutation proof (PACKET-S64-PRK commit 3; RULING A8 adds M-K7..M-K9,
 drops M-K5 as never-had; S67 fix round 1 adds M-K10/M-K11 = the attacker's
-X2/X3 on the staged reader, and M-K12 = the unreadable branch's partial mark). Each mutant breaks ONE rule of 「a mark names an
+X2/X3 on the staged reader, M-K12 = the unreadable branch's partial mark,
+M-K13/M-K14 = its order after the audit emit and its guard). Each mutant breaks ONE rule of 「a mark names an
 object the server named」 or of the refused mark's partial flag; a NAMED test
 file must go red for it (KILLED). Run from the repo root on a COMMITTED tree:
 
@@ -84,6 +85,13 @@ MUTANTS = [
     ('M-K12', FINALIZE, 'the extra partial write in the unreadable branch removed (Greptile thread 3)',
      [(FINALIZE, "        if (input.partial === true && (marked === 'created' || marked === 'exists')) {\n",
        "        if (false) { // M-K12\n")],
+     [K2_TESTS]),
+    ('M-K13', FINALIZE, 'the order swapped back: the partial write before the refusal\'s audit emit (fresh-round S1)',
+     [(FINALIZE, "        if (marked === 'created') emitFinalizeRefused(actor, row.id, facts)\n        // S67 fix round 1 (Greptile #1099 thread 3): the refused mark keeps the\n        // FIRST caller's claim (create-only, never edited — M7), so a later\n        // `partial: true` is never lost: the take ALSO receives the create-only\n        // `partial` mark on its take key (`created` the first time the phone\n        // says so, `exists` after). A flag for PR-R, not an act: NO audit row;\n        // written only AFTER the refusal stands and is audited, and it never\n        // changes the answer.\n        if (input.partial === true) {\n          const partialMark = await markTake(createServiceClient(), actor.businessId, key, 'partial', facts)\n          if (partialMark !== 'created' && partialMark !== 'exists') {\n            console.warn('[finalize-take] mark not landed', {\n              recordingSessionId: row.id,\n              kind: 'partial',\n              answer: partialMark,\n            })\n          }\n        }\n",
+       "        // S67 fix round 1 (Greptile #1099 thread 3): the refused mark keeps the\n        // FIRST caller's claim (create-only, never edited — M7), so a later\n        // `partial: true` is never lost: the take ALSO receives the create-only\n        // `partial` mark on its take key (`created` the first time the phone\n        // says so, `exists` after). A flag for PR-R, not an act: NO audit row;\n        // written only AFTER the refusal stands and is audited, and it never\n        // changes the answer.\n        if (input.partial === true) {\n          const partialMark = await markTake(createServiceClient(), actor.businessId, key, 'partial', facts)\n          if (partialMark !== 'created' && partialMark !== 'exists') {\n            console.warn('[finalize-take] mark not landed', {\n              recordingSessionId: row.id,\n              kind: 'partial',\n              answer: partialMark,\n            })\n          }\n        }\n        // M-K13: the audit emit moved back AFTER the partial write\n        if (marked === 'created') emitFinalizeRefused(actor, row.id, facts)\n")],
+     [K2_TESTS]),
+    ('M-K14', FINALIZE, 'the negative guard removed: a partial write after a refused mark that did not land (fresh-round S2)',
+     [(FINALIZE, "        if (marked !== 'created' && marked !== 'exists') {\n", "        if (false) { // M-K14\n")],
      [K2_TESTS]),
 ]
 

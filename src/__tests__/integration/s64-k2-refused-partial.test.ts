@@ -193,3 +193,58 @@ describe('a later partial claim is never lost (Greptile #1099 thread 3 (PRRT_kwD
     expect(update).not.toHaveBeenCalled()
   })
 })
+
+describe('the refusal is audited before the partial flag (fix round 1 commit 7, fresh-round S1/S2)', () => {
+  const FAIL = { data: null, error: { statusCode: '500', message: 'boom' } }
+  const failOn = (bad: string) => {
+    const real = upload.getMockImplementation()!
+    upload.mockImplementation(async (key: string, body: string, opts: unknown) =>
+      key === bad ? FAIL : real(key, body, opts),
+    )
+  }
+  const notLanded = () =>
+    (console.warn as jest.Mock).mock.calls.filter(([t]) => t === '[finalize-take] mark not landed').map(([, f]) => f)
+  let realUpload: Parameters<typeof upload.mockImplementation>[0]
+  beforeAll(() => {
+    realUpload = upload.getMockImplementation()!
+  })
+  afterEach(() => {
+    upload.mockImplementation(realUpload)
+  })
+
+  it('(a) refused created, the partial write fails → the audit row is still filed, the answer unchanged, ONE not-landed line', async () => {
+    failOn(PARTIAL)
+    await expect(finalize({ partial: true })).resolves.toEqual({ error: 'unreadable_object' })
+    expect(actions()).toEqual(['recording.finalize_refused'])
+    expect([...stored.keys()]).toEqual([REFUSED])
+    expect(notLanded()).toEqual([{ recordingSessionId: SESSION, kind: 'partial', answer: 'error' }])
+  })
+
+  it('(b) refused exists, the partial write fails → no audit row, the answer unchanged', async () => {
+    stored.set(REFUSED, JSON.stringify({ v: 1, kind: 'refused', at: '2026-09-29T10:00:00.000Z', bytes: 1024, first_byte: 0 }))
+    failOn(PARTIAL)
+    await expect(finalize({ partial: true })).resolves.toEqual({ error: 'unreadable_object' })
+    expect(actions()).toEqual([])
+    expect(upload.mock.calls.map(([k]) => k)).toEqual([REFUSED, PARTIAL])
+    expect(notLanded()).toEqual([{ recordingSessionId: SESSION, kind: 'partial', answer: 'error' }])
+  })
+
+  it('(c) refused answers error → no partial attempt: upload called ONCE, failed, no audit row', async () => {
+    failOn(REFUSED)
+    await expect(finalize({ partial: true })).resolves.toEqual({ error: 'failed' })
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(upload.mock.calls[0][0]).toBe(REFUSED)
+    expect(actions()).toEqual([])
+    expect(stored.size).toBe(0)
+  })
+
+  it('(d) the order: refused upload → the audit emit → the partial upload', async () => {
+    await expect(finalize({ partial: true })).resolves.toEqual({ error: 'unreadable_object' })
+    expect(upload.mock.calls.map(([k]) => k)).toEqual([REFUSED, PARTIAL])
+    const [refusedAt, partialAt] = upload.mock.invocationCallOrder
+    const [auditAt] = auditFn.mock.invocationCallOrder
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    expect(refusedAt).toBeLessThan(auditAt)
+    expect(auditAt).toBeLessThan(partialAt)
+  })
+})
