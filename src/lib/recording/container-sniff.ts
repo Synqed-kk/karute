@@ -131,8 +131,15 @@ export async function probeObjectHead(
   try {
     const res = await fetch(signedUrl, {
       headers: { Range: PROBE_RANGE },
+      // S63 FIX-3 (Greptile thread 4): a signed URL never redirects; a 3xx is
+      // never followed — the probe answers `unknown` / `redirect` instead.
+      redirect: 'manual',
       signal,
     })
+    if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+      res.body?.cancel().catch(() => {})
+      return { state: 'unknown', reason: 'redirect' }
+    }
     if (res.status !== HTTP_PARTIAL_CONTENT && res.status !== HTTP_OK) {
       res.body?.cancel().catch(() => {})
       return { state: 'unknown', reason: `http_${res.status}` }

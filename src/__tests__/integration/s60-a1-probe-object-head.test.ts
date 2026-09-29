@@ -112,6 +112,20 @@ describe('probeObjectHead — readable / unreadable', () => {
     expect(tally.cancelled).toBe(true)
   })
 
+  // S63 FIX-3 (codex 9): the 「at most 64 bytes」 bites — an UNREADABLE answer
+  // carries bytesRead, so a mock handing over far more than 64 bytes in one
+  // chunk must still report at most 64 examined, from a Range: bytes=0-63 request.
+  it('200 whose single chunk is 1 MB of no container → unreadable, bytesRead <= 64, asked for bytes=0-63', async () => {
+    const big = new Uint8Array(1024 * 1024).fill(0x07)
+    const tally = answer(200, big)!
+    const result = await probeObjectHead(URL_)
+    expect(tally.pulled).toBeGreaterThan(64)
+    expect(result).toEqual({ state: 'unreadable', firstByte: 0x07, bytesRead: 64 })
+    expect((result as { bytesRead: number }).bytesRead).toBeLessThanOrEqual(64)
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ Range: 'bytes=0-63' })
+    expect(tally.cancelled).toBe(true)
+  })
+
   it('200 + 14 zero bytes → unreadable, firstByte 0, bytesRead 14', async () => {
     answer(200, new Uint8Array(14))
     await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unreadable', firstByte: 0, bytesRead: 14 })
@@ -131,6 +145,19 @@ describe('probeObjectHead — readable / unreadable', () => {
 })
 
 describe('probeObjectHead — unknown (never a refusal)', () => {
+  // S63 FIX-3 (Greptile thread 4): the probe never follows a redirect.
+  it('a 302 with a Location → unknown redirect, one fetch, the Location never fetched', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, { status: 302, headers: { Location: 'https://elsewhere.test/other-object' } }),
+    )
+    const result = await probeObjectHead(URL_)
+    expect(result).toEqual({ state: 'unknown', reason: 'redirect' })
+    expect((result as { bytesRead?: number }).bytesRead ?? null).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe(URL_)
+    expect(fetchMock.mock.calls[0][1].redirect).toBe('manual')
+  })
+
   it('a body of 5 bytes → unknown short_head', async () => {
     answer(206, WEBM_HEAD.subarray(0, 5))
     await expect(probeObjectHead(URL_)).resolves.toEqual({ state: 'unknown', reason: 'short_head', bytesRead: 5 })
