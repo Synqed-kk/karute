@@ -2172,6 +2172,7 @@ function Block({
       </div>
       {block.note && <p className="st-block-note">{block.note}</p>}
       {mark && <MarkNote mark={mark} id={`st-mark-${block.id}`} open={markOpen} reduced={reduced} />}
+      {mark && block.markLine && <p className="sample-mark-note">{block.markLine}</p>}
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.layout === 'week' ? (

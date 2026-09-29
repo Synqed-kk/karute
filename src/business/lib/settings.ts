@@ -510,6 +510,9 @@ export interface SettingsBlock {
   /** ⚖ PR-3 — the store has no sample plane for this block's SAMPLE part: the
    *  designed card where the bare 「サンプル設定なし」 used to print. */
   sampleNone?: true
+  /** ⚖ S35 B2 act 1 — the sample block's own save truth (S1), set ONLY beside `sample`
+   *  by settings-props for the 店舗情報・営業時間 blocks, so it prints exactly where the chip does. */
+  markLine?: string
   /** ⚖ S17 STEP 1 — the ONE block whose rows are a WEEK rather than a list.
    *
    *  営業時間 is seven rows that all answer the same three questions (営業する ·
