@@ -356,6 +356,8 @@ import { POST as facadeTranscribePOST } from '@/app/api/app/v1/ai/transcribe/rou
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { runMeteredTranscription } from '@/lib/ai/transcribe'
+import { readTranscriptMemo } from '@/lib/recording/transcript-memo'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { can } from '@/lib/auth/require-permission'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
 
@@ -1118,13 +1120,123 @@ describe('the web route (cookie door)', () => {
     }
   })
 
-  it('s46 no row (unbound fallback / an older tab) → the words still come back (paid), and the answer is still remembered', async () => {
+  // ⚖ S53 A1 — THIS PIN IS FLIPPED ON PURPOSE (it reverses the S46 line in
+  // the route; ruling given — Liam, 2026-09-28 19:5x JST:
+  // 「I think both. Yes to both.」). S46 read "no row → no replay": the
+  // unbound fallback's automatic re-POST of the SAME key after a lost response
+  // paid twice on the web door. A1 replays 'no_row' too, and grants nothing
+  // new: the phone door already replays 'no_row' (v1 route, :86-101), and the
+  // read-URL door already hands any same-tenant records.write holder a signed
+  // URL for a 'no_row' key (recording-upload.ts, mintRecordingReadUrl). The
+  // fence (own tenant's take key + records.write) and the 'foreign' refusal
+  // are unchanged — t2c and the colleague's-row case above still pay.
+  it('S53 A1 (was s46) no row (unbound fallback / an older tab) → the memo is READ: the first call pays and is remembered, the same key again REPLAYS', async () => {
     const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
     expect(res.status).toBe(200)
     expect((await res.json()).transcript).toBe('こんにちは')
-    expect(storageDownload).not.toHaveBeenCalled()
+    expect(storageDownload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`)
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
     expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), expect.anything())
+
+    const again = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+    expect(again.status).toBe(200)
+    expect((await again.json()).transcript).toBe('こんにちは')
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('S53 A1 switch OFF → the S46 answer exactly: no row → no memo read, it pays, and the answer is still remembered', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).transcript).toBe('こんにちは')
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+      expect(storageUpload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`, expect.any(String), expect.anything())
+    } finally {
+      off.restore()
+    }
+  })
+
+  it("S53 A1 a colleague's row with a remembered answer → still NO replay (the fence A1 leaves standing)", async () => {
+    await seedMemo()
+    ownRowHolds(OWN_TAKE, 'login-colleague')
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  // ── S53 A2: a core read blip never buys the same audio twice ─────────────
+  const coreBlips = () =>
+    recordingsGet.mockRejectedValueOnce(Object.assign(new Error('core 500'), { status: 500 }))
+
+  it('a2 core blip + a paid answer already remembered → retryable 502, Deepgram NOT asked, nothing reserved', async () => {
+    await seedMemo()
+    recordUsage.mockClear()
+    coreBlips()
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).toBe('could not read the recording')
+    expect(storageDownload).toHaveBeenCalledWith(`trc/${OWN_TAKE}.ja.json`)
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+  })
+
+  it('a2 core blip + nothing remembered → pays exactly as before (no availability lost), and the answer is remembered', async () => {
+    coreBlips()
+    const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).transcript).toBe('こんにちは')
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    expect(memoStore.has(`trc/${OWN_TAKE}.ja.json`)).toBe(true)
+  })
+
+  it('a2 the blip clears → the retry replays: ONE provider call across paid → 502 → replay (the phone door’s shape)', async () => {
+    ownRowHolds(OWN_TAKE)
+    try {
+      const body = { audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }
+      expect((await webTranscribePOST(post(body))).status).toBe(200)
+      coreBlips()
+      expect((await webTranscribePOST(post(body))).status).toBe(502)
+      const replay = await webTranscribePOST(post(body))
+      expect(replay.status).toBe(200)
+      expect((await replay.json()).transcript).toBe('こんにちは')
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  it("a2 a colleague's row still pays (the S46 fence is unchanged — only 'unreadable' reads the memo)", async () => {
+    await seedMemo()
+    ownRowHolds(OWN_TAKE, 'login-colleague')
+    try {
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.mocked(getCurrentUserStaffId).mockResolvedValue(null)
+    }
+  })
+
+  it('a6 switch OFF → the pre-S53 answer: core blip + a remembered answer PAYS again (no memo read)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      await seedMemo()
+      coreBlips()
+      const res = await webTranscribePOST(post({ audioUrl: signedUrl(OWN_TAKE), locale: 'ja', recordingSessionId: S46_ROW }))
+      expect(res.status).toBe(200)
+      expect(storageDownload).not.toHaveBeenCalled()
+      expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    } finally {
+      off.restore()
+    }
   })
 
   it('t10 a non-URL never reaches the parse — the SSRF guard answers 400 first, nothing read', async () => {
@@ -2113,5 +2225,87 @@ describe('charge once — the durable transcript memo', () => {
     expect(second.receipt.replayed).toBe(false)
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  // ⚖ S53 A3 — THE MEMO IS WRITTEN BEFORE THE TRUE-UP. The true-up is up to
+  // three core calls and a second of waits; a process that dies inside it (the
+  // 300 s limit, a crash) used to take the PAID answer with it, and the next
+  // attempt paid again. A true-up that never finishes is exactly that death as
+  // the code sees it: the memo must already be readable while it hangs.
+  it('a3 the TRUE-UP never finishes (the process dies inside it) → the paid answer is already remembered, and the next call replays it', async () => {
+    // 600,000 B → 100 s → a 1 ¢ reserve; the 5,400 s answer owes a 44 ¢ true-up.
+    headBytes.current = 600_000
+    let trueUpStarted = false
+    recordUsage
+      .mockResolvedValueOnce(undefined) // the reserve lands
+      .mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>(() => {}) // …and the true-up never returns
+      })
+
+    void call(AUDIO)
+    while (!trueUpStarted) await new Promise(setImmediate)
+
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+    const memo = await readTranscriptMemo(memoKey(AUDIO))
+    expect(memo).toMatchObject({ state: 'hit', memo: { v: 1, duration_seconds: 5400, result: { transcript: 'こんにちは' } } })
+
+    // The retry after that death reads it: no second provider call.
+    const retry = await call(AUDIO)
+    expect(retry.receipt.replayed).toBe(true)
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('a3 a true-up that is LOST (three failures) still leaves exactly one memo, written before the ledger calls', async () => {
+    headBytes.current = 600_000
+    recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    const paid = await call(AUDIO)
+
+    expect(paid.receipt.debit_recorded).toBe(false)
+    expect(storageUpload).toHaveBeenCalledTimes(1)
+    // The memo write precedes the first true-up attempt in the call order.
+    const uploadOrder = storageUpload.mock.invocationCallOrder[0]
+    const trueUpOrder = recordUsage.mock.invocationCallOrder[1]
+    expect(uploadOrder).toBeLessThan(trueUpOrder)
+    err.mockRestore()
+  })
+
+  it('a6 the switch ships ON (2026-09-28, S53)', () => {
+    expect(RECORDING_SWITCHES.transcribePaidOnce).toBe(true)
+  })
+
+  it('a6 switch OFF → the pre-S53 order: a true-up that never finishes leaves NO memo (the answer dies with the process)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    try {
+      headBytes.current = 600_000
+      let trueUpStarted = false
+      recordUsage.mockResolvedValueOnce(undefined).mockImplementationOnce(() => {
+        trueUpStarted = true
+        return new Promise<void>(() => {})
+      })
+      void call(AUDIO)
+      while (!trueUpStarted) await new Promise(setImmediate)
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(memoStore.size).toBe(0)
+    } finally {
+      off.restore()
+    }
+  })
+
+  it('a6 switch OFF → a lost true-up still writes the memo, AFTER the ledger calls (the pre-S53 order)', async () => {
+    const off = jest.replaceProperty(RECORDING_SWITCHES as { transcribePaidOnce: boolean }, 'transcribePaidOnce', false)
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      headBytes.current = 600_000
+      recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+      await call(AUDIO)
+      expect(storageUpload).toHaveBeenCalledTimes(1)
+      expect(storageUpload.mock.invocationCallOrder[0]).toBeGreaterThan(recordUsage.mock.invocationCallOrder[3])
+    } finally {
+      err.mockRestore()
+      off.restore()
+    }
   })
 })

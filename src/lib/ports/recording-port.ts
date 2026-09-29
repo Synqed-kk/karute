@@ -114,6 +114,12 @@ export interface RecordingPipelinePort {
    */
   supportsDiscardTranscript: boolean
   /**
+   * ⚖ S54 delta read: whether this world's /transcribe door answers 404 for a refused
+   * key and nothing else (its `not_found`). Thin: yes (the phone door). Web: no — that
+   * door never answers 404, so a 404 there is the platform's and never retires a pin.
+   */
+  refusesMissingKeyWith404: boolean
+  /**
    * The transcribe leg's request body for this take.
    *
    * ⚖ THE FINALIZED OBJECT IS THE OBJECT (capture pipeline PR4). `finalizedPath`
@@ -478,6 +484,7 @@ export const webRecordingPort: RecordingPipelinePort = {
   // fix. See the flag doc.
   supportsServerJob: false,
   supportsDiscardTranscript: true,
+  refusesMissingKeyWith404: false,
   async prepareTranscription(blob, finalizedPath, opts, onUploaded) {
     const { mintRecordingUploadUrl, mintRecordingReadUrl } = await uploadActions()
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
@@ -558,7 +565,8 @@ export const webRecordingPort: RecordingPipelinePort = {
     // key's row (the take's own, or the fallback mint's) rides to both doors.
     const row = (finalizedPath ? opts?.takeRow : recordingSessionId) ?? null
     const read = await mintRecordingReadUrl(path, row)
-    if ('error' in read) throw new Error('could not mint a read URL')
+    // S54 F10: `refusal` names the kind — 'forbidden' refuses THIS key (terminal), 'upstream' is a blip.
+    if ('error' in read) throw Object.assign(new Error('could not mint a read URL'), { refusal: read.error })
     return {
       body: row ? { audioUrl: read.url, recordingSessionId: row } : { audioUrl: read.url },
       path,

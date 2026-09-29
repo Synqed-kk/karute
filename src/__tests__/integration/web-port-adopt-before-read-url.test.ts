@@ -36,6 +36,7 @@ type Meta = {
   startedAt: number
   updatedAt: number
   transcript?: unknown
+  fallbackPin?: unknown
 }
 const store = { meta: null as Meta | null }
 // First stamp wins, and the take is secured at the minted key in the same
@@ -53,6 +54,12 @@ jest.mock('@/lib/karute/take-store', () => ({
   readTakeTranscript: async () => null,
   stampTakeTranscript: async () => {},
   adoptTakeSession: (id: string, session: string, path: string) => adoptTakeSession(id, session, path),
+  // The S53 A4 pin, the real one's rule (take-store.ts pinTakeFallback): written
+  // unless the take is already finalized at ANOTHER key.
+  pinTakeFallback: async (_id: string, pin: { finalizedPath: string }) => {
+    if (store.meta && (!store.meta.finalizedPath || store.meta.finalizedPath === pin.finalizedPath))
+      store.meta = { ...store.meta, fallbackPin: { ...pin, at: 1 } }
+  },
   isStoppedTake: () => false,
   markTakeFinalized: async () => {},
   markTakeSecureError: async () => {},
@@ -183,6 +190,17 @@ describe('webRecordingPort — the minted row is handed over between the PUT and
     await webRecordingPort.prepareTranscription(memory, null, { attachOutcome: 'no_session' }, onUploaded)
     await webRecordingPort.prepareTranscription(memory, 'app_biz-1_take-9.webm', { takeRow: 'rs-take' }, onUploaded)
     expect(onUploaded).not.toHaveBeenCalled()
+  })
+
+  it('S54 F10: the read-URL door’s answer rides on the throw as `refusal` — forbidden (this key) vs upstream (a blip)', async () => {
+    for (const error of ['forbidden', 'upstream'] as const) {
+      mintRecordingReadUrl.mockResolvedValueOnce({ error })
+      const thrown = await webRecordingPort
+        .prepareTranscription(memory, 'app_biz-1_server-named-1.webm', { takeRow: 'rs-x' })
+        .then(() => null, (e: unknown) => e)
+      expect(thrown).toEqual(new Error('could not mint a read URL'))
+      expect((thrown as { refusal?: unknown }).refusal).toBe(error)
+    }
   })
 
   it('a throw in the hand-over fails the leg before the read-URL mint', async () => {

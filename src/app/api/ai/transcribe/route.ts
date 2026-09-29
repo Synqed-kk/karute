@@ -15,6 +15,7 @@ import { can, getMyCapabilities } from '@/lib/auth/require-permission'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { takeKeyHolder } from '@/lib/recording/take-binding'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 export const maxDuration = 300
 
@@ -149,23 +150,44 @@ export async function POST(request: Request) {
       // the caller's own row (takeKeyHolder). Otherwise Deepgram fetches the
       // signed URL — its token is the proof — and the paid answer is still
       // remembered. No new refusal.
+      //
+      // ⚖ S53 A2: a core read blip ('unreadable') is not "no replay, pay
+      // again". The memo is read; a paid answer already there answers the
+      // retryable 502 the phone door gives the same state (v1 route), and pays
+      // nothing — the retry that can read the row replays. A miss pays as before.
       const urlKey = storageKeyFromAudioUrl(audioUrl)
       const audioKey =
         isOwnRecordingKey(urlKey, meter.businessId) &&
         (await can('records.write').catch(() => false))
           ? urlKey
           : null
+      const holder =
+        audioKey === null
+          ? null
+          : await takeKeyHolder(async () => meter.synqed, audioKey, recordingSessionId, async () => {
+              const capabilities = await getMyCapabilities()
+              const pairHeld = holdsOwnerKeys(capabilities)
+              const allowedStoreIds = pairHeld
+                ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
+                : null
+              return { staffId: meter.staffId, businessId: meter.businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
+            })
+      // ⚖ S53 A1 — REVERSES THE S46 LINE ABOVE for a key NO row holds
+      // ('no_row': the unbound fallback, a take whose row is not yet known).
+      // Ruling given — Liam, 2026-09-28 19:5x JST: 「I think both. Yes to both.」
+      // It grants nothing new: the phone door already
+      // replays 'no_row' (v1 route, takeKeyHolder then the meter), and this
+      // app's read-URL door already hands any same-tenant records.write holder
+      // a signed URL for a 'no_row' key (recording-upload.ts,
+      // mintRecordingReadUrl — TENANT-ONLY). The fence is unchanged — this
+      // tenant's own take key AND records.write (above) — and a colleague's
+      // row ('foreign') still never replays. Without it, the automatic re-POST
+      // of the SAME key after a lost response paid twice on this door.
       const replayMemo =
-        audioKey !== null &&
-        (await takeKeyHolder(async () => meter.synqed, audioKey, recordingSessionId, async () => {
-          const capabilities = await getMyCapabilities()
-          const pairHeld = holdsOwnerKeys(capabilities)
-          const allowedStoreIds = pairHeld
-            ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
-            : null
-          return { staffId: meter.staffId, businessId: meter.businessId, holdsOwnerKeys: pairHeld, allowedStoreIds }
-        })) === 'own'
-      const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey, replayMemo }, {
+        holder === 'own' || (RECORDING_SWITCHES.transcribePaidOnce && holder === 'no_row')
+      // OFF (RECORDING_SWITCHES.transcribePaidOnce) = the pre-S53 answer: pays.
+      const memoHitRefuses = RECORDING_SWITCHES.transcribePaidOnce && holder === 'unreadable'
+      const { result: body, receipt } = await runMeteredTranscription({ ...meter, audioKey, replayMemo, memoHitRefuses }, {
         audio: { url: audioUrl },
         locale: (loc ?? 'ja') === 'en' ? 'en' : 'ja',
         diarize,

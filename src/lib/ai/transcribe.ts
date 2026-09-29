@@ -18,6 +18,11 @@ import {
 } from '@/lib/ai-rate-limit'
 import { AppApiError } from '@/lib/app-api/errors'
 import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+
+/** S53 A2 — the phone door's own words for the same state (v1 route, the
+ *  `holder === 'unreadable'` refusal), so both doors answer one sentence. */
+export const TRANSCRIPTION_OWNER_UNREADABLE = 'could not read the recording'
 import { audit } from '@/lib/audit'
 import { composeTranscriptKey } from '@/lib/recording/key-grammar'
 import { readTranscriptMemo, writeTranscriptMemo } from '@/lib/recording/transcript-memo'
@@ -366,6 +371,13 @@ export interface TranscriptionMeter {
   /** S46: false = WRITE the paid answer under `audioKey`, never REPLAY one —
    *  the web JSON arm replays only a take the caller proved is theirs. */
   replayMemo?: boolean
+  /** S53 A2: with `replayMemo` false, the caller could not READ whose take this
+   *  is (a core blip — takeKeyHolder's 'unreadable'). The memo is then read but
+   *  never replayed: a remembered answer means this audio was already paid for,
+   *  so the call answers the retryable `upstream_unavailable` (502 on both
+   *  routes — the phone door's own answer for the same state) and pays nothing;
+   *  a miss pays exactly as before. */
+  memoHitRefuses?: boolean
 }
 
 /** A duration is usable only when it is a real, positive number of seconds. */
@@ -505,7 +517,19 @@ export async function runMeteredTranscription(
   // a TTL, on Liam's word — not built here, because a stuck lease would block
   // paying at all.
   const memoKey = composeTranscriptKey(meter.businessId, meter.audioKey, params.locale)?.key ?? null
-  const memoRead = memoKey === null || meter.replayMemo === false ? null : await readTranscriptMemo(memoKey)
+  const memoRead =
+    memoKey === null || (meter.replayMemo === false && meter.memoHitRefuses !== true)
+      ? null
+      : await readTranscriptMemo(memoKey)
+  // ⚖ S53 A2 — A PAID ANSWER WHOSE OWNER COULD NOT BE READ IS NOT PAID AGAIN.
+  // The web door used to turn a core read blip into "no replay" and pay a
+  // second time for audio it had already paid for. It is neither replayed (the
+  // S46 fence never answered) nor re-bought: the caller retries, and the retry
+  // that can read the row replays. First-time audio (a miss) still pays — no
+  // availability is lost to a blip.
+  if (memoRead?.state === 'hit' && meter.replayMemo === false) {
+    throw new AppApiError('upstream_unavailable', TRANSCRIPTION_OWNER_UNREADABLE)
+  }
   if (memoRead?.state === 'hit') {
     const receipt: TranscriptionReceipt = {
       duration_seconds: memoRead.memo.duration_seconds,
@@ -574,26 +598,38 @@ export async function runMeteredTranscription(
     throw err
   }
 
-  // ── THE TRUE-UP ───────────────────────────────────────────────────────────
-  // The ledger already holds the reserve. Only a provider answer LONGER than
-  // the estimate needs a second row; a shorter one leaves the over-reservation
-  // standing (no refund call exists, and erring toward stopping early is the
-  // ruling), so the debit is already recorded by definition.
   const durationSec = billedSeconds(result)
-  const costCents = estimateTranscriptionCostCents(durationSec)
-  const delta = costCents - reserveCents
-  const receipt: TranscriptionReceipt = {
-    duration_seconds: Math.round(durationSec),
-    cost_cents: costCents,
-    cents_reserved: reserveCents,
-    debit_recorded:
-      delta > 0 ? await reportTranscriptionUsageWithClient(meter.synqed, delta) : true,
-    replayed: false,
+  const durationSeconds = Math.round(durationSec)
+  const remember = async (): Promise<void> => {
+    if (memoKey === null) return
+    const again = memoRead?.state === 'corrupt' ? await readTranscriptMemo(memoKey) : null
+    if (again?.state !== 'hit') {
+      await writeTranscriptMemo(
+        memoKey,
+        {
+          v: 1,
+          result,
+          duration_seconds: durationSeconds,
+          written_at: new Date().toISOString(),
+        },
+        { repair: memoRead?.state === 'corrupt' },
+      )
+    }
   }
+  // OFF (RECORDING_SWITCHES.transcribePaidOnce) = the pre-S53 order: the memo
+  // after the true-up, below.
+  const memoFirst = RECORDING_SWITCHES.transcribePaidOnce
 
   // The provider answered, so the money is spent whether or not the true-up
-  // landed — remember the answer so this audio is never paid for again.
+  // lands — remember the answer so this audio is never paid for again.
   // Best-effort: writeTranscriptMemo never throws.
+  // ⚖ AND IT IS WRITTEN BEFORE THE TRUE-UP (S53 A3). The memo does not depend
+  // on the ledger, and the true-up is up to three core calls with a second of
+  // waits between them (ai-rate-limit.ts, DEBIT_RETRY_WAITS_MS). Behind it, a
+  // process that died in that second (the 300 s function limit, a crash) lost
+  // a PAID answer with no memo, and the next attempt paid again. The window
+  // between the provider's answer and the memo is now the memo write alone —
+  // narrowed, never closed: a death inside the write itself still pays twice.
   // A PROVEN-corrupt memo is replaced by this answer; any other state writes
   // create-only, so a readable memo is never overwritten by the normal path.
   //
@@ -603,21 +639,24 @@ export async function runMeteredTranscription(
   // audio in the same language, and the caller still gets it), anything else
   // repairs; an upsert onto nothing simply creates. Whatever lands between the
   // re-check and the upsert is another PAID answer, never garbage.
-  if (memoKey !== null) {
-    const again = memoRead?.state === 'corrupt' ? await readTranscriptMemo(memoKey) : null
-    if (again?.state !== 'hit') {
-      await writeTranscriptMemo(
-        memoKey,
-        {
-          v: 1,
-          result,
-          duration_seconds: receipt.duration_seconds,
-          written_at: new Date().toISOString(),
-        },
-        { repair: memoRead?.state === 'corrupt' },
-      )
-    }
+  if (memoFirst) await remember()
+
+  // ── THE TRUE-UP ───────────────────────────────────────────────────────────
+  // The ledger already holds the reserve. Only a provider answer LONGER than
+  // the estimate needs a second row; a shorter one leaves the over-reservation
+  // standing (no refund call exists, and erring toward stopping early is the
+  // ruling), so the debit is already recorded by definition.
+  const costCents = estimateTranscriptionCostCents(durationSec)
+  const delta = costCents - reserveCents
+  const receipt: TranscriptionReceipt = {
+    duration_seconds: durationSeconds,
+    cost_cents: costCents,
+    cents_reserved: reserveCents,
+    debit_recorded:
+      delta > 0 ? await reportTranscriptionUsageWithClient(meter.synqed, delta) : true,
+    replayed: false,
   }
+  if (!memoFirst) await remember()
 
   // ONE receipt per call. The two interactive routes already emit their own
   // recording.transcribe row (web: auditWeb; facade: the hook map) and carry
