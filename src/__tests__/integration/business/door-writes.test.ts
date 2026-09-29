@@ -430,3 +430,30 @@ describe('PKT-S30 F8 — a grant-check outage is cannot-verify, never a crash or
   })
 })
 
+describe('PKT-S30 F11 — closure audit payloads say which day, which store, why', () => {
+  it('add: the SDK audit parameter carries store_id, target_label = the date, detail { date, reason } (reason "" kept)', async () => {
+    mockCore.writer.addClosedDay.mockResolvedValueOnce({ id: 'c9', store_id: STORE_ID, date: '2026-12-28', reason: null, created_by: null, created_at: 'x' })
+    await data.addStoreClosedDay(STORE_ID, { date: '2026-12-28', reason: '' })
+    expect(mockCore.writer.addClosedDay.mock.calls[0][1].audit).toEqual({
+      actor_type: 'staff', actor_id: 'staff-owner', category: 'settings', action: 'store_closed_day.add', target_type: 'store_closed_day',
+      store_id: STORE_ID, target_label: '2026-12-28', detail: { date: '2026-12-28', reason: '' },
+    })
+  })
+  it('remove: target_id = row.id, store_id, target_label = the date, detail { date, reason }', async () => {
+    mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
+    await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)
+    expect(mockCore.auditLog.mock.calls[0][0]).toEqual({
+      actor_type: 'staff', actor_id: 'staff-owner', category: 'settings', action: 'store_closed_day.remove', target_type: 'store_closed_day',
+      target_id: CLOSURE_C2.id, store_id: STORE_ID, target_label: '2026-11-10', detail: { date: '2026-11-10', reason: '棚卸し' },
+    })
+  })
+  it('remove: a failed audit write logs at warn, never console.error, and the removal still answers ok', async () => {
+    mockCore.writer.removeClosedDay.mockResolvedValueOnce(undefined)
+    mockCore.auditLog.mockRejectedValueOnce(new Error('audit down'))
+    const r = await data.removeStoreClosedDay(STORE_ID, CLOSURE_C2.id)
+    expect(r.ok).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('audit record failed'), 'audit down')
+    expect(error).not.toHaveBeenCalled()
+  })
+})
+

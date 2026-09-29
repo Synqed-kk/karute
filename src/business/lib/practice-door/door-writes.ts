@@ -291,8 +291,12 @@ export async function addClosedDay(storeId: string, input: { date: string; reaso
     const writer = reach.storeDaysWriterFor({ businessId: actor.businessId })
     // ⚖ lead's fold #2 — AuditEventInput requires actor_type + category + action;
     // core's own store_policy.edit row is a DIFFERENT write (setPolicy only) —
-    // this is the closure add's own event, opted into via the SDK's `audit` field.
-    const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: input.reason === '' ? null : input.reason, acting_staff_id: actor.sheet.staff_id, audit: { actor_type: 'staff', actor_id: actor.sheet.staff_id, category: 'settings', action: 'store_closed_day.add', target_type: 'store_closed_day' } })
+    // this is the closure add's own event, opted into via the SDK's `audit` field
+    // (AddClosedDayInput.audit is a full AuditEventInput, so it carries `detail`).
+    // ⚖ PKT-S30 F11 — which day, which store, why: store_id + target_label (the date) +
+    // detail { date, reason } (reason '' when none, never omitted).
+    const addEvent = { actor_type: 'staff' as const, actor_id: actor.sheet.staff_id, category: 'settings', action: 'store_closed_day.add', target_type: 'store_closed_day', store_id: storeId, target_label: input.date, detail: { date: input.date, reason: input.reason } }
+    const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: input.reason === '' ? null : input.reason, acting_staff_id: actor.sheet.staff_id, audit: addEvent })
     console.info(
       '[business store days]',
       JSON.stringify({ business_id: actor.businessId, actor: actor.card.id, store_id: storeId, action: 'closure.add', date: row.date, at: renderNow().toISOString() }),
@@ -335,11 +339,14 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
         category: 'settings',
         action: 'store_closed_day.remove',
         target_type: 'store_closed_day',
-        target_id: id,
-        detail: { date: row.date, reason: row.reason },
+        target_id: row.id,
+        store_id: storeId,
+        target_label: row.date,
+        detail: { date: row.date, reason: row.reason ?? '' },
       })
     } catch (auditErr) {
-      console.error('[business store days] audit record failed after a real removal:', auditErr instanceof Error ? auditErr.message : String(auditErr))
+      // ⚖ PKT-S30 F11 — warn, never console.error: the removal itself succeeded.
+      console.warn('[business store days] audit record failed after a real removal:', auditErr instanceof Error ? auditErr.message : String(auditErr))
     }
     console.info(
       '[business store days]',
