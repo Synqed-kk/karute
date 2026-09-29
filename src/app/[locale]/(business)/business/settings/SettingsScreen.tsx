@@ -1277,6 +1277,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved, listRows, savedRows) : false
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) ?? wordsBlockingError(section, values) : null
   const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
+  /** ⚖ R35 (S36) — door ON and this section holds 臨時休業/特別営業日: the footer is hidden here
+   *  (the live blocks write to core) AND the bar's commit reaches sample blocks only, so the stamp
+   *  says so. ONE definition, two uses: the footer ternary and the committed stamp. */
+  const storeDaysLive = !!props.saveStoreDays && !!section?.blocks.some((x) => x.id === STORE_HOURS_CLOSURES_ID)
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
   /** ⚖ PKT-S38 R7 — 言語・表示 while page.tsx has said 予約の色分け saves for real (undefined = today's render). */
   const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined
@@ -1409,7 +1413,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
               (changed > 0
                 ? `変更した設定 ${changed}件`
                 : committed[section.id]
-                  ? `✓ 保存しました ${props.saveStampTime}`
+                  ? storeDaysLive
+                    ? `${businessStrings.sampleMark.pageOnlyStamp} ${props.saveStampTime}`
+                    : `✓ 保存しました ${props.saveStampTime}`
                   : '変更はありません')}
           </span>
         </div>
@@ -1735,7 +1741,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           {section.blocks.length > 1 && <p className="st-foot">{props.demoSaveLine}</p>}
                         </>
                       )
-                    : props.saveStoreDays && section.blocks.some((x) => x.id === STORE_HOURS_CLOSURES_ID)
+                    : storeDaysLive
                       ? null /* ⚖ PKT-S33-B1B-FIX-2 — door ON: 臨時休業/特別営業日 write to core; the page-local line would be false */
                       : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
