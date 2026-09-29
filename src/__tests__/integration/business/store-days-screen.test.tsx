@@ -388,3 +388,24 @@ describe('S34 act 0 — 特別営業日 can close at 24:00 (the 24:00閉店 swit
     expect(sw.getAttribute('tabindex')).toBeNull()
   })
 })
+
+describe('S34 act 0 — the OFF world: a 24:00 special day is a local draft too', () => {
+  it('switch ON + 追加: the draft row prints 10:00〜24:00, one unsaved change, the switch resets to a time field, nothing sent', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await mount(STORE_A)
+    const SPECIAL = 'store-hours.special-open'
+    const midnightSwitch = () => within(blockEl(SPECIAL)!).getByRole('switch', { name: '24:00に閉店する' })
+    expect(unsavedMarks()).toBe(0)
+    typeSpecial('2026-11-17', '10:00', '19:00')
+    fireEvent.click(midnightSwitch())
+    expect(midnightSwitch().getAttribute('aria-checked')).toBe('true')
+    await act(async () => { addBtn(SPECIAL)!.click() })
+    await settle()
+    const row = rowsText(SPECIAL).find((r) => r.includes('11月17日'))
+    expect(row).toContain('10:00〜24:00')
+    expect(unsavedMarks()).toBe(1)
+    expect(midnightSwitch().getAttribute('aria-checked')).toBe('false')
+    expect(input(`${SPECIAL}-close`)!.type).toBe('time')
+    expect(fetchLog).toEqual([])
+  })
+})
