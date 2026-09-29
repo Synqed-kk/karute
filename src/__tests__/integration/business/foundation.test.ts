@@ -1338,6 +1338,13 @@ describe('the fixture data door', () => {
     expect(doorHits([['door-booking-colors.ts', line2.replace('[bookingColorsKeyFor(storeId)]', 'booking_colors')]])).toEqual(['door-booking-colors.ts: .upsert('])
     expect(doorHits([['door-booking-colors.ts', line + line2]])).toEqual(['door-booking-colors.ts: .upsert(']) // the card line never moves here
     expect(doorHits([['door.ts', line + line2]])).toEqual(['door.ts: .upsert(']) // …nor the booking line back into door.ts
+    // ⚖ PKT-S31 R11 — door-writes.ts's four writer lines carry the same ceiling: a duplicated line goes red.
+    const storeDaysWriters = WRITERS.filter((w) => w.file === 'door-writes.ts')
+    expect(storeDaysWriters).toHaveLength(4)
+    for (const w of storeDaysWriters) {
+      expect(doorHits([['door-writes.ts', `${w.line}\n`]])).toEqual([])
+      expect(doorHits([['door-writes.ts', `${w.line}\n${w.line}\n`]])).toEqual(['door-writes.ts: the writer line ×2 > 1'])
+    }
     expect(doorHits([['actor.ts', line2]])).toEqual(['actor.ts: .upsert('])
   })
 
