@@ -135,7 +135,7 @@ const CALL_PATTERNS = [
   { re: /\.rpc\s*\(/g, label: 'write call .rpc(', scope: EVERYWHERE },
   // A bound write method is the same reach, one step removed (R-A2-15 §5).
   {
-    re: /\.(insert|update|upsert|delete|rpc|create|save|set)\s*\.\s*bind\s*\(/g,
+    re: /\.(insert|update|upsert|delete|rpc|create|save|set|log)\s*\.\s*bind\s*\(/g,
     label: 'bound write method .X.bind(',
     scope: EVERYWHERE,
   },
@@ -193,6 +193,22 @@ const ALLOW = [
     reason:
       '⚖ R-A2-7 (orgSettingsWriterFor: a write-only { orgSettings: { upsert } } handle, the two tenant throws before the client is built) + ' +
       'R-A2-15(5) (Liam 9/24 「go」): the ONE bound write method in territory, feeding door.ts\'s one pinned writer line',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['set: storePolicies.set.bind(storePolicies)'],
+    count: 1,
+    reason:
+      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies: { set } } handle, the two tenant throws before the client is built; feeds door-writes.ts\'s one pinned setSpecialOpenDays call',
+  },
+  {
+    path: 'src/business/lib/practice-door/core-reach.ts',
+    label: 'bound write method .X.bind(',
+    match: ['audit: { log: audit.log.bind(audit) }'],
+    count: 1,
+    reason:
+      '⚖ PKT-S29-B0b (store-days write door): the write-only { audit: { log } } handle, the two tenant throws before the client is built; feeds door-writes.ts\'s one audit.log call after a closure removal (core hard-deletes, takes no audit payload)',
   },
 ]
 
