@@ -83,7 +83,7 @@ MUTANTS = [
        '    .filter((m): m is StagedMark => m !== null)\n    .reverse() // M-K11\n')],
      [STAGED_READER]),
     ('M-K12', FINALIZE, 'the extra partial write in the unreadable branch removed (Greptile thread 3)',
-     [(FINALIZE, "        if (input.partial === true && (marked === 'created' || marked === 'exists')) {\n",
+     [(FINALIZE, "        if (input.partial === true) {\n",
        "        if (false) { // M-K12\n")],
      [K2_TESTS]),
     ('M-K13', FINALIZE, 'the order swapped back: the partial write before the refusal\'s audit emit (fresh-round S1)',
