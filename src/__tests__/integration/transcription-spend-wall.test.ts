@@ -2055,7 +2055,8 @@ describe('charge once — the durable transcript memo', () => {
 
     await expect(call(AUDIO)).rejects.toThrow()
 
-    expect(storageDownload).toHaveBeenCalledTimes(1)
+    // The first read, and the re-read under the lease before paying (S57).
+    expect(storageDownload).toHaveBeenCalledTimes(2)
     expect(storageUpload).not.toHaveBeenCalled()
     expect(memoStore.size).toBe(0)
   })
@@ -2081,12 +2082,14 @@ describe('charge once — the durable transcript memo', () => {
   it('t8 a duplicate refusal (two doors paid in the same moment) is SILENT — the first copy stands', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     memoStore.set(memoKey(AUDIO), 'first copy')
-    // The read above misses (the other door had not landed yet); the write then
-    // meets the other door's copy.
-    storageDownload.mockResolvedValueOnce({
-      data: null,
-      error: { status: 400, statusCode: '404', message: 'Object not found' },
-    })
+    // The read above misses (the other door had not landed yet), and so does the
+    // re-read under the lease (S57); the write then meets the other door's copy.
+    for (let i = 0; i < 2; i++) {
+      storageDownload.mockResolvedValueOnce({
+        data: null,
+        error: { status: 400, statusCode: '404', message: 'Object not found' },
+      })
+    }
 
     const res = await call(AUDIO)
 
@@ -2116,9 +2119,10 @@ describe('charge once — the durable transcript memo', () => {
       contentType: 'application/json',
       upsert: true,
     })
-    // Two warns, both the corrupt read — the first, and the re-check right
-    // before the repair (Greptile round 2). The repair itself lands silently.
-    expect(warn).toHaveBeenCalledTimes(2)
+    // Three warns, all the corrupt read — the first, the re-read under the lease
+    // before paying (S57), and the re-check right before the repair (Greptile
+    // round 2). The repair itself lands silently.
+    expect(warn).toHaveBeenCalledTimes(3)
     for (const [line] of warn.mock.calls) expect(String(line)).toContain('transcript-memo.corrupt')
 
     const second = await call(AUDIO)
@@ -2144,6 +2148,8 @@ describe('charge once — the durable transcript memo', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const good = JSON.stringify({ v: 1, result: { transcript: 'first' }, duration_seconds: 7, written_at: '' })
     memoStore.set(memoKey(AUDIO), good)
+    // Unreadable on the first read AND on the re-read under the lease (S57).
+    storageDownload.mockResolvedValueOnce({ data: null, error: { status: 500, message: 'storage down' } } as never)
     storageDownload.mockResolvedValueOnce({ data: null, error: { status: 500, message: 'storage down' } } as never)
 
     const res = await call(AUDIO)
@@ -2178,7 +2184,8 @@ describe('charge once — the durable transcript memo', () => {
 
     expect(res.result.transcript).toBe('こんにちは')
     expect(res.receipt.replayed).toBe(false)
-    expect(storageDownload).toHaveBeenCalledTimes(2)
+    // The first read, the re-read under the lease (S57), the re-check.
+    expect(storageDownload).toHaveBeenCalledTimes(3)
     expect(storageUpload).not.toHaveBeenCalled()
     expect(memoStore.get(memoKey(AUDIO))).toBe(OTHER)
     warn.mockRestore()
@@ -2190,7 +2197,8 @@ describe('charge once — the durable transcript memo', () => {
 
     await call(AUDIO)
 
-    expect(storageDownload).toHaveBeenCalledTimes(2)
+    // The first read, the re-read under the lease (S57), the re-check.
+    expect(storageDownload).toHaveBeenCalledTimes(3)
     expect(storageUpload).toHaveBeenCalledTimes(1)
     expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
       contentType: 'application/json',
@@ -2214,7 +2222,8 @@ describe('charge once — the durable transcript memo', () => {
 
     const res = await call(AUDIO)
 
-    expect(storageDownload).toHaveBeenCalledTimes(2)
+    // The first read, the re-read under the lease (S57), the re-check.
+    expect(storageDownload).toHaveBeenCalledTimes(3)
     expect(storageUpload).toHaveBeenCalledTimes(1)
     expect(storageUpload).toHaveBeenCalledWith(memoKey(AUDIO), expect.any(String), {
       contentType: 'application/json',
@@ -2585,11 +2594,14 @@ describe('charge once — the durable transcript memo', () => {
         trueUp: { status: 'pending', reserveCents: 1, costCents: 45, deltaCents: DELTA, attempts: 0, updatedAt: 1 },
       })
       memoStore.set(memoKey(AUDIO), standing)
-      // Our read misses (the other caller had not landed yet); our write then meets its copy.
-      storageDownload.mockResolvedValueOnce({
-        data: null,
-        error: { status: 400, statusCode: '404', message: 'Object not found' },
-      })
+      // Our read misses (the other caller had not landed yet), and so does our re-read under the
+      // lease (S57); our write then meets its copy.
+      for (let i = 0; i < 2; i++) {
+        storageDownload.mockResolvedValueOnce({
+          data: null,
+          error: { status: 400, statusCode: '404', message: 'Object not found' },
+        })
+      }
       try {
         const res = await call(AUDIO)
 
@@ -2921,6 +2933,55 @@ describe('charge once — the durable transcript memo', () => {
     expect(out.value?.receipt.replayed).toBe(false)
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
   })
+
+  // ⚖ S57 — A DOOR THAT TAKES THE LEASE RE-READS THE MEMO BEFORE IT PAYS. The rows above land the
+  // answer while the holder's lease stays LIVE. A holder that finishes NORMALLY does two things:
+  // it writes its memo, and (in its `finally`) it RELEASES its lease. A waiting door's next look
+  // then finds the lease released, takes it over (`held`) — and, before S57, went straight to
+  // paying: a second provider call for an answer that was already saved.
+  const holderFinishes = (audio: string) => {
+    memoStore.set(`trc/${audio}.ja.json`, JSON.stringify({ v: 1, result: { ...deepgramResult }, duration_seconds: 5400, written_at: '' }))
+    leaseStore.set(leaseKey(audio), JSON.stringify({ v: 1, expires_at: 0 })) // released: overwritten as expired
+  }
+
+  it('w7 (S57) the holder FINISHES NORMALLY mid-wait (memo written AND lease released) → the worker takes the released lease and REPLAYS: no second provider call, no reserve, no ceiling', async () => {
+    fakeClock()
+    liveLease(AUDIO)
+    const out = settle(doorCall('job'))
+    await flush()
+    await tick(3_000)
+    expect(out.done).toBe(false)
+    holderFinishes(AUDIO) // inside the worker's 3 s sleep
+    await tick(3_000)
+    await untilSettled(out)
+    expect(out.done).toBe(true)
+    expect(out.error).toBeUndefined()
+    expect(out.value?.receipt).toMatchObject({ replayed: true, cost_cents: 0, cents_reserved: 0 })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(consume).not.toHaveBeenCalled()
+    expect(recordUsage).not.toHaveBeenCalled()
+    // It did take the released lease over (the upsert), and gave it back on the way out.
+    expect(takeovers().length).toBeGreaterThanOrEqual(1)
+    expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+  })
+
+  it.each(['web', 'app'] as const)(
+    'w7b (S57) the %s door: the first read misses, and the holder finishes between that read and the take (memo written, lease released) → the take is `held`, the re-read under it REPLAYS — never a second payment',
+    async (door) => {
+      // The first memo read misses; the take then finds a released lease (the holder just finished).
+      const realUpload = leaseUpload.getMockImplementation()!
+      leaseUpload.mockImplementationOnce(async (key: string, body: string, opts?: { upsert?: boolean }) => {
+        holderFinishes(AUDIO)
+        return realUpload(key, body, opts)
+      })
+      const res = await doorCall(door)
+      expect(res.receipt).toMatchObject({ replayed: true, cost_cents: 0 })
+      expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+      expect(consume).not.toHaveBeenCalled()
+      expect(recordUsage).not.toHaveBeenCalled()
+      expect(JSON.parse(leaseStore.get(leaseKey(AUDIO))!).expires_at).toBe(0)
+    },
+  )
 })
 
 describe('S53 A5 — the web door answers a live lease with a retryable 409', () => {

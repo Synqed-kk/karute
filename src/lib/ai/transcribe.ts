@@ -736,6 +736,15 @@ async function meteredTranscription(
       const taken = await takeTranscriptLease(memoKey)
       if (taken.state === 'held') {
         lease.key = memoKey
+        // ⚖ S57: HELD IS NOT "NOBODY ANSWERED" — THE MEMO IS RE-READ UNDER THE LEASE
+        // BEFORE ANY MONEY MOVES. A holder that finished NORMALLY wrote its memo and
+        // then released its lease (the finally above), so the next take finds the
+        // lease released and holds it — and the answer is already saved. Paying here
+        // was a second provider call for that same answer (a waiting door's next
+        // look; an interactive door whose first read missed just before the holder
+        // finished). The re-read is free; a miss or a corrupt memo pays as before.
+        const mine = await readTranscriptMemo(memoKey)
+        if (mine.state === 'hit') return await answerFromMemo(memoKey, mine.memo)
         break
       }
       if (taken.state === 'unknown') break
