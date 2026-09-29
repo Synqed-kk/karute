@@ -313,7 +313,9 @@ describe('the fixture data door', () => {
       // ⚖ A1b · K11 — `./fixtures-settings`: OFF, a store's address is its SAMPLE 店舗情報 dial
       // (`readStoreAddress`); ON it is the door's own core store record.
       // ⚖ R-S39-1 — `./practice-door/door-booking-colors`: 予約の色分け's writer, door.ts's sibling (its own allowlist key).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/store-hours', './practice-door/switch'],
+      // ⚖ PKT-S29-B1 — `./practice-door/door-writes`: the store-days writer, data.ts's sibling to
+      // `door-booking-colors` (its own allowlist key — one file per writer, R-S39-1's own law).
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/door-writes', './practice-door/store-hours', './practice-door/switch'],
       // ⚖ R-S39-1 — the second writer's file: the actor and the switch (OFF has no writer), door.ts's two exported
       // helpers (the once-per-actor org read, the one settings.manage truth), the clock (the audit line's time),
       // the import-free palette leaf (never today-board.ts, which would bring the fixtures), and a LAZY ./core-reach.
@@ -1259,7 +1261,10 @@ describe('the fixture data door', () => {
         if (spec === '@/lib/synqed/client') factoryImporters.push(file)
       }
     }
-    expect(doorImporters.sort()).toEqual(['src/business/lib/data.ts', `${PRACTICE_DOOR}/door-booking-colors.ts`])
+    // ⚖ PKT-S29-B1 — door-writes.ts imports door.ts too (canManageSettings), so it joins doorImporters;
+    // it is its OWN sibling-writer file (data.ts's one importer, business-isolation.test.ts's own pin) —
+    // siblingImporters here only tracks door-booking-colors.ts by name, unaffected.
+    expect(doorImporters.sort()).toEqual(['src/business/lib/data.ts', `${PRACTICE_DOOR}/door-booking-colors.ts`, `${PRACTICE_DOOR}/door-writes.ts`])
     expect(siblingImporters).toEqual(['src/business/lib/data.ts'])
     expect(factoryImporters).toEqual([`${PRACTICE_DOOR}/core-reach.ts`])
   })
@@ -1272,10 +1277,17 @@ describe('the fixture data door', () => {
   const WRITERS = [
     { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 },
     { file: 'door-booking-colors.ts', line: 'orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })', count: 1 },
+    // ⚖ PKT-S29-B1 — the store-days writer's lines. ⚖ PKT-S30 F13 (tightening) — `.set(` appears ONCE:
+    // since F7 the add/remove wrappers reach core only through setSpecialOpenDays' one admitted set.
+    { file: 'door-writes.ts', line: 'await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })', count: 1 },
+    { file: 'door-writes.ts', line: "const row = await writer.storePolicies.addClosedDay(storeId, { date: input.date, reason: reason === '' ? null : reason, acting_staff_id: actor.sheet.staff_id, audit: addEvent })", count: 1 },
+    { file: 'door-writes.ts', line: 'await writer.storePolicies.removeClosedDay(storeId, id, actor.sheet.staff_id)', count: 1 },
+    // ⚖ PKT-S30 F6 — the closure-removal audit event, the door's fourth SDK write (`audit.log`).
+    { file: 'door-writes.ts', line: 'await auditHandle.audit.log({', count: 1 },
   ]
   const DOOR_FORBIDDEN = [
     'as any', 'as unknown as', '@synqed-kk/client', 'src/actions/stores', 'staff-map', 'getSynqedClient', '@/lib/staff', '@/lib/auth', 'store-gate',
-    '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(',
+    '.create(', '.update(', '.delete(', '.set(', '.save(', '.upsert(', '.runNow(', '.addClosedDay(', '.removeClosedDay(', '.log(',
     '.setAssignment(', '.setStaff(', '.grantConsent(', '.revokeConsent(', '.upload',
   ]
   function doorHits(sources: Array<[string, string]>): string[] {
@@ -1300,7 +1312,7 @@ describe('the fixture data door', () => {
       .filter((n) => n.endsWith('.ts'))
       .map((n) => [n, readFileSync(join(ROOT, PRACTICE_DOOR, n), 'utf8')])
 
-  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call but the TWO writer lines', () => {
+  it('practice-door/: no cast escape, no SDK specifier, no write-capable module, no mutator call but the named writer lines', () => {
     const sources = doorSources()
     expect(sources.map(([n]) => n)).toContain('door.ts')
     for (const WRITER of WRITERS) expect(sources.find(([n]) => n === WRITER.file)![1]).toContain(WRITER.line)
@@ -1323,16 +1335,30 @@ describe('the fixture data door', () => {
     expect(doorHits([['door-booking-colors.ts', line2.replace('[bookingColorsKeyFor(storeId)]', 'booking_colors')]])).toEqual(['door-booking-colors.ts: .upsert('])
     expect(doorHits([['door-booking-colors.ts', line + line2]])).toEqual(['door-booking-colors.ts: .upsert(']) // the card line never moves here
     expect(doorHits([['door.ts', line + line2]])).toEqual(['door.ts: .upsert(']) // …nor the booking line back into door.ts
+    // ⚖ PKT-S31 R11 — door-writes.ts's four writer lines carry the same ceiling: a duplicated line goes red.
+    const storeDaysWriters = WRITERS.filter((w) => w.file === 'door-writes.ts')
+    expect(storeDaysWriters).toHaveLength(4)
+    for (const w of storeDaysWriters) {
+      expect(doorHits([['door-writes.ts', `${w.line}\n`]])).toEqual([])
+      expect(doorHits([['door-writes.ts', `${w.line}\n${w.line}\n`]])).toEqual(['door-writes.ts: the writer line ×2 > 1'])
+    }
     expect(doorHits([['actor.ts', line2]])).toEqual(['actor.ts: .upsert('])
   })
 
-  // ⚖ PKT-S38 R8 — still ONE bind, now with two callers: door.ts writeReserveCardColor and writeBookingColors,
-  // both through orgSettingsWriterFor.
-  it('R-A2-7: the one bound mutator is core-reach.ts’s `upsert.bind(` — once, and nowhere else in practice-door/', () => {
+  // ⚖ PKT-S38 R8 — still ONE bind for orgSettings, now with two callers: door.ts writeReserveCardColor
+  // and writeBookingColors, both through orgSettingsWriterFor. ⚖ PKT-S29-B1 — storeDaysWriterFor adds
+  // three more, all in core-reach.ts, all write-only handles for door-writes.ts's own four exports.
+  it('R-A2-7/PKT-S29-B1: every bound mutator is core-reach.ts’s own write-only handle — once each, nowhere else in practice-door/', () => {
     const binds = doorSources().flatMap(([name, src]) =>
-      [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
+      [...src.matchAll(/\.(create|update|delete|set|save|upsert|runNow|addClosedDay|removeClosedDay|log|setAssignment|setStaff|grantConsent|revokeConsent|upload\w*)\.bind\(/g)].map((m) => `${name}: ${m[1]}.bind(`),
     )
-    expect(binds).toEqual(['core-reach.ts: upsert.bind('])
+    expect(binds.sort()).toEqual([
+      'core-reach.ts: addClosedDay.bind(',
+      'core-reach.ts: log.bind(',
+      'core-reach.ts: removeClosedDay.bind(',
+      'core-reach.ts: set.bind(',
+      'core-reach.ts: upsert.bind(',
+    ])
   })
 })
 
