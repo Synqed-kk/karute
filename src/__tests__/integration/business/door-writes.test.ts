@@ -686,6 +686,17 @@ describe('PKT-S31 R1/R2/R3/R4/R6 — memo on 403, bounded audit, midnight remove
     expect(r).toEqual({ ok: false, reason: 'core', message: GENERIC_FAIL_LINE })
     expect(r).not.toEqual(expect.objectContaining({ message: DUPLICATE_SPECIAL_LINE }))
   })
+  it('R17: a 403 carrying the duplicate message stays forbidden and clears the memo — never the duplicate line', async () => {
+    as('login-admin')
+    const spied = withReads()
+    spied.businessGrantsCheck.mockResolvedValue({ granted: true })
+    mockCore.writer.set.mockRejectedValueOnce(fakeSynqedError(403, 'Special open dates must be unique'))
+    const r = await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' })
+    expect(r).toMatchObject({ ok: false, reason: 'forbidden' })
+    expect(r).not.toEqual(expect.objectContaining({ message: DUPLICATE_SPECIAL_LINE }))
+    await data.addStoreSpecialOpenDay(STORE_ID, { date: '2026-11-20', open: '10:00', close: '19:00' })
+    expect(spied.businessGrantsCheck).toHaveBeenCalledTimes(2)
+  })
   it('R6: a spaces-only closure reason is trimmed, then sent as null (audit detail reason "")', async () => {
     mockCore.writer.addClosedDay.mockImplementation(async (_s: string, b: { date: string; reason: string | null }) => ({ ...CLOSURE_C1, id: 'eeeeeeee-0000-4000-8000-00000000000e', date: b.date, reason: b.reason }))
     await data.addStoreClosedDay(STORE_ID, { date: '2026-11-21', reason: '   ' })
