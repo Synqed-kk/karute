@@ -678,3 +678,27 @@ describe('POST /api/app/v1/karute — an ineligible revisit never fails a persis
     expect(warn).not.toHaveBeenCalled()
   })
 })
+
+// S4 (PR-O commit 1, O1/V4): the facade converge never clears a booking link.
+// The existing-record fixture is widened per case with `as never` (its declared
+// type predates the link fields) — no shared fixture changes.
+describe('POST /api/app/v1/karute (save) — S4 the converge never clears a booking link', () => {
+  const converge = async (existing: Record<string, unknown>, body: Record<string, unknown> = {}) => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', ...existing } as never
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1', ...body }), noRoute)
+    expect(res.status).toBe(200)
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(create).not.toHaveBeenCalled()
+    return (update.mock.calls[0] as unknown[])[1] as Record<string, unknown>
+  }
+
+  it('S4-facade: a second save with no booking, same customer, keeps the first save\'s link', async () => {
+    const sent = await converge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(sent).toMatchObject({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+  })
+
+  it('S4-facade: a re-point to another customer with no booking moves both — the old booking never rides along (E-1)', async () => {
+    const sent = await converge({ customer_id: 'cust-OTHER', appointment_id: 'appt-first' })
+    expect(sent).toMatchObject({ customer_id: 'cust-1', appointment_id: null })
+  })
+})

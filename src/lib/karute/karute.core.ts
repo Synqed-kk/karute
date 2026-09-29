@@ -40,7 +40,7 @@ import type { SessionCategory } from '@/components/karute/redesign/detail/Curren
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
-import type { AppointmentLinkReason } from '@/lib/karute/appointment-link'
+import { keepLinkUnlessGiven, type AppointmentLinkReason } from '@/lib/karute/appointment-link'
 
 /**
  * Create the karute record — or, if this recording session was ALREADY saved,
@@ -204,7 +204,10 @@ export async function createOrUpdateKaruteRecord(
         customer_id: payload.customer_id,
         transcript: payload.transcript,
         ai_summary: payload.ai_summary,
-        appointment_id: payload.appointment_id,
+        // S4 (PR-O, O1/V4): a save with no booking never clears the link an
+        // earlier save wrote for the SAME customer; a re-point (customer_id
+        // above changes) still moves the booking with it — keepLinkUnlessGiven.
+        appointment_id: keepLinkUnlessGiven(existing, payload),
         ...(omitEntries ? {} : { entries: payload.entries }),
       })
       return emitSave({

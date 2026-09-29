@@ -39,3 +39,34 @@ export async function readAppointmentForSave(
     return { appointment: null, state: upstreamStatus(err) === 404 ? 'not_found' : 'unreadable' }
   }
 }
+
+/**
+ * S4 (PR-O, O1 + V4): a later save never CLEARS a booking link.
+ *
+ * Both converges — createOrUpdateKaruteRecord (karute.core.ts; the facade and
+ * the two web save doors) and the job worker's upsertKaruteRecord
+ * (process-recording.ts) — used to write the later payload's appointment_id
+ * straight through, so a second write that carried no booking (a relaunch
+ * auto-finish, a retried autosave, a re-run job) put null over the first
+ * save's link and the 予約 tab went back to 未記録.
+ *
+ * `write.customer_id` is the customer the record will carry AFTER this write
+ * (the facade converge moves it; the worker's update never does, so it passes
+ * the existing record's own customer). The rule, NARROWED per V4:
+ *   - the write names a booking               → that booking (a re-stamp wins)
+ *   - the write moves the record to another
+ *     customer (保存先を変更, E-1)             → the write's booking, even null:
+ *     customer + booking move together, exactly as before — the old
+ *     customer's booking never rides along
+ *   - otherwise (same customer, no booking)    → the existing link stays
+ *
+ * Pure, so both converges share ONE spelling.
+ */
+export function keepLinkUnlessGiven(
+  existing: { customer_id?: string | null; appointment_id?: string | null },
+  write: { customer_id?: string | null; appointment_id?: string | null },
+): string | null {
+  if (write.appointment_id) return write.appointment_id
+  if ((write.customer_id ?? null) !== (existing.customer_id ?? null)) return null
+  return existing.appointment_id ?? null
+}

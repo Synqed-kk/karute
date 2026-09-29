@@ -46,6 +46,7 @@ import {
   REVISIT_NOT_ELIGIBLE,
 } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
+import { keepLinkUnlessGiven } from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /** The enqueue payload contract (client → core job row → this worker). */
@@ -623,7 +624,14 @@ async function upsertKaruteRecord(
       transcript: result.transcript,
       ai_summary: result.summary,
       entries: [...entries, ...carriedHumanEntries],
-      appointment_id: payload.appointment_id ?? null,
+      // S4 (PR-O, O1/V4): a re-run with no booking never clears the link an
+      // earlier save wrote. This update never moves customer_id, so the
+      // record's customer after the write is the existing one — the SAME
+      // rule as karute.core (keepLinkUnlessGiven).
+      appointment_id: keepLinkUnlessGiven(existing, {
+        customer_id: existing.customer_id ?? null,
+        appointment_id: payload.appointment_id ?? null,
+      }),
     })
     // CEILING (mirrors lib/karute/karute.core.ts fix round 2): store_id does NOT move
     // with this update, so the persisted store is still the EXISTING record's

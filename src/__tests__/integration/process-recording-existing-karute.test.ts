@@ -495,3 +495,40 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
     })
   })
 })
+
+// S4 (PR-O commit 1, O1/V4): the worker's mid-run converge (pre-spend lookup
+// 404, the record appears while transcription runs) never clears the link an
+// earlier save wrote. T7 above leaves an unconsumed once-queue entry on the
+// lookup mock, so this block resets that one mock to the file's default first.
+describe('S4 — the worker converge never clears a booking link', () => {
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  const runMidRunConverge = async (existing: Record<string, unknown>, payload: Record<string, unknown> = {}) => {
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({ id: 'record-existing', store_id: null, ...existing } as never)
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, ...payload } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    expect(karuteRecordsUpdate).toHaveBeenCalledTimes(1)
+    expect(karuteRecordsCreate).not.toHaveBeenCalled()
+    return (karuteRecordsUpdate.mock.calls[0] as unknown[])[1] as Record<string, unknown>
+  }
+
+  it('S4-job: a job re-run with no booking keeps the first save\'s link', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-first' })
+  })
+
+  it('S4-job: a stale job for a record since re-pointed to another customer never clears that record\'s link (the worker never moves the customer)', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-REPOINTED', appointment_id: 'appt-of-new-customer' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-of-new-customer' })
+    expect(sent).not.toHaveProperty('customer_id')
+  })
+
+  it('S4-job: a re-run that names a booking re-stamps it', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' }, { appointment_id: 'appt-new' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-new' })
+  })
+})
