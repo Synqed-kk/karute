@@ -164,6 +164,61 @@ export type AttachOutcome = z.infer<typeof AttachOutcomeSchema>
 export const MAX_SEGMENT_SEQ = 999_999
 export const MAX_SEGMENT_BATCH = 60
 const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
+// ── The self-diagnosing take (S60 A5 + A4b) — two OPTIONAL fields a build-32
+// phone adds to the finalize body and to a server-named or staged upload-url
+// body; build 31 sends neither, and a body without them parses exactly as
+// before. `partial: true` = the phone knows the blob it is uploading is not the
+// whole take (the server writes a create-only `partial` mark, take-mark.ts).
+// `diag` = the phone's own account of how the blob was assembled — NUMBERS,
+// FLAGS AND ONE SHORT CODE ONLY (⚖ 8/17 doc law; no free text can ride here):
+// every number a bounded non-negative int, every flag a boolean, and
+// `pump_stop_code` a lowercase code of at most DIAG_CODE_MAX_CHARS. Each member
+// is optional (an arm reports what it knows); an unknown member is refused
+// (.strict()). Read by the finalize detail fold and the two log lines, nothing
+// else.
+/** Highest seq a diag may name — the same ceiling a segment key has. */
+export const DIAG_MAX_SEQ = MAX_SEGMENT_SEQ
+/** Most segments a diag may count — every seq 0..DIAG_MAX_SEQ once. */
+export const DIAG_MAX_SEQ_COUNT = MAX_SEGMENT_SEQ + 1
+/** Largest blob a diag may report — the same 2 GiB ceiling as the finalize
+ *  schema's MAX_TAKE_BYTES below (declared there, after this schema is built). */
+export const DIAG_MAX_BLOB_BYTES = 2 * 1024 * 1024 * 1024
+/** A byte's value — `first_byte` is the blob's first byte as a number. */
+export const DIAG_MAX_BYTE_VALUE = 255
+/** Ceiling for each event counter (store errors, hides, freezes, null
+ *  sessions) — far above any real take, low enough to be a count. */
+export const DIAG_MAX_EVENT_COUNT = 999_999
+/** `pump_stop_code` length ceiling and its fixed charset. */
+export const DIAG_CODE_MAX_CHARS = 16
+export const DIAG_CODE_PATTERN = /^[a-z0-9_]+$/
+const diagInt = (max: number) => z.number().int().min(0).max(max)
+export const TakeDiagSchema = z
+  .object({
+    arm: z.enum(['stored', 'memory']),
+    seq_min: diagInt(DIAG_MAX_SEQ),
+    seq_max: diagInt(DIAG_MAX_SEQ),
+    seq_count: diagInt(DIAG_MAX_SEQ_COUNT),
+    seq0_present: z.boolean(),
+    blob_bytes: diagInt(DIAG_MAX_BLOB_BYTES),
+    first_byte: diagInt(DIAG_MAX_BYTE_VALUE),
+    store_error_count: diagInt(DIAG_MAX_EVENT_COUNT),
+    pump_stop_code: z.string().min(1).max(DIAG_CODE_MAX_CHARS).regex(DIAG_CODE_PATTERN),
+    hidden_count: diagInt(DIAG_MAX_EVENT_COUNT),
+    freeze_count: diagInt(DIAG_MAX_EVENT_COUNT),
+    session_null_count: diagInt(DIAG_MAX_EVENT_COUNT),
+  })
+  .partial()
+  .strict()
+export type TakeDiag = z.infer<typeof TakeDiagSchema>
+/** The diag as FLAT `diag_*` keys (S60 M8: an audit detail and a log line are
+ *  flat — never a nested object). Absent → no keys at all, so a build-31 body
+ *  folds to nothing. */
+export function flattenTakeDiag(diag: TakeDiag | undefined): Record<string, string | number | boolean> {
+  const flat: Record<string, string | number | boolean> = {}
+  if (!diag) return flat
+  for (const [k, v] of Object.entries(diag)) if (v !== undefined) flat[`diag_${k}`] = v
+  return flat
+}
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().uuid().nullish(),
@@ -185,6 +240,9 @@ export const UploadUrlMintSchema = z
     // else is dropped, never refused: a row born without a length is honest,
     // and an odd number must never cost the upload. Read by that arm alone.
     durationSeconds: z.number().int().positive().max(MAX_TAKE_SECONDS).optional().catch(undefined),
+    // S60 A5 + A4b — see TakeDiagSchema above. Server-named or staged only.
+    partial: z.boolean().optional(),
+    diag: TakeDiagSchema.optional(),
   })
   .strict()
   .refine((v) => !(v.takeId && v.stagedFor), {
@@ -223,6 +281,14 @@ export const UploadUrlMintSchema = z
     message: 'attachOutcome rides only on a server-named take',
     path: ['attachOutcome'],
   })
+  // S60 A5 + A4b (+ REV 2.3 A1): `partial`/`diag` describe a blob the phone
+  // could not seal under its write-once take key — it goes to the SERVER-NAMED
+  // door or the STAGED door, never to a client-named take mint or a segment
+  // batch (those paths stay exactly as today).
+  .refine((v) => !((v.partial != null || v.diag != null) && (v.takeId || v.seqs)), {
+    message: 'partial and diag ride only on a server-named or a staged body',
+    path: ['partial'],
+  })
 
 // ── Take finalize (capture pipeline PR2) — "this take is complete on storage".
 // takeId + mimeType compose the SAME key the mint composed (never a path from
@@ -247,6 +313,9 @@ export const FinalizeTakeSchema = z
     durationSeconds: z.number().finite().min(0).max(MAX_TAKE_SECONDS),
     byteLength: z.number().int().min(1).max(MAX_TAKE_BYTES),
     recordingSessionId: z.string().uuid(),
+    // S60 A5 + A4b — optional; build 31 omits both. See TakeDiagSchema.
+    partial: z.boolean().optional(),
+    diag: TakeDiagSchema.optional(),
   })
   .strict()
 

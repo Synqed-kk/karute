@@ -40,7 +40,7 @@ import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
 import { composeTakeKey, parseRecordingKey } from '@/lib/recording/key-grammar'
-import { FinalizeTakeSchema } from '@/lib/app-api/record-schemas'
+import { FinalizeTakeSchema, flattenTakeDiag, type TakeDiag } from '@/lib/app-api/record-schemas'
 import {
   assertRecorderOwnsRow,
   finalizedBefore,
@@ -97,6 +97,14 @@ export interface FinalizeTakeInput {
    *  key reaches storage without one, so a finalize that cannot name its row is
    *  a finalize for a take this server never bound. */
   recordingSessionId: string
+  /** S60 A4b — the phone knows this blob is not the whole take. Optional;
+   *  build 31 omits it. On the fresh path (switch ON) → one create-only
+   *  `partial` mark; the finalize itself answers exactly as without it. */
+  partial?: boolean
+  /** S60 A5 — the phone's numbers-and-flags account of the blob. Optional;
+   *  build 31 omits it. Folded FLAT (`diag_*`) into the capture_finalized
+   *  detail (switch ON) and into one log line; nothing else reads it. */
+  diag?: TakeDiag
 }
 
 /**
@@ -371,6 +379,32 @@ export async function finalizeTakeWithClient(
       }
     }
 
+    // S60 A4b + A5 — WHAT THE PHONE SAYS ABOUT THIS BLOB, on the fresh path
+    // only. `partial: true` → one create-only `partial` mark on this take key
+    // (`exists` on a retry, `error` never costs the finalize: the mark is a
+    // flag for PR-R, the take is still the take). `diag` → flat `diag_*` keys
+    // in the capture_finalized detail. Switch OFF (REV 2.3 A5) → no mark and no
+    // detail keys: both fields reach this one log line and nothing else, so a
+    // build-32 body answers exactly as a build-31 body does.
+    const probeOn = RECORDING_SWITCHES.finalizeProbe
+    const partialMark =
+      input.partial && probeOn
+        ? await markTake(createServiceClient(), actor.businessId, key, 'partial', {
+            bytes: input.byteLength,
+            first_byte: input.diag?.first_byte ?? null,
+          })
+        : null
+    if (input.partial != null || input.diag) {
+      console.info('[finalize-take] take diag', {
+        recordingSessionId: row.id,
+        takeId: input.takeId,
+        partial: input.partial ?? null,
+        mark: partialMark,
+        switchOn: probeOn,
+        ...flattenTakeDiag(input.diag),
+      })
+    }
+
     const durationSeconds = Math.floor(input.durationSeconds)
     // The POINTER is not written here — the mint wrote it and the comparison
     // above just proved it is this exact key. What finalize adds is what the
@@ -394,7 +428,10 @@ export async function finalizeTakeWithClient(
       composed.ext,
       // Honest about what was actually proved: the listing did not carry a
       // size, so the byte match is unverified for this row.
-      { size_verified: verdict === 'ok' },
+      {
+        size_verified: verdict === 'ok',
+        ...(probeOn ? flattenTakeDiag(input.diag) : {}),
+      },
       { ok: true, recordingSessionId: row.id },
       row,
     )
