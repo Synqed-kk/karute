@@ -135,7 +135,7 @@ const CALL_PATTERNS = [
   { re: /\.rpc\s*\(/g, label: 'write call .rpc(', scope: EVERYWHERE },
   // A bound write method is the same reach, one step removed (R-A2-15 §5).
   {
-    re: /\.(insert|update|upsert|delete|rpc|create|save|set|log)\s*\.\s*bind\s*\(/g,
+    re: /\.(insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay)\s*\.\s*bind\s*\(/g,
     label: 'bound write method .X.bind(',
     scope: EVERYWHERE,
   },
@@ -197,10 +197,14 @@ const ALLOW = [
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
     label: 'bound write method .X.bind(',
-    match: ['set: storePolicies.set.bind(storePolicies)'],
-    count: 1,
+    match: [
+      'set: storePolicies.set.bind(storePolicies)',
+      'addClosedDay: storePolicies.addClosedDay.bind(storePolicies)',
+      'removeClosedDay: storePolicies.removeClosedDay.bind(storePolicies)',
+    ],
+    count: 3,
     reason:
-      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies: { set } } handle, the two tenant throws before the client is built; feeds door-writes.ts\'s one pinned setSpecialOpenDays call',
+      '⚖ PKT-S29-B0b (store-days write door): storeDaysWriterFor\'s write-only { storePolicies } handle carries three write methods (set · addClosedDay · removeClosedDay), the two tenant throws before the client is built; feeds door-writes.ts\'s three pinned store-days writer calls',
   },
   {
     path: 'src/business/lib/practice-door/core-reach.ts',
