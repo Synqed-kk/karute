@@ -596,9 +596,14 @@ describe('B2 act 1b honest stamp', () => {
     expect(src).not.toContain(PAGE_ONLY)
     expect(i18n).toContain(`"pageOnlyStamp": "${PAGE_ONLY}"`)
     expect(JA.sampleMark.pageOnlyStamp).toBe(PAGE_ONLY)
-    // ⚖ R37 — one predicate, two sites: a second copy of the expression at either site would pass every behaviour test (attack M5); the shape is pinned here.
-    expect(src.split(/\bstoreDaysLive\b/).length - 1).toBe(3)
-    expect(src.split('blocks.some((x) => x.id === STORE_HOURS_CLOSURES_ID)').length - 1).toBe(1)
+    // ⚖ R37 — one predicate, two sites: a second copy of the expression at either site would pass every behaviour test (attack M5); the SHAPE is pinned here — the name and the callback parameter are free (Greptile #1098 thread).
+    const expr = /\.blocks\.some\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*\1\.id\s*===\s*STORE_HOURS_CLOSURES_ID\s*\)/g
+    const homes = src.match(expr) ?? []
+    expect(homes).toHaveLength(1)
+    const homeLine = src.split('\n').find((l) => l.includes(homes[0]!))
+    const name = homeLine?.match(/\bconst\s+(\w+)\s*=/)?.[1]
+    expect(name).toBeDefined()
+    expect(src.split(new RegExp(`\\b${name}\\b`)).length - 1).toBe(3)
   })
   // ⚖ R37 (attack M7) — the honest stamp is a COMMITTED stamp: before any press the bar says 変更はありません.
   it('(f) door ON, no edit, no save: 「変更はありません」, the page-only string absent', async () => {
