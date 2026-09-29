@@ -786,6 +786,12 @@ const WEEKDAYS: Array<[number, string]> = [
 function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
   // ⚖ PKT-S29-B1 — a local alias so every branch below narrows normally.
   const storeDaysRead = ctx.storeDaysRead
+  // ⚖ PKT-S30 P3-10 — each block honest on its own: one failed list shows ITS failure line, the other
+  // list still shows its rows. `null` below = OFF/no store (the sample/empty branches), not a failure.
+  const liveClosures = storeDaysRead?.ok ? storeDaysRead.closures : null
+  const liveSpecial = storeDaysRead?.ok ? storeDaysRead.specialOpenDays : null
+  const closuresFailed = storeDaysRead !== null && liveClosures === null
+  const specialFailed = storeDaysRead !== null && liveSpecial === null
   const head = {
     ...base,
     kicker: '店舗運営',
@@ -970,13 +976,13 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
         '臨時休業',
         '通常の営業時間を休みにする、その日限りの予定です。',
         [],
-        storeDaysRead && !storeDaysRead.ok
+        closuresFailed
           ? { facts: [READ_FAILURE_LINE] }
           : {
               sample: storeDaysRead === null ? ctx.sampleWhole('closures') : undefined,
               collection: {
-                items: storeDaysRead?.ok
-                  ? storeDaysRead.closures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))
+                items: liveClosures
+                  ? liveClosures.map((c) => ({ id: c.id, date: c.date, title: dayTitle(c.date), note: c.reason ?? '' }))
                   : d.closures.map((c) => {
                       const date = isoDay(dayFrom(ctx.now, c.dayOffset))
                       return { id: date, date, title: dayTitle(date), note: c.note }
@@ -1005,13 +1011,13 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
       // fixture field exists for this, R10 — fixtures-settings.ts is untouched).
       block('store-hours.special-open', '特別営業日', SPECIAL_OPEN_DAYS_NOTE, [], {
         specialDays:
-          storeDaysRead && !storeDaysRead.ok
+          specialFailed
             ? null
             : {
-                items: storeDaysRead?.ok
-                  ? [...storeDaysRead.specialOpenDays]
+                items: liveSpecial
+                  ? [...liveSpecial]
                       .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-                      .map((s) => ({ date: s.date, title: dayTitle(s.date), open: s.open, close: s.close, badge: specialDayBadge(s.date, storeDaysRead.closures) }))
+                      .map((s) => ({ date: s.date, title: dayTitle(s.date), open: s.open, close: s.close, badge: specialDayBadge(s.date, liveClosures ?? []) }))
                   : [],
                 dateControlId: 'store-hours.special-date',
                 openControlId: 'store-hours.special-open-time',
@@ -1020,7 +1026,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
                 removeLabel: '取り消す',
                 emptyLine: '特別営業日の予定はありません。',
               },
-        facts: storeDaysRead && !storeDaysRead.ok ? [READ_FAILURE_LINE] : [],
+        facts: specialFailed ? [READ_FAILURE_LINE] : [],
       }),
     ],
     persist: null,

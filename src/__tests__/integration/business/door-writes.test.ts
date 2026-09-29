@@ -278,18 +278,21 @@ describe('P-B1-5 — core refusals that pass the door, mapped', () => {
 })
 
 describe('P-B1-6 — a failed read is an error state', () => {
-  it('get throws → { ok: false }, never a silent empty list', async () => {
+  it('get throws → that list reads as failed (null, P3-10), never a silent empty list', async () => {
     const spied = withReads()
     spied.storePolicyGet.mockRejectedValueOnce(new Error('core outage'))
     const result = await data.readStoreDays(STORE_ID)
-    expect(result.ok).toBe(false)
+    // ⚖ PKT-S30 P3-10 — each list honest on its own: THIS list reads as failed (null), the other arrives.
+    expect(result.ok && result.specialOpenDays).toBeNull()
+    expect(result.ok && Array.isArray(result.closures)).toBe(true)
     expect(error).toHaveBeenCalled()
   })
-  it('listClosedDays throws → { ok: false }', async () => {
+  it('listClosedDays throws → that list reads as failed (null, P3-10)', async () => {
     const spied = withReads()
     spied.storePolicyListClosedDays.mockRejectedValueOnce(new Error('core outage'))
     const result = await data.readStoreDays(STORE_ID)
-    expect(result.ok).toBe(false)
+    expect(result.ok && result.closures).toBeNull()
+    expect(result.ok && Array.isArray(result.specialOpenDays)).toBe(true)
   })
   it('a successful read returns both lists fresh, never memoized across two calls', async () => {
     const spied = withReads()

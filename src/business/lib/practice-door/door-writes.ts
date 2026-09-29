@@ -40,9 +40,11 @@ export type SpecialOpenDay = StorePolicy['special_open_days'][number]
 type ClosedDaysRead = Awaited<ReturnType<CoreReads['storePolicyListClosedDays']>>
 export type StoreClosedDay = ClosedDaysRead['closed_days'][number]
 
+/** ⚖ PKT-S30 P3-10 — each list honest on its own: `null` = THAT list's read failed (R7), the other
+ *  list still arrives. Both failing is a refusal, as before. */
 export interface StoreDaysRead {
-  closures: StoreClosedDay[]
-  specialOpenDays: SpecialOpenDay[]
+  closures: StoreClosedDay[] | null
+  specialOpenDays: SpecialOpenDay[] | null
 }
 type Reason = 'forbidden' | 'tenant' | 'invalid' | 'core'
 type Refusal = { ok: false; reason: Reason; message: string }
@@ -286,14 +288,18 @@ export async function readStoreDays(storeId: string): Promise<StoreDaysReadResul
   if (!admitted.ok) return admitted
   const { actor, reach } = admitted
   if (!visibleIds(actor).includes(storeId)) return FORBIDDEN
-  try {
-    const [policy, closedDays] = await Promise.all([
-      actor.reads.storePolicyGet(storeId),
-      actor.reads.storePolicyListClosedDays(storeId, { from: todayJst() }),
-    ])
-    return { ok: true, closures: closedDays.closed_days, specialOpenDays: fromToday(policy.special_open_days) }
-  } catch (e) {
-    return mapCoreError(e, reach)
+  const [policy, closedDays] = await Promise.allSettled([
+    actor.reads.storePolicyGet(storeId),
+    actor.reads.storePolicyListClosedDays(storeId, { from: todayJst() }),
+  ])
+  if (policy.status === 'rejected' && closedDays.status === 'rejected') return mapCoreError(policy.reason, reach)
+  // One failed list: logged through the same mapping (warn/error), and that list alone reads as failed.
+  if (policy.status === 'rejected') mapCoreError(policy.reason, reach)
+  if (closedDays.status === 'rejected') mapCoreError(closedDays.reason, reach)
+  return {
+    ok: true,
+    closures: closedDays.status === 'fulfilled' ? closedDays.value.closed_days : null,
+    specialOpenDays: policy.status === 'fulfilled' ? fromToday(policy.value.special_open_days) : null,
   }
 }
 
