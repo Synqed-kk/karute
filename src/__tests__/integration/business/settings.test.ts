@@ -1928,6 +1928,11 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // `emptyDateError`, and every item's `title`/`note` — are NOT skipped, and
     // the sample below proves the walk still reaches them.
     'dateControlId', 'reasonControlId',
+    // ⚖ PKT-S29-B1 — 特別営業日's own two control ids (`SettingsSpecialDays.openControlId` /
+    // `closeControlId`), same shape as the closure collection's pair above: an id the
+    // SCREEN uses, never a string a reader meets. Its visible words — `addLabel`,
+    // `removeLabel`, `emptyLine`, and every item's `title`/`open`/`close` — are NOT skipped.
+    'openControlId', 'closeControlId',
   ])
   /** ⚠ THE SKIP IS BY PATH, AND THE BATTERY PROVED WHY once already: the trace
    *  card's lines are `{ label, value }` and that `value` is a SENTENCE the
@@ -2144,7 +2149,8 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
       // …and the section really carries its blocks, rather than the designed
       // no-store panel a null lens would render.
       const hours = props.sections.find((s) => s.id === 'store-hours')!
-      expect({ store, blocks: hours.blocks.length }).toEqual({ store, blocks: 4 })
+      // ⚖ PKT-S29-B1 — 5, not 4: 特別営業日 joined 臨時休業 as its own block.
+      expect({ store, blocks: hours.blocks.length }).toEqual({ store, blocks: 5 })
       expect({ store, kicker: hours.kicker }).not.toEqual({ store, kicker: '店舗を選んでください' })
     }
   })
@@ -2550,12 +2556,17 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const block = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.closures')!
     const coll = block.collection!
     expect(block.title).toBe('臨時休業')
-    // ⚠ 特別営業 IS GONE FROM THE PAGE, AND FROM THE PLANE BEHIND IT. Core has no
-    // field for it (registry ⑨ `special_open_days`), and a control that offers a
-    // value the store cannot save is a lie with a picture on it. The `kind`
-    // discriminator went with it, so a later round cannot quietly re-derive the
-    // option from data that is still there.
+    // ⚖ PKT-S29-B1 (9/29) — 特別営業日 IS BACK, under its OWN dial (⚖ Liam 9/28
+    // 20:0x ruling superseding the 9/6 removal this test used to pin: core has
+    // carried `special_open_days` since CORE-10, 9/14). It is its own block —
+    // never folded into 臨時休業's own object — so 臨時休業's block still never
+    // mentions it, exactly as before.
     expect(JSON.stringify(block)).not.toContain('特別営業')
+    const specialBlock = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.special-open')!
+    expect(specialBlock.title).toBe('特別営業日')
+    expect(specialBlock.specialDays).not.toBeNull()
+    // `kind`-style fixture discriminator stays gone (R10: fixtures-settings.ts is untouched — no fixture
+    // field for 特別営業日 was ever added; the live block above reads through the door, not a fixture).
     expect(JSON.stringify(storeDials)).not.toContain('特別営業')
     expect(JSON.stringify(storeDials)).not.toContain("'extra'")
     // …and no closure's REASON describes the opposite of a closure. A row that

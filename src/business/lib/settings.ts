@@ -607,19 +607,32 @@ export interface SettingsBlock {
    *
    *  The first cut rendered this as two SEGMENTED ROWS offering 臨時休業 /
    *  特別営業 / 通常営業 per pre-existing date — which cannot express the wire at
-   *  all: there is no way to add a date, no way to remove one, and 特別営業 is a
-   *  value core has no field for (⚖ label truth: a control that names a value
-   *  the store cannot save is a lie with a picture on it). It is an add/remove
-   *  list, so it is rendered as one.
+   *  all: there is no way to add a date, no way to remove one. It is an
+   *  add/remove list, so it is rendered as one. (⚖ PKT-S29-B1, 9/29 — 特別営業日
+   *  is NOT gone: core has carried `special_open_days` since CORE-10, 9/14; it
+   *  returns under its own dial, `SettingsSpecialDays` below, on Liam's 9/28
+   *  20:0x ruling superseding the 9/6 removal this comment used to describe.)
    *
    *  `null` on every other block. */
   collection: SettingsCollection | null
+  /** ⚖ PKT-S29-B1 — 特別営業日, the collection's sibling: it returns to Business
+   *  設定 under its own dial (⚖ Liam 9/28 20:0x, superseding the 9/6 removal —
+   *  core has carried `special_open_days` since CORE-10, 9/14). Read-only where
+   *  `null` (never rendered), populated where the actor may at least SEE the
+   *  list — the write controls' own enablement is `canWrite` on the block
+   *  itself (R2), not a second null here. `null` on every other block. */
+  specialDays: SettingsSpecialDays | null
 }
 
 /** The list half of a block that adds and removes rows. */
 export interface SettingsCollection {
-  /** The store's rows, newest-first as the wire returns them. */
-  items: Array<{ id: string; title: string; note: string }>
+  /** The store's rows, newest-first as the wire returns them. `date` is
+   *  OPTIONAL and LIVE-only (⚖ PKT-S29-B1): the OFF/fixture path's `id` IS a
+   *  formatted date string by construction, but a LIVE row's `id` is core's
+   *  own uuid (`StoreClosedDay.id`) — `date` carries the raw YYYY-MM-DD
+   *  separately so a client reader (the 特別営業日 badge, R3: "computed from
+   *  the CLOSURES list") never has to parse one back out of a formatted title. */
+  items: Array<{ id: string; title: string; note: string; date?: string }>
   /** What the 追加 row's two controls are called, so the screen reads the value
    *  map rather than guessing an id shape. */
   dateControlId: string
@@ -635,6 +648,27 @@ export interface SettingsCollection {
   duplicateError: string
   /** The one field that must not be empty. */
   emptyDateError: string
+}
+
+/** ⚖ PKT-S29-B1 R8 — 特別営業日's own list shape: date + open + close, no
+ *  `reason` (core's `SpecialOpenDay` carries none). Unlike `SettingsCollection`
+ *  this list is LIVE from the moment it exists (R8: "leave the section's
+ *  draft/dirty model — the save bar never counts them"), so it carries no
+ *  `duplicateError`/`emptyDateError` fields — the door (door-writes.ts)
+ *  validates server-side and returns the ready JP refusal on every call; there
+ *  is no local pre-check to word here. Whether THIS actor may add/remove (R2)
+ *  is read off the BLOCK's own `rightsNote` (set = read-only, the existing
+ *  「録音設定の org block」 pattern) — one truth, shared with the 臨時休業
+ *  collection sitting right beside it, rather than a second flag here. */
+export interface SettingsSpecialDays {
+  /** The store's rows, ascending by date (the door's own sort — R5). */
+  items: Array<{ date: string; title: string; open: string; close: string; badge: string | null }>
+  dateControlId: string
+  openControlId: string
+  closeControlId: string
+  addLabel: string
+  removeLabel: string
+  emptyLine: string
 }
 
 export interface SettingsSection {
