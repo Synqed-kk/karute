@@ -97,6 +97,8 @@ async function screenFor(opts: {
   customers: CachedCustomerOption[]
   requestedAppointmentId: string
   targetCustomer: CustomerWithStaff | null
+  /** R-O7 (PR-O): the target's karute rows; default barren, as before. */
+  karute?: unknown[]
 }) {
   return buildRecordScreen({
     locale: 'ja',
@@ -116,7 +118,7 @@ async function screenFor(opts: {
       getConsent: async () => null,
       // Deliberately barren: with no karute and no pack ledger, `karuteCount`
       // and an active 回数券 cannot stand in for the signals under test.
-      getKaruteRecords: async () => [],
+      getKaruteRecords: async () => (opts.karute ?? []) as never,
       listPacks: async () => [],
       getLifecycle: async () => ({ ok: true as const, lifecycle: null }),
     },
@@ -183,5 +185,24 @@ describe('録音 bound target — cross-store deep link keeps its identity', () 
     expect(screen.nextAppointment?.karuteNumber).toBe('#00007')
     expect(screen.targetHasTicketPack).toBe(false)
     expect(screen.brief?.isFirstTimeVisit).toBe(true)
+  })
+})
+
+// R-O7 (PR-O commit 3): the record screen's own gate (targetReturning →
+// brief.isFirstTimeVisit) reads its karute count through the SAME
+// countsAsPriorVisit as the server guard, anchored to today (NOW, 2026-08-28
+// JST) because no recording has started.
+describe('録音 target — R-O7 a same-day 仮カルテ placeholder is not a prior visit', () => {
+  const placeholder = (day: string) => ({
+    id: 'draft-1', status: 'DRAFT', recording_session_id: null, session_date: day,
+    created_at: `${day}T00:30:00.000Z`, customer_id: 'cust-ginza', entries: [],
+  })
+  it('a first-timer whose only karute is today\'s placeholder stays a first visit', async () => {
+    const screen = await screenFor({ customers: [IN_STORE], requestedAppointmentId: 'appt-ginza', targetCustomer: null, karute: [placeholder('2026-08-28')] })
+    expect(screen.brief?.isFirstTimeVisit).toBe(true)
+  })
+  it('the same placeholder from an earlier day makes them returning', async () => {
+    const screen = await screenFor({ customers: [IN_STORE], requestedAppointmentId: 'appt-ginza', targetCustomer: null, karute: [placeholder('2026-08-20')] })
+    expect(screen.brief?.isFirstTimeVisit).toBe(false)
   })
 })

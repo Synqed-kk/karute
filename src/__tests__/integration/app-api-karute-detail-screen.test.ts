@@ -1614,3 +1614,40 @@ describe('staffCanEditRecord — the DTO half of the store lock', () => {
     expect((await dtoFor()).staffCanEditRecord).toBe(false)
   })
 })
+
+// S3 + V7 (PR-O commit 3): the detail carries the customer's truth for the 結果
+// card from the SAME guard every write runs (R-O7's prior-visit rule included).
+// The guard's own reads are attached per test and removed after, so every
+// pre-existing case above keeps its reads (and its exact DTO) unchanged.
+describe('GET screens/karute/[id] — S3 isReturningCustomer', () => {
+  const KID = '00000000-0000-4000-8000-000000000008'
+  const guardReads = fakeClient as unknown as Record<string, Record<string, unknown>>
+  const attach = (customer: object, rows: object[]) => {
+    guardReads.customers.get = jest.fn(async () => customer)
+    guardReads.packs = { listPacks: jest.fn(async () => []) }
+    guardReads.karuteRecords.list = jest.fn(async () => ({ karute_records: rows }))
+    REC.current = { ...REC.current, created_at: '2026-06-01T02:50:00Z' } as typeof REC.current
+  }
+  afterEach(() => {
+    delete guardReads.customers.get
+    delete guardReads.packs
+    delete guardReads.karuteRecords.list
+  })
+  const own = { id: KID, status: 'DRAFT', recording_session_id: 'sess-1', created_at: '2026-06-01T03:00:00Z' }
+  const sameDayPlaceholder = { id: 'draft-1', status: 'DRAFT', recording_session_id: null, session_date: '2026-06-01', created_at: '2026-06-01T02:49:00Z' }
+  const get = async () => (await GET(req({ headers: auth }), routeFor(KID))).json()
+
+  it('V7-1 at the DTO: a first-timer whose only other karute is a same-day 仮カルテ → false', async () => {
+    attach({ is_existing_customer: false, visit_count: 0, has_ticket_pack: false }, [own, sameDayPlaceholder])
+    expect((await get()).isReturningCustomer).toBe(false)
+  })
+  it('V7-2 at the DTO: a real regular with the same placeholder → true (既存のお客様 never hidden)', async () => {
+    attach({ is_existing_customer: false, visit_count: 4, has_ticket_pack: false }, [own, sameDayPlaceholder])
+    expect((await get()).isReturningCustomer).toBe(true)
+  })
+  it('a guard that cannot tell → the field is absent (the card keeps today\'s rule), never a 502', async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KID))
+    expect(res.status).toBe(200)
+    expect(await res.json()).not.toHaveProperty('isReturningCustomer')
+  })
+})

@@ -1,6 +1,7 @@
 import 'server-only'
 import type { SynqedClient } from '@synqed-kk/client'
-import { isReturningCustomer } from '@/lib/customers/status-signals'
+import { isReturningCustomer, isProvisionalKaruteRow, countsAsPriorVisit, type PriorVisitRow } from '@/lib/customers/status-signals'
+import { ymdInJst } from '@/lib/date/jst'
 
 /**
  * Server-side eligibility for the `'revisit'` outcome (Greptile #689).
@@ -47,7 +48,7 @@ import { isReturningCustomer } from '@/lib/customers/status-signals'
  * raw fields, not their mapped view-models (their redemption-count join is
  * pure waste here — the raw pack row already carries status + kind).
  */
-export type RevisitGuardClient = Pick<SynqedClient, 'customers' | 'packs' | 'karuteRecords'>
+export type RevisitGuardClient = Pick<SynqedClient, 'customers' | 'packs' | 'karuteRecords' | 'recordings'>
 
 /** The three customer fields the derivation reads. */
 type CustomerSignals = {
@@ -80,6 +81,53 @@ export type RevisitExclusion =
   | { recordingSessionId: string }
 
 export type RevisitEligibility = 'returning' | 'not_returning' | 'unknown'
+
+type GuardKaruteRow = PriorVisitRow & { id: string; recording_session_id?: string | null }
+
+/** R-O7 (PR-O commit 3): the OTHER karute rows that are evidence of a prior
+ *  visit — through status-signals' ONE countsAsPriorVisit, never a local rule.
+ *  The anchor (the session's START day in JST) is read ONLY when a candidate
+ *  placeholder is in the list, so the common path costs no extra read. An
+ *  anchor that cannot be read counts every row — exactly the pre-R-O7
+ *  behaviour, never a silent narrowing. */
+async function priorVisitCount(
+  synqed: RevisitGuardClient,
+  rows: GuardKaruteRow[],
+  isOwnSession: (row: GuardKaruteRow) => boolean,
+  exclude: RevisitExclusion,
+): Promise<number> {
+  const others = rows.filter((row) => !isOwnSession(row))
+  if (!others.some(isProvisionalKaruteRow)) return others.length
+  const anchorDay = await resolveAnchorDayJst(synqed, rows, exclude)
+  if (anchorDay === null) return others.length
+  return others.filter((row) => countsAsPriorVisit(row, anchorDay)).length
+}
+
+/** The JST day of the recording session's START (the session row's
+ *  created_at — minted when the recording starts); today in JST when the
+ *  karute has no session. Null = unreadable. */
+async function resolveAnchorDayJst(
+  synqed: RevisitGuardClient,
+  rows: GuardKaruteRow[],
+  exclude: RevisitExclusion,
+): Promise<string | null> {
+  try {
+    let sessionId: string | null
+    if ('recordingSessionId' in exclude) {
+      sessionId = exclude.recordingSessionId
+    } else {
+      const own =
+        rows.find((row) => row.id === exclude.karuteRecordId) ??
+        (await synqed.karuteRecords.get(exclude.karuteRecordId))
+      sessionId = own.recording_session_id ?? null
+    }
+    if (!sessionId) return ymdInJst(new Date())
+    const session = await synqed.recordings.get(sessionId)
+    return session?.created_at ? ymdInJst(new Date(session.created_at)) : null
+  } catch {
+    return null
+  }
+}
 
 /** A settled read: we distinguish "read said no" from "read never answered". */
 type Read<T> = { ok: true; value: T } | { ok: false }
@@ -119,7 +167,7 @@ export async function isReturningCustomerServerSide(
             // is not enough to see a genuine prior record behind it.
             synqed.karuteRecords
               .list({ customer_id: customerId, page_size: 3 })
-              .then((r) => (r.karute_records ?? []).filter((row) => !isOwnSession(row)).length),
+              .then((r) => priorVisitCount(synqed, r.karute_records ?? [], isOwnSession, exclude)),
           ),
     ])
 

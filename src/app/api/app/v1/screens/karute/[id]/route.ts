@@ -44,6 +44,7 @@ import { recordEditableInScope } from '@/lib/auth/store-lock'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
 import { resolveDiscardFacts } from '@/lib/karute/discard-facts'
+import { isReturningCustomerServerSide } from '@/lib/karute/revisit-guard'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
@@ -81,7 +82,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
   const recordingSessionId = (raw.recording_session_id as string | null) ?? null
 
   try {
-    const [staffList, allCustomers, outcome, gated, recordingRead] = await Promise.all([
+    const [staffList, allCustomers, outcome, gated, recordingRead, returning] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // Pre-ruled exception: outcome stays null-on-failure (product semantics).
@@ -129,6 +130,15 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
             console.warn('[screens/karute] recording read failed — no player', err)
             return 'unreadable' as const
           })
+        : Promise.resolve(null),
+      // S3 (PR-O commit 3): the customer's truth for the 結果 card — the SAME
+      // server function the revisit guard runs on every write (R-O7's prior-
+      // visit rule included; this karute excluded, anchored to its session's
+      // day). Accessory like the photos: a failure is `unknown`, never a 502.
+      customerId
+        ? isReturningCustomerServerSide(synqed, customerId, { karuteRecordId: id }).catch(
+            () => 'unknown' as const,
+          )
         : Promise.resolve(null),
     ])
 
@@ -348,7 +358,14 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       customer_id: customerId,
       ...(outcomeMasked ? { outcome_masked: true } : {}),
     }
-    return ok(ctx, dto)
+    // S3: present only when the guard KNOWS (true · false); absent = could not
+  // tell or no customer — the card then keeps today's rule, so an unknown
+  // answer never changes the screen. Rides OUTSIDE the DTO schema on purpose:
+  // the schema is bundled into the thin client, which learns the field in the
+  // client commit (7) where thin is measured; an older client's non-strict
+  // parse drops it (additive, V9).
+  const known = returning === 'returning' ? true : returning === 'not_returning' ? false : undefined
+  return ok(ctx, known === undefined ? dto : { ...dto, isReturningCustomer: known })
   } catch (err) {
     if (err instanceof AppApiError) throw err
     throw new AppApiError('upstream_unavailable', 'session detail data unavailable')

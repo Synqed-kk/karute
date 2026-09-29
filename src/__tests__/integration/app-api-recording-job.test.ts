@@ -478,3 +478,27 @@ describe('POST recordings/job — R-O8 outcome_missing at the door', () => {
     expect(jobsEnqueue).not.toHaveBeenCalled()
   })
 })
+
+// R-O7 (PR-O commit 3): the enqueue refusal inherits the ONE prior-visit rule
+// from the shared guard — anchored to THIS session's start day (the row the
+// door already reads), never a copy of the rule here.
+describe("POST recordings/job — R-O7 a same-day 仮カルテ placeholder is not a prior visit", () => {
+  const revisitBody = { ...validBody, outcome: { status: 'revisit', isFirstVisit: false } }
+  const placeholder = (day: string) =>
+    ({ id: 'draft-1', status: 'DRAFT', recording_session_id: null, session_date: day, created_at: `${day}T01:00:00Z` }) as never
+  beforeEach(() => {
+    recordingsGet.mockImplementation(async () => ({ ...ownRow(), created_at: '2026-09-29T07:44:39Z' }) as never)
+  })
+  it('first-timer whose only other karute is a same-day placeholder → 422 not_returning, nothing queued', async () => {
+    listKaruteRecords.mockResolvedValue({ karute_records: [placeholder('2026-09-29')] })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, revisitBody), noRoute)
+    expect(res.status).toBe(422)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+  it('the same placeholder from an EARLIER day → returning, enqueued', async () => {
+    listKaruteRecords.mockResolvedValue({ karute_records: [placeholder('2026-09-20')] })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, revisitBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
+  })
+})
