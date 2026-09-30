@@ -580,6 +580,16 @@ describe('S2/S5 — the worker\'s karute.save row carries the answer\'s fate', (
     expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
   })
 
+  // S-2 (S68 fix round 3): the actor read runs BEFORE the fate, so nothing
+  // sits between the durable answer and its karute.save row.
+  it('S-2: the actor read runs before the label write; the row follows the label with no read between', async () => {
+    const detail = await run({ outcome: { status: 'success' } })
+    expect(detail.outcome_link).toBe('written')
+    const lastActorRead = Math.max(...staffGet.mock.invocationCallOrder)
+    expect(lastActorRead).toBeLessThan(setKaruteOutcomeWithClient.mock.invocationCallOrder[0])
+    expect(setKaruteOutcomeWithClient.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
+  })
+
   it('S2/S5-job kept: a mid-run converge with no label keeps the label already on record', async () => {
     getByRecordingSession
       .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))

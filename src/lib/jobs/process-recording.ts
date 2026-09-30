@@ -549,6 +549,9 @@ async function processJob(job: RecordingJob): Promise<string> {
   // person it now names — the skip path's rule), and a mid-run converge never
   // overwrites a DECIDED answer staff set since (keepDecidedAnswer →
   // isDecidedOutcome, the skip path's predicate).
+  // S-2 (S68 fix round 3): the actor read is done FIRST, so the row follows the
+  // fate immediately — nothing runs between the durable answer and its row.
+  const actorUserId = await resolveActorUserId(synqed, payload.staff_id)
   const fate = await writeOutcomeFate(synqed, {
     karuteRecordId: record,
     customerId: recordCustomerId,
@@ -559,7 +562,6 @@ async function processJob(job: RecordingJob): Promise<string> {
     logTag: '[job]',
     keepDecidedAnswer: true,
   })
-  const actorUserId = await resolveActorUserId(synqed, payload.staff_id)
   audit({
     category: 'karute',
     action: 'karute.save',

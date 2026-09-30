@@ -75,9 +75,9 @@ MUTANTS = [
      [(FATE, '  if (result.error) return failed(result.error)\n', "  if (result.error) return { link: 'written' } // M-O5c\n")],
      [SAVE_T, JOB_T], ['S2/S5-facade failed (the write errors)', 'S2/S5-job failed (the write errors)']),
     ('M-O5d', 'the worker fails BEFORE its row (a failed label leaves no row)',
-     [(WORKER, '  const actorUserId = await resolveActorUserId(synqed, payload.staff_id)\n',
-       "  if (fate.link.startsWith('failed:')) throw fate.cause instanceof Error ? fate.cause : new Error(String(fate.cause)) // M-O5d\n"
-       '  const actorUserId = await resolveActorUserId(synqed, payload.staff_id)\n')],
+     [(WORKER, "    logTag: '[job]',\n    keepDecidedAnswer: true,\n  })\n",
+       "    logTag: '[job]',\n    keepDecidedAnswer: true,\n  })\n"
+       "  if (fate.link.startsWith('failed:')) throw fate.cause instanceof Error ? fate.cause : new Error(String(fate.cause)) // M-O5d\n")],
      [JOB_T], ['S2/S5-job failed (the write errors)', 'S2/S5-job failed (the write THROWS)']),
     # M-O7 — the auto-link fires with two candidates or another customer/store/day (commit 4, S7)
     ('M-O7a', 'two candidates link the first (ambiguity removed)',
