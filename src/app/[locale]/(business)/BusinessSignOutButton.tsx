@@ -4,10 +4,12 @@
 // button (never black-filled). POSTs the Business sign-out route, then a FULL
 // navigation to the login page so no client router cache of the shell survives.
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
-export function BusinessSignOutButton(props: { locale: string; label: string; failed: string }) {
-  const { locale, label, failed } = props
+/** `icon` given = the icon-strip form (⚖ R57 V2): the strip's own language, glyph only, with
+ *  S1 as aria-label and title. Without it = the text row of the open rail. */
+export function BusinessSignOutButton(props: { locale: string; label: string; failed: string; icon?: ReactNode }) {
+  const { locale, label, failed, icon } = props
   const [pending, setPending] = useState(false)
   const [error, setError] = useState(false)
 
@@ -30,9 +32,15 @@ export function BusinessSignOutButton(props: { locale: string; label: string; fa
 
   return (
     <>
-      <button type="button" className="sign-out" onClick={signOut} disabled={pending} aria-busy={pending}>
-        {label}
-      </button>
+      {icon ? (
+        <button type="button" className="sign-out-icon" onClick={signOut} disabled={pending} aria-busy={pending} aria-label={label} title={label}>
+          {icon}
+        </button>
+      ) : (
+        <button type="button" className="sign-out" onClick={signOut} disabled={pending} aria-busy={pending}>
+          {label}
+        </button>
+      )}
       {error && <span className="sign-out-failed" role="status">{failed}</span>}
     </>
   )
