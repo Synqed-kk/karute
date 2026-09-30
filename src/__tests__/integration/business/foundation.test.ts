@@ -315,7 +315,7 @@ describe('the fixture data door', () => {
       // ⚖ R-S39-1 — `./practice-door/door-booking-colors`: 予約の色分け's writer, door.ts's sibling (its own allowlist key).
       // ⚖ PKT-S29-B1 — `./practice-door/door-writes`: the store-days writer, data.ts's sibling to
       // `door-booking-colors` (its own allowlist key — one file per writer, R-S39-1's own law).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/door', './practice-door/door-booking-colors', './practice-door/door-writes', './practice-door/store-hours', './practice-door/switch'],
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/actor', './practice-door/door', './practice-door/door-booking-colors', './practice-door/door-writes', './practice-door/store-hours'],
       // ⚖ R-S39-1 — the second writer's file: the actor and the switch (OFF has no writer), door.ts's two exported
       // helpers (the once-per-actor org read, the one settings.manage truth), the clock (the audit line's time),
       // the import-free palette leaf (never today-board.ts, which would bring the fixtures), and a LAZY ./core-reach.
@@ -330,8 +330,8 @@ describe('the fixture data door', () => {
       'src/business/lib/practice-door/registry.ts': ['../fixtures', '../fixtures-settings', './registry.generated'],
       // ⚖ PR-3 §v3 — the plane table: the mark's labels (Business's string home), the
       // fixture operator the sample history credits (V4-3), and the mark's TYPE.
-      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures', '../fixtures-settings', '../fixtures-today', '../resource-words', '../settings', './registry', './switch', '@/business/i18n'],
-      'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', 'react'],
+      'src/business/lib/practice-door/sample-facade.ts': ['../fixtures', '../fixtures-settings', '../fixtures-today', '../resource-words', '../settings', './registry', '@/business/i18n'],
+      'src/business/lib/practice-door/actor.ts': ['../admission', './core-reach', './switch', 'react'],
       // ⚖ A1b — `../reserve-card/card-color`: the card colour's ONE normaliser (the
       // port's boundary), so the door's `readReserveCardColor` never grows a second.
       // ⚖ A2 (Liam 9/24) — the ONE writer: `../reserve-card/palette` (the 12 it accepts), `./switch` (OFF has
@@ -409,8 +409,6 @@ describe('the fixture data door', () => {
         './business-shell.css',
         '@/business/lib/admission',
         '@/business/lib/data',
-        // ⚖ PR-3 §v3 V3-5 — the topbar's one door-aware prop, read on the server.
-        '@/business/lib/practice-door/switch',
         'react',
       ],
       // スタッフ・シフト's staged edits, above the screen for the same reason
@@ -909,8 +907,6 @@ describe('the fixture data door', () => {
         '@/business/lib/practice-door/sample-facade',
         // ⚖ §v11 V11-7 — the week's ONE derivation (the shared pair on every day but the 定休日) for the storeless lens.
         '@/business/lib/practice-door/store-hours',
-        // ⚖ PR-3 §v3 V3-5 — the dateline drops サンプルデータ under the door (the switch itself, read once).
-        '@/business/lib/practice-door/switch',
         // ⚖ A1b — the curated 12 for カードの見た目's payload (one home).
         '@/business/lib/reserve-card/palette',
         '@/business/lib/resource-words',

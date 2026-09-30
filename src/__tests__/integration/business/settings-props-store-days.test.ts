@@ -175,7 +175,7 @@ describe('B2 act 1 markLine on the props', () => {
     // asked of every recorded store the door gives no twin, and there must be at least one.
     const { settingsProps } = await import('@/app/[locale]/(business)/business/settings/settings-props')
     const { sampleSelfId } = await import('@/business/lib/practice-door/sample-facade')
-    const untwinned = Object.values(STORE).filter((id) => sampleSelfId('stores', id) === null)
+    const untwinned = Object.values(STORE).filter((id) => sampleSelfId(true, 'stores', id) === null)
     expect(untwinned.length).toBeGreaterThan(0)
     let reached = 0
     for (const id of untwinned) {

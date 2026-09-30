@@ -342,7 +342,7 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
       'salesTargets',
       // Practice door PR-2: the dials are read through the facade's `storeSample`
       // (OFF = `storeDials[id] ?? null` exactly — practice-door-on.test.ts (9)).
-      'storeSample(storeId!).dials',
+      'storeSample(doorOn, storeId!).dials',
     ]) {
       expect({ source, read: PROPS_CODE.includes(source) }).toEqual({ source, read: true })
     }
@@ -4224,7 +4224,7 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     jest.doMock('@/business/lib/data', () => ({ ...jest.requireActual('@/business/lib/data'), listStoreOptions: async () => typeless }))
     jest.doMock('@/business/lib/practice-door/sample-facade', () => {
       const actual = jest.requireActual('@/business/lib/practice-door/sample-facade')
-      return { ...actual, storeSample: (id: string) => ({ ...actual.storeSample(id), words: { resourceNoun: 'ブース', counter: 'つ' } }) }
+      return { ...actual, storeSample: (on: boolean, id: string) => ({ ...actual.storeSample(on, id), words: { resourceNoun: 'ブース', counter: 'つ' } }) }
     })
     let props!: SettingsProps
     try {

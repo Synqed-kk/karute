@@ -310,10 +310,10 @@ describe('the sample facade', () => {
   })
   it('sampleSelfId: OFF passes the id through; ON a live uuid → its fixture twin, an unknown uuid → null', () => {
     setEnv({})
-    expect(sampleSelfId('staff', 'p-06')).toBe('p-06')
+    expect(sampleSelfId(false, 'staff', 'p-06')).toBe('p-06')
     setEnv({ BUSINESS_PRACTICE_TENANT: u })
-    expect(sampleSelfId('staff', 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5')).toBe('p-06')
-    expect(sampleSelfId('staff', '00000000-0000-4000-8000-000000000000')).toBeNull()
+    expect(sampleSelfId(true, 'staff', 'd27c76c4-eda7-4b12-9491-4eb6d9edaee5')).toBe('p-06')
+    expect(sampleSelfId(true, 'staff', '00000000-0000-4000-8000-000000000000')).toBeNull()
   })
   it('leaves unknown ids alone, walks nested planes, keeps Date instances', () => {
     const when = new Date()
