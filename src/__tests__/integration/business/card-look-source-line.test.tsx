@@ -79,3 +79,22 @@ describe('reserve card port — the branch line follows Reserve\'s branch rule',
     expect(home('La Estro', '代官山院').querySelector('.mcard__store')?.textContent).toBe('代官山院')
   })
 })
+
+// Reserve's cover (studio-salon.tsx) always renders both paragraphs under the name: .salon-cover__st = line 2 (the
+// store line) and .salon-cover__ad = line 3 (the address). A store with a name but no address keeps the empty third
+// paragraph — the port's drawing is Reserve's, verbatim, so this pins it rather than hiding it.
+describe('reserve card port — the cover without an address: lines 1–2 print, line 3 is empty', () => {
+  const store = (address?: string) =>
+    render(<ReserveCardPreview name="La Estro" storeLine="代官山院" cardColor={null} address={address} view="store" />).container
+  it('no address → the name and the store line print, .salon-cover__ad exists and is empty', () => {
+    const c = store(undefined)
+    expect(c.querySelector('.salon-cover__wm')?.textContent).toBe('La Estro')
+    expect(c.querySelector('.salon-cover__st')?.textContent).toBe('代官山院')
+    const ad = c.querySelector('.salon-cover__ad')
+    expect(ad).not.toBeNull()
+    expect(ad?.textContent).toBe('')
+  })
+  it('with an address → .salon-cover__ad carries the address', () => {
+    expect(store('東京都渋谷区猿楽町1-2-3').querySelector('.salon-cover__ad')?.textContent).toBe('東京都渋谷区猿楽町1-2-3')
+  })
+})
