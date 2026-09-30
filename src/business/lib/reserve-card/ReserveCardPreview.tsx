@@ -26,15 +26,14 @@
 // - The cover's lines 2 and 3 are Reserve's two <p>s, fed by coverLinesOf below: the SHAPE of Reserve's
 //   member-ia.ts coverLines (458–479), never its data (store lookup, practice hours, closures, clock). A
 //   storeLine with an address prints Reserve's store branch (shortName + the address split at the Latin
-//   building name); a storeLine without one prints no line 3 (Reserve's `null`, e.g. a practice store whose
-//   hours Business does not hold); an empty storeLine prints the category and 「いつでもご予約いただけます」. The category is fixed to GENERIC 「お店」 because the
+//   building name); a storeLine without one prints no line 3 — the port's own empty state for a store whose address
+//   Business does not hold (Reserve never draws that case: member-ia.ts:468–469, a non-practice store always
+//   has an address and a practice store gets its kind label as line 2); an empty storeLine prints the category and 「いつでもご予約いただけます」. The category is fixed to GENERIC 「お店」 because the
 //   port carries no business type. Fallback branch: same markup as Reserve, not pixel-proven (no store-less
 //   case in the harness set).
 // - The first chip's crown drops Reserve's rank gate (`me.salons.some(… && salon.rank)`): the port's sample
 //   member is ranked and the port carries no membership data, so the crown always shows on the first chip.
-// - The card's branch line prints `storeLine` whenever it is non-empty (`{storeLine && (`), where Reserve
-//   studio-home.tsx:478 computes `branch = store && store.shortName !== row.tenant.displayName ? store.shortName : null`
-//   and renders `{branch && (` — deferred to slice 1b-2, where the branch rule moves into the port.
+// - Reserve's branch rule (studio-home.tsx:478, :514) is carried with the port's prop names: storeLine ↔ store.shortName, name ↔ row.tenant.displayName.
 // - Colour inputs are normalised at the boundary (card-color.ts): only `#RRGGBB` reaches the satin math; anything
 //   else counts as absent — identical on server and client, no hydration drift.
 import { useLayoutEffect, useRef, useState } from "react";
@@ -185,6 +184,8 @@ function MembershipCard({
       if (usingResizeListener) window.removeEventListener("resize", measure);
     };
   }, [cardRef, row.tenant.displayName]);
+  // reserve studio-home.tsx:478, with the port's prop names — a store named like the card has no branch to add
+  const branch = storeLine && storeLine !== row.tenant.displayName ? storeLine : null;
 
   return (
     <a
@@ -207,7 +208,7 @@ function MembershipCard({
             <ChevronRight size={14} />
           </span>
         </span>
-        {storeLine && (
+        {branch && (
           <span className="mcard__store" data-morph-branch>
             {storeLine}
           </span>

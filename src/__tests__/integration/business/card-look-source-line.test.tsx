@@ -7,6 +7,7 @@
 import { render, fireEvent, cleanup } from '@testing-library/react'
 import { ReserveCardLookSection, STAND_IN } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
+import { ReserveCardPreview } from '@/business/lib/reserve-card/ReserveCardPreview'
 
 class RO { observe() {} unobserve() {} disconnect() {} }
 ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver ??= RO
@@ -63,5 +64,18 @@ describe('カードの見た目 home notes', () => {
     expect(caps()).not.toContain(NOTE_2)
     fireEvent.click(getByRole('button', { name: 'ホーム' }))
     expect(caps()).toEqual(expect.arrayContaining([NOTE_1, NOTE_2]))
+  })
+})
+
+// Reserve's branch rule (studio-home.tsx:478, :514), carried by the port: the card prints the store line under the
+// name only when it differs from the name — a store named like the card has no branch to add.
+describe('reserve card port — the branch line follows Reserve\'s branch rule', () => {
+  const home = (name: string, storeLine: string) =>
+    render(<ReserveCardPreview name={name} storeLine={storeLine} cardColor={null} view="home" />).container
+  it('name === storeLine → no .mcard__store on ホーム', () => {
+    expect(home('テスト東京店', 'テスト東京店').querySelector('.mcard__store')).toBeNull()
+  })
+  it('name ≠ storeLine → .mcard__store carries the store line', () => {
+    expect(home('La Estro', '代官山院').querySelector('.mcard__store')?.textContent).toBe('代官山院')
   })
 })
