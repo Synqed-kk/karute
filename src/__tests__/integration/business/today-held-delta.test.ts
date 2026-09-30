@@ -11,7 +11,7 @@ jest.mock('next/navigation', () => ({ notFound: jest.fn(() => { throw new Error(
 import { heldDelta } from '@/app/[locale]/(business)/business/today/held-delta'
 import {
   applyMoves, dayLossOf, guardVerdictAt, heldPriceOf, lossOf, pocketLossOf, restingSpanFor, sellableLaneKeysOf, storeHasBeds,
-  warnFaceFor, windowsOf, type DayWindows, type Moves, type RailCell,
+  warnFaceFor, windowsOf, EMPTY_WINDOWS, type DayWindows, type Moves, type RailCell,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
@@ -55,7 +55,7 @@ const log = (tag: string, v: unknown) => process.stdout.write(`DERIVED ${tag} ${
 
 /** A settled board's day answer, the screen's own chain: heldCommittedFor (manual
  *  keep-backs in `released`) → releaseTimed (D-11) → honestHeld → windowsOf. */
-type DayOpts = { released?: ReleasedWindow[]; now?: number | null; beforeMin?: number | null }
+type DayOpts = { released?: ReleasedWindow[]; now?: number | null; beforeMin?: number | null; on?: boolean }
 function dayOf(lanes: BoardLane[], o: DayOpts = {}): DayWindows {
   const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
   const raw = heldCommittedFor({
@@ -63,7 +63,8 @@ function dayOf(lanes: BoardLane[], o: DayOpts = {}): DayWindows {
     closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute, guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, released: o.released ?? [],
   })
   const mask = o.now === undefined ? raw : releaseTimed(raw, o.now, o.beforeMin ?? null, o.released ?? []).mask
-  const honest = honestHeld(mask!, lanes, bedViewsFor(lanes, frame, null, ASK_A).world, true, (l) => storeHasBeds(lanes, l.stores))
+  // `on: false` is HONEST_HELD's identity arm (TodayScreen's law-off day memos), no book asked.
+  const honest = honestHeld(mask!, lanes, bedViewsFor(lanes, frame, null, ASK_A).world, o.on ?? true, (l) => storeHasBeds(lanes, l.stores))
   return windowsOf(honest, lanes, [])
 }
 /** Stage one fixture booking (by caseId) at [s, e) on `toLane` (its own lane by
@@ -366,5 +367,32 @@ describe('c2b — the derived landings on the fixture board', () => {
     expect(r.day.countedAfter).toBe(r.after.total)
     expect(r.day.countedBefore).toBe(r.before.total)
     expect(labels(r.model.dayRows)[0]).toContain(`店全体は${r.after.total}枠のまま`)
+  })
+})
+
+describe('c3 — the law-off arms read the same delta', () => {
+  it('T15 HONEST_HELD off (identity arm): exact, the same heldDelta, CLEAN, no day row', () => {
+    const r = landingOf('apt-26', null, 14 * 60 + 30, 15 * 60, { on: false }, { on: false })
+    log('T15', { exact: [r.before.exact, r.after.exact], counted: [r.day.countedBefore, r.day.countedAfter], lost: r.day.lost, gained: r.day.gained, shifted: r.day.shifted, face: r.model.face, rows: labels(r.model.dayRows) })
+    expect([r.before.exact, r.after.exact, r.day.exact]).toEqual([true, true, true])
+    // Derived: the identity set holds all 4 published windows on both boards (the netting's 3 is
+    // what the rooms can honour); the S2 hop is invisible there, so the delta is empty.
+    expect([r.day.countedBefore, r.day.countedAfter]).toEqual([4, 4])
+    expect([r.day.lost, r.day.gained, r.day.shifted]).toEqual([[], [], []])
+    expect(r.model.face).toBe('clean')
+    expect(r.model.dayRows).toEqual([])
+  })
+
+  it('guard off: both sides EMPTY_WINDOWS, an empty delta, and the null cell composes today’s clean card', () => {
+    const d = heldDelta(EMPTY_WINDOWS, EMPTY_WINDOWS, zero)
+    expect([d.countedBefore, d.countedAfter, d.exact, d.lost, d.gained, d.shifted]).toEqual([0, 0, true, [], [], []])
+    const rows = [{ label: '担当', tone: '' as const }]
+    const m = warnFaceFor({
+      rows, cell: null, override: null, level: 'allow-warned', holdToConfirm: true, targetLaneMine: false, operatorName: '見本 たろう',
+      listPrice: 8000, frame: null, depth: 0, protectedDur: REAL.guard.protectedDurationMin, confirmEnabled: true, resourceNoun: WORDS.resourceNoun,
+    })
+    expect(m.face).toBe('clean')
+    expect(m.rows).toBe(rows)
+    expect([m.dayRows, m.guardRow]).toEqual([[], null])
   })
 })
