@@ -37,6 +37,12 @@ jobs:
           before="$(git ls-remote origin refs/heads/preview/business-merged | cut -f1)"
           echo "preview/business-merged before: ${before:-<absent>}"
           echo "main (GITHUB_SHA):              $GITHUB_SHA"
+          # A re-run of an older run must not report a false conflict when a newer sync already moved the branch.
+          git fetch origin "+refs/heads/preview/business-merged:refs/remotes/origin/preview/business-merged" 2>/dev/null || true
+          if [ -n "$before" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$before" 2>/dev/null; then
+            echo "preview/business-merged is already at or ahead of $GITHUB_SHA — nothing to do"
+            exit 0
+          fi
           if ! git push origin "$GITHUB_SHA:refs/heads/preview/business-merged"; then
             echo "::error::push rejected — read the git error above. Non-fast-forward (someone committed on preview/business-merged): a human runs git push --force-with-lease origin origin/main:refs/heads/preview/business-merged. 'refusing to allow a GitHub App to create or update workflow' (the fast-forward carries a .github/workflows change, which GITHUB_TOKEN may not push): add the repo secret PREVIEW_SYNC_TOKEN (a fine-grained PAT for Synqed-kk/karute with Contents read/write + Workflows read/write) and re-run this workflow."
             exit 1
