@@ -5673,6 +5673,29 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbccc'.length)
   })
 
+  // PR-B commit 6 (P:88, B3): THE REOPEN CHAIN, pinned at the recorder. The
+  // browser closes the store's connection mid-recording (eviction, OS
+  // pressure); the next flush reopens, the segment lands, and the take stays
+  // (or comes back) enabled — no segment is left to memory only.
+  it('P:88 a close during recording → the next flush reopens → the segment lands → the take is enabled', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(takeId).lastSeq).toBe(0)
+    const opened = connections.length
+    connections.forEach((c) => c.forceClose())
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(connections.length - opened).toBeGreaterThanOrEqual(1) // reopened
+    expect(persistOf().disabled).toBe(false) // enabled (the revive, if a write lost)
+    expect(metaOf(takeId).lastSeq).toBeGreaterThanOrEqual(1)
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaabbb'.length) // nothing left behind
+  })
+
   it('T3 300 s held only in memory → ~60 segments of at most 50 chunks, seqs consecutive, the stamp on the last only', async () => {
     mockUid = null // storage never answers for the whole five minutes
     const takeId = await startAndSettle()
