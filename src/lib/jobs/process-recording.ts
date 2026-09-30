@@ -315,6 +315,11 @@ async function processJob(job: RecordingJob): Promise<string> {
     // (isDecidedOutcome; S67 fix round 2, commit 13) — with the incoming
     // answer (A9, S69 fix round 4: an auto-decided row yields to a real one).
     if (payload.outcome && !isDecidedOutcome(recordedOutcome, payload.outcome.status)) {
+      // A13 (S69 fix round 4) + SF-4 (S70 fix round 5): the actor read runs
+      // BEFORE discard check #2 and the write (the S-2 shape) — the discard
+      // check stays the LAST read before the write, and nothing runs between
+      // the durable answer and its row.
+      const outcomeSetActorId = await resolveActorUserId(synqed, payload.staff_id)
       // Discard check #2 (skip path) — the LAST read before the write,
       // mirroring the normal path's check #2 below: a discard that landed
       // after check #1 and before this late label write still wins.
@@ -323,9 +328,6 @@ async function processJob(job: RecordingJob): Promise<string> {
       // another customer (保存先を変更) must file the label under the person
       // it now belongs to, never a queued job's stale customer_id.
       const filedCustomerId = existing.customer_id ?? payload.customer_id
-      // A13 (S69 fix round 4): the actor read runs BEFORE the write (the S-2
-      // shape) — nothing runs between the durable answer and its row.
-      const outcomeSetActorId = await resolveActorUserId(synqed, payload.staff_id)
       const wrote = await writeSessionOutcome(
         synqed,
         existing.id,

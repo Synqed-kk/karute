@@ -261,6 +261,16 @@ MUTANTS = [
      [(WORKER, '      appointment_link: appointmentLinkOf(null, autoLinked?.link, keptLink),\n', '      appointment_link: null, // M-O11\n')],
      [JOB_T], ['S7-job: one booking in its window → created on it; the row says auto_linked',
                'S7-job: two bookings → ambiguous, no link']),
+    # M-O39 — SF-4 (S70 fix round 5, commit 32): the skip path's actor read moves back below discard check #2
+    ('M-O39', 'the skip path reads the actor between discard check #2 and the write (the check is no longer the LAST read)',
+     [(WORKER, '      const outcomeSetActorId = await resolveActorUserId(synqed, payload.staff_id)\n'
+               '      // Discard check #2 (skip path) — the LAST read before the write,\n'
+               '      // mirroring the normal path\'s check #2 below: a discard that landed\n'
+               '      // after check #1 and before this late label write still wins.\n'
+               '      await assertNotDiscardedByStaff(synqed, job.recording_session_id)\n',
+       '      await assertNotDiscardedByStaff(synqed, job.recording_session_id)\n'
+       '      const outcomeSetActorId = await resolveActorUserId(synqed, payload.staff_id) // M-O39\n')],
+     [JOB_T], ['A13 skip path: the actor read runs before the label write']),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)
     ('M-G1', '`return await emitSave(...)` (the S67 list failure)',
      [(CORE, '  return emitSave({\n    id: record.id,\n', '  return await emitSave({\n    id: record.id,\n')],

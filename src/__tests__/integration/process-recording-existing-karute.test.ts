@@ -477,7 +477,9 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
 
     // A13 (S69 fix round 4): the skip path's actor read runs BEFORE the label
     // write (the S-2 shape) — the karute.outcome_set row follows the durable
-    // answer with no read between.
+    // answer with no read between. SF-4 (S70 fix round 5): the actor read also
+    // runs BEFORE discard check #2 — the discard check is the LAST read before
+    // the write.
     it('A13 skip path: the actor read runs before the label write; the outcome_set row follows the write', async () => {
       getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
       karuteOutcomesGet.mockResolvedValueOnce(null)
@@ -491,6 +493,10 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
       await processRecordingJobs(10_000)
 
       expect(staffGet).toHaveBeenCalledTimes(1)
+      // SF-4: actor read → discard check #2 (the ledger's SECOND read) → write.
+      expect(listDiscards).toHaveBeenCalledTimes(2)
+      expect(staffGet.mock.invocationCallOrder[0]).toBeLessThan(listDiscards.mock.invocationCallOrder[1])
+      expect(listDiscards.mock.invocationCallOrder[1]).toBeLessThan(setKaruteOutcomeWithClient.mock.invocationCallOrder[0])
       expect(staffGet.mock.invocationCallOrder[0]).toBeLessThan(setKaruteOutcomeWithClient.mock.invocationCallOrder[0])
       expect(setKaruteOutcomeWithClient.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
       expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'karute.outcome_set' }))
