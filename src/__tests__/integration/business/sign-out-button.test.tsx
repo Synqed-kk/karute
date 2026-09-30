@@ -1,17 +1,26 @@
 /**
  * @jest-environment jsdom
  *
- * ⚖ R57 V2 — ログアウト in the icon strip: aria-label and title are the ja.json S1 key, the glyph is
- * the only content, a failed sign-out re-enables the button and prints S4 (role=status).
+ * ⚖ R53 / R57 V2 / S41 — ログアウト, by BEHAVIOUR: the icon and text forms, the next= target, the ordering
+ * against the POST, the in-flight guard, S4 on failure, and the card as the sidebar renders it.
  */
 import { render, fireEvent, screen, cleanup, act } from '@testing-library/react'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { BusinessSignOutButton, loginHrefAfterSignOut, signOutNav } from '@/app/[locale]/(business)/BusinessSignOutButton'
+import { BusinessSidebar } from '@/app/[locale]/(business)/BusinessSidebar'
 import { businessStrings } from '@/business/i18n'
 
+jest.mock('next/navigation', () => ({
+  usePathname: () => '/ja/business/settings',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 const S = businessStrings.shell
-afterEach(cleanup)
+// jsdom has no global Response: plain response-shaped objects, so the status path is exercised, never the catch.
+const reply = (status: number) => ({ ok: status >= 200 && status < 300, status, json: async () => ({ ok: status < 300 }) })
+let nav: jest.SpyInstance
+beforeEach(() => { nav = jest.spyOn(signOutNav, 'replace').mockImplementation(() => {}) })
+afterEach(() => { cleanup(); nav.mockRestore() })
+const setFetch = (fn: jest.Mock) => { (globalThis as { fetch: unknown }).fetch = fn }
 
 describe('R57 V2 — the strip sign-out', () => {
   it('icon form: aria-label = title = S1, glyph only, never the text', () => {
@@ -23,30 +32,26 @@ describe('R57 V2 — the strip sign-out', () => {
     expect(btn.textContent).toBe('')
   })
 
-  it('a refused sign-out re-enables the button and prints S4 as a status line', async () => {
-    const fetchMock = jest.fn(async () => ({ ok: false, status: 500, json: async () => ({ ok: false }) }))
-    ;(globalThis as { fetch: unknown }).fetch = fetchMock
+  it('a refused (500) sign-out never navigates, re-enables the button and prints S4 as a status line', async () => {
+    const fetchMock = jest.fn(async () => reply(500)); setFetch(fetchMock)
     render(<BusinessSignOutButton locale="ja" label={S.signOut} failed={S.signOutFailed} icon={<svg />} />)
-    const assign = jest.spyOn(signOutNav, 'assign').mockImplementation(() => {})
     const btn = screen.getByRole('button', { name: S.signOut })
     await act(async () => { fireEvent.click(btn) })
     expect(fetchMock).toHaveBeenCalledWith('/api/business/sign-out', { method: 'POST', credentials: 'same-origin' })
-    expect(assign).not.toHaveBeenCalled()
-    assign.mockRestore()
+    expect(nav).not.toHaveBeenCalled()
     expect(screen.getByRole('status').textContent).toBe('ログアウトできませんでした。もう一度お試しください。')
     expect((btn as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('the sidebar mounts BOTH forms from the S1 key, and the strip avatar carries name · e-mail', () => {
-    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSidebar.tsx'), 'utf8')
-    expect(src.match(/<BusinessSignOutButton locale=\{locale\} label=\{shellStrings\.signOut\}/g)).toHaveLength(2)
-    expect(src).toContain('icon={GLYPH.signOut}')
-    expect(src).toContain('`${viewerName} · ${viewerEmail}`')
+  it('a rejected fetch (network) never navigates and prints S4', async () => {
+    setFetch(jest.fn(async () => { throw new Error('offline') }))
+    render(<BusinessSignOutButton locale="ja" label={S.signOut} failed={S.signOutFailed} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: S.signOut })) })
+    expect(nav).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toBeTruthy()
   })
 })
 
-// ⚖ S41 (Liam 9/30 17:4x) — the login URL after sign-out carries next=<the Business page>, in the
-// proxy's shape (pathname + search, src/proxy.ts:63-73), so signing in again returns to Business.
 describe('S41 — sign-out returns to Business via next=', () => {
   it('helper: settings → /ja/login?next=%2Fja%2Fbusiness%2Fsettings', () => {
     expect(loginHrefAfterSignOut('ja', '/ja/business/settings', '')).toBe('/ja/login?next=%2Fja%2Fbusiness%2Fsettings')
@@ -60,16 +65,46 @@ describe('S41 — sign-out returns to Business via next=', () => {
   it('helper: the search string rides along, encoded (proxy shape pathname + search)', () => {
     expect(loginHrefAfterSignOut('ja', '/ja/business/reservations', '?store=aa36&view=week')).toBe('/ja/login?next=%2Fja%2Fbusiness%2Freservations%3Fstore%3Daa36%26view%3Dweek')
   })
-  it('a 200 sign-out on /ja/business/reservations navigates to /ja/login?next=%2Fja%2Fbusiness%2Freservations', async () => {
+  it('ORDER: with the POST deferred, no navigation until it resolves; then exactly one replace with the next= href', async () => {
     window.history.pushState({}, '', '/ja/business/reservations')
-    const fetchMock = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }))
-    ;(globalThis as { fetch: unknown }).fetch = fetchMock
-    const assign = jest.spyOn(signOutNav, 'assign').mockImplementation(() => {})
+    let resolve!: (v: unknown) => void
+    setFetch(jest.fn(() => new Promise((r) => { resolve = r })))
     render(<BusinessSignOutButton locale="ja" label={S.signOut} failed={S.signOutFailed} />)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: S.signOut })) })
-    expect(assign).toHaveBeenCalledTimes(1)
-    expect(assign).toHaveBeenCalledWith('/ja/login?next=%2Fja%2Fbusiness%2Freservations')
+    expect(nav).not.toHaveBeenCalled()
+    await act(async () => { resolve(reply(200)) })
+    expect(nav).toHaveBeenCalledTimes(1)
+    expect(nav).toHaveBeenCalledWith('/ja/login?next=%2Fja%2Fbusiness%2Freservations')
     expect(screen.queryByRole('status')).toBeNull()
-    assign.mockRestore()
+  })
+  it('IN-FLIGHT GUARD: two clicks in one task send ONE POST', async () => {
+    const fetchMock = jest.fn(() => new Promise(() => {})); setFetch(fetchMock)
+    render(<BusinessSignOutButton locale="ja" label={S.signOut} failed={S.signOutFailed} />)
+    const btn = screen.getByRole('button', { name: S.signOut })
+    await act(async () => { btn.click(); btn.click() })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the identity card as the sidebar renders it', () => {
+  const base = { locale: 'ja', businessName: 'Dev Salon', storeCount: 1, viewerRoleLabel: 'オーナー', stores: [{ id: 's1', name: 'テスト東京店' }], unresolved: { byStore: {}, all: 0 } }
+  it('both controls render; the icon one carries aria-label = title = S1; the avatar title is 「name · email」', () => {
+    const { container } = render(<BusinessSidebar {...base} viewerName="Dev Salon" viewerMark="Dev" viewerEmail="dev@karute.test" />)
+    const icon = container.querySelector('.operator .sign-out-icon')!
+    expect(icon.getAttribute('aria-label')).toBe(S.signOut)
+    expect(icon.getAttribute('title')).toBe(S.signOut)
+    expect(container.querySelector('.operator .sign-out')!.textContent).toBe(S.signOut)
+    expect(container.querySelector('.operator .avatar')!.getAttribute('title')).toBe('Dev Salon · dev@karute.test')
+    expect(container.querySelector('.operator .operator-email')!.textContent).toBe('dev@karute.test')
+  })
+  it('name === e-mail → no e-mail line, avatar title is the name alone', () => {
+    const { container } = render(<BusinessSidebar {...base} viewerName="dev@karute.test" viewerMark="D" viewerEmail="dev@karute.test" viewerRoleLabel={null} />)
+    expect(container.querySelector('.operator .operator-email')).toBeNull()
+    expect(container.querySelector('.operator .avatar')!.getAttribute('title')).toBe('dev@karute.test')
+  })
+  it('a 60-char name renders whole (wraps via CSS, never truncated in markup)', () => {
+    const long = 'あ'.repeat(30) + 'LongNameWithoutSpaces'.padEnd(30, 'x')
+    const { container } = render(<BusinessSidebar {...base} viewerName={long} viewerMark="あ" viewerEmail="dev@karute.test" />)
+    expect(container.querySelector('.operator strong')!.textContent).toBe(long)
   })
 })
