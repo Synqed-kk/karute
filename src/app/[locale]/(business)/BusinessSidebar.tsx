@@ -26,6 +26,7 @@ import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { businessStrings } from '@/business/i18n'
+import { BusinessSignOutButton } from './BusinessSignOutButton'
 
 export interface ShellStore { id: string; name: string }
 
@@ -339,6 +340,7 @@ export function BusinessSidebar(props: SidebarProps) {
           {viewerEmail !== null && viewerEmail !== viewerName && (
             <span className="operator-email" title={`${shellStrings.accountTitle}: ${viewerEmail}`}>{viewerEmail}</span>
           )}
+          <BusinessSignOutButton locale={locale} label={shellStrings.signOut} failed={shellStrings.signOutFailed} />
         </span>
       </div>
     </aside>

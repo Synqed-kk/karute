@@ -554,6 +554,15 @@
 /* ⚖ R53 — the login e-mail: one line, ellipsised; the full address rides in title. */
 .biz .operator > span:last-child { min-width: 0; }
 .biz .operator .operator-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ⚖ R53 — ログアウト: a text button, never filled; the focus ring is the shell's shared
+   `.biz button:focus-visible` rule. Drawn at its text size; the 44px hit area is touch-only (R29). */
+.biz .operator .sign-out {
+  display: inline-block; margin: 2px 0 0 -8px; padding: 4px 8px; border: 0; background: none;
+  color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+}
+.biz .operator .sign-out:hover, .biz .operator .sign-out:focus-visible { color: var(--ink); text-decoration: underline; }
+.biz .operator .sign-out[disabled] { cursor: default; }
+@media (pointer: coarse) { .biz .operator .sign-out { min-height: 44px; } }
 
 /* ═══ RAIL COLLAPSE — canon icon-rail system ═══ */
 .biz .app { grid-template-columns: 76px minmax(0, 1fr); transition: grid-template-columns .26s cubic-bezier(.2, .7, .1, 1); }

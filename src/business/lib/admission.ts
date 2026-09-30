@@ -76,3 +76,17 @@ export async function requireBusinessAdmission(): Promise<BusinessAdmission> {
   if (!admitted) notFound()
   return admitted
 }
+
+/** ⚖ R53 — ends this browser's session (the Business shell's ログアウト). Here because this
+ *  file is one of the two the play-phase fence lets hold a supabase client; the route
+ *  (api/business/sign-out) only calls it. Default scope, as the phone's client signOut.
+ *  No admission read — signing out needs none. false = the sign-out did not complete. */
+export async function endSession(): Promise<boolean> {
+  try {
+    const supabase = await createClient()
+    const { error } = await supabase.auth.signOut()
+    return !error
+  } catch {
+    return false
+  }
+}
