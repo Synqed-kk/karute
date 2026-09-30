@@ -682,14 +682,19 @@ html:has(.biz .page.pg-settings) {
    `light`) — Reserve's page carries neither (in-room parity, computed style). */
 .biz .pg-settings .cl-strip { height: var(--cl-h, auto); overflow-x: auto; overscroll-behavior-x: contain; }
 .biz .pg-settings .cl-strip.is-scaled { overflow: clip; }
-/* ⚖ 1b-2 B3 — the phone FRAME (mock .phoneframe :376-381): a fixed 393×760 viewport, the ring drawn
-   outside (box-shadow) so the inside is exactly 393. The app scrolls INSIDE it (.cl-phone = the mock's
+/* ⚖ 1b-2 B3 — the phone FRAME (mock .phoneframe :376-381): a fixed 393×760 viewport. The 1px ring is drawn
+   INSIDE (::after, an inset shadow over the app): an outside ring is clipped by the strip, which has no room
+   around the frame and must not gain any (padding would change fitScale's input), so the mock's soft drop
+   shadow is dropped for the same reason. The app scrolls INSIDE it (.cl-phone = the mock's
    .pv :311 / .phonescroll :382), page-local; the frame, not the app, is what fitScale scales. */
 .biz .pg-settings .cl-frame {
   position: relative; width: 393px; height: 760px; border-radius: 34px; overflow: clip;
-  box-shadow: 0 0 0 1px var(--line), 0 8px 26px rgba(20, 22, 40, .07);
   /* no fallback on purpose: unset (every column ≥ 393px) = no transform at all */
   transform: scale(var(--cl-scale)); transform-origin: top left;
+}
+.biz .pg-settings .cl-frame::after {
+  content: ''; position: absolute; inset: 0; z-index: 1; border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--line); pointer-events: none;
 }
 .biz .pg-settings .cl-phone {
   position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
