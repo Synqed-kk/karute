@@ -21,7 +21,7 @@
 
 import { Suspense } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { listStoreOptions, practiceDoorOn, readShellIdentity, readUnresolvedCounts } from '@/business/lib/data'
+import { listStoreOptions, practiceDoorOn, readShellIdentity, readShellViewer, readUnresolvedCounts } from '@/business/lib/data'
 import { BusinessSessionEdits } from './BusinessSessionEdits'
 import { BusinessSidebar } from './BusinessSidebar'
 import { BusinessTopbar, BusinessTopbarActionSlot } from './BusinessTopbar'
@@ -42,11 +42,12 @@ export default async function BusinessLayout({
   children: React.ReactNode
   params: Promise<{ locale: string }>
 }) {
-  await requireBusinessAdmission()
-  const [{ locale }, storeOptions, shell, unresolved, doorOn] = await Promise.all([
+  const admission = await requireBusinessAdmission()
+  const [{ locale }, storeOptions, shell, viewer, unresolved, doorOn] = await Promise.all([
     params,
     listStoreOptions(),
     readShellIdentity(),
+    readShellViewer(admission),
     readUnresolvedCounts(),
     practiceDoorOn(),
   ])
@@ -65,9 +66,10 @@ export default async function BusinessLayout({
             locale={locale}
             businessName={shell.business.name}
             storeCount={shell.business.storeCount}
-            operatorName={shell.operator.name}
-            operatorMark={shell.operator.mark}
-            operatorRole={shell.operator.role}
+            viewerName={viewer.name}
+            viewerMark={viewer.mark}
+            viewerRoleLabel={viewer.roleLabel}
+            viewerEmail={viewer.email}
             stores={storeOptions}
             unresolved={unresolved}
           />

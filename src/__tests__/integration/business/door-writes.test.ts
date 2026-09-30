@@ -129,7 +129,7 @@ function expectWrites(n: Partial<Record<'set' | 'addClosedDay' | 'removeClosedDa
     auditLog: mockCore.auditLog.mock.calls.length,
   }).toEqual({ set: 0, addClosedDay: 0, removeClosedDay: 0, auditLog: 0, ...n })
 }
-const as = (userId: string) => admission.mockResolvedValue({ userId, email: null, businessId: TENANT })
+const as = (userId: string) => admission.mockResolvedValue({ userId, email: null, displayName: null, businessId: TENANT })
 const saved = process.env.BUSINESS_PRACTICE_TENANT
 let info: jest.SpyInstance
 let warn: jest.SpyInstance

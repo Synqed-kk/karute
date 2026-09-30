@@ -36,7 +36,15 @@ import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './grants'
 
-export interface BusinessAdmission { userId: string; email: string | null; businessId: string }
+export interface BusinessAdmission {
+  userId: string
+  email: string | null
+  /** ⚖ R53 — the person's own name for the shell card: auth user_metadata.full_name,
+   *  which the invite-accept flow writes (src/actions/invites.ts createUser). Off the
+   *  SAME getUser() read; null when absent or blank (the card then shows the e-mail). */
+  displayName: string | null
+  businessId: string
+}
 
 /** null = denied, for any reason. Kept apart from the notFound() call below so
  *  the catch-all can never swallow Next's own control-flow throw. */
@@ -58,11 +66,28 @@ async function admit(): Promise<BusinessAdmission | null> {
   if (!grant.granted) return null
   const isGrantee = grant.grantedBy != null && grant.grantedBy === user.id
   if (!isGrantee && !management) return null
-  return { userId: user.id, email: user.email ?? null, businessId }
+  const fullName: unknown = user.user_metadata?.full_name
+  const displayName = typeof fullName === 'string' && fullName.trim() !== '' ? fullName.trim() : null
+  return { userId: user.id, email: user.email ?? null, displayName, businessId }
 }
 
 export async function requireBusinessAdmission(): Promise<BusinessAdmission> {
   const admitted = await admit().catch(() => null)
   if (!admitted) notFound()
   return admitted
+}
+
+/** ⚖ R53 — ends this browser's session (the Business shell's ログアウト). Here because this
+ *  file is one of the two the play-phase fence lets hold a supabase client; the route
+ *  (api/business/sign-out) only calls it. Scope 'local': this device only, never the phone's session (S41 X2).
+ *  No admission read — signing out needs none. false = the sign-out did not complete. */
+export async function endSession(): Promise<boolean> {
+  try {
+    const supabase = await createClient()
+    // ⚖ S41 X2 (lead) — THIS device only. The default (global) scope also revoked the phone's session.
+    const { error } = await supabase.auth.signOut({ scope: 'local' })
+    return !error
+  } catch {
+    return false
+  }
 }

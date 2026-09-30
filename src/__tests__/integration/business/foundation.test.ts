@@ -422,7 +422,7 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
         'react',
       ],
-      'src/app/[locale]/(business)/BusinessSidebar.tsx': ['next/link', 'next/navigation', 'react'],
+      'src/app/[locale]/(business)/BusinessSidebar.tsx': ['./BusinessSignOutButton', '@/business/i18n', 'next/link', 'next/navigation', 'react'], // ⚖ R53 — the card's strings, the BusinessTopbar way
       // ⚖ PR-3 §v3 V3-5 — the practice note's words (Business's string home, a JSON module).
       'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', '@/business/i18n', 'next/navigation', 'react'],
       'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],

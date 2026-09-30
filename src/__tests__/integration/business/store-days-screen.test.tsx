@@ -107,7 +107,7 @@ beforeEach(() => {
   mockUi.granted = false
   mockUi.grantThrows = false
   mockUi.sheetOverride = {}
-  admission.mockResolvedValue({ userId: LOGIN.owner, email: null, businessId: TENANT })
+  admission.mockResolvedValue({ userId: LOGIN.owner, email: null, displayName: null, businessId: TENANT })
   fetchLog = []
   reply = () => ({ status: 500, body: null })
   global.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
