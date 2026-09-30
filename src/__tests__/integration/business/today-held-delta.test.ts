@@ -10,7 +10,7 @@ jest.mock('next/navigation', () => ({ notFound: jest.fn(() => { throw new Error(
 
 import { heldDelta } from '@/app/[locale]/(business)/business/today/held-delta'
 import {
-  applyMoves, dayLossOf, guardVerdictAt, heldPriceOf, lossOf, pocketLossOf, restingSpanFor, sellableLaneKeysOf, storeHasBeds,
+  applyMoves, dayLossOf, dayOnlyCell, guardVerdictAt, heldPriceOf, lossOf, pocketLossOf, restingSpanFor, sellableLaneKeysOf, storeHasBeds,
   warnFaceFor, windowsOf, EMPTY_WINDOWS, type DayWindows, type Moves, type RailCell,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -94,7 +94,7 @@ function landingOf(caseId: string, toLane: string | null, s: number, e: number, 
   const after = dayOf(staged, afterOpts)
   const day = heldDelta(before, after, heldPriceOf(frame, depth, REAL.guard.protectedDurationMin))
   const dayHeld = after.byLane.find((l) => l.laneKey === target)?.starts ?? []
-  const withDay = cell == null ? null : { ...cell, day, dayHeld }
+  const withDay = cell == null ? dayOnlyCell(day, dayHeld) : { ...cell, day, dayHeld }
   const targetLane = staged.find((l) => l.group === 'staff' && l.key === target)!
   const model = warnFaceFor({
     rows: [], cell: withDay, override: null, level: REAL.overrideLevel, holdToConfirm: REAL.holdToConfirm,
@@ -143,7 +143,8 @@ describe('heldDelta — the pure store-level delta', () => {
     const after = day([row('L', [1000]), row('M', [960])])
     const d = heldDelta(before, after, price)
     expect([d.countedBefore, d.countedAfter, d.sellableBefore, d.sellableAfter]).toEqual([3, 2, 3, 2])
-    expect(d.lost).toEqual([{ laneKey: 'L', label: '見本 L', windowStart: 900, listPrice: 8000 }])
+    // Fix round 1 X-D: a WindowRef carries its lane's `sellable`.
+    expect(d.lost).toEqual([{ laneKey: 'L', label: '見本 L', windowStart: 900, listPrice: 8000, sellable: true }])
     expect(d.gained).toEqual([])
     expect(d.shifted).toEqual([])
     expect(d.valueBefore - d.valueAfter).toBe(8000)
@@ -394,5 +395,63 @@ describe('c3 — the law-off arms read the same delta', () => {
     expect(m.face).toBe('clean')
     expect(m.rows).toBe(rows)
     expect([m.dayRows, m.guardRow]).toEqual([[], null])
+  })
+})
+
+describe('fix round 1 — X-A..X-D', () => {
+  const dur = () => REAL.guard.protectedDurationMin
+  const refs = (ws: ReadonlyArray<{ laneKey: string; windowStart: number }>) => ws.map((w) => `${w.laneKey}|${w.windowStart}`)
+
+  it('X-A a landing on a lane the rail cannot judge (p-09) still speaks: amber key A, しろう named', () => {
+    const r = landingOf('apt-26', 'p-09', 15 * 60 + 30, 16 * 60 + 30)
+    log('XA-drop', { cellNull: r.cell == null, counted: [r.day.countedBefore, r.day.countedAfter], lost: refs(r.day.lost), gained: refs(r.day.gained), face: r.model.face, impact: r.model.impact, rows: labels(r.model.rows), commit: r.model.commit?.kind })
+    expect(r.cell).toBeNull()
+    expect([r.day.countedBefore, r.day.countedAfter]).toEqual([3, 2])
+    expect(r.model.face).toBe('warn')
+    expect(r.model.impact.head).toBe(`ここに置くと、店全体で新規のお客様の${dur()}分の空き`)
+    expect(r.model.impact.tail).toContain('が3枠から2枠に減ります。なくなるのは見本 しろうの15:45の枠です。')
+    expect(r.model.commit?.kind).toBe(REAL.holdToConfirm ? 'hold' : 'press')
+  })
+
+  it('X-A a same-count hop onto that lane: clean, the quiet row', () => {
+    const r = landingOf('apt-26', 'p-09', 14 * 60, 15 * 60)
+    log('XA-hop', { cellNull: r.cell == null, counted: [r.day.countedBefore, r.day.countedAfter], lost: refs(r.day.lost), gained: refs(r.day.gained), shifted: r.day.shifted, face: r.model.face, rows: labels(r.model.dayRows) })
+    expect(r.cell).toBeNull()
+    expect(r.model.face).toBe('clean')
+    // Derived: しろう 15:45 → あずさ 15:05, 3→3, ¥340 (the S2 hop, reached through a windowless lane).
+    expect([refs(r.day.lost), refs(r.day.gained)]).toEqual([['p-04|945'], ['p-06|905']])
+    expect(labels(r.model.dayRows)).toEqual(['確保枠 見本 しろうの15:45 → 見本 あずさの15:05（店全体は3枠のまま・空きの金額は約¥340減）'])
+  })
+
+  it('X-B a lane losing 2 and gaining 1 is one shift and one loss', () => {
+    const d = heldDelta(day([row('A', [900, 1000])]), day([row('A', [960])]), zero)
+    expect(d.shifted.map((x) => `${x.from}→${x.to}`)).toEqual(['900→960'])
+    expect(refs(d.lost)).toEqual(['A|1000'])
+    expect(d.gained).toEqual([])
+  })
+
+  it('X-C count rises, a window lost, another shifts: the shift gets its own row', () => {
+    const d = heldDelta(day([row('A', [900]), row('B', [960])]), day([row('A', [915]), row('B', []), row('C', [1000, 1100])]), zero)
+    const m = faceOf(hand({ day: d }))
+    expect(m.face).toBe('clean')
+    expect(labels(m.dayRows)).toEqual(['確保枠 見本 Bの16:00がなくなります（店全体は2枠→3枠）', '確保枠 見本 Aの15:00 → 見本 Aの15:15'])
+  })
+
+  it('X-D key B names only windows that landed on rows not sold online', () => {
+    const d = heldDelta(
+      day([row('A', [900]), row('C', [1000]), row('Z', [], { sellable: false, listPrice: 0 })]),
+      day([row('A', []), row('C', [960]), row('Z', [900], { sellable: false, listPrice: 0 })]), zero)
+    const m = faceOf(hand({ day: d }))
+    expect(m.face).toBe('warn')
+    expect(m.impact.tail).toBe('が2枠から1枠に減ります。見本 Aの15:00の枠が、オンライン販売をしていない見本 Zの15:00に移ります（確保している枠は2枠のまま）。')
+  })
+
+  it('X-D counted −1 with online −2: A adds the online pair in B\u2019s words', () => {
+    const d = heldDelta(
+      day([row('A', [900]), row('B', [1000]), row('N', [], { sellable: false, listPrice: 0 })]),
+      day([row('A', []), row('B', []), row('N', [1000], { sellable: false, listPrice: 0 })]), zero)
+    expect(dayLossOf(hand({ day: d }))).toBe(2)
+    const m = faceOf(hand({ day: d }))
+    expect(m.impact.tail).toBe(`が2枠から1枠に減ります。なくなるのは見本 Aの15:00・見本 Bの16:40の枠です。オンライン販売中の新規のお客様の${dur()}分の空きは2枠から0枠に減ります。`)
   })
 })

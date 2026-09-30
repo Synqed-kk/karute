@@ -2304,15 +2304,16 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "landingVerdict,",
       "lossOf,",
       // ⚖ NEW-WINDOW (2026-09-12) — the day family. One walk answers 「how many
-      // 新規 windows does this board hold, and whose」 (`windowsOn`), one names the
-      // lanes that lost between two settled boards (`lostOn`), and the two empty
-      // shapes are what the guard-off arm and the memo's own early returns answer
-      // with. `DayLoss` is the field's type, for the memo's return annotation.
-      // Added, nothing renamed or removed.
+      // 新規 windows does this board hold, and whose」 (`windowsOn`); the empty
+      // shape is what the guard-off arm answers with. R1/R2 (DECISIONS.md
+      // today-impact-2026-09-30): the delta between two settled boards is
+      // `heldDelta` (./held-delta); the screen imports its price closure and the
+      // day-only cell for a landing the rail cannot judge (fix round 1 X-A).
       "windowsOn,",
       // R1/R2 (DECISIONS.md today-impact-2026-09-30): the day family now reads `heldDelta`; the screen
       // imports the price closure and no longer the per-lane loss rows or their empty shape.
       "heldPriceOf,",
+      "dayOnlyCell,",
       "EMPTY_WINDOWS,",
       "bedClassCell,",
       "nearestFreeStarts,",
@@ -9908,7 +9909,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // pocket-only offers. Every other field is unchanged.
     expect(SRC).toContain(`: warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
+        cell: pendingGuardRow.cell == null
+          ? dayOnlyCell(pendingGuardRow.day, pendingGuardRow.dayHeld)
+          : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,

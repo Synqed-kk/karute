@@ -99,7 +99,7 @@ import {
   combineCrumbs,
   laneSpans,
   orderRooms,
-  sellStaffLanes,
+  sellableLaneKeysOf,
   sharesStore,
   type KindedGapCell,
   type SellDrop,
@@ -405,11 +405,7 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
    *  からも除外されます」, and a ¥0 box on an unpriced lane breaks the same
    *  promise a second way. One spelling covers both, and covers a future third
    *  way to go unsellable for free. */
-  const sellableLaneKeys = new Set(
-    sellStaffLanes(input.lanes, input.locked)
-      .filter((l) => !l.locked)
-      .map((l) => l.key),
-  )
+  const sellableLaneKeys = sellableLaneKeysOf(input.lanes, input.locked)
 
   for (const lane of input.lanes) {
     if (lane.group !== 'staff' || lane.window == null || !sellableLaneKeys.has(lane.key)) continue

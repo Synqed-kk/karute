@@ -2659,8 +2659,8 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
 // 8 — THE STAGED ORIGIN BOARD, AND THE SENTENCE IT PAYS FOR.
 //
 // `honestOrigin` is the 元に戻す board's own honest set, and the whole of the
-// 16:00 warning rides on it: `lostOn` subtracts the two SETTLED boards, and if
-// the origin one collapses to the staged answer the subtraction is zero and the
+// 16:00 warning rides on it: `heldDelta` compares the two SETTLED boards, and if
+// the origin one collapses to the staged answer the delta is empty and the
 // card goes quiet about a 枠 the store really loses. Codex's mutant
 // (「`if (dayStaged) return honest` at the top of `honestOrigin`」) does exactly
 // that and no suite in the family noticed.
@@ -2670,7 +2670,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
 // so the memo cannot be exercised through a render here. Two pins instead, and
 // between them they cover what the mutant breaks:
 //   (a) the staged board's data path, end to end through the real producers —
-//       two settled boards, one netting each, `lostOn`, and the sentence the
+//       two settled boards, one netting each, `heldDelta`, and the sentence the
 //       card prints, byte for byte, plus the undo and the price-0 cases;
 //   (b) the memo's own head as an anchored slice, so an early `return honest`
 //       in front of the guard cannot be added silently.
@@ -2684,7 +2684,7 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
   const restLanes = () => applyMoves(applyBlockMoves(REAL.lanes, {}, REAL.hours, []), {}, [], [], REAL.hours, LANE_WORDS, {}, REAL.bedCleanupMinutes)
 
   /** A settled board's honest day answer — `windowsOf(honest…)`, the producer
-   *  BOTH sides of `lostOn` read since this round. */
+   *  BOTH sides of `heldDelta` read since this round. */
   const dayOf = (lanes: BoardLane[], released: readonly ReleasedWindow[] = []) => {
     const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
     const book = bedViewsFor(lanes, frame, null, ASK_A).world
@@ -2728,7 +2728,8 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one delta names the lost window by identity (laneKey|windowStart).
     const d = heldDelta(before, after, () => 0)
     expect({ lost: d.lost, gained: d.gained, shifted: d.shifted }).toEqual({
-      lost: [{ laneKey: LOST.laneKey, label: lost.label, windowStart: LOST.windowStart, listPrice: lost.listPrice }], gained: [], shifted: [],
+      // Fix round 1 X-D: a WindowRef carries its lane's online `sellable` (しろう is sold online).
+      lost: [{ laneKey: LOST.laneKey, label: lost.label, windowStart: LOST.windowStart, listPrice: lost.listPrice, sellable: true }], gained: [], shifted: [],
     })
     const face = faceFor(before, after, lanes.find((l) => l.key === LANDING)!.listPrice)
     const sentence = `${face.impact.head}${face.impact.yen ? `（${face.impact.yen}）` : ''}${face.impact.tail}`

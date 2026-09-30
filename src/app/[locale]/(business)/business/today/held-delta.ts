@@ -15,13 +15,20 @@
 //   value    = Σ `price(lane.starts, lane.listPrice)`, each lane at its own
 //              rate; the caller hands in its `protectedValueOf` closure, so the
 //              ¥ is the same arithmetic the day arm always used.
-// Identity is laneKey|windowStart. A lane that lost k starts and gained k is a
-// SHIFT (paired in start order), never a loss plus a gain.
+// Identity is laneKey|windowStart. On one lane, min(lost, gained) starts pair in
+// start order as SHIFTS; only the remainder is a loss or a gain.
 import type { DayWindows } from './today-interactions'
 
 /** R3 seam: who the protected window is for. Only 'free' (フリー) is built. */
 export type NewClientChannel = 'free' | 'nominated'
-export type WindowRef = { readonly laneKey: string; readonly label: string; readonly windowStart: number; readonly listPrice: number }
+export type WindowRef = {
+  readonly laneKey: string
+  readonly label: string
+  readonly windowStart: number
+  readonly listPrice: number
+  /** The lane is on the online set (the day layer's per-lane `sellable`). */
+  readonly sellable: boolean
+}
 export type ShiftRef = { readonly laneKey: string; readonly label: string; readonly from: number; readonly to: number; readonly listPrice: number }
 export type HeldDelta = {
   readonly countedBefore: number
@@ -69,13 +76,13 @@ export function heldDelta(
     const has = new Set(now?.starts ?? [])
     const gone = [...had].filter((s) => !has.has(s)).sort((x, y) => x - y)
     const came = [...has].filter((s) => !had.has(s)).sort((x, y) => x - y)
-    const ref = (l: Lane, windowStart: number): WindowRef => ({ laneKey: key, label: l.label, windowStart, listPrice: l.listPrice })
-    if (gone.length > 0 && gone.length === came.length) {
-      gone.forEach((from, i) => shifted.push({ laneKey: key, label: lane.label, from, to: came[i], listPrice: lane.listPrice }))
-      continue
-    }
-    for (const s of gone) lost.push(ref(was as Lane, s))
-    for (const s of came) gained.push(ref(now as Lane, s))
+    const ref = (l: Lane, windowStart: number): WindowRef => ({ laneKey: key, label: l.label, windowStart, listPrice: l.listPrice, sellable: l.sellable })
+    // FIX ROUND 1 X-B — min(gone, came) pairs in start order are shifts; the rest
+    // is a true loss or gain (a lane losing 2 and gaining 1 = 1 shift + 1 loss).
+    const k = Math.min(gone.length, came.length)
+    for (let i = 0; i < k; i++) shifted.push({ laneKey: key, label: lane.label, from: gone[i], to: came[i], listPrice: lane.listPrice })
+    for (const s of gone.slice(k)) lost.push(ref(was as Lane, s))
+    for (const s of came.slice(k)) gained.push(ref(now as Lane, s))
   }
   return {
     countedBefore: b.counted,

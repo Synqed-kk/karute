@@ -124,6 +124,7 @@ import {
   lossOf,
   windowsOn,
   heldPriceOf,
+  dayOnlyCell,
   EMPTY_WINDOWS,
   bedClassCell,
   nearestFreeStarts,
@@ -4536,13 +4537,15 @@ export function TodayScreen(props: TodayProps) {
   // `warnFaceFor` composes the headline, the △ row and the 長押し gate from it;
   // nothing else on this screen is ever handed a `day`-carrying cell, so the
   // offer path keeps today's pocket law byte for byte.
-  // A null staged cell means the guard is off (`verdictAt`), and then both day sides are
-  // EMPTY_WINDOWS, so the delta is empty and dropping `day` with the cell loses nothing.
+  // FIX ROUND 1 X-A — a null staged cell (guard off, or a lane with no window / a
+  // locked lane) still carries the day: `dayOnlyCell` hands the delta alone.
   const pendingWarnModel = pendingWarnLane === undefined || !pending
     ? null
     : warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
+        cell: pendingGuardRow.cell == null
+          ? dayOnlyCell(pendingGuardRow.day, pendingGuardRow.dayHeld)
+          : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,

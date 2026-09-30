@@ -6831,34 +6831,16 @@ export const heldPriceOf = (frame: PriceFrame | null, depth: number, protectedDu
  *  between what that inventory was worth before and after. */
 function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame: PriceFrame | null, depth: number): WarnCardModel['impact'] {
   const verbatim = { head: cell.sentence, yen: null, tail: '' }
-  /** ⚖ NEW-WINDOW M-1 — THE DAY LEADS, and it leads from the TOP of this function.
+  /** ⚖ NEW-WINDOW M-1 + LEAD RULING R1/R2 (today-impact-2026-09-30) — THE DAY LEADS,
+   *  from the TOP of this function, and it speaks from ONE `HeldDelta`: the
+   *  store's counted and online-sellable pairs, the ¥ each lane's windows were
+   *  worth at that lane's own rate (rounded to ¥10 once over the Σ), and every
+   *  lost window by name — the landing lane's too. `warnFaceFor` reaches here with
+   *  a day only when `dayLossOf > 0`, so this arm is always a real drop.
    *
-   *  Every gate below is keyed on `cell.impact` — this pocket's class, its
-   *  capacity pair, its money — and none of them can see a fact about ANOTHER
-   *  lane. A ✓ pocket (`impact == null`) and an unruled class (R-SALV) both
-   *  return `verbatim` down there, which is exactly how a landing that closed a
-   *  named staff member's last 新規 window stayed silent.
-   *
-   *  THE FENCE IS THE ARM'S OWN FIRST LINE. `:6500`'s `!(protectedDur > 0)` sits
-   *  BELOW this arm, and this sentence prints 「…{N}分の空き」 too, so a store that
-   *  has not set 確保する長さ would be handed 「NaN分」 with money beside it. Same
-   *  spelling — `!(x > 0)` is the one that catches NaN.
-   *
-   *  THE ¥ IS THE LOST LANE'S OWN PRICE, row by row: what the store loses on
-   *  スタッフA's window is worth スタッフA's rate. Main's own per-row rule is kept
-   *  (a lane that prices nothing contributes nothing) and the ¥10 round fires
-   *  ONCE over the Σ — rounding per row double-counts the remainder, which is the
-   *  same reason `protectedValueOf`'s own comment gives.
-   *
-   *  THE NAMES RIDE IN `head`, NOT IN THE BRACKET. `.wc-yen` is `white-space:
-   *  nowrap` (today.css :1385, 「half a price is a wrong price」), and a bracket
-   *  carrying four staff names cannot break on a 393px phone. `head` is plain
-   *  text inside a wrapping `<p>`, and both renderers of this model — the card
-   *  and settings/StorePolicySection — already paint it unchanged.
-   *
-   *  THE SAME-LANE COLLAPSE: the landing lane has no name to ADD, because the
-   *  operator is looking at it. It is still COUNTED and still PRICED; only the
-   *  name drops, which makes a same-lane loss byte-identical to today's sentence. */
+   *  THE FENCE IS THE ARM'S OWN FIRST LINE: the sentence prints 「…{N}分の空き」,
+   *  so a store with no 確保する長さ keeps the engine's verbatim, ¥-free sentence
+   *  (`!(x > 0)` is the spelling that catches NaN). */
   if (cell.day != null) {
     if (!(protectedDur > 0)) return verbatim
     return dayImpactOf(cell.day, protectedDur)
@@ -7027,14 +7009,22 @@ function dayImpactOf(d: HeldDelta, dur: number): WarnCardModel['impact'] {
     : lost.length <= 3
       ? `なくなるのは${lost.join('・')}の枠です。`
       : `なくなるのは${lost.slice(0, 3).join('・')}の枠、ほか${lost.length - 3}枠です。`
-  const hop = counted || d.lost.length === 0 || d.gained.length === 0
+  // FIX ROUND 1 X-D — B's hop names only windows that landed on rows NOT sold
+  // online, from windows that left rows that are; with none, the online pair alone.
+  const offline = refItems(d.gained.filter((w) => !w.sellable))
+  const online = refItems(d.lost.filter((w) => w.sellable))
+  const hop = counted || offline.length === 0 || online.length === 0
     ? ''
-    : `${windowList(lost)}の枠が、オンライン販売をしていない${windowList(refItems(d.gained))}に移ります${
+    : `${windowList(online)}の枠が、オンライン販売をしていない${windowList(offline)}に移ります${
       d.countedBefore === d.countedAfter ? `（確保している枠は${d.countedAfter}枠のまま）` : ''}。`
+  // …and when both pairs dropped and the online one dropped more, A says it too, in B's own words.
+  const onlineToo = counted && d.sellableBefore - d.sellableAfter > loss
+    ? `オンライン販売中の新規のお客様の${dur}分の空きは${d.sellableBefore}枠から${d.sellableAfter}枠に減ります。`
+    : ''
   const shrink = `が${before}枠から${after}枠に減ります`
   return loss === 1
-    ? { head, yen, tail: `${shrink}。${names}${hop}` }
-    : { head, yen: null, tail: `${shrink}${yen ? `（${loss}枠分・${yen}）` : ''}。${names}${hop}` }
+    ? { head, yen, tail: `${shrink}。${names}${onlineToo}${hop}` }
+    : { head, yen: null, tail: `${shrink}${yen ? `（${loss}枠分・${yen}）` : ''}。${names}${onlineToo}${hop}` }
 }
 
 /** The quiet △ rows. Tone `warn` is the △ glyph only: these rows are composed
@@ -7057,8 +7047,24 @@ function dayRowsOf(d: HeldDelta | undefined, resourceNoun: string | undefined): 
   const yen = yenDropOf(d)
   const store = d.countedBefore === d.countedAfter ? `店全体は${d.countedAfter}枠のまま` : `店全体は${d.countedBefore}枠→${d.countedAfter}枠`
   const bracket = `（${store}${yen ? `・空きの金額は${yen}減` : ''}${d.exact ? '' : '・概算'}）`
-  return move == null ? [] : [row(`${move}${bracket}`)]
+  if (move == null) return []
+  // FIX ROUND 1 X-C — the E-lost row names only the loss; a same-lane shift beside
+  // it is never silent: its own pairs row, without the store bracket (as H's line 2).
+  const shifts = d.countedAfter > d.countedBefore && d.lost.length > 0 && d.shifted.length > 0
+    ? `確保枠 ${windowList(d.shifted.map((x) => windowItem(x, x.from)))} → ${windowList(d.shifted.map((x) => windowItem(x, x.to)))}`
+    : null
+  return shifts == null ? [row(`${move}${bracket}`)] : [row(`${move}${bracket}`), row(shifts)]
 }
+
+/** FIX ROUND 1 X-A — A LANDING THE RAIL CANNOT JUDGE STILL HAS A DAY. `guardVerdictAt`
+ *  answers null for a lane with no window or a locked lane, and the store's delta
+ *  must still speak there: a day-only cell carries no pocket verdict (`safe`, no
+ *  impact, no alternatives), so `lossOf` is `dayLossOf` and `pocketRowOf` adds
+ *  nothing. `start` is not read by the warn card. */
+export const dayOnlyCell = (day: HeldDelta | null, dayHeld: readonly number[]): RailCell | null =>
+  day == null
+    ? null
+    : { start: 0, state: 'safe', label: '', sentence: '', reason: null, alternatives: [], alternativeKind: null, ackAllowed: true, day, dayHeld }
 
 /** R6 — the pocket's row, by KIND. A pocket fact (R-SALV / R-DEAD / a room or
  *  fit refusal) always survives (R8j). A window CLAIM (DEGRADED / R-REP, the
@@ -7252,13 +7258,10 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  its own law is the whole of the condition and there is no second spelling of
    *  「is there a verdict to show?」 here.
    *
-   *  ⚖ NEW-WINDOW D-1 + ⚖ ROUND BUILD-1 (2) — 「already the same verdict」 IS ABOUT
-   *  THE LANE, not about which computation lit the face. The row drops when the
-   *  panel above is already saying THIS lane's window loss — from the pocket, or
-   *  from a day headline that names the landing lane (`dayOnLandingLane`, where
-   *  the △ twin is the same loss worn under the engine's mislabelled menu name).
-   *  When the day names ANOTHER lane, the pocket's own verdict — 「割引でしか売れない
-   *  空きが95分残ります」 — is a DIFFERENT fact and ⚖ 73-74 forbids dropping it. */
+   *  LEAD RULING R6 (today-impact-2026-09-30) — ROWS ARE REPLACED BY KIND, never by
+   *  lane (`pocketRowOf`): a pocket FACT (R-SALV / R-DEAD / a refusal) always
+   *  survives, and a window CLAIM (DEGRADED / R-REP) prints only while the day is
+   *  silent and every window it cites is held on this lane after the landing. */
   const guardRow = pocketRowOf(cell, guardWarn)
   const dayRows = dayRowsOf(cell?.day, input.resourceNoun)
   const kept = [
