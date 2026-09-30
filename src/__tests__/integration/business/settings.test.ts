@@ -95,7 +95,7 @@ import {
 import { settingsHref } from '@/business/lib/settings-link'
 import { addSpecialDraft, applyClosureAdded, applySpecialOpenDays } from '@/business/lib/store-days-state'
 import { BUSINESS_TYPE_NOTE_PREFIX, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
-import { cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
+import { CARD_LOOK_HEADINGS, cardLookState, fitScale, nextSwatch } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { normalizeCardColor } from '@/business/lib/reserve-card/card-color'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
 import { BOOKING_COLOR_DEFAULTS, BOOKING_PALETTE, bookingColorsKeyFor } from '@/business/lib/booking-colors'
@@ -4322,13 +4322,13 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
   it('switch OFF: the value is null (no fixture home), the payload is this business and this lens', async () => {
     const s = await lookOf({ store: STORE_A })
     expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'カードの見た目' })
-    expect(s.lead).toBe('お客様がReserveのホームで見る、お店のカードの色をここで選びます。色は事業全体でひとつで、店舗ごとには分かれていません。')
+    expect(s.lead).toBe('「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
     expect(s.guide).toBe('お客様がReserveのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
       businessName: business.name,
       storeLine: stores.find((x) => x.id === STORE_A)!.name,
       address: storeDials[STORE_A].profile.address,
-      scopeLabel: '事業全体',
+      scopeLabel: '全店共通',
       value: null,
       palette: PALETTE,
     })
@@ -4362,7 +4362,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
 
   it('the palette is the curated 12, in order, stored exactly as the boundary stores them', () => {
     expect(PALETTE.map((c) => c.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-    expect(PALETTE.map((c) => c.name)).toEqual(['紺', '藍', '深緑', '松葉色', '墨', '焦茶', 'えんじ', '紫紺', '生成り', '白', '桜', '空色'])
+    expect(PALETTE.map((c) => c.name)).toEqual(['標準（紺）', '藍', '深緑', '松葉色', '墨', '焦茶', 'えんじ', '紫紺', '生成り', '白', '桜', '空色'])
     expect(PALETTE.map((c) => c.hex)).toEqual(['#1C2247', '#00304C', '#1F3D33', '#2D4722', '#26282B', '#4A2E22', '#6B1F2B', '#3B2A4F', '#EDE6D6', '#F2F4F3', '#F1D9DC', '#D7E6F2'])
     for (const c of PALETTE) expect(normalizeCardColor(c.hex)).toBe(c.hex)
   })
@@ -4427,21 +4427,34 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
   it('every Japanese string is JP-COPY-A1-FINAL’s, byte for byte', () => {
     for (const line of [
       'カードの色',
-      '用意した12色から選びます。店名の位置や文字の大きさは、どのお店のカードでも同じです。',
+      'お客様のアプリのホームに並ぶ、お店のカードです。色を選べます。文字の位置や大きさは、どのお店でも同じです。',
       '現在の色',
-      '現在の色は「${look.palette[checked].name}」です。',
-      '色はまだ設定されていません。Reserveのカードは、これまでどおりの色で表示されます。',
+      '標準の色',
+      '色はまだ設定されていません。お客様のアプリのカードは、これまでどおりの色で表示されます。',
       '現在の色は、以前に設定された色で、12色には含まれていません。12色のどれかを選ぶまで、この設定は変わりません。',
-      'Reserveでの見え方',
+      'お客様のアプリでの見え方',
       '表示のみ',
       'ホーム',
       'お店ページ',
-      '見本では、大きいカードも小さいカードも、このお店のものを表示しています。実際のReserveでは、次のご予約がいちばん近いお店が大きいカードになります。',
-      'カードを開くときの動きは見本用のもので、実際のReserveの動きとは異なります。',
-      '色が設定されていないため、見本では仮に紺で表示しています。実際のReserveのカードとは色が異なる場合があります。',
+      '見本では、編集中のお店を大きいカードにしています。実際のアプリでは、次のご予約が近いお店が大きいカードになります。',
+      'カードを開く動きは、この見本だけのものです。',
+      '色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。',
       'カードの色を12色から1つ選びます。押すと、見本のカードがその色になります。',
-      '選んだ色で、お店のカードがReserveでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。',
+      '選んだ色で、お店のカードがお客様のアプリでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。',
     ]) expect({ line, present: LOOK_CODE.includes(line) }).toEqual({ line, present: true })
+  })
+
+  // S40 1b-1 — the string inventory (switchboard mock :761-797, :844): the next drift of a heading, the chip
+  // or the search terms fails here, not on Liam's screen.
+  it('the section speaks the approved mock: h3/h4, the 全店共通 chip, the search headings, the home-only notes', async () => {
+    const s = await lookOf({ store: STORE_A })
+    expect(s.cardLook?.scopeLabel).toBe('全店共通')
+    expect(CARD_LOOK_HEADINGS).toEqual(['カードの色', 'お客様のアプリでの見え方'])
+    expect(LOOK_CODE).toContain('<h3 id="clLookHead">カードの見た目</h3>')
+    expect(LOOK_CODE).toContain('<h4 id="clPickHead">カードの色</h4>')
+    expect(LOOK_CODE).toContain('title="この事業者のすべての店舗に適用されます"')
+    expect(LOOK_CODE).toContain("{view === 'home' && <p className=\"st-pv-cap\">見本では、編集中のお店を大きいカードにしています。")
+    expect(LOOK_CODE).toContain("{(state !== 'set' || shown === STAND_IN) && (")
   })
 })
 

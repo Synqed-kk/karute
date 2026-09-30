@@ -345,13 +345,13 @@ describe('⚖ A2 — the screen speaks the route’s contract (source pin; the c
   })
   it('the JP lines are JP-COPY-A2-FINAL’s, byte for byte, by id', () => {
     for (const line of [
-      "'色は事業全体の設定として保存され、お客様が次にReserveのお店ページを開くと表示されます。' // save.note.card",
-      "forbidden: '設定を変更できる権限がないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.forbidden",
-      "tenant: 'ここからはこの事業の設定を保存できないため、Reserveのカードはこれまでの色のままです。', // save.fail.tenant",
-      "invalid: '選んだ色が12色に含まれていないため保存できず、Reserveのカードはこれまでの色のままです。', // save.fail.invalid",
-      "core: 'いまは保存できないため、時間をおいてもう一度保存してください（Reserveのカードはこれまでの色のままです）。', // save.fail.core",
+      "'カードの変更は、全店のお客様のアプリに反映されます。' // save.note.card",
+      "forbidden: '設定を変更できる権限がないため保存できず、お客様のアプリのカードはこれまでの色のままです。', // save.fail.forbidden",
+      "tenant: 'ここからはこの事業の設定を保存できないため、お客様のアプリのカードはこれまでの色のままです。', // save.fail.tenant",
+      "invalid: '選んだ色が12色に含まれていないため保存できず、お客様のアプリのカードはこれまでの色のままです。', // save.fail.invalid",
+      "core: 'いまは保存できないため、時間をおいてもう一度保存してください（お客様のアプリのカードはこれまでの色のままです）。', // save.fail.core",
     ]) expect(SCREEN).toContain(line)
-    expect(SCREEN).not.toContain('反映されます')
+    expect(SCREEN.match(/反映されます/g)).toHaveLength(1) // S40 C9: only the mock's save-bar warning says it
   })
 })
 
