@@ -205,7 +205,7 @@ export function ReserveCardLookSection({
       {/* TRUE PHONE SIZE wherever the column holds 393px; narrower, the same 393px phone is scaled to fit. */}
       <div className="cl-strip" ref={stripRef}>
         <div className="cl-frame" ref={frameRef}>
-          <div className="cl-phone" ref={phoneRef} aria-hidden="true" onClick={onPhoneClick}>
+          <div className="cl-phone" ref={phoneRef} aria-hidden="true" tabIndex={-1} onClick={onPhoneClick}>
             <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
           </div>
         </div>

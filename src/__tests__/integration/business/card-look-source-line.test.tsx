@@ -79,6 +79,11 @@ describe('カードの見た目 phone frame + honest slot', () => {
     fireEvent.click(getByRole('button', { name: 'お店ページ' }))
     expect(container.querySelector('.cl-strip > .cl-frame > .cl-phone .salon-cover')).not.toBeNull()
   })
+  it('the preview scroller is out of the tab order (aria-hidden + tabIndex -1: the seg is the keyboard path)', () => {
+    const phone = mount('#1C2247').container.querySelector('.cl-phone')!
+    expect(phone.getAttribute('aria-hidden')).toBe('true')
+    expect(phone.getAttribute('tabindex')).toBe('-1')
+  })
   it('no colour shown → the honest block holds exactly the no-colour line, on both views', () => {
     const { container, getByRole } = mount(null)
     expect(honest(container)).toEqual([HONEST])
