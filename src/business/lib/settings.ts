@@ -775,15 +775,6 @@ export interface SettingsProps {
    *  this render resolved nobody, and the screen then stores NOTHING — see
    *  `prefsKey`. */
   operatorId: string | null
-  /** ⚖ S17 STEP 1 — THE SAVE STAMP'S CLOCK, FORMATTED ON THE SERVER.
-   *
-   *  「保存しました」 without a time is a sentence a reader cannot check twice: it
-   *  looks identical after the second save. The stamp needs an HH:MM, and this
-   *  room's own family law is that the screen holds no clock and no formatter —
-   *  so the PAGE'S pinned render clock is formatted here and the screen prints
-   *  it. It also makes the shot deterministic, which a `new Date()` in the
-   *  browser never is. */
-  saveStampTime: string
 }
 
 // ── the value helpers the screen renders through ────────────────────────────

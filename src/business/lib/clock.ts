@@ -33,6 +33,28 @@ const JST_OFFSET_MS = 9 * 3_600_000
  *  per-call function and a dozen rows twice a render costs nothing. */
 export const renderNow = cache((): Date => new Date())
 
+/** ⚖ S17 STEP 1 / B2 act 1c (R41) — THE save stamp's clock formatter, the ONE
+ *  home for it. 24-hour, JST, exactly as the topbar's own Reserve同期 stamp reads.
+ *  The settings screen reads the clock ONCE, at the press (inside the save event
+ *  path, never during render), and formats that instant through this function;
+ *  the formatted text is the value of the screen's `committed` state, so the
+ *  stamp and its time are one fact and cannot disagree. The stamp used to print
+ *  the page's render instant, which was false whenever the page had been open
+ *  for a while (rendered 23:59, pressed 03:10 → "23:59"). Renders never read the
+ *  clock, so they stay deterministic and hydration-safe. The timeZone is pinned,
+ *  so the print is JST whatever zone the browser or the test runner sits in. */
+const JST_CLOCK = new Intl.DateTimeFormat('ja-JP', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: 'Asia/Tokyo',
+})
+
+/** HH:MM in JST, 24-hour (00:00–23:59) — the save stamp's time of the press. */
+export function jstClock(at: Date): string {
+  return JST_CLOCK.format(at)
+}
+
 /** UTC instant of JST-midnight on the day `now` falls in. */
 export function jstMidnight(now: Date = new Date()): number {
   return Math.floor((now.getTime() + JST_OFFSET_MS) / DAY_MS) * DAY_MS - JST_OFFSET_MS
