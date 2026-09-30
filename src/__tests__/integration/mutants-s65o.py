@@ -33,6 +33,7 @@ GUARD = 'src/lib/karute/revisit-guard.ts'
 SCREEN = 'src/lib/karute/record-screen.ts'
 OUTCOME_SRC = 'src/lib/karute/outcome.ts'
 DATE = 'src/lib/date/jst.ts'
+ROUTE = 'src/app/api/app/v1/screens/karute/[id]/route.ts'
 
 SAVE_T = f'{IT}/app-api-karute-save.test.ts'
 JOB_T = f'{IT}/process-recording-existing-karute.test.ts'
@@ -311,6 +312,13 @@ MUTANTS = [
      [(WORKER, '      keptLink: keptLinkAfterWrite(fill.kept, fill.kept ? fill.appointmentId : null, appointmentId),\n',
        '      keptLink: keptLinkAfterWrite(fill.kept, fill.kept ? fill.appointmentId : null, fill.kept ? fill.appointmentId : null), // M-O45\n')],
      [JOB_T], ['G-3 (ii) job: a kept path whose update returns NO link', 'G-3 (iii) job: a kept path whose update returns ANOTHER link']),
+    # M-O46..M-O47 — G-4 (S71 fix round 7, RULING-S71-G3-G4): the returning read sits behind the discarded-record door
+    ('M-O46', "the fan-out reads the returning guard for a DISCARDED record too (a refused viewer spends the read)",
+     [(ROUTE, "      raw.status === 'DISCARDED' ? Promise.resolve(null) : readReturning(),\n", '      readReturning(), // M-O46\n')],
+     [DTO_T], ['G-4 T1: a DISCARDED record + a refused viewer']),
+    ('M-O47', "the post-door returning read is dropped (an allowed discarded record loses isReturningCustomer)",
+     [(ROUTE, '            readReturning(),\n', '            Promise.resolve(null), // M-O47\n')],
+     [DTO_T], ['G-4 T2: a DISCARDED record + an allowed viewer']),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)
     ('M-G1', '`return await emitSave(...)` (the S67 list failure)',
      [(CORE, '  return emitSave({\n    id: record.id,\n', '  return await emitSave({\n    id: record.id,\n')],

@@ -80,9 +80,23 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
   const raw = await readKaruteRawIncludingDiscarded(synqed, id)
   const customerId = (raw.customer_id as string | null) ?? null
   const recordingSessionId = (raw.recording_session_id as string | null) ?? null
+  // S3 (PR-O commit 3): the customer's truth for the 結果 card — the SAME
+  // server function the revisit guard runs on every write (R-O7's prior-
+  // visit rule included; this karute excluded, anchored to its session's
+  // day). Accessory like the photos: a failure is `unknown`, never a 502.
+  // G-4 (S71 fix round 7, RULING-S71-G3-G4): one closure, two call sites — a
+  // LIVE record reads it inside the fan-out (no refusal can follow it); a
+  // DISCARDED record reads it only after the door below allows the viewer, so
+  // a refused viewer spends no read.
+  const readReturning = () =>
+    customerId
+      ? isReturningCustomerServerSide(synqed, customerId, { karuteRecordId: id }).catch(
+          () => 'unknown' as const,
+        )
+      : Promise.resolve(null)
 
   try {
-    const [staffList, allCustomers, outcome, gated, recordingRead, returning] = await Promise.all([
+    const [staffList, allCustomers, outcome, gated, recordingRead, fannedReturning] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // Pre-ruled exception: outcome stays null-on-failure (product semantics).
@@ -131,15 +145,8 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
             return 'unreadable' as const
           })
         : Promise.resolve(null),
-      // S3 (PR-O commit 3): the customer's truth for the 結果 card — the SAME
-      // server function the revisit guard runs on every write (R-O7's prior-
-      // visit rule included; this karute excluded, anchored to its session's
-      // day). Accessory like the photos: a failure is `unknown`, never a 502.
-      customerId
-        ? isReturningCustomerServerSide(synqed, customerId, { karuteRecordId: id }).catch(
-            () => 'unknown' as const,
-          )
-        : Promise.resolve(null),
+      // S3 / G-4: see readReturning above — a DISCARDED record defers it.
+      raw.status === 'DISCARDED' ? Promise.resolve(null) : readReturning(),
     ])
 
     const customer = gated?.[0] ?? null
@@ -249,14 +256,19 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
 
     // R8 (A6/A7): the facts block's own reads — ONLY for an allowed
     // discarded record (never for a live one; never for a refused viewer,
-    // which already threw above).
-    const discardFacts =
+    // which already threw above). G-4: the deferred returning read runs here,
+    // in parallel with the facts, for the allowed discarded record only.
+    const [discardFacts, deferredReturning] =
       karute.status === 'DISCARDED'
-        ? await resolveDiscardFacts(synqed, businessId, {
-            recordingSessionId: karute.recording_session_id,
-            recordStaffId: ownerProfileId,
-          })
-        : { discardLedger: null, recordStaffName: null }
+        ? await Promise.all([
+            resolveDiscardFacts(synqed, businessId, {
+              recordingSessionId: karute.recording_session_id,
+              recordStaffId: ownerProfileId,
+            }),
+            readReturning(),
+          ])
+        : [{ discardLedger: null, recordStaffName: null }, null]
+    const returning = raw.status === 'DISCARDED' ? deferredReturning : fannedReturning
 
     // Merge→shell-update window gate (#689 P1). Fielded shells (iOS ≤4.6,
     // Android ≤code 12) parse this screen with a BAKED strict outcome enum
