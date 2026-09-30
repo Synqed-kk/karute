@@ -916,7 +916,7 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
   })
 
   it('the screen commits a section’s values, and says so — once, per section', () => {
-    expect(SRC_CODE).toContain('const commitSection = useCallback((target: SettingsSection) => {')
+    expect(SRC_CODE).toContain('const commitSection = useCallback((target: SettingsSection, persisted: boolean) => {')
     // ⚖ S17 STEP 1 — RE-PINNED. The note used to be a SENTENCE stored per
     // section (「保存しました（この画面の中だけ）」); the save state now shows a
     // COUNT while there is something to save and a stamped 「保存しました 13:24」
@@ -925,11 +925,14 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // did not disappear — it is the standing footnote under the same card
     // (`props.demoSaveLine`), which is where it belongs on every section rather
     // than only after a press.
-    expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: at }))")
+    // ⚖ B2 act 2a (S38) — RE-PINNED: the value is now the whole stamp, chosen by `stampFor` from the
+    // commit's own outcome (core wrote and said yes, or page only).
+    expect(SRC_CODE).toContain("const stamp = stampFor(persisted, at)")
+    expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: stamp }))")
     // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the exceptions are カードの見た目
     // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color),
     // and ⚖ PKT-S38 R7 言語・表示's 予約の色分け likewise (PUT /api/business/booking-colors).
-    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}')
+    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}')
     // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
     expect(SRC_CODE).toContain("{blocked ??")
@@ -941,7 +944,9 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // button that commits it) is unchanged.
     expect(SRC_CODE).toContain("`変更した設定 ${changed}件`")
     expect(SRC_CODE).not.toContain("`変更 ${changed}件`")
-    expect(SRC_CODE).toContain("`✓ 保存しました ${committed[section.id]}`")
+    // ⚖ B2 act 2a — RE-PINNED: the 保存しました literal lives in `stampFor` (the one chooser) and the bar prints the committed text.
+    expect(SRC_CODE).toContain("persisted ? `✓ 保存しました ${at}` : `${businessStrings.sampleMark.pageOnlyStamp} ${at}`")
+    expect(SRC_CODE).toContain("committed[section.id] || '変更はありません'")
     expect(SRC_CODE).toContain("'変更はありません'")
     // ⚖ B2 act 1c (R41) — the stamp's time is the PRESS: the screen reads the
     // clock only inside the two commit event paths, through the one JST
@@ -1292,14 +1297,14 @@ describe('予約の色分け — 保存する sends only a real colour change (G
     expect(f.mock.calls[0]).toEqual(['/api/business/booking-colors', { method: 'PUT', headers: { 'content-type': 'application/json', 'x-expected-business': BIZ }, body: JSON.stringify({ storeId: STORE, colors: picked }) }])
     expect(result).toEqual({ ok: true, colors: picked })
     // …on that yes the handler commits the section and takes core's four as the baseline (the dirty state clears)
-    expect(HANDLER).toMatch(/if \(!result\.ok\) \{\s*setBookingFail\(result\.reason\)\s*return\s*\}\s*commitSection\(target\)\s*setSaved\(\(prev\) => \(\{ \.\.\.prev, \.\.\.Object\.fromEntries\(BOOKING_KEYS\.map\(\(k\) => \[`lang\.color-\$\{k\}`, result\.colors\[k\]\]\)\) \}\)\)/)
+    expect(HANDLER).toMatch(/if \(!result\.ok\) \{\s*setBookingFail\(result\.reason\)\s*return\s*\}\s*commitSection\(target, true\)[^\n]*\n\s*setSaved\(\(prev\) => \(\{ \.\.\.prev, \.\.\.Object\.fromEntries\(BOOKING_KEYS\.map\(\(k\) => \[`lang\.color-\$\{k\}`, result\.colors\[k\]\]\)\) \}\)\)/)
   })
 
   it('(b) only a non-colour row changed (the four equal the last save) → ZERO fetch, and the handler commits locally', async () => {
     const f = reply(200, { ok: true, colors: SEED })
     expect(await sendBookingColors(SAVE, { ...SAVED, 'lang.ui': 'en' }, SAVED)).toBeNull()
     expect(f).not.toHaveBeenCalled()
-    expect(HANDLER).toMatch(/const result = await sendBookingColors\(save, values, saved\)\s*bookingSaving\.current = false\s*if \(result === null\) \{\s*commitSection\(target\)[^\n]*\n\s*return\s*\}/)
+    expect(HANDLER).toMatch(/const result = await sendBookingColors\(save, values, saved\)\s*bookingSaving\.current = false\s*if \(result === null\) \{\s*commitSection\(target, false\)[^\n]*\n\s*return\s*\}/)
   })
 
   it('(c) canSave false → the section renders no 保存する, and its foot is the forbidden line (source pin)', () => {
