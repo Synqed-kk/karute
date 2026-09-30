@@ -1,14 +1,15 @@
-/* Verified port of Synqed-kk/reserve src/index.css @ c2a9f9543187 — the rules the member card's three
+/* Verified port of Synqed-kk/reserve src/index.css @ 4db48b73ba70 — the rules the member card's three
    surfaces (.mcard, .tcard, .salon-cover) and the Home greeting render from. Every block below a
    `reserve index.css:A–B` marker is byte-identical to those lines; never edit one — re-port (PARITY.md).
    Two blocks are SCOPED, not verbatim (Reserve keeps .pressable / .tap44 global in its own app; here a
    global rule would reach any Business element carrying the class), and their markers say so:
    - index.css:214–221 (.pressable): selectors prefixed `.member-ground `, declarations byte-identical to Reserve.
    - index.css:237–246 (.tap44): selectors prefixed `.member-ground `, declarations byte-identical to Reserve.
-   Fonts: the wordmarks are Georgia (a system face, hardcoded by Reserve's own rules — no @font-face
-   there either); everything else is --font-sans, Reserve's system stack, re-declared in the context
+   Fonts: the wordmarks are Georgia, then "Reserve Card JP" for Japanese glyphs — Reserve's own @font-face
+   (index.css:929, inside the 905–960 block) that names platform mincho faces by local() only: no import,
+   no webfont, no asset; everything else is --font-sans, Reserve's system stack, re-declared in the context
    block below. Reserve's @fontsource Cormorant Garamond reaches these surfaces only through
-   --tenant-face, which the Satin rules (4560, 4587, tcard__name 1370) override — so it is not loaded. */
+   --tenant-face, which the Satin rules (4697, 4724, tcard__name 1476) override — so it is not loaded. */
 
 /* context — NOT verbatim. What Reserve's page hands these surfaces from OUTSIDE the ported rules,
    re-scoped to the preview root so no Business page style leaks in and nothing leaks out:
@@ -60,7 +61,7 @@
   transform: translateY(-50%);
 }
 
-/* reserve index.css:740–753 */
+/* reserve index.css:871–884 */
 /* The ground itself. Cards keep --card (white), so the elevation the cards
    already carry finally has something to sit on. */
 .member-ground {
@@ -76,7 +77,7 @@
   --success: oklch(0.5 0.115 168);
 }
 
-/* reserve index.css:774–825 */
+/* reserve index.css:905–960 */
 /* ミッドナイト — the app's palette, permanently (⚖ Liam 2026-09-03 on the
    simulator; スレート and ボルドー retired with the switch 2026-09-04). */
 .member-ground {
@@ -98,6 +99,10 @@
      go system like everything else. */
   --member-mincho: var(--font-sans);
 }
+/* card/cover wordmarks: Japanese glyphs get a real face at a real weight; Latin stays Georgia (⚖ 9/15 serif-only-on-wordmarks stands) */
+/* A platform face DECLARED by local() name (mincho W6) — no import, no webfont, no asset. Only the Georgia wordmark stacks name it,
+   always after Georgia + Times New Roman, so a Latin name never reaches it; unicode-range keeps it to kana/kanji/fullwidth. */
+@font-face { font-family: "Reserve Card JP"; src: local("Hiragino Mincho ProN W6"), local("HiraMinProN-W6"), local("YuMincho-Demibold"), local("Yu Mincho Demibold"); unicode-range: U+3000-30FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF; }
 /* The palette taking over the ROLE tokens the member pages already spend
    (bg-background, text-muted-foreground, bg-primary…). Re-pointing fourteen
    variables re-skins every member surface at once, which is why no page
@@ -130,7 +135,7 @@
      restyles that page. */
 }
 
-/* reserve index.css:933–945 */
+/* reserve index.css:1039–1051 */
 .member-ground .studio-greet {
   padding: 0.625rem 0 0.625rem;
 }
@@ -145,7 +150,7 @@
   margin-top: 2px;
 }
 
-/* reserve index.css:947–998 */
+/* reserve index.css:1053–1104 */
 /* the foil sheen, verbatim from the design source: a slow drift, paused for
    anyone who asked for less motion. The WRAP is what a pointer rotates (±12°,
    the mock's f*24 over a ±0.5 range); the sheen inside keeps drifting. */
@@ -199,7 +204,7 @@
   .member-ground .mcard__sheen { animation: none; transition: none; }
 }
 
-/* reserve index.css:1000–1020 */
+/* reserve index.css:1106–1126 */
 /* THE TENANT'S SECOND GRADIENT STOP, as a token. The membership card, the
    tenant card, the store cover and the 回数券 stub all read ONE value, so the
    object that morphs into the cover cannot arrive on a different green than
@@ -222,10 +227,10 @@
   --tenant-foil-pale: color-mix(in oklab, var(--tenant-ornament, #fff) 15%, #fff);
 }
 
-/* reserve index.css:1034–1034 */
+/* reserve index.css:1140–1140 */
 .member-ground .studio-cards { position: relative; }
 
-/* reserve index.css:1142–1396 */
+/* reserve index.css:1248–1503 */
 /* --- the membership card --- */
 .member-ground .mcard {
   position: relative;
@@ -456,7 +461,8 @@
 }
 .member-ground .tcard__name {
   display: block;
-  font: 17px/1.25 Georgia, "Times New Roman", serif;
+  /* the small card's store name IS a card wordmark: same Georgia + "Reserve Card JP" stack (S18 ruling a) */
+  font: 17px/1.25 Georgia, "Times New Roman", "Reserve Card JP", serif;
   letter-spacing: -0.3px;
 }
 .member-ground .tcard__sub {
@@ -482,7 +488,7 @@
   outline-offset: 2px;
 }
 
-/* reserve index.css:1398–1426 */
+/* reserve index.css:1505–1533 */
 /* ---- A CONTROL IS NOT COPY (app shell only) ----
    iOS treats every run of text the same way, and on the phone that came out
    twice: a ~100 ms press on the 受付 sheet's 「デモ: 受付されたところを見る」
@@ -495,7 +501,7 @@
    by grep rather than assumed: there is not one raw `<a>` in src/ — every
    anchor is a react-router `<Link>` and therefore navigation — every control
    is a `<button>`, and the design's own objects (cards, chips, rows, sheet
-   controls, tray cells, the FAB) all carry `.pressable`. The chips inside the
+   controls, tray cells) all carry `.pressable`. The chips inside the
    cards inherit it from the card's own anchor.
 
    NOT on body copy: the post's text, the store's address, the legal
@@ -513,7 +519,7 @@
   -webkit-touch-callout: none;
 }
 
-/* reserve index.css:1445–1472 */
+/* reserve index.css:1552–1579 */
 /* ---- PRESS TIERS (fragment.html 129-132) ----
    Three answers, by what the thing IS, all on pointer-DOWN via :active:
      an OBJECT (a card, the points strip) sinks a little — scale .985
@@ -543,14 +549,13 @@
   transition: background-color 120ms cubic-bezier(0.3, 0.7, 0.4, 1);
 }
 
-/* reserve index.css:1528–1561 */
+/* reserve index.css:1634–1666 */
 @media (prefers-reduced-motion: reduce) {
   .member-ground .mcard:active,
   .member-ground .tcard:active,
   .member-ground .tameru-ticket:not([data-static]):active,
   .member-ground .tameru-post:active,
   .member-ground .pstrip:active,
-  .member-ground .member-fab:active,
   .member-ground .member-sheet__close:active,
   .member-ground .tameru-tbtn:active,
   .member-ground .member-btn-wash:active,
@@ -579,7 +584,7 @@
   }
 }
 
-/* reserve index.css:3823–3893 */
+/* reserve index.css:3950–4020 */
 /* ============================================================
    お店ページ, studio skin — the design source's own store page (§お店ページ).
    ============================================================ */
@@ -652,17 +657,18 @@
   color: rgb(255 255 255 / 0.82);
 }
 
-/* reserve index.css:4527–4545 */
+/* reserve index.css:4651–4660 */
 /* Accepted Satin: one smooth colour field; the copy and card never drift. */
-.member-ground :is(.mcard,.tcard,.salon-cover) { background:var(--satin-base); color:var(--satin-ink); border:0; }
+.member-ground :is(.mcard,.tcard,.salon-cover,.member-minicard) { background:var(--satin-base); color:var(--satin-ink); border:0; }
 .member-ground :is(.mcard,.tcard,.salon-cover)::after { display:none; }
 .member-ground .mcard__sheenwrap { overflow:hidden; transform:none; }
-.member-ground :is(.mcard,.tcard,.salon-cover) .mcard__sheen {
+.member-ground :is(.mcard,.tcard,.salon-cover,.member-minicard) .mcard__sheen {
   inset:auto; left:-14.9123%; top:-21.2121%; width:129.8246%; height:142.4242%;
   opacity:1; animation:none; transition:none; transform-origin:center;
   background:radial-gradient(ellipse 80% 110% at 82% 12%,var(--satin-high) 0%,var(--satin-high) 10%,var(--satin-shoulder) 43%,var(--satin-body) 70%,var(--satin-low) 100%);
 }
-.member-ground :is(.mcard,.tcard,.salon-cover) :is(.mcard__wm,.mcard__store,.mcard__more,.mcard__eb,.mcard__none,.mcard__door,.tcard__sub,.mcard__chip,.tcard__chip,.salon-cover__wm,.salon-cover__st,.salon-cover__ad,.salon-cover__back) { color:var(--satin-ink); }
+.member-ground :is(.mcard,.tcard,.salon-cover,.member-minicard) :is(.mcard__wm,.mcard__store,.mcard__more,.mcard__eb,.mcard__none,.mcard__door,.tcard__sub,.mcard__chip,.tcard__chip,.salon-cover__wm,.salon-cover__st,.salon-cover__ad,.salon-cover__back,.member-minicard__wm) { color:var(--satin-ink); }
+/* reserve index.css:4674–4682 */
 .member-ground .mcard { height:190px; border-radius:22px; }
 .member-ground .mcard__in { padding:21px; }
 .member-ground .mcard__wm { font-size:27px; }
@@ -673,20 +679,20 @@
 .member-ground .salon-cover { height:248px; }
 .member-ground .salon-cover__wm { font-size:40px; }
 
-/* reserve index.css:4550–4550 */
+/* reserve index.css:4687–4687 */
 .member-ground .salon-cover { touch-action:pinch-zoom; }
 
-/* reserve index.css:4552–4553 */
+/* reserve index.css:4689–4690 */
 /* Shared branch copy keeps its glyph geometry through the card handoff. */
 .member-ground .salon-cover__st { font-size:11px; letter-spacing:.09em; line-height:1.5; }
 
-/* reserve index.css:4555–4590 */
+/* reserve index.css:4692–4727 */
 /* Dimensions and typography transcribed from the approved phone-finishes mock. */
 .member-ground :is(.mcard,.tcard,.salon-cover,.salon-next,.salon-rankfloat,.salon-acts,.salon-posts) { font-family:var(--font-sans); }
 .member-ground .mcard { height:187px; text-align:left; }
 .member-ground .mcard__in { padding:0; }
 .member-ground .mcard__hd { position:absolute; top:20px; left:21px; right:20px; }
-.member-ground .mcard__wm { font:27px/1.1 Georgia,"Times New Roman",serif; letter-spacing:-.5px; }
+.member-ground .mcard__wm { font:27px/1.1 Georgia,"Times New Roman","Reserve Card JP",serif; letter-spacing:-.5px; }
 .member-ground .mcard__more { font-size:11px; font-weight:400; letter-spacing:1px; }
 .member-ground .mcard__store { position:absolute; top:56px; left:22px; right:20px; margin:0; font-size:12px; letter-spacing:1px; line-height:1.5; }
 .member-ground .mcard__mid { position:absolute; top:85px; left:22px; right:20px; margin:0; }
@@ -713,12 +719,12 @@
    remaining tightness is pre-existing for any compact-card tenant with a
    serif cover (confirmed identical on テスト東京店 on main) and is a
    motion-side fix for Liam, not this rule — logged, not fixed here. */
-.member-ground .salon-cover__wm { position:absolute; top:149px; left:25px; margin:0; font:36px/1.1 Georgia,"Times New Roman",serif; letter-spacing:-.66px; }
-.member-ground .salon-cover__wm-probe { position:absolute; left:0; top:0; visibility:hidden; pointer-events:none; white-space:nowrap; font:36px/1.1 Georgia,"Times New Roman",serif; letter-spacing:-.66px; }
+.member-ground .salon-cover__wm { position:absolute; top:149px; left:25px; margin:0; font:36px/1.1 Georgia,"Times New Roman","Reserve Card JP",serif; letter-spacing:-.66px; }
+.member-ground .salon-cover__wm-probe { position:absolute; left:0; top:0; visibility:hidden; pointer-events:none; white-space:nowrap; font:36px/1.1 Georgia,"Times New Roman","Reserve Card JP",serif; letter-spacing:-.66px; }
 .member-ground .salon-cover__st { position:absolute; top:199px; left:26px; right:25px; margin:0; font-size:12px; letter-spacing:1px; line-height:1.5; }
 .member-ground .salon-cover__ad { position:absolute; top:225px; left:25px; right:25px; margin:0; font-size:10px; letter-spacing:.25px; line-height:1.8; }
 
-/* reserve index.css:4632–4685 */
+/* reserve index.css:4769–4822 */
 /* PKT-COVER-LONG-NAME-FOLD-5: the cover is 295px high; a short name's
    single 36px/1.1 line ends at 149 + 39.6 = 188.6px. A long name is
    anchored by its BOTTOM at that same line (295 - 188.6 = 106.4px) and
