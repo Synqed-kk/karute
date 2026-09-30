@@ -76,7 +76,7 @@ const BLOCK_DEFAULT_LABEL = ''
 /** The person mark: the first token of a name split on an ASCII or full-width
  *  space, the whole name when there is none. Core has no mark field; the
  *  fixture pre-splits, and this is the ONE place the door does the same. */
-const firstToken = (name: string): string => name.split(/[ \u3000]/)[0]
+export const firstToken = (name: string): string => name.split(/[ \u3000]/)[0]
 
 const lensStore = (lens: StoreLens): string | undefined => (typeof lens === 'string' ? lens : undefined)
 
@@ -442,6 +442,20 @@ export async function readShellIdentity(): Promise<{
     // SAMPLE: exactly data.ts's scene stamp.
     reserveSyncedAt: jstSlotEnd(0, 0, boardNow, -reserveSync.minutes_ago, now),
   }
+}
+
+/** ⚖ R53 — who is signed in, for the shell card only (never the acting persona the rooms read:
+ *  that stays readShellIdentity's operator). Door ON = the same request-cached actor the operator
+ *  path loads — no extra core read — plus the admission's e-mail. */
+/** The two admission fields the card reads — structural, so door.ts and data.ts keep their sealed
+ *  import inventories (foundation.test); a BusinessAdmission is assignable. */
+export type ShellAdmission = { email: string | null; displayName: string | null }
+export interface ShellViewer { name: string; mark: string; email: string | null; roleLabel: string | null }
+export async function readShellViewer(admission: ShellAdmission): Promise<ShellViewer> {
+  const actor = await practiceActor()
+  const name = actor.card.name
+  const label = Object.prototype.hasOwnProperty.call(ROLE_LABEL, actor.sheet.role) ? ROLE_LABEL[actor.sheet.role] : ''
+  return { name, mark: firstToken(name), email: admission.email, roleLabel: label || null }
 }
 
 /** LIVE: org settings' `reserve_card_color` through the door's existing read;

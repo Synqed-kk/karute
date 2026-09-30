@@ -25,6 +25,8 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { businessStrings } from '@/business/i18n'
+import { BusinessSignOutButton } from './BusinessSignOutButton'
 
 export interface ShellStore { id: string; name: string }
 
@@ -32,9 +34,11 @@ export interface SidebarProps {
   locale: string
   businessName: string
   storeCount: number
-  operatorName: string
-  operatorMark: string
-  operatorRole: string
+  /** ⚖ R53 — the signed-in person (readShellViewer), never the rooms' acting persona. */
+  viewerName: string
+  viewerMark: string
+  viewerRoleLabel: string | null
+  viewerEmail: string | null
   stores: ShellStore[]
   /** 今日の運営 badge (Today A6). One count per store plus the business-wide
    *  total: the rail renders above the store lens, so it picks the number the
@@ -42,6 +46,8 @@ export interface SidebarProps {
    *  it is showing. */
   unresolved: { byStore: Record<string, number>; all: number }
 }
+
+const shellStrings = businessStrings.shell
 
 /** Canon's rail glyphs, lifted verbatim. */
 const GLYPH: Record<string, ReactNode> = {
@@ -56,6 +62,8 @@ const GLYPH: Record<string, ReactNode> = {
   karute: (<svg viewBox="0 0 24 24"><path d="M7.5 3.5h6l4 4v12.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" /><path d="M13.5 3.5V8h4M9 12.2h6M9 15.6h6M9 19h3.5" /></svg>),
   askAi: (<svg viewBox="0 0 24 24"><path d="M4.5 6.8a2.3 2.3 0 0 1 2.3-2.3h10.4a2.3 2.3 0 0 1 2.3 2.3v7.4a2.3 2.3 0 0 1-2.3 2.3H10l-3.8 3v-3H6.8a2.3 2.3 0 0 1-2.3-2.3Z" /><path d="M9.3 10.3 10.6 8.6l1 1.7 1.5-2.2 1.4 2.8" /></svg>),
   coaching: (<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" /><circle cx="12" cy="12" r="4.4" /><circle cx="12" cy="12" r=".9" fill="currentColor" stroke="none" /></svg>),
+  // ⚖ R57 V2 — ログアウト in the icon strip: a door and an outward arrow, in the rail's stroke.
+  signOut: (<svg viewBox="0 0 24 24"><path d="M10 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H10" /><path d="M14.5 8l4 4-4 4M18.5 12H9.5" /></svg>),
   settings: (<svg viewBox="0 0 24 24"><path d="M4.5 7.5h15M4.5 12h15M4.5 16.5h15" /><circle cx="9.5" cy="7.5" r="1.9" fill="#fff" /><circle cx="14.5" cy="12" r="1.9" fill="#fff" /><circle cx="8" cy="16.5" r="1.9" fill="#fff" /></svg>),
 }
 
@@ -146,7 +154,7 @@ export function wireStorePicker(pop: HTMLElement, trigger: HTMLElement, onClose:
 }
 
 export function BusinessSidebar(props: SidebarProps) {
-  const { locale, businessName, storeCount, operatorName, operatorMark, operatorRole, stores, unresolved } = props
+  const { locale, businessName, storeCount, viewerName, viewerMark, viewerRoleLabel, viewerEmail, stores, unresolved } = props
   const pathname = usePathname()
   const search = useSearchParams()
   const [open, setOpen] = useState(true)
@@ -279,6 +287,9 @@ export function BusinessSidebar(props: SidebarProps) {
         )}
       </div>
 
+      {/* ⚖ R57 V1 — the nav is the one scrolling region, so the identity card below stays
+          pinned inside the viewport at any window height. */}
+      <div className="nav-scroll">
       {NAV.map((section) => (
         <div key={section.group}>
           <div className="nav-label">{section.group}</div>
@@ -320,12 +331,23 @@ export function BusinessSidebar(props: SidebarProps) {
           </nav>
         </div>
       ))}
+      </div>
 
-      <div className="operator">
-        <span className="avatar">{operatorMark}</span>
+      {/* ⚖ R53 — who is signed in, in both worlds; registers into 画面の説明 like the store card. */}
+      <div
+        className="operator"
+        data-guide-title={shellStrings.accountTitle}
+        data-guide={shellStrings.accountGuide}
+      >
+        <span className="avatar" title={viewerEmail !== null && viewerEmail !== viewerName ? `${viewerName} · ${viewerEmail}` : viewerName}>{viewerMark}</span>
+        <BusinessSignOutButton locale={locale} label={shellStrings.signOut} failed={shellStrings.signOutFailed} icon={GLYPH.signOut} />
         <span>
-          <strong>{operatorName}</strong>
-          <span>{operatorRole} / {lensLabel}</span>
+          <strong>{viewerName || shellStrings.accountTitle}</strong>
+          <span>{viewerRoleLabel ? `${viewerRoleLabel} / ${lensLabel}` : lensLabel}</span>
+          {viewerEmail !== null && viewerEmail !== viewerName && (
+            <span className="operator-email" title={`${shellStrings.accountTitle}: ${viewerEmail}`}>{viewerEmail}</span>
+          )}
+          <BusinessSignOutButton locale={locale} label={shellStrings.signOut} failed={shellStrings.signOutFailed} />
         </span>
       </div>
     </aside>

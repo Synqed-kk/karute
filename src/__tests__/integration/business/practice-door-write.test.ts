@@ -48,7 +48,7 @@ function withReads(settings: Record<string, unknown> = {}): Spied {
   mockCore.reads = spied as unknown as CoreReads
   return spied
 }
-const as = (userId: string, businessId: string = TENANT) => admission.mockResolvedValue({ userId, email: null, businessId })
+const as = (userId: string, businessId: string = TENANT) => admission.mockResolvedValue({ userId, email: null, displayName: null, businessId })
 /** Core's answer to a PUT: the merged row (other keys kept), the sent key as core stored it. */
 const coreRow = (settings: Record<string, unknown>) => ({ business_id: TENANT, name: 'Dev Salon', settings, created_at: 'x', updated_at: 'y' })
 

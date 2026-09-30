@@ -53,7 +53,7 @@ function withReads(settings: Record<string, unknown> = {}): Spied {
   mockCore.reads = spied as unknown as CoreReads
   return spied
 }
-const as = (userId: string, businessId: string = TENANT) => admission.mockResolvedValue({ userId, email: null, businessId })
+const as = (userId: string, businessId: string = TENANT) => admission.mockResolvedValue({ userId, email: null, displayName: null, businessId })
 /** Core's answer to a PUT: core's own shallow merge (org-settings.service.ts:50) of the sent keys over the row. */
 let stored: Record<string, unknown> = {}
 const coreRow = (settings: Record<string, unknown>) => ({ business_id: TENANT, name: 'Dev Salon', settings, created_at: 'x', updated_at: 'y' })

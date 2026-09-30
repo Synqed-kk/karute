@@ -1160,4 +1160,13 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       dated: '2026-09-29',
     },
   },
+  // ⚖ R53/R55 (PR #1107) — SYNQED Business's ログアウト: server-side sign-out inside Business territory. Auth only:
+  // supabase auth.signOut({ scope: 'local' }) through admission.ts, no facade, no core, no row written. Rows before
+  // sites, as #1030 did for card-color: the route file lands with #1107.
+  'business/sign-out': {
+    kind: 'skip',
+    justification:
+      "Business sign-out (POST, R55) — server-side auth.signOut({ scope: 'local' }) inside Business territory; auth only, no facade, no core read or write, nothing to audit (a session ending is not a business mutation). Same-origin guarded as the card-color route.",
+    dated: '2026-09-30',
+  },
 }

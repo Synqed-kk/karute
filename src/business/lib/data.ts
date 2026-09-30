@@ -196,6 +196,19 @@ export async function listVisits(
   return inLens(done, lens, false).sort((a, b) => b.starts_at.localeCompare(a.starts_at))
 }
 
+export type ShellViewer = door.ShellViewer
+
+/** ⚖ R53 — the signed-in PERSON the shell card names, in both worlds. The sample world
+ *  fills the business, never the viewer's identity: door OFF is the admission alone
+ *  (full_name, else the e-mail; no role claim) and reaches core zero times. */
+export async function readShellViewer(admission: door.ShellAdmission): Promise<ShellViewer> {
+  if (await doorOn()) return door.readShellViewer(admission)
+  const name = admission.displayName ?? admission.email ?? ''
+  // An e-mail standing in for the name marks with its first character, upper-cased.
+  const mark = admission.displayName ? door.firstToken(name) : name.slice(0, 1).toUpperCase()
+  return { name, mark, email: admission.email, roleLabel: null }
+}
+
 /** The tenant + operator + sync state the shell names. No lens: it describes
  *  the viewer, not a store's rows.
  *  ⚠ RECONNECT: `storeCount` must become the count of stores the ACTOR may see
