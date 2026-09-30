@@ -81,6 +81,21 @@ export function ymdInJst(d: Date = new Date()): string {
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`
 }
 
+/** A11 (S69 fix round 4, commit 29): the ONE null-safe JST-day read of a
+ *  stored date string, for every same-day compare in PR-O's files (the
+ *  prior-visit rule, the auto-link's booking filter and session day). A
+ *  canonical `YYYY-MM-DD` is returned AS IS — never re-parsed, so the answer
+ *  never depends on the server's time zone. Any other string parses through
+ *  `new Date` + ymdInJst (a short `2026-9-29` normalises to `2026-09-29`).
+ *  An unparseable value → `null`, never a throw: a caller decides what null
+ *  means (a karute row: it counts as a prior visit). */
+export function jstDayOf(value: string | null | undefined): string | null {
+  if (!value) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : ymdInJst(d)
+}
+
 /** Same-JST-calendar-day compare for a stored `redeemed_on` value against a
  *  YYYY-MM-DD business date. This is the exact idiom packs.ts's recovery-burn
  *  guard uses (`r.redeemed_on.slice(0, 10) === redeemedOn`) — extracted so a

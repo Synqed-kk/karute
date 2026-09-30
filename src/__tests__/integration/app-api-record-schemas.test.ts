@@ -9,6 +9,7 @@ import {
   SuggestionsSchema,
   SaveKaruteSchema,
   RecordingJobEnqueueSchema,
+  RecordingJobFromSessionSchema,
   MAX_STORED_TRANSCRIPT_CHARS,
 } from '@/lib/app-api/record-schemas'
 
@@ -66,5 +67,22 @@ describe('record-flow F8 schemas — over-cap / strict rejection', () => {
     expect(SaveKaruteSchema.safeParse({ ...base, transcript: over(MAX_STORED_TRANSCRIPT_CHARS + 1) }).success).toBe(false)
     expect(SaveKaruteSchema.safeParse({ ...base, businessId: 'other-tenant' }).success).toBe(false)
     expect(SaveKaruteSchema.safeParse(base).success).toBe(true)
+  })
+
+  // S2 (PR-O commit 2): the optional, strict reason a save/enqueue carries NO
+  // outcome. A build-31 body without it stays valid; an unknown reason is 400.
+  it('outcomeMissing: absent passes, the three reasons pass, an unknown reason fails — on all three doors', () => {
+    const doors = [
+      [SaveKaruteSchema, { customerId: 'c1', transcript: 't', summary: 's', entries: [] }],
+      [RecordingJobEnqueueSchema, { recordingSessionId: 's1', customerId: 'c1', audioPath: 'app_b_x.webm' }],
+      [RecordingJobFromSessionSchema, { recordingSessionId: 's1', customerId: 'c1' }],
+    ] as const
+    for (const [schema, base] of doors) {
+      expect(schema.safeParse(base).success).toBe(true)
+      for (const reason of ['never_asked', 'unanswered_recovery', 'no_stamp']) {
+        expect(schema.safeParse({ ...base, outcomeMissing: reason }).success).toBe(true)
+      }
+      expect(schema.safeParse({ ...base, outcomeMissing: 'forgot' }).success).toBe(false)
+    }
   })
 })

@@ -14,14 +14,15 @@
 //      .tcard, .salon-cover on both sides per case and compares RGB pixel by pixel;
 //   4. emits src/__tests__/integration/business/reserve-card.expected-satin.json (Reserve's own satinVars
 //      output, read by the unit test beside it), the module's PARITY.md, and
-//      <PARITY_DIR>/parity/parity-report.md with every PNG + a diff PNG.
+//      <run scratch>/parity/parity-report.md with every PNG + a diff PNG (kept only with PARITY_KEEP=1).
 // PASS = 0 differing pixels on every surface of every case, and every verbatim block identical (any DIFFER
 // fails the run). Exit code 1 otherwise.
 //
 // env: PARITY_REPO (the karute checkout holding src/business/lib/reserve-card/ — its module, globals.css,
 //      node_modules and emitted files; default = the checkout this script sits in, so from a checkout
-//      of the harness alone point it at the port's checkout) · PARITY_DIR (work dir; default
-//      <tmpdir>/reserve-card-parity) · RESERVE_REPO (default <PARITY_REPO>/../reserve)
+//      of the harness alone point it at the port's checkout) · PARITY_DIR (the PARENT of this run's
+//      own scratch dir <PARITY_DIR>/reserve-card-parity-XXXXXX; default <tmpdir>) · PARITY_KEEP=1 (keep that
+//      scratch dir at exit and print its path; otherwise it is removed) · RESERVE_REPO (default <PARITY_REPO>/../reserve)
 //      PARITY_W (the lane folder; when given, its satin fixtures are cross-checked) · PARITY_DIAG=1
 //      (also dumps computed-style differences per surface — the first tool to reach for on a diff) ·
 //      PARITY_ONLY=p01,long (a subset of cases, while investigating: a PARTIAL run is diagnostic, not a proof —
@@ -29,7 +30,7 @@
 //      exit code cover only the rows that ran).
 // Only the PIDs this script starts are ever stopped.
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -72,9 +73,16 @@ const PIN = MANIFEST.reservePin
 const SHORT = PIN.slice(0, 7)
 const RANGES = MANIFEST.reserveRanges
 const RESERVE = resolve(process.env.RESERVE_REPO ?? join(ROOT, '../reserve'))
-const WORK_GIVEN = resolve(process.env.PARITY_DIR ?? join(tmpdir(), 'reserve-card-parity'))
-mkdirSync(WORK_GIVEN, { recursive: true })
-const WORK = realpathSync(WORK_GIVEN)
+// ONE scratch dir per run, never shared: PARITY_DIR (when given) only chooses its parent. Nothing another run
+// made is ever found, reused or removed here, so concurrent runs cannot collide; this run's dir is removed at
+// exit (pass, fail or throw) unless PARITY_KEEP=1, which keeps it and prints its path.
+const WORK_PARENT = resolve(process.env.PARITY_DIR ?? tmpdir())
+mkdirSync(WORK_PARENT, { recursive: true })
+const WORK = mkdtempSync(join(realpathSync(WORK_PARENT), 'reserve-card-parity-'))
+process.on('exit', () => {
+  if (process.env.PARITY_KEEP === '1') return console.log(`scratch kept: ${WORK}`)
+  try { rmSync(WORK, { recursive: true, force: true }) } catch (e) { console.error(`scratch not removed: ${WORK} (${e.message})`) }
+})
 const W = process.env.PARITY_W // the lane folder, optional: its satin fixtures are cross-checked when given
 const COPY = join(WORK, `reserve-${SHORT}`)
 const APP = join(WORK, 'port-app')
@@ -146,8 +154,7 @@ function stopStarted() {
 
 // ---- 1. Reserve at the pin ----
 function exportReserve() {
-  rmSync(COPY, { recursive: true, force: true })
-  mkdirSync(COPY, { recursive: true })
+  mkdirSync(COPY, { recursive: true }) // WORK is this run's own fresh dir: nothing to clear first
   // argument arrays only, never shell source: a path holding $, a backtick or a quote stays a path
   const tarball = join(WORK, `reserve-${SHORT}.tar`)
   sh('git', ['-C', RESERVE, 'archive', '--format=tar', '-o', tarball, PIN])
@@ -201,7 +208,6 @@ function emitExpectedSatin() {
 
 // ---- 3. the port app (Business's globals.css + the module) ----
 function writePortApp() {
-  rmSync(APP, { recursive: true, force: true })
   mkdirSync(APP, { recursive: true })
   symlinkSync(join(ROOT, 'node_modules'), join(APP, 'node_modules')) // scratch only: resolve react from Business
   writeFileSync(join(APP, 'index.html'), `<!doctype html>
@@ -360,7 +366,7 @@ ${NOT_PORTED.map(([r, why]) => `- ${r} — ${why}`).join('\n')}
 ## Proof
 The harness ships in its own non-Business PR (branch \`feat/business-reserve-card-parity-harness\`): a shared file never rides in a Business PR (scripts/business/check-business-isolation.mjs). From a checkout of that branch, point it at this one with \`PARITY_REPO=<this checkout>\`; once both are on main, no env is needed.
 
-\`node scripts/business/reserve-card-parity/run.mjs\` — 12 palette values × {home, store} + a 22-character name × {home, store} + the seed's own #285643; .mcard 353×187 · .tcard 353×76 · .salon-cover 393×295 at 393px; PASS = 0 differing RGB pixels per surface and every verbatim block identical (any DIFFER fails the run). Report + PNGs: \`$PARITY_DIR/parity/\`.
+\`node scripts/business/reserve-card-parity/run.mjs\` — 12 palette values × {home, store} + a 22-character name × {home, store} + the seed's own #285643; .mcard 353×187 · .tcard 353×76 · .salon-cover 393×295 at 393px; PASS = 0 differing RGB pixels per surface and every verbatim block identical (any DIFFER fails the run). Report + PNGs: this run's own scratch dir \`<PARITY_DIR or tmpdir>/reserve-card-parity-XXXXXX/parity/\` — removed at exit; run with \`PARITY_KEEP=1\` to keep it (the path is printed as \`scratch kept: …\`).
 The unit test (src/__tests__/integration/business/reserve-card.test.ts) reads \`reserve-card.expected-satin.json\` beside it, emitted by the harness from Reserve's own satin-material.ts.
 Reserve's small card at the pin is STUDIO FORCE (its name lives outside mock.ts), so the port's small card is compared under that name and colour pair; Reserve's store page hides \`.salon-rankfloat\` (a sibling overlapping the cover's bottom edge) for the capture; the port's sample context is Reserve's demo member at 2026-09-14 10:00 JST, so Reserve's clock is frozen there.
 
@@ -379,8 +385,7 @@ const NOT_PORTED = MANIFEST.leftOut.notPorted
 async function main() {
   if (!existsSync(join(MOD, 'ReserveCardPreview.tsx'))) throw new Error(`no port module at ${MOD} — set PARITY_REPO to the checkout that holds it`)
   log(`module: ${MOD}`)
-  rmSync(OUT, { recursive: true, force: true }) // no stale PNG can sit beside this run's
-  mkdirSync(OUT, { recursive: true })
+  mkdirSync(OUT, { recursive: true }) // inside this run's own WORK: no stale PNG can sit beside this run's
   const verbatim = checkVerbatim()
   log(`verbatim blocks: ${verbatim}`)
   const scopedCheck = checkScoped()
@@ -584,7 +589,10 @@ function checkVerbatim() {
       const [path, a, b] = fixed ? [fixed(), +m[1], +m[2]] : [where[m[1]] ?? m[1], +m[2], +m[3]]
       // an empty or inverted range would compare [] with [] and pass: it is a broken marker, never a proof
       if (a < 1 || b < a) { all++; bad.push(`${file}:${i + 1} (${path}:${a}–${b} — empty range)`); return }
-      const want = show(path).slice(a - 1, b), got = lines.slice(i + 1, i + 1 + want.length)
+      const src = show(path), want = src.slice(a - 1, b), got = lines.slice(i + 1, i + 1 + want.length)
+      // a range past the end of the pinned file slices short (or empty) and would match a short block: never a proof
+      const n = src.at(-1) === '' ? src.length - 1 : src.length // git show ends with a newline: the last split element is not a line
+      if (b > n || want.length !== b - a + 1) { all++; bad.push(`${file}:${i + 1} (${path}:${a}–${b} — past EOF: file has ${n} lines)`); return }
       all++
       if (JSON.stringify(want) === JSON.stringify(got)) ok++
       else bad.push(`${file}:${i + 1} (${path}:${a}–${b})`)
