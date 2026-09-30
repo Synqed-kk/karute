@@ -17,7 +17,7 @@ jest.mock('@synqed-kk/client', () => ({
 }))
 
 import { practiceTenant } from '@/business/lib/practice-door/switch'
-import { clientFor, orgSettingsWriterFor, PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
+import { auditWriterFor, clientFor, orgSettingsWriterFor, PracticeTenantMismatch, storeDaysWriterFor } from '@/business/lib/practice-door/core-reach'
 import { parseManifest } from '@/business/lib/practice-door/registry-manifest'
 import { PRACTICE_REGISTRY } from '@/business/lib/practice-door/registry.generated'
 import { fixtureIdOf, liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
@@ -89,6 +89,16 @@ const READS = [
 ]
 
 describe('core-reach: the tenant throw comes before the client', () => {
+  // ⚖ R50 F2 — ONE tenant match (doorFor): the upper-cased tenant passes every guard (the factory then
+  // fails on the unset core env — proof the guard let it through); another id is still a mismatch.
+  it('R50 F2 — every guard: the upper-cased tenant passes, another id is PracticeTenantMismatch', () => {
+    setEnv({ BUSINESS_PRACTICE_TENANT: u })
+    for (const guard of [clientFor, orgSettingsWriterFor, storeDaysWriterFor, auditWriterFor]) {
+      expect(() => guard({ businessId: u.toUpperCase() })).not.toThrow(PracticeTenantMismatch)
+      expect(() => guard({ businessId: u.toUpperCase() })).toThrow()
+      expect(() => guard({ businessId: 'other' })).toThrow(PracticeTenantMismatch)
+    }
+  })
   it('switch unset → refuses', () => {
     setEnv({})
     expect(() => clientFor({ businessId: u })).toThrow('practice door called with the switch unset')

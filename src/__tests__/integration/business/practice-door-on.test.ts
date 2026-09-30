@@ -11,14 +11,14 @@ jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 jest.mock('@/business/lib/practice-door/core-reach', () => {
   const actual = jest.requireActual('@/business/lib/practice-door/core-reach')
-  const { practiceTenant } = jest.requireActual('@/business/lib/practice-door/switch')
+  const { doorFor, practiceTenant } = jest.requireActual('@/business/lib/practice-door/switch')
   return {
     ...actual,
     clientFor: (admitted: { businessId: string }) => {
       mockBuilt.n += 1 // R50 P1/P2 — how many times a core client was asked for
       const tenant = practiceTenant()
       if (tenant === null) throw new Error('practice door called with the switch unset')
-      if (admitted.businessId !== tenant) throw new actual.PracticeTenantMismatch(admitted.businessId)
+      if (!doorFor(admitted.businessId)) throw new actual.PracticeTenantMismatch(admitted.businessId) // R50 F2 — the real guard's one match
       return mockCore.reads
     },
   }
@@ -1794,6 +1794,30 @@ describe('R50 — the door per business (P1–P7)', () => {
   it('P5 — the write guard is unchanged: another business under door ON still answers tenant', async () => {
     as(LOGIN.owner, null, OTHER)
     expect(await data.writeReserveCardColor(null)).toEqual({ ok: false, reason: 'tenant' })
+  })
+
+  it('F1 — storeSample obeys its PARAMETER, never the env (the two disagree on purpose)', () => {
+    expect(storeSample(false, STORE_A)).toMatchObject({ state: 'sample', marked: false })
+    expect(() => storeSample(false, 'nope')).toThrow('Missing default kind for store nope')
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+  })
+
+  it('F2 — the tenant, upper-cased, is still the tenant: the layout and 設定 take the ON path and a core client IS built', async () => {
+    as(LOGIN.owner, null, TENANT.toUpperCase())
+    mockBuilt.n = 0
+    expect(await layoutOf()).toContain('"practice":true')
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.dateline.startsWith('サンプルデータ ')).toBe(false)
+    expect(mockBuilt.n).toBeGreaterThan(0)
+  })
+
+  it('F3 — readCanManageCardColor + readStoreDays: another business gets the OFF answer, no core client', async () => {
+    as(LOGIN.owner, null, OTHER)
+    mockBuilt.n = 0
+    expect(await data.readCanManageCardColor()).toBe(false)
+    expect(await data.readStoreDays(STORE.tokyo)).toMatchObject({ ok: false, reason: 'tenant' })
+    expect(mockBuilt.n).toBe(0)
   })
 
   it('P6 — no memo of the decision across requests in one process, either order', async () => {
