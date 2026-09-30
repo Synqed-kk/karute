@@ -496,6 +496,26 @@ export type RecoverableTake = Omit<TakeMeta, 'ownerUid' | 'lastSeq'> & {
 
 type SegmentRow = { takeId: string; seq: number; blob: Blob }
 
+/** PR-B commit 7 (C1, B9): how long a segment's transaction may take to
+ *  report its commit before the write is treated as lost (false). */
+export const SEGMENT_COMMIT_DEADLINE_MS = 5_000
+
+/** The transaction's own verdict: `complete` → true; `abort`, `error` or the
+ *  deadline → false. Attached after the last request resolved, which is still
+ *  before `complete` (that event is its own task, after the success events). */
+function segmentCommitted(tx: IDBTransaction): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), SEGMENT_COMMIT_DEADLINE_MS)
+    const end = (ok: boolean) => {
+      clearTimeout(timer)
+      resolve(ok)
+    }
+    tx.onabort = () => end(false)
+    tx.onerror = () => end(false)
+    tx.oncomplete = () => end(true)
+  })
+}
+
 function req<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     r.onsuccess = () => resolve(r.result)
@@ -709,6 +729,10 @@ export async function appendTakeSegment(
               },
         ),
       )
+      // ⚖ C1 (PR-B commit 7, B9): a request's success is not a commit — the
+      // segment counts (the recorder advances its seq) only once the
+      // transaction completes; an abort after onsuccess answers false.
+      if (RECORDING_SWITCHES.awaitSegmentCommit && !(await segmentCommitted(tx))) return false
       return true
     } catch (err) {
       console.error('[take-store] appendTakeSegment failed:', err)

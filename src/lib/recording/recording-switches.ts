@@ -92,4 +92,11 @@ export const RECORDING_SWITCHES = {
    *  omitted when not valid. Default ON. OFF = no ring written, no diag sent —
    *  pre-PR-B exactly. Client code. */
   takeDiag: true,
+  /** A segment counts only once it is committed (build 32, PR-B commit 7, C1
+   *  / B9): appendTakeSegment answers true only after the IndexedDB
+   *  transaction's `complete`; an abort, an error or SEGMENT_COMMIT_DEADLINE_MS
+   *  without an answer → false → the recorder's existing p.disabled path (the
+   *  seq is not advanced). Default ON. OFF = today: true on the request's
+   *  success. Client code. */
+  awaitSegmentCommit: true,
 } as const

@@ -178,6 +178,10 @@ const idbDb = {
   createObjectStore: (n: string, opts: { keyPath: string | string[] }) =>
     idbStores.set(n, { keyPath: opts.keyPath, data: new Map() }),
   transaction: () => ({
+    // PR-B commit 7 (C1, B-S66-8): the shim reports its commit, as IndexedDB's `complete` does.
+    set oncomplete(done: (() => void) | null) {
+      if (done) queueMicrotask(done)
+    },
     objectStore: (n: string) => {
       const s = idbStores.get(n)!
       return {

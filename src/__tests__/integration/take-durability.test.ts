@@ -120,6 +120,8 @@ let failNextTailMarks = 0
  *  coming back — and a single one is the momentary blip the retry exists to
  *  ride out. Every skipped-tail case below therefore fails ALL THREE. */
 let failNextSegmentWrites = 0
+/** PR-B commit 7 (C1): the next N transactions ABORT after their requests succeeded. */
+let abortNextCommits = 0
 /** STAMP_WRITE_TRIES' two backoffs (STAMP_RETRY_MS · 1 + · 2 = 150 ms) plus
  *  slack, advanced on the fake clock so a refused flush can reach its last try.
  *  Kept as a local literal rather than an import: take-store does not export
@@ -283,7 +285,13 @@ class FakeIDB {
           throw e
         }
       }
-    return {
+    // PR-B commit 7 (C1, B-S66-8): the shim reports its commit as IndexedDB does — `complete` after the requests, or `abort` when a test asks (abortNextCommits).
+    const tx = {
+      onabort: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      set oncomplete(done: (() => void) | null) {
+        if (done) queueMicrotask(() => (abortNextCommits > 0 ? (abortNextCommits--, tx.onabort?.()) : done()))
+      },
       objectStore: (n: string) => {
         const s = this.stores.get(n)!
         /** `put`, and — S36 PR-1 — `add`, which is `put` that refuses a key
@@ -374,6 +382,7 @@ class FakeIDB {
         }
       },
     }
+    return tx
   }
 }
 
@@ -5694,6 +5703,44 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     expect(persistOf().disabled).toBe(false) // enabled (the revive, if a write lost)
     expect(metaOf(takeId).lastSeq).toBeGreaterThanOrEqual(1)
     expect((await loadTakeBlob(takeId))?.size).toBe('aaabbb'.length) // nothing left behind
+  })
+
+  // PR-B commit 7 (P:89, C1, B9): a segment counts only once it is committed.
+  it('P:89 a transaction that aborts after onsuccess → false, and the recorder does not advance its seq', async () => {
+    try {
+      expect(await createTake(takeMeta('c1'))).toBe(true)
+      abortNextCommits = 1
+      expect(await appendTakeSegment('c1', 0, new Blob(['aaa']))).toBe(false)
+      await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+      const p = persistOf() as unknown as { disabled: boolean; seq: number }
+      const seqBefore = p.seq
+      expect(p.disabled).toBe(false)
+      abortNextCommits = 1
+      pushChunk('bbb')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+      expect(p.disabled).toBe(true) // today's p.disabled path
+      expect(p.seq).toBe(seqBefore) // not advanced
+    } finally {
+      abortNextCommits = 0
+    }
+  })
+
+  it('C1 OFF (awaitSegmentCommit false) → today: the request success answers true, the commit is not awaited', async () => {
+    const restore = RECORDING_SWITCHES.awaitSegmentCommit
+    ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = false
+    try {
+      expect(await createTake(takeMeta('c1-off'))).toBe(true)
+      abortNextCommits = 1
+      expect(await appendTakeSegment('c1-off', 0, new Blob(['aaa']))).toBe(true)
+      expect(abortNextCommits).toBe(1) // no commit was ever asked for
+    } finally {
+      abortNextCommits = 0
+      ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = restore
+    }
   })
 
   it('T3 300 s held only in memory → ~60 segments of at most 50 chunks, seqs consecutive, the stamp on the last only', async () => {
