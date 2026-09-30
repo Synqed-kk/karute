@@ -143,18 +143,47 @@ const yenNumber = (s: string) => Number(s.replace(/[^0-9-]/g, ''))
  *  pinned on a known calendar). */
 const RealDate = Date
 function pin(iso: string): () => void {
+  const prior = globalThis.Date
   const at = new RealDate(iso)
   const stub = function (this: unknown, ...args: unknown[]) {
     return args.length === 0 ? new RealDate(at) : new RealDate(...(args as [string]))
   } as unknown as DateConstructor
+  // instanceof and Date.prototype checks must keep holding under the pin.
+  Object.defineProperty(stub, 'prototype', { value: RealDate.prototype })
   stub.UTC = RealDate.UTC
   stub.parse = RealDate.parse
   stub.now = () => at.getTime()
   globalThis.Date = stub
+  // Restores whatever clock was in force, so a section's or a test's own pin
+  // nests inside the file-wide one below and hands it back afterwards.
   return () => {
-    globalThis.Date = RealDate
+    globalThis.Date = prior
   }
 }
+
+/** The file reads ONE calendar, whatever the machine clock says. Every render
+ *  here goes through renderNow(), and several claims are true only on some
+ *  days: 「a month exactly LEVEL」 views month -1 against month -2, and the chip
+ *  says 前月比 only when the comparand spans its whole month — so it was red on
+ *  every day of March, May, July, October and December, when the viewed month
+ *  is shorter than the one before it. 2026-08-22 12:00 JST (a Saturday, an
+ *  open day) is the anchor the sibling sections already pin: July (31) against
+ *  June (30) is a whole comparand, August in progress is past its 1st, and no
+ *  month edge is near. Sections and tests that need another day pin their own
+ *  on top; pin() hands this one back when they restore. */
+const FILE_CLOCK = '2026-08-22T03:00:00.000Z'
+let restoreFileClock = () => {}
+beforeEach(() => {
+  restoreFileClock = pin(FILE_CLOCK)
+})
+afterEach(() => restoreFileClock())
+
+describe('the file clock', () => {
+  it('the pinned clock is still a Date', () => {
+    expect(new Date()).toBeInstanceOf(Date)
+    expect(Date.now()).toBe(new Date(FILE_CLOCK).getTime())
+  })
+})
 
 beforeEach(() => {
   supabase.mockResolvedValue({
@@ -264,7 +293,12 @@ describe('largest-remainder distribution', () => {
 // ── 3. the days sum to the month, and the 定休日 is honest ──────────────────
 
 describe('日報 rows', () => {
-  const now = new Date()
+  // Read per test, under the file clock — a describe-body read would take the
+  // machine clock at collection time, before any beforeEach has run.
+  let now: Date
+  beforeEach(() => {
+    now = new Date()
+  })
 
   it('a FINISHED month distributes to exactly its own figure, and every closed day is marked', () => {
     const coords = monthCoords(now, 1, [closedWeekday])
