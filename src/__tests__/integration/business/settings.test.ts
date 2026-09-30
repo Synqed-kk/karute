@@ -4424,7 +4424,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(PROPS_CODE).not.toContain('.upsert(')
   })
 
-  it('every Japanese string is JP-COPY-A1-FINAL’s, byte for byte', () => {
+  it('every Japanese string is the switchboard mock’s copy, or A1’s with the C8 Reserve → お客様のアプリ swap', () => {
     for (const line of [
       'カードの色',
       'お客様のアプリのホームに並ぶ、お店のカードです。色を選べます。文字の位置や大きさは、どのお店でも同じです。',
@@ -4454,7 +4454,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(LOOK_CODE).toContain('<h4 className="st-sec-l" id="clPickHead">カードの色</h4>')
     expect(LOOK_CODE).toContain('title="この事業者のすべての店舗に適用されます"')
     expect(LOOK_CODE).toContain("{view === 'home' && <p className=\"st-pv-cap\">見本では、編集中のお店を大きいカードにしています。")
-    expect(LOOK_CODE).toContain("{(state !== 'set' || shown === STAND_IN) && (")
+    expect(LOOK_CODE).toContain("{(state !== 'set' || saved === STAND_IN) && (")
   })
 })
 

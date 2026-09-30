@@ -8,7 +8,7 @@
 // (`CARD_COLOR_ID`), so 変更 n件, the dot and 保存する treat it like every other control; nothing reaches core
 // (A2 is the write). Like 予約と確保, the section hands its two pieces back as SLOTS and the room places them:
 // the picker in the reading column, the card at the top of the sticky stack (below the picker at ② and ①).
-// Every Japanese string is JP-COPY-A1-FINAL's, byte for byte, by id.
+// Every Japanese string is the switchboard mock's (S40 1b-1), or JP-COPY-A1-FINAL's with Reserve → お客様のアプリ.
 import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { wrapStep } from '@/business/lib/guide'
 import { ReserveCardPreview } from '@/business/lib/reserve-card/ReserveCardPreview'
@@ -23,7 +23,7 @@ type View = 'home' | 'store'
 export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの色', 'お客様のアプリでの見え方']
 
 /** The stand-in the preview paints when no colour is set (note.empty.preview says so). */
-const STAND_IN = '#1C2247'
+export const STAND_IN = '#1C2247'
 /** Reserve's phone width: the preview is laid out at exactly this, and only ever scaled DOWN to fit. */
 const PHONE_W = 393
 
@@ -66,7 +66,9 @@ export function ReserveCardLookSection({
 }) {
   const [view, setView] = useState<View>('home')
   const shown = value === '' ? null : value
-  const state = cardLookState(shown, look.palette)
+  // The source line speaks for the SAVED colour (mock :1340), never the unsaved pick; the preview follows the pick.
+  const saved = look.value === '' ? null : look.value
+  const state = cardLookState(saved, look.palette)
   const checked = look.palette.findIndex((c) => c.hex === shown)
   // The roving tab stop FOLLOWS FOCUS (Greptile #1015): arrows move focus and the stop with it, and only a
   // click / Space / Enter picks — browsing must not dirty the save bar. It starts on the checked swatch.
@@ -136,7 +138,7 @@ export function ReserveCardLookSection({
     <section className="st-block" data-guide-title="カードの色" data-guide="カードの色を12色から1つ選びます。押すと、見本のカードがその色になります。">
       <div className="st-block-head">
         <h3 id="clLookHead">カードの見た目</h3>
-        <span className="st-scope" title="この事業者のすべての店舗に適用されます" aria-label={`${look.scopeLabel}：この事業者のすべての店舗に適用されます`}>{look.scopeLabel}</span>
+        <span className="st-scope" title="この事業者のすべての店舗に適用されます">{look.scopeLabel}</span>
       </div>
       <p className="st-block-note">お客様のアプリのホームに並ぶ、お店のカードです。色を選べます。文字の位置や大きさは、どのお店でも同じです。</p>
       <h4 className="st-sec-l" id="clPickHead">カードの色</h4>
@@ -165,9 +167,9 @@ export function ReserveCardLookSection({
         ))}
       </div>
       {/* the source line (mock #clSrc): core sends no change date, so a saved non-standard colour prints none */}
-      {(state !== 'set' || shown === STAND_IN) && (
+      {(state !== 'set' || saved === STAND_IN) && (
         <p className="cl-state">
-          {state === 'legacy' && shown !== null && <span className="cl-dot" style={satin(shown)} title="現在の色" aria-hidden="true" />}
+          {state === 'legacy' && saved !== null && <span className="cl-dot" style={satin(saved)} title="現在の色" aria-hidden="true" />}
           {state === 'empty'
             ? '色はまだ設定されていません。お客様のアプリのカードは、これまでどおりの色で表示されます。'
             : state === 'set'
