@@ -242,7 +242,22 @@ export function honestHeld(
   // preference = the historic function, byte-identical.
   flat.sort((a, b) => (a.span.start === b.span.start ? (a.laneKey < b.laneKey ? -1 : a.laneKey > b.laneKey ? 1 : 0) : a.span.start - b.span.start))
 
-  const { room, exact } = assign(flat, prefer?.budget ?? HONEST_SEARCH_BUDGET, reference !== undefined)
+  const budget = prefer?.budget ?? HONEST_SEARCH_BUDGET
+  const preferred = assign(flat, budget, reference !== undefined)
+  let room = preferred.room
+  const exact = preferred.exact
+  // ⚖ R4 (S4 PR-B) — THE FLOOR, BY CONSTRUCTION: the preference may never hold
+  // FEWER 枠 than the historic size-only search. Exact, it cannot (size is the
+  // first tier); past the budget the extra tiers can spend the nodes size
+  // needed, so the size-only search runs as if `prefer` were absent, with its
+  // own budget, and wins when it holds strictly more. `exact` stays false.
+  // Without a preference this never runs: one search, today's bytes.
+  if (!exact && (sellableOf !== undefined || reference !== undefined)) {
+    const plain = flat.map((c) => ({ ...c, sell: 0, kept: 0 }))
+    const floor = assign(plain, budget, false)
+    const held = (rs: readonly (string | null)[]) => rs.reduce((n, r) => n + (r === null ? 0 : 1), 0)
+    if (held(floor.room) > held(room)) room = floor.room
+  }
 
   // Back into per-lane shape, in the CANDIDATES' own lane order so the output
   // mirrors the mask it came from row for row.
@@ -385,15 +400,14 @@ const fits = (lastEnd: ReadonlyMap<string, number>, r: string, c: Candidate) => 
 
 /** ⚖ R4 (S4 PR-B) — one room per 枠 of `ks` (positions in `part`, ascending)
  *  such that every 枠 `fits`, or null when none exists. The first assignment in
- *  the walk's own room order. Capped at HONEST_SEARCH_BUDGET nodes: past it the
- *  set is treated as not seatable — the seed under-holds, never over-holds. */
-function seatAll(flat: readonly Candidate[], part: readonly number[], ks: readonly number[]): string[] | null {
+ *  the walk's own room order. Every node it visits is charged to `spend`, the
+ *  component's ONE budget (the walk's own): when `spend` says stop, the set is
+ *  treated as not seatable and the caller stops seeding. */
+function seatAll(flat: readonly Candidate[], part: readonly number[], ks: readonly number[], spend: () => boolean): string[] | null {
   const lastEnd = new Map<string, number>()
   const out: string[] = []
-  let nodes = 0
   const go = (j: number): boolean => {
-    nodes += 1
-    if (nodes > HONEST_SEARCH_BUDGET) return false
+    if (!spend()) return false
     if (j === ks.length) return true
     const c = flat[part[ks[j]]]
     for (const r of c.rooms) {
@@ -438,23 +452,47 @@ function assign(flat: readonly Candidate[], budget: number, seeded: boolean): { 
     // a phantom loss」. The reference's LEGAL SUBSET, walked in the search's own
     // (start, laneKey) order (start === windowStart, reserved-mask.ts:65): each
     // reference 枠 joins if the set STAYS LEGAL — some room assignment of the
-    // whole set exists by `fits`, the walk's own test, found by `seat` below
-    // (a first-free-room greedy would drop a 枠 a legal set can seat). The
-    // seed's tuple is the starting best; the search only replaces it with a
-    // strictly better leaf, and a budget trip leaves it standing.
+    // whole set exists by `fits`, the walk's own test. INCREMENTAL: the room
+    // assignment so far is kept and the new 枠 (the latest start so far) takes
+    // the first room it `fits`; only when none fits is the whole set re-seated
+    // by `seatAll` (a first-free-room greedy alone would drop a 枠 a legal set
+    // can seat). Those re-seating nodes are charged to THIS component's one
+    // budget, the walk's own; if it trips while seeding, the seed is what was
+    // seated so far and `exact` is false. The seed's tuple is the starting
+    // best; the search only replaces it with a strictly better leaf, and a
+    // budget trip leaves it standing.
     if (seeded) {
       bestSize = 0
       bestSell = 0
       bestKept = 0
       const chosen: number[] = []
-      for (let k = 0; k < part.length; k += 1) {
-        if (flat[part[k]].kept === 0) continue
-        const seat = seatAll(flat, part, [...chosen, k])
-        if (seat === null) continue
+      let seedEnd = new Map<string, number>()
+      const spend = () => {
+        nodes += 1
+        if (nodes > budget) stopped = true
+        return !stopped
+      }
+      for (let k = 0; k < part.length && !stopped; k += 1) {
+        const c = flat[part[k]]
+        // not in the reference, or no free room at all (booked over): never seatable, costs nothing
+        if (c.kept === 0 || c.rooms.length === 0) continue
+        const quick = c.rooms.find((r) => fits(seedEnd, r, c))
+        if (quick !== undefined) {
+          seedEnd.set(quick, c.span.end)
+          best[k] = quick
+        } else {
+          const seat = seatAll(flat, part, [...chosen, k], spend)
+          if (seat === null) continue
+          seedEnd = new Map<string, number>()
+          for (let j = 0; j <= chosen.length; j += 1) {
+            const at = j < chosen.length ? chosen[j] : k
+            best[at] = seat[j]
+            seedEnd.set(seat[j], Math.max(seedEnd.get(seat[j]) ?? -1, flat[part[at]].span.end))
+          }
+        }
         chosen.push(k)
-        for (let j = 0; j < chosen.length; j += 1) best[chosen[j]] = seat[j]
         bestSize += 1
-        bestSell += flat[part[k]].sell
+        bestSell += c.sell
         bestKept += 1
       }
     }

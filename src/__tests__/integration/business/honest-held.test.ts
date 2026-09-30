@@ -686,22 +686,43 @@ describe('honest-held — the held preference (DECISIONS.md R4, S4 PR-B)', () =>
   })
 
   it('the seed: a legal reference under budget 1 STANDS — result == reference, exact:false, no phantom loss', () => {
+    // ⚖ TASK 4 (seed accounting): re-seating nodes are charged to the one
+    // budget, so under budget 1 the reference stands WHOLE exactly when every
+    // window takes a room first-fit in the search's order (no re-seat needed);
+    // otherwise the seed stops where the budget did — a subset of it, never more.
     let tried = 0
     let tripped = 0
+    let whole = 0
     for (let seed = 0; seed < 2000; seed += 1) {
       const { r, wins, candidates, lanes, book, sellKeys } = prefBoard(seed)
-      const ref = refOf(legalSubset(r, wins))
+      const refWins = legalSubset(r, wins)
+      const ref = refOf(refWins)
       if (ref.size === 0) continue
       tried += 1
+      const firstFit = (() => {
+        const end = new Map<string, number>()
+        for (const w of [...refWins].sort(byOrder)) {
+          const room = w.rooms.find((x) => (end.get(x) ?? -1) <= w.start)
+          if (room === undefined) return false
+          end.set(room, w.end)
+        }
+        return true
+      })()
       const prefer = { sellable: (l: BoardLane) => sellKeys.has(l.key), reference: ref }
       const h = honestHeld(candidates, lanes, book, true, undefined, { ...prefer, budget: 1 })
-      expect({ seed, ids: sortedIds(h) }).toEqual({ seed, ids: [...ref].sort() })
+      const got = sortedIds(h)
+      expect({ seed, subset: got.every((id) => ref.has(id)) }).toEqual({ seed, subset: true })
+      if (firstFit) {
+        whole += 1
+        expect({ seed, ids: got }).toEqual({ seed, ids: [...ref].sort() })
+      }
       // exact:true under budget 1 only when the root bound already PROVES the
       // seed optimal (every component pruned at its first node) — never a lie.
       if (h.exact) expect({ seed, h }).toEqual({ seed, h: honestHeld(candidates, lanes, book, true, undefined, prefer) })
       else tripped += 1
     }
     expect(tried).toBeGreaterThan(1000)
+    expect(whole).toBeGreaterThan(tried / 2)
     expect(tripped).toBeGreaterThan(tried / 2)
   })
 
@@ -719,7 +740,16 @@ describe('honest-held — the held preference (DECISIONS.md R4, S4 PR-B)', () =>
       const ref = refOf(kept)
       const rest = [...ref].filter((id) => id !== heldIdOf(gone.laneKey, gone.start)).sort()
       const seeded = honestHeld(candidates, lanes, book, true, undefined, { reference: ref, budget: 1 })
-      expect({ seed, ids: sortedIds(seeded) }).toEqual({ seed, ids: rest })
+      // ⚖ TASK 4 (seed accounting): under budget 1 the rest stands WHOLE when it
+      // seats first-fit (no re-seat charged to the budget); otherwise a subset.
+      const end = new Map<string, number>()
+      const firstFit = kept.filter((w) => w !== gone).sort(byOrder).every((w) => {
+        const room = w.rooms.find((x) => (end.get(x) ?? -1) <= w.start)
+        if (room !== undefined) end.set(room, w.end)
+        return room !== undefined
+      })
+      if (firstFit) expect({ seed, ids: sortedIds(seeded) }).toEqual({ seed, ids: rest })
+      else expect({ seed, subset: sortedIds(seeded).every((id) => rest.includes(id)) }).toEqual({ seed, subset: true })
       const full = honestHeld(candidates, lanes, book, true, undefined, { reference: ref })
       expect(full.exact).toBe(true)
       expect(full.total).toBeGreaterThanOrEqual(rest.length)
@@ -808,5 +838,83 @@ describe('honest-held — the held preference (DECISIONS.md R4, S4 PR-B)', () =>
     const h = honestHeld(cands, lanes, book, true, undefined, { sellable: () => true, reference: new Set([heldIdOf('a', 840)]) })
     // the ruling is size-first (R4); reference-first for PUBLISHED inventory is the persisted-record ticket, not PR-B.
     expect({ ids: sortedIds(h), total: h.total }).toEqual({ ids: ['b|765', 'c|915'], total: 2 })
+  })
+
+  // ⚖ TASK 4 — BAR-1: the preference never protects FEWER windows than the
+  // size-only search (main's path, proven byte-identical above), on boards
+  // shaped like the four SF6 rows: staff × rooms 30×10 and 60×20, dense (1–3
+  // windows per staff) and sparse (0–1), 1–3 free rooms per window, 70% sold.
+  function sf6Board(seed: number, staff: number, roomsN: number, perLane: [number, number]) {
+    const r = rng(seed * 2654435761 + 7)
+    const roomKeys = Array.from({ length: roomsN }, (_, i) => `bed-${String(i).padStart(2, '0')}`)
+    const wins: PWin[] = []
+    const sell = new Set<string>()
+    for (let st = 0; st < staff; st += 1) {
+      const k = `p-${String(st).padStart(3, '0')}`
+      if (r() < 0.7) sell.add(k)
+      const n = perLane[0] + Math.floor(r() * (perLane[1] - perLane[0] + 1))
+      for (let i = 0; i < n; i += 1) {
+        const start = 600 + Math.floor(r() * 31) * 15
+        if (wins.some((w) => w.laneKey === k && w.start === start)) continue
+        const own = new Set<string>()
+        const nr = Math.min(roomsN, 1 + Math.floor(r() * 3))
+        while (own.size < nr) own.add(roomKeys[Math.floor(r() * roomsN)])
+        wins.push({ laneKey: k, start, end: start + 90, rooms: [...own], sell: sell.has(k) })
+      }
+    }
+    const keys = [...new Set(wins.map((w) => w.laneKey))].sort()
+    const candidates = keys.map((k) => maskOf(k, wins.filter((w) => w.laneKey === k).sort((a, b) => a.start - b.start).map((w) => span(w.start, 90))))
+    const lanes = keys.map((k) => lane(k, [k]))
+    const idx = new Map(wins.map((w) => [heldIdOf(w.laneKey, w.start), w.rooms]))
+    const book = stubBook((start, _e, stores) => idx.get(heldIdOf(stores?.[0] ?? '', start)) ?? [])
+    return { r, wins, candidates, lanes, book, sell }
+  }
+
+  it('BAR-1 total ≥ main — sellable+reference never holds fewer than the size-only search (4 SF6 rows × 100 boards)', () => {
+    const below: string[] = []
+    let floored = 0
+    for (const [staff, roomsN] of [[30, 10], [60, 20]] as const) {
+      for (const perLane of [[1, 3], [0, 1]] as Array<[number, number]>) {
+        for (let seed = 0; seed < 100; seed += 1) {
+          const { r, wins, candidates, lanes, book, sell } = sf6Board(seed + staff * 1000 + perLane[1] * 100000, staff, roomsN, perLane)
+          if (wins.length === 0) continue
+          const sellable = (l: BoardLane) => sell.has(l.key)
+          const main = honestHeld(candidates, lanes, book, true)
+          const c = honestHeld(candidates, lanes, book, true, undefined, { sellable })
+          // a random LEGAL reference, cheaply: first-fit in the search's order (an exact feasibility check is exponential at this size)
+          const end = new Map<string, number>()
+          const pick = [...wins].sort(byOrder).filter((w) => {
+            if (r() >= 0.5) return false
+            const room = w.rooms.find((x) => (end.get(x) ?? -1) <= w.start)
+            if (room === undefined) return false
+            end.set(room, w.end)
+            return true
+          })
+          const refs = [idsOf(c), refOf(pick)]
+          for (const reference of refs) {
+            const d = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference })
+            if (d.total < main.total) below.push(`${staff}x${roomsN} ${perLane} seed ${seed}: ${d.total} < ${main.total}`)
+            if (!d.exact && d.total === main.total) floored += 1
+          }
+          if (c.total < main.total) below.push(`${staff}x${roomsN} ${perLane} seed ${seed} (sellable only): ${c.total} < ${main.total}`)
+        }
+      }
+    }
+    expect(below).toEqual([])
+    expect(floored).toBeGreaterThan(0)
+  })
+
+  it('a reference large enough to trip the budget WHILE SEEDING: exact:false, no throw, total ≥ main', () => {
+    // 180 windows on three rooms, heavily overlapping: the reference (every
+    // candidate) is illegal as a whole, so seeding re-seats and runs out of
+    // budget first.
+    const { candidates, lanes, book, wins } = sf6Board(7, 60, 3, [3, 3])
+    const reference = refOf(wins)
+    const main = honestHeld(candidates, lanes, book, true)
+    let h: HonestHeld | undefined
+    expect(() => { h = honestHeld(candidates, lanes, book, true, undefined, { reference, budget: 64 }) }).not.toThrow()
+    expect({ exact: h!.exact, atLeastMain: h!.total >= honestHeld(candidates, lanes, book, true, undefined, { budget: 64 }).total }).toEqual({ exact: false, atLeastMain: true })
+    const full = honestHeld(candidates, lanes, book, true, undefined, { reference })
+    expect({ exact: full.exact, atLeastMain: full.total >= main.total }).toEqual({ exact: false, atLeastMain: true })
   })
 })
