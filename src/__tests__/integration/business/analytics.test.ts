@@ -148,6 +148,8 @@ function pin(iso: string): () => void {
   const stub = function (this: unknown, ...args: unknown[]) {
     return args.length === 0 ? new RealDate(at) : new RealDate(...(args as [string]))
   } as unknown as DateConstructor
+  // instanceof and Date.prototype checks must keep holding under the pin.
+  Object.defineProperty(stub, 'prototype', { value: RealDate.prototype })
   stub.UTC = RealDate.UTC
   stub.parse = RealDate.parse
   stub.now = () => at.getTime()
@@ -175,6 +177,13 @@ beforeEach(() => {
   restoreFileClock = pin(FILE_CLOCK)
 })
 afterEach(() => restoreFileClock())
+
+describe('the file clock', () => {
+  it('the pinned clock is still a Date', () => {
+    expect(new Date()).toBeInstanceOf(Date)
+    expect(Date.now()).toBe(new Date(FILE_CLOCK).getTime())
+  })
+})
 
 beforeEach(() => {
   supabase.mockResolvedValue({
