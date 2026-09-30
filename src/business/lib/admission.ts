@@ -38,10 +38,12 @@ import { createClient } from '@/lib/supabase/server'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './grants'
 import { recordBusinessAdmissionFailure } from './admission-failure-record'
 
-// ⚖ 9/30 black box lane — a denial that is NOT a plain "no session" leaves ONE
-// server-side record (never user text: the answer stays the bare 404), written
-// by the one writer in ./admission-failure-record (it records a read failure,
-// never a verdict, and never throws).
+// ⚖ 9/30 black box lane — a READ FAILURE on the admission path (an auth error
+// other than a plain "no session", a failed read, a throw) leaves one server-side
+// record per failed read, through the one writer in ./admission-failure-record.
+// An admitted person whose management read failed gets one too. The answer (the
+// bare 404, or the admission another leg grants) is the caller's own; the record
+// is never user text, and the writer never throws.
 
 export interface BusinessAdmission {
   userId: string

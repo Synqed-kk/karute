@@ -5,8 +5,9 @@
 // is there. Nothing here can reach synqed-core: one client, one schema, three
 // config reads, zero writes.
 // A FAILED read (a query error, a throw) still denies, but first leaves the one
-// record via ./admission-failure-record (a read failure, never a verdict), so an outage is never a silent 404. A clean
-// denial (no row, no grant, flag false) records nothing.
+// record via ./admission-failure-record (a read failure, never a verdict), so
+// an outage is never a silent 404. A clean denial (no row, no grant, flag
+// false) records nothing.
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { recordBusinessAdmissionFailure } from './admission-failure-record'
