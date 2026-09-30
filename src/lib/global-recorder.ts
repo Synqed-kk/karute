@@ -200,6 +200,10 @@ type TakePersist = {
   /** The PR-6 notice reasons this take has filed (or queued) a fact for — at
    *  most one fact per take per reason, however often the notice flaps. */
   warned: Set<CaptureWarning>
+  /** Every byte the recorder has handed this take, live (PR-B commit 1). The
+   *  in-memory count only; what the STORE holds is `TakeMeta.bytesEmitted`,
+   *  counted inside the segment transaction (B6). */
+  bytesEmitted: number
 }
 
 /** A take's persistence state before anything has happened to it — and the
@@ -216,6 +220,7 @@ const newPersist = (): TakePersist => ({
   ends: [],
   uploadedSeq: -1,
   warned: new Set(),
+  bytesEmitted: 0,
 })
 
 class GlobalRecorder {
@@ -1171,7 +1176,10 @@ class GlobalRecorder {
     this.persist = p
 
     recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) p.chunks.push(e.data)
+      if (e.data.size > 0) {
+        p.chunks.push(e.data)
+        p.bytesEmitted += e.data.size
+      }
     }
 
     recorder.onstop = () => {

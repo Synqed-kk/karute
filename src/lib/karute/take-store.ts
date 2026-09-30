@@ -26,6 +26,7 @@
  */
 
 import { currentUserId } from '@/lib/karute/draft'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { isNativeShell } from '@/lib/platform'
 import type { RecordingTarget } from '@/lib/global-recorder'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
@@ -348,6 +349,13 @@ export type TakeMeta = {
    *  deletes, the audio stays on the device and the take stays plainly
    *  un-finalized, which is what surfaces it as 要対応 for a human. */
   tailIncomplete?: boolean
+  /** ⚖ THE BYTES THIS TAKE HAS ON DISK (PR-B commit 1, B6 / B-S66-6): the sum
+   *  of every segment blob's size, added in the SAME transaction that writes
+   *  the segment — never the recorder's live counter, so it can only say what
+   *  the store really holds. Absent = unknown (a take whose first segment
+   *  went down without it, or the `stagedPartialDoor` switch OFF): no door
+   *  may claim a short blob from an unknown count. */
+  bytesEmitted?: number
   /** ⚖ A STOP IS IN FLIGHT — OR DIED IN ONE (fix round 17). Written by the stop
    *  leg as its FIRST act, ahead of the tail flush and of anything that could
    *  release the hold; cleared in the same patch that stamps `durationMs`.
@@ -626,12 +634,22 @@ export async function appendTakeSegment(
       const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
       if (!meta || (uid && meta.ownerUid !== uid)) return false
       await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
+      // B6 / B-S66-6: the count rides this transaction. Seq 0 starts it; a
+      // later seq only extends a count that exists — never guesses one.
+      const emitted = !RECORDING_SWITCHES.stagedPartialDoor
+        ? undefined
+        : meta.bytesEmitted !== undefined
+          ? meta.bytesEmitted + blob.size
+          : seq === 0
+            ? blob.size
+            : undefined
+      const counted = emitted === undefined ? meta : { ...meta, bytesEmitted: emitted }
       await req(
         tx.objectStore(TAKES).put(
           stampDurationMs === undefined
-            ? { ...meta, updatedAt: Date.now(), lastSeq: seq }
+            ? { ...counted, updatedAt: Date.now(), lastSeq: seq }
             : {
-                ...meta,
+                ...counted,
                 updatedAt: Date.now(),
                 lastSeq: seq,
                 durationMs: stampDurationMs,
@@ -1894,6 +1912,22 @@ export async function listTakeSegmentsAfter(
  *  null when the caller isn't the owner, the take has no segments, or the
  *  read fails. */
 export async function loadTakeBlob(takeId: string): Promise<Blob | null> {
+  return (await loadTakeBlobFacts(takeId))?.blob ?? null
+}
+
+/** loadTakeBlob's blob plus what the store says about the segments it was
+ *  joined from (PR-B commit 1, for the whole-blob doors and the diag):
+ *  how many, the lowest and highest seq, and whether seq 0 — the one that
+ *  carries the container head — is among them. Same gates, same nulls. */
+export type TakeBlobFacts = {
+  blob: Blob
+  segmentCount: number
+  seqMin: number
+  seqMax: number
+  seq0Present: boolean
+}
+
+export async function loadTakeBlobFacts(takeId: string): Promise<TakeBlobFacts | null> {
   try {
     const db = await openDb()
     if (!db) return null
@@ -1904,12 +1938,18 @@ export async function loadTakeBlob(takeId: string): Promise<Blob | null> {
     if (!meta || meta.ownerUid !== uid) return null
     // ponytail: getAll + filter, same trade-off as deleteTake above.
     const segments = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
-    const parts = segments
-      .filter((s) => s.takeId === takeId)
-      .sort((a, b) => a.seq - b.seq)
-      .map((s) => s.blob)
-    if (parts.length === 0) return null
-    return new Blob(parts, meta.mimeType ? { type: meta.mimeType } : undefined)
+    const own = segments.filter((s) => s.takeId === takeId).sort((a, b) => a.seq - b.seq)
+    if (own.length === 0) return null
+    return {
+      blob: new Blob(
+        own.map((s) => s.blob),
+        meta.mimeType ? { type: meta.mimeType } : undefined,
+      ),
+      segmentCount: own.length,
+      seqMin: own[0].seq,
+      seqMax: own[own.length - 1].seq,
+      seq0Present: own[0].seq === 0,
+    }
   } catch (err) {
     console.error('[take-store] loadTakeBlob failed:', err)
     return null

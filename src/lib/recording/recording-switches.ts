@@ -70,4 +70,11 @@ export const RECORDING_SWITCHES = {
    *  mark) and byte-identical answers — pre-PR-A behaviour exactly.
    *  Server-side: a flip lands with the deploy. */
   finalizeProbe: true,
+  /** The phone's partial door (build 32, PR-B commits 1-2): the recorder
+   *  counts the bytes it put on disk per take (`TakeMeta.bytesEmitted`,
+   *  mirrored inside the segment transaction) so a whole-blob door can tell
+   *  a short blob from a whole one. Default ON. OFF = no counter is written —
+   *  pre-PR-B behaviour exactly. Client code: a flip reaches the phone with
+   *  its next bake. */
+  stagedPartialDoor: true,
 } as const

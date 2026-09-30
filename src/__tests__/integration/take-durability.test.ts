@@ -484,6 +484,7 @@ import {
   listPendingDiscardTakes,
   listTakeSegmentsAfter,
   loadTakeBlob,
+  loadTakeBlobFacts,
   markDiscardTranscriptDone,
   markSegmentError,
   markSegmentsUploaded,
@@ -516,6 +517,7 @@ import {
   type RecordingPipelinePort,
 } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { extFromMime, normalizeAudioMime } from '@/lib/recording/key-grammar'
 
 // ── The secure-at-stop doors (capture pipeline PR3) ─────────────────────────
@@ -6337,5 +6339,90 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(minted.slice(mintsAtRevive)).toEqual([2]) // seq 1 never asked for again
     expect(rowAfterLanding).toBe(1)
     expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2])
+  })
+})
+
+// ── PR-B commit 1: the recorder counts what it emits (B6 / B-S66-6) ─────────
+describe('PR-B commit 1 — the recorder counts what it emits', () => {
+  const metaBytes = (takeId: string) =>
+    (takes().get(JSON.stringify(takeId)) as { bytesEmitted?: number } | undefined)?.bytesEmitted
+  const liveBytes = () =>
+    (globalRecorder as unknown as { persist: { bytesEmitted: number } }).persist.bytesEmitted
+  const diskBytes = () =>
+    [...segments().values()].reduce((n, r) => n + (r as { blob: Blob }).blob.size, 0)
+
+  it('mirrors the bytes on disk into the take meta at every flush, equal to the segment sum', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    pushChunk('bbb')
+    expect(liveBytes()).toBe(6)
+    expect(metaBytes(takeId)).toBeUndefined() // nothing on disk yet
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(metaBytes(takeId)).toBe(6)
+    pushChunk('cc')
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(liveBytes()).toBe(8)
+    expect(metaBytes(takeId)).toBe(8)
+    expect(diskBytes()).toBe(8)
+  })
+
+  it('a refused segment write never counts: the meta holds only what the store took', async () => {
+    const takeId = 'take-refused-write'
+    await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    expect(await appendTakeSegment(takeId, 0, new Blob(['aaa']))).toBe(true)
+    expect(metaBytes(takeId)).toBe(3)
+    failNextSegmentWrites = 99 // every try of the next append is refused
+    const refused = appendTakeSegment(takeId, 1, new Blob(['bbbb']))
+    await jest.advanceTimersByTimeAsync(60_000) // past every retry's backoff
+    expect(await refused).toBe(false)
+    failNextSegmentWrites = 0
+    expect(metaBytes(takeId)).toBe(3) // the store never took it, so the meta never says so
+    expect(diskBytes()).toBe(3)
+  })
+
+  it('an unknown count stays unknown: a later seq never starts one', async () => {
+    const takeId = 'take-unknown-count'
+    await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    expect(await appendTakeSegment(takeId, 3, new Blob(['zzzz']))).toBe(true)
+    expect(metaBytes(takeId)).toBeUndefined()
+    expect(await appendTakeSegment(takeId, 0, new Blob(['ab']))).toBe(true)
+    expect(metaBytes(takeId)).toBe(2)
+  })
+
+  it('switch OFF: no count is written — the meta is pre-PR-B exactly', async () => {
+    const replaced = jest.replaceProperty(
+      RECORDING_SWITCHES as { stagedPartialDoor: boolean },
+      'stagedPartialDoor',
+      false,
+    )
+    try {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      expect(segments().size).toBe(1)
+      expect('bytesEmitted' in (takes().get(JSON.stringify(takeId)) as object)).toBe(false)
+    } finally {
+      replaced.restore()
+    }
+  })
+
+  it('loadTakeBlobFacts: the same blob as loadTakeBlob plus the seq facts', async () => {
+    const takeId = 'take-facts'
+    await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    await appendTakeSegment(takeId, 2, new Blob(['cc']))
+    await appendTakeSegment(takeId, 0, new Blob(['aa']))
+    await appendTakeSegment(takeId, 1, new Blob(['bb']))
+    const facts = await loadTakeBlobFacts(takeId)
+    expect(facts).toMatchObject({ segmentCount: 3, seqMin: 0, seqMax: 2, seq0Present: true })
+    expect(facts!.blob.size).toBe(6)
+    expect((await loadTakeBlob(takeId))!.size).toBe(6)
+    expect(facts!.blob.type).toBe('audio/webm')
+
+    const gap = 'take-facts-gap'
+    await createTake({ takeId: gap, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    await appendTakeSegment(gap, 1, new Blob(['b']))
+    await appendTakeSegment(gap, 3, new Blob(['d']))
+    expect(await loadTakeBlobFacts(gap)).toMatchObject({ segmentCount: 2, seqMin: 1, seqMax: 3, seq0Present: false })
+    expect(await loadTakeBlobFacts('no-such-take')).toBeNull()
   })
 })
