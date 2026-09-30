@@ -775,6 +775,41 @@ describe('B2 act 1c stamp time', () => {
     await settle()
     expect(stamps()).toEqual(['✓ 保存しました 03:17'])
   })
+  // S40 1b-1 N1 — the source line follows core's confirmed colour after a save, without a reload.
+  it('(i2) カードの見た目, door ON: the source line follows each confirmed save (紺 → 深緑 → 紺)', async () => {
+    await open(STORE.tokyo, 'reserve-card-look')
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/business/card-color')
+      return Promise.resolve(fakeRes(200, { ok: true, color: JSON.parse(String(init?.body)).color }))
+    }) as unknown as typeof fetch
+    const line = () => document.querySelector('.cl-state')?.textContent ?? null
+    const saveAs = async (name: string) => {
+      fireEvent.click(document.querySelector(`.cl-swatches [role="radio"][aria-label="${name}"]`) as HTMLButtonElement)
+      await act(async () => { saveBtn().click() })
+      await settle()
+    }
+    await saveAs('標準（紺）')
+    expect(line()).toBe('標準の色')
+    await saveAs('深緑')
+    expect(line()).toBe(null)
+    await saveAs('標準（紺）')
+    expect(line()).toBe('標準の色')
+    expect(global.fetch).toHaveBeenCalledTimes(3)
+  })
+  it('(i3) カードの見た目, door ON: core echoes a different colour → the source line follows the echo, not the pick', async () => {
+    await open(STORE.tokyo, 'reserve-card-look')
+    let sent: unknown = null
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/business/card-color')
+      sent = JSON.parse(String(init?.body)).color
+      return Promise.resolve(fakeRes(200, { ok: true, color: '#1C2247' }))
+    }) as unknown as typeof fetch
+    fireEvent.click(document.querySelector('.cl-swatches [role="radio"][aria-label="深緑"]') as HTMLButtonElement)
+    await act(async () => { saveBtn().click() })
+    await settle()
+    expect(sent).toBe('#1F3D33')
+    expect(document.querySelector('.cl-state')?.textContent ?? null).toBe('標準の色')
+  })
   // ⚖ R43 (Greptile P2) — 予約の色分け commits on core's yes through the same commitSection; its own PUT
   // is held open while the clock moves, so a press-time stamp on this path goes red too.
   it('(j) 予約の色分け, door ON: pressed 03:10, core says yes at 03:17 → 「✓ 保存しました 03:17」', async () => {

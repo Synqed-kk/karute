@@ -559,6 +559,8 @@ describe('the fixture data door', () => {
         // no module to the graph below the screen: everything it names
         // (`./reserved-mask`, `./capacity-ledger`, `@/business/lib/today-board`)
         // is already on this list.
+        './held-delta',
+        // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one store-level delta (pure, type-only back).
         './honest-held',
         './reserved-mask',
         './selling-engine-gate',
@@ -612,6 +614,8 @@ describe('the fixture data door', () => {
         // The book imports `allocateBed` from here as a VALUE, so this entry is
         // erased at compile time and no cycle exists at runtime either.
         './capacity-ledger',
+        // R1/R2 (DECISIONS.md today-impact-2026-09-30): TYPE-ONLY: HeldDelta / WindowRef for the day words.
+        './held-delta',
         './reserved-mask',
         '@/business/lib/canon-logic/availability',
         '@/business/lib/canon-logic/drag-rules',

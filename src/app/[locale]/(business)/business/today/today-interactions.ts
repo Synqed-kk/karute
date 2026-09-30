@@ -52,6 +52,7 @@ import type { Spring } from '@/business/lib/spring'
 // `import type` is erased before it exists.
 import type { ReservedOffer } from './capacity-ledger'
 import type { ReservedLaneMask, ReservedSpan } from './reserved-mask'
+import type { HeldDelta, WindowRef } from './held-delta'
 
 export type { DragMode, DragOrigin }
 
@@ -1229,6 +1230,14 @@ export function laneSpans(lane: BoardLane, exclude?: string | null): Array<{ sta
  *  `sellLayerFor` now reconciles the sell layer against
  *  the gap layer's finished cells (`reconcile` below), so the bed axis has one
  *  answer too — and the sentence above is finally true as written. */
+/** ONE TRUTH for 「which staff rows does the store sell online today」 — the lane
+ *  keys `sellStaffLanes` publishes, minus the locked ones. Hoisted (LEAD RULING
+ *  R2, DECISIONS.md today-impact-2026-09-30) so the online 確保 set, the drawn
+ *  rows and the day layer's per-lane `sellable` read ONE predicate. */
+export function sellableLaneKeysOf(lanes: readonly BoardLane[], locked: string[]): Set<string> {
+  return new Set(sellStaffLanes(lanes, locked).filter((l) => !l.locked).map((l) => l.key))
+}
+
 export function sellStaffLanes(lanes: readonly BoardLane[], locked: string[]): SellStaffLane[] {
   return lanes
     .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
@@ -1728,7 +1737,7 @@ export function heldDrawnFor(
   lanes: BoardLane[],
   locked: string[],
 ): readonly ReservedLaneMask[] {
-  const sellable = new Set(sellStaffLanes(lanes, locked).filter((l) => !l.locked).map((l) => l.key))
+  const sellable = sellableLaneKeysOf(lanes, locked)
   return (held ?? []).filter((m) => sellable.has(m.laneKey))
 }
 
@@ -2173,7 +2182,11 @@ export interface RailCell {
    *  in). `railCell` and `guardVerdictAt` never build one, so the rail's chips
    *  cost nothing. `laneKey` is the lane the card is landing ON, which is what
    *  lets the sentence drop the name the operator is already looking at. */
-  day?: DayLoss
+  day?: HeldDelta
+  /** The landing lane's held starts on the AFTER board — what a pocket
+   *  window-claim row may cite (R6: 「守れます」 never beside a window the board
+   *  does not hold on that lane). Rides with `day`, set by the same memo. */
+  dayHeld?: readonly number[]
 }
 
 export interface GuardRail {
@@ -6641,6 +6654,8 @@ export interface WarnCardInput {
   /** `overrideCaption`'s answer, carried in. ⚖ 50(d)'s gate is UNTOUCHED and is
    *  still the only thing that decides whether a commit may fire. */
   confirmEnabled: boolean
+  /** The store's room noun, for the 概算 row (G2). */
+  resourceNoun?: string
 }
 
 /** The commit control, which on a warn face is never the neutral この内容で確定:
@@ -6657,6 +6672,10 @@ export interface WarnCardCommit {
 
 export interface WarnCardModel {
   face: 'clean' | 'warn'
+  /** R1 — the day layer's quiet △ rows (C/C2/D/E/G2, H line 2), from `heldDelta`. */
+  dayRows: Array<{ label: string; tone: 'warn' }>
+  /** The pocket's own row after R6's by-KIND rule — what the clean face prints. */
+  guardRow: { label: string; tone: 'warn' } | null
   /** The amber impact panel, split at the money so the ¥ can carry its own
    *  emphasis (the approved page's `.yen`). `yen: null` omits the parenthetical
    *  ENTIRELY, and `head + tail` then reads as one unbroken sentence. */
@@ -6765,6 +6784,13 @@ function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
 const protectedValueOf = (starts: readonly number[], listPrice: number, protectedDur: number, frame: PriceFrame, depth: number) =>
   starts.reduce((total, s) => total + gapFillRawTotal(listPrice, s, s + protectedDur, frame, depth), 0)
 
+/** R1 — the ¥ side of `heldDelta`: each lane priced at its own rate through
+ *  canon's door, 0 where the frame or the lane prices nothing (the day arm's own
+ *  rule, now in one place). */
+export const heldPriceOf = (frame: PriceFrame | null, depth: number, protectedDur: number) =>
+  (starts: readonly number[], listPrice: number): number =>
+    frame != null && frame.hqMin > 0 && listPrice > 0 && protectedDur > 0 ? protectedValueOf(starts, listPrice, protectedDur, frame, depth) : 0
+
 /** ⚖ 92 — THE CONSEQUENCE, IN THE APPROVED SENTENCE SHAPE, FROM THE DATA.
  *
  *  ⚖ LAW BOUNDARY, spelled out because it is the one thing easy to get wrong
@@ -6803,74 +6829,21 @@ const protectedValueOf = (starts: readonly number[], listPrice: number, protecte
  *  the engine hands over the protected windows themselves, the screen hands over
  *  the levers the sell layer is built from, and the loss is the difference
  *  between what that inventory was worth before and after. */
-/** ⚖ NEW-WINDOW L-C — THE LANES, AS A PERSON WOULD READ THEM OUT. 名 is the
- *  counter for people; 件 counts bookings, and these are staff members. Past
- *  three names the list stops rather than running the card off the phone. */
-const laneListOf = (labels: string[]) =>
-  labels.length <= 3 ? labels.join('・') : `${labels.slice(0, 3).join('・')}、他${labels.length - 3}名`
-
 function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame: PriceFrame | null, depth: number): WarnCardModel['impact'] {
   const verbatim = { head: cell.sentence, yen: null, tail: '' }
-  /** ⚖ NEW-WINDOW M-1 — THE DAY LEADS, and it leads from the TOP of this function.
+  /** ⚖ NEW-WINDOW M-1 + LEAD RULING R1/R2 (today-impact-2026-09-30) — THE DAY LEADS,
+   *  from the TOP of this function, and it speaks from ONE `HeldDelta`: the
+   *  store's counted and online-sellable pairs, the ¥ each lane's windows were
+   *  worth at that lane's own rate (rounded to ¥10 once over the Σ), and every
+   *  lost window by name — the landing lane's too. `warnFaceFor` reaches here with
+   *  a day only when `dayLossOf > 0`, so this arm is always a real drop.
    *
-   *  Every gate below is keyed on `cell.impact` — this pocket's class, its
-   *  capacity pair, its money — and none of them can see a fact about ANOTHER
-   *  lane. A ✓ pocket (`impact == null`) and an unruled class (R-SALV) both
-   *  return `verbatim` down there, which is exactly how a landing that closed a
-   *  named staff member's last 新規 window stayed silent.
-   *
-   *  THE FENCE IS THE ARM'S OWN FIRST LINE. `:6500`'s `!(protectedDur > 0)` sits
-   *  BELOW this arm, and this sentence prints 「…{N}分の空き」 too, so a store that
-   *  has not set 確保する長さ would be handed 「NaN分」 with money beside it. Same
-   *  spelling — `!(x > 0)` is the one that catches NaN.
-   *
-   *  THE ¥ IS THE LOST LANE'S OWN PRICE, row by row: what the store loses on
-   *  スタッフA's window is worth スタッフA's rate. Main's own per-row rule is kept
-   *  (a lane that prices nothing contributes nothing) and the ¥10 round fires
-   *  ONCE over the Σ — rounding per row double-counts the remainder, which is the
-   *  same reason `protectedValueOf`'s own comment gives.
-   *
-   *  THE NAMES RIDE IN `head`, NOT IN THE BRACKET. `.wc-yen` is `white-space:
-   *  nowrap` (today.css :1385, 「half a price is a wrong price」), and a bracket
-   *  carrying four staff names cannot break on a 393px phone. `head` is plain
-   *  text inside a wrapping `<p>`, and both renderers of this model — the card
-   *  and settings/StorePolicySection — already paint it unchanged.
-   *
-   *  THE SAME-LANE COLLAPSE: the landing lane has no name to ADD, because the
-   *  operator is looking at it. It is still COUNTED and still PRICED; only the
-   *  name drops, which makes a same-lane loss byte-identical to today's sentence. */
-  if (cell.day != null && cell.day.lostOn.length > 0) {
+   *  THE FENCE IS THE ARM'S OWN FIRST LINE: the sentence prints 「…{N}分の空き」,
+   *  so a store with no 確保する長さ keeps the engine's verbatim, ¥-free sentence
+   *  (`!(x > 0)` is the spelling that catches NaN). */
+  if (cell.day != null) {
     if (!(protectedDur > 0)) return verbatim
-    const day = cell.day
-    const dayBefore = day.lostOn.reduce((a, r) => a + r.before.length, 0)
-    const dayAfter = day.lostOn.reduce((a, r) => a + r.after.length, 0)
-    const dayLoss = dayBefore - dayAfter
-    if (dayLoss <= 0) return verbatim
-    const dayValue = frame != null
-      ? Math.round(
-          day.lostOn.reduce(
-            (total, r) => (frame.hqMin > 0 && r.listPrice > 0
-              ? total
-                + protectedValueOf(r.before, r.listPrice, protectedDur, frame, depth)
-                - protectedValueOf(r.after, r.listPrice, protectedDur, frame, depth)
-              : total),
-            0,
-          ) / 10,
-        ) * 10
-      : 0
-    const dayYen = dayValue > 0 ? `約${money(dayValue)}` : null
-    const names = day.lostOn.filter((r) => r.laneKey !== day.laneKey).map((r) => r.label)
-    const dayHead = `ここに置くと、${names.length === 0 ? '' : `${laneListOf(names)}の`}新規のお客様の${protectedDur}分の空き`
-    const dayShrink = `が${dayBefore}枠から${dayAfter}枠に減ります`
-    // ⚖ 92 V1 is HONOURED, not amended: the money sits on the noun at a loss of
-    // one and moves to the 枠 clause past it, exactly as it does below.
-    return dayLoss === 1
-      ? { head: dayHead, yen: dayYen, tail: `${dayShrink}。` }
-      : {
-          head: dayHead,
-          yen: null,
-          tail: dayYen ? `${dayShrink}（${dayLoss}枠分・${dayYen}）。` : `${dayShrink}。`,
-        }
+    return dayImpactOf(cell.day, protectedDur)
   }
   // The two classes the approved design gave a shape to, and no others: an
   // unruled class keeps the engine's sentence exactly as it did before this fix
@@ -6950,30 +6923,204 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
 export const pocketLossOf = (c: RailCell | null): number =>
   c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)
 
-/** ⚖ NEW-WINDOW §C — WHAT THE STORE LOSES, summed over the lanes that lost.
+/** ⚖ NEW-WINDOW §C, SUPERSEDED FOR フリー BY LEAD RULING R1/R2 (DECISIONS.md,
+ *  today-impact-2026-09-30, delegated by Liam 9/30) — WHAT THE STORE LOSES.
  *
- *  Never `day.before - day.after` as store totals: one landing can open twenty
- *  windows elsewhere and close one on a named lane, and the net form calls that
- *  a gain and says nothing. The lanes that lost are the answer, and they are
- *  what the sentence names. Read BEFORE any `safe` / `impact == null`
- *  short-circuit — a landing whose own pocket is ✓ can still cost the store a
- *  window on somebody else's lane. */
+ *  The popup's numbers are the STORE's, read on the netted held set — the very
+ *  set the header chip counts — through ONE `HeldDelta`. The gate fires only on
+ *  a real drop: the counted total, or the online-sellable total (a hop onto a row
+ *  not sold online is a sellable loss). A same-count hop between staff is named
+ *  in a quiet △ row, never a caution. `exact: false` on either side never gates.
+ *  §C's per-lane semantics survive for 指名 (the R3 `channel` seam, not built).
+ *  ⚖ 9/1 zero-loss-is-quiet is carried out, not amended; ⚖ D-12
+ *  (bed-aware-sales.ts) is untouched. The old 「271 of 1,260 landings」 figure
+ *  that justified the per-lane sum was a code comment, never a test. */
 export const dayLossOf = (c: RailCell | null): number =>
-  c?.day == null ? 0 : c.day.lostOn.reduce((a, r) => a + (r.before.length - r.after.length), 0)
+  c?.day == null
+    ? 0
+    : !c.day.exact
+      ? 0
+      : Math.max(c.day.countedBefore - c.day.countedAfter, c.day.sellableBefore - c.day.sellableAfter, 0)
 
-export const lossOf = (c: RailCell | null): number => Math.max(pocketLossOf(c), dayLossOf(c))
+/** R2 / STRESS B1 — where a day delta exists it is the WHOLE trigger; the pocket
+ *  stays a row. A pocket-only cell (every caller but the warn card) is unchanged. */
+export const lossOf = (c: RailCell | null): number => (c?.day != null ? dayLossOf(c) : pocketLossOf(c))
 
-/** ⚖ ROUND BUILD-1 (2) — IS THE DAY HEADLINE ABOUT THE LANE THE CARD IS LANDING ON?
- *
- *  ⚖ 73-74 forbids dropping a verdict the panel is not already saying. When the
- *  day headline names ANOTHER lane's window, the pocket's own row — 「割引でしか
- *  売れない空きが95分残ります」 — is a DIFFERENT fact and must survive. But when the
- *  lane that lost IS the landing lane, the headline's own sentence (with the name
- *  collapsed out, because the operator is looking at it) and the pocket's △ row are
- *  the SAME window loss said twice, the second time under the engine's mislabelled
- *  menu name. Same fact, one voice. */
-export const dayOnLandingLane = (c: RailCell | null): boolean =>
-  c?.day != null && c.day.lostOn.some((r) => r.laneKey === c.day!.laneKey)
+/** ⚖ LEAD RULING R1/R2 (DECISIONS.md today-impact-2026-09-30) — THE DAY'S WORDS,
+ *  all out of ONE `HeldDelta` (R8l). Store numbers only; every lost window named,
+ *  the landing lane too (R8q); the ¥ rounded to ¥10 once over the Σ as before. */
+const windowItem = (w: { label: string }, start: number) => `${w.label}の${clockOf(start)}`
+const windowList = (items: string[]) =>
+  items.length <= 3 ? items.join('・') : `${items.slice(0, 3).join('・')}、ほか${items.length - 3}枠`
+const refItems = (ws: readonly WindowRef[]) => ws.map((w) => windowItem(w, w.windowStart))
+const yenDropOf = (d: HeldDelta) => {
+  const drop = Math.round((d.valueBefore - d.valueAfter) / 10) * 10
+  return drop > 0 ? `約${money(drop)}` : null
+}
+
+/** FIX ROUND 2 (Greptile G1; N2/N3) — THE ONE PAIRING every movement row reads.
+ *  Shifts first, in `d.shifted` order, each its own pair (label once, as the
+ *  1-shift row always printed it). Then each gained window, in `d.gained` order,
+ *  takes the not-yet-paired lost window whose start is nearest (ties → the
+ *  earlier start). A lost/gained pair is always cross-lane: `heldDelta` already
+ *  folds every same-lane lost+gained into `shifted` (identity laneKey|windowStart,
+ *  min(gone, came) per lane), so a lost and a gained never share a lane.
+ *  Leftovers are returned, never dropped. */
+export type MovePair = { from: string; to: string; sameLane: boolean }
+export function pairsOf(d: HeldDelta): { pairs: MovePair[]; unpairedLost: WindowRef[]; unpairedGained: WindowRef[] } {
+  const pairs: MovePair[] = d.shifted.map((x) => ({ from: windowItem(x, x.from), to: clockOf(x.to), sameLane: true }))
+  const free = [...d.lost]
+  const unpairedGained: WindowRef[] = []
+  for (const g of d.gained) {
+    if (free.length === 0) {
+      unpairedGained.push(g)
+      continue
+    }
+    let k = 0
+    for (let i = 1; i < free.length; i++) {
+      const di = Math.abs(free[i].windowStart - g.windowStart)
+      const dk = Math.abs(free[k].windowStart - g.windowStart)
+      if (di < dk || (di === dk && free[i].windowStart < free[k].windowStart)) k = i
+    }
+    pairs.push({ from: windowItem(free[k], free[k].windowStart), to: windowItem(g, g.windowStart), sameLane: false })
+    free.splice(k, 1)
+  }
+  return { pairs, unpairedLost: free, unpairedGained }
+}
+/** THE ONE PRINTER: each pair its own arrow, joined with 「、」; past three, one
+ *  ほかN枠 per pair (a pair is one window that moved — `windowList`'s fold word). */
+const pairsText = (pairs: readonly MovePair[]) => {
+  const items = pairs.map((p) => `${p.from} → ${p.to}`)
+  return items.length <= 3 ? items.join('、') : `${items.slice(0, 3).join('、')}、ほか${items.length - 3}枠`
+}
+
+/** FIX ROUND 2b (lead ruling on flag 1) — THE ONE MOVEMENT DECISION, without its
+ *  store bracket (C / C2 / D / E shapes): row 1 (`move`) and whether a pairs row
+ *  rides beside it (`shifts`). Every arm is a shape that already exists; the
+ *  list → list shape is only the guarded fallback (`arm: 'fallback'`), which the
+ *  whole-fixture sweep (invariant vii, today-held-delta.test.ts) proves is never
+ *  taken — after `pairsOf`, unpaired lost and unpaired gained are never both
+ *  non-empty, so the four arms above it cover every delta. */
+export type DayMovement = {
+  move: string | null
+  shifts: string | null
+  arm: 'none' | 'lost-up' | 'gain' | 'paired' | 'loss' | 'fallback'
+}
+export function dayMovementOf(d: HeldDelta): DayMovement {
+  if (d.lost.length === 0 && d.gained.length === 0 && d.shifted.length === 0) return { move: null, shifts: null, arm: 'none' }
+  const { pairs, unpairedLost, unpairedGained } = pairsOf(d)
+  const same = pairs.filter((p) => p.sameLane)
+  // (2) count-up with a lost window: the loss alone in row 1, the same-lane shifts in row 2 (X-C).
+  if (d.countedAfter > d.countedBefore && d.lost.length > 0) {
+    return { move: `確保枠 ${windowList(refItems(d.lost))}がなくなります`, shifts: same.length > 0 ? `確保枠 ${pairsText(same)}` : null, arm: 'lost-up' }
+  }
+  // (3) unpaired gained, nothing unpaired lost: the pure-gain row, the pairs (here: shifts) in row 2.
+  if (unpairedGained.length > 0 && unpairedLost.length === 0) {
+    return { move: `確保枠 ${windowList(refItems(unpairedGained))}が加わります`, shifts: pairs.length > 0 ? `確保枠 ${pairsText(pairs)}` : null, arm: 'gain' }
+  }
+  // (4) everything paired: the pairs already carry the shifts — never printed twice.
+  if (unpairedGained.length === 0 && unpairedLost.length === 0) return { move: `確保枠 ${pairsText(pairs)}`, shifts: null, arm: 'paired' }
+  // (4b) unpaired lost, nothing unpaired gained (reached by the G2 approximate row,
+  // e.g. T9): the pure-loss row, the pairs in row 2 — the mirror of (3).
+  if (unpairedGained.length === 0) {
+    return { move: `確保枠 ${windowList(refItems(unpairedLost))}がなくなります`, shifts: pairs.length > 0 ? `確保枠 ${pairsText(pairs)}` : null, arm: 'loss' }
+  }
+  // (5) guarded fallback — unreachable (see above; the sweep counts `arm`).
+  const from = [...refItems(d.lost), ...d.shifted.map((x) => windowItem(x, x.from))]
+  const to = [...refItems(d.gained), ...d.shifted.map((x) => windowItem(x, x.to))]
+  return { move: `確保枠 ${windowList(from)} → ${windowList(to)}`, shifts: null, arm: 'fallback' }
+}
+
+/** H line 2 (lead ruling 9/30 on the c2a decisions): PAIRS only, never 「X・Y → Z」,
+ *  through the one pairing and the one printer. Unpaired lost windows are named
+ *  in line 1 (A) and nowhere else. */
+function movedPairsOf(d: HeldDelta): string | null {
+  const { pairs } = pairsOf(d)
+  return pairs.length === 0 ? null : `確保枠 ${pairsText(pairs)}`
+}
+
+/** The AMBER sentence (A / B / H line 1). Only reached when `dayLossOf > 0`. */
+function dayImpactOf(d: HeldDelta, dur: number): WarnCardModel['impact'] {
+  const yen = yenDropOf(d)
+  const counted = d.countedBefore > d.countedAfter
+  const before = counted ? d.countedBefore : d.sellableBefore
+  const after = counted ? d.countedAfter : d.sellableAfter
+  const loss = before - after
+  const head = `ここに置くと、店全体で${counted ? '' : 'オンライン販売中の'}新規のお客様の${dur}分の空き`
+  const lost = refItems(d.lost)
+  const names = !counted || lost.length === 0
+    ? ''
+    : lost.length <= 3
+      ? `なくなるのは${lost.join('・')}の枠です。`
+      : `なくなるのは${lost.slice(0, 3).join('・')}の枠、ほか${lost.length - 3}枠です。`
+  // FIX ROUND 1 X-D — B's hop names only windows that landed on rows NOT sold
+  // online, from windows that left rows that are; with none, the online pair alone.
+  const offline = refItems(d.gained.filter((w) => !w.sellable))
+  const online = refItems(d.lost.filter((w) => w.sellable))
+  const hop = counted || offline.length === 0 || online.length === 0
+    ? ''
+    : `${windowList(online)}の枠が、オンライン販売をしていない${windowList(offline)}に移ります${
+      d.countedBefore === d.countedAfter ? `（確保している枠は${d.countedAfter}枠のまま）` : ''}。`
+  // …and when both pairs dropped and the online one dropped more, A says it too, in B's own words.
+  const onlineToo = counted && d.sellableBefore - d.sellableAfter > loss
+    ? `オンライン販売中の新規のお客様の${dur}分の空きは${d.sellableBefore}枠から${d.sellableAfter}枠に減ります。`
+    : ''
+  const shrink = `が${before}枠から${after}枠に減ります`
+  return loss === 1
+    ? { head, yen, tail: `${shrink}。${names}${onlineToo}${hop}` }
+    : { head, yen: null, tail: `${shrink}${yen ? `（${loss}枠分・${yen}）` : ''}。${names}${onlineToo}${hop}` }
+}
+
+/** The quiet △ rows. Tone `warn` is the △ glyph only: these rows are composed
+ *  AFTER the face is decided and never re-enter `rows`, so they cannot light it. */
+function dayRowsOf(d: HeldDelta | undefined, resourceNoun: string | undefined): Array<{ label: string; tone: 'warn' }> {
+  if (d == null) return []
+  const { move, shifts } = dayMovementOf(d)
+  const dropped = d.countedBefore > d.countedAfter
+  if (move == null && d.countedBefore === d.countedAfter) return []
+  const row = (label: string) => ({ label, tone: 'warn' as const })
+  if (d.exact && (dropped || d.sellableBefore > d.sellableAfter)) {
+    // AMBER: the sentence names the losses; H's second line carries PAIRS only.
+    const pairs = dropped ? movedPairsOf(d) : null
+    return pairs == null ? [] : [row(pairs)]
+  }
+  if (!d.exact && d.countedBefore !== d.countedAfter && resourceNoun != null) {
+    const g2 = `店全体の確保枠は概算で${d.countedBefore}枠→${d.countedAfter}枠（${resourceNoun}の組み合わせをすべては調べきれませんでした。実際はもっと多いこともあります）`
+    return move == null ? [row(g2)] : shifts == null ? [row(g2), row(move)] : [row(g2), row(move), row(shifts)]
+  }
+  const yen = yenDropOf(d)
+  const store = d.countedBefore === d.countedAfter ? `店全体は${d.countedAfter}枠のまま` : `店全体は${d.countedBefore}枠→${d.countedAfter}枠`
+  const bracket = `（${store}${yen ? `・空きの金額は${yen}減` : ''}${d.exact ? '' : '・概算'}）`
+  if (move == null) return []
+  // FIX ROUND 1 X-C / 2b — a same-lane shift beside a loss or a gain is never silent:
+  // its own pairs row, without the store bracket (as H's line 2).
+  return shifts == null ? [row(`${move}${bracket}`)] : [row(`${move}${bracket}`), row(shifts)]
+}
+
+/** FIX ROUND 1 X-A — A LANDING THE RAIL CANNOT JUDGE STILL HAS A DAY. `guardVerdictAt`
+ *  answers null for a lane with no window or a locked lane, and the store's delta
+ *  must still speak there: a day-only cell carries no pocket verdict (`safe`, no
+ *  impact, no alternatives), so `lossOf` is `dayLossOf` and `pocketRowOf` adds
+ *  nothing. `start` is not read by the warn card. */
+export const dayOnlyCell = (day: HeldDelta | null, dayHeld: readonly number[]): RailCell | null =>
+  day == null
+    ? null
+    : { start: 0, state: 'safe', label: '', sentence: '', reason: null, alternatives: [], alternativeKind: null, ackAllowed: true, day, dayHeld }
+
+/** R6 — the pocket's row, by KIND. A pocket fact (R-SALV / R-DEAD / a room or
+ *  fit refusal) always survives (R8j). A window CLAIM (DEGRADED / R-REP, the
+ *  「…を守れます」 family) prints only while the day layer is silent and every
+ *  window it cites is held on this lane on the after board. */
+function pocketRowOf(cell: RailCell | null, guardWarn: boolean): { label: string; tone: 'warn' } | null {
+  if (cell == null) return null
+  const row = guardCheckRow(cell)
+  if (cell.day == null) return guardWarn && pocketLossOf(cell) > 0 ? null : row
+  if (!(cell.impact?.code === 'DEGRADED' || cell.impact?.code === 'R-REP')) return row
+  const d = cell.day
+  const silent = d.countedBefore === d.countedAfter && d.lost.length + d.gained.length + d.shifted.length === 0
+  const held = new Set(cell.dayHeld ?? [])
+  return silent && !guardWarn && cell.impact.windowsAfter.every((s) => held.has(s)) ? row : null
+}
 
 /** ⚖ NEW-WINDOW — THE ONE HOME for 「how many 新規 windows does this board hold,
  *  and whose」. `byLane` carries each lane's own published starts and its own
@@ -6984,13 +7131,15 @@ export const dayOnLandingLane = (c: RailCell | null): boolean =>
  *  it is asked of, so a landing's cost is a subtraction of two totals the same
  *  function produced on two real boards, and nothing has to lift a card out of a
  *  world by argument. */
-export type DayWindows = { total: number; byLane: Array<{ laneKey: string; label: string; starts: number[]; listPrice: number }> }
-/** One lane that lost published 新規 windows between two settled boards. */
-export type DayRow = { laneKey: string; label: string; before: number[]; after: number[]; listPrice: number }
-/** `RailCell.day`'s shape. `before`/`after` are Σ over `lostOn` (§C), never store totals. */
-export type DayLoss = { laneKey: string; before: number; after: number; lostOn: DayRow[] }
-export const EMPTY_WINDOWS: DayWindows = { total: 0, byLane: [] }
-export const EMPTY_DAY: DayLoss = { laneKey: '', before: 0, after: 0, lostOn: [] }
+export type DayWindows = {
+  total: number
+  /** False when the netting that produced this set ran past its node budget
+   *  (honest-held.ts `exact`) — a best-effort set, never a gate (R2 / SF3). */
+  readonly exact: boolean
+  /** `sellable`: the lane is on the ONLINE set (`sellableLaneKeysOf`). */
+  byLane: Array<{ laneKey: string; label: string; starts: number[]; listPrice: number; readonly sellable: boolean }>
+}
+export const EMPTY_WINDOWS: DayWindows = { total: 0, exact: true, byLane: [] }
 
 /** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
  *
@@ -7006,6 +7155,7 @@ export const EMPTY_DAY: DayLoss = { laneKey: '', before: 0, after: 0, lostOn: []
  *  here, the question is what the day can still hold. */
 export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
   const engine = createGapGuard(input.guard)
+  const sellable = sellableLaneKeysOf(lanes, input.locked)
   const byLane: DayWindows['byLane'] = []
   let total = 0
   for (const lane of lanes) {
@@ -7028,9 +7178,9 @@ export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
     // total by one: `protectedCapacityOf` below is this function's `.total`.
     for (const pocket of pockets) starts.push(...engine.protectedCapacity(pocket, null, ctx).beforeStarts)
     total += starts.length
-    byLane.push({ laneKey: lane.key, label: lane.label, starts, listPrice: lane.listPrice })
+    byLane.push({ laneKey: lane.key, label: lane.label, starts, listPrice: lane.listPrice, sellable: sellable.has(lane.key) })
   }
-  return { total, byLane }
+  return { total, exact: true, byLane }
 }
 
 /** ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — THE SAME DAY ANSWER, OUT OF THE
@@ -7039,8 +7189,8 @@ export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
  *  `windowsOn` above walks the guard lane by lane and never asks whether the
  *  ROOMS can honour all of its answers at once. `honest-held.ts` asks exactly
  *  that, once per settled board, and this is the adapter that hands its answer
- *  back in the shape the day layer already speaks — so `lostOn` below is
- *  unchanged and the before/after of a landing are two readings of ONE
+ *  back in the shape the day layer already speaks — so `heldDelta` reads
+ *  both sides alike and the before/after of a landing are two readings of ONE
  *  producer rather than two producers that happen to agree at rest.
  *
  *  `windowsOn` KEEPS ITS NAME AND ITS BODY: 設定's guardrail line is a server
@@ -7052,42 +7202,27 @@ export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
  *  keeps its 「type-only, no cycle」 relationship with the netting exactly as it
  *  has one with `reserved-mask`. */
 export function windowsOf(
-  honest: { readonly byLane: readonly { readonly laneKey: string; readonly held: readonly ReservedSpan[] }[] },
+  honest: { readonly byLane: readonly { readonly laneKey: string; readonly held: readonly ReservedSpan[] }[]; readonly exact: boolean },
   lanes: readonly BoardLane[],
+  locked: string[],
 ): DayWindows {
   const laneOf = new Map(lanes.map((l) => [l.key, l]))
+  const sellable = sellableLaneKeysOf(lanes, locked)
   const byLane: DayWindows['byLane'] = []
   let total = 0
   for (const row of honest.byLane) {
     const lane = laneOf.get(row.laneKey)
     if (lane == null) continue
     total += row.held.length
-    byLane.push({ laneKey: row.laneKey, label: lane.label, starts: row.held.map((s) => s.windowStart), listPrice: lane.listPrice })
+    byLane.push({
+      laneKey: row.laneKey,
+      label: lane.label,
+      starts: row.held.map((s) => s.windowStart),
+      listPrice: lane.listPrice,
+      sellable: sellable.has(row.laneKey),
+    })
   }
-  return { total, byLane }
-}
-
-/** ⚖ NEW-WINDOW — WHICH LANES LOST A WINDOW BETWEEN TWO SETTLED BOARDS, and which.
- *
- *  A row per lane whose published list got SHORTER; a lane that vanished from the
- *  after board is a row with `after: []`. The rows carry the lost lane's OWN
- *  `listPrice`, because what the store loses on スタッフA's window is priced at
- *  スタッフA's rate and not at the rate of the lane the card happens to land on.
- *
- *  ⚖ §C — the pair the sentence prints is Σ over THESE ROWS, never the two store
- *  totals: on 271 of 1,260 measured landings the store's net moved UP while a
- *  named lane really lost a window, and a net form goes silent on every one of
- *  them. */
-export function lostOn(before: DayWindows, after: DayWindows): DayRow[] {
-  const now = new Map(after.byLane.map((l) => [l.laneKey, l.starts]))
-  const rows: DayRow[] = []
-  for (const lane of before.byLane) {
-    const still = now.get(lane.laneKey) ?? []
-    if (still.length < lane.starts.length) {
-      rows.push({ laneKey: lane.laneKey, label: lane.label, before: lane.starts, after: still, listPrice: lane.listPrice })
-    }
-  }
-  return rows
+  return { total, exact: honest.exact, byLane }
 }
 
 /** 設定's own number, unmoved: one walk, two readers, no second spelling (⚖ 54). */
@@ -7106,6 +7241,11 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  row — which is exactly where those facts lived before flag 92, and where
    *  `pendingGuardRow.row` still renders them.
    *
+   *  LEAD RULING R1/R2 (today-impact-2026-09-30) reads this at STORE level: a
+   *  landing is zero-loss when the store's counted and online-sellable totals
+   *  both hold, however its windows moved between staff — those moves are the
+   *  quiet △ day row, never this face.
+   *
    *  ⚖ NEW-WINDOW M2 — AND THE `state !== 'safe'` CLAUSE MOVES INSIDE `pocketLossOf`,
    *  where it is true of the POCKET path only. A landing the lane itself calls ✓
    *  can still take the last room across another staff member's 新規 window, and
@@ -7119,7 +7259,10 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   const warn = guardWarn || rows.some((r) => r.tone === 'warn')
   const oks = rows.filter((r) => r.tone === '')
   if (!warn) {
-    return { face: 'clean', impact: { head: '', yen: null, tail: '' }, provenance: null, lock: null, safePrimary: null, commit: null, rows, greensLine: null }
+    return {
+      face: 'clean', impact: { head: '', yen: null, tail: '' }, provenance: null, lock: null, safePrimary: null, commit: null, rows, greensLine: null,
+      dayRows: dayRowsOf(cell?.day, input.resourceNoun), guardRow: pocketRowOf(cell, false),
+    }
   }
 
   // ⚖ 92, THE STRONGEST FACT LEADS. The guard's verdict is the store's own law
@@ -7156,18 +7299,17 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  its own law is the whole of the condition and there is no second spelling of
    *  「is there a verdict to show?」 here.
    *
-   *  ⚖ NEW-WINDOW D-1 + ⚖ ROUND BUILD-1 (2) — 「already the same verdict」 IS ABOUT
-   *  THE LANE, not about which computation lit the face. The row drops when the
-   *  panel above is already saying THIS lane's window loss — from the pocket, or
-   *  from a day headline that names the landing lane (`dayOnLandingLane`, where
-   *  the △ twin is the same loss worn under the engine's mislabelled menu name).
-   *  When the day names ANOTHER lane, the pocket's own verdict — 「割引でしか売れない
-   *  空きが95分残ります」 — is a DIFFERENT fact and ⚖ 73-74 forbids dropping it. */
-  const guardRow = guardWarn && (pocketLossOf(cell) > 0 || dayOnLandingLane(cell)) ? null : guardCheckRow(cell)
+   *  LEAD RULING R6 (today-impact-2026-09-30) — ROWS ARE REPLACED BY KIND, never by
+   *  lane (`pocketRowOf`): a pocket FACT (R-SALV / R-DEAD / a refusal) always
+   *  survives, and a window CLAIM (DEGRADED / R-REP) prints only while the day is
+   *  silent and every window it cites is held on this lane after the landing. */
+  const guardRow = pocketRowOf(cell, guardWarn)
+  const dayRows = dayRowsOf(cell?.day, input.resourceNoun)
   const kept = [
     ...rows.filter(
       (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
     ),
+    ...dayRows,
     ...(guardRow ? [guardRow] : []),
   ]
 
@@ -7326,7 +7468,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
     return {
       face: 'warn', impact, provenance: null, lock: null, safePrimary,
       commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },
-      rows: kept, greensLine: greensLineOf(oks),
+      rows: kept, greensLine: greensLineOf(oks), dayRows, guardRow,
     }
   }
   /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE LOCK FACE IS DELETED, AND THE
@@ -7408,7 +7550,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
     level === 'refuse'
       ? (input.targetLaneMine ? 'あなたの名前で記録されます' : recordedBare)
       : (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + `。${recordedBare}`
-  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
+  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks), dayRows, guardRow }
 }
 
 /** ⚖ 92 — THE LONG PRESS, AS ARITHMETIC. Ported from the approved page's own

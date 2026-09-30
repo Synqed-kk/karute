@@ -504,6 +504,8 @@ const block = (
 const BUSINESS_SCOPE = '事業全体'
 const STORE_SCOPE = 'この店舗'
 const SELF_SCOPE = '自分だけ'
+/** カードの見た目's chip (mock :764) — the card is one per business, so every store shares it. */
+const CARD_SCOPE = '全店共通'
 
 // ── the sections ────────────────────────────────────────────────────────────
 
@@ -1935,13 +1937,13 @@ function reserveCardLook(base: SectionBase, ctx: Ctx): SettingsSection {
     ...base,
     kicker: 'Reserve設定',
     title: 'カードの見た目',
-    lead: 'お客様がReserveのホームで見る、お店のカードの色をここで選びます。色は事業全体でひとつで、店舗ごとには分かれていません。',
-    guide: 'お客様がReserveのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
+    lead: '「カードの見た目」の設定は、すべての店舗に共通で適用されます。',
+    guide: 'お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
     cardLook: {
       businessName: ctx.businessName,
       storeLine: ctx.cardStore?.name ?? '',
       ...(ctx.cardAddress ? { address: ctx.cardAddress } : {}),
-      scopeLabel: BUSINESS_SCOPE,
+      scopeLabel: CARD_SCOPE,
       value: ctx.cardColor,
       palette: PALETTE,
     },
