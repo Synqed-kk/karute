@@ -172,7 +172,7 @@ describe('カードの見た目 phone frame + honest slot', () => {
     }
     expect(Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTop')).toEqual(before)
   })
-  it('the STRIP is observed: its narrowing refits the FRAME by --cl-scale = fitScale ALONE and writes NO layout value (no height, no --cl-h, no class: a height the script wrote fed the side column\'s scrollbar, S46), ≥ 393 returns to 1:1, unmount disconnects', () => {
+  it('the STRIP is observed: its narrowing refits the FRAME by --cl-scale = fitScale ALONE and writes NO layout value (no height, no --cl-h, no class, no inline style on ANY other element: a height the script wrote fed the side column\'s scrollbar, S46), ≥ 393 returns to 1:1, unmount disconnects', () => {
     const was = (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver
     SpyRO.all = []
     ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = SpyRO
@@ -186,9 +186,13 @@ describe('カードの見た目 phone frame + honest slot', () => {
       // every inline property the script left on the strip, and its class list: paint only, or nothing
       const written = () => [Array.from({ length: strip.style.length }, (_, i) => strip.style.item(i)), strip.style.getPropertyValue('--cl-scale'), strip.className]
       expect(fitScale(336)).toBeCloseTo(336 / 393, 6)
+      // every OTHER element's style attribute in the document: a fit must leave all of them exactly as they were
+      const others = () => Array.from(document.querySelectorAll('*')).filter((e) => e !== strip).map((e) => e.getAttribute('style'))
       for (const [w, scale] of [[336, fitScale(336)], [393, 1], [289, fitScale(289)], [440, 1]] as const) {
+        const before = others()
         stripW = w
         resize(strip)
+        expect(others()).toEqual(before)
         expect(written()).toEqual(scale < 1 ? [['--cl-scale'], String(scale), 'cl-strip'] : [[], '', 'cl-strip'])
         expect([strip.style.height, strip.style.getPropertyValue('--cl-h')]).toEqual(['', ''])
       }

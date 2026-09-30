@@ -3669,6 +3669,21 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // …and it is never a scroller (a bar in it would narrow it), at any width: clip, in every rule that names it
     expect(valuesOn(strip, /^overflow(-[xy])?$/)).toEqual(['clip'])
   })
+  it('S46 — the card-look side column holds the 393 phone AND the widest scrollbar the app draws, so the fit\'s width never depends on the bar (every rule scanned)', () => {
+    const panel = /\.st-panel:has\(\.cl-phone\)$/
+    expect(valuesOn(panel, /^--st-side-w$/)).toEqual(['calc(393px + var(--cl-bar-reserve))'])
+    const reserve = valuesOn(panel, /^--cl-bar-reserve$/)
+    expect(reserve).toHaveLength(1)
+    // the widest bar globals.css draws in Chromium/WebKit (every ::-webkit-scrollbar width)…
+    const GLOBALS = read('src/app/globals.css')
+    const webkit = [...GLOBALS.matchAll(/::-webkit-scrollbar\s*\{([^}]*)\}/g)].flatMap((m) => [...m[1].matchAll(/(?:^|;|\s)width:\s*(\d+(?:\.\d+)?)px/g)].map((w) => Number(w[1])))
+    expect(webkit.length).toBeGreaterThan(0)
+    // …and Firefox, which ignores those and draws its OS default (17px on Windows) where no scrollbar-width is set
+    expect(GLOBALS).not.toMatch(/(^|[\s;{])scrollbar-width:\s*(thin|auto)/)
+    expect(Number(reserve[0].replace(/px$/, ''))).toBeGreaterThanOrEqual(Math.max(17, ...webkit))
+    // the phone's own column stays 393: the reserve is spare room to its right, never a wider phone
+    expect(valuesOn(/\.cl-preview$/, /^max-width$/)).toEqual(['393px'])
+  })
   it('1b-2 — the ring never takes a click and the phone never draws a scrollbar (every rule scanned)', () => {
     const ring = /\.cl-frame(?![\w-]).*::after$/
     // the z-1 ring over the app: pointer-events none in every rule that names it (else it eats clicks + wheel)
@@ -3729,11 +3744,9 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     expect(three).toMatch(/\.st-save-card \{[^}]*white-space: normal/)
 
     // ⚠ NO HORIZONTAL AXIS ANYWHERE except the ② strip's own jump run, which is
-    // a one-line chip scroller and says so by removing the vertical one — and
-    // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip, a scroll container in
-    // bytes that never scrolls: a 393px phone in a 393px strip, there for the
-    // card's own paint layer. ⚖ S46: it is `overflow: clip` at every width now
-    // (never a scroller, never a bar), so it owns no axis and leaves this list.
+    // a one-line chip scroller and says so by removing the vertical one.
+    // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip is `overflow: clip` at every
+    // width (⚖ S46: never a scroller, never a bar), so it owns no axis.
     const xOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-x:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
     expect(xOwners).toEqual(['.biz .pg-settings .st-jump-list'])
     expect(CSS_CODE).toMatch(/\.st-jump-list \{[^}]*overflow-x: auto; overflow-y: hidden/)
