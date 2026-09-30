@@ -5,7 +5,7 @@
 // writer (A2, Liam 9/24) — a write-only handle with `upsert` and nothing else.
 
 import { newSynqedClient } from '@/lib/synqed/client'
-import { practiceTenant } from './switch'
+import { doorFor, practiceTenant } from './switch'
 
 export class PracticeTenantMismatch extends Error {
   readonly businessId: string
@@ -22,7 +22,7 @@ export type CoreReads = ReturnType<typeof readsOf>
 export function clientFor(admitted: { businessId: string }): CoreReads {
   const tenant = practiceTenant()
   if (tenant === null) throw new Error('practice door called with the switch unset')
-  if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
+  if (!doorFor(admitted.businessId)) throw new PracticeTenantMismatch(admitted.businessId) // R50 — the ONE tenant match
   return readsOf(newSynqedClient(tenant))
 }
 
@@ -32,7 +32,7 @@ export function clientFor(admitted: { businessId: string }): CoreReads {
 export function orgSettingsWriterFor(admitted: { businessId: string }): { orgSettings: Pick<CoreClient['orgSettings'], 'upsert'> } {
   const tenant = practiceTenant()
   if (tenant === null) throw new Error('practice door called with the switch unset')
-  if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
+  if (!doorFor(admitted.businessId)) throw new PracticeTenantMismatch(admitted.businessId) // R50 — the ONE tenant match
   const client = newSynqedClient(tenant)
   return { orgSettings: { upsert: client.orgSettings.upsert.bind(client.orgSettings) } }
 }
@@ -77,7 +77,7 @@ export function readsOf(client: CoreClient) {
 export function storeDaysWriterFor(admitted: { businessId: string }): { storePolicies: Pick<CoreClient['storePolicies'], 'set' | 'addClosedDay' | 'removeClosedDay'> } {
   const tenant = practiceTenant()
   if (tenant === null) throw new Error('practice door called with the switch unset')
-  if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
+  if (!doorFor(admitted.businessId)) throw new PracticeTenantMismatch(admitted.businessId) // R50 — the ONE tenant match
   const { storePolicies } = newSynqedClient(tenant)
   return {
     storePolicies: {
@@ -97,7 +97,7 @@ export function storeDaysWriterFor(admitted: { businessId: string }): { storePol
 export function auditWriterFor(admitted: { businessId: string }): { audit: Pick<CoreClient['audit'], 'log'> } {
   const tenant = practiceTenant()
   if (tenant === null) throw new Error('practice door called with the switch unset')
-  if (admitted.businessId !== tenant) throw new PracticeTenantMismatch(admitted.businessId)
+  if (!doorFor(admitted.businessId)) throw new PracticeTenantMismatch(admitted.businessId) // R50 — the ONE tenant match
   // ⚖ PKT-S30 F6 — the SAME nested shape as storeDaysWriterFor (`{ storePolicies: … }`), so the
   // call site reads `.audit.log(` and CP3 (check-business-data-access.mjs) ties it back to the
   // SDK's `audit.log` write: allowlist row in src/lib/audit-policy.ts, writers row in

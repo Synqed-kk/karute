@@ -11,13 +11,14 @@ jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 jest.mock('@/business/lib/practice-door/core-reach', () => {
   const actual = jest.requireActual('@/business/lib/practice-door/core-reach')
-  const { practiceTenant } = jest.requireActual('@/business/lib/practice-door/switch')
+  const { doorFor, practiceTenant } = jest.requireActual('@/business/lib/practice-door/switch')
   return {
     ...actual,
     clientFor: (admitted: { businessId: string }) => {
+      mockBuilt.n += 1 // R50 P1/P2 — how many times a core client was asked for
       const tenant = practiceTenant()
       if (tenant === null) throw new Error('practice door called with the switch unset')
-      if (admitted.businessId !== tenant) throw new actual.PracticeTenantMismatch(admitted.businessId)
+      if (!doorFor(admitted.businessId)) throw new actual.PracticeTenantMismatch(admitted.businessId) // R50 F2 — the real guard's one match
       return mockCore.reads
     },
   }
@@ -34,14 +35,14 @@ import { join } from 'node:path'
 import * as data from '@/business/lib/data'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import { PracticeTenantMismatch } from '@/business/lib/practice-door/core-reach'
 import { PracticeLensRefused, pageAll, practiceActor } from '@/business/lib/practice-door/actor'
+import { doorFor } from '@/business/lib/practice-door/switch'
 import {
   attachSample, historyOperatorName, PLANE_LABEL, PLANE_MAP_SAYS_LIVE, PLANE_ROW, planesOf, PRACTICE_PLANES, rekeyKeys, rekeyRows, sampleFor,
   sampleKeys, samplePart, sampleRows, sampleSelfId, sampleWhole, SINGLETONS_BY_FIXTURE_STORE, STORE_PLANE_OVERRIDES, storeSample,
 } from '@/business/lib/practice-door/sample-facade'
 import { liveIdOf, samplePolicyFor, STORE_SAMPLE_POLICY } from '@/business/lib/practice-door/registry'
-import { customers, operator, staff as fxStaff, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
+import { customers, operator, staff as fxStaff, stores as fxStores, STORE_A, STORE_B, STORE_C } from '@/business/lib/fixtures'
 import {
   absence as fxAbsence, closedWeekday, decisions as fxDecisions, defaultKindOf, operatingHours, opsConfig, register, sellSlots as fxSlots, shifts as fxShifts,
   staffListPrice as fxListPrice, staffQualifications,
@@ -66,6 +67,7 @@ import {
 
 // Hoisted-mock handle (jest allows `mock`-prefixed names in a factory).
 const mockCore: { reads: CoreReads } = { reads: recordedReads() }
+const mockBuilt = { n: 0 }
 const admission = requireBusinessAdmission as jest.MockedFunction<typeof requireBusinessAdmission>
 
 // 13:24 JST on 2026-09-14 — the recorded bookings' day. Date only; timers stay real.
@@ -424,18 +426,18 @@ describe("(2c) a live actor's SAMPLE rows are their fixture twin's", () => {
   })
   it('sampleSelfId: OFF identity; ON the twin, an unknown uuid → null', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect(sampleSelfId('staff', 'p-06')).toBe('p-06')
+    expect(sampleSelfId(false, 'staff', 'p-06')).toBe('p-06')
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
-    expect(sampleSelfId('staff', CARD.azusa)).toBe('p-06')
-    expect(sampleSelfId('staff', CARD.owner)).toBeNull()
-    expect(sampleSelfId('staff', null)).toBeNull()
+    expect(sampleSelfId(true, 'staff', CARD.azusa)).toBe('p-06')
+    expect(sampleSelfId(true, 'staff', CARD.owner)).toBeNull()
+    expect(sampleSelfId(true, 'staff', null)).toBeNull()
   })
   it('attachSample: OFF the same plane (same reference); ON the ids rewritten', () => {
     const plane = [{ appointment_id: 'apt-14', store_id: STORE_A, by_staff_card_id: 'c-03' }]
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect(attachSample(plane, null)).toBe(plane)
+    expect(attachSample(false, plane, null)).toBe(plane)
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
-    expect(attachSample(plane, null)).toEqual([{ appointment_id: APT.a14, store_id: STORE.tokyo, by_staff_card_id: 'c-03' }])
+    expect(attachSample(true, plane, null)).toEqual([{ appointment_id: APT.a14, store_id: STORE.tokyo, by_staff_card_id: 'c-03' }])
   })
 })
 
@@ -449,7 +451,7 @@ describe('(3) UNASSIGNED — null without viewAll is EMPTY (fold F-2)', () => {
 })
 
 describe('(4)–(8) walls, identity, paging, errors', () => {
-  it('(4) tenant mismatch: every reader rejects before any read', async () => {
+  it('(4) R50 — another admitted business takes the OFF path: every reader answers the sample world, no core client', async () => {
     const spy = withReads()
     as(LOGIN.owner, null, 'other')
     const calls: Array<() => Promise<unknown>> = [
@@ -460,7 +462,13 @@ describe('(4)–(8) walls, identity, paging, errors', () => {
       () => data.readDayPlanes(STORE.tokyo, TODAY), () => data.readReservationPlanes(STORE.tokyo), () => data.readAnalyticsPlanes(STORE.tokyo),
       () => data.listStaff(STORE.tokyo), () => data.readStaffStores(STORE.tokyo),
     ]
-    for (const call of calls) await expect(call()).rejects.toBeInstanceOf(PracticeTenantMismatch)
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const off: unknown[] = []
+    for (const call of calls) off.push(await call())
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
+    mockBuilt.n = 0
+    for (const [i, call] of calls.entries()) expect(await call()).toEqual(off[i])
+    expect(mockBuilt.n).toBe(0)
     expect(spy.storesList).not.toHaveBeenCalled()
     expect(spy.staffList).not.toHaveBeenCalled()
   })
@@ -507,25 +515,25 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
   it('OFF: exactly defaultKindOf + storeDials, including the throw', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     const allLive = Object.fromEntries(Object.keys(PRACTICE_PLANES).map((k) => [k, 'live']))
-    expect(storeSample(STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: false, planes: allLive })
-    expect(() => storeSample('nope')).toThrow('Missing default kind for store nope')
+    expect(storeSample(false, STORE_A)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: false, planes: allLive })
+    expect(() => storeSample(false, 'nope')).toThrow('Missing default kind for store nope')
   })
   it('ON: by sample policy; a live uuid never throws', () => {
-    expect(storeSample(STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
+    expect(storeSample(true, STORE.tokyo)).toEqual({ state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES })
     // ⚖ PR-3 V4-2 — every practice store (and any id the table does not name) takes a plane WITH dials.
     const onA = { state: 'sample', words: defaultKindOf(STORE_A).words, dials: storeDials[STORE_A], marked: true, planes: PRACTICE_PLANES }
-    expect(storeSample(STORE.laEstro)).toEqual(onA)
-    expect(storeSample(STORE.devSalon)).toEqual(onA)
-    expect(storeSample('nope')).toEqual(onA)
+    expect(storeSample(true, STORE.laEstro)).toEqual(onA)
+    expect(storeSample(true, STORE.devSalon)).toEqual(onA)
+    expect(storeSample(true, 'nope')).toEqual(onA)
   })
   // ⚖ PR-3 — the mark keys on the door being ON, never on `state === 'sample'`
   // (which is also every OFF answer).
   it('PR-3 marked: OFF false on every fixture store; ON true on a twin and on a borrower (V4-2)', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    for (const id of [STORE_A, STORE_B]) expect(storeSample(id)).toMatchObject({ state: 'sample', marked: false })
+    for (const id of [STORE_A, STORE_B]) expect(storeSample(false, id)).toMatchObject({ state: 'sample', marked: false })
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
-    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
-    expect(storeSample(STORE.devSalon)).toMatchObject({ state: 'sample', marked: true })
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+    expect(storeSample(true, STORE.devSalon)).toMatchObject({ state: 'sample', marked: true })
   })
   // ⚖ PR-3 §v4 V4-2 — ⚠1/⚠2: no practice store is empty, no id answers `none`.
   const SEVEN = {
@@ -536,7 +544,7 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
   }
   it('(a) every practice store + the fallback: dials non-null, words = its plane\'s own (the fixture kinds carry null words)', () => {
     for (const id of [...Object.values(SEVEN), 'not-in-the-table']) {
-      const s = storeSample(id)
+      const s = storeSample(true, id)
       expect({ id, state: s.state, dials: s.dials !== null }).toEqual({ id, state: 'sample', dials: true })
       const fixture = samplePolicyFor(id)
       expect(fixture.kind).toBe('twin')
@@ -547,15 +555,15 @@ describe('(9) storeSample — the three bypass sites’ one read', () => {
     }
   })
   it('(b) an unknown uuid under ON: sample, dials non-null, marked', () => {
-    expect(storeSample('11111111-2222-4333-8444-555555555555')).toMatchObject({ state: 'sample', dials: storeDials[STORE_A], marked: true })
+    expect(storeSample(true, '11111111-2222-4333-8444-555555555555')).toMatchObject({ state: 'sample', dials: storeDials[STORE_A], marked: true })
   })
   it('(c) no-sample-policy is unreachable under ON — the seven + three random uuids', () => {
     const random = ['0f0f0f0f-1e1e-4d2d-8c3c-4b4b4b4b4b4b', 'ffffffff-ffff-4fff-bfff-ffffffffffff', '12345678-9abc-4def-8123-456789abcdef']
-    for (const id of [...Object.values(SEVEN), ...random]) expect({ id, state: storeSample(id).state }).toEqual({ id, state: 'sample' })
+    for (const id of [...Object.values(SEVEN), ...random]) expect({ id, state: storeSample(true, id).state }).toEqual({ id, state: 'sample' })
   })
   it('(d) La Estro keeps its 業種 (esthetic_salon) while its dials are STORE_A\'s', async () => {
     expect(samplePolicyFor(SEVEN.laEstro)).toEqual({ kind: 'twin', fixtureStoreId: STORE_A, business_type: 'esthetic_salon' })
-    expect(storeSample(SEVEN.laEstro).dials).toBe(storeDials[STORE_A])
+    expect(storeSample(true, SEVEN.laEstro).dials).toBe(storeDials[STORE_A])
   })
 })
 
@@ -569,41 +577,41 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
   // `bookingColors` is LIVE in the practice table; every other plane stays SAMPLE.
   it('every plane is SAMPLE for the practice business but bookingColors (LIVE, §v6 V6-2), and `marked` IS 「some plane is sample」', () => {
     expect(Object.entries(PRACTICE_PLANES).filter(([, s]) => s !== 'sample')).toEqual([['bookingColors', 'live']])
-    expect(sampleWhole(STORE.tokyo, 'bookingColors')).toBeUndefined()
-    expect(sampleWhole(STORE.tokyo, 'language')).toEqual({ form: 'whole' })
-    const s = storeSample(STORE.tokyo)
+    expect(sampleWhole(true, STORE.tokyo, 'bookingColors')).toBeUndefined()
+    expect(sampleWhole(true, STORE.tokyo, 'language')).toEqual({ form: 'whole' })
+    const s = storeSample(true, STORE.tokyo)
     expect(s.state === 'sample' && s.marked === Object.values(s.planes).some((p) => p === 'sample')).toBe(true)
   })
   it('OFF: no mark from either reader, on any store; the planes read all live', () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     for (const id of [STORE_A, STORE_B]) {
-      expect(sampleWhole(id, 'auditLog')).toBeUndefined()
-      expect(samplePart(id, ...BOARD)).toBeUndefined()
-      const s = storeSample(id)
+      expect(sampleWhole(false, id, 'auditLog')).toBeUndefined()
+      expect(samplePart(false, id, ...BOARD)).toBeUndefined()
+      const s = storeSample(false, id)
       expect(s.state === 'sample' && Object.values(s.planes).every((p) => p === 'live')).toBe(true)
     }
   })
   it('F-6 — no store in view (a storeless 設定 / an empty list): no mark, never a storeSample call', () => {
-    expect(sampleWhole(null, 'auditLog')).toBeUndefined()
-    expect(samplePart(null, 'staffActive')).toBeUndefined()
-    expect(sampleWhole([], 'decisions')).toBeUndefined()
+    expect(sampleWhole(true, null, 'auditLog')).toBeUndefined()
+    expect(samplePart(true, null, 'staffActive')).toBeUndefined()
+    expect(sampleWhole(true, [], 'decisions')).toBeUndefined()
   })
   it('ON: whole form; part form names its planes by the native-pass labels, deduped (shifts + absence = ONE label), in order', () => {
-    expect(sampleWhole(STORE.tokyo, 'auditLog')).toEqual({ form: 'whole' })
-    expect(samplePart(STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
-    expect(samplePart(STORE.tokyo, 'staffActive')).toEqual({ form: 'part', labels: ['稼働状態'] })
+    expect(sampleWhole(true, STORE.tokyo, 'auditLog')).toEqual({ form: 'whole' })
+    expect(samplePart(true, STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+    expect(samplePart(true, STORE.tokyo, 'staffActive')).toEqual({ form: 'part', labels: ['稼働状態'] })
   })
   it('flipping ONE plane live for ONE store removes that plane and nothing else; a plane still sample elsewhere in view keeps it', () => {
     STORE_PLANE_OVERRIDES[STORE.tokyo] = { operatingHours: 'live' }
-    expect(sampleWhole(STORE.tokyo, 'operatingHours')).toBeUndefined()
-    expect(samplePart(STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠'] })
-    expect(sampleWhole(STORE.tokyo, 'shifts')).toEqual({ form: 'whole' })
-    expect(sampleWhole(STORE.yokohama, 'operatingHours')).toEqual({ form: 'whole' })
-    expect(sampleWhole([STORE.tokyo, STORE.yokohama], 'operatingHours')).toEqual({ form: 'whole' })
-    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+    expect(sampleWhole(true, STORE.tokyo, 'operatingHours')).toBeUndefined()
+    expect(samplePart(true, STORE.tokyo, ...BOARD)).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠'] })
+    expect(sampleWhole(true, STORE.tokyo, 'shifts')).toEqual({ form: 'whole' })
+    expect(sampleWhole(true, STORE.yokohama, 'operatingHours')).toEqual({ form: 'whole' })
+    expect(sampleWhole(true, [STORE.tokyo, STORE.yokohama], 'operatingHours')).toEqual({ form: 'whole' })
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
     STORE_PLANE_OVERRIDES[STORE.tokyo] = Object.fromEntries(Object.keys(PRACTICE_PLANES).map((k) => [k, 'live']))
-    expect(storeSample(STORE.tokyo)).toMatchObject({ state: 'sample', marked: false })
-    expect(samplePart(STORE.tokyo, ...BOARD)).toBeUndefined()
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: false })
+    expect(samplePart(true, STORE.tokyo, ...BOARD)).toBeUndefined()
     expect(planesOf('toString')).toEqual(PRACTICE_PLANES)
   })
   it('every plane names its CONTRACT-MAP row (the lane harness reads the map against this table)', () => {
@@ -876,7 +884,7 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     expect(await data.readStoreAddress(STORE.tokyo)).toBe('東京都港区実在1-2-3')
     expect((await look(STORE.tokyo)).cardLook!.address).toBe('東京都港区実在1-2-3')
     // 横浜 is a fixture TWIN with a sample address in its dials; core holds none → omitted, never the fixture's
-    expect(storeSample(STORE.yokohama).dials?.profile.address).toBeTruthy() // the value the old source printed
+    expect(storeSample(true, STORE.yokohama).dials?.profile.address).toBeTruthy() // the value the old source printed
     expect(await data.readStoreAddress(STORE.yokohama)).toBeNull()
     expect('address' in (await look(STORE.yokohama)).cardLook!).toBe(false)
   })
@@ -904,10 +912,14 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1) // the shell's own (the business name)
   })
 
-  it('another business is refused before any read — nothing of it can reach the payload', async () => {
+  it('R50 — another admitted business gets the OFF props, byte for byte — nothing of core can reach the payload', async () => {
     const spy = withReads()
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    const off = await settingsProps({ locale: 'ja' })
+    process.env.BUSINESS_PRACTICE_TENANT = TENANT
     as(LOGIN.owner, null, '00000000-0000-4000-8000-00000000dead')
-    await expect(settingsProps({ locale: 'ja' })).rejects.toThrow(PracticeTenantMismatch)
+    expect(await settingsProps({ locale: 'ja' })).toEqual(off)
+    expect(off.props.dateline.startsWith('サンプルデータ ')).toBe(true)
     expect(spy.orgSettingsGet).not.toHaveBeenCalled()
   })
 })
@@ -1681,6 +1693,141 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
       expect(yokohama.operatingHours).toBe(operatingHours)
     } finally {
       delete SINGLETONS_BY_FIXTURE_STORE[STORE_B]
+    }
+  })
+})
+
+// ⚖ R50 (Business S39) — the practice door is decided PER BUSINESS, never per deployment.
+describe('R50 — the door per business (P1–P7)', () => {
+  const OTHER = '7bb76aac-2947-47fb-b883-d85fe849ccec' // an admitted business that is NOT the tenant
+  const shape = (x: unknown) => JSON.stringify(x, (_k, v: unknown) => (typeof v === 'function' ? `fn:${(v as { name: string }).name}` : v))
+  const layoutOf = async () => {
+    const BusinessLayout = (await import('@/app/[locale]/(business)/layout')).default
+    return shape(await BusinessLayout({ children: null, params: Promise.resolve({ locale: 'ja' }) }))
+  }
+  const todayOf = async () => {
+    const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
+    return shape(await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({}) }))
+  }
+  const settingsPageOf = async () => {
+    const SettingsPage = (await import('@/app/[locale]/(business)/business/settings/page')).default
+    return (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({}) })).props as Record<string, unknown>
+  }
+  // Every READ site of the per-site table, reached through its own caller.
+  const everyRead = async () => ({
+    layout: await layoutOf(),
+    today: await todayOf(),
+    settingsPage: await settingsPageOf(),
+    settings: await settingsProps({ locale: 'ja' }),
+    settingsStore: await settingsProps({ locale: 'ja', store: STORE_A }),
+    recording: shape(await recordingProps({ locale: 'ja' })),
+    karute: shape(await karuteProps({ locale: 'ja' })),
+    doorOn: await data.practiceDoorOn(),
+    canWriteStoreDays: await data.readCanWriteStoreDays(STORE_A),
+    reads: await Promise.all([
+      data.listStoreOptions(), data.listCustomers(STORE_A), data.listAppointments(STORE_A), data.listVisits(STORE_A), data.readShellIdentity(),
+      data.readReserveCardColor(), data.readBookingColors(), data.readStoreAddress(STORE_A), data.listMenus(STORE_A), data.readUnresolvedCounts(),
+      data.listResources(STORE_A), data.listShiftsByDay(STORE_A, { from: TODAY, to: TODAY }), data.listAbsenceByDay(STORE_A, { from: TODAY, to: TODAY }),
+      data.listBlocksByDay(STORE_A, { from: TODAY, to: TODAY }), data.readDayPlanes(STORE_A, TODAY), data.readStoreHours(STORE_A, TODAY),
+      data.readReservationPlanes(STORE_A), data.readAnalyticsPlanes(STORE_A), data.listStaff(STORE_A), data.readStaffStores(STORE_A),
+    ]),
+  })
+  const offWorld = async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    try { return await everyRead() } finally { process.env.BUSINESS_PRACTICE_TENANT = TENANT }
+  }
+
+  it('P1 — door-ON build, another admitted business: every read site answers the OFF world, no core client, no throw', async () => {
+    as(LOGIN.owner, null, OTHER)
+    const off = await offWorld()
+    mockBuilt.n = 0
+    const got = await everyRead()
+    expect(got).toEqual(off)
+    expect(mockBuilt.n).toBe(0)
+    expect(got.doorOn).toBe(false)
+    expect(got.layout).not.toContain('"practice":true')
+    expect(got.settingsPage.saveCardColor).toBeUndefined()
+    expect(got.settingsPage.saveStoreDays).toBeUndefined()
+    expect(got.settings.props.dateline.startsWith('サンプルデータ ')).toBe(true)
+    expect(got.settings.props.demoSaveLine).toBe('保存はこの画面の中だけに反映されます（実データ接続後に本保存）。')
+  })
+
+  it('P2 — the same build, the tenant itself: the ON path (a core client, live rows, the practice badge)', async () => {
+    as(LOGIN.owner)
+    mockBuilt.n = 0
+    expect(await data.practiceDoorOn()).toBe(true)
+    expect((await data.listStoreOptions()).map((s) => s.id)).toContain(STORE.tokyo)
+    expect(await layoutOf()).toContain('"practice":true')
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.dateline.startsWith('サンプルデータ ')).toBe(false)
+    expect((await settingsPageOf()).saveCardColor).toBeDefined()
+    expect(mockBuilt.n).toBeGreaterThan(0)
+  })
+
+  it('P3 — switch unset or "": both businesses take the OFF path; a non-UUID value still throws', async () => {
+    for (const env of [undefined, '']) {
+      for (const who of [TENANT, OTHER]) {
+        if (env === undefined) delete process.env.BUSINESS_PRACTICE_TENANT
+        else process.env.BUSINESS_PRACTICE_TENANT = env
+        as(LOGIN.owner, null, who)
+        mockBuilt.n = 0
+        expect(await data.practiceDoorOn()).toBe(false)
+        expect(await data.listStoreOptions()).toEqual(fxStores)
+        expect(mockBuilt.n).toBe(0)
+      }
+    }
+    process.env.BUSINESS_PRACTICE_TENANT = ' '
+    expect(() => doorFor(TENANT)).toThrow('BUSINESS_PRACTICE_TENANT is set but is not a UUID')
+  })
+
+  it('P4 — doorFor: the tenant, exactly (case-blind UUID), and nothing else', () => {
+    expect(doorFor(TENANT)).toBe(true)
+    expect(doorFor(TENANT.toUpperCase())).toBe(true)
+    expect(doorFor(OTHER)).toBe(false)
+    expect(doorFor(null)).toBe(false)
+    expect(doorFor(undefined)).toBe(false)
+    expect(doorFor('')).toBe(false)
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    for (const id of [TENANT, OTHER, null, undefined, '']) expect(doorFor(id)).toBe(false)
+  })
+
+  it('P5 — the write guard is unchanged: another business under door ON still answers tenant', async () => {
+    as(LOGIN.owner, null, OTHER)
+    expect(await data.writeReserveCardColor(null)).toEqual({ ok: false, reason: 'tenant' })
+  })
+
+  it('F1 — storeSample obeys its PARAMETER, never the env (the two disagree on purpose)', () => {
+    expect(storeSample(false, STORE_A)).toMatchObject({ state: 'sample', marked: false })
+    expect(() => storeSample(false, 'nope')).toThrow('Missing default kind for store nope')
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    expect(storeSample(true, STORE.tokyo)).toMatchObject({ state: 'sample', marked: true })
+  })
+
+  it('F2 — the tenant, upper-cased, is still the tenant: the layout and 設定 take the ON path and a core client IS built', async () => {
+    as(LOGIN.owner, null, TENANT.toUpperCase())
+    mockBuilt.n = 0
+    expect(await layoutOf()).toContain('"practice":true')
+    const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
+    expect(props.dateline.startsWith('サンプルデータ ')).toBe(false)
+    expect(mockBuilt.n).toBeGreaterThan(0)
+  })
+
+  it('F3 — readCanManageCardColor + readStoreDays: another business gets the OFF answer, no core client', async () => {
+    as(LOGIN.owner, null, OTHER)
+    mockBuilt.n = 0
+    expect(await data.readCanManageCardColor()).toBe(false)
+    expect(await data.readStoreDays(STORE.tokyo)).toMatchObject({ ok: false, reason: 'tenant' })
+    expect(mockBuilt.n).toBe(0)
+  })
+
+  it('P6 — no memo of the decision across requests in one process, either order', async () => {
+    for (const order of [[TENANT, OTHER], [OTHER, TENANT]]) {
+      for (const who of order) {
+        as(LOGIN.owner, null, who)
+        expect({ who, on: await data.practiceDoorOn() }).toEqual({ who, on: who === TENANT })
+        expect(await layoutOf()).toContain(who === TENANT ? '"practice":true' : 'サンプル')
+        if (who !== TENANT) expect(await layoutOf()).not.toContain('"practice":true')
+      }
     }
   })
 })

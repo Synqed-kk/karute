@@ -204,7 +204,7 @@ describe('⚖ A2 — the one writer: data.writeReserveCardColor → door', () =>
   it('switch OFF → tenant: no writer, nothing called, and the page offers no real save', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     const spy = withReads()
-    expect(data.practiceDoorOn()).toBe(false)
+    expect(await data.practiceDoorOn()).toBe(false)
     expect(await data.writeReserveCardColor(KON)).toEqual({ ok: false, reason: 'tenant' })
     for (const fn of Object.values(spy)) expect(fn).not.toHaveBeenCalled()
     expect(admission).not.toHaveBeenCalled()
@@ -359,7 +359,7 @@ describe('⚖ A2 — the page', () => {
   const render = () => SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({}) })
 
   it('page.tsx ON: the screen is told the ADMITTED business (the route’s X-Expected-Business) and core’s yes', async () => {
-    expect(data.practiceDoorOn()).toBe(true)
+    expect(await data.practiceDoorOn()).toBe(true)
     const el = await render()
     expect(el.props.saveCardColor).toEqual({ businessId: TENANT, canSave: true })
   })

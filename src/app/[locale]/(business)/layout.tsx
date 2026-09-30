@@ -21,8 +21,7 @@
 
 import { Suspense } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { listStoreOptions, readShellIdentity, readUnresolvedCounts } from '@/business/lib/data'
-import { practiceTenant } from '@/business/lib/practice-door/switch'
+import { listStoreOptions, practiceDoorOn, readShellIdentity, readUnresolvedCounts } from '@/business/lib/data'
 import { BusinessSessionEdits } from './BusinessSessionEdits'
 import { BusinessSidebar } from './BusinessSidebar'
 import { BusinessTopbar, BusinessTopbarActionSlot } from './BusinessTopbar'
@@ -44,11 +43,12 @@ export default async function BusinessLayout({
   params: Promise<{ locale: string }>
 }) {
   await requireBusinessAdmission()
-  const [{ locale }, storeOptions, shell, unresolved] = await Promise.all([
+  const [{ locale }, storeOptions, shell, unresolved, doorOn] = await Promise.all([
     params,
     listStoreOptions(),
     readShellIdentity(),
     readUnresolvedCounts(),
+    practiceDoorOn(),
   ])
 
   // Formatted on the server so the client renders one string and no clock or
@@ -77,7 +77,7 @@ export default async function BusinessLayout({
         <BusinessTopbarActionSlot>
           <main className="main">
             <Suspense fallback={<header className="topbar" />}>
-              <BusinessTopbar stores={storeOptions} syncLabel={syncLabel} {...(practiceTenant() !== null ? { practice: true as const } : {})} />
+              <BusinessTopbar stores={storeOptions} syncLabel={syncLabel} {...(doorOn ? { practice: true as const } : {})} />
             </Suspense>
             {/* ⚖ Liam 22: day navigation is a `?day=` LINK, so the screen
                 remounts on every flip and the layout does not. The session's

@@ -14,3 +14,10 @@ export const practiceTenant = cache((): string | null => {
   if (!UUID.test(raw)) throw new Error('BUSINESS_PRACTICE_TENANT is set but is not a UUID')
   return raw.toLowerCase()
 })
+
+/** R50 — the door is decided PER BUSINESS, never per deployment: ON only for the business this
+ *  deployment names as its tenant. Pure — never admission, never a throw for a missing id. */
+export function doorFor(businessId: string | null | undefined): boolean {
+  const t = practiceTenant()
+  return t !== null && typeof businessId === 'string' && businessId.toLowerCase() === t
+}
