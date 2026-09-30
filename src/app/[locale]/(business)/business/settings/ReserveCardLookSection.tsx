@@ -198,7 +198,7 @@ export function ReserveCardLookSection({
       {/* TRUE PHONE SIZE wherever the column holds 393px; narrower, the same 393px phone is scaled to fit. */}
       <div className="cl-strip" ref={stripRef}>
         <div className="cl-phone" ref={phoneRef} aria-hidden="true" onClick={onPhoneClick}>
-          <ReserveCardPreview name={look.businessName} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
+          <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
         </div>
       </div>
       {view === 'home' && <p className="st-pv-cap">見本では、編集中のお店を大きいカードにしています。実際のアプリでは、次のご予約が近いお店が大きいカードになります。</p>}

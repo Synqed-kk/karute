@@ -4325,7 +4325,6 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(s.lead).toBe('「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
     expect(s.guide).toBe('お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
-      businessName: business.name,
       storeLine: stores.find((x) => x.id === STORE_A)!.name,
       address: storeDials[STORE_A].profile.address,
       scopeLabel: '全店共通',

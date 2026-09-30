@@ -21,7 +21,7 @@ const NOTE_2 = 'カードを開く動きは、この見本だけのものです�
 const mount = (saved: string | null, draft: string = saved ?? '') =>
   render(
     <ReserveCardLookSection
-      look={{ businessName: 'Dev Salon', storeLine: 'テスト東京店', scopeLabel: '全店共通', value: saved, palette: PALETTE }}
+      look={{ storeLine: 'テスト東京店', scopeLabel: '全店共通', value: saved, palette: PALETTE }}
       value={draft}
       onPick={() => {}}
       reduced
