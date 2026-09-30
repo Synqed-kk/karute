@@ -36,11 +36,12 @@ import { notFound } from 'next/navigation'
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './grants'
-import { recordBusinessDenial } from './denial-record'
+import { recordBusinessAdmissionFailure } from './admission-failure-record'
 
 // ⚖ 9/30 black box lane — a denial that is NOT a plain "no session" leaves ONE
 // server-side record (never user text: the answer stays the bare 404), written
-// by the one writer in ./denial-record (it never throws).
+// by the one writer in ./admission-failure-record (it records a read failure,
+// never a verdict, and never throws).
 
 export interface BusinessAdmission {
   userId: string
@@ -70,7 +71,7 @@ async function admit(): Promise<BusinessAdmission | null> {
   if (error) {
     const e = error as { name?: unknown; status?: unknown; message?: unknown }
     if (e.name !== 'AuthSessionMissingError') {
-      recordBusinessDenial('auth-error', { where: 'getUser', status: e.status, message: e.message })
+      recordBusinessAdmissionFailure('auth-error', { where: 'getUser', status: e.status, message: e.message })
     }
     return null
   }
@@ -95,7 +96,7 @@ async function admit(): Promise<BusinessAdmission | null> {
 // dispatcher and cache() calls the function directly — uncached, as before.
 export const requireBusinessAdmission = cache(async (): Promise<BusinessAdmission> => {
   const admitted = await admit().catch((e: unknown) => {
-    recordBusinessDenial('threw', { where: 'admit', message: e })
+    recordBusinessAdmissionFailure('threw', { where: 'admit', message: e })
     return null
   })
   if (!admitted) notFound()

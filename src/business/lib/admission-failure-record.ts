@@ -1,11 +1,12 @@
-// ⚖ 9/30 black box lane — the ONE writer for a Business denial that is not a
-// plain "no session" / "no row": an auth error, a read that failed, a throw.
-// It leaves ONE server-side record (never user text: the answer stays the bare
-// 404). `ref` is a short random id so one incident can be found in the logs;
+// ⚖ 9/30 black box lane — the ONE admission-failure writer. It records a READ
+// FAILURE (an auth error, a read that failed, a throw), never a verdict: the
+// caller's answer (the bare 404, or the admission another leg grants) is its
+// own. ⚖ S6: two parallel read failures = two records; an admitted person whose
+// management read failed still gets one. Never user text. `ref` is a short random id so one incident can be found in the logs;
 // it is never shown to anyone. NO imports: every swallow point in territory
 // (admission.ts, grants.ts) can call it without widening its graph.
 //
-// recordBusinessDenial() NEVER throws: a value String() cannot print (a
+// recordBusinessAdmissionFailure() NEVER throws: a value String() cannot print (a
 // null-prototype object, a throwing toString) records '<unprintable>', and
 // anything else that fails is dropped — the answer stays the 404, never a 500.
 
@@ -19,7 +20,7 @@ function printable(v: unknown): string {
   }
 }
 
-export function recordBusinessDenial(
+export function recordBusinessAdmissionFailure(
   reason: 'auth-error' | 'threw' | 'read-error',
   facts: { where?: string; status?: unknown; message?: unknown },
 ): void {

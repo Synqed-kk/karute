@@ -1,13 +1,21 @@
 /**
  * #1110 review P1 (S5 fix 2) — the grants.ts helpers deny on a FAILED read, so
  * a failed read used to be a silent 404. Every swallow point now leaves ONE
- * record through ./denial-record, with the SAME denial value as before. A
+ * record through ./admission-failure-record, with the SAME denial value as before. A
  * clean denial (no row, flag false) records nothing.
  */
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
+jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
+jest.mock('next/navigation', () => ({
+  notFound: jest.fn(() => {
+    throw new Error('NEXT_NOT_FOUND')
+  }),
+}))
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from '@/business/lib/grants'
+import { createClient } from '@/lib/supabase/server'
+import { requireBusinessAdmission } from '@/business/lib/admission'
 
 const service = createServiceClient as jest.Mock
 function stub(result: unknown) {
@@ -63,5 +71,65 @@ describe('grants.ts — a failed read denies AND leaves one record', () => {
     service.mockReturnValue(stub({ data: null, error: { status: 503, message: 'upstream down' } }))
     await expect(isManagementMember('u1')).resolves.toBe(false)
     expect(records()[0][1]).toMatchObject({ reason: 'read-error', where: 'isManagementMember', status: 503 })
+  })
+})
+
+/**
+ * ⚖ S6 read round — the writer records READ FAILURES, never a verdict. Real
+ * admit() over the real grants.ts; the service stub answers per read.
+ */
+describe('admission over the real grants — the record is a read failure, not a verdict', () => {
+  function routed(answers: Record<string, unknown>) {
+    return {
+      from: (table: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const q: any = {
+          select: (cols: string) => ((q.key = `${table}:${cols}`), q),
+          eq: () => q,
+          maybeSingle: async () => answers[q.key],
+        }
+        return q
+      },
+    }
+  }
+  const TENANT = { 'profiles:customer_id': { data: { customer_id: 'biz-1' }, error: null } }
+  const savedEnv = process.env.VERCEL_ENV
+  beforeEach(() => {
+    delete process.env.VERCEL_ENV
+    ;(createClient as jest.Mock).mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 'o@x.jp' } }, error: null }) },
+    })
+  })
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env.VERCEL_ENV
+    else process.env.VERCEL_ENV = savedEnv
+  })
+
+  it('both reads in the Promise.all fail → TWO records, different refs; the denial is unchanged (the bare 404)', async () => {
+    service.mockReturnValue(
+      routed({ ...TENANT, 'business_workspace_grants:workspace_id, granted_by': READ_ERROR, 'profiles:is_management': READ_ERROR }),
+    )
+    await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
+    const r = records().map((c) => c[1])
+    expect(r).toHaveLength(2)
+    expect(r.map((x) => x.where).sort()).toEqual(['hasBusinessAdminGrant', 'isManagementMember'])
+    expect(r.every((x) => x.reason === 'read-error')).toBe(true)
+    expect(r[0].ref).toEqual(HEX8)
+    expect(r[1].ref).toEqual(HEX8)
+    expect(r[0].ref).not.toBe(r[1].ref)
+  })
+
+  it('grantedBy is the user AND the management read fails → ADMITTED, and ONE read-error record', async () => {
+    service.mockReturnValue(
+      routed({
+        ...TENANT,
+        'business_workspace_grants:workspace_id, granted_by': { data: { workspace_id: 'business_admin', granted_by: 'u1' }, error: null },
+        'profiles:is_management': READ_ERROR,
+      }),
+    )
+    await expect(requireBusinessAdmission()).resolves.toEqual({ userId: 'u1', email: 'o@x.jp', displayName: null, businessId: 'biz-1' })
+    const r = records()
+    expect(r).toHaveLength(1)
+    expect(r[0][1]).toEqual({ reason: 'read-error', ref: HEX8, where: 'isManagementMember', status: '42P01', message: 'relation does not exist' })
   })
 })
