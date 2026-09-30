@@ -312,7 +312,9 @@ jobs:
           ln -s "$RUNNER_TEMP/audit-deps/node_modules" node_modules
 
       - name: Guard selftest (boundary + rename cases)
-        run: node scripts/business/check-business-isolation.selftest.mjs
+        run: |
+          node scripts/business/check-business-isolation.selftest.mjs
+          node scripts/business/reserve-card-parity/manifest.selftest.mjs
 
       - name: Business PRs touch only Business territory
         env:
