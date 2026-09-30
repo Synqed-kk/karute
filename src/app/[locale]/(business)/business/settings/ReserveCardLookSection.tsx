@@ -20,7 +20,7 @@ type Look = NonNullable<SettingsSection['cardLook']>
 type View = 'home' | 'store'
 
 /** What a reader can type to find this section (the room's search), like STORE_POLICY_HEADINGS. */
-export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの色', 'Reserveでの見え方']
+export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの色', 'お客様のアプリでの見え方']
 
 /** The stand-in the preview paints when no colour is set (note.empty.preview says so). */
 const STAND_IN = '#1C2247'
@@ -135,18 +135,11 @@ export function ReserveCardLookSection({
   const main = (
     <section className="st-block" data-guide-title="カードの色" data-guide="カードの色を12色から1つ選びます。押すと、見本のカードがその色になります。">
       <div className="st-block-head">
-        <h3 id="clPickHead">カードの色</h3>
-        <span className="st-scope">{look.scopeLabel}</span>
+        <h3 id="clLookHead">カードの見た目</h3>
+        <span className="st-scope" title="この事業者のすべての店舗に適用されます" aria-label={`${look.scopeLabel}：この事業者のすべての店舗に適用されます`}>{look.scopeLabel}</span>
       </div>
-      <p className="cl-state">
-        {state === 'legacy' && shown !== null && <span className="cl-dot" style={satin(shown)} title="現在の色" aria-hidden="true" />}
-        {state === 'empty'
-          ? '色はまだ設定されていません。Reserveのカードは、これまでどおりの色で表示されます。'
-          : state === 'set'
-            ? `現在の色は「${look.palette[checked].name}」です。`
-            : '現在の色は、以前に設定された色で、12色には含まれていません。12色のどれかを選ぶまで、この設定は変わりません。'}
-      </p>
-      <p className="st-block-note">用意した12色から選びます。店名の位置や文字の大きさは、どのお店のカードでも同じです。</p>
+      <p className="st-block-note">お客様のアプリのホームに並ぶ、お店のカードです。色を選べます。文字の位置や大きさは、どのお店でも同じです。</p>
+      <h4 id="clPickHead">カードの色</h4>
       <div className="cl-swatches" role="radiogroup" aria-labelledby="clPickHead">
         {look.palette.map((c, i) => (
           <button
@@ -171,6 +164,17 @@ export function ReserveCardLookSection({
           </button>
         ))}
       </div>
+      {/* the source line (mock #clSrc): core sends no change date, so a saved non-standard colour prints none */}
+      {(state !== 'set' || shown === STAND_IN) && (
+        <p className="cl-state">
+          {state === 'legacy' && shown !== null && <span className="cl-dot" style={satin(shown)} title="現在の色" aria-hidden="true" />}
+          {state === 'empty'
+            ? '色はまだ設定されていません。お客様のアプリのカードは、これまでどおりの色で表示されます。'
+            : state === 'set'
+              ? '標準の色'
+              : '現在の色は、以前に設定された色で、12色には含まれていません。12色のどれかを選ぶまで、この設定は変わりません。'}
+        </p>
+      )}
     </section>
   )
 
@@ -178,11 +182,11 @@ export function ReserveCardLookSection({
     <section
       className="cl-preview"
       aria-labelledby="clPvHead"
-      data-guide-title="Reserveでの見え方"
-      data-guide="選んだ色で、お店のカードがReserveでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。"
+      data-guide-title="お客様のアプリでの見え方"
+      data-guide="選んだ色で、お店のカードがお客様のアプリでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。"
     >
       <div className="st-sec-h">
-        <p className="st-sec-l" id="clPvHead">Reserveでの見え方</p>
+        <p className="st-sec-l" id="clPvHead">お客様のアプリでの見え方</p>
         <span className="st-chip">表示のみ</span>
       </div>
       <div className="sp-seg" role="group" aria-labelledby="clPvHead">
@@ -195,9 +199,9 @@ export function ReserveCardLookSection({
           <ReserveCardPreview name={look.businessName} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
         </div>
       </div>
-      <p className="st-pv-cap">見本では、大きいカードも小さいカードも、このお店のものを表示しています。実際のReserveでは、次のご予約がいちばん近いお店が大きいカードになります。</p>
-      <p className="st-pv-cap">カードを開くときの動きは見本用のもので、実際のReserveの動きとは異なります。</p>
-      {shown === null && <p className="st-pv-cap">色が設定されていないため、見本では仮に紺で表示しています。実際のReserveのカードとは色が異なる場合があります。</p>}
+      {view === 'home' && <p className="st-pv-cap">見本では、編集中のお店を大きいカードにしています。実際のアプリでは、次のご予約が近いお店が大きいカードになります。</p>}
+      {view === 'home' && <p className="st-pv-cap">カードを開く動きは、この見本だけのものです。</p>}
+      {shown === null && <p className="st-pv-cap">色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。</p>}
     </section>
   )
 
