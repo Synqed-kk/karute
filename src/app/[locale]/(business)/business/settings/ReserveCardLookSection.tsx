@@ -95,26 +95,22 @@ export function ReserveCardLookSection({
   // ⚖ R-A1b-1 — a column narrower than the phone (the shell's icon rail at 393/440) SCALES the phone down
   // to fit: never a pan, never a clip. The layout stays 393px, so the port's own measure effects see
   // Reserve's geometry; only the paint shrinks, and the strip's height follows so the notes never overlap.
-  // `is-scaled` (toggled here, in the same frame as the vars) swaps the strip's 1:1 scroller for a clip;
-  // React never rewrites this element's static className, so the toggle stands. Runs both ways on resize.
   // ⚖ 1b-2 B3 — the scaled box is the phone FRAME (the mock's .phoneframe, a fixed 393×760 viewport); the app
   // scrolls INSIDE it (.cl-phone = the mock's .pv), so the page never grows with the card list.
+  // ⚖ S46 — the script writes PAINT ONLY (`--cl-scale`, a transform): the strip's height is CSS (settings.css),
+  // because a height written here would feed the side column's scrollbar, and that bar back into the width.
   const stripRef = useRef<HTMLDivElement>(null)
-  const frameRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
-    const strip = stripRef.current, phone = frameRef.current
-    if (!strip || !phone) return
+    const strip = stripRef.current
+    if (!strip) return
     const fit = () => {
       const scale = fitScale(strip.clientWidth)
-      strip.classList.toggle('is-scaled', scale < 1)
       // 1:1 carries NO transform at all (the unset var leaves `transform` at none), so the proven pixels stand
-      if (scale === 1) { strip.style.removeProperty('--cl-scale'); strip.style.removeProperty('--cl-h'); return }
-      strip.style.setProperty('--cl-scale', String(scale))
-      strip.style.setProperty('--cl-h', `${phone.offsetHeight * scale}px`)
+      if (scale === 1) strip.style.removeProperty('--cl-scale')
+      else strip.style.setProperty('--cl-scale', String(scale))
     }
-    const ro = new ResizeObserver(fit) // the strip's width (the frame's height is fixed)
+    const ro = new ResizeObserver(fit) // the strip's width (the frame's box is fixed, so it is not observed)
     ro.observe(strip)
-    ro.observe(phone)
     return () => ro.disconnect()
   }, [])
 
@@ -204,7 +200,7 @@ export function ReserveCardLookSection({
       </div>
       {/* TRUE PHONE SIZE wherever the column holds 393px; narrower, the same 393px phone is scaled to fit. */}
       <div className="cl-strip" ref={stripRef}>
-        <div className="cl-frame" ref={frameRef}>
+        <div className="cl-frame">
           <div className="cl-phone" ref={phoneRef} aria-hidden="true" tabIndex={-1} onClick={onPhoneClick}>
             <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
           </div>

@@ -3653,6 +3653,17 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // the app scroller, in any selector whose subject is .cl-phone: no transform other than none, anywhere
     expect(valuesOn(/\.cl-phone(?![\w-])/, TRANSFORMS).filter((v) => v !== 'none')).toEqual([])
   })
+  it('S46 — the strip\'s HEIGHT comes from its own WIDTH in CSS (aspect-ratio 393/760, capped at 760), never a fixed or var()-driven height: the fit must not feed the side column\'s scrollbar (every rule scanned)', () => {
+    const strip = /\.cl-strip(?![\w-])(?!.*::)/
+    expect(valuesOn(strip, /^aspect-ratio$/)).toEqual(['393 / 760'])
+    expect(valuesOn(strip, /^max-height$/)).toEqual(['760px'])
+    // the floor is 0 (a clip box's aspect-ratio would otherwise be floored at the unscaled frame's 760)
+    expect(valuesOn(strip, /^min-height$/)).toEqual(['0'])
+    // no rule sizes its block axis any other way (a fixed or var() height is what the script used to write)
+    expect(valuesOn(strip, /^(height|block-size|min-block-size|max-block-size|contain-intrinsic-size|contain-intrinsic-height)$/)).toEqual([])
+    // …and it is never a scroller (a bar in it would narrow it), at any width: clip, in every rule that names it
+    expect(valuesOn(strip, /^overflow(-[xy])?$/)).toEqual(['clip'])
+  })
   it('1b-2 — the ring never takes a click and the phone never draws a scrollbar (every rule scanned)', () => {
     const ring = /\.cl-frame(?![\w-]).*::after$/
     // the z-1 ring over the app: pointer-events none in every rule that names it (else it eats clicks + wheel)
@@ -3716,10 +3727,10 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // a one-line chip scroller and says so by removing the vertical one — and
     // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip, a scroll container in
     // bytes that never scrolls: a 393px phone in a 393px strip, there for the
-    // card's own paint layer; narrower, it scales and `.is-scaled` clips instead.
+    // card's own paint layer. ⚖ S46: it is `overflow: clip` at every width now
+    // (never a scroller, never a bar), so it owns no axis and leaves this list.
     const xOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-x:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
-    expect(xOwners).toEqual(['.biz .pg-settings .cl-strip', '.biz .pg-settings .st-jump-list'])
-    expect(CSS_CODE).toContain('.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }')
+    expect(xOwners).toEqual(['.biz .pg-settings .st-jump-list'])
     expect(CSS_CODE).toMatch(/\.st-jump-list \{[^}]*overflow-x: auto; overflow-y: hidden/)
   })
 

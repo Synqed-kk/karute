@@ -144,46 +144,35 @@ describe('カードの見た目 phone frame + honest slot', () => {
     }
     expect(Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTop')).toEqual(before)
   })
-  it('the STRIP is observed: its narrowing refits the FRAME (--cl-scale = fitScale, --cl-h = the frame\'s 760 × that), ≥ 393 returns to 1:1, unmount disconnects', () => {
+  it('the STRIP is observed: its narrowing refits the FRAME by --cl-scale = fitScale ALONE and writes NO layout value (no height, no --cl-h, no class: a height the script wrote fed the side column\'s scrollbar, S46), ≥ 393 returns to 1:1, unmount disconnects', () => {
     const was = (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver
     SpyRO.all = []
     ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = SpyRO
     const proto = HTMLElement.prototype
-    const before = { cw: Object.getOwnPropertyDescriptor(proto, 'clientWidth'), oh: Object.getOwnPropertyDescriptor(proto, 'offsetHeight') }
+    const before = Object.getOwnPropertyDescriptor(proto, 'clientWidth')
     let stripW = 393
-    const undo = [
-      stubProto(proto, 'clientWidth', { get(this: HTMLElement) { return this.classList.contains('cl-strip') ? stripW : 0 } }),
-      // the frame is 760; the app inside it (a different box) is given another height so the target shows
-      stubProto(proto, 'offsetHeight', { get(this: HTMLElement) { const c = this.classList; return c.contains('cl-frame') ? 760 : c.contains('cl-phone') ? 1234 : 0 } }),
-    ]
+    const undo = stubProto(proto, 'clientWidth', { get(this: HTMLElement) { return this.classList.contains('cl-strip') ? stripW : 0 } })
     try {
       const { container, unmount } = mount('#1C2247')
       const strip = container.querySelector('.cl-strip') as HTMLElement
-      const vars = () => [strip.style.getPropertyValue('--cl-scale'), strip.style.getPropertyValue('--cl-h'), strip.classList.contains('is-scaled')]
-      stripW = 336
-      resize(strip)
-      const scale = fitScale(336)
-      expect(scale).toBeCloseTo(336 / 393, 6)
-      expect(vars()).toEqual([String(scale), `${760 * scale}px`, true])
-      stripW = 393 // back to the phone's own width: 1:1 carries no vars and no class
-      resize(strip)
-      expect(vars()).toEqual(['', '', false])
-      stripW = 289
-      resize(strip)
-      expect(vars()).toEqual([String(fitScale(289)), `${760 * fitScale(289)}px`, true])
-      stripW = 440
-      resize(strip)
-      expect(vars()).toEqual(['', '', false])
+      // every inline property the script left on the strip, and its class list: paint only, or nothing
+      const written = () => [Array.from({ length: strip.style.length }, (_, i) => strip.style.item(i)), strip.style.getPropertyValue('--cl-scale'), strip.className]
+      expect(fitScale(336)).toBeCloseTo(336 / 393, 6)
+      for (const [w, scale] of [[336, fitScale(336)], [393, 1], [289, fitScale(289)], [440, 1]] as const) {
+        stripW = w
+        resize(strip)
+        expect(written()).toEqual(scale < 1 ? [['--cl-scale'], String(scale), 'cl-strip'] : [[], '', 'cl-strip'])
+        expect([strip.style.height, strip.style.getPropertyValue('--cl-h')]).toEqual(['', ''])
+      }
       const ro = SpyRO.all.find((r) => r.observed.has(strip))!
       unmount()
       expect(ro.disconnected).toBe(true)
     } finally {
-      for (const u of undo) u()
+      undo()
       ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = was
     }
-    // the stubs are gone, not re-defined: HTMLElement.prototype holds exactly what it held before
-    expect(Object.getOwnPropertyDescriptor(proto, 'clientWidth')).toEqual(before.cw)
-    expect(Object.getOwnPropertyDescriptor(proto, 'offsetHeight')).toEqual(before.oh)
+    // the stub is gone, not re-defined: HTMLElement.prototype holds exactly what it held before
+    expect(Object.getOwnPropertyDescriptor(proto, 'clientWidth')).toEqual(before)
   })
   it('no colour shown → the honest block holds exactly the no-colour line, on both views', () => {
     const { container, getByRole } = mount(null)

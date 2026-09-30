@@ -670,18 +670,22 @@ html:has(.biz .page.pg-settings) {
    (the card sits in a scrolling page), and without it Chrome draws the rounded
    corners' edge pixels a shade differently from Reserve's.
    WHERE THE COLUMN IS NARROWER THAN A PHONE (the shell's 76px icon rail at
-   393/440), THE PHONE SCALES DOWN TO FIT and `is-scaled` turns the scroller into
-   a clip — never a pan, and nothing is cut, because the scaled card fits the
-   strip. A transform, not `zoom`: the layout stays 393px, so the port's own
-   measure effects see Reserve's geometry. `--cl-scale` / `--cl-h` and the class
-   are set by one ResizeObserver in the section (min(1, strip ÷ 393); the
-   FRAME's fixed height × that), so the strip's height follows the painted frame. The phone's own type
+   393/440), THE PHONE SCALES DOWN TO FIT — never a pan, and nothing is cut,
+   because the scaled card fits the strip. A transform, not `zoom`: the layout
+   stays 393px, so the port's own measure effects see Reserve's geometry.
+   `--cl-scale` is set by one ResizeObserver in the section (min(1, strip ÷ 393))
+   and is PAINT ONLY. The strip's HEIGHT is CSS (its width × 760/393, capped at
+   760), so the engine settles it in the same layout pass as the width: a script
+   that wrote a height would change whether the side column needs a scrollbar,
+   which changes the width again — a loop (S46). `overflow: clip` at every
+   width: never a scroller (nothing to pan, not even by script, never a bar),
+   and it clips the scaled frame's sub-pixel edge. The phone's own type
    is the port's: it resets what the room hands down (reserve-card.css), and the
    two inherited values it does not name are reset HERE, at the host:
    `overflow-wrap` (the room's `anywhere`) and `color-scheme` (the shell's
    `light`) — Reserve's page carries neither (in-room parity, computed style). */
-.biz .pg-settings .cl-strip { height: var(--cl-h, auto); overflow-x: auto; overscroll-behavior-x: contain; }
-.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }
+/* `min-height: 0`: a clip box is not a scroller, so aspect-ratio would otherwise floor it at the frame's 760 */
+.biz .pg-settings .cl-strip { aspect-ratio: 393 / 760; min-height: 0; max-height: 760px; overflow: clip; }
 /* ⚖ 1b-2 B3 — the phone FRAME (mock .phoneframe :376-381): a fixed 393×760 viewport. The 1px ring is drawn
    INSIDE (::after, an inset shadow over the app): an outside ring is clipped by the strip, which has no room
    around the frame and must not gain any (padding would change fitScale's input), so the mock's soft drop
