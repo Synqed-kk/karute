@@ -3635,13 +3635,38 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () => {
-  it('1b-2 — the phone FRAME carries the fit transform; the app scroller inside it never does', () => {
-    const frame = CSS_CODE.match(/\.biz \.pg-settings \.cl-frame \{([^}]*)\}/)
-    const phone = CSS_CODE.match(/\.biz \.pg-settings \.cl-phone \{([^}]*)\}/)
-    expect(frame).not.toBeNull()
-    expect(phone).not.toBeNull()
-    expect(frame![1]).toMatch(/transform:\s*scale\(var\(--cl-scale\)\)/)
-    expect(phone![1]).not.toMatch(/transform/)
+  // EVERY rule, never one literal selector: each innermost `selector { body }` of the comment-stripped sheet
+  // (inside @media / @container too), split into its selector list and its declarations. A selector's SUBJECT
+  // is its last compound, so `.st-panel:has(.cl-phone)` targets the panel, not the phone.
+  const RULES = [...CSS_CODE.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    sels: m[1].split(',').map((x) => x.trim()),
+    decls: m[2].split(';').map((d) => d.split(':')).filter((d) => d.length > 1).map(([k, ...v]) => [k.trim(), v.join(':').trim()] as const),
+  }))
+  const subject = (sel: string) => sel.split(/\s*[>+~]\s*|\s+(?![^(]*\))/).pop()!
+  /** every value the sheet ever gives `prop` on a box whose subject matches `box` (a regex on the last compound) */
+  const valuesOn = (box: RegExp, prop: RegExp) =>
+    RULES.filter((r) => r.sels.some((x) => box.test(subject(x)))).flatMap((r) => r.decls.filter(([k]) => prop.test(k)).map(([, v]) => v))
+  const TRANSFORMS = /^(-webkit-)?(transform|scale|zoom|rotate|translate)$/
+  it('1b-2 — the phone FRAME carries the fit transform; the app scroller inside it never does (every rule scanned)', () => {
+    // the frame box itself (not its ::after ring): exactly the one transform, in every rule, every block
+    expect(valuesOn(/\.cl-frame(?![\w-])(?!.*::)/, TRANSFORMS)).toEqual(['scale(var(--cl-scale))'])
+    // the app scroller, in any selector whose subject is .cl-phone: no transform other than none, anywhere
+    expect(valuesOn(/\.cl-phone(?![\w-])/, TRANSFORMS).filter((v) => v !== 'none')).toEqual([])
+  })
+  it('1b-2 — the ring never takes a click and the phone never draws a scrollbar (every rule scanned)', () => {
+    const ring = /\.cl-frame(?![\w-]).*::after$/
+    // the z-1 ring over the app: pointer-events none in every rule that names it (else it eats clicks + wheel)
+    expect(valuesOn(ring, /^pointer-events$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(ring, /^pointer-events$/).filter((v) => v !== 'none')).toEqual([])
+    // …and it IS the ring: every box-shadow on it is inset (an outside one is clipped by the strip)
+    expect(valuesOn(ring, /^box-shadow$/).length).toBeGreaterThan(0)
+    expect(valuesOn(ring, /^box-shadow$/).every((v) => /\binset\b/.test(v))).toBe(true)
+    // the phone's own scrollbar: none in the standard property
+    const phone = /\.cl-phone(?![\w-])(?!.*::)/
+    expect(valuesOn(phone, /^scrollbar-width$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(phone, /^scrollbar-width$/).filter((v) => v !== 'none')).toEqual([])
+    expect(valuesOn(/\.cl-phone::-webkit-scrollbar$/, /^display$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(/\.cl-phone::-webkit-scrollbar$/, /^display$/).filter((v) => v !== 'none')).toEqual([])
   })
   it('the PAGE scrolls, and the two boxes that own an axis are the two that are pinned', () => {
     // ⚖ S17 STEP 1 — RE-DERIVED FROM 「NOT ONE CONTAINER」 TO 「TWO, NAMED」, and
