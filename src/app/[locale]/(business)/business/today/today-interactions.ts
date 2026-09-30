@@ -1229,6 +1229,14 @@ export function laneSpans(lane: BoardLane, exclude?: string | null): Array<{ sta
  *  `sellLayerFor` now reconciles the sell layer against
  *  the gap layer's finished cells (`reconcile` below), so the bed axis has one
  *  answer too — and the sentence above is finally true as written. */
+/** ONE TRUTH for 「which staff rows does the store sell online today」 — the lane
+ *  keys `sellStaffLanes` publishes, minus the locked ones. Hoisted (LEAD RULING
+ *  R2, DECISIONS.md today-impact-2026-09-30) so the online 確保 set, the drawn
+ *  rows and the day layer's per-lane `sellable` read ONE predicate. */
+export function sellableLaneKeysOf(lanes: readonly BoardLane[], locked: string[]): Set<string> {
+  return new Set(sellStaffLanes(lanes, locked).filter((l) => !l.locked).map((l) => l.key))
+}
+
 export function sellStaffLanes(lanes: readonly BoardLane[], locked: string[]): SellStaffLane[] {
   return lanes
     .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
@@ -1728,7 +1736,7 @@ export function heldDrawnFor(
   lanes: BoardLane[],
   locked: string[],
 ): readonly ReservedLaneMask[] {
-  const sellable = new Set(sellStaffLanes(lanes, locked).filter((l) => !l.locked).map((l) => l.key))
+  const sellable = sellableLaneKeysOf(lanes, locked)
   return (held ?? []).filter((m) => sellable.has(m.laneKey))
 }
 
@@ -6984,12 +6992,19 @@ export const dayOnLandingLane = (c: RailCell | null): boolean =>
  *  it is asked of, so a landing's cost is a subtraction of two totals the same
  *  function produced on two real boards, and nothing has to lift a card out of a
  *  world by argument. */
-export type DayWindows = { total: number; byLane: Array<{ laneKey: string; label: string; starts: number[]; listPrice: number }> }
+export type DayWindows = {
+  total: number
+  /** False when the netting that produced this set ran past its node budget
+   *  (honest-held.ts `exact`) — a best-effort set, never a gate (R2 / SF3). */
+  readonly exact: boolean
+  /** `sellable`: the lane is on the ONLINE set (`sellableLaneKeysOf`). */
+  byLane: Array<{ laneKey: string; label: string; starts: number[]; listPrice: number; readonly sellable: boolean }>
+}
 /** One lane that lost published 新規 windows between two settled boards. */
 export type DayRow = { laneKey: string; label: string; before: number[]; after: number[]; listPrice: number }
 /** `RailCell.day`'s shape. `before`/`after` are Σ over `lostOn` (§C), never store totals. */
 export type DayLoss = { laneKey: string; before: number; after: number; lostOn: DayRow[] }
-export const EMPTY_WINDOWS: DayWindows = { total: 0, byLane: [] }
+export const EMPTY_WINDOWS: DayWindows = { total: 0, exact: true, byLane: [] }
 export const EMPTY_DAY: DayLoss = { laneKey: '', before: 0, after: 0, lostOn: [] }
 
 /** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
@@ -7006,6 +7021,7 @@ export const EMPTY_DAY: DayLoss = { laneKey: '', before: 0, after: 0, lostOn: []
  *  here, the question is what the day can still hold. */
 export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
   const engine = createGapGuard(input.guard)
+  const sellable = sellableLaneKeysOf(lanes, input.locked)
   const byLane: DayWindows['byLane'] = []
   let total = 0
   for (const lane of lanes) {
@@ -7028,9 +7044,9 @@ export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
     // total by one: `protectedCapacityOf` below is this function's `.total`.
     for (const pocket of pockets) starts.push(...engine.protectedCapacity(pocket, null, ctx).beforeStarts)
     total += starts.length
-    byLane.push({ laneKey: lane.key, label: lane.label, starts, listPrice: lane.listPrice })
+    byLane.push({ laneKey: lane.key, label: lane.label, starts, listPrice: lane.listPrice, sellable: sellable.has(lane.key) })
   }
-  return { total, byLane }
+  return { total, exact: true, byLane }
 }
 
 /** ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — THE SAME DAY ANSWER, OUT OF THE
@@ -7052,19 +7068,27 @@ export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
  *  keeps its 「type-only, no cycle」 relationship with the netting exactly as it
  *  has one with `reserved-mask`. */
 export function windowsOf(
-  honest: { readonly byLane: readonly { readonly laneKey: string; readonly held: readonly ReservedSpan[] }[] },
+  honest: { readonly byLane: readonly { readonly laneKey: string; readonly held: readonly ReservedSpan[] }[]; readonly exact: boolean },
   lanes: readonly BoardLane[],
+  locked: string[],
 ): DayWindows {
   const laneOf = new Map(lanes.map((l) => [l.key, l]))
+  const sellable = sellableLaneKeysOf(lanes, locked)
   const byLane: DayWindows['byLane'] = []
   let total = 0
   for (const row of honest.byLane) {
     const lane = laneOf.get(row.laneKey)
     if (lane == null) continue
     total += row.held.length
-    byLane.push({ laneKey: row.laneKey, label: lane.label, starts: row.held.map((s) => s.windowStart), listPrice: lane.listPrice })
+    byLane.push({
+      laneKey: row.laneKey,
+      label: lane.label,
+      starts: row.held.map((s) => s.windowStart),
+      listPrice: lane.listPrice,
+      sellable: sellable.has(row.laneKey),
+    })
   }
-  return { total, byLane }
+  return { total, exact: honest.exact, byLane }
 }
 
 /** ⚖ NEW-WINDOW — WHICH LANES LOST A WINDOW BETWEEN TWO SETTLED BOARDS, and which.

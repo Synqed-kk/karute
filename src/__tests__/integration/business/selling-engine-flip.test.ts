@@ -2689,7 +2689,8 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
       lanes, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute,
       guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, book, released,
     })
-    return windowsOf(honestHeld(mask, lanes, book, true), lanes)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): windowsOf reads `locked` for the one sellable predicate; nothing is locked here.
+    return windowsOf(honestHeld(mask, lanes, book, true), lanes, [])
   }
 
   /** The card's own face, composed by the one producer the screen calls. */

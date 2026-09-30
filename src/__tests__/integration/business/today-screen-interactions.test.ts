@@ -2373,7 +2373,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       // 確保 count needs at the screen: the sale-filter lane set it narrows
       // the drawn half with, the two JP lines of the shared box, and the day
       // layer adapter that reads the netting in `windowsOn`'s own shape.
-      "sellStaffLanes,",
+      // R1/R2 (DECISIONS.md today-impact-2026-09-30): the screen reads the ONE sellable predicate
+      // (`sellableLaneKeysOf`, which wraps `sellStaffLanes`) instead of re-spelling it.
+      "sellableLaneKeysOf,",
       "sharedRoomSub,",
       "sharedRoomTitle,",
       // ⚖ ROUND 2 (2026-09-13) — SPEC-R2 §3.2. Six lines of Japanese, in the one

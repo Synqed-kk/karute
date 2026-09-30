@@ -165,7 +165,7 @@ import {
   sellDrawnFor,
   sellLayerFor,
   sellPublishedFor,
-  sellStaffLanes,
+  sellableLaneKeysOf,
   sharedRoomSub,
   sharedRoomTitle,
   withheldTitle,
@@ -2289,7 +2289,7 @@ export function TodayScreen(props: TodayProps) {
    *  rows). Never the filter before the netting: a row nobody can buy from
    *  still takes a room. */
   const sellableLaneKeys = useMemo(
-    () => new Set(sellStaffLanes(committedLanes, locked).filter((l) => !l.locked).map((l) => l.key)),
+    () => sellableLaneKeysOf(committedLanes, locked),
     [committedLanes, locked],
   )
   /** HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 4)
@@ -2904,7 +2904,7 @@ export function TodayScreen(props: TodayProps) {
   const dayCommitted = useMemo(
     () => {
       if (!guardOn) return EMPTY_WINDOWS
-      if (honest) return windowsOf(honest, committedLanes)
+      if (honest) return windowsOf(honest, committedLanes, locked)
       if (heldCommitted) {
         return windowsOf(
           honestHeld(
@@ -2914,6 +2914,7 @@ export function TodayScreen(props: TodayProps) {
             false,
           ),
           committedLanes,
+          locked,
         )
       }
       return windowsOn(committedLanes, inputOn(committedLanes))
@@ -3000,7 +3001,7 @@ export function TodayScreen(props: TodayProps) {
     () => (guardOn
       ? (dayStaged
           ? (honestOrigin
-              ? windowsOf(honestOrigin, originLanes)
+              ? windowsOf(honestOrigin, originLanes, locked)
               : originReleased
                 ? windowsOf(
                     honestHeld(
@@ -3010,6 +3011,7 @@ export function TodayScreen(props: TodayProps) {
                       false,
                     ),
                     originLanes,
+                    locked,
                   )
                 : windowsOn(originLanes, inputOn(originLanes)))
           : dayCommitted)
