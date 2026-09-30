@@ -541,14 +541,16 @@ describe('B2 act 1b honest stamp', () => {
     expect(document.body.textContent).not.toContain('✓ 保存しました')
     expect(stamps()[0]).not.toMatch(/変更した設定/)
   })
-  it('(b) door OFF: the same edit + 保存する → 「✓ 保存しました <time>」, the footer shows, the new string is absent', async () => {
+  // ⚖ B2 act 2a (S38) — pin edited: door OFF every save is page-only, so the stamp is the honest one
+  // (R35's door-ON-only scope superseded; Liam 9/30 screenshot). The footer still shows.
+  it('(b) door OFF: the same edit + 保存する → 「✓ この画面だけに反映しました <time>」, the footer shows, 保存しました absent', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     await mountT(STORE_A)
     const sent = await editAndSave()
     expect(sent).toBe(0)
-    expect(stamps()[0]).toBe(`✓ 保存しました ${stampTime()}`)
+    expect(stamps()[0]).toBe(`${PAGE_ONLY} ${stampTime()}`)
     expect(footerShown()).toBe(true)
-    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+    expect(document.body.textContent).not.toContain('✓ 保存しました')
   })
   // (c) — the ON worlds where the footer shows today. Neither is reachable through the routing in this
   // suite (every store the owner can open, La Estro included, renders 臨時休業 under the door — probed
@@ -559,15 +561,16 @@ describe('B2 act 1b honest stamp', () => {
     const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ sections: SettingsSection[]; saveStoreDays?: unknown }>
     return el
   }
-  it('(c) door ON, the worlds where the footer shows (constructed): footer present, the new string absent, the stamp is 保存しました', async () => {
+  // ⚖ B2 act 2a — pin edited: these worlds have no writer for the bar either, so the stamp is the honest one.
+  it('(c) door ON, the worlds where the footer shows (constructed): footer present, the stamp is the honest one', async () => {
     const el = await onElement()
     expect(el.props.saveStoreDays).toBeDefined()
     render(cloneElement(el, { saveStoreDays: undefined }))
     await act(async () => {})
     expect(footerShown()).toBe(true)
     await editAndSave()
-    expect(stamps()[0]).toBe(`✓ 保存しました ${stampTime()}`)
-    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+    expect(stamps()[0]).toBe(`${PAGE_ONLY} ${stampTime()}`)
+    expect(document.body.textContent).not.toContain('✓ 保存しました')
     cleanup()
     const el2 = await onElement()
     const sections = el2.props.sections.map((x) => (x.id !== 'store-hours' ? x : { ...x, blocks: x.blocks.filter((b) => b.id !== 'store-hours.closures') }))
@@ -576,17 +579,18 @@ describe('B2 act 1b honest stamp', () => {
     expect(blockEl('store-hours.closures')).toBeNull()
     expect(footerShown()).toBe(true)
     await editAndSave()
-    expect(stamps()[0]).toBe(`✓ 保存しました ${stampTime()}`)
-    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+    expect(stamps()[0]).toBe(`${PAGE_ONLY} ${stampTime()}`)
+    expect(document.body.textContent).not.toContain('✓ 保存しました')
   })
-  it('(d) truth table, same render: footer hidden ⟺ the stamp is the new string (ON and OFF)', async () => {
+  // ⚖ B2 act 2a — pin edited: the stamp no longer follows the footer; a page-only save is honest ON and OFF.
+  it('(d) truth table, same render: the bar’s page-only save is honest ON and OFF; the footer follows the door', async () => {
     for (const on of [true, false]) {
       if (on) process.env.BUSINESS_PRACTICE_TENANT = TENANT
       else delete process.env.BUSINESS_PRACTICE_TENANT
       await mountT(on ? STORE.tokyo : STORE_A)
       await editAndSave()
       const stamp = stamps()[0]
-      expect(stamp === `${PAGE_ONLY} ${stampTime()}`).toBe(!footerShown())
+      expect(stamp).toBe(`${PAGE_ONLY} ${stampTime()}`)
       expect(footerShown()).toBe(!on)
       cleanup()
     }
@@ -606,7 +610,8 @@ describe('B2 act 1b honest stamp', () => {
     const homeLine = src.split('\n').find((l) => l.includes(homes[0]!))
     const name = homeLine?.match(/\bconst\s+(\w+)\s*=/)?.[1]
     expect(name).toBeDefined()
-    expect(src.split(new RegExp(`\\b${name}\\b`)).length - 1).toBe(3)
+    // ⚖ B2 act 2a — pin edited 3 → 2: the stamp no longer reads the door (definition + the footer ternary).
+    expect(src.split(new RegExp(`\\b${name}\\b`)).length - 1).toBe(2)
   })
   // ⚖ R37 (attack M7) — the honest stamp is a COMMITTED stamp: before any press the bar says 変更はありません.
   it('(f) door ON, no edit, no save: 「変更はありません」, the page-only string absent', async () => {
@@ -677,11 +682,12 @@ describe('B2 act 1c stamp time', () => {
     expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
     expect(document.body.textContent).not.toContain('23:59')
   })
-  it('(b) door OFF: rendered 23:59, pressed 03:10 → 「✓ 保存しました 03:10」', async () => {
+  // ⚖ B2 act 2a — pin edited: door OFF the save is page-only, so the stamp is the honest one.
+  it('(b) door OFF: rendered 23:59, pressed 03:10 → 「✓ この画面だけに反映しました 03:10」', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
     await open(STORE_A)
     await pressAt(T2)
-    expect(stamps()).toEqual(['✓ 保存しました 03:10'])
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
     expect(document.body.textContent).not.toContain('23:59')
   })
   // the persist-local path (自分の表示設定 saves on the press of a choice, no 保存する): opened by its
@@ -812,5 +818,112 @@ describe('B2 act 1c stamp time', () => {
     }
     walk(path.join(process.cwd(), 'src'))
     expect(hits).toEqual([])
+  })
+})
+
+// ⚖ B2 act 2a (S38) — ONE truth for the bar's stamp: 「✓ 保存しました」 only when THIS commit made a core
+// write and core said yes; every page-only commit (door OFF for any section; door ON without a writer)
+// says 「✓ この画面だけに反映しました」. Door OFF, page.tsx hands no saveCardColor / saveBookingColors, so
+// カードの見た目 / 予約の色分け commit locally and NOTHING is sent (asserted: zero write requests).
+describe('B2 act 2a honest stamp every page-only save', () => {
+  const PAGE_ONLY = JA.sampleMark.pageOnlyStamp
+  const T1 = new Date('2026-11-18T14:59:00Z') // 23:59 JST — the render
+  const T2 = new Date('2026-11-18T18:10:00Z') // 03:10 JST — the press
+  const T3 = new Date('2026-11-18T18:17:00Z') // 03:17 JST — core's yes
+  const open = async (store: string, section: string) => {
+    jest.setSystemTime(T1)
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section }) })) as ReactElement
+    render(el)
+    await act(async () => {})
+  }
+  const stamps = () => [...document.querySelectorAll('.st-save-line [role="status"]')].map((n) => n.textContent ?? '')
+  const saveBtn = () => [...document.querySelectorAll('button.st-save')].find((b) => /保存する/.test(b.textContent ?? '')) as HTMLButtonElement
+  const writes = () => fetchLog.filter((r) => r.method !== 'GET')
+  const press = async () => {
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    jest.setSystemTime(T2)
+    await act(async () => { saveBtn().click() })
+    await settle()
+  }
+  const pickCard = () => {
+    const swatch = [...document.querySelectorAll('.cl-swatches [role="radio"]')].find((b) => b.getAttribute('aria-checked') !== 'true') as HTMLButtonElement
+    expect(swatch).toBeDefined()
+    fireEvent.click(swatch)
+  }
+  const pickBooking = () => {
+    const group = document.querySelector('.st-swatches[aria-label="新規予約の色"]')
+    expect(group).not.toBeNull()
+    const swatch = [...group!.querySelectorAll('button.st-swatch')].find((b) => b.getAttribute('aria-pressed') !== 'true') as HTMLButtonElement
+    expect(swatch).toBeDefined()
+    fireEvent.click(swatch)
+  }
+  it('(a) door OFF, 営業時間 sample value saved → 「✓ この画面だけに反映しました 03:10」, nothing sent', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await open(STORE_A, 'store-hours')
+    const f = [...(blockEl('store-hours.hours')?.querySelectorAll('input[type="time"]') ?? [])].find((i) => !(i as HTMLInputElement).disabled) as HTMLInputElement
+    fireEvent.change(f, { target: { value: f.value === '09:01' ? '09:02' : '09:01' } })
+    await press()
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    expect(writes()).toEqual([])
+    expect(document.body.textContent).not.toContain('✓ 保存しました')
+  })
+  it('(b) door OFF, カードの見た目 colour saved → the honest stamp AND zero write requests (no PUT to /api/business/card-color)', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await open(STORE_A, 'reserve-card-look')
+    pickCard()
+    await press()
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    expect(writes()).toEqual([])
+    expect(fetchLog.some((r) => r.url.includes('/api/business/card-color'))).toBe(false)
+    expect(document.body.textContent).not.toContain('✓ 保存しました')
+  })
+  it('(c) door OFF, 予約の色分け saved → the honest stamp, zero write requests', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await open(STORE_A, 'language-display')
+    pickBooking()
+    await press()
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    expect(writes()).toEqual([])
+    expect(fetchLog.some((r) => r.url.includes('/api/business/booking-colors'))).toBe(false)
+  })
+  it('(d) door ON, card colour saved, core says yes at 03:17 → 「✓ 保存しました 03:17」', async () => {
+    await open(STORE.tokyo, 'reserve-card-look')
+    let answer: (r: Response) => void = () => {}
+    let sentColor: unknown = null
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/business/card-color')
+      expect(init?.method).toBe('PUT')
+      sentColor = JSON.parse(String(init?.body)).color
+      return new Promise<Response>((r) => { answer = r })
+    }) as unknown as typeof fetch
+    pickCard()
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    jest.setSystemTime(T2)
+    await act(async () => { saveBtn().click() })
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    jest.setSystemTime(T3)
+    await act(async () => { answer(fakeRes(200, { ok: true, color: sentColor })) })
+    await settle()
+    expect(stamps()).toEqual(['✓ 保存しました 03:17'])
+    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+  })
+  it('(e) door ON, a section without a writer (営業時間 sample) → the honest stamp, nothing sent', async () => {
+    await open(STORE.tokyo, 'store-hours')
+    const f = [...(blockEl('store-hours.hours')?.querySelectorAll('input[type="time"]') ?? [])].find((i) => !(i as HTMLInputElement).disabled) as HTMLInputElement
+    fireEvent.change(f, { target: { value: f.value === '09:01' ? '09:02' : '09:01' } })
+    await press()
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    expect(writes()).toEqual([])
+  })
+  it('(f) door ON, the card PUT fails → no stamp (still the pending count), the existing error line', async () => {
+    await open(STORE.tokyo, 'reserve-card-look')
+    reply = (url, method) => (url === '/api/business/card-color' && method === 'PUT' ? { status: 500, body: { ok: false, reason: 'core' } } : { status: 500, body: null })
+    pickCard()
+    await press()
+    expect(writes().map((r) => r.url)).toEqual(['/api/business/card-color'])
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    expect(document.body.textContent).not.toContain('✓ 保存しました')
+    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+    expect(document.body.textContent).toContain('いまは保存できないため、時間をおいてもう一度保存してください')
   })
 })
