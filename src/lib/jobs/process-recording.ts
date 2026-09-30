@@ -48,10 +48,11 @@ import {
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import {
   appointmentLinkOf,
-  isKeptLink,
-  keepLinkUnlessGiven,
+  fillOnlyLinkOf,
+  linkUpdateOf,
   menuOfAutoLinked,
   resolveAutoAppointmentLink,
+  returnedOr,
   type AutoAppointmentLink,
 } from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
@@ -695,30 +696,35 @@ async function upsertKaruteRecord(
       }))
     // S7 (PR-O commit 4): no booking named and none kept → the ONE auto-link
     // the facade save shares, in the record's OWN store.
-    let appointmentId = keepLinkUnlessGiven(existing, {
-      customer_id: existing.customer_id ?? null,
-      appointment_id: payload.appointment_id ?? null,
-    })
-    const keptLink = isKeptLink({ appointment_id: payload.appointment_id ?? null }, appointmentId)
-    const autoLinked = appointmentId
+    // A3 (S69 fix round 4, commit 25): FILL-ONLY — a linked record keeps its
+    // link; an empty one takes the payload's booking only while the record is
+    // still the payload's customer, else the auto-link for the RECORD's
+    // customer (fillOnlyLinkOf).
+    const recordLink = { customer_id: existing.customer_id ?? payload.customer_id, appointment_id: existing.appointment_id }
+    const fill = fillOnlyLinkOf(recordLink, payload)
+    const keptLink = fill.kept
+    const autoLinked = fill.kept || fill.given
       ? null
       : await resolveAutoAppointmentLink(synqed, {
-          customerId: existing.customer_id ?? payload.customer_id,
+          customerId: recordLink.customer_id,
           storeId: existing.store_id ?? null,
           recordingSessionId: job.recording_session_id,
           sessionStartedAt: payload.session_started_at ?? null,
         })
-    appointmentId = appointmentId ?? autoLinked?.appointmentId ?? null
-    await synqed.karuteRecords.update(existing.id, {
+    const updated = await synqed.karuteRecords.update(existing.id, {
       transcript: result.transcript,
       ai_summary: result.summary,
       entries: [...entries, ...carriedHumanEntries],
-      // S4 (PR-O, O1/V4): a re-run with no booking never clears the link an
-      // earlier save wrote. This update never moves customer_id, so the
-      // record's customer after the write is the existing one — the SAME
-      // rule as karute.core (keepLinkUnlessGiven).
-      appointment_id: appointmentId,
+      // S4 + A2/A3: the link key is sent only when this run FILLS an empty
+      // link (the payload's booking or an auto-link hit); a kept link and a
+      // miss omit it, so the link the row holds NOW stays (linkUpdateOf).
+      ...(fill.kept ? {} : linkUpdateOf(recordLink, { customer_id: recordLink.customer_id, appointment_id: fill.given }, autoLinked)),
     })
+    // A2 revision: the returned record's link when core returns it.
+    const appointmentId = returnedOr(
+      updated?.appointment_id,
+      fill.kept ? fill.appointmentId : (fill.given ?? autoLinked?.appointmentId ?? null),
+    )
     // CEILING (mirrors lib/karute/karute.core.ts fix round 2): store_id does NOT move
     // with this update, so the persisted store is still the EXISTING record's
     // — already in hand from the lookup, no second read.

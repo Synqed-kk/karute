@@ -113,6 +113,27 @@ export function linkUpdateOf(
   return {}
 }
 
+/**
+ * A3 (S69 fix round 4, commit 25): the job worker's converge FILLS AN EMPTY
+ * LINK ONLY. A queued job is stale by the time it converges (R-O4): staff may
+ * have re-picked the booking, or re-pointed the record to another customer,
+ * since the enqueue.
+ *   - the record already carries a link → kept (the key is not sent)
+ *   - else the payload's booking, when the record is still the payload's
+ *     customer
+ *   - else nothing given → the caller auto-links for the RECORD's customer
+ * `existing.customer_id` = the record's customer. Pure; the 「given」 and
+ * re-point tests are the ones keepLinkUnlessGiven uses.
+ */
+export function fillOnlyLinkOf(
+  existing: { customer_id?: string | null; appointment_id?: string | null },
+  payload: { customer_id?: string | null; appointment_id?: string | null },
+): { kept: true; appointmentId: string } | { kept: false; given: string | null } {
+  const linked = existing.appointment_id ?? null
+  if (linked !== null) return { kept: true, appointmentId: linked }
+  return { kept: false, given: movesCustomer(existing, payload) ? null : givenLinkOf(payload) }
+}
+
 /** A2 revision / A4: a value the write RETURNED wins over the computed one
  *  (karute.d.ts:14-15 — create and update return the full record); only an
  *  ABSENT field (undefined) falls back — never `??`, a returned null is the

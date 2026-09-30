@@ -516,36 +516,55 @@ describe('S4 — the worker converge never clears a booking link', () => {
     return (karuteRecordsUpdate.mock.calls[0] as unknown[])[1] as Record<string, unknown>
   }
 
-  it('S4-job: a job re-run with no booking keeps the first save\'s link', async () => {
-    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
-    expect(sent).toMatchObject({ appointment_id: 'appt-first' })
-  })
-
-  it('S4-job: a stale job for a record since re-pointed to another customer never clears that record\'s link (the worker never moves the customer)', async () => {
-    const sent = await runMidRunConverge({ customer_id: 'cust-REPOINTED', appointment_id: 'appt-of-new-customer' })
-    expect(sent).toMatchObject({ appointment_id: 'appt-of-new-customer' })
-    expect(sent).not.toHaveProperty('customer_id')
-  })
-
-  it('S4-job: a re-run that names a booking re-stamps it', async () => {
-    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' }, { appointment_id: 'appt-new' })
-    expect(sent).toMatchObject({ appointment_id: 'appt-new' })
-  })
-  // S67 fix round 2, commit 15 (SF-5; the attack's F-6 / W10 row): the worker's
-  // row tells the record's EFFECTIVE link — `kept` + the id, never null.
   const saveRow = () => {
     const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
     expect(rows).toHaveLength(1)
     return (rows[0][0] as { detail: Record<string, unknown> }).detail
   }
+  it('S4-job: a job re-run with no booking keeps the first save\'s link', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    // A2/A3 (S69 fix round 4; licensed class): a kept link is not sent back.
+    expect(sent).not.toHaveProperty('appointment_id')
+  })
+
+  it('S4-job: a stale job for a record since re-pointed to another customer never clears that record\'s link (the worker never moves the customer)', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-REPOINTED', appointment_id: 'appt-of-new-customer' })
+    // A2/A3 (S69 fix round 4; licensed class): the link stays — not sent back.
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(sent).not.toHaveProperty('customer_id')
+  })
+
+  // A3 (S69 fix round 4, commit 25; RULING-S68-ASTRA § OPUS REVISIONS — this
+  // case REVERSES the S4 re-stamp pin): FILL-ONLY.
+  it('A3-job: a same-customer re-pick after the enqueue keeps its link (the stale job\'s booking is not sent)', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-B' }, { appointment_id: 'appt-A' })
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-B' })
+  })
+  it('A3-job: a record re-pointed to customer B (empty link) never takes the payload\'s booking; the auto-link asks for B', async () => {
+    const c = fakeClient as unknown as { appointments: Record<string, unknown>; karuteRecords: Record<string, unknown> }
+    const list = jest.fn(async () => ({ appointments: [], total: 0 }))
+    c.appointments.list = list
+    try {
+      const sent = await runMidRunConverge({ customer_id: 'cust-B', appointment_id: null }, { appointment_id: 'appt-a1', session_started_at: '2026-09-29T07:44:39Z' })
+      expect(sent).not.toHaveProperty('appointment_id')
+      expect(list).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'cust-B' }))
+    } finally {
+      delete c.appointments.list
+    }
+  })
+  it('A3-job: an empty link + the same customer + a payload booking → applied', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: null }, { appointment_id: 'appt-new' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-new' })
+    expect(saveRow()).toMatchObject({ appointment_link: null, appointment_id: 'appt-new' })
+  })
+  // S67 fix round 2, commit 15 (SF-5; the attack's F-6 / W10 row): the worker's
+  // row tells the record's EFFECTIVE link — `kept` + the id, never null.
   it('SF-5 F-6: a kept-link converge → the row says kept + the record\'s link', async () => {
     await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
     expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
   })
-  it('SF-5: a job that names its booking → the row says null + the named id', async () => {
-    await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' }, { appointment_id: 'appt-new' })
-    expect(saveRow()).toMatchObject({ appointment_link: null, appointment_id: 'appt-new' })
-  })
+  // SF-5 「a job that names its booking → null + the named id」 now lives in the A3 empty-link case above.
 })
 
 // S2 + S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): the worker writes the

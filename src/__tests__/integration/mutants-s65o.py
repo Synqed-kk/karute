@@ -58,8 +58,8 @@ MUTANTS = [
        '        appointment_id: payload.appointment_id ?? null, // M-O2a\n')],
      [SAVE_T], ["S4-facade: a second save with no booking, same customer, keeps the first save's link"]),
     ('M-O2b', 'worker converge sends the payload booking (null clears the link)',
-     [(WORKER, '      appointment_id: appointmentId,\n    })\n    // CEILING (mirrors',
-       '      appointment_id: payload.appointment_id ?? null, // M-O2b\n    })\n    // CEILING (mirrors')],
+     [(WORKER, '      ...(fill.kept ? {} : linkUpdateOf(recordLink, { customer_id: recordLink.customer_id, appointment_id: fill.given }, autoLinked)),\n',
+       '      appointment_id: payload.appointment_id ?? null, // M-O2b\n')],
      [JOB_T], ["S4-job: a job re-run with no booking keeps the first save's link"]),
     ('M-O2c', 'keepLinkUnlessGiven loses its re-point arm (the old booking rides along)',
      [(LINK, '  return (write.customer_id ?? null) !== (existing.customer_id ?? null)\n', '  return false // M-O2c\n')],
@@ -69,6 +69,10 @@ MUTANTS = [
      [(LINK, '  if (movesCustomer(existing, write)) return { appointment_id: null }\n  return {}\n',
        '  if (movesCustomer(existing, write)) return { appointment_id: null }\n  return { appointment_id: null } // M-O25\n')],
      [SAVE_T], ["S4-facade: a second save with no booking, same customer, keeps the first save's link"]),
+    # M-O26 — A3 (S69 commit 25): the worker's fill-only guard removed (a stale job's booking overwrites a re-pick)
+    ('M-O26', "fillOnlyLinkOf loses the linked-record guard (a stale job's booking lands over a re-pick)",
+     [(LINK, '  if (linked !== null) return { kept: true, appointmentId: linked }\n', '')],
+     [JOB_T], ['A3-job: a same-customer re-pick after the enqueue keeps its link']),
     # M-O5 — the audit row lacks the fate (commit 2, S5 + R-O2)
     ('M-O5a', 'the facade row drops outcome_link',
      [(CORE, '        ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),\n', '')],
