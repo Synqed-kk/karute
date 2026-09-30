@@ -551,6 +551,11 @@
 .biz .operator strong { display: block; font-size: 14px; }
 .biz .operator > span:last-child { display: none; }
 .biz .operator > span:last-child > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+/* ⚖ R57 V1 — the rail fits any window height: exactly one viewport tall, the nav groups
+   scroll, the brand / store switcher above and the identity card below never move out. */
+.biz .sidebar { height: 100vh; }
+.biz .sidebar .nav-scroll { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.biz .sidebar .operator { flex-shrink: 0; }
 /* ⚖ R53 — the login e-mail: one line, ellipsised; the full address rides in title. */
 .biz .operator > span:last-child { min-width: 0; }
 .biz .operator .operator-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

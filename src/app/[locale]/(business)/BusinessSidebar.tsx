@@ -285,6 +285,9 @@ export function BusinessSidebar(props: SidebarProps) {
         )}
       </div>
 
+      {/* ⚖ R57 V1 — the nav is the one scrolling region, so the identity card below stays
+          pinned inside the viewport at any window height. */}
+      <div className="nav-scroll">
       {NAV.map((section) => (
         <div key={section.group}>
           <div className="nav-label">{section.group}</div>
@@ -326,6 +329,7 @@ export function BusinessSidebar(props: SidebarProps) {
           </nav>
         </div>
       ))}
+      </div>
 
       {/* ⚖ R53 — who is signed in, in both worlds; registers into 画面の説明 like the store card. */}
       <div
