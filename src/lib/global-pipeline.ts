@@ -2,6 +2,7 @@
 
 import {
   runAIPipeline,
+  DamagedAudioError,
   EmptyTranscriptError,
   type PaidFallback,
   type PipelineStep,
@@ -12,7 +13,7 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { ensureFinalizedPath, readTakeSecureMeta, settleTakeAfterSave } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
+import { AUDIO_UNREADABLE, DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
 import type { RecordingJobStatusView } from '@/actions/recording-jobs'
 
 /**
@@ -144,7 +145,39 @@ export type PipelineErrorCode =
    *  録音履歴 row beside it already reads 破棄済み. A staffer must never be
    *  handed a button that cannot work. */
   | 'discarded'
+  /** PR-B B2: the audio is damaged — unreadable, or missing part of itself.
+   *  TERMINAL like 'discarded': the same bytes give the same answer, so the
+   *  card offers no 再試行; the recording is kept and the card shows its
+   *  reference number (takeReference). */
+  | 'audio-unreadable'
+  | 'audio-partial'
   | 'unknown'
+
+/** PR-B cut #3 (B2, B-S66-8): the ONE table from a failure word — the server
+ *  job's `last_error` sentinel, or the in-tab run's typed error — to the card's
+ *  code. Anything else is 'unknown' (再試行 shown): a plain Error from a staged
+ *  door (the literal 'staged copy mismatch') or a StagedDoorError is never a
+ *  terminal word here (D-4). */
+const PIPELINE_ERROR_CODES = new Map<string, PipelineErrorCode>([
+  [CONSENT_REQUIRED_ERROR, 'consent-required'],
+  ['EMPTY_TRANSCRIPT', 'empty-transcript'],
+  [DISCARDED_BY_STAFF, 'discarded'],
+  [AUDIO_UNREADABLE, 'audio-unreadable'],
+  ['unreadable_object', 'audio-unreadable'],
+  ['audio_partial', 'audio-partial'],
+])
+
+export function pipelineErrorCode(err: unknown): PipelineErrorCode {
+  const word =
+    err instanceof EmptyTranscriptError
+      ? 'EMPTY_TRANSCRIPT'
+      : err instanceof DamagedAudioError
+        ? err.kind === 'partial'
+          ? 'audio_partial'
+          : AUDIO_UNREADABLE
+        : err
+  return (typeof word === 'string' && PIPELINE_ERROR_CODES.get(word)) || 'unknown'
+}
 
 type Listener = () => void
 
@@ -462,7 +495,7 @@ class GlobalPipeline {
       if (runId !== this.runId) return
       // Raw text is for the console only — the UI localizes from the code.
       console.error('[global-pipeline] run failed:', err)
-      this.error = err instanceof EmptyTranscriptError ? 'empty-transcript' : 'unknown'
+      this.error = pipelineErrorCode(err)
       // c: same code as the retry's own memory → this attempt failed IDENTICALLY.
       this.errorRepeated = this.lastErrorCode !== null && this.lastErrorCode === this.error
       this.state = 'error'
@@ -702,14 +735,7 @@ class GlobalPipeline {
         // recordingJobs.fail is untouched; this is a client console line.
         console.error('[global-pipeline] server job failed:', status.lastError)
         // Take is NEVER deleted on FAILED — the staff can retry or fall back.
-        this.error =
-          status.lastError === CONSENT_REQUIRED_ERROR
-            ? 'consent-required'
-            : status.lastError === 'EMPTY_TRANSCRIPT'
-              ? 'empty-transcript'
-              : status.lastError === DISCARDED_BY_STAFF
-                ? 'discarded'
-                : 'unknown'
+        this.error = pipelineErrorCode(status.lastError)
         // c: same code as the retry's own memory → this attempt failed IDENTICALLY.
         this.errorRepeated = this.lastErrorCode !== null && this.lastErrorCode === this.error
         this.state = 'error'

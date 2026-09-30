@@ -4,6 +4,7 @@ import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import {
   adoptTakeSession,
   ensureFinalizedPath,
+  isDamagedTake,
   readTakeSecureMeta,
   readTakeTranscript,
   stampTakeTranscript,
@@ -267,9 +268,13 @@ export async function runAIPipeline(
         ctx.durationSeconds,
       )
     // Re-read: the attach may have minted the take's row itself (secureTake).
-    const known =
-      (takeId ? (await readTakeSecureMeta(takeId))?.recordingSessionId : null) ??
-      ctx.recordingSessionId
+    const after = takeId ? await readTakeSecureMeta(takeId) : null
+    // ⚖ A TAKE ALREADY JUDGED DAMAGED NEVER TAKES THE FALLBACK (PR-B B2): finalize
+    // refused the object (`unreadable_object`) or the phone marked it
+    // (`audio_unreadable` / `audio_partial`) — the same typed error as the verdict below.
+    if (!finalizedPath && after?.secureError && isDamagedTake(after))
+      throw new DamagedAudioError(after.secureError === 'audio_partial' ? 'partial' : 'unreadable')
+    const known = after?.recordingSessionId ?? ctx.recordingSessionId
     if (!finalizedPath) attachOutcome = known ? 'attach_failed' : 'no_session'
   }
   // S46: the row that reserved the finalized key rides beside it (re-read: the

@@ -159,6 +159,19 @@ export function isDamagedTake(meta: Pick<TakeMeta, 'secureError'>): boolean {
   )
 }
 
+/** PR-B B11/F12d: the ONE reference number a failed take's card shows (⚖ Liam
+ *  9/30: a SHORT REFERENCE NUMBER, never the technical cause) — the take
+ *  uuid's first 8 chars when the take id is a uuid, else the session id's
+ *  first 8, else null. The black-box lane keys on this same function later. */
+export function takeReference(meta: {
+  takeId?: string | null
+  recordingSessionId?: string | null
+}): string | null {
+  if (meta.takeId && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(meta.takeId))
+    return meta.takeId.slice(0, 8)
+  return meta.recordingSessionId ? meta.recordingSessionId.slice(0, 8) : null
+}
+
 export const TERMINAL_SECURE_ERRORS = new Set([
   'bad_input',
   'forbidden',

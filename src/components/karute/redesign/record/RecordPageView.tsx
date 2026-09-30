@@ -23,6 +23,7 @@ import {
   stampTakeOutcome,
   type DiscardPending,
   type RecoverableTake,
+  takeReference,
 } from '@/lib/karute/take-store'
 import {
   discardTranscriptSupported,
@@ -3517,6 +3518,10 @@ export function RecordPageView({
               : undefined
           }
           errorRepeated={pipeline.errorRepeated}
+          reference={takeReference({
+            takeId: pipeline.context?.takeId,
+            recordingSessionId: pipeline.context?.recordingSessionId,
+          })}
           onHandwrite={
             errorCardHandwriteRow?.sameDay
               ? () => handleInboxHandwrite(errorCardHandwriteRow)
