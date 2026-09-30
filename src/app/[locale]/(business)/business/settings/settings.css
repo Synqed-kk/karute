@@ -702,6 +702,8 @@ html:has(.biz .page.pg-settings) {
   /* a phone's scrollbar is an overlay: a classic one must never narrow Reserve's 393 ground under the port's measure */
   scrollbar-width: none;
 }
+/* …and the same for WebKit/Blink before scrollbar-width (Safari < 18.2, Chromium < 121) */
+.biz .pg-settings .cl-phone::-webkit-scrollbar { display: none; }
 /* the app's ground fills the frame when the page is shorter than the phone (Reserve's page does) */
 .biz .pg-settings .cl-phone > .member-ground { min-height: 100%; }
 /* the honest slot (mock .honest :383-385) in the room's amber note colours; the TYPE is the note's

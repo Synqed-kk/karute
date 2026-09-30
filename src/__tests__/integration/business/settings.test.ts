@@ -3661,7 +3661,7 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // …and it IS the ring: every box-shadow on it is inset (an outside one is clipped by the strip)
     expect(valuesOn(ring, /^box-shadow$/).length).toBeGreaterThan(0)
     expect(valuesOn(ring, /^box-shadow$/).every((v) => /\binset\b/.test(v))).toBe(true)
-    // the phone's own scrollbar: none in the standard property
+    // the phone's own scrollbar: none in the standard property AND in older WebKit/Blink (Safari < 18.2, Chromium < 121)
     const phone = /\.cl-phone(?![\w-])(?!.*::)/
     expect(valuesOn(phone, /^scrollbar-width$/)).toEqual(expect.arrayContaining(['none']))
     expect(valuesOn(phone, /^scrollbar-width$/).filter((v) => v !== 'none')).toEqual([])
