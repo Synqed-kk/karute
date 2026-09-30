@@ -180,7 +180,7 @@ MUTANTS = [
                        'SF-4 M5: three same-day placeholders']),
     # M-O17 — the row / reply stop telling the record's link (commit 15, SF-5)
     ('M-O17a', 'appointmentLinkOf loses `kept` (a kept link reads as null again)',
-     [(LINK, "  return linkReason ?? (kept ? 'kept' : (autoLink ?? null))\n", '  return linkReason ?? autoLink ?? null // M-O17a\n')],
+     [(LINK, "  return linkReason ?? kept ?? autoLink ?? null\n", '  return linkReason ?? autoLink ?? null // M-O17a\n')],
      [SAVE_T, JOB_T], ['SF-5 F-6: a kept-link converge → row and reply say kept', 'SF-5 F-6: a kept-link converge → the row says kept']),
     ('M-O17b', "the facade's row and reply name the payload's booking, not the record's",
      [(CORE, "    const result = { ...persisted, appointmentLink:",
@@ -252,7 +252,7 @@ MUTANTS = [
     # M-O10 — the one appointment_link expression loses the degraded reason
     # (commit 8): BOTH the reply and the row must go red — both call it.
     ('M-O10', 'appointmentLinkOf drops the degraded-booking reason',
-     [(LINK, "  return linkReason ?? (kept ? 'kept' : (autoLink ?? null))\n", "  return kept ? 'kept' : (autoLink ?? null) // M-O10\n")],
+     [(LINK, "  return linkReason ?? kept ?? autoLink ?? null\n", "  return kept ?? autoLink ?? null // M-O10\n")],
      [SAVE_T, f'{IT}/karute-save-audit.test.ts'],
      ["booking not found → 200, saved in the caller's store, link dropped",
       'booking not found → saved, one karute.save row with severity notice and appointment_link appointment_not_found']),
@@ -291,13 +291,26 @@ MUTANTS = [
      [JOB_T], ["W-C a: an auto-link HIT on the converge", "W-C c: the converge's auto-link searches the RECORD's store"]),
     # M-O41..M-O42 — X4/X5 (r6 attack; S70 fix round 6, commit 35): `??` on the converge's returned link
     ('M-O41', "the facade converge falls back on a returned null (the row and the reply name a link the record no longer holds)",
-     [(CORE, '        appointmentId: returnedOr(updated?.appointment_id, appointmentId ?? null),\n',
-       '        appointmentId: updated?.appointment_id ?? (appointmentId ?? null), // M-O41\n')],
+     [(CORE, '      const effective = returnedOr(updated?.appointment_id, appointmentId ?? null)\n',
+       '      const effective = updated?.appointment_id ?? (appointmentId ?? null) // M-O41\n')],
      [SAVE_T], ['A2-facade: the update RETURNS no link']),
     ('M-O42', "the worker converge falls back on a returned null (the row names a link the record no longer holds)",
      [(WORKER, '    const appointmentId = returnedOr(\n      updated?.appointment_id,\n      fill.kept ? fill.appointmentId : (fill.given ?? autoLinked?.appointmentId ?? null),\n    )\n',
        '    const appointmentId =\n      updated?.appointment_id ??\n      (fill.kept ? fill.appointmentId : (fill.given ?? autoLinked?.appointmentId ?? null)) // M-O42\n')],
      [JOB_T], ['W-C d: the update RETURNS no link']),
+    # M-O43..M-O45 — G-3 (S71 fix round 7, RULING-S71-G3-G4): the kept word follows the returned record
+    ('M-O43', "keptLinkAfterWrite says kept whenever the save left the link alone (drops the compare with the returned link)",
+     [(LINK, "  return effectiveAfter === linkedBefore ? 'kept' : 'changed'\n", "  return 'kept' // M-O43\n")],
+     [SAVE_T, JOB_T], ['G-3 (ii): the update returns NO link', 'G-3 (iii): the update returns ANOTHER link',
+                       'G-3 (ii) job: a kept path whose update returns NO link', 'G-3 (iii) job: a kept path whose update returns ANOTHER link']),
+    ('M-O44', "the facade checks the kept word against the computed link, not the returned one",
+     [(CORE, '        keptLink: keptLinkAfterWrite(keptLink, appointmentId ?? null, effective),\n',
+       '        keptLink: keptLinkAfterWrite(keptLink, appointmentId ?? null, appointmentId ?? null), // M-O44\n')],
+     [SAVE_T], ['G-3 (ii): the update returns NO link', 'G-3 (iii): the update returns ANOTHER link']),
+    ('M-O45', "the worker checks the kept word against the computed link, not the returned one",
+     [(WORKER, '      keptLink: keptLinkAfterWrite(fill.kept, fill.kept ? fill.appointmentId : null, appointmentId),\n',
+       '      keptLink: keptLinkAfterWrite(fill.kept, fill.kept ? fill.appointmentId : null, fill.kept ? fill.appointmentId : null), // M-O45\n')],
+     [JOB_T], ['G-3 (ii) job: a kept path whose update returns NO link', 'G-3 (iii) job: a kept path whose update returns ANOTHER link']),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)
     ('M-G1', '`return await emitSave(...)` (the S67 list failure)',
      [(CORE, '  return emitSave({\n    id: record.id,\n', '  return await emitSave({\n    id: record.id,\n')],
