@@ -37,15 +37,38 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+// The manifest is checked whole at load: every key the harness reads, each failure a named error, so a
+// drifted or half-edited manifest stops the run before anything is exported or emitted.
+function loadManifest(file) {
+  const bad = (key, why) => { throw new Error(`parity.manifest.json: ${key} ${why}`) }
+  let m
+  try { m = JSON.parse(readFileSync(file, 'utf8')) } catch (e) { throw new Error(`parity.manifest.json: cannot be read as JSON (${file}): ${e.message}`) }
+  if (!m || typeof m !== 'object' || Array.isArray(m)) bad('(root)', 'must be a JSON object')
+  if (typeof m.reservePin !== 'string' || !/^[0-9a-f]{40}$/.test(m.reservePin)) bad('reservePin', `must be a full 40-hex sha, got ${JSON.stringify(m.reservePin)}`)
+  if (!m.expect || typeof m.expect !== 'object') bad('expect', 'must be an object { verbatim, scoped }')
+  for (const k of ['verbatim', 'scoped']) if (!Number.isInteger(m.expect[k]) || m.expect[k] < 1) bad(`expect.${k}`, `must be a positive integer, got ${JSON.stringify(m.expect[k])}`)
+  const RANGE_KEYS = ['satin-material.ts', 'member-card-vars.ts', 'ReserveCardPreview.tsx']
+  if (!m.reserveRanges || typeof m.reserveRanges !== 'object' || Array.isArray(m.reserveRanges)) bad('reserveRanges', 'must be an object')
+  const got = Object.keys(m.reserveRanges)
+  if (got.length !== RANGE_KEYS.length || !RANGE_KEYS.every((k) => got.includes(k))) bad('reserveRanges', `must have exactly the keys ${RANGE_KEYS.join(', ')}, got ${got.join(', ') || '(none)'}`)
+  for (const k of RANGE_KEYS) if (typeof m.reserveRanges[k] !== 'string' || !m.reserveRanges[k].trim()) bad(`reserveRanges["${k}"]`, 'must be a non-empty string')
+  if (!m.leftOut || typeof m.leftOut !== 'object') bad('leftOut', 'must be an object')
+  if (typeof m.leftOut.excludedFrom !== 'string' || !m.leftOut.excludedFrom.trim()) bad('leftOut.excludedFrom', 'must be a non-empty string')
+  for (const k of ['excluded', 'notPorted']) {
+    const list = m.leftOut[k]
+    if (!Array.isArray(list)) bad(`leftOut.${k}`, 'must be an array of [range, why] pairs')
+    list.forEach((e, i) => { if (!Array.isArray(e) || e.length !== 2 || e.some((s) => typeof s !== 'string' || !s.trim())) bad(`leftOut.${k}[${i}]`, 'must be a [string, string] pair') })
+  }
+  return m
+}
 // real paths only: Vite's fs.allow compares realpaths, so a symlinked root (macOS /var → /private/var under
 // os.tmpdir()) would be refused and the port app would render nothing
 const ROOT = realpathSync(resolve(process.env.PARITY_REPO ?? resolve(HERE, '../../..')))
 const require = createRequire(join(ROOT, 'package.json'))
 // ONE truth for the pin and the prose lists PARITY.md prints: the in-territory manifest beside the port (R62),
 // so a Business re-port edits the manifest + the port files only, never this script.
-const MANIFEST = JSON.parse(readFileSync(join(ROOT, 'src/business/lib/reserve-card/parity.manifest.json'), 'utf8'))
+const MANIFEST = loadManifest(join(ROOT, 'src/business/lib/reserve-card/parity.manifest.json'))
 const PIN = MANIFEST.reservePin
-if (!/^[0-9a-f]{40}$/.test(PIN)) throw new Error(`parity.manifest.json: reservePin must be a full 40-hex sha, got ${JSON.stringify(PIN)}`)
 const SHORT = PIN.slice(0, 7)
 const RANGES = MANIFEST.reserveRanges
 const RESERVE = resolve(process.env.RESERVE_REPO ?? join(ROOT, '../reserve'))
@@ -308,7 +331,7 @@ function writeParityMd(verbatim, scopedCheck) {
   const ranges = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) \*\//g)].map((m) => `${m[1]}–${m[2]}`)
   // a SCOPED marker never matches the verbatim pattern above, so these blocks are neither checked nor listed as verbatim
   const scoped = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/g)].map((m) => `${m[1]}–${m[2]}`)
-  const PIN_DATE = sh('git', ['-C', RESERVE, 'log', '-1', '--format=%ci', PIN]).trim()
+  const PIN_DATE = sh('git', ['-C', RESERVE, 'log', '-1', '--no-show-signature', '--format=%ci', PIN]).trim()
   const md = `# Reserve member-card port — parity record
 
 Source pin: \`Synqed-kk/reserve\` @ \`${PIN}\` (${PIN_DATE}).
@@ -559,6 +582,8 @@ function checkVerbatim() {
       const m = l.match(re)
       if (!m) return
       const [path, a, b] = fixed ? [fixed(), +m[1], +m[2]] : [where[m[1]] ?? m[1], +m[2], +m[3]]
+      // an empty or inverted range would compare [] with [] and pass: it is a broken marker, never a proof
+      if (a < 1 || b < a) { all++; bad.push(`${file}:${i + 1} (${path}:${a}–${b} — empty range)`); return }
       const want = show(path).slice(a - 1, b), got = lines.slice(i + 1, i + 1 + want.length)
       all++
       if (JSON.stringify(want) === JSON.stringify(got)) ok++
