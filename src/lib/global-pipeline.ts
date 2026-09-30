@@ -13,7 +13,12 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { ensureFinalizedPath, readTakeSecureMeta, settleTakeAfterSave } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { AUDIO_UNREADABLE, DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
+import {
+  AUDIO_PARTIAL,
+  AUDIO_UNREADABLE,
+  DISCARDED_BY_STAFF,
+  damagedAudioCode,
+} from '@/lib/recording/job-errors'
 import type { RecordingJobStatusView } from '@/actions/recording-jobs'
 
 /**
@@ -162,9 +167,6 @@ const PIPELINE_ERROR_CODES = new Map<string, PipelineErrorCode>([
   [CONSENT_REQUIRED_ERROR, 'consent-required'],
   ['EMPTY_TRANSCRIPT', 'empty-transcript'],
   [DISCARDED_BY_STAFF, 'discarded'],
-  [AUDIO_UNREADABLE, 'audio-unreadable'],
-  ['unreadable_object', 'audio-unreadable'],
-  ['audio_partial', 'audio-partial'],
 ])
 
 export function pipelineErrorCode(err: unknown): PipelineErrorCode {
@@ -173,10 +175,13 @@ export function pipelineErrorCode(err: unknown): PipelineErrorCode {
       ? 'EMPTY_TRANSCRIPT'
       : err instanceof DamagedAudioError
         ? err.kind === 'partial'
-          ? 'audio_partial'
+          ? AUDIO_PARTIAL
           : AUDIO_UNREADABLE
         : err
-  return (typeof word === 'string' && PIPELINE_ERROR_CODES.get(word)) || 'unknown'
+  // The damaged-audio arm lives in job-errors.ts (R-A3) — the row asks it too.
+  return (
+    (typeof word === 'string' && PIPELINE_ERROR_CODES.get(word)) || damagedAudioCode(word) || 'unknown'
+  )
 }
 
 type Listener = () => void

@@ -146,6 +146,9 @@ export function RecordingsInboxCard({
 
   function reasonFor(row: InboxRow): string | null {
     if (!row.reason) return null
+    // PR-B 4b (R-I2): damaged audio reads the error card's own sentence.
+    if (row.reason === 'audioUnreadable') return tRec('pipelineErrorAudioUnreadable')
+    if (row.reason === 'audioPartial') return tRec('pipelineErrorAudioPartial')
     // UPDATE 25 GROUP A, piece c — superseded: `reason.emptyTranscript` is its
     // own inbox-namespace key now. A row's sub-line and the error card's
     // sentence are two REGISTERS of one fact (this file's siblings all read

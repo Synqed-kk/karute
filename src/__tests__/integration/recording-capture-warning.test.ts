@@ -441,9 +441,16 @@ describe('the bell — karuteMissingReasonKey', () => {
   it.each([
     ['warnedDevice', 'reason.warned_device'],
     ['warnedServer', 'reason.warned_server'],
+    // PR-B 4b (RULING-S74-AUDIT-REASON R-A5): the damaged-audio rows, additive.
+    ['audioUnreadable', 'reason.audio_unreadable'],
+    ['audioPartial', 'reason.audio_partial'],
   ])('t8: %s → %s, labelled in ja AND en', (reason, key) => {
     expect(karuteMissingReasonKey(reason)).toBe(key)
-    const code = key.slice('reason.'.length) as 'warned_device' | 'warned_server'
+    const code = key.slice('reason.'.length) as
+      | 'warned_device'
+      | 'warned_server'
+      | 'audio_unreadable'
+      | 'audio_partial'
     expect(ja.settings.auditLog.reason[code]).toEqual(expect.any(String))
     expect(en.settings.auditLog.reason[code]).toEqual(expect.any(String))
     expect(ja.settings.auditLog.reason[code].length).toBeGreaterThan(0)
