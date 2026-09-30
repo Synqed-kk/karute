@@ -101,6 +101,28 @@ describe('S7 — resolveAutoAppointmentLink, the guardrail', () => {
   it('a booking with no length links nothing', async () => {
     expect((await run(client([booking({ ends_at: '2026-09-29T07:30:00Z', duration_minutes: null })]).c)).link).toBe('none')
   })
+  // A19 (S69 fix round 4, commit 31): the three conditions Astra predicted
+  // would survive a mutant (the window's edges, the duration fallback, the
+  // condition-6 query's booking filter), each pinned on its own.
+  it('A19 M-O21: the window edges are inclusive (start − own, start + 2 × own link; one ms outside does not)', async () => {
+    // 60-min booking 07:30–08:30Z → window 06:30:00Z … 09:30:00Z, both ends in.
+    expect((await run(client([booking()]).c, { sessionStartedAt: '2026-09-29T06:30:00.000Z' })).link).toBe('auto_linked')
+    expect((await run(client([booking()]).c, { sessionStartedAt: '2026-09-29T09:30:00.000Z' })).link).toBe('auto_linked')
+    expect((await run(client([booking()]).c, { sessionStartedAt: '2026-09-29T06:29:59.999Z' })).link).toBe('none')
+    expect((await run(client([booking()]).c, { sessionStartedAt: '2026-09-29T09:30:00.001Z' })).link).toBe('none')
+  })
+  it('A19 M-O22: a booking with no usable end time is measured by its duration_minutes', async () => {
+    // ends_at == starts_at (no span) + duration 60 → window 06:30–09:30Z: 07:44:39Z inside.
+    expect(await run(client([booking({ ends_at: '2026-09-29T07:30:00Z', duration_minutes: 60 })]).c)).toEqual({
+      link: 'auto_linked', appointmentId: 'appt-1',
+    })
+  })
+  it('A19 M-O23: condition 6 asks core for the karute pointing at THIS booking', async () => {
+    const { c, karuteList } = client([booking()])
+    expect((await run(c)).link).toBe('auto_linked')
+    expect(karuteList).toHaveBeenCalledTimes(1)
+    expect(karuteList).toHaveBeenCalledWith({ appointment_id: 'appt-1', page_size: 5 })
+  })
   // S-3 (S68 fix round 3): a failed read is NOT evaluated — its own word,
   // never 'none' ("no booking qualifies"); the function still never throws.
   const readFailed = (warn: jest.SpyInstance) =>
