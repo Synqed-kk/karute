@@ -995,3 +995,60 @@ describe('A9 — an auto answer is not the staff\'s', () => {
     expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, expect.objectContaining({ status: 'revisit' }))
   })
 })
+
+// SF-1 / SF-2 / SF-3 (r5 delta read; S70 fix round 5, commit 34, test-only):
+// the worker's converge is pinned — an auto-link HIT is written, the row
+// carries the id the update RETURNED, and the auto-link searches the RECORD's
+// store (never the payload's).
+describe("W-C — the worker's converge is pinned", () => {
+  const client = fakeClient as unknown as Record<string, Record<string, unknown>>
+  const appt = (id: string, storeId: string) => ({
+    id, customer_id: 'cust-1', store_id: storeId, starts_at: '2026-09-29T07:30:00Z', ends_at: '2026-09-29T08:30:00Z',
+    duration_minutes: 60, status: 'SCHEDULED', cancelled_at: null,
+  })
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  afterEach(() => {
+    delete client.appointments.list
+    delete client.karuteRecords.list
+  })
+  // The record lives in store-A; the job's payload names store-B.
+  const converge = async (appts: object[], payload: Record<string, unknown> = {}) => {
+    client.appointments.list = jest.fn(async () => ({ appointments: appts, total: appts.length }))
+    client.karuteRecords.list = jest.fn(async () => ({ karute_records: [] }))
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A', customer_id: 'cust-1', appointment_id: null } as never)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, store_id: 'store-B', session_started_at: '2026-09-29T07:44:39Z', ...payload } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    expect(karuteRecordsUpdate).toHaveBeenCalledTimes(1)
+    expect(karuteRecordsCreate).not.toHaveBeenCalled()
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return {
+      sent: (karuteRecordsUpdate.mock.calls[0] as unknown[])[1] as Record<string, unknown>,
+      detail: (rows[0][0] as { detail: Record<string, unknown> }).detail,
+    }
+  }
+
+  it('W-C a: an auto-link HIT on the converge → the update body carries the auto-linked id; the row says auto_linked', async () => {
+    const { sent, detail } = await converge([appt('appt-1', 'store-A')])
+    expect(sent).toMatchObject({ appointment_id: 'appt-1' })
+    expect(detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-1' })
+  })
+  it('W-C b: the update RETURNS a different link → the row carries the RETURNED id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: 'appt-RETURNED' } as never)
+    const { sent, detail } = await converge([], { appointment_id: 'appt-new' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-new' })
+    expect(detail).toMatchObject({ appointment_id: 'appt-RETURNED' })
+  })
+  it("W-C c: the converge's auto-link searches the RECORD's store, never the payload's", async () => {
+    await converge([])
+    expect(client.appointments.list).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'cust-1', store_id: 'store-A' }))
+    expect(client.appointments.list).not.toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-B' }))
+  })
+})
