@@ -41,6 +41,10 @@ describe('R57 V2 — the strip sign-out', () => {
     expect(nav).not.toHaveBeenCalled()
     expect(screen.getByRole('status').textContent).toBe('ログアウトできませんでした。もう一度お試しください。')
     expect((btn as HTMLButtonElement).disabled).toBe(false)
+    expect(btn.getAttribute('aria-busy')).toBe('false')
+    // RETRY: the in-flight guard is released on failure, so a second click sends a second POST.
+    await act(async () => { fireEvent.click(btn) })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('a rejected fetch (network) never navigates and prints S4', async () => {
@@ -70,8 +74,12 @@ describe('S41 — sign-out returns to Business via next=', () => {
     let resolve!: (v: unknown) => void
     setFetch(jest.fn(() => new Promise((r) => { resolve = r })))
     render(<BusinessSignOutButton locale="ja" label={S.signOut} failed={S.signOutFailed} />)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: S.signOut })) })
+    const btn = screen.getByRole('button', { name: S.signOut })
+    await act(async () => { fireEvent.click(btn) })
     expect(nav).not.toHaveBeenCalled()
+    // PENDING: while the POST is in flight the control is disabled and aria-busy.
+    expect((btn as HTMLButtonElement).disabled).toBe(true)
+    expect(btn.getAttribute('aria-busy')).toBe('true')
     await act(async () => { resolve(reply(200)) })
     expect(nav).toHaveBeenCalledTimes(1)
     expect(nav).toHaveBeenCalledWith('/ja/login?next=%2Fja%2Fbusiness%2Freservations')
@@ -83,6 +91,25 @@ describe('S41 — sign-out returns to Business via next=', () => {
     const btn = screen.getByRole('button', { name: S.signOut })
     await act(async () => { btn.click(); btn.click() })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the REAL navigation seam', () => {
+  it('signOutNav.replace calls location.replace once with the href, never assign', () => {
+    nav.mockRestore()
+    const saved = Object.getOwnPropertyDescriptor(window, 'location')!
+    const fake = { replace: jest.fn(), assign: jest.fn(), href: '' }
+    Object.defineProperty(window, 'location', { value: fake, configurable: true, writable: true })
+    try {
+      signOutNav.replace('/ja/login?next=x')
+      expect(fake.replace).toHaveBeenCalledTimes(1)
+      expect(fake.replace).toHaveBeenCalledWith('/ja/login?next=x')
+      expect(fake.assign).not.toHaveBeenCalled()
+      expect(fake.href).toBe('')
+    } finally {
+      Object.defineProperty(window, 'location', saved)
+      nav = jest.spyOn(signOutNav, 'replace').mockImplementation(() => {})
+    }
   })
 })
 
