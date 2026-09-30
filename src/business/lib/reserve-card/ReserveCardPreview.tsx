@@ -1,5 +1,5 @@
 'use client'
-// Verified port of Synqed-kk/reserve @ c2a9f9543187 (2026-09-23 20:52 JST) — the member card's
+// Verified port of Synqed-kk/reserve @ 4db48b73ba70 (2026-09-30 19:37 JST) — the member card's
 // three surfaces as Reserve draws them: the big Home card (.mcard), the small card (.tcard) and the
 // store cover (.salon-cover). Never a second drawing: the markup below is Reserve's JSX, the two
 // measure effects are byte-identical copies, and the look lives in reserve-card.css (verbatim rules).
@@ -12,7 +12,7 @@
 //   code beyond what the CSS carries), so the sheen's ref and the cover's coverRef are dropped.
 // - lucide-react icons are inlined as the exact <svg> lucide-react 1.24.0 (Reserve's lockfile) renders —
 //   Business territory may import only react/next (business-isolation.test.ts).
-// - i18n keys are printed as the Japanese Reserve's ja/member.json holds at c2a9f95.
+// - i18n keys are printed as the Japanese Reserve's ja/member.json holds at 4db48b7.
 // - The customer context is Reserve's own demo member at a fixed date (the approved mock's 9/14 sample):
 //   greeting, next visit, chips, the small card's line. The NAME, branch, address and colour are the props.
 // - The small card (.tcard) shows THIS business's own name (isolation law), never another business's.
@@ -23,8 +23,11 @@
 //   declarations byte-identical to Reserve.
 // - reserve-card.css index.css:237–246 (.tap44) is SCOPED, not verbatim: selectors prefixed `.member-ground `,
 //   declarations byte-identical to Reserve.
-// - The cover's no-store branch is ported (Reserve's `store ? … : …`): an empty storeLine prints the category
-//   and 「いつでもご予約いただけます」 in the same two <p>s. The category is fixed to GENERIC 「お店」 because the
+// - The cover's lines 2 and 3 are Reserve's two <p>s, fed by coverLinesOf below: the SHAPE of Reserve's
+//   member-ia.ts coverLines (458–479), never its data (store lookup, practice hours, closures, clock). A
+//   storeLine with an address prints Reserve's store branch (shortName + the address split at the Latin
+//   building name); a storeLine without one prints no line 3 (Reserve's `null`, e.g. a practice store whose
+//   hours Business does not hold); an empty storeLine prints the category and 「いつでもご予約いただけます」. The category is fixed to GENERIC 「お店」 because the
 //   port carries no business type. Fallback branch: same markup as Reserve, not pixel-proven (no store-less
 //   case in the harness set).
 // - The first chip's crown drops Reserve's rank gate (`me.salons.some(… && salon.rank)`): the port's sample
@@ -51,7 +54,7 @@ export interface ReserveCardPreviewProps {
   view: "home" | "store";
 }
 
-// The demo member Reserve's mock shows at c2a9f95 (src/lib/mock.ts + ja/member.json), frozen on the
+// The demo member Reserve's mock shows at 4db48b7 (src/lib/mock.ts + ja/member.json), frozen on the
 // approved mock's date (MOCK-SWITCHBOARD-v2 BIZ.laestro.next = 9/14（月）14:30).
 const SAMPLE = {
   greetHi: "こんにちは",
@@ -89,7 +92,7 @@ function Crown({ size }: { size: number }) {
   );
 }
 
-// reserve src/components/customer/membership-date.tsx:1–6 @ c2a9f95, verbatim
+// reserve src/components/customer/membership-date.tsx:1–6 @ 4db48b7, verbatim
 /** Shared date markup from the approved mock; the weekday keeps its smaller size. */
 export function MembershipDate({ value }: { value: string }) {
   return <>{value.split(/(（[^）]*）)/).map((part, index) =>
@@ -127,7 +130,7 @@ export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, a
   );
 }
 
-/** reserve studio-home.tsx MembershipCard (359–517) — the card block, static. */
+/** reserve studio-home.tsx MembershipCard (376–539) — the card block, static. */
 function MembershipCard({
   row,
   storeLine,
@@ -139,7 +142,7 @@ function MembershipCard({
 }) {
   const cardRef = useRef<HTMLAnchorElement>(null);
   const chips = SAMPLE.chips;
-  // studio-home.tsx:417–455 @ c2a9f95, verbatim
+  // studio-home.tsx:434–472 @ 4db48b7, verbatim
   const probeRef = useRef<HTMLSpanElement>(null);
   const [nameIsLong, setNameIsLong] = useState(false);
   useLayoutEffect(() => {
@@ -206,7 +209,7 @@ function MembershipCard({
             {storeLine}
           </span>
         )}
-        {/* studio-home.tsx NextVisitBody (621–626), static */}
+        {/* studio-home.tsx NextVisitBody (644–649), static */}
         <span className="mcard__mid">
           <span className="mcard__eb" data-morph-label>{SAMPLE.nextBooking}</span>
           <span className="mcard__big" data-morph-date><MembershipDate value={SAMPLE.nextAt} /></span>
@@ -231,7 +234,7 @@ function MembershipCard({
   );
 }
 
-/** reserve studio-home.tsx TenantCard (648–682) — the small card, static. */
+/** reserve studio-home.tsx TenantCard (671–706) — the small card, static. */
 function TenantCard({ row, cardTheme }: { row: { tenant: { displayName: string } }; cardTheme: BrandTheme }) {
   const chips = SAMPLE.chips;
   return (
@@ -253,7 +256,13 @@ function TenantCard({ row, cardTheme }: { row: { tenant: { displayName: string }
   );
 }
 
-/** reserve studio-salon.tsx StudioCover (37–231) — the cover, static. */
+/** reserve member-ia.ts coverLines (458–479) — the cover's lines 2 and 3, its SHAPE only (see the header). */
+function coverLinesOf(storeLine: string, address?: string): { line2: string; line3: string | string[] | null } {
+  if (storeLine) return { line2: storeLine, line3: address ? address.replace(/\s+(?=[A-Z])/, "\n").split("\n") : null };
+  return { line2: SAMPLE.coverCategory, line3: SAMPLE.smallLine };
+}
+
+/** reserve studio-salon.tsx StudioCover (42–238) — the cover, static. */
 function StudioCover({
   tenant,
   storeLine,
@@ -265,7 +274,8 @@ function StudioCover({
   address?: string;
   theme: BrandTheme;
 }) {
-  // studio-salon.tsx:56–102 @ c2a9f95, verbatim
+  const { line2, line3 } = coverLinesOf(storeLine, address);
+  // studio-salon.tsx:75–121 @ 4db48b7, verbatim
   const nameRef = useRef<HTMLHeadingElement>(null);
   const probeRef = useRef<HTMLSpanElement>(null);
   const [nameIsLong, setNameIsLong] = useState(false);
@@ -340,27 +350,12 @@ function StudioCover({
         <span className="salon-cover__wm-probe" aria-hidden="true" ref={probeRef}>
           {tenant.displayName}
         </span>
-        {storeLine ? (
-          <>
-            <p className="salon-cover__st" data-morph-branch>
-              {storeLine}
-            </p>
-            {address && (
-              <p className="salon-cover__ad" data-morph-hide>
-                {address.replace(/\s+(?=[A-Z])/, "\n").split("\n").map((line, index) => <span key={index} className="block">{line}</span>)}
-              </p>
-            )}
-          </>
-        ) : (
-          <>
-            <p className="salon-cover__st" data-morph-branch>
-              {SAMPLE.coverCategory}
-            </p>
-            <p className="salon-cover__ad" data-morph-hide>
-              {SAMPLE.smallLine}
-            </p>
-          </>
-        )}
+        <p className="salon-cover__st" data-morph-branch>
+          {line2}
+        </p>
+        <p className="salon-cover__ad" data-morph-hide>
+          {Array.isArray(line3) ? line3.map((line, index) => <span key={index} className="block">{line}</span>) : line3}
+        </p>
       </div>
     </div>
   );
