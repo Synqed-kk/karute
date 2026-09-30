@@ -181,6 +181,9 @@ export interface RecordingPipelinePort {
     opts?: {
       stagedFor?: string | null
       stagedTake?: string | null
+      /** PR-B (build 32): the staged copy is DAMAGED (partial or unreadable) —
+       *  sent with `stagedFor` only, and only as `true` (never `partial: false`). */
+      partial?: boolean
       /** The unbound fallback only (S33): why the take's own row was not used. */
       attachOutcome?: AttachOutcome | null
       /** The visit, sent with `attachOutcome` only (S34): what a row the
@@ -503,6 +506,8 @@ export const webRecordingPort: RecordingPipelinePort = {
               stagedFor: opts.stagedFor,
               stagedTake: opts.stagedTake ?? null,
               mimeType: blob.type || undefined,
+              // PR-B R-1: the one web-side edit — a damaged copy says so.
+              ...(opts.partial === true ? { partial: true } : {}),
             }
           : opts?.attachOutcome
             ? {

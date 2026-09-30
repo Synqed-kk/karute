@@ -10,8 +10,20 @@ import {
   type TakeAudioFingerprint,
 } from '@/lib/karute/take-store'
 import { ensureAudioOnServer } from '@/lib/recording/secure-take'
+import { blobFate } from '@/lib/recording/blob-fate'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
+
+/** PR-B B2 (build 32): the blob is damaged — the phone refused the
+ *  server-named fallback door for it (never transcribed as complete). */
+export class DamagedAudioError extends Error {
+  readonly kind: 'partial' | 'unreadable'
+  constructor(kind: 'partial' | 'unreadable') {
+    super(`Audio is ${kind}.`)
+    this.name = 'DamagedAudioError'
+    this.kind = kind
+  }
+}
 
 /**
  * Represents each step of the AI processing pipeline.
@@ -345,6 +357,13 @@ export async function runAIPipeline(
     // exactly as before this round. A false that is the first-stamp-wins brace
     // is asked once more there and refused again in its own transaction:
     // nothing is written twice.
+    // ⚖ THE SERVER-NAMED FALLBACK REFUSES A DAMAGED BLOB (PR-B B1/B4, R-2).
+    // No `stagedFor` is ever sent from here, so this IS the write-once door:
+    // a damaged verdict uploads nothing and the take keeps its local copy.
+    if (!finalizedPath) {
+      const fate = await blobFate(audioBlob, { bytesEmitted: meta?.bytesEmitted })
+      if (fate !== 'ok') throw new DamagedAudioError(fate)
+    }
     const upload = { adopted: false }
     const { body: transcribeBody, path: mintedPath, recordingSessionId: minted } =
       await recordingPort.prepareTranscription(

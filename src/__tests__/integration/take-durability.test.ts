@@ -6426,3 +6426,29 @@ describe('PR-B commit 1 — the recorder counts what it emits', () => {
     expect(await loadTakeBlobFacts('no-such-take')).toBeNull()
   })
 })
+
+describe('PR-B commit 2 — a damaged take is never pruned (B3, B-S66-3)', () => {
+  // The same three server-side facts that let the TTL collect an unsecurable
+  // take ('a staged copy the server holds releases the device copy', above) —
+  // staged, words settled, unsealable — plus ONE damaged code: the copy the
+  // server holds is the one the phone could not vouch for, so the device copy
+  // stays. The clock is jest's fake one, moved 8 days past the TTL.
+  it.each(['audio_unreadable', 'audio_partial', 'unreadable_object'])(
+    '%s: staged + words settled + 8 days on the fake clock → still on the device',
+    async (code) => {
+      const takeId = `take-damaged-${code}`
+      await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+      await appendTakeSegment(takeId, 0, new Blob(['aaa']))
+      await markTakeTailIncomplete(takeId)
+      await markTakeStaged(takeId, 'stg/biz_sess_take.webm')
+      await markDiscardTranscriptDone(takeId)
+      await markTakeSecureError(takeId, code)
+      jest.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000)
+
+      await listOwnTakes()
+      await drain()
+      expect(takes().has(JSON.stringify(takeId))).toBe(true)
+      expect((await loadTakeBlob(takeId))?.size).toBe(3)
+    },
+  )
+})

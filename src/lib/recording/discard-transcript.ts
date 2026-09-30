@@ -22,16 +22,19 @@
 import {
   clearTakeStaged,
   ensureFinalizedPath,
+  isDamagedTake,
   isUnsecurableTake,
   listPendingDiscardTakes,
   loadTakeBlob,
   markDiscardTranscriptDone,
+  markTakeSecureError,
   markTakeStaged,
   readTakeSecureMeta,
   stampDiscardPending,
   type DiscardPending,
 } from '@/lib/karute/take-store'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
 /** Whether this world can persist discard transcripts at all. Web: yes. Thin:
  *  yes since PHONEWIRE-2C — the phone's facade door landed, and the port's
@@ -181,6 +184,9 @@ export async function runDiscardTranscript(
     // sweep can still finish it.
     const meta = await readTakeSecureMeta(takeId)
     if (!meta) return
+    // PR-B B3 / B-S66-3 — the gate's FIRST line: a damaged take is never staged
+    // by this sweep, never transcribed off its staged copy, never marked done.
+    if (isDamagedTake(meta)) return
     // ⚖ AND A STAGED COPY IS STAGED ONCE (fix round 4). The staging below is a
     // whole-take upload, and the sweep fires on EVERY record-page mount: a
     // transcription that genuinely keeps answering `failed` re-uploaded tens of
@@ -245,6 +251,13 @@ export async function runDiscardTranscript(
       durationSeconds: pending.durationSeconds,
       locale: pending.locale,
     })
+    // PR-B B11 (cold FIX 7): a future `audio_unreadable` answer settles like a
+    // skip AND marks the take damaged — the card, never a retry.
+    if (
+      RECORDING_SWITCHES.stagedPartialDoor &&
+      (res as { error?: string }).error === 'audio_unreadable'
+    )
+      await markTakeSecureError(takeId, 'audio_unreadable')
     if (retryable(res)) return
     // ⚖ THE TRANSITIONAL COHORT (fix round 7). A take stamped BEFORE this round
     // carries a staged copy from round 4's staging — an anonymous, take-shaped

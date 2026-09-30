@@ -64,11 +64,14 @@ import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 // success only here, where finalize re-proves size and ownership afterwards;
 // see storage-put.ts's header.
 import { putDeadlineMs, putSaysAlreadyThere } from '@/lib/recording/storage-put'
+import { blobFate, damagedSecureCode } from '@/lib/recording/blob-fate'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
   isStoppedTake,
   loadTakeBlob,
   markTakeFinalized,
   markTakeSecureError,
+  markTakeStaged,
   markTakeStartBoundAttempted,
   readTakeSecureMeta,
   stampTakeSession,
@@ -143,7 +146,15 @@ export async function secureTake(
     // that rule). Mark NOTHING — the take has not FAILED at anything, it is
     // simply not whole, and that is a truth for a human to act on, not an
     // error to retry against.
-    if (meta.tailIncomplete) return
+    //
+    // ⚖ …AND SINCE PR-B (B11, RULING-S72-PRB-C2-STOPS STOP 1) IT GOES TO THE
+    // STAGED DOOR. A known partial must reach the server — but never under the
+    // take key. With `stagedPartialDoor` ON and a session settled, the take is
+    // taken to secureBlob with `tailIncomplete`, whose verdict is never 'ok':
+    // the staged copy with `partial: true`, then `audio_partial`. No session →
+    // the local hold, marked nothing (B4). OFF → today's early return.
+    const tailIncomplete = meta.tailIncomplete === true
+    if (tailIncomplete && !(RECORDING_SWITCHES.stagedPartialDoor && meta.recordingSessionId)) return
     // ⚖ NO STOP STAMP, NO SECURING (fix round 6) — the belt's second half.
     // isActive above can only answer for the take the recorder in THIS runtime
     // is holding; a stop that happened off-page (the staffer navigates to 記録
@@ -172,7 +183,8 @@ export async function secureTake(
     // number on the row is.
     if (measuredSeconds === undefined && isStoppedTake(takeId, meta, isActive))
       measuredSeconds = Math.max(0, meta.updatedAt - meta.startedAt) / 1000
-    if (measuredSeconds === undefined) return
+    // A tailIncomplete take never reaches the finalize (its verdict is damaged).
+    if (measuredSeconds === undefined && !tailIncomplete) return
     // A refusal that can never turn into a yes — see TERMINAL_SECURE_ERRORS
     // (it lives in take-store, beside the field it judges). Read BEFORE the
     // blob so a terminal take costs one meta read, not a re-upload.
@@ -266,7 +278,10 @@ export async function secureTake(
           (await readTakeSecureMeta(takeId))?.recordingSessionId ?? recordingSessionId
     }
 
-    await secureBlob(port, blob, takeId, recordingSessionId, mimeType, measuredSeconds)
+    await secureBlob(port, blob, takeId, recordingSessionId, mimeType, measuredSeconds ?? 0, {
+      bytesEmitted: meta.bytesEmitted,
+      tailIncomplete,
+    })
   } catch (err) {
     // A dead socket, or a door that threw instead of answering. The take keeps
     // its audio and stays un-finalized, which is exactly what the retry looks
@@ -320,7 +335,9 @@ export async function ensureAudioOnServer(
     inFlight.add(takeId)
     try {
       const mimeType = meta?.mimeType || blob.type || DEFAULT_MIME
-      return await secureBlob(port, blob, takeId, session, mimeType, durationSeconds)
+      return await secureBlob(port, blob, takeId, session, mimeType, durationSeconds, {
+        bytesEmitted: meta?.bytesEmitted,
+      })
     } finally {
       inFlight.delete(takeId)
     }
@@ -343,7 +360,26 @@ async function secureBlob(
   recordingSessionId: string,
   mimeType: string,
   measuredSeconds: number,
+  facts: { bytesEmitted?: number; tailIncomplete?: boolean },
 ): Promise<string | null> {
+  // ⚖ A DAMAGED BLOB NEVER SEALS THE TAKE KEY (PR-B commit 2 — B1, B5, R-2).
+  // The verdict is taken ONCE, here, before a door is chosen; this is the
+  // branch split, so it is applied here and nowhere downstream. Damaged →
+  // the STAGED door (which never refuses it) with `partial: true`: never
+  // mint, PUT or finalize the take key. The staged path and the terminal code
+  // are written ONLY after that door answers (a 2xx PUT or a size match);
+  // any refusal throws to the caller's catch — today's retry path.
+  const fate = await blobFate(blob, facts)
+  if (fate !== 'ok') {
+    const staged = await port.prepareTranscription(blob, null, {
+      stagedFor: recordingSessionId,
+      stagedTake: takeId,
+      partial: true,
+    })
+    await markTakeStaged(takeId, staged.path)
+    await markTakeSecureError(takeId, damagedSecureCode(fate))
+    return null
+  }
   // The row the mint RESERVES this key on — never null now, and never
   // re-pointed from the reply: a take's row is what its discard and its
   // karute write against.

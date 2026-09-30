@@ -138,6 +138,27 @@ const STAMP_RETRY_MS = 50
  *  readers need it — secure-take's own guard and the drain read below.
  *  (Importing it the other way round would make this module and secure-take a
  *  cycle.) One home, one list. */
+/** PR-B B3 (build 32): the codes of a take whose audio is DAMAGED — the phone
+ *  refused to seal it (`audio_unreadable` / `audio_partial`, written only
+ *  after its staged copy landed) or finalize refused the object
+ *  (`unreadable_object`). Terminal for the 60-s loop, never for the local
+ *  copy: serverHoldsTake and the discard sweep both refuse such a take, so it
+ *  is never staged by the sweep, never marked done, never pruned. */
+export const DAMAGED_SECURE_CODES: ReadonlySet<string> = new Set([
+  'audio_unreadable',
+  'audio_partial',
+  'unreadable_object',
+])
+
+/** The one reading of DAMAGED_SECURE_CODES (B3); `stagedPartialDoor` OFF = never. */
+export function isDamagedTake(meta: Pick<TakeMeta, 'secureError'>): boolean {
+  return (
+    RECORDING_SWITCHES.stagedPartialDoor &&
+    meta.secureError !== undefined &&
+    DAMAGED_SECURE_CODES.has(meta.secureError)
+  )
+}
+
 export const TERMINAL_SECURE_ERRORS = new Set([
   'bad_input',
   'forbidden',
@@ -164,6 +185,9 @@ export const TERMINAL_SECURE_ERRORS = new Set([
   // renegotiate, and a retry sends the identical rejected value.
   'bad_take_id',
   'bad_mime',
+  // PR-B B2/B3: a damaged take — re-uploading the same bytes can only produce
+  // the same answer. Read at module load, so the OFF state is today's set.
+  ...(RECORDING_SWITCHES.stagedPartialDoor ? [...DAMAGED_SECURE_CODES] : []),
 ])
 
 /**
@@ -1073,6 +1097,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'heartbeatAt'
   | 'tailIncomplete'
   | 'stopPendingAt'
+  | 'bytesEmitted'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -1092,6 +1117,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     heartbeatAt: meta.heartbeatAt,
     tailIncomplete: meta.tailIncomplete,
     stopPendingAt: meta.stopPendingAt,
+    bytesEmitted: meta.bytesEmitted,
   }
 }
 
@@ -1390,6 +1416,9 @@ export function serverHoldsTake(
     | 'secureError'
   >,
 ): boolean {
+  // PR-B B3 / B-S66-3: a damaged take is NEVER held by the server — its staged
+  // copy is what the phone could not vouch for — so it is never pruned.
+  if (isDamagedTake(meta)) return false
   if (meta.finalizedAt) return true
   return (
     typeof meta.stagedPath === 'string' &&

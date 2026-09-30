@@ -75,6 +75,9 @@ jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: (takeId: string) => mockReadSecureMeta(takeId),
   listPendingDiscardTakes: () => mockListPending(),
   loadTakeBlob: (takeId: string) => mockLoadTakeBlob(takeId),
+  // B3 (PR-B): the damaged-take gate the run now reads first — no take here is damaged.
+  isDamagedTake: () => false,
+  markTakeSecureError: jest.fn(),
   markTakeStaged: (takeId: string, stagedPath: string) => mockMarkTakeStaged(takeId, stagedPath),
   clearTakeStaged: (takeId: string) => mockClearTakeStaged(takeId),
   // ⚖ THE REAL RULE again (fix round 7): whether a take stamped by slice THREE

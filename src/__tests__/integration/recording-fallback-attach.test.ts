@@ -109,11 +109,13 @@ jest.mock('@/lib/ports/recording-port', () => ({
 const put = jest.fn(async (_url: string, _init: { body: Blob }) => ({ ok: true, status: 200 }) as Response)
 global.fetch = put as unknown as typeof fetch
 
+import { withContainerHead } from './helpers/container-head-fetch'
 import { runAIPipeline, takeLengthSeconds, type PipelineContext } from '@/lib/ai-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
-const memory = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
+// B-S66-2 (PR-B): a real container head, so the phone's sniff reads this mock as the recording it stands for.
+const memory = new Blob(withContainerHead('in-memory: every chunk the recorder captured', 'webm'), { type: 'audio/webm' })
 const run = (ctx: PipelineContext = {}) =>
   runAIPipeline(memory, TAKE, 'ja', () => {}, { durationSeconds: 42, ...ctx })
 
@@ -150,7 +152,8 @@ describe('t1 — a fallback with a known session lands on the ORIGINAL row, no n
 
 describe('⚖ stored bytes win whenever the store holds any (S33 R2)', () => {
   it('the PUT carries the STORED take, never the longer in-memory blob', async () => {
-    const stored = new Blob(['stored-prefix'], { type: 'audio/webm' })
+    // B-S66-2 (PR-B): a real container head, so the phone's sniff reads this mock as the recording it stands for.
+    const stored = new Blob(withContainerHead('stored-prefix', 'webm'), { type: 'audio/webm' })
     store.meta = { recordingSessionId: SESSION, mimeType: 'audio/webm', durationMs: 42_000, startedAt: 0, updatedAt: 1 }
     store.blob = stored
     await run({ recordingSessionId: SESSION })
