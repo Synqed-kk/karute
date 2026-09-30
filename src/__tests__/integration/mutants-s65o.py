@@ -271,6 +271,11 @@ MUTANTS = [
        '      await assertNotDiscardedByStaff(synqed, job.recording_session_id)\n'
        '      const outcomeSetActorId = await resolveActorUserId(synqed, payload.staff_id) // M-O39\n')],
      [JOB_T], ['A13 skip path: the actor read runs before the label write']),
+    # M-O40 — SF-5 (S70 fix round 5, commit 33): the customer fallback put back into the fill-only gate
+    ('M-O40', "the fill-only gate reads the payload's customer for a record with none (a guess links nobody's booking)",
+     [(WORKER, '    const fill = fillOnlyLinkOf({ customer_id: existing.customer_id ?? null, appointment_id: existing.appointment_id }, payload)\n',
+       '    const fill = fillOnlyLinkOf(recordLink, payload) // M-O40\n')],
+     [JOB_T], ["SF-5 job: a record with no customer never takes the payload's booking"]),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)
     ('M-G1', '`return await emitSave(...)` (the S67 list failure)',
      [(CORE, '  return emitSave({\n    id: record.id,\n', '  return await emitSave({\n    id: record.id,\n')],

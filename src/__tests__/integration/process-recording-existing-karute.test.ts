@@ -606,6 +606,22 @@ describe('S4 — the worker converge never clears a booking link', () => {
       delete c.appointments.list
     }
   })
+  // SF-5 (S70 fix round 5): the gate is strict — a record with NO customer is
+  // nobody's, so the payload's booking is never applied to it; the auto-link
+  // still runs for the S7 fallback customer (the payload's), as before.
+  it("SF-5 job: a record with no customer never takes the payload's booking; the auto-link runs for the fallback customer", async () => {
+    const c = fakeClient as unknown as { appointments: Record<string, unknown> }
+    const list = jest.fn(async () => ({ appointments: [], total: 0 }))
+    c.appointments.list = list
+    try {
+      const sent = await runMidRunConverge({ customer_id: null, appointment_id: null }, { appointment_id: 'appt-a1', session_started_at: '2026-09-29T07:44:39Z' })
+      expect(sent).not.toHaveProperty('appointment_id')
+      expect(list).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'cust-1' }))
+      expect(saveRow()).toMatchObject({ appointment_id: null })
+    } finally {
+      delete c.appointments.list
+    }
+  })
   it('A3-job: an empty link + the same customer + a payload booking → applied', async () => {
     const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: null }, { appointment_id: 'appt-new' })
     expect(sent).toMatchObject({ appointment_id: 'appt-new' })

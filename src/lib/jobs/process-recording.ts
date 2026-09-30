@@ -706,8 +706,11 @@ async function upsertKaruteRecord(
     // link; an empty one takes the payload's booking only while the record is
     // still the payload's customer, else the auto-link for the RECORD's
     // customer (fillOnlyLinkOf).
+    // SF-5 (S70 fix round 5): the fill-only gate reads the record's OWN
+    // customer, no fallback — a record with no customer takes nobody's
+    // booking. The auto-link keeps the S7 customer fallback (recordLink).
     const recordLink = { customer_id: existing.customer_id ?? payload.customer_id, appointment_id: existing.appointment_id }
-    const fill = fillOnlyLinkOf(recordLink, payload)
+    const fill = fillOnlyLinkOf({ customer_id: existing.customer_id ?? null, appointment_id: existing.appointment_id }, payload)
     const keptLink = fill.kept
     const autoLinked = fill.kept || fill.given
       ? null

@@ -122,8 +122,10 @@ export function linkUpdateOf(
  *   - else the payload's booking, when the record is still the payload's
  *     customer
  *   - else nothing given → the caller auto-links for the RECORD's customer
- * `existing.customer_id` = the record's customer. Pure; the 「given」 and
- * re-point tests are the ones keepLinkUnlessGiven uses.
+ * `existing.customer_id` = the record's OWN customer, strict — never a
+ * fallback (SF-5, S70 fix round 5): a record with no customer is nobody's,
+ * so it takes nobody's booking. Pure; the 「given」 and re-point tests are
+ * the ones keepLinkUnlessGiven uses.
  */
 export function fillOnlyLinkOf(
   existing: { customer_id?: string | null; appointment_id?: string | null },
@@ -161,7 +163,11 @@ export function returnedOr<T>(returned: T | undefined, computed: T): T {
  *     COMPLETED, NO_SHOW, SCHEDULED, IN_PROGRESS alike. A real visit already
  *     checked out plus the next booking is TWO bookings, never a link to the
  *     next one (a wrong link is worse than no link). The one booking then
- *     still has to pass 4–6 and the window.
+ *     still has to pass 4–6 and the window. A5 (S69 fix round 4): a read
+ *     that fills the page, or whose `total` exceeds the rows, is not the
+ *     whole day → 'ambiguous'. A11: the cancellation check runs FIRST; a
+ *     non-cancelled booking whose start will not parse COUNTS toward the
+ *     day, and alone it is never linked → 'ambiguous'.
  *   and the session's START falls inside the booking's own window widened by
  *   the booking's OWN duration on each side (no constant — ⚖ NO HARDCODED
  *   DURATIONS; a booking with no length links nothing).
@@ -170,9 +176,10 @@ export function returnedOr<T>(returned: T | undefined, computed: T): T {
  * the 予約 tab and changes no count (packs/reconcile.ts reads it, writes
  * nothing).
  *
- * NEVER THROWS: a read that fails links nothing and says so
- * ('skipped:read_failed', S-3), the save goes on; 'none' is answered ONLY
- * when the reads succeeded and nothing qualified.
+ * NEVER THROWS: a read that fails — or a SESSION start that will not parse
+ * (A11) — links nothing and says so ('skipped:read_failed', S-3), the save
+ * goes on; 'none' is answered ONLY when the reads succeeded and nothing
+ * qualified.
  */
 /** SF-6 (S67 fix round 2, commit 16): `skipped:no_session_start` = the save
  *  had no session start to judge by (a job queued before the enqueue doors
