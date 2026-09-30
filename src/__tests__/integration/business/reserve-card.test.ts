@@ -1,6 +1,6 @@
 // PKT-A1a — the Reserve member-card port's colour math, pinned to Reserve's OWN output.
 // Every expectation below comes from reserve-card.expected-satin.json (beside this file), which the
-// parity harness (scripts/business/reserve-card-parity/run.mjs) emits by running Reserve's src/lib/satin-material.ts @ c2a9f95 under node — nothing here
+// parity harness (scripts/business/reserve-card-parity/run.mjs) emits by running Reserve's src/lib/satin-material.ts @ 4db48b7 under node — nothing here
 // is typed by hand except the inputs (the 12 curated values of W/CARD-LOOK-HANDOVER.json).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -18,7 +18,7 @@ const PALETTE = [
   '#6B1F2B', '#3B2A4F', '#EDE6D6', '#F2F4F3', '#F1D9DC', '#D7E6F2',
 ]
 
-describe('reserve card port — satinVars equals Reserve @ c2a9f95', () => {
+describe('reserve card port — satinVars equals Reserve @ 4db48b7', () => {
   it('the emitted file holds the 12 palette values and the 6 extra fixtures', () => {
     expect(Object.keys(EXPECTED)).toHaveLength(18)
     expect(Object.keys(EXPECTED)).toEqual(expect.arrayContaining(PALETTE))

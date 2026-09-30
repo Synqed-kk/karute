@@ -1,4 +1,4 @@
-// Verified port of Synqed-kk/reserve src/lib/satin-material.ts @ c2a9f9543187 — keep byte-identical below this line; re-port when Reserve changes (see PARITY.md).
+// Verified port of Synqed-kk/reserve src/lib/satin-material.ts @ 4db48b73ba70 — keep byte-identical below this line; re-port when Reserve changes (see PARITY.md).
 /** The accepted Satin palette: tenant colour in, contrast-safe continuous tones out. */
 type RGB = number[];
 const mix = (a: RGB, b: RGB, t: number) => a.map((n, i) => n + (b[i] - n) * t);
@@ -27,5 +27,8 @@ export function satinVars(color: string | undefined): Record<string, string> {
     while (lum(lo) < .28) lo = mix(lo, [1, 1, 1], .025);
     while (lum(hi) < .28) hi = mix(hi, [1, 1, 1], .025);
   }
-  return { '--satin-low': css(lo), '--satin-high': css(hi), '--satin-body': css(mix(lo, hi, .28)), '--satin-shoulder': css(mix(lo, hi, .56)), '--satin-ink': dark ? '#f5f7ef' : '#18221b', '--satin-base': css(mix(lo, hi, .5)) };
+  // --satin-print: the card's colour as INK ON PAPER (the 受付 wordmark) — the
+  // card's deepest tone when that reads on white (lum ≤ .12, ≥ 6:1), else the
+  // card's own dark ink, so a white card never prints white-on-white.
+  return { '--satin-low': css(lo), '--satin-high': css(hi), '--satin-body': css(mix(lo, hi, .28)), '--satin-shoulder': css(mix(lo, hi, .56)), '--satin-ink': dark ? '#f5f7ef' : '#18221b', '--satin-base': css(mix(lo, hi, .5)), '--satin-print': dark ? css(lo) : '#18221b' };
 }
