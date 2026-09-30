@@ -65,7 +65,7 @@ import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 // see storage-put.ts's header.
 import { putDeadlineMs, putSaysAlreadyThere } from '@/lib/recording/storage-put'
 import { blobFate, damagedSecureCode, readBlobHead } from '@/lib/recording/blob-fate'
-import { buildTakeDiag, type DiagRingEntry } from '@/lib/recording/take-diag'
+import { buildTakeDiag, type DiagCounts, type PumpStopCode } from '@/lib/recording/take-diag'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
   isStoppedTake,
@@ -289,7 +289,8 @@ export async function secureTake(
       tailIncomplete,
       arm: 'stored',
       lastSeq: meta.lastSeq,
-      diagRing: meta.diagRing,
+      diagCounts: meta.diagCounts,
+      lastPumpStop: meta.lastPumpStop,
       seq: facts ?? undefined,
       sessionNullCount,
     })
@@ -349,7 +350,8 @@ export async function ensureAudioOnServer(
       return await secureBlob(port, blob, takeId, session, mimeType, durationSeconds, {
         bytesEmitted: meta?.bytesEmitted,
         arm: 'memory',
-        diagRing: meta?.diagRing,
+        diagCounts: meta?.diagCounts,
+        lastPumpStop: meta?.lastPumpStop,
       })
     } finally {
       inFlight.delete(takeId)
@@ -378,7 +380,8 @@ async function secureBlob(
     tailIncomplete?: boolean
     arm?: 'stored' | 'memory'
     lastSeq?: number
-    diagRing?: DiagRingEntry[]
+    diagCounts?: DiagCounts
+    lastPumpStop?: PumpStopCode
     seq?: { seqMin?: number; segmentCount?: number; seq0Present?: boolean }
     sessionNullCount?: number
   },
@@ -391,7 +394,8 @@ async function secureBlob(
         blobBytes: blob.size,
         firstByte: (await readBlobHead(blob))?.[0],
         lastSeq: facts.lastSeq,
-        ring: facts.diagRing,
+        counts: facts.diagCounts,
+        pumpStop: facts.lastPumpStop,
         seq: facts.seq,
         sessionNullCount: facts.sessionNullCount,
       })

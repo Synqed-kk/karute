@@ -12,6 +12,7 @@ import {
 } from '@/lib/karute/take-store'
 import { ensureAudioOnServer } from '@/lib/recording/secure-take'
 import { blobFate } from '@/lib/recording/blob-fate'
+import { AUDIO_PARTIAL } from '@/lib/recording/job-errors'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
@@ -273,7 +274,7 @@ export async function runAIPipeline(
     // refused the object (`unreadable_object`) or the phone marked it
     // (`audio_unreadable` / `audio_partial`) — the same typed error as the verdict below.
     if (!finalizedPath && after?.secureError && isDamagedTake(after))
-      throw new DamagedAudioError(after.secureError === 'audio_partial' ? 'partial' : 'unreadable')
+      throw new DamagedAudioError(after.secureError === AUDIO_PARTIAL ? 'partial' : 'unreadable')
     const known = after?.recordingSessionId ?? ctx.recordingSessionId
     if (!finalizedPath) attachOutcome = known ? 'attach_failed' : 'no_session'
   }

@@ -25,7 +25,14 @@
  * identically in Safari and the WKWebView shell.
  */
 
-import { pushDiagEntry, type DiagEvent, type DiagRingEntry } from '@/lib/recording/take-diag'
+import {
+  foldDiagEvent,
+  type DiagCounts,
+  type DiagEvent,
+  type DiagRingEntry,
+  type PumpStopCode,
+} from '@/lib/recording/take-diag'
+import { AUDIO_PARTIAL, AUDIO_UNREADABLE, UNREADABLE_OBJECT } from '@/lib/recording/job-errors'
 import { currentUserId } from '@/lib/karute/draft'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { isNativeShell } from '@/lib/platform'
@@ -146,9 +153,9 @@ const STAMP_RETRY_MS = 50
  *  copy: serverHoldsTake and the discard sweep both refuse such a take, so it
  *  is never staged by the sweep, never marked done, never pruned. */
 export const DAMAGED_SECURE_CODES: ReadonlySet<string> = new Set([
-  'audio_unreadable',
-  'audio_partial',
-  'unreadable_object',
+  AUDIO_UNREADABLE,
+  AUDIO_PARTIAL,
+  UNREADABLE_OBJECT,
 ])
 
 /** The one reading of DAMAGED_SECURE_CODES (B3); `stagedPartialDoor` OFF = never. */
@@ -407,6 +414,10 @@ export type TakeMeta = {
    *  short event codes (take-diag.ts). LOCAL; only counts derived from it,
    *  inside the 12 TakeDiag keys, ever leave the phone. */
   diagRing?: DiagRingEntry[]
+  /** 5c (FM-5): the whole take's counts and its last pump exit code — the
+   *  finalize diag reads these, never the ring. Same writer as the ring. */
+  diagCounts?: DiagCounts
+  lastPumpStop?: PumpStopCode
   /** ⚖ A STOP IS IN FLIGHT — OR DIED IN ONE (fix round 17). Written by the stop
    *  leg as its FIRST act, ahead of the tail flush and of anything that could
    *  release the hold; cleared in the same patch that stamps `durationMs`.
@@ -1072,13 +1083,14 @@ export async function markTakeEndedBySystem(takeId: string, mark: EndedBySystem 
  *  effort — the recorder's own queued write on its own take. */
 export async function noteTakeDiagEvent(takeId: string, event: DiagEvent): Promise<void> {
   if (!RECORDING_SWITCHES.takeDiag) return
-  // The ring is extended from the row read INSIDE the write (commit 5b): the
-  // recorder and the uploader both write here, and neither may drop the other.
+  // The ring AND the counters (5c) are extended from the row read INSIDE the
+  // write (commit 5b): the recorder and the uploader both write here, and
+  // neither may drop the other.
   const patch: Partial<TakeMeta> = {}
   await patchTakeMeta(
     takeId,
     patch,
-    (m) => ((patch.diagRing = pushDiagEntry(m.diagRing, { ...event, at: Date.now() })), true),
+    (m) => (Object.assign(patch, foldDiagEvent(m, event, Date.now())), true),
     { gate: 'compare' },
   )
 }
@@ -1170,7 +1182,8 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'tailIncomplete'
   | 'stopPendingAt'
   | 'bytesEmitted'
-  | 'diagRing'
+  | 'diagCounts'
+  | 'lastPumpStop'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -1191,7 +1204,8 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     tailIncomplete: meta.tailIncomplete,
     stopPendingAt: meta.stopPendingAt,
     bytesEmitted: meta.bytesEmitted,
-    diagRing: meta.diagRing,
+    diagCounts: meta.diagCounts,
+    lastPumpStop: meta.lastPumpStop,
   }
 }
 

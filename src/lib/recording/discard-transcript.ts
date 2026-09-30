@@ -35,6 +35,7 @@ import {
 } from '@/lib/karute/take-store'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import { AUDIO_UNREADABLE } from '@/lib/recording/job-errors'
 
 /** Whether this world can persist discard transcripts at all. Web: yes. Thin:
  *  yes since PHONEWIRE-2C — the phone's facade door landed, and the port's
@@ -255,9 +256,9 @@ export async function runDiscardTranscript(
     // skip AND marks the take damaged — the card, never a retry.
     if (
       RECORDING_SWITCHES.stagedPartialDoor &&
-      (res as { error?: string }).error === 'audio_unreadable'
+      (res as { error?: string }).error === AUDIO_UNREADABLE
     )
-      await markTakeSecureError(takeId, 'audio_unreadable')
+      await markTakeSecureError(takeId, AUDIO_UNREADABLE)
     if (retryable(res)) return
     // ⚖ THE TRANSITIONAL COHORT (fix round 7). A take stamped BEFORE this round
     // carries a staged copy from round 4's staging — an anonymous, take-shaped

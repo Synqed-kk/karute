@@ -49,6 +49,17 @@ export type PumpStopCode = (typeof PUMP_STOP_CODES)[number]
 /** A ring event: a short code (+ the pump's exit code). Codes + numbers only. */
 export type DiagEvent = { code: 'hidden' | 'freeze' | 'store_error' } | { code: 'pump_stop'; stop: PumpStopCode }
 export type DiagRingEntry = DiagEvent & { at: number }
+/** 5c (FM-5): a count never comes from the bounded ring — monotonic counters
+ *  on the take, written by the same event writer; the ring is recent detail. */
+export type DiagCounts = { hidden: number; freeze: number; store_error: number }
+export type DiagFields = { diagRing?: DiagRingEntry[]; diagCounts?: DiagCounts; lastPumpStop?: PumpStopCode }
+/** The ONE fold noteTakeDiagEvent runs on the row inside its own write. */
+export function foldDiagEvent(m: DiagFields, e: DiagEvent, at: number): DiagFields {
+  const diagCounts = { hidden: 0, freeze: 0, store_error: 0, ...m.diagCounts }
+  if (e.code !== 'pump_stop') diagCounts[e.code] = Math.min(diagCounts[e.code] + 1, PHONE_DIAG_MAX_EVENT_COUNT)
+  const lastPumpStop = e.code === 'pump_stop' ? e.stop : m.lastPumpStop
+  return { diagRing: pushDiagEntry(m.diagRing, { ...e, at }), diagCounts, lastPumpStop }
+}
 
 export type PhoneTakeDiag = {
   arm?: 'stored' | 'memory'
@@ -116,7 +127,9 @@ export function buildTakeDiag(f: {
   blobBytes: number
   firstByte?: number
   lastSeq?: number
-  ring?: readonly DiagRingEntry[]
+  /** Absent on a take written before 5c → the three counts are omitted. */
+  counts?: DiagCounts
+  pumpStop?: PumpStopCode
   /** The stored copy only (loadTakeBlobFacts); the in-memory arm omits them. */
   seq?: { seqMin?: number; segmentCount?: number; seq0Present?: boolean }
   /** session_null_count = how many times during the take the phone asked who
@@ -124,22 +137,19 @@ export function buildTakeDiag(f: {
    *  take was secured after a reload (only the stop leg knows it). */
   sessionNullCount?: number
 }): PhoneTakeDiag | undefined {
-  const count = (code: DiagRingEntry['code']) => f.ring?.filter((e) => e.code === code).length
-  const last = <C extends DiagRingEntry['code']>(code: C) =>
-    f.ring?.filter((e): e is Extract<DiagRingEntry, { code: C }> => e.code === code).at(-1)
   const stored = f.arm === 'stored' ? f.seq : undefined
   return validTakeDiag({
     seq_min: stored?.seqMin,
     seq_count: stored?.segmentCount,
     seq0_present: stored?.seq0Present,
-    pump_stop_code: last('pump_stop')?.stop,
+    pump_stop_code: f.pumpStop,
     session_null_count: f.sessionNullCount,
     arm: f.arm,
     blob_bytes: f.blobBytes,
     first_byte: f.firstByte,
     seq_max: f.arm === 'stored' && f.lastSeq !== undefined && f.lastSeq >= 0 ? f.lastSeq : undefined,
-    hidden_count: count('hidden'),
-    freeze_count: count('freeze'),
-    store_error_count: count('store_error'),
+    hidden_count: f.counts?.hidden,
+    freeze_count: f.counts?.freeze,
+    store_error_count: f.counts?.store_error,
   })
 }

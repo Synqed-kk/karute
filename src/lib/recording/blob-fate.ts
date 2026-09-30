@@ -14,6 +14,7 @@
 
 import { PROBE_MIN_HEAD_BYTES, sniffContainer } from '@/lib/recording/container-sniff'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import { AUDIO_PARTIAL, AUDIO_UNREADABLE } from '@/lib/recording/job-errors'
 
 export type BlobFate = 'ok' | 'partial' | 'unreadable'
 
@@ -54,8 +55,8 @@ export async function blobFate(
 }
 
 /** The take's `secureError` for a damaged verdict (DAMAGED_SECURE_CODES). */
-export function damagedSecureCode(fate: Exclude<BlobFate, 'ok'>): 'audio_unreadable' | 'audio_partial' {
-  return fate === 'unreadable' ? 'audio_unreadable' : 'audio_partial'
+export function damagedSecureCode(fate: Exclude<BlobFate, 'ok'>): typeof AUDIO_UNREADABLE | typeof AUDIO_PARTIAL {
+  return fate === 'unreadable' ? AUDIO_UNREADABLE : AUDIO_PARTIAL
 }
 
 /** The THIN staged door's one typed refusal (B-S66-5). A caller reads `.code`,

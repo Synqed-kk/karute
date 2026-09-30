@@ -15,7 +15,7 @@ import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { blobFate, decideBlobFate, readBlobHead, StagedDoorError } from '@/lib/recording/blob-fate'
 import { WEBM_HEAD } from './helpers/container-head-fetch'
-import { validTakeDiag } from '@/lib/recording/take-diag'
+import { DIAG_RING_MAX_ENTRIES, foldDiagEvent, validTakeDiag } from '@/lib/recording/take-diag'
 import * as store from '@/lib/karute/take-store'
 import { secureTake } from '@/lib/recording/secure-take'
 import { sweepDiscardTranscripts } from '@/lib/recording/discard-transcript'
@@ -382,7 +382,7 @@ describe.each(PORTS)('endedBySystem is never sent — %s port', (_name, wire, ba
 // phone omits it and the body is still accepted. takeDiag OFF → nothing sent.
 describe.each(PORTS)('the flight record on the wire — %s port', (_name, wire, base) => {
   beforeEach(() => wire())
-  const ring = { diagRing: [{ at: 1, code: 'hidden' }, { at: 2, code: 'freeze' }, { at: 3, code: 'hidden' }] }
+  const ring = { diagCounts: { hidden: 2, freeze: 1, store_error: 0 } }
 
   it('K-1 extended: the staged body with its diag → safeParse success; ring counts ride, nothing local', async () => {
     m.loadTakeBlob.mockResolvedValue(HEADLESS)
@@ -432,16 +432,24 @@ describe.each(PORTS)('the flight record fills all twelve keys — %s port', (_na
     expect(port.finalizeTake.mock.calls[0][0].diag).toMatchObject({ seq_min: 0, seq_count: 3, seq0_present: true })
   })
   it('K-1 extended: a staged body with all 12 keys filled passes the server schema', async () => {
-    const ring = [
-      { at: 1, code: 'hidden' }, { at: 2, code: 'freeze' }, { at: 3, code: 'store_error' },
-      { at: 4, code: 'pump_stop', stop: 'put_failed' }, { at: 5, code: 'pump_stop', stop: 'landed' },
-    ]
-    m.readTakeSecureMeta.mockResolvedValue(meta({ diagRing: ring, lastSeq: 2 }))
+    const counts = { diagCounts: { hidden: 1, freeze: 1, store_error: 1 }, lastPumpStop: 'landed' }
+    m.readTakeSecureMeta.mockResolvedValue(meta({ ...counts, lastSeq: 2 }))
     m.loadTakeBlobFacts.mockResolvedValueOnce(facts(HEADLESS) as never)
     await secureTake(withTakeDoors(base), TAKE, 5, undefined, 2)
     const diag = stagedBodies[0].diag as Record<string, unknown>
     expect(Object.keys(diag).sort()).toHaveLength(12)
     expect(diag).toMatchObject({ pump_stop_code: 'landed', session_null_count: 2, seq_count: 3 })
     expect(UploadUrlMintSchema.safeParse(stagedBodies[0]).success).toBe(true)
+  })
+  // 5c (FM-5): the killer of M-B17 「a long take's hidden count comes up short」.
+  it('M-B17: one early hidden, then > 64 alternating pump exits → finalize says hidden_count 1, the last code', async () => {
+    let row = foldDiagEvent({}, { code: 'hidden' }, 0)
+    for (let i = 1; i <= DIAG_RING_MAX_ENTRIES + 6; i++)
+      row = foldDiagEvent(row, { code: 'pump_stop', stop: i % 2 ? 'nothing_new' : 'landed' }, i)
+    expect(row.diagRing!.some((e) => e.code === 'hidden')).toBe(false) // the ring evicted it
+    m.readTakeSecureMeta.mockResolvedValue(meta(row))
+    const port = withTakeDoors(base)
+    await secureTake(port, TAKE, 5)
+    expect(port.finalizeTake.mock.calls[0][0].diag).toMatchObject({ hidden_count: 1, pump_stop_code: 'landed' })
   })
 })

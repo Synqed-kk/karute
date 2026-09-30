@@ -76,9 +76,9 @@ describe('send a valid diag or none (A13)', () => {
       arm: 'memory',
     })
   })
-  it('buildTakeDiag counts the ring and leaves unknowns out', () => {
-    const ring: DiagRingEntry[] = [{ at: 1, code: 'hidden' }, { at: 2, code: 'store_error' }]
-    expect(buildTakeDiag({ arm: 'memory', blobBytes: 10, lastSeq: 4, ring })).toEqual({
+  it('buildTakeDiag reads the counters and leaves unknowns out', () => {
+    const counts = { hidden: 1, freeze: 0, store_error: 1 }
+    expect(buildTakeDiag({ arm: 'memory', blobBytes: 10, lastSeq: 4, counts })).toEqual({
       arm: 'memory', blob_bytes: 10, hidden_count: 1, freeze_count: 0, store_error_count: 1,
     })
     expect(buildTakeDiag({ arm: 'stored', blobBytes: 10, lastSeq: -1 })).toEqual({ arm: 'stored', blob_bytes: 10 })
