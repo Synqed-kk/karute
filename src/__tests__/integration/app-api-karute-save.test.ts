@@ -922,6 +922,22 @@ describe('POST /api/app/v1/karute (save) — S7 the unambiguous booking is linke
     expect(row.detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-1' })
     expect(row.severity).toBeUndefined()
   })
+  // A4 (S69 fix round 4, commit 26): the create answers with the record core
+  // RETURNED (a replayed session may come back as an existing record).
+  it('A4-facade: core returns the record with no link while the save linked one → row and reply say null', async () => {
+    attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
+    create.mockResolvedValueOnce({ id: 'kar-new', appointment_id: null } as never)
+    const { reply, row } = await save()
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1' }))
+    expect(row.detail.appointment_id).toBeNull()
+    expect(reply.appointment_id).toBeNull()
+  })
+  it('A4-facade: core returns the record on customer B while the save says cust-1 → the row names B', async () => {
+    attach([])
+    create.mockResolvedValueOnce({ id: 'kar-new', customer_id: 'cust-B' } as never)
+    const { row } = await save()
+    expect(row.detail.customer_id).toBe('cust-B')
+  })
   it('S7-facade: two bookings that day → no link; reply and row say ambiguous', async () => {
     attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z'), appt('appt-2', '2026-09-29T10:00:00Z', '2026-09-29T11:00:00Z')])
     const { reply, row } = await save()

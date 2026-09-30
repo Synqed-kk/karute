@@ -73,6 +73,18 @@ MUTANTS = [
     ('M-O26', "fillOnlyLinkOf loses the linked-record guard (a stale job's booking lands over a re-pick)",
      [(LINK, '  if (linked !== null) return { kept: true, appointmentId: linked }\n', '')],
      [JOB_T], ['A3-job: a same-customer re-pick after the enqueue keeps its link']),
+    # M-O27 — A4 (S69 commit 26): `??` back on the record's field (a returned null link reads as the computed one)
+    ('M-O27', "returnedOr falls back on a returned null (the create reports the payload's booking, not core's record)",
+     [(LINK, '  return returned !== undefined ? returned : computed\n', '  return returned ?? computed // M-O27\n')],
+     [SAVE_T, JOB_T], ['A4-facade: core returns the record with no link', 'A4-job: core returns the record with no link']),
+    # M-O28 — A5 (S69 commit 26): page 1 judged as the whole day again
+    ('M-O28', 'the total/full-page check removed (a day with more bookings than one page links from page 1)',
+     [(LINK, "    if ((typeof res.total === 'number' && res.total > rows.length) || rows.length >= DAY_BOOKINGS_PAGE_SIZE) {\n      return { link: 'ambiguous', appointmentId: null }\n    }\n", '')],
+     [AUTO_T], ['A5: total 51 with one qualifying row', 'A5: no total and a full page']),
+    # M-O29 — A4 ruled-in (S69 commit 26): the worker's create skips the keep-decided read again
+    ('M-O29', "the keep-decided read skips a create again (a replayed record's decided answer is overwritten)",
+     [(FATE, '  if (input.keepDecidedAnswer) {\n', '  if (input.keepDecidedAnswer && !input.fresh) { // M-O29\n')],
+     [JOB_T], ['A4-job: a replayed record with a decided answer on it']),
     # M-O5 — the audit row lacks the fate (commit 2, S5 + R-O2)
     ('M-O5a', 'the facade row drops outcome_link',
      [(CORE, '        ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),\n', '')],

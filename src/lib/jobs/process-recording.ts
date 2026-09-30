@@ -774,10 +774,15 @@ async function upsertKaruteRecord(
   return {
     id: record.id,
     storeId: record.store_id ?? payload.store_id ?? null,
-    customerId: payload.customer_id,
+    // A4 (S69 fix round 4, commit 26): answer with the record core RETURNED
+    // (a replayed session may come back as an existing record). The customer
+    // feeds the outcome write: the record's own, as the converge's
+    // `existing.customer_id ?? payload.customer_id` (a record with no customer
+    // cannot take a label under nobody). The link: returnedOr, never `??`.
+    customerId: record.customer_id ?? payload.customer_id,
     fresh: true,
     autoLinked,
-    appointmentId,
+    appointmentId: returnedOr(record.appointment_id, appointmentId),
     keptLink: false,
   }
 }

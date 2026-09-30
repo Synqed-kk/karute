@@ -146,8 +146,10 @@ export async function createOrUpdateKaruteRecord(
     storeId: string | null
     appointmentId: string | null
     keptLink: boolean
+    /** A4: the customer the record carries after the write (the row's detail). */
+    customerId: string | null
   }) => {
-    const { keptLink, ...persisted } = saved
+    const { keptLink, customerId, ...persisted } = saved
     const result = { ...persisted, appointmentLink: appointmentLinkOf(linkReason, autoLinked?.link, keptLink) }
     const outcomeLink = outcomeFate ? await outcomeFate({ id: result.id, fresh: result.fresh }) : undefined
     audit({
@@ -173,7 +175,7 @@ export async function createOrUpdateKaruteRecord(
       detail: {
         fresh: result.fresh,
         transcript_changed: result.transcriptChanged,
-        customer_id: payload.customer_id ?? null,
+        customer_id: customerId,
         recording_session_id: payload.recording_session_id ?? null,
         // SF-5: the record's EFFECTIVE link after the save (a kept link, the
         // auto-linked booking, or the given one) — never the payload's.
@@ -279,6 +281,8 @@ export async function createOrUpdateKaruteRecord(
       return emitSave({
         id: existing.id,
         fresh: false,
+        // The converge's row names the payload's customer, as before (A4 is the create's).
+        customerId: payload.customer_id ?? null,
         // The retry EDITED the transcript → there's genuinely new material
         // for memory ingest; an identical transcript is just a resend.
         transcriptChanged: existing.transcript !== payload.transcript,
@@ -310,7 +314,13 @@ export async function createOrUpdateKaruteRecord(
     fresh: true,
     transcriptChanged: true,
     storeId: record.store_id ?? payload.store_id ?? null,
-    appointmentId: autoLinked?.appointmentId ?? payload.appointment_id ?? null,
+    // A4 (S69 fix round 4, commit 26): core's create may hand back an EXISTING
+    // record (a replayed session, core behaviour not known) — the row and the
+    // reply answer with what core RETURNED (returnedOr: never `??` on the
+    // record's field; a returned null link is the truth). `fresh` stays true:
+    // core gives no signal.
+    appointmentId: returnedOr(record.appointment_id, autoLinked?.appointmentId ?? payload.appointment_id ?? null),
+    customerId: returnedOr(record.customer_id, payload.customer_id ?? null),
     keptLink: false,
   })
 }

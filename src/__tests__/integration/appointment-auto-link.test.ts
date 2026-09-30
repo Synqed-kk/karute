@@ -168,3 +168,23 @@ describe('A2 — linkUpdateOf, the link key of a converge update', () => {
     expect(linkUpdateOf(ex, { customer_id: 'cust-2' }, { appointmentId: null })).toEqual({ appointment_id: null })
   })
 })
+
+// A5 (S69 fix round 4, commit 26): page 1 is judged as the whole day only when
+// it is not full — more bookings than one page is 'ambiguous', never a link.
+describe('A5 — more bookings than one page is ambiguous', () => {
+  const pageOf = (appts: Appt[], total?: number) => {
+    const { c, list } = client(appts)
+    list.mockResolvedValueOnce((total === undefined ? { appointments: appts } : { appointments: appts, total }) as never)
+    return c
+  }
+  it('A5: total 51 with one qualifying row on the page → ambiguous, no link', async () => {
+    expect(await run(pageOf([booking()], 51))).toEqual({ link: 'ambiguous', appointmentId: null })
+  })
+  it('A5: no total and a full page (50 rows, one qualifying) → ambiguous, no link', async () => {
+    const others = Array.from({ length: 49 }, (_, i) => booking({ id: `other-${i}`, customer_id: 'cust-other' }))
+    expect(await run(pageOf([booking(), ...others]))).toEqual({ link: 'ambiguous', appointmentId: null })
+  })
+  it('A5: total equal to the rows on the page → judged as today (the one booking links)', async () => {
+    expect(await run(pageOf([booking()], 1))).toEqual({ link: 'auto_linked', appointmentId: 'appt-1' })
+  })
+})

@@ -180,6 +180,9 @@ export function returnedOr<T>(returned: T | undefined, computed: T): T {
  *  the same word as `none` ("no booking qualifies"). */
 export type AutoAppointmentLink = 'auto_linked' | 'ambiguous' | 'none' | 'skipped:no_session_start' | 'skipped:read_failed'
 const LINKABLE_STATUSES = new Set(['SCHEDULED', 'IN_PROGRESS'])
+/** A5 (S69 fix round 4, commit 26): the page size the day's-bookings read asks
+ *  for — ONE definition, read again by the full-page check below. */
+const DAY_BOOKINGS_PAGE_SIZE = 50
 
 export async function resolveAutoAppointmentLink(
   synqed: Pick<SynqedClient, 'appointments' | 'recordings' | 'karuteRecords'>,
@@ -217,11 +220,19 @@ export async function resolveAutoAppointmentLink(
       store_id: input.storeId ?? undefined,
       from: new Date(`${day}T00:00:00+09:00`).toISOString(),
       to: new Date(`${day}T23:59:59.999+09:00`).toISOString(),
-      page_size: 50,
+      page_size: DAY_BOOKINGS_PAGE_SIZE,
     })
+    // A5 (S69 fix round 4, commit 26): page 1 is the whole day only when it is
+    // not full — more bookings than one page (core's `total`, types.d.ts:650,
+    // or a full page when `total` is absent) is never judged from page 1:
+    // 'ambiguous', no link (a wrong link is worse than no link).
+    const rows = res.appointments ?? []
+    if ((typeof res.total === 'number' && res.total > rows.length) || rows.length >= DAY_BOOKINGS_PAGE_SIZE) {
+      return { link: 'ambiguous', appointmentId: null }
+    }
     // Condition 7 counts every NOT-CANCELLED booking of the day, whatever its
     // status (B-1); the status check (4) runs on the one booking after.
-    const sameDay = (res.appointments ?? []).filter(
+    const sameDay = rows.filter(
       (a) =>
         a.customer_id === input.customerId &&
         (a.store_id ?? null) === input.storeId &&

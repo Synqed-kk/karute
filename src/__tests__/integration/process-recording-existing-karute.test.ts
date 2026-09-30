@@ -811,3 +811,56 @@ describe('S7 — the worker links the unambiguous booking at save', () => {
     expect(detail.appointment_link).toBeNull()
   })
 })
+
+// A4 (S69 fix round 4, commit 26): the worker's create answers with the record
+// core RETURNED, files the answer under ITS customer, and runs the keep-decided
+// read like the converge (core's create may return an existing record).
+describe('A4 — the worker\'s create answers with the record core returned', () => {
+  let warn: jest.SpyInstance
+  let error: jest.SpyInstance
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    error = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warn.mockRestore()
+    error.mockRestore()
+  })
+  const run = async (payload: Record<string, unknown>) => {
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, ...payload } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+  it('A4-job: core returns the record with no link while the payload names a booking → the row says null', async () => {
+    karuteRecordsCreate.mockResolvedValueOnce({ id: 'record-1', appointment_id: null } as never)
+    const detail = await run({ appointment_id: 'appt-given' })
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-given' }))
+    expect(detail.appointment_id).toBeNull()
+  })
+  it('A4-job: core returns the record on customer B while the payload says cust-1 → the row and the outcome write name B', async () => {
+    karuteRecordsCreate.mockResolvedValueOnce({ id: 'record-1', customer_id: 'cust-B' } as never)
+    const detail = await run({ appointment_id: 'appt-given', outcome: { status: 'success' } })
+    expect(detail.customer_id).toBe('cust-B')
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ customerId: 'cust-B' }))
+  })
+  it('A4-job: a replayed record with a decided answer on it → kept, the stale answer never written', async () => {
+    karuteOutcomesGet.mockResolvedValueOnce({ outcome: 'success' })
+    const detail = await run({ appointment_id: 'appt-given', outcome: { status: 'no_deal' } })
+    expect(karuteOutcomesGet).toHaveBeenCalledWith('record-1')
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(detail.outcome_link).toBe('kept')
+    expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+  })
+  it('A4-job: the create\'s keep-decided read fails → failed:<ref>, the job fails (requeue asks again), never a blind write', async () => {
+    karuteOutcomesGet.mockRejectedValueOnce(new Error('core down'))
+    const detail = await run({ appointment_id: 'appt-given', outcome: { status: 'success' } })
+    expect(String(detail.outcome_link)).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+    expect(fail).toHaveBeenCalled()
+  })
+})
