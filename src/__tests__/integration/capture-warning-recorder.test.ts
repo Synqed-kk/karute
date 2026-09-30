@@ -66,6 +66,8 @@ const mockReadTakeUploadMeta = jest.fn<Promise<UploadMeta | null>, [string]>(asy
 const mockIsTakeHeldByAnother = jest.fn<Promise<boolean>, [string]>(async () => false)
 const mockAppendTakeSegment = jest.fn<Promise<boolean>, unknown[]>(async () => mockAppendOk)
 jest.mock('@/lib/karute/take-store', () => ({
+  // PR-B 5b (R-S74-10): the pump notes its exit code through the diag writer.
+  noteTakeDiagEvent: async () => undefined,
   createTake: async () => mockCreateOk,
   appendTakeSegment: (...args: unknown[]) => mockAppendTakeSegment(...args),
   deleteTake: async () => {},

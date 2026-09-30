@@ -47,6 +47,8 @@ const listTakeSegmentsAfter = jest.fn<
 const markSegmentsUploaded = jest.fn<Promise<void>, [string, number]>(async () => {})
 const markSegmentError = jest.fn<Promise<void>, [string, string]>(async () => {})
 jest.mock('@/lib/karute/take-store', () => ({
+  // PR-B 5b (R-S74-10): the pump notes its exit code through the diag writer.
+  noteTakeDiagEvent: async () => undefined,
   readTakeUploadMeta: (id: string) => readTakeUploadMeta(id),
   listTakeSegmentsAfter: (id: string, after: number, limit: number) =>
     listTakeSegmentsAfter(id, after, limit),

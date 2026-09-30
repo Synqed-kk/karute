@@ -7,6 +7,7 @@ import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
 import { pumpSegments, type SegmentSource } from '@/lib/recording/segment-uploader'
 import { computeCaptureWarning, type CaptureWarning } from '@/lib/recording/capture-warning-detect'
+import { sessionNullReadCount } from '@/lib/karute/draft'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
   appendTakeSegment,
@@ -207,6 +208,8 @@ type TakePersist = {
    *  in-memory count only; what the STORE holds is `TakeMeta.bytesEmitted`,
    *  counted inside the segment transaction (B6). */
   bytesEmitted: number
+  /** PR-B 5b: draft.ts sessionNullReadCount() when this take started. */
+  sessionNullAtStart: number
 }
 
 /** A take's persistence state before anything has happened to it — and the
@@ -224,6 +227,7 @@ const newPersist = (): TakePersist => ({
   uploadedSeq: -1,
   warned: new Set(),
   bytesEmitted: 0,
+  sessionNullAtStart: sessionNullReadCount(),
 })
 
 class GlobalRecorder {
@@ -448,7 +452,7 @@ class GlobalRecorder {
   }
   /** PR-B commit 5 (takeDiag): one event onto the take's local ring. */
   private noteDiag(code: 'hidden' | 'freeze' | 'store_error', takeId = this.takeId) {
-    if (takeId && RECORDING_SWITCHES.takeDiag) void this.queueTakeWrite(() => noteTakeDiagEvent(takeId, code))
+    if (takeId && RECORDING_SWITCHES.takeDiag) void this.queueTakeWrite(() => noteTakeDiagEvent(takeId, { code }))
   }
 
   private armTakePersistence() {
@@ -1335,6 +1339,8 @@ class GlobalRecorder {
             : markTakeStopPending(takeId),
         )
       }
+      // PR-B commit 5b (R-S74-10 c): this take's session-null count, taken now.
+      const nullReads = sessionNullReadCount() - p.sessionNullAtStart
       const flushed = this.flushTake(durationMs)
       this.notify()
       // ⚖ THE AUDIO BECOMES SAFE HERE, not at 録音を使用 (design R4, v2 items
@@ -1485,6 +1491,7 @@ class GlobalRecorder {
               takeId,
               durationMs / 1000,
               (id) => this.isActiveTake(id),
+              nullReads,
             )
           } finally {
             // Every OTHER exit of the leg — the skipped-tail return above, and

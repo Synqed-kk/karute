@@ -37,8 +37,18 @@ export const PHONE_DIAG_CODE_PATTERN = /^[a-z0-9_]+$/
 export const DIAG_RING_MAX_ENTRIES = 64
 export const DIAG_ENTRY_MAX_BYTES = 64
 
-/** A ring entry: when, and a short code. Codes + numbers only. */
-export type DiagRingEntry = { at: number; code: 'hidden' | 'freeze' | 'store_error' }
+/** R-S74-10 (b): the uploader's exits (segment-uploader.ts pumpOnce), one
+ *  short code each. pump_stop_code = the last uploader exit code recorded
+ *  before finalize. */
+export const PUMP_STOP_CODES = [
+  'backoff', 'no_meta', 'no_session', 'finalized', 'seg_error', 'nothing_new', 'no_rows',
+  'mint_terminal', 'mint_retry', 'mismatch', 'put_failed', 'landed', 'threw',
+] as const
+export type PumpStopCode = (typeof PUMP_STOP_CODES)[number]
+
+/** A ring event: a short code (+ the pump's exit code). Codes + numbers only. */
+export type DiagEvent = { code: 'hidden' | 'freeze' | 'store_error' } | { code: 'pump_stop'; stop: PumpStopCode }
+export type DiagRingEntry = DiagEvent & { at: number }
 
 export type PhoneTakeDiag = {
   arm?: 'stored' | 'memory'
@@ -107,9 +117,23 @@ export function buildTakeDiag(f: {
   firstByte?: number
   lastSeq?: number
   ring?: readonly DiagRingEntry[]
+  /** The stored copy only (loadTakeBlobFacts); the in-memory arm omits them. */
+  seq?: { seqMin?: number; segmentCount?: number; seq0Present?: boolean }
+  /** session_null_count = how many times during the take the phone asked who
+   *  is signed in and got no one — any caller, reads included; absent when the
+   *  take was secured after a reload (only the stop leg knows it). */
+  sessionNullCount?: number
 }): PhoneTakeDiag | undefined {
   const count = (code: DiagRingEntry['code']) => f.ring?.filter((e) => e.code === code).length
+  const last = <C extends DiagRingEntry['code']>(code: C) =>
+    f.ring?.filter((e): e is Extract<DiagRingEntry, { code: C }> => e.code === code).at(-1)
+  const stored = f.arm === 'stored' ? f.seq : undefined
   return validTakeDiag({
+    seq_min: stored?.seqMin,
+    seq_count: stored?.segmentCount,
+    seq0_present: stored?.seq0Present,
+    pump_stop_code: last('pump_stop')?.stop,
+    session_null_count: f.sessionNullCount,
     arm: f.arm,
     blob_bytes: f.blobBytes,
     first_byte: f.firstByte,

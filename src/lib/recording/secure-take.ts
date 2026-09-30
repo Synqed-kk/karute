@@ -70,6 +70,7 @@ import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
   isStoppedTake,
   loadTakeBlob,
+  loadTakeBlobFacts,
   markTakeFinalized,
   markTakeSecureError,
   markTakeStaged,
@@ -120,6 +121,8 @@ export async function secureTake(
   takeId: string,
   durationSeconds?: number,
   isActive?: (takeId: string) => boolean,
+  /** PR-B 5b: the stop leg's session-null count for this take (the diag). */
+  sessionNullCount?: number,
 ): Promise<void> {
   // ⚖ NEVER FINALIZE A LIVE TAKE (fix round 5) — the belt behind the drain's
   // stopped-only filter. Finalizing a take that is still recording (or paused
@@ -190,7 +193,9 @@ export async function secureTake(
     // (it lives in take-store, beside the field it judges). Read BEFORE the
     // blob so a terminal take costs one meta read, not a re-upload.
     if (meta.secureError && TERMINAL_SECURE_ERRORS.has(meta.secureError)) return
-    const blob = await loadTakeBlob(takeId)
+    // PR-B 5b: the stored copy's seq facts ride beside the blob (the diag).
+    const facts = await loadTakeBlobFacts(takeId)
+    const blob = facts?.blob ?? null
     // No segments on disk (a kill before the first flush, persistence failed
     // open to memory-only). Nothing to send, and nothing this PR can fix — but
     // it IS recorded now (fix round 13): without a mark the take carried no
@@ -285,6 +290,8 @@ export async function secureTake(
       arm: 'stored',
       lastSeq: meta.lastSeq,
       diagRing: meta.diagRing,
+      seq: facts ?? undefined,
+      sessionNullCount,
     })
   } catch (err) {
     // A dead socket, or a door that threw instead of answering. The take keeps
@@ -372,6 +379,8 @@ async function secureBlob(
     arm?: 'stored' | 'memory'
     lastSeq?: number
     diagRing?: DiagRingEntry[]
+    seq?: { seqMin?: number; segmentCount?: number; seq0Present?: boolean }
+    sessionNullCount?: number
   },
 ): Promise<string | null> {
   // PR-B commit 5 (B5, A13): the take's flight record, ONLY the 12 keys the
@@ -383,6 +392,8 @@ async function secureBlob(
         firstByte: (await readBlobHead(blob))?.[0],
         lastSeq: facts.lastSeq,
         ring: facts.diagRing,
+        seq: facts.seq,
+        sessionNullCount: facts.sessionNullCount,
       })
     : undefined
   // ⚖ A DAMAGED BLOB NEVER SEALS THE TAKE KEY (PR-B commit 2 — B1, B5, R-2).

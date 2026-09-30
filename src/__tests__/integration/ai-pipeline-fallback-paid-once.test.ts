@@ -70,6 +70,8 @@ const stampTakeTranscript = jest.fn(
 jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: async () => (store.meta ? { ...store.meta } : null),
   loadTakeBlob: async () => store.blob,
+  // PR-B 5b (R-S74-10): secureTake reads the blob with its seq facts.
+  loadTakeBlobFacts: async () => (store.blob ? { blob: store.blob } : null),
   ensureFinalizedPath: async (_id: string, meta: Meta) => meta.finalizedPath ?? null,
   readTakeTranscript: async () => {
     // One shot: what another tab / the drain does between this run's start and its replay.

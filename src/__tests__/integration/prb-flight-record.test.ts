@@ -109,7 +109,7 @@ describe('takeDiag OFF writes no ring', () => {
     const saved = (globalThis as { indexedDB?: unknown }).indexedDB
     ;(globalThis as { indexedDB?: unknown }).indexedDB = { open }
     try {
-      await expect(store.noteTakeDiagEvent('t1', 'hidden')).resolves.toBeUndefined()
+      await expect(store.noteTakeDiagEvent('t1', { code: 'hidden' })).resolves.toBeUndefined()
       expect(open).not.toHaveBeenCalled()
     } finally {
       ;(RECORDING_SWITCHES as { takeDiag: boolean }).takeDiag = restore

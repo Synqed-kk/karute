@@ -25,7 +25,7 @@
  * identically in Safari and the WKWebView shell.
  */
 
-import { pushDiagEntry, type DiagRingEntry } from '@/lib/recording/take-diag'
+import { pushDiagEntry, type DiagEvent, type DiagRingEntry } from '@/lib/recording/take-diag'
 import { currentUserId } from '@/lib/karute/draft'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { isNativeShell } from '@/lib/platform'
@@ -1070,12 +1070,17 @@ export async function markTakeEndedBySystem(takeId: string, mark: EndedBySystem 
 
 /** PR-B commit 5 (B5): one event onto the take's local ring (takeDiag). Best
  *  effort — the recorder's own queued write on its own take. */
-export async function noteTakeDiagEvent(takeId: string, code: DiagRingEntry['code']): Promise<void> {
+export async function noteTakeDiagEvent(takeId: string, event: DiagEvent): Promise<void> {
   if (!RECORDING_SWITCHES.takeDiag) return
-  const meta = await readOwnTakeMeta(takeId)
-  if (!meta) return
-  const diagRing = pushDiagEntry(meta.diagRing, { at: Date.now(), code })
-  await patchTakeMeta(takeId, { diagRing }, undefined, { gate: 'compare' })
+  // The ring is extended from the row read INSIDE the write (commit 5b): the
+  // recorder and the uploader both write here, and neither may drop the other.
+  const patch: Partial<TakeMeta> = {}
+  await patchTakeMeta(
+    takeId,
+    patch,
+    (m) => ((patch.diagRing = pushDiagEntry(m.diagRing, { ...event, at: Date.now() })), true),
+    { gate: 'compare' },
+  )
 }
 
 export async function markTakeStopPending(takeId: string): Promise<void> {

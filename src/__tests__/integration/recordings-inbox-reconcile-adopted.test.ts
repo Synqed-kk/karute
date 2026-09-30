@@ -77,6 +77,8 @@ const listOwnTakes = jest.fn(async (exclude: ReadonlyArray<string | null | undef
 jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: async () => (store.meta ? { ...store.meta } : null),
   loadTakeBlob: async () => store.blob,
+  // PR-B 5b (R-S74-10): secureTake reads the blob with its seq facts.
+  loadTakeBlobFacts: async () => (store.blob ? { blob: store.blob } : null),
   ensureFinalizedPath: async (_id: string, meta: Meta) => meta.finalizedPath ?? null,
   readTakeTranscript: async () => null,
   stampTakeTranscript: async () => {},

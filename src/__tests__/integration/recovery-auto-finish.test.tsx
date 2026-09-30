@@ -162,6 +162,8 @@ jest.mock('@/lib/karute/take-store', () => ({
 
 let offerDraft: Record<string, unknown> | null = null
 jest.mock('@/lib/karute/draft', () => ({
+  // PR-B 5b (R-S74-10): the recorder snapshots the session-null count.
+  sessionNullReadCount: () => 0,
   loadDraft: jest.fn(async () => offerDraft),
   clearDraft: jest.fn(),
   currentUserId: jest.fn(async () => 'staff-A'),

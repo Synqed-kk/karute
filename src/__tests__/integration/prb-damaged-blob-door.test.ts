@@ -30,6 +30,11 @@ jest.mock('@/lib/karute/take-store', () => ({
   ...jest.requireActual('@/lib/karute/take-store'),
   readTakeSecureMeta: jest.fn(),
   loadTakeBlob: jest.fn(),
+  // PR-B 5b (R-S74-10): secureTake reads the blob with its seq facts — here the mocked loadTakeBlob's blob, no facts.
+  loadTakeBlobFacts: jest.fn(async (id: string) => {
+    const blob = await (jest.requireMock('@/lib/karute/take-store') as { loadTakeBlob: (id: string) => Promise<Blob | null> }).loadTakeBlob(id)
+    return blob ? { blob } : null
+  }),
   markTakeSecureError: jest.fn(async () => undefined),
   markTakeStaged: jest.fn(async () => undefined),
   markTakeFinalized: jest.fn(async () => undefined),
@@ -410,5 +415,33 @@ describe.each(PORTS)('the flight record on the wire — %s port', (_name, wire, 
     } finally {
       ;(RECORDING_SWITCHES as { takeDiag: boolean }).takeDiag = restore
     }
+  })
+})
+
+// PR-B commit 5b (R-S74-10): all twelve keys — the stored copy's seq facts,
+// the last pump exit code, the stop leg's session-null count.
+describe.each(PORTS)('the flight record fills all twelve keys — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  const facts = (blob: Blob) => ({ blob, segmentCount: 3, seqMin: 0, seqMax: 2, seq0Present: true })
+
+  it('the three seq keys ride the stored arm\'s finalize body', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta())
+    m.loadTakeBlobFacts.mockResolvedValueOnce(facts(GOOD) as never)
+    const port = withTakeDoors(base)
+    await secureTake(port, TAKE, 5)
+    expect(port.finalizeTake.mock.calls[0][0].diag).toMatchObject({ seq_min: 0, seq_count: 3, seq0_present: true })
+  })
+  it('K-1 extended: a staged body with all 12 keys filled passes the server schema', async () => {
+    const ring = [
+      { at: 1, code: 'hidden' }, { at: 2, code: 'freeze' }, { at: 3, code: 'store_error' },
+      { at: 4, code: 'pump_stop', stop: 'put_failed' }, { at: 5, code: 'pump_stop', stop: 'landed' },
+    ]
+    m.readTakeSecureMeta.mockResolvedValue(meta({ diagRing: ring, lastSeq: 2 }))
+    m.loadTakeBlobFacts.mockResolvedValueOnce(facts(HEADLESS) as never)
+    await secureTake(withTakeDoors(base), TAKE, 5, undefined, 2)
+    const diag = stagedBodies[0].diag as Record<string, unknown>
+    expect(Object.keys(diag).sort()).toHaveLength(12)
+    expect(diag).toMatchObject({ pump_stop_code: 'landed', session_null_count: 2, seq_count: 3 })
+    expect(UploadUrlMintSchema.safeParse(stagedBodies[0]).success).toBe(true)
   })
 })
