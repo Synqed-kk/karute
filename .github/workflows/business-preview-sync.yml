@@ -26,7 +26,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # Load-bearing: a depth-1 clone gets a "fetch first" rejection even on a valid fast-forward.
           fetch-depth: 0
+          # The default token cannot push workflow-file changes; the secret, when present, can.
+          # Absent = falls back to the default token. persist-credentials stays at its default (true).
+          token: ${{ secrets.PREVIEW_SYNC_TOKEN || github.token }}
 
       - name: Fast-forward (never force)
         run: |
@@ -34,7 +38,7 @@ jobs:
           echo "preview/business-merged before: ${before:-<absent>}"
           echo "main (GITHUB_SHA):              $GITHUB_SHA"
           if ! git push origin "$GITHUB_SHA:refs/heads/preview/business-merged"; then
-            echo "::error::preview/business-merged is not an ancestor of main (someone committed on it). CI never forces. Fix by hand: git push --force-with-lease origin origin/main:refs/heads/preview/business-merged"
+            echo "::error::push rejected — read the git error above. Non-fast-forward (someone committed on preview/business-merged): a human runs git push --force-with-lease origin origin/main:refs/heads/preview/business-merged. 'refusing to allow a GitHub App to create or update workflow' (the fast-forward carries a .github/workflows change, which GITHUB_TOKEN may not push): add the repo secret PREVIEW_SYNC_TOKEN (a fine-grained PAT for Synqed-kk/karute with Contents read/write + Workflows read/write) and re-run this workflow."
             exit 1
           fi
           after="$(git ls-remote origin refs/heads/preview/business-merged | cut -f1)"
