@@ -228,6 +228,12 @@ export const TERMINAL_SECURE_ERRORS = new Set([
  */
 export const BINDING_SECURE_REFUSALS = new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded'])
 
+/** PR-B commit 4 (B8): when, and which system sign — a 'muted' that lifts is withdrawn. */
+export type EndedBySystem = {
+  at: number
+  why: 'track_ended' | 'muted' | 'recorder_error' | 'pagehide' | 'freeze'
+}
+
 export type TakeMeta = {
   takeId: string
   /** Auth user id (Supabase auth.uid) of the staff member who recorded it. */
@@ -393,6 +399,9 @@ export type TakeMeta = {
    *  went down without it, or the `stagedPartialDoor` switch OFF): no door
    *  may claim a short blob from an unknown count. */
   bytesEmitted?: number
+  /** PR-B commit 4 (B8): the first sign the SYSTEM ended or interrupted this
+   *  capture (captureEndHooks). LOCAL only — not a TakeDiag key, never sent. */
+  endedBySystem?: EndedBySystem
   /** ⚖ A STOP IS IN FLIGHT — OR DIED IN ONE (fix round 17). Written by the stop
    *  leg as its FIRST act, ahead of the tail flush and of anything that could
    *  release the hold; cleared in the same patch that stamps `durationMs`.
@@ -1024,6 +1033,12 @@ export async function markTakeTailIncomplete(takeId: string): Promise<void> {
  *  FIRST act, and on the phone that stop runs after the session store is
  *  nulled. `appendTakeSegment`'s compare-don't-require argument covers it —
  *  the recorder's own write on its own take, in its own runtime. */
+/** PR-B commit 4 (B8): the recorder's own note of a system end (null = a lifted
+ *  mute withdrawn). Same gate as the stop leg's own marks. */
+export async function markTakeEndedBySystem(takeId: string, mark: EndedBySystem | null): Promise<void> {
+  await patchTakeMeta(takeId, { endedBySystem: mark ?? undefined }, undefined, { gate: 'compare' })
+}
+
 export async function markTakeStopPending(takeId: string): Promise<void> {
   await patchTakeMeta(takeId, { stopPendingAt: Date.now() }, undefined, { gate: 'compare' })
 }

@@ -77,4 +77,12 @@ export const RECORDING_SWITCHES = {
    *  pre-PR-B behaviour exactly. Client code: a flip reaches the phone with
    *  its next bake. */
   stagedPartialDoor: true,
+  /** Capture that ends by itself says so (build 32, PR-B commit 4, B8): the
+   *  mic track's ended / mute, the recorder's error and the page's pagehide /
+   *  freeze write `TakeMeta.endedBySystem {at, why}` — LOCAL only, never sent —
+   *  and, once stopped, one line in the 'recorded' state, shown only under
+   *  `captureWarningNotice` (the outer gate). Records only: nothing restarts
+   *  capture, the stop leg's order is untouched. Default ON. OFF = no hook
+   *  attached, no field, no line — pre-PR-B exactly. Client code. */
+  captureEndHooks: true,
 } as const

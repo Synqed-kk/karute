@@ -336,3 +336,32 @@ describe('the discard sweep refuses a damaged take (B3)', () => {
     },
   )
 })
+
+// PR-B commit 4 (AMB-2): endedBySystem is LOCAL — a system-ended take's
+// finalize body and staged mint body carry no endedBySystem (and no diag yet).
+describe.each(PORTS)('endedBySystem is never sent — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  const ended = { endedBySystem: { at: 1, why: 'track_ended' } }
+
+  it('ok take → the finalize body is today\'s exact shape', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta(ended))
+    const port = withTakeDoors(base)
+    await secureTake(port, TAKE, 5)
+    expect(port.finalizeTake).toHaveBeenCalledWith({
+      takeId: TAKE,
+      mimeType: 'audio/webm',
+      durationSeconds: 5,
+      byteLength: GOOD.size,
+      recordingSessionId: SESSION,
+    })
+  })
+  it('damaged take → the staged mint body has no endedBySystem and no diag', async () => {
+    m.loadTakeBlob.mockResolvedValue(HEADLESS)
+    m.readTakeSecureMeta.mockResolvedValue(meta(ended))
+    await secureTake(withTakeDoors(base), TAKE, 5)
+    expect(stagedBodies).toHaveLength(1)
+    expect(stagedBodies[0]).not.toHaveProperty('endedBySystem')
+    expect(stagedBodies[0]).not.toHaveProperty('diag')
+    expect(JSON.stringify(stagedBodies[0])).not.toContain('track_ended')
+  })
+})

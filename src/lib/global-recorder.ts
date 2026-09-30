@@ -17,6 +17,7 @@ import {
   markSegmentError,
   markSegmentsUploaded,
   markTakeStartBoundAttempted,
+  markTakeEndedBySystem,
   markTakeStopPending,
   markTakeTailIncomplete,
   readTakeSecureMeta,
@@ -24,6 +25,7 @@ import {
   stampTakeDuration,
   stampTakeSession,
   writeTakeHeartbeat,
+  type EndedBySystem,
 } from '@/lib/karute/take-store'
 
 /**
@@ -238,6 +240,19 @@ class GlobalRecorder {
    *  null otherwise, and whenever RECORDING_SWITCHES.captureWarningNotice is
    *  OFF. Decided by capture-warning-detect.ts on the flush tick. */
   captureWarning: CaptureWarning | null = null
+  /** PR-B commit 4 (B8): the first system end/interrupt sign of the live or
+   *  last take (captureEndHooks), kept into 'recorded'; null otherwise. */
+  endedBySystem: EndedBySystem | null = null
+  /** The 'recorded'-state line (AMB-3): OUTER captureWarningNotice, INNER
+   *  captureEndHooks — either OFF = today's screen. */
+  get endedBySystemNotice(): boolean {
+    return (
+      RECORDING_SWITCHES.captureWarningNotice &&
+      RECORDING_SWITCHES.captureEndHooks &&
+      this.state === 'recorded' &&
+      this.endedBySystem !== null
+    )
+  }
   /** The flush tick's notice read while it is out (PR-6 fix 2, gr thread 2):
    *  that read's own mark, so only it clears it — a read the next start()
    *  left behind can never clear the new take's. null = none out. `end` lets
@@ -405,6 +420,21 @@ class GlobalRecorder {
 
   // ── Take durability (see lib/karute/take-store.ts) ─────────────────────────
 
+  /** PR-B commit 4 (B8): note a system sign for THIS take — the first wins; a
+   *  lifted mute (why null) withdraws only a 'muted'. Records only: nothing
+   *  stops, nothing restarts, the stop leg is not touched. */
+  private noteEndedBySystem(why: EndedBySystem['why'] | null, p = this.persist) {
+    if (this.persist !== p || (this.state !== 'recording' && this.state !== 'paused')) return
+    if (why === null ? this.endedBySystem?.why !== 'muted' : this.endedBySystem !== null) return
+    const mark = why === null ? null : { at: Date.now(), why }
+    this.endedBySystem = mark
+    const takeId = this.takeId
+    if (takeId) void this.queueTakeWrite(() => markTakeEndedBySystem(takeId, mark))
+    this.notify()
+  }
+  private handlePageHide = () => this.noteEndedBySystem('pagehide')
+  private handleFreeze = () => this.noteEndedBySystem('freeze')
+
   private handleVisibilityHidden = () => {
     // The last flush before a WKWebView suspension/kill — the whole point.
     if (document.visibilityState === 'hidden') this.flushTake()
@@ -431,6 +461,10 @@ class GlobalRecorder {
       void this.evaluateCaptureWarning()
     }, TAKE_FLUSH_MS)
     document.addEventListener('visibilitychange', this.handleVisibilityHidden)
+    if (RECORDING_SWITCHES.captureEndHooks) {
+      window.addEventListener('pagehide', this.handlePageHide)
+      document.addEventListener('freeze', this.handleFreeze)
+    }
   }
 
   private clearTakePersistence() {
@@ -440,6 +474,8 @@ class GlobalRecorder {
     }
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.handleVisibilityHidden)
+      window.removeEventListener('pagehide', this.handlePageHide)
+      document.removeEventListener('freeze', this.handleFreeze)
     }
   }
 
@@ -1101,6 +1137,7 @@ class GlobalRecorder {
     this.overrun = false
     this.autoStopped = false
     this.captureWarning = null
+    this.endedBySystem = null
     // The belt: a read the last take left out never holds this one's tick.
     this.endCaptureWarningRead()
     this.target = opts?.target ?? null
@@ -1174,6 +1211,16 @@ class GlobalRecorder {
     // `armTakePersistence`, so nothing can flush against a half-named take.
     const p = newPersist()
     this.persist = p
+
+    // PR-B commit 4 (B8): the capture-end hooks — they record, never restart.
+    if (RECORDING_SWITCHES.captureEndHooks) {
+      recorder.onerror = () => this.noteEndedBySystem('recorder_error', p)
+      micStream.getTracks().forEach((t) => {
+        t.onended = () => this.noteEndedBySystem('track_ended', p)
+        t.onmute = () => this.noteEndedBySystem('muted', p)
+        t.onunmute = () => this.noteEndedBySystem(null, p)
+      })
+    }
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
@@ -1855,6 +1902,7 @@ class GlobalRecorder {
     this.overrun = false
     this.autoStopped = false
     this.captureWarning = null
+    this.endedBySystem = null
     this.endCaptureWarningRead()
     this.target = null
     this.abandonRecordingSessionMint()

@@ -487,6 +487,7 @@ export function RecordPageView({
     startedAt,
     overrun,
     captureWarning,
+    endedBySystemNotice,
     autoStopped,
     target,
     takeId: activeTakeId,
@@ -3428,6 +3429,14 @@ export function RecordPageView({
       {(recState === 'recording' || recState === 'paused') && captureWarning && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
           {captureWarning === 'device' ? t('deviceSaveUnavailable') : t('serverSendStalled')}
+        </p>
+      )}
+      {/* PR-B commit 4 (B8) — after the stop, one line when the SYSTEM ended or
+          interrupted the capture (the recorder's gate: captureWarningNotice,
+          then captureEndHooks). Words only, like the notice above. */}
+      {endedBySystemNotice && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
+          {t('captureEndedBySystem')}
         </p>
       )}
       {/* UPDATE 25 GROUP A, piece d2 — a run whose session id never resolved.
