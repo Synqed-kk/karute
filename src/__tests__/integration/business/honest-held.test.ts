@@ -917,4 +917,130 @@ describe('honest-held — the held preference (DECISIONS.md R4, S4 PR-B)', () =>
     const full = honestHeld(candidates, lanes, book, true, undefined, { reference })
     expect({ exact: full.exact, atLeastMain: full.total >= main.total }).toEqual({ exact: false, atLeastMain: true })
   })
+
+  // ⚖ BAR-4 (S5 PR-B fix round 1, ruling F2) — EVERY SHOWN FRAME IS A FIXED
+  // POINT. The rail's answer fed back as its own reference returns the same
+  // held set (by heldIdOf), on the SF6 rows and the attacker's shapes
+  // (ATTACK-OPUS-PR-B.md § B: 200 lanes × 3, one component, small mixed,
+  // identical candidates), each with NO reference (the screen's first frame)
+  // and two CHANGED-BOARD references (the answer on the board before an edit;
+  // a random 40 % of every candidate, stale ids included). Before this round
+  // the inexact boards moved once here (49/60 at 200 lanes).
+  const pickN = (r: () => number, rooms: string[], lo: number, hi: number) => {
+    const n = Math.min(rooms.length, lo + Math.floor(r() * (hi - lo + 1)))
+    const s = new Set<string>()
+    while (s.size < n) s.add(rooms[Math.floor(r() * rooms.length)])
+    return [...s]
+  }
+  const rkN = (n: number) => Array.from({ length: n }, (_, i) => `r-${String(i).padStart(4, '0')}`)
+  const ATTACK_SHAPES: Record<string, (seed: number) => Win[]> = {
+    lanes200x3: (seed) => {
+      const r = rng(seed * 48271 + 99991); const R = rkN(20); const ws: Win[] = []
+      for (let l = 0; l < 200; l += 1) for (let i = 0; i < 3; i += 1) {
+        const st = 600 + Math.floor(r() * 31) * 15
+        if (!ws.some((w) => w.laneKey === `p-${l}` && w.start === st)) ws.push({ laneKey: `p-${l}`, start: st, end: st + 90, rooms: pickN(r, R, 1, 3) })
+      }
+      return ws
+    },
+    oneComponent: (seed) => {
+      const r = rng(seed * 48271 + 99991); const R = rkN(1 + Math.floor(r() * 5)); const ws: Win[] = []
+      const nl = 10 + Math.floor(r() * 31)
+      for (let l = 0; l < nl; l += 1) { const st = 600 + Math.floor(r() * 6) * 15; ws.push({ laneKey: `p-${l}`, start: st, end: st + 90, rooms: pickN(r, R, 1, 3) }) }
+      return ws
+    },
+    smallMixed: (seed) => {
+      const r = rng(seed * 48271 + 99991); const R = rkN(1 + Math.floor(r() * 4)); const ws: Win[] = []
+      const nl = 2 + Math.floor(r() * 12)
+      for (let l = 0; l < nl; l += 1) for (let i = 0; i < 1 + Math.floor(r() * 3); i += 1) {
+        const st = 600 + Math.floor(r() * 16) * 15
+        if (!ws.some((w) => w.laneKey === `p-${l}` && w.start === st)) ws.push({ laneKey: `p-${l}`, start: st, end: st + 90, rooms: pickN(r, R, 0, 3) })
+      }
+      return ws
+    },
+    identical: (seed) => {
+      const r = rng(seed * 48271 + 99991); const R = rkN(1 + Math.floor(r() * 4))
+      const starts = [600, 690, 780].slice(0, 1 + Math.floor(r() * 3)); const nl = 3 + Math.floor(r() * 10)
+      const rooms = pickN(r, R, 1, R.length); const ws: Win[] = []
+      for (let l = 0; l < nl; l += 1) for (const st of starts) ws.push({ laneKey: `p-${l}`, start: st, end: st + 90, rooms })
+      return ws
+    },
+  }
+  const inputsOf = (wins: readonly Win[]) => {
+    const keys = [...new Set(wins.map((w) => w.laneKey))].sort()
+    const candidates = keys.map((k) => maskOf(k, wins.filter((w) => w.laneKey === k).sort((a, b) => a.start - b.start).map((w) => span(w.start, 90))))
+    const lanes = keys.map((k) => lane(k, [k]))
+    const idx = new Map(wins.map((w) => [heldIdOf(w.laneKey, w.start), w.rooms]))
+    const book = stubBook((start, _e, stores) => idx.get(heldIdOf(stores?.[0] ?? '', start)) ?? [])
+    return { candidates, lanes, book }
+  }
+  type Row = { name: string; boards: number; gen: (seed: number) => { wins: Win[]; sell: ReadonlySet<string> } }
+  const BAR4_ROWS: Row[] = [
+    ...([[30, 10], [60, 20]] as const).flatMap(([staff, roomsN]) => ([[1, 3], [0, 1]] as Array<[number, number]>).map((perLane) => ({
+      name: `sf6 ${staff}x${roomsN} ${perLane[1] === 3 ? 'dense' : 'sparse'}`,
+      boards: 100,
+      gen: (seed: number) => { const b = sf6Board(seed + staff * 1000 + perLane[1] * 100000, staff, roomsN, perLane); return { wins: b.wins, sell: b.sell } },
+    }))),
+    ...Object.entries(ATTACK_SHAPES).map(([name, g]) => ({
+      name, boards: 100,
+      gen: (seed: number) => { const wins = g(seed); const r = rng(seed * 16807 + 3); return { wins, sell: new Set([...new Set(wins.map((w) => w.laneKey))].filter(() => r() < 0.5)) } },
+    })),
+  ]
+
+  it('BAR-4 FIXED POINT — the rail’s answer fed back as its reference returns the same held set; total never shrinks; total ≥ main (SF6 rows + attacker shapes, 100 boards each, no reference and two changed-board references)', () => {
+    const moved: string[] = []
+    const shrank: string[] = []
+    const below: string[] = []
+    const inexact: Record<string, number> = {}
+    const checked: Record<string, number> = {}
+    for (const row of BAR4_ROWS) {
+      inexact[row.name] = 0
+      checked[row.name] = 0
+      for (let seed = 0; seed < row.boards; seed += 1) {
+        const { wins, sell } = row.gen(seed)
+        if (wins.length === 0) continue
+        const r = rng(seed * 104729 + 17)
+        const { candidates, lanes, book } = inputsOf(wins)
+        const sellable = (l: BoardLane) => sell.has(l.key)
+        const main = honestHeld(candidates, lanes, book, true)
+        // the board BEFORE an edit: one window in five gone — its answer is a stale reference here
+        const before = inputsOf(wins.filter(() => r() >= 0.2))
+        const prior = idsOf(honestHeld(before.candidates, before.lanes, before.book, true, undefined, { sellable }))
+        const random = new Set([...wins.filter(() => r() < 0.4).map((w) => heldIdOf(w.laneKey, w.start)), 'ghost|600'])
+        for (const [mode, reference] of [['none', undefined], ['prior', prior], ['random', random]] as const) {
+          const r1 = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference })
+          const r2 = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference: idsOf(r1) })
+          checked[row.name] += 1
+          if (!r1.exact) inexact[row.name] += 1
+          if (sortedIds(r2).join(',') !== sortedIds(r1).join(',')) moved.push(`${row.name} seed ${seed} ${mode}`)
+          if (r2.total < r1.total) shrank.push(`${row.name} seed ${seed} ${mode}: ${r2.total} < ${r1.total}`)
+          if (r1.total < main.total || r2.total < main.total) below.push(`${row.name} seed ${seed} ${mode}`)
+        }
+      }
+    }
+    expect({ moved, shrank, below }).toEqual({ moved: [], shrank: [], below: [] })
+    // the fuzz reaches the inexact boards the extra search exists for
+    expect(inexact['lanes200x3']).toBeGreaterThan(0)
+    expect(inexact['oneComponent']).toBeGreaterThan(0)
+    // ≥ 100 boards per row, each under three references
+    for (const row of BAR4_ROWS) expect({ row: row.name, checked: checked[row.name] }).toEqual({ row: row.name, checked: 300 })
+  }, 120000)
+
+  it('BAR-4 under a tripped budget: no throw, and never below the size-only search at the SAME budget (F3)', () => {
+    const below: string[] = []
+    for (const name of ['oneComponent', 'smallMixed', 'lanes200x3']) {
+      for (let seed = 0; seed < (name === 'lanes200x3' ? 20 : 100); seed += 1) {
+        const wins = ATTACK_SHAPES[name](seed)
+        if (wins.length === 0) continue
+        const { candidates, lanes, book } = inputsOf(wins)
+        const all = new Set(wins.map((w) => heldIdOf(w.laneKey, w.start)))
+        const plain = honestHeld(candidates, lanes, book, true, undefined, { budget: 30 })
+        for (const reference of [undefined, all]) {
+          let h: HonestHeld | undefined
+          expect(() => { h = honestHeld(candidates, lanes, book, true, undefined, { sellable: () => true, reference, budget: 30 }) }).not.toThrow()
+          if (h!.total < plain.total) below.push(`${name} seed ${seed}`)
+        }
+      }
+    }
+    expect(below).toEqual([])
+  }, 120000)
 })

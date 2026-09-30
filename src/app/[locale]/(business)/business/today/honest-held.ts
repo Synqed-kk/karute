@@ -101,6 +101,12 @@ export interface HonestHeld {
  *  interval-scheduling-with-eligibility solver if a real store ever trips it. */
 export const HONEST_SEARCH_BUDGET = 4_096
 
+/** ⚖ R4 · F2 (S5 PR-B) — extra preferred searches per call that iterate an
+ *  inexact answer to a fixed point (a search-budget constant, not a business
+ *  duration): each hop is monotone, so the chain is short; the cap bounds a
+ *  frame's worst case at 1 + 1 + 3 searches. */
+export const HONEST_FIXED_POINT_ROUNDS = 3
+
 /** ⚖ DECISIONS.md R4 (S4 PR-B) — THE ONE SPELLING of a held 枠's identity:
  *  `laneKey|windowStart`, the same identity as a release. The output rebuild
  *  below, the comparator's KEPT tier, the seed and the settled reference all
@@ -245,7 +251,7 @@ export function honestHeld(
   const budget = prefer?.budget ?? HONEST_SEARCH_BUDGET
   const preferred = assign(flat, budget, reference !== undefined)
   let room = preferred.room
-  const exact = preferred.exact
+  let exact = preferred.exact
   // ⚖ R4 (S4 PR-B) — THE FLOOR, BY CONSTRUCTION: the preference may never hold
   // FEWER 枠 than the historic size-only search. Exact, it cannot (size is the
   // first tier); past the budget the extra tiers can spend the nodes size
@@ -257,6 +263,36 @@ export function honestHeld(
     const floor = assign(plain, budget, false)
     const held = (rs: readonly (string | null)[]) => rs.reduce((n, r) => n + (r === null ? 0 : 1), 0)
     if (held(floor.room) > held(room)) room = floor.room
+    // ⚖ R4 · F2 (S5 PR-B fix round 1, lead ruling) — THE FIXED POINT, BY
+    // CONSTRUCTION. An exact answer is a fixed point at once (the same tuple
+    // wins whatever it is fed). An inexact one need not be: fed back as its own
+    // reference, the seeded search can reach a strictly better leaf in the same
+    // budget, and the board would move with no change to the windows. So while
+    // the answer differs from the reference it was searched with (none, or a
+    // stale one after a board change — compared on this board's candidates,
+    // which is all the search reads), the preferred search runs again with the
+    // answer as the reference, charged its own budget like the floor above, and
+    // the new answer is taken while its held set changes AND it holds at least
+    // as many (a would-shrink stops the loop and keeps the previous — a guarded
+    // floor, never a throw). Each hop improves (size, then sellable) or keeps
+    // them with more kept, so the chain converges; at most
+    // HONEST_FIXED_POINT_ROUNDS extra searches. `exact` is the last search
+    // taken. A steady-state frame (reference == answer) exits at the first check.
+    const heldSet = (rs: readonly (string | null)[], i: number) => rs[i] !== null
+    let searchedWith = flat.map((c) => c.kept === 1)
+    for (let round = 0; round < HONEST_FIXED_POINT_ROUNDS; round += 1) {
+      let differs = false
+      for (let i = 0; i < flat.length && !differs; i += 1) differs = heldSet(room, i) !== searchedWith[i]
+      if (!differs) break
+      searchedWith = flat.map((_, i) => heldSet(room, i))
+      const again = flat.map((c, i) => ({ ...c, kept: searchedWith[i] ? 1 : 0 }))
+      const next = assign(again, budget, true)
+      let moved = false
+      for (let i = 0; i < flat.length && !moved; i += 1) moved = heldSet(next.room, i) !== heldSet(room, i)
+      if (!moved || held(next.room) < held(room)) break
+      room = next.room
+      exact = next.exact
+    }
   }
 
   // Back into per-lane shape, in the CANDIDATES' own lane order so the output

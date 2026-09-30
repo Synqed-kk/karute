@@ -2877,13 +2877,20 @@ export function TodayScreen(props: TodayProps) {
 
   const pendingId = pending?.id ?? null
   const dayStaged = pendingId != null && moves[pendingId] != null
-  // ⚖ DECISIONS.md R4 · R8e (S4 PR-B) — SETTLE: only the UN-STAGED answer (no
-  // 確定 pending, no card in flight) becomes the reference, written after it
-  // exists and never inside another answer's computation. The memos read it on
-  // their next computation; by the fixed point a re-read returns this answer.
+  // ⚖ DECISIONS.md R4 · R8e (S4 PR-B) — SETTLE: only the UN-STAGED answer
+  // becomes the reference, written after it exists and never inside another
+  // answer's computation. ⚖ C1/F1 (S5 fix round 1): a pending landing of ANY
+  // kind never settles — `pendingId == null` as well as `!dayStaged`, so a
+  // landing that stages no staff move (a bed row only) cannot settle its
+  // staged answer either; no card in flight (`live`). ⚖ F2 (S5 fix round 1):
+  // an exact answer is a fixed point at once; an inexact one is iterated to a
+  // fixed point inside honestHeld (at most HONEST_FIXED_POINT_ROUNDS = 3 extra
+  // searches) on the first frame per key and on a board-change frame; so the
+  // settle writes only fixed points and the next computation, reading this
+  // reference, returns this answer.
   useEffect(() => {
-    if (honest && !dayStaged && live == null) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))
-  }, [honest, dayStaged, live, heldRefStore, heldRefDate])
+    if (honest && !dayStaged && pendingId == null && live == null) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))
+  }, [honest, dayStaged, pendingId, live, heldRefStore, heldRefDate])
   /** The three boards-without-this-card helpers, so the ORIGIN board is the day
    *  元に戻す restores. `addedHere`'s identity is `a.item.caseId` — `applyMoves`'s
    *  own admission key — and not an `id` field, which does not exist on those rows

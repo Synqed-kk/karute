@@ -8,7 +8,10 @@
 import {
   heldReferenceFor, identitiesOf, resetHeldReferenceForTests, settleHeldReference,
 } from '@/app/[locale]/(business)/business/today/held-reference'
-import { heldIdOf, type HonestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { heldIdOf, honestHeld, type HonestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { BoardLane } from '@/business/lib/today-board'
 
 const answer = (rows: Array<[string, number[]]>): HonestHeld => ({
   total: rows.reduce((n, [, s]) => n + s.length, 0),
@@ -48,5 +51,48 @@ describe('held-reference — the session holder', () => {
     expect(heldReferenceFor('store-a', '1|e')).toBeUndefined()
     settleHeldReference('store-b', '0|d', b)
     expect([heldReferenceFor('store-a', '0|d'), heldReferenceFor('store-b', '0|d')]).toEqual([a, b])
+  })
+})
+
+// ⚖ C1/F1 (S5 PR-B fix round 1) — A PENDING LANDING OF ANY KIND NEVER SETTLES.
+// The attacker's case (ATTACK-OPUS-PR-B.md, C1): a landing that stages no staff
+// move (a bed row only) left `dayStaged` false, so the old guard settled the
+// STAGED answer and 元に戻す then read it back — the board hopped. The guard is
+// read from the screen's own source and evaluated here, so this fails on a guard
+// without `pendingId == null` and passes with it.
+describe('held-reference — the settle guard (C1/F1)', () => {
+  beforeEach(() => resetHeldReferenceForTests())
+
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const found = SRC.match(/if \((.+?)\) settleHeldReference\(heldRefStore, heldRefDate, identitiesOf\(honest\)\)/)
+  const guard = new Function('honest', 'dayStaged', 'pendingId', 'live', `return Boolean(${found?.[1] ?? 'undefined'})`) as
+    (honest: HonestHeld | null, dayStaged: boolean, pendingId: string | null, live: unknown) => boolean
+
+  it('the screen settles through ONE guarded line', () => {
+    expect(SRC.match(/settleHeldReference\(heldRefStore/g)?.length).toBe(1)
+    expect(found?.[1]).toContain('!dayStaged')
+  })
+
+  it('a bed-row-only staged landing (pending, no staff move) never settles — 元に戻す returns the pre-stage board', () => {
+    const lane = (key: string) => ({ key, label: key, group: 'staff', stores: ['st'] } as unknown as BoardLane)
+    const book = (rooms: (start: number) => readonly string[]) => ({ freeBedKeys: (s: number) => rooms(s) } as never)
+    const mask = (laneKey: string, start: number) => ({ laneKey, spans: [{ start, end: start + 90, windowStart: start }], protectedCount: 1 })
+    const rows = [lane('la'), lane('lb')]
+    const cands = [mask('la', 600), mask('lb', 615)]
+    const origin = book(() => ['bed-01']) // both 枠 can use bed-01, not both at once
+    const staged = book((s) => (s === 600 ? [] : ['bed-01'])) // the staged bed move takes la's only room
+    const run = (b: never) => honestHeld(cands, rows, b, true, undefined, { sellable: () => true, reference: heldReferenceFor('store-A', '0|d') })
+    const settle = (h: HonestHeld, dayStaged: boolean, pendingId: string | null) => {
+      if (guard(h, dayStaged, pendingId, null)) settleHeldReference('store-A', '0|d', identitiesOf(h))
+    }
+    const r0 = run(origin)
+    settle(r0, false, null)
+    expect([...identitiesOf(r0)]).toEqual(['la|600'])
+    // stage(): setMoves only `if (staffLane)` — a bed-only landing leaves moves empty, so dayStaged is false while pendingId is set
+    const rs = run(staged)
+    settle(rs, false, 'bk-1')
+    expect([...identitiesOf(rs)]).toEqual(['lb|615'])
+    // 元に戻す: the honest memo recomputes on the origin board, reading the holder
+    expect([...identitiesOf(run(origin))]).toEqual(['la|600'])
   })
 })
