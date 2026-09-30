@@ -1,0 +1,76 @@
+{
+  "comment": "The Reserve pin the port in this folder is proven against, and the documentation lists PARITY.md prints. Read by scripts/business/reserve-card-parity/run.mjs (the only reader). A re-port edits THIS file + the port files, re-runs the harness, and commits the PARITY.md it emits. reserveRanges / leftOut are prose for PARITY.md (Reserve line ranges at the pin); expect = the block counts the harness must find.",
+  "reservePin": "c2a9f9543187bff689307e22a6fcfa29f02a5215",
+  "expect": {
+    "verbatim": 23,
+    "scoped": 2
+  },
+  "reserveRanges": {
+    "satin-material.ts": "`src/lib/satin-material.ts` 1–30 (whole file)",
+    "member-card-vars.ts": "`src/lib/types.ts` 162–185 (BrandTheme) · `src/lib/reserve-api/member-ia.ts` 238–253 (tenantGradientPair) · `src/components/customer/salon-surface.tsx` 36–61 (memberTenantVars)",
+    "ReserveCardPreview.tsx": "`studio-home.tsx` 417–455 (the card's measure effect) · `studio-salon.tsx` 56–102 (the cover's measure effect) · `membership-date.tsx` 1–6; the JSX is Reserve's (studio-home.tsx MembershipCard 460–516, TenantCard 656–681; studio-salon.tsx StudioCover 145–230) with the edits listed in its header"
+  },
+  "leftOut": {
+    "excludedFrom": "index.css 4520–4685",
+    "excluded": [
+      [
+        "4521–4525 .member-shell-clearance--fab",
+        "the Home page root's bottom clearance for the tab tray + 受付 pill; the preview has neither"
+      ],
+      [
+        "4546 .salon-rankfloat",
+        "the rank chip under the cover (store page body), not a surface element"
+      ],
+      [
+        "4547–4549 .salon-next / __label / __date",
+        "the store page's 次回 block, not a surface element"
+      ],
+      [
+        "4591 .member-ground.salon-surface > main",
+        "the store page's main column"
+      ],
+      [
+        "4592–4630 .salon-rankfloat, .salon-next*, .salon-acts*, .salon-posts*",
+        "store page body (rank chip, next visit, points row, action buttons, posts) — the switchboard, LATER"
+      ]
+    ],
+    "notPorted": [
+      [
+        "69–103, 302–306, 727–738 :root / .dark",
+        "app-wide tokens; every one the surfaces read is re-pointed by the ported .member-ground blocks (740–753, 774–825)"
+      ],
+      [
+        "193–195 ::selection",
+        "global text-selection tint; porting it would restyle every Business page"
+      ],
+      [
+        "322–337, 523–529, 539–542, 644–648 .member-ground (tray / column)",
+        "tab-tray geometry and the page column; nothing in the surfaces reads them"
+      ],
+      [
+        "930–932 .member-ground main.main--greet",
+        "the preview has no <main>; its only job (padding-top 0) is the wrapper's own default"
+      ],
+      [
+        "1427–1443 .copy-ok",
+        "no element opts back into selection"
+      ],
+      [
+        "1473–1512 button / row / deal press tiers",
+        "match no element of the three surfaces"
+      ],
+      [
+        "1513–1527 :focus-visible rings",
+        "the preview holds no focusable element (its anchors carry no href)"
+      ],
+      [
+        "146–170 .salon-surface",
+        "the store page root's tenant re-skin (ground, role tints); the cover reads none of it"
+      ],
+      [
+        "4509–4512 .member-shell-clearance",
+        "page-root clearance for the tray"
+      ]
+    ]
+  }
+}
