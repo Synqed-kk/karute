@@ -136,7 +136,9 @@ import { buildLanes, dayBookings, minuteOf, place, yen, type BoardItem, type Boa
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
 // operator acts on has to be provable without a renderer.
-import { bedDoor, bedViewsFor, nextVisitCategory } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bedDoor, bedViewsFor, nextVisitCategory, settleUnstagedHeld } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { heldReferenceFor, identitiesOf, resetHeldReferenceForTests } from '@/app/[locale]/(business)/business/today/held-reference'
+import { honestHeld as honestHeldS6, type HonestHeld as HonestHeldS6 } from '@/app/[locale]/(business)/business/today/honest-held'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
@@ -15428,5 +15430,61 @@ describe('§v11 V11-15 — the axis grows, the store\'s hours stay the rule', ()
     expect(css).toContain('  --grid-x: calc(var(--hour-lead, 0) * var(--hours, 9) / (var(--hours, 9) - 1) * 1%);\n  background-position-x: var(--grid-x);\n')
     expect(css).toContain('  background-position: var(--grid-x) 0, left top, right top;\n')
     expect(css).toContain('  background-position: var(--grid-x) 0, var(--grid-x) 0, left top, right top;\n')
+  })
+})
+
+// ⚖ S6 read round (lead ruling 1, Greptile thread today-held-reference.test.ts:66–69)
+// — THE SETTLE LIFECYCLE, on the screen's REAL settle function. No suite renders
+// TodayScreen (the renderer fence stays closed), so the effect's whole body —
+// the guard AND the holder write — is ONE exported function, and the effect is
+// exactly one call to it (pinned in today-held-reference.test.ts). This drives
+// that function across a drag, a stage, a pending landing and a clear, reading
+// the REAL session holder after every step: nothing is written until the
+// un-staged final state, and StrictMode's double effect writes the same set.
+describe('⚖ S6 — the settle lifecycle: stage → land (pending) → clear', () => {
+  beforeEach(() => resetHeldReferenceForTests())
+
+  const lane = (key: string) => ({ key, label: key, group: 'staff', stores: ['st'] } as unknown as Parameters<typeof honestHeldS6>[1][number])
+  const book = (rooms: (start: number) => readonly string[]) => ({ freeBedKeys: (s: number) => rooms(s) } as never)
+  const mask = (laneKey: string, start: number) => ({ laneKey, spans: [{ start, end: start + 90, windowStart: start }], protectedCount: 1 })
+  const rows = [lane('la'), lane('lb')]
+  const cands = [mask('la', 600), mask('lb', 615)]
+  const origin = book(() => ['bed-01']) // both 枠 can use bed-01, not both at once
+  const staged = book((s) => (s === 600 ? [] : ['bed-01'])) // the staged move takes la's only room
+  const run = (b: never): HonestHeldS6 => honestHeldS6(cands, rows, b, true, undefined, { sellable: () => true, reference: heldReferenceFor('store-A', '0|d') })
+  const ids = (h: HonestHeldS6) => [...identitiesOf(h)].sort()
+  type Step = { name: string; honest: HonestHeldS6; dayStaged: boolean; pendingId: string | null; live: unknown }
+  const lifecycle = (): Step[] => [
+    { name: 'drag in flight', honest: run(origin), dayStaged: false, pendingId: null, live: { id: 'bk-1' } },
+    { name: 'stage (staff move staged)', honest: run(staged), dayStaged: true, pendingId: 'bk-1', live: null },
+    { name: 'land (bed-row-only, pending)', honest: run(staged), dayStaged: false, pendingId: 'bk-1', live: null },
+    { name: 'clear (un-staged)', honest: run(origin), dayStaged: false, pendingId: null, live: null },
+  ]
+  const drive = (invokes: number) => {
+    const seen: Array<{ step: string; holder: string[] | null }> = []
+    for (const st of lifecycle()) {
+      for (let k = 0; k < invokes; k += 1) settleUnstagedHeld(st.honest, st.dayStaged, st.pendingId, st.live, 'store-A', '0|d')
+      const held = heldReferenceFor('store-A', '0|d')
+      seen.push({ step: st.name, holder: held ? [...held].sort() : null })
+    }
+    return seen
+  }
+
+  it('the holder is written ONLY at the un-staged final state, with the un-staged answer; StrictMode double-invoke writes the same content', () => {
+    const steps = lifecycle()
+    expect(ids(steps[1].honest)).toEqual(['lb|615']) // the staged answer differs from the un-staged one
+    expect(ids(steps[3].honest)).toEqual(['la|600'])
+    const once = drive(1)
+    expect(once).toEqual([
+      { step: 'drag in flight', holder: null },
+      { step: 'stage (staff move staged)', holder: null },
+      { step: 'land (bed-row-only, pending)', holder: null },
+      { step: 'clear (un-staged)', holder: ['la|600'] },
+    ])
+    resetHeldReferenceForTests()
+    const twice = drive(2)
+    expect(twice).toEqual(once)
+    // no staged content ever reached the holder, in either mode
+    expect([...once, ...twice].some((x) => x.holder?.includes('lb|615'))).toBe(false)
   })
 })

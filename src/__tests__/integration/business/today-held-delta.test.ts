@@ -626,7 +626,8 @@ describe('PR-B — the settled held set as the allocator reference', () => {
     const ref1 = identitiesOf(commit)
     expect(honestOf(staged, { ref: ref1 }).honest).toEqual(commit)
     // retry (cancel, drag again): the same settled reference, the same preview
-    expect(honestOf(REAL.lanes, { ref: ref0 }).honest).toEqual(first)
+    // DISCLOSED SHAPE CHANGE (S6 read round, lead ruling 1): a preferred call now also reports `rounds`/`fixedPoint`; `first` has no preference, so it gains the two fields here, nothing else.
+    expect(honestOf(REAL.lanes, { ref: ref0 }).honest).toEqual({ ...first, rounds: 0, fixedPoint: true })
     expect(honestOf(staged, { ref: ref0 }).honest).toEqual(preview)
     // undo: a board change like any other, against the most recent settled set
     const undone = honestOf(REAL.lanes, { ref: ref1 }).honest

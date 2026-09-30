@@ -243,6 +243,23 @@ export function bedViewsFor(
   return { handId: hand, ...bedTruthViews(lanes, frame, hand === null ? null : { id: hand }, words) }
 }
 
+/** ⚖ DECISIONS.md R4 · R8e · C1/F1 (S5 PR-B; S6 read round) — THE SETTLE, ONE
+ *  DEFINITION. The settle effect's whole body: only the UN-STAGED answer
+ *  becomes the allocator's reference — no staged day (`dayStaged`), no pending
+ *  landing of any kind (`pendingId`), no card in flight (`live`). Idempotent
+ *  for the same state (StrictMode's double effect writes the same set).
+ *  Exported so the lifecycle is provable without a renderer. */
+export function settleUnstagedHeld(
+  honest: HonestHeld | null | undefined,
+  dayStaged: boolean,
+  pendingId: string | null,
+  live: unknown,
+  heldRefStore: string,
+  heldRefDate: string,
+): void {
+  if (honest && !dayStaged && pendingId == null && live == null) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))
+}
+
 /** ⚖ LIAM flag 76 (2026-08-23) + ⚖ R3 ONE WORLD (2026-08-25) — THE ROOMS,
  *  HANDED TO THE GUARD, OUT OF THE BOOK.
  *
@@ -2884,12 +2901,14 @@ export function TodayScreen(props: TodayProps) {
   // landing that stages no staff move (a bed row only) cannot settle its
   // staged answer either; no card in flight (`live`). ⚖ F2 (S5 fix round 1):
   // an exact answer is a fixed point at once; an inexact one is iterated to a
-  // fixed point inside honestHeld (at most HONEST_FIXED_POINT_ROUNDS = 3 extra
-  // searches) on the first frame per key and on a board-change frame; so the
-  // settle writes only fixed points and the next computation, reading this
-  // reference, returns this answer.
+  // fixed point inside honestHeld (at most HONEST_FIXED_POINT_ROUNDS = 4 loop
+  // searches, the last verify-only; an unproven answer is disclosed as
+  // fixedPoint:false, exact:false) on the first frame per key and on a
+  // board-change frame; so the settle writes the fixed point the rail proved.
+  // ⚖ S6 — the guard AND the write are ONE exported function,
+  // `settleUnstagedHeld` (top of file), proven without a renderer.
   useEffect(() => {
-    if (honest && !dayStaged && pendingId == null && live == null) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))
+    settleUnstagedHeld(honest, dayStaged, pendingId, live, heldRefStore, heldRefDate)
   }, [honest, dayStaged, pendingId, live, heldRefStore, heldRefDate])
   /** The three boards-without-this-card helpers, so the ORIGIN board is the day
    *  元に戻す restores. `addedHere`'s identity is `a.item.caseId` — `applyMoves`'s

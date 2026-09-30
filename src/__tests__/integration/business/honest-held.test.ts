@@ -16,6 +16,7 @@ import {
   heldIdOf,
   heldMaskOf,
   honestHeld,
+  HONEST_FIXED_POINT_ROUNDS,
   HONEST_SEARCH_BUDGET,
   type HonestHeld,
 } from '@/app/[locale]/(business)/business/today/honest-held'
@@ -1043,4 +1044,125 @@ describe('honest-held — the held preference (DECISIONS.md R4, S4 PR-B)', () =>
     }
     expect(below).toEqual([])
   }, 120000)
+
+  // ⚖ F2 (S6 read round, lead ruling 1) — THE CAP VERIFIES ITS LAST ROUND OR
+  // DISCLOSES THE EXIT. The rail reports `rounds` (loop searches run) and
+  // `fixedPoint` (proven to return itself as its own reference). The boards
+  // below are FOUND, deterministically, by walking the BAR-4 rows under tiny
+  // synthetic budgets — the only place a chain gets long enough to reach the
+  // cap — and each finding is then checked from the outside with a fresh call.
+  type Found = { name: string; seed: number; budget: number; mode: string; h: HonestHeld; again: HonestHeld; plain: HonestHeld }
+  let catalog: Found[] | undefined
+  const catalogOf = (): Found[] => {
+    if (catalog) return catalog
+    catalog = []
+    for (const row of BAR4_ROWS) {
+      // + one pinned board past the BAR-4 seeds: the only disclosed cap exit a
+      // 1,500-seed walk of the non-200-lane rows found (build-s6 log, seed 225)
+      for (const seed of [...Array.from({ length: row.boards }, (_, i) => i), ...(row.name === 'sf6 60x20 sparse' ? [225] : [])]) {
+        const { wins, sell } = row.gen(seed)
+        if (wins.length === 0) continue
+        const { candidates, lanes, book } = inputsOf(wins)
+        const sellable = (l: BoardLane) => sell.has(l.key)
+        const r = rng(seed * 7919 + 5)
+        const random = new Set(wins.filter(() => r() < 0.4).map((w) => heldIdOf(w.laneKey, w.start)))
+        for (const budget of [8, 32, 96, 128, 256, 512, 1024, 2048, 3072]) {
+          for (const [mode, reference] of [['none', undefined], ['random', random]] as const) {
+            const h = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference, budget })
+            if ((h.rounds ?? 0) === 0) continue
+            const again = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference: idsOf(h), budget })
+            const plain = honestHeld(candidates, lanes, book, true, undefined, { budget })
+            catalog.push({ name: row.name, seed, budget, mode, h, again, plain })
+          }
+        }
+      }
+    }
+    return catalog
+  }
+  const tag = (f: Found) => `${f.name} seed ${f.seed} budget ${f.budget} ${f.mode}`
+
+  it('the cap is FOUR loop searches, the last verify-only', () => {
+    expect(HONEST_FIXED_POINT_ROUNDS).toBe(4)
+  })
+
+  it('(a) three taken rounds and a MOVING fourth: rounds 4, fixedPoint false, exact false — and a fresh call proves the disclosure true; total ≥ the size-only search at the same budget', () => {
+    const hits = catalogOf().filter((f) => f.h.rounds === 4 && f.h.fixedPoint === false)
+    console.log(`S6LOG (a) disclosed at the cap: ${hits.length} — ${hits.slice(0, 5).map(tag).join(' · ')}`)
+    expect(hits.length).toBeGreaterThan(0)
+    for (const f of hits) {
+      expect({ at: tag(f), exact: f.h.exact, atLeastPlain: f.h.total >= f.plain.total }).toEqual({ at: tag(f), exact: false, atLeastPlain: true })
+      // fed back as its own reference, the answer does NOT stand still: the search moves
+      expect({ at: tag(f), moves: f.again.rounds !== 0 || sortedIds(f.again).join() !== sortedIds(f.h).join() }).toEqual({ at: tag(f), moves: true })
+    }
+  }, 300000)
+
+  it('(b) three taken rounds and a CONVERGING fourth: rounds 4, fixedPoint true — a fresh call returns the same set', () => {
+    const hits = catalogOf().filter((f) => f.h.rounds === 4 && f.h.fixedPoint === true)
+    console.log(`S6LOG (b) verified at the cap: ${hits.length} — ${hits.slice(0, 5).map(tag).join(' · ')}`)
+    expect(hits.length).toBeGreaterThan(0)
+    for (const f of hits) expect({ at: tag(f), same: sortedIds(f.again), rounds: f.again.rounds, fp: f.again.fixedPoint }).toEqual({ at: tag(f), same: sortedIds(f.h), rounds: 0, fp: true })
+  }, 300000)
+
+  it('(c) steady state: the answer fed back as its reference runs 0 rounds and is a fixed point; an exact answer is one at once', () => {
+    const f = catalogOf().find((x) => x.h.fixedPoint === true)!
+    expect({ rounds: f.again.rounds, fixedPoint: f.again.fixedPoint, same: sortedIds(f.again).join() === sortedIds(f.h).join() }).toEqual({ rounds: 0, fixedPoint: true, same: true })
+    const { candidates, lanes, book } = inputsOf([{ laneKey: 'p-0', start: 600, end: 690, rooms: ['r-0'] }])
+    const x = honestHeld(candidates, lanes, book, true, undefined, { sellable: () => true })
+    expect({ exact: x.exact, rounds: x.rounds, fixedPoint: x.fixedPoint }).toEqual({ exact: true, rounds: 0, fixedPoint: true })
+  }, 300000)
+
+  it('(d) convergence at round k < 4: rounds k, fixedPoint true, and a fresh call returns the same set (k = 1, 2, 3)', () => {
+    const byK: Record<number, number> = {}
+    for (const k of [1, 2, 3]) {
+      const hits = catalogOf().filter((f) => f.h.rounds === k && f.h.fixedPoint === true)
+      byK[k] = hits.length
+      expect({ k, found: hits.length > 0 }).toEqual({ k, found: true })
+      for (const f of hits) expect({ at: tag(f), same: sortedIds(f.again), rounds: f.again.rounds }).toEqual({ at: tag(f), same: sortedIds(f.h), rounds: 0 })
+    }
+    console.log(`S6LOG (d) converged below the cap: k=1 ${byK[1]} · k=2 ${byK[2]} · k=3 ${byK[3]}; refused shrinks (fixedPoint false below the cap): ${catalogOf().filter((f) => f.h.fixedPoint === false && (f.h.rounds ?? 0) < 4).length}`)
+  }, 300000)
+
+  it('(e) BAR-4 at the REAL budget, S6 — rounds distribution, every cap exit verified or disclosed by seed, 0 fixedPoint:false, 0 hops / shrank / below-main / throws (2,400 checks)', () => {
+    const dist = [0, 0, 0, 0, 0]
+    const capExits: string[] = []
+    const unproven: string[] = []
+    const moved: string[] = []
+    const shrank: string[] = []
+    const below: string[] = []
+    const throws: string[] = []
+    let checks = 0
+    for (const row of BAR4_ROWS) {
+      for (let seed = 0; seed < row.boards; seed += 1) {
+        const { wins, sell } = row.gen(seed)
+        if (wins.length === 0) continue
+        const r = rng(seed * 104729 + 17)
+        const { candidates, lanes, book } = inputsOf(wins)
+        const sellable = (l: BoardLane) => sell.has(l.key)
+        const main = honestHeld(candidates, lanes, book, true)
+        const before = inputsOf(wins.filter(() => r() >= 0.2))
+        const prior = idsOf(honestHeld(before.candidates, before.lanes, before.book, true, undefined, { sellable }))
+        const random = new Set([...wins.filter(() => r() < 0.4).map((w) => heldIdOf(w.laneKey, w.start)), 'ghost|600'])
+        for (const [mode, reference] of [['none', undefined], ['prior', prior], ['random', random]] as const) {
+          const at = `${row.name} seed ${seed} ${mode}`
+          try {
+            const r1 = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference })
+            const r2 = honestHeld(candidates, lanes, book, true, undefined, { sellable, reference: idsOf(r1) })
+            checks += 1
+            dist[r1.rounds ?? 0] += 1
+            if (r1.rounds === HONEST_FIXED_POINT_ROUNDS) capExits.push(`${at}: ${r1.fixedPoint ? 'verified' : 'disclosed (exact:false)'}`)
+            if (r1.fixedPoint !== true) unproven.push(at)
+            if (sortedIds(r2).join(',') !== sortedIds(r1).join(',')) moved.push(at)
+            if (r2.total < r1.total) shrank.push(at)
+            if (r1.total < main.total || r2.total < main.total) below.push(at)
+          } catch (e) {
+            throws.push(`${at}: ${String(e)}`)
+          }
+        }
+      }
+    }
+    console.log(`S6LOG (e) checks ${checks} · rounds 0/1/2/3/4 = ${dist.join('/')} · cap exits ${capExits.length}: ${capExits.join(' | ') || 'none'} · fixedPoint false ${unproven.length} · hops ${moved.length} · shrank ${shrank.length} · below-main ${below.length} · throws ${throws.length}`)
+    expect(checks).toBe(2400)
+    expect(capExits.filter((c) => !c.endsWith('verified') && !c.endsWith('disclosed (exact:false)'))).toEqual([])
+    expect({ unproven, moved, shrank, below, throws }).toEqual({ unproven: [], moved: [], shrank: [], below: [], throws: [] })
+  }, 300000)
 })

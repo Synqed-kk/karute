@@ -73,6 +73,15 @@ describe('held-reference — the settle guard (C1/F1)', () => {
     expect(found?.[1]).toContain('!dayStaged')
   })
 
+  it('⚖ S6 — the settle effect is exactly ONE call to the exported settleUnstagedHeld, deps unchanged; the guarded write lives in that function', () => {
+    expect(SRC).toContain(`  useEffect(() => {
+    settleUnstagedHeld(honest, dayStaged, pendingId, live, heldRefStore, heldRefDate)
+  }, [honest, dayStaged, pendingId, live, heldRefStore, heldRefDate])`)
+    expect(SRC.match(/settleUnstagedHeld\(/g)?.length).toBe(2) // the definition + the one call
+    const fn = SRC.slice(SRC.indexOf('export function settleUnstagedHeld('))
+    expect(fn.slice(0, fn.indexOf('\n}\n'))).toContain(`if (${found?.[1]}) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))`)
+  })
+
   it('a bed-row-only staged landing (pending, no staff move) never settles — 元に戻す returns the pre-stage board', () => {
     const lane = (key: string) => ({ key, label: key, group: 'staff', stores: ['st'] } as unknown as BoardLane)
     const book = (rooms: (start: number) => readonly string[]) => ({ freeBedKeys: (s: number) => rooms(s) } as never)
