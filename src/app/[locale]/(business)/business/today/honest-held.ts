@@ -292,14 +292,15 @@ export function honestHeld(
     // that round is VERIFY-ONLY: A stays, NOT proven. Moved to fewer → refused:
     // A stays, NOT proven. Moved to at least as many → taken, loop again.
     // `fixedPoint: false` means NOT PROVEN, never proven to move.
-    // THE ARGUMENT: each taken hop improves (size, then sellable) or keeps them
-    // with more kept, so hops are monotone in a finite lattice and converge;
-    // the cap bounds a frame's cost (1 floor + 3 taken + 1 verify search worst
-    // case, plus the first preferred search); an answer not proven a fixed
-    // point is disclosed by `fixedPoint: false` AND `exact: false` — never
-    // reported exact, and never settled (TodayScreen `settleUnstagedHeld`). Measured at the real budget: 0 moved / 22,860 calls (S5
-    // attack); S6 BAR-4: 0 fixedPoint:false / 2,400 checks, rounds 0/1/2/3/4 =
-    // 1170/1057/170/2/1, the one cap exit verified (honest-held.test.ts (e)).
+    // THE ARGUMENT: each taken hop improves (size, then sellable) or keeps them with
+    // more kept, so hops are monotone in a finite lattice and converge; the cap
+    // bounds a frame's cost (1 floor + 3 taken + 1 verify search worst case, plus the
+    // first preferred search); an answer not proven a fixed point is disclosed by
+    // `fixedPoint: false` AND `exact: false` — never reported exact, and never
+    // settled (TodayScreen `settleUnstagedHeld`). Measured at the real budget: 0
+    // moved / 22,860 calls (S5 attack); S6 BAR-4: 0 fixedPoint:false / 2,400 checks,
+    // rounds 0/1/2/3/4 = 1170/1057/170/2/1, the one cap exit verified
+    // (honest-held.test.ts (e)).
     const heldSet = (rs: readonly (string | null)[], i: number) => rs[i] !== null
     const same = (a: readonly (string | null)[], b: (i: number) => boolean) => {
       for (let i = 0; i < flat.length; i += 1) if (heldSet(a, i) !== b(i)) return false

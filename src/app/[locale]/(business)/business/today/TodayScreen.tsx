@@ -2910,8 +2910,9 @@ export function TodayScreen(props: TodayProps) {
   // board-change frame. The settle writes ONLY an answer the rail proved a
   // fixed point; a not-proven one (fixedPoint:false — 0 / 39,960 calls at the
   // real budget, S6 attack) is never settled, so each frame recomputes the
-  // same answer from the same reference and nothing moves, and the next
-  // board-change frame starts fresh.
+  // same answer from the same reference and nothing moves. A disclosed frame
+  // never advances the holder, so a board change recomputes from the LAST
+  // SETTLED reference.
   // ⚖ S6 — the guard AND the write are ONE exported function,
   // `settleUnstagedHeld` (top of file), proven without a renderer.
   useEffect(() => {
