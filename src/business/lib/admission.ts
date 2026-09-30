@@ -84,7 +84,8 @@ export async function requireBusinessAdmission(): Promise<BusinessAdmission> {
 export async function endSession(): Promise<boolean> {
   try {
     const supabase = await createClient()
-    const { error } = await supabase.auth.signOut()
+    // ⚖ S41 X2 (lead) — THIS device only. The default (global) scope also revoked the phone's session.
+    const { error } = await supabase.auth.signOut({ scope: 'local' })
     return !error
   } catch {
     return false

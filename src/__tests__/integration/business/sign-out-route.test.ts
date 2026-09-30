@@ -29,6 +29,8 @@ describe('R53 P5a — POST /api/business/sign-out', () => {
     expect(await res.json()).toEqual({ ok: true })
     expect(res.headers.get('cache-control')).toBe('no-store')
     expect(mockSignOut).toHaveBeenCalledTimes(1)
+    // ⚖ S41 X2 — this device only, never the phone's session too.
+    expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' })
     expect(businessIdForUser).not.toHaveBeenCalled()
   })
 
