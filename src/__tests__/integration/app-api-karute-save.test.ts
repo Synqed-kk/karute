@@ -720,6 +720,21 @@ describe('POST /api/app/v1/karute (save) — S4 the converge never clears a book
     expect((await res.json()).appointment_id).toBe('appt-interleaved')
   })
 
+  // X4 (r6 attack; S70 fix round 6, commit 35, test-only): a returned null is
+  // the truth (A4) — the write carried the computed booking, but the row and
+  // the reply say what the record holds after it: no link.
+  it('A2-facade: the update RETURNS no link → the row and the reply carry the returned null, the body the given booking', async () => {
+    update.mockResolvedValueOnce({ id: 'kar-existing', appointment_id: null } as never)
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', customer_id: 'cust-1', appointment_id: 'appt-first' } as never
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1', appointmentId: 'ap-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: 'ap-1' })
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    expect((rows[0][0] as { detail: Record<string, unknown> }).detail).toMatchObject({ appointment_id: null })
+    expect((await res.json()).appointment_id).toBeNull()
+  })
+
   it('S4-facade: a re-point to another customer with no booking moves both — the old booking never rides along (E-1)', async () => {
     const sent = await converge({ customer_id: 'cust-OTHER', appointment_id: 'appt-first' })
     expect(sent).toMatchObject({ customer_id: 'cust-1', appointment_id: null })

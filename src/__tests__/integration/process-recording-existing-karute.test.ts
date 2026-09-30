@@ -1046,6 +1046,14 @@ describe("W-C — the worker's converge is pinned", () => {
     expect(sent).toMatchObject({ appointment_id: 'appt-new' })
     expect(detail).toMatchObject({ appointment_id: 'appt-RETURNED' })
   })
+  // X5 (r6 attack; S70 fix round 6, commit 35, test-only): a returned null is
+  // the truth (A4) — the row carries it, never the computed booking.
+  it('W-C d: the update RETURNS no link → the row carries the returned null, the body the payload booking', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: null } as never)
+    const { sent, detail } = await converge([], { appointment_id: 'appt-new' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-new' })
+    expect(detail).toMatchObject({ appointment_id: null })
+  })
   it("W-C c: the converge's auto-link searches the RECORD's store, never the payload's", async () => {
     await converge([])
     expect(client.appointments.list).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'cust-1', store_id: 'store-A' }))

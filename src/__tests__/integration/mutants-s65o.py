@@ -289,6 +289,15 @@ MUTANTS = [
      [(WORKER, '          customerId: recordLink.customer_id,\n          storeId: existing.store_id ?? null,\n',
        '          customerId: recordLink.customer_id,\n          storeId: payload.store_id ?? null, // M-O38\n')],
      [JOB_T], ["W-C a: an auto-link HIT on the converge", "W-C c: the converge's auto-link searches the RECORD's store"]),
+    # M-O41..M-O42 — X4/X5 (r6 attack; S70 fix round 6, commit 35): `??` on the converge's returned link
+    ('M-O41', "the facade converge falls back on a returned null (the row and the reply name a link the record no longer holds)",
+     [(CORE, '        appointmentId: returnedOr(updated?.appointment_id, appointmentId ?? null),\n',
+       '        appointmentId: updated?.appointment_id ?? (appointmentId ?? null), // M-O41\n')],
+     [SAVE_T], ['A2-facade: the update RETURNS no link']),
+    ('M-O42', "the worker converge falls back on a returned null (the row names a link the record no longer holds)",
+     [(WORKER, '    const appointmentId = returnedOr(\n      updated?.appointment_id,\n      fill.kept ? fill.appointmentId : (fill.given ?? autoLinked?.appointmentId ?? null),\n    )\n',
+       '    const appointmentId =\n      updated?.appointment_id ??\n      (fill.kept ? fill.appointmentId : (fill.given ?? autoLinked?.appointmentId ?? null)) // M-O42\n')],
+     [JOB_T], ['W-C d: the update RETURNS no link']),
     # M-G1 — the save's return is not the walker's call-through shape (commit 6)
     ('M-G1', '`return await emitSave(...)` (the S67 list failure)',
      [(CORE, '  return emitSave({\n    id: record.id,\n', '  return await emitSave({\n    id: record.id,\n')],
