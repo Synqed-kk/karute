@@ -747,6 +747,30 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
 
+  // SF-3(a) (S68 fix round 3, commit 23 — the r3 NIT: no test pinned it): the
+  // answer belongs to the VISIT. A converge that re-points the record to
+  // another customer (保存先を変更, E-1) with no answer in the body keeps the
+  // decided answer already on the record; with an answer in the body the new
+  // answer is written under the NEW customer.
+  it('SF-3(a): a re-point to another customer with NO answer in the body keeps the decided answer → kept', async () => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', customer_id: 'cust-OTHER' } as never
+    outcomeGet.mockResolvedValueOnce({ outcome: 'success' })
+    const { reply, row } = await save({ recordingSessionId: 'rec-1' })
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ customer_id: 'cust-1' })
+    expect(reply.outcome).toEqual({ written: false, reason: 'kept' })
+    expect(row.detail).toMatchObject({ outcome_link: 'kept', customer_id: 'cust-1' })
+    expect(outcomeUpsert).not.toHaveBeenCalled()
+  })
+  it('SF-3(a): a re-point to another customer WITH an answer in the body writes it under the new customer → written', async () => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', customer_id: 'cust-OTHER' } as never
+    const { reply, row } = await save({ recordingSessionId: 'rec-1', outcome: { status: 'no_deal' } })
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ customer_id: 'cust-1' })
+    expect(outcomeUpsert).toHaveBeenCalledTimes(1)
+    expect(outcomeUpsert).toHaveBeenCalledWith(expect.objectContaining({ karute_record_id: 'kar-existing', customer_id: 'cust-1', outcome: 'no_deal' }))
+    expect(reply.outcome).toEqual({ written: true })
+    expect(row.detail).toMatchObject({ outcome_link: 'written', customer_id: 'cust-1' })
+  })
+
   // S67 fix round 2, commit 13 (SF-3(b); the attack's M1): a 保留 placeholder
   // is not a decided answer (isDecidedOutcome, the worker's own rule).
   it('SF-3 M1: a converge with no answer over a 保留 placeholder is never kept → skipped:not_sent', async () => {
