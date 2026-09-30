@@ -753,6 +753,20 @@ describe('S7 — the worker links the unambiguous booking at save', () => {
     expect(appointmentsGet).toHaveBeenCalledWith('appt-1')
     expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1', service: 'カット' }))
   })
+  // S-3 (S68 fix round 3): the day's bookings cannot be read → the row says
+  // skipped:read_failed (never 'none'), no link, the job completes.
+  it('S-3 W: the day\'s bookings cannot be read → created with no link; the row says skipped:read_failed', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    client.appointments.list = jest.fn(async () => { throw new Error('core down') })
+    client.karuteRecords.list = jest.fn(async () => ({ karute_records: [] }))
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, store_id: 'store-A', session_started_at: '2026-09-29T07:44:39Z' } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect((rows[0][0] as { detail: Record<string, unknown> }).detail).toMatchObject({ appointment_link: 'skipped:read_failed', appointment_id: null })
+    warn.mockRestore()
+  })
   it('S7-job: two bookings → ambiguous, no link', async () => {
     const detail = await run(
       [appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z'), appt('appt-2', '2026-09-29T10:00:00Z', '2026-09-29T11:00:00Z')],

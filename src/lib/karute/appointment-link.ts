@@ -100,13 +100,15 @@ export function keepLinkUnlessGiven(
  * the 予約 tab and changes no count (packs/reconcile.ts reads it, writes
  * nothing).
  *
- * NEVER THROWS: a read that fails links nothing ('none'), the save goes on.
+ * NEVER THROWS: a read that fails links nothing and says so
+ * ('skipped:read_failed', S-3), the save goes on; 'none' is answered ONLY
+ * when the reads succeeded and nothing qualified.
  */
 /** SF-6 (S67 fix round 2, commit 16): `skipped:no_session_start` = the save
  *  had no session start to judge by (a job queued before the enqueue doors
  *  stamped one, or a stamp the door could not read) — NOT evaluated, never
  *  the same word as `none` ("no booking qualifies"). */
-export type AutoAppointmentLink = 'auto_linked' | 'ambiguous' | 'none' | 'skipped:no_session_start'
+export type AutoAppointmentLink = 'auto_linked' | 'ambiguous' | 'none' | 'skipped:no_session_start' | 'skipped:read_failed'
 const LINKABLE_STATUSES = new Set(['SCHEDULED', 'IN_PROGRESS'])
 
 export async function resolveAutoAppointmentLink(
@@ -178,8 +180,19 @@ export async function resolveAutoAppointmentLink(
     )
     if (other) return none
     return { link: 'auto_linked', appointmentId: booking.id }
-  } catch {
-    return none
+  } catch (err) {
+    // S-3 (S68 fix round 3): a failed read (the session row, the day's
+    // bookings, the karute list) or an unreadable date is NOT evaluated —
+    // never the word 'none' ("no booking qualifies"). Logged once.
+    console.warn(
+      JSON.stringify({
+        evt: 'auto_link_skipped',
+        reason: 'read_failed',
+        recordingSessionId: input.recordingSessionId,
+        cause: err instanceof Error ? err.message : String(err),
+      }),
+    )
+    return { link: 'skipped:read_failed', appointmentId: null }
   }
 }
 
@@ -207,7 +220,8 @@ export async function menuOfAutoLinked(
  *  karute.save rows and the facade save's reply take the value here, so they
  *  can never drift. It keeps its meaning on main: what the AUTO-link did.
  *  The closed set: `kept | auto_linked | ambiguous | none` (+
- *  `skipped:no_session_start`, SF-6: not evaluated), plus a given
+ *  `skipped:no_session_start`, SF-6, and `skipped:read_failed`, S-3: not
+ *  evaluated), plus a given
  *  booking's degraded reason (appointment_not_found · appointment_out_of_scope
  *  · appointment_unreadable). null = the booking was given by the payload (or
  *  no auto-link ran at all: a save with no session, the web doors).

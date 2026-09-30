@@ -151,6 +151,13 @@ MUTANTS = [
      [(WORKER, '    customerId: recordCustomerId,\n    staffId: payload.staff_id,\n',
        '    customerId: payload.customer_id, // M-O19b\n    staffId: payload.staff_id,\n')],
      [JOB_T], ["SF-7: a mid-run converge onto a re-pointed record with no decided answer → written under the record's current customer"]),
+    # M-O20 — a failed read says 'none' again (S68 fix round 3, commit 22, S-3)
+    ('M-O20', "a failed read reads as 'none' (the same word as no booking)",
+     [(LINK, "    return { link: 'skipped:read_failed', appointmentId: null }\n", '    return none // M-O20\n')],
+     [AUTO_T, SAVE_T, JOB_T],
+     ['S-3: appointments.list throws', 'S-3: the karute list (condition 6) throws', 'S-3: a booking with a malformed starts_at',
+      'S-3: the session row read throws', "S-3 F: the day's bookings cannot be read", 'S-3 F: the session row cannot be read',
+      "S-3 W: the day's bookings cannot be read"]),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',
      [(SIGNALS, '  if (!isProvisionalKaruteRow(row)) return true\n  return karuteRowDayJst(row) !== anchorDayJst\n',

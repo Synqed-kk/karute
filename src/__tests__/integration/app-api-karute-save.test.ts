@@ -740,8 +740,9 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
     existingBySession.current = { id: 'kar-existing', transcript: 'old' }
     outcomeGet.mockResolvedValueOnce({ outcome: 'success' })
     const { reply, row } = await save({ recordingSessionId: 'rec-1' })
-    // S7 (commit 4): a session save with no booking now asks the auto-link — no booking readable here → 'none'.
-    expect(reply).toEqual({ id: 'kar-existing', outcome: { written: false, reason: 'kept' }, appointment_id: null, appointment_link: 'none' })
+    // S7 (commit 4): a session save with no booking now asks the auto-link — this harness has no session read, so the
+    // read fails → 'skipped:read_failed' (S-3, S68 fix round 3: a failed read is never the word 'none').
+    expect(reply).toEqual({ id: 'kar-existing', outcome: { written: false, reason: 'kept' }, appointment_id: null, appointment_link: 'skipped:read_failed' })
     expect(row.detail.outcome_link).toBe('kept')
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
@@ -883,6 +884,30 @@ describe('POST /api/app/v1/karute (save) — S7 the unambiguous booking is linke
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
     expect(reply.appointment_link).toBe('ambiguous')
     expect(row.detail).toMatchObject({ appointment_link: 'ambiguous', appointment_id: null })
+  })
+  // S-3 (S68 fix round 3): a failed read → skipped:read_failed on the reply
+  // AND the row, no link, the save goes on.
+  it('S-3 F: the day\'s bookings cannot be read → saved with no link; reply and row say skipped:read_failed', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    attach([])
+    client.appointments.list = jest.fn(async () => { throw new Error('core down') })
+    const { reply, row } = await save()
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect(reply.appointment_link).toBe('skipped:read_failed')
+    expect(reply.appointment_id).toBeNull()
+    expect(row.detail).toMatchObject({ appointment_link: 'skipped:read_failed', appointment_id: null })
+    warn.mockRestore()
+  })
+  it('S-3 F: the session row cannot be read → saved with no link; reply and row say skipped:read_failed', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
+    client.recordings = { get: jest.fn(async () => { throw new Error('core down') }) }
+    const { reply, row } = await save()
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(reply.appointment_link).toBe('skipped:read_failed')
+    expect(row.detail).toMatchObject({ appointment_link: 'skipped:read_failed', appointment_id: null })
+    warn.mockRestore()
   })
   it('S7-facade: a save that NAMES a booking never runs the auto-link', async () => {
     attach([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])

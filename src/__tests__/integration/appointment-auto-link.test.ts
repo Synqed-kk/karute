@@ -101,10 +101,42 @@ describe('S7 — resolveAutoAppointmentLink, the guardrail', () => {
   it('a booking with no length links nothing', async () => {
     expect((await run(client([booking({ ends_at: '2026-09-29T07:30:00Z', duration_minutes: null })]).c)).link).toBe('none')
   })
-  it('never throws: a failed read → none', async () => {
+  // S-3 (S68 fix round 3): a failed read is NOT evaluated — its own word,
+  // never 'none' ("no booking qualifies"); the function still never throws.
+  const readFailed = (warn: jest.SpyInstance) =>
+    warn.mock.calls.filter((c) => String(c[0]).includes('"reason":"read_failed"'))
+  it('S-3: appointments.list throws → skipped:read_failed, logged once with its cause, no link', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const { c, list } = client([booking()])
     list.mockRejectedValueOnce(new Error('core down'))
-    expect(await run(c)).toEqual({ link: 'none', appointmentId: null })
+    expect(await run(c)).toEqual({ link: 'skipped:read_failed', appointmentId: null })
+    expect(readFailed(warn)).toHaveLength(1)
+    expect(JSON.parse(String(readFailed(warn)[0][0]))).toEqual({
+      evt: 'auto_link_skipped', reason: 'read_failed', recordingSessionId: 'sess-1', cause: 'core down',
+    })
+    warn.mockRestore()
+  })
+  it('S-3: the karute list (condition 6) throws → skipped:read_failed', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { c, karuteList } = client([booking()])
+    karuteList.mockRejectedValueOnce(new Error('core down'))
+    expect(await run(c)).toEqual({ link: 'skipped:read_failed', appointmentId: null })
+    expect(readFailed(warn)).toHaveLength(1)
+    warn.mockRestore()
+  })
+  it('S-3: a booking with a malformed starts_at (S-1: ymdInJst throws) → skipped:read_failed', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await run(client([booking({ starts_at: 'not-a-date' })]).c)).toEqual({ link: 'skipped:read_failed', appointmentId: null })
+    expect(readFailed(warn)).toHaveLength(1)
+    warn.mockRestore()
+  })
+  it('S-3: the session row read throws → skipped:read_failed', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { c, recordingsGet, list } = client([booking()])
+    recordingsGet.mockRejectedValueOnce(new Error('core down'))
+    expect(await run(c)).toEqual({ link: 'skipped:read_failed', appointmentId: null })
+    expect(list).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
   // SF-6 (S67 fix round 2, commit 16): no start = NOT evaluated, its own word
   // (was 'none', the same word as "no booking qualifies").
