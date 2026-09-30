@@ -818,6 +818,28 @@ describe('POST /api/app/v1/karute (save) — S2/S5 the save answers with the ans
     expect(outcomeUpsert).not.toHaveBeenCalled()
   })
 
+  // A17 (S69 fix round 4, commit 28): a keep-decided read that FAILS is never
+  // the word for a true no; the client's own reason wins when it sent one.
+  const keepReadWarns = () => warn.mock.calls.filter((c) => String(c[0]).includes('"evt":"outcome_keep_read_failed"'))
+  it('A17 F1: a converge with no answer whose keep-decided read throws → skipped:kept_unknown on the row AND the reply', async () => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old' }
+    outcomeGet.mockRejectedValueOnce(new Error('outcome read 503'))
+    const { reply, row } = await save({ recordingSessionId: 'rec-1' })
+    expect(reply.outcome).toEqual({ written: false, reason: 'kept_unknown' })
+    expect(row.detail.outcome_link).toBe('skipped:kept_unknown')
+    expect(outcomeUpsert).not.toHaveBeenCalled()
+    expect(keepReadWarns()).toHaveLength(1)
+  })
+  it("A17 F2: the same failed read + the client's reason never_asked → skipped:never_asked (the client's reason wins), the failure logged once", async () => {
+    existingBySession.current = { id: 'kar-existing', transcript: 'old' }
+    outcomeGet.mockRejectedValueOnce(new Error('outcome read 503'))
+    const { reply, row } = await save({ recordingSessionId: 'rec-1', outcomeMissing: 'never_asked' })
+    expect(reply.outcome).toEqual({ written: false, reason: 'never_asked' })
+    expect(row.detail.outcome_link).toBe('skipped:never_asked')
+    expect(keepReadWarns()).toHaveLength(1)
+    expect(JSON.parse(String(keepReadWarns()[0][0]))).toEqual({ evt: 'outcome_keep_read_failed', karuteRecordId: 'kar-existing', cause: 'outcome read 503' })
+  })
+
   it('S2/S5-facade skipped:not_sent: an old client sends no answer and no reason', async () => {
     const { reply, row } = await save()
     expect(reply).toEqual({ id: 'kar-new', outcome: { written: false, reason: 'not_sent' }, appointment_id: null, appointment_link: null })

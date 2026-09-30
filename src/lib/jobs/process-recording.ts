@@ -312,8 +312,9 @@ async function processJob(job: RecordingJob): Promise<string> {
     // silent and permanent).
     const recordedOutcome = payload.outcome ? await synqed.karuteOutcomes.get(existing.id) : null
     // The decided-answer test is the ONE predicate the save's fate uses
-    // (isDecidedOutcome; S67 fix round 2, commit 13).
-    if (payload.outcome && !isDecidedOutcome(recordedOutcome)) {
+    // (isDecidedOutcome; S67 fix round 2, commit 13) — with the incoming
+    // answer (A9, S69 fix round 4: an auto-decided row yields to a real one).
+    if (payload.outcome && !isDecidedOutcome(recordedOutcome, payload.outcome.status)) {
       // Discard check #2 (skip path) — the LAST read before the write,
       // mirroring the normal path's check #2 below: a discard that landed
       // after check #1 and before this late label write still wins.

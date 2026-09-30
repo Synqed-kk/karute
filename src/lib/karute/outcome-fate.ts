@@ -5,7 +5,7 @@ import {
   REVISIT_NOT_ELIGIBLE,
   type OutcomeWriteClient,
 } from '@/lib/karute/outcome'
-import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import type { Outcome, SessionOutcome } from '@/lib/karute/outcome-types'
 import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
 
 /**
@@ -24,7 +24,10 @@ import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
  *                           (a converge; a 保留 placeholder is not decided)
  *   skipped:<reason>        no answer written: not_returning (the revisit guard
  *                           refused it) · not_sent (no answer, no reason given —
- *                           an old client) · the client's own reason
+ *                           an old client) · kept_unknown (no answer, and the
+ *                           read of what is on record FAILED — A17, S69 fix
+ *                           round 4: a failure never wears the word for a true
+ *                           no) · the client's own reason (it wins over both)
  *   failed:<ref>            the write failed; <ref> is a short reference to the
  *                           server log line that carries the technical cause —
  *                           the audit row never carries the cause itself
@@ -33,7 +36,7 @@ import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
  * is always emitted; `cause` hands the original failure back to a caller that
  * must still fail (the worker, so core requeues the job).
  */
-export type OutcomeSkipReason = 'not_returning' | 'not_sent' | OutcomeMissingReason
+export type OutcomeSkipReason = 'not_returning' | 'not_sent' | 'kept_unknown' | OutcomeMissingReason
 export type OutcomeLink = 'written' | 'kept' | `skipped:${OutcomeSkipReason}` | `failed:${string}`
 export interface OutcomeFate {
   link: OutcomeLink
@@ -49,9 +52,24 @@ export type OutcomeFateClient = OutcomeWriteClient
  *  auto-flips a stale 保留 to 不成約 after 14 days), so a real answer may
  *  land over it and it is never reported as `kept`. Shared by the fate's
  *  kept-read below and the worker's existing-karute skip path
- *  (process-recording.ts) — one definition, never two spellings. */
-export function isDecidedOutcome(row: { outcome?: string | null } | null | undefined): boolean {
-  return !!row && row.outcome !== 'pending'
+ *  (process-recording.ts) — one definition, never two spellings.
+ *  A9 (S69 fix round 4, commit 28): the INCOMING answer is part of the test.
+ *  A row the auto-decide wrote (`auto_decided: true` — Business shows it as
+ *  「auto」 and lets staff edit it) is not the staff's choice: a real answer
+ *  (success / no_deal / revisit) lands over it. An incoming 保留 never lands
+ *  over any non-pending row — a stale job carrying 保留 must not clear a
+ *  decided date and pull the visit out of the closing rate. A staff-decided
+ *  row stays decided against every incoming answer (as before). `incoming`
+ *  is null when no answer rides the save (nothing would be written). */
+export type RecordedOutcomeRow = { outcome?: string | null; auto_decided?: boolean | null }
+export function isDecidedOutcome(
+  row: RecordedOutcomeRow | null | undefined,
+  incoming: Outcome | null | undefined,
+): boolean {
+  if (!row || row.outcome === 'pending') return false
+  if (incoming === 'pending') return true
+  if (row.auto_decided === true && incoming) return false
+  return true
 }
 
 export async function writeOutcomeFate(
@@ -96,27 +114,38 @@ export async function writeOutcomeFate(
     if (!input.fresh) {
       // A converge with no answer: a DECIDED answer an earlier save wrote
       // stays (a 保留 placeholder is not one — isDecidedOutcome).
-      // A read failure only means "cannot say it was kept" — never a failure.
       // try/await, not .catch(): a synchronous throw must not escape either.
-      let recorded: { outcome?: string | null } | null = null
+      // A17 (S69 fix round 4, commit 28): a read that FAILS cannot say whether
+      // an answer is on record — it answers `kept_unknown`, never `not_sent`
+      // (the word for a true no). The failure is logged once; when the client
+      // sent its own missing-answer reason, the CLIENT's reason wins (the row
+      // says what the phone said).
+      let recorded: RecordedOutcomeRow | null
       try {
         recorded = await synqed.karuteOutcomes.get(input.karuteRecordId)
-      } catch {
-        recorded = null
+      } catch (err) {
+        console.warn(
+          JSON.stringify({
+            evt: 'outcome_keep_read_failed',
+            karuteRecordId: input.karuteRecordId,
+            cause: err instanceof Error ? err.message : String(err),
+          }),
+        )
+        return { link: `skipped:${input.outcomeMissing ?? 'kept_unknown'}` }
       }
-      if (isDecidedOutcome(recorded)) return { link: 'kept' }
+      if (isDecidedOutcome(recorded, null)) return { link: 'kept' }
     }
     return { link: `skipped:${input.outcomeMissing ?? 'not_sent'}` }
   }
 
   if (input.keepDecidedAnswer) {
-    let recorded: { outcome?: string | null } | null
+    let recorded: RecordedOutcomeRow | null
     try {
       recorded = await synqed.karuteOutcomes.get(input.karuteRecordId)
     } catch (err) {
       return failed(err)
     }
-    if (isDecidedOutcome(recorded)) return { link: 'kept' }
+    if (isDecidedOutcome(recorded, input.outcome.status)) return { link: 'kept' }
   }
 
   let result: { error?: string }

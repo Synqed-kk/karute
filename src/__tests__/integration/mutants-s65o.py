@@ -147,9 +147,20 @@ MUTANTS = [
      [SAVE_T], ['SF-2 F-2: a create auto-linked']),
     # M-O15 — a 保留 placeholder reads as a decided answer again (commit 13, SF-3(b))
     ('M-O15', 'isDecidedOutcome counts the pending placeholder as decided (the fate says kept; the worker skip path refuses the real label)',
-     [(FATE, "  return !!row && row.outcome !== 'pending'\n", '  return !!row // M-O15\n')],
+     [(FATE, "  if (!row || row.outcome === 'pending') return false\n", '  if (!row) return false // M-O15\n')],
      [SAVE_T, JOB_T], ['SF-3 M1: a converge with no answer over a 保留 placeholder is never kept',
                        'T9 existing record + a recorded PENDING (保留) row']),
+    # M-O31..M-O33 — A9 + A17 (S69 commit 28): an auto answer is not the staff's; a failed read is never not_sent
+    ('M-O31', "isDecidedOutcome loses the auto_decided branch (a staff's real late answer is kept away by the auto-decide)",
+     [(FATE, '  if (row.auto_decided === true && incoming) return false\n', '')],
+     [JOB_T], ['A9 W1: an auto-decided no_deal + incoming success']),
+    ('M-O32', 'isDecidedOutcome loses the incoming-pending guard (a stale 保留 clears an auto-decided answer)',
+     [(FATE, "  if (incoming === 'pending') return true\n", '')],
+     [JOB_T], ['A9 W2: an auto-decided no_deal + incoming pending']),
+    ('M-O33', 'a failed keep-decided read answers not_sent again (a failure wearing the word for a true no)',
+     [(FATE, "        return { link: `skipped:${input.outcomeMissing ?? 'kept_unknown'}` }\n",
+       "        return { link: `skipped:${input.outcomeMissing ?? 'not_sent'}` } // M-O33\n")],
+     [SAVE_T], ['A17 F1: a converge with no answer whose keep-decided read throws']),
     # M-O16 — the guard reads ONE page again (commit 14, SF-4; the base regression)
     ('M-O16', 'the prior-visit read stops after page 1 (placeholders push a regular off the page)',
      [(GUARD, '    if (count > 0 || rows.length < PRIOR_VISIT_PAGE_SIZE) return count\n', '    return count // M-O16\n')],
@@ -172,7 +183,7 @@ MUTANTS = [
      [AUTO_T, JOB_T], ['no start → skipped:no_session_start', 'SF-6 W1: an older job with no session start']),
     # M-O19 — the worker clobbers a decided answer / files it under the stale customer (commit 17, SF-7)
     ('M-O19a', "the worker's mid-run converge overwrites a decided answer (no keep-decided check)",
-     [(FATE, '    if (isDecidedOutcome(recorded)) return { link: \'kept\' }\n  }\n\n  let result',
+     [(FATE, '    if (isDecidedOutcome(recorded, input.outcome.status)) return { link: \'kept\' }\n  }\n\n  let result',
        '  }\n\n  let result')],
      [JOB_T], ['SF-7 W10: a mid-run converge onto a record whose staff set no_deal since']),
     ('M-O19b', "the worker files the answer under the payload's stale customer",

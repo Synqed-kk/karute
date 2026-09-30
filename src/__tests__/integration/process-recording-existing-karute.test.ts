@@ -890,3 +890,65 @@ describe('A4 — the worker\'s create answers with the record core returned', ()
     expect(fail).toHaveBeenCalled()
   })
 })
+
+// A9 (S69 fix round 4, commit 28): a row the auto-decide wrote is not the
+// staff's answer — a real late answer lands over it; an incoming 保留 never
+// lands over any non-pending row. Through the ONE predicate, on the worker's
+// mid-run converge (the fate's keep-decided read) and on its skip path.
+describe('A9 — an auto answer is not the staff\'s', () => {
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  const RECORD = { id: 'record-existing', store_id: 'store-A', customer_id: 'cust-1', appointment_id: 'appt-1' }
+  const saveRow = () => {
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+  const midRun = async (status: string) => {
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce(RECORD as never)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status } } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+  }
+
+  it('A9 W1: an auto-decided no_deal + incoming success → the staff\'s answer lands, the row says written', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal', auto_decided: true } as never)
+    await midRun('success')
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, expect.objectContaining({ status: 'success' }))
+    expect(saveRow()).toMatchObject({ outcome_link: 'written' })
+  })
+  it('A9 W2: an auto-decided no_deal + incoming pending → never landed, the row says kept', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal', auto_decided: true } as never)
+    await midRun('pending')
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(saveRow()).toMatchObject({ outcome_link: 'kept' })
+  })
+  it('A9 W3 (unchanged): a staff-decided success (auto_decided false) + incoming no_deal → kept', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'success', auto_decided: false } as never)
+    await midRun('no_deal')
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(saveRow()).toMatchObject({ outcome_link: 'kept' })
+  })
+  it('A9 W4 (unchanged): a 保留 row + incoming success → written', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'pending', auto_decided: false } as never)
+    await midRun('success')
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(saveRow()).toMatchObject({ outcome_link: 'written' })
+  })
+  it('A9 W5: the SKIP path with an auto-decided row + incoming revisit → the label is written', async () => {
+    getByRecordingSession.mockResolvedValue(RECORD as never)
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal', auto_decided: true } as never)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status: 'revisit', isFirstVisit: false } } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, expect.objectContaining({ status: 'revisit' }))
+  })
+})
