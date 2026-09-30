@@ -2,7 +2,7 @@
  * 今日の運営 — THE HELD DELTA (LEAD RULING R1/R2/R3/R8l, DECISIONS.md
  * today-impact-2026-09-30). c1: the pure delta and the one sellable predicate.
  * c2a: the gate, the faces and the rows by KIND (T1, T2, T5–T7, T9, T12, T14).
- * T3, T4, T8, T10, T11 (task 3) and T15 (task 4) are not here yet.
+ * c2b: T3, T4, T8, T10, T11 on the fixture board. T15 (law-off) is task 4.
  */
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
@@ -20,6 +20,8 @@ import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
 import { TodayScreen, bedDoor, bedViewsFor, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
 import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
+import { releaseTimed } from '@/app/[locale]/(business)/business/today/timed-release'
+import type { ReleasedWindow } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import { place } from '@/business/lib/today-board'
 import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
@@ -51,30 +53,35 @@ beforeAll(async () => {
 afterAll(() => jest.useRealTimers())
 const log = (tag: string, v: unknown) => process.stdout.write(`DERIVED ${tag} ${JSON.stringify(v)}\n`)
 
-function dayOf(lanes: BoardLane[]): DayWindows {
+/** A settled board's day answer, the screen's own chain: heldCommittedFor (manual
+ *  keep-backs in `released`) → releaseTimed (D-11) → honestHeld → windowsOf. */
+type DayOpts = { released?: ReleasedWindow[]; now?: number | null; beforeMin?: number | null }
+function dayOf(lanes: BoardLane[], o: DayOpts = {}): DayWindows {
   const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
   const raw = heldCommittedFor({
     gateOn: true, lanes, frame, bookOf: (l, f, h) => bedViewsFor(l, f, h, ASK_A),
-    closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute, guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, released: [],
+    closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute, guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, released: o.released ?? [],
   })
-  const honest = honestHeld(raw!, lanes, bedViewsFor(lanes, frame, null, ASK_A).world, true, (l) => storeHasBeds(lanes, l.stores))
+  const mask = o.now === undefined ? raw : releaseTimed(raw, o.now, o.beforeMin ?? null, o.released ?? []).mask
+  const honest = honestHeld(mask!, lanes, bedViewsFor(lanes, frame, null, ASK_A).world, true, (l) => storeHasBeds(lanes, l.stores))
   return windowsOf(honest, lanes, [])
 }
-/** Stage the さくら card (apt-26, しろう 14:30–15:30) at [s, e) on its own lane and
- *  compose the popup exactly as the screen does: one delta, one face. */
-function landing(s: number, e: number) {
+/** Stage one fixture booking (by caseId) at [s, e) on `toLane` (its own lane by
+ *  default) and compose the popup exactly as the screen does: one delta, one face. */
+function landingOf(caseId: string, toLane: string | null, s: number, e: number, beforeOpts: DayOpts = {}, afterOpts: DayOpts = {}) {
   const lanes = REAL.lanes
-  const lane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.kind === 'booking' && i.title.includes('さくら')))!
-  const item = lane.items.find((i) => i.kind === 'booking' && i.title.includes('さくら'))!
+  const lane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === caseId))!
+  const item = lane.items.find((i) => i.caseId === caseId)!
+  const target = toLane ?? lane.key
   const id = item.caseId!
   const pl = place(s, e, REAL.hours)
-  const moves: Moves = { [id]: { laneKey: lane.key, x: pl.x, w: pl.w } }
+  const moves: Moves = { [id]: { laneKey: target, x: pl.x, w: pl.w } }
   const staged = applyMoves(lanes, moves, [], [], REAL.hours, LANE_WORDS, {})
   const price = clampPriceInputs(REAL.dialogs.pricing.hqMax, REAL.dialogs.pricing.base, REAL.dialogs.pricing)
   const depth = Math.round((1 - price.lo / price.hi) * 100)
   const frame = { hi: price.hi, lo: price.lo, hqMin: REAL.dialogs.pricing.hqMin, hqMax: REAL.dialogs.pricing.hqMax }
   const nowFrame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
-  const cell = guardVerdictAt(staged, lane.key, s, {
+  const cell = guardVerdictAt(staged, target, s, {
     open: REAL.hours.open, close: REAL.hours.close, stepMin: 30, dur: e - s, protectedDur: REAL.guard.protectedDurationMin,
     nowMinute: REAL.sell.nowMinute, locked: [], guard: REAL.guard.config, excludeId: id,
     placementFeasible: bedDoor(bedViewsFor(staged, nowFrame, id, ASK_A), staged, id),
@@ -82,18 +89,21 @@ function landing(s: number, e: number) {
     resting: restingSpanFor({ id, origin: { laneKey: lane.key, x: item.x, w: item.w } } as never, lanes, id, REAL.hours, REAL.dayOffset, REAL.store),
     restingWindowFeasible: undefined,
   }, LANE_WORDS)
-  const before = dayOf(lanes)
-  const after = dayOf(staged)
+  const before = dayOf(lanes, beforeOpts)
+  const after = dayOf(staged, afterOpts)
   const day = heldDelta(before, after, heldPriceOf(frame, depth, REAL.guard.protectedDurationMin))
-  const dayHeld = after.byLane.find((l) => l.laneKey === lane.key)?.starts ?? []
+  const dayHeld = after.byLane.find((l) => l.laneKey === target)?.starts ?? []
   const withDay = cell == null ? null : { ...cell, day, dayHeld }
+  const targetLane = staged.find((l) => l.group === 'staff' && l.key === target)!
   const model = warnFaceFor({
     rows: [], cell: withDay, override: null, level: REAL.overrideLevel, holdToConfirm: REAL.holdToConfirm,
-    targetLaneMine: lane.mine, operatorName: REAL.operatorName, listPrice: lane.listPrice, frame, depth,
+    targetLaneMine: targetLane.mine, operatorName: REAL.operatorName, listPrice: targetLane.listPrice, frame, depth,
     protectedDur: REAL.guard.protectedDurationMin, confirmEnabled: true, resourceNoun: WORDS.resourceNoun,
   })
-  return { cell, withDay, day, model, before, after, start: item.startMin }
+  return { cell, withDay, day, model, before, after, start: item.startMin, lanes, staged }
 }
+/** The さくら card (apt-26, しろう 14:30–15:30), the repro's own landing. */
+const landing = (s: number, e: number) => landingOf('apt-26', null, s, e)
 const labels = (rows: ReadonlyArray<{ label: string }>) => rows.map((r) => r.label)
 const hand = (over: Partial<RailCell>): RailCell => ({
   start: 900, state: 'safe', label: '', sentence: '', reason: null, alternatives: [], alternativeKind: null, ackAllowed: true, ...over,
@@ -282,5 +292,79 @@ describe('c2a — the gate, the faces and the rows, all out of the one delta', (
     expect(r.model.face).toBe('clean')
     expect(r.model.dayRows).toEqual([])
     expect(r.model.guardRow?.label).toContain('守れます')
+  })
+})
+
+describe('c2b — the derived landings on the fixture board', () => {
+  const refs = (ws: ReadonlyArray<{ laneKey: string; windowStart: number }>) => ws.map((w) => `${w.laneKey}|${w.windowStart}`)
+  const beforeMin = () => {
+    const dial = REAL.guard.config.autoReleaseBeforeMin ?? null
+    return dial === 'linked' ? (REAL.guard.config.leadTimeMin ?? null) : dial
+  }
+
+  it('T3 lengthen (さくら → 14:30–16:00): しろう’s window SHIFTS on her own row — CLEAN, key D', () => {
+    const r = landing(14 * 60 + 30, 16 * 60)
+    log('T3', { counted: [r.day.countedBefore, r.day.countedAfter], value: [r.day.valueBefore, r.day.valueAfter], lost: refs(r.day.lost), gained: refs(r.day.gained), shifted: r.day.shifted, rows: labels(r.model.dayRows), face: r.model.face })
+    // Derived: 945 → 960 on p-04, counted 3→3; the later window is worth MORE (36,870 → 37,060), so no F.
+    expect([r.day.countedBefore, r.day.countedAfter]).toEqual([3, 3])
+    expect(r.day.shifted.map((x) => `${x.laneKey}:${x.from}→${x.to}`)).toEqual(['p-04:945→960'])
+    expect([r.day.lost, r.day.gained]).toEqual([[], []])
+    expect(r.model.face).toBe('clean')
+    expect(labels(r.model.dayRows)).toEqual(['確保枠 見本 しろうの15:45 → 16:00（店全体は3枠のまま）'])
+  })
+
+  it('T4 cheaper-lane swap (なぎ apt-29 → p-05 14:35–15:35): same count, ¥ named — CLEAN, key C + F', () => {
+    const r = landingOf('apt-29', 'p-05', 14 * 60 + 35, 15 * 60 + 35)
+    log('T4', { counted: [r.day.countedBefore, r.day.countedAfter], value: [r.day.valueBefore, r.day.valueAfter], lost: r.day.lost, gained: r.day.gained, shifted: r.day.shifted, rows: labels(r.model.dayRows), face: r.model.face })
+    // Derived: ごろう (8,800) loses 14:30, あずさ (7,700) gains 14:30; 36,870 → 35,220 = ¥1,650.
+    expect([r.day.countedBefore, r.day.countedAfter]).toEqual([3, 3])
+    expect([refs(r.day.lost), refs(r.day.gained)]).toEqual([['p-05|870'], ['p-06|870']])
+    expect(dayLossOf(r.withDay)).toBe(0)
+    expect(r.model.face).toBe('clean')
+    expect(labels(r.model.dayRows)).toEqual(['確保枠 見本 ごろうの14:30 → 見本 あずさの14:30（店全体は3枠のまま・空きの金額は約¥1,650減）'])
+  })
+
+  it('T8 net-up with a lost lane (かえる apt-14 → 12:00): never silent — CLEAN, key E', () => {
+    const r = landingOf('apt-14', null, 12 * 60, 13 * 60 + 30)
+    log('T8', { counted: [r.day.countedBefore, r.day.countedAfter], lost: refs(r.day.lost), gained: refs(r.day.gained), shifted: r.day.shifted, rows: labels(r.model.dayRows), face: r.model.face })
+    // Derived (ATTACK §5 holds on the fixture): 3→4; ごろう loses 14:30, c-03 13:30 and あずさ 15:05 are gained.
+    expect([r.day.countedBefore, r.day.countedAfter]).toEqual([3, 4])
+    expect([refs(r.day.lost), refs(r.day.gained)]).toEqual([['p-05|870'], ['c-03|810', 'p-06|905']])
+    expect(r.model.face).toBe('clean')
+    expect(labels(r.model.dayRows)).toEqual(['確保枠 見本 ごろうの14:30がなくなります（店全体は3枠→4枠）'])
+  })
+
+  it('T10 D-11 + manual release: released on BOTH sides is never lost; released on the AFTER side only is lost', () => {
+    const b = beforeMin()
+    const s2 = landing(14 * 60 + 30, 15 * 60)
+    const first = Math.min(...s2.before.byLane.flatMap((l) => l.starts))
+    const now = first - (b ?? 0)
+    const timed = landingOf('apt-26', null, 14 * 60 + 30, 15 * 60, { now, beforeMin: b }, { now, beforeMin: b })
+    const quiet = s2.before.byLane.find((l) => l.laneKey !== 'p-04' && l.laneKey !== 'p-06' && l.starts.length > 0)!
+    const kept = { laneKey: quiet.laneKey, windowStart: quiet.starts[0], dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow
+    const manual = landingOf('apt-26', null, 14 * 60 + 30, 15 * 60, {}, { released: [kept] })
+    log('T10', { beforeMin: b, first, now, timedBefore: timed.before.byLane.map((l) => [l.laneKey, l.starts]), timedLost: refs(timed.day.lost), timedGained: refs(timed.day.gained), kept: `${quiet.laneKey}|${quiet.starts[0]}`, manualLost: refs(manual.day.lost), manualCounted: [manual.day.countedBefore, manual.day.countedAfter], manualFace: manual.model.face })
+    // Derived: beforeMin 60 (linked to leadTimeMin), the first held start is ごろう 14:30 (870),
+    // so now = 13:30 releases p-05|870 on BOTH boards: it is absent before and never counted lost.
+    expect([b, first, now]).toEqual([60, 870, 810])
+    expect(timed.before.byLane.flatMap((l) => l.starts.map((x) => `${l.laneKey}|${x}`))).not.toContain('p-05|870')
+    expect(refs(timed.day.lost)).not.toContain('p-05|870')
+    expect([refs(timed.day.lost), refs(timed.day.gained)]).toEqual([[], []])
+    // A manual keep-back of c-03|1050 on the AFTER side only IS a loss (3→2, amber, named).
+    expect(`${quiet.laneKey}|${quiet.starts[0]}`).toBe('c-03|1050')
+    expect(refs(manual.day.lost)).toEqual(['c-03|1050', 'p-04|945'])
+    expect([manual.day.countedBefore, manual.day.countedAfter]).toEqual([3, 2])
+    expect(manual.model.face).toBe('warn')
+    log('T10-H', { gained: refs(manual.day.gained), tail: manual.model.impact.tail, rows: labels(manual.model.rows) })
+    // H line 2: the one gained window (あずさ 15:05) pairs with the NEAREST lost start (しろう 15:45, not c-03 17:30).
+    expect(refs(manual.day.gained)).toEqual(['p-06|905'])
+    expect(labels(manual.model.rows)).toEqual(['確保枠 見本 しろうの15:45 → 見本 あずさの15:05'])
+  })
+
+  it('T11 cross-surface: the chip total, the delta and the printed number are one number', () => {
+    const r = landing(14 * 60 + 30, 15 * 60)
+    expect(r.day.countedAfter).toBe(r.after.total)
+    expect(r.day.countedBefore).toBe(r.before.total)
+    expect(labels(r.model.dayRows)[0]).toContain(`店全体は${r.after.total}枠のまま`)
   })
 })

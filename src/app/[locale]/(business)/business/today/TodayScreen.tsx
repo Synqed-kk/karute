@@ -2935,7 +2935,7 @@ export function TodayScreen(props: TodayProps) {
    *  `HONEST_HELD` off (`honest` undefined) this memo never ran, and
    *  `dayOrigin` fell to the RAW unreleased `windowsOn(originLanes, …)` while
    *  `dayCommitted`'s D-17 F3 arm kept reading the released mask (that arm
-   *  answers `SELLING_ENGINE_LAW`, never the netting). `lostOn` subtracts the
+   *  answers `SELLING_ENGINE_LAW`, never the netting). `heldDelta` compares the
    *  two boards, so with the netting off ANY staged move had a released 枠
    *  blamed on itself. The production moves here, independent of `honest`,
    *  computed whenever a day is staged and the law is on (`heldCommittedFor`
@@ -2957,13 +2957,13 @@ export function TodayScreen(props: TodayProps) {
     if (!originHeld) return undefined
     // ⚖ D-17 F2 — the same release, so a staged booking is never blamed for a 枠
     // the clock already let go. Same function, same clock, same dial and the same
-    // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
+    // board-scoped keep-back as the committed side at :2085 — `heldDelta` compares
     // these two boards, so a release on one of them alone IS a reported loss.
     return releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
   }, [dayStaged, originLanes, ledgerFrame, business.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
   /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
    *
-   *  `lostOn` subtracts two settled boards, so both of them have to come out of
+   *  `heldDelta` compares two settled boards, so both of them have to come out of
    *  the SAME producer: an honest 「after」 against a legacy 「before」 would
    *  report a lane losing a 枠 the netting had simply stopped counting, on every
    *  staged card. It is built only while a gesture is STAGED — the at-rest
@@ -4296,7 +4296,7 @@ export function TodayScreen(props: TodayProps) {
     /** ⚖ NEW-WINDOW — WHAT THIS LANDING COSTS THE WHOLE STORE, from the two
      *  SETTLED boards and nothing else: the day 元に戻す restores, and the day as
      *  it stands with the card where it is staged. Both are stable memos, so this
-     *  costs one `lostOn` subtraction per run of this memo (it re-runs per
+     *  costs one `heldDelta` comparison per run of this memo (it re-runs per
      *  pointer frame while a staged card is re-dragged, deps `boardLanes`) and
      *  NO engine walk per frame — the two `windowsOn` walks live in
      *  `dayOrigin`/`dayCommitted`, measured 0/frame by the spy.
@@ -8808,8 +8808,8 @@ export function TodayScreen(props: TodayProps) {
               // is not. Asked of `honest` — the value `dayCommitted` itself was
               // built from — so this is not a second read of the gate.
               data-guide={honest
-                ? `新規のお客様のために店全体で確保している枠の数です。今日の予約に対して${w.resourceNoun}が用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。`
-                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}
+                ? `新規のお客様のために店全体で確保している枠の数です。今日の予約に対して${w.resourceNoun}が用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。動かしたときの確認表示も、この店全体の数で増減をお知らせします。この数か、そのうちオンライン販売中の枠の数が減るときだけ注意が出ます。確保枠がスタッフの間で移っただけのときは、注意は出さず、担当と時刻を1行で示します。`
+                : '新規のお客様のために店全体で確保している枠の数です。動かしたときの確認表示も、この店全体の数で増減をお知らせします。この数か、そのうちオンライン販売中の枠の数が減るときだけ注意が出ます。確保枠がスタッフの間で移っただけのときは、注意は出さず、担当と時刻を1行で示します。'}
             >
               新規用に確保 {dayCommitted.total}枠
             </span>

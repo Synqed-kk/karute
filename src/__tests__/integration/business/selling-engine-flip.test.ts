@@ -71,7 +71,6 @@ import {
   sellStaffLanes,
   warnFaceFor,
   windowsOf,
-  lostOn,
   heldPriceOf,
   type DayWindows,
   type GuardRail,
@@ -1062,7 +1061,8 @@ describe('4 — what paints, and what stops', () => {
     const screen = SRC('TodayScreen.tsx')
     expect(screen).toContain('data-guide={honest')
     // main's line, byte for byte, as the OFF arm.
-    expect(screen).toContain("                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}")
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the OFF arm is JP-STRINGS-FINAL key J2 (the popup reads the store's numbers now).
+    expect(screen).toContain("                : '新規のお客様のために店全体で確保している枠の数です。動かしたときの確認表示も、この店全体の数で増減をお知らせします。この数か、そのうちオンライン販売中の枠の数が減るときだけ注意が出ます。確保枠がスタッフの間で移っただけのときは、注意は出さず、担当と時刻を1行で示します。'}")
     // …and it is not a read of the round's gate at all: the doors suite pins
     // `HONEST_HELD` at exactly three code occurrences (the import and the two
     // memos — the settled netting and, since fix 6, the live one), and a
@@ -2724,10 +2724,12 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     const lanes = restLanes()
     const before = dayOf(lanes)
     const after = dayOf(lanes, [{ ...LOST, dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow])
-    const rows = lostOn(before, after)
     const lost = lanes.find((l) => l.key === LOST.laneKey)!
-    expect(rows.map((r) => ({ laneKey: r.laneKey, label: r.label, before: r.before, after: r.after, listPrice: r.listPrice })))
-      .toEqual([{ laneKey: LOST.laneKey, label: lost.label, before: [LOST.windowStart], after: [], listPrice: lost.listPrice }])
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one delta names the lost window by identity (laneKey|windowStart).
+    const d = heldDelta(before, after, () => 0)
+    expect({ lost: d.lost, gained: d.gained, shifted: d.shifted }).toEqual({
+      lost: [{ laneKey: LOST.laneKey, label: lost.label, windowStart: LOST.windowStart, listPrice: lost.listPrice }], gained: [], shifted: [],
+    })
     const face = faceFor(before, after, lanes.find((l) => l.key === LANDING)!.listPrice)
     const sentence = `${face.impact.head}${face.impact.yen ? `（${face.impact.yen}）` : ''}${face.impact.tail}`
     // R1/R2 (DECISIONS.md today-impact-2026-09-30): key A — the STORE pair and every lost window named.
@@ -2742,8 +2744,9 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
 
   it('undo: with nothing staged the two boards agree and the card goes quiet', () => {
     const lanes = restLanes()
-    const rows = lostOn(dayOf(lanes), dayOf(lanes))
-    expect(rows).toEqual([])
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one delta of two agreeing boards is empty.
+    const d = heldDelta(dayOf(lanes), dayOf(lanes), () => 0)
+    expect([d.lost, d.gained, d.shifted]).toEqual([[], [], []])
     // R1/R2 (DECISIONS.md today-impact-2026-09-30): the card reads the one delta of the two boards.
     const face = faceFor(dayOf(lanes), dayOf(lanes), lanes.find((l) => l.key === LANDING)!.listPrice)
     expect({ face: face.face, head: face.impact.head, commit: face.commit }).toEqual({ face: 'clean', head: '', commit: null })
@@ -2753,9 +2756,10 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     const lanes = restLanes().map((l) => (l.key === LOST.laneKey ? { ...l, listPrice: 0 } : l))
     const before = dayOf(lanes)
     const after = dayOf(lanes, [{ ...LOST, dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow])
-    const rows = lostOn(before, after)
-    expect(rows.map((r) => ({ laneKey: r.laneKey, listPrice: r.listPrice, before: r.before, after: r.after })))
-      .toEqual([{ laneKey: LOST.laneKey, listPrice: 0, before: [LOST.windowStart], after: [] }])
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the lost window by identity, carrying its lane's price-0.
+    const d = heldDelta(before, after, () => 0)
+    expect(d.lost.map((w) => ({ laneKey: w.laneKey, listPrice: w.listPrice, windowStart: w.windowStart })))
+      .toEqual([{ laneKey: LOST.laneKey, listPrice: 0, windowStart: LOST.windowStart }])
     const face = faceFor(before, after, lanes.find((l) => l.key === LANDING)!.listPrice)
     const label = lanes.find((l) => l.key === LOST.laneKey)!.label
     // R1/R2 (DECISIONS.md today-impact-2026-09-30): key A on the store pair; a price-0 lane still prices nothing.

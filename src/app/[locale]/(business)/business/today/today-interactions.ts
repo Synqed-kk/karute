@@ -6941,14 +6941,18 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
 export const pocketLossOf = (c: RailCell | null): number =>
   c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)
 
-/** ⚖ NEW-WINDOW §C — WHAT THE STORE LOSES, summed over the lanes that lost.
+/** ⚖ NEW-WINDOW §C, SUPERSEDED FOR フリー BY LEAD RULING R1/R2 (DECISIONS.md,
+ *  today-impact-2026-09-30, delegated by Liam 9/30) — WHAT THE STORE LOSES.
  *
- *  Never `day.before - day.after` as store totals: one landing can open twenty
- *  windows elsewhere and close one on a named lane, and the net form calls that
- *  a gain and says nothing. The lanes that lost are the answer, and they are
- *  what the sentence names. Read BEFORE any `safe` / `impact == null`
- *  short-circuit — a landing whose own pocket is ✓ can still cost the store a
- *  window on somebody else's lane. */
+ *  The popup's numbers are the STORE's, read on the netted held set — the very
+ *  set the header chip counts — through ONE `HeldDelta`. The gate fires only on
+ *  a real drop: the counted total, or the online-sellable total (a hop onto a row
+ *  not sold online is a sellable loss). A same-count hop between staff is named
+ *  in a quiet △ row, never a caution. `exact: false` on either side never gates.
+ *  §C's per-lane semantics survive for 指名 (the R3 `channel` seam, not built).
+ *  ⚖ 9/1 zero-loss-is-quiet is carried out, not amended; ⚖ D-12
+ *  (bed-aware-sales.ts) is untouched. The old 「271 of 1,260 landings」 figure
+ *  that justified the per-lane sum was a code comment, never a test. */
 export const dayLossOf = (c: RailCell | null): number =>
   c?.day == null
     ? 0
@@ -7088,12 +7092,7 @@ export type DayWindows = {
   /** `sellable`: the lane is on the ONLINE set (`sellableLaneKeysOf`). */
   byLane: Array<{ laneKey: string; label: string; starts: number[]; listPrice: number; readonly sellable: boolean }>
 }
-/** One lane that lost published 新規 windows between two settled boards. */
-export type DayRow = { laneKey: string; label: string; before: number[]; after: number[]; listPrice: number }
-/** `RailCell.day`'s shape. `before`/`after` are Σ over `lostOn` (§C), never store totals. */
-export type DayLoss = { laneKey: string; before: number; after: number; lostOn: DayRow[] }
 export const EMPTY_WINDOWS: DayWindows = { total: 0, exact: true, byLane: [] }
-export const EMPTY_DAY: DayLoss = { laneKey: '', before: 0, after: 0, lostOn: [] }
 
 /** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
  *
@@ -7143,8 +7142,8 @@ export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
  *  `windowsOn` above walks the guard lane by lane and never asks whether the
  *  ROOMS can honour all of its answers at once. `honest-held.ts` asks exactly
  *  that, once per settled board, and this is the adapter that hands its answer
- *  back in the shape the day layer already speaks — so `lostOn` below is
- *  unchanged and the before/after of a landing are two readings of ONE
+ *  back in the shape the day layer already speaks — so `heldDelta` reads
+ *  both sides alike and the before/after of a landing are two readings of ONE
  *  producer rather than two producers that happen to agree at rest.
  *
  *  `windowsOn` KEEPS ITS NAME AND ITS BODY: 設定's guardrail line is a server
@@ -7179,29 +7178,6 @@ export function windowsOf(
   return { total, exact: honest.exact, byLane }
 }
 
-/** ⚖ NEW-WINDOW — WHICH LANES LOST A WINDOW BETWEEN TWO SETTLED BOARDS, and which.
- *
- *  A row per lane whose published list got SHORTER; a lane that vanished from the
- *  after board is a row with `after: []`. The rows carry the lost lane's OWN
- *  `listPrice`, because what the store loses on スタッフA's window is priced at
- *  スタッフA's rate and not at the rate of the lane the card happens to land on.
- *
- *  ⚖ §C — the pair the sentence prints is Σ over THESE ROWS, never the two store
- *  totals: on 271 of 1,260 measured landings the store's net moved UP while a
- *  named lane really lost a window, and a net form goes silent on every one of
- *  them. */
-export function lostOn(before: DayWindows, after: DayWindows): DayRow[] {
-  const now = new Map(after.byLane.map((l) => [l.laneKey, l.starts]))
-  const rows: DayRow[] = []
-  for (const lane of before.byLane) {
-    const still = now.get(lane.laneKey) ?? []
-    if (still.length < lane.starts.length) {
-      rows.push({ laneKey: lane.laneKey, label: lane.label, before: lane.starts, after: still, listPrice: lane.listPrice })
-    }
-  }
-  return rows
-}
-
 /** 設定's own number, unmoved: one walk, two readers, no second spelling (⚖ 54). */
 export function protectedCapacityOf(lanes: BoardLane[], input: RailInput): number {
   return windowsOn(lanes, input).total
@@ -7217,6 +7193,11 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  actually lost, and everything else goes back to the clean face's quiet △
    *  row — which is exactly where those facts lived before flag 92, and where
    *  `pendingGuardRow.row` still renders them.
+   *
+   *  LEAD RULING R1/R2 (today-impact-2026-09-30) reads this at STORE level: a
+   *  landing is zero-loss when the store's counted and online-sellable totals
+   *  both hold, however its windows moved between staff — those moves are the
+   *  quiet △ day row, never this face.
    *
    *  ⚖ NEW-WINDOW M2 — AND THE `state !== 'safe'` CLAUSE MOVES INSIDE `pocketLossOf`,
    *  where it is true of the POCKET path only. A landing the lane itself calls ✓
