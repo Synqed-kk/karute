@@ -394,7 +394,8 @@ async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: 
 export const stampFor = (persisted: boolean, at: string): string =>
   persisted ? `✓ 保存しました ${at}` : `${businessStrings.sampleMark.pageOnlyStamp} ${at}`
 
-/** JP-COPY-A2-FINAL.md, byte for byte, by id. */
+/** save.note.card = the switchboard mock's save-bar warning (MOCK-SWITCHBOARD-v2.html #cardWarn), byte for byte.
+ *  save.fail.* = JP-COPY-A2-FINAL.md by id, with Reserve → お客様のアプリ (S40 C8). */
 const CARD_SAVE_NOTE = 'カードの変更は、全店のお客様のアプリに反映されます。' // save.note.card
 const CARD_SAVE_FAIL: Record<CardSaveReason, string> = {
   forbidden: '設定を変更できる権限がないため保存できず、お客様のアプリのカードはこれまでの色のままです。', // save.fail.forbidden
