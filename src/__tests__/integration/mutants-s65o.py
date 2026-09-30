@@ -54,16 +54,21 @@ ENV = {
 MUTANTS = [
     # M-O2 — the converge clears a link (commit 1, S4)
     ('M-O2a', 'facade converge sends the payload booking (null clears the link)',
-     [(CORE, '        appointment_id: appointmentId,\n        ...(omitEntries',
-       '        appointment_id: payload.appointment_id, // M-O2a\n        ...(omitEntries')],
+     [(CORE, '        ...linkUpdateOf(existing, payload, autoLinked),\n',
+       '        appointment_id: payload.appointment_id ?? null, // M-O2a\n')],
      [SAVE_T], ["S4-facade: a second save with no booking, same customer, keeps the first save's link"]),
     ('M-O2b', 'worker converge sends the payload booking (null clears the link)',
      [(WORKER, '      appointment_id: appointmentId,\n    })\n    // CEILING (mirrors',
        '      appointment_id: payload.appointment_id ?? null, // M-O2b\n    })\n    // CEILING (mirrors')],
      [JOB_T], ["S4-job: a job re-run with no booking keeps the first save's link"]),
     ('M-O2c', 'keepLinkUnlessGiven loses its re-point arm (the old booking rides along)',
-     [(LINK, '  if ((write.customer_id ?? null) !== (existing.customer_id ?? null)) return null\n', '')],
+     [(LINK, '  return (write.customer_id ?? null) !== (existing.customer_id ?? null)\n', '  return false // M-O2c\n')],
      [SAVE_T], ['S4-facade: a re-point to another customer with no booking moves both']),
+    # M-O25 — A2 (S69 commit 24): the converge always sends the link key (the snapshot clobbers an interleaved link)
+    ('M-O25', 'linkUpdateOf always sends the key (a no-change converge sends the snapshot back)',
+     [(LINK, '  if (movesCustomer(existing, write)) return { appointment_id: null }\n  return {}\n',
+       '  if (movesCustomer(existing, write)) return { appointment_id: null }\n  return { appointment_id: null } // M-O25\n')],
+     [SAVE_T], ["S4-facade: a second save with no booking, same customer, keeps the first save's link"]),
     # M-O5 — the audit row lacks the fate (commit 2, S5 + R-O2)
     ('M-O5a', 'the facade row drops outcome_link',
      [(CORE, '        ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),\n', '')],

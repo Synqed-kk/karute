@@ -67,9 +67,58 @@ export function keepLinkUnlessGiven(
   existing: { customer_id?: string | null; appointment_id?: string | null },
   write: { customer_id?: string | null; appointment_id?: string | null },
 ): string | null {
-  if (write.appointment_id) return write.appointment_id
-  if ((write.customer_id ?? null) !== (existing.customer_id ?? null)) return null
+  const given = givenLinkOf(write)
+  if (given) return given
+  if (movesCustomer(existing, write)) return null
   return existing.appointment_id ?? null
+}
+
+/** The ONE 「given」 test: the write NAMES a booking (S4). */
+function givenLinkOf(write: { appointment_id?: string | null }): string | null {
+  return write.appointment_id || null
+}
+
+/** The ONE re-point test: the write moves the record to another customer (E-1). */
+function movesCustomer(
+  existing: { customer_id?: string | null },
+  write: { customer_id?: string | null },
+): boolean {
+  return (write.customer_id ?? null) !== (existing.customer_id ?? null)
+}
+
+/**
+ * A2 (S69 fix round 4, commit 24): the link KEY of a converge's update body —
+ * sent only when THIS save changes the link. The SDK's update is a PUT
+ * (karute.js:59-62) but core leaves a MISSING field untouched and CLEARS on
+ * null (the S4 bug), so a converge that changes nothing about the link must
+ * not send the snapshot back: a link an interleaved save wrote after the
+ * snapshot would be clobbered.
+ *   - the write names a booking        → that booking
+ *   - else the auto-link found one     → the auto-linked booking
+ *   - else the customer moves (E-1)    → null (a re-point clears, as before)
+ *   - else                             → {} — the key is omitted; whatever
+ *                                        link the row holds NOW stays
+ * Spread into the update body (the same conditional-spread shape `entries`
+ * uses). keepLinkUnlessGiven still computes the EFFECTIVE link.
+ */
+export function linkUpdateOf(
+  existing: { customer_id?: string | null },
+  write: { customer_id?: string | null; appointment_id?: string | null },
+  autoLinked: { appointmentId: string | null } | null | undefined,
+): { appointment_id?: string | null } {
+  const given = givenLinkOf(write)
+  if (given) return { appointment_id: given }
+  if (autoLinked?.appointmentId) return { appointment_id: autoLinked.appointmentId }
+  if (movesCustomer(existing, write)) return { appointment_id: null }
+  return {}
+}
+
+/** A2 revision / A4: a value the write RETURNED wins over the computed one
+ *  (karute.d.ts:14-15 — create and update return the full record); only an
+ *  ABSENT field (undefined) falls back — never `??`, a returned null is the
+ *  truth (a record with no link reports no link). */
+export function returnedOr<T>(returned: T | undefined, computed: T): T {
+  return returned !== undefined ? returned : computed
 }
 
 /**
@@ -243,5 +292,5 @@ export function appointmentLinkOf(
  *  booking and the record still carries one (keepLinkUnlessGiven's answer).
  *  One spelling for both converges. */
 export function isKeptLink(write: { appointment_id?: string | null }, linked: string | null): boolean {
-  return !write.appointment_id && linked !== null
+  return !givenLinkOf(write) && linked !== null
 }

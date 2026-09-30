@@ -44,7 +44,9 @@ import {
   appointmentLinkOf,
   isKeptLink,
   keepLinkUnlessGiven,
+  linkUpdateOf,
   menuOfAutoLinked,
+  returnedOr,
   type AppointmentLinkReason,
   type AppointmentLinkValue,
   type AutoAppointmentLink,
@@ -246,7 +248,7 @@ export async function createOrUpdateKaruteRecord(
         autoLinked = await autoLink({ storeId: existing.store_id ?? null })
         appointmentId = autoLinked.appointmentId
       }
-      await synqed.karuteRecords.update(existing.id, {
+      const updated = await synqed.karuteRecords.update(existing.id, {
         // E-1 (fix round 1): the CUSTOMER moves with the update. Without it a
         // save that re-points to a different customer — the recovery banner's
         // 保存先を変更, after an earlier partial save already landed a record
@@ -264,10 +266,11 @@ export async function createOrUpdateKaruteRecord(
         customer_id: payload.customer_id,
         transcript: payload.transcript,
         ai_summary: payload.ai_summary,
-        // S4 (PR-O, O1/V4): a save with no booking never clears the link an
-        // earlier save wrote for the SAME customer; a re-point (customer_id
-        // above changes) still moves the booking with it — keepLinkUnlessGiven.
-        appointment_id: appointmentId,
+        // S4 (PR-O, O1/V4) + A2 (S69 fix round 4): the link key is sent only
+        // when this save changes the link (a named booking, an auto-link hit,
+        // a re-point → null); otherwise it is OMITTED, so a link an
+        // interleaved save wrote after the snapshot above stays — linkUpdateOf.
+        ...linkUpdateOf(existing, payload, autoLinked),
         ...(omitEntries ? {} : { entries: payload.entries }),
       })
       // A bare `return emitSave(...)`, never `return await …`: the audit gates'
@@ -283,7 +286,9 @@ export async function createOrUpdateKaruteRecord(
         // the persisted store is still the EXISTING record's — already in
         // hand from the lookup, no second read.
         storeId: existing.store_id,
-        appointmentId: appointmentId ?? null,
+        // A2 revision: what the row HOLDS after the write — the returned
+        // record's link when core returns it, else the computed effective one.
+        appointmentId: returnedOr(updated?.appointment_id, appointmentId ?? null),
         keptLink,
       })
     }

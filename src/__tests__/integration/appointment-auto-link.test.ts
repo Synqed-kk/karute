@@ -2,7 +2,7 @@
 // function. Each guardrail condition under its own test; the window is the
 // booking's OWN duration on each side (no constant). The two callers (facade
 // save, worker) are pinned in app-api-karute-save / process-recording-existing-karute.
-import { resolveAutoAppointmentLink } from '@/lib/karute/appointment-link'
+import { linkUpdateOf, resolveAutoAppointmentLink } from '@/lib/karute/appointment-link'
 
 const SESSION_START = '2026-09-29T07:44:39Z' // 16:44 JST
 type Appt = {
@@ -149,5 +149,22 @@ describe('S7 — resolveAutoAppointmentLink, the guardrail', () => {
     expect(list).toHaveBeenCalledTimes(1)
     expect(warn.mock.calls.filter((c) => String(c[0]).includes('"auto_link_skipped"'))).toHaveLength(1)
     warn.mockRestore()
+  })
+})
+
+// A2 (S69 fix round 4, commit 24): the ONE spelling of a converge's link key.
+describe('A2 — linkUpdateOf, the link key of a converge update', () => {
+  const ex = { customer_id: 'cust-1' }
+  it('A2: same customer, no booking, no auto-link → the key is omitted', () => {
+    expect(linkUpdateOf(ex, { customer_id: 'cust-1', appointment_id: null }, null)).toEqual({})
+  })
+  it('A2: a named booking → the key with the given id', () => {
+    expect(linkUpdateOf(ex, { customer_id: 'cust-1', appointment_id: 'appt-g' }, { appointmentId: 'appt-auto' })).toEqual({ appointment_id: 'appt-g' })
+  })
+  it('A2: an auto-link hit → the key with the auto-linked id', () => {
+    expect(linkUpdateOf(ex, { customer_id: 'cust-1' }, { appointmentId: 'appt-auto' })).toEqual({ appointment_id: 'appt-auto' })
+  })
+  it('A2: a re-point with no booking and no auto-link hit → appointment_id: null', () => {
+    expect(linkUpdateOf(ex, { customer_id: 'cust-2' }, { appointmentId: null })).toEqual({ appointment_id: null })
   })
 })

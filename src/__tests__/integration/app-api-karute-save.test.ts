@@ -697,7 +697,27 @@ describe('POST /api/app/v1/karute (save) — S4 the converge never clears a book
 
   it('S4-facade: a second save with no booking, same customer, keeps the first save\'s link', async () => {
     const sent = await converge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
-    expect(sent).toMatchObject({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    // A2 (S69 fix round 4, commit 24; licensed class): the key is OMITTED —
+    // core leaves a missing field untouched, so the link the row holds NOW
+    // stays (sending the snapshot back would clobber an interleaved link).
+    expect(sent).toMatchObject({ customer_id: 'cust-1' })
+    expect(sent).not.toHaveProperty('appointment_id')
+  })
+
+  it('A2-facade: a save that names a booking sends the key with the given id', async () => {
+    const sent = await converge({ customer_id: 'cust-1', appointment_id: 'appt-first' }, { appointmentId: 'ap-1' })
+    expect(sent).toMatchObject({ appointment_id: 'ap-1' })
+  })
+
+  it('A2-facade: the update RETURNS a different link (an interleaved save) → the row and the reply carry the returned id', async () => {
+    update.mockResolvedValueOnce({ id: 'kar-existing', appointment_id: 'appt-interleaved' } as never)
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', customer_id: 'cust-1', appointment_id: 'appt-first' } as never
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect((update.mock.calls[0] as unknown[])[1]).not.toHaveProperty('appointment_id')
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect((rows[0][0] as { detail: Record<string, unknown> }).detail).toMatchObject({ appointment_id: 'appt-interleaved', appointment_link: 'kept' })
+    expect((await res.json()).appointment_id).toBe('appt-interleaved')
   })
 
   it('S4-facade: a re-point to another customer with no booking moves both — the old booking never rides along (E-1)', async () => {
@@ -944,7 +964,8 @@ describe('POST /api/app/v1/karute (save) — S7 the unambiguous booking is linke
     attach([appt('appt-other', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')])
     existingBySession.current = { id: 'kar-existing', transcript: 'old', customer_id: 'cust-1', appointment_id: 'appt-first' } as never
     await save()
-    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: 'appt-first' })
+    // A2 (S69 commit 24; licensed class): no link change → the key is omitted, the link stays.
+    expect((update.mock.calls[0] as unknown[])[1]).not.toHaveProperty('appointment_id')
     expect(client.appointments.list).not.toHaveBeenCalled()
   })
   // S67 fix round 2, commit 12 (SF-2; the attack's F-2): the auto-linked
@@ -969,7 +990,8 @@ describe('POST /api/app/v1/karute (save) — S7 the unambiguous booking is linke
     convergeInOtherStore()
     const { reply, row } = await save()
     expect(client.appointments.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-daikanyama' }))
-    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ appointment_id: null })
+    // A2 (S69 commit 24; licensed class): same customer, no booking, no hit → the key is omitted.
+    expect((update.mock.calls[0] as unknown[])[1]).not.toHaveProperty('appointment_id')
     expect(reply.appointment_link).toBe('none')
     expect(row.detail).toMatchObject({ appointment_link: 'none', appointment_id: null })
   })
