@@ -139,7 +139,7 @@ export function ReserveCardLookSection({
         <span className="st-scope" title="この事業者のすべての店舗に適用されます" aria-label={`${look.scopeLabel}：この事業者のすべての店舗に適用されます`}>{look.scopeLabel}</span>
       </div>
       <p className="st-block-note">お客様のアプリのホームに並ぶ、お店のカードです。色を選べます。文字の位置や大きさは、どのお店でも同じです。</p>
-      <h4 id="clPickHead">カードの色</h4>
+      <h4 className="st-sec-l" id="clPickHead">カードの色</h4>
       <div className="cl-swatches" role="radiogroup" aria-labelledby="clPickHead">
         {look.palette.map((c, i) => (
           <button
