@@ -29,7 +29,7 @@
 //      exit code cover only the rows that ran).
 // Only the PIDs this script starts are ever stopped.
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -147,10 +147,16 @@ function stopStarted() {
 // ---- 1. Reserve at the pin ----
 function exportReserve() {
   // a copy of an EARLIER pin (reserve-<short> / reserve-<short>.tar, made by this harness) is stale once the manifest
-  // moves: removed here so re-ports do not pile up full Reserve trees in WORK; nothing else in WORK is touched
+  // moves: removed here so re-ports do not pile up full Reserve trees in WORK; nothing else in WORK is touched.
+  // Concurrent runs of DIFFERENT pins share WORK unless PARITY_DIR is set (two checkouts, two branches), so another
+  // pin's copy may be in use right now: only one untouched for 24 hours is removed, a younger one is kept and said.
+  const STALE_MS = 24 * 3600 * 1000
   for (const name of readdirSync(WORK)) {
     const m = name.match(/^reserve-([0-9a-f]{7})(\.tar)?$/)
-    if (m && m[1] !== SHORT) rmSync(join(WORK, name), { recursive: true, force: true })
+    if (!m || m[1] === SHORT) continue
+    const age = Date.now() - statSync(join(WORK, name)).mtimeMs
+    if (age > STALE_MS) rmSync(join(WORK, name), { recursive: true, force: true })
+    else log(`kept ${name} (modified ${Math.round(age / 60000)} min ago — another run may be using it)`)
   }
   rmSync(COPY, { recursive: true, force: true })
   mkdirSync(COPY, { recursive: true })
