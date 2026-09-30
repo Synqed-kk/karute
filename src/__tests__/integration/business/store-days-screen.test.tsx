@@ -769,6 +769,32 @@ describe('B2 act 1c stamp time', () => {
     await settle()
     expect(stamps()).toEqual(['✓ 保存しました 03:17'])
   })
+  // ⚖ R43 (Greptile P2) — 予約の色分け commits on core's yes through the same commitSection; its own PUT
+  // is held open while the clock moves, so a press-time stamp on this path goes red too.
+  it('(j) 予約の色分け, door ON: pressed 03:10, core says yes at 03:17 → 「✓ 保存しました 03:17」', async () => {
+    await open(STORE.tokyo, 'language-display')
+    let answer: (r: Response) => void = () => {}
+    let sentColors: unknown = null
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/business/booking-colors')
+      expect(init?.method).toBe('PUT')
+      sentColors = JSON.parse(String(init?.body)).colors
+      return new Promise<Response>((r) => { answer = r })
+    }) as unknown as typeof fetch
+    const group = document.querySelector('.st-swatches[aria-label="新規予約の色"]')
+    expect(group).not.toBeNull()
+    const swatch = [...group!.querySelectorAll('button.st-swatch')].find((b) => b.getAttribute('aria-pressed') !== 'true') as HTMLButtonElement
+    expect(swatch).toBeDefined()
+    fireEvent.click(swatch)
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    jest.setSystemTime(T2)
+    await act(async () => { saveBtn().click() })
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    jest.setSystemTime(new Date('2026-11-18T18:17:00Z'))
+    await act(async () => { answer(fakeRes(200, { ok: true, colors: sentColors })) })
+    await settle()
+    expect(stamps()).toEqual(['✓ 保存しました 03:17'])
+  })
   it('(f) source pin: jstClock( twice in the screen, the render-time stamp prop gone from the screen and from src/', () => {
     const fs = jest.requireActual('node:fs') as typeof import('node:fs')
     const path = jest.requireActual('node:path') as typeof import('node:path')
