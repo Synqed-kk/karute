@@ -39,6 +39,14 @@ jobs:
           echo "main (GITHUB_SHA):              $GITHUB_SHA"
           # A re-run of an older run must not report a false conflict when a newer sync already moved the branch.
           git fetch origin "+refs/heads/preview/business-merged:refs/remotes/origin/preview/business-merged" 2>/dev/null || true
+          # Drift guard: a human commit on the standing preview is never a fast-forward target — say so; CI never forces.
+          git fetch origin "+refs/heads/main:refs/remotes/origin/main" 2>/dev/null || true
+          drift=0
+          if [ -n "$before" ]; then git merge-base --is-ancestor "$before" refs/remotes/origin/main 2>/dev/null || drift=$?; fi
+          if [ "$drift" -eq 1 ]; then
+            echo "::error::preview/business-merged ($before) carries commits that are not on main — a human committed on the standing preview. CI never forces. Repair: git push --force-with-lease origin origin/main:refs/heads/preview/business-merged"
+            exit 1
+          fi
           if [ -n "$before" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$before" 2>/dev/null; then
             echo "preview/business-merged is already at or ahead of $GITHUB_SHA — nothing to do"
             exit 0
