@@ -3653,6 +3653,11 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // the app scroller, in any selector whose subject is .cl-phone: no transform other than none, anywhere
     expect(valuesOn(/\.cl-phone(?![\w-])/, TRANSFORMS).filter((v) => v !== 'none')).toEqual([])
   })
+  it('1b-2 — the FRAME scales from its top-left corner in every rule that sets an origin (else a scaled frame sits off-centre and clipped in its strip)', () => {
+    const origins = valuesOn(/\.cl-frame(?![\w-])(?!.*::)/, /^(-webkit-)?transform-origin$/)
+    expect(origins.length).toBeGreaterThan(0)
+    expect(origins.filter((v) => !/^(top left|left top|0 0|0px 0px)$/.test(v))).toEqual([])
+  })
   it('S46 — the strip\'s HEIGHT comes from its own WIDTH in CSS (aspect-ratio 393/760, capped at 760), never a fixed or var()-driven height: the fit must not feed the side column\'s scrollbar (every rule scanned)', () => {
     const strip = /\.cl-strip(?![\w-])(?!.*::)/
     expect(valuesOn(strip, /^aspect-ratio$/)).toEqual(['393 / 760'])

@@ -144,6 +144,34 @@ describe('カードの見た目 phone frame + honest slot', () => {
     }
     expect(Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTop')).toEqual(before)
   })
+  it('every VIEW-CHANGING path resets the scroller exactly once — a swatch pick on お店ページ (→ ホーム) and a big-card click on ホーム (→ お店ページ), not only the seg', () => {
+    const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTop')
+    const tops = new WeakMap<Element, number>()
+    const writes: number[] = []
+    const undo = stubProto(HTMLElement.prototype, 'scrollTop', {
+      get(this: HTMLElement) { return tops.get(this) ?? 0 },
+      set(this: HTMLElement, v: number) { if (this.classList.contains('cl-phone')) writes.push(v); tops.set(this, v) },
+    })
+    try {
+      const { container, getByRole, getAllByRole } = mount('#1C2247')
+      const phone = container.querySelector('.cl-phone') as HTMLElement
+      const caps = () => Array.from(container.querySelectorAll('.st-pv-cap')).map((p) => p.textContent)
+      fireEvent.click(getByRole('button', { name: 'お店ページ' }))
+      phone.scrollTop = 240
+      writes.length = 0
+      fireEvent.click(getAllByRole('radio')[1]) // a pick shows the Home card (mock M21)
+      expect(caps()).toContain(NOTE_1)
+      expect(writes).toEqual([0])
+      phone.scrollTop = 180
+      writes.length = 0
+      fireEvent.click(phone.querySelector('.mcard')!) // the big card opens the store page (mock M43)
+      expect(phone.querySelector('.salon-cover')).not.toBeNull()
+      expect(writes).toEqual([0])
+    } finally {
+      undo()
+    }
+    expect(Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTop')).toEqual(before)
+  })
   it('the STRIP is observed: its narrowing refits the FRAME by --cl-scale = fitScale ALONE and writes NO layout value (no height, no --cl-h, no class: a height the script wrote fed the side column\'s scrollbar, S46), ≥ 393 returns to 1:1, unmount disconnects', () => {
     const was = (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver
     SpyRO.all = []

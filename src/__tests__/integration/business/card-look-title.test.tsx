@@ -47,6 +47,15 @@ const RECORDED_BUSINESS = 'Dev Salon' // practice-door-recorded.ts: `o.orgName ?
 const admission = requireBusinessAdmission as jest.MockedFunction<typeof requireBusinessAdmission>
 const realFetch = global.fetch
 
+/** Stub a prototype property and return its exact undo (card-look-source-line.test.tsx's helper): an OWN
+ *  descriptor the prototype had is put back; an absent one is DELETED, never re-defined. */
+const stubProto = (proto: object, key: string, desc: PropertyDescriptor) => {
+  const own = Object.getOwnPropertyDescriptor(proto, key)
+  Object.defineProperty(proto, key, { configurable: true, ...desc })
+  return () => { if (own) Object.defineProperty(proto, key, own); else delete (proto as Record<string, unknown>)[key] }
+}
+const SCROLL_INTO_VIEW_BEFORE = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+let undoScrollIntoView = () => {}
 beforeAll(() => {
   const util = jest.requireActual('node:util')
   const web = jest.requireActual('node:stream/web')
@@ -54,7 +63,12 @@ beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', { writable: true, value: (q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) })
   ;(global as unknown as { ResizeObserver: unknown }).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
   window.scrollTo = () => {}
-  Element.prototype.scrollIntoView = () => {}
+  undoScrollIntoView = stubProto(Element.prototype, 'scrollIntoView', { value: () => {}, writable: true })
+})
+// the prototype holds exactly what it held before this file (the own descriptor put back, or the stub deleted)
+afterAll(() => {
+  undoScrollIntoView()
+  expect(Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')).toEqual(SCROLL_INTO_VIEW_BEFORE)
 })
 beforeEach(() => {
   process.env.BUSINESS_PRACTICE_TENANT = TENANT
