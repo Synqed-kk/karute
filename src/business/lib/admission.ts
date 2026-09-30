@@ -36,6 +36,15 @@ import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './grants'
 
+// ⚖ 9/30 black box lane — a denial that is NOT a plain "no session" leaves ONE
+// server-side record (never user text: the answer stays the bare 404). This is
+// the minimal shape until the shared writer exists. `ref` is a short random id
+// so one incident can be found in the logs; it is never shown to anyone.
+function record(reason: 'auth-error' | 'threw', status: unknown, message: unknown): void {
+  const ref = Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, '0')
+  console.error('[business-admission]', { reason, ref, status, message })
+}
+
 export interface BusinessAdmission { userId: string; email: string | null; businessId: string }
 
 /** null = denied, for any reason. Kept apart from the notFound() call below so
@@ -48,7 +57,17 @@ async function admit(): Promise<BusinessAdmission | null> {
 
   const supabase = await createClient()
   const { data: { user }, error } = await supabase.auth.getUser()
-  if (!user || error) return null
+  // Missing = no user and either no error or the SDK's own AuthSessionMissingError
+  // (@supabase/auth-js 2.99.1 src/lib/errors.ts:120 — what getUser returns for a
+  // signed-out request, GoTrueClient.ts _getUser) → null, no record, as today.
+  // Any OTHER auth error (an invalid token, an outage, a rate limit) → null as
+  // today, but with a record first, so an outage is no longer silent.
+  if (error) {
+    const e = error as { name?: unknown; status?: unknown; message?: unknown }
+    if (e.name !== 'AuthSessionMissingError') record('auth-error', e.status, e.message)
+    return null
+  }
+  if (!user) return null
   const businessId = await businessIdForUser(user.id)
   if (!businessId) return null
   const [grant, management] = await Promise.all([
@@ -62,7 +81,10 @@ async function admit(): Promise<BusinessAdmission | null> {
 }
 
 export async function requireBusinessAdmission(): Promise<BusinessAdmission> {
-  const admitted = await admit().catch(() => null)
+  const admitted = await admit().catch((e: unknown) => {
+    record('threw', undefined, e instanceof Error ? e.message : String(e))
+    return null
+  })
   if (!admitted) notFound()
   return admitted
 }
