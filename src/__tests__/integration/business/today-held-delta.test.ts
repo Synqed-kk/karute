@@ -10,7 +10,7 @@ jest.mock('next/navigation', () => ({ notFound: jest.fn(() => { throw new Error(
 
 import { heldDelta } from '@/app/[locale]/(business)/business/today/held-delta'
 import {
-  applyMoves, dayLossOf, dayOnlyCell, guardVerdictAt, heldPriceOf, lossOf, pocketLossOf, restingSpanFor, sellableLaneKeysOf, storeHasBeds,
+  applyMoves, dayLossOf, dayOnlyCell, guardVerdictAt, heldPriceOf, lossOf, pairsOf, pocketLossOf, restingSpanFor, sellableLaneKeysOf, storeHasBeds,
   warnFaceFor, windowsOf, EMPTY_WINDOWS, type DayWindows, type Moves, type RailCell,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -434,7 +434,7 @@ describe('fix round 1 — X-A..X-D', () => {
     const d = heldDelta(day([row('A', [900]), row('B', [960])]), day([row('A', [915]), row('B', []), row('C', [1000, 1100])]), zero)
     const m = faceOf(hand({ day: d }))
     expect(m.face).toBe('clean')
-    expect(labels(m.dayRows)).toEqual(['確保枠 見本 Bの16:00がなくなります（店全体は2枠→3枠）', '確保枠 見本 Aの15:00 → 見本 Aの15:15'])
+    expect(labels(m.dayRows)).toEqual(['確保枠 見本 Bの16:00がなくなります（店全体は2枠→3枠）', '確保枠 見本 Aの15:00 → 15:15'])
   })
 
   it('X-D key B names only windows that landed on rows not sold online', () => {
@@ -453,5 +453,86 @@ describe('fix round 1 — X-A..X-D', () => {
     expect(dayLossOf(hand({ day: d }))).toBe(2)
     const m = faceOf(hand({ day: d }))
     expect(m.impact.tail).toBe(`が2枠から1枠に減ります。なくなるのは見本 Aの15:00・見本 Bの16:40の枠です。オンライン販売中の新規のお客様の${dur()}分の空きは2枠から0枠に減ります。`)
+  })
+})
+
+describe('fix round 2 — movement rows print PAIRS, each with its own arrow (Greptile G1; N2/N3)', () => {
+  const refs = (ws: ReadonlyArray<{ laneKey: string; windowStart: number }>) => ws.map((w) => `${w.laneKey}|${w.windowStart}`)
+
+  it('a two cross-lane pairs: each pair its own arrow, joined with 、', () => {
+    const d = heldDelta(
+      day([row('しろう', [945]), row('たろう', [960]), row('あずさ', []), row('はな', [])]),
+      day([row('しろう', []), row('たろう', []), row('あずさ', [905]), row('はな', [990])]), zero)
+    expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 しろうの15:45 → 見本 あずさの15:05、見本 たろうの16:00 → 見本 はなの16:30（店全体は2枠のまま）'])
+  })
+
+  it('b one same-lane shift + one cross-lane pair: the shift first', () => {
+    const d = heldDelta(
+      day([row('しろう', [945]), row('たろう', [960]), row('あずさ', [])]),
+      day([row('しろう', []), row('たろう', [990]), row('あずさ', [905])]), zero)
+    expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 たろうの16:00 → 16:30、見本 しろうの15:45 → 見本 あずさの15:05（店全体は2枠のまま）'])
+  })
+
+  it('c four pairs: three printed, then ほか1枠', () => {
+    const d = heldDelta(
+      day([row('A', [900]), row('B', [960]), row('C', [1000]), row('D', [1050])]),
+      day([row('A', [915]), row('B', [975]), row('C', [1015]), row('D', [1065])]), zero)
+    expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 Aの15:00 → 15:15、見本 Bの16:00 → 16:15、見本 Cの16:40 → 16:55、ほか1枠（店全体は4枠のまま）'])
+  })
+
+  it('d the しろう case (one cross-lane pair) is unchanged, bracket and F included', () => {
+    const r = landing(14 * 60 + 30, 15 * 60)
+    expect(labels(r.model.dayRows)).toEqual(['確保枠 見本 しろうの15:45 → 見本 あずさの15:05（店全体は3枠のまま・空きの金額は約¥340減）'])
+  })
+
+  it('e N2 (0 lost / 1 gained / 2 shifts): the pairing lists the two shifts first, the gained left unpaired, never dropped', () => {
+    const d = heldDelta(day([row('A', [900]), row('B', [960]), row('C', [])]), day([row('A', [915]), row('B', [975]), row('C', [1000])]), zero)
+    const p = pairsOf(d)
+    expect(p.pairs).toEqual([
+      { from: '見本 Aの15:00', to: '15:15', sameLane: true },
+      { from: '見本 Bの16:00', to: '16:15', sameLane: true },
+    ])
+    expect([refs(p.unpairedLost), refs(p.unpairedGained)]).toEqual([[], ['C|1000']])
+    // Count-changing (2→3), so not a same-count quiet row: the row keeps its list → list text (packet rule 3).
+    log('FR2-e', labels(faceOf(hand({ day: d })).dayRows))
+    expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 Aの15:00・見本 Bの16:00 → 見本 Cの16:40・見本 Aの15:15・見本 Bの16:15（店全体は2枠→3枠）'])
+  })
+
+  it('f nearest-start pairing: lost {A 15:45, B 16:30}, gained {C 16:20, D 15:50} → A→D, B→C', () => {
+    const d = heldDelta(
+      day([row('A', [945]), row('B', [990]), row('C', []), row('D', [])]),
+      day([row('A', []), row('B', []), row('C', [980]), row('D', [950])]), zero)
+    const p = pairsOf(d)
+    expect(p.pairs.map((x) => `${x.from}>${x.to}`).sort()).toEqual(['見本 Aの15:45>見本 Dの15:50', '見本 Bの16:30>見本 Cの16:20'])
+    expect([p.unpairedLost, p.unpairedGained]).toEqual([[], []])
+    expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 Bの16:30 → 見本 Cの16:20、見本 Aの15:45 → 見本 Dの15:50（店全体は2枠のまま）'])
+  })
+
+  it('vii sweep: every same-count fixture landing pairs completely (no unpaired lost or gained in the quiet row)', () => {
+    const staff = REAL.lanes.filter((l) => l.group === 'staff')
+    const bad: string[] = []
+    let sameCount = 0
+    let moved = 0
+    let total = 0
+    for (const src of staff) {
+      for (const item of src.items.filter((i) => i.caseId != null)) {
+        const dur = item.endMin - item.startMin
+        for (const to of staff) {
+          for (let s = REAL.hours.open; s + dur <= REAL.hours.close; s += 60) {
+            const r = landingOf(item.caseId!, to.key, s, s + dur)
+            total++
+            if (r.day.countedBefore !== r.day.countedAfter) continue
+            sameCount++
+            const p = pairsOf(r.day)
+            if (p.pairs.length > 0) moved++
+            if (p.unpairedLost.length > 0 || p.unpairedGained.length > 0) bad.push(`${item.caseId}→${to.key}@${s}`)
+          }
+        }
+      }
+    }
+    log('FR2-vii', { total, sameCount, moved, bad })
+    expect(total).toBeGreaterThan(0)
+    expect(moved).toBeGreaterThan(0)
+    expect(bad).toEqual([])
   })
 })

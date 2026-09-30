@@ -6958,6 +6958,42 @@ const yenDropOf = (d: HeldDelta) => {
   return drop > 0 ? `約${money(drop)}` : null
 }
 
+/** FIX ROUND 2 (Greptile G1; N2/N3) — THE ONE PAIRING every movement row reads.
+ *  Shifts first, in `d.shifted` order, each its own pair (label once, as the
+ *  1-shift row always printed it). Then each gained window, in `d.gained` order,
+ *  takes the not-yet-paired lost window whose start is nearest (ties → the
+ *  earlier start). A lost/gained pair is always cross-lane: `heldDelta` already
+ *  folds every same-lane lost+gained into `shifted` (identity laneKey|windowStart,
+ *  min(gone, came) per lane), so a lost and a gained never share a lane.
+ *  Leftovers are returned, never dropped. */
+export type MovePair = { from: string; to: string; sameLane: boolean }
+export function pairsOf(d: HeldDelta): { pairs: MovePair[]; unpairedLost: WindowRef[]; unpairedGained: WindowRef[] } {
+  const pairs: MovePair[] = d.shifted.map((x) => ({ from: windowItem(x, x.from), to: clockOf(x.to), sameLane: true }))
+  const free = [...d.lost]
+  const unpairedGained: WindowRef[] = []
+  for (const g of d.gained) {
+    if (free.length === 0) {
+      unpairedGained.push(g)
+      continue
+    }
+    let k = 0
+    for (let i = 1; i < free.length; i++) {
+      const di = Math.abs(free[i].windowStart - g.windowStart)
+      const dk = Math.abs(free[k].windowStart - g.windowStart)
+      if (di < dk || (di === dk && free[i].windowStart < free[k].windowStart)) k = i
+    }
+    pairs.push({ from: windowItem(free[k], free[k].windowStart), to: windowItem(g, g.windowStart), sameLane: false })
+    free.splice(k, 1)
+  }
+  return { pairs, unpairedLost: free, unpairedGained }
+}
+/** THE ONE PRINTER: each pair its own arrow, joined with 「、」; past three, one
+ *  ほかN枠 per pair (a pair is one window that moved — `windowList`'s fold word). */
+const pairsText = (pairs: readonly MovePair[]) => {
+  const items = pairs.map((p) => `${p.from} → ${p.to}`)
+  return items.length <= 3 ? items.join('、') : `${items.slice(0, 3).join('、')}、ほか${items.length - 3}枠`
+}
+
 /** The movement, without its store bracket (C / C2 / D / E shapes). */
 function movementOf(d: HeldDelta): string | null {
   const from = [...refItems(d.lost), ...d.shifted.map((x) => windowItem(x, x.from))]
@@ -6966,33 +7002,20 @@ function movementOf(d: HeldDelta): string | null {
   if (d.countedAfter > d.countedBefore && d.lost.length > 0) return `確保枠 ${windowList(refItems(d.lost))}がなくなります`
   if (from.length === 0) return `確保枠 ${windowList(to)}が加わります`
   if (to.length === 0) return `確保枠 ${windowList(from)}がなくなります`
-  if (d.shifted.length === 1 && d.lost.length === 0 && d.gained.length === 0) {
-    return `確保枠 ${windowItem(d.shifted[0], d.shifted[0].from)} → ${clockOf(d.shifted[0].to)}`
-  }
+  const { pairs, unpairedLost, unpairedGained } = pairsOf(d)
+  if (unpairedLost.length === 0 && unpairedGained.length === 0) return `確保枠 ${pairsText(pairs)}`
+  // Unequal lost/gained is never a same-count quiet row (every same-count delta
+  // pairs completely — sweep invariant vii in today-held-delta.test.ts guards it);
+  // this count-changing shape keeps its list → list text.
   return `確保枠 ${windowList(from)} → ${windowList(to)}`
 }
 
-/** H line 2 (lead ruling 9/30 on the c2a decisions): PAIRS only, never 「X・Y → Z」.
- *  Each gained window takes the not-yet-paired lost window whose start is
- *  nearest (ties → the earlier start); a same-lane shift is its own pair.
- *  Unpaired lost windows are named in line 1 (A) and nowhere else. */
+/** H line 2 (lead ruling 9/30 on the c2a decisions): PAIRS only, never 「X・Y → Z」,
+ *  through the one pairing and the one printer. Unpaired lost windows are named
+ *  in line 1 (A) and nowhere else. */
 function movedPairsOf(d: HeldDelta): string | null {
-  const free = [...d.lost]
-  const from: string[] = d.shifted.map((x) => windowItem(x, x.from))
-  const to: string[] = d.shifted.map((x) => windowItem(x, x.to))
-  for (const g of d.gained) {
-    if (free.length === 0) break
-    let k = 0
-    for (let i = 1; i < free.length; i++) {
-      const di = Math.abs(free[i].windowStart - g.windowStart)
-      const dk = Math.abs(free[k].windowStart - g.windowStart)
-      if (di < dk || (di === dk && free[i].windowStart < free[k].windowStart)) k = i
-    }
-    from.push(windowItem(free[k], free[k].windowStart))
-    to.push(windowItem(g, g.windowStart))
-    free.splice(k, 1)
-  }
-  return from.length === 0 ? null : `確保枠 ${windowList(from)} → ${windowList(to)}`
+  const { pairs } = pairsOf(d)
+  return pairs.length === 0 ? null : `確保枠 ${pairsText(pairs)}`
 }
 
 /** The AMBER sentence (A / B / H line 1). Only reached when `dayLossOf > 0`. */
@@ -7051,7 +7074,7 @@ function dayRowsOf(d: HeldDelta | undefined, resourceNoun: string | undefined): 
   // FIX ROUND 1 X-C — the E-lost row names only the loss; a same-lane shift beside
   // it is never silent: its own pairs row, without the store bracket (as H's line 2).
   const shifts = d.countedAfter > d.countedBefore && d.lost.length > 0 && d.shifted.length > 0
-    ? `確保枠 ${windowList(d.shifted.map((x) => windowItem(x, x.from)))} → ${windowList(d.shifted.map((x) => windowItem(x, x.to)))}`
+    ? `確保枠 ${pairsText(pairsOf(d).pairs.filter((p) => p.sameLane))}`
     : null
   return shifts == null ? [row(`${move}${bracket}`)] : [row(`${move}${bracket}`), row(shifts)]
 }
