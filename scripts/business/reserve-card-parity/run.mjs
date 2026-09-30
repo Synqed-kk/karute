@@ -29,7 +29,7 @@
 //      exit code cover only the rows that ran).
 // Only the PIDs this script starts are ever stopped.
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -146,6 +146,12 @@ function stopStarted() {
 
 // ---- 1. Reserve at the pin ----
 function exportReserve() {
+  // a copy of an EARLIER pin (reserve-<short> / reserve-<short>.tar, made by this harness) is stale once the manifest
+  // moves: removed here so re-ports do not pile up full Reserve trees in WORK; nothing else in WORK is touched
+  for (const name of readdirSync(WORK)) {
+    const m = name.match(/^reserve-([0-9a-f]{7})(\.tar)?$/)
+    if (m && m[1] !== SHORT) rmSync(join(WORK, name), { recursive: true, force: true })
+  }
   rmSync(COPY, { recursive: true, force: true })
   mkdirSync(COPY, { recursive: true })
   // argument arrays only, never shell source: a path holding $, a backtick or a quote stays a path
@@ -584,7 +590,10 @@ function checkVerbatim() {
       const [path, a, b] = fixed ? [fixed(), +m[1], +m[2]] : [where[m[1]] ?? m[1], +m[2], +m[3]]
       // an empty or inverted range would compare [] with [] and pass: it is a broken marker, never a proof
       if (a < 1 || b < a) { all++; bad.push(`${file}:${i + 1} (${path}:${a}–${b} — empty range)`); return }
-      const want = show(path).slice(a - 1, b), got = lines.slice(i + 1, i + 1 + want.length)
+      const src = show(path), want = src.slice(a - 1, b), got = lines.slice(i + 1, i + 1 + want.length)
+      // a range past the end of the pinned file slices short (or empty) and would match a short block: never a proof
+      const n = src.at(-1) === '' ? src.length - 1 : src.length // git show ends with a newline: the last split element is not a line
+      if (b > n || want.length !== b - a + 1) { all++; bad.push(`${file}:${i + 1} (${path}:${a}–${b} — past EOF: file has ${n} lines)`); return }
       all++
       if (JSON.stringify(want) === JSON.stringify(got)) ok++
       else bad.push(`${file}:${i + 1} (${path}:${a}–${b})`)
