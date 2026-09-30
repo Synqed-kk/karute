@@ -114,11 +114,8 @@ import { dayLengthMin } from './store-policy-seam'
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
 const fmtDayWeek = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', weekday: 'short', ...JST })
-/** ⚖ S17 STEP 1 — the save stamp's clock. Formatted HERE because the family law
- *  is that the screen holds neither a clock nor a formatter, and pinned to the
- *  page's own render instant so a shot of the same page is the same picture
- *  twice. 24-hour, JST, exactly as the topbar's own Reserve同期 stamp reads. */
-const fmtClock = new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, ...JST })
+// ⚖ B2 act 1c (R41) — the save stamp's clock left this file: the screen reads the clock once, at the
+// press, through the one JST formatter (`jstClock`, src/business/lib/clock.ts); renders never read it.
 
 /** ⚖ 8/25 — a number says WHAT it counts. One home for the unit this room
  *  repeats (③ removed `days` and `people`, whose only readers were the deleted
@@ -324,7 +321,6 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     // to this browser keys its row by it, so a shared front-desk machine holds
     // one row per person instead of one row full stop.
     operatorId: operator.staff_id,
-    saveStampTime: fmtClock.format(now),
   }
 
   return { props, storePolicy, storeKey: clamped ? storeId! : 'all-stores', bookingColors }

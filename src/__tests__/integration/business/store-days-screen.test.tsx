@@ -8,6 +8,11 @@
  * the network is a stub of the two store-days routes. Prior art: opus-read-1/scripts/screen-attack.test.tsx.
  */
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
+// ⚖ S37 R42 (B2 act 1c fix 1) — a PASSTHROUGH spy on the one stamp formatter, so (h) can count the reads.
+jest.mock('@/business/lib/clock', () => {
+  const actual = jest.requireActual('@/business/lib/clock')
+  return { ...actual, jstClock: jest.fn(actual.jstClock) }
+})
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 jest.mock('@/business/lib/practice-door/core-reach', () => {
   // self-contained: the real module drags next/cache (Request/Response) into jsdom
@@ -35,7 +40,8 @@ import { requireBusinessAdmission } from '@/business/lib/admission'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import { CARD, LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import { cloneElement, type ReactElement } from 'react'
+import { cloneElement, StrictMode, type ReactElement } from 'react'
+import { jstClock } from '@/business/lib/clock'
 import type { SettingsSection } from '@/business/lib/settings'
 import { STORE_A } from '@/business/lib/fixtures'
 import { READ_FAILURE_LINE, READ_ONLY_NOTE } from '@/business/lib/data'
@@ -499,13 +505,11 @@ describe('B2 act 1b honest stamp', () => {
   const PAGE_ONLY = '✓ この画面だけに反映しました'
   const FOOT = '保存はこの画面の中だけに反映されます（実データ接続後に本保存）。'
   const HOURS = 'store-hours.hours'
-  // the fixture's own saveStampTime: read off the page element the route builds, then rendered
-  let time = ''
-  const stampTime = () => time
+  // ⚖ B2 act 1c — the stamp's time is the PRESS time; the suite's fake clock (beforeEach) is pinned at
+  // 2026-09-29T03:00:00Z and never advanced here, so every press in this describe prints 12:00 JST.
+  const stampTime = () => '12:00'
   const mountT = async (store: string) => {
-    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section: 'store-hours' }) })) as ReactElement<{ saveStampTime: string }>
-    time = el.props.saveStampTime
-    expect(time).toMatch(/^\d{1,2}:\d{2}$/)
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section: 'store-hours' }) })) as ReactElement
     render(el)
     await act(async () => {})
   }
@@ -552,8 +556,7 @@ describe('B2 act 1b honest stamp', () => {
   // c1 = the all-stores lens's gate (saveStoreDays undefined, R32); c2 = the door ON over a 営業時間
   // section that holds no 臨時休業 block (the untwinned / no-closures world).
   const onElement = async () => {
-    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ sections: SettingsSection[]; saveStoreDays?: unknown; saveStampTime: string }>
-    time = el.props.saveStampTime
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ sections: SettingsSection[]; saveStoreDays?: unknown }>
     return el
   }
   it('(c) door ON, the worlds where the footer shows (constructed): footer present, the new string absent, the stamp is 保存しました', async () => {
@@ -631,11 +634,183 @@ describe('B2 act 1b honest stamp', () => {
   })
   it('(h) door ON, saveStoreDays.lockedNote set (the actor may not write): sample edit + 保存する → the honest stamp', async () => {
     mockUi.sheetOverride = { [CARD.owner]: { staff_id: CARD.owner, role: 'manager', coarse_role: 'ADMIN', capabilities: ['settings.manage', 'stores.viewAll'], visible_store_ids: null, money_scope: null, version: '1.1' } }
-    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ saveStampTime: string; saveStoreDays?: { lockedNote: string | null } }>
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'store-hours' }) })) as ReactElement<{ saveStoreDays?: { lockedNote: string | null } }>
     expect(el.props.saveStoreDays?.lockedNote).toBe(READ_ONLY_NOTE)
-    time = el.props.saveStampTime
     render(el)
     await act(async () => {})
     await honestAfterSave()
+  })
+})
+
+// ⚖ S37 R41 — B2 act 1c: every save stamp prints the time 保存する was PRESSED, not the time the page
+// rendered. The clock is faked (Date only; the beforeEach pins it) and moved between render and press;
+// jest forces TZ=UTC while the stamp is JST, so every expected time below is a LITERAL.
+describe('B2 act 1c stamp time', () => {
+  const T1 = new Date('2026-11-18T14:59:00Z') // 23:59 JST — the render
+  const T2 = new Date('2026-11-18T18:10:00Z') // 03:10 JST — the press
+  const T3 = new Date('2026-11-18T18:25:00Z') // 03:25 JST — a second press
+  const PAGE_ONLY = '✓ この画面だけに反映しました'
+  const HOURS = 'store-hours.hours'
+  const open = async (store: string, section = 'store-hours') => {
+    jest.setSystemTime(T1)
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section }) })) as ReactElement
+    render(el)
+    await act(async () => {})
+  }
+  const stamps = () => [...document.querySelectorAll('.st-save-line [role="status"]')].map((n) => n.textContent ?? '')
+  const saveBtn = () => [...document.querySelectorAll('button.st-save')].find((b) => /保存する/.test(b.textContent ?? '')) as HTMLButtonElement
+  const editHours = () => {
+    const f = [...(blockEl(HOURS)?.querySelectorAll('input[type="time"]') ?? [])].find((i) => !(i as HTMLInputElement).disabled) as HTMLInputElement
+    expect(f).toBeDefined()
+    fireEvent.change(f, { target: { value: f.value === '09:01' ? '09:02' : '09:01' } })
+  }
+  const pressAt = async (at: Date) => {
+    editHours()
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    jest.setSystemTime(at)
+    await act(async () => { saveBtn().click() })
+    await settle()
+  }
+  it('(a) door ON: rendered 23:59, pressed 03:10 → 「✓ この画面だけに反映しました 03:10」', async () => {
+    await open(STORE.tokyo)
+    await pressAt(T2)
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    expect(document.body.textContent).not.toContain('23:59')
+  })
+  it('(b) door OFF: rendered 23:59, pressed 03:10 → 「✓ 保存しました 03:10」', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    await open(STORE_A)
+    await pressAt(T2)
+    expect(stamps()).toEqual(['✓ 保存しました 03:10'])
+    expect(document.body.textContent).not.toContain('23:59')
+  })
+  // the persist-local path (自分の表示設定 saves on the press of a choice, no 保存する): opened by its
+  // section id, then one segmented choice pressed at t2 — no other test in the suite reaches that site.
+  it('(c) 自分の表示設定: a choice pressed at 03:10 → 「✓ この端末に保存しました 03:10」', async () => {
+    await open(STORE.tokyo, 'my-display')
+    const state = () => document.querySelector('p.st-save-state')?.textContent ?? ''
+    expect(state()).toBe('押すとすぐ保存されます')
+    const choice = [...document.querySelectorAll('button')].find((b) => b.textContent === 'コンパクト') as HTMLButtonElement
+    expect(choice).toBeDefined()
+    jest.setSystemTime(T2)
+    await act(async () => { fireEvent.click(choice) })
+    await settle()
+    expect(state()).toBe('✓ この端末に保存しました 03:10')
+    expect(document.body.textContent).not.toContain('23:59')
+  })
+  it('(d) midnight: pressed at 2026-11-18T15:00:00Z → 「00:00」, never 「24:00」', async () => {
+    await open(STORE.tokyo)
+    await pressAt(new Date('2026-11-18T15:00:00Z'))
+    expect(stamps()).toEqual([`${PAGE_ONLY} 00:00`])
+    // the stamp only: the page legitimately prints 24:00 elsewhere (特別営業日's close bound)
+    expect(stamps()[0]).not.toContain('24:00')
+  })
+  it('(e) two presses: 03:10 then 03:25 → the stamp is replaced, 「03:25」', async () => {
+    await open(STORE.tokyo)
+    await pressAt(T2)
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    await pressAt(T3)
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:25`])
+    expect(document.body.textContent).not.toContain('03:10')
+  })
+  it('(g) seconds: pressed at 18:10:59.500Z → 「03:10」 (the minute is read, never rounded up)', async () => {
+    await open(STORE.tokyo)
+    await pressAt(new Date('2026-11-18T18:10:59.500Z'))
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+  })
+  // ⚖ R42 — the clock is read ONCE per commit, in the event callback, never inside a state updater
+  // (React runs updaters during render, and twice under StrictMode in dev).
+  it('(h) StrictMode: one 保存する press → jstClock once; one 自分の表示設定 choice → once more', async () => {
+    const spy = jstClock as jest.MockedFunction<typeof jstClock>
+    const strict = async (section: string) => {
+      jest.setSystemTime(T1)
+      const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section }) })) as ReactElement
+      render(<StrictMode>{el}</StrictMode>)
+      await act(async () => {})
+    }
+    await strict('store-hours')
+    editHours()
+    spy.mockClear()
+    jest.setSystemTime(T2)
+    await act(async () => { saveBtn().click() })
+    await settle()
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    expect(spy).toHaveBeenCalledTimes(1)
+    cleanup()
+    await strict('my-display')
+    spy.mockClear()
+    jest.setSystemTime(T2)
+    const choice = [...document.querySelectorAll('button')].find((b) => b.textContent === 'コンパクト') as HTMLButtonElement
+    await act(async () => { fireEvent.click(choice) })
+    await settle()
+    expect(document.querySelector('p.st-save-state')?.textContent).toBe('✓ この端末に保存しました 03:10')
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+  // ⚖ R42 — a core-backed save commits on core's yes, so its stamp is THAT instant: pressed 03:10,
+  // core answered 03:17 → 「03:17」. The card-colour PUT is held open while the fake clock moves.
+  it('(i) カードの見た目, door ON: pressed 03:10, core says yes at 03:17 → 「✓ 保存しました 03:17」', async () => {
+    await open(STORE.tokyo, 'reserve-card-look')
+    let answer: (r: Response) => void = () => {}
+    let sentColor: unknown = null
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/business/card-color')
+      sentColor = JSON.parse(String(init?.body)).color
+      return new Promise<Response>((r) => { answer = r })
+    }) as unknown as typeof fetch
+    const swatch = [...document.querySelectorAll('.cl-swatches [role="radio"]')].find((b) => b.getAttribute('aria-checked') !== 'true') as HTMLButtonElement
+    expect(swatch).toBeDefined()
+    fireEvent.click(swatch)
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    jest.setSystemTime(T2)
+    await act(async () => { saveBtn().click() })
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    jest.setSystemTime(new Date('2026-11-18T18:17:00Z'))
+    await act(async () => { answer(fakeRes(200, { ok: true, color: sentColor })) })
+    await settle()
+    expect(stamps()).toEqual(['✓ 保存しました 03:17'])
+  })
+  // ⚖ R43 (Greptile P2) — 予約の色分け commits on core's yes through the same commitSection; its own PUT
+  // is held open while the clock moves, so a press-time stamp on this path goes red too.
+  it('(j) 予約の色分け, door ON: pressed 03:10, core says yes at 03:17 → 「✓ 保存しました 03:17」', async () => {
+    await open(STORE.tokyo, 'language-display')
+    let answer: (r: Response) => void = () => {}
+    let sentColors: unknown = null
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/business/booking-colors')
+      expect(init?.method).toBe('PUT')
+      sentColors = JSON.parse(String(init?.body)).colors
+      return new Promise<Response>((r) => { answer = r })
+    }) as unknown as typeof fetch
+    const group = document.querySelector('.st-swatches[aria-label="新規予約の色"]')
+    expect(group).not.toBeNull()
+    const swatch = [...group!.querySelectorAll('button.st-swatch')].find((b) => b.getAttribute('aria-pressed') !== 'true') as HTMLButtonElement
+    expect(swatch).toBeDefined()
+    fireEvent.click(swatch)
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    jest.setSystemTime(T2)
+    await act(async () => { saveBtn().click() })
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    jest.setSystemTime(new Date('2026-11-18T18:17:00Z'))
+    await act(async () => { answer(fakeRes(200, { ok: true, colors: sentColors })) })
+    await settle()
+    expect(stamps()).toEqual(['✓ 保存しました 03:17'])
+  })
+  it('(f) source pin: jstClock( twice in the screen, the render-time stamp prop gone from the screen and from src/', () => {
+    const fs = jest.requireActual('node:fs') as typeof import('node:fs')
+    const path = jest.requireActual('node:path') as typeof import('node:path')
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx'), 'utf8')
+    expect(src.split('jstClock(').length - 1).toBe(2)
+    const needle = ['save', 'Stamp', 'Time'].join('') // spelled apart so this file does not hold it
+    expect(src).not.toContain(`props.${needle}`)
+    const hits: string[] = []
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name)
+        if (e.isDirectory()) walk(p)
+        else if (/\.(ts|tsx|js|jsx|json)$/.test(e.name) && fs.readFileSync(p, 'utf8').includes(needle)) hits.push(p)
+      }
+    }
+    walk(path.join(process.cwd(), 'src'))
+    expect(hits).toEqual([])
   })
 })

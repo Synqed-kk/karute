@@ -73,6 +73,7 @@ import {
 } from 'react'
 import { businessStrings, sampleMarkLines } from '@/business/i18n'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { jstClock } from '@/business/lib/clock'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
@@ -572,7 +573,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  shape every other piece of this room's state has, so one reading rule
    *  covers all of it — and it keeps `.delete(`, which the guard really does
    *  ban, out of the room without an exception being argued for. */
-  const [committed, setCommitted] = useState<Record<string, boolean>>({})
+  // ⚖ B2 act 1c (R41/R42) — presence = committed; the VALUE is the stamp time of the commit, read ONCE
+  // in the event callback before any state update (never in an updater or render). For core-backed
+  // saves commitSection runs after core's yes, so the stamp is the commit instant, not the press.
+  const [committed, setCommitted] = useState<Record<string, string>>({})
   /** ⚖ A2 — why the last real card save did not land (null = none, or it did). */
   const [cardFail, setCardFail] = useState<CardSaveReason | null>(null)
   const cardSaving = useRef(false)
@@ -704,6 +708,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  personal preference that needed committing would be the page asking
    *  permission for something nobody else can see. */
   const setValue = useCallback((id: string, next: RowValue) => {
+    // ⚖ R42 — the stamp's clock, read once here in the callback, never inside the updater below.
+    const at = id === DENSITY_ID || id === EMPHASIS_ID ? jstClock(new Date()) : ''
     setValues((prev) => {
       const merged = { ...prev, [id]: next }
       if (id === DENSITY_ID || id === EMPHASIS_ID) {
@@ -721,7 +727,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           // see above — the choice still applies to this render.
         }
         setSaved((s) => ({ ...s, [id]: next }))
-        setCommitted((c) => ({ ...c, 'my-display': true }))
+        setCommitted((c) => ({ ...c, 'my-display': at }))
       }
       return merged
     })
@@ -885,6 +891,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   }, [])
 
   const commitSection = useCallback((target: SettingsSection) => {
+    const at = jstClock(new Date()) // ⚖ R42 — the commit instant, read once, before any state update
     const ids = controlIdsOf(target)
     const wordValues = committedWordValues(target, values)
     setValues((prev) => ({ ...prev, ...wordValues }))
@@ -906,7 +913,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)
       return next
     })
-    setCommitted((prev) => ({ ...prev, [target.id]: true }))
+    setCommitted((prev) => ({ ...prev, [target.id]: at }))
   }, [values, listRows])
 
   /** ⚖ A2 — カードの見た目 with the door ON: core first (the route), and the page commits ONLY on core's
@@ -1402,7 +1409,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     section.persist === 'local' ? (
       <p className="st-save-state" role="status">
         {committed[section.id]
-          ? `✓ この端末に保存しました ${props.saveStampTime}`
+          ? `✓ この端末に保存しました ${committed[section.id]}`
           : '押すとすぐ保存されます'}
       </p>
     ) : (
@@ -1414,8 +1421,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 ? `変更した設定 ${changed}件`
                 : committed[section.id]
                   ? storeDaysLive
-                    ? `${businessStrings.sampleMark.pageOnlyStamp} ${props.saveStampTime}`
-                    : `✓ 保存しました ${props.saveStampTime}`
+                    ? `${businessStrings.sampleMark.pageOnlyStamp} ${committed[section.id]}`
+                    : `✓ 保存しました ${committed[section.id]}`
                   : '変更はありません')}
           </span>
         </div>
