@@ -325,14 +325,39 @@ export async function menuOfAutoLinked(
  *    - `kept` (S67 fix round 2, commit 15, SF-5) → the save named no booking
  *      and an existing link stayed through the converge (never `none` while
  *      the record is linked)
+ *    - `changed` (S71 fix round 7, G-3) → the save named no booking and left
+ *      an existing link alone, but the record core RETURNED carries a
+ *      different link (null or another booking): another write landed between
+ *      this save's read and its write, or core did not keep the field —
+ *      `appointment_id` beside it says what the record holds now
  *    - otherwise the auto-link's answer when it ran; otherwise null. */
-export type AppointmentLinkValue = AppointmentLinkReason | AutoAppointmentLink | 'kept' | null
+export type AppointmentLinkValue = AppointmentLinkReason | AutoAppointmentLink | 'kept' | 'changed' | null
+/** G-3 (S71 fix round 7, RULING-S71-G3-G4): what became of a link a converge
+ *  left alone — `kept` / `changed` after the write, null when the save did not
+ *  leave an existing link alone (a named booking, an auto-link, a create). */
+export type KeptLinkFate = 'kept' | 'changed' | null
 export function appointmentLinkOf(
   linkReason: AppointmentLinkReason | null,
   autoLink: AutoAppointmentLink | null | undefined,
-  kept = false,
+  kept: KeptLinkFate = null,
 ): AppointmentLinkValue {
-  return linkReason ?? (kept ? 'kept' : (autoLink ?? null))
+  return linkReason ?? kept ?? autoLink ?? null
+}
+
+/** G-3 (S71 fix round 7, RULING-S71-G3-G4): the ONE definition of the kept
+ *  word after the write, for both converges. `effectiveAfter` is the SAME
+ *  value the row reports as `appointment_id` (returnedOr over the returned
+ *  record) — so the word follows what the write RETURNED: `kept` only when
+ *  the record still carries the link this save left alone, else `changed`.
+ *  No returned record/field → returnedOr falls back to `linkedBefore` → kept
+ *  (no evidence of change). */
+export function keptLinkAfterWrite(
+  keptBefore: boolean,
+  linkedBefore: string | null,
+  effectiveAfter: string | null,
+): KeptLinkFate {
+  if (!keptBefore) return null
+  return effectiveAfter === linkedBefore ? 'kept' : 'changed'
 }
 
 /** SF-5: an existing link KEPT through a converge = the write named no

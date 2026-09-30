@@ -716,7 +716,9 @@ describe('POST /api/app/v1/karute (save) — S4 the converge never clears a book
     expect(res.status).toBe(200)
     expect((update.mock.calls[0] as unknown[])[1]).not.toHaveProperty('appointment_id')
     const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
-    expect((rows[0][0] as { detail: Record<string, unknown> }).detail).toMatchObject({ appointment_id: 'appt-interleaved', appointment_link: 'kept' })
+    // G-3 (S71 fix round 7, RULING-S71-G3-G4): the word follows the returned
+    // record — the link this save left alone did not stay → `changed`.
+    expect((rows[0][0] as { detail: Record<string, unknown> }).detail).toMatchObject({ appointment_id: 'appt-interleaved', appointment_link: 'changed' })
     expect((await res.json()).appointment_id).toBe('appt-interleaved')
   })
 
@@ -733,6 +735,47 @@ describe('POST /api/app/v1/karute (save) — S4 the converge never clears a book
     expect(rows).toHaveLength(1)
     expect((rows[0][0] as { detail: Record<string, unknown> }).detail).toMatchObject({ appointment_id: null })
     expect((await res.json()).appointment_id).toBeNull()
+  })
+
+  // G-3 (S71 fix round 7, RULING-S71-G3-G4): on a kept path (the save names no
+  // booking, the record is linked) the word follows what the update RETURNED —
+  // the row and the reply carry the same word and the same id.
+  describe('G-3: the kept word follows the returned record', () => {
+    const keptPath = async (returned: unknown) => {
+      update.mockResolvedValueOnce(returned as never)
+      existingBySession.current = { id: 'kar-existing', transcript: 'old', customer_id: 'cust-1', appointment_id: 'appt-first' } as never
+      const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1' }), noRoute)
+      expect(res.status).toBe(200)
+      expect((update.mock.calls[0] as unknown[])[1]).not.toHaveProperty('appointment_id')
+      const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+      expect(rows).toHaveLength(1)
+      return { row: (rows[0][0] as { detail: Record<string, unknown> }).detail, reply: (await res.json()) as Record<string, unknown> }
+    }
+    it('G-3 (i): the update returns the SAME link → kept + that id, row and reply', async () => {
+      const { row, reply } = await keptPath({ id: 'kar-existing', appointment_id: 'appt-first' })
+      expect(row).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+      expect(reply).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+    })
+    it('G-3 (ii): the update returns NO link → changed + null, row and reply', async () => {
+      const { row, reply } = await keptPath({ id: 'kar-existing', appointment_id: null })
+      expect(row).toMatchObject({ appointment_link: 'changed', appointment_id: null })
+      expect(reply).toMatchObject({ appointment_link: 'changed', appointment_id: null })
+    })
+    it('G-3 (iii): the update returns ANOTHER link → changed + the other id, row and reply', async () => {
+      const { row, reply } = await keptPath({ id: 'kar-existing', appointment_id: 'appt-other' })
+      expect(row).toMatchObject({ appointment_link: 'changed', appointment_id: 'appt-other' })
+      expect(reply).toMatchObject({ appointment_link: 'changed', appointment_id: 'appt-other' })
+    })
+    it('G-3 (iv): the update returns no field → kept + the kept id, row and reply', async () => {
+      const { row, reply } = await keptPath({ id: 'kar-existing' })
+      expect(row).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+      expect(reply).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+    })
+    it('G-3 (iv): the update returns no record → kept + the kept id, row and reply', async () => {
+      const { row, reply } = await keptPath(undefined)
+      expect(row).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+      expect(reply).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+    })
   })
 
   it('S4-facade: a re-point to another customer with no booking moves both — the old booking never rides along (E-1)', async () => {

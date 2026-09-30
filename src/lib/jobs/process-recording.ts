@@ -600,7 +600,7 @@ async function processJob(job: RecordingJob): Promise<string> {
       // booking. The same vocabulary as the facade's row, through the ONE
       // expression (appointmentLinkOf); the worker has no degraded-booking
       // reason, so it passes null for it.
-      appointment_link: appointmentLinkOf(null, autoLinked?.link, keptLink),
+      appointment_link: appointmentLinkOf(null, autoLinked?.link, keptLink ? 'kept' : null),
       // S5: what became of the staff's answer (written · kept · skipped:… ·
       // failed:<ref>) — a short reference, never the technical cause.
       outcome_link: fate.link,

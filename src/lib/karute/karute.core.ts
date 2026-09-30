@@ -44,12 +44,14 @@ import {
   appointmentLinkOf,
   isKeptLink,
   keepLinkUnlessGiven,
+  keptLinkAfterWrite,
   linkUpdateOf,
   menuOfAutoLinked,
   returnedOr,
   type AppointmentLinkReason,
   type AppointmentLinkValue,
   type AutoAppointmentLink,
+  type KeptLinkFate,
 } from '@/lib/karute/appointment-link'
 import type { OutcomeLink } from '@/lib/karute/outcome-fate'
 
@@ -145,7 +147,8 @@ export async function createOrUpdateKaruteRecord(
     transcriptChanged: boolean
     storeId: string | null
     appointmentId: string | null
-    keptLink: boolean
+    /** G-3 (S71 fix round 7): the kept link's fate after the write (keptLinkAfterWrite). */
+    keptLink: KeptLinkFate
     /** A4: the customer the record carries after the write (the row's detail). */
     customerId: string | null
   }) => {
@@ -275,6 +278,11 @@ export async function createOrUpdateKaruteRecord(
         ...linkUpdateOf(existing, payload, autoLinked),
         ...(omitEntries ? {} : { entries: payload.entries }),
       })
+      // A2 revision: what the row HOLDS after the write — the returned
+      // record's link when core returns it, else the computed effective one.
+      // G-3 (S71 fix round 7): the kept word is checked against the same
+      // returned value (keptLinkAfterWrite) — one value, never two that disagree.
+      const effective = returnedOr(updated?.appointment_id, appointmentId ?? null)
       // A bare `return emitSave(...)`, never `return await …`: the audit gates'
       // walker (scripts/audit/emission-walker.mjs, CP2/CP7) accepts a return as
       // emit-dominated only as a direct call-through to a same-file emitter.
@@ -290,10 +298,8 @@ export async function createOrUpdateKaruteRecord(
         // the persisted store is still the EXISTING record's — already in
         // hand from the lookup, no second read.
         storeId: existing.store_id,
-        // A2 revision: what the row HOLDS after the write — the returned
-        // record's link when core returns it, else the computed effective one.
-        appointmentId: returnedOr(updated?.appointment_id, appointmentId ?? null),
-        keptLink,
+        appointmentId: effective,
+        keptLink: keptLinkAfterWrite(keptLink, appointmentId ?? null, effective),
       })
     }
   }
@@ -321,7 +327,7 @@ export async function createOrUpdateKaruteRecord(
     // core gives no signal.
     appointmentId: returnedOr(record.appointment_id, autoLinked?.appointmentId ?? payload.appointment_id ?? null),
     customerId: returnedOr(record.customer_id, payload.customer_id ?? null),
-    keptLink: false,
+    keptLink: null,
   })
 }
 
