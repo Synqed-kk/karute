@@ -387,7 +387,7 @@ async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: 
   }
 }
 /** ⚖ B2 act 2a (S38) — THE BAR'S STAMP, ONE TRUTH. Chosen at commit time from the commit's own outcome:
- *  `persisted` = this commit made a core write AND core answered success (カードの見た目 / 予約の色分け with
+ *  `persisted` = this commit sent it to core AND core confirmed it holds the value (a no-op confirmation counts — core holds it) (カードの見た目 / 予約の色分け with
  *  the door ON, on core's yes). Every other commit — the door OFF for any section, the door ON for a
  *  section without a writer, 予約の色分け with nothing changed (no PUT) — reached this page only, and says so.
  *  Never derived from the door flag a second time. */
@@ -941,7 +941,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       setCardFail(result.reason)
       return
     }
-    commitSection(target, true) // core wrote and said yes
+    commitSection(target, true) // core confirmed it holds this colour (the route has no baseline; the echoed colour is compared with the pick — a different answer shows as unsaved)
     setSaved((prev) => ({ ...prev, [CARD_COLOR_ID]: result.color ?? '' }))
   }, [values, commitSection])
 
@@ -961,7 +961,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       setBookingFail(result.reason)
       return
     }
-    commitSection(target, true) // core wrote and said yes
+    commitSection(target, true) // core confirmed it holds these four (the route has no baseline; the echoed four are compared with the picks — a different answer shows as unsaved)
     setSaved((prev) => ({ ...prev, ...Object.fromEntries(BOOKING_KEYS.map((k) => [`lang.color-${k}`, result.colors[k]])) }))
   }, [values, saved, commitSection])
 
