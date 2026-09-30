@@ -386,6 +386,14 @@ async function putCardColor(card: CardSave, next: string | null): Promise<{ ok: 
     return { ok: false, reason: 'core' }
   }
 }
+/** ⚖ B2 act 2a (S38) — THE BAR'S STAMP, ONE TRUTH. Chosen at commit time from the commit's own outcome:
+ *  `persisted` = this commit made a core write AND core answered success (カードの見た目 / 予約の色分け with
+ *  the door ON, on core's yes). Every other commit — the door OFF for any section, the door ON for a
+ *  section without a writer, 予約の色分け with nothing changed (no PUT) — reached this page only, and says so.
+ *  Never derived from the door flag a second time. */
+export const stampFor = (persisted: boolean, at: string): string =>
+  persisted ? `✓ 保存しました ${at}` : `${businessStrings.sampleMark.pageOnlyStamp} ${at}`
+
 /** JP-COPY-A2-FINAL.md, byte for byte, by id. */
 const CARD_SAVE_NOTE = '色は事業全体の設定として保存され、お客様が次にReserveのお店ページを開くと表示されます。' // save.note.card
 const CARD_SAVE_FAIL: Record<CardSaveReason, string> = {
@@ -573,9 +581,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  shape every other piece of this room's state has, so one reading rule
    *  covers all of it — and it keeps `.delete(`, which the guard really does
    *  ban, out of the room without an exception being argued for. */
-  // ⚖ B2 act 1c (R41/R42) — presence = committed; the VALUE is the stamp time of the commit, read ONCE
+  // ⚖ B2 act 1c (R41/R42) — presence = committed; the VALUE is the stamp of the commit, its time read ONCE
   // in the event callback before any state update (never in an updater or render). For core-backed
   // saves commitSection runs after core's yes, so the stamp is the commit instant, not the press.
+  // ⚖ B2 act 2a — for the bar's commits the VALUE is the whole stamp text (`stampFor`); 自分の表示設定's
+  // on-press save keeps the bare time (its own 「この端末に保存しました」 line prefixes it).
   const [committed, setCommitted] = useState<Record<string, string>>({})
   /** ⚖ A2 — why the last real card save did not land (null = none, or it did). */
   const [cardFail, setCardFail] = useState<CardSaveReason | null>(null)
@@ -890,7 +900,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
     }
   }, [])
 
-  const commitSection = useCallback((target: SettingsSection) => {
+  const commitSection = useCallback((target: SettingsSection, persisted: boolean) => {
     const at = jstClock(new Date()) // ⚖ R42 — the commit instant, read once, before any state update
     const ids = controlIdsOf(target)
     const wordValues = committedWordValues(target, values)
@@ -913,7 +923,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
       for (const b of target.blocks) if (b.specialDays !== null) next[b.id] = rowsOfBlock(b, listRows)
       return next
     })
-    setCommitted((prev) => ({ ...prev, [target.id]: at }))
+    const stamp = stampFor(persisted, at) // ⚖ B2 act 2a — the commit's own outcome, chosen here and nowhere else
+    setCommitted((prev) => ({ ...prev, [target.id]: stamp }))
   }, [values, listRows])
 
   /** ⚖ A2 — カードの見た目 with the door ON: core first (the route), and the page commits ONLY on core's
@@ -930,7 +941,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       setCardFail(result.reason)
       return
     }
-    commitSection(target)
+    commitSection(target, true) // core wrote and said yes
     setSaved((prev) => ({ ...prev, [CARD_COLOR_ID]: result.color ?? '' }))
   }, [values, commitSection])
 
@@ -943,14 +954,14 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const result = await sendBookingColors(save, values, saved)
     bookingSaving.current = false
     if (result === null) {
-      commitSection(target) // Greptile T2: the four unchanged → no PUT, the section commits locally
+      commitSection(target, false) // Greptile T2: the four unchanged → no PUT, the section commits locally (page only)
       return
     }
     if (!result.ok) {
       setBookingFail(result.reason)
       return
     }
-    commitSection(target)
+    commitSection(target, true) // core wrote and said yes
     setSaved((prev) => ({ ...prev, ...Object.fromEntries(BOOKING_KEYS.map((k) => [`lang.color-${k}`, result.colors[k]])) }))
   }, [values, saved, commitSection])
 
@@ -1285,8 +1296,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) ?? wordsBlockingError(section, values) : null
   const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
   /** ⚖ R35 (S36) — door ON and this section holds 臨時休業/特別営業日: the footer is hidden here
-   *  (the live blocks write to core) AND the bar's commit reaches sample blocks only, so the stamp
-   *  says so. ONE definition, two uses: the footer ternary and the committed stamp. */
+   *  (the live blocks write to core). ONE definition; the footer ternary reads it. (⚖ B2 act 2a — the
+   *  committed stamp no longer reads the door: `stampFor` takes the commit's own outcome.) */
   const storeDaysLive = !!props.saveStoreDays && !!section?.blocks.some((x) => x.id === STORE_HOURS_CLOSURES_ID)
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
   /** ⚖ PKT-S38 R7 — 言語・表示 while page.tsx has said 予約の色分け saves for real (undefined = today's render). */
@@ -1419,18 +1430,14 @@ export function SettingsScreen(props: SettingsScreenProps) {
             {blocked ??
               (changed > 0
                 ? `変更した設定 ${changed}件`
-                : committed[section.id]
-                  ? storeDaysLive
-                    ? `${businessStrings.sampleMark.pageOnlyStamp} ${committed[section.id]}`
-                    : `✓ 保存しました ${committed[section.id]}`
-                  : '変更はありません')}
+                : committed[section.id] || '変更はありません')}
           </span>
         </div>
         <button
           type="button"
           className="st-save"
           disabled={!dirty || blocked !== null}
-          onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}
+          onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}
         >
           保存する
         </button>
