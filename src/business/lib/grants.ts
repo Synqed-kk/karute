@@ -4,8 +4,13 @@
 // a thrown client all read as "no access". The door opens only on a row that
 // is there. Nothing here can reach synqed-core: one client, one schema, three
 // config reads, zero writes.
+// A FAILED read (a query error, a throw) still denies, but first leaves the one
+// record via ./admission-failure-record (a read failure, never a verdict), so
+// an outage is never a silent 404. A clean denial (no row, no grant, flag
+// false) records nothing.
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { recordBusinessAdmissionFailure } from './admission-failure-record'
 
 /** Frozen workspace id from the registry (src/lib/workspaces/types.ts). Spelled
  *  literally rather than imported so territory keeps ZERO app imports beyond
@@ -25,8 +30,13 @@ export async function businessIdForUser(userId: string): Promise<string | null> 
       .select('customer_id')
       .eq('id', userId)
       .maybeSingle()
-    return !error && data?.customer_id ? (data.customer_id as string) : null
-  } catch {
+    if (error) {
+      recordBusinessAdmissionFailure('read-error', { where: 'businessIdForUser', status: error.code ?? (error as { status?: unknown }).status, message: error.message })
+      return null
+    }
+    return data?.customer_id ? (data.customer_id as string) : null
+  } catch (e) {
+    recordBusinessAdmissionFailure('threw', { where: 'businessIdForUser', message: e })
     return null
   }
 }
@@ -47,9 +57,14 @@ export async function hasBusinessAdminGrant(
       .eq('business_id', businessId)
       .eq('workspace_id', BUSINESS_ADMIN)
       .maybeSingle()
-    if (error || !data) return DENIED
+    if (error) {
+      recordBusinessAdmissionFailure('read-error', { where: 'hasBusinessAdminGrant', status: error.code ?? (error as { status?: unknown }).status, message: error.message })
+      return DENIED
+    }
+    if (!data) return DENIED
     return { granted: true, grantedBy: (data.granted_by as string | null) ?? null }
-  } catch {
+  } catch (e) {
+    recordBusinessAdmissionFailure('threw', { where: 'hasBusinessAdminGrant', message: e })
     return DENIED
   }
 }
@@ -63,8 +78,13 @@ export async function isManagementMember(userId: string): Promise<boolean> {
       .select('is_management')
       .eq('id', userId)
       .maybeSingle()
-    return !error && data?.is_management === true
-  } catch {
+    if (error) {
+      recordBusinessAdmissionFailure('read-error', { where: 'isManagementMember', status: error.code ?? (error as { status?: unknown }).status, message: error.message })
+      return false
+    }
+    return data?.is_management === true
+  } catch (e) {
+    recordBusinessAdmissionFailure('threw', { where: 'isManagementMember', message: e })
     return false
   }
 }

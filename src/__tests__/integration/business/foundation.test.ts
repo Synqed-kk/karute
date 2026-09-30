@@ -425,8 +425,16 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/BusinessSidebar.tsx': ['./BusinessSignOutButton', '@/business/i18n', 'next/link', 'next/navigation', 'react'], // ⚖ R53 — the card's strings, the BusinessTopbar way
       // ⚖ PR-3 §v3 V3-5 — the practice note's words (Business's string home, a JSON module).
       'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', '@/business/i18n', 'next/navigation', 'react'],
-      'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
-      'src/business/lib/grants.ts': ['@/lib/supabase/service'],
+      // DISCLOSED PIN MOVE (S5 fix 1): admission.ts memoises per request with React cache()
+      // DISCLOSED PIN MOVE (S5 fix 2, #1110 P1): admission.ts records through the one writer
+      // DISCLOSED PIN MOVE (S6 read round): the writer file renamed for what it records — './admission-failure-record'
+      'src/business/lib/admission.ts': ['./admission-failure-record', './grants', '@/lib/supabase/server', 'next/navigation', 'react'],
+      // DISCLOSED PIN MOVE (S5 fix 2, #1110 P1): a failed grant/tenant read records through the one writer
+      // DISCLOSED PIN MOVE (S6 read round): the writer file renamed for what it records — './admission-failure-record'
+      'src/business/lib/grants.ts': ['./admission-failure-record', '@/lib/supabase/service'],
+      // S5 fix 2 (#1110 P1): the one admission-failure writer imports NOTHING, so any swallow point can call it
+      // DISCLOSED PIN MOVE (S6 read round): key renamed with the file (git mv); still no imports
+      'src/business/lib/admission-failure-record.ts': [],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
       // ⚖ THE ROOM-3 F1 LAW — everything between the admission gate and the
       // render moved to `customers-props.ts`, so the evidence harness imports
@@ -561,6 +569,8 @@ describe('the fixture data door', () => {
         // is already on this list.
         './held-delta',
         // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one store-level delta (pure, type-only back).
+        // DISCLOSED PIN MOVE (PR-B): the held-reference import — the session holder of the settled held set (DECISIONS.md R4, S4 PR-B); it names only honest-held.
+        './held-reference',
         './honest-held',
         './reserved-mask',
         './selling-engine-gate',
