@@ -1938,7 +1938,7 @@ function reserveCardLook(base: SectionBase, ctx: Ctx): SettingsSection {
     kicker: 'Reserve設定',
     title: 'カードの見た目',
     lead: '「カードの見た目」の設定は、すべての店舗に共通で適用されます。',
-    guide: 'お客様がReserveのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
+    guide: 'お客様がお客様のアプリのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
     cardLook: {
       businessName: ctx.businessName,
       storeLine: ctx.cardStore?.name ?? '',

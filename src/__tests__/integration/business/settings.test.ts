@@ -4323,7 +4323,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     const s = await lookOf({ store: STORE_A })
     expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'カードの見た目' })
     expect(s.lead).toBe('「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
-    expect(s.guide).toBe('お客様がReserveのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
+    expect(s.guide).toBe('お客様がお客様のアプリのホームで見る、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
       businessName: business.name,
       storeLine: stores.find((x) => x.id === STORE_A)!.name,
@@ -4451,7 +4451,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(s.cardLook?.scopeLabel).toBe('全店共通')
     expect(CARD_LOOK_HEADINGS).toEqual(['カードの色', 'お客様のアプリでの見え方'])
     expect(LOOK_CODE).toContain('<h3 id="clLookHead">カードの見た目</h3>')
-    expect(LOOK_CODE).toContain('<h4 id="clPickHead">カードの色</h4>')
+    expect(LOOK_CODE).toContain('<h4 className="st-sec-l" id="clPickHead">カードの色</h4>')
     expect(LOOK_CODE).toContain('title="この事業者のすべての店舗に適用されます"')
     expect(LOOK_CODE).toContain("{view === 'home' && <p className=\"st-pv-cap\">見本では、編集中のお店を大きいカードにしています。")
     expect(LOOK_CODE).toContain("{(state !== 'set' || shown === STAND_IN) && (")
