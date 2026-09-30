@@ -38,7 +38,10 @@ jobs:
           echo "preview/business-merged before: ${before:-<absent>}"
           echo "main (GITHUB_SHA):              $GITHUB_SHA"
           # A re-run of an older run must not report a false conflict when a newer sync already moved the branch.
-          git fetch origin "+refs/heads/preview/business-merged:refs/remotes/origin/preview/business-merged" 2>/dev/null || true
+          # The guard and the retry check test the FETCHED tip, not the ls-remote snapshot — a push between the two is never hidden.
+          if git fetch origin "+refs/heads/preview/business-merged:refs/remotes/origin/preview/business-merged" 2>/dev/null; then
+            before="$(git rev-parse refs/remotes/origin/preview/business-merged)"
+          fi
           # Drift guard: a human commit on the standing preview is never a fast-forward target — say so; CI never forces.
           git fetch origin "+refs/heads/main:refs/remotes/origin/main" 2>/dev/null || true
           drift=0
