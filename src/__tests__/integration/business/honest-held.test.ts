@@ -1085,14 +1085,14 @@ describe('honest-held — the held preference (DECISIONS.md R4, S4 PR-B)', () =>
     expect(HONEST_FIXED_POINT_ROUNDS).toBe(4)
   })
 
-  it('(a) three taken rounds and a MOVING fourth: rounds 4, fixedPoint false, exact false — and a fresh call proves the disclosure true; total ≥ the size-only search at the same budget', () => {
+  it('(a) three taken rounds and a MOVING fourth: rounds 4, fixedPoint false (NOT proven), exact false, total ≥ the size-only search at the same budget — and, as a fact of the seed-225 board only, a fresh call there moves', () => {
     const hits = catalogOf().filter((f) => f.h.rounds === 4 && f.h.fixedPoint === false)
     console.log(`S6LOG (a) disclosed at the cap: ${hits.length} — ${hits.slice(0, 5).map(tag).join(' · ')}`)
     expect(hits.length).toBeGreaterThan(0)
     for (const f of hits) {
       expect({ at: tag(f), exact: f.h.exact, atLeastPlain: f.h.total >= f.plain.total }).toEqual({ at: tag(f), exact: false, atLeastPlain: true })
-      // fed back as its own reference, the answer does NOT stand still: the search moves
-      expect({ at: tag(f), moves: f.again.rounds !== 0 || sortedIds(f.again).join() !== sortedIds(f.h).join() }).toEqual({ at: tag(f), moves: true })
+      // a fact of THIS board (seed 225), not a general claim: fixedPoint:false means NOT proven, never proven to move
+      if (f.seed === 225) expect({ at: tag(f), moves: f.again.rounds !== 0 || sortedIds(f.again).join() !== sortedIds(f.h).join() }).toEqual({ at: tag(f), moves: true })
     }
   }, 300000)
 

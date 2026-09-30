@@ -246,7 +246,10 @@ export function bedViewsFor(
 /** ⚖ DECISIONS.md R4 · R8e · C1/F1 (S5 PR-B; S6 read round) — THE SETTLE, ONE
  *  DEFINITION. The settle effect's whole body: only the UN-STAGED answer
  *  becomes the allocator's reference — no staged day (`dayStaged`), no pending
- *  landing of any kind (`pendingId`), no card in flight (`live`). Idempotent
+ *  landing of any kind (`pendingId`), no card in flight (`live`), and never an
+ *  answer the rail did NOT prove a fixed point (`fixedPoint: false`; absent =
+ *  no preference, settles as before). No board (`honest` null/undefined, the
+ *  bed-less store) writes nothing. Idempotent
  *  for the same state (StrictMode's double effect writes the same set).
  *  Exported so the lifecycle is provable without a renderer. */
 export function settleUnstagedHeld(
@@ -257,7 +260,7 @@ export function settleUnstagedHeld(
   heldRefStore: string,
   heldRefDate: string,
 ): void {
-  if (honest && !dayStaged && pendingId == null && live == null) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))
+  if (honest && honest.fixedPoint !== false && !dayStaged && pendingId == null && live == null) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) + ⚖ R3 ONE WORLD (2026-08-25) — THE ROOMS,
@@ -2904,7 +2907,11 @@ export function TodayScreen(props: TodayProps) {
   // fixed point inside honestHeld (at most HONEST_FIXED_POINT_ROUNDS = 4 loop
   // searches, the last verify-only; an unproven answer is disclosed as
   // fixedPoint:false, exact:false) on the first frame per key and on a
-  // board-change frame; so the settle writes the fixed point the rail proved.
+  // board-change frame. The settle writes ONLY an answer the rail proved a
+  // fixed point; a not-proven one (fixedPoint:false — 0 / 39,960 calls at the
+  // real budget, S6 attack) is never settled, so each frame recomputes the
+  // same answer from the same reference and nothing moves, and the next
+  // board-change frame starts fresh.
   // ⚖ S6 — the guard AND the write are ONE exported function,
   // `settleUnstagedHeld` (top of file), proven without a renderer.
   useEffect(() => {

@@ -97,10 +97,12 @@ export interface HonestHeld {
    *  number of fixed-point loop searches this call ran (0 to
    *  HONEST_FIXED_POINT_ROUNDS). */
   readonly rounds?: number
-  /** ⚖ F2 (S6) — set with `rounds`. True when the answer is PROVEN to return
-   *  itself when fed back as its own reference (exact, the steady-state exit,
-   *  or a converging round); false when it is not (the verify round moved, or
-   *  a shrink was refused) — and then `exact` is false too. */
+  /** ⚖ F2 (S6) — set with `rounds`. PROVEN / NOT PROVEN, nothing more.
+   *  true = PROVEN to return itself when fed back as its own reference (exact,
+   *  the steady-state exit, or a converging round). false = NOT proven (the
+   *  verify round moved, or a shrink was refused) — never 「proven to move」: a
+   *  fresh call may still return this set (the floor can restore it). With
+   *  false, `exact` is false too, and the screen never settles the answer. */
   readonly fixedPoint?: boolean
 }
 
@@ -287,14 +289,15 @@ export function honestHeld(
     // search runs again with A as the reference, charged its own budget like
     // the floor above, up to HONEST_FIXED_POINT_ROUNDS times. Same held set →
     // proven fixed point, A and its `exact` stand. Moved in the LAST round →
-    // that round is VERIFY-ONLY: A stays, disclosed. Moved to fewer → refused:
-    // A stays, disclosed. Moved to at least as many → taken, loop again.
+    // that round is VERIFY-ONLY: A stays, NOT proven. Moved to fewer → refused:
+    // A stays, NOT proven. Moved to at least as many → taken, loop again.
+    // `fixedPoint: false` means NOT PROVEN, never proven to move.
     // THE ARGUMENT: each taken hop improves (size, then sellable) or keeps them
     // with more kept, so hops are monotone in a finite lattice and converge;
     // the cap bounds a frame's cost (1 floor + 3 taken + 1 verify search worst
     // case, plus the first preferred search); an answer not proven a fixed
     // point is disclosed by `fixedPoint: false` AND `exact: false` — never
-    // reported exact. Measured at the real budget: 0 moved / 22,860 calls (S5
+    // reported exact, and never settled (TodayScreen `settleUnstagedHeld`). Measured at the real budget: 0 moved / 22,860 calls (S5
     // attack); S6 BAR-4: 0 fixedPoint:false / 2,400 checks, rounds 0/1/2/3/4 =
     // 1170/1057/170/2/1, the one cap exit verified (honest-held.test.ts (e)).
     const heldSet = (rs: readonly (string | null)[], i: number) => rs[i] !== null

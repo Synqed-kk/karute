@@ -15453,11 +15453,16 @@ describe('⚖ S6 — the settle lifecycle: stage → land (pending) → clear', 
   const staged = book((s) => (s === 600 ? [] : ['bed-01'])) // the staged move takes la's only room
   const run = (b: never): HonestHeldS6 => honestHeldS6(cands, rows, b, true, undefined, { sellable: () => true, reference: heldReferenceFor('store-A', '0|d') })
   const ids = (h: HonestHeldS6) => [...identitiesOf(h)].sort()
-  type Step = { name: string; honest: HonestHeldS6; dayStaged: boolean; pendingId: string | null; live: unknown }
+  type Step = { name: string; honest: HonestHeldS6 | null | undefined; dayStaged: boolean; pendingId: string | null; live: unknown }
   const lifecycle = (): Step[] => [
     { name: 'drag in flight', honest: run(origin), dayStaged: false, pendingId: null, live: { id: 'bk-1' } },
+    // ⚖ S6 round 2 (Sonnet C2 / Opus F2) — the states the mutants showed missing
+    { name: 'staged-only (no pending, no drag)', honest: run(staged), dayStaged: true, pendingId: null, live: null },
     { name: 'stage (staff move staged)', honest: run(staged), dayStaged: true, pendingId: 'bk-1', live: null },
     { name: 'land (bed-row-only, pending)', honest: run(staged), dayStaged: false, pendingId: 'bk-1', live: null },
+    { name: 'no board (honest undefined)', honest: undefined, dayStaged: false, pendingId: null, live: null },
+    { name: 'no board (honest null, the bed-less store)', honest: null, dayStaged: false, pendingId: null, live: null },
+    { name: 'clear, NOT proven (fixedPoint:false)', honest: { ...run(origin), fixedPoint: false }, dayStaged: false, pendingId: null, live: null },
     { name: 'clear (un-staged)', honest: run(origin), dayStaged: false, pendingId: null, live: null },
   ]
   const drive = (invokes: number) => {
@@ -15472,13 +15477,18 @@ describe('⚖ S6 — the settle lifecycle: stage → land (pending) → clear', 
 
   it('the holder is written ONLY at the un-staged final state, with the un-staged answer; StrictMode double-invoke writes the same content', () => {
     const steps = lifecycle()
-    expect(ids(steps[1].honest)).toEqual(['lb|615']) // the staged answer differs from the un-staged one
-    expect(ids(steps[3].honest)).toEqual(['la|600'])
+    expect(ids(steps[2].honest!)).toEqual(['lb|615']) // the staged answer differs from the un-staged one
+    expect(ids(steps[7].honest!)).toEqual(['la|600'])
+    expect(steps[7].honest?.fixedPoint).toBe(true) // the final answer is a proven fixed point
     const once = drive(1)
     expect(once).toEqual([
       { step: 'drag in flight', holder: null },
+      { step: 'staged-only (no pending, no drag)', holder: null },
       { step: 'stage (staff move staged)', holder: null },
       { step: 'land (bed-row-only, pending)', holder: null },
+      { step: 'no board (honest undefined)', holder: null },
+      { step: 'no board (honest null, the bed-less store)', holder: null },
+      { step: 'clear, NOT proven (fixedPoint:false)', holder: null },
       { step: 'clear (un-staged)', holder: ['la|600'] },
     ])
     resetHeldReferenceForTests()
@@ -15486,5 +15496,14 @@ describe('⚖ S6 — the settle lifecycle: stage → land (pending) → clear', 
     expect(twice).toEqual(once)
     // no staged content ever reached the holder, in either mode
     expect([...once, ...twice].some((x) => x.holder?.includes('lb|615'))).toBe(false)
+  })
+
+  it('an answer WITHOUT fixedPoint (the no-preference path) at the final state settles as before; the same answer with fixedPoint:false does not', () => {
+    const plain = honestHeldS6(cands, rows, origin, true) // no preference: no rounds/fixedPoint fields
+    expect(plain.fixedPoint).toBeUndefined()
+    settleUnstagedHeld({ ...plain, fixedPoint: false }, false, null, null, 'store-A', '0|d')
+    expect(heldReferenceFor('store-A', '0|d')).toBeUndefined()
+    settleUnstagedHeld(plain, false, null, null, 'store-A', '0|d')
+    expect([...(heldReferenceFor('store-A', '0|d') ?? [])].sort()).toEqual(['la|600'])
   })
 })

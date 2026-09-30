@@ -73,13 +73,17 @@ describe('held-reference — the settle guard (C1/F1)', () => {
     expect(found?.[1]).toContain('!dayStaged')
   })
 
-  it('⚖ S6 — the settle effect is exactly ONE call to the exported settleUnstagedHeld, deps unchanged; the guarded write lives in that function', () => {
-    expect(SRC).toContain(`  useEffect(() => {
-    settleUnstagedHeld(honest, dayStaged, pendingId, live, heldRefStore, heldRefDate)
-  }, [honest, dayStaged, pendingId, live, heldRefStore, heldRefDate])`)
+  it('⚖ S6 — the settle effect is exactly ONE call to the exported settleUnstagedHeld, deps exactly these; the guarded write lives in that function', () => {
+    const effects = [...SRC.matchAll(/useEffect\(\(\) => \{\n([^\n]*settleUnstagedHeld[^\n]*)\n\s*\}, (\[[^\]\n]*\])\)/g)]
+    expect(effects.length).toBe(1)
+    expect(effects[0]?.[1].trim()).toBe('settleUnstagedHeld(honest, dayStaged, pendingId, live, heldRefStore, heldRefDate)')
+    expect(effects[0]?.[2]).toBe('[honest, dayStaged, pendingId, live, heldRefStore, heldRefDate]')
     expect(SRC.match(/settleUnstagedHeld\(/g)?.length).toBe(2) // the definition + the one call
-    const fn = SRC.slice(SRC.indexOf('export function settleUnstagedHeld('))
-    expect(fn.slice(0, fn.indexOf('\n}\n'))).toContain(`if (${found?.[1]}) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))`)
+    // the ONE guarded write sits inside the exported function's body
+    const start = SRC.indexOf('export function settleUnstagedHeld(')
+    const end = SRC.indexOf('\n}\n', start)
+    const at = SRC.search(/if \((.+?)\) settleHeldReference\(heldRefStore, heldRefDate, identitiesOf\(honest\)\)/)
+    expect({ inside: start >= 0 && at > start && at < end, proven: found?.[1]?.includes('honest.fixedPoint !== false') }).toEqual({ inside: true, proven: true })
   })
 
   it('a bed-row-only staged landing (pending, no staff move) never settles — 元に戻す returns the pre-stage board', () => {
