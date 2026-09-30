@@ -10,7 +10,7 @@ jest.mock('next/navigation', () => ({ notFound: jest.fn(() => { throw new Error(
 
 import { heldDelta } from '@/app/[locale]/(business)/business/today/held-delta'
 import {
-  applyMoves, dayLossOf, dayOnlyCell, guardVerdictAt, heldPriceOf, lossOf, pairsOf, pocketLossOf, restingSpanFor, sellableLaneKeysOf, storeHasBeds,
+  applyMoves, dayLossOf, dayOnlyCell, guardVerdictAt, dayMovementOf, heldPriceOf, lossOf, pairsOf, pocketLossOf, restingSpanFor, sellableLaneKeysOf, storeHasBeds,
   warnFaceFor, windowsOf, EMPTY_WINDOWS, type DayWindows, type Moves, type RailCell,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -493,9 +493,15 @@ describe('fix round 2 — movement rows print PAIRS, each with its own arrow (Gr
       { from: '見本 Bの16:00', to: '16:15', sameLane: true },
     ])
     expect([refs(p.unpairedLost), refs(p.unpairedGained)]).toEqual([[], ['C|1000']])
-    // Count-changing (2→3), so not a same-count quiet row: the row keeps its list → list text (packet rule 3).
+    // FIX ROUND 2b (lead ruling): the gain row, then the shifts row — never list → list.
     log('FR2-e', labels(faceOf(hand({ day: d })).dayRows))
-    expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 Aの15:00・見本 Bの16:00 → 見本 Cの16:40・見本 Aの15:15・見本 Bの16:15（店全体は2枠→3枠）'])
+    expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 Cの16:40が加わります（店全体は2枠→3枠）', '確保枠 見本 Aの15:00 → 15:15、見本 Bの16:00 → 16:15'])
+  })
+
+  it('2b count-up with gained only, no shifts: one row, the pure-gain row as before', () => {
+    const d = heldDelta(day([row('A', [900]), row('C', [])]), day([row('A', [900]), row('C', [1000])]), zero)
+    // Base (ff950d728) composed this as `確保枠 ${windowList(to)}が加わります` + bracket; the bytes are unchanged.
+    expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 Cの16:40が加わります（店全体は1枠→2枠）'])
   })
 
   it('f nearest-start pairing: lost {A 15:45, B 16:30}, gained {C 16:20, D 15:50} → A→D, B→C', () => {
@@ -508,12 +514,14 @@ describe('fix round 2 — movement rows print PAIRS, each with its own arrow (Gr
     expect(labels(faceOf(hand({ day: d })).dayRows)).toEqual(['確保枠 見本 Bの16:30 → 見本 Cの16:20、見本 Aの15:45 → 見本 Dの15:50（店全体は2枠のまま）'])
   })
 
-  it('vii sweep: every same-count fixture landing pairs completely (no unpaired lost or gained in the quiet row)', () => {
+  it('vii sweep: every same-count fixture landing pairs completely, and no landing takes the list → list fallback', () => {
     const staff = REAL.lanes.filter((l) => l.group === 'staff')
     const bad: string[] = []
     let sameCount = 0
     let moved = 0
     let total = 0
+    const arms: Record<string, number> = {}
+    const fallback: string[] = []
     for (const src of staff) {
       for (const item of src.items.filter((i) => i.caseId != null)) {
         const dur = item.endMin - item.startMin
@@ -521,6 +529,9 @@ describe('fix round 2 — movement rows print PAIRS, each with its own arrow (Gr
           for (let s = REAL.hours.open; s + dur <= REAL.hours.close; s += 60) {
             const r = landingOf(item.caseId!, to.key, s, s + dur)
             total++
+            const arm = dayMovementOf(r.day).arm
+            arms[arm] = (arms[arm] ?? 0) + 1
+            if (arm === 'fallback') fallback.push(`${item.caseId}→${to.key}@${s}`)
             if (r.day.countedBefore !== r.day.countedAfter) continue
             sameCount++
             const p = pairsOf(r.day)
@@ -530,8 +541,11 @@ describe('fix round 2 — movement rows print PAIRS, each with its own arrow (Gr
         }
       }
     }
-    log('FR2-vii', { total, sameCount, moved, bad })
+    log('FR2-vii', { total, sameCount, moved, bad, arms, fallback })
     expect(total).toBeGreaterThan(0)
+    // FIX ROUND 2b: over EVERY landing, the list → list fallback arm is never taken.
+    expect(fallback).toEqual([])
+    expect(arms.fallback ?? 0).toBe(0)
     expect(moved).toBeGreaterThan(0)
     expect(bad).toEqual([])
   })

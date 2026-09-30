@@ -6994,20 +6994,41 @@ const pairsText = (pairs: readonly MovePair[]) => {
   return items.length <= 3 ? items.join('、') : `${items.slice(0, 3).join('、')}、ほか${items.length - 3}枠`
 }
 
-/** The movement, without its store bracket (C / C2 / D / E shapes). */
-function movementOf(d: HeldDelta): string | null {
+/** FIX ROUND 2b (lead ruling on flag 1) — THE ONE MOVEMENT DECISION, without its
+ *  store bracket (C / C2 / D / E shapes): row 1 (`move`) and whether a pairs row
+ *  rides beside it (`shifts`). Every arm is a shape that already exists; the
+ *  list → list shape is only the guarded fallback (`arm: 'fallback'`), which the
+ *  whole-fixture sweep (invariant vii, today-held-delta.test.ts) proves is never
+ *  taken — after `pairsOf`, unpaired lost and unpaired gained are never both
+ *  non-empty, so the four arms above it cover every delta. */
+export type DayMovement = {
+  move: string | null
+  shifts: string | null
+  arm: 'none' | 'lost-up' | 'gain' | 'paired' | 'loss' | 'fallback'
+}
+export function dayMovementOf(d: HeldDelta): DayMovement {
+  if (d.lost.length === 0 && d.gained.length === 0 && d.shifted.length === 0) return { move: null, shifts: null, arm: 'none' }
+  const { pairs, unpairedLost, unpairedGained } = pairsOf(d)
+  const same = pairs.filter((p) => p.sameLane)
+  // (2) count-up with a lost window: the loss alone in row 1, the same-lane shifts in row 2 (X-C).
+  if (d.countedAfter > d.countedBefore && d.lost.length > 0) {
+    return { move: `確保枠 ${windowList(refItems(d.lost))}がなくなります`, shifts: same.length > 0 ? `確保枠 ${pairsText(same)}` : null, arm: 'lost-up' }
+  }
+  // (3) unpaired gained, nothing unpaired lost: the pure-gain row, the pairs (here: shifts) in row 2.
+  if (unpairedGained.length > 0 && unpairedLost.length === 0) {
+    return { move: `確保枠 ${windowList(refItems(unpairedGained))}が加わります`, shifts: pairs.length > 0 ? `確保枠 ${pairsText(pairs)}` : null, arm: 'gain' }
+  }
+  // (4) everything paired: the pairs already carry the shifts — never printed twice.
+  if (unpairedGained.length === 0 && unpairedLost.length === 0) return { move: `確保枠 ${pairsText(pairs)}`, shifts: null, arm: 'paired' }
+  // (4b) unpaired lost, nothing unpaired gained (reached by the G2 approximate row,
+  // e.g. T9): the pure-loss row, the pairs in row 2 — the mirror of (3).
+  if (unpairedGained.length === 0) {
+    return { move: `確保枠 ${windowList(refItems(unpairedLost))}がなくなります`, shifts: pairs.length > 0 ? `確保枠 ${pairsText(pairs)}` : null, arm: 'loss' }
+  }
+  // (5) guarded fallback — unreachable (see above; the sweep counts `arm`).
   const from = [...refItems(d.lost), ...d.shifted.map((x) => windowItem(x, x.from))]
   const to = [...refItems(d.gained), ...d.shifted.map((x) => windowItem(x, x.to))]
-  if (from.length === 0 && to.length === 0) return null
-  if (d.countedAfter > d.countedBefore && d.lost.length > 0) return `確保枠 ${windowList(refItems(d.lost))}がなくなります`
-  if (from.length === 0) return `確保枠 ${windowList(to)}が加わります`
-  if (to.length === 0) return `確保枠 ${windowList(from)}がなくなります`
-  const { pairs, unpairedLost, unpairedGained } = pairsOf(d)
-  if (unpairedLost.length === 0 && unpairedGained.length === 0) return `確保枠 ${pairsText(pairs)}`
-  // Unequal lost/gained is never a same-count quiet row (every same-count delta
-  // pairs completely — sweep invariant vii in today-held-delta.test.ts guards it);
-  // this count-changing shape keeps its list → list text.
-  return `確保枠 ${windowList(from)} → ${windowList(to)}`
+  return { move: `確保枠 ${windowList(from)} → ${windowList(to)}`, shifts: null, arm: 'fallback' }
 }
 
 /** H line 2 (lead ruling 9/30 on the c2a decisions): PAIRS only, never 「X・Y → Z」,
@@ -7054,7 +7075,7 @@ function dayImpactOf(d: HeldDelta, dur: number): WarnCardModel['impact'] {
  *  AFTER the face is decided and never re-enter `rows`, so they cannot light it. */
 function dayRowsOf(d: HeldDelta | undefined, resourceNoun: string | undefined): Array<{ label: string; tone: 'warn' }> {
   if (d == null) return []
-  const move = movementOf(d)
+  const { move, shifts } = dayMovementOf(d)
   const dropped = d.countedBefore > d.countedAfter
   if (move == null && d.countedBefore === d.countedAfter) return []
   const row = (label: string) => ({ label, tone: 'warn' as const })
@@ -7065,17 +7086,14 @@ function dayRowsOf(d: HeldDelta | undefined, resourceNoun: string | undefined): 
   }
   if (!d.exact && d.countedBefore !== d.countedAfter && resourceNoun != null) {
     const g2 = `店全体の確保枠は概算で${d.countedBefore}枠→${d.countedAfter}枠（${resourceNoun}の組み合わせをすべては調べきれませんでした。実際はもっと多いこともあります）`
-    return move == null ? [row(g2)] : [row(g2), row(move)]
+    return move == null ? [row(g2)] : shifts == null ? [row(g2), row(move)] : [row(g2), row(move), row(shifts)]
   }
   const yen = yenDropOf(d)
   const store = d.countedBefore === d.countedAfter ? `店全体は${d.countedAfter}枠のまま` : `店全体は${d.countedBefore}枠→${d.countedAfter}枠`
   const bracket = `（${store}${yen ? `・空きの金額は${yen}減` : ''}${d.exact ? '' : '・概算'}）`
   if (move == null) return []
-  // FIX ROUND 1 X-C — the E-lost row names only the loss; a same-lane shift beside
-  // it is never silent: its own pairs row, without the store bracket (as H's line 2).
-  const shifts = d.countedAfter > d.countedBefore && d.lost.length > 0 && d.shifted.length > 0
-    ? `確保枠 ${pairsText(pairsOf(d).pairs.filter((p) => p.sameLane))}`
-    : null
+  // FIX ROUND 1 X-C / 2b — a same-lane shift beside a loss or a gain is never silent:
+  // its own pairs row, without the store bracket (as H's line 2).
   return shifts == null ? [row(`${move}${bracket}`)] : [row(`${move}${bracket}`), row(shifts)]
 }
 
