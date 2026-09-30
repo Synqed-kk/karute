@@ -3661,7 +3661,8 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // …and BOTH are inside the ③ query, where the stickiness that makes them
     // necessary also lives. At ② and ① neither is sticky and neither owns an axis.
     const three = CSS_CODE.slice(CSS_CODE.indexOf('@container st-body (min-width: 960px)'))
-    for (const owner of axisOwners.filter((o) => !o.endsWith('.cl-phone'))) expect(three).toContain(owner)
+    // the ONE exemption: .cl-phone is a device preview whose inner scroll exists at every width by design; the page itself still owns no axis below 960
+    for (const owner of axisOwners.filter((o) => o !== '.biz .pg-settings .cl-phone')) expect(three).toContain(owner)
     // ⚠ AND THE PANEL NEVER DOES. The reading column is what the page is for; a
     // scroller around it would put the room's content behind a second scrollbar.
     expect(CSS_CODE).not.toMatch(/\.st-panel \{[^}]*overflow/)

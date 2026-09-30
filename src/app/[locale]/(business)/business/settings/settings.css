@@ -675,7 +675,7 @@ html:has(.biz .page.pg-settings) {
    strip. A transform, not `zoom`: the layout stays 393px, so the port's own
    measure effects see Reserve's geometry. `--cl-scale` / `--cl-h` and the class
    are set by one ResizeObserver in the section (min(1, strip ÷ 393); the
-   phone's height × that), so the strip's height follows the painted card. The phone's own type
+   FRAME's fixed height × that), so the strip's height follows the painted frame. The phone's own type
    is the port's: it resets what the room hands down (reserve-card.css), and the
    two inherited values it does not name are reset HERE, at the host:
    `overflow-wrap` (the room's `anywhere`) and `color-scheme` (the shell's
