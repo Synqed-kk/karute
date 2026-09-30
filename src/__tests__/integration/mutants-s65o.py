@@ -314,7 +314,7 @@ MUTANTS = [
      [JOB_T], ['G-3 (ii) job: a kept path whose update returns NO link', 'G-3 (iii) job: a kept path whose update returns ANOTHER link']),
     # M-O46..M-O47 — G-4 (S71 fix round 7, RULING-S71-G3-G4): the returning read sits behind the discarded-record door
     ('M-O46', "the fan-out reads the returning guard for a DISCARDED record too (a refused viewer spends the read)",
-     [(ROUTE, "      raw.status === 'DISCARDED' ? Promise.resolve(null) : readReturning(),\n", '      readReturning(), // M-O46\n')],
+     [(ROUTE, '      isDiscarded ? Promise.resolve(null) : readReturning(),\n', '      readReturning(), // M-O46\n')],
      [DTO_T], ['G-4 T1: a DISCARDED record + a refused viewer']),
     ('M-O47', "the post-door returning read is dropped (an allowed discarded record loses isReturningCustomer)",
      [(ROUTE, '            readReturning(),\n', '            Promise.resolve(null), // M-O47\n')],
