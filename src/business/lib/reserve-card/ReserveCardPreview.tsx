@@ -32,6 +32,9 @@
 //   case in the harness set).
 // - The first chip's crown drops Reserve's rank gate (`me.salons.some(… && salon.rank)`): the port's sample
 //   member is ranked and the port carries no membership data, so the crown always shows on the first chip.
+// - The card's branch line prints `storeLine` whenever it is non-empty (`{storeLine && (`), where Reserve
+//   studio-home.tsx:478 computes `branch = store && store.shortName !== row.tenant.displayName ? store.shortName : null`
+//   and renders `{branch && (` — deferred to slice 1b-2, where the branch rule moves into the port.
 // - Colour inputs are normalised at the boundary (card-color.ts): only `#RRGGBB` reaches the satin math; anything
 //   else counts as absent — identical on server and client, no hydration drift.
 import { useLayoutEffect, useRef, useState } from "react";
