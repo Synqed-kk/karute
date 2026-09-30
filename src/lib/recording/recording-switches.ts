@@ -85,4 +85,11 @@ export const RECORDING_SWITCHES = {
    *  capture, the stop leg's order is untouched. Default ON. OFF = no hook
    *  attached, no field, no line — pre-PR-B exactly. Client code. */
   captureEndHooks: true,
+  /** The take keeps its own flight record (build 32, PR-B commit 5, B5): a
+   *  bounded local ring on the take (hidden / freeze / store-error events),
+   *  and a `diag` of ONLY the 12 keys the server already accepts on the
+   *  finalize body and the staged mint body — checked on the phone first and
+   *  omitted when not valid. Default ON. OFF = no ring written, no diag sent —
+   *  pre-PR-B exactly. Client code. */
+  takeDiag: true,
 } as const

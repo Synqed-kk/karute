@@ -15,6 +15,7 @@ import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { blobFate, decideBlobFate, readBlobHead, StagedDoorError } from '@/lib/recording/blob-fate'
 import { WEBM_HEAD } from './helpers/container-head-fetch'
+import { validTakeDiag } from '@/lib/recording/take-diag'
 import * as store from '@/lib/karute/take-store'
 import { secureTake } from '@/lib/recording/secure-take'
 import { sweepDiscardTranscripts } from '@/lib/recording/discard-transcript'
@@ -219,6 +220,8 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
       durationSeconds: 5,
       byteLength: GOOD.size,
       recordingSessionId: SESSION,
+      // PR-B commit 5: the 12-key diag only (lastSeq 0, no ring events yet).
+      diag: { arm: 'stored', blob_bytes: GOOD.size, first_byte: WEBM_HEAD[0], seq_max: 0 },
     })
     expect(m.markTakeFinalized).toHaveBeenCalledWith(TAKE, TAKE_PATH)
   })
@@ -353,15 +356,59 @@ describe.each(PORTS)('endedBySystem is never sent — %s port', (_name, wire, ba
       durationSeconds: 5,
       byteLength: GOOD.size,
       recordingSessionId: SESSION,
+      // PR-B commit 5: the 12-key diag only (lastSeq 0, no ring events yet).
+      diag: { arm: 'stored', blob_bytes: GOOD.size, first_byte: WEBM_HEAD[0], seq_max: 0 },
     })
   })
-  it('damaged take → the staged mint body has no endedBySystem and no diag', async () => {
+  it('damaged take → the staged mint body has no endedBySystem; its diag is the 12-key facts only', async () => {
     m.loadTakeBlob.mockResolvedValue(HEADLESS)
     m.readTakeSecureMeta.mockResolvedValue(meta(ended))
     await secureTake(withTakeDoors(base), TAKE, 5)
     expect(stagedBodies).toHaveLength(1)
     expect(stagedBodies[0]).not.toHaveProperty('endedBySystem')
-    expect(stagedBodies[0]).not.toHaveProperty('diag')
+    // PR-B commit 5: the diag rides now — exactly the 12-key facts, nothing local.
+    expect(stagedBodies[0].diag).toEqual({ arm: 'stored', blob_bytes: HEADLESS.size, first_byte: 0, seq_max: 0 })
     expect(JSON.stringify(stagedBodies[0])).not.toContain('track_ended')
+  })
+})
+
+// PR-B commit 5 (K-1 extended, B5, A13): the phone's staged body WITH its diag
+// passes the mint refine; an invalid diag is refused by the server, so the
+// phone omits it and the body is still accepted. takeDiag OFF → nothing sent.
+describe.each(PORTS)('the flight record on the wire — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  const ring = { diagRing: [{ at: 1, code: 'hidden' }, { at: 2, code: 'freeze' }, { at: 3, code: 'hidden' }] }
+
+  it('K-1 extended: the staged body with its diag → safeParse success; ring counts ride, nothing local', async () => {
+    m.loadTakeBlob.mockResolvedValue(HEADLESS)
+    m.readTakeSecureMeta.mockResolvedValue(meta({ ...ring, endedBySystem: { at: 1, why: 'freeze' } }))
+    await secureTake(withTakeDoors(base), TAKE, 5)
+    expect(stagedBodies[0].diag).toEqual({
+      arm: 'stored', blob_bytes: HEADLESS.size, first_byte: 0, seq_max: 0,
+      hidden_count: 2, freeze_count: 1, store_error_count: 0,
+    })
+    expect(UploadUrlMintSchema.safeParse(stagedBodies[0]).success).toBe(true)
+    expect(JSON.stringify(stagedBodies[0])).not.toMatch(/endedBySystem|diagRing|bytesEmitted/)
+  })
+  it('an invalid diag is refused by the schema → the phone sends none, the body is accepted', async () => {
+    const body = { stagedFor: SESSION, stagedTake: TAKE, mimeType: 'audio/webm', partial: true }
+    expect(UploadUrlMintSchema.safeParse({ ...body, diag: { first_byte: 300 } }).success).toBe(false)
+    expect(validTakeDiag({ first_byte: 300 })).toBeUndefined()
+    expect(UploadUrlMintSchema.safeParse(body).success).toBe(true)
+  })
+  it('takeDiag OFF → no diag on the finalize body or the staged body', async () => {
+    const restore = RECORDING_SWITCHES.takeDiag
+    ;(RECORDING_SWITCHES as { takeDiag: boolean }).takeDiag = false
+    try {
+      m.readTakeSecureMeta.mockResolvedValue(meta(ring))
+      const port = withTakeDoors(base)
+      await secureTake(port, TAKE, 5)
+      expect(port.finalizeTake.mock.calls[0][0]).not.toHaveProperty('diag')
+      m.loadTakeBlob.mockResolvedValue(HEADLESS)
+      await secureTake(withTakeDoors(base), TAKE, 5)
+      expect(stagedBodies.at(-1)).not.toHaveProperty('diag')
+    } finally {
+      ;(RECORDING_SWITCHES as { takeDiag: boolean }).takeDiag = restore
+    }
   })
 })

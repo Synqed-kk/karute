@@ -18,6 +18,7 @@ import {
   markSegmentsUploaded,
   markTakeStartBoundAttempted,
   markTakeEndedBySystem,
+  noteTakeDiagEvent,
   markTakeStopPending,
   markTakeTailIncomplete,
   readTakeSecureMeta,
@@ -433,11 +434,21 @@ class GlobalRecorder {
     this.notify()
   }
   private handlePageHide = () => this.noteEndedBySystem('pagehide')
-  private handleFreeze = () => this.noteEndedBySystem('freeze')
+  private handleFreeze = () => {
+    this.noteEndedBySystem('freeze')
+    this.noteDiag('freeze')
+  }
 
   private handleVisibilityHidden = () => {
     // The last flush before a WKWebView suspension/kill — the whole point.
-    if (document.visibilityState === 'hidden') this.flushTake()
+    if (document.visibilityState === 'hidden') {
+      this.flushTake()
+      this.noteDiag('hidden')
+    }
+  }
+  /** PR-B commit 5 (takeDiag): one event onto the take's local ring. */
+  private noteDiag(code: 'hidden' | 'freeze' | 'store_error', takeId = this.takeId) {
+    if (takeId && RECORDING_SWITCHES.takeDiag) void this.queueTakeWrite(() => noteTakeDiagEvent(takeId, code))
   }
 
   private armTakePersistence() {
@@ -887,6 +898,7 @@ class GlobalRecorder {
           if (!ok) {
             // ponytail: fail-open to memory-only — capture continues as today.
             p.disabled = true
+            this.noteDiag('store_error', takeId)
             return false
           }
           p.seq = seq + 1

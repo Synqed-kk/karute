@@ -64,7 +64,8 @@ import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 // success only here, where finalize re-proves size and ownership afterwards;
 // see storage-put.ts's header.
 import { putDeadlineMs, putSaysAlreadyThere } from '@/lib/recording/storage-put'
-import { blobFate, damagedSecureCode } from '@/lib/recording/blob-fate'
+import { blobFate, damagedSecureCode, readBlobHead } from '@/lib/recording/blob-fate'
+import { buildTakeDiag, type DiagRingEntry } from '@/lib/recording/take-diag'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
   isStoppedTake,
@@ -281,6 +282,9 @@ export async function secureTake(
     await secureBlob(port, blob, takeId, recordingSessionId, mimeType, measuredSeconds ?? 0, {
       bytesEmitted: meta.bytesEmitted,
       tailIncomplete,
+      arm: 'stored',
+      lastSeq: meta.lastSeq,
+      diagRing: meta.diagRing,
     })
   } catch (err) {
     // A dead socket, or a door that threw instead of answering. The take keeps
@@ -337,6 +341,8 @@ export async function ensureAudioOnServer(
       const mimeType = meta?.mimeType || blob.type || DEFAULT_MIME
       return await secureBlob(port, blob, takeId, session, mimeType, durationSeconds, {
         bytesEmitted: meta?.bytesEmitted,
+        arm: 'memory',
+        diagRing: meta?.diagRing,
       })
     } finally {
       inFlight.delete(takeId)
@@ -360,8 +366,25 @@ async function secureBlob(
   recordingSessionId: string,
   mimeType: string,
   measuredSeconds: number,
-  facts: { bytesEmitted?: number; tailIncomplete?: boolean },
+  facts: {
+    bytesEmitted?: number
+    tailIncomplete?: boolean
+    arm?: 'stored' | 'memory'
+    lastSeq?: number
+    diagRing?: DiagRingEntry[]
+  },
 ): Promise<string | null> {
+  // PR-B commit 5 (B5, A13): the take's flight record, ONLY the 12 keys the
+  // server accepts, checked here first — invalid or switch OFF → no diag.
+  const diag = RECORDING_SWITCHES.takeDiag
+    ? buildTakeDiag({
+        arm: facts.arm ?? 'stored',
+        blobBytes: blob.size,
+        firstByte: (await readBlobHead(blob))?.[0],
+        lastSeq: facts.lastSeq,
+        ring: facts.diagRing,
+      })
+    : undefined
   // ⚖ A DAMAGED BLOB NEVER SEALS THE TAKE KEY (PR-B commit 2 — B1, B5, R-2).
   // The verdict is taken ONCE, here, before a door is chosen; this is the
   // branch split, so it is applied here and nowhere downstream. Damaged →
@@ -375,6 +398,7 @@ async function secureBlob(
       stagedFor: recordingSessionId,
       stagedTake: takeId,
       partial: true,
+      ...(diag ? { diag } : {}),
     })
     await markTakeStaged(takeId, staged.path)
     await markTakeSecureError(takeId, damagedSecureCode(fate))
@@ -462,6 +486,7 @@ async function secureBlob(
     // REQUIRED by the door — the take's own row, stamped on the take before
     // the mint was even asked.
     recordingSessionId,
+    ...(diag ? { diag } : {}),
   })
   // `already: true` rides the ok arm on purpose — an exact retry and a take a
   // job already finished are both settled successes, not failures to re-run.

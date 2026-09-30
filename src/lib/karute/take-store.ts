@@ -25,6 +25,7 @@
  * identically in Safari and the WKWebView shell.
  */
 
+import { pushDiagEntry, type DiagRingEntry } from '@/lib/recording/take-diag'
 import { currentUserId } from '@/lib/karute/draft'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { isNativeShell } from '@/lib/platform'
@@ -402,6 +403,10 @@ export type TakeMeta = {
   /** PR-B commit 4 (B8): the first sign the SYSTEM ended or interrupted this
    *  capture (captureEndHooks). LOCAL only — not a TakeDiag key, never sent. */
   endedBySystem?: EndedBySystem
+  /** PR-B commit 5 (B5): the take's local flight record — a bounded ring of
+   *  short event codes (take-diag.ts). LOCAL; only counts derived from it,
+   *  inside the 12 TakeDiag keys, ever leave the phone. */
+  diagRing?: DiagRingEntry[]
   /** ⚖ A STOP IS IN FLIGHT — OR DIED IN ONE (fix round 17). Written by the stop
    *  leg as its FIRST act, ahead of the tail flush and of anything that could
    *  release the hold; cleared in the same patch that stamps `durationMs`.
@@ -1039,6 +1044,16 @@ export async function markTakeEndedBySystem(takeId: string, mark: EndedBySystem 
   await patchTakeMeta(takeId, { endedBySystem: mark ?? undefined }, undefined, { gate: 'compare' })
 }
 
+/** PR-B commit 5 (B5): one event onto the take's local ring (takeDiag). Best
+ *  effort — the recorder's own queued write on its own take. */
+export async function noteTakeDiagEvent(takeId: string, code: DiagRingEntry['code']): Promise<void> {
+  if (!RECORDING_SWITCHES.takeDiag) return
+  const meta = await readOwnTakeMeta(takeId)
+  if (!meta) return
+  const diagRing = pushDiagEntry(meta.diagRing, { at: Date.now(), code })
+  await patchTakeMeta(takeId, { diagRing }, undefined, { gate: 'compare' })
+}
+
 export async function markTakeStopPending(takeId: string): Promise<void> {
   await patchTakeMeta(takeId, { stopPendingAt: Date.now() }, undefined, { gate: 'compare' })
 }
@@ -1126,6 +1141,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'tailIncomplete'
   | 'stopPendingAt'
   | 'bytesEmitted'
+  | 'diagRing'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -1146,6 +1162,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     tailIncomplete: meta.tailIncomplete,
     stopPendingAt: meta.stopPendingAt,
     bytesEmitted: meta.bytesEmitted,
+    diagRing: meta.diagRing,
   }
 }
 

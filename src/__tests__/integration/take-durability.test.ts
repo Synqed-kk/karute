@@ -2235,6 +2235,8 @@ describe('secure at stop', () => {
       // REQUIRED now, and never null: this start-mint failed, so the row is the
       // one the SESSION DOOR minted a moment earlier (fix round 6).
       recordingSessionId: MINTED_SESSION,
+      // PR-B commit 5 (B7/K-9, the ONE licensed change): the body gains the take's diag.
+      diag: expect.objectContaining({ arm: 'stored', blob_bytes: 'aaa'.length + 'TAIL'.length }),
     })
     // The PUT carries the SERVER's content type for the key it composed —
     // normalized, not the client's string.
