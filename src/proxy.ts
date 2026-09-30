@@ -10,6 +10,29 @@ const intlMiddleware = createMiddleware(routing)
 // locale is an (app) route and requires a session.
 const PUBLIC_SEGMENTS = ['login', 'signup', 'join', 'auth', 'reset-password']
 
+// ⚖ Liam 2026-09-30 — a Business address that needs sign-in comes back to
+// Business. A STALE cookie still yields claims (getClaims is JWT-local), so the
+// signed-out branch below never fired and admission's 404 dropped the operator
+// on the front page. On a PREVIEW Business path only, the session is asked of
+// the auth server once, and only a session the SDK itself calls gone is sent to
+// the login. Verdicts follow @supabase/auth-js 2.99.1 src/lib/errors.ts — its
+// own predicates test `error.name` (isAuthSessionMissingError :126,
+// isAuthApiError :61), so this reads the same fields without loading the SDK:
+//   gone   = AuthSessionMissingError (:120; also what fetch.ts:99 throws for
+//            session_not_found) · AuthApiError (:50) with status 401 / 403
+//   outage = everything else — AuthRetryableFetchError (:268; fetch.ts:42
+//            network throw, status 0; fetch.ts:45 502/503/504), AuthApiError
+//            ≥ 500 or 429, AuthUnknownError — and the request passes through
+//            unchanged so admission answers exactly as it does today.
+// Production, every non-Business path and every public segment never make the
+// call at all (and /api never reaches this file — see the matcher).
+function sessionGone(user: unknown, error: unknown): boolean {
+  if (!error) return !user
+  const e = error as { name?: unknown; status?: unknown }
+  if (e.name === 'AuthSessionMissingError') return true
+  return e.name === 'AuthApiError' && (e.status === 401 || e.status === 403)
+}
+
 export async function proxy(request: NextRequest) {
   // Run next-intl middleware first (handles locale redirects, prefix routing)
   const intlResponse = intlMiddleware(request)
@@ -51,7 +74,24 @@ export async function proxy(request: NextRequest) {
   // Public: marketing root (/{locale}) and the login/signup/join/auth routes.
   const isPublic = !section || PUBLIC_SEGMENTS.includes(section)
 
-  if (!data?.claims && !isPublic) {
+  let signedOut = !data?.claims
+  if (
+    !signedOut &&
+    !isPublic &&
+    section === 'business' &&
+    locale !== 'api' && // belt to the matcher's braces: /api never asks here
+    process.env.VERCEL_ENV === 'preview'
+  ) {
+    // A throw is an outage too: pass through, never a proxy 500.
+    try {
+      const { data: got, error } = await supabase.auth.getUser()
+      signedOut = sessionGone(got?.user, error)
+    } catch {
+      signedOut = false
+    }
+  }
+
+  if (signedOut && !isPublic) {
     const url = request.nextUrl.clone()
     // ⚖ Liam flag 70 (2026-08-22) — CARRY WHERE THEY WERE GOING. Every preview
     // alias is its own origin, so a link into one always lands on a fresh
