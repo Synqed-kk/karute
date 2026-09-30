@@ -475,6 +475,27 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
       expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'karute.save' }))
     })
 
+    // A13 (S69 fix round 4): the skip path's actor read runs BEFORE the label
+    // write (the S-2 shape) — the karute.outcome_set row follows the durable
+    // answer with no read between.
+    it('A13 skip path: the actor read runs before the label write; the outcome_set row follows the write', async () => {
+      getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+      karuteOutcomesGet.mockResolvedValueOnce(null)
+      claim
+        .mockResolvedValueOnce({
+          ...baseJob,
+          payload: { ...baseJob.payload, outcome: { status: 'success' } },
+        })
+        .mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(staffGet).toHaveBeenCalledTimes(1)
+      expect(staffGet.mock.invocationCallOrder[0]).toBeLessThan(setKaruteOutcomeWithClient.mock.invocationCallOrder[0])
+      expect(setKaruteOutcomeWithClient.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
+      expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'karute.outcome_set' }))
+    })
+
     it('T16 existing record + the label dropped as REVISIT_NOT_ELIGIBLE → NO karute.outcome_set row; job completes', async () => {
       getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
       karuteOutcomesGet.mockResolvedValueOnce(null)

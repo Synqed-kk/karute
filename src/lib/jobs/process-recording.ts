@@ -323,6 +323,9 @@ async function processJob(job: RecordingJob): Promise<string> {
       // another customer (保存先を変更) must file the label under the person
       // it now belongs to, never a queued job's stale customer_id.
       const filedCustomerId = existing.customer_id ?? payload.customer_id
+      // A13 (S69 fix round 4): the actor read runs BEFORE the write (the S-2
+      // shape) — nothing runs between the durable answer and its row.
+      const outcomeSetActorId = await resolveActorUserId(synqed, payload.staff_id)
       const wrote = await writeSessionOutcome(
         synqed,
         existing.id,
@@ -340,7 +343,7 @@ async function processJob(job: RecordingJob): Promise<string> {
         audit({
           category: 'karute',
           action: 'karute.outcome_set',
-          actorId: await resolveActorUserId(synqed, payload.staff_id),
+          actorId: outcomeSetActorId,
           actorType: 'staff',
           businessId: job.business_id,
           targetType: 'karute',
