@@ -1,11 +1,108 @@
 /**
  * 今日の運営 — THE HELD DELTA (LEAD RULING R1/R2/R3/R8l, DECISIONS.md
  * today-impact-2026-09-30). c1: the pure delta and the one sellable predicate.
- * The face / row cases (T1–T4, T8, T10–T12, T14, T15) land with the gate (c2/c3).
+ * c2a: the gate, the faces and the rows by KIND (T1, T2, T5–T7, T9, T12, T14).
+ * T3, T4, T8, T10, T11 (task 3) and T15 (task 4) are not here yet.
  */
+jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
+jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
+jest.mock('next/navigation', () => ({ notFound: jest.fn(() => { throw new Error('NEXT_NOT_FOUND') }) }))
+
 import { heldDelta } from '@/app/[locale]/(business)/business/today/held-delta'
-import { sellableLaneKeysOf, windowsOf, type DayWindows } from '@/app/[locale]/(business)/business/today/today-interactions'
+import {
+  applyMoves, dayLossOf, guardVerdictAt, heldPriceOf, lossOf, pocketLossOf, restingSpanFor, sellableLaneKeysOf, storeHasBeds,
+  warnFaceFor, windowsOf, type DayWindows, type Moves, type RailCell,
+} from '@/app/[locale]/(business)/business/today/today-interactions'
+import { createServiceClient } from '@/lib/supabase/service'
+import { createClient } from '@/lib/supabase/server'
+import { STORE_A } from '@/business/lib/fixtures'
+import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
+import { TodayScreen, bedDoor, bedViewsFor, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
+import { place } from '@/business/lib/today-board'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
+import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import type { BoardLane } from '@/business/lib/today-board'
+
+// ── the board pipeline (scratch/tmp-today-impact-repro.test.ts, rebuilt) ──
+const service = createServiceClient as jest.Mock
+const supabase = createClient as jest.Mock
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
+const WORDS = RESOURCE_WORDS.chiropractic
+const ASK_A = { resourceNoun: WORDS.resourceNoun, privateWord: WORDS.privateWord! }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function screenProps(node: any): TodayProps | null {
+  if (!node || typeof node !== 'object') return null
+  if (node.type === TodayScreen) return node.props
+  const kids = node.props?.children
+  for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) { const h = screenProps(kid); if (h) return h }
+  return null
+}
+let REAL: TodayProps
+beforeAll(async () => {
+  jest.useFakeTimers().setSystemTime(new Date('2026-08-19T00:00:00Z'))
+  supabase.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 'o@x.jp' } }, error: null }) } })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chain = (r: unknown): any => ({ select: () => chain(r), eq: () => chain(r), maybeSingle: async () => r })
+  service.mockReturnValue({ from: (t: string) => chain(t === 'business_workspace_grants' ? { data: { workspace_id: 'business_admin', granted_by: 'u1' }, error: null } : t === 'profiles' ? { data: { customer_id: 'biz-1', is_management: false }, error: null } : { data: null, error: null }) })
+  REAL = screenProps(await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE_A }) }))!
+})
+afterAll(() => jest.useRealTimers())
+const log = (tag: string, v: unknown) => process.stdout.write(`DERIVED ${tag} ${JSON.stringify(v)}\n`)
+
+function dayOf(lanes: BoardLane[]): DayWindows {
+  const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
+  const raw = heldCommittedFor({
+    gateOn: true, lanes, frame, bookOf: (l, f, h) => bedViewsFor(l, f, h, ASK_A),
+    closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute, guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, released: [],
+  })
+  const honest = honestHeld(raw!, lanes, bedViewsFor(lanes, frame, null, ASK_A).world, true, (l) => storeHasBeds(lanes, l.stores))
+  return windowsOf(honest, lanes, [])
+}
+/** Stage the さくら card (apt-26, しろう 14:30–15:30) at [s, e) on its own lane and
+ *  compose the popup exactly as the screen does: one delta, one face. */
+function landing(s: number, e: number) {
+  const lanes = REAL.lanes
+  const lane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.kind === 'booking' && i.title.includes('さくら')))!
+  const item = lane.items.find((i) => i.kind === 'booking' && i.title.includes('さくら'))!
+  const id = item.caseId!
+  const pl = place(s, e, REAL.hours)
+  const moves: Moves = { [id]: { laneKey: lane.key, x: pl.x, w: pl.w } }
+  const staged = applyMoves(lanes, moves, [], [], REAL.hours, LANE_WORDS, {})
+  const price = clampPriceInputs(REAL.dialogs.pricing.hqMax, REAL.dialogs.pricing.base, REAL.dialogs.pricing)
+  const depth = Math.round((1 - price.lo / price.hi) * 100)
+  const frame = { hi: price.hi, lo: price.lo, hqMin: REAL.dialogs.pricing.hqMin, hqMax: REAL.dialogs.pricing.hqMax }
+  const nowFrame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
+  const cell = guardVerdictAt(staged, lane.key, s, {
+    open: REAL.hours.open, close: REAL.hours.close, stepMin: 30, dur: e - s, protectedDur: REAL.guard.protectedDurationMin,
+    nowMinute: REAL.sell.nowMinute, locked: [], guard: REAL.guard.config, excludeId: id,
+    placementFeasible: bedDoor(bedViewsFor(staged, nowFrame, id, ASK_A), staged, id),
+    protectedWindowFeasible: bedDoor(bedViewsFor(staged, nowFrame, null, ASK_A), staged, null),
+    resting: restingSpanFor({ id, origin: { laneKey: lane.key, x: item.x, w: item.w } } as never, lanes, id, REAL.hours, REAL.dayOffset, REAL.store),
+    restingWindowFeasible: undefined,
+  }, LANE_WORDS)
+  const before = dayOf(lanes)
+  const after = dayOf(staged)
+  const day = heldDelta(before, after, heldPriceOf(frame, depth, REAL.guard.protectedDurationMin))
+  const dayHeld = after.byLane.find((l) => l.laneKey === lane.key)?.starts ?? []
+  const withDay = cell == null ? null : { ...cell, day, dayHeld }
+  const model = warnFaceFor({
+    rows: [], cell: withDay, override: null, level: REAL.overrideLevel, holdToConfirm: REAL.holdToConfirm,
+    targetLaneMine: lane.mine, operatorName: REAL.operatorName, listPrice: lane.listPrice, frame, depth,
+    protectedDur: REAL.guard.protectedDurationMin, confirmEnabled: true, resourceNoun: WORDS.resourceNoun,
+  })
+  return { cell, withDay, day, model, before, after, start: item.startMin }
+}
+const labels = (rows: ReadonlyArray<{ label: string }>) => rows.map((r) => r.label)
+const hand = (over: Partial<RailCell>): RailCell => ({
+  start: 900, state: 'safe', label: '', sentence: '', reason: null, alternatives: [], alternativeKind: null, ackAllowed: true, ...over,
+} as RailCell)
+const faceOf = (cell: RailCell) => warnFaceFor({
+  rows: [], cell, override: null, level: 'allow-warned', holdToConfirm: true, targetLaneMine: false, operatorName: '見本 たろう',
+  listPrice: 8000, frame: null, depth: 0, protectedDur: REAL.guard.protectedDurationMin, confirmEnabled: true, resourceNoun: WORDS.resourceNoun,
+})
+const zero = () => 0
 
 type LaneRow = DayWindows['byLane'][number]
 const row = (laneKey: string, starts: number[], over: Partial<LaneRow> = {}): LaneRow => ({
@@ -95,5 +192,95 @@ describe('the one sellable predicate feeds the day layer', () => {
     const w = windowsOf(honest, lanes, ['p-03'])
     expect(w.exact).toBe(false)
     expect(w.byLane.map((l) => [l.laneKey, l.sellable])).toEqual([['p-01', true], ['p-02', false], ['p-03', false]])
+  })
+})
+
+describe('c2a — the gate, the faces and the rows, all out of the one delta', () => {
+  const dur = () => REAL.guard.protectedDurationMin
+
+  it('T5 a hop onto a row not sold online is a sellable loss: AMBER, key B', () => {
+    const d = heldDelta(
+      day([row('A', [900]), row('B', [], { sellable: false, listPrice: 0 })]),
+      day([row('A', []), row('B', [900], { sellable: false, listPrice: 0 })]), zero)
+    const cell = hand({ day: d })
+    expect(dayLossOf(cell)).toBe(1)
+    const m = faceOf(cell)
+    expect(m.face).toBe('warn')
+    expect(`${m.impact.head}|${m.impact.yen}|${m.impact.tail}`).toBe(
+      `ここに置くと、店全体でオンライン販売中の新規のお客様の${dur()}分の空き|null|が1枠から0枠に減ります。見本 Aの15:00の枠が、オンライン販売をしていない見本 Bの15:00に移ります（確保している枠は1枠のまま）。`)
+    expect(m.dayRows).toEqual([])
+  })
+
+  it('T6 a true loss: AMBER, key A, the lost lane named', () => {
+    const d = heldDelta(day([row('L', [900, 1000]), row('M', [960])]), day([row('L', [1000]), row('M', [960])]), zero)
+    const m = faceOf(hand({ day: d }))
+    expect(m.face).toBe('warn')
+    expect(`${m.impact.head}|${m.impact.yen}|${m.impact.tail}`).toBe(
+      `ここに置くと、店全体で新規のお客様の${dur()}分の空き|null|が3枠から2枠に減ります。なくなるのは見本 Lの15:00の枠です。`)
+  })
+
+  it('T7 mixed: the landing lane is named with the other loser; H line 2 carries the movement', () => {
+    const d = heldDelta(day([row('L', [900]), row('M', [1000]), row('N', [])]), day([row('L', []), row('M', []), row('N', [900])]), zero)
+    const m = faceOf(hand({ day: d }))
+    expect(m.face).toBe('warn')
+    expect(m.impact.tail).toBe('が2枠から1枠に減ります。なくなるのは見本 Lの15:00・見本 Mの16:40の枠です。')
+    // Lead ruling: line 2 pairs only — N's 15:00 takes the nearest lost start (L's 15:00); M stays in line 1.
+    expect(labels(m.rows)).toEqual(['確保枠 見本 Lの15:00 → 見本 Nの15:00'])
+  })
+
+  it('T9 an approximate pair never gates: CLEAN, the G2 row', () => {
+    const d = heldDelta(day([row('L', [900, 1000]), row('M', [960])], false), day([row('L', [1000]), row('M', [960])]), zero)
+    const cell = hand({ day: d })
+    expect(dayLossOf(cell)).toBe(0)
+    const m = faceOf(cell)
+    expect(m.face).toBe('clean')
+    expect(labels(m.dayRows)).toEqual([
+      `店全体の確保枠は概算で3枠→2枠（${WORDS.resourceNoun}の組み合わせをすべては調べきれませんでした。実際はもっと多いこともあります）`,
+      '確保枠 見本 Lの15:00がなくなります',
+    ])
+  })
+
+  it('T12 a pocket FACT survives beside a non-empty delta; a window CLAIM does not', () => {
+    const d = heldDelta(day([row('A', [945]), row('B', [])]), day([row('A', []), row('B', [905])]), zero)
+    const salv = 'ここに置くと割引でしか売れない空きが95分残ります'
+    const fact = faceOf(hand({ state: 'warn', sentence: salv, day: d, dayHeld: [],
+      impact: { code: 'R-SALV', capacityBefore: 1, capacityAfter: 1, windowsBefore: [945], windowsAfter: [945] } } as unknown as Partial<RailCell>))
+    expect(fact.face).toBe('clean')
+    expect(fact.guardRow?.label).toBe(salv)
+    expect(labels(fact.dayRows)).toEqual(['確保枠 見本 Aの15:45 → 見本 Bの15:05（店全体は1枠のまま）'])
+    const claim = faceOf(hand({ state: 'degraded', sentence: '15:45〜17:15の新規90分の空きを守れます', day: d, dayHeld: [],
+      impact: { code: 'DEGRADED', capacityBefore: 1, capacityAfter: 1, windowsBefore: [945], windowsAfter: [945] } } as unknown as Partial<RailCell>))
+    expect(claim.guardRow).toBeNull()
+  })
+
+  it('T14 a pocket-only cell: lossOf is pocketLossOf, byte for byte', () => {
+    const cell = hand({ state: 'degraded', impact: { code: 'DEGRADED', capacityBefore: 3, capacityAfter: 1, windowsBefore: [], windowsAfter: [] } } as Partial<RailCell>)
+    expect(lossOf(cell)).toBe(pocketLossOf(cell))
+    expect(lossOf(cell)).toBe(2)
+    expect(lossOf(null)).toBe(pocketLossOf(null))
+  })
+
+  it('T1 S2 (さくら 14:30–15:30 → 14:30–15:00): a same-count hop is a quiet row, never amber, and 守れます goes', () => {
+    const r = landing(14 * 60 + 30, 15 * 60)
+    log('T1', { counted: [r.day.countedBefore, r.day.countedAfter], sellable: [r.day.sellableBefore, r.day.sellableAfter], value: [r.day.valueBefore, r.day.valueAfter], lost: r.day.lost, gained: r.day.gained, shifted: r.day.shifted, rows: r.model.dayRows, guardRow: r.model.guardRow, cellSentence: r.cell?.sentence })
+    expect([r.day.countedBefore, r.day.countedAfter]).toEqual([3, 3])
+    expect(r.day.lost.map((w) => `${w.label}|${w.windowStart}`)).toEqual(['見本 しろう|945'])
+    expect(r.day.gained.map((w) => `${w.label}|${w.windowStart}`)).toEqual(['見本 あずさ|905'])
+    expect(r.day.shifted).toEqual([])
+    expect(dayLossOf(r.withDay)).toBe(0)
+    expect(r.model.face).toBe('clean')
+    expect([r.day.sellableBefore, r.day.sellableAfter]).toEqual([3, 3]) // derived: every S2 lane is sold online
+    // Derived: あずさ's 15:05 prices below しろう's 15:45 at the same 定価 (36,870 → 36,534.17), so key F rides (¥340).
+    expect(labels(r.model.dayRows)).toEqual(['確保枠 見本 しろうの15:45 → 見本 あずさの15:05（店全体は3枠のまま・空きの金額は約¥340減）'])
+    expect(labels([...r.model.rows, ...(r.model.guardRow ? [r.model.guardRow] : [])]).join('\n')).not.toContain('15:45〜17:15の新規90分の空きを守れます')
+  })
+
+  it('T2 S3 (→ 15:00–15:30): the delta is empty, no △ row, the 守れます row still prints', () => {
+    const r = landing(15 * 60, 15 * 60 + 30)
+    log('T2', { counted: [r.day.countedBefore, r.day.countedAfter], lost: r.day.lost, gained: r.day.gained, shifted: r.day.shifted, guardRow: r.model.guardRow, cellImpact: r.cell?.impact, dayHeld: r.withDay?.dayHeld })
+    expect([r.day.lost, r.day.gained, r.day.shifted]).toEqual([[], [], []])
+    expect(r.model.face).toBe('clean')
+    expect(r.model.dayRows).toEqual([])
+    expect(r.model.guardRow?.label).toContain('守れます')
   })
 })

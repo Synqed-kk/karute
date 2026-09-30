@@ -52,6 +52,7 @@ import type { Spring } from '@/business/lib/spring'
 // `import type` is erased before it exists.
 import type { ReservedOffer } from './capacity-ledger'
 import type { ReservedLaneMask, ReservedSpan } from './reserved-mask'
+import type { HeldDelta, WindowRef } from './held-delta'
 
 export type { DragMode, DragOrigin }
 
@@ -2181,7 +2182,11 @@ export interface RailCell {
    *  in). `railCell` and `guardVerdictAt` never build one, so the rail's chips
    *  cost nothing. `laneKey` is the lane the card is landing ON, which is what
    *  lets the sentence drop the name the operator is already looking at. */
-  day?: DayLoss
+  day?: HeldDelta
+  /** The landing lane's held starts on the AFTER board — what a pocket
+   *  window-claim row may cite (R6: 「守れます」 never beside a window the board
+   *  does not hold on that lane). Rides with `day`, set by the same memo. */
+  dayHeld?: readonly number[]
 }
 
 export interface GuardRail {
@@ -6649,6 +6654,8 @@ export interface WarnCardInput {
   /** `overrideCaption`'s answer, carried in. ⚖ 50(d)'s gate is UNTOUCHED and is
    *  still the only thing that decides whether a commit may fire. */
   confirmEnabled: boolean
+  /** The store's room noun, for the 概算 row (G2). */
+  resourceNoun?: string
 }
 
 /** The commit control, which on a warn face is never the neutral この内容で確定:
@@ -6665,6 +6672,10 @@ export interface WarnCardCommit {
 
 export interface WarnCardModel {
   face: 'clean' | 'warn'
+  /** R1 — the day layer's quiet △ rows (C/C2/D/E/G2, H line 2), from `heldDelta`. */
+  dayRows: Array<{ label: string; tone: 'warn' }>
+  /** The pocket's own row after R6's by-KIND rule — what the clean face prints. */
+  guardRow: { label: string; tone: 'warn' } | null
   /** The amber impact panel, split at the money so the ¥ can carry its own
    *  emphasis (the approved page's `.yen`). `yen: null` omits the parenthetical
    *  ENTIRELY, and `head + tail` then reads as one unbroken sentence. */
@@ -6773,6 +6784,13 @@ function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
 const protectedValueOf = (starts: readonly number[], listPrice: number, protectedDur: number, frame: PriceFrame, depth: number) =>
   starts.reduce((total, s) => total + gapFillRawTotal(listPrice, s, s + protectedDur, frame, depth), 0)
 
+/** R1 — the ¥ side of `heldDelta`: each lane priced at its own rate through
+ *  canon's door, 0 where the frame or the lane prices nothing (the day arm's own
+ *  rule, now in one place). */
+export const heldPriceOf = (frame: PriceFrame | null, depth: number, protectedDur: number) =>
+  (starts: readonly number[], listPrice: number): number =>
+    frame != null && frame.hqMin > 0 && listPrice > 0 && protectedDur > 0 ? protectedValueOf(starts, listPrice, protectedDur, frame, depth) : 0
+
 /** ⚖ 92 — THE CONSEQUENCE, IN THE APPROVED SENTENCE SHAPE, FROM THE DATA.
  *
  *  ⚖ LAW BOUNDARY, spelled out because it is the one thing easy to get wrong
@@ -6811,12 +6829,6 @@ const protectedValueOf = (starts: readonly number[], listPrice: number, protecte
  *  the engine hands over the protected windows themselves, the screen hands over
  *  the levers the sell layer is built from, and the loss is the difference
  *  between what that inventory was worth before and after. */
-/** ⚖ NEW-WINDOW L-C — THE LANES, AS A PERSON WOULD READ THEM OUT. 名 is the
- *  counter for people; 件 counts bookings, and these are staff members. Past
- *  three names the list stops rather than running the card off the phone. */
-const laneListOf = (labels: string[]) =>
-  labels.length <= 3 ? labels.join('・') : `${labels.slice(0, 3).join('・')}、他${labels.length - 3}名`
-
 function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame: PriceFrame | null, depth: number): WarnCardModel['impact'] {
   const verbatim = { head: cell.sentence, yen: null, tail: '' }
   /** ⚖ NEW-WINDOW M-1 — THE DAY LEADS, and it leads from the TOP of this function.
@@ -6847,38 +6859,9 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
    *  THE SAME-LANE COLLAPSE: the landing lane has no name to ADD, because the
    *  operator is looking at it. It is still COUNTED and still PRICED; only the
    *  name drops, which makes a same-lane loss byte-identical to today's sentence. */
-  if (cell.day != null && cell.day.lostOn.length > 0) {
+  if (cell.day != null) {
     if (!(protectedDur > 0)) return verbatim
-    const day = cell.day
-    const dayBefore = day.lostOn.reduce((a, r) => a + r.before.length, 0)
-    const dayAfter = day.lostOn.reduce((a, r) => a + r.after.length, 0)
-    const dayLoss = dayBefore - dayAfter
-    if (dayLoss <= 0) return verbatim
-    const dayValue = frame != null
-      ? Math.round(
-          day.lostOn.reduce(
-            (total, r) => (frame.hqMin > 0 && r.listPrice > 0
-              ? total
-                + protectedValueOf(r.before, r.listPrice, protectedDur, frame, depth)
-                - protectedValueOf(r.after, r.listPrice, protectedDur, frame, depth)
-              : total),
-            0,
-          ) / 10,
-        ) * 10
-      : 0
-    const dayYen = dayValue > 0 ? `約${money(dayValue)}` : null
-    const names = day.lostOn.filter((r) => r.laneKey !== day.laneKey).map((r) => r.label)
-    const dayHead = `ここに置くと、${names.length === 0 ? '' : `${laneListOf(names)}の`}新規のお客様の${protectedDur}分の空き`
-    const dayShrink = `が${dayBefore}枠から${dayAfter}枠に減ります`
-    // ⚖ 92 V1 is HONOURED, not amended: the money sits on the noun at a loss of
-    // one and moves to the 枠 clause past it, exactly as it does below.
-    return dayLoss === 1
-      ? { head: dayHead, yen: dayYen, tail: `${dayShrink}。` }
-      : {
-          head: dayHead,
-          yen: null,
-          tail: dayYen ? `${dayShrink}（${dayLoss}枠分・${dayYen}）。` : `${dayShrink}。`,
-        }
+    return dayImpactOf(cell.day, protectedDur)
   }
   // The two classes the approved design gave a shape to, and no others: an
   // unruled class keeps the engine's sentence exactly as it did before this fix
@@ -6967,21 +6950,126 @@ export const pocketLossOf = (c: RailCell | null): number =>
  *  short-circuit — a landing whose own pocket is ✓ can still cost the store a
  *  window on somebody else's lane. */
 export const dayLossOf = (c: RailCell | null): number =>
-  c?.day == null ? 0 : c.day.lostOn.reduce((a, r) => a + (r.before.length - r.after.length), 0)
+  c?.day == null
+    ? 0
+    : !c.day.exact
+      ? 0
+      : Math.max(c.day.countedBefore - c.day.countedAfter, c.day.sellableBefore - c.day.sellableAfter, 0)
 
-export const lossOf = (c: RailCell | null): number => Math.max(pocketLossOf(c), dayLossOf(c))
+/** R2 / STRESS B1 — where a day delta exists it is the WHOLE trigger; the pocket
+ *  stays a row. A pocket-only cell (every caller but the warn card) is unchanged. */
+export const lossOf = (c: RailCell | null): number => (c?.day != null ? dayLossOf(c) : pocketLossOf(c))
 
-/** ⚖ ROUND BUILD-1 (2) — IS THE DAY HEADLINE ABOUT THE LANE THE CARD IS LANDING ON?
- *
- *  ⚖ 73-74 forbids dropping a verdict the panel is not already saying. When the
- *  day headline names ANOTHER lane's window, the pocket's own row — 「割引でしか
- *  売れない空きが95分残ります」 — is a DIFFERENT fact and must survive. But when the
- *  lane that lost IS the landing lane, the headline's own sentence (with the name
- *  collapsed out, because the operator is looking at it) and the pocket's △ row are
- *  the SAME window loss said twice, the second time under the engine's mislabelled
- *  menu name. Same fact, one voice. */
-export const dayOnLandingLane = (c: RailCell | null): boolean =>
-  c?.day != null && c.day.lostOn.some((r) => r.laneKey === c.day!.laneKey)
+/** ⚖ LEAD RULING R1/R2 (DECISIONS.md today-impact-2026-09-30) — THE DAY'S WORDS,
+ *  all out of ONE `HeldDelta` (R8l). Store numbers only; every lost window named,
+ *  the landing lane too (R8q); the ¥ rounded to ¥10 once over the Σ as before. */
+const windowItem = (w: { label: string }, start: number) => `${w.label}の${clockOf(start)}`
+const windowList = (items: string[]) =>
+  items.length <= 3 ? items.join('・') : `${items.slice(0, 3).join('・')}、ほか${items.length - 3}枠`
+const refItems = (ws: readonly WindowRef[]) => ws.map((w) => windowItem(w, w.windowStart))
+const yenDropOf = (d: HeldDelta) => {
+  const drop = Math.round((d.valueBefore - d.valueAfter) / 10) * 10
+  return drop > 0 ? `約${money(drop)}` : null
+}
+
+/** The movement, without its store bracket (C / C2 / D / E shapes). */
+function movementOf(d: HeldDelta): string | null {
+  const from = [...refItems(d.lost), ...d.shifted.map((x) => windowItem(x, x.from))]
+  const to = [...refItems(d.gained), ...d.shifted.map((x) => windowItem(x, x.to))]
+  if (from.length === 0 && to.length === 0) return null
+  if (d.countedAfter > d.countedBefore && d.lost.length > 0) return `確保枠 ${windowList(refItems(d.lost))}がなくなります`
+  if (from.length === 0) return `確保枠 ${windowList(to)}が加わります`
+  if (to.length === 0) return `確保枠 ${windowList(from)}がなくなります`
+  if (d.shifted.length === 1 && d.lost.length === 0 && d.gained.length === 0) {
+    return `確保枠 ${windowItem(d.shifted[0], d.shifted[0].from)} → ${clockOf(d.shifted[0].to)}`
+  }
+  return `確保枠 ${windowList(from)} → ${windowList(to)}`
+}
+
+/** H line 2 (lead ruling 9/30 on the c2a decisions): PAIRS only, never 「X・Y → Z」.
+ *  Each gained window takes the not-yet-paired lost window whose start is
+ *  nearest (ties → the earlier start); a same-lane shift is its own pair.
+ *  Unpaired lost windows are named in line 1 (A) and nowhere else. */
+function movedPairsOf(d: HeldDelta): string | null {
+  const free = [...d.lost]
+  const from: string[] = d.shifted.map((x) => windowItem(x, x.from))
+  const to: string[] = d.shifted.map((x) => windowItem(x, x.to))
+  for (const g of d.gained) {
+    if (free.length === 0) break
+    let k = 0
+    for (let i = 1; i < free.length; i++) {
+      const di = Math.abs(free[i].windowStart - g.windowStart)
+      const dk = Math.abs(free[k].windowStart - g.windowStart)
+      if (di < dk || (di === dk && free[i].windowStart < free[k].windowStart)) k = i
+    }
+    from.push(windowItem(free[k], free[k].windowStart))
+    to.push(windowItem(g, g.windowStart))
+    free.splice(k, 1)
+  }
+  return from.length === 0 ? null : `確保枠 ${windowList(from)} → ${windowList(to)}`
+}
+
+/** The AMBER sentence (A / B / H line 1). Only reached when `dayLossOf > 0`. */
+function dayImpactOf(d: HeldDelta, dur: number): WarnCardModel['impact'] {
+  const yen = yenDropOf(d)
+  const counted = d.countedBefore > d.countedAfter
+  const before = counted ? d.countedBefore : d.sellableBefore
+  const after = counted ? d.countedAfter : d.sellableAfter
+  const loss = before - after
+  const head = `ここに置くと、店全体で${counted ? '' : 'オンライン販売中の'}新規のお客様の${dur}分の空き`
+  const lost = refItems(d.lost)
+  const names = !counted || lost.length === 0
+    ? ''
+    : lost.length <= 3
+      ? `なくなるのは${lost.join('・')}の枠です。`
+      : `なくなるのは${lost.slice(0, 3).join('・')}の枠、ほか${lost.length - 3}枠です。`
+  const hop = counted || d.lost.length === 0 || d.gained.length === 0
+    ? ''
+    : `${windowList(lost)}の枠が、オンライン販売をしていない${windowList(refItems(d.gained))}に移ります${
+      d.countedBefore === d.countedAfter ? `（確保している枠は${d.countedAfter}枠のまま）` : ''}。`
+  const shrink = `が${before}枠から${after}枠に減ります`
+  return loss === 1
+    ? { head, yen, tail: `${shrink}。${names}${hop}` }
+    : { head, yen: null, tail: `${shrink}${yen ? `（${loss}枠分・${yen}）` : ''}。${names}${hop}` }
+}
+
+/** The quiet △ rows. Tone `warn` is the △ glyph only: these rows are composed
+ *  AFTER the face is decided and never re-enter `rows`, so they cannot light it. */
+function dayRowsOf(d: HeldDelta | undefined, resourceNoun: string | undefined): Array<{ label: string; tone: 'warn' }> {
+  if (d == null) return []
+  const move = movementOf(d)
+  const dropped = d.countedBefore > d.countedAfter
+  if (move == null && d.countedBefore === d.countedAfter) return []
+  const row = (label: string) => ({ label, tone: 'warn' as const })
+  if (d.exact && (dropped || d.sellableBefore > d.sellableAfter)) {
+    // AMBER: the sentence names the losses; H's second line carries PAIRS only.
+    const pairs = dropped ? movedPairsOf(d) : null
+    return pairs == null ? [] : [row(pairs)]
+  }
+  if (!d.exact && d.countedBefore !== d.countedAfter && resourceNoun != null) {
+    const g2 = `店全体の確保枠は概算で${d.countedBefore}枠→${d.countedAfter}枠（${resourceNoun}の組み合わせをすべては調べきれませんでした。実際はもっと多いこともあります）`
+    return move == null ? [row(g2)] : [row(g2), row(move)]
+  }
+  const yen = yenDropOf(d)
+  const store = d.countedBefore === d.countedAfter ? `店全体は${d.countedAfter}枠のまま` : `店全体は${d.countedBefore}枠→${d.countedAfter}枠`
+  const bracket = `（${store}${yen ? `・空きの金額は${yen}減` : ''}${d.exact ? '' : '・概算'}）`
+  return move == null ? [] : [row(`${move}${bracket}`)]
+}
+
+/** R6 — the pocket's row, by KIND. A pocket fact (R-SALV / R-DEAD / a room or
+ *  fit refusal) always survives (R8j). A window CLAIM (DEGRADED / R-REP, the
+ *  「…を守れます」 family) prints only while the day layer is silent and every
+ *  window it cites is held on this lane on the after board. */
+function pocketRowOf(cell: RailCell | null, guardWarn: boolean): { label: string; tone: 'warn' } | null {
+  if (cell == null) return null
+  const row = guardCheckRow(cell)
+  if (cell.day == null) return guardWarn && pocketLossOf(cell) > 0 ? null : row
+  if (!(cell.impact?.code === 'DEGRADED' || cell.impact?.code === 'R-REP')) return row
+  const d = cell.day
+  const silent = d.countedBefore === d.countedAfter && d.lost.length + d.gained.length + d.shifted.length === 0
+  const held = new Set(cell.dayHeld ?? [])
+  return silent && !guardWarn && cell.impact.windowsAfter.every((s) => held.has(s)) ? row : null
+}
 
 /** ⚖ NEW-WINDOW — THE ONE HOME for 「how many 新規 windows does this board hold,
  *  and whose」. `byLane` carries each lane's own published starts and its own
@@ -7143,7 +7231,10 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   const warn = guardWarn || rows.some((r) => r.tone === 'warn')
   const oks = rows.filter((r) => r.tone === '')
   if (!warn) {
-    return { face: 'clean', impact: { head: '', yen: null, tail: '' }, provenance: null, lock: null, safePrimary: null, commit: null, rows, greensLine: null }
+    return {
+      face: 'clean', impact: { head: '', yen: null, tail: '' }, provenance: null, lock: null, safePrimary: null, commit: null, rows, greensLine: null,
+      dayRows: dayRowsOf(cell?.day, input.resourceNoun), guardRow: pocketRowOf(cell, false),
+    }
   }
 
   // ⚖ 92, THE STRONGEST FACT LEADS. The guard's verdict is the store's own law
@@ -7187,11 +7278,13 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  the △ twin is the same loss worn under the engine's mislabelled menu name).
    *  When the day names ANOTHER lane, the pocket's own verdict — 「割引でしか売れない
    *  空きが95分残ります」 — is a DIFFERENT fact and ⚖ 73-74 forbids dropping it. */
-  const guardRow = guardWarn && (pocketLossOf(cell) > 0 || dayOnLandingLane(cell)) ? null : guardCheckRow(cell)
+  const guardRow = pocketRowOf(cell, guardWarn)
+  const dayRows = dayRowsOf(cell?.day, input.resourceNoun)
   const kept = [
     ...rows.filter(
       (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
     ),
+    ...dayRows,
     ...(guardRow ? [guardRow] : []),
   ]
 
@@ -7350,7 +7443,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
     return {
       face: 'warn', impact, provenance: null, lock: null, safePrimary,
       commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },
-      rows: kept, greensLine: greensLineOf(oks),
+      rows: kept, greensLine: greensLineOf(oks), dayRows, guardRow,
     }
   }
   /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE LOCK FACE IS DELETED, AND THE
@@ -7432,7 +7525,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
     level === 'refuse'
       ? (input.targetLaneMine ? 'あなたの名前で記録されます' : recordedBare)
       : (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + `。${recordedBare}`
-  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
+  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks), dayRows, guardRow }
 }
 
 /** ⚖ 92 — THE LONG PRESS, AS ARITHMETIC. Ported from the approved page's own

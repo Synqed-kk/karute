@@ -72,11 +72,14 @@ import {
   warnFaceFor,
   windowsOf,
   lostOn,
+  heldPriceOf,
+  type DayWindows,
   type GuardRail,
   type RailCell,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { heldDelta } from '@/app/[locale]/(business)/business/today/held-delta'
 import { type GapCell, type SellCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
@@ -2694,13 +2697,15 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
   }
 
   /** The card's own face, composed by the one producer the screen calls. */
-  const faceFor = (rows: ReturnType<typeof lostOn>, landing: string, listPrice: number) =>
+  // R1/R2 (DECISIONS.md today-impact-2026-09-30): the card reads ONE store-level
+  // delta of the two settled boards (heldDelta), no longer the per-lane lostOn rows.
+  const faceFor = (before: DayWindows, after: DayWindows, listPrice: number) =>
     warnFaceFor({
       rows: [],
       cell: {
         start: 16 * 60, state: 'warn', label: '', sentence: '', reason: null,
         alternatives: [], alternativeKind: null, ackAllowed: true,
-        day: { laneKey: landing, before: rows.reduce((a, r) => a + r.before.length, 0), after: rows.reduce((a, r) => a + r.after.length, 0), lostOn: rows },
+        day: heldDelta(before, after, heldPriceOf(priceOf().frame, priceOf().depth, REAL.guard.protectedDurationMin)),
       } as unknown as RailCell,
       override: null, level: 'allow-warned', holdToConfirm: true, targetLaneMine: false,
       operatorName: '見本 たろう', listPrice,
@@ -2723,12 +2728,14 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     const lost = lanes.find((l) => l.key === LOST.laneKey)!
     expect(rows.map((r) => ({ laneKey: r.laneKey, label: r.label, before: r.before, after: r.after, listPrice: r.listPrice })))
       .toEqual([{ laneKey: LOST.laneKey, label: lost.label, before: [LOST.windowStart], after: [], listPrice: lost.listPrice }])
-    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    const face = faceFor(before, after, lanes.find((l) => l.key === LANDING)!.listPrice)
     const sentence = `${face.impact.head}${face.impact.yen ? `（${face.impact.yen}）` : ''}${face.impact.tail}`
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): key A — the STORE pair and every lost window named.
     expect({ face: face.face, sentence }).toEqual({
       face: 'warn',
-      sentence: `ここに置くと、${lost.label}の新規のお客様の${REAL.guard.protectedDurationMin}分の空き（${face.impact.yen}）が1枠から0枠に減ります。`,
+      sentence: `ここに置くと、店全体で新規のお客様の${REAL.guard.protectedDurationMin}分の空き（${face.impact.yen}）が${before.total}枠から${after.total}枠に減ります。なくなるのは${lost.label}の15:45の枠です。`,
     })
+    expect(before.total - after.total).toBe(1)
     expect(face.impact.yen).toMatch(/^約¥[\d,]+$/)
     expect({ kind: face.commit?.kind, label: face.commit?.label }).toEqual({ kind: 'hold', label: '長押しで注意して配置' })
   })
@@ -2737,7 +2744,8 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     const lanes = restLanes()
     const rows = lostOn(dayOf(lanes), dayOf(lanes))
     expect(rows).toEqual([])
-    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the card reads the one delta of the two boards.
+    const face = faceFor(dayOf(lanes), dayOf(lanes), lanes.find((l) => l.key === LANDING)!.listPrice)
     expect({ face: face.face, head: face.impact.head, commit: face.commit }).toEqual({ face: 'clean', head: '', commit: null })
   })
 
@@ -2748,12 +2756,13 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     const rows = lostOn(before, after)
     expect(rows.map((r) => ({ laneKey: r.laneKey, listPrice: r.listPrice, before: r.before, after: r.after })))
       .toEqual([{ laneKey: LOST.laneKey, listPrice: 0, before: [LOST.windowStart], after: [] }])
-    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    const face = faceFor(before, after, lanes.find((l) => l.key === LANDING)!.listPrice)
     const label = lanes.find((l) => l.key === LOST.laneKey)!.label
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): key A on the store pair; a price-0 lane still prices nothing.
     expect({ face: face.face, yen: face.impact.yen, head: face.impact.head, tail: face.impact.tail }).toEqual({
       face: 'warn', yen: null,
-      head: `ここに置くと、${label}の新規のお客様の${REAL.guard.protectedDurationMin}分の空き`,
-      tail: 'が1枠から0枠に減ります。',
+      head: `ここに置くと、店全体で新規のお客様の${REAL.guard.protectedDurationMin}分の空き`,
+      tail: `が${before.total}枠から${after.total}枠に減ります。なくなるのは${label}の15:45の枠です。`,
     })
   })
 

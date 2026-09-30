@@ -123,10 +123,8 @@ import {
   landingVerdict,
   lossOf,
   windowsOn,
-  lostOn,
+  heldPriceOf,
   EMPTY_WINDOWS,
-  EMPTY_DAY,
-  type DayLoss,
   bedClassCell,
   nearestFreeStarts,
   offerableCell,
@@ -198,6 +196,7 @@ import {
   type SellDrop,
   type WarnCardModel,
 } from './today-interactions'
+import { heldDelta, type HeldDelta } from './held-delta'
 import { offerKey, withheldOffers, type OfferAsk } from './bed-aware-sales'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
@@ -1030,6 +1029,8 @@ interface HoldPop {
   checks: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
   /** ⚖ 31b — the guard's own row, informational, never a gate. */
   guardRow: { label: string; tone: 'warn' } | null
+  /** R1 — the day layer's quiet △ rows, from `warnFaceFor`. */
+  dayRows: Array<{ label: string; tone: 'warn' }>
   /** ⚖ LIAM flag 92 (2026-08-31) — THE SECOND FACE, composed by `warnFaceFor`
    *  from the store's settings. `null` (and `face: 'clean'`) is the card that
    *  ships today, rendered by the branch it has always been rendered by; a
@@ -4283,13 +4284,13 @@ export function TodayScreen(props: TodayProps) {
    *  is one rendering of that same cell — deriving them together here keeps them
    *  one reading of one board, which is the whole of ⚖ 54's lesson. The clean
    *  face keeps rendering `row` exactly as it did. */
-  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[]; day: DayLoss } => {
+  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[]; day: HeldDelta | null; dayHeld: readonly number[] } => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not a day-only test — `verdictAt` reads
     // the board on screen, so a 仮押さえ staged in another STORE would have its
     // row computed from this store's cards. Same predicate as the checks above.
-    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [], day: EMPTY_DAY }
+    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [], day: null, dayHeld: [] }
     const at = moves[pending.id]
-    if (!at) return { row: null, cell: null, engineStarts: [], day: EMPTY_DAY }
+    if (!at) return { row: null, cell: null, engineStarts: [], day: null, dayHeld: [] }
     const start = minuteOf(at.x, hours)
     const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)
     /** ⚖ NEW-WINDOW — WHAT THIS LANDING COSTS THE WHOLE STORE, from the two
@@ -4305,13 +4306,8 @@ export function TodayScreen(props: TodayProps) {
      *  pocket law byte for byte, and a day-carrying cell reaching it would compare
      *  a day-inclusive number against pocket-only offers. The one reader is the
      *  warn card. */
-    const rows = lostOn(dayOrigin, dayCommitted)
-    const day = {
-      laneKey: at.laneKey,
-      before: rows.reduce((a, r) => a + r.before.length, 0),
-      after: rows.reduce((a, r) => a + r.after.length, 0),
-      lostOn: rows,
-    }
+    const day = heldDelta(dayOrigin, dayCommitted, heldPriceOf(frame, depth, props.guard.protectedDurationMin))
+    const dayHeld = dayCommitted.byLane.find((l) => l.laneKey === at.laneKey)?.starts ?? []
     /** ⚖ 92 fix round F2 (blind L4#3) — AND THE CARD'S OFFER GOES THROUGH ⚖ 58'S
      *  ONE HOME LIKE EVERY OTHER OFFER ON THIS BOARD.
      *
@@ -4458,6 +4454,7 @@ export function TodayScreen(props: TodayProps) {
        *  readers; re-deriving it there would be two answers to one question. */
       engineStarts: cell?.alternatives ?? [],
       day,
+      dayHeld,
     }
     // ⚖ ROOM RULE — the room-policy dep LEAVES this list with the dials it named.
     // The gate re-verdicts each candidate start through `verdictRef`, and the
@@ -4473,7 +4470,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ NEW-WINDOW — the two settled-day memos join the list BEFORE
     // `props.guard.bookingStepMin`, which is pinned as this list's own tail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin])
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin, frame, depth, props.guard.protectedDurationMin])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -4539,11 +4536,13 @@ export function TodayScreen(props: TodayProps) {
   // `warnFaceFor` composes the headline, the △ row and the 長押し gate from it;
   // nothing else on this screen is ever handed a `day`-carrying cell, so the
   // offer path keeps today's pocket law byte for byte.
+  // A null staged cell means the guard is off (`verdictAt`), and then both day sides are
+  // EMPTY_WINDOWS, so the delta is empty and dropping `day` with the cell loses nothing.
   const pendingWarnModel = pendingWarnLane === undefined || !pending
     ? null
     : warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day },
+        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,
@@ -4554,6 +4553,7 @@ export function TodayScreen(props: TodayProps) {
         depth,
         protectedDur: props.guard.protectedDurationMin,
         confirmEnabled: pendingConfirm.enabled,
+        resourceNoun: props.words.resourceNoun,
       })
   const pendingWarn = pendingWarnModel?.face === 'warn' ? pendingWarnModel : null
   // ⚖ D-53 (n) R-N2-3 — #26/#27 have no lane in JSX scope: the on-board
@@ -4631,7 +4631,10 @@ export function TodayScreen(props: TodayProps) {
         // record and not a gate (⚖ 52 — × is what stops you, △ is what you were
         // told).
         checks: pendingRows,
-        guardRow: pendingGuardRow.row,
+        // R6 — the clean face's pocket row is the one `warnFaceFor` kept BY KIND, and
+        // the day's quiet △ rows come out of the same model (R8l).
+        guardRow: pendingWarnModel ? pendingWarnModel.guardRow : pendingGuardRow.row,
+        dayRows: pendingWarnModel?.dayRows ?? [],
         // ⚖ 92 — the same rows, the same cell, composed into the second face.
         warn: pendingWarn,
         placeSafe: placePendingAt,
@@ -4658,6 +4661,7 @@ export function TodayScreen(props: TodayProps) {
           summary: props.hold.summary,
           checks: props.hold.checks.map((label) => ({ label, tone: '' })),
           guardRow: null,
+          dayRows: [],
           // ⚖ 92 — the incident's own standing 仮押さえ is UNTOUCHED. Its rows are
           // the server's plain sentences with no verdict behind them, so it has
           // no warn-grade fact to lead with by construction, and its 確定 stays
@@ -10296,6 +10300,7 @@ export function TodayScreen(props: TodayProps) {
                 {holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
                 {/* ⚖ 31b — the guard's move-assessment, where the operator is already
                     reading. It reports; it never disables 確定. */}
+                {holdPop.dayRows.map((r) => <span className={`ck ${r.tone}`} key={r.label}>{r.label}</span>)}
                 {holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}
               </div>
               <div className="hp-actions">

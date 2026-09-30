@@ -2310,10 +2310,10 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       // with. `DayLoss` is the field's type, for the memo's return annotation.
       // Added, nothing renamed or removed.
       "windowsOn,",
-      "lostOn,",
+      // R1/R2 (DECISIONS.md today-impact-2026-09-30): the day family now reads `heldDelta`; the screen
+      // imports the price closure and no longer the per-lane loss rows or their empty shape.
+      "heldPriceOf,",
       "EMPTY_WINDOWS,",
-      "EMPTY_DAY,",
-      "type DayLoss,",
       "bedClassCell,",
       "nearestFreeStarts,",
       "offerableCell,",
@@ -7043,7 +7043,8 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // The batch-4 row is present on the placement path — it is not missing.
     // ⚖ flag 92: the memo returns `{ row, cell }` now, so the surface reads
     // `.row`. Same row, same source, still never a gate.
-    expect(SRC).toContain('guardRow: pendingGuardRow.row,')
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the clean face's pocket row is the one warnFaceFor kept BY KIND.
+    expect(SRC).toContain('guardRow: pendingWarnModel ? pendingWarnModel.guardRow : pendingGuardRow.row,')
     expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
   })
 
@@ -9515,6 +9516,8 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       impact: { head: '', yen: null, tail: '' },
       provenance: null, lock: null, safePrimary: null, commit: null,
       rows: GREENS, greensLine: null,
+      // R1/R2 (DECISIONS.md today-impact-2026-09-30): the model carries the day rows and the kept pocket row; both empty here.
+      dayRows: [], guardRow: null,
     })
     // The rows come back UNTOUCHED — the clean face renders them exactly as it
     // did before this round existed.
@@ -9905,7 +9908,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // pocket-only offers. Every other field is unchanged.
     expect(SRC).toContain(`: warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day },
+        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,
@@ -9916,7 +9919,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
         depth,
         protectedDur: props.guard.protectedDurationMin,
         confirmEnabled: pendingConfirm.enabled,
+        resourceNoun: props.words.resourceNoun,
       })`)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): `day` is the HeldDelta + the lane's held starts; the room noun feeds G2.
     // ⚖ 92 fix round 5 V1 (breaker #4) — `frame` and `depth` are the SELL LAYER'S
     // own levers, composed once on this screen and handed to both. A second
     // spelling here would be a second basis for the same ¥, which is the defect
@@ -10149,7 +10154,8 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       + '      }),')
     // …and the level leaves the dep list with the arm that read it: nothing in
     // the memo asks the dial any more.
-    expect(SRC).toContain('props.guard.bookingStepMin])')
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the memo now prices the delta, so its deps add the price levers.
+    expect(SRC).toContain('props.guard.bookingStepMin, frame, depth, props.guard.protectedDurationMin])')
     expect(SRC).not.toContain("if (props.overrideLevel === 'refuse')")
     // …and the RAW engine list the split reads is threaded out of the memo, for
     // the press to mirror it with (⚖ 92 fix round 6 X2).
@@ -10544,9 +10550,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // three readers and ONE definition (⚖ 54); the screen still holds none.
     expect(INT).toContain("export const pocketLossOf = (c: RailCell | null): number =>\n"
       + "  c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)")
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the day loss is the STORE's counted or sellable drop, 0 when
+    // not exact; where a day exists it is the whole trigger, else the pocket (byte-identical).
     expect(INT).toContain('export const dayLossOf = (c: RailCell | null): number =>\n'
-      + '  c?.day == null ? 0 : c.day.lostOn.reduce((a, r) => a + (r.before.length - r.after.length), 0)')
-    expect(INT).toContain('export const lossOf = (c: RailCell | null): number => Math.max(pocketLossOf(c), dayLossOf(c))')
+      + '  c?.day == null\n    ? 0\n    : !c.day.exact\n      ? 0\n'
+      + '      : Math.max(c.day.countedBefore - c.day.countedAfter, c.day.sellableBefore - c.day.sellableAfter, 0)')
+    expect(INT).toContain('export const lossOf = (c: RailCell | null): number => (c?.day != null ? dayLossOf(c) : pocketLossOf(c))')
     expect(INT.match(/const lossOf = /g)).toHaveLength(1)
     expect(SRC).not.toContain('const lossOf = ')
     expect(SRC).toContain('  lossOf,\n')
@@ -11783,6 +11792,8 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "import { useSessionEdits, type ParkChip } " + "fr" + "om '../../BusinessSessionEdits'",
     "import { useTopbarAction } " + "fr" + "om '../../BusinessTopbar'",
     "} from './today-interactions'",
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one delta module.
+    "import { heldDelta, type HeldDelta } from './held-delta'",
     // ⚖ ROUND 2 (2026-09-13) — the bed-aware sales layer: the sellability test
     // and the ONE spelling of an offer's identity (⚖ ADDENDUM 4 item 3, the key
     // the row's boxes carry as `data-key`). Pure, every import of its own a TYPE
