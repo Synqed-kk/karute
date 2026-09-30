@@ -5,7 +5,7 @@
 // the SAVED colour only (標準の色 · the empty sentence · the legacy sentence · nothing), never the unsaved
 // pick and never a change date (core sends none); the two home notes show on ホーム only.
 import { render, fireEvent, cleanup } from '@testing-library/react'
-import { ReserveCardLookSection, STAND_IN } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
+import { ReserveCardLookSection, STAND_IN, fitScale } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
 import { ReserveCardPreview } from '@/business/lib/reserve-card/ReserveCardPreview'
 
@@ -83,6 +83,42 @@ describe('カードの見た目 phone frame + honest slot', () => {
     const phone = mount('#1C2247').container.querySelector('.cl-phone')!
     expect(phone.getAttribute('aria-hidden')).toBe('true')
     expect(phone.getAttribute('tabindex')).toBe('-1')
+  })
+  it('a view switch opens the app at its top (the scroller\'s scrollTop is written 0)', () => {
+    const { container, getByText } = mount('#1C2247')
+    const phone = container.querySelector('.cl-phone') as HTMLElement
+    // jsdom's scrollTop does not persist, so the instance carries a recording one
+    let top = 0
+    const writes: number[] = []
+    Object.defineProperty(phone, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { writes.push(v); top = v } })
+    phone.scrollTop = 240
+    writes.length = 0
+    fireEvent.click(getByText('お店ページ'))
+    expect(writes).toContain(0)
+    expect(top).toBe(0)
+  })
+  it('a column narrower than 393 scales the FRAME: --cl-scale = fitScale, --cl-h = the frame\'s 760 × that', () => {
+    const was = (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver
+    class CallingRO { constructor(private cb: () => void) {} observe() { this.cb() } unobserve() {} disconnect() {} }
+    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = CallingRO
+    const proto = HTMLElement.prototype
+    const cw = Object.getOwnPropertyDescriptor(proto, 'clientWidth') ?? Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+    const oh = Object.getOwnPropertyDescriptor(proto, 'offsetHeight')
+    Object.defineProperty(proto, 'clientWidth', { configurable: true, get() { return (this as HTMLElement).classList.contains('cl-strip') ? 336 : 0 } })
+    // the frame is 760; the app inside it (a different box) is given another height so the target shows
+    Object.defineProperty(proto, 'offsetHeight', { configurable: true, get() { const c = (this as HTMLElement).classList; return c.contains('cl-frame') ? 760 : c.contains('cl-phone') ? 1234 : 0 } })
+    try {
+      const strip = mount('#1C2247').container.querySelector('.cl-strip') as HTMLElement
+      const scale = fitScale(336)
+      expect(scale).toBeCloseTo(336 / 393, 6)
+      expect(strip.style.getPropertyValue('--cl-scale')).toBe(String(scale))
+      expect(strip.style.getPropertyValue('--cl-h')).toBe(`${760 * scale}px`)
+      expect(strip.classList.contains('is-scaled')).toBe(true)
+    } finally {
+      if (cw) Object.defineProperty(proto, 'clientWidth', cw); else delete (proto as unknown as Record<string, unknown>).clientWidth
+      if (oh) Object.defineProperty(proto, 'offsetHeight', oh); else delete (proto as unknown as Record<string, unknown>).offsetHeight
+      ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = was
+    }
   })
   it('no colour shown → the honest block holds exactly the no-colour line, on both views', () => {
     const { container, getByRole } = mount(null)

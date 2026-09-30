@@ -3635,6 +3635,14 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () => {
+  it('1b-2 — the phone FRAME carries the fit transform; the app scroller inside it never does', () => {
+    const frame = CSS_CODE.match(/\.biz \.pg-settings \.cl-frame \{([^}]*)\}/)
+    const phone = CSS_CODE.match(/\.biz \.pg-settings \.cl-phone \{([^}]*)\}/)
+    expect(frame).not.toBeNull()
+    expect(phone).not.toBeNull()
+    expect(frame![1]).toMatch(/transform:\s*scale\(var\(--cl-scale\)\)/)
+    expect(phone![1]).not.toMatch(/transform/)
+  })
   it('the PAGE scrolls, and the two boxes that own an axis are the two that are pinned', () => {
     // ⚖ S17 STEP 1 — RE-DERIVED FROM 「NOT ONE CONTAINER」 TO 「TWO, NAMED」, and
     // the reason is a property of `position: sticky` rather than a preference: a
