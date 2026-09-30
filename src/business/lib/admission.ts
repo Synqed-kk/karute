@@ -33,6 +33,7 @@
 // (next.config staleTimes.dynamic = 300) before it re-renders and 404s.
 
 import { notFound } from 'next/navigation'
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './grants'
 
@@ -40,9 +41,26 @@ import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './
 // server-side record (never user text: the answer stays the bare 404). This is
 // the minimal shape until the shared writer exists. `ref` is a short random id
 // so one incident can be found in the logs; it is never shown to anyone.
+// record() NEVER throws: a value String() cannot print (a null-prototype
+// object, a throwing toString) records '<unprintable>', and anything else that
+// fails is dropped — the answer stays the 404, never a 500.
+function printable(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (v instanceof Error) return v.message
+  try {
+    return String(v)
+  } catch {
+    return '<unprintable>'
+  }
+}
+
 function record(reason: 'auth-error' | 'threw', status: unknown, message: unknown): void {
-  const ref = Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, '0')
-  console.error('[business-admission]', { reason, ref, status, message })
+  try {
+    const ref = Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, '0')
+    console.error('[business-admission]', { reason, ref, status, message: printable(message) })
+  } catch {
+    // a record must never change the answer
+  }
 }
 
 export interface BusinessAdmission { userId: string; email: string | null; businessId: string }
@@ -80,11 +98,15 @@ async function admit(): Promise<BusinessAdmission | null> {
   return { userId: user.id, email: user.email ?? null, businessId }
 }
 
-export async function requireBusinessAdmission(): Promise<BusinessAdmission> {
+// ONE admission per request (⚖ S5 fix round, F2 + C4): React cache() memoises
+// it for the render, so generateMetadata, the layout and the page share one
+// auth round-trip. Outside a render (route handlers, jest) there is no cache
+// dispatcher and cache() calls the function directly — uncached, as before.
+export const requireBusinessAdmission = cache(async (): Promise<BusinessAdmission> => {
   const admitted = await admit().catch((e: unknown) => {
-    record('threw', undefined, e instanceof Error ? e.message : String(e))
+    record('threw', undefined, e)
     return null
   })
   if (!admitted) notFound()
   return admitted
-}
+})

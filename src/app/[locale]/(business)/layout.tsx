@@ -19,7 +19,7 @@
 // The honesty chip (◈ サンプルデータ) is the pilot-safety surface, and it is
 // canon's own — not an interim addition.
 
-import { Suspense, cache } from 'react'
+import { Suspense } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { listStoreOptions, practiceDoorOn, readShellIdentity, readUnresolvedCounts } from '@/business/lib/data'
 import { BusinessSessionEdits } from './BusinessSessionEdits'
@@ -29,16 +29,15 @@ import { ShiftsSessionEdits } from './ShiftsSessionEdits'
 import './business-shell.css'
 
 // ⚖ Liam 2026-09-30 — the tab reads 「SYNQED Business」 only for an ADMITTED
-// request. A static `metadata` export here would also title the 404 thrown in
-// this segment (a production 404 tab reading 「SYNQED Business」), so the title
-// is computed from the SAME admission the layout awaits: one React cache() per
-// request shared by generateMetadata and the layout (admission.ts itself is not
-// memoised), so the title adds no second auth round-trip. Not admitted / any
-// failure → {} and the root 「Karute」 stands.
-const admission = cache(() => requireBusinessAdmission())
-
+// request. The title is computed from the SAME admission the layout awaits:
+// admission.ts memoises requireBusinessAdmission per request (React cache),
+// so generateMetadata, this layout and the page share ONE admission on a full
+// load AND on a soft navigation (Next resolves metadata from the full route
+// tree on every RSC request). A static `metadata` export here would also title
+// the 404 thrown in this segment, so there is none. Not admitted / any failure
+// → {} and the root 「Karute」 stands.
 export async function generateMetadata(): Promise<{ title?: string }> {
-  return admission().then(
+  return requireBusinessAdmission().then(
     () => ({ title: 'SYNQED Business' }),
     () => ({}),
   )
@@ -58,7 +57,7 @@ export default async function BusinessLayout({
   children: React.ReactNode
   params: Promise<{ locale: string }>
 }) {
-  await admission()
+  await requireBusinessAdmission()
   const [{ locale }, storeOptions, shell, unresolved, doorOn] = await Promise.all([
     params,
     listStoreOptions(),

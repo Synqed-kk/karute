@@ -86,6 +86,34 @@ describe('admission — a denial that is not "no session" leaves one record', ()
     expect(String(r[0][1].message)).toMatch(/blew up|backend down/)
   })
 
+  // S5 fix round F1: record() must never throw. String() throws on these two
+  // shapes; before the fix that TypeError escaped the catch and became a 500.
+  it.each([
+    ['a null-prototype object', () => Object.create(null) as unknown],
+    ['a throwing toString', () => ({ toString() { throw new Error('x') } }) as unknown],
+  ])('a throw of %s → still the 404, one record with message <unprintable>', async (_l, make) => {
+    supabase.mockImplementation(() => Promise.reject(make()))
+    await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
+    const r = records()
+    expect(r).toHaveLength(1)
+    expect(r[0][1]).toEqual({
+      reason: 'threw',
+      ref: expect.stringMatching(/^[0-9a-f]{8}$/),
+      status: undefined,
+      message: '<unprintable>',
+    })
+  })
+
+  // S5 fix round F2: the memo is React cache(). Outside a render there is no
+  // cache dispatcher, so every call runs the admission again (route handlers).
+  it('outside a render, two calls are two admissions (cache() calls through)', async () => {
+    const getUser = jest.fn(async () => ({ data: { user: { id: 'u1', email: null } }, error: null }))
+    supabase.mockResolvedValue({ auth: { getUser } })
+    await requireBusinessAdmission()
+    await requireBusinessAdmission()
+    expect(getUser).toHaveBeenCalledTimes(2)
+  })
+
   it('admitted → the same shape as before, no record', async () => {
     auth({ id: 'u1', email: 'o@x.jp' }, null)
     await expect(requireBusinessAdmission()).resolves.toEqual({ userId: 'u1', email: 'o@x.jp', businessId: 'biz-1' })

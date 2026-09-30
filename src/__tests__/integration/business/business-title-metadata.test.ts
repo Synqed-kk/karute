@@ -34,4 +34,15 @@ describe('(business) layout title', () => {
     expect(src).not.toMatch(/export\s+(const|let|var)\s+metadata\b/)
     expect(src).toMatch(/export async function generateMetadata\(/)
   })
+  // S5 fix round F2 + C4: the ONE per-request memo lives in admission.ts, so
+  // the title, the layout and the page share one admission; it must not
+  // silently move back into the layout.
+  it('the memo lives in admission.ts, and the layout has no cache( of its own', () => {
+    const adm = readFileSync(join(process.cwd(), 'src/business/lib/admission.ts'), 'utf8')
+    const lay = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/layout.tsx'), 'utf8')
+    expect(adm).toMatch(/export const requireBusinessAdmission = cache\(/)
+    expect(lay).not.toMatch(/cache\(/)
+    expect(lay).toMatch(/requireBusinessAdmission\(\)\.then\(/)
+    expect(lay).toMatch(/await requireBusinessAdmission\(\)/)
+  })
 })
