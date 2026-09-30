@@ -20,13 +20,29 @@ jest.mock('next-intl/middleware', () => ({
   __esModule: true,
   default: () => (req: unknown) => mockIntl(req),
 }))
+/** The cookie handlers the proxy hands to createServerClient, captured per call
+ * so a fake SDK call can drive them exactly as @supabase/ssr does. */
+type MockCookieWrite = { name: string; value: string; options?: Record<string, unknown> }
+const mockCookies: {
+  handlers?: {
+    getAll: () => { name: string; value: string }[]
+    setAll: (w: MockCookieWrite[]) => void
+  }
+} = {}
 jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({
-    auth: {
-      getClaims: (...a: unknown[]) => mockGetClaims(...a),
-      getUser: (...a: unknown[]) => mockGetUser(...a),
-    },
-  }),
+  createServerClient: (
+    _url: string,
+    _key: string,
+    opts: { cookies: NonNullable<typeof mockCookies.handlers> },
+  ) => {
+    mockCookies.handlers = opts.cookies
+    return {
+      auth: {
+        getClaims: (...a: unknown[]) => mockGetClaims(...a),
+        getUser: (...a: unknown[]) => mockGetUser(...a),
+      },
+    }
+  },
 }))
 jest.mock('@/i18n/routing', () => ({ routing: {} }))
 
@@ -157,3 +173,87 @@ describe('proxy — a stale Business session comes back to Business', () => {
   })
 })
 
+
+/**
+ * Cookie-aware (#1109 review thread). The stub above hands the proxy's real
+ * handlers to the fake SDK; each fake getUser writes cookies through them the
+ * way @supabase/ssr 0.9.0 does (cookies.js applyServerStorage: one setAll with
+ * `{ name, value, options }`, removals as value '' + maxAge 0).
+ */
+describe('proxy — cookies through the getUser call (#1109 review thread)', () => {
+  const AUTH = 'sb-test-auth-token'
+  const DEFAULTS = { path: '/', sameSite: 'lax', httpOnly: false }
+  const withCookie = (href: string) =>
+    new NextRequest(new URL(href), { headers: { cookie: `${AUTH}=stale-session` } })
+  const writeThenReturn = (writes: MockCookieWrite[], got: unknown) => async () => {
+    mockCookies.handlers!.setAll(writes)
+    return got
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockCookies.handlers = undefined
+    mockIntl.mockReturnValue(NextResponse.next())
+    mockGetClaims.mockResolvedValue({ data: { claims: { sub: 'u1' } } })
+    process.env.VERCEL_ENV = 'preview'
+  })
+
+  it('the handlers read the request cookies (getAll) the SDK sees', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
+    await proxy(withCookie(TODAY))
+    expect(mockCookies.handlers!.getAll()).toEqual([{ name: AUTH, value: 'stale-session' }])
+  })
+
+  it('GONE session that clears the auth cookie → 307 to login; the redirect carries no session cookies (main\'s redirect branch, unchanged)', async () => {
+    const req = withCookie(TODAY)
+    mockGetUser.mockImplementation(
+      writeThenReturn(
+        [{ name: AUTH, value: '', options: { ...DEFAULTS, maxAge: 0 } }],
+        { data: { user: null }, error: MISSING },
+      ),
+    )
+    const res = await proxy(req)
+    expect(mockGetUser).toHaveBeenCalledTimes(1)
+    // the SDK's removal did go through the proxy's setAll (request side written)
+    expect(req.cookies.get(AUTH)?.value).toBe('')
+    expect(res.status).toBe(307)
+    expect(res.headers.get('location')).toBe(EXPECTED_LOGIN)
+    // a fresh NextResponse.redirect: nothing from the supabase response rides along
+    expect(res.headers.get('set-cookie')).toBeNull()
+    expect(res.cookies.getAll()).toEqual([])
+  })
+
+  it('LIVE session with a token refresh → passes through carrying the refreshed auth cookie', async () => {
+    const intl = NextResponse.next()
+    mockIntl.mockReturnValue(intl)
+    mockGetUser.mockImplementation(
+      writeThenReturn(
+        [{ name: AUTH, value: 'refreshed-session', options: { ...DEFAULTS, maxAge: 34560000 } }],
+        { data: { user: { id: 'u1' } }, error: null },
+      ),
+    )
+    const res = await proxy(withCookie(TODAY))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('location')).toBeNull()
+    expect(res).not.toBe(intl) // setAll rebuilt the pass-through response
+    expect(res.cookies.get(AUTH)?.value).toBe('refreshed-session')
+    expect(res.headers.get('set-cookie')).toContain(`${AUTH}=refreshed-session`)
+    expect(res.headers.get('set-cookie')).toContain('Max-Age=34560000')
+  })
+
+  it('OUTAGE with a cookie write attempted → passes through carrying the written cookie', async () => {
+    mockGetUser.mockImplementation(
+      writeThenReturn(
+        [{ name: AUTH, value: '', options: { ...DEFAULTS, maxAge: 0 } }],
+        { data: { user: null }, error: sdkError('AuthRetryableFetchError', 503) },
+      ),
+    )
+    const res = await proxy(withCookie(TODAY))
+    expect(mockGetUser).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('location')).toBeNull()
+    expect(res.cookies.get(AUTH)?.value).toBe('')
+    expect(res.headers.get('set-cookie')).toContain(`${AUTH}=;`)
+    expect(res.headers.get('set-cookie')).toContain('Max-Age=0')
+  })
+})
