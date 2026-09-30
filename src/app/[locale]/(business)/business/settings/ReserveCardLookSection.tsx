@@ -118,6 +118,9 @@ export function ReserveCardLookSection({
     return () => ro.disconnect()
   }, [])
 
+  // The honest slot (mock renderHonest :1947-1958): only lines that are true right now; none → no block.
+  const honest = shown === null ? ['色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。'] : []
+
   const pick = (hex: string, i: number) => {
     onPick(hex)
     setFocusAt(i)
@@ -209,7 +212,7 @@ export function ReserveCardLookSection({
       </div>
       {view === 'home' && <p className="st-pv-cap">見本では、編集中のお店を大きいカードにしています。実際のアプリでは、次のご予約が近いお店が大きいカードになります。</p>}
       {view === 'home' && <p className="st-pv-cap">カードを開く動きは、この見本だけのものです。</p>}
-      {shown === null && <p className="st-pv-cap">色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。</p>}
+      {honest.length > 0 && <div className="cl-honest">{honest.map((line) => <p key={line}>{line}</p>)}</div>}
     </section>
   )
 

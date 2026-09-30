@@ -67,6 +67,32 @@ describe('カードの見た目 home notes', () => {
   })
 })
 
+// ⚖ 1b-2 B3 — the phone frame and the honest slot (mock .phoneframe / renderHonest :1947-1958): the app sits in
+// the frame's own scroller; the honest block carries only the no-colour line, only while no colour is shown,
+// and is not rendered at all when it has nothing to say.
+describe('カードの見た目 phone frame + honest slot', () => {
+  const HONEST = '色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。'
+  const honest = (c: HTMLElement) => Array.from(c.querySelectorAll('.cl-honest p')).map((p) => p.textContent)
+  it('the app sits in the frame (.cl-frame > .cl-phone), both views', () => {
+    const { container, getByRole } = mount('#1F3D33')
+    expect(container.querySelector('.cl-strip > .cl-frame > .cl-phone .mcard')).not.toBeNull()
+    fireEvent.click(getByRole('button', { name: 'お店ページ' }))
+    expect(container.querySelector('.cl-strip > .cl-frame > .cl-phone .salon-cover')).not.toBeNull()
+  })
+  it('no colour shown → the honest block holds exactly the no-colour line, on both views', () => {
+    const { container, getByRole } = mount(null)
+    expect(honest(container)).toEqual([HONEST])
+    fireEvent.click(getByRole('button', { name: 'お店ページ' }))
+    expect(honest(container)).toEqual([HONEST])
+  })
+  it('a colour shown → no honest block at all (empty → not rendered)', () => {
+    const { container } = mount('#1F3D33')
+    expect(container.querySelector('.cl-honest')).toBeNull()
+    cleanup()
+    expect(mount(null, '#1F3D33').container.querySelector('.cl-honest')).toBeNull()
+  })
+})
+
 // Reserve's branch rule (studio-home.tsx:478, :514), carried by the port: the card prints the store line under the
 // name only when it differs from the name — a store named like the card has no branch to add.
 describe('reserve card port — the branch line follows Reserve\'s branch rule', () => {
