@@ -829,7 +829,6 @@ describe('B2 act 2a honest stamp every page-only save', () => {
   const PAGE_ONLY = JA.sampleMark.pageOnlyStamp
   const T1 = new Date('2026-11-18T14:59:00Z') // 23:59 JST — the render
   const T2 = new Date('2026-11-18T18:10:00Z') // 03:10 JST — the press
-  const T3 = new Date('2026-11-18T18:17:00Z') // 03:17 JST — core's yes
   const open = async (store: string, section: string) => {
     jest.setSystemTime(T1)
     const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section }) })) as ReactElement
@@ -886,26 +885,24 @@ describe('B2 act 2a honest stamp every page-only save', () => {
     expect(writes()).toEqual([])
     expect(fetchLog.some((r) => r.url.includes('/api/business/booking-colors'))).toBe(false)
   })
-  it('(d) door ON, card colour saved, core says yes at 03:17 → 「✓ 保存しました 03:17」', async () => {
-    await open(STORE.tokyo, 'reserve-card-look')
-    let answer: (r: Response) => void = () => {}
-    let sentColor: unknown = null
-    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe('/api/business/card-color')
-      expect(init?.method).toBe('PUT')
-      sentColor = JSON.parse(String(init?.body)).color
-      return new Promise<Response>((r) => { answer = r })
-    }) as unknown as typeof fetch
-    pickCard()
-    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
-    jest.setSystemTime(T2)
-    await act(async () => { saveBtn().click() })
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-    jest.setSystemTime(T3)
-    await act(async () => { answer(fakeRes(200, { ok: true, color: sentColor })) })
-    await settle()
-    expect(stamps()).toEqual(['✓ 保存しました 03:17'])
-    expect(document.body.textContent).not.toContain(PAGE_ONLY)
+  // ⚖ PR #1102 fix round 1 — (d) REPLACED: the old (d) repeated 1c (i). This pins the null branch
+  // rendered (no colour changed → sendBookingColors returns null → no PUT → page only), which the
+  // source regex alone did not guard (attack mutant `false→true` there passed the file 49/49).
+  it('(d) door ON, 言語・表示, only この画面の言語 changed → zero PUT, 「✓ この画面だけに反映しました 03:10」', async () => {
+    jest.setSystemTime(T1)
+    const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section: 'language-display' }) })) as ReactElement<{ saveBookingColors?: unknown }>
+    expect(el.props.saveBookingColors).toBeDefined()
+    render(<StrictMode>{el}</StrictMode>)
+    await act(async () => {})
+    const sel = document.querySelector('select[aria-label="この画面の言語"]') as HTMLSelectElement
+    expect(sel).not.toBeNull()
+    fireEvent.change(sel, { target: { value: [...sel.options].find((o) => !o.selected)!.value } })
+    expect(stamps()).toEqual(['変更した設定 1件'])
+    ;(jstClock as jest.Mock).mockClear()
+    await press()
+    expect(writes()).toEqual([])
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    expect(jstClock).toHaveBeenCalledTimes(1)
   })
   it('(e) door ON, a section without a writer (営業時間 sample) → the honest stamp, nothing sent', async () => {
     await open(STORE.tokyo, 'store-hours')
