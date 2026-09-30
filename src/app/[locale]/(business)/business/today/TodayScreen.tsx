@@ -203,6 +203,7 @@ import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from '
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
 import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
+import { heldReferenceFor, identitiesOf, settleHeldReference } from './held-reference'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
 import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
 import { releaseTimed } from './timed-release'
@@ -2267,6 +2268,17 @@ export function TodayScreen(props: TodayProps) {
    *  board and a protected window's subject is a NEW client. */
   // ⚖ D-52 (a) — no rooms, nothing to net: `undefined` is the law-off shape
   // every consumer below already reads.
+  // ⚖ DECISIONS.md R4 (S4 PR-B) — the allocator's two preference inputs: the
+  // ONE sellable predicate (`sellableLaneKeysOf`, the set `windowsOf` reads),
+  // built once per lane world, and the settled held set of THIS store and day
+  // (held-reference.ts). Moved up from below `honest` unchanged so the netting
+  // can read it.
+  const sellableLaneKeys = useMemo(
+    () => sellableLaneKeysOf(committedLanes, locked),
+    [committedLanes, locked],
+  )
+  const heldRefStore = props.store ?? ''
+  const heldRefDate = `${props.dayOffset}|${props.dayLabel}`
   const honest = useMemo(
     () => (HONEST_HELD && heldCommitted && storeHasBeds(committedLanes)
       ? honestHeld(
@@ -2276,9 +2288,10 @@ export function TodayScreen(props: TodayProps) {
           true,
           // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
           (l) => storeHasBeds(committedLanes, l.stores),
+          { sellable: (l) => sellableLaneKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) },
         )
       : undefined),
-    [heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk],
+    [heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk, sellableLaneKeys, heldRefStore, heldRefDate],
   )
 
   /** ⚖ SPEC-HONEST-COUNT v5 (1) — THE SALE FILTER, ON TOP OF THE ONE NETTING.
@@ -2290,10 +2303,6 @@ export function TodayScreen(props: TodayProps) {
    *  layer); `honestDrawn` is what is DRAWN (the row's boxes, the online 確保
    *  rows). Never the filter before the netting: a row nobody can buy from
    *  still takes a room. */
-  const sellableLaneKeys = useMemo(
-    () => sellableLaneKeysOf(committedLanes, locked),
-    [committedLanes, locked],
-  )
   /** HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 4)
    *  — THE DRAWN HALF IS ONLY ROWS. It used to be a whole `HonestHeld` carrying
    *  the STORE's `total` beside a narrowed `byLane`, which is a typed value that
@@ -2810,12 +2819,15 @@ export function TodayScreen(props: TodayProps) {
   const staffCardInHand = live != null && live.group !== 'beds' && !live.overShelf && live.mode === 'move'
   // ⚖ D-52 (a) — no rooms, nothing to net; falls back to `heldBoard` like the
   // other law-off arm.
+  // ⚖ R4 (S4 PR-B) — the rail reads the SAME settled reference as `honest`.
+  const boardSellableKeys = useMemo(() => sellableLaneKeysOf(boardLanes, locked), [boardLanes, locked])
   const heldBoardHonest = useMemo(
     () => (HONEST_HELD && heldBoard && !staffCardInHand && hasBeds
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
-      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores)).byLane.map(heldMaskOf)
+      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores),
+        { sellable: (l) => boardSellableKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) }).byLane.map(heldMaskOf)
       : heldBoard),
-    [heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds],
+    [heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds, boardSellableKeys, heldRefStore, heldRefDate],
   )
 
   /** ⚖ NEW-WINDOW — THE DAY QUESTION'S OWN DOOR, and it is the SETTLED board's.
@@ -2865,6 +2877,13 @@ export function TodayScreen(props: TodayProps) {
 
   const pendingId = pending?.id ?? null
   const dayStaged = pendingId != null && moves[pendingId] != null
+  // ⚖ DECISIONS.md R4 · R8e (S4 PR-B) — SETTLE: only the UN-STAGED answer (no
+  // 確定 pending, no card in flight) becomes the reference, written after it
+  // exists and never inside another answer's computation. The memos read it on
+  // their next computation; by the fixed point a re-read returns this answer.
+  useEffect(() => {
+    if (honest && !dayStaged && live == null) settleHeldReference(heldRefStore, heldRefDate, identitiesOf(honest))
+  }, [honest, dayStaged, live, heldRefStore, heldRefDate])
   /** The three boards-without-this-card helpers, so the ORIGIN board is the day
    *  元に戻す restores. `addedHere`'s identity is `a.item.caseId` — `applyMoves`'s
    *  own admission key — and not an `id` field, which does not exist on those rows
@@ -2982,6 +3001,7 @@ export function TodayScreen(props: TodayProps) {
    *  ⚖ D-20 (1) — the mask production moved to `originReleased` above (shared
    *  with `dayOrigin`'s law-on/netting-off arm), so this body shrinks to the
    *  netting alone. */
+  const originSellableKeys = useMemo(() => sellableLaneKeysOf(originLanes, locked), [originLanes, locked])
   const honestOrigin = useMemo(() => {
     if (!honest || !dayStaged) return honest
     if (!originReleased) return honest
@@ -2992,8 +3012,10 @@ export function TodayScreen(props: TodayProps) {
       true,
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(originLanes, l.stores),
+      // ⚖ R4 (S4 PR-B) — the origin reads the same settled reference, never `honest`.
+      { sellable: (l) => originSellableKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) },
     )
-  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked, chromeAsk])
+  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked, chromeAsk, originSellableKeys, heldRefStore, heldRefDate])
   /** ⚖ D-20 (1) — the middle arm mirrors `dayCommitted`'s own: with the netting
    *  off but the law on and a released origin mask in hand, read that RELEASED
    *  mask in the day layer's shape (`on: false`, the identity answer) instead

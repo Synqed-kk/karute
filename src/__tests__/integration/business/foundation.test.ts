@@ -561,6 +561,8 @@ describe('the fixture data door', () => {
         // is already on this list.
         './held-delta',
         // R1/R2 (DECISIONS.md today-impact-2026-09-30): the one store-level delta (pure, type-only back).
+        // DISCLOSED PIN MOVE (PR-B): the held-reference import — the session holder of the settled held set (DECISIONS.md R4, S4 PR-B); it names only honest-held.
+        './held-reference',
         './honest-held',
         './reserved-mask',
         './selling-engine-gate',

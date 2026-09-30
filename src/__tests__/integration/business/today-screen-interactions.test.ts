@@ -11818,6 +11818,8 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // frame for the rail) — `demoteShared` is deleted: the board world is netted
     // by `honestHeld` itself now, and the rail's mask comes through `heldMaskOf`.
     "import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
+    // DISCLOSED PIN MOVE (PR-B): the held-reference import — the settled held set is the allocator's reference (DECISIONS.md R4, S4 PR-B).
+    "import { heldReferenceFor, identitiesOf, settleHeldReference } from './held-reference'",
     "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
     "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
     // ⚖ ROUND 2 (2026-09-13) — the timed release of a kept 新規用 枠. Pure, every
@@ -15277,11 +15279,13 @@ describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predica
   // `heldBoardHonest`/`boardLanes` site is already pinned whole in
   // selling-engine-doors.test.ts; not duplicated here.
   it("the three netting call sites carry the mixed-board predicate — the tip's exact whole call", () => {
+    // DISCLOSED PIN MOVE (PR-B): the preference argument — `honest` and `honestOrigin` now pass a sixth argument (sellable + the settled reference, DECISIONS.md R4, S4 PR-B) after the mixed-board predicate.
     expect(SRC).toContain(
       `          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
           true,
           // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
           (l) => storeHasBeds(committedLanes, l.stores),
+          { sellable: (l) => sellableLaneKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) },
         )`,
     )
     expect(SRC).toContain(
@@ -15296,6 +15300,8 @@ describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predica
       true,
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(originLanes, l.stores),
+      // ⚖ R4 (S4 PR-B) — the origin reads the same settled reference, never \`honest\`.
+      { sellable: (l) => originSellableKeys.has(l.key), reference: heldReferenceFor(heldRefStore, heldRefDate) },
     )`,
     )
   })

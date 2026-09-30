@@ -18,7 +18,9 @@ import { createClient } from '@/lib/supabase/server'
 import { STORE_A } from '@/business/lib/fixtures'
 import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
 import { TodayScreen, bedDoor, bedViewsFor, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
-import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { heldIdOf, honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { withheldOffers } from '@/app/[locale]/(business)/business/today/bed-aware-sales'
+import { heldReferenceFor, identitiesOf, settleHeldReference } from '@/app/[locale]/(business)/business/today/held-reference'
 import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
 import { releaseTimed } from '@/app/[locale]/(business)/business/today/timed-release'
 import type { ReleasedWindow } from '@/app/[locale]/(business)/business/today/reserved-mask'
@@ -55,8 +57,14 @@ const log = (tag: string, v: unknown) => process.stdout.write(`DERIVED ${tag} ${
 
 /** A settled board's day answer, the screen's own chain: heldCommittedFor (manual
  *  keep-backs in `released`) → releaseTimed (D-11) → honestHeld → windowsOf. */
-type DayOpts = { released?: ReleasedWindow[]; now?: number | null; beforeMin?: number | null; on?: boolean }
+// ⚖ R4 (S4 PR-B) — `ref`: the settled held set handed to the netting as its
+// reference, with the ONE sellable predicate of the same lanes. Absent = the
+// historic netting, so every pre-PR-B caller below is byte-identical.
+type DayOpts = { released?: ReleasedWindow[]; now?: number | null; beforeMin?: number | null; on?: boolean; ref?: ReadonlySet<string> }
 function dayOf(lanes: BoardLane[], o: DayOpts = {}): DayWindows {
+  return windowsOf(honestOf(lanes, o).honest, lanes, [])
+}
+function honestOf(lanes: BoardLane[], o: DayOpts = {}) {
   const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
   const raw = heldCommittedFor({
     gateOn: true, lanes, frame, bookOf: (l, f, h) => bedViewsFor(l, f, h, ASK_A),
@@ -64,8 +72,10 @@ function dayOf(lanes: BoardLane[], o: DayOpts = {}): DayWindows {
   })
   const mask = o.now === undefined ? raw : releaseTimed(raw, o.now, o.beforeMin ?? null, o.released ?? []).mask
   // `on: false` is HONEST_HELD's identity arm (TodayScreen's law-off day memos), no book asked.
-  const honest = honestHeld(mask!, lanes, bedViewsFor(lanes, frame, null, ASK_A).world, o.on ?? true, (l) => storeHasBeds(lanes, l.stores))
-  return windowsOf(honest, lanes, [])
+  const sell = sellableLaneKeysOf(lanes, [])
+  const prefer = o.ref === undefined ? undefined : { sellable: (l: BoardLane) => sell.has(l.key), reference: o.ref }
+  const honest = honestHeld(mask!, lanes, bedViewsFor(lanes, frame, null, ASK_A).world, o.on ?? true, (l) => storeHasBeds(lanes, l.stores), prefer)
+  return { honest, mask: mask! }
 }
 /** Stage one fixture booking (by caseId) at [s, e) on `toLane` (its own lane by
  *  default) and compose the popup exactly as the screen does: one delta, one face. */
@@ -548,5 +558,114 @@ describe('fix round 2 — movement rows print PAIRS, each with its own arrow (Gr
     expect(arms.fallback ?? 0).toBe(0)
     expect(moved).toBeGreaterThan(0)
     expect(bad).toEqual([])
+  })
+})
+
+// ── ⚖ DECISIONS.md R4 · R7 · R8e/m (S4 PR-B) — the settled reference on the fixture board ──
+// Pure composition: this file runs in node, where the session holder is a
+// no-op by its own server guard (asserted first), so the settled set is
+// carried by hand exactly as TodayScreen's effect carries it: the un-staged
+// answer's `identitiesOf` becomes the next computation's `ref`.
+describe('PR-B — the settled held set as the allocator reference', () => {
+  const sorted = (ids: ReadonlySet<string>) => [...ids].sort()
+  const refs = (ws: ReadonlyArray<{ laneKey: string; windowStart: number }>) => ws.map((w) => heldIdOf(w.laneKey, w.windowStart))
+  /** The first frame after a reload: no reference, today's bytes — and it settles. */
+  const firstSettle = () => identitiesOf(honestOf(REAL.lanes).honest)
+
+  it('server render: the holder reads undefined and settling is a no-op', () => {
+    expect(typeof window).toBe('undefined')
+    settleHeldReference(STORE_A, 'd', new Set(['p-04|945']))
+    expect(heldReferenceFor(STORE_A, 'd')).toBeUndefined()
+  })
+
+  it('R7 — しろう same-count landing (S2) with the settled reference: NO row, the clean face', () => {
+    const ref0 = firstSettle()
+    const r = landingOf('apt-26', null, 14 * 60 + 30, 15 * 60, { ref: ref0 }, { ref: ref0 })
+    log('PRB-S2', { counted: [r.day.countedBefore, r.day.countedAfter], lost: r.day.lost, gained: r.day.gained, shifted: r.day.shifted, rows: labels(r.model.dayRows), guardRow: r.model.guardRow?.label, face: r.model.face })
+    expect([r.day.countedBefore, r.day.countedAfter]).toEqual([3, 3])
+    expect([r.day.lost, r.day.gained, r.day.shifted]).toEqual([[], [], []])
+    expect(r.model.dayRows).toEqual([])
+    expect(r.model.face).toBe('clean')
+    // しろう keeps 15:45; あずさ 15:05 is the SHARED one, and no 守れます speaks for it.
+    expect(r.after.byLane.find((l) => l.laneKey === 'p-04')?.starts).toEqual([945])
+    expect(labels([...r.model.rows, ...(r.model.guardRow ? [r.model.guardRow] : [])]).join('\n')).not.toContain('15:05〜16:35')
+  })
+
+  it('S3 (→ 15:00–15:30) with the reference: still an empty delta and the clean face', () => {
+    const ref0 = firstSettle()
+    const r = landingOf('apt-26', null, 15 * 60, 15 * 60 + 30, { ref: ref0 }, { ref: ref0 })
+    expect([r.day.lost, r.day.gained, r.day.shifted]).toEqual([[], [], []])
+    expect(r.model.face).toBe('clean')
+    expect(r.model.dayRows).toEqual([])
+    expect(r.model.guardRow?.label).toContain('守れます')
+  })
+
+  it('lengthen (same-lane shift) is still named — a new start is a new identity', () => {
+    const ref0 = firstSettle()
+    const r = landingOf('apt-26', null, 14 * 60 + 30, 16 * 60, { ref: ref0 }, { ref: ref0 })
+    expect(r.day.shifted.map((x) => `${x.laneKey}:${x.from}→${x.to}`)).toEqual(['p-04:945→960'])
+    expect(labels(r.model.dayRows)).toEqual(['確保枠 見本 しろうの15:45 → 16:00（店全体は3枠のまま）'])
+  })
+
+  it('a FORCED cross-lane move onto the cheaper lane (ごろう ¥8,800 → あずさ ¥7,700) is still the quiet row', () => {
+    const ref0 = firstSettle()
+    const r = landingOf('apt-29', 'p-05', 14 * 60 + 35, 15 * 60 + 35, { ref: ref0 }, { ref: ref0 })
+    expect([refs(r.day.lost), refs(r.day.gained)]).toEqual([['p-05|870'], ['p-06|870']])
+    expect(r.model.face).toBe('clean')
+    expect(labels(r.model.dayRows)).toEqual(['確保枠 見本 ごろうの14:30 → 見本 あずさの14:30（店全体は3枠のまま・空きの金額は約¥1,650減）'])
+  })
+
+  it('PREVIEW == COMMIT, retry, undo — and the committed set is a fixed point', () => {
+    const first = honestOf(REAL.lanes).honest
+    const ref0 = identitiesOf(first)
+    const { staged } = landingOf('apt-26', null, 14 * 60 + 30, 15 * 60)
+    const preview = honestOf(staged, { ref: ref0 }).honest
+    // 確定: staged cleared, the un-staged answer on the new board against the OLD reference
+    const commit = honestOf(staged, { ref: ref0 }).honest
+    expect(commit).toEqual(preview)
+    const ref1 = identitiesOf(commit)
+    expect(honestOf(staged, { ref: ref1 }).honest).toEqual(commit)
+    // retry (cancel, drag again): the same settled reference, the same preview
+    expect(honestOf(REAL.lanes, { ref: ref0 }).honest).toEqual(first)
+    expect(honestOf(staged, { ref: ref0 }).honest).toEqual(preview)
+    // undo: a board change like any other, against the most recent settled set
+    const undone = honestOf(REAL.lanes, { ref: ref1 }).honest
+    expect({ total: undone.total, ids: sorted(identitiesOf(undone)) }).toEqual({ total: first.total, ids: sorted(ref0) })
+  })
+
+  it('timed release with a non-trivial nowMinute: a released window leaves the candidates, the rest of the reference stands', () => {
+    const ref0 = firstSettle()
+    const dial = REAL.guard.config.autoReleaseBeforeMin ?? null
+    const beforeMin = dial === 'linked' ? (REAL.guard.config.leadTimeMin ?? null) : dial
+    const now = 14 * 60 + 40
+    const { honest, mask } = honestOf(REAL.lanes, { now, beforeMin: beforeMin ?? 60, ref: ref0 })
+    const cands = new Set(mask.flatMap((m) => m.spans.map((s) => heldIdOf(m.laneKey, s.windowStart))))
+    const got = identitiesOf(honest)
+    log('PRB-timed', { ref0: sorted(ref0), cands: sorted(cands), got: sorted(got) })
+    expect([...got].every((id) => cands.has(id))).toBe(true)
+    expect([...ref0].filter((id) => cands.has(id)).every((id) => got.has(id))).toBe(true)
+  })
+
+  it('the 15:00–15:30 filler under しろう (ATTACK-OPUS-2026-09-30 §C8, p-04|900) on the staged S2 board: ON SALE and STABLE preview → commit', () => {
+    const ref0 = firstSettle()
+    const { staged } = landingOf('apt-26', null, 14 * 60 + 30, 15 * 60)
+    const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
+    const lane04 = staged.find((l) => l.key === 'p-04')!
+    const ask = [{ key: 'p-04|900', laneKey: 'p-04', start: 900, end: 930, stores: lane04.stores ?? null }]
+    const verdict = (ref: ReadonlySet<string> | undefined) => {
+      const { honest, mask } = honestOf(staged, ref === undefined ? {} : { ref })
+      return withheldOffers(ask, honest, mask, staged, bedViewsFor(staged, frame, null, ASK_A).world, true, (l) => storeHasBeds(staged, l.stores)).keys.has('p-04|900')
+    }
+    const historic = verdict(undefined)
+    const preview = verdict(ref0)
+    const ref1 = identitiesOf(honestOf(staged, { ref: ref0 }).honest)
+    const committed = verdict(ref1)
+    log('PRB-filler', { historicWithheld: historic, previewWithheld: preview, committedWithheld: committed })
+    expect({ historic, preview, committed }).toEqual({ historic: true, preview: false, committed: false })
+  })
+
+  it('law-off (HONEST_HELD off): the identity arm ignores the preference, byte for byte', () => {
+    const ref0 = firstSettle()
+    expect(honestOf(REAL.lanes, { on: false, ref: ref0 }).honest).toEqual(honestOf(REAL.lanes, { on: false }).honest)
   })
 })

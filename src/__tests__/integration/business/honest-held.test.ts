@@ -794,4 +794,19 @@ describe('honest-held — the held preference (DECISIONS.md R4, S4 PR-B)', () =>
     const d = heldDelta(was, daysOf(alone, sell), () => 0)
     expect({ shifted: d.shifted.map((s) => [s.laneKey, s.from, s.to]), lost: d.lost, gained: d.gained }).toEqual({ shifted: [['a', 600, 615]], lost: [], gained: [] })
   })
+
+  it('STRESS pinned-window example (STRESS-STRUCTURE-OPUS-2026-09-30 §2): SIZE still comes first — a larger set drops the referenced A', () => {
+    // A 14:00–15:30 published on R; an edit makes B 12:45–14:15 and C 15:15–16:45 feasible, both on R.
+    const wins: PWin[] = [
+      { laneKey: 'a', start: 840, end: 930, rooms: ['R'], sell: true },
+      { laneKey: 'b', start: 765, end: 855, rooms: ['R'], sell: true },
+      { laneKey: 'c', start: 915, end: 1005, rooms: ['R'], sell: true },
+    ]
+    const cands = wins.map((w) => maskOf(w.laneKey, [span(w.start, 90)]))
+    const lanes = wins.map((w) => lane(w.laneKey, [w.laneKey]))
+    const book = stubBook((start, _e, stores) => wins.find((w) => w.start === start && w.laneKey === stores?.[0])?.rooms ?? [])
+    const h = honestHeld(cands, lanes, book, true, undefined, { sellable: () => true, reference: new Set([heldIdOf('a', 840)]) })
+    // the ruling is size-first (R4); reference-first for PUBLISHED inventory is the persisted-record ticket, not PR-B.
+    expect({ ids: sortedIds(h), total: h.total }).toEqual({ ids: ['b|765', 'c|915'], total: 2 })
+  })
 })
