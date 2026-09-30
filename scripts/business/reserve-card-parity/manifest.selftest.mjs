@@ -6,7 +6,7 @@
 // import time, before anything is exported, installed or emitted, so no case reaches Reserve, git or the network
 // (RESERVE_REPO points at a path that does not exist, and PARITY_DIR at the case's own temp dir).
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -51,6 +51,28 @@ for (const [name, make, want] of all) {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+}
+// per-run scratch: a well-formed manifest creates the run's own dir under PARITY_DIR before dying on the missing
+// module — with PARITY_KEEP=1 each spawn prints a DIFFERENT path under the parent; without it nothing is left behind
+{
+  const name = 'per-run scratch dir: unique under PARITY_DIR, kept only with PARITY_KEEP=1'
+  const dir = mkdtempSync(join(tmpdir(), 'parity-manifest-selftest-'))
+  try {
+    mkdirSync(join(dir, dirname(REL)), { recursive: true })
+    writeFileSync(join(dir, REL), JSON.stringify(good()))
+    const parent = realpathSync(dir), work = join(parent, 'work')
+    const spawnRun = (extra) => spawnSync(process.execPath, [RUN], { env: { ...process.env, PARITY_REPO: dir, PARITY_DIR: work, RESERVE_REPO: join(dir, 'no-reserve'), PARITY_KEEP: '', ...extra }, encoding: 'utf8', timeout: 30_000 })
+    const kept = [spawnRun({ PARITY_KEEP: '1' }), spawnRun({ PARITY_KEEP: '1' })].map((r) => r.stdout.match(/^scratch kept: (.+)$/m)?.[1] ?? null)
+    const keptOk = kept.every((p) => p && p.startsWith(join(work, 'reserve-card-parity-')) && existsSync(p)) && kept[0] !== kept[1]
+    for (const p of kept) if (p) rmSync(p, { recursive: true, force: true })
+    const r = spawnRun({})
+    const ok = keptOk && r.status === 1 && !/scratch kept:/.test(r.stdout) && readdirSync(work).length === 0
+    if (!ok) failed++
+    console.log(`${ok ? '✓' : '✗'} ${name}${ok ? '' : ` — kept ${JSON.stringify(kept)}; left ${JSON.stringify(readdirSync(work))}`}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+  all.push([name])
 }
 if (failed) {
   console.error(`✗ parity manifest selftest: ${failed} of ${all.length} cases red`)
