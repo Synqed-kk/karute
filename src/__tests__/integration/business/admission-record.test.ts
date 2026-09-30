@@ -119,7 +119,8 @@ describe('admission — a denial that is not "no session" leaves one record', ()
 
   it('admitted → the same shape as before, no record', async () => {
     auth({ id: 'u1', email: 'o@x.jp' }, null)
-    await expect(requireBusinessAdmission()).resolves.toEqual({ userId: 'u1', email: 'o@x.jp', businessId: 'biz-1' })
+    // R53 (#1107) added displayName to the admitted shape; null under this fixture
+    await expect(requireBusinessAdmission()).resolves.toEqual({ userId: 'u1', email: 'o@x.jp', displayName: null, businessId: 'biz-1' })
     expect(records()).toHaveLength(0)
   })
 
