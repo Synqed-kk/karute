@@ -35,9 +35,13 @@ export const renderNow = cache((): Date => new Date())
 
 /** ⚖ S17 STEP 1 / B2 act 1c (R41) — THE save stamp's clock formatter, the ONE
  *  home for it. 24-hour, JST, exactly as the topbar's own Reserve同期 stamp reads.
- *  The settings screen reads the clock ONCE, at the press (inside the save event
- *  path, never during render), and formats that instant through this function;
- *  the formatted text is the value of the screen's `committed` state, so the
+ *  The settings screen reads the clock ONCE per commit, in the event callback
+ *  BEFORE any state update — never inside a state updater (React runs those
+ *  during render, twice under StrictMode) and never in render. For the two
+ *  core-backed saves (カードの見た目, 予約の色分け) commitSection runs after core's
+ *  yes, so the stamp is the COMMIT instant (⚖ R42), not the press. That instant
+ *  is formatted through this function; the formatted text is the value of the
+ *  screen's `committed` state, so the
  *  stamp and its time are one fact and cannot disagree. The stamp used to print
  *  the page's render instant, which was false whenever the page had been open
  *  for a while (rendered 23:59, pressed 03:10 → "23:59"). Renders never read the
@@ -46,7 +50,8 @@ export const renderNow = cache((): Date => new Date())
 const JST_CLOCK = new Intl.DateTimeFormat('ja-JP', {
   hour: '2-digit',
   minute: '2-digit',
-  hour12: false,
+  // h23, not hour12: false — midnight prints 00:00 by rule, not by the locale's default cycle.
+  hourCycle: 'h23',
   timeZone: 'Asia/Tokyo',
 })
 
