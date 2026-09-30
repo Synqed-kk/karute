@@ -1,11 +1,11 @@
-// Verified port of Synqed-kk/reserve @ c2a9f9543187 — the card's colour variables.
+// Verified port of Synqed-kk/reserve @ 4db48b73ba70 — the card's colour variables.
 // Three blocks, each byte-identical below its marker; re-port when Reserve changes (see PARITY.md).
 // Non-verbatim: these header lines and the two imports (Reserve imports via "@/lib/…" paths).
 import type { CSSProperties } from "react";
 
 import { satinVars } from "./satin-material";
 
-// reserve src/lib/types.ts:162–185 @ c2a9f95, verbatim
+// reserve src/lib/types.ts:170–193 @ 4db48b7, verbatim
 export interface BrandTheme {
   /** Business-selected Reserve card color; separate from app chrome. */
   cardColor?: string;
@@ -31,7 +31,7 @@ export interface BrandTheme {
   brandPale?: string;
 }
 
-// reserve src/lib/reserve-api/member-ia.ts:238–253 @ c2a9f95, verbatim
+// reserve src/lib/reserve-api/member-ia.ts:257–272 @ 4db48b7, verbatim
 /**
  * The two stops a tenant OBJECT is printed with — the lighter one first, which
  * is the order every gradient in the member area reads them in. `null` when the
@@ -49,7 +49,7 @@ export function tenantGradientPair(
   return { "--tenant-g1": theme.brandColor2, "--tenant-g2": theme.primaryColor };
 }
 
-// reserve src/components/customer/salon-surface.tsx:36–61 @ c2a9f95, verbatim
+// reserve src/components/customer/salon-surface.tsx:36–61 @ 4db48b7, verbatim
 /**
  * The MEMBER-AREA half of the same adapter: a tenant's identity carried into
  * an APP surface (a home row, the ranked ticket, the 受付 sheet) without
