@@ -2040,15 +2040,18 @@ describe('windowsOf — the day layer over the honest set', () => {
         { laneKey: 'p-01', held: [span(600, 90), span(780, 90)] },
         { laneKey: 'p-02', held: [span(660, 90)] },
       ],
+      exact: true,
     }
     // The ¥ is the LOST LANE'S OWN — what the store loses on いちろう's window is
     // priced at いちろう's rate — so this adapter may never take it off the lane
     // the card lands on, and may never drop it.
-    expect(windowsOf(honest, [a, b])).toEqual({
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): DayWindows now carries `exact` (copied from the netting) and per-lane `sellable` (sellableLaneKeysOf); windowsOf reads `locked`, none here.
+    expect(windowsOf(honest, [a, b], [])).toEqual({
       total: 3,
+      exact: true,
       byLane: [
-        { laneKey: 'p-01', label: '見本 いちろう', starts: [600, 780], listPrice: 7000 },
-        { laneKey: 'p-02', label: '見本 じろう', starts: [660], listPrice: 9220 },
+        { laneKey: 'p-01', label: '見本 いちろう', starts: [600, 780], listPrice: 7000, sellable: true },
+        { laneKey: 'p-02', label: '見本 じろう', starts: [660], listPrice: 9220, sellable: true },
       ],
     })
   })
@@ -2061,10 +2064,13 @@ describe('windowsOf — the day layer over the honest set', () => {
         { laneKey: 'p-01', held: [{ start: 615, end: 690, windowStart: 600 }] },
         { laneKey: 'ghost', held: [span(600, 90)] },
       ],
+      exact: true,
     }
-    expect(windowsOf(honest, [a])).toEqual({
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): DayWindows now carries `exact` (copied from the netting) and per-lane `sellable` (sellableLaneKeysOf); windowsOf reads `locked`, none here.
+    expect(windowsOf(honest, [a], [])).toEqual({
       total: 1,
-      byLane: [{ laneKey: 'p-01', label: 'p-01', starts: [600], listPrice: 7000 }],
+      exact: true,
+      byLane: [{ laneKey: 'p-01', label: 'p-01', starts: [600], listPrice: 7000, sellable: true }],
     })
   })
 
@@ -2099,7 +2105,8 @@ describe('windowsOf — the day layer over the honest set', () => {
     // answers would prove nothing.
     expect({ total: legacy.total, over: legacy.total > 0, shared: honest.byLane.flatMap((l) => l.shared) })
       .toEqual({ total: legacy.total, over: true, shared: [] })
-    expect(windowsOf(honest, lanes)).toEqual(legacy)
+    // R1/R2 (DECISIONS.md today-impact-2026-09-30): DayWindows now carries `exact` (copied from the netting) and per-lane `sellable` (sellableLaneKeysOf); windowsOf reads `locked`, none here.
+    expect(windowsOf(honest, lanes, [])).toEqual(legacy)
   })
 })
 

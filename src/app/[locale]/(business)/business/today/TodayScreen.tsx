@@ -123,10 +123,9 @@ import {
   landingVerdict,
   lossOf,
   windowsOn,
-  lostOn,
+  heldPriceOf,
+  dayOnlyCell,
   EMPTY_WINDOWS,
-  EMPTY_DAY,
-  type DayLoss,
   bedClassCell,
   nearestFreeStarts,
   offerableCell,
@@ -165,7 +164,7 @@ import {
   sellDrawnFor,
   sellLayerFor,
   sellPublishedFor,
-  sellStaffLanes,
+  sellableLaneKeysOf,
   sharedRoomSub,
   sharedRoomTitle,
   withheldTitle,
@@ -198,6 +197,7 @@ import {
   type SellDrop,
   type WarnCardModel,
 } from './today-interactions'
+import { heldDelta, type HeldDelta } from './held-delta'
 import { offerKey, withheldOffers, type OfferAsk } from './bed-aware-sales'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
@@ -1030,6 +1030,8 @@ interface HoldPop {
   checks: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
   /** ⚖ 31b — the guard's own row, informational, never a gate. */
   guardRow: { label: string; tone: 'warn' } | null
+  /** R1 — the day layer's quiet △ rows, from `warnFaceFor`. */
+  dayRows: Array<{ label: string; tone: 'warn' }>
   /** ⚖ LIAM flag 92 (2026-08-31) — THE SECOND FACE, composed by `warnFaceFor`
    *  from the store's settings. `null` (and `face: 'clean'`) is the card that
    *  ships today, rendered by the branch it has always been rendered by; a
@@ -2289,7 +2291,7 @@ export function TodayScreen(props: TodayProps) {
    *  rows). Never the filter before the netting: a row nobody can buy from
    *  still takes a room. */
   const sellableLaneKeys = useMemo(
-    () => new Set(sellStaffLanes(committedLanes, locked).filter((l) => !l.locked).map((l) => l.key)),
+    () => sellableLaneKeysOf(committedLanes, locked),
     [committedLanes, locked],
   )
   /** HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 4)
@@ -2904,7 +2906,7 @@ export function TodayScreen(props: TodayProps) {
   const dayCommitted = useMemo(
     () => {
       if (!guardOn) return EMPTY_WINDOWS
-      if (honest) return windowsOf(honest, committedLanes)
+      if (honest) return windowsOf(honest, committedLanes, locked)
       if (heldCommitted) {
         return windowsOf(
           honestHeld(
@@ -2914,6 +2916,7 @@ export function TodayScreen(props: TodayProps) {
             false,
           ),
           committedLanes,
+          locked,
         )
       }
       return windowsOn(committedLanes, inputOn(committedLanes))
@@ -2933,7 +2936,7 @@ export function TodayScreen(props: TodayProps) {
    *  `HONEST_HELD` off (`honest` undefined) this memo never ran, and
    *  `dayOrigin` fell to the RAW unreleased `windowsOn(originLanes, …)` while
    *  `dayCommitted`'s D-17 F3 arm kept reading the released mask (that arm
-   *  answers `SELLING_ENGINE_LAW`, never the netting). `lostOn` subtracts the
+   *  answers `SELLING_ENGINE_LAW`, never the netting). `heldDelta` compares the
    *  two boards, so with the netting off ANY staged move had a released 枠
    *  blamed on itself. The production moves here, independent of `honest`,
    *  computed whenever a day is staged and the law is on (`heldCommittedFor`
@@ -2955,13 +2958,13 @@ export function TodayScreen(props: TodayProps) {
     if (!originHeld) return undefined
     // ⚖ D-17 F2 — the same release, so a staged booking is never blamed for a 枠
     // the clock already let go. Same function, same clock, same dial and the same
-    // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
+    // board-scoped keep-back as the committed side at :2085 — `heldDelta` compares
     // these two boards, so a release on one of them alone IS a reported loss.
     return releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
   }, [dayStaged, originLanes, ledgerFrame, business.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
   /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
    *
-   *  `lostOn` subtracts two settled boards, so both of them have to come out of
+   *  `heldDelta` compares two settled boards, so both of them have to come out of
    *  the SAME producer: an honest 「after」 against a legacy 「before」 would
    *  report a lane losing a 枠 the netting had simply stopped counting, on every
    *  staged card. It is built only while a gesture is STAGED — the at-rest
@@ -3000,7 +3003,7 @@ export function TodayScreen(props: TodayProps) {
     () => (guardOn
       ? (dayStaged
           ? (honestOrigin
-              ? windowsOf(honestOrigin, originLanes)
+              ? windowsOf(honestOrigin, originLanes, locked)
               : originReleased
                 ? windowsOf(
                     honestHeld(
@@ -3010,6 +3013,7 @@ export function TodayScreen(props: TodayProps) {
                       false,
                     ),
                     originLanes,
+                    locked,
                   )
                 : windowsOn(originLanes, inputOn(originLanes)))
           : dayCommitted)
@@ -4281,19 +4285,19 @@ export function TodayScreen(props: TodayProps) {
    *  is one rendering of that same cell — deriving them together here keeps them
    *  one reading of one board, which is the whole of ⚖ 54's lesson. The clean
    *  face keeps rendering `row` exactly as it did. */
-  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[]; day: DayLoss } => {
+  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[]; day: HeldDelta | null; dayHeld: readonly number[] } => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not a day-only test — `verdictAt` reads
     // the board on screen, so a 仮押さえ staged in another STORE would have its
     // row computed from this store's cards. Same predicate as the checks above.
-    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [], day: EMPTY_DAY }
+    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [], day: null, dayHeld: [] }
     const at = moves[pending.id]
-    if (!at) return { row: null, cell: null, engineStarts: [], day: EMPTY_DAY }
+    if (!at) return { row: null, cell: null, engineStarts: [], day: null, dayHeld: [] }
     const start = minuteOf(at.x, hours)
     const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)
     /** ⚖ NEW-WINDOW — WHAT THIS LANDING COSTS THE WHOLE STORE, from the two
      *  SETTLED boards and nothing else: the day 元に戻す restores, and the day as
      *  it stands with the card where it is staged. Both are stable memos, so this
-     *  costs one `lostOn` subtraction per run of this memo (it re-runs per
+     *  costs one `heldDelta` comparison per run of this memo (it re-runs per
      *  pointer frame while a staged card is re-dragged, deps `boardLanes`) and
      *  NO engine walk per frame — the two `windowsOn` walks live in
      *  `dayOrigin`/`dayCommitted`, measured 0/frame by the spy.
@@ -4303,13 +4307,8 @@ export function TodayScreen(props: TodayProps) {
      *  pocket law byte for byte, and a day-carrying cell reaching it would compare
      *  a day-inclusive number against pocket-only offers. The one reader is the
      *  warn card. */
-    const rows = lostOn(dayOrigin, dayCommitted)
-    const day = {
-      laneKey: at.laneKey,
-      before: rows.reduce((a, r) => a + r.before.length, 0),
-      after: rows.reduce((a, r) => a + r.after.length, 0),
-      lostOn: rows,
-    }
+    const day = heldDelta(dayOrigin, dayCommitted, heldPriceOf(frame, depth, props.guard.protectedDurationMin))
+    const dayHeld = dayCommitted.byLane.find((l) => l.laneKey === at.laneKey)?.starts ?? []
     /** ⚖ 92 fix round F2 (blind L4#3) — AND THE CARD'S OFFER GOES THROUGH ⚖ 58'S
      *  ONE HOME LIKE EVERY OTHER OFFER ON THIS BOARD.
      *
@@ -4456,6 +4455,7 @@ export function TodayScreen(props: TodayProps) {
        *  readers; re-deriving it there would be two answers to one question. */
       engineStarts: cell?.alternatives ?? [],
       day,
+      dayHeld,
     }
     // ⚖ ROOM RULE — the room-policy dep LEAVES this list with the dials it named.
     // The gate re-verdicts each candidate start through `verdictRef`, and the
@@ -4471,7 +4471,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ NEW-WINDOW — the two settled-day memos join the list BEFORE
     // `props.guard.bookingStepMin`, which is pinned as this list's own tail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin])
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin, frame, depth, props.guard.protectedDurationMin])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -4537,11 +4537,15 @@ export function TodayScreen(props: TodayProps) {
   // `warnFaceFor` composes the headline, the △ row and the 長押し gate from it;
   // nothing else on this screen is ever handed a `day`-carrying cell, so the
   // offer path keeps today's pocket law byte for byte.
+  // FIX ROUND 1 X-A — a null staged cell (guard off, or a lane with no window / a
+  // locked lane) still carries the day: `dayOnlyCell` hands the delta alone.
   const pendingWarnModel = pendingWarnLane === undefined || !pending
     ? null
     : warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day },
+        cell: pendingGuardRow.cell == null
+          ? dayOnlyCell(pendingGuardRow.day, pendingGuardRow.dayHeld)
+          : { ...pendingGuardRow.cell, day: pendingGuardRow.day ?? undefined, dayHeld: pendingGuardRow.dayHeld },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,
@@ -4552,6 +4556,7 @@ export function TodayScreen(props: TodayProps) {
         depth,
         protectedDur: props.guard.protectedDurationMin,
         confirmEnabled: pendingConfirm.enabled,
+        resourceNoun: props.words.resourceNoun,
       })
   const pendingWarn = pendingWarnModel?.face === 'warn' ? pendingWarnModel : null
   // ⚖ D-53 (n) R-N2-3 — #26/#27 have no lane in JSX scope: the on-board
@@ -4629,7 +4634,10 @@ export function TodayScreen(props: TodayProps) {
         // record and not a gate (⚖ 52 — × is what stops you, △ is what you were
         // told).
         checks: pendingRows,
-        guardRow: pendingGuardRow.row,
+        // R6 — the clean face's pocket row is the one `warnFaceFor` kept BY KIND, and
+        // the day's quiet △ rows come out of the same model (R8l).
+        guardRow: pendingWarnModel ? pendingWarnModel.guardRow : pendingGuardRow.row,
+        dayRows: pendingWarnModel?.dayRows ?? [],
         // ⚖ 92 — the same rows, the same cell, composed into the second face.
         warn: pendingWarn,
         placeSafe: placePendingAt,
@@ -4656,6 +4664,7 @@ export function TodayScreen(props: TodayProps) {
           summary: props.hold.summary,
           checks: props.hold.checks.map((label) => ({ label, tone: '' })),
           guardRow: null,
+          dayRows: [],
           // ⚖ 92 — the incident's own standing 仮押さえ is UNTOUCHED. Its rows are
           // the server's plain sentences with no verdict behind them, so it has
           // no warn-grade fact to lead with by construction, and its 確定 stays
@@ -8802,8 +8811,8 @@ export function TodayScreen(props: TodayProps) {
               // is not. Asked of `honest` — the value `dayCommitted` itself was
               // built from — so this is not a second read of the gate.
               data-guide={honest
-                ? `新規のお客様のために店全体で確保している枠の数です。今日の予約に対して${w.resourceNoun}が用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。`
-                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}
+                ? `新規のお客様のために店全体で確保している枠の数です。今日の予約に対して${w.resourceNoun}が用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。動かしたときの確認表示も、この店全体の数で増減をお知らせします。この数か、そのうちオンライン販売中の枠の数が減るときだけ注意が出ます。確保枠がスタッフの間で移っただけのときは、注意は出さず、担当と時刻を1行で示します。`
+                : '新規のお客様のために店全体で確保している枠の数です。動かしたときの確認表示も、この店全体の数で増減をお知らせします。この数か、そのうちオンライン販売中の枠の数が減るときだけ注意が出ます。確保枠がスタッフの間で移っただけのときは、注意は出さず、担当と時刻を1行で示します。'}
             >
               新規用に確保 {dayCommitted.total}枠
             </span>
@@ -10294,6 +10303,7 @@ export function TodayScreen(props: TodayProps) {
                 {holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
                 {/* ⚖ 31b — the guard's move-assessment, where the operator is already
                     reading. It reports; it never disables 確定. */}
+                {holdPop.dayRows.map((r) => <span className={`ck ${r.tone}`} key={r.label}>{r.label}</span>)}
                 {holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}
               </div>
               <div className="hp-actions">
