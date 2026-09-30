@@ -40,7 +40,20 @@ import type { SessionCategory } from '@/components/karute/redesign/detail/Curren
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
-import type { AppointmentLinkReason } from '@/lib/karute/appointment-link'
+import {
+  appointmentLinkOf,
+  isKeptLink,
+  keepLinkUnlessGiven,
+  keptLinkAfterWrite,
+  linkUpdateOf,
+  menuOfAutoLinked,
+  returnedOr,
+  type AppointmentLinkReason,
+  type AppointmentLinkValue,
+  type AutoAppointmentLink,
+  type KeptLinkFate,
+} from '@/lib/karute/appointment-link'
+import type { OutcomeLink } from '@/lib/karute/outcome-fate'
 
 /**
  * Create the karute record — or, if this recording session was ALREADY saved,
@@ -98,8 +111,50 @@ export async function createOrUpdateKaruteRecord(
    *  notice + detail.appointment_link. Null = a normal save; every other
    *  caller takes the default. */
   linkReason: AppointmentLinkReason | null = null,
-): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
-  const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
+  /** S2/S5 (PR-O, RULING-S67-PRO-STOP1 R-O2) — DEFERRED EMIT: the facade save
+   *  hands its outcome write here (writeOutcomeFate, never throws); it runs
+   *  AFTER the record write and BEFORE the one karute.save row, which then
+   *  carries `outcome_link: <fate>`. Omitted (the web doors) = no key. */
+  outcomeFate?: (saved: { id: string; fresh: boolean }) => Promise<OutcomeLink>,
+  /** S7 (PR-O commit 4): the facade's auto-link (resolveAutoAppointmentLink,
+   *  never throws). Run ONLY when the write names no booking and the record
+   *  keeps none; its value rides the one karute.save row as appointment_link.
+   *  Omitted (the web doors) = no auto-link, as before.
+   *  S67 fix round 2, commit 11 (SF-1): it is handed the RECORD's own store —
+   *  on a converge the existing record's store_id (the update never moves it,
+   *  CEILING F-7 below), on a create the payload's — never the request's
+   *  lens, so a booking of another store never links to this karute. The
+   *  worker's upsert follows the same rule. */
+  autoLink?: (record: { storeId: string | null }) => Promise<{ link: AutoAppointmentLink; appointmentId: string | null }>,
+): Promise<{
+  id: string
+  fresh: boolean
+  transcriptChanged: boolean
+  storeId: string | null
+  /** SF-5: the record's EFFECTIVE booking link after this save (never the
+   *  payload's) and its appointment_link — the same values the karute.save
+   *  row carries, handed back so the facade's reply says exactly what the row
+   *  says. */
+  appointmentId: string | null
+  appointmentLink: AppointmentLinkValue
+}> {
+  // S7: set by the auto-link below when it ran; the row names the booking it
+  // linked and why (auto_linked · ambiguous · none).
+  let autoLinked: { link: AutoAppointmentLink; appointmentId: string | null } | null = null
+  const emitSave = async (saved: {
+    id: string
+    fresh: boolean
+    transcriptChanged: boolean
+    storeId: string | null
+    appointmentId: string | null
+    /** G-3 (S71 fix round 7): the kept link's fate after the write (keptLinkAfterWrite). */
+    keptLink: KeptLinkFate
+    /** A4: the customer the record carries after the write (the row's detail). */
+    customerId: string | null
+  }) => {
+    const { keptLink, customerId, ...persisted } = saved
+    const result = { ...persisted, appointmentLink: appointmentLinkOf(linkReason, autoLinked?.link, keptLink) }
+    const outcomeLink = outcomeFate ? await outcomeFate({ id: result.id, fresh: result.fresh }) : undefined
     audit({
       category: 'karute',
       action: 'karute.save',
@@ -123,12 +178,18 @@ export async function createOrUpdateKaruteRecord(
       detail: {
         fresh: result.fresh,
         transcript_changed: result.transcriptChanged,
-        customer_id: payload.customer_id ?? null,
+        customer_id: customerId,
         recording_session_id: payload.recording_session_id ?? null,
-        appointment_id: payload.appointment_id ?? null,
+        // SF-5: the record's EFFECTIVE link after the save (a kept link, the
+        // auto-linked booking, or the given one) — never the payload's.
+        appointment_id: result.appointmentId,
         // Why the booking link degraded (not found / out of scope /
-        // unreadable) — null on a normal save, never undefined.
-        appointment_link: linkReason,
+        // unreadable) — null on a normal save, never undefined. S7: when the
+        // save named no booking, the auto-link's own answer instead; SF-5:
+        // `kept` when an existing link stayed (appointmentLinkOf).
+        appointment_link: result.appointmentLink,
+        // S5: the answer's fate, beside the booking's (facade + worker only).
+        ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),
       },
       requestId: actor.requestId,
       source: actor.source,
@@ -186,7 +247,13 @@ export async function createOrUpdateKaruteRecord(
       // entries still go through.
       const existingHasEntries = Array.isArray(existing.entries) && existing.entries.length > 0
       const omitEntries = entriesMode === 'fill-if-empty' && existingHasEntries
-      await synqed.karuteRecords.update(existing.id, {
+      let appointmentId = keepLinkUnlessGiven(existing, payload)
+      const keptLink = isKeptLink(payload, appointmentId)
+      if (!appointmentId && autoLink) {
+        autoLinked = await autoLink({ storeId: existing.store_id ?? null })
+        appointmentId = autoLinked.appointmentId
+      }
+      const updated = await synqed.karuteRecords.update(existing.id, {
         // E-1 (fix round 1): the CUSTOMER moves with the update. Without it a
         // save that re-points to a different customer — the recovery banner's
         // 保存先を変更, after an earlier partial save already landed a record
@@ -204,12 +271,26 @@ export async function createOrUpdateKaruteRecord(
         customer_id: payload.customer_id,
         transcript: payload.transcript,
         ai_summary: payload.ai_summary,
-        appointment_id: payload.appointment_id,
+        // S4 (PR-O, O1/V4) + A2 (S69 fix round 4): the link key is sent only
+        // when this save changes the link (a named booking, an auto-link hit,
+        // a re-point → null); otherwise it is OMITTED, so a link an
+        // interleaved save wrote after the snapshot above stays — linkUpdateOf.
+        ...linkUpdateOf(existing, payload, autoLinked),
         ...(omitEntries ? {} : { entries: payload.entries }),
       })
+      // A2 revision: what the row HOLDS after the write — the returned
+      // record's link when core returns it, else the computed effective one.
+      // G-3 (S71 fix round 7): the kept word is checked against the same
+      // returned value (keptLinkAfterWrite) — one value, never two that disagree.
+      const effective = returnedOr(updated?.appointment_id, appointmentId ?? null)
+      // A bare `return emitSave(...)`, never `return await …`: the audit gates'
+      // walker (scripts/audit/emission-walker.mjs, CP2/CP7) accepts a return as
+      // emit-dominated only as a direct call-through to a same-file emitter.
       return emitSave({
         id: existing.id,
         fresh: false,
+        // The converge's row names the payload's customer, as before (A4 is the create's).
+        customerId: payload.customer_id ?? null,
         // The retry EDITED the transcript → there's genuinely new material
         // for memory ingest; an identical transcript is just a resend.
         transcriptChanged: existing.transcript !== payload.transcript,
@@ -217,11 +298,37 @@ export async function createOrUpdateKaruteRecord(
         // the persisted store is still the EXISTING record's — already in
         // hand from the lookup, no second read.
         storeId: existing.store_id,
+        appointmentId: effective,
+        keptLink: keptLinkAfterWrite(keptLink, appointmentId ?? null, effective),
       })
     }
   }
-  const record = await synqed.karuteRecords.create(payload)
-  return emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
+  if (!payload.appointment_id && autoLink) autoLinked = await autoLink({ storeId: payload.store_id ?? null })
+  // SF-2: an auto-linked create takes the booking's menu through the ONE fill
+  // the worker's create shares (menuOfAutoLinked).
+  const record = await synqed.karuteRecords.create(
+    autoLinked?.appointmentId
+      ? {
+          ...payload,
+          appointment_id: autoLinked.appointmentId,
+          service: payload.service ?? (await menuOfAutoLinked(synqed.appointments, autoLinked)),
+        }
+      : payload,
+  )
+  return emitSave({
+    id: record.id,
+    fresh: true,
+    transcriptChanged: true,
+    storeId: record.store_id ?? payload.store_id ?? null,
+    // A4 (S69 fix round 4, commit 26): core's create may hand back an EXISTING
+    // record (a replayed session, core behaviour not known) — the row and the
+    // reply answer with what core RETURNED (returnedOr: never `??` on the
+    // record's field; a returned null link is the truth). `fresh` stays true:
+    // core gives no signal.
+    appointmentId: returnedOr(record.appointment_id, autoLinked?.appointmentId ?? payload.appointment_id ?? null),
+    customerId: returnedOr(record.customer_id, payload.customer_id ?? null),
+    keptLink: null,
+  })
 }
 
 /**

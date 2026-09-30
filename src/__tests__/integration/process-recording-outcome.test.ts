@@ -113,6 +113,9 @@ const fakeClient = {
   recordingDiscards: { list: listDiscards },
   staff: { get: staffGet },
   appointments: { get: appointmentsGet },
+  // A4 (S69 fix round 4, commit 26): the worker's create runs the keep-decided
+  // read (core's create may return an existing record) — nothing on record.
+  karuteOutcomes: { get: jest.fn(async () => null) },
 }
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn(() => fakeClient),

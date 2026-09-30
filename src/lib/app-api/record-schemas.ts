@@ -431,6 +431,12 @@ export const ManualKaruteCreateSchema = z
   })
   .strict()
 
+// S2 (PR-O): why a save/enqueue carries NO outcome — the client's own reason,
+// recorded as the karute.save row's `outcome_link: skipped:<reason>`. Optional:
+// a body without it (build 31) stays valid and reads as `not_sent`.
+export const OutcomeMissingSchema = z.enum(['never_asked', 'unanswered_recovery', 'no_stamp'])
+export type OutcomeMissingReason = z.infer<typeof OutcomeMissingSchema>
+
 export const SaveKaruteSchema = z
   .object({
     customerId: z.string().max(MAX_ID_CHARS),
@@ -457,6 +463,7 @@ export const SaveKaruteSchema = z
       })
       .strict()
       .nullish(),
+    outcomeMissing: OutcomeMissingSchema.nullish(),
     duration: z.number().nullish(),
   })
   .strict()
@@ -483,6 +490,7 @@ export const RecordingJobEnqueueSchema = z
       })
       .strict()
       .nullish(),
+    outcomeMissing: OutcomeMissingSchema.nullish(),
   })
   .strict()
 
@@ -508,6 +516,7 @@ export const RecordingJobFromSessionSchema = z
       })
       .strict()
       .nullish(),
+    outcomeMissing: OutcomeMissingSchema.nullish(),
   })
   .strict()
 
