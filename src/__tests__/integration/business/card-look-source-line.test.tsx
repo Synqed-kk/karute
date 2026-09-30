@@ -18,16 +18,37 @@ const LEGACY = '現在の色は、以前に設定された色で、12色には�
 const NOTE_1 = '見本では、編集中のお店を大きいカードにしています。実際のアプリでは、次のご予約が近いお店が大きいカードになります。'
 const NOTE_2 = 'カードを開く動きは、この見本だけのものです。'
 
-const mount = (saved: string | null, draft: string = saved ?? '') =>
-  render(
-    <ReserveCardLookSection
-      look={{ storeLine: 'テスト東京店', scopeLabel: '全店共通', value: saved, palette: PALETTE }}
-      value={draft}
-      onPick={() => {}}
-      reduced
-      render={({ main, preview }) => <>{main}{preview}</>}
-    />,
-  )
+const section = (saved: string | null, draft: string = saved ?? '') => (
+  <ReserveCardLookSection
+    look={{ storeLine: 'テスト東京店', scopeLabel: '全店共通', value: saved, palette: PALETTE }}
+    value={draft}
+    onPick={() => {}}
+    reduced
+    render={({ main, preview }) => <>{main}{preview}</>}
+  />
+)
+const mount = (saved: string | null, draft: string = saved ?? '') => render(section(saved, draft))
+
+/** Stub a prototype accessor and return its exact undo: an OWN descriptor the prototype had is put back; an
+ *  inherited one (jsdom puts clientWidth/offsetHeight/scrollTop on Element.prototype, not HTMLElement's) is
+ *  left inherited — the stub is DELETED, never re-defined as an own property. */
+const stubProto = (proto: object, key: string, desc: PropertyDescriptor) => {
+  const own = Object.getOwnPropertyDescriptor(proto, key)
+  Object.defineProperty(proto, key, { configurable: true, ...desc })
+  return () => { if (own) Object.defineProperty(proto, key, own); else delete (proto as Record<string, unknown>)[key] }
+}
+/** A ResizeObserver that records WHICH elements it observes and fires only when the test resizes one of them
+ *  (a real page: the frame's box is fixed, so only the strip's width change can ever refit). */
+class SpyRO {
+  static all: SpyRO[] = []
+  observed = new Set<Element>()
+  disconnected = false
+  constructor(readonly cb: () => void) { SpyRO.all.push(this) }
+  observe(el: Element) { this.observed.add(el) }
+  unobserve(el: Element) { this.observed.delete(el) }
+  disconnect() { this.observed.clear(); this.disconnected = true }
+}
+const resize = (el: Element) => { for (const ro of SpyRO.all) if (ro.observed.has(el)) ro.cb() }
 const lineOf = (c: HTMLElement) => c.querySelector('.cl-state')?.textContent ?? null
 
 describe('カードの見た目 source line (saved colour only)', () => {
@@ -97,28 +118,72 @@ describe('カードの見た目 phone frame + honest slot', () => {
     expect(writes).toContain(0)
     expect(top).toBe(0)
   })
-  it('a column narrower than 393 scales the FRAME: --cl-scale = fitScale, --cl-h = the frame\'s 760 × that', () => {
-    const was = (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver
-    class CallingRO { constructor(private cb: () => void) {} observe() { this.cb() } unobserve() {} disconnect() {} }
-    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = CallingRO
-    const proto = HTMLElement.prototype
-    const cw = Object.getOwnPropertyDescriptor(proto, 'clientWidth') ?? Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
-    const oh = Object.getOwnPropertyDescriptor(proto, 'offsetHeight')
-    Object.defineProperty(proto, 'clientWidth', { configurable: true, get() { return (this as HTMLElement).classList.contains('cl-strip') ? 336 : 0 } })
-    // the frame is 760; the app inside it (a different box) is given another height so the target shows
-    Object.defineProperty(proto, 'offsetHeight', { configurable: true, get() { const c = (this as HTMLElement).classList; return c.contains('cl-frame') ? 760 : c.contains('cl-phone') ? 1234 : 0 } })
+  it('the reset follows a VIEW CHANGE only — not the first mount (it opens at its top already), not a click on the selected seg, not a same-view re-render', () => {
+    const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTop')
+    const tops = new WeakMap<Element, number>()
+    const writes: number[] = [] // every write to the .cl-phone scroller's scrollTop, from its first mount on
+    const undo = stubProto(HTMLElement.prototype, 'scrollTop', {
+      get(this: HTMLElement) { return tops.get(this) ?? 0 },
+      set(this: HTMLElement, v: number) { if (this.classList.contains('cl-phone')) writes.push(v); tops.set(this, v) },
+    })
     try {
-      const strip = mount('#1C2247').container.querySelector('.cl-strip') as HTMLElement
+      const { container, getByRole, rerender } = render(section('#1C2247'))
+      expect(writes).toEqual([])
+      const phone = container.querySelector('.cl-phone') as HTMLElement
+      phone.scrollTop = 240
+      writes.length = 0
+      fireEvent.click(getByRole('button', { name: 'ホーム' }))
+      expect(writes).toEqual([])
+      rerender(section('#1C2247', '#1F3D33'))
+      expect(writes).toEqual([])
+      expect(phone.scrollTop).toBe(240)
+      fireEvent.click(getByRole('button', { name: 'お店ページ' }))
+      expect(writes).toEqual([0])
+    } finally {
+      undo()
+    }
+    expect(Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTop')).toEqual(before)
+  })
+  it('the STRIP is observed: its narrowing refits the FRAME (--cl-scale = fitScale, --cl-h = the frame\'s 760 × that), ≥ 393 returns to 1:1, unmount disconnects', () => {
+    const was = (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver
+    SpyRO.all = []
+    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = SpyRO
+    const proto = HTMLElement.prototype
+    const before = { cw: Object.getOwnPropertyDescriptor(proto, 'clientWidth'), oh: Object.getOwnPropertyDescriptor(proto, 'offsetHeight') }
+    let stripW = 393
+    const undo = [
+      stubProto(proto, 'clientWidth', { get(this: HTMLElement) { return this.classList.contains('cl-strip') ? stripW : 0 } }),
+      // the frame is 760; the app inside it (a different box) is given another height so the target shows
+      stubProto(proto, 'offsetHeight', { get(this: HTMLElement) { const c = this.classList; return c.contains('cl-frame') ? 760 : c.contains('cl-phone') ? 1234 : 0 } }),
+    ]
+    try {
+      const { container, unmount } = mount('#1C2247')
+      const strip = container.querySelector('.cl-strip') as HTMLElement
+      const vars = () => [strip.style.getPropertyValue('--cl-scale'), strip.style.getPropertyValue('--cl-h'), strip.classList.contains('is-scaled')]
+      stripW = 336
+      resize(strip)
       const scale = fitScale(336)
       expect(scale).toBeCloseTo(336 / 393, 6)
-      expect(strip.style.getPropertyValue('--cl-scale')).toBe(String(scale))
-      expect(strip.style.getPropertyValue('--cl-h')).toBe(`${760 * scale}px`)
-      expect(strip.classList.contains('is-scaled')).toBe(true)
+      expect(vars()).toEqual([String(scale), `${760 * scale}px`, true])
+      stripW = 393 // back to the phone's own width: 1:1 carries no vars and no class
+      resize(strip)
+      expect(vars()).toEqual(['', '', false])
+      stripW = 289
+      resize(strip)
+      expect(vars()).toEqual([String(fitScale(289)), `${760 * fitScale(289)}px`, true])
+      stripW = 440
+      resize(strip)
+      expect(vars()).toEqual(['', '', false])
+      const ro = SpyRO.all.find((r) => r.observed.has(strip))!
+      unmount()
+      expect(ro.disconnected).toBe(true)
     } finally {
-      if (cw) Object.defineProperty(proto, 'clientWidth', cw); else delete (proto as unknown as Record<string, unknown>).clientWidth
-      if (oh) Object.defineProperty(proto, 'offsetHeight', oh); else delete (proto as unknown as Record<string, unknown>).offsetHeight
+      for (const u of undo) u()
       ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = was
     }
+    // the stubs are gone, not re-defined: HTMLElement.prototype holds exactly what it held before
+    expect(Object.getOwnPropertyDescriptor(proto, 'clientWidth')).toEqual(before.cw)
+    expect(Object.getOwnPropertyDescriptor(proto, 'offsetHeight')).toEqual(before.oh)
   })
   it('no colour shown → the honest block holds exactly the no-colour line, on both views', () => {
     const { container, getByRole } = mount(null)
