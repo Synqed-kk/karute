@@ -49,6 +49,7 @@ import {
   readShellIdentity,
   readStaffStores,
   type StoreLens,
+  practiceDoorOn,
 } from '@/business/lib/data'
 import { buildLanes, dayBookings, hhmm, minuteOf, place, type BoardLane, type BuildInput, type Hours } from '@/business/lib/today-board'
 import { clampCalendarTight, guardVerdictAt, lossOf } from '../today/today-interactions'
@@ -118,7 +119,8 @@ export async function storePolicyProps({
   now,
 }: StorePolicyPropsInput): Promise<StorePolicyProps> {
   const selectedStore = storeOptions.find((s) => s.id === storeId)
-  const w = selectedStore ? wordsForStore(selectedStore.business_type, storeSample(selectedStore.id).words) : GENERIC_WORDS
+  const doorOn = await practiceDoorOn() // R50
+  const w = selectedStore ? wordsForStore(selectedStore.business_type, storeSample(doorOn, selectedStore.id).words) : GENERIC_WORDS
   const dayKey = jstDayKey(now)
   const from = new Date(now.getTime() - DAY_MS).toISOString()
   const to = new Date(now.getTime() + DAY_MS).toISOString()

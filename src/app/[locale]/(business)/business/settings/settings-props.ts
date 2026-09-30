@@ -55,6 +55,7 @@ import {
   SPECIAL_OPEN_DAYS_NOTE,
   type StoreDaysReadResult,
   type StoreLens,
+  practiceDoorOn,
 } from '@/business/lib/data'
 import type { StoreDaysWriteState } from '@/business/lib/data'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
@@ -72,7 +73,6 @@ import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { boardNow, closedWeekday, operatingHours, opsConfig, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import { historyOperatorName, samplePart, sampleSelfId, sampleWhole, storeSample, type LabeledPlaneKey, type PlaneKey } from '@/business/lib/practice-door/sample-facade'
 import { weekFromPair, type StoreHours } from '@/business/lib/practice-door/store-hours'
-import { practiceTenant } from '@/business/lib/practice-door/switch'
 import { PALETTE } from '@/business/lib/reserve-card/palette'
 import { countWord, GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
 import {
@@ -167,9 +167,10 @@ export interface SettingsPropsResult {
 export async function settingsProps({ locale, store, section, world, bookingColors: live }: SettingsPropsInput): Promise<SettingsPropsResult> {
   void locale
   const storeOptions = await listStoreOptions()
+  const doorOn = await practiceDoorOn() // R50 — the door for THIS business, once per render
   const storeId = defaultStoreId(store, storeOptions)
   const selectedStore = storeOptions.find((s) => s.id === storeId)
-  const words = selectedStore ? wordsForStore(selectedStore.business_type, storeSample(selectedStore.id).words) : GENERIC_WORDS
+  const words = selectedStore ? wordsForStore(selectedStore.business_type, storeSample(doorOn, selectedStore.id).words) : GENERIC_WORDS
   const clamped = storeId !== null
   // ⚖ S17 — the lens is REALLY read now: 予約と確保's assembly takes it as its
   // first argument, which is the data door's own rule (`foundation.test.ts`:
@@ -198,7 +199,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
 
   // ⚠ THE STORE CLAMP IS THE READ, not a filter after it: one store's settings
   // are fetched by id and no other store's row is ever in the payload (⚖ 8/17).
-  const dials = world?.dials !== undefined ? world.dials : clamped ? storeSample(storeId!).dials : null
+  const dials = world?.dials !== undefined ? world.dials : clamped ? storeSample(doorOn, storeId!).dials : null
 
   // ⚖ PR-2b — THE ROOM'S ROWS COME THROUGH THE DOOR (data.ts), never a fixture
   // list: under the practice switch they are core's live rows for this store.
@@ -215,7 +216,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   // read (`{ ok: false }`, R7 — "failed is not unset").
   // ⚖ PKT-S30 P3-13 — and only when the two blocks will RENDER: storeHours() returns before building
   // them when this store has no dials (`d === null` → the 店舗情報-only section), so no read is spent then.
-  const storeDaysRead: StoreDaysReadResult | null = clamped && practiceTenant() !== null && dials !== null ? await readStoreDays(storeId!) : null
+  const storeDaysRead: StoreDaysReadResult | null = clamped && doorOn && dials !== null ? await readStoreDays(storeId!) : null
 
   // ⚖ PR-3 §v3 V3-4 — THE MARK IS THE PLANE TABLE'S (the facade's readers, one
   // implementation): a block names the plane it shows and the table answers.
@@ -224,10 +225,11 @@ export async function settingsProps({ locale, store, section, world, bookingColo
 
   const ctx: Ctx = {
     storeId: clamped ? storeId! : null,
+    doorOn,
     lensLabel,
     dials,
-    sampleWhole: (plane, ...more) => sampleWhole(markStore, plane, ...more),
-    samplePart: (plane, ...more) => samplePart(markStore, plane, ...more),
+    sampleWhole: (plane, ...more) => sampleWhole(doorOn, markStore, plane, ...more),
+    samplePart: (plane, ...more) => samplePart(doorOn, markStore, plane, ...more),
     historyOperatorName: historyOperatorName(),
     businessName: business.name,
     stores: storeOptions,
@@ -242,7 +244,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     syncMinutesAgo: Math.round((Date.parse(jstSlotEnd(0, 0, boardNow, 0, now)) - Date.parse(reserveSyncedAt)) / 60_000),
     words,
     businessType: selectedStore?.business_type ?? null,
-    wordOverride: selectedStore ? storeSample(selectedStore.id).words : null,
+    wordOverride: selectedStore ? storeSample(doorOn, selectedStore.id).words : null,
     access,
     now,
     operator,
@@ -288,7 +290,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   const props: SettingsProps = {
     // ⚖ PR-3 §v3 V3-5 — under the door the topbar names the practice world, so
     // the dateline drops its サンプルデータ word; OFF unchanged.
-    dateline: practiceTenant() === null ? `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}` : `${fmtDay.format(now)} / ${lensLabel}`,
+    dateline: !doorOn ? `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}` : `${fmtDay.format(now)} / ${lensLabel}`,
     subtitle:
       'お店の決まりごとと、自分の見え方をここでまとめて変えます。左の一覧から見たい設定を選ぶと、右にその中身が出ます。',
     // ⚖ H3 — and the same sentence where the room is one column deep, told the
@@ -334,6 +336,8 @@ export async function settingsProps({ locale, store, section, world, bookingColo
 
 interface Ctx {
   storeId: string | null
+  /** R50 — the practice door for THIS business (practiceDoorOn), resolved once by settingsProps. */
+  doorOn: boolean
   lensLabel: string
   dials: StoreDials | null
   /** ⚖ PR-3 §v3 — the 「サンプル」 mark of the plane(s) a block shows: whole
@@ -529,7 +533,7 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
   // switch ON, a live store with no fixture twin (La Estro, Dev Salon…) gets
   // null and takes the live-rows path — its ROW data renders and every SAMPLE
   // part carries the no-sample card (PR-3).
-  if (ctx.dials === null && (ctx.storeId === null || sampleSelfId('stores', ctx.storeId) !== null)) return noStore(base, entry)
+  if (ctx.dials === null && (ctx.storeId === null || sampleSelfId(ctx.doorOn, 'stores', ctx.storeId) !== null)) return noStore(base, entry)
   return storeSection(base, entry, ctx, ctx.dials)
 }
 
@@ -564,8 +568,8 @@ function noSample(base: SectionBase, entry: RailEntry, ctx: Ctx): SettingsSectio
 /** ⚖ PR-2b — a person's SAMPLE settings, found through their fixture self
  *  (switch OFF: the id itself). null = none: no dials, or a live person with no
  *  fixture twin. */
-function sampleSettingsOf(d: StoreDials | null, staffId: string) {
-  const self = sampleSelfId('staff', staffId)
+function sampleSettingsOf(doorOn: boolean, d: StoreDials | null, staffId: string) {
+  const self = sampleSelfId(doorOn, 'staff', staffId)
   return d !== null && self !== null ? (d.staffSettings[self] ?? null) : null
 }
 
@@ -575,10 +579,10 @@ function sampleSettingsOf(d: StoreDials | null, staffId: string) {
  *  the rows it printed; people the dial does not know (a live person with no
  *  twin) follow in the reader's order.
  *  ponytail: indexOf per compare — rosters are tens of people. */
-function rosterIn(people: Ctx['staff'], dial: Record<string, unknown> | undefined): Ctx['staff'] {
+function rosterIn(doorOn: boolean, people: Ctx['staff'], dial: Record<string, unknown> | undefined): Ctx['staff'] {
   const keys = Object.keys(dial ?? {})
   const rank = (id: string) => {
-    const i = keys.indexOf(sampleSelfId('staff', id) ?? '')
+    const i = keys.indexOf(sampleSelfId(doorOn, 'staff', id) ?? '')
     return i === -1 ? keys.length : i
   }
   return [...people].sort((a, b) => rank(a.id) - rank(b.id))
@@ -1098,10 +1102,10 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSe
   // ⚖ PR-2b — a ticket names its menu by FIXTURE id, so the live prices are keyed
   // by each menu's fixture self (switch OFF: its own id) — the twin's live price
   // answers rather than nothing (LIVE-PROOF M-C's 「最低価格 ¥0」).
-  const priceOf = new Map(own.map((m) => [sampleSelfId('menus', m.id) ?? m.id, m.price]))
+  const priceOf = new Map(own.map((m) => [sampleSelfId(ctx.doorOn, 'menus', m.id) ?? m.id, m.price]))
   // 表示 is SAMPLE, found through the same fixture self; undefined = no sample value.
   const visibleOf = (menuId: string): boolean | undefined => {
-    const self = sampleSelfId('menus', menuId)
+    const self = sampleSelfId(ctx.doorOn, 'menus', menuId)
     return d !== null && self !== null ? d.menuVisible[self] : undefined
   }
   const tickets = d?.tickets ?? []
@@ -1185,7 +1189,7 @@ const businessTypeNote = (body: string) => BUSINESS_TYPE_NOTE_PREFIX + body
 // ── 人・設備 ────────────────────────────────────────────────────────────────
 
 function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
-  const roster = rosterIn(ctx.staff, d?.staffActive)
+  const roster = rosterIn(ctx.doorOn, ctx.staff, d?.staffActive)
   const beds = ctx.resources.filter((r) => r.store_id === ctx.storeId)
   const override = ctx.wordOverride
   const turnoverControl = '{name}の{turnoverName}時間'
@@ -1231,7 +1235,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): Set
         audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（業種を変更）`,
       })] : []),
       block('people.staff', 'スタッフ', 'この店舗で働く人の稼働状態です。役職と権限はスタッフ管理で扱います。', roster.map((p) => {
-        const settings = sampleSettingsOf(d, p.id)
+        const settings = sampleSettingsOf(ctx.doorOn, d, p.id)
         return row(`people.row-${p.id}`, p.full_name, '', [
           // ⚖ PR-2b — 稼働 is ROW data, keyed by the row's OWN id: switch OFF that
           // id is the fixture id, so the fixture toggle answers; ON it is a live
@@ -1245,7 +1249,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials | null): Set
         // ⚖ §v5 V5-1 — the 稼働 switch is LIVE under the door (see the row comment), so it
         // is never marked; the block's sample content is the role echo in `meta`, from the
         // staffSettings plane, present only where a row has twin settings.
-        sample: d === null ? undefined : (roster.some((p) => sampleSettingsOf(d, p.id) !== null) ? ctx.samplePart('staffSettings') : undefined), sampleNone: d === null,
+        sample: d === null ? undefined : (roster.some((p) => sampleSettingsOf(ctx.doorOn, d, p.id) !== null) ? ctx.samplePart('staffSettings') : undefined), sampleNone: d === null,
         facts: ['休止にすると、その人の予約枠はボードにもReserveにも出なくなります。すでに入っている予約は残ります。'],
         links: [{ label: '役職と権限はスタッフ管理で', sectionId: 'staff' }],
         audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（稼働状態を変更）`,
@@ -1420,7 +1424,7 @@ function pricingPoints(base: SectionBase, ctx: Ctx, d: StoreDials | null): Setti
   const own = ctx.menus.filter((m) => m.store_id === ctx.storeId || m.store_id === null)
   // ⚖ PR-2b — the target plane is keyed by FIXTURE store id, so it is read through
   // the store's fixture self (switch OFF: the id itself), never by the live id.
-  const self = ctx.storeId !== null ? sampleSelfId('stores', ctx.storeId) : null
+  const self = ctx.storeId !== null ? sampleSelfId(ctx.doorOn, 'stores', ctx.storeId) : null
   const target = self !== null ? (salesTargets[self] ?? 0) : 0
   const head = {
     ...base,
@@ -2293,7 +2297,7 @@ const channelsOf = (v: { app: boolean; mail: boolean } | undefined): string[] =>
 // ── スタッフ管理 ────────────────────────────────────────────────────────────
 
 function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): SettingsSection {
-  const roster = rosterIn(ctx.staff, d?.staffSettings)
+  const roster = rosterIn(ctx.doorOn, ctx.staff, d?.staffSettings)
   const first = roster[0]
   // ⚖ S17 · C7 — THE GRID RENDERS FROM THE RULEBOOK. Both lists are Karute's
   // own, mirrored with their cites in `fixtures-settings.rulebook`; at the
@@ -2310,7 +2314,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
     lead: '誰が何をできるかの設定です。役職を選ぶと権限がまとめて切り替わり、そのあと個別に調整できます。',
     blocks: [
       block('staff.roster', 'スタッフ一覧', '役職と、その人ができることです。役職はひな形で、下の一覧で個別に足し引きできます。', roster.map((p) => {
-        const s = sampleSettingsOf(d, p.id)
+        const s = sampleSettingsOf(ctx.doorOn, d, p.id)
         const name = p.full_name
         // ⚖ PR-2b — a person the reader lists but no sample dial knows still
         // appears. ⚖ PR-3 — with the name and no controls; the block's
@@ -2342,7 +2346,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
       }), {
         // ⚖ FIX-1a (V3-3) — the part mark fires only when some row actually draws the
         // sample 役職 controls; a borrowing store's untwinned people show a name only.
-        sample: d === null ? undefined : (roster.some((p) => sampleSettingsOf(d, p.id) !== null) ? ctx.samplePart('staffSettings') : undefined), sampleNone: d === null,
+        sample: d === null ? undefined : (roster.some((p) => sampleSettingsOf(ctx.doorOn, d, p.id) !== null) ? ctx.samplePart('staffSettings') : undefined), sampleNone: d === null,
         facts: [
           // ⚖ 8/25 — a number says WHAT it counts, and both are DERIVED from the
           // rulebook so a nineteenth capability cannot ship beside a page still
@@ -2355,7 +2359,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials | null): Settings
           { label: '氏名と稼働は人・設備で', sectionId: 'people-equipment' },
           { label: '音声登録は録音設定で', sectionId: 'recording' },
         ],
-        preview: first !== undefined && sampleSettingsOf(d, first.id) !== null
+        preview: first !== undefined && sampleSettingsOf(ctx.doorOn, d, first.id) !== null
           ? { template: `いま${first.full_name}さんは{staff.preset-${first.id}}で、できることは{staff.caps-${first.id}}です。` }
           : null,
         audit: `最終変更: ${ctx.historyOperatorName} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（権限を更新）`,

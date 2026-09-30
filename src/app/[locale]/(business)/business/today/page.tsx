@@ -51,6 +51,7 @@ import {
   readStaffStores,
   renderNow,
   type StoreLens,
+  practiceDoorOn,
 } from '@/business/lib/data'
 import {
   absenceForDay,
@@ -199,12 +200,13 @@ export default async function TodayPage({
   // planes it paints (シフトと休み・販売可能枠・営業時間), never one per lane. The
   // decisions: ONE section mark (the cards carry none). 勤務不可: its strip's
   // own. Switch OFF every reader answers nothing and no prop is added.
+  const doorOn = await practiceDoorOn() // R50 — this business's door, once
   const markStores = clamped ? [storeId!] : storeOptions.map((s) => s.id)
-  const boardMark = samplePart(markStores, 'shifts', 'absence', 'sellSlots', 'operatingHours')
-  const decisionsMark = sampleWhole(markStores, 'decisions')
-  const absenceMark = sampleWhole(markStores, 'absence', 'recoverySteps')
+  const boardMark = samplePart(doorOn, markStores, 'shifts', 'absence', 'sellSlots', 'operatingHours')
+  const decisionsMark = sampleWhole(doorOn, markStores, 'decisions')
+  const absenceMark = sampleWhole(doorOn, markStores, 'absence', 'recoverySteps')
   const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
-    storeOptions.map((s) => [s.id, wordsForStore(s.business_type, storeSample(s.id).words)]),
+    storeOptions.map((s) => [s.id, wordsForStore(s.business_type, storeSample(doorOn, s.id).words)]),
   )
   // ⚖ D-53 (u)/(ad)/(n2b2) — a real bug on main, fixed here: on a CLAMPED
   // board this map used to carry every store's row, so a shared staff lane
