@@ -341,12 +341,16 @@
   top: 0;
   align-self: start;
   min-height: 100vh;
+  min-height: 100dvh;
   border-right: 1px solid var(--section);
   background: #fff;
   display: flex;
   flex-direction: column;
   padding: 16px 10px;
-  overflow: hidden;
+  /* Greptile T2 — the outer fallback scroller: when the fixed parts (brand, toggle, business, store picker,
+     identity card) exceed a short window, the rail scrolls as a whole; x stays clipped for the collapse. */
+  overflow-x: hidden;
+  overflow-y: auto;
   transition: padding .26s cubic-bezier(.2, .7, .1, 1);
 }
 .biz .brand { padding: 0 0 14px; }
