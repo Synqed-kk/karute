@@ -252,7 +252,7 @@ interface Admitted {
   actor: PracticeActor
   reach: typeof import('./core-reach')
 }
-const TENANT_REFUSAL: Refusal = { ok: false, reason: 'tenant', message: MSG.genericFail }
+export const TENANT_REFUSAL: Refusal = { ok: false, reason: 'tenant', message: MSG.genericFail }
 const FORBIDDEN: Refusal = { ok: false, reason: 'forbidden', message: MSG.readOnly }
 const invalid = (message: string): Refusal => ({ ok: false, reason: 'invalid', message })
 

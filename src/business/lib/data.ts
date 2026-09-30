@@ -254,6 +254,7 @@ export async function practiceDoorOn(): Promise<boolean> {
 /** ⚖ A2 · G5 — may the admitted operator save the card colour (core's sheet, `settings.manage`)?
  *  The page asks only while the door is ON; OFF answers false (no writer). */
 export async function readCanManageCardColor(): Promise<boolean> {
+  if (!(await doorOn())) return false // R50 — another business never reaches the door
   return door.readCanManageCardColor()
 }
 
@@ -273,6 +274,7 @@ export async function writeBookingColors(storeId: string, colors: unknown): Prom
  *  OFF-world render is settings-props.ts's own fixture branch (臨時休業) / honest empty state
  *  (特別営業日, R8), never this function. Called ONLY while the practice door is ON. */
 export async function readStoreDays(storeId: string): Promise<doorWrites.StoreDaysReadResult> {
+  if (!(await doorOn())) return doorWrites.TENANT_REFUSAL // R50 — the door's own OFF answer, never a core read
   return doorWrites.readStoreDays(storeId)
 }
 
