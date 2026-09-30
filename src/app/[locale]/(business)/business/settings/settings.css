@@ -699,6 +699,8 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .cl-phone {
   position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
   overflow-wrap: normal; color-scheme: normal;
+  /* a phone's scrollbar is an overlay: a classic one must never narrow Reserve's 393 ground under the port's measure */
+  scrollbar-width: none;
 }
 /* the app's ground fills the frame when the page is shorter than the phone (Reserve's page does) */
 .biz .pg-settings .cl-phone > .member-ground { min-height: 100%; }
