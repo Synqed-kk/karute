@@ -1,0 +1,41 @@
+# Why: SYNQED Business is preview-only (src/business/lib/admission.ts 404s on production),
+# so its only working address is the Vercel preview of branch preview/business-merged.
+# A human used to fast-forward that branch after every merge; nobody did, and the link went stale.
+# Rule: Business is preview-only; this branch is the standing preview; humans never commit on it.
+name: Business preview sync
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: business-preview-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Fast-forward preview/business-merged to main
+    runs-on: ubuntu-latest
+
+    steps:
+      # SHA-pinned like ci.yml (Greptile #635).
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Fast-forward (never force)
+        run: |
+          before="$(git ls-remote origin refs/heads/preview/business-merged | cut -f1)"
+          echo "preview/business-merged before: ${before:-<absent>}"
+          echo "main (GITHUB_SHA):              $GITHUB_SHA"
+          if ! git push origin "$GITHUB_SHA:refs/heads/preview/business-merged"; then
+            echo "::error::preview/business-merged is not an ancestor of main (someone committed on it). CI never forces. Fix by hand: git push --force-with-lease origin origin/main:refs/heads/preview/business-merged"
+            exit 1
+          fi
+          after="$(git ls-remote origin refs/heads/preview/business-merged | cut -f1)"
+          echo "preview/business-merged after:  $after"
