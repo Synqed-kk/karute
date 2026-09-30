@@ -25,6 +25,7 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { businessStrings } from '@/business/i18n'
 
 export interface ShellStore { id: string; name: string }
 
@@ -32,9 +33,11 @@ export interface SidebarProps {
   locale: string
   businessName: string
   storeCount: number
-  operatorName: string
-  operatorMark: string
-  operatorRole: string
+  /** ⚖ R53 — the signed-in person (readShellViewer), never the rooms' acting persona. */
+  viewerName: string
+  viewerMark: string
+  viewerRoleLabel: string | null
+  viewerEmail: string | null
   stores: ShellStore[]
   /** 今日の運営 badge (Today A6). One count per store plus the business-wide
    *  total: the rail renders above the store lens, so it picks the number the
@@ -42,6 +45,8 @@ export interface SidebarProps {
    *  it is showing. */
   unresolved: { byStore: Record<string, number>; all: number }
 }
+
+const shellStrings = businessStrings.shell
 
 /** Canon's rail glyphs, lifted verbatim. */
 const GLYPH: Record<string, ReactNode> = {
@@ -146,7 +151,7 @@ export function wireStorePicker(pop: HTMLElement, trigger: HTMLElement, onClose:
 }
 
 export function BusinessSidebar(props: SidebarProps) {
-  const { locale, businessName, storeCount, operatorName, operatorMark, operatorRole, stores, unresolved } = props
+  const { locale, businessName, storeCount, viewerName, viewerMark, viewerRoleLabel, viewerEmail, stores, unresolved } = props
   const pathname = usePathname()
   const search = useSearchParams()
   const [open, setOpen] = useState(true)
@@ -321,11 +326,19 @@ export function BusinessSidebar(props: SidebarProps) {
         </div>
       ))}
 
-      <div className="operator">
-        <span className="avatar">{operatorMark}</span>
+      {/* ⚖ R53 — who is signed in, in both worlds; registers into 画面の説明 like the store card. */}
+      <div
+        className="operator"
+        data-guide-title={shellStrings.accountTitle}
+        data-guide={shellStrings.accountGuide}
+      >
+        <span className="avatar">{viewerMark}</span>
         <span>
-          <strong>{operatorName}</strong>
-          <span>{operatorRole} / {lensLabel}</span>
+          <strong>{viewerName || shellStrings.accountTitle}</strong>
+          <span>{viewerRoleLabel ? `${viewerRoleLabel} / ${lensLabel}` : lensLabel}</span>
+          {viewerEmail !== null && viewerEmail !== viewerName && (
+            <span className="operator-email" title={`${shellStrings.accountTitle}: ${viewerEmail}`}>{viewerEmail}</span>
+          )}
         </span>
       </div>
     </aside>

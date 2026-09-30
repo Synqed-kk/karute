@@ -360,7 +360,7 @@ describe('the sample facade', () => {
 })
 
 const DOOR_READERS = [
-  'listStoreOptions', 'listCustomers', 'listAppointments', 'listVisits', 'readShellIdentity', 'listMenus',
+  'listStoreOptions', 'listCustomers', 'listAppointments', 'listVisits', 'readShellIdentity', 'readShellViewer', 'listMenus',
   'readUnresolvedCounts', 'listResources', 'listShiftsByDay', 'listAbsenceByDay', 'listBlocksByDay',
   'readDayPlanes', 'readReservationPlanes', 'readAnalyticsPlanes', 'listStaff', 'readStaffStores',
   'readReserveCardColor', // ⚖ A1b — the business's Reserve card colour (no lens)
@@ -372,10 +372,10 @@ const DOOR_READERS = [
 /** ⚖ A2 (Liam 9/24) — the ONE writer beside them. */
 const DOOR_WRITERS = ['writeReserveCardColor'] as const
 /** ⚖ R-S39-1 — exported for door-booking-colors.ts only (the once-per-actor org read, the one settings.manage truth). */
-const DOOR_HELPERS = ['canManageSettings', 'orgSettingsOf'] as const
+const DOOR_HELPERS = ['canManageSettings', 'firstToken', 'orgSettingsOf'] as const // ⚖ R53 — firstToken: data.ts's door-OFF card mark reuses the ONE splitter
 
 describe('the door', () => {
-  it('exports exactly the twenty-one readers and the one writer, and two helpers', () => {
+  it('exports exactly the twenty-two readers and the one writer, and three helpers', () => {
     expect(Object.keys(door).sort()).toEqual([...DOOR_READERS, ...DOOR_WRITERS, ...DOOR_HELPERS].sort())
   })
   it('⚖ R-S39-1 — door-booking-colors.ts exports exactly the one writer', () => {

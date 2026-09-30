@@ -551,6 +551,9 @@
 .biz .operator strong { display: block; font-size: 14px; }
 .biz .operator > span:last-child { display: none; }
 .biz .operator > span:last-child > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+/* ⚖ R53 — the login e-mail: one line, ellipsised; the full address rides in title. */
+.biz .operator > span:last-child { min-width: 0; }
+.biz .operator .operator-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ═══ RAIL COLLAPSE — canon icon-rail system ═══ */
 .biz .app { grid-template-columns: 76px minmax(0, 1fr); transition: grid-template-columns .26s cubic-bezier(.2, .7, .1, 1); }

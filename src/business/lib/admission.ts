@@ -36,7 +36,15 @@ import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './grants'
 
-export interface BusinessAdmission { userId: string; email: string | null; businessId: string }
+export interface BusinessAdmission {
+  userId: string
+  email: string | null
+  /** ⚖ R53 — the person's own name for the shell card: auth user_metadata.full_name,
+   *  which the invite-accept flow writes (src/actions/invites.ts createUser). Off the
+   *  SAME getUser() read; null when absent or blank (the card then shows the e-mail). */
+  displayName: string | null
+  businessId: string
+}
 
 /** null = denied, for any reason. Kept apart from the notFound() call below so
  *  the catch-all can never swallow Next's own control-flow throw. */
@@ -58,7 +66,9 @@ async function admit(): Promise<BusinessAdmission | null> {
   if (!grant.granted) return null
   const isGrantee = grant.grantedBy != null && grant.grantedBy === user.id
   if (!isGrantee && !management) return null
-  return { userId: user.id, email: user.email ?? null, businessId }
+  const fullName: unknown = user.user_metadata?.full_name
+  const displayName = typeof fullName === 'string' && fullName.trim() !== '' ? fullName.trim() : null
+  return { userId: user.id, email: user.email ?? null, displayName, businessId }
 }
 
 export async function requireBusinessAdmission(): Promise<BusinessAdmission> {

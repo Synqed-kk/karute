@@ -87,7 +87,7 @@ function withReads(o: RecordedOptions = {}): Spied {
 /** ⚖ §v11 PR-B — the floating path (no assignments row = every store), with むすび's recorded row taken out. */
 const floatingMusubi = () => withReads().staffStoresList.mockResolvedValue({ assignments: Object.fromEntries(Object.entries(ASSIGNMENTS).filter(([id]) => id !== CARD.musubi)) })
 function as(userId: string, email: string | null = null, businessId: string = TENANT) {
-  admission.mockResolvedValue({ userId, email, businessId })
+  admission.mockResolvedValue({ userId, email, displayName: null, businessId })
 }
 
 const saved = process.env.BUSINESS_PRACTICE_TENANT
@@ -128,6 +128,16 @@ describe('(1) OWNER — viewAll', () => {
     expect(typeof shell.reserveSyncedAt).toBe('string')
     withReads({ orgName: null })
     expect((await data.readShellIdentity()).business.name).toBe('')
+  })
+
+  it('R53 P2 readShellViewer door ON: the core card + the admission e-mail + the role label, the operator untouched', async () => {
+    as(LOGIN.owner, 'dev@karute.test')
+    const admitted = await requireBusinessAdmission()
+    const viewer = await data.readShellViewer(admitted)
+    const shell = await data.readShellIdentity()
+    expect(viewer).toEqual({ name: shell.operator.name, mark: shell.operator.mark, email: admitted.email, roleLabel: 'オーナー' })
+    expect(viewer.name).toBe('Dev Salon')
+    expect(viewer.email).toBe('dev@karute.test')
   })
 
   it('listStaff(東京): the 東京-assigned + floating cards; the inactive card never', async () => {
