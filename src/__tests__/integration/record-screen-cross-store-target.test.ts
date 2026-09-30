@@ -205,4 +205,10 @@ describe('録音 target — R-O7 a same-day 仮カルテ placeholder is not a pr
     const screen = await screenFor({ customers: [IN_STORE], requestedAppointmentId: 'appt-ginza', targetCustomer: null, karute: [placeholder('2026-08-20')] })
     expect(screen.brief?.isFirstTimeVisit).toBe(false)
   })
+  // A11 / NIT-d (S69 fix round 4, commit 29): a malformed provisional date no
+  // longer throws the record screen — the row counts (a regular is never hidden).
+  it('A11 R: a malformed provisional date → no throw, the row counts as a prior visit', async () => {
+    const screen = await screenFor({ customers: [IN_STORE], requestedAppointmentId: 'appt-ginza', targetCustomer: null, karute: [placeholder('not-a-real-date-at-all')] })
+    expect(screen.brief?.isFirstTimeVisit).toBe(false)
+  })
 })

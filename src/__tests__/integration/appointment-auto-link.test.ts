@@ -124,9 +124,27 @@ describe('S7 — resolveAutoAppointmentLink, the guardrail', () => {
     expect(readFailed(warn)).toHaveLength(1)
     warn.mockRestore()
   })
-  it('S-3: a booking with a malformed starts_at (S-1: ymdInJst throws) → skipped:read_failed', async () => {
+  // A11 (S69 fix round 4, commit 29): only the SESSION's own start failing to
+  // parse is read_failed; a booking's bad date COUNTS toward the day and is
+  // never linked (its window cannot be judged) — 'ambiguous'.
+  it('A11: a lone NON-cancelled booking with a malformed starts_at → ambiguous (counted, never linked, never read_failed)', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    expect(await run(client([booking({ starts_at: 'not-a-date' })]).c)).toEqual({ link: 'skipped:read_failed', appointmentId: null })
+    expect(await run(client([booking({ starts_at: 'not-a-date' })]).c)).toEqual({ link: 'ambiguous', appointmentId: null })
+    expect(readFailed(warn)).toHaveLength(0)
+    warn.mockRestore()
+  })
+  it('A11 L1: a CANCELLED booking with a bad date is ignored → the good one links', async () => {
+    const bad = booking({ id: 'appt-x', starts_at: 'not-a-date', status: 'CANCELLED', cancelled_at: '2026-09-28T00:00:00Z' })
+    expect(await run(client([bad, booking()]).c)).toEqual({ link: 'auto_linked', appointmentId: 'appt-1' })
+  })
+  it('A11 L2: a NON-cancelled bad-date booking + one good booking → ambiguous (the bad one counts, never excluded)', async () => {
+    expect(await run(client([booking({ id: 'appt-x', starts_at: 'not-a-date' }), booking()]).c)).toEqual({ link: 'ambiguous', appointmentId: null })
+  })
+  it('A11 L3: the session start will not parse → skipped:read_failed, logged once, the day never read', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { c, list } = client([booking()])
+    expect(await run(c, { sessionStartedAt: 'not-a-date' })).toEqual({ link: 'skipped:read_failed', appointmentId: null })
+    expect(list).not.toHaveBeenCalled()
     expect(readFailed(warn)).toHaveLength(1)
     warn.mockRestore()
   })

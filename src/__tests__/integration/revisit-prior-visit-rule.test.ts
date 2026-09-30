@@ -10,6 +10,8 @@ jest.mock('server-only', () => ({}))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedClient: jest.fn() }))
 
 import { isReturningCustomerServerSide } from '@/lib/karute/revisit-guard'
+import { countsAsPriorVisit } from '@/lib/customers/status-signals'
+import { jstDayOf } from '@/lib/date/jst'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 
 type Row = { id: string; status: string; recording_session_id: string | null; session_date?: string | null; created_at: string }
@@ -156,3 +158,24 @@ describe('SF-4 — the revisit guard never pages a regular off the list', () => 
   })
 })
 
+
+// A11 (S69 fix round 4, commit 29): date reads are null-safe and one shape.
+describe('A11 — the prior-visit rule reads dates through the one null-safe helper', () => {
+  it("A11 D: jstDayOf — a canonical day as is, '2026-9-29' normalised to '2026-09-29', a timestamp in JST, garbage and null → null", () => {
+    expect(jstDayOf('2026-09-29')).toBe('2026-09-29')
+    expect(jstDayOf('2026-9-29')).toBe('2026-09-29')
+    expect(jstDayOf('2026-09-28T15:30:00Z')).toBe('2026-09-29')
+    expect(jstDayOf('not-a-real-date-at-all')).toBeNull()
+    expect(jstDayOf(null)).toBeNull()
+  })
+  it("A11 N: a same-day placeholder dated '2026-9-29' is today's (normalised) → not a prior visit", () => {
+    expect(countsAsPriorVisit({ status: 'DRAFT', recording_session_id: null, session_date: '2026-9-29', created_at: null }, '2026-09-29')).toBe(false)
+  })
+  it('A11 N: a placeholder with no session_date and created_at null → counts (a regular is never hidden)', () => {
+    expect(countsAsPriorVisit({ status: 'DRAFT', recording_session_id: null, session_date: null, created_at: null }, '2026-09-29')).toBe(true)
+  })
+  it('A11 clog: a placeholder with a malformed long session_date counts → returning, never unknown (the enqueue no longer refuses on every retry)', async () => {
+    const bad: Row = { id: 'draft-bad', status: 'DRAFT', recording_session_id: null, session_date: 'not-a-real-date-at-all', created_at: '2026-09-29T07:44:07Z' }
+    expect(await guard(client({ customer: FIRST_TIMER, rows: [OWN, bad] }).c)).toBe('returning')
+  })
+})

@@ -32,6 +32,7 @@ SIGNALS = 'src/lib/customers/status-signals.ts'
 GUARD = 'src/lib/karute/revisit-guard.ts'
 SCREEN = 'src/lib/karute/record-screen.ts'
 OUTCOME_SRC = 'src/lib/karute/outcome.ts'
+DATE = 'src/lib/date/jst.ts'
 
 SAVE_T = f'{IT}/app-api-karute-save.test.ts'
 JOB_T = f'{IT}/process-recording-existing-karute.test.ts'
@@ -129,8 +130,8 @@ MUTANTS = [
      [AUTO_T], ["the window is the booking's OWN duration on each side"]),
     # M-O12 — the status filter moves back before the count (S67 fix round 2, commit 10, B-1)
     ('M-O12', 'the two-booking count sees only SCHEDULED/IN_PROGRESS again (a COMPLETED visit + the next booking links the next)',
-     [(LINK, "        !a.cancelled_at && a.status !== 'CANCELLED',\n",
-       "        LINKABLE_STATUSES.has(a.status) && !a.cancelled_at, // M-O12\n")],
+     [(LINK, "      if (a.cancelled_at || a.status === 'CANCELLED') return false\n",
+       "      if (a.cancelled_at || !LINKABLE_STATUSES.has(a.status)) return false // M-O12\n")],
      [AUTO_T], ['B-1 A5a: the real visit 09:00–10:00 already COMPLETED']),
     # M-O13 — the facade converge searches the request's store again (commit 11, SF-1)
     ('M-O13', "the converge's auto-link is handed the request store, not the record's",
@@ -161,6 +162,15 @@ MUTANTS = [
      [(FATE, "        return { link: `skipped:${input.outcomeMissing ?? 'kept_unknown'}` }\n",
        "        return { link: `skipped:${input.outcomeMissing ?? 'not_sent'}` } // M-O33\n")],
      [SAVE_T], ['A17 F1: a converge with no answer whose keep-decided read throws']),
+    # M-O34..M-O35 — A11 + NIT-a (S69 commit 29): date reads are null-safe and one shape
+    ('M-O34', 'jstDayOf throws on an unparseable date again (the guard answers unknown; the enqueue clogs on every retry)',
+     [(DATE, '  return Number.isNaN(d.getTime()) ? null : ymdInJst(d)\n',
+       "  if (Number.isNaN(d.getTime())) throw new RangeError('Invalid time value') // M-O34\n  return ymdInJst(d)\n")],
+     [RULE_T, GATE_T], ['A11 clog: a placeholder with a malformed long session_date', 'A11 R: a malformed provisional date']),
+    ('M-O35', "the auto-link reads a booking's date before its cancellation (a cancelled bad-date booking blocks the good one)",
+     [(LINK, "      if (a.cancelled_at || a.status === 'CANCELLED') return false\n      const bookingDay = jstDayOf(a.starts_at)\n",
+       "      const bookingDay = jstDayOf(a.starts_at)\n      if (bookingDay === null) return true // M-O35\n      if (a.cancelled_at || a.status === 'CANCELLED') return false\n")],
+     [AUTO_T], ['A11 L1: a CANCELLED booking with a bad date']),
     # M-O16 — the guard reads ONE page again (commit 14, SF-4; the base regression)
     ('M-O16', 'the prior-visit read stops after page 1 (placeholders push a regular off the page)',
      [(GUARD, '    if (count > 0 || rows.length < PRIOR_VISIT_PAGE_SIZE) return count\n', '    return count // M-O16\n')],
@@ -194,8 +204,8 @@ MUTANTS = [
     ('M-O20', "a failed read reads as 'none' (the same word as no booking)",
      [(LINK, "    return { link: 'skipped:read_failed', appointmentId: null }\n", '    return none // M-O20\n')],
      [AUTO_T, SAVE_T, JOB_T],
-     ['S-3: appointments.list throws', 'S-3: the karute list (condition 6) throws', 'S-3: a booking with a malformed starts_at',
-      'S-3: the session row read throws', "S-3 F: the day's bookings cannot be read", 'S-3 F: the session row cannot be read',
+     ['S-3: appointments.list throws', 'S-3: the karute list (condition 6) throws',
+      'S-3: the session row read throws', 'A11 L3: the session start will not parse', "S-3 F: the day's bookings cannot be read", 'S-3 F: the session row cannot be read',
       "S-3 W: the day's bookings cannot be read"]),
     # M-O8 — the draft makes a first-timer returning (commit 3, R-O7 + V7)
     ('M-O8a', 'countsAsPriorVisit always true (the placeholder counts)',

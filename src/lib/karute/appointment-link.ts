@@ -1,5 +1,5 @@
 import type { Appointment, SynqedClient } from '@synqed-kk/client'
-import { ymdInJst } from '@/lib/date/jst'
+import { jstDayOf } from '@/lib/date/jst'
 
 export type AppointmentLinkReason = 'appointment_not_found' | 'appointment_out_of_scope' | 'appointment_unreadable'
 
@@ -211,10 +211,12 @@ export async function resolveAutoAppointmentLink(
       )
       return { link: 'skipped:no_session_start', appointmentId: null }
     }
-    // S-1 (S68 fix round 3): the ONE JST-day spelling (ymdInJst), as every
-    // other consumer in this PR. An unreadable timestamp throws here (RangeError)
-    // and lands in the catch below.
-    const day = ymdInJst(new Date(startIso))
+    // S-1 (S68 fix round 3) + A11 (S69 fix round 4): the ONE JST-day read
+    // (jstDayOf). The SESSION's own start is the one date whose failure to
+    // parse means the auto-link cannot be evaluated: it lands in the catch
+    // below → skipped:read_failed.
+    const day = jstDayOf(startIso)
+    if (!day) throw new RangeError(`session start will not parse: ${startIso}`)
     const res = await synqed.appointments.list({
       customer_id: input.customerId,
       store_id: input.storeId ?? undefined,
@@ -232,15 +234,21 @@ export async function resolveAutoAppointmentLink(
     }
     // Condition 7 counts every NOT-CANCELLED booking of the day, whatever its
     // status (B-1); the status check (4) runs on the one booking after.
-    const sameDay = rows.filter(
-      (a) =>
-        a.customer_id === input.customerId &&
-        (a.store_id ?? null) === input.storeId &&
-        ymdInJst(new Date(a.starts_at)) === day &&
-        !a.cancelled_at && a.status !== 'CANCELLED',
-    )
+    // A11 / NIT-a (S69 fix round 4): the cancellation check runs FIRST (a
+    // cancelled booking's date is never read — `cancelled_at` / status
+    // CANCELLED); a NON-cancelled booking whose start will not parse COUNTS
+    // toward the day, never excluded (excluding it could turn two bookings
+    // into a wrong link) — and alone it is never linked: its window cannot be
+    // judged → 'ambiguous'.
+    const sameDay = rows.filter((a) => {
+      if (a.customer_id !== input.customerId || (a.store_id ?? null) !== input.storeId) return false
+      if (a.cancelled_at || a.status === 'CANCELLED') return false
+      const bookingDay = jstDayOf(a.starts_at)
+      return bookingDay === null || bookingDay === day
+    })
     if (sameDay.length > 1) return { link: 'ambiguous', appointmentId: null }
     const booking = sameDay[0]
+    if (booking && jstDayOf(booking.starts_at) === null) return { link: 'ambiguous', appointmentId: null }
     if (!booking || !LINKABLE_STATUSES.has(booking.status)) return none
 
     const startsMs = Date.parse(booking.starts_at)

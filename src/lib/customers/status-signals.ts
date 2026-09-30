@@ -11,7 +11,7 @@
 // of tree-shaking. The thin boundary plugin now refuses unported next/* imports
 // outright, so the client-safe surface lives here, importable from anywhere.
 
-import { jstDaysBetween, ymdInJst } from '@/lib/date/jst'
+import { jstDayOf, jstDaysBetween } from '@/lib/date/jst'
 import type { CustomerStatusKey } from '@/components/customers/redesign/types'
 
 /** Every signal of prior history. Gathered the SAME way on each surface so the
@@ -142,10 +142,12 @@ export function isProvisionalKaruteRow(row: PriorVisitRow): boolean {
   return row.status === 'DRAFT' && !row.recording_session_id
 }
 
+// A11 (S69 fix round 4, commit 29): through the ONE jstDayOf — a short date is
+// normalised, a malformed one is null (it used to THROW: the guard answered
+// 'unknown' and the enqueue refused that customer on every retry). A null day
+// never equals the anchor, so the row COUNTS: a regular is never hidden.
 function karuteRowDayJst(row: PriorVisitRow): string | null {
-  const date = row.session_date
-  if (date) return date.length > 10 ? ymdInJst(new Date(date)) : date
-  return row.created_at ? ymdInJst(new Date(row.created_at)) : null
+  return row.session_date ? jstDayOf(row.session_date) : jstDayOf(row.created_at)
 }
 
 export function countsAsPriorVisit(row: PriorVisitRow, anchorDayJst: string): boolean {
