@@ -80,6 +80,9 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
   const raw = await readKaruteRawIncludingDiscarded(synqed, id)
   const customerId = (raw.customer_id as string | null) ?? null
   const recordingSessionId = (raw.recording_session_id as string | null) ?? null
+  // ONE spelling of 「this record is discarded」 for the fan-out, the deferred read and the select below;
+  // `karute.status` at the door is this same value unchanged (supabase/karute.ts:132 `status: rec.status`).
+  const isDiscarded = raw.status === 'DISCARDED'
   // S3 (PR-O commit 3): the customer's truth for the 結果 card — the SAME
   // server function the revisit guard runs on every write (R-O7's prior-
   // visit rule included; this karute excluded, anchored to its session's
@@ -146,7 +149,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
           })
         : Promise.resolve(null),
       // S3 / G-4: see readReturning above — a DISCARDED record defers it.
-      raw.status === 'DISCARDED' ? Promise.resolve(null) : readReturning(),
+      isDiscarded ? Promise.resolve(null) : readReturning(),
     ])
 
     const customer = gated?.[0] ?? null
@@ -259,7 +262,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     // which already threw above). G-4: the deferred returning read runs here,
     // in parallel with the facts, for the allowed discarded record only.
     const [discardFacts, deferredReturning] =
-      karute.status === 'DISCARDED'
+      isDiscarded
         ? await Promise.all([
             resolveDiscardFacts(synqed, businessId, {
               recordingSessionId: karute.recording_session_id,
@@ -268,7 +271,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
             readReturning(),
           ])
         : [{ discardLedger: null, recordStaffName: null }, null]
-    const returning = raw.status === 'DISCARDED' ? deferredReturning : fannedReturning
+    const returning = isDiscarded ? deferredReturning : fannedReturning
 
     // Merge→shell-update window gate (#689 P1). Fielded shells (iOS ≤4.6,
     // Android ≤code 12) parse this screen with a BAKED strict outcome enum
