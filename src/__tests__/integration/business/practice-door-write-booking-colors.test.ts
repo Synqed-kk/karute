@@ -592,7 +592,7 @@ describe('⚖ PKT-S38 R7 — the screen speaks the route’s contract', () => {
   const SCREEN = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx'), 'utf8')
   it('source pins: 保存する routes 言語・表示 to the real save only with the prop; canSave false → no 保存する + the forbidden foot; a pick / section change clears an old refusal', () => {
     expect(SCREEN).toContain("const LANG_SECTION_ID = 'language-display'")
-    expect(SCREEN).toContain(': section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section))}')
+    expect(SCREEN).toContain(': section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}')
     expect(SCREEN).toContain('const liveColors = section?.id === LANG_SECTION_ID ? props.saveBookingColors : undefined')
     expect(SCREEN).toContain('{liveColors.canSave === false ? null : roomSave(section)}')
     expect(SCREEN).toContain('<p className="st-foot">{liveColors.canSave ? BOOKING_SAVE_NOTE : BOOKING_SAVE_FAIL.forbidden}</p>')
