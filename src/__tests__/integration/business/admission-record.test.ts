@@ -68,6 +68,7 @@ describe('admission — a denial that is not "no session" leaves one record', ()
     expect(r[0][1]).toEqual({
       reason: 'auth-error',
       ref: expect.stringMatching(/^[0-9a-f]{8}$/),
+      where: 'getUser', // S5 fix 2 (#1110): the record names where it came from
       status: (e as { status: number }).status,
       message: (e as Error).message,
     })
@@ -82,7 +83,8 @@ describe('admission — a denial that is not "no session" leaves one record', ()
     await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
     const r = records()
     expect(r).toHaveLength(1)
-    expect(r[0][1]).toMatchObject({ reason: 'threw', ref: expect.stringMatching(/^[0-9a-f]{8}$/) })
+    // S5 fix 2 (#1110): tightened with `where` (grants is mocked here, so every throw lands in admit's catch)
+    expect(r[0][1]).toMatchObject({ reason: 'threw', ref: expect.stringMatching(/^[0-9a-f]{8}$/), where: 'admit' })
     expect(String(r[0][1].message)).toMatch(/blew up|backend down/)
   })
 
@@ -99,6 +101,7 @@ describe('admission — a denial that is not "no session" leaves one record', ()
     expect(r[0][1]).toEqual({
       reason: 'threw',
       ref: expect.stringMatching(/^[0-9a-f]{8}$/),
+      where: 'admit', // S5 fix 2 (#1110): the record names where it came from
       status: undefined,
       message: '<unprintable>',
     })

@@ -36,32 +36,11 @@ import { notFound } from 'next/navigation'
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { businessIdForUser, hasBusinessAdminGrant, isManagementMember } from './grants'
+import { recordBusinessDenial } from './denial-record'
 
 // ⚖ 9/30 black box lane — a denial that is NOT a plain "no session" leaves ONE
-// server-side record (never user text: the answer stays the bare 404). This is
-// the minimal shape until the shared writer exists. `ref` is a short random id
-// so one incident can be found in the logs; it is never shown to anyone.
-// record() NEVER throws: a value String() cannot print (a null-prototype
-// object, a throwing toString) records '<unprintable>', and anything else that
-// fails is dropped — the answer stays the 404, never a 500.
-function printable(v: unknown): string {
-  if (typeof v === 'string') return v
-  if (v instanceof Error) return v.message
-  try {
-    return String(v)
-  } catch {
-    return '<unprintable>'
-  }
-}
-
-function record(reason: 'auth-error' | 'threw', status: unknown, message: unknown): void {
-  try {
-    const ref = Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, '0')
-    console.error('[business-admission]', { reason, ref, status, message: printable(message) })
-  } catch {
-    // a record must never change the answer
-  }
-}
+// server-side record (never user text: the answer stays the bare 404), written
+// by the one writer in ./denial-record (it never throws).
 
 export interface BusinessAdmission { userId: string; email: string | null; businessId: string }
 
@@ -82,7 +61,9 @@ async function admit(): Promise<BusinessAdmission | null> {
   // today, but with a record first, so an outage is no longer silent.
   if (error) {
     const e = error as { name?: unknown; status?: unknown; message?: unknown }
-    if (e.name !== 'AuthSessionMissingError') record('auth-error', e.status, e.message)
+    if (e.name !== 'AuthSessionMissingError') {
+      recordBusinessDenial('auth-error', { where: 'getUser', status: e.status, message: e.message })
+    }
     return null
   }
   if (!user) return null
@@ -104,7 +85,7 @@ async function admit(): Promise<BusinessAdmission | null> {
 // dispatcher and cache() calls the function directly — uncached, as before.
 export const requireBusinessAdmission = cache(async (): Promise<BusinessAdmission> => {
   const admitted = await admit().catch((e: unknown) => {
-    record('threw', undefined, e)
+    recordBusinessDenial('threw', { where: 'admit', message: e })
     return null
   })
   if (!admitted) notFound()

@@ -25,6 +25,14 @@ describe('(business) layout title', () => {
     admission.mockRejectedValue(new Error('NEXT_NOT_FOUND'))
     await expect(generateMetadata()).resolves.toEqual({})
   })
+  // #1110 review P2 — why the RENDERED 404 title is not asserted here: jest in
+  // this repo has no Next render harness to resolve a route's <head>.
+  // generateMetadata's {} is this segment's ONLY contribution to the head, and
+  // the root layout supplies the fallback — src/app/layout.tsx:25-26:
+  //   25  export const metadata: Metadata = {
+  //   26    title: "Karute",
+  // The rendered title is proven live on the preview (proofs b and c in the
+  // PR body).
   it('any other failure → {}', async () => {
     admission.mockRejectedValue(new Error('anything'))
     await expect(generateMetadata()).resolves.toEqual({})

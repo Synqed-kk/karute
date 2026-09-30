@@ -426,8 +426,12 @@ describe('the fixture data door', () => {
       // ⚖ PR-3 §v3 V3-5 — the practice note's words (Business's string home, a JSON module).
       'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', '@/business/i18n', 'next/navigation', 'react'],
       // DISCLOSED PIN MOVE (S5 fix 1): admission.ts memoises per request with React cache()
-      'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation', 'react'],
-      'src/business/lib/grants.ts': ['@/lib/supabase/service'],
+      // DISCLOSED PIN MOVE (S5 fix 2, #1110 P1): admission.ts records through the one writer, ./denial-record
+      'src/business/lib/admission.ts': ['./denial-record', './grants', '@/lib/supabase/server', 'next/navigation', 'react'],
+      // DISCLOSED PIN MOVE (S5 fix 2, #1110 P1): a failed grant/tenant read records through ./denial-record
+      'src/business/lib/grants.ts': ['./denial-record', '@/lib/supabase/service'],
+      // S5 fix 2 (#1110 P1): the one denial writer imports NOTHING, so any swallow point can call it
+      'src/business/lib/denial-record.ts': [],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
       // ⚖ THE ROOM-3 F1 LAW — everything between the admission gate and the
       // render moved to `customers-props.ts`, so the evidence harness imports
