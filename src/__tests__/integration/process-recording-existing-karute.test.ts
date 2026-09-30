@@ -235,6 +235,32 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
     expect(runMeteredTranscription).not.toHaveBeenCalled()
   })
 
+  // A8 (S69 fix round 4, commit 27): through the REAL chokepoint — a write
+  // that rejects with an EMPTY message is still a failure: no
+  // karute.outcome_set row, the job takes T4's failure path (fail, no complete).
+  it('A8 skip path: the outcome write rejects with Error(\'\') → no karute.outcome_set row; the job FAILS', async () => {
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const outcomes = fakeClient.karuteOutcomes as Record<string, unknown>
+    outcomes.upsert = jest.fn(async () => { throw new Error('') })
+    const real = jest.requireActual('@/lib/karute/outcome') as { setKaruteOutcomeWithClient: (...a: unknown[]) => Promise<{ error?: string }> }
+    setKaruteOutcomeWithClient.mockImplementationOnce((...a: unknown[]) => real.setKaruteOutcomeWithClient(...a))
+    getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+    karuteOutcomesGet.mockResolvedValueOnce(null)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status: 'success' } } })
+      .mockResolvedValueOnce(null)
+    try {
+      await processRecordingJobs(10_000)
+      expect(outcomes.upsert).toHaveBeenCalledTimes(1)
+      expect(audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.outcome_set')).toHaveLength(0)
+      expect(complete).not.toHaveBeenCalled()
+      expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('outcome write failed'))
+    } finally {
+      delete outcomes.upsert
+      quiet.mockRestore()
+    }
+  })
+
   it('T5 the lookup rejects with a non-404 → the job FAILS and runMeteredTranscription is NOT called (never pay blind)', async () => {
     getByRecordingSession.mockRejectedValueOnce(Object.assign(new Error('core down'), { status: 503 }))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)

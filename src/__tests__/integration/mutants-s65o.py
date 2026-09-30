@@ -31,6 +31,7 @@ FATE = 'src/lib/karute/outcome-fate.ts'
 SIGNALS = 'src/lib/customers/status-signals.ts'
 GUARD = 'src/lib/karute/revisit-guard.ts'
 SCREEN = 'src/lib/karute/record-screen.ts'
+OUTCOME_SRC = 'src/lib/karute/outcome.ts'
 
 SAVE_T = f'{IT}/app-api-karute-save.test.ts'
 JOB_T = f'{IT}/process-recording-existing-karute.test.ts'
@@ -42,6 +43,7 @@ GATE_T = f'{IT}/record-screen-cross-store-target.test.ts'
 DTO_T = f'{IT}/app-api-karute-detail-screen.test.ts'
 CP2_T = f'{IT}/audit-coveredby.test.ts'
 CP7_T = f'{IT}/audit-writer-emission.test.ts'
+GUARD_T = f'{IT}/revisit-eligibility-guard.test.ts'
 
 # The dummy values from ci.yml (not secrets).
 ENV = {
@@ -85,6 +87,11 @@ MUTANTS = [
     ('M-O29', "the keep-decided read skips a create again (a replayed record's decided answer is overwritten)",
      [(FATE, '  if (input.keepDecidedAnswer) {\n', '  if (input.keepDecidedAnswer && !input.fresh) { // M-O29\n')],
      [JOB_T], ['A4-job: a replayed record with a decided answer on it']),
+    # M-O30 — A8 (S69 commit 27): the chokepoint answers an empty word for Error('') (the failure reads as success)
+    ('M-O30', "an outcome write failure with an empty message returns error '' (read as success by the fate and the skip path)",
+     [(OUTCOME_SRC, "    return { error: (err instanceof Error ? err.message : String(err)) || 'outcome write failed' }\n",
+       '    return { error: err instanceof Error ? err.message : String(err) } // M-O30\n')],
+     [GUARD_T, JOB_T], ["A8: the upsert rejects with Error('')", "A8 skip path: the outcome write rejects with Error('')"]),
     # M-O5 — the audit row lacks the fate (commit 2, S5 + R-O2)
     ('M-O5a', 'the facade row drops outcome_link',
      [(CORE, '        ...(outcomeLink === undefined ? {} : { outcome_link: outcomeLink }),\n', '')],
