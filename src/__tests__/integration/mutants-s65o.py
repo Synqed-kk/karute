@@ -90,7 +90,7 @@ MUTANTS = [
      [(LINK, '        (a.store_id ?? null) === input.storeId &&\n', '')],
      [AUTO_T], ['condition 2 — a booking in another store']),
     ('M-O7d', 'JST-day check removed',
-     [(LINK, '        jstDayOf(a.starts_at) === day &&\n', '')],
+     [(LINK, '        ymdInJst(new Date(a.starts_at)) === day &&\n', '')],
      [AUTO_T], ['condition 3 at midnight']),
     ('M-O7e', 'other-karute check removed',
      [(LINK, '    if (other) return none\n', '')],

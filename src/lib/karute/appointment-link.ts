@@ -1,4 +1,5 @@
 import type { Appointment, SynqedClient } from '@synqed-kk/client'
+import { ymdInJst } from '@/lib/date/jst'
 
 export type AppointmentLinkReason = 'appointment_not_found' | 'appointment_out_of_scope' | 'appointment_unreadable'
 
@@ -108,10 +109,6 @@ export function keepLinkUnlessGiven(
 export type AutoAppointmentLink = 'auto_linked' | 'ambiguous' | 'none' | 'skipped:no_session_start'
 const LINKABLE_STATUSES = new Set(['SCHEDULED', 'IN_PROGRESS'])
 
-function jstDayOf(iso: string): string {
-  return new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
-}
-
 export async function resolveAutoAppointmentLink(
   synqed: Pick<SynqedClient, 'appointments' | 'recordings' | 'karuteRecords'>,
   input: {
@@ -139,7 +136,10 @@ export async function resolveAutoAppointmentLink(
       )
       return { link: 'skipped:no_session_start', appointmentId: null }
     }
-    const day = jstDayOf(startIso)
+    // S-1 (S68 fix round 3): the ONE JST-day spelling (ymdInJst), as every
+    // other consumer in this PR. An unreadable timestamp throws here (RangeError)
+    // and lands in the catch below.
+    const day = ymdInJst(new Date(startIso))
     const res = await synqed.appointments.list({
       customer_id: input.customerId,
       store_id: input.storeId ?? undefined,
@@ -153,7 +153,7 @@ export async function resolveAutoAppointmentLink(
       (a) =>
         a.customer_id === input.customerId &&
         (a.store_id ?? null) === input.storeId &&
-        jstDayOf(a.starts_at) === day &&
+        ymdInJst(new Date(a.starts_at)) === day &&
         !a.cancelled_at && a.status !== 'CANCELLED',
     )
     if (sameDay.length > 1) return { link: 'ambiguous', appointmentId: null }
