@@ -270,3 +270,16 @@ describe('tri-state — a failed read is never mistaken for a negative', () => {
     expect(upsert).not.toHaveBeenCalled()
   })
 })
+
+// A8 (S69 fix round 4, commit 27): the chokepoint's failure is never an empty
+// word — every `if (result.error)` reader would read '' as success.
+describe('A8 — an outcome write failure is never an empty word', () => {
+  it('A8: the upsert rejects with Error(\'\') → error is a non-empty string', async () => {
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    upsert.mockRejectedValueOnce(new Error(''))
+    const res = await write('success')
+    expect(typeof res.error).toBe('string')
+    expect(res.error).not.toBe('')
+    quiet.mockRestore()
+  })
+})

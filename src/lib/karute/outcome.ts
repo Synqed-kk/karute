@@ -101,7 +101,10 @@ export async function setKaruteOutcomeWithClient(
     return {}
   } catch (err) {
     console.error('[outcome] setKaruteOutcomeWithClient failed:', err)
-    return { error: err instanceof Error ? err.message : 'outcome write failed' }
+    // A8 (S69 fix round 4, commit 27): a failure is NEVER an empty word — an
+    // Error('') would read as success to every `if (result.error)` reader (the
+    // fate, the worker's skip path) and the answer would be lost for good.
+    return { error: (err instanceof Error ? err.message : String(err)) || 'outcome write failed' }
   }
 }
 

@@ -159,6 +159,24 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     locale: parsed.data.locale ?? 'ja',
     duration_seconds: parsed.data.durationSeconds,
     outcome: parsed.data.outcome ?? undefined,
+    outcome_missing: parsed.data.outcomeMissing ?? undefined,
+    // S7 (PR-O commit 4): the session's start for the worker's auto-link —
+    // best-effort (a failed read = no auto-link evidence, never a refusal).
+    // SF-6 (S67 fix round 2): a failed read is LOGGED, never silent; the
+    // worker then says skipped:no_session_start.
+    session_started_at: await synqed.recordings
+      .get(parsed.data.recordingSessionId)
+      .then((r) => r?.created_at ?? undefined)
+      .catch((err: unknown) => {
+        console.warn(
+          JSON.stringify({
+            evt: 'session_start_unread',
+            recordingSessionId: parsed.data.recordingSessionId,
+            cause: err instanceof Error ? err.message : String(err),
+          }),
+        )
+        return undefined
+      }),
   }
 
   try {

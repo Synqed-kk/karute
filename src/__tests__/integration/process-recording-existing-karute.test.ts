@@ -235,6 +235,32 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
     expect(runMeteredTranscription).not.toHaveBeenCalled()
   })
 
+  // A8 (S69 fix round 4, commit 27): through the REAL chokepoint — a write
+  // that rejects with an EMPTY message is still a failure: no
+  // karute.outcome_set row, the job takes T4's failure path (fail, no complete).
+  it('A8 skip path: the outcome write rejects with Error(\'\') → no karute.outcome_set row; the job FAILS', async () => {
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const outcomes = fakeClient.karuteOutcomes as Record<string, unknown>
+    outcomes.upsert = jest.fn(async () => { throw new Error('') })
+    const real = jest.requireActual('@/lib/karute/outcome') as { setKaruteOutcomeWithClient: (...a: unknown[]) => Promise<{ error?: string }> }
+    setKaruteOutcomeWithClient.mockImplementationOnce((...a: unknown[]) => real.setKaruteOutcomeWithClient(...a))
+    getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+    karuteOutcomesGet.mockResolvedValueOnce(null)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status: 'success' } } })
+      .mockResolvedValueOnce(null)
+    try {
+      await processRecordingJobs(10_000)
+      expect(outcomes.upsert).toHaveBeenCalledTimes(1)
+      expect(audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.outcome_set')).toHaveLength(0)
+      expect(complete).not.toHaveBeenCalled()
+      expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('outcome write failed'))
+    } finally {
+      delete outcomes.upsert
+      quiet.mockRestore()
+    }
+  })
+
   it('T5 the lookup rejects with a non-404 → the job FAILS and runMeteredTranscription is NOT called (never pay blind)', async () => {
     getByRecordingSession.mockRejectedValueOnce(Object.assign(new Error('core down'), { status: 503 }))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
@@ -449,6 +475,33 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
       expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'karute.save' }))
     })
 
+    // A13 (S69 fix round 4): the skip path's actor read runs BEFORE the label
+    // write (the S-2 shape) — the karute.outcome_set row follows the durable
+    // answer with no read between. SF-4 (S70 fix round 5): the actor read also
+    // runs BEFORE discard check #2 — the discard check is the LAST read before
+    // the write.
+    it('A13 skip path: the actor read runs before the label write; the outcome_set row follows the write', async () => {
+      getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+      karuteOutcomesGet.mockResolvedValueOnce(null)
+      claim
+        .mockResolvedValueOnce({
+          ...baseJob,
+          payload: { ...baseJob.payload, outcome: { status: 'success' } },
+        })
+        .mockResolvedValueOnce(null)
+
+      await processRecordingJobs(10_000)
+
+      expect(staffGet).toHaveBeenCalledTimes(1)
+      // SF-4: actor read → discard check #2 (the ledger's SECOND read) → write.
+      expect(listDiscards).toHaveBeenCalledTimes(2)
+      expect(staffGet.mock.invocationCallOrder[0]).toBeLessThan(listDiscards.mock.invocationCallOrder[1])
+      expect(listDiscards.mock.invocationCallOrder[1]).toBeLessThan(setKaruteOutcomeWithClient.mock.invocationCallOrder[0])
+      expect(staffGet.mock.invocationCallOrder[0]).toBeLessThan(setKaruteOutcomeWithClient.mock.invocationCallOrder[0])
+      expect(setKaruteOutcomeWithClient.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
+      expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'karute.outcome_set' }))
+    })
+
     it('T16 existing record + the label dropped as REVISIT_NOT_ELIGIBLE → NO karute.outcome_set row; job completes', async () => {
       getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
       karuteOutcomesGet.mockResolvedValueOnce(null)
@@ -493,5 +546,547 @@ describe('process-recording worker — pre-spend existing-karute check (packet B
       expect(getByRecordingSession).not.toHaveBeenCalled()
       expect(complete).not.toHaveBeenCalled()
     })
+  })
+})
+
+// S4 (PR-O commit 1, O1/V4): the worker's mid-run converge (pre-spend lookup
+// 404, the record appears while transcription runs) never clears the link an
+// earlier save wrote. T7 above leaves an unconsumed once-queue entry on the
+// lookup mock, so this block resets that one mock to the file's default first.
+describe('S4 — the worker converge never clears a booking link', () => {
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  const runMidRunConverge = async (existing: Record<string, unknown>, payload: Record<string, unknown> = {}) => {
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({ id: 'record-existing', store_id: null, ...existing } as never)
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, ...payload } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    expect(karuteRecordsUpdate).toHaveBeenCalledTimes(1)
+    expect(karuteRecordsCreate).not.toHaveBeenCalled()
+    return (karuteRecordsUpdate.mock.calls[0] as unknown[])[1] as Record<string, unknown>
+  }
+
+  const saveRow = () => {
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+  it('S4-job: a job re-run with no booking keeps the first save\'s link', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    // A2/A3 (S69 fix round 4; licensed class): a kept link is not sent back.
+    expect(sent).not.toHaveProperty('appointment_id')
+  })
+
+  it('S4-job: a stale job for a record since re-pointed to another customer never clears that record\'s link (the worker never moves the customer)', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-REPOINTED', appointment_id: 'appt-of-new-customer' })
+    // A2/A3 (S69 fix round 4; licensed class): the link stays — not sent back.
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(sent).not.toHaveProperty('customer_id')
+  })
+
+  // A3 (S69 fix round 4, commit 25; RULING-S68-ASTRA § OPUS REVISIONS — this
+  // case REVERSES the S4 re-stamp pin): FILL-ONLY.
+  it('A3-job: a same-customer re-pick after the enqueue keeps its link (the stale job\'s booking is not sent)', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-B' }, { appointment_id: 'appt-A' })
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-B' })
+  })
+  it('A3-job: a record re-pointed to customer B (empty link) never takes the payload\'s booking; the auto-link asks for B', async () => {
+    const c = fakeClient as unknown as { appointments: Record<string, unknown>; karuteRecords: Record<string, unknown> }
+    const list = jest.fn(async () => ({ appointments: [], total: 0 }))
+    c.appointments.list = list
+    try {
+      const sent = await runMidRunConverge({ customer_id: 'cust-B', appointment_id: null }, { appointment_id: 'appt-a1', session_started_at: '2026-09-29T07:44:39Z' })
+      expect(sent).not.toHaveProperty('appointment_id')
+      expect(list).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'cust-B' }))
+    } finally {
+      delete c.appointments.list
+    }
+  })
+  // SF-5 (S70 fix round 5): the gate is strict — a record with NO customer is
+  // nobody's, so the payload's booking is never applied to it; the auto-link
+  // still runs for the S7 fallback customer (the payload's), as before.
+  it("SF-5 job: a record with no customer never takes the payload's booking; the auto-link runs for the fallback customer", async () => {
+    const c = fakeClient as unknown as { appointments: Record<string, unknown> }
+    const list = jest.fn(async () => ({ appointments: [], total: 0 }))
+    c.appointments.list = list
+    try {
+      const sent = await runMidRunConverge({ customer_id: null, appointment_id: null }, { appointment_id: 'appt-a1', session_started_at: '2026-09-29T07:44:39Z' })
+      expect(sent).not.toHaveProperty('appointment_id')
+      expect(list).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'cust-1' }))
+      expect(saveRow()).toMatchObject({ appointment_id: null })
+    } finally {
+      delete c.appointments.list
+    }
+  })
+  it('A3-job: an empty link + the same customer + a payload booking → applied', async () => {
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: null }, { appointment_id: 'appt-new' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-new' })
+    expect(saveRow()).toMatchObject({ appointment_link: null, appointment_id: 'appt-new' })
+  })
+  // S67 fix round 2, commit 15 (SF-5; the attack's F-6 / W10 row): the worker's
+  // row tells the record's EFFECTIVE link — `kept` + the id, never null.
+  it('SF-5 F-6: a kept-link converge → the row says kept + the record\'s link', async () => {
+    await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
+  // SF-5 「a job that names its booking → null + the named id」 now lives in the A3 empty-link case above.
+  // G-3 (S71 fix round 7, RULING-S71-G3-G4): on a kept path the word follows
+  // what the update RETURNED — the same value the row reports as appointment_id.
+  it('G-3 (i) job: a kept path whose update returns the SAME link → kept + that id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: 'appt-first' } as never)
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
+  it('G-3 (ii) job: a kept path whose update returns NO link → changed + null', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: null } as never)
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(saveRow()).toMatchObject({ appointment_link: 'changed', appointment_id: null })
+  })
+  it('G-3 (iii) job: a kept path whose update returns ANOTHER link → changed + the other id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: 'appt-other' } as never)
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(saveRow()).toMatchObject({ appointment_link: 'changed', appointment_id: 'appt-other' })
+  })
+  it('G-3 (iv) job: a kept path whose update returns no field → kept + the kept id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' } as never)
+    await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
+  it('G-3 (iv) job: a kept path whose update returns no record → kept + the kept id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce(undefined as never)
+    await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
+})
+
+// S2 + S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): the worker writes the
+// answer FIRST (the fate function it shares with the facade save), then emits
+// its ONE karute.save row carrying outcome_link; a failed write still gets its
+// row, and only then fails the job so core requeues it (fix round 1 kept).
+describe('S2/S5 — the worker\'s karute.save row carries the answer\'s fate', () => {
+  let warn: jest.SpyInstance
+  let error: jest.SpyInstance
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    error = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warn.mockRestore()
+    error.mockRestore()
+  })
+  const run = async (payload: Record<string, unknown>) => {
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, ...payload } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+
+  it('S2/S5-job written: the label lands before the row, the row says written', async () => {
+    const detail = await run({ outcome: { status: 'success' } })
+    expect(detail.outcome_link).toBe('written')
+    expect(setKaruteOutcomeWithClient.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
+    expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+  })
+
+  // S-2 (S68 fix round 3): the actor read runs BEFORE the fate, so nothing
+  // sits between the durable answer and its karute.save row.
+  it('S-2: the actor read runs before the label write; the row follows the label with no read between', async () => {
+    const detail = await run({ outcome: { status: 'success' } })
+    expect(detail.outcome_link).toBe('written')
+    const lastActorRead = Math.max(...staffGet.mock.invocationCallOrder)
+    expect(lastActorRead).toBeLessThan(setKaruteOutcomeWithClient.mock.invocationCallOrder[0])
+    expect(setKaruteOutcomeWithClient.mock.invocationCallOrder[0]).toBeLessThan(audit.mock.invocationCallOrder[0])
+  })
+
+  it('S2/S5-job kept: a mid-run converge with no label keeps the label already on record', async () => {
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({ id: 'record-existing', store_id: null, customer_id: 'cust-1' } as never)
+    karuteOutcomesGet.mockResolvedValueOnce({ outcome: 'success' } as never)
+    const detail = await run({})
+    expect(detail.outcome_link).toBe('kept')
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-job skipped:not_sent: an old client queued no label and no reason', async () => {
+    const detail = await run({})
+    expect(detail.outcome_link).toBe('skipped:not_sent')
+  })
+
+  it('S2/S5-job skipped:<client reason>: the job payload says why no label rides it', async () => {
+    const detail = await run({ outcome_missing: 'unanswered_recovery' })
+    expect(detail.outcome_link).toBe('skipped:unanswered_recovery')
+  })
+
+  it('S2/S5-job skipped:not_returning: the guard refuses the revisit label — record kept, job completes', async () => {
+    setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'revisit_not_eligible' })
+    const detail = await run({ outcome: { status: 'revisit' } })
+    expect(detail.outcome_link).toBe('skipped:not_returning')
+    expect(complete).toHaveBeenCalled()
+    expect(fail).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-job failed (the write errors): one row with failed:<ref> (no cause), THEN the job fails as before', async () => {
+    setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'upstream down' })
+    const detail = await run({ outcome: { status: 'success' } })
+    expect(detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('outcome write failed: upstream down'))
+    expect(fail.mock.invocationCallOrder[0]).toBeGreaterThan(audit.mock.invocationCallOrder[0])
+    expect(complete).not.toHaveBeenCalled()
+  })
+
+  it('S2/S5-job failed (the write THROWS): the row is still emitted exactly once, the job fails with the original error', async () => {
+    setKaruteOutcomeWithClient.mockRejectedValueOnce(new Error('boom'))
+    const detail = await run({ outcome: { status: 'success' } })
+    expect(detail.outcome_link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('boom'))
+    expect(complete).not.toHaveBeenCalled()
+  })
+
+  // R-O9 (ii): ONE reference joins the server log line and the audit row —
+  // the ref is generated once per failed write (outcome-fate.ts failed()).
+  const loggedRefs = () =>
+    error.mock.calls
+      .map((c) => { try { return JSON.parse(String(c[0])) as { evt?: string; ref?: string } } catch { return null } })
+      .filter((line) => line?.evt === 'outcome_write_failed')
+      .map((line) => line?.ref)
+
+  it('one reference joins the log line and the audit row (the write errors)', async () => {
+    setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'upstream down' })
+    const link = String((await run({ outcome: { status: 'success' } })).outcome_link)
+    expect(link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(loggedRefs()).toEqual([link.slice('failed:'.length)])
+  })
+
+  it('one reference joins the log line and the audit row (the write THROWS)', async () => {
+    setKaruteOutcomeWithClient.mockRejectedValueOnce(new Error('boom'))
+    const link = String((await run({ outcome: { status: 'success' } })).outcome_link)
+    expect(link).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(loggedRefs()).toEqual([link.slice('failed:'.length)])
+  })
+})
+
+// SF-7 (S67 fix round 2, commit 17; the attack's W10 / W10b): the worker's
+// mid-run converge files the answer under the RECORD's current customer and
+// never overwrites a DECIDED answer staff set since — the skip path's rule,
+// through the same isDecidedOutcome.
+describe('SF-7 — the worker never clobbers a decided answer', () => {
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  const REPOINTED = { id: 'record-existing', store_id: 'store-A', customer_id: 'cust-NEW', appointment_id: 'appt-new' }
+  const saveRow = () => {
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+  const midRun = async () => {
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce(REPOINTED as never)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status: 'revisit', isFirstVisit: false } } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+  }
+
+  it('SF-7 W10: a mid-run converge onto a record whose staff set no_deal since → not overwritten, the row says kept', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal' })
+    await midRun()
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(saveRow()).toMatchObject({ outcome_link: 'kept', customer_id: 'cust-NEW', appointment_id: 'appt-new' })
+  })
+  it('SF-7: a mid-run converge onto a re-pointed record with no decided answer → written under the record\'s current customer', async () => {
+    karuteOutcomesGet.mockResolvedValue(null)
+    await midRun()
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, expect.objectContaining({ customerId: 'cust-NEW', status: 'revisit' }))
+    expect(saveRow()).toMatchObject({ outcome_link: 'written', customer_id: 'cust-NEW' })
+  })
+  it('SF-7: a 保留 placeholder on the record is not decided → the real label lands over it', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'pending' })
+    await midRun()
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(saveRow()).toMatchObject({ outcome_link: 'written' })
+  })
+  it('SF-7 W10b (unchanged): the SKIP path on the same re-pointed record with a decided answer → no write, no row', async () => {
+    getByRecordingSession.mockResolvedValue(REPOINTED as never)
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal' })
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status: 'revisit', isFirstVisit: false } } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')).toHaveLength(0)
+  })
+})
+
+// S7 (PR-O commit 4): the worker links the ONE unambiguous booking through the
+// same resolveAutoAppointmentLink — with the session start the enqueue door
+// stamped on the payload (the worker never reads the session row).
+describe('S7 — the worker links the unambiguous booking at save', () => {
+  const client = fakeClient as unknown as Record<string, Record<string, unknown>>
+  const appt = (id: string, startsAt: string, endsAt: string) => ({
+    id, customer_id: 'cust-1', store_id: 'store-A', starts_at: startsAt, ends_at: endsAt,
+    duration_minutes: 60, status: 'SCHEDULED', cancelled_at: null,
+  })
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  afterEach(() => {
+    delete client.appointments.list
+    delete client.karuteRecords.list
+  })
+  const run = async (appts: object[], payload: Record<string, unknown>) => {
+    client.appointments.list = jest.fn(async () => ({ appointments: appts }))
+    client.karuteRecords.list = jest.fn(async () => ({ karute_records: [] }))
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, store_id: 'store-A', ...payload } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+
+  it('S7-job: one booking in its window → created on it; the row says auto_linked', async () => {
+    const detail = await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], { session_started_at: '2026-09-29T07:44:39Z' })
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1' }))
+    expect(detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-1' })
+  })
+  // S67 fix round 2, commit 12 (SF-2; the attack's W-F2 twin of F-2).
+  it('SF-2 W-F2: a create auto-linked to a booking titled カット stamps that menu (the same as the facade)', async () => {
+    appointmentsGet.mockResolvedValueOnce({ title: 'カット' } as never)
+    await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], { session_started_at: '2026-09-29T07:44:39Z' })
+    expect(appointmentsGet).toHaveBeenCalledWith('appt-1')
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-1', service: 'カット' }))
+  })
+  // S-3 (S68 fix round 3): the day's bookings cannot be read → the row says
+  // skipped:read_failed (never 'none'), no link, the job completes.
+  it('S-3 W: the day\'s bookings cannot be read → created with no link; the row says skipped:read_failed', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    client.appointments.list = jest.fn(async () => { throw new Error('core down') })
+    client.karuteRecords.list = jest.fn(async () => ({ karute_records: [] }))
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, store_id: 'store-A', session_started_at: '2026-09-29T07:44:39Z' } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect((rows[0][0] as { detail: Record<string, unknown> }).detail).toMatchObject({ appointment_link: 'skipped:read_failed', appointment_id: null })
+    warn.mockRestore()
+  })
+  it('S7-job: two bookings → ambiguous, no link', async () => {
+    const detail = await run(
+      [appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z'), appt('appt-2', '2026-09-29T10:00:00Z', '2026-09-29T11:00:00Z')],
+      { session_started_at: '2026-09-29T07:44:39Z' },
+    )
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect(detail.appointment_link).toBe('ambiguous')
+  })
+  // SF-6 (S67 fix round 2, commit 16; the attack's W1): its own word, never
+  // 'none' (was 'none' in commit 4), logged once.
+  it('SF-6 W1: an older job with no session start → skipped:no_session_start, no link, no list read, logged once', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const detail = await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], {})
+    expect(detail.appointment_link).toBe('skipped:no_session_start')
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: null }))
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"auto_link_skipped"'))).toHaveLength(1)
+    warn.mockRestore()
+  })
+  it('S7-job: a job that names its booking never runs the auto-link', async () => {
+    const detail = await run([appt('appt-1', '2026-09-29T07:30:00Z', '2026-09-29T08:30:00Z')], { appointment_id: 'appt-given', session_started_at: '2026-09-29T07:44:39Z' })
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(detail.appointment_link).toBeNull()
+  })
+})
+
+// A4 (S69 fix round 4, commit 26): the worker's create answers with the record
+// core RETURNED, files the answer under ITS customer, and runs the keep-decided
+// read like the converge (core's create may return an existing record).
+describe('A4 — the worker\'s create answers with the record core returned', () => {
+  let warn: jest.SpyInstance
+  let error: jest.SpyInstance
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    error = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warn.mockRestore()
+    error.mockRestore()
+  })
+  const run = async (payload: Record<string, unknown>) => {
+    claim.mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, ...payload } }).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+  it('A4-job: core returns the record with no link while the payload names a booking → the row says null', async () => {
+    karuteRecordsCreate.mockResolvedValueOnce({ id: 'record-1', appointment_id: null } as never)
+    const detail = await run({ appointment_id: 'appt-given' })
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(expect.objectContaining({ appointment_id: 'appt-given' }))
+    expect(detail.appointment_id).toBeNull()
+  })
+  it('A4-job: core returns the record on customer B while the payload says cust-1 → the row and the outcome write name B', async () => {
+    karuteRecordsCreate.mockResolvedValueOnce({ id: 'record-1', customer_id: 'cust-B' } as never)
+    const detail = await run({ appointment_id: 'appt-given', outcome: { status: 'success' } })
+    expect(detail.customer_id).toBe('cust-B')
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ customerId: 'cust-B' }))
+  })
+  it('A4-job: a replayed record with a decided answer on it → kept, the stale answer never written', async () => {
+    karuteOutcomesGet.mockResolvedValueOnce({ outcome: 'success' })
+    const detail = await run({ appointment_id: 'appt-given', outcome: { status: 'no_deal' } })
+    expect(karuteOutcomesGet).toHaveBeenCalledWith('record-1')
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(detail.outcome_link).toBe('kept')
+    expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+  })
+  it('A4-job: the create\'s keep-decided read fails → failed:<ref>, the job fails (requeue asks again), never a blind write', async () => {
+    karuteOutcomesGet.mockRejectedValueOnce(new Error('core down'))
+    const detail = await run({ appointment_id: 'appt-given', outcome: { status: 'success' } })
+    expect(String(detail.outcome_link)).toMatch(/^failed:[0-9a-f]{8}$/)
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+    expect(fail).toHaveBeenCalled()
+  })
+})
+
+// A9 (S69 fix round 4, commit 28): a row the auto-decide wrote is not the
+// staff's answer — a real late answer lands over it; an incoming 保留 never
+// lands over any non-pending row. Through the ONE predicate, on the worker's
+// mid-run converge (the fate's keep-decided read) and on its skip path.
+describe('A9 — an auto answer is not the staff\'s', () => {
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  const RECORD = { id: 'record-existing', store_id: 'store-A', customer_id: 'cust-1', appointment_id: 'appt-1' }
+  const saveRow = () => {
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return (rows[0][0] as { detail: Record<string, unknown> }).detail
+  }
+  const midRun = async (status: string) => {
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce(RECORD as never)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status } } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+  }
+
+  it('A9 W1: an auto-decided no_deal + incoming success → the staff\'s answer lands, the row says written', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal', auto_decided: true } as never)
+    await midRun('success')
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, expect.objectContaining({ status: 'success' }))
+    expect(saveRow()).toMatchObject({ outcome_link: 'written' })
+  })
+  it('A9 W2: an auto-decided no_deal + incoming pending → never landed, the row says kept', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal', auto_decided: true } as never)
+    await midRun('pending')
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(saveRow()).toMatchObject({ outcome_link: 'kept' })
+  })
+  it('A9 W3 (unchanged): a staff-decided success (auto_decided false) + incoming no_deal → kept', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'success', auto_decided: false } as never)
+    await midRun('no_deal')
+    expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
+    expect(saveRow()).toMatchObject({ outcome_link: 'kept' })
+  })
+  it('A9 W4 (unchanged): a 保留 row + incoming success → written', async () => {
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'pending', auto_decided: false } as never)
+    await midRun('success')
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(saveRow()).toMatchObject({ outcome_link: 'written' })
+  })
+  it('A9 W5: the SKIP path with an auto-decided row + incoming revisit → the label is written', async () => {
+    getByRecordingSession.mockResolvedValue(RECORD as never)
+    karuteOutcomesGet.mockResolvedValue({ outcome: 'no_deal', auto_decided: true } as never)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, outcome: { status: 'revisit', isFirstVisit: false } } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledTimes(1)
+    expect(setKaruteOutcomeWithClient).toHaveBeenCalledWith(fakeClient, expect.objectContaining({ status: 'revisit' }))
+  })
+})
+
+// SF-1 / SF-2 / SF-3 (r5 delta read; S70 fix round 5, commit 34, test-only):
+// the worker's converge is pinned — an auto-link HIT is written, the row
+// carries the id the update RETURNED, and the auto-link searches the RECORD's
+// store (never the payload's).
+describe("W-C — the worker's converge is pinned", () => {
+  const client = fakeClient as unknown as Record<string, Record<string, unknown>>
+  const appt = (id: string, storeId: string) => ({
+    id, customer_id: 'cust-1', store_id: storeId, starts_at: '2026-09-29T07:30:00Z', ends_at: '2026-09-29T08:30:00Z',
+    duration_minutes: 60, status: 'SCHEDULED', cancelled_at: null,
+  })
+  beforeEach(() => {
+    getByRecordingSession.mockReset()
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+  })
+  afterEach(() => {
+    delete client.appointments.list
+    delete client.karuteRecords.list
+  })
+  // The record lives in store-A; the job's payload names store-B.
+  const converge = async (appts: object[], payload: Record<string, unknown> = {}) => {
+    client.appointments.list = jest.fn(async () => ({ appointments: appts, total: appts.length }))
+    client.karuteRecords.list = jest.fn(async () => ({ karute_records: [] }))
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A', customer_id: 'cust-1', appointment_id: null } as never)
+    claim
+      .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, store_id: 'store-B', session_started_at: '2026-09-29T07:44:39Z', ...payload } })
+      .mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+    expect(karuteRecordsUpdate).toHaveBeenCalledTimes(1)
+    expect(karuteRecordsCreate).not.toHaveBeenCalled()
+    const rows = audit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'karute.save')
+    expect(rows).toHaveLength(1)
+    return {
+      sent: (karuteRecordsUpdate.mock.calls[0] as unknown[])[1] as Record<string, unknown>,
+      detail: (rows[0][0] as { detail: Record<string, unknown> }).detail,
+    }
+  }
+
+  it('W-C a: an auto-link HIT on the converge → the update body carries the auto-linked id; the row says auto_linked', async () => {
+    const { sent, detail } = await converge([appt('appt-1', 'store-A')])
+    expect(sent).toMatchObject({ appointment_id: 'appt-1' })
+    expect(detail).toMatchObject({ appointment_link: 'auto_linked', appointment_id: 'appt-1' })
+  })
+  it('W-C b: the update RETURNS a different link → the row carries the RETURNED id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: 'appt-RETURNED' } as never)
+    const { sent, detail } = await converge([], { appointment_id: 'appt-new' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-new' })
+    expect(detail).toMatchObject({ appointment_id: 'appt-RETURNED' })
+  })
+  // X5 (r6 attack; S70 fix round 6, commit 35, test-only): a returned null is
+  // the truth (A4) — the row carries it, never the computed booking.
+  it('W-C d: the update RETURNS no link → the row carries the returned null, the body the payload booking', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: null } as never)
+    const { sent, detail } = await converge([], { appointment_id: 'appt-new' })
+    expect(sent).toMatchObject({ appointment_id: 'appt-new' })
+    expect(detail).toMatchObject({ appointment_id: null })
+  })
+  it("W-C c: the converge's auto-link searches the RECORD's store, never the payload's", async () => {
+    await converge([])
+    expect(client.appointments.list).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'cust-1', store_id: 'store-A' }))
+    expect(client.appointments.list).not.toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-B' }))
   })
 })

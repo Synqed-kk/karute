@@ -319,3 +319,42 @@ describe('POST recordings/job/from-session', () => {
     })
   })
 })
+
+// R-O8 (PR-O, RULING-S67-PRO-STOP2): outcome_missing at the 録音履歴 from-session
+// door — same contract as the enqueue door.
+describe('POST recordings/job/from-session — R-O8 outcome_missing at the door', () => {
+  it('a body with outcomeMissing → payload.outcome_missing carries it', async () => {
+    const res = await POST(req({ ...auth, ...idem }, { ...validBody, outcomeMissing: 'unanswered_recovery' }), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.outcome_missing).toBe('unanswered_recovery')
+  })
+  it('a body without it (build 31) → enqueued as before, no outcome_missing value', async () => {
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.outcome_missing).toBeUndefined()
+  })
+})
+
+// S7 (PR-O commit 4): the from-session door stamps the session's start from the row it reads.
+describe('POST recordings/job/from-session — S7 session_started_at on the payload', () => {
+  it('a row with created_at → the payload carries it', async () => {
+    recordingsGet.mockImplementationOnce(async () => ({ ...current.row, created_at: '2026-09-29T07:44:39Z' }) as never)
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.session_started_at).toBe('2026-09-29T07:44:39Z')
+  })
+  // SF-6 (S67 fix round 2, commit 16; NIT-2): a row with no start is logged.
+  it('SF-6: a row without created_at → no start on the payload, logged once', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    recordingsGet.mockImplementationOnce(async () => ({ ...current.row, created_at: undefined }) as never)
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.session_started_at).toBeUndefined()
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"session_start_unread"'))).toHaveLength(1)
+    warn.mockRestore()
+  })
+})

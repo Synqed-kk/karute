@@ -454,3 +454,92 @@ describe('POST recordings/job — the row names its recorder (S46)', () => {
     expect(call.payload.staff_id).toBe('synqed-auth-user-1')
   })
 })
+
+// R-O8 (PR-O, RULING-S67-PRO-STOP2): outcome_missing at the enqueue door. A body
+// carrying outcomeMissing puts it on the job payload (the worker hands it to
+// writeOutcomeFate — pinned in process-recording-existing-karute "S2/S5-job
+// skipped:<client reason>"); a build-31 body without it enqueues as before.
+describe('POST recordings/job — R-O8 outcome_missing at the door', () => {
+  it('a body with outcomeMissing → payload.outcome_missing carries it', async () => {
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, { ...validBody, outcomeMissing: 'no_stamp' }), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.outcome_missing).toBe('no_stamp')
+  })
+  it('a body without it (build 31) → enqueued as before, no outcome_missing value', async () => {
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload.outcome_missing).toBeUndefined()
+  })
+  it('an unknown reason → 400 at the door, no enqueue', async () => {
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, { ...validBody, outcomeMissing: 'forgot' }), noRoute)
+    expect(res.status).toBe(400)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+})
+
+// R-O7 (PR-O commit 3): the enqueue refusal inherits the ONE prior-visit rule
+// from the shared guard — anchored to THIS session's start day (the row the
+// door already reads), never a copy of the rule here.
+describe("POST recordings/job — R-O7 a same-day 仮カルテ placeholder is not a prior visit", () => {
+  const revisitBody = { ...validBody, outcome: { status: 'revisit', isFirstVisit: false } }
+  const placeholder = (day: string) =>
+    ({ id: 'draft-1', status: 'DRAFT', recording_session_id: null, session_date: day, created_at: `${day}T01:00:00Z` }) as never
+  beforeEach(() => {
+    recordingsGet.mockImplementation(async () => ({ ...ownRow(), created_at: '2026-09-29T07:44:39Z' }) as never)
+  })
+  it('first-timer whose only other karute is a same-day placeholder → 422 not_returning, nothing queued', async () => {
+    listKaruteRecords.mockResolvedValue({ karute_records: [placeholder('2026-09-29')] })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, revisitBody), noRoute)
+    expect(res.status).toBe(422)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+  it('the same placeholder from an EARLIER day → returning, enqueued', async () => {
+    listKaruteRecords.mockResolvedValue({ karute_records: [placeholder('2026-09-20')] })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, revisitBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
+  })
+  // S67 fix round 2, commit 14 (SF-4; the attack's M5): three same-day
+  // placeholders fill page 1 — the regular's past karute on page 2 still counts.
+  it('SF-4 M5: three same-day placeholders + a past karute on page 2 → returning, enqueued', async () => {
+    const rows = [
+      { ...(placeholder('2026-09-29') as object), id: 'd3' },
+      { ...(placeholder('2026-09-29') as object), id: 'd2' },
+      { ...(placeholder('2026-09-29') as object), id: 'd1' },
+      { id: 'k-past', status: 'COMPLETED', recording_session_id: 'sess-0', created_at: '2026-08-01T03:00:00Z' },
+    ]
+    listKaruteRecords.mockImplementation((async (q: { page?: number; page_size: number }) => {
+      const page = q.page ?? 1
+      return { karute_records: rows.slice((page - 1) * q.page_size, page * q.page_size) }
+    }) as never)
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, revisitBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
+  })
+})
+
+// S7 (PR-O commit 4): the enqueue door stamps the session's start on the job
+// payload so the worker's auto-link never reads the session row.
+describe('POST recordings/job — S7 session_started_at on the payload', () => {
+  it('the row\'s created_at rides the payload; an unreadable row leaves it absent (no refusal)', async () => {
+    recordingsGet.mockImplementation(async () => ({ ...ownRow(), created_at: '2026-09-29T07:44:39Z' }) as never)
+    const ok = await jobPOST(jreq('POST', { ...auth, ...idem }, validBody), noRoute)
+    expect(ok.status).toBe(200)
+    expect((jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }])[0].payload.session_started_at).toBe('2026-09-29T07:44:39Z')
+  })
+  // SF-6 (S67 fix round 2, commit 16; NIT-2): the stamp's read failing is
+  // logged, never silent — and still never a refusal.
+  it('SF-6: the session-start read fails → enqueued without a start, and the failure is logged once', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    recordingsGet
+      .mockImplementationOnce(async () => ownRow())
+      .mockImplementationOnce(async () => { throw new Error('core down') })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    expect((jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }])[0].payload.session_started_at).toBeUndefined()
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"session_start_unread"'))).toHaveLength(1)
+    warn.mockRestore()
+  })
+})

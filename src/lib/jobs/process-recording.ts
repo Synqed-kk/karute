@@ -46,7 +46,20 @@ import {
   REVISIT_NOT_ELIGIBLE,
 } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
+import {
+  appointmentLinkOf,
+  fillOnlyLinkOf,
+  keptLinkAfterWrite,
+  linkUpdateOf,
+  menuOfAutoLinked,
+  resolveAutoAppointmentLink,
+  returnedOr,
+  type AutoAppointmentLink,
+  type KeptLinkFate,
+} from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
+import { isDecidedOutcome, writeOutcomeFate } from '@/lib/karute/outcome-fate'
 
 /** The enqueue payload contract (client → core job row → this worker). */
 export interface RecordingJobPayload {
@@ -67,6 +80,14 @@ export interface RecordingJobPayload {
    *  silently lost label has no retry path of its own, and failing the whole
    *  job is what gets one. Absent = no outcome to write. */
   outcome?: SessionOutcome
+  /** S2 (PR-O): the client's reason for sending NO outcome — recorded as the
+   *  karute.save row's `outcome_link: skipped:<reason>`. Absent = not_sent. */
+  outcome_missing?: OutcomeMissingReason
+  /** S7 (PR-O commit 4): the recording session's START (its row's
+   *  created_at), stamped by the enqueue doors that read the row, so the
+   *  auto-link never makes the worker read it. Absent (an older job) = no
+   *  auto-link evidence → 'none'. */
+  session_started_at?: string | null
 }
 
 function coreClient(businessId: string): SynqedClient {
@@ -292,7 +313,15 @@ async function processJob(job: RecordingJob): Promise<string> {
     // stale 保留 to 不成約 after 14 days; losing the real label here would be
     // silent and permanent).
     const recordedOutcome = payload.outcome ? await synqed.karuteOutcomes.get(existing.id) : null
-    if (payload.outcome && (!recordedOutcome || recordedOutcome.outcome === 'pending')) {
+    // The decided-answer test is the ONE predicate the save's fate uses
+    // (isDecidedOutcome; S67 fix round 2, commit 13) — with the incoming
+    // answer (A9, S69 fix round 4: an auto-decided row yields to a real one).
+    if (payload.outcome && !isDecidedOutcome(recordedOutcome, payload.outcome.status)) {
+      // A13 (S69 fix round 4) + SF-4 (S70 fix round 5): the actor read runs
+      // BEFORE discard check #2 and the write (the S-2 shape) — the discard
+      // check stays the LAST read before the write, and nothing runs between
+      // the durable answer and its row.
+      const outcomeSetActorId = await resolveActorUserId(synqed, payload.staff_id)
       // Discard check #2 (skip path) — the LAST read before the write,
       // mirroring the normal path's check #2 below: a discard that landed
       // after check #1 and before this late label write still wins.
@@ -318,7 +347,7 @@ async function processJob(job: RecordingJob): Promise<string> {
         audit({
           category: 'karute',
           action: 'karute.outcome_set',
-          actorId: await resolveActorUserId(synqed, payload.staff_id),
+          actorId: outcomeSetActorId,
           actorType: 'staff',
           businessId: job.business_id,
           targetType: 'karute',
@@ -489,7 +518,15 @@ async function processJob(job: RecordingJob): Promise<string> {
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the
   // same record instead of duplicating it.
-  const { id: record, storeId: persistedStoreId } = await upsertKaruteRecord(synqed, job, payload, {
+  const {
+    id: record,
+    storeId: persistedStoreId,
+    customerId: recordCustomerId,
+    fresh,
+    autoLinked,
+    appointmentId: linkedId,
+    keptLink,
+  } = await upsertKaruteRecord(synqed, job, payload, {
     transcript,
     summary: summary.result.summary,
     entries: extraction.result.entries,
@@ -502,14 +539,38 @@ async function processJob(job: RecordingJob): Promise<string> {
   // actorId's contract is the auth uid, so translate via the roster. An
   // unwired recorder degrades to null (viewer renders 不明) — never emit the
   // wrong id-space; the synqed id stays in detail for forensics.
-  // ⚖ FIX ROUND 1 (packet B, 2026-09-19): this sits directly after the
-  // upsert and AHEAD OF the outcome label below, not after it — a label
-  // write that throws requeues the job into the existing-karute skip path
-  // above, which by design emits no save row, so this row must already be
-  // down before that throw can happen. Cannot double-log: once the record
+  // ⚖ FIX ROUND 1 (packet B, 2026-09-19): this row must be down BEFORE a
+  // failed label write fails the job — a requeue lands in the existing-karute
+  // skip path above, which by design emits no save row. (Since PR-O the label
+  // is written first but a failure no longer throws until after this row.) Cannot double-log: once the record
   // exists, a requeue of this same job never reaches this line again (the
   // pre-spend check returns from the skip path first).
+  //
+  // S2/S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): DEFERRED EMIT. The
+  // coaching label (packet 22 B4) is written FIRST, by the ONE fate function
+  // the facade save shares (writeOutcomeFate, never throws), so this row can
+  // carry `outcome_link: <fate>`. The fix-round-1 guarantee above still holds:
+  // a label write that fails becomes the fate `failed:<ref>`, the row below is
+  // emitted, and only THEN does the job fail (the rethrow after it) so core's
+  // requeue converges on the SAME record through the skip path.
+  // SF-7 (S67 fix round 2, commit 17): the answer is filed under the RECORD's
+  // current customer (a record re-pointed since the enqueue belongs to the
+  // person it now names — the skip path's rule), and a mid-run converge never
+  // overwrites a DECIDED answer staff set since (keepDecidedAnswer →
+  // isDecidedOutcome, the skip path's predicate).
+  // S-2 (S68 fix round 3): the actor read is done FIRST, so the row follows the
+  // fate immediately — nothing runs between the durable answer and its row.
   const actorUserId = await resolveActorUserId(synqed, payload.staff_id)
+  const fate = await writeOutcomeFate(synqed, {
+    karuteRecordId: record,
+    customerId: recordCustomerId,
+    staffId: payload.staff_id,
+    fresh,
+    outcome: payload.outcome,
+    outcomeMissing: payload.outcome_missing,
+    logTag: '[job]',
+    keepDecidedAnswer: true,
+  })
   audit({
     category: 'karute',
     action: 'karute.save',
@@ -526,11 +587,25 @@ async function processJob(job: RecordingJob): Promise<string> {
     detail: {
       via: 'job_pipeline',
       recording_session_id: job.recording_session_id,
-      customer_id: payload.customer_id,
+      // SF-7: the customer the record carries (a re-pointed record's own).
+      customer_id: recordCustomerId,
       staff_id: payload.staff_id,
       // PR B2 §3: the thread page's join key — the payload carries it
       // straight from the enqueue door.
-      appointment_id: payload.appointment_id ?? null,
+      // SF-5 (S67 fix round 2, commit 15): the record's EFFECTIVE link after
+      // the write (a kept link, the auto-linked booking, or the named one) —
+      // never the payload's.
+      appointment_id: linkedId,
+      // S7 (PR-O commit 4): when the job named no booking and the record had
+      // none — the auto-link's answer (auto_linked · ambiguous · none); SF-5:
+      // `kept` when an existing link stayed; null when the job named its
+      // booking. The same vocabulary as the facade's row, through the ONE
+      // expression (appointmentLinkOf); the worker has no degraded-booking
+      // reason, so it passes null for it.
+      appointment_link: appointmentLinkOf(null, autoLinked?.link, keptLink),
+      // S5: what became of the staff's answer (written · kept · skipped:… ·
+      // failed:<ref>) — a short reference, never the technical cause.
+      outcome_link: fate.link,
     },
     // PR-M5 piece ④: job/system paths use the job id as requestId (no HTTP
     // request scope exists here — the job id is the correlating identifier).
@@ -538,14 +613,10 @@ async function processJob(job: RecordingJob): Promise<string> {
     source: 'system',
   })
 
-  // Coaching label (packet 22 B4) — same idempotent upsert the interactive
-  // save uses (writeSessionOutcome, packet B 2026-09-19 — shared with the
-  // existing-karute skip path above). UNLIKE the interactive call site, a
-  // write failure here THROWS: failing the whole job lets core's requeue
-  // converge on the SAME record (the upsert above is idempotent too, and PR4
-  // leaves the audio in place for that re-run).
-  if (payload.outcome) {
-    await writeSessionOutcome(synqed, record, payload.staff_id, payload.customer_id, payload.outcome)
+  // A failed label write fails the job AFTER its row is down (as before: the
+  // same error writeSessionOutcome threw), so core requeues it.
+  if (fate.link.startsWith('failed:')) {
+    throw fate.cause instanceof Error ? fate.cause : new Error(`outcome write failed: ${String(fate.cause)}`)
   }
 
   // 5. ⚖ THE AUDIO STAYS (capture pipeline PR4). A completed job used to delete
@@ -569,7 +640,20 @@ async function upsertKaruteRecord(
   job: RecordingJob,
   payload: RecordingJobPayload,
   result: { transcript: string; summary: string; entries: ExtractedEntry[] },
-): Promise<{ id: string; storeId: string | null }> {
+): Promise<{
+  id: string
+  storeId: string | null
+  /** SF-7: the customer the record carries after this write (the worker's
+   *  update never moves it; a converge keeps the existing record's). */
+  customerId: string
+  fresh: boolean
+  autoLinked: { link: AutoAppointmentLink; appointmentId: string | null } | null
+  /** SF-5: the record's EFFECTIVE booking link after this write. */
+  appointmentId: string | null
+  /** SF-5 + G-3 (S71 fix round 7): the fate of an existing link this converge
+   *  left alone, checked against the RETURNED record (keptLinkAfterWrite). */
+  keptLink: KeptLinkFate
+}> {
   const entries = result.entries.map((e) => ({
     category: e.category.toUpperCase() as
       | 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE'
@@ -619,19 +703,69 @@ async function upsertKaruteRecord(
         confidence: e.confidence,
         is_manual: true,
       }))
-    await synqed.karuteRecords.update(existing.id, {
+    // S7 (PR-O commit 4): no booking named and none kept → the ONE auto-link
+    // the facade save shares, in the record's OWN store.
+    // A3 (S69 fix round 4, commit 25): FILL-ONLY — a linked record keeps its
+    // link; an empty one takes the payload's booking only while the record is
+    // still the payload's customer, else the auto-link for the RECORD's
+    // customer (fillOnlyLinkOf).
+    // SF-5 (S70 fix round 5): the fill-only gate reads the record's OWN
+    // customer, no fallback — a record with no customer takes nobody's
+    // booking. The auto-link keeps the S7 customer fallback (recordLink).
+    const recordLink = { customer_id: existing.customer_id ?? payload.customer_id, appointment_id: existing.appointment_id }
+    const fill = fillOnlyLinkOf({ customer_id: existing.customer_id ?? null, appointment_id: existing.appointment_id }, payload)
+    const autoLinked = fill.kept || fill.given
+      ? null
+      : await resolveAutoAppointmentLink(synqed, {
+          customerId: recordLink.customer_id,
+          storeId: existing.store_id ?? null,
+          recordingSessionId: job.recording_session_id,
+          sessionStartedAt: payload.session_started_at ?? null,
+        })
+    const updated = await synqed.karuteRecords.update(existing.id, {
       transcript: result.transcript,
       ai_summary: result.summary,
       entries: [...entries, ...carriedHumanEntries],
-      appointment_id: payload.appointment_id ?? null,
+      // S4 + A2/A3: the link key is sent only when this run FILLS an empty
+      // link (the payload's booking or an auto-link hit); a kept link and a
+      // miss omit it, so the link the row holds NOW stays (linkUpdateOf).
+      ...(fill.kept ? {} : linkUpdateOf(recordLink, { customer_id: recordLink.customer_id, appointment_id: fill.given }, autoLinked)),
     })
+    // A2 revision: the returned record's link when core returns it.
+    const appointmentId = returnedOr(
+      updated?.appointment_id,
+      fill.kept ? fill.appointmentId : (fill.given ?? autoLinked?.appointmentId ?? null),
+    )
     // CEILING (mirrors lib/karute/karute.core.ts fix round 2): store_id does NOT move
     // with this update, so the persisted store is still the EXISTING record's
     // — already in hand from the lookup, no second read.
-    return { id: existing.id, storeId: existing.store_id }
+    return {
+      id: existing.id,
+      storeId: existing.store_id,
+      customerId: existing.customer_id ?? payload.customer_id,
+      fresh: false,
+      autoLinked,
+      appointmentId,
+      // G-3 (S71 fix round 7): the kept word is checked against the same
+      // returned value the row reports as appointment_id.
+      keptLink: keptLinkAfterWrite(fill.kept, fill.kept ? fill.appointmentId : null, appointmentId),
+    }
   }
   // 施術メニュー from the linked booking — best-effort: a missing/deleted
   // booking just leaves service null and the カルテ list shows its honest '—'.
+  // S7 (PR-O commit 4): a job that names no booking may link the ONE
+  // unambiguous booking of its session's day (resolveAutoAppointmentLink).
+  const autoLinked = payload.appointment_id
+    ? null
+    : await resolveAutoAppointmentLink(synqed, {
+        customerId: payload.customer_id,
+        storeId: payload.store_id ?? null,
+        recordingSessionId: job.recording_session_id,
+        sessionStartedAt: payload.session_started_at ?? null,
+      })
+  const appointmentId = payload.appointment_id ?? autoLinked?.appointmentId ?? null
+  // The NAMED booking's menu: this door's own fill, unchanged. SF-2: an
+  // auto-linked booking's menu comes from the ONE fill the facade shares.
   const linkedAppointment = payload.appointment_id
     ? await synqed.appointments.get(payload.appointment_id).catch(() => null)
     : null
@@ -639,16 +773,31 @@ async function upsertKaruteRecord(
     customer_id: payload.customer_id,
     staff_id: payload.staff_id,
     store_id: payload.store_id ?? null,
-    appointment_id: payload.appointment_id ?? null,
+    appointment_id: appointmentId,
     recording_session_id: job.recording_session_id,
     status: 'DRAFT',
     transcript: result.transcript,
     ai_summary: result.summary,
-    service: linkedAppointment?.title ?? null,
+    service: payload.appointment_id
+      ? (linkedAppointment?.title ?? null)
+      : await menuOfAutoLinked(synqed.appointments, autoLinked),
     duration_minutes: durationMinutesFromSeconds(payload.duration_seconds),
     entries,
   })
-  return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null }
+  return {
+    id: record.id,
+    storeId: record.store_id ?? payload.store_id ?? null,
+    // A4 (S69 fix round 4, commit 26): answer with the record core RETURNED
+    // (a replayed session may come back as an existing record). The customer
+    // feeds the outcome write: the record's own, as the converge's
+    // `existing.customer_id ?? payload.customer_id` (a record with no customer
+    // cannot take a label under nobody). The link: returnedOr, never `??`.
+    customerId: record.customer_id ?? payload.customer_id,
+    fresh: true,
+    autoLinked,
+    appointmentId: returnedOr(record.appointment_id, appointmentId),
+    keptLink: null,
+  }
 }
 
 /** 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-

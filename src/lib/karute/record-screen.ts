@@ -15,7 +15,8 @@
 // so a cross-tenant explicit id surfaces per the caller's contract.
 
 import { assignStaffColors } from '@/lib/staff-colors'
-import { isReturningCustomer } from '@/lib/customers/status-signals'
+import { isReturningCustomer, countsAsPriorVisit } from '@/lib/customers/status-signals'
+import { ymdInJst } from '@/lib/date/jst'
 import type { CustomerWithStaff } from '@/lib/customers/queries'
 import {
   classifyVisitSegment,
@@ -536,13 +537,20 @@ export async function buildRecordScreen(input: {
     // in-store target's classification is byte-unchanged.
     targetHasTicketPack =
       (cc?.hasTicketPack ?? targetCustomer?.has_ticket_pack ?? false) || targetHasActivePack
+    // R-O7 (PR-O commit 3): the SAME prior-visit rule the server guard uses
+    // (status-signals countsAsPriorVisit), anchored to today in JST since no
+    // recording has started: today's 仮カルテ placeholder is not a prior visit.
+    // It feeds BOTH halves of the client gate — the count below and the brief
+    // (resolveReturningForOutcome reads brief.isFirstTimeVisit, which the brief
+    // builder derives from these rows).
+    const priorKarute = customerKarute.filter((r) => countsAsPriorVisit(r, ymdInJst(now)))
     const targetReturning = isReturningCustomer({
       joinDateIso: null,
       lastVisitIso: null,
       isExistingCustomer: cc?.isExistingCustomer ?? targetCustomer?.is_existing_customer,
       visitCount: cc?.visitCount ?? targetCustomer?.visit_count,
       hasTicketPack: targetHasTicketPack,
-      karuteCount: customerKarute.length,
+      karuteCount: priorKarute.length,
     })
     const visitSignals = {
       joinDateIso: targetCustomer?.created_at ?? null,
@@ -565,7 +573,7 @@ export async function buildRecordScreen(input: {
     const briefMemo =
       memoContent(nextAppointment.notes) ?? memoContent(targetCustomer?.notes)
     brief = buildPreSessionBriefFor(
-      customerKarute,
+      priorKarute,
       briefMemo,
       now,
       locale,
