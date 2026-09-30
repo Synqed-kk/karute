@@ -3,7 +3,7 @@
 //   node scripts/business/reserve-card-parity/run.mjs
 //
 // Proves src/business/lib/reserve-card/ (the port) draws the member card's three surfaces exactly as
-// Reserve @ c2a9f95 draws them, pixel for pixel, in the same headless Chromium:
+// Reserve @ the manifest's pin (src/business/lib/reserve-card/parity.manifest.json) draws them, pixel for pixel, in the same headless Chromium:
 //   1. exports Reserve at the pin (git archive, never a checkout), proves the copy's tree IS the pin's
 //      tree, `npm ci`; the ONLY file it ever rewrites there is the mock seed src/lib/mock.ts (a case's
 //      card colour / display name) — `git diff --stat` in the copy is printed at the end as the fence;
@@ -41,20 +41,26 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 // os.tmpdir()) would be refused and the port app would render nothing
 const ROOT = realpathSync(resolve(process.env.PARITY_REPO ?? resolve(HERE, '../../..')))
 const require = createRequire(join(ROOT, 'package.json'))
-const PIN = 'c2a9f9543187bff689307e22a6fcfa29f02a5215'
+// ONE truth for the pin and the prose lists PARITY.md prints: the in-territory manifest beside the port (R62),
+// so a Business re-port edits the manifest + the port files only, never this script.
+const MANIFEST = JSON.parse(readFileSync(join(ROOT, 'src/business/lib/reserve-card/parity.manifest.json'), 'utf8'))
+const PIN = MANIFEST.reservePin
+if (!/^[0-9a-f]{40}$/.test(PIN)) throw new Error(`parity.manifest.json: reservePin must be a full 40-hex sha, got ${JSON.stringify(PIN)}`)
+const SHORT = PIN.slice(0, 7)
+const RANGES = MANIFEST.reserveRanges
 const RESERVE = resolve(process.env.RESERVE_REPO ?? join(ROOT, '../reserve'))
 const WORK_GIVEN = resolve(process.env.PARITY_DIR ?? join(tmpdir(), 'reserve-card-parity'))
 mkdirSync(WORK_GIVEN, { recursive: true })
 const WORK = realpathSync(WORK_GIVEN)
 const W = process.env.PARITY_W // the lane folder, optional: its satin fixtures are cross-checked when given
-const COPY = join(WORK, 'reserve-c2a9f95')
+const COPY = join(WORK, `reserve-${SHORT}`)
 const APP = join(WORK, 'port-app')
 const OUT = join(WORK, 'parity')
 const MOD = join(ROOT, 'src/business/lib/reserve-card')
 const EXPECTED = join(ROOT, 'src/__tests__/integration/business/reserve-card.expected-satin.json')
 // a re-port that adds or removes a block updates these on purpose
-const EXPECT_VERBATIM = 23
-const EXPECT_SCOPED = 2
+const EXPECT_VERBATIM = MANIFEST.expect.verbatim
+const EXPECT_SCOPED = MANIFEST.expect.scoped
 const NOW = '2026-09-14T10:00:00+09:00' // the port's sample date (9/14（月）14:30) is Reserve's mock at this instant
 
 // The 12 curated values (W/CARD-LOOK-HANDOVER.json) and the six extra satin fixtures
@@ -120,7 +126,7 @@ function exportReserve() {
   rmSync(COPY, { recursive: true, force: true })
   mkdirSync(COPY, { recursive: true })
   // argument arrays only, never shell source: a path holding $, a backtick or a quote stays a path
-  const tarball = join(WORK, 'reserve-c2a9f95.tar')
+  const tarball = join(WORK, `reserve-${SHORT}.tar`)
   sh('git', ['-C', RESERVE, 'archive', '--format=tar', '-o', tarball, PIN])
   sh('tar', ['-x', '-f', tarball, '-C', COPY])
   rmSync(tarball)
@@ -302,15 +308,16 @@ function writeParityMd(verbatim, scopedCheck) {
   const ranges = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) \*\//g)].map((m) => `${m[1]}–${m[2]}`)
   // a SCOPED marker never matches the verbatim pattern above, so these blocks are neither checked nor listed as verbatim
   const scoped = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/g)].map((m) => `${m[1]}–${m[2]}`)
+  const PIN_DATE = sh('git', ['-C', RESERVE, 'log', '-1', '--format=%ci', PIN]).trim()
   const md = `# Reserve member-card port — parity record
 
-Source pin: \`Synqed-kk/reserve\` @ \`${PIN}\` (2026-09-23 20:52:19 +0900).
+Source pin: \`Synqed-kk/reserve\` @ \`${PIN}\` (${PIN_DATE}).
 Emitted by \`node scripts/business/reserve-card-parity/run.mjs\` — do not edit by hand.
 
 ## What is ported (file → Reserve range, byte-identical below each marker)
-- \`satin-material.ts\` ← \`src/lib/satin-material.ts\` 1–30 (whole file)
-- \`member-card-vars.ts\` ← \`src/lib/types.ts\` 162–185 (BrandTheme) · \`src/lib/reserve-api/member-ia.ts\` 238–253 (tenantGradientPair) · \`src/components/customer/salon-surface.tsx\` 36–61 (memberTenantVars)
-- \`ReserveCardPreview.tsx\` ← \`studio-home.tsx\` 417–455 (the card's measure effect) · \`studio-salon.tsx\` 56–102 (the cover's measure effect) · \`membership-date.tsx\` 1–6; the JSX is Reserve's (studio-home.tsx MembershipCard 460–516, TenantCard 656–681; studio-salon.tsx StudioCover 145–230) with the edits listed in its header
+- \`satin-material.ts\` ← ${RANGES["satin-material.ts"]}
+- \`member-card-vars.ts\` ← ${RANGES["member-card-vars.ts"]}
+- \`ReserveCardPreview.tsx\` ← ${RANGES["ReserveCardPreview.tsx"]}
 - \`reserve-card.css\` ← \`src/index.css\` ${ranges.join(' · ')}, plus ONE marked context block (not verbatim: --font-sans/--font-num from index.css 33–34, body 185–191, the page root's bg-background/text-foreground, and the inherited text defaults Reserve's page hands down — re-scoped to the preview root so a host's inherited type cannot leak in), and the SCOPED blocks listed under Declared edits
 
 Verbatim check (last run): ${verbatim}
@@ -321,7 +328,7 @@ Scoped blocks (declarations after prefix strip): ${scopedCheck}
 - \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 - \`ReserveCardPreview.tsx\` + \`card-color.ts\` — Colour inputs are normalised at the boundary (card-color.ts): only \`#RRGGBB\` reaches the satin math; anything else counts as absent — identical on server and client, no hydration drift.
 
-## Left out of index.css 4520–4685, and why
+## Left out of ${MANIFEST.leftOut.excludedFrom}, and why
 ${EXCLUDED.map(([r, why]) => `- ${r} — ${why}`).join('\n')}
 
 ## Other rules the surfaces match that are NOT ported
@@ -342,24 +349,8 @@ When Reserve changes any of these ranges, re-run the harness against the new pin
 `
   writeFileSync(join(MOD, 'PARITY.md'), md)
 }
-const EXCLUDED = [
-  ['4521–4525 .member-shell-clearance--fab', 'the Home page root\'s bottom clearance for the tab tray + 受付 pill; the preview has neither'],
-  ['4546 .salon-rankfloat', 'the rank chip under the cover (store page body), not a surface element'],
-  ['4547–4549 .salon-next / __label / __date', 'the store page\'s 次回 block, not a surface element'],
-  ['4591 .member-ground.salon-surface > main', 'the store page\'s main column'],
-  ['4592–4630 .salon-rankfloat, .salon-next*, .salon-acts*, .salon-posts*', 'store page body (rank chip, next visit, points row, action buttons, posts) — the switchboard, LATER'],
-]
-const NOT_PORTED = [
-  ['69–103, 302–306, 727–738 :root / .dark', 'app-wide tokens; every one the surfaces read is re-pointed by the ported .member-ground blocks (740–753, 774–825)'],
-  ['193–195 ::selection', 'global text-selection tint; porting it would restyle every Business page'],
-  ['322–337, 523–529, 539–542, 644–648 .member-ground (tray / column)', 'tab-tray geometry and the page column; nothing in the surfaces reads them'],
-  ['930–932 .member-ground main.main--greet', 'the preview has no <main>; its only job (padding-top 0) is the wrapper\'s own default'],
-  ['1427–1443 .copy-ok', 'no element opts back into selection'],
-  ['1473–1512 button / row / deal press tiers', 'match no element of the three surfaces'],
-  ['1513–1527 :focus-visible rings', 'the preview holds no focusable element (its anchors carry no href)'],
-  ['146–170 .salon-surface', 'the store page root\'s tenant re-skin (ground, role tints); the cover reads none of it'],
-  ['4509–4512 .member-shell-clearance', 'page-root clearance for the tray'],
-]
+const EXCLUDED = MANIFEST.leftOut.excluded
+const NOT_PORTED = MANIFEST.leftOut.notPorted
 
 // ---- main ----
 async function main() {
@@ -556,8 +547,8 @@ function checkVerbatim() {
   const show = (p) => sh('git', ['-C', RESERVE, 'show', `${PIN}:${p}`]).split('\n')
   const checks = [
     ['reserve-card.css', /^\/\* reserve index\.css:(\d+)–(\d+) \*\/$/, () => 'src/index.css'],
-    ['member-card-vars.ts', /^\/\/ reserve (\S+):(\d+)–(\d+) @ c2a9f95, verbatim$/, null],
-    ['ReserveCardPreview.tsx', /^\s*\/\/ (?:reserve src\/components\/customer\/)?(\S+?\.tsx):(\d+)–(\d+) @ c2a9f95, verbatim$/, null],
+    ['member-card-vars.ts', new RegExp(`^// reserve (\\S+):(\\d+)–(\\d+) @ ${SHORT}, verbatim$`), null],
+    ['ReserveCardPreview.tsx', new RegExp(`^\\s*// (?:reserve src/components/customer/)?(\\S+?\\.tsx):(\\d+)–(\\d+) @ ${SHORT}, verbatim$`), null],
   ]
   const where = { 'studio-home.tsx': 'src/components/customer/studio-home.tsx', 'studio-salon.tsx': 'src/components/customer/studio-salon.tsx', 'membership-date.tsx': 'src/components/customer/membership-date.tsx' }
   let ok = 0, all = 0
