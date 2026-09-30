@@ -6,6 +6,16 @@
 
 import { useState, type ReactNode } from 'react'
 
+/** Liam 9/30 17:4x — 「a Business address that needs sign-in must come back to Business」.
+ *  The login URL after sign-out carries next=<the page they were on>, in the shape
+ *  src/proxy.ts:63-73 carries it for a signed-out GET (pathname + search). */
+export function loginHrefAfterSignOut(locale: string, pathname: string, search: string): string {
+  return `/${locale}/login?next=${encodeURIComponent(`${pathname}${search}`)}`
+}
+
+/** The one navigation seam, so a test can observe the target without a real page load. */
+export const signOutNav = { assign: (href: string) => window.location.assign(href) }
+
 /** `icon` given = the icon-strip form (⚖ R57 V2): the strip's own language, glyph only, with
  *  S1 as aria-label and title. Without it = the text row of the open rail. */
 export function BusinessSignOutButton(props: { locale: string; label: string; failed: string; icon?: ReactNode }) {
@@ -20,7 +30,7 @@ export function BusinessSignOutButton(props: { locale: string; label: string; fa
     try {
       const res = await fetch('/api/business/sign-out', { method: 'POST', credentials: 'same-origin' })
       if (res.ok) {
-        window.location.assign(`/${locale}/login`)
+        signOutNav.assign(loginHrefAfterSignOut(locale, window.location.pathname, window.location.search))
         return
       }
     } catch {
