@@ -89,6 +89,7 @@ export function ReserveCardLookSection({
     const live = Number(phoneRef.current?.style.opacity)
     fade.current?.jump(Number.isFinite(live) && live < 1 ? live : 0)
     fade.current?.set(1)
+    if (phoneRef.current) phoneRef.current.scrollTop = 0 // each view opens at its top, as the mock's own layer does
   }, [view])
 
   // ⚖ R-A1b-1 — a column narrower than the phone (the shell's icon rail at 393/440) SCALES the phone down
@@ -96,9 +97,12 @@ export function ReserveCardLookSection({
   // Reserve's geometry; only the paint shrinks, and the strip's height follows so the notes never overlap.
   // `is-scaled` (toggled here, in the same frame as the vars) swaps the strip's 1:1 scroller for a clip;
   // React never rewrites this element's static className, so the toggle stands. Runs both ways on resize.
+  // ⚖ 1b-2 B3 — the scaled box is the phone FRAME (the mock's .phoneframe, a fixed 393×760 viewport); the app
+  // scrolls INSIDE it (.cl-phone = the mock's .pv), so the page never grows with the card list.
   const stripRef = useRef<HTMLDivElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
-    const strip = stripRef.current, phone = phoneRef.current
+    const strip = stripRef.current, phone = frameRef.current
     if (!strip || !phone) return
     const fit = () => {
       const scale = fitScale(strip.clientWidth)
@@ -108,7 +112,7 @@ export function ReserveCardLookSection({
       strip.style.setProperty('--cl-scale', String(scale))
       strip.style.setProperty('--cl-h', `${phone.offsetHeight * scale}px`)
     }
-    const ro = new ResizeObserver(fit) // the strip's width and the phone's height (the view switch)
+    const ro = new ResizeObserver(fit) // the strip's width (the frame's height is fixed)
     ro.observe(strip)
     ro.observe(phone)
     return () => ro.disconnect()
@@ -197,8 +201,10 @@ export function ReserveCardLookSection({
       </div>
       {/* TRUE PHONE SIZE wherever the column holds 393px; narrower, the same 393px phone is scaled to fit. */}
       <div className="cl-strip" ref={stripRef}>
-        <div className="cl-phone" ref={phoneRef} aria-hidden="true" onClick={onPhoneClick}>
-          <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
+        <div className="cl-frame" ref={frameRef}>
+          <div className="cl-phone" ref={phoneRef} aria-hidden="true" onClick={onPhoneClick}>
+            <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
+          </div>
         </div>
       </div>
       {view === 'home' && <p className="st-pv-cap">見本では、編集中のお店を大きいカードにしています。実際のアプリでは、次のご予約が近いお店が大きいカードになります。</p>}

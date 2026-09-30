@@ -3646,6 +3646,10 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // stated where it is made — and the pin NAMES them so a third one goes red.
     const axisOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-y:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
     expect(axisOwners).toEqual([
+      // ⚖ 1b-2 B3 — the THIRD, named: the phone frame's own app page (the mock's .pv). It is a picture of
+      // Reserve's scrolling page inside a fixed 393×760 frame, so the room's page does not grow with the
+      // card list; it is not a sticky-cap scroller and lives outside ③ (every width has the frame).
+      '.biz .pg-settings .cl-phone',
       '.biz .pg-settings .st-side',
       // ⚠ THE LIST, NOT THE RAIL. The rail is the pinned FRAME and the list is
       // what moves inside it, so the 設定を検索 field and the count stay put
@@ -3657,7 +3661,7 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // …and BOTH are inside the ③ query, where the stickiness that makes them
     // necessary also lives. At ② and ① neither is sticky and neither owns an axis.
     const three = CSS_CODE.slice(CSS_CODE.indexOf('@container st-body (min-width: 960px)'))
-    for (const owner of axisOwners) expect(three).toContain(owner)
+    for (const owner of axisOwners.filter((o) => !o.endsWith('.cl-phone'))) expect(three).toContain(owner)
     // ⚠ AND THE PANEL NEVER DOES. The reading column is what the page is for; a
     // scroller around it would put the room's content behind a second scrollbar.
     expect(CSS_CODE).not.toMatch(/\.st-panel \{[^}]*overflow/)

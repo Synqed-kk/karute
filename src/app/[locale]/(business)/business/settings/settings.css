@@ -682,11 +682,21 @@ html:has(.biz .page.pg-settings) {
    `light`) — Reserve's page carries neither (in-room parity, computed style). */
 .biz .pg-settings .cl-strip { height: var(--cl-h, auto); overflow-x: auto; overscroll-behavior-x: contain; }
 .biz .pg-settings .cl-strip.is-scaled { overflow: clip; }
-.biz .pg-settings .cl-phone {
-  width: 393px; overflow-wrap: normal; color-scheme: normal;
+/* ⚖ 1b-2 B3 — the phone FRAME (mock .phoneframe :376-381): a fixed 393×760 viewport, the ring drawn
+   outside (box-shadow) so the inside is exactly 393. The app scrolls INSIDE it (.cl-phone = the mock's
+   .pv :311 / .phonescroll :382), page-local; the frame, not the app, is what fitScale scales. */
+.biz .pg-settings .cl-frame {
+  position: relative; width: 393px; height: 760px; border-radius: 34px; overflow: clip;
+  box-shadow: 0 0 0 1px var(--line), 0 8px 26px rgba(20, 22, 40, .07);
   /* no fallback on purpose: unset (every column ≥ 393px) = no transform at all */
   transform: scale(var(--cl-scale)); transform-origin: top left;
 }
+.biz .pg-settings .cl-phone {
+  position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  overflow-wrap: normal; color-scheme: normal;
+}
+/* the app's ground fills the frame when the page is shorter than the phone (Reserve's page does) */
+.biz .pg-settings .cl-phone > .member-ground { min-height: 100%; }
 
 /* a switch, with a thumb that rides the same spring */
 .biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
