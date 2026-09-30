@@ -8,6 +8,11 @@
  * the network is a stub of the two store-days routes. Prior art: opus-read-1/scripts/screen-attack.test.tsx.
  */
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
+// ⚖ S37 R42 (B2 act 1c fix 1) — a PASSTHROUGH spy on the one stamp formatter, so (h) can count the reads.
+jest.mock('@/business/lib/clock', () => {
+  const actual = jest.requireActual('@/business/lib/clock')
+  return { ...actual, jstClock: jest.fn(actual.jstClock) }
+})
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 jest.mock('@/business/lib/practice-door/core-reach', () => {
   // self-contained: the real module drags next/cache (Request/Response) into jsdom
@@ -35,7 +40,8 @@ import { requireBusinessAdmission } from '@/business/lib/admission'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import { CARD, LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
 import type { CoreReads } from '@/business/lib/practice-door/core-reach'
-import { cloneElement, type ReactElement } from 'react'
+import { cloneElement, StrictMode, type ReactElement } from 'react'
+import { jstClock } from '@/business/lib/clock'
 import type { SettingsSection } from '@/business/lib/settings'
 import { STORE_A } from '@/business/lib/fixtures'
 import { READ_FAILURE_LINE, READ_ONLY_NOTE } from '@/business/lib/data'
@@ -706,6 +712,62 @@ describe('B2 act 1c stamp time', () => {
     await pressAt(T3)
     expect(stamps()).toEqual([`${PAGE_ONLY} 03:25`])
     expect(document.body.textContent).not.toContain('03:10')
+  })
+  it('(g) seconds: pressed at 18:10:59.500Z → 「03:10」 (the minute is read, never rounded up)', async () => {
+    await open(STORE.tokyo)
+    await pressAt(new Date('2026-11-18T18:10:59.500Z'))
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+  })
+  // ⚖ R42 — the clock is read ONCE per commit, in the event callback, never inside a state updater
+  // (React runs updaters during render, and twice under StrictMode in dev).
+  it('(h) StrictMode: one 保存する press → jstClock once; one 自分の表示設定 choice → once more', async () => {
+    const spy = jstClock as jest.MockedFunction<typeof jstClock>
+    const strict = async (section: string) => {
+      jest.setSystemTime(T1)
+      const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.tokyo, section }) })) as ReactElement
+      render(<StrictMode>{el}</StrictMode>)
+      await act(async () => {})
+    }
+    await strict('store-hours')
+    editHours()
+    spy.mockClear()
+    jest.setSystemTime(T2)
+    await act(async () => { saveBtn().click() })
+    await settle()
+    expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
+    expect(spy).toHaveBeenCalledTimes(1)
+    cleanup()
+    await strict('my-display')
+    spy.mockClear()
+    jest.setSystemTime(T2)
+    const choice = [...document.querySelectorAll('button')].find((b) => b.textContent === 'コンパクト') as HTMLButtonElement
+    await act(async () => { fireEvent.click(choice) })
+    await settle()
+    expect(document.querySelector('p.st-save-state')?.textContent).toBe('✓ この端末に保存しました 03:10')
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+  // ⚖ R42 — a core-backed save commits on core's yes, so its stamp is THAT instant: pressed 03:10,
+  // core answered 03:17 → 「03:17」. The card-colour PUT is held open while the fake clock moves.
+  it('(i) カードの見た目, door ON: pressed 03:10, core says yes at 03:17 → 「✓ 保存しました 03:17」', async () => {
+    await open(STORE.tokyo, 'reserve-card-look')
+    let answer: (r: Response) => void = () => {}
+    let sentColor: unknown = null
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('/api/business/card-color')
+      sentColor = JSON.parse(String(init?.body)).color
+      return new Promise<Response>((r) => { answer = r })
+    }) as unknown as typeof fetch
+    const swatch = [...document.querySelectorAll('.cl-swatches [role="radio"]')].find((b) => b.getAttribute('aria-checked') !== 'true') as HTMLButtonElement
+    expect(swatch).toBeDefined()
+    fireEvent.click(swatch)
+    expect(stamps()[0]).toMatch(/^変更した設定 \d+件$/)
+    jest.setSystemTime(T2)
+    await act(async () => { saveBtn().click() })
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    jest.setSystemTime(new Date('2026-11-18T18:17:00Z'))
+    await act(async () => { answer(fakeRes(200, { ok: true, color: sentColor })) })
+    await settle()
+    expect(stamps()).toEqual(['✓ 保存しました 03:17'])
   })
   it('(f) source pin: jstClock( twice in the screen, the render-time stamp prop gone from the screen and from src/', () => {
     const fs = jest.requireActual('node:fs') as typeof import('node:fs')

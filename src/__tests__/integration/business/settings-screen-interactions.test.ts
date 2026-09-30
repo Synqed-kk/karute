@@ -925,7 +925,7 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // did not disappear — it is the standing footnote under the same card
     // (`props.demoSaveLine`), which is where it belongs on every section rather
     // than only after a press.
-    expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: jstClock(new Date()) }))")
+    expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: at }))")
     // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the exceptions are カードの見た目
     // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color),
     // and ⚖ PKT-S38 R7 言語・表示's 予約の色分け likewise (PUT /api/business/booking-colors).
@@ -946,7 +946,7 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // ⚖ B2 act 1c (R41) — the stamp's time is the PRESS: the screen reads the
     // clock only inside the two commit event paths, through the one JST
     // formatter (clock.ts `jstClock`), and never during render — so every
-    // `new Date()` in the screen is one of those two press reads.
+    // `new Date()` in the screen is one of those two commit reads (R42).
     expect(SRC_CODE.match(/new Date\(\)/g) ?? []).toHaveLength(2)
     expect(SRC_CODE.match(/jstClock\(new Date\(\)\)/g) ?? []).toHaveLength(2)
   })
