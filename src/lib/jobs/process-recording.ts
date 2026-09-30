@@ -49,11 +49,13 @@ import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import {
   appointmentLinkOf,
   fillOnlyLinkOf,
+  keptLinkAfterWrite,
   linkUpdateOf,
   menuOfAutoLinked,
   resolveAutoAppointmentLink,
   returnedOr,
   type AutoAppointmentLink,
+  type KeptLinkFate,
 } from '@/lib/karute/appointment-link'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { OutcomeMissingReason } from '@/lib/app-api/record-schemas'
@@ -600,7 +602,7 @@ async function processJob(job: RecordingJob): Promise<string> {
       // booking. The same vocabulary as the facade's row, through the ONE
       // expression (appointmentLinkOf); the worker has no degraded-booking
       // reason, so it passes null for it.
-      appointment_link: appointmentLinkOf(null, autoLinked?.link, keptLink ? 'kept' : null),
+      appointment_link: appointmentLinkOf(null, autoLinked?.link, keptLink),
       // S5: what became of the staff's answer (written · kept · skipped:… ·
       // failed:<ref>) — a short reference, never the technical cause.
       outcome_link: fate.link,
@@ -648,8 +650,9 @@ async function upsertKaruteRecord(
   autoLinked: { link: AutoAppointmentLink; appointmentId: string | null } | null
   /** SF-5: the record's EFFECTIVE booking link after this write. */
   appointmentId: string | null
-  /** SF-5: an existing link stayed through this converge (isKeptLink). */
-  keptLink: boolean
+  /** SF-5 + G-3 (S71 fix round 7): the fate of an existing link this converge
+   *  left alone, checked against the RETURNED record (keptLinkAfterWrite). */
+  keptLink: KeptLinkFate
 }> {
   const entries = result.entries.map((e) => ({
     category: e.category.toUpperCase() as
@@ -711,7 +714,6 @@ async function upsertKaruteRecord(
     // booking. The auto-link keeps the S7 customer fallback (recordLink).
     const recordLink = { customer_id: existing.customer_id ?? payload.customer_id, appointment_id: existing.appointment_id }
     const fill = fillOnlyLinkOf({ customer_id: existing.customer_id ?? null, appointment_id: existing.appointment_id }, payload)
-    const keptLink = fill.kept
     const autoLinked = fill.kept || fill.given
       ? null
       : await resolveAutoAppointmentLink(synqed, {
@@ -744,7 +746,9 @@ async function upsertKaruteRecord(
       fresh: false,
       autoLinked,
       appointmentId,
-      keptLink,
+      // G-3 (S71 fix round 7): the kept word is checked against the same
+      // returned value the row reports as appointment_id.
+      keptLink: keptLinkAfterWrite(fill.kept, fill.kept ? fill.appointmentId : null, appointmentId),
     }
   }
   // 施術メニュー from the linked booking — best-effort: a missing/deleted
@@ -792,7 +796,7 @@ async function upsertKaruteRecord(
     fresh: true,
     autoLinked,
     appointmentId: returnedOr(record.appointment_id, appointmentId),
-    keptLink: false,
+    keptLink: null,
   }
 }
 

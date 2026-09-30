@@ -634,6 +634,36 @@ describe('S4 — the worker converge never clears a booking link', () => {
     expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
   })
   // SF-5 「a job that names its booking → null + the named id」 now lives in the A3 empty-link case above.
+  // G-3 (S71 fix round 7, RULING-S71-G3-G4): on a kept path the word follows
+  // what the update RETURNED — the same value the row reports as appointment_id.
+  it('G-3 (i) job: a kept path whose update returns the SAME link → kept + that id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: 'appt-first' } as never)
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
+  it('G-3 (ii) job: a kept path whose update returns NO link → changed + null', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: null } as never)
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(saveRow()).toMatchObject({ appointment_link: 'changed', appointment_id: null })
+  })
+  it('G-3 (iii) job: a kept path whose update returns ANOTHER link → changed + the other id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing', appointment_id: 'appt-other' } as never)
+    const sent = await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(sent).not.toHaveProperty('appointment_id')
+    expect(saveRow()).toMatchObject({ appointment_link: 'changed', appointment_id: 'appt-other' })
+  })
+  it('G-3 (iv) job: a kept path whose update returns no field → kept + the kept id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' } as never)
+    await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
+  it('G-3 (iv) job: a kept path whose update returns no record → kept + the kept id', async () => {
+    karuteRecordsUpdate.mockResolvedValueOnce(undefined as never)
+    await runMidRunConverge({ customer_id: 'cust-1', appointment_id: 'appt-first' })
+    expect(saveRow()).toMatchObject({ appointment_link: 'kept', appointment_id: 'appt-first' })
+  })
 })
 
 // S2 + S5 (PR-O commit 2, RULING-S67-PRO-STOP1 R-O2): the worker writes the
