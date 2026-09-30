@@ -1647,7 +1647,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
             // ⚖ A1b — カードの見た目 renders itself, like 予約と確保, but on the ROOM's save bar:
             // its one value lives in `values`, so the count, the rise and 保存する are the room's own.
             <ReserveCardLookSection
-              look={section.cardLook}
+              // the source line speaks for the colour core last confirmed: the room's `saved`, not the page payload
+              look={{ ...section.cardLook, value: CARD_COLOR_ID in saved ? String(saved[CARD_COLOR_ID] ?? '') || null : section.cardLook.value }}
               value={String(values[CARD_COLOR_ID] ?? '')}
               onPick={(hex) => {
                 setCardFail(null) // G7 — an old refusal never stands beside a new pick
