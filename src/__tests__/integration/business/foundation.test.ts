@@ -934,6 +934,9 @@ describe('the fixture data door', () => {
         './ReserveCardLookSection',
         // ⚖ PR-3 — the 「サンプル」 mark's strings: Business's own string home (a JSON module, no imports).
         '@/business/i18n',
+        // ⚖ S37 R41 (B2 act 1c) — the ONE JST stamp formatter (`jstClock`), read at the save press only.
+        // clock.ts imports nothing but React's cache(), so no path to data or the practice door.
+        '@/business/lib/clock',
         '@/business/lib/guide',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
