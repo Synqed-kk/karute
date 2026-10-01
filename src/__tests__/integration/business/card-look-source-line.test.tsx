@@ -186,8 +186,8 @@ describe('カードの見た目 phone frame + honest slot', () => {
       // every inline property the script left on the strip, and its class list: paint only, or nothing
       const written = () => [Array.from({ length: strip.style.length }, (_, i) => strip.style.item(i)), strip.style.getPropertyValue('--cl-scale'), strip.className]
       expect(fitScale(336)).toBeCloseTo(336 / 393, 6)
-      // every OTHER element's style attribute in the document: a fit must leave all of them exactly as they were
-      const others = () => Array.from(document.querySelectorAll('*')).filter((e) => e !== strip).map((e) => e.getAttribute('style'))
+      // every OTHER element's style AND class attribute in the document: a fit must leave all of them exactly as they were (S47)
+      const others = () => Array.from(document.querySelectorAll('*')).filter((e) => e !== strip).map((e) => [e.getAttribute('style'), e.getAttribute('class')])
       for (const [w, scale] of [[336, fitScale(336)], [393, 1], [289, fitScale(289)], [440, 1]] as const) {
         const before = others()
         stripW = w

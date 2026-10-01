@@ -3684,6 +3684,14 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // the phone's own column stays 393: the reserve is spare room to its right, never a wider phone
     expect(valuesOn(/\.cl-preview$/, /^max-width$/)).toEqual(['393px'])
   })
+  it('S47 R77 — the card-look side column keeps a STABLE scrollbar gutter, so the strip\'s width never depends on the bar\'s presence for ANY bar width; no other side column gets one (every rule scanned)', () => {
+    // every rule whose subject is .st-side inside the card-look panel (a selector that names `.st-panel:has(.cl-phone)`)
+    const cardSide = RULES.filter((r) => r.sels.some((x) => /\.st-panel:has\(\.cl-phone\)/.test(x) && /^\.st-side$/.test(subject(x))))
+    expect(cardSide.flatMap((r) => r.decls.filter(([k]) => k === 'scrollbar-gutter').map(([, v]) => v))).toEqual(['stable'])
+    // …and no OTHER .st-side rule in settings.css sets a gutter (it must not reach any other section's side column)
+    const otherSide = RULES.filter((r) => r.sels.some((x) => /^\.st-side$/.test(subject(x)) && !/\.st-panel:has\(\.cl-phone\)/.test(x)))
+    expect(otherSide.flatMap((r) => r.decls.filter(([k]) => k === 'scrollbar-gutter'))).toEqual([])
+  })
   it('1b-2 — the ring never takes a click and the phone never draws a scrollbar (every rule scanned)', () => {
     const ring = /\.cl-frame(?![\w-]).*::after$/
     // the z-1 ring over the app: pointer-events none in every rule that names it (else it eats clicks + wheel)

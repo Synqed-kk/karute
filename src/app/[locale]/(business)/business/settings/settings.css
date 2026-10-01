@@ -645,13 +645,19 @@ html:has(.biz .page.pg-settings) {
    checked), round and painted from the port's satin — one colour math. */
 /* `:has()` (the shell's own opt-in selector, same support note): the panel is the
    grid, and only this section puts a phone in it. */
-/* ⚖ S46 — THE SIDE COLUMN HOLDS THE PHONE *AND* ITS OWN SCROLLBAR. The fit reads the strip's width; if the
+/* ⚖ S46/S47 — THE SIDE COLUMN HOLDS THE PHONE *AND* ITS OWN SCROLLBAR. The fit reads the strip's width; if the
    column's auto scrollbar could take that width away, the fit and the bar fed each other (a per-frame loop in
-   Chromium/WebKit with classic bars). So the column is 393 + the widest bar this app can be drawn with, and the
-   strip (`.cl-preview`, max 393) is 393 whether the bar is there or not. The reserve: Firefox ignores
-   globals.css's 6px `::-webkit-scrollbar` and no rule sets `scrollbar-width` here, so it draws the OS default —
-   17px on Windows, the widest classic default; Chromium/WebKit draw globals.css's 6px. */
+   Chromium/WebKit with classic bars). Two rules, two jobs:
+   - THE RESERVE keeps the phone at full size: the column is 393 + 17, so the strip (`.cl-preview`, max 393) is
+     393 for any bar up to 17px. 17 is the widest classic OS default (Windows): Firefox ignores globals.css's 6px
+     `::-webkit-scrollbar` and no rule sets `scrollbar-width` on the side column (settings.css sets it to `none`
+     only on .cl-phone and .st-jump-list), so Firefox draws the OS bar; Chromium/WebKit draw globals.css's 6px.
+   - THE GUTTER (⚖ S47 R77) keeps the strip's width the same whether the bar shows or not, for ANY bar width, in
+     the engines that honour it (Chromium, Firefox): the bar's room is always taken, so its presence never moves
+     the strip (a bar wider than 17 gives a constant 410 − bar, never a flip). WebKit ignores the gutter for the
+     app's styled bar, which is always the app's 6px (globals.css) and inside the reserve. */
 .biz .pg-settings .st-panel:has(.cl-phone) { --cl-bar-reserve: 17px; --st-side-w: calc(393px + var(--cl-bar-reserve)); --st-main-min: 0px; }
+.biz .pg-settings .st-panel:has(.cl-phone) .st-side { scrollbar-gutter: stable; }
 .biz .pg-settings .cl-state { margin: 6px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
 .biz .pg-settings .cl-dot { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--line); border-radius: 999px; background: var(--satin-base); }
 .biz .pg-settings .cl-swatches { display: grid; grid-template-columns: repeat(4, max-content); gap: 10px; margin-top: 12px; }
