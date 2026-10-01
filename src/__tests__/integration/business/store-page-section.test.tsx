@@ -70,6 +70,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   global.fetch = realFetch
+  jest.restoreAllMocks()
 })
 
 const open = async (section?: string, store: string = STORE.tokyo) => {
