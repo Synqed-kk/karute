@@ -89,30 +89,33 @@ export function ReserveCardLookSection({
     const live = Number(phoneRef.current?.style.opacity)
     fade.current?.jump(Number.isFinite(live) && live < 1 ? live : 0)
     fade.current?.set(1)
+    if (phoneRef.current) phoneRef.current.scrollTop = 0 // each view opens at its top, as the mock's own layer does
   }, [view])
 
   // ⚖ R-A1b-1 — a column narrower than the phone (the shell's icon rail at 393/440) SCALES the phone down
   // to fit: never a pan, never a clip. The layout stays 393px, so the port's own measure effects see
   // Reserve's geometry; only the paint shrinks, and the strip's height follows so the notes never overlap.
-  // `is-scaled` (toggled here, in the same frame as the vars) swaps the strip's 1:1 scroller for a clip;
-  // React never rewrites this element's static className, so the toggle stands. Runs both ways on resize.
+  // ⚖ 1b-2 B3 — the scaled box is the phone FRAME (the mock's .phoneframe, a fixed 393×760 viewport); the app
+  // scrolls INSIDE it (.cl-phone = the mock's .pv), so the page never grows with the card list.
+  // ⚖ S46 — the script writes PAINT ONLY (`--cl-scale`, a transform): the strip's height is CSS (settings.css),
+  // because a height written here would feed the side column's scrollbar, and that bar back into the width.
   const stripRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
-    const strip = stripRef.current, phone = phoneRef.current
-    if (!strip || !phone) return
+    const strip = stripRef.current
+    if (!strip) return
     const fit = () => {
       const scale = fitScale(strip.clientWidth)
-      strip.classList.toggle('is-scaled', scale < 1)
       // 1:1 carries NO transform at all (the unset var leaves `transform` at none), so the proven pixels stand
-      if (scale === 1) { strip.style.removeProperty('--cl-scale'); strip.style.removeProperty('--cl-h'); return }
-      strip.style.setProperty('--cl-scale', String(scale))
-      strip.style.setProperty('--cl-h', `${phone.offsetHeight * scale}px`)
+      if (scale === 1) strip.style.removeProperty('--cl-scale')
+      else strip.style.setProperty('--cl-scale', String(scale))
     }
-    const ro = new ResizeObserver(fit) // the strip's width and the phone's height (the view switch)
+    const ro = new ResizeObserver(fit) // the strip's width (the frame's box is fixed, so it is not observed)
     ro.observe(strip)
-    ro.observe(phone)
     return () => ro.disconnect()
   }, [])
+
+  // The honest slot (mock renderHonest :1947-1958): only lines that are true right now; none → no block.
+  const honest = shown === null ? ['色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。'] : []
 
   const pick = (hex: string, i: number) => {
     onPick(hex)
@@ -197,13 +200,15 @@ export function ReserveCardLookSection({
       </div>
       {/* TRUE PHONE SIZE wherever the column holds 393px; narrower, the same 393px phone is scaled to fit. */}
       <div className="cl-strip" ref={stripRef}>
-        <div className="cl-phone" ref={phoneRef} aria-hidden="true" onClick={onPhoneClick}>
-          <ReserveCardPreview name={look.businessName} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
+        <div className="cl-frame">
+          <div className="cl-phone" ref={phoneRef} aria-hidden="true" tabIndex={-1} onClick={onPhoneClick}>
+            <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
+          </div>
         </div>
       </div>
       {view === 'home' && <p className="st-pv-cap">見本では、編集中のお店を大きいカードにしています。実際のアプリでは、次のご予約が近いお店が大きいカードになります。</p>}
       {view === 'home' && <p className="st-pv-cap">カードを開く動きは、この見本だけのものです。</p>}
-      {shown === null && <p className="st-pv-cap">色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。</p>}
+      {honest.length > 0 && <div className="cl-honest">{honest.map((line) => <p key={line}>{line}</p>)}</div>}
     </section>
   )
 

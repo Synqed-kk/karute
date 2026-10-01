@@ -38,7 +38,7 @@ import { join } from 'node:path'
 import { fillWords, wordsRoomBlock, wordsSentences, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { GENERIC_WORDS } from '@/business/lib/resource-words'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
-import { business, menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
+import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import { AUDIT_CATEGORIES, businessProfiles, rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
@@ -3635,6 +3635,78 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () => {
+  // EVERY rule, never one literal selector: each innermost `selector { body }` of the comment-stripped sheet
+  // (inside @media / @container too), split into its selector list and its declarations. A selector's SUBJECT
+  // is its last compound, so `.st-panel:has(.cl-phone)` targets the panel, not the phone.
+  const RULES = [...CSS_CODE.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    sels: m[1].split(',').map((x) => x.trim()),
+    decls: m[2].split(';').map((d) => d.split(':')).filter((d) => d.length > 1).map(([k, ...v]) => [k.trim(), v.join(':').trim()] as const),
+  }))
+  const subject = (sel: string) => sel.split(/\s*[>+~]\s*|\s+(?![^(]*\))/).pop()!
+  /** every value the sheet ever gives `prop` on a box whose subject matches `box` (a regex on the last compound) */
+  const valuesOn = (box: RegExp, prop: RegExp) =>
+    RULES.filter((r) => r.sels.some((x) => box.test(subject(x)))).flatMap((r) => r.decls.filter(([k]) => prop.test(k)).map(([, v]) => v))
+  const TRANSFORMS = /^(-webkit-)?(transform|scale|zoom|rotate|translate)$/
+  it('1b-2 — the phone FRAME carries the fit transform; the app scroller inside it never does (every rule scanned)', () => {
+    // the frame box itself (not its ::after ring): exactly the one transform, in every rule, every block
+    expect(valuesOn(/\.cl-frame(?![\w-])(?!.*::)/, TRANSFORMS)).toEqual(['scale(var(--cl-scale))'])
+    // the app scroller, in any selector whose subject is .cl-phone: no transform other than none, anywhere
+    expect(valuesOn(/\.cl-phone(?![\w-])/, TRANSFORMS).filter((v) => v !== 'none')).toEqual([])
+  })
+  it('1b-2 — the FRAME scales from its top-left corner in every rule that sets an origin (else a scaled frame sits off-centre and clipped in its strip)', () => {
+    const origins = valuesOn(/\.cl-frame(?![\w-])(?!.*::)/, /^(-webkit-)?transform-origin$/)
+    expect(origins.length).toBeGreaterThan(0)
+    expect(origins.filter((v) => !/^(top left|left top|0 0|0px 0px)$/.test(v))).toEqual([])
+  })
+  it('S46 — the strip\'s HEIGHT comes from its own WIDTH in CSS (aspect-ratio 393/760, capped at 760), never a fixed or var()-driven height: the fit must not feed the side column\'s scrollbar (every rule scanned)', () => {
+    const strip = /\.cl-strip(?![\w-])(?!.*::)/
+    expect(valuesOn(strip, /^aspect-ratio$/)).toEqual(['393 / 760'])
+    expect(valuesOn(strip, /^max-height$/)).toEqual(['760px'])
+    // the floor is 0 (a clip box's aspect-ratio would otherwise be floored at the unscaled frame's 760)
+    expect(valuesOn(strip, /^min-height$/)).toEqual(['0'])
+    // no rule sizes its block axis any other way (a fixed or var() height is what the script used to write)
+    expect(valuesOn(strip, /^(height|block-size|min-block-size|max-block-size|contain-intrinsic-size|contain-intrinsic-height)$/)).toEqual([])
+    // …and it is never a scroller (a bar in it would narrow it), at any width: clip, in every rule that names it
+    expect(valuesOn(strip, /^overflow(-[xy])?$/)).toEqual(['clip'])
+  })
+  it('S46 — the card-look side column holds the 393 phone AND the widest scrollbar the app draws, so the fit\'s width never depends on the bar (every rule scanned)', () => {
+    const panel = /\.st-panel:has\(\.cl-phone\)$/
+    expect(valuesOn(panel, /^--st-side-w$/)).toEqual(['calc(393px + var(--cl-bar-reserve))'])
+    const reserve = valuesOn(panel, /^--cl-bar-reserve$/)
+    expect(reserve).toHaveLength(1)
+    // the widest bar globals.css draws in Chromium/WebKit (every ::-webkit-scrollbar width)…
+    const GLOBALS = read('src/app/globals.css')
+    const webkit = [...GLOBALS.matchAll(/::-webkit-scrollbar\s*\{([^}]*)\}/g)].flatMap((m) => [...m[1].matchAll(/(?:^|;|\s)width:\s*(\d+(?:\.\d+)?)px/g)].map((w) => Number(w[1])))
+    expect(webkit.length).toBeGreaterThan(0)
+    // …and Firefox, which ignores those and draws its OS default (17px on Windows) where no scrollbar-width is set
+    expect(GLOBALS).not.toMatch(/(^|[\s;{])scrollbar-width:\s*(thin|auto)/)
+    expect(Number(reserve[0].replace(/px$/, ''))).toBeGreaterThanOrEqual(Math.max(17, ...webkit))
+    // the phone's own column stays 393: the reserve is spare room to its right, never a wider phone
+    expect(valuesOn(/\.cl-preview$/, /^max-width$/)).toEqual(['393px'])
+  })
+  it('S47 R77 — the card-look side column keeps a STABLE scrollbar gutter, so the strip\'s width never depends on the bar\'s presence for ANY bar width; no other side column gets one (every rule scanned)', () => {
+    // every rule whose subject is .st-side inside the card-look panel (a selector that names `.st-panel:has(.cl-phone)`)
+    const cardSide = RULES.filter((r) => r.sels.some((x) => /\.st-panel:has\(\.cl-phone\)/.test(x) && /^\.st-side$/.test(subject(x))))
+    expect(cardSide.flatMap((r) => r.decls.filter(([k]) => k === 'scrollbar-gutter').map(([, v]) => v))).toEqual(['stable'])
+    // …and no OTHER .st-side rule in settings.css sets a gutter (it must not reach any other section's side column)
+    const otherSide = RULES.filter((r) => r.sels.some((x) => /^\.st-side$/.test(subject(x)) && !/\.st-panel:has\(\.cl-phone\)/.test(x)))
+    expect(otherSide.flatMap((r) => r.decls.filter(([k]) => k === 'scrollbar-gutter'))).toEqual([])
+  })
+  it('1b-2 — the ring never takes a click and the phone never draws a scrollbar (every rule scanned)', () => {
+    const ring = /\.cl-frame(?![\w-]).*::after$/
+    // the z-1 ring over the app: pointer-events none in every rule that names it (else it eats clicks + wheel)
+    expect(valuesOn(ring, /^pointer-events$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(ring, /^pointer-events$/).filter((v) => v !== 'none')).toEqual([])
+    // …and it IS the ring: every box-shadow on it is inset (an outside one is clipped by the strip)
+    expect(valuesOn(ring, /^box-shadow$/).length).toBeGreaterThan(0)
+    expect(valuesOn(ring, /^box-shadow$/).every((v) => /\binset\b/.test(v))).toBe(true)
+    // the phone's own scrollbar: none in the standard property AND in older WebKit/Blink (Safari < 18.2, Chromium < 121)
+    const phone = /\.cl-phone(?![\w-])(?!.*::)/
+    expect(valuesOn(phone, /^scrollbar-width$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(phone, /^scrollbar-width$/).filter((v) => v !== 'none')).toEqual([])
+    expect(valuesOn(/\.cl-phone::-webkit-scrollbar$/, /^display$/)).toEqual(expect.arrayContaining(['none']))
+    expect(valuesOn(/\.cl-phone::-webkit-scrollbar$/, /^display$/).filter((v) => v !== 'none')).toEqual([])
+  })
   it('the PAGE scrolls, and the two boxes that own an axis are the two that are pinned', () => {
     // ⚖ S17 STEP 1 — RE-DERIVED FROM 「NOT ONE CONTAINER」 TO 「TWO, NAMED」, and
     // the reason is a property of `position: sticky` rather than a preference: a
@@ -3646,6 +3718,10 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // stated where it is made — and the pin NAMES them so a third one goes red.
     const axisOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-y:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
     expect(axisOwners).toEqual([
+      // ⚖ 1b-2 B3 — the THIRD, named: the phone frame's own app page (the mock's .pv). It is a picture of
+      // Reserve's scrolling page inside a fixed 393×760 frame, so the room's page does not grow with the
+      // card list; it is not a sticky-cap scroller and lives outside ③ (every width has the frame).
+      '.biz .pg-settings .cl-phone',
       '.biz .pg-settings .st-side',
       // ⚠ THE LIST, NOT THE RAIL. The rail is the pinned FRAME and the list is
       // what moves inside it, so the 設定を検索 field and the count stay put
@@ -3657,7 +3733,8 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // …and BOTH are inside the ③ query, where the stickiness that makes them
     // necessary also lives. At ② and ① neither is sticky and neither owns an axis.
     const three = CSS_CODE.slice(CSS_CODE.indexOf('@container st-body (min-width: 960px)'))
-    for (const owner of axisOwners) expect(three).toContain(owner)
+    // the ONE exemption: .cl-phone is a device preview whose inner scroll exists at every width by design; the page itself still owns no axis below 960
+    for (const owner of axisOwners.filter((o) => o !== '.biz .pg-settings .cl-phone')) expect(three).toContain(owner)
     // ⚠ AND THE PANEL NEVER DOES. The reading column is what the page is for; a
     // scroller around it would put the room's content behind a second scrollbar.
     expect(CSS_CODE).not.toMatch(/\.st-panel \{[^}]*overflow/)
@@ -3675,13 +3752,11 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     expect(three).toMatch(/\.st-save-card \{[^}]*white-space: normal/)
 
     // ⚠ NO HORIZONTAL AXIS ANYWHERE except the ② strip's own jump run, which is
-    // a one-line chip scroller and says so by removing the vertical one — and
-    // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip, a scroll container in
-    // bytes that never scrolls: a 393px phone in a 393px strip, there for the
-    // card's own paint layer; narrower, it scales and `.is-scaled` clips instead.
+    // a one-line chip scroller and says so by removing the vertical one.
+    // (⚖ A1b · R-A1b-1b) カードの見た目's phone strip is `overflow: clip` at every
+    // width (⚖ S46: never a scroller, never a bar), so it owns no axis.
     const xOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-x:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
-    expect(xOwners).toEqual(['.biz .pg-settings .cl-strip', '.biz .pg-settings .st-jump-list'])
-    expect(CSS_CODE).toContain('.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }')
+    expect(xOwners).toEqual(['.biz .pg-settings .st-jump-list'])
     expect(CSS_CODE).toMatch(/\.st-jump-list \{[^}]*overflow-x: auto; overflow-y: hidden/)
   })
 
@@ -4325,7 +4400,6 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     expect(s.lead).toBe('「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
     expect(s.guide).toBe('お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
-      businessName: business.name,
       storeLine: stores.find((x) => x.id === STORE_A)!.name,
       address: storeDials[STORE_A].profile.address,
       scopeLabel: '全店共通',

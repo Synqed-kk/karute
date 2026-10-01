@@ -701,7 +701,8 @@ export interface SettingsSection {
   /** ⚖ A1b — カードの見た目 only: what its own component renders. `value` is the
    *  business's stored colour (#RRGGBB) or null; `palette` is the curated 12. */
   cardLook?: {
-    businessName: string
+    /** ⚖ R52 — the SELECTED store's name: the card's title AND Reserve's store line (branch null, as
+     *  Reserve prints a store-level tenant). The business name is never on the card. */
     storeLine: string
     address?: string
     scopeLabel: string

@@ -645,7 +645,19 @@ html:has(.biz .page.pg-settings) {
    checked), round and painted from the port's satin — one colour math. */
 /* `:has()` (the shell's own opt-in selector, same support note): the panel is the
    grid, and only this section puts a phone in it. */
-.biz .pg-settings .st-panel:has(.cl-phone) { --st-side-w: 393px; --st-main-min: 0px; }
+/* ⚖ S46/S47 — THE SIDE COLUMN HOLDS THE PHONE *AND* ITS OWN SCROLLBAR. The fit reads the strip's width; if the
+   column's auto scrollbar could take that width away, the fit and the bar fed each other (a per-frame loop in
+   Chromium/WebKit with classic bars). Two rules, two jobs:
+   - THE RESERVE keeps the phone at full size: the column is 393 + 17, so the strip (`.cl-preview`, max 393) is
+     393 for any bar up to 17px. 17 is the widest classic OS default (Windows): Firefox ignores globals.css's 6px
+     `::-webkit-scrollbar` and no rule sets `scrollbar-width` on the side column (settings.css sets it to `none`
+     only on .cl-phone and .st-jump-list), so Firefox draws the OS bar; Chromium/WebKit draw globals.css's 6px.
+   - THE GUTTER (⚖ S47 R77) keeps the strip's width the same whether the bar shows or not, for ANY bar width, in
+     the engines that honour it (Chromium, Firefox): the bar's room is always taken, so its presence never moves
+     the strip (a bar wider than 17 gives a constant 410 − bar, never a flip). WebKit ignores the gutter for the
+     app's styled bar, which is always the app's 6px (globals.css) and inside the reserve. */
+.biz .pg-settings .st-panel:has(.cl-phone) { --cl-bar-reserve: 17px; --st-side-w: calc(393px + var(--cl-bar-reserve)); --st-main-min: 0px; }
+.biz .pg-settings .st-panel:has(.cl-phone) .st-side { scrollbar-gutter: stable; }
 .biz .pg-settings .cl-state { margin: 6px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
 .biz .pg-settings .cl-dot { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--line); border-radius: 999px; background: var(--satin-base); }
 .biz .pg-settings .cl-swatches { display: grid; grid-template-columns: repeat(4, max-content); gap: 10px; margin-top: 12px; }
@@ -664,28 +676,57 @@ html:has(.biz .page.pg-settings) {
 }
 .biz .pg-settings .cl-preview { max-width: 393px; }
 .biz .pg-settings .cl-preview .sp-seg { margin-bottom: 12px; }
-/* ⚖ R-A1b-1b — THE STRIP IS A SCROLL CONTAINER AT 1:1, AND IT NEVER SCROLLS.
-   A 393px phone in a 393px strip has nothing to pan. The pair below is there to
-   give the card its own paint layer: that is how Reserve's own page paints it
-   (the card sits in a scrolling page), and without it Chrome draws the rounded
-   corners' edge pixels a shade differently from Reserve's.
+/* ⚖ R-A1b-1b — THE STRIP IS A CLIP BOX, NEVER A SCROLLER (S46; it was a 1:1
+   scroll container before). A 393px phone in a 393px strip has nothing to pan,
+   and the 1:1 paint is unchanged by the switch (the strip's 1280 screenshot is
+   byte-identical before and after).
    WHERE THE COLUMN IS NARROWER THAN A PHONE (the shell's 76px icon rail at
-   393/440), THE PHONE SCALES DOWN TO FIT and `is-scaled` turns the scroller into
-   a clip — never a pan, and nothing is cut, because the scaled card fits the
-   strip. A transform, not `zoom`: the layout stays 393px, so the port's own
-   measure effects see Reserve's geometry. `--cl-scale` / `--cl-h` and the class
-   are set by one ResizeObserver in the section (min(1, strip ÷ 393); the
-   phone's height × that), so the strip's height follows the painted card. The phone's own type
+   393/440), THE PHONE SCALES DOWN TO FIT — never a pan, and nothing is cut,
+   because the scaled card fits the strip. A transform, not `zoom`: the layout
+   stays 393px, so the port's own measure effects see Reserve's geometry.
+   `--cl-scale` is set by one ResizeObserver in the section (min(1, strip ÷ 393))
+   and is PAINT ONLY. The strip's HEIGHT is CSS (its width × 760/393, capped at
+   760), so the engine settles it in the same layout pass as the width: a script
+   that wrote a height would change whether the side column needs a scrollbar,
+   which changes the width again — a loop (S46). `overflow: clip` at every
+   width: never a scroller (nothing to pan, not even by script, never a bar),
+   and it clips the scaled frame's sub-pixel edge. The phone's own type
    is the port's: it resets what the room hands down (reserve-card.css), and the
    two inherited values it does not name are reset HERE, at the host:
    `overflow-wrap` (the room's `anywhere`) and `color-scheme` (the shell's
    `light`) — Reserve's page carries neither (in-room parity, computed style). */
-.biz .pg-settings .cl-strip { height: var(--cl-h, auto); overflow-x: auto; overscroll-behavior-x: contain; }
-.biz .pg-settings .cl-strip.is-scaled { overflow: clip; }
-.biz .pg-settings .cl-phone {
-  width: 393px; overflow-wrap: normal; color-scheme: normal;
+/* `min-height: 0`: a clip box is not a scroller, so aspect-ratio would otherwise floor it at the frame's 760 */
+.biz .pg-settings .cl-strip { aspect-ratio: 393 / 760; min-height: 0; max-height: 760px; overflow: clip; }
+/* ⚖ 1b-2 B3 — the phone FRAME (mock .phoneframe :376-381): a fixed 393×760 viewport. The 1px ring is drawn
+   INSIDE (::after, an inset shadow over the app): an outside ring is clipped by the strip, which has no room
+   around the frame and must not gain any (padding would change fitScale's input), so the mock's soft drop
+   shadow is dropped for the same reason. The app scrolls INSIDE it (.cl-phone = the mock's
+   .pv :311 / .phonescroll :382), page-local; the frame, not the app, is what fitScale scales. */
+.biz .pg-settings .cl-frame {
+  position: relative; width: 393px; height: 760px; border-radius: 34px; overflow: clip;
   /* no fallback on purpose: unset (every column ≥ 393px) = no transform at all */
   transform: scale(var(--cl-scale)); transform-origin: top left;
+}
+.biz .pg-settings .cl-frame::after {
+  content: ''; position: absolute; inset: 0; z-index: 1; border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--line); pointer-events: none;
+}
+.biz .pg-settings .cl-phone {
+  position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  overflow-wrap: normal; color-scheme: normal;
+  /* a phone's scrollbar is an overlay: a classic one must never narrow Reserve's 393 ground under the port's measure */
+  scrollbar-width: none;
+}
+/* …and the same for WebKit/Blink before scrollbar-width (Safari < 18.2, Chromium < 121) */
+.biz .pg-settings .cl-phone::-webkit-scrollbar { display: none; }
+/* the app's ground fills the frame when the page is shorter than the phone (Reserve's page does) */
+.biz .pg-settings .cl-phone > .member-ground { min-height: 100%; }
+/* the honest slot (mock .honest :383-385) in the room's amber note colours; the TYPE is the note's
+   neighbour .st-pv-cap (11.5px / 1.75), never the mock's px */
+.biz .pg-settings .cl-honest { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.biz .pg-settings .cl-honest p {
+  margin: 0; padding: 8px 12px; border: 1px solid #f1cba9; border-radius: 9px;
+  background: var(--amber-soft); color: var(--amber); font-size: 11.5px; line-height: 1.75; text-wrap: pretty;
 }
 
 /* a switch, with a thumb that rides the same spring */
