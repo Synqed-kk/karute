@@ -185,8 +185,9 @@ export async function runDiscardTranscript(
     // sweep can still finish it.
     const meta = await readTakeSecureMeta(takeId)
     if (!meta) return
-    // PR-B B3 / B-S66-3 — the gate's FIRST line: a damaged take is never staged
-    // by this sweep, never transcribed off its staged copy, never marked done.
+    // PR-B B3 / B-S66-3 — the gate's FIRST line: a take ALREADY damaged when
+    // the sweep reaches it is never staged by this sweep, never transcribed off
+    // its staged copy, never marked done here.
     if (isDamagedTake(meta)) return
     // ⚖ AND A STAGED COPY IS STAGED ONCE (fix round 4). The staging below is a
     // whole-take upload, and the sweep fires on EVERY record-page mount: a

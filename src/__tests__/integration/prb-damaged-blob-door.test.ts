@@ -37,6 +37,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   }),
   markTakeSecureError: jest.fn(async () => undefined),
   markTakeStaged: jest.fn(async () => undefined),
+  markTakeStagedDamaged: jest.fn(async () => undefined),
   markTakeFinalized: jest.fn(async () => undefined),
   markTakeStartBoundAttempted: jest.fn(async () => undefined),
   stampTakeSession: jest.fn(async () => true),
@@ -154,8 +155,11 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     expect(stagedBodies[0]).toMatchObject({ stagedFor: SESSION, stagedTake: TAKE, partial: true })
     expect(port.mintTakeUrl).not.toHaveBeenCalled()
     expect(port.finalizeTake).not.toHaveBeenCalled()
-    expect(m.markTakeStaged).toHaveBeenCalledWith(TAKE, STAGED_PATH)
-    expect(m.markTakeSecureError).toHaveBeenCalledWith(TAKE, code)
+    // PR-B Wn (W-4): the staged path and the damaged code land in ONE write.
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledTimes(1)
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, code)
+    expect(m.markTakeStaged).not.toHaveBeenCalled()
+    expect(m.markTakeSecureError).not.toHaveBeenCalled()
     expect(m.markTakeFinalized).not.toHaveBeenCalled()
   })
 
@@ -172,9 +176,36 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     expect(stagedBodies[0]).toMatchObject({ stagedFor: SESSION, stagedTake: TAKE, partial: true })
     expect(port.mintTakeUrl).not.toHaveBeenCalled()
     expect(port.finalizeTake).not.toHaveBeenCalled()
-    expect(m.markTakeStaged).toHaveBeenCalledWith(TAKE, STAGED_PATH)
-    expect(m.markTakeSecureError).toHaveBeenCalledWith(TAKE, 'audio_partial')
+    // PR-B Wn (W-4): one write.
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledTimes(1)
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_partial')
+    expect(m.markTakeStaged).not.toHaveBeenCalled()
+    expect(m.markTakeSecureError).not.toHaveBeenCalled()
     expect(m.markTakeFinalized).not.toHaveBeenCalled()
+  })
+
+  // PR-B Wn (W-4 FOLD, M-S78-8): securing waits for the one write — held
+  // pending, secureTake has not answered; released, it answers null.
+  it('(i) damaged + session → secureTake stays pending until the one staged+damaged write resolves', async () => {
+    m.loadTakeBlob.mockResolvedValue(HEADLESS)
+    m.readTakeSecureMeta.mockResolvedValue(meta({}))
+    let release!: () => void
+    m.markTakeStagedDamaged.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    )
+    const port = withTakeDoors(base)
+    let answered = false
+    const run = secureTake(port, TAKE, 5).then((r) => {
+      answered = true
+      return r
+    })
+    for (let i = 0; i < 50 && m.markTakeStagedDamaged.mock.calls.length === 0; i++) await new Promise((r) => setTimeout(r, 0))
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable')
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    expect(answered).toBe(false)
+    release()
+    await expect(run).resolves.toBeUndefined()
+    expect(answered).toBe(true)
   })
 
   it('(ii) tailIncomplete + no session → the local hold (B4): no door, no session mint, no mark', async () => {
@@ -186,6 +217,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     expect(port.startSession).not.toHaveBeenCalled()
     expect(port.mintTakeUrl).not.toHaveBeenCalled()
     expect(m.markTakeSecureError).not.toHaveBeenCalled()
+    expect(m.markTakeStagedDamaged).not.toHaveBeenCalled()
   })
 
   it('(i) a staged refusal → today\'s retry path: no staged path, no terminal code', async () => {
@@ -194,6 +226,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     const port = withTakeDoors(base)
     await secureTake(port, TAKE, 5)
     expect(m.markTakeStaged).not.toHaveBeenCalled()
+    expect(m.markTakeStagedDamaged).not.toHaveBeenCalled()
     expect(m.markTakeSecureError).toHaveBeenCalledWith(TAKE, 'network')
     expect(store.TERMINAL_SECURE_ERRORS.has('network')).toBe(false)
     expect(port.mintTakeUrl).not.toHaveBeenCalled()
@@ -208,6 +241,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     expect(stagedBodies).toHaveLength(0)
     expect(port.mintTakeUrl).not.toHaveBeenCalled()
     expect(m.markTakeStaged).not.toHaveBeenCalled()
+    expect(m.markTakeStagedDamaged).not.toHaveBeenCalled()
     expect(m.markTakeSecureError).toHaveBeenCalledWith(TAKE, 'session')
     expect(store.TERMINAL_SECURE_ERRORS.has('session')).toBe(false)
   })

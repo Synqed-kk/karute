@@ -230,8 +230,13 @@ class FakeRequest<T> {
 
 const SEGMENTS_STORE = 'segments'
 const TAKES_STORE = 'takes'
+/** take-store's live database (its DB_NAME). Every other name is a SEALED
+ *  database (PR-B Wn, R-S81-7) — see `ShimDb` below. */
+const LIVE_DB = 'karute_takes'
 
 class FakeIDB {
+  /** PR-B Wn (R-S81-7): the database this object (or connection) belongs to. */
+  constructor(public dbName: string = LIVE_DB) {}
   stores = new Map<string, FakeObjectStore>()
   objectStoreNames = { contains: (n: string) => this.stores.has(n) }
   createObjectStore(name: string, opts: { keyPath: string | string[] }) {
@@ -261,12 +266,19 @@ class FakeIDB {
     this.closed = true
     this.onclose?.()
   }
-  // Args ignored — the shim scopes stores per call, not per transaction.
-  transaction() {
+  // Store names and mode are recorded, not enforced — the shim scopes stores
+  // per call, not per transaction. PR-B Wn: every call is logged with its
+  // OPTIONS and counted per database name; a sealed database's transaction is
+  // `sealedTransaction` (below), the live one is unchanged from here down.
+  transaction(storeNames?: string | string[], mode?: string, options?: { durability?: string }) {
+    const db = shimOf(this.dbName)
+    db.transactions++
+    txLog.push({ db: this.dbName, storeNames, mode, options })
     if (this.closed)
       throw Object.assign(new Error('The database connection is closing. (test)'), {
         name: 'InvalidStateError',
       })
+    if (db.sealed) return sealedTransaction(db, options)
     // ⚖ AND IT IS ALL OR NOTHING (fix round 18). Real IndexedDB ABORTS the whole
     // transaction when one request errors and rolls back every write it already
     // made. The shim used to leave the earlier ones standing, so "the tail bytes
@@ -391,8 +403,225 @@ class FakeIDB {
 
 const fakeDb = new FakeIDB()
 /** S51: every connection the shim handed out, in order — the length is how a
- *  REOPEN is counted, the last one is the store's current connection. */
+ *  REOPEN is counted, the last one is the store's current connection.
+ *  PR-B Wn: `karute_takes` connections only; a sealed database keeps its own. */
 const connections: FakeIDB[] = []
+
+/** ⚖ PR-B Wn (R-S81-7) — ONE DATABASE PER NAME. `karute_takes` is `fakeDb` +
+ *  `connections` + the global `abortNextCommits`/`hangNextCommits`, exactly as
+ *  before. Any other name gets its own FakeIDB (version, stores, rows), its own
+ *  connection list (versionchange reaches only connections of the SAME name)
+ *  and its own commit controls — so a counter a test sets for one database can
+ *  never fire in the other. A sealed database differs from the live one in four
+ *  modelled ways, each one a real engine's rule the vault's proof leans on:
+ *    · `complete` fires only after EVERY request it was given has settled and
+ *      the callbacks' microtasks have drained (the live shim fires one
+ *      microtask after the handler is set — kept as it is);
+ *    · an abort after every request succeeded ROLLS BACK every write;
+ *    · the transaction reports `durability` — by default the value it was
+ *      opened with (`'default'` when none), overridable per test;
+ *    · a commit can be HELD (requests succeeded, commit pending) and released
+ *      later as `complete` or `abort`; an open can fail, block, refuse the
+ *      version, or be held and succeed late. */
+type OpenFault = 'error' | 'blocked' | 'version' | 'hold' | 'blockedThenHold'
+type DurabilityMode =
+  | { kind: 'echo' }
+  | { kind: 'value'; value: unknown }
+  | { kind: 'absent' }
+  | { kind: 'throw' }
+type ShimDb = {
+  name: string
+  db: FakeIDB
+  connections: FakeIDB[]
+  sealed: boolean
+  /** Sealed only: the next N commits abort / are held. */
+  abortNextCommits: number
+  holdNextCommits: number
+  heldCommits: Array<(outcome: 'complete' | 'abort') => void>
+  durability: DurabilityMode
+  durabilityReads: number
+  openFaults: OpenFault[]
+  heldOpens: Array<() => void>
+  transactions: number
+}
+const shimDbs = new Map<string, ShimDb>()
+const freshShimDb = (name: string, db: FakeIDB, conns: FakeIDB[]): ShimDb => ({
+  name,
+  db,
+  connections: conns,
+  sealed: name !== LIVE_DB,
+  abortNextCommits: 0,
+  holdNextCommits: 0,
+  heldCommits: [],
+  durability: { kind: 'echo' },
+  durabilityReads: 0,
+  openFaults: [],
+  heldOpens: [],
+  transactions: 0,
+})
+shimDbs.set(LIVE_DB, freshShimDb(LIVE_DB, fakeDb, connections))
+function shimOf(name: string): ShimDb {
+  let db = shimDbs.get(name)
+  if (!db) {
+    db = freshShimDb(name, new FakeIDB(name), [])
+    shimDbs.set(name, db)
+  }
+  return db
+}
+/** Every `transaction()` call on any database, with its arguments. */
+const txLog: Array<{
+  db: string
+  storeNames?: string | string[]
+  mode?: string
+  options?: { durability?: string }
+}> = []
+/** Sealed databases forget their ROWS and every test control between tests;
+ *  their version and the connections already handed out stay (a module-level
+ *  cached connection lives across tests, as it does across a page life). */
+const resetSealedDatabases = () => {
+  txLog.length = 0
+  shimOf(LIVE_DB).transactions = 0
+  for (const db of shimDbs.values()) {
+    if (!db.sealed) continue
+    db.db.stores.forEach((st) => st.data.clear())
+    Object.assign(db, {
+      abortNextCommits: 0,
+      holdNextCommits: 0,
+      heldCommits: [],
+      durability: { kind: 'echo' },
+      durabilityReads: 0,
+      openFaults: [],
+      heldOpens: [],
+      transactions: 0,
+    })
+  }
+}
+/** The commit microtask budget: a sealed transaction commits once it has had
+ *  no pending request for this many consecutive microtasks — long enough for
+ *  an `await req(...)` continuation (or an `await Promise.all`) to issue the
+ *  next request, short enough that a NON-request await (a timer, a fetch)
+ *  finds the transaction committed, as a real engine's auto-commit does. */
+const SEALED_IDLE_HOPS = 10
+
+function sealedTransaction(db: ShimDb, options?: { durability?: string }) {
+  const undo: Array<() => void> = []
+  let pending = 0
+  let finished = false
+  let committing = false
+  let onComplete: (() => void) | null = null
+  const finish = (outcome: 'complete' | 'abort') => {
+    if (finished) return
+    finished = true
+    if (outcome === 'abort') {
+      undo.splice(0).reverse().forEach((back) => back())
+      tx.onabort?.()
+    } else onComplete?.()
+  }
+  const commit = () => {
+    if (committing || finished) return
+    committing = true
+    if (db.abortNextCommits > 0) {
+      db.abortNextCommits--
+      finish('abort')
+    } else if (db.holdNextCommits > 0) {
+      db.holdNextCommits--
+      db.heldCommits.push(finish)
+    } else finish('complete')
+  }
+  const armIdleCommit = () => {
+    let hops = 0
+    const tick = () => {
+      if (finished || committing || pending > 0) return
+      if (++hops < SEALED_IDLE_HOPS) queueMicrotask(tick)
+      else commit()
+    }
+    queueMicrotask(tick)
+  }
+  const request = <T,>(exec: () => T) => {
+    if (finished || committing)
+      throw Object.assign(new Error('The transaction has finished. (test)'), {
+        name: 'TransactionInactiveError',
+      })
+    pending++
+    return new FakeRequest(() => {
+      try {
+        return exec()
+      } catch (e) {
+        queueMicrotask(() => {
+          tx.onerror?.()
+          finish('abort')
+        })
+        throw e
+      } finally {
+        pending--
+        if (pending === 0) armIdleCommit()
+      }
+    })
+  }
+  const tx = {
+    onabort: null as (() => void) | null,
+    onerror: null as (() => void) | null,
+    set oncomplete(done: (() => void) | null) {
+      onComplete = done
+    },
+    objectStore: (n: string) => {
+      const s = db.db.stores.get(n)!
+      const keep = (key: string) => {
+        const had = s.data.get(key)
+        undo.push(() => {
+          if (had === undefined) s.data.delete(key)
+          else s.data.set(key, had)
+        })
+      }
+      return {
+        put: (row: Row) =>
+          request(() => {
+            const key = s.keyOf(row)
+            keep(key)
+            s.data.set(key, row)
+          }),
+        get: (key: unknown) => request(() => s.data.get(norm(key))),
+        getAll: (range?: FakeKeyRange) =>
+          request(() => {
+            const all = [...s.data.values()]
+            return range
+              ? all
+                  .map((row) => ({ key: s.keyArray(row), row }))
+                  .filter(
+                    ({ key }) => cmpKey(key, range.lower) >= 0 && cmpKey(key, range.upper) <= 0,
+                  )
+                  .sort((x, y) => cmpKey(x.key, y.key))
+                  .map(({ row }) => row)
+              : all
+          }),
+        delete: (key: unknown) =>
+          request(() => {
+            keep(norm(key))
+            s.data.delete(norm(key))
+          }),
+        clear: () =>
+          request(() => {
+            const before = new Map(s.data)
+            undo.push(() => before.forEach((row, key) => s.data.set(key, row)))
+            s.data.clear()
+          }),
+      }
+    },
+  }
+  const d = db.durability
+  if (d.kind !== 'absent')
+    Object.defineProperty(tx, 'durability', {
+      enumerable: true,
+      get() {
+        db.durabilityReads++
+        if (d.kind === 'throw') throw new Error('durability getter (test)')
+        return d.kind === 'value' ? d.value : (options?.durability ?? 'default')
+      },
+    })
+  armIdleCommit() // a transaction given no request still commits
+  return tx
+}
+
 ;(globalThis as unknown as { indexedDB: unknown }).indexedDB = {
   /** ⚖ S51 fold — the real API's three version rules (an upgrade test that
    *  never changes the version cannot prove the upgrade path). The same
@@ -402,10 +631,14 @@ const connections: FakeIDB[] = []
    *  request would wait; no test here needs the wait). A lower one →
    *  `VersionError`. A request that never became a connection is marked
    *  closed, so it never counts as one holding on. Stores are
-   *  create-if-missing, so an upgrade touches no data. */
-  open: (_name: string, version?: number) => {
-    const connection = Object.create(fakeDb) as FakeIDB
-    connections.push(connection)
+   *  create-if-missing, so an upgrade touches no data.
+   *  PR-B Wn: all of it PER NAME (`shimOf`); a test-queued `openFaults` entry
+   *  (none for `karute_takes`, ever) replaces the outcome of the next open. */
+  open: (name: string, version?: number) => {
+    const shim = shimOf(name)
+    const base = shim.db
+    const connection = Object.create(base) as FakeIDB
+    shim.connections.push(connection)
     const req = {
       result: connection,
       error: null as { name: string } | null,
@@ -414,16 +647,16 @@ const connections: FakeIDB[] = []
       onerror: null as (() => void) | null,
       onblocked: null as (() => void) | null,
     }
-    const want = version ?? Math.max(fakeDb.version, 1)
-    queueMicrotask(() => {
-      if (want < fakeDb.version) {
+    const want = version ?? Math.max(base.version, 1)
+    const run = () => {
+      if (want < base.version) {
         connection.closed = true
         req.error = { name: 'VersionError' }
         req.onerror?.()
         return
       }
-      if (want > fakeDb.version) {
-        const holding = () => connections.filter((c) => c !== connection && !c.closed)
+      if (want > base.version) {
+        const holding = () => shim.connections.filter((c) => c !== connection && !c.closed)
         holding().forEach((c) => c.onversionchange?.())
         if (holding().length > 0) {
           connection.closed = true
@@ -431,9 +664,24 @@ const connections: FakeIDB[] = []
           return
         }
         req.onupgradeneeded?.()
-        fakeDb.version = want
+        base.version = want
       }
       req.onsuccess?.()
+    }
+    const fault = shim.openFaults.shift()
+    queueMicrotask(() => {
+      if (fault === 'error' || fault === 'version') {
+        connection.closed = true
+        req.error = { name: fault === 'version' ? 'VersionError' : 'UnknownError' }
+        req.onerror?.()
+      } else if (fault === 'blocked') {
+        connection.closed = true
+        req.onblocked?.()
+      } else if (fault === 'hold') shim.heldOpens.push(run)
+      else if (fault === 'blockedThenHold') {
+        req.onblocked?.()
+        shim.heldOpens.push(run)
+      } else run()
     })
     return req
   },
@@ -521,6 +769,7 @@ import {
   TERMINAL_SECURE_ERRORS,
   writeTakeHeartbeat,
 } from '@/lib/karute/take-store'
+import * as takeStore from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { deriveInboxRows, type InboxLocalTake } from '@/lib/recordings/inbox'
 import {
@@ -724,6 +973,7 @@ beforeEach(async () => {
   await drain()
   fakeDb.stores.get('takes')?.data.clear()
   fakeDb.stores.get('segments')?.data.clear()
+  resetSealedDatabases()
 })
 
 afterEach(() => {
@@ -6595,4 +6845,636 @@ describe('PR-B commit 2 — a damaged take is never pruned (B3, B-S66-3)', () =>
       expect((await loadTakeBlob(takeId))?.size).toBe(3)
     },
   )
+})
+
+// ── PR-B Wn — THE SEALED COPY BEFORE A HUMAN DELETE ─────────────────────────
+// RULINGS-S80 R-S80-1 · S81 R-S81-2…10 · S82 R-S82-1…6. Every row asserts BOTH
+// the live stores (`karute_takes`) and the sealed database. The ordering rows
+// use `onLiveTx`: a one-shot hook on the live database's `transaction()` that
+// mutates the stores synchronously right before the matching transaction is
+// created — the first read is the READONLY [takes, segments] transaction
+// (`readLiveTake`), the door is the READWRITE [takes, segments] one
+// (`deleteTakeRows`). That is how "lands between the copy and the delete" is
+// built: the shim does not serialise transactions (see `finalizeMarks`).
+describe('PR-B Wn — the sealed copy before a human delete', () => {
+  const VAULT = 'karute_sealed_copies'
+  const HR = { humanResolved: true }
+  const vault = () => shimOf(VAULT)
+  const sealedStore = (n: string) => vault().db.stores.get(n)?.data ?? new Map<string, Row>()
+  const vaultTx = () => txLog.filter((t) => t.db === VAULT).length
+  type Seg = { takeId: string; seq: number; blob: Blob }
+  const sizes = (rows: Iterable<Row>, takeId: string) =>
+    [...rows]
+      .map((r) => r as unknown as Seg)
+      .filter((r) => r.takeId === takeId)
+      .map((r) => [r.seq, r.blob.size])
+      .sort((a, b) => a[0] - b[0])
+  const live = (id: string) => ({ meta: takes().has(norm(id)), seqs: sizes(segments().values(), id) })
+  const sealed = (id: string) => ({
+    meta: sealedStore('sealed_metas').has(norm(id)),
+    seqs: sizes(sealedStore('sealed_segments').values(), id),
+  })
+  const NONE = { meta: false, seqs: [] }
+  const blob = (n: number, fill = 'a') => new Blob([fill.repeat(n)])
+  const sw = RECORDING_SWITCHES as unknown as { sealBeforeHumanDelete: boolean; stagedPartialDoor: boolean }
+  let saved: [boolean, boolean]
+  function seed(takeId: string, meta: Record<string, unknown>, segs: Array<[number, Blob]>) {
+    const t = fakeDb.stores.get(TAKES_STORE)!
+    const s = fakeDb.stores.get(SEGMENTS_STORE)!
+    const row = {
+      takeId,
+      ownerUid: 'staff-A',
+      target: null,
+      recordingSessionId: 'rs-1',
+      mimeType: 'audio/webm',
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      lastSeq: Math.max(-1, ...segs.map(([q]) => q)),
+      ...meta,
+    }
+    t.data.set(t.keyOf(row), row)
+    for (const [seq, b] of segs) {
+      const r = { takeId, seq, blob: b }
+      s.data.set(s.keyOf(r), r)
+    }
+  }
+  const addSeg = (takeId: string, seq: number, b: Blob) => {
+    const s = fakeDb.stores.get(SEGMENTS_STORE)!
+    const r = { takeId, seq, blob: b }
+    s.data.set(s.keyOf(r), r)
+  }
+  const isPair = (stores: unknown) => Array.isArray(stores) && stores.length === 2
+  const FIRST_READ = (stores: unknown, mode?: string) => isPair(stores) && mode === 'readonly'
+  const DOOR = (stores: unknown, mode?: string) => isPair(stores) && mode === 'readwrite'
+  function onLiveTx(match: (stores: unknown, mode?: string) => boolean, fn: () => void) {
+    const real = FakeIDB.prototype.transaction
+    let fired = false
+    ;(fakeDb as unknown as { transaction: unknown }).transaction = function (
+      this: FakeIDB,
+      ...a: Parameters<FakeIDB['transaction']>
+    ) {
+      if (!fired && this.dbName === LIVE_DB && match(a[0], a[1])) {
+        fired = true
+        fn()
+      }
+      return real.apply(this, a)
+    }
+  }
+  /** Drop the vault's cached connection (its own versionchange handler). */
+  const dropVault = () => vault().connections.forEach((c) => c.onversionchange?.())
+  const textOf = (b: Blob) =>
+    new Promise<string>((res, rej) => {
+      const r = new FileReader()
+      r.onload = () => res(String(r.result))
+      r.onerror = () => rej(r.error)
+      r.readAsText(b)
+    })
+  /** A take with no receipt that settle routes through the human door. */
+  const noReceipt = (extra: Record<string, unknown> = {}) => ({ tailIncomplete: true, ...extra })
+  /** The fallback's own receipt (arm 3) for `size` bytes. */
+  const fb = (size: number) => ({
+    transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true, audio: { size, type: 'audio/webm' } },
+  })
+
+  beforeEach(async () => {
+    saved = [sw.sealBeforeHumanDelete, sw.stagedPartialDoor]
+    await readTakeSecureMeta('warm-the-store') // creates the live stores
+    txLog.length = 0
+  })
+  afterEach(() => {
+    ;[sw.sealBeforeHumanDelete, sw.stagedPartialDoor] = saved
+    delete (fakeDb as unknown as { transaction?: unknown }).transaction
+    mockUid = 'staff-A'
+  })
+
+  describe('what is sealed, and when nothing needs to be', () => {
+    it('no receipt, UNEQUAL non-contiguous seqs → sealed meta + every seq at equal size AND bytes; live empty', async () => {
+      const parts: Array<[number, string]> = [[0, 'abc'], [2, 'defghij'], [5, 'klmnopqrstu']]
+      seed('w-1', noReceipt(), parts.map(([q, t]) => [q, new Blob([t])]))
+      await settleTakeAfterSave('w-1')
+      expect(live('w-1')).toEqual(NONE)
+      expect(sealed('w-1')).toEqual({ meta: true, seqs: [[0, 3], [2, 7], [5, 11]] })
+      jest.useRealTimers() // jsdom's FileReader answers on a real tick
+      const rows = [...sealedStore('sealed_segments').values()] as unknown as Seg[]
+      for (const [q, t] of parts) expect(await textOf(rows.find((r) => r.seq === q)!.blob)).toBe(t)
+    })
+
+    it.each([
+      ['finalizedAt (D-6: a POPULATED finalized take through a direct human deleteTake)', { finalizedAt: 5, finalizedPath: 'app_biz-1_w.webm', tailIncomplete: true }],
+      ["stagedPath 'stg/x'", noReceipt({ stagedPath: 'stg/x' })],
+      ['fallback audio.size = Σ', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true, audio: { size: 8, type: 'audio/webm' } } })],
+      ['fallback audio.size > Σ', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true, audio: { size: 9, type: 'audio/webm' } } })],
+    ])('a receipt — %s → live empty, NOTHING sealed, the vault never opened', async (_l, meta) => {
+      seed('w-2', meta, [[0, blob(3)], [1, blob(5)]])
+      await deleteTake('w-2', HR)
+      expect(live('w-2')).toEqual(NONE)
+      expect(sealed('w-2')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it.each([
+      ["'stgx' (no slash)", noReceipt({ stagedPath: 'stgx/x' })],
+      ["an 'app_…' staged pointer", noReceipt({ stagedPath: 'app_biz-1_x.webm' })],
+      ['audio.size < Σ', noReceipt(fb(7))],
+      ['a receipt between the first segment and Σ', noReceipt(fb(4))],
+      ['bytesEmitted = the receipt, below Σ', noReceipt({ ...fb(3), bytesEmitted: 3 })],
+      ['bytesEmitted absent, receipt = the first segment', noReceipt(fb(3))],
+      ['fallback absent (audio.size = Σ)', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, audio: { size: 8, type: 'audio/webm' } } })],
+      ['audio missing', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true } })],
+    ])('a near-miss — %s → SEALED, live empty', async (_l, meta) => {
+      seed('w-3', meta, [[0, blob(3)], [1, blob(5)]])
+      await deleteTake('w-3', HR)
+      expect(live('w-3')).toEqual(NONE)
+      expect(sealed('w-3')).toEqual({ meta: true, seqs: [[0, 3], [1, 5]] })
+    })
+
+    it("another take's segments with audio.size = THIS take's Σ → a receipt: nothing sealed; the other take untouched", async () => {
+      seed('w-4', noReceipt(fb(4)), [[0, blob(4)]])
+      seed('w-4-other', noReceipt(), [[0, blob(6)]])
+      await deleteTake('w-4', HR)
+      expect(live('w-4')).toEqual(NONE)
+      expect(sealed('w-4')).toEqual(NONE)
+      expect(live('w-4-other')).toEqual({ meta: true, seqs: [[0, 6]] })
+    })
+
+    it.each(['audio_unreadable', 'audio_partial', 'unreadable_object'])(
+      'damaged %s, no receipt, through settle → SEALED, live empty',
+      async (code) => {
+        seed('w-5', { secureError: code }, [[0, blob(3)], [1, blob(4)]])
+        await settleTakeAfterSave('w-5')
+        expect(live('w-5')).toEqual(NONE)
+        expect(sealed('w-5')).toEqual({ meta: true, seqs: [[0, 3], [1, 4]] })
+      },
+    )
+
+    it('a DAMAGED take with a fallback receipt ≥ Σ (arm 3 only) → SEALED, live empty', async () => {
+      seed('w-6', { secureError: 'audio_partial', ...fb(99) }, [[0, blob(3)]])
+      await settleTakeAfterSave('w-6')
+      expect(live('w-6')).toEqual(NONE)
+      expect(sealed('w-6')).toEqual({ meta: true, seqs: [[0, 3]] })
+    })
+
+    it('zero segment rows → live empty, nothing sealed', async () => {
+      seed('w-7', noReceipt(), [])
+      await settleTakeAfterSave('w-7')
+      expect(live('w-7')).toEqual(NONE)
+      expect(sealed('w-7')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+  })
+
+  describe('the door decides alone, on its own fresh read', () => {
+    it('no meta at the first read, a meta + segment land before the door → live INTACT', async () => {
+      seed('w-8', noReceipt(), [])
+      const metaRow = takes().get(norm('w-8'))!
+      onLiveTx(FIRST_READ, () => {
+        takes().delete(norm('w-8'))
+        onLiveTx(DOOR, () => {
+          takes().set(norm('w-8'), metaRow)
+          addSeg('w-8', 0, blob(3))
+        })
+      })
+      await deleteTake('w-8', HR)
+      expect(live('w-8')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-8')).toEqual(NONE)
+    })
+
+    it('zero rows at the first read, a segment lands before the door → live INTACT (D-21)', async () => {
+      seed('w-9', noReceipt(), [])
+      onLiveTx(DOOR, () => addSeg('w-9', 0, blob(3)))
+      await settleTakeAfterSave('w-9')
+      expect(live('w-9')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-9')).toEqual(NONE)
+    })
+
+    it('a segment lands after the copy, before the delete → live INTACT, sealed = the first set; a second settle seals it, live empty', async () => {
+      seed('w-10', noReceipt(), [[0, blob(3)], [1, blob(4)]])
+      onLiveTx(DOOR, () => addSeg('w-10', 2, blob(5)))
+      await settleTakeAfterSave('w-10')
+      expect(live('w-10')).toEqual({ meta: true, seqs: [[0, 3], [1, 4], [2, 5]] })
+      expect(sealed('w-10')).toEqual({ meta: true, seqs: [[0, 3], [1, 4]] })
+      delete (fakeDb as unknown as { transaction?: unknown }).transaction
+      await settleTakeAfterSave('w-10')
+      expect(live('w-10')).toEqual(NONE)
+      expect(sealed('w-10')).toEqual({ meta: true, seqs: [[0, 3], [1, 4], [2, 5]] })
+    })
+
+    it('the SAME seq rewritten larger between the copy and the delete → live INTACT (D-20); a second settle seals the larger, live empty', async () => {
+      seed('w-11', noReceipt(), [[0, blob(3)]])
+      onLiveTx(DOOR, () => addSeg('w-11', 0, blob(9)))
+      await settleTakeAfterSave('w-11')
+      expect(live('w-11')).toEqual({ meta: true, seqs: [[0, 9]] })
+      expect(sealed('w-11')).toEqual({ meta: true, seqs: [[0, 3]] })
+      delete (fakeDb as unknown as { transaction?: unknown }).transaction
+      await settleTakeAfterSave('w-11')
+      expect(live('w-11')).toEqual(NONE)
+      expect(sealed('w-11')).toEqual({ meta: true, seqs: [[0, 9]] })
+    })
+
+    it('a covering receipt at the first read, then a segment lands so Σ > audio.size → live INTACT (D-13)', async () => {
+      seed('w-12', noReceipt(fb(4)), [[0, blob(4)]])
+      onLiveTx(DOOR, () => addSeg('w-12', 1, blob(4)))
+      await deleteTake('w-12', HR)
+      expect(live('w-12')).toEqual({ meta: true, seqs: [[0, 4], [1, 4]] })
+      expect(sealed('w-12')).toEqual(NONE)
+    })
+
+    it('the meta deleted between the copy and the door → delete NOTHING (orphans stay for the sweeps)', async () => {
+      seed('w-13', noReceipt(), [[0, blob(3)]])
+      onLiveTx(DOOR, () => takes().delete(norm('w-13')))
+      await deleteTake('w-13', HR)
+      expect(live('w-13')).toEqual({ meta: false, seqs: [[0, 3]] })
+      expect(sealed('w-13')).toEqual({ meta: true, seqs: [[0, 3]] })
+    })
+
+    it('the keep switch flipped OFF between deleteTake\'s read and the door → the passed value (ON) decides', async () => {
+      seed('w-14', { secureError: 'audio_partial' }, [[0, blob(3)]])
+      onLiveTx(DOOR, () => (sw.sealBeforeHumanDelete = false))
+      await deleteTake('w-14', HR)
+      expect(live('w-14')).toEqual(NONE) // keep OFF at the door would have KEPT it (R-S77-7)
+      expect(sealed('w-14')).toEqual({ meta: true, seqs: [[0, 3]] })
+    })
+  })
+
+  describe('the vault only grows', () => {
+    it('a newer copy (0–3) commits, then a stale smaller subset (0–2) → sealed keeps every seq at its larger size; the shorter blobs refused, live KEPT', async () => {
+      seed('w-15', noReceipt(), [[0, blob(5)], [1, blob(5)], [2, blob(5)], [3, blob(5)]])
+      await settleTakeAfterSave('w-15')
+      expect(live('w-15')).toEqual(NONE)
+      seed('w-15', noReceipt(), [[0, blob(2)], [1, blob(2)], [2, blob(2)]])
+      await settleTakeAfterSave('w-15')
+      expect(sealed('w-15')).toEqual({ meta: true, seqs: [[0, 5], [1, 5], [2, 5], [3, 5]] })
+      expect(live('w-15')).toEqual({ meta: true, seqs: [[0, 2], [1, 2], [2, 2]] })
+    })
+
+    it('an EQUAL-size, DIFFERENT-bytes blob at an existing sealed seq → the vault keeps the FIRST bytes (D-23 equal)', async () => {
+      seed('w-16', noReceipt(), [[0, new Blob(['aaaa'])]])
+      await settleTakeAfterSave('w-16')
+      seed('w-16', noReceipt(), [[0, new Blob(['bbbb'])]])
+      await settleTakeAfterSave('w-16')
+      expect(live('w-16')).toEqual(NONE)
+      expect(sealed('w-16')).toEqual({ meta: true, seqs: [[0, 4]] })
+      jest.useRealTimers()
+      const row = [...sealedStore('sealed_segments').values()][0] as unknown as Seg
+      expect(await textOf(row.blob)).toBe('aaaa')
+    })
+  })
+
+  describe('a copy that cannot finish deletes nothing', () => {
+    it.each([
+      ['open fails', 'error'],
+      ['open blocked', 'blocked'],
+      ['VersionError', 'version'],
+    ] as const)('sealed database %s → live INTACT, nothing sealed', async (_l, fault) => {
+      seed('w-17', noReceipt(), [[0, blob(3)]])
+      dropVault()
+      vault().openFaults.push(fault)
+      await settleTakeAfterSave('w-17')
+      expect(live('w-17')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-17')).toEqual(NONE)
+    })
+
+    it('the copy transaction aborts AFTER every request succeeded → live INTACT and the sealed writes rolled back', async () => {
+      seed('w-18', noReceipt(), [[0, blob(3)], [1, blob(4)]])
+      vault().abortNextCommits = 1
+      await settleTakeAfterSave('w-18')
+      expect(live('w-18')).toEqual({ meta: true, seqs: [[0, 3], [1, 4]] })
+      expect(sealed('w-18')).toEqual(NONE)
+    })
+
+    it('the copy commit held pending → the live delete has not begun; released → live empty', async () => {
+      seed('w-19', noReceipt(), [[0, blob(3)]])
+      vault().holdNextCommits = 1
+      const p = settleTakeAfterSave('w-19')
+      await drain(300)
+      expect(vault().heldCommits).toHaveLength(1)
+      expect(sealed('w-19')).toEqual({ meta: true, seqs: [[0, 3]] }) // every request succeeded
+      expect(live('w-19')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(txLog.filter((t) => t.db === LIVE_DB && t.mode === 'readwrite')).toHaveLength(0)
+      vault().heldCommits.shift()!('complete')
+      await p
+      expect(live('w-19')).toEqual(NONE)
+    })
+
+    it('the copy commit hangs past SEALED_COPY_DEADLINE_MS → deleteTake resolves, live INTACT (D-25); the late commit lands → still no delete', async () => {
+      seed('w-20', noReceipt(), [[0, blob(3)]])
+      vault().holdNextCommits = 1
+      let done = false
+      const p = deleteTake('w-20', HR).then(() => (done = true))
+      await drain(300)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(takeStore.SEALED_COPY_DEADLINE_MS)
+      await p
+      expect(live('w-20')).toEqual({ meta: true, seqs: [[0, 3]] })
+      vault().heldCommits.shift()!('complete')
+      await drain(300)
+      expect(live('w-20')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-20')).toEqual({ meta: true, seqs: [[0, 3]] }) // the late copy only grew the vault
+    })
+
+    it('a late vault open success after the deadline → THAT connection closed; the cached connection a later copy uses stays open', async () => {
+      seed('w-21a', noReceipt(), [[0, blob(3)]])
+      dropVault()
+      vault().openFaults.push('hold')
+      const pa = deleteTake('w-21a', HR)
+      await drain(100)
+      const late = vault().connections.at(-1)!
+      await jest.advanceTimersByTimeAsync(takeStore.SEALED_COPY_DEADLINE_MS)
+      await pa
+      expect(live('w-21a')).toEqual({ meta: true, seqs: [[0, 3]] })
+      seed('w-21b', noReceipt(), [[0, blob(4)]])
+      vault().holdNextCommits = 1
+      const pb = deleteTake('w-21b', HR)
+      await drain(300)
+      const inUse = vault().connections.at(-1)!
+      expect(inUse).not.toBe(late)
+      vault().heldOpens.shift()!() // the late success arrives mid-copy
+      await drain(100)
+      expect(late.closed).toBe(true)
+      expect(inUse.closed).toBe(false)
+      vault().heldCommits.shift()!('complete')
+      await pb
+      expect(live('w-21b')).toEqual(NONE)
+      expect(sealed('w-21b')).toEqual({ meta: true, seqs: [[0, 4]] })
+      expect(sealed('w-21a')).toEqual(NONE)
+    })
+
+    it('a late vault open success after onblocked → that late connection is closed and never cached; live INTACT', async () => {
+      seed('w-21c', noReceipt(), [[0, blob(3)]])
+      dropVault()
+      vault().openFaults.push('blockedThenHold')
+      await settleTakeAfterSave('w-21c')
+      expect(live('w-21c')).toEqual({ meta: true, seqs: [[0, 3]] })
+      const late = vault().connections.at(-1)!
+      vault().heldOpens.shift()!()
+      await drain(50)
+      expect(late.closed).toBe(true)
+      expect(late.closeCalls).toBe(1)
+      await settleTakeAfterSave('w-21c') // the next copy opens its own connection
+      expect(vault().connections.at(-1)).not.toBe(late)
+      expect(live('w-21c')).toEqual(NONE)
+    })
+
+    it.each([
+      ["'relaxed'", { kind: 'value', value: 'relaxed' }],
+      ["'default'", { kind: 'value', value: 'default' }],
+      ['NO durability attribute (D-26)', { kind: 'absent' }],
+    ] as const)('the sealed transaction reports durability %s → live INTACT', async (_l, mode) => {
+      seed('w-22', noReceipt(), [[0, blob(3)]])
+      vault().durability = mode
+      await settleTakeAfterSave('w-22')
+      expect(live('w-22')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-22')).toEqual(NONE)
+    })
+
+    it("'strict' → the delete proceeds; the copy transaction was OPENED with { durability: 'strict' } (D-24)", async () => {
+      seed('w-23', noReceipt(), [[0, blob(3)]])
+      vault().durability = { kind: 'value', value: 'strict' }
+      await settleTakeAfterSave('w-23')
+      expect(live('w-23')).toEqual(NONE)
+      expect(txLog.filter((t) => t.db === VAULT)).toEqual([
+        { db: VAULT, storeNames: ['sealed_metas', 'sealed_segments'], mode: 'readwrite', options: { durability: 'strict' } },
+      ])
+    })
+
+    it('the durability getter THROWS → live INTACT, deleteTake resolves, read once, no unhandled rejection', async () => {
+      const unhandled = jest.fn()
+      process.on('unhandledRejection', unhandled)
+      try {
+        seed('w-24', noReceipt(), [[0, blob(3)]])
+        vault().durability = { kind: 'throw' }
+        await expect(deleteTake('w-24', HR)).resolves.toBeUndefined()
+        await drain(100)
+        expect(vault().durabilityReads).toBe(1)
+        expect(live('w-24')).toEqual({ meta: true, seqs: [[0, 3]] })
+        expect(unhandled).not.toHaveBeenCalled()
+      } finally {
+        process.off('unhandledRejection', unhandled)
+      }
+    })
+
+    it.each([
+      ['settleTakeAfterSave', (id: string) => settleTakeAfterSave(id)],
+      ['a direct deleteTake(id, { humanResolved: true })', (id: string) => deleteTake(id, HR)],
+    ])('AN UNFINISHED SETTLE (R-S82-4) through %s → the live meta and every segment row DEEP-EQUAL before and after', async (_l, settle) => {
+      seed('w-25', noReceipt({ outcome: { kind: 'x' } }), [[0, blob(3)], [3, blob(6)]])
+      const before = { meta: { ...(takes().get(norm('w-25')) as object) }, segs: [...segments().values()] }
+      dropVault()
+      vault().openFaults.push('error')
+      await settle('w-25')
+      expect(takes().get(norm('w-25'))).toEqual(before.meta)
+      expect([...segments().values()]).toEqual(before.segs)
+      expect(sealed('w-25')).toEqual(NONE)
+    })
+
+    it('a live reader run while the copy is HELD returns exactly what it returned before the call', async () => {
+      seed('w-26', noReceipt({ outcome: { kind: 'x' }, updatedAt: Date.now() - 60_000 }), [[0, blob(3)]])
+      const read = async () => [await listOwnTakes(), await getRecoverableTake(), await readTakeOutcome('w-26')]
+      const before = await read()
+      vault().holdNextCommits = 1
+      const p = settleTakeAfterSave('w-26')
+      await drain(300)
+      expect(vault().heldCommits).toHaveLength(1)
+      expect(await read()).toEqual(before)
+      vault().heldCommits.shift()!('complete')
+      await p
+    })
+  })
+
+  describe('the switches', () => {
+    it('keep OFF (flipped after import, read at the call — D-14/D-15) → the vault never opened; released as today', async () => {
+      sw.sealBeforeHumanDelete = false
+      seed('w-27', noReceipt(), [[0, blob(3)]])
+      await settleTakeAfterSave('w-27')
+      expect(live('w-27')).toEqual(NONE)
+      expect(sealed('w-27')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it.each([
+      [true, true, NONE, { meta: true, seqs: [[0, 3]] }],
+      [true, false, NONE, { meta: true, seqs: [[0, 3]] }],
+      [false, true, { meta: true, seqs: [[0, 3]] }, NONE],
+      [false, false, NONE, NONE],
+    ])('keep %s · stagedPartialDoor %s · damaged, no receipt → live %j · sealed %j', async (keep, staged, wantLive, wantSealed) => {
+      sw.sealBeforeHumanDelete = keep
+      sw.stagedPartialDoor = staged
+      seed('w-28', { secureError: 'audio_partial' }, [[0, blob(3)]])
+      await deleteTake('w-28', HR)
+      expect(live('w-28')).toEqual(wantLive)
+      expect(sealed('w-28')).toEqual(wantSealed)
+      if (!keep) expect(vaultTx()).toBe(0)
+    })
+
+    it.each([
+      ['finalizedAt (hand-written; impossible in production)', { finalizedAt: 5 }, NONE],
+      ["a 'stg/' staged copy", { stagedPath: 'stg/x' }, NONE],
+      ["an 'app_…' pointer", { stagedPath: 'app_biz-1_x.webm' }, { meta: true, seqs: [[0, 3]] }],
+      ['no receipt', {}, { meta: true, seqs: [[0, 3]] }],
+    ])('R-S77-7, keep OFF + staged ON: damaged + %s → live %j, nothing sealed (M-S77-11/-12/-13)', async (_l, extra, want) => {
+      sw.sealBeforeHumanDelete = false
+      seed('w-29', { secureError: 'unreadable_object', ...extra }, [[0, blob(3)]])
+      await deleteTake('w-29', HR)
+      expect(live('w-29')).toEqual(want)
+      expect(sealed('w-29')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it('keep OFF + a NON-damaged TERMINAL code (bad_take_id), no receipt → released as today (M-S77-14)', async () => {
+      sw.sealBeforeHumanDelete = false
+      seed('w-30', { secureError: 'bad_take_id' }, [[0, blob(3)]])
+      await settleTakeAfterSave('w-30')
+      expect(live('w-30')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it('stagedPartialDoor ON at load, OFF before a DIRECT human deleteTake, keep OFF → isDamagedTake reads it live → RELEASED, zero vault transactions (M-S77-14)', async () => {
+      sw.sealBeforeHumanDelete = false
+      sw.stagedPartialDoor = false
+      seed('w-31', { secureError: 'audio_unreadable' }, [[0, blob(3)]])
+      await deleteTake('w-31', HR)
+      expect(live('w-31')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it('TTL prune, clearOwnTakes, a bare deleteTake and a humanResolved:false call never open the vault (D-16/D-17)', async () => {
+      seed('w-32-old', { finalizedAt: 5, startedAt: 0, updatedAt: 0 }, [[0, blob(3)]])
+      await listOwnTakes()
+      await drain(100)
+      expect(live('w-32-old')).toEqual(NONE) // the prune ran
+      seed('w-32-fin', { finalizedAt: 5 }, [[0, blob(3)]])
+      await clearOwnTakes()
+      expect(live('w-32-fin')).toEqual(NONE) // the wipe ran
+      seed('w-32', noReceipt(), [[0, blob(3)]])
+      await deleteTake('w-32')
+      await deleteTake('w-32', { humanResolved: false })
+      expect(live('w-32')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-32')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+  })
+
+  // THE TABLE TEST (R-S80-1 structural proof, narrowed by R-S81-8, + R-S82-6).
+  // Claim: every take-store export is classified here, and no classified live
+  // call touches the sealed database. Not a guarantee for everything.
+  describe('THE TABLE TEST — no live reader or writer ever touches the sealed database', () => {
+    const TABLE: Record<string, 'reader' | 'writer' | 'pure' | 'constant' | 'lifecycle'> = {
+      listOwnTakes: 'reader', getRecoverableTake: 'reader', listOwnStoppedUnsecuredTakeIds: 'reader',
+      readTakeSecureMeta: 'reader', readTakeUploadMeta: 'reader', isTakeHeldByAnother: 'reader',
+      listPendingDiscardTakes: 'reader', readTakeOutcome: 'reader', readTakeTranscript: 'reader',
+      listTakeSegmentsAfter: 'reader', loadTakeBlob: 'reader', loadTakeBlobFacts: 'reader',
+      isDamagedTake: 'pure', damagedKind: 'pure', takeReference: 'pure', serverHoldsTake: 'pure',
+      isStoppedTake: 'pure', isUnsecurableTake: 'pure',
+      DAMAGED_SECURE_CODES: 'constant', TERMINAL_SECURE_ERRORS: 'constant', BINDING_SECURE_REFUSALS: 'constant',
+      SEGMENT_COMMIT_DEADLINE_MS: 'constant', SEALED_COPY_DEADLINE_MS: 'constant',
+      writeTakeHeartbeat: 'writer', clearTakeHeartbeat: 'writer', createTake: 'writer', appendTakeSegment: 'writer',
+      stampTakeSession: 'writer', detachTakeFromRecordedSession: 'writer', markTakeFinalized: 'writer',
+      adoptTakeSession: 'writer', markDiscardTranscriptDone: 'writer', markTakeStaged: 'writer',
+      markTakeStagedDamaged: 'writer', markTakeHeldUpload: 'writer', clearTakeHeldUpload: 'writer',
+      clearTakeStaged: 'writer', ensureFinalizedPath: 'writer', markTakeSecureError: 'writer',
+      markSegmentsUploaded: 'writer', markSegmentError: 'writer', markTakeStartBoundAttempted: 'writer',
+      markTakeTailIncomplete: 'writer', markTakeEndedBySystem: 'writer', noteTakeDiagEvent: 'writer',
+      markTakeStopPending: 'writer', stampTakeDuration: 'writer', stampTakeOutcome: 'writer',
+      stampTakeTranscript: 'writer', stampDiscardPending: 'writer',
+      deleteTake: 'lifecycle', settleTakeAfterSave: 'lifecycle', clearOwnTakes: 'lifecycle',
+    }
+    const ID = 'w-table'
+    const OLD = 'w-table-old'
+    const snap = (v: unknown) => JSON.parse(JSON.stringify(v, (_k, x) => (x instanceof Blob ? { blob: x.size } : x)))
+    /** Every classified reader, with its argument variants, as owner AND as another user. */
+    const readAll = async () => {
+      const out: unknown[] = []
+      for (const uid of ['staff-A', 'staff-B']) {
+        mockUid = uid
+        for (const id of [ID, OLD]) {
+          out.push(
+            await readTakeSecureMeta(id), await readTakeUploadMeta(id), await takeStore.isTakeHeldByAnother(id),
+            await readTakeOutcome(id), await readTakeTranscript(id), await listTakeSegmentsAfter(id, -1, 10),
+            await listTakeSegmentsAfter(id, 0, 1), await loadTakeBlob(id), await loadTakeBlobFacts(id),
+          )
+        }
+        out.push(
+          await listOwnTakes(), await listOwnTakes([ID]), await listOwnTakes([OLD]),
+          await getRecoverableTake(), await getRecoverableTake([ID]), await getRecoverableTake([ID, OLD]),
+          await listOwnStoppedUnsecuredTakeIds(), await listPendingDiscardTakes(),
+        )
+      }
+      mockUid = 'staff-A'
+      return snap(out)
+    }
+    /** Every classified writer once, loose arguments; a throw is caught — only the vault's transaction count matters. */
+    const writeAll = async () => {
+      for (const [name, kind] of Object.entries(TABLE)) {
+        if (kind !== 'writer') continue
+        try {
+          await (takeStore as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](ID, 'stg/w', 1)
+        } catch {
+          /* only the count matters */
+        }
+      }
+      await drain(100)
+    }
+    const fixture = () => {
+      seed(ID, noReceipt({ outcome: { kind: 'x' }, outcomeLegs: { burn: 'pending', pack: 'none' } }), [[0, blob(3)], [2, blob(5)]])
+      seed(OLD, noReceipt({ startedAt: 0, updatedAt: 0 }), [[0, blob(2)]])
+    }
+
+    it('every take-store export is classified', () => {
+      expect(Object.keys(takeStore).sort()).toEqual(Object.keys(TABLE).sort())
+    })
+
+    it('OFF first on an empty shim, then ON: EQUAL reader outputs after the settle, detach false in both, zero vault transactions during the reads', async () => {
+      const world = async (keep: boolean) => {
+        takes().clear()
+        segments().clear()
+        sw.sealBeforeHumanDelete = keep
+        fixture()
+        await settleTakeAfterSave(ID)
+        const before = vaultTx()
+        const out = await readAll()
+        const detached = await detachTakeFromRecordedSession(ID)
+        return { out, detached, vaultDuring: vaultTx() - before }
+      }
+      const off = await world(false)
+      expect(vaultTx()).toBe(0)
+      const on = await world(true)
+      expect(sealed(ID).meta).toBe(true) // the ON world really sealed
+      expect(on.out).toEqual(off.out)
+      expect([off.detached, on.detached]).toEqual([false, false])
+      expect([off.vaultDuring, on.vaultDuring]).toEqual([0, 0])
+    })
+
+    it.each([
+      ['FAILED (the vault will not open)', () => (dropVault(), vault().openFaults.push('error'))],
+      ['HELD (commit pending)', () => (vault().holdNextCommits = 1)],
+    ])('a POPULATED take whose copy %s: every classified reader and writer runs with ZERO vault transactions', async (_l, arrange) => {
+      fixture()
+      arrange()
+      const p = settleTakeAfterSave(ID)
+      await drain(300)
+      expect(await readTakeOutcome(ID)).not.toBeNull() // past the !meta guard
+      const before = vaultTx()
+      await readAll()
+      await writeAll()
+      expect(vaultTx() - before).toBe(0)
+      vault().heldCommits.splice(0).forEach((finish) => finish('complete'))
+      await p
+    })
+  })
+
+  describe('W-4 — one write (R-S77-1)', () => {
+    it('markTakeStagedDamaged writes stagedPath + secureError + lastSecureAttemptAt together; a finalized take gets none of them', async () => {
+      seed('w-33', {}, [[0, blob(3)]])
+      await takeStore.markTakeStagedDamaged('w-33', 'stg/p', 'audio_partial')
+      expect(takes().get(norm('w-33'))).toMatchObject({
+        stagedPath: 'stg/p',
+        secureError: 'audio_partial',
+        lastSecureAttemptAt: Date.now(),
+      })
+      seed('w-34', { finalizedAt: 5, finalizedPath: 'app_x' }, [[0, blob(3)]])
+      await takeStore.markTakeStagedDamaged('w-34', 'stg/q', 'audio_partial')
+      const m = takes().get(norm('w-34')) as Record<string, unknown>
+      expect([m.stagedPath, m.secureError, m.lastSecureAttemptAt]).toEqual([undefined, undefined, undefined])
+    })
+  })
 })

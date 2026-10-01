@@ -133,6 +133,53 @@ describe('the hooks record, never restart (B8)', () => {
     await drain()
     expect(globalRecorder.endedBySystem?.why).toBe('track_ended')
   })
+  // PR-B Wn (W-6 + R-S77-9): a real sign replaces a held 'muted' and keeps
+  // the mute's EXACT onset; the later unmute cannot wipe it.
+  it.each([
+    ['pagehide', () => window.dispatchEvent(new Event('pagehide'))],
+    ['freeze', () => document.dispatchEvent(new Event('freeze'))],
+    ['track_ended', () => track.onended!()],
+    ['recorder_error', () => FakeMediaRecorder.last!.onerror!()],
+  ])('mute → %s → unmute: the real sign replaces the mute, keeps mutedAt, survives the unmute', async (why, fire) => {
+    const takeId = await startLive()
+    jest.setSystemTime(1_000_000)
+    track.onmute!()
+    await drain()
+    jest.setSystemTime(2_000_000)
+    fire()
+    await drain()
+    track.onunmute!()
+    await drain()
+    const mark = { at: 2_000_000, why, mutedAt: 1_000_000 }
+    expect(globalRecorder.endedBySystem).toEqual(mark)
+    expect(mockMarkEnded.mock.calls).toEqual([
+      [takeId, { at: 1_000_000, why: 'muted' }],
+      [takeId, mark],
+    ])
+  })
+  it("'muted' over a held 'muted' → no new at, no second write", async () => {
+    const takeId = await startLive()
+    jest.setSystemTime(1_000_000)
+    track.onmute!()
+    await drain()
+    jest.setSystemTime(2_000_000)
+    track.onmute!()
+    await drain()
+    expect(globalRecorder.endedBySystem).toEqual({ at: 1_000_000, why: 'muted' })
+    expect(mockMarkEnded.mock.calls).toEqual([[takeId, { at: 1_000_000, why: 'muted' }]])
+  })
+  it('the first REAL sign still wins over a later real sign and a later mute; no mutedAt without a mute', async () => {
+    const takeId = await startLive()
+    jest.setSystemTime(3_000_000)
+    window.dispatchEvent(new Event('pagehide'))
+    await drain()
+    track.onended!()
+    track.onmute!()
+    track.onunmute!()
+    await drain()
+    expect(globalRecorder.endedBySystem).toEqual({ at: 3_000_000, why: 'pagehide' })
+    expect(mockMarkEnded.mock.calls).toEqual([[takeId, { at: 3_000_000, why: 'pagehide' }]])
+  })
   it.each([
     ['pagehide', () => window.dispatchEvent(new Event('pagehide'))],
     ['freeze', () => document.dispatchEvent(new Event('freeze'))],

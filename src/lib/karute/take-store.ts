@@ -36,6 +36,7 @@ import { AUDIO_PARTIAL, AUDIO_UNREADABLE, UNREADABLE_OBJECT } from '@/lib/record
 import { currentUserId } from '@/lib/karute/draft'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { isNativeShell } from '@/lib/platform'
+import { sealTakeCopy } from '@/lib/karute/take-vault'
 import type { RecordingTarget } from '@/lib/global-recorder'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -130,28 +131,15 @@ const SECURE_RETRY_COOLDOWN_MS = 60_000
 const STAMP_WRITE_TRIES = 3
 const STAMP_RETRY_MS = 50
 
-/** Secure-attempt refusals that CANNOT become a yes by trying again, so trying
- *  again is pure cost — and the cost here is a whole take (43 MB on cellular)
- *  re-uploaded on every mount, forever. The door refuses these on facts that do
- *  not change: the input is malformed, the caller is not allowed, the object's
- *  bytes already disagree with the key, or there is no row to write. Everything
- *  else — session, network, upload_<status>, mint_<status>, object_missing — is
- *  a moment in time and stays retryable.
- *
- *  ⚠ These takes are NOT abandoned: the audio stays on the device and the take
- *  stays plainly un-finalized, which is what surfaces it as 要対応 (R10) for a
- *  human. What stops is the automatic re-PUT.
- *
- *  It lives HERE, beside the `secureError` field it judges, because both of its
- *  readers need it — secure-take's own guard and the drain read below.
- *  (Importing it the other way round would make this module and secure-take a
- *  cycle.) One home, one list. */
 /** PR-B B3 (build 32): the codes of a take whose audio is DAMAGED — the phone
  *  refused to seal it (`audio_unreadable` / `audio_partial`, written only
  *  after its staged copy landed) or finalize refused the object
  *  (`unreadable_object`). Terminal for the 60-s loop, never for the local
- *  copy: serverHoldsTake and the discard sweep both refuse such a take, so it
- *  is never staged by the sweep, never marked done, never pruned. */
+ *  copy: serverHoldsTake and the discard sweep both refuse such a take, so the
+ *  sweep never stages it and no automatic path prunes a damaged take. A human
+ *  settle deletes a phone recording only after the server's receipt or a
+ *  sealed copy; with the keep switch OFF a damaged one only after the server's
+ *  own copy (`finalizedAt` or `stg/`). */
 export const DAMAGED_SECURE_CODES: ReadonlySet<string> = new Set([
   AUDIO_UNREADABLE,
   AUDIO_PARTIAL,
@@ -192,6 +180,22 @@ export function takeReference(meta: {
   return meta.recordingSessionId ? meta.recordingSessionId.slice(0, 8) : null
 }
 
+/** Secure-attempt refusals that CANNOT become a yes by trying again, so trying
+ *  again is pure cost — and the cost here is a whole take (43 MB on cellular)
+ *  re-uploaded on every mount, forever. The door refuses these on facts that do
+ *  not change: the input is malformed, the caller is not allowed, the object's
+ *  bytes already disagree with the key, or there is no row to write. Everything
+ *  else — session, network, upload_<status>, mint_<status>, object_missing — is
+ *  a moment in time and stays retryable.
+ *
+ *  ⚠ These takes are NOT abandoned: the audio stays on the device and the take
+ *  stays plainly un-finalized, which is what surfaces it as 要対応 (R10) for a
+ *  human. What stops is the automatic re-PUT.
+ *
+ *  It lives HERE, beside the `secureError` field it judges, because both of its
+ *  readers need it — secure-take's own guard and the drain read below.
+ *  (Importing it the other way round would make this module and secure-take a
+ *  cycle.) One home, one list. */
 export const TERMINAL_SECURE_ERRORS = new Set([
   'bad_input',
   'forbidden',
@@ -252,6 +256,9 @@ export const BINDING_SECURE_REFUSALS = new Set(['exists', 'reserved_elsewhere', 
 export type EndedBySystem = {
   at: number
   why: 'track_ended' | 'muted' | 'recorder_error' | 'pagehide' | 'freeze'
+  /** PR-B Wn (W-6, R-S77-9): a REAL sign that replaced a held 'muted' keeps
+   *  that mute's own `at` here — device-only, like the rest of the mark. */
+  mutedAt?: number
 }
 
 export type TakeMeta = {
@@ -527,6 +534,16 @@ type SegmentRow = { takeId: string; seq: number; blob: Blob }
 /** PR-B commit 7 (C1, B9): how long a segment's transaction may take to
  *  report its commit before the write is treated as lost (false). */
 export const SEGMENT_COMMIT_DEADLINE_MS = 5_000
+
+/** PR-B Wn (R-S82-3): how long a human settle waits for the sealed copy —
+ *  the vault's open AND the whole copy, every request + the strict commit —
+ *  before it answers false and deletes nothing. 30 s, the lead's value:
+ *  nothing staff feel waits on it (every settle caller is fire-and-forget);
+ *  a long take is many segments in ONE strict transaction where 5 s is one
+ *  segment's budget, so 6× that is a generous margin by judgement (copy time
+ *  on a real phone is NOT measured); and both failure directions lose
+ *  nothing — too short keeps the take, too long only holds the settle open. */
+export const SEALED_COPY_DEADLINE_MS = 30_000
 
 /** The transaction's own verdict: `complete` → true; `abort`, `error` or the
  *  deadline → false. Attached after the last request resolved, which is still
@@ -960,6 +977,20 @@ export async function markTakeStaged(takeId: string, stagedPath: string): Promis
   await patchTakeMeta(takeId, { stagedPath })
 }
 
+/** PR-B Wn (W-4, R-S77-1 + FOLD): the damaged branch's staged copy AND its
+ *  damaged code in ONE write — a kill between two writes used to leave a
+ *  `stg/` path with no damaged mark. Exactly what the two calls wrote:
+ *  `stagedPath` + `secureError` + `lastSecureAttemptAt`, all under
+ *  markTakeSecureError's `!finalizedAt` (a finalized take is held; its
+ *  `finalizedPath` wins). Failure as today: patchTakeMeta swallows, no throw. */
+export async function markTakeStagedDamaged(takeId: string, stagedPath: string, code: string): Promise<void> {
+  await patchTakeMeta(
+    takeId,
+    { stagedPath, secureError: code, lastSecureAttemptAt: Date.now() },
+    (meta) => !meta.finalizedAt,
+  )
+}
+
 /** S76 A1: the held-upload note; true only once COMMITTED. Never replaces a
  *  note of different bytes. */
 export async function markTakeHeldUpload(takeId: string, bytes: number, seconds: number): Promise<boolean> {
@@ -1099,15 +1130,6 @@ export async function markTakeTailIncomplete(takeId: string): Promise<void> {
   })
 }
 
-/** Capture pipeline PR3 fix round 17: this take's stop leg has BEGUN. Queued as
- *  the leg's first act — see `stopPendingAt` above for why the stop is written
- *  down before the tail rather than after it.
- *
- *  ⚖ AND WITHOUT A UID (slice five fix round 3, F1), for the same reason and on
- *  the same gate as `markTakeTailIncomplete` above: it is the abandoned stop's
- *  FIRST act, and on the phone that stop runs after the session store is
- *  nulled. `appendTakeSegment`'s compare-don't-require argument covers it —
- *  the recorder's own write on its own take, in its own runtime. */
 /** PR-B commit 4 (B8): the recorder's own note of a system end (null = a lifted
  *  mute withdrawn). Same gate as the stop leg's own marks. */
 export async function markTakeEndedBySystem(takeId: string, mark: EndedBySystem | null): Promise<void> {
@@ -1130,6 +1152,15 @@ export async function noteTakeDiagEvent(takeId: string, event: DiagEvent): Promi
   )
 }
 
+/** Capture pipeline PR3 fix round 17: this take's stop leg has BEGUN. Queued as
+ *  the leg's first act — see `stopPendingAt` above for why the stop is written
+ *  down before the tail rather than after it.
+ *
+ *  ⚖ AND WITHOUT A UID (slice five fix round 3, F1), for the same reason and on
+ *  the same gate as `markTakeTailIncomplete` above: it is the abandoned stop's
+ *  FIRST act, and on the phone that stop runs after the session store is
+ *  nulled. `appendTakeSegment`'s compare-don't-require argument covers it —
+ *  the recorder's own write on its own take, in its own runtime. */
 export async function markTakeStopPending(takeId: string): Promise<void> {
   await patchTakeMeta(takeId, { stopPendingAt: Date.now() }, undefined, { gate: 'compare' })
 }
@@ -1465,7 +1496,80 @@ export async function deleteTake(
   opts?: { humanResolved?: boolean },
 ): Promise<void> {
   if (!(await readOwnTakeMeta(takeId))) return
-  await deleteTakeRows(takeId, opts)
+  // PR-B Wn: a human settle carries the door value (R-S82-2); false = the
+  // sealed copy did not finish → nothing is deleted, the take stays as it was.
+  const door = opts?.humanResolved ? await sealedCopyDoor(takeId) : undefined
+  if (door === false) return
+  await deleteTakeRows(takeId, opts, door)
+}
+
+/** What a human settle hands the door (R-S82-2): the keep switch as read ONCE
+ *  at the call, and — switch ON — what the sealed copy holds of this take
+ *  (`{seq → Blob.size}`; empty when nothing needed copying). */
+type DoorValue = { keep: false } | { keep: true; held: Map<number, number> }
+
+/** The server's receipt for at least the phone's copy (R-S79-1): (1)
+ *  `finalizedAt` · (2) a `stg/` staged copy · (3) the fallback's own receipt,
+ *  `transcript.audio.size` ≥ Σ `Blob.size` of THIS take's segment rows. A
+ *  damaged take counts arms 1–2 only. The server's receipt — not a proof of
+ *  the bytes. */
+function serverReceipt(meta: TakeMeta, rows: readonly SegmentRow[]): boolean {
+  if (meta.finalizedAt) return true
+  if (typeof meta.stagedPath === 'string' && meta.stagedPath.startsWith('stg/')) return true
+  if (isDamagedTake(meta)) return false
+  const sent = meta.transcript?.fallback === true ? meta.transcript.audio?.size : undefined
+  return typeof sent === 'number' && sent >= rows.reduce((n, r) => n + r.blob.size, 0)
+}
+
+/** Keep switch OFF → `{ keep: false }`. ON → read the live meta + this take's
+ *  rows (one readonly transaction); nothing to copy (no meta, no rows, a
+ *  receipt) → an empty map; else seal a copy and wait for it — false when it
+ *  does not finish. The door re-decides on its own fresh read either way. */
+async function sealedCopyDoor(takeId: string): Promise<DoorValue | false> {
+  if (!RECORDING_SWITCHES.sealBeforeHumanDelete) return { keep: false }
+  const live = await readLiveTake(takeId)
+  if (live === false) return false
+  if (!live.meta || live.rows.length === 0 || serverReceipt(live.meta, live.rows))
+    return { keep: true, held: new Map() }
+  const held = await sealTakeCopy(live.meta, live.rows, SEALED_COPY_DEADLINE_MS)
+  return held ? { keep: true, held } : false
+}
+
+/** The live meta + THIS take's segment rows, in one readonly transaction.
+ *  false = the read failed (fail closed); an unavailable store reads as empty. */
+async function readLiveTake(
+  takeId: string,
+): Promise<{ meta: TakeMeta | undefined; rows: SegmentRow[] } | false> {
+  try {
+    const db = await openDb()
+    if (!db) return { meta: undefined, rows: [] }
+    const tx = db.transaction([TAKES, SEGMENTS], 'readonly')
+    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    const all = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
+    return { meta, rows: all.filter((r) => r.takeId === takeId) }
+  } catch (err) {
+    console.error('[take-store] sealed copy read failed — nothing deleted:', err)
+    return false
+  }
+}
+
+/** THE DOOR on a human settle, inside deleteTakeRows' own transaction, on its
+ *  fresh read. No door value → nothing (unreachable by construction).
+ *  Keep OFF → today's release, except a DAMAGED take is kept until the server
+ *  holds its own copy (R-S77-7: `finalizedAt` or `stg/`; `isDamagedTake` is
+ *  live). Keep ON → no meta → nothing (orphans stay for the sweeps); a receipt
+ *  now → release; else release only if every live row's (seq, `Blob.size`)
+ *  EQUALS what the sealed copy holds (no live rows → nothing to lose). */
+function humanDoorReleases(meta: TakeMeta | undefined, rows: readonly SegmentRow[], door?: DoorValue): boolean {
+  if (!door) {
+    console.error('[take-store] a human settle reached the door without its value — nothing deleted')
+    return false
+  }
+  if (!door.keep)
+    return !meta || !isDamagedTake(meta) || !!meta.finalizedAt || meta.stagedPath?.startsWith('stg/') === true
+  if (!meta) return false
+  if (serverReceipt(meta, rows)) return true
+  return rows.every((r) => door.held.get(r.seq) === r.blob.size)
 }
 
 /** ⚖ WHAT A SAVE MAY SETTLE — the rule, in ONE place, for all three exits
@@ -1599,12 +1703,17 @@ export function serverHoldsTake(
 async function deleteTakeRows(
   takeId: string,
   opts?: { humanResolved?: boolean },
+  door?: DoorValue,
 ): Promise<void> {
   try {
     const db = await openDb()
     if (!db) return
     const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    if (opts?.humanResolved) {
+      const all = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
+      if (!humanDoorReleases(meta, all.filter((r) => r.takeId === takeId), door)) return
+    }
     // A take the server does NOT hold is audio that exists nowhere else. The
     // released cohort is the one serverHoldsTake names: a discarded take that
     // could never be sealed, whose staged copy the server holds and whose

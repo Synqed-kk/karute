@@ -58,6 +58,9 @@ jest.mock('@/lib/karute/take-store', () => {
     markTakeStaged: async (_id: string, path: string) => {
       if (store.meta) store.meta = { ...store.meta, stagedPath: path }
     },
+    markTakeStagedDamaged: async (_id: string, path: string, code: string) => {
+      if (store.meta) store.meta = { ...store.meta, stagedPath: path, secureError: code }
+    },
     markTakeHeldUpload: (id: string, b: number, s: number) => markTakeHeldUpload(id, b, s),
     clearTakeHeldUpload: (id: string) => clearTakeHeldUpload(id),
     markTakeStartBoundAttempted: async () => {},

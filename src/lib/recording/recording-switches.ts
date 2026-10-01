@@ -100,4 +100,14 @@ export const RECORDING_SWITCHES = {
    *  answered lost and switched storage off; awaiting Fable's slow-save
    *  design). OFF = today: true on the request's success. Client code. */
   awaitSegmentCommit: false,
+  /** A human settle seals before it deletes (build 32, PR-B Wn, R-S78-2 /
+   *  R-S80-1): when 確認する or the settle at a save would delete a phone
+   *  recording the server holds no receipt for, the phone first copies it into
+   *  a separate database nothing live reads (take-vault.ts) and deletes only
+   *  once that copy committed and still covers every live segment; a copy that
+   *  cannot finish deletes nothing. Read at the call, never at load. Default
+   *  ON. OFF = no copy is ever made and the sealed database is never opened —
+   *  today's delete, except that (with `stagedPartialDoor` ON) a DAMAGED take is kept until the server
+   *  holds its own copy (R-S77-7). Client code. */
+  sealBeforeHumanDelete: true,
 } as const

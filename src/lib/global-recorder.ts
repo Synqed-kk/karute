@@ -425,13 +425,17 @@ class GlobalRecorder {
 
   // ── Take durability (see lib/karute/take-store.ts) ─────────────────────────
 
-  /** PR-B commit 4 (B8): note a system sign for THIS take — the first wins; a
-   *  lifted mute (why null) withdraws only a 'muted'. Records only: nothing
+  /** PR-B commit 4 (B8): note a system sign for THIS take — the first REAL
+   *  sign wins; a lifted mute (why null) withdraws only a 'muted'. PR-B Wn
+   *  (W-6): a real sign REPLACES a held 'muted' and keeps the mute's onset in
+   *  `mutedAt` (so a later unmute can no longer wipe it); a 'muted' over a
+   *  held 'muted' changes nothing and writes nothing. Records only: nothing
    *  stops, nothing restarts, the stop leg is not touched. */
   private noteEndedBySystem(why: EndedBySystem['why'] | null, p = this.persist) {
     if (this.persist !== p || (this.state !== 'recording' && this.state !== 'paused')) return
-    if (why === null ? this.endedBySystem?.why !== 'muted' : this.endedBySystem !== null) return
-    const mark = why === null ? null : { at: Date.now(), why }
+    const held = this.endedBySystem
+    if (why === null ? held?.why !== 'muted' : held !== null && (held.why !== 'muted' || why === 'muted')) return
+    const mark = why === null ? null : { at: Date.now(), why, ...(held ? { mutedAt: held.at } : {}) }
     this.endedBySystem = mark
     const takeId = this.takeId
     if (takeId) void this.queueTakeWrite(() => markTakeEndedBySystem(takeId, mark))

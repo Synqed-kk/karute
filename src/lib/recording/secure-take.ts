@@ -76,7 +76,7 @@ import {
   markTakeFinalized,
   markTakeHeldUpload,
   markTakeSecureError,
-  markTakeStaged,
+  markTakeStagedDamaged,
   markTakeStartBoundAttempted,
   readTakeSecureMeta,
   stampTakeSession,
@@ -486,8 +486,7 @@ async function secureBlob(
       partial: true,
       ...(diag ? { diag } : {}),
     })
-    await markTakeStaged(takeId, staged.path)
-    await markTakeSecureError(takeId, damagedSecureCode(fate))
+    await markTakeStagedDamaged(takeId, staged.path, damagedSecureCode(fate))
     return null
   }
   // The row the mint RESERVES this key on — never null now, and never
