@@ -28,11 +28,11 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
   }
 })
 
-import { render, fireEvent, act, cleanup, within } from '@testing-library/react'
+import { render, fireEvent, act } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
-import { LOGIN, STORE, STORES, TENANT } from './practice-door-recorded'
+import { LOGIN, STORE, TENANT } from './practice-door-recorded'
 
 const admission = requireBusinessAdmission as jest.MockedFunction<typeof requireBusinessAdmission>
 const realFetch = global.fetch
@@ -67,6 +67,9 @@ beforeEach(() => {
   jest.spyOn(console, 'error').mockImplementation(() => {})
   jest.spyOn(console, 'warn').mockImplementation(() => {})
   jest.spyOn(console, 'info').mockImplementation(() => {})
+})
+afterEach(() => {
+  global.fetch = realFetch
 })
 
 const open = async (section?: string, store: string = STORE.tokyo) => {
