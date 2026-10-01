@@ -85,7 +85,7 @@ afterEach(() => {
 })
 
 const open = async (store: string) => {
-  const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section: 'reserve-card-look' }) })) as ReactElement
+  const el = (await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section: 'reserve-store-page' }) })) as ReactElement
   render(el)
   await act(async () => {})
 }

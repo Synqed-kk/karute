@@ -109,7 +109,7 @@ import {
   blockDirty,
   BOOKING_GUARD_ID,
   CARD_COLOR_ID,
-  CARD_LOOK_ID,
+  STORE_PAGE_ID,
   hitOf,
   blockingError,
   changedCount,
@@ -177,7 +177,7 @@ const HEAD_GUIDE_NARROW =
  *  exactly the way the scroll-spy asks for its anchors, so 予約と確保 is one
  *  special case in this file rather than two. */
 const termsFor = (id: string): readonly string[] | undefined =>
-  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === CARD_LOOK_ID ? CARD_LOOK_HEADINGS : undefined)
+  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? CARD_LOOK_HEADINGS : undefined)
 
 const DENSITY_ID = 'my-display.density'
 const EMPHASIS_ID = 'my-display.emphasis'

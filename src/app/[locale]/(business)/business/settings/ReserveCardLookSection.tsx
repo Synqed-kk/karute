@@ -20,7 +20,7 @@ type Look = NonNullable<SettingsSection['cardLook']>
 type View = 'home' | 'store'
 
 /** What a reader can type to find this section (the room's search), like STORE_POLICY_HEADINGS. */
-export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの色', 'お客様のアプリでの見え方']
+export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの見た目', 'カードの色', 'お客様のアプリでの見え方']
 
 /** The stand-in the preview paints when no colour is set (note.empty.preview says so). */
 export const STAND_IN = '#1C2247'

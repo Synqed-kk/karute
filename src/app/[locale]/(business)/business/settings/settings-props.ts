@@ -78,7 +78,7 @@ import { countWord, GENERIC_WORDS, RESOURCE_WORDS, wordsForStore, type ResourceW
 import {
   accessFor,
   BOOKING_GUARD_ID,
-  CARD_LOOK_ID,
+  STORE_PAGE_ID,
   clampCoachingFloor,
   COACHING_FLOOR_MAX,
   COACHING_FLOOR_MIN,
@@ -188,7 +188,7 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   // read), and — K11 — the address of the store the card shows (the lens store, else the first):
   // the door's own record under ON, the fixture's sample under OFF, none → omitted.
   const cardStore = storeOptions.find((s) => s.id === storeId) ?? storeOptions[0]
-  const [cardColor, cardAddress] = gateOf(sectionById(CARD_LOOK_ID)!, access) === 'open'
+  const [cardColor, cardAddress] = gateOf(sectionById(STORE_PAGE_ID)!, access) === 'open'
     ? await Promise.all([readReserveCardColor(), cardStore ? readStoreAddress(cardStore.id) : null])
     : [null, null]
   // ⚖ PKT-S38 R7 — 予約の色分け, LIVE while the door is ON: the lens store's four, for a reader who may open
@@ -527,7 +527,7 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
   if (entry.scope === 'self') return myDisplay(base)
   // ⚖ A1b (R3) — a per-business section needs no store: it renders under every
   // lens and in the all-stores view, so it answers BEFORE the noStore line.
-  if (entry.scope === 'business') return reserveCardLook(base, ctx)
+  if (entry.scope === 'business') return reserveStorePage(base, ctx)
   // ⚖ PR-2b — WHO STILL GETS 「店舗を選んでください」. No store in the lens: as
   // before. A store with no dials splits on the facade's live→fixture map:
   // switch OFF, every store is its own fixture self, so a fixture store without
@@ -1926,19 +1926,19 @@ const RESERVE_PREVIEW_HEAD =
   'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。直前締切は{reserve.cutoff}、直前の空き制限は{reserve.lead}、スキマ枠の販売は{reserve.gapfill}です。'
 const RESERVE_PREVIEW_DISCOUNT = '対象のスキマ枠は{reserve.gapdisc}引きで掲載します。'
 
-// ── カードの見た目 (⚖ A1b) ────────────────────────────────────────────────────
+// ── お店ページ (⚖ A1b; S48 E1: was カードの見た目, now its first block) ─────────
 //
 // The section head only, like 予約と確保: the picker and the live card render in
 // `ReserveCardLookSection.tsx` from `cardLook`. Nothing here reaches core but the
 // door's own read (A2 is the write). The card shows the lens store — or the
 // first store — as its branch line; the colour is the same under every lens.
-function reserveCardLook(base: SectionBase, ctx: Ctx): SettingsSection {
+function reserveStorePage(base: SectionBase, ctx: Ctx): SettingsSection {
   return {
     ...base,
     kicker: 'Reserve設定',
-    title: 'カードの見た目',
+    title: 'お店ページ',
     lead: '「カードの見た目」の設定は、すべての店舗に共通で適用されます。',
-    guide: 'お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
+    guide: 'お客様のアプリに出る、お店ページの設定です。いまは「カードの見た目」で、ホームに並ぶお店のカードの色を決めます。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
     cardLook: {
       storeLine: ctx.cardStore?.name ?? '',
       ...(ctx.cardAddress ? { address: ctx.cardAddress } : {}),
