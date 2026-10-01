@@ -96,7 +96,8 @@ export const RECORDING_SWITCHES = {
    *  / B9): appendTakeSegment answers true only after the IndexedDB
    *  transaction's `complete`; an abort, an error or SEGMENT_COMMIT_DEADLINE_MS
    *  without an answer → false → the recorder's existing p.disabled path (the
-   *  seq is not advanced). Default ON. OFF = today: true on the request's
-   *  success. Client code. */
-  awaitSegmentCommit: true,
+   *  seq is not advanced). Default OFF (S76 W-2: a slow commit that LANDS was
+   *  answered lost and switched storage off; awaiting Fable's slow-save
+   *  design). OFF = today: true on the request's success. Client code. */
+  awaitSegmentCommit: false,
 } as const

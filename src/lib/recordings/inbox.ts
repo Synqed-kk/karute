@@ -305,6 +305,9 @@ export interface InboxLocalTake {
    *  binding refusal, which is every take before this field existed and every
    *  ordinary retryable or non-binding-terminal failure. */
   bindingRefused?: boolean
+  /** S76 W-3: the phone judged this take's audio damaged (take-store's
+   *  damagedKind, mapped by the store) — the row says so and offers nothing. */
+  damaged?: 'partial' | 'unreadable'
 }
 
 export interface InboxRow {
@@ -593,8 +596,13 @@ export function deriveInboxRows(input: {
         // (job-errors.ts damagedAudioCode) — the card's own sentence on the
         // row; the stage names; generic for everything else (and the generic
         // one explained by a warning fact when there is one — PR-7).
-        reason: named === 'genericFailure' ? fallbackFailureReason(s) : named,
-        canRetry: !damaged && (!!take || s.serverAudio === 'object'),
+        reason:
+          !damaged && take?.damaged
+            ? localDamagedReason(take.damaged)
+            : named === 'genericFailure'
+              ? fallbackFailureReason(s)
+              : named,
+        canRetry: !damaged && !take?.damaged && (!!take || s.serverAudio === 'object'),
         // The flag means "the save comes from the SERVER", so it is set only
         // when this device holds nothing — a take on the device still routes
         // 再試行 down the take path, exactly as it did before.
@@ -613,7 +621,12 @@ export function deriveInboxRows(input: {
       // genuinely heals it (the in-tab pipeline writes the record itself), so
       // the affordance stays. Upgrade path if this is ever seen in the field:
       // a core-side "re-mint the job" verb, or hiding retry on the thin arm.
-      rows.push({ ...base, state: 'failed', reason: fallbackFailureReason(s), canRetry: !!take })
+      rows.push({
+        ...base,
+        state: 'failed',
+        reason: take?.damaged ? localDamagedReason(take.damaged) : fallbackFailureReason(s),
+        canRetry: !!take && !take.damaged,
+      })
       continue
     }
 
@@ -625,7 +638,7 @@ export function deriveInboxRows(input: {
     // and at worst a prefix the assembler could seal, so a row with a take
     // keeps today's 復元可能/localAudio and today's save path, untouched.
     if (take) {
-      rows.push({ ...base, state: 'recoverable', reason: recoverableReason(take) })
+      rows.push(withDamage({ ...base, state: 'recoverable', reason: recoverableReason(take) }, take))
       continue
     }
     // …and only THEN what the server holds. `===` on purpose: the value is a
@@ -706,7 +719,7 @@ export function deriveInboxRows(input: {
     // read back may still own this take (never offer a save under it); past
     // the grace with a COMPLETE read, nothing is coming.
     const unsettled = serverReadFailed || now - take.startedAt <= SESSION_UNSETTLED_GRACE_MS
-    rows.push({
+    const row: InboxRow = {
       key: `take:${take.takeId}`,
       state: unsettled ? 'processing' : 'recoverable',
       // Past the grace: 'sessionUnlisted' claims the server has no record,
@@ -727,7 +740,9 @@ export function deriveInboxRows(input: {
       // left its (unlisted) session must detach exactly like piece r's row,
       // or its save reaches the same F1 overwrite.
       bindingRefused: take.bindingRefused ? true : undefined,
-    })
+    }
+    // S76 W-3: unsettled > damaged > sessionUnlisted > the device reason.
+    rows.push(unsettled ? row : withDamage(row, take))
   }
 
   // The stranded takes, in the SAME vocabulary as everything else: 復元可能,
@@ -741,7 +756,7 @@ export function deriveInboxRows(input: {
   // （未保存）」. No new strings either way.
   for (const t of strandedTakes) {
     if (t.recordingSessionId && rendered.has(t.recordingSessionId)) continue
-    rows.push({
+    rows.push(withDamage({
       key: `take:${t.takeId}`,
       state: 'recoverable',
       reason: recoverableReason(t),
@@ -754,14 +769,14 @@ export function deriveInboxRows(input: {
       durationSeconds: takeDuration(t),
       canRetry: false,
       sameDay: false,
-    })
+    }, t))
   }
 
   // Takes whose session id never resolved (the mint failed, or predates it):
   // no server row can ever represent them, so they carry their own.
   for (const t of orphanTakes) {
     if (t.startedAt < floor) continue
-    rows.push({
+    rows.push(withDamage({
       key: `take:${t.takeId}`,
       state: 'recoverable',
       reason: recoverableReason(t),
@@ -774,11 +789,21 @@ export function deriveInboxRows(input: {
       durationSeconds: takeDuration(t),
       canRetry: false,
       sameDay: false,
-    })
+    }, t))
   }
 
   rows.sort((a, b) => b.startedAt - a.startedAt)
   return rows
+}
+
+/** S76 W-3: the card's own damaged word for a phone-damaged take. */
+function localDamagedReason(damaged: 'partial' | 'unreadable'): FailedRowReason {
+  return damaged === 'partial' ? 'audioPartial' : 'audioUnreadable'
+}
+
+/** S76 W-3: a phone-damaged take's row says so and offers nothing (no 保存する). */
+function withDamage(row: InboxRow, take: InboxLocalTake): InboxRow {
+  return take.damaged ? { ...row, state: 'failed', reason: localDamagedReason(take.damaged), canRetry: false } : row
 }
 
 /** Why a 復元可能 row is 復元可能 — device audio, and whether the stop managed

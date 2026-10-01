@@ -34,6 +34,16 @@ export function decideBlobFate(facts: {
   return 'ok'
 }
 
+/** S76 W-1: the held copy beats a stored copy that can only ever be filed as
+ *  partial (the same verdict, never restated) and is larger. OFF = never. */
+export function heldCopyWins(
+  heldBytes: number,
+  stored: { size?: number; bytesEmitted?: number; tailIncomplete?: boolean },
+): boolean {
+  if (!RECORDING_SWITCHES.stagedPartialDoor || stored.size === undefined) return false
+  return decideBlobFate({ ...stored, head: null, size: stored.size }) === 'partial' && heldBytes > stored.size
+}
+
 /** The first PROBE_MIN_HEAD_BYTES of the blob, or null: a blob shorter than
  *  that is unknown, and a head read that throws is unknown — never `network`. */
 export async function readBlobHead(blob: Blob): Promise<Uint8Array | null> {

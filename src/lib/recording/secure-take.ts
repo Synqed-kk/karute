@@ -64,14 +64,17 @@ import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 // success only here, where finalize re-proves size and ownership afterwards;
 // see storage-put.ts's header.
 import { putDeadlineMs, putSaysAlreadyThere } from '@/lib/recording/storage-put'
-import { blobFate, damagedSecureCode, readBlobHead } from '@/lib/recording/blob-fate'
+import { blobFate, damagedSecureCode, heldCopyWins, readBlobHead } from '@/lib/recording/blob-fate'
 import { buildTakeDiag, type DiagCounts, type PumpStopCode } from '@/lib/recording/take-diag'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
+  clearTakeHeldUpload,
+  DAMAGED_SECURE_CODES,
   isStoppedTake,
   loadTakeBlob,
   loadTakeBlobFacts,
   markTakeFinalized,
+  markTakeHeldUpload,
   markTakeSecureError,
   markTakeStaged,
   markTakeStartBoundAttempted,
@@ -159,6 +162,15 @@ export async function secureTake(
     // the local hold, marked nothing (B4). OFF → today's early return.
     const tailIncomplete = meta.tailIncomplete === true
     if (tailIncomplete && !(RECORDING_SWITCHES.stagedPartialDoor && meta.recordingSessionId)) return
+    // S76 W-1 (S-7): a whole copy this take noted as sent is FINISHED, never
+    // displaced by the stored part. Before the terminal check (:195), so an
+    // earlier run's `audio_partial` cannot strand it. 'absent' = carry on.
+    const held = meta.heldUpload
+    if (RECORDING_SWITCHES.stagedPartialDoor && held && meta.recordingSessionId) {
+      const mime = meta.mimeType || DEFAULT_MIME
+      if ((await finishHeldUpload(port, takeId, mime, meta.recordingSessionId, held, meta.secureError)) !== 'absent')
+        return
+    }
     // ⚖ NO STOP STAMP, NO SECURING (fix round 6) — the belt's second half.
     // isActive above can only answer for the take the recorder in THIS runtime
     // is holding; a stop that happened off-page (the staffer navigates to 記録
@@ -321,6 +333,12 @@ export async function secureTake(
  * through secureTake (same bytes, same single-flight); the in-memory blob is
  * sent only when the store has no bytes for this take.
  *
+ * ⚖ …EXCEPT (S76 W-1, Liam's option 1) when the stored copy can only ever be
+ * filed as partial and this run holds a LARGER copy of a take whose row is
+ * stamped: the held copy goes to the take key, after the take durably notes
+ * it (markTakeHeldUpload). No partial copy ever goes under the take key, and
+ * the only later sender for that key finalizes the SAME noted bytes.
+ *
  * No discardPending check: bytes are never gated on what a surface may show
  * (take-store's drain note) — a discard is a mark, and its audio is kept.
  */
@@ -335,17 +353,25 @@ export async function ensureAudioOnServer(
     // ponytail: reads the whole stored take once more just to ask "any bytes?"
     // — fallback-only; a segment count read if this ever shows up in a profile.
     const stored = await loadTakeBlob(takeId)
-    if (stored && stored.size > 0) {
+    const meta = await readTakeSecureMeta(takeId)
+    // S76 W-1: the one exception to S33 R2 (see the docblock).
+    const held =
+      !!stored &&
+      stored.size > 0 &&
+      !!meta?.recordingSessionId &&
+      heldCopyWins(blob.size, { size: stored.size, bytesEmitted: meta.bytesEmitted, tailIncomplete: meta.tailIncomplete })
+    if (stored && stored.size > 0 && !held) {
       await secureTake(port, takeId)
       return (await readTakeSecureMeta(takeId))?.finalizedPath ?? null
     }
-    const meta = await readTakeSecureMeta(takeId)
     const session = meta?.recordingSessionId ?? recordingSessionId
     // No row to attach to, no honest duration for finalize, or nothing to send.
     if (!session || durationSeconds === undefined || blob.size === 0) return null
     if (inFlight.has(takeId)) return null
     inFlight.add(takeId)
     try {
+      // The note lands (committed) before a byte goes to the take key, or nothing does.
+      if (held && !(await markTakeHeldUpload(takeId, blob.size, durationSeconds))) return null
       const mimeType = meta?.mimeType || blob.type || DEFAULT_MIME
       return await secureBlob(port, blob, takeId, session, mimeType, durationSeconds, {
         bytesEmitted: meta?.bytesEmitted,
@@ -359,6 +385,51 @@ export async function ensureAudioOnServer(
   } catch (err) {
     console.warn('[secure-take] fallback attach failed:', err)
     return null
+  }
+}
+
+/** S76 A3: finish a noted whole copy. The mint signs a url → nothing landed:
+ *  clear the note, 'absent'. No url → the object is at the key: finalize the
+ *  noted size. A final refusal is written and clears the note; a passing one
+ *  is written (never over a damaged code) and keeps it for the row's retry. */
+async function finishHeldUpload(
+  port: RecordingPipelinePort,
+  takeId: string,
+  mimeType: string,
+  session: string,
+  held: { bytes: number; seconds: number },
+  priorError: string | undefined,
+): Promise<'absent' | 'refused' | 'finished'> {
+  const clear = async () => {
+    if (!(await clearTakeHeldUpload(takeId))) console.warn('[secure-take] held note not cleared:', takeId)
+  }
+  const refuse = async (code: string) => {
+    if (TERMINAL_SECURE_ERRORS.has(code)) {
+      await markTakeSecureError(takeId, code)
+      await clear()
+    } else if (!(priorError && DAMAGED_SECURE_CODES.has(priorError))) await markTakeSecureError(takeId, code)
+    return 'refused' as const
+  }
+  try {
+    const minted = await port.mintTakeUrl(takeId, mimeType, session)
+    if ('error' in minted) return await refuse(minted.error)
+    if ('url' in minted && minted.url) {
+      await clear()
+      return 'absent'
+    }
+    const result = await port.finalizeTake({
+      takeId,
+      mimeType,
+      durationSeconds: Math.max(0, held.seconds),
+      byteLength: held.bytes,
+      recordingSessionId: session,
+    })
+    if (!('ok' in result)) return await refuse(result.error)
+    await markTakeFinalized(takeId, minted.path)
+    return 'finished'
+  } catch (err) {
+    console.warn('[secure-take] held finish failed:', err)
+    return await refuse('network')
   }
 }
 

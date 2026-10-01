@@ -122,6 +122,8 @@ let failNextTailMarks = 0
 let failNextSegmentWrites = 0
 /** PR-B commit 7 (C1): the next N transactions ABORT after their requests succeeded. */
 let abortNextCommits = 0
+/** S76 A1: the next N commits never report (a hung transaction) — the shim's one new member. */
+let hangNextCommits = 0
 /** STAMP_WRITE_TRIES' two backoffs (STAMP_RETRY_MS · 1 + · 2 = 150 ms) plus
  *  slack, advanced on the fake clock so a refused flush can reach its last try.
  *  Kept as a local literal rather than an import: take-store does not export
@@ -290,7 +292,8 @@ class FakeIDB {
       onabort: null as (() => void) | null,
       onerror: null as (() => void) | null,
       set oncomplete(done: (() => void) | null) {
-        if (done) queueMicrotask(() => (abortNextCommits > 0 ? (abortNextCommits--, tx.onabort?.()) : done()))
+        if (done && hangNextCommits > 0) hangNextCommits--
+        else if (done) queueMicrotask(() => (abortNextCommits > 0 ? (abortNextCommits--, tx.onabort?.()) : done()))
       },
       objectStore: (n: string) => {
         const s = this.stores.get(n)!
@@ -481,6 +484,7 @@ import {
   appendTakeSegment,
   BINDING_SECURE_REFUSALS,
   clearOwnTakes,
+  clearTakeHeldUpload,
   clearTakeStaged,
   createTake,
   deleteTake,
@@ -499,6 +503,7 @@ import {
   markSegmentsUploaded,
   readTakeUploadMeta,
   markTakeFinalized,
+  markTakeHeldUpload,
   markTakeSecureError,
   markTakeStaged,
   markTakeStopPending,
@@ -969,6 +974,21 @@ describe('listOwnTakes carries secureError (piece r prerequisite)', () => {
 
     const [row] = await listOwnTakes([])
     expect(row.secureError).toBe('reserved_elsewhere')
+  })
+
+  // S76 A4: a take with a held-upload note never carries `damaged` (keeps 保存する).
+  it.each([
+    ['audio_partial alone', false, 'partial'],
+    ['audio_partial + a held-upload note', true, undefined],
+  ])('S76 A4: %s → damaged %s', async (_n, noted, damaged) => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await passGrace()
+    await markTakeSecureError(takeId, 'audio_partial')
+    if (noted) expect(await markTakeHeldUpload(takeId, 20_030, 600)).toBe(true)
+    const [row] = await listOwnTakes([])
+    expect(row.damaged).toBe(damaged)
   })
 })
 
@@ -5706,7 +5726,10 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
   })
 
   // PR-B commit 7 (P:89, C1, B9): a segment counts only once it is committed.
+  // S76 W-2: the switch ships OFF; this pins the ON behaviour (save/restore, as below).
   it('P:89 a transaction that aborts after onsuccess → false, and the recorder does not advance its seq', async () => {
+    const restore = RECORDING_SWITCHES.awaitSegmentCommit
+    ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = true
     try {
       expect(await createTake(takeMeta('c1'))).toBe(true)
       abortNextCommits = 1
@@ -5726,6 +5749,7 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
       expect(p.seq).toBe(seqBefore) // not advanced
     } finally {
       abortNextCommits = 0
+      ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = restore
     }
   })
 
@@ -5741,6 +5765,54 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
       abortNextCommits = 0
       ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = restore
     }
+  })
+
+  // S76 A1: the held-upload note answers true ONLY on its transaction's commit.
+  describe('S76 A1 — markTakeHeldUpload is durable only on COMMIT', () => {
+    afterEach(() => {
+      abortNextCommits = 0
+      hangNextCommits = 0
+    })
+    it('committed → true and read back', async () => {
+      expect(await createTake(takeMeta('h1'))).toBe(true)
+      expect(await markTakeHeldUpload('h1', 20_030, 600)).toBe(true)
+      expect((await readTakeSecureMeta('h1'))?.heldUpload).toEqual({ bytes: 20_030, seconds: 600 })
+    })
+    it('commit aborted → false (the ANSWER only: the shim keeps the row on abort, real IndexedDB does not)', async () => {
+      expect(await createTake(takeMeta('h2'))).toBe(true)
+      abortNextCommits = 1
+      expect(await markTakeHeldUpload('h2', 20_030, 600)).toBe(false)
+    })
+    it('awaitSegmentCommit OFF (the default) → an aborted note still answers false, and the commit was awaited', async () => {
+      expect(RECORDING_SWITCHES.awaitSegmentCommit).toBe(false)
+      expect(await createTake(takeMeta('h3'))).toBe(true)
+      abortNextCommits = 1
+      expect(await markTakeHeldUpload('h3', 20_030, 600)).toBe(false)
+      expect(abortNextCommits).toBe(0)
+    })
+    it('a commit that never reports → false at the 5 s deadline, never before', async () => {
+      expect(await createTake(takeMeta('h4'))).toBe(true)
+      hangNextCommits = 1
+      let answer: boolean | undefined
+      void markTakeHeldUpload('h4', 20_030, 600).then((a) => (answer = a))
+      await jest.advanceTimersByTimeAsync(4_999)
+      expect(answer).toBeUndefined()
+      await jest.advanceTimersByTimeAsync(1)
+      expect(answer).toBe(false)
+    })
+    it('an existing note with different bytes → false, the row unchanged; the same bytes → true', async () => {
+      expect(await createTake(takeMeta('h5'))).toBe(true)
+      expect(await markTakeHeldUpload('h5', 20_030, 600)).toBe(true)
+      expect(await markTakeHeldUpload('h5', 99, 1)).toBe(false)
+      expect((await readTakeSecureMeta('h5'))?.heldUpload).toEqual({ bytes: 20_030, seconds: 600 })
+      expect(await markTakeHeldUpload('h5', 20_030, 600)).toBe(true)
+    })
+    it('clearTakeHeldUpload → committed true, the note gone', async () => {
+      expect(await createTake(takeMeta('h6'))).toBe(true)
+      expect(await markTakeHeldUpload('h6', 20_030, 600)).toBe(true)
+      expect(await clearTakeHeldUpload('h6')).toBe(true)
+      expect((await readTakeSecureMeta('h6'))?.heldUpload).toBeUndefined()
+    })
   })
 
   it('T3 300 s held only in memory → ~60 segments of at most 50 chunks, seqs consecutive, the stamp on the last only', async () => {

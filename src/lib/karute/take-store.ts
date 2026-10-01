@@ -159,12 +159,24 @@ export const DAMAGED_SECURE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /** The one reading of DAMAGED_SECURE_CODES (B3); `stagedPartialDoor` OFF = never. */
+function damagedCodeKind(code: string | undefined): 'partial' | 'unreadable' | undefined {
+  if (!RECORDING_SWITCHES.stagedPartialDoor || code === undefined || !DAMAGED_SECURE_CODES.has(code)) return undefined
+  return code === AUDIO_PARTIAL ? 'partial' : 'unreadable'
+}
+
 export function isDamagedTake(meta: Pick<TakeMeta, 'secureError'>): boolean {
-  return (
-    RECORDING_SWITCHES.stagedPartialDoor &&
-    meta.secureError !== undefined &&
-    DAMAGED_SECURE_CODES.has(meta.secureError)
-  )
+  return damagedCodeKind(meta.secureError) !== undefined
+}
+
+/** S76 W-3 (R-S76-7): the 録音履歴 ROW's reading — the code's kind, or 'partial'
+ *  for a take whose tail never landed and whose server answer is final (its
+ *  保存する can only end in the partial card). Never reads the note. */
+export function damagedKind(
+  meta: Pick<TakeMeta, 'secureError' | 'tailIncomplete'>,
+): 'partial' | 'unreadable' | undefined {
+  const kind = damagedCodeKind(meta.secureError)
+  if (kind || !RECORDING_SWITCHES.stagedPartialDoor || meta.tailIncomplete !== true) return kind
+  return meta.secureError && TERMINAL_SECURE_ERRORS.has(meta.secureError) ? 'partial' : undefined
 }
 
 /** PR-B B11/F12d: the ONE reference number a failed take's card shows (⚖ Liam
@@ -418,6 +430,9 @@ export type TakeMeta = {
    *  finalize diag reads these, never the ring. Same writer as the ring. */
   diagCounts?: DiagCounts
   lastPumpStop?: PumpStopCode
+  /** S76 W-1: a whole copy of `bytes` / `seconds` is being sent to the take
+   *  key (written, committed, before the PUT) so a later run finishes it. */
+  heldUpload?: { bytes: number; seconds: number }
   /** ⚖ A STOP IS IN FLIGHT — OR DIED IN ONE (fix round 17). Written by the stop
    *  leg as its FIRST act, ahead of the tail flush and of anything that could
    *  release the hold; cleared in the same patch that stamps `durationMs`.
@@ -503,6 +518,8 @@ export type RecoverableTake = Omit<TakeMeta, 'ownerUid' | 'lastSeq'> & {
    *  window, so without this the fold would drop the one row a human can act
    *  on. */
   expiredUnsecured?: boolean
+  /** S76 W-3: listOwnTakes' damagedKind for a take with no held-upload note. */
+  damaged?: 'partial' | 'unreadable'
 }
 
 type SegmentRow = { takeId: string; seq: number; blob: Blob }
@@ -866,7 +883,7 @@ async function patchTakeMeta(
   takeId: string,
   patch: Partial<TakeMeta>,
   when?: (meta: TakeMeta) => boolean,
-  opts?: { gate?: 'require' | 'compare' },
+  opts?: { gate?: 'require' | 'compare'; awaitCommit?: boolean },
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= STAMP_WRITE_TRIES; attempt++) {
     try {
@@ -874,11 +891,15 @@ async function patchTakeMeta(
       if (!db) return false
       const uid = await currentUserId()
       if (!uid && opts?.gate !== 'compare') return false
-      const tx = db.transaction(TAKES, 'readwrite')
+      const tx = opts?.awaitCommit
+        ? db.transaction(TAKES, 'readwrite', { durability: 'strict' })
+        : db.transaction(TAKES, 'readwrite')
       const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
       if (!meta || (uid && meta.ownerUid !== uid)) return false
       if (when && !when(meta)) return false
       await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
+      // S76 A1: true only on the transaction's `complete` (never retried).
+      if (opts?.awaitCommit) return await segmentCommitted(tx)
       return true
     } catch (err) {
       console.error('[take-store] patchTakeMeta failed:', err)
@@ -937,6 +958,20 @@ export async function markDiscardTranscriptDone(takeId: string): Promise<void> {
  *  re-uploading the whole take on every record-page mount. */
 export async function markTakeStaged(takeId: string, stagedPath: string): Promise<void> {
   await patchTakeMeta(takeId, { stagedPath })
+}
+
+/** S76 A1: the held-upload note; true only once COMMITTED. Never replaces a
+ *  note of different bytes. */
+export async function markTakeHeldUpload(takeId: string, bytes: number, seconds: number): Promise<boolean> {
+  const note = { bytes, seconds }
+  return patchTakeMeta(takeId, { heldUpload: note }, (m) => !m.heldUpload || m.heldUpload.bytes === bytes, {
+    awaitCommit: true,
+  })
+}
+
+/** S76 A3: the server answered the note finally — forget it (committed). */
+export async function clearTakeHeldUpload(takeId: string): Promise<boolean> {
+  return patchTakeMeta(takeId, { heldUpload: undefined }, undefined, { awaitCommit: true })
 }
 
 /** Capture pipeline PR4 fix round 7: forget where this take was staged, so the
@@ -1184,6 +1219,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'bytesEmitted'
   | 'diagCounts'
   | 'lastPumpStop'
+  | 'heldUpload'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -1206,6 +1242,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     bytesEmitted: meta.bytesEmitted,
     diagCounts: meta.diagCounts,
     lastPumpStop: meta.lastPumpStop,
+    heldUpload: meta.heldUpload,
   }
 }
 
@@ -1692,6 +1729,8 @@ export async function listOwnTakes(
       if (m.lastSeq < 0) continue
       // Recently flushed = possibly live in another tab; wait out the grace.
       if (now - lastActivity < ACTIVE_GRACE_MS) continue
+      // S76 A4: a take with a held-upload note keeps 保存する (never `damaged`).
+      const damaged = m.heldUpload ? undefined : damagedKind(m)
       out.push({
         takeId: m.takeId,
         target: m.target,
@@ -1728,6 +1767,7 @@ export async function listOwnTakes(
         // `TakeMeta`, so the 録音履歴 fold's `bindingRefused` mapping was always
         // false and piece r was dead code without this line.
         secureError: m.secureError,
+        ...(damaged ? { damaged } : {}),
       })
     }
     out.sort((a, b) => b.startedAt - a.startedAt)

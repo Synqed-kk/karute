@@ -5,13 +5,15 @@ import {
   adoptTakeSession,
   ensureFinalizedPath,
   isDamagedTake,
+  loadTakeBlob,
   readTakeSecureMeta,
   readTakeTranscript,
   stampTakeTranscript,
   type TakeAudioFingerprint,
 } from '@/lib/karute/take-store'
 import { ensureAudioOnServer } from '@/lib/recording/secure-take'
-import { blobFate } from '@/lib/recording/blob-fate'
+import { blobFate, heldCopyWins } from '@/lib/recording/blob-fate'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { AUDIO_PARTIAL } from '@/lib/recording/job-errors'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
@@ -248,6 +250,10 @@ export async function runAIPipeline(
   // and remembers it; null (the phone, whose cohort is empty by construction)
   // leaves this exactly as it was.
   const meta = takeId ? await readTakeSecureMeta(takeId) : null
+  // S76 A2 / R-S76-8: the take's REAL stored copy, read at most once per run and
+  // only where a damaged or short verdict needs it — `bytesEmitted` is never a size.
+  let storedRead: Promise<Blob | null> | undefined
+  const storedCopyOnce = (id: string) => (storedRead = storedRead ?? loadTakeBlob(id))
   let finalizedPath =
     takeId && meta ? await ensureFinalizedPath(takeId, meta, recordingPort) : null
   // ⚖ THE FALLBACK, IN ORDER (S33 option D). No finalized key yet:
@@ -273,7 +279,14 @@ export async function runAIPipeline(
     // ⚖ A TAKE ALREADY JUDGED DAMAGED NEVER TAKES THE FALLBACK (PR-B B2): finalize
     // refused the object (`unreadable_object`) or the phone marked it
     // (`audio_unreadable` / `audio_partial`) — the same typed error as the verdict below.
-    if (!finalizedPath && after?.secureError && isDamagedTake(after))
+    // S76 R-S76-8: …unless this run holds a larger copy than the stored one
+    // (a failed read counts as no win: the typed error stands).
+    const heldWins = async (id: string) =>
+      storedCopyOnce(id).then(
+        (s) => heldCopyWins(audioBlob.size, { size: s?.size, bytesEmitted: after?.bytesEmitted, tailIncomplete: after?.tailIncomplete }),
+        () => false,
+      )
+    if (!finalizedPath && takeId && after?.secureError && isDamagedTake(after) && !(await heldWins(takeId)))
       throw new DamagedAudioError(after.secureError === AUDIO_PARTIAL ? 'partial' : 'unreadable')
     const known = after?.recordingSessionId ?? ctx.recordingSessionId
     if (!finalizedPath) attachOutcome = known ? 'attach_failed' : 'no_session'
@@ -367,7 +380,17 @@ export async function runAIPipeline(
     // No `stagedFor` is ever sent from here, so this IS the write-once door:
     // a damaged verdict uploads nothing and the take keeps its local copy.
     if (!finalizedPath) {
-      const fate = await blobFate(audioBlob, { bytesEmitted: meta?.bytesEmitted })
+      // S76 A2: never the STORED short copy of a tailIncomplete take (a take with
+      // nothing stored has no short copy). A failed read rejects: fails closed.
+      const storedShort =
+        RECORDING_SWITCHES.stagedPartialDoor && meta?.tailIncomplete === true && takeId
+          ? await storedCopyOnce(takeId)
+          : null
+      const refuseShort =
+        !!storedShort &&
+        storedShort.size > 0 &&
+        !heldCopyWins(audioBlob.size, { size: storedShort.size, bytesEmitted: meta?.bytesEmitted, tailIncomplete: true })
+      const fate = await blobFate(audioBlob, { bytesEmitted: meta?.bytesEmitted, tailIncomplete: refuseShort })
       if (fate !== 'ok') throw new DamagedAudioError(fate)
     }
     const upload = { adopted: false }

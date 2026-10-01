@@ -13,6 +13,7 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { ensureFinalizedPath, readTakeSecureMeta, settleTakeAfterSave } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
   AUDIO_PARTIAL,
   AUDIO_UNREADABLE,
@@ -387,8 +388,17 @@ class GlobalPipeline {
    *  clobber is the old run's transcription fee, not the session. True
    *  concurrent takes need the server-side durable pipeline (v2, Anthony). */
   start(blob: Blob, context: PipelineContext) {
-    this.blob = blob
-    this.context = context
+    // S76 A5: a 録音履歴 save of the take this errored run still HOLDS whole
+    // keeps the larger blob and its measured length (never the flush window).
+    const keep =
+      RECORDING_SWITCHES.stagedPartialDoor &&
+      this.state === 'error' &&
+      this.blob !== null &&
+      !!context.takeId &&
+      this.context?.takeId === context.takeId &&
+      this.blob.size > blob.size
+    this.blob = keep ? this.blob : blob
+    this.context = keep ? { ...context, duration: this.context?.duration } : context
     this.paidFallback = null
     this.state = 'processing'
     this.step = 'transcribing'
