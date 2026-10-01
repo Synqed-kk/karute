@@ -527,7 +527,9 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
   if (entry.scope === 'self') return myDisplay(base)
   // ⚖ A1b (R3) — a per-business section needs no store: it renders under every
   // lens and in the all-stores view, so it answers BEFORE the noStore line.
-  if (entry.scope === 'business') return reserveStorePage(base, ctx)
+  // Dispatch on the section id, never the scope: a later business-scoped section
+  // must not silently render the card look.
+  if (entry.id === STORE_PAGE_ID) return reserveStorePage(base, ctx)
   // ⚖ PR-2b — WHO STILL GETS 「店舗を選んでください」. No store in the lens: as
   // before. A store with no dials splits on the facade's live→fixture map:
   // switch OFF, every store is its own fixture self, so a fixture store without

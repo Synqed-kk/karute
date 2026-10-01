@@ -605,7 +605,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // is the third: canon has no page for it because it is #812's room, which
     // arrived as ONE section of this rail rather than as a second 設定 route at
     // the same path. It sits SECOND, right after 店舗情報・営業時間.
-    // ⚖ A1b — カードの見た目 is the fourth: canon has no page for the Reserve card's
+    // ⚖ A1b — お店ページ (was カードの見た目) is the fourth: canon has no page for the Reserve card's
     // colour; it sits between Reserve 受付 and 通知, one value for the business.
     expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', 'お店ページ', '自分の表示設定'])
     expect(labels[1]).toBe('予約と確保')
@@ -624,7 +624,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
         // directly below, against that payload, rather than against blocks it
         // deliberately does not have.
         if (s.id === 'booking-guard') continue
-        // ⚖ A1b — カードの見た目 renders itself too (the picker + the ported card);
+        // ⚖ A1b — お店ページ renders itself too (the picker + the ported card);
         // its substance is its payload, asserted in the A1b block at the end.
         if (s.id === 'reserve-store-page') continue
         const rows = s.blocks.reduce((n, b) => n + b.rows.length, 0)
