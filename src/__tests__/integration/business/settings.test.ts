@@ -4398,7 +4398,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     const s = await lookOf({ store: STORE_A })
     expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'お店ページ' })
     expect(s.lead).toBe('「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
-    expect(s.guide).toBe('お客様のアプリに出る、お店ページの設定です。いまは「カードの見た目」で、ホームに並ぶお店のカードの色を決めます。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
+    expect(s.guide).toBe('お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
       storeLine: stores.find((x) => x.id === STORE_A)!.name,
       address: storeDials[STORE_A].profile.address,
