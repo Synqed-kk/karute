@@ -1117,6 +1117,15 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       "Business booking colours (org settings' booking_colors, the per-store map, closed palette, settings.manage + a store the operator may see) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule); one structured server log line per real write; core audit row = R5 (later).",
     dated: '2026-09-25',
   },
+  // ⚖ S49 R86 (Liam 10/1 「If there's no harm in doing it now, use it now.」) — SYNQED Business's お店ページ switches
+  // save, the booking-colours route's twin: one org-settings key per store through the practice door (Dev Salon
+  // only until CORE-47), one structured server log line per real write. Core audit row = R5 (later).
+  'business/store-capabilities': {
+    kind: 'skip',
+    justification:
+      "Business store capabilities (org settings' reserve_store_capabilities:<storeId>, one key per store, the CORE-47 wire record, settings.manage + a store the operator may see) — unaudited by design, parity with writeOrgSettingsBlobWithClient's SDK_WRITE_ALLOWLIST row (2026-07-27 parity rule); one structured server log line per real write; core audit row = R5 (later).",
+    dated: '2026-10-01',
+  },
   // ⚖ S24 (PLAN-BUSINESS-LIVE v2.2 §3 W0, batched ahead in W0 PR (1)) — SYNQED Business's first door route, the
   // booking move. Unlike the two settings rows above it IS audited, and not by Business: the route calls the
   // phone's own reschedule core through the ONE shared-cores door file (business-territory.json "sharedCores"),

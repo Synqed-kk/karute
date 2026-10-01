@@ -361,6 +361,30 @@ assert.equal(colorsNearMiss.length, 1, `expected the near-miss write flagged, go
 assert.equal(colorsNearMiss[0].label, 'write call .upsert(')
 clear('src/business/lib')
 
+// 19e. The THIRD Business writer, お店ページ's switches (⚖ S49 R86): one settings key
+//      PER STORE (`reserve_store_capabilities:<storeId>`), in its own file. The
+//      exact line, once, is green under the DEFAULT allow.
+const capsPath = 'src/business/lib/practice-door/door-store-capabilities.ts'
+const capsLine = '    const saved = await writer.orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })\n'
+write(capsPath, capsLine)
+assert.deepEqual(scanDataAccess(root), [])
+
+// 19f. RED — a second copy of the exact line: 2 > 1 — fails CLOSED.
+write(capsPath, capsLine + capsLine)
+const capsOverBudget = scanDataAccess(root)
+assert.equal(capsOverBudget.length, 2, `expected 2 over-budget findings, got ${JSON.stringify(capsOverBudget)}`)
+assert.ok(capsOverBudget.every((f) => f.label === 'allowlist over budget (2 > 1 pinned)'))
+
+// 19g. RED — the booking-colours line in the switches file (a pin never travels
+//      between files) and the switches line in the colours file are plain findings.
+for (const [path, line] of [[capsPath, colorsLine], [colorsPath, capsLine]]) {
+  write(path, line)
+  const crossed = scanDataAccess(root)
+  assert.equal(crossed.length, 1, `19g ${path}: expected 1 finding, got ${JSON.stringify(crossed)}`)
+  assert.equal(crossed[0].label, 'write call .upsert(', `19g ${path}`)
+  clear('src/business/lib')
+}
+
 // 20. B0b — the store-days write door's verbs and pins (PKT-S29-B0b).
 // 20a. RED — each new verb bound in a territory file that is not core-reach.ts.
 for (const v of ['log', 'addClosedDay', 'removeClosedDay']) {
@@ -397,4 +421,4 @@ clear('src/business/lib')
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 48 cases green')
+console.log('✓ business data-access guard selftest: 51 cases green')
