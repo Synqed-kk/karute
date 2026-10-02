@@ -347,6 +347,9 @@ export type TakeMeta = {
   /** R-S87-7: the take's TAIL part (the in-memory blob staged when the stored
    *  copy won). A receipt for NOTHING — for the rescue and the diag only. */
   stagedTailPath?: string
+  /** R-S87-15 (a): a tail upload FAILED (bytes, when) and has not landed since —
+   *  a fact for the rescue and the diag; nothing that licenses a delete reads it. */
+  tailPending?: { bytes: number; at: number }
   /** ⚖ HOW FAR THE SERVER HAS THIS TAKE ALREADY (slice five packet C, D7) — the
    *  highest CONTIGUOUS segment seq storage has confirmed, so the pump knows
    *  where to resume and never re-uploads what already landed. Contiguous is
@@ -1000,7 +1003,12 @@ export async function markTakeStaged(takeId: string, stagedPath: string, stagedF
 
 /** R-S87-7: where the take's tail part was staged (never `stagedPath`). */
 export async function markTakeStagedTail(takeId: string, stagedTailPath: string): Promise<void> {
-  await patchTakeMeta(takeId, { stagedTailPath })
+  await patchTakeMeta(takeId, { stagedTailPath, tailPending: undefined })
+}
+
+/** R-S87-15 (a): the tail upload failed — the run ends retryable. */
+export async function markTakeTailPending(takeId: string, bytes: number): Promise<void> {
+  await patchTakeMeta(takeId, { tailPending: { bytes, at: Date.now() } })
 }
 
 /** PR-B Wn (W-4, R-S77-1 + FOLD): the damaged branch's staged copy AND its

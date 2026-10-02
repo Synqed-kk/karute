@@ -7384,7 +7384,7 @@ describe('PR-B Wn — the sealed copy before a human delete', () => {
       SEGMENT_COMMIT_DEADLINE_MS: 'constant', SEALED_COPY_DEADLINE_MS: 'constant',
       writeTakeHeartbeat: 'writer', clearTakeHeartbeat: 'writer', createTake: 'writer', appendTakeSegment: 'writer',
       stampTakeSession: 'writer', detachTakeFromRecordedSession: 'writer', markTakeFinalized: 'writer',
-      adoptTakeSession: 'writer', markDiscardTranscriptDone: 'writer', markTakeStaged: 'writer', markTakeStagedTail: 'writer',
+      adoptTakeSession: 'writer', markDiscardTranscriptDone: 'writer', markTakeStaged: 'writer', markTakeStagedTail: 'writer', markTakeTailPending: 'writer',
       markTakeStagedDamaged: 'writer', markTakeHeldUpload: 'writer', clearTakeHeldUpload: 'writer',
       clearTakeStaged: 'writer', ensureFinalizedPath: 'writer', markTakeSecureError: 'writer',
       markSegmentsUploaded: 'writer', markSegmentError: 'writer', markTakeStartBoundAttempted: 'writer',

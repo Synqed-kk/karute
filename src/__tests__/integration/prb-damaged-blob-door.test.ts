@@ -17,7 +17,7 @@ import { blobFate, decideBlobFate, readBlobHead, StagedDoorError } from '@/lib/r
 import { WEBM_HEAD } from './helpers/container-head-fetch'
 import { DIAG_RING_MAX_ENTRIES, foldDiagEvent, validTakeDiag } from '@/lib/recording/take-diag'
 import * as store from '@/lib/karute/take-store'
-import { ensureAudioOnServer, secureTake } from '@/lib/recording/secure-take'
+import { ensureAudioOnServer, secureTake, TailPendingError } from '@/lib/recording/secure-take'
 import { sweepDiscardTranscripts } from '@/lib/recording/discard-transcript'
 import {
   setRecordingPipelinePort,
@@ -39,6 +39,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   markTakeStaged: jest.fn(async () => undefined),
   markTakeStagedDamaged: jest.fn(async () => undefined),
   markTakeStagedTail: jest.fn(async () => undefined),
+  markTakeTailPending: jest.fn(async () => undefined),
   markTakeFinalized: jest.fn(async () => undefined),
   markTakeStartBoundAttempted: jest.fn(async () => undefined),
   stampTakeSession: jest.fn(async () => true),
@@ -556,5 +557,34 @@ describe.each(PORTS)('S87 F2 — the held blob is staged as the tail part — %s
     const port = withTakeDoors(base)
     await ensureAudioOnServer(port, TAKE, new Blob([GOOD], { type: 'audio/webm' }), SESSION, 5)
     expect(stagedBodies.filter((b) => (b as { stagedPart?: string }).stagedPart === 'tail')).toHaveLength(0)
+  })
+})
+
+// model: claude-opus-5-5 · S87 fix round 2 (a) — B-1 (R-S87-15 a): a failed tail
+// upload ends the run RETRYABLE; the retry re-stages the tail.
+describe.each(PORTS)('S87 B-1 — a failed tail upload is retryable — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  it('tail upload rejects → TailPendingError, tailPending noted; the second attempt stages the tail', async () => {
+    m.readTakeSecureMeta
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValue(meta({ secureError: 'audio_unreadable', stagedPath: STAGED_PATH }))
+    m.loadTakeBlob.mockResolvedValue(HEADLESS)
+    const port = withTakeDoors(base)
+    const real = port.prepareTranscription.bind(port)
+    let calls = 0
+    port.prepareTranscription = jest.fn(async (...a: Parameters<typeof real>) => {
+      calls++
+      if (calls === 2) throw new Error('offline')
+      return real(...a)
+    })
+    const held = new Blob([GOOD, new Uint8Array(30)], { type: 'audio/webm' })
+    await expect(ensureAudioOnServer(port, TAKE, held, SESSION, 5)).rejects.toBeInstanceOf(TailPendingError)
+    expect(m.markTakeTailPending).toHaveBeenCalledWith(TAKE, held.size)
+    expect(m.markTakeStagedTail).not.toHaveBeenCalled()
+    expect(await ensureAudioOnServer(port, TAKE, held, SESSION, 5)).toBeNull()
+    expect(calls).toBe(3)
+    expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
+    expect(stagedBodies.at(-1)).toMatchObject({ stagedPart: 'tail', partial: true })
   })
 })

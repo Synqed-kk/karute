@@ -78,6 +78,7 @@ import {
   markTakeSecureError,
   markTakeStagedDamaged,
   markTakeStagedTail,
+  markTakeTailPending,
   markTakeStartBoundAttempted,
   readTakeSecureMeta,
   stampTakeSession,
@@ -105,6 +106,15 @@ const DEFAULT_MIME = 'audio/webm'
  *  race is one wasted upload, never a lost or truncated take. The single-
  *  WebView shell, which is where staff actually record, cannot have two. */
 const inFlight = new Set<string>()
+
+/** R-S87-15 (a): the held tail did not reach the server. Not a damaged-audio
+ *  error — the pipeline's card offers 再試行, which re-stages the tail. */
+export class TailPendingError extends Error {
+  constructor() {
+    super('The held tail did not reach the server.')
+    this.name = 'TailPendingError'
+  }
+}
 
 /**
  * Upload the whole take to its finalized key and tell the server it is complete.
@@ -328,7 +338,8 @@ export async function secureTake(
  * THE IN-TAB FALLBACK'S ATTACH (S33 option D): put this take's audio on its
  * OWN row, under its OWN key, through the doors secureTake already knocks on —
  * never a new row for a recording that has one. Answers the finalized key, or
- * null, and then the caller falls back to today's unbound door. Never throws.
+ * null, and then the caller falls back to today's unbound door. Never throws —
+ * except TailPendingError (R-S87-15 a: a failed tail upload ends the run retryable).
  *
  * ⚖ STORED BYTES WIN WHENEVER THE STORE HOLDS ANY (S33 R2). The in-memory
  * blob is every chunk the recorder captured (global-recorder onstop); the
@@ -398,6 +409,7 @@ export async function ensureAudioOnServer(
       inFlight.delete(takeId)
     }
   } catch (err) {
+    if (err instanceof TailPendingError) throw err
     console.warn('[secure-take] fallback attach failed:', err)
     return null
   }
@@ -407,7 +419,9 @@ export async function ensureAudioOnServer(
  *  other minutes (the field cut: disjoint halves). It goes to the staged door
  *  as the take's TAIL part, `partial: true` — never the take key, never the
  *  stored copy's staged object — unless it is the same bytes (equal size AND a
- *  readable head). A receipt for nothing (R-S87-1); a refusal keeps it here. */
+ *  readable head). A receipt for nothing (R-S87-1). A failed upload notes
+ *  `tailPending` and ends the run RETRYABLE (R-S87-15 a): the run keeps the
+ *  blob and 再試行 re-stages it. */
 async function stageHeldTail(
   port: RecordingPipelinePort,
   takeId: string,
@@ -427,7 +441,9 @@ async function stageHeldTail(
     })
     await markTakeStagedTail(takeId, staged.path)
   } catch (err) {
-    console.warn('[secure-take] tail staging failed — the blob stays with this run:', err)
+    console.warn('[secure-take] tail staging failed — the run ends retryable:', err)
+    await markTakeTailPending(takeId, blob.size)
+    throw new TailPendingError()
   }
 }
 
