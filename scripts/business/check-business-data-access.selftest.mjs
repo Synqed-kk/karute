@@ -417,8 +417,130 @@ assert.equal(drift.length, 1, `20d: expected the renamed local flagged, got ${JS
 assert.equal(drift[0].label, 'bound write method .X.bind(')
 clear('src/business/lib')
 
+// 21. ⚖ S51 R116 (F0 SF-2 = GPT-6 F0 #3) — every static spelling of a write call is caught, not only `x.upsert(`.
+const formPath = 'src/business/lib/forms.ts'
+const UPSERT_FORMS = [
+  ['optional chaining before the member', 'await c?.orgSettings?.upsert({ settings })\n'],
+  ['optional call', 'await c.orgSettings.upsert?.({ settings })\n'],
+  ['whitespace before (', 'await c.orgSettings.upsert   ({ settings })\n'],
+  ['newline before (', 'await c.orgSettings.upsert\n  ({ settings })\n'],
+  ['newline after the dot', 'await c.orgSettings.\n  upsert({ settings })\n'],
+  ['bracket, single quote', "await c.orgSettings['upsert']({ settings })\n"],
+  ['bracket, double quote', 'await c.orgSettings["upsert"]({ settings })\n'],
+  ['bracket, template quote', 'await c.orgSettings[`upsert`]({ settings })\n'],
+  ['optional bracket + optional call', "await c.orgSettings?.[ 'upsert' ]?.({ settings })\n"],
+  ['.call(', 'await c.orgSettings.upsert.call(c.orgSettings, { settings })\n'],
+  ['bracket .apply(', "await c.orgSettings['upsert'].apply(c.orgSettings, [{ settings }])\n"],
+]
+for (const [form, src] of UPSERT_FORMS) {
+  write(formPath, src)
+  const f = scanDataAccess(root)
+  assert.equal(f.length, 1, `21 ${form}: expected 1 finding, got ${JSON.stringify(f)}`)
+  assert.equal(f[0].label, 'write call .upsert(', `21 ${form}`)
+}
+// 21b. The class, not the instance: the other four write verbs in a new spelling.
+for (const verb of ['insert', 'update', 'delete', 'rpc']) {
+  write(formPath, `await db?.["${verb}"]?.(row)\n`)
+  const f = scanDataAccess(root)
+  assert.equal(f.length, 1, `21b ${verb}: expected 1 finding, got ${JSON.stringify(f)}`)
+  assert.equal(f[0].label, `write call .${verb}(`, `21b ${verb}`)
+}
+// 21c. A bound write method in bracket spelling.
+write(formPath, "const w = store['upsert'].bind(store)\n")
+const boundBracket = scanDataAccess(root)
+assert.equal(boundBracket.length, 1, `21c: expected 1 finding, got ${JSON.stringify(boundBracket)}`)
+assert.equal(boundBracket[0].label, 'bound write method .X.bind(')
+// 21d. GREEN — near misses stay clean: a longer name, a non-call member read, a comment.
+write(formPath, 'const a = c.upserted(x)\nconst b = c.upsert_count\nconst d = c["upserts"](x)\n// c.orgSettings?.upsert?.(x)\n')
+assert.deepEqual(scanDataAccess(root), [], '21d near misses must stay clean')
+// 21e. An allowlist pin still covers its exact line (the hit stays on the dot), and does NOT cover
+//      a bracket respelling of the same call on the pinned path.
+write(capsPath, capsLine)
+assert.deepEqual(scanDataAccess(root), [], '21e: the pinned switches line stays exempt')
+write(capsPath, "    const saved = await writer.orgSettings['upsert']({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })\n")
+const respelled = scanDataAccess(root)
+assert.equal(respelled.length, 1, `21e: expected the respelled call flagged, got ${JSON.stringify(respelled)}`)
+assert.equal(respelled[0].label, 'write call .upsert(')
+clear('src/business/lib') // 21e leaves the respelled caps file
+// 22. ⚖ S51 R125 — the ordinary TypeScript spellings the FENCES attack found are caught.
+const R125_FORMS = [
+  ['generic argument list', 'await c.orgSettings.upsert<Row>({ settings })\n', 'upsert'],
+  ['generic, two args, after from()', "await db.from('t').insert<Row, Opts>(row)\n", 'insert'],
+  ['generic, one nested level', "await db.update<Pick<Row, 'a'>>(row)\n", 'update'],
+  ['non-null', 'await c.orgSettings.upsert!({ settings })\n', 'upsert'],
+  ['non-null + generic', 'await db.delete!<Row>(id)\n', 'delete'],
+  ['optional .call(', 'await c.orgSettings.upsert?.call(c.orgSettings, { settings })\n', 'upsert'],
+  ['.call optional call', 'await c.orgSettings.upsert.call?.(c.orgSettings, { settings })\n', 'upsert'],
+  ['optional .apply(', 'await db.rpc?.apply(db, [fn])\n', 'rpc'],
+  ['.apply optional call', "await db['insert'].apply?.(db, [row])\n", 'insert'],
+]
+for (const [form, src, verb] of R125_FORMS) {
+  write(formPath, src)
+  const f = scanDataAccess(root)
+  assert.equal(f.length, 1, `22 ${form}: expected 1 finding, got ${JSON.stringify(f)}`)
+  assert.equal(f[0].label, `write call .${verb}(`, `22 ${form}`)
+}
+// 22b. GREEN — near misses stay clean.
+for (const src of ['await x.upsert_log(row)\n', 'await x.upserted(row)\n', 'const upsert = 1;\n']) {
+  write(formPath, src)
+  assert.deepEqual(scanDataAccess(root), [], `22b near miss must stay clean: ${src.trim()}`)
+}
+// 22c. The hit index of a generic call is still the `.`: a pin on `.upsert` (which starts AT the dot and
+//      ends before the `<`) covers it; a pin on the generic tail `<Row>(` (after the dot) does not.
+write(formPath, 'await db.upsert<Row>(row)\n')
+const pinDot = [{ path: formPath, label: 'write call .upsert(', match: ['.upsert'], count: 1, reason: 'selftest' }]
+assert.deepEqual(scanDataAccess(root, pinDot), [], '22c: a pin starting at the dot covers the generic call')
+const pinTail = [{ path: formPath, label: 'write call .upsert(', match: ['<Row>('], count: 1, reason: 'selftest' }]
+assert.equal(scanDataAccess(root, pinTail).length, 1, '22c: a pin after the dot does not cover it')
+clear('src/business/lib')
+
+// 23. S52 FENCES-R3 (Greptile P2, scanner :143) — the generic list is WALKED, not regex-matched: braces,
+//     semicolons, arrows, arrays, any nesting and a quoted `>` inside it all still reach the call.
+const R3_HIT = [
+  ['braces + semicolons', 'await db.update<{ id: string; status: string }>(row)\n', 'update'],
+  ['nested map + arrow', 'await db.upsert<Map<string, { a: number; b: () => void }>>(x)\n', 'upsert'],
+  ['array type', 'await db.delete<Row[]>(k)\n', 'delete'],
+  ['after from(), trailing semicolon, then non-null', "await sb.from('t').update<{ s: string; }>!(r)\n", 'update'],
+  ['quoted > inside the generic', "await db.insert<{ k: 'a>b'; j: \"<\" }>(row)\n", 'insert'],
+  ['four levels deep', "await db.rpc<A<B<C<D>>>>('fn')\n", 'rpc'],
+  ['multi-line object type', 'await db.upsert<{\n  a: string;\n  b: number\n}>(row)\n', 'upsert'],
+  ['generic + optional call', 'await db.update<Row>?.(r)\n', 'update'],
+  // S52 FENCES-R3b: whitespace past the old two 64-char slices (missed from 128 chars) still reaches the
+  // call. 200, not 80: below 128 the old code passed too, and after the DOT the head regex's `\s*` covers it.
+  ['newline + 200 spaces after the member', 'await x.update\n' + ' '.repeat(200) + '(r)\n', 'update'],
+  ['newline + 200 spaces after the generic', 'await x.update<Row>\n' + ' '.repeat(200) + '(r)\n', 'update'],
+  // S52 FENCES-R3c: a newline at angle-only depth no longer gives up (Prettier breaks long type arguments).
+  ['Prettier-broken generic, 3 lines', "await db.update<\n  Database['public']['Tables']['x']['Row']\n>(row)\n", 'update'],
+  ['short generic over 3 lines', 'await x.update<\n Row\n>(r)\n', 'update'],
+]
+for (const [form, src, verb] of R3_HIT) {
+  write(formPath, src)
+  const f = scanDataAccess(root)
+  assert.equal(f.length, 1, `23 ${form}: expected 1 finding, got ${JSON.stringify(f)}`)
+  assert.equal(f[0].label, `write call .${verb}(`, `23 ${form}`)
+  assert.equal(f[0].line, 1, `23 ${form}: the hit is on the member's line`)
+}
+// 23b. MUST-NOT-HIT — comparisons and non-calls: the walker gives up (see the header's GIVE-UP RULE).
+const R3_MISS = [
+  ['comparison with &&', 'if (x.update < 3 && y > (z)) go()\n'],
+  ['comparison with ||', 'const q = x.update < 3 || y > (z)\n'],
+  ['comparison with ===', 'const q = x.update < a === b > (c)\n'],
+  ['semicolon at top level', 'const r = x.update < a; const s = b > (c)\n'],
+  ['newline, then a non-arrow = at top level', 'const t = x.update < a\nconst u = b > (c)\n'],
+  ['instantiation, no call', 'type T = typeof db.update<Row>\n'],
+]
+for (const [form, src] of R3_MISS) {
+  write(formPath, src)
+  assert.deepEqual(scanDataAccess(root), [], `23b ${form} must stay clean`)
+}
+// 23c. The hit index of a walked generic call is still the `.`: a pin on `.update` covers it.
+write(formPath, 'await db.update<{ id: string; status: string }>(row)\n')
+const pinDotR3 = [{ path: formPath, label: 'write call .update(', match: ['.update'], count: 1, reason: 'selftest' }]
+assert.deepEqual(scanDataAccess(root, pinDotR3), [], '23c: a pin starting at the dot covers the walked generic call')
+clear('src/business/lib')
+
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 51 cases green')
+console.log('✓ business data-access guard selftest: 102 cases green')
