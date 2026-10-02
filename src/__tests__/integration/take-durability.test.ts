@@ -7565,12 +7565,26 @@ describe('S87 — the tail facts on the real store', () => {
     expect(raw(done)?.secureError).toBeUndefined()
   })
   it('SF-A residual (R-S87-17 a): after the tail-damaged mark, secureTake stages nothing — the plain key stays free, the prefix stays on the phone', async () => {
-    const id = await take('s87-tail-4')
+    // R-S87-19: a REAL headerless stored blob (≥ the 12-byte probe, first byte
+    // 0xA3, no EBML/ftyp head) on a take with its row — without the TERMINAL
+    // gate this copy would be judged 'unreadable' and staged, so the row is red.
+    const sw = RECORDING_SWITCHES as unknown as { stagedPartialDoor: boolean }
+    const before = sw.stagedPartialDoor
+    sw.stagedPartialDoor = true
+    const id = 's87-tail-4'
+    await createTake({ takeId: id, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET, recordingSessionId: 'rs-1' } as Parameters<typeof createTake>[0])
+    const headless = new Uint8Array(64)
+    headless[0] = 0xa3
+    await appendTakeSegment(id, 0, new Blob([headless]))
     await takeStore.markTakeTailDamaged(id, 'stg/b_s_u_tail.webm', 'audio_unreadable')
     const p = port()
     await secureTake(p, id, 5)
+    // No door at all: not the staged door, and not the take key either (this
+    // env's Blob may not read its head, B7 → 'ok' → the take key would be asked).
     expect(p.prepareTranscription).not.toHaveBeenCalled()
+    expect(p.mintTakeUrl).not.toHaveBeenCalled()
     expect((await read(id))?.stagedPath).toBeUndefined()
     expect(segments().size).toBeGreaterThan(0)
+    sw.stagedPartialDoor = before
   })
 })
