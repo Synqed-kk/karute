@@ -341,6 +341,9 @@ export type TakeMeta = {
    *  Never a substitute for `finalizedPath` — that one wins wherever both
    *  exist, because it is the key the whole pipeline reads. */
   stagedPath?: string
+  /** R-S87-1: what the staged copy was made FROM — written beside
+   *  `stagedPath` by the stored arm only; absent = a receipt for nothing. */
+  stagedFacts?: StagedFacts
   /** ⚖ HOW FAR THE SERVER HAS THIS TAKE ALREADY (slice five packet C, D7) — the
    *  highest CONTIGUOUS segment seq storage has confirmed, so the pump knows
    *  where to resume and never re-uploads what already landed. Contiguous is
@@ -969,12 +972,27 @@ export async function markDiscardTranscriptDone(takeId: string): Promise<void> {
   await patchTakeMeta(takeId, { discardTranscriptDoneAt: Date.now() })
 }
 
+/** R-S87-1: the stored rows a staged copy was made from (loadTakeBlobFacts). */
+export type StagedFacts = { arm: 'stored'; bytes: number; segmentCount: number; seqMax: number }
+
+/** R-S87-1: a `stg/` copy is the server's receipt ONLY for the stored rows it
+ *  was made from — a stored-arm record whose facts EQUAL these rows (strict).
+ *  Memory arm, an older meta, missing facts → not a receipt (fail closed).
+ *  `rows` absent = the TTL pre-filter only: deleteTakeRows re-asks with rows. */
+function stagedReceipt(meta: Pick<TakeMeta, 'stagedPath' | 'stagedFacts'>, rows?: readonly SegmentRow[]): boolean {
+  const f = meta.stagedFacts
+  if (!meta.stagedPath?.startsWith('stg/') || f?.arm !== 'stored') return false
+  if (!rows) return true
+  const bytes = rows.reduce((n, r) => n + r.blob.size, 0)
+  return f.bytes === bytes && f.segmentCount === rows.length && f.seqMax === Math.max(-1, ...rows.map((r) => r.seq))
+}
+
 /** Capture pipeline PR4 fix round 4: this take's audio has been STAGED, and
  *  here is the key it went to. Written once, right after the first successful
  *  staging, so a transcription that keeps failing re-reads that copy instead of
  *  re-uploading the whole take on every record-page mount. */
-export async function markTakeStaged(takeId: string, stagedPath: string): Promise<void> {
-  await patchTakeMeta(takeId, { stagedPath })
+export async function markTakeStaged(takeId: string, stagedPath: string, stagedFacts?: StagedFacts): Promise<void> {
+  await patchTakeMeta(takeId, { stagedPath, stagedFacts })
 }
 
 /** PR-B Wn (W-4, R-S77-1 + FOLD): the damaged branch's staged copy AND its
@@ -983,10 +1001,15 @@ export async function markTakeStaged(takeId: string, stagedPath: string): Promis
  *  `stagedPath` + `secureError` + `lastSecureAttemptAt`, all under
  *  markTakeSecureError's `!finalizedAt` (a finalized take is held; its
  *  `finalizedPath` wins). Failure as today: patchTakeMeta swallows, no throw. */
-export async function markTakeStagedDamaged(takeId: string, stagedPath: string, code: string): Promise<void> {
+export async function markTakeStagedDamaged(
+  takeId: string,
+  stagedPath: string,
+  code: string,
+  stagedFacts?: StagedFacts,
+): Promise<void> {
   await patchTakeMeta(
     takeId,
-    { stagedPath, secureError: code, lastSecureAttemptAt: Date.now() },
+    { stagedPath, stagedFacts, secureError: code, lastSecureAttemptAt: Date.now() },
     (meta) => !meta.finalizedAt,
   )
 }
@@ -1515,7 +1538,7 @@ type DoorValue = { keep: false } | { keep: true; held: Map<number, number> }
  *  the bytes. */
 function serverReceipt(meta: TakeMeta, rows: readonly SegmentRow[]): boolean {
   if (meta.finalizedAt) return true
-  if (typeof meta.stagedPath === 'string' && meta.stagedPath.startsWith('stg/')) return true
+  if (stagedReceipt(meta, rows)) return true
   if (isDamagedTake(meta)) return false
   const sent = meta.transcript?.fallback === true ? meta.transcript.audio?.size : undefined
   return typeof sent === 'number' && sent >= rows.reduce((n, r) => n + r.blob.size, 0)
@@ -1566,7 +1589,7 @@ function humanDoorReleases(meta: TakeMeta | undefined, rows: readonly SegmentRow
     return false
   }
   if (!door.keep)
-    return !meta || !isDamagedTake(meta) || !!meta.finalizedAt || meta.stagedPath?.startsWith('stg/') === true
+    return !meta || !isDamagedTake(meta) || !!meta.finalizedAt || stagedReceipt(meta, rows)
   if (!meta) return false
   if (serverReceipt(meta, rows)) return true
   return rows.every((r) => door.held.get(r.seq) === r.blob.size)
@@ -1638,20 +1661,21 @@ export function serverHoldsTake(
     TakeMeta,
     | 'finalizedAt'
     | 'stagedPath'
+    | 'stagedFacts'
     | 'discardTranscriptDoneAt'
     | 'tailIncomplete'
     | 'stopPendingAt'
     | 'durationMs'
     | 'secureError'
   >,
+  rows?: readonly SegmentRow[],
 ): boolean {
   // PR-B B3 / B-S66-3: a damaged take is NEVER held by the server — its staged
   // copy is what the phone could not vouch for — so it is never pruned.
   if (isDamagedTake(meta)) return false
   if (meta.finalizedAt) return true
   return (
-    typeof meta.stagedPath === 'string' &&
-    meta.stagedPath.startsWith('stg/') &&
+    stagedReceipt(meta, rows) &&
     meta.discardTranscriptDoneAt !== undefined &&
     isUnsecurableTake(meta)
   )
@@ -1718,12 +1742,13 @@ async function deleteTakeRows(
     // released cohort is the one serverHoldsTake names: a discarded take that
     // could never be sealed, whose staged copy the server holds and whose
     // words are settled.
-    if (meta && !serverHoldsTake(meta) && !opts?.humanResolved) return
-    await req(tx.objectStore(TAKES).delete(takeId))
     // ponytail: full getAll + filter — rows are few and blobs are lazy
     // handles; switch to IDBKeyRange.bound([takeId], [takeId, []]) on the
-    // compound key if profiling ever cares.
+    // compound key if profiling ever cares. Read BEFORE the guard: R-S87-1's
+    // staged receipt is judged against THIS take's live rows.
     const segments = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
+    if (meta && !serverHoldsTake(meta, segments.filter((s) => s.takeId === takeId)) && !opts?.humanResolved) return
+    await req(tx.objectStore(TAKES).delete(takeId))
     for (const s of segments) {
       if (s.takeId === takeId) await req(tx.objectStore(SEGMENTS).delete([s.takeId, s.seq]))
     }

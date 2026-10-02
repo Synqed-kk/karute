@@ -157,7 +157,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     expect(port.finalizeTake).not.toHaveBeenCalled()
     // PR-B Wn (W-4): the staged path and the damaged code land in ONE write.
     expect(m.markTakeStagedDamaged).toHaveBeenCalledTimes(1)
-    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, code)
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, code, expect.objectContaining({ arm: 'stored' }))
     expect(m.markTakeStaged).not.toHaveBeenCalled()
     expect(m.markTakeSecureError).not.toHaveBeenCalled()
     expect(m.markTakeFinalized).not.toHaveBeenCalled()
@@ -178,7 +178,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     expect(port.finalizeTake).not.toHaveBeenCalled()
     // PR-B Wn (W-4): one write.
     expect(m.markTakeStagedDamaged).toHaveBeenCalledTimes(1)
-    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_partial')
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_partial', expect.objectContaining({ arm: 'stored' }))
     expect(m.markTakeStaged).not.toHaveBeenCalled()
     expect(m.markTakeSecureError).not.toHaveBeenCalled()
     expect(m.markTakeFinalized).not.toHaveBeenCalled()
@@ -200,7 +200,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
       return r
     })
     for (let i = 0; i < 50 && m.markTakeStagedDamaged.mock.calls.length === 0; i++) await new Promise((r) => setTimeout(r, 0))
-    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable')
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable', expect.objectContaining({ arm: 'stored' }))
     for (let i = 0; i < 20; i++) await Promise.resolve()
     expect(answered).toBe(false)
     release()

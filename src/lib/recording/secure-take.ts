@@ -80,6 +80,7 @@ import {
   readTakeSecureMeta,
   stampTakeSession,
   TERMINAL_SECURE_ERRORS,
+  type StagedFacts,
 } from '@/lib/karute/take-store'
 
 /** Takes stamped before the recorder persisted its negotiated container. The
@@ -303,6 +304,7 @@ export async function secureTake(
       diagCounts: meta.diagCounts,
       lastPumpStop: meta.lastPumpStop,
       seq: facts ?? undefined,
+      staged: facts ? { arm: 'stored', bytes: facts.blob.size, segmentCount: facts.segmentCount, seqMax: facts.seqMax } : undefined,
       sessionNullCount,
     })
   } catch (err) {
@@ -455,6 +457,8 @@ async function secureBlob(
     lastPumpStop?: PumpStopCode
     seq?: { seqMin?: number; seqMax?: number; segmentCount?: number; seq0Present?: boolean }
     sessionNullCount?: number
+    /** R-S87-1: the stored arm's facts — the memory arm never passes them. */
+    staged?: StagedFacts
   },
 ): Promise<string | null> {
   // PR-B commit 5 (B5, A13): the take's flight record, ONLY the 12 keys the
@@ -486,7 +490,7 @@ async function secureBlob(
       partial: true,
       ...(diag ? { diag } : {}),
     })
-    await markTakeStagedDamaged(takeId, staged.path, damagedSecureCode(fate))
+    await markTakeStagedDamaged(takeId, staged.path, damagedSecureCode(fate), facts.staged)
     return null
   }
   // The row the mint RESERVES this key on — never null now, and never

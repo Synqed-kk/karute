@@ -25,7 +25,7 @@ import {
   isDamagedTake,
   isUnsecurableTake,
   listPendingDiscardTakes,
-  loadTakeBlob,
+  loadTakeBlobFacts,
   markDiscardTranscriptDone,
   markTakeSecureError,
   markTakeStaged,
@@ -227,7 +227,8 @@ export async function runDiscardTranscript(
       // failed, the segments never landed) is the one case with nothing to
       // collect: leave the stamp rather than mark a take done whose words were
       // never even looked for.
-      const blob = await loadTakeBlob(takeId)
+      const facts = await loadTakeBlobFacts(takeId)
+      const blob = facts?.blob ?? null
       if (!blob || blob.size === 0) return
       // ⚖ …AND THE COPY IS NAMED FOR THIS SESSION (fix round 7). `stagedFor`
       // puts the session in the KEY, which is the only identity a row-less
@@ -244,7 +245,8 @@ export async function runDiscardTranscript(
           stagedTake: takeId,
         })
       ).path
-      await markTakeStaged(takeId, path)
+      // R-S87-8: the stored arm's facts ride beside the path (a real receipt).
+      await markTakeStaged(takeId, path, facts ? { arm: 'stored', bytes: facts.blob.size, segmentCount: facts.segmentCount, seqMax: facts.seqMax } : undefined)
     }
     const { transcribeAndPersistDiscard } = await transcriptActions()
     const res = await transcribeAndPersistDiscard({

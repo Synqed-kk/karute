@@ -75,6 +75,11 @@ jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: (takeId: string) => mockReadSecureMeta(takeId),
   listPendingDiscardTakes: () => mockListPending(),
   loadTakeBlob: (takeId: string) => mockLoadTakeBlob(takeId),
+  // S87 F1 (R-S87-8): the sweep reads the blob WITH its seq facts and records them.
+  loadTakeBlobFacts: async (takeId: string) => {
+    const blob = (await mockLoadTakeBlob(takeId)) as Blob | null
+    return blob ? { blob, segmentCount: 1, seqMin: 0, seqMax: 0, seq0Present: true } : null
+  },
   // B3 (PR-B): the damaged-take gate the run now reads first — no take here is damaged.
   isDamagedTake: () => false,
   markTakeSecureError: jest.fn(),

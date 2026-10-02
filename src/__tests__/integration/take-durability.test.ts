@@ -1751,7 +1751,9 @@ describe('take durability — deletion lifecycle', () => {
 
     it('staged + words settled + unsealable → the TTL finally collects it', async () => {
       const takeId = await unsecurableTake()
-      await markTakeStaged(takeId, STAGED)
+      // R-S87-8: the sweep records the stored rows the copy was made from.
+      const f = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, STAGED, { arm: 'stored', bytes: f.blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax })
       await markDiscardTranscriptDone(takeId)
       age(takeId)
 
@@ -1763,7 +1765,9 @@ describe('take durability — deletion lifecycle', () => {
 
     it('…and the logout wipe may take it too — the same one rule, one spelling', async () => {
       const takeId = await unsecurableTake()
-      await markTakeStaged(takeId, STAGED)
+      // R-S87-8: the sweep records the stored rows the copy was made from.
+      const f = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, STAGED, { arm: 'stored', bytes: f.blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax })
       await markDiscardTranscriptDone(takeId)
 
       await clearOwnTakes()
@@ -1777,7 +1781,9 @@ describe('take durability — deletion lifecycle', () => {
       // something is still reading this blob, and releasing it would destroy the
       // audio the discard record's words are owed from.
       const takeId = await unsecurableTake()
-      await markTakeStaged(takeId, STAGED)
+      // R-S87-8: the sweep records the stored rows the copy was made from.
+      const f = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, STAGED, { arm: 'stored', bytes: f.blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax })
       age(takeId)
 
       const listed = await listOwnTakes()
@@ -1816,7 +1822,9 @@ describe('take durability — deletion lifecycle', () => {
       globalRecorder.discard({ keepTake: true })
       await drain()
       await markTakeSecureError(takeId, 'network')
-      await markTakeStaged(takeId, STAGED)
+      // R-S87-8: the sweep records the stored rows the copy was made from.
+      const f = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, STAGED, { arm: 'stored', bytes: f.blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax })
       await markDiscardTranscriptDone(takeId)
       expect(isUnsecurableTake((await readTakeSecureMeta(takeId))!)).toBe(false)
       age(takeId)
@@ -6964,7 +6972,7 @@ describe('PR-B Wn — the sealed copy before a human delete', () => {
 
     it.each([
       ['finalizedAt (D-6: a POPULATED finalized take through a direct human deleteTake)', { finalizedAt: 5, finalizedPath: 'app_biz-1_w.webm', tailIncomplete: true }],
-      ["stagedPath 'stg/x'", noReceipt({ stagedPath: 'stg/x' })],
+      ["stagedPath 'stg/x' + stored-arm facts EQUAL to the rows (R-S87-1)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 2, seqMax: 1 } })],
       ['fallback audio.size = Σ', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true, audio: { size: 8, type: 'audio/webm' } } })],
       ['fallback audio.size > Σ', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true, audio: { size: 9, type: 'audio/webm' } } })],
     ])('a receipt — %s → live empty, NOTHING sealed, the vault never opened', async (_l, meta) => {
@@ -6977,6 +6985,8 @@ describe('PR-B Wn — the sealed copy before a human delete', () => {
 
     it.each([
       ["'stgx' (no slash)", noReceipt({ stagedPath: 'stgx/x' })],
+      ["'stg/x' with no facts — a memory-arm copy or an older meta (R-S87-1)", noReceipt({ stagedPath: 'stg/x' })],
+      ["'stg/x' whose facts are of OTHER bytes (R-S87-1)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 7, segmentCount: 2, seqMax: 1 } })],
       ["an 'app_…' staged pointer", noReceipt({ stagedPath: 'app_biz-1_x.webm' })],
       ['audio.size < Σ', noReceipt(fb(7))],
       ['a receipt between the first segment and Σ', noReceipt(fb(4))],
@@ -7311,7 +7321,9 @@ describe('PR-B Wn — the sealed copy before a human delete', () => {
 
     it.each([
       ['finalizedAt (hand-written; impossible in production)', { finalizedAt: 5 }, NONE],
-      ["a 'stg/' staged copy", { stagedPath: 'stg/x' }, NONE],
+      ["a 'stg/' stored-arm copy of these rows", { stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 } }, NONE],
+      ["a memory-arm 'stg/' copy — no facts (R-S87-1, M-S87-1)", { stagedPath: 'stg/x' }, { meta: true, seqs: [[0, 3]] }],
+      ["a 'stg/' copy of other bytes (R-S87-1)", { stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 2, segmentCount: 1, seqMax: 0 } }, { meta: true, seqs: [[0, 3]] }],
       ["an 'app_…' pointer", { stagedPath: 'app_biz-1_x.webm' }, { meta: true, seqs: [[0, 3]] }],
       ['no receipt', {}, { meta: true, seqs: [[0, 3]] }],
     ])('R-S77-7, keep OFF + staged ON: damaged + %s → live %j, nothing sealed (M-S77-11/-12/-13)', async (_l, extra, want) => {
