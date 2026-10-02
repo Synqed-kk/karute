@@ -1006,6 +1006,17 @@ export async function markTakeStagedTail(takeId: string, stagedTailPath: string)
   await patchTakeMeta(takeId, { stagedTailPath, tailPending: undefined })
 }
 
+/** R-S87-15 (b): a headerless memory-arm blob staged as the TAIL part, and its
+ *  damaged code, in ONE write (as markTakeStagedDamaged) — no `stagedPath`, so
+ *  such a take holds no `stg/` receipt and is kept (R-S81-1). */
+export async function markTakeTailDamaged(takeId: string, stagedTailPath: string, code: string): Promise<void> {
+  await patchTakeMeta(
+    takeId,
+    { stagedTailPath, tailPending: undefined, secureError: code, lastSecureAttemptAt: Date.now() },
+    (meta) => !meta.finalizedAt,
+  )
+}
+
 /** R-S87-15 (a): the tail upload failed — the run ends retryable. */
 export async function markTakeTailPending(takeId: string, bytes: number): Promise<void> {
   await patchTakeMeta(takeId, { tailPending: { bytes, at: Date.now() } })

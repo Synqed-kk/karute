@@ -40,6 +40,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   markTakeStagedDamaged: jest.fn(async () => undefined),
   markTakeStagedTail: jest.fn(async () => undefined),
   markTakeTailPending: jest.fn(async () => undefined),
+  markTakeTailDamaged: jest.fn(async () => undefined),
   markTakeFinalized: jest.fn(async () => undefined),
   markTakeStartBoundAttempted: jest.fn(async () => undefined),
   stampTakeSession: jest.fn(async () => true),
@@ -586,5 +587,28 @@ describe.each(PORTS)('S87 B-1 — a failed tail upload is retryable — %s port'
     expect(calls).toBe(3)
     expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
     expect(stagedBodies.at(-1)).toMatchObject({ stagedPart: 'tail', partial: true })
+  })
+})
+
+// model: claude-opus-5-5 · S87 fix round 2 (b) — L-1 / SF-A (R-S87-15 b): a
+// headerless memory-arm blob is staged as the TAIL part; the plain staged key
+// stays free for the stored copy.
+describe.each(PORTS)('S87 L-1 — a headerless memory-arm blob takes the tail part — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  it('stored null + headerless held blob → stagedPart tail, stagedTailPath set, no stagedPath; then the stored arm takes the plain key', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta())
+    m.loadTakeBlob.mockResolvedValue(null)
+    const port = withTakeDoors(base)
+    expect(await ensureAudioOnServer(port, TAKE, HEADLESS, SESSION, 5)).toBeNull()
+    expect(stagedBodies).toHaveLength(1)
+    expect(stagedBodies[0]).toMatchObject({ stagedFor: SESSION, stagedTake: TAKE, partial: true, stagedPart: 'tail' })
+    // this harness's door answers one fixed path; the key itself is pinned in s87-f2a-staged-tail-key
+    expect(m.markTakeTailDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable')
+    expect(m.markTakeStagedDamaged).not.toHaveBeenCalled()
+    m.loadTakeBlob.mockResolvedValue(HEADLESS)
+    await secureTake(port, TAKE, 5)
+    expect(stagedBodies).toHaveLength(2)
+    expect(stagedBodies[1]).not.toHaveProperty('stagedPart')
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable', undefined)
   })
 })

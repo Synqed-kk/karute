@@ -78,6 +78,7 @@ import {
   markTakeSecureError,
   markTakeStagedDamaged,
   markTakeStagedTail,
+  markTakeTailDamaged,
   markTakeTailPending,
   markTakeStartBoundAttempted,
   readTakeSecureMeta,
@@ -541,12 +542,20 @@ async function secureBlob(
   // any refusal throws to the caller's catch — today's retry path.
   const fate = await blobFate(blob, facts)
   if (fate !== 'ok') {
+    // R-S87-15 (b): a headerless MEMORY-arm blob is by definition a tail — it
+    // takes the TAIL part; the plain staged key is reserved for stored copies.
+    const tail = facts.arm === 'memory' && fate === 'unreadable'
     const staged = await port.prepareTranscription(blob, null, {
       stagedFor: recordingSessionId,
       stagedTake: takeId,
       partial: true,
+      ...(tail ? { stagedPart: 'tail' as const } : {}),
       ...(diag ? { diag } : {}),
     })
+    if (tail) {
+      await markTakeTailDamaged(takeId, staged.path, damagedSecureCode(fate))
+      return null
+    }
     await markTakeStagedDamaged(takeId, staged.path, damagedSecureCode(fate), facts.staged)
     return null
   }
