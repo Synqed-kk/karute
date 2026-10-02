@@ -374,7 +374,7 @@ describe('the discard sweep refuses a damaged take (B3)', () => {
         expect(port.prepareTranscription).not.toHaveBeenCalled()
         expect(m.ensureFinalizedPath).not.toHaveBeenCalled()
         expect(m.markDiscardTranscriptDone).not.toHaveBeenCalled()
-        expect(store.serverHoldsTake({ ...meta({ secureError: code }), stagedPath: STAGED_PATH, discardTranscriptDoneAt: 1, tailIncomplete: true } as never)).toBe(false)
+        expect(store.serverHoldsTake({ ...meta({ secureError: code }), stagedPath: STAGED_PATH, stagedFacts: { arm: 'stored', bytes: 64, segmentCount: 1, seqMax: 0 }, discardTranscriptDoneAt: 1, tailIncomplete: true } as never)).toBe(false)
       } finally {
         setRecordingPipelinePort(webRecordingPort)
       }
@@ -610,5 +610,37 @@ describe.each(PORTS)('S87 L-1 — a headerless memory-arm blob takes the tail pa
     expect(stagedBodies).toHaveLength(2)
     expect(stagedBodies[1]).not.toHaveProperty('stagedPart')
     expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable', undefined)
+  })
+})
+
+// model: claude-opus-5-5 · S87 fix round 2 (f) — the stored arm's damaged branch
+// writes a REAL facts record; the emitted-count route lets a larger held copy win.
+describe.each(PORTS)('S87 (f) — real facts and the emitted-count route — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  it('stored arm with seq facts → markTakeStagedDamaged gets the real record', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta({ lastSeq: 2 }))
+    m.loadTakeBlobFacts.mockResolvedValueOnce({ blob: HEADLESS, segmentCount: 3, seqMin: 0, seqMax: 2, seq0Present: true } as never)
+    await secureTake(withTakeDoors(base), TAKE, 5)
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable', {
+      arm: 'stored',
+      bytes: HEADLESS.size,
+      segmentCount: 3,
+      seqMax: 2,
+    })
+  })
+  it('stored sum < the emitted count → the stored copy is partial and the larger held copy wins the take key', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta())
+    m.loadTakeBlob.mockResolvedValue(GOOD)
+    const held = new Blob([GOOD, new Uint8Array(100)], { type: 'audio/webm' })
+    const live = jest.requireMock('@/lib/karute/take-store') as typeof store
+    const noted = jest.spyOn(live, 'markTakeHeldUpload').mockResolvedValue(true)
+    try {
+      const port = withTakeDoors(base)
+      await ensureAudioOnServer(port, TAKE, held, SESSION, 5, held.size)
+      expect(noted).toHaveBeenCalledWith(TAKE, held.size, 5)
+      expect(port.finalizeTake).toHaveBeenCalledWith(expect.objectContaining({ byteLength: held.size }))
+    } finally {
+      noted.mockRestore()
+    }
   })
 })

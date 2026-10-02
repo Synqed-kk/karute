@@ -83,7 +83,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   // B3 (PR-B): the damaged-take gate the run now reads first — no take here is damaged.
   isDamagedTake: () => false,
   markTakeSecureError: jest.fn(),
-  markTakeStaged: (takeId: string, stagedPath: string) => mockMarkTakeStaged(takeId, stagedPath),
+  markTakeStaged: (takeId: string, stagedPath: string, facts?: unknown) =>
+    facts === undefined
+      ? mockMarkTakeStaged(takeId, stagedPath)
+      : (mockMarkTakeStaged as jest.Mock)(takeId, stagedPath, facts),
   clearTakeStaged: (takeId: string) => mockClearTakeStaged(takeId),
   // ⚖ THE REAL RULE again (fix round 7): whether a take stamped by slice THREE
   // (finalizedAt, no key) can still name its object is take-store's own answer.
@@ -426,7 +429,7 @@ describe('the audio path', () => {
       }))
       await runDiscardTranscript('take-1', PENDING)
       expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
-      expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED)
+      expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED, expect.objectContaining({ arm: 'stored', segmentCount: 1, seqMax: 0 }))
       expect(mockMarkDone).toHaveBeenCalledWith('take-1')
     })
 
@@ -486,7 +489,7 @@ describe('the audio path', () => {
         await runDiscardTranscript('take-1', PENDING)
 
         expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
-        expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED)
+        expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED, expect.objectContaining({ arm: 'stored', segmentCount: 1, seqMax: 0 }))
         expect(metaNow().stagedPath).toBe(STAGED)
         // The retry itself is accepted and paid for — one API call per mount,
         // no upload — and it names the copy that is already up there.
@@ -617,7 +620,7 @@ describe('the audio path', () => {
         await sweepDiscardTranscripts()
         await sweepDiscardTranscripts()
 
-        expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED)
+        expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED, expect.objectContaining({ arm: 'stored', segmentCount: 1, seqMax: 0 }))
         expect(mockMarkDone).toHaveBeenCalledWith('take-1')
       })
 

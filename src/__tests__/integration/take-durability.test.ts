@@ -1801,7 +1801,9 @@ describe('take durability — deletion lifecycle', () => {
     // device copy is all there is.
     it('a take-shaped stagedPath proves nothing — the take is KEPT', async () => {
       const takeId = await unsecurableTake()
-      await markTakeStaged(takeId, 'app_biz_old-staged.webm')
+      // R-S87-15 (f): a real stored-arm record, so only the key's prefix decides.
+      const rf = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, 'app_biz_old-staged.webm', { arm: 'stored', bytes: rf.blob.size, segmentCount: rf.segmentCount, seqMax: rf.seqMax })
       await markDiscardTranscriptDone(takeId)
       age(takeId)
 
@@ -6845,7 +6847,8 @@ describe('PR-B commit 2 — a damaged take is never pruned (B3, B-S66-3)', () =>
       await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
       await appendTakeSegment(takeId, 0, new Blob(['aaa']))
       await markTakeTailIncomplete(takeId)
-      await markTakeStaged(takeId, 'stg/biz_sess_take.webm')
+      // R-S87-15 (d)/(f): a REAL stored-arm record equal to the rows — only the damaged guard keeps it (M-B7).
+      await markTakeStaged(takeId, 'stg/biz_sess_take.webm', { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 })
       await markDiscardTranscriptDone(takeId)
       await markTakeSecureError(takeId, code)
       jest.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000)
@@ -6984,10 +6987,12 @@ describe('PR-B Wn — the sealed copy before a human delete', () => {
     })
 
     it.each([
-      ["'stgx' (no slash)", noReceipt({ stagedPath: 'stgx/x' })],
+      ["'stgx' (no slash) — facts EQUAL to the rows (D-7)", noReceipt({ stagedPath: 'stgx/x', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 2, seqMax: 1 } })],
+      ["segmentCount alone differs (R-S87-15 f)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 3, seqMax: 1 } })],
+      ["seqMax alone differs (R-S87-15 f)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 2, seqMax: 2 } })],
       ["'stg/x' with no facts — a memory-arm copy or an older meta (R-S87-1)", noReceipt({ stagedPath: 'stg/x' })],
       ["'stg/x' whose facts are of OTHER bytes (R-S87-1)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 7, segmentCount: 2, seqMax: 1 } })],
-      ["an 'app_…' staged pointer", noReceipt({ stagedPath: 'app_biz-1_x.webm' })],
+      ["an 'app_…' staged pointer — facts EQUAL to the rows", noReceipt({ stagedPath: 'app_biz-1_x.webm', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 2, seqMax: 1 } })],
       ['audio.size < Σ', noReceipt(fb(7))],
       ['a receipt between the first segment and Σ', noReceipt(fb(4))],
       ['bytesEmitted = the receipt, below Σ', noReceipt({ ...fb(3), bytesEmitted: 3 })],
@@ -7324,7 +7329,8 @@ describe('PR-B Wn — the sealed copy before a human delete', () => {
       ["a 'stg/' stored-arm copy of these rows", { stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 } }, NONE],
       ["a memory-arm 'stg/' copy — no facts (R-S87-1, M-S87-1)", { stagedPath: 'stg/x' }, { meta: true, seqs: [[0, 3]] }],
       ["a 'stg/' copy of other bytes (R-S87-1)", { stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 2, segmentCount: 1, seqMax: 0 } }, { meta: true, seqs: [[0, 3]] }],
-      ["an 'app_…' pointer", { stagedPath: 'app_biz-1_x.webm' }, { meta: true, seqs: [[0, 3]] }],
+      ["an 'app_…' pointer — facts of these rows", { stagedPath: 'app_biz-1_x.webm', stagedFacts: { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 } }, { meta: true, seqs: [[0, 3]] }],
+      ["a 'stgX/' path — facts of these rows (D-7)", { stagedPath: 'stgX/x', stagedFacts: { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 } }, { meta: true, seqs: [[0, 3]] }],
       ['no receipt', {}, { meta: true, seqs: [[0, 3]] }],
     ])('R-S77-7, keep OFF + staged ON: damaged + %s → live %j, nothing sealed (M-S77-11/-12/-13)', async (_l, extra, want) => {
       sw.sealBeforeHumanDelete = false
