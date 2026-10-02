@@ -7524,3 +7524,53 @@ describe('S87 F5 — the sealed copy reads back its own take only', () => {
     }
   })
 })
+
+// model: claude-opus-5-5 · S87 (R-S87-17 b): the tail writers on the REAL store,
+// and SF-A's residual stated as what the code does (a stateful assertion).
+describe('S87 — the tail facts on the real store', () => {
+  const port = () =>
+    ({
+      prepareTranscription: jest.fn(async () => ({ path: 'stg/x' })),
+      mintTakeUrl: jest.fn(async () => ({ error: 'unexpected' })),
+      finalizeTake: jest.fn(async () => ({ error: 'unexpected' })),
+      startSession: jest.fn(async () => null),
+    }) as unknown as Parameters<typeof secureTake>[0]
+  async function take(id: string) {
+    await createTake({ takeId: id, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    await appendTakeSegment(id, 0, new Blob(['aaa']))
+    return id
+  }
+  const read = async (id: string) => (await takeStore.readTakeSecureMeta(id)) as Record<string, unknown> | null
+  const raw = (id: string) => takes().get(norm(id)) as Record<string, unknown> | undefined
+  it('markTakeTailPending notes {bytes, at}; markTakeStagedTail sets the path and clears it', async () => {
+    const id = await take('s87-tail-1')
+    await takeStore.markTakeTailPending(id, 123)
+    expect(raw(id)?.tailPending).toEqual({ bytes: 123, at: expect.any(Number) })
+    await takeStore.markTakeStagedTail(id, 'stg/b_s_u_tail.webm')
+    expect(raw(id)?.stagedTailPath).toBe('stg/b_s_u_tail.webm')
+    expect(raw(id)?.tailPending).toBeUndefined()
+    expect(raw(id)?.stagedPath).toBeUndefined()
+  })
+  it('markTakeTailDamaged writes the tail path + the damaged code in one write (no stagedPath), and never over a finalized take', async () => {
+    const id = await take('s87-tail-2')
+    await takeStore.markTakeTailPending(id, 9)
+    await takeStore.markTakeTailDamaged(id, 'stg/b_s_u_tail.webm', 'audio_unreadable')
+    expect(raw(id)).toMatchObject({ stagedTailPath: 'stg/b_s_u_tail.webm', secureError: 'audio_unreadable' })
+    expect(raw(id)?.stagedPath).toBeUndefined()
+    expect(raw(id)?.tailPending).toBeUndefined()
+    const done = await take('s87-tail-3')
+    await takeStore.markTakeFinalized(done, 'app_biz_x.webm')
+    await takeStore.markTakeTailDamaged(done, 'stg/b_s_u_tail.webm', 'audio_unreadable')
+    expect(raw(done)?.stagedTailPath).toBeUndefined()
+    expect(raw(done)?.secureError).toBeUndefined()
+  })
+  it('SF-A residual (R-S87-17 a): after the tail-damaged mark, secureTake stages nothing — the plain key stays free, the prefix stays on the phone', async () => {
+    const id = await take('s87-tail-4')
+    await takeStore.markTakeTailDamaged(id, 'stg/b_s_u_tail.webm', 'audio_unreadable')
+    const p = port()
+    await secureTake(p, id, 5)
+    expect(p.prepareTranscription).not.toHaveBeenCalled()
+    expect((await read(id))?.stagedPath).toBeUndefined()
+    expect(segments().size).toBeGreaterThan(0)
+  })
+})

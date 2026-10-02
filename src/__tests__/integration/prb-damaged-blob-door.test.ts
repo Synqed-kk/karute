@@ -595,7 +595,7 @@ describe.each(PORTS)('S87 B-1 — a failed tail upload is retryable — %s port'
 // stays free for the stored copy.
 describe.each(PORTS)('S87 L-1 — a headerless memory-arm blob takes the tail part — %s port', (_name, wire, base) => {
   beforeEach(() => wire())
-  it('stored null + headerless held blob → stagedPart tail, stagedTailPath set, no stagedPath; then the stored arm takes the plain key', async () => {
+  it('stored null + headerless held blob → stagedPart tail, stagedTailPath set, no stagedPath; the TERMINAL take then stages nothing more (R-S87-17 a)', async () => {
     m.readTakeSecureMeta.mockResolvedValue(meta())
     m.loadTakeBlob.mockResolvedValue(null)
     const port = withTakeDoors(base)
@@ -605,11 +605,14 @@ describe.each(PORTS)('S87 L-1 — a headerless memory-arm blob takes the tail pa
     // this harness's door answers one fixed path; the key itself is pinned in s87-f2a-staged-tail-key
     expect(m.markTakeTailDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable')
     expect(m.markTakeStagedDamaged).not.toHaveBeenCalled()
+    // What the code does (R-S87-17 a): the take now carries a TERMINAL code, so
+    // a later secureTake returns before reading the stored copy — the plain key
+    // stays free, and the stored prefix stays KEPT on the phone (a Limit).
+    m.readTakeSecureMeta.mockResolvedValue(meta({ secureError: 'audio_unreadable', stagedTailPath: STAGED_PATH }))
     m.loadTakeBlob.mockResolvedValue(HEADLESS)
     await secureTake(port, TAKE, 5)
-    expect(stagedBodies).toHaveLength(2)
-    expect(stagedBodies[1]).not.toHaveProperty('stagedPart')
-    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable', undefined)
+    expect(stagedBodies).toHaveLength(1)
+    expect(m.markTakeStagedDamaged).not.toHaveBeenCalled()
   })
 })
 

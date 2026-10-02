@@ -171,3 +171,21 @@ describe('the staged listing never drops a mark (commit 5, thread 2)', () => {
     expect(found).toHaveLength(100)
   })
 })
+
+// model: claude-opus-5-5 · S87 (R-S87-17 b): a mark on the staged TAIL key is
+// listed with target.part 'tail'; the plain copy's mark carries no part.
+describe('S87 — the staged listing names the tail part', () => {
+  it('plain + tail copies of one take, each marked → the tail entry carries part: tail', async () => {
+    const b = bucket()
+    const plain = composeStagedKey(BIZ, SESSION, 'audio/webm', TAKE)!.key
+    const tail = composeStagedKey(BIZ, SESSION, 'audio/webm', TAKE, 'tail')!.key
+    await expect(markStagedCopy(b.client, BIZ, plain, FACTS)).resolves.toBe('created')
+    await expect(markStagedCopy(b.client, BIZ, tail, FACTS)).resolves.toBe('created')
+    const found = await readStagedMarks(b.client, BIZ, SESSION)
+    expect(found).toHaveLength(2)
+    const t = found.find((m) => m.key.includes('_tail.'))!
+    const p = found.find((m) => !m.key.includes('_tail.'))!
+    expect(t.target).toEqual({ sessionId: SESSION, uuid: TAKE, ext: 'webm', part: 'tail' })
+    expect(p.target).toEqual({ sessionId: SESSION, uuid: TAKE, ext: 'webm' })
+  })
+})
