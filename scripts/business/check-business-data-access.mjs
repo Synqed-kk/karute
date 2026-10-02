@@ -164,21 +164,24 @@ const CLOSER = { '>': '<', '}': '{', ')': '(', ']': '[' }
 /** From the `<` at `start`, return the index just past its closing `>`, or -1 (the give-up rule above). */
 function walkGeneric(code, start) {
   const stack = []
+  let open = 0 // count of `{` `(` `[` on the stack; 0 = angle-only depth (O(1), not stack.every per char)
   const end = Math.min(code.length, start + GENERIC_LIMIT)
   for (let i = start; i < end; i++) {
     const ch = code[i]
-    const angleOnly = stack.every((o) => o === '<')
     if (ch === "'" || ch === '"' || ch === '`') {
       let j = i + 1
       while (j < end && code[j] !== ch && !(ch !== '`' && code[j] === '\n')) j += code[j] === '\\' ? 2 : 1
       if (j >= end || code[j] !== ch) return -1
       i = j
-    } else if (ch === '<' || ch === '{' || ch === '(' || ch === '[') stack.push(ch)
-    else if (ch === '>' && code[i - 1] === '=') continue // arrow `=>`
+    } else if (ch === '<' || ch === '{' || ch === '(' || ch === '[') {
+      stack.push(ch)
+      if (ch !== '<') open++
+    } else if (ch === '>' && code[i - 1] === '=') continue // arrow `=>`
     else if (ch in CLOSER) {
       if (stack.pop() !== CLOSER[ch]) return -1
+      if (ch !== '>') open--
       if (stack.length === 0) return i + 1
-    } else if (angleOnly) {
+    } else if (open === 0) {
       if (ch === ';') return -1
       if ((ch === '&' || ch === '|') && code[i + 1] === ch) return -1
       if (ch === '=' && code[i + 1] !== '>') return -1
