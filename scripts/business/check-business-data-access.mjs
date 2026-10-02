@@ -127,7 +127,8 @@ const FORBIDDEN_SPECIFIER = [
  *  write verb's call. A head regex finds the member; `writeTail` then confirms a call follows it. The
  *  hit index stays on the `.` (or `[`) so an allowlist pin covers exactly what it covered before.
  *  CAUGHT:
- *   - dot with whitespace or a newline on either side (`x.\n  verb (`)
+ *   - dot with whitespace or a newline on either side (`x.\n  verb (`); whitespace of any length up to
+ *     4000 chars (GENERIC_LIMIT) after the member, after the `!`, and after the generic list
  *   - `?.` before the member (`x?.verb(`) or on the call (`x.verb?.(`)
  *   - bracket access with any quote (`x['verb'](`, `x?.["verb"](`, `` x[`verb`]( ``)
  *   - the indirect calls `.call(` / `.apply(` on the member, each optionally chained on either side
@@ -187,7 +188,7 @@ function walkGeneric(code, start) {
 function writeTail(code, at) {
   let i = at
   const skip = (re) => {
-    const m = re.exec(code.slice(i, i + 64))
+    const m = re.exec(code.slice(i, i + GENERIC_LIMIT))
     if (m) i += m[0].length
   }
   skip(/^\s*(?:!\s*)?/)
@@ -196,7 +197,7 @@ function writeTail(code, at) {
     if (i === -1) return false
     skip(/^\s*(?:!\s*)?/)
   }
-  return CALL_TAIL.test(code.slice(i, i + 64))
+  return CALL_TAIL.test(code.slice(i, i + GENERIC_LIMIT))
 }
 const writeCall = (verb) => ({ re: writeHead(verb), confirm: writeTail })
 const BIND_VERBS = 'insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay'

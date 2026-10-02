@@ -505,6 +505,10 @@ const R3_HIT = [
   ['four levels deep', "await db.rpc<A<B<C<D>>>>('fn')\n", 'rpc'],
   ['multi-line object type', 'await db.upsert<{\n  a: string;\n  b: number\n}>(row)\n', 'upsert'],
   ['generic + optional call', 'await db.update<Row>?.(r)\n', 'update'],
+  // S52 FENCES-R3b: whitespace past the old two 64-char slices (missed from 128 chars) still reaches the
+  // call. 200, not 80: below 128 the old code passed too, and after the DOT the head regex's `\s*` covers it.
+  ['newline + 200 spaces after the member', 'await x.update\n' + ' '.repeat(200) + '(r)\n', 'update'],
+  ['newline + 200 spaces after the generic', 'await x.update<Row>\n' + ' '.repeat(200) + '(r)\n', 'update'],
 ]
 for (const [form, src, verb] of R3_HIT) {
   write(formPath, src)
@@ -536,4 +540,4 @@ clear('src/business/lib')
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 98 cases green')
+console.log('✓ business data-access guard selftest: 100 cases green')
