@@ -143,13 +143,56 @@ async function flick(id: number, dx: number) {
   await frames(3000)
 }
 
+/** Pin the page's clock (the #1115 shape, analytics.test.ts). Only the
+ *  zero-argument construction is faked; `new Date(iso)` and the statics stay
+ *  real, because the date arithmetic under test needs them. */
+const RealDate = Date
+function pin(iso: string): () => void {
+  const prior = globalThis.Date
+  const at = new RealDate(iso)
+  const stub = function (this: unknown, ...args: unknown[]) {
+    return args.length === 0 ? new RealDate(at) : new RealDate(...(args as [string]))
+  } as unknown as DateConstructor
+  // instanceof and Date.prototype checks must keep holding under the pin.
+  Object.defineProperty(stub, 'prototype', { value: RealDate.prototype })
+  stub.UTC = RealDate.UTC
+  stub.parse = RealDate.parse
+  stub.now = () => at.getTime()
+  globalThis.Date = stub
+  // Restores whatever clock was in force, so a test's own pin nests inside the
+  // file-wide one below and hands it back afterwards.
+  return () => {
+    globalThis.Date = prior
+  }
+}
+
+/** The file reads ONE calendar, whatever the machine clock says. The 月 step
+ *  lands on the target month's 1st, or on TODAY when the target is the current
+ *  month (shiftAppointmentsDate) — so from the selected 2026-09-14 the 月
+ *  expectations (10/1 forward, 8/1 back) hold only while today is in
+ *  September; they went red on 10/2. 2026-09-20 12:00 JST (the day this suite
+ *  was written, #975) is mid-September, far from a month edge, so both 月
+ *  steps take the 1st-of-month branch the expectations describe. Pinned after
+ *  the fake timers install and restored before they uninstall: last in, first
+ *  out, so neither leaks into the next test. */
+const FILE_CLOCK = '2026-09-20T03:00:00.000Z'
+let restoreFileClock = () => {}
 beforeEach(() => {
   push.mockClear()
   currentSearch = ''
   jest.useFakeTimers()
+  restoreFileClock = pin(FILE_CLOCK)
 })
 afterEach(() => {
+  restoreFileClock()
   jest.useRealTimers()
+})
+
+describe('the file clock', () => {
+  it('the pinned clock is still a Date', () => {
+    expect(new Date()).toBeInstanceOf(Date)
+    expect(Date.now()).toBe(new Date(FILE_CLOCK).getTime())
+  })
 })
 
 describe('a landed swipe moves the page by ONE unit of the view it was made on', () => {
