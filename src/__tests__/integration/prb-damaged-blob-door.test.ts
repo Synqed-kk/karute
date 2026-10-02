@@ -17,7 +17,7 @@ import { blobFate, decideBlobFate, readBlobHead, StagedDoorError } from '@/lib/r
 import { WEBM_HEAD } from './helpers/container-head-fetch'
 import { DIAG_RING_MAX_ENTRIES, foldDiagEvent, validTakeDiag } from '@/lib/recording/take-diag'
 import * as store from '@/lib/karute/take-store'
-import { secureTake } from '@/lib/recording/secure-take'
+import { ensureAudioOnServer, secureTake } from '@/lib/recording/secure-take'
 import { sweepDiscardTranscripts } from '@/lib/recording/discard-transcript'
 import {
   setRecordingPipelinePort,
@@ -38,6 +38,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   markTakeSecureError: jest.fn(async () => undefined),
   markTakeStaged: jest.fn(async () => undefined),
   markTakeStagedDamaged: jest.fn(async () => undefined),
+  markTakeStagedTail: jest.fn(async () => undefined),
   markTakeFinalized: jest.fn(async () => undefined),
   markTakeStartBoundAttempted: jest.fn(async () => undefined),
   stampTakeSession: jest.fn(async () => true),
@@ -157,7 +158,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     expect(port.finalizeTake).not.toHaveBeenCalled()
     // PR-B Wn (W-4): the staged path and the damaged code land in ONE write.
     expect(m.markTakeStagedDamaged).toHaveBeenCalledTimes(1)
-    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, code, expect.objectContaining({ arm: 'stored' }))
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, code, undefined) // S87: this mock's facts carry no seq numbers → no receipt record (stagedFactsOf)
     expect(m.markTakeStaged).not.toHaveBeenCalled()
     expect(m.markTakeSecureError).not.toHaveBeenCalled()
     expect(m.markTakeFinalized).not.toHaveBeenCalled()
@@ -178,7 +179,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
     expect(port.finalizeTake).not.toHaveBeenCalled()
     // PR-B Wn (W-4): one write.
     expect(m.markTakeStagedDamaged).toHaveBeenCalledTimes(1)
-    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_partial', expect.objectContaining({ arm: 'stored' }))
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_partial', undefined) // S87: this mock's facts carry no seq numbers → no receipt record (stagedFactsOf)
     expect(m.markTakeStaged).not.toHaveBeenCalled()
     expect(m.markTakeSecureError).not.toHaveBeenCalled()
     expect(m.markTakeFinalized).not.toHaveBeenCalled()
@@ -200,7 +201,7 @@ describe.each(PORTS)('R-2 on the %s port', (_name, wire, base) => {
       return r
     })
     for (let i = 0; i < 50 && m.markTakeStagedDamaged.mock.calls.length === 0; i++) await new Promise((r) => setTimeout(r, 0))
-    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable', expect.objectContaining({ arm: 'stored' }))
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable', undefined) // S87: this mock's facts carry no seq numbers → no receipt record (stagedFactsOf)
     for (let i = 0; i < 20; i++) await Promise.resolve()
     expect(answered).toBe(false)
     release()
@@ -520,6 +521,40 @@ describe.each(PORTS)('S87 F3 — the recorder emitted count — %s port', (_name
     await secureTake(port, TAKE, 5, undefined, undefined, GOOD.size + 50)
     expect(port.mintTakeUrl).not.toHaveBeenCalled()
     expect(port.finalizeTake).not.toHaveBeenCalled()
-    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_partial', expect.objectContaining({ arm: 'stored' }))
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_partial', undefined) // S87: this mock's facts carry no seq numbers → no receipt record (stagedFactsOf)
+  })
+})
+
+// model: claude-opus-5-5 · S87 F2 (SF-2, R-S87-2 / R-S87-7): the stored copy
+// wins and is judged damaged; the held blob (different bytes) still leaves the
+// phone — as the take's TAIL part, partial, never the take key.
+describe.each(PORTS)('S87 F2 — the held blob is staged as the tail part — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  it('stored prefix wins, held blob differs → two staged uploads, the second the tail part with partial:true', async () => {
+    m.readTakeSecureMeta
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValue(meta({ secureError: 'audio_unreadable', stagedPath: STAGED_PATH }))
+    m.loadTakeBlob.mockResolvedValue(HEADLESS)
+    const port = withTakeDoors(base)
+    const held = new Blob([GOOD, new Uint8Array(30)], { type: 'audio/webm' })
+    expect(await ensureAudioOnServer(port, TAKE, held, SESSION, 5)).toBeNull()
+    expect(stagedBodies).toHaveLength(2)
+    expect(stagedBodies[0]).not.toHaveProperty('stagedPart')
+    expect(stagedBodies[1]).toMatchObject({ stagedFor: SESSION, stagedTake: TAKE, partial: true, stagedPart: 'tail' })
+    expect(port.mintTakeUrl).not.toHaveBeenCalled()
+    expect(port.finalizeTake).not.toHaveBeenCalled()
+    expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledTimes(1)
+  })
+  it('the same bytes (equal size, readable head) → no tail upload', async () => {
+    m.readTakeSecureMeta
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValue(meta({ secureError: 'audio_partial', stagedPath: STAGED_PATH }))
+    m.loadTakeBlob.mockResolvedValue(GOOD)
+    const port = withTakeDoors(base)
+    await ensureAudioOnServer(port, TAKE, new Blob([GOOD], { type: 'audio/webm' }), SESSION, 5)
+    expect(stagedBodies.filter((b) => (b as { stagedPart?: string }).stagedPart === 'tail')).toHaveLength(0)
   })
 })

@@ -36,6 +36,7 @@ import {
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { AUDIO_UNREADABLE } from '@/lib/recording/job-errors'
+import { stagedFactsOf } from '@/lib/recording/blob-fate'
 
 /** Whether this world can persist discard transcripts at all. Web: yes. Thin:
  *  yes since PHONEWIRE-2C — the phone's facade door landed, and the port's
@@ -246,7 +247,7 @@ export async function runDiscardTranscript(
         })
       ).path
       // R-S87-8: the stored arm's facts ride beside the path (a real receipt).
-      await markTakeStaged(takeId, path, facts ? { arm: 'stored', bytes: facts.blob.size, segmentCount: facts.segmentCount, seqMax: facts.seqMax } : undefined)
+      await markTakeStaged(takeId, path, stagedFactsOf(blob, facts))
     }
     const { transcribeAndPersistDiscard } = await transcriptActions()
     const res = await transcribeAndPersistDiscard({

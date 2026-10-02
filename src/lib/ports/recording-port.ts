@@ -182,6 +182,8 @@ export interface RecordingPipelinePort {
     opts?: {
       stagedFor?: string | null
       stagedTake?: string | null
+      /** R-S87-7: the take's second staged object (the in-memory tail). */
+      stagedPart?: 'tail'
       /** PR-B (build 32): the staged copy is DAMAGED (partial or unreadable) —
        *  sent with `stagedFor` only, and only as `true` (never `partial: false`). */
       partial?: boolean
@@ -509,6 +511,7 @@ export const webRecordingPort: RecordingPipelinePort = {
           ? {
               stagedFor: opts.stagedFor,
               stagedTake: opts.stagedTake ?? null,
+              ...(opts.stagedPart ? { stagedPart: opts.stagedPart } : {}),
               mimeType: blob.type || undefined,
               // PR-B R-1: the one web-side edit — a damaged copy says so.
               ...(opts.partial === true ? { partial: true } : {}),

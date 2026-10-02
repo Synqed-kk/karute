@@ -163,6 +163,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
           ? {
               stagedFor: opts.stagedFor,
               stagedTake: opts.stagedTake ?? null,
+              ...(opts.stagedPart ? { stagedPart: opts.stagedPart } : {}),
               ...(blob.type ? { mimeType: blob.type } : {}),
               // PR-B (B1/B11): a damaged copy says so. Never `partial: false` (N2).
               ...(opts.partial === true ? { partial: true } : {}),

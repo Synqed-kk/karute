@@ -344,6 +344,9 @@ export type TakeMeta = {
   /** R-S87-1: what the staged copy was made FROM — written beside
    *  `stagedPath` by the stored arm only; absent = a receipt for nothing. */
   stagedFacts?: StagedFacts
+  /** R-S87-7: the take's TAIL part (the in-memory blob staged when the stored
+   *  copy won). A receipt for NOTHING — for the rescue and the diag only. */
+  stagedTailPath?: string
   /** ⚖ HOW FAR THE SERVER HAS THIS TAKE ALREADY (slice five packet C, D7) — the
    *  highest CONTIGUOUS segment seq storage has confirmed, so the pump knows
    *  where to resume and never re-uploads what already landed. Contiguous is
@@ -993,6 +996,11 @@ function stagedReceipt(meta: Pick<TakeMeta, 'stagedPath' | 'stagedFacts'>, rows?
  *  re-uploading the whole take on every record-page mount. */
 export async function markTakeStaged(takeId: string, stagedPath: string, stagedFacts?: StagedFacts): Promise<void> {
   await patchTakeMeta(takeId, { stagedPath, stagedFacts })
+}
+
+/** R-S87-7: where the take's tail part was staged (never `stagedPath`). */
+export async function markTakeStagedTail(takeId: string, stagedTailPath: string): Promise<void> {
+  await patchTakeMeta(takeId, { stagedTailPath })
 }
 
 /** PR-B Wn (W-4, R-S77-1 + FOLD): the damaged branch's staged copy AND its

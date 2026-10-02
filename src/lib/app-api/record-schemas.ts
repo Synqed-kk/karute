@@ -228,6 +228,8 @@ export const UploadUrlMintSchema = z
     recordingSessionId: z.string().uuid().nullish(),
     stagedFor: z.string().uuid().nullish(),
     stagedTake: z.string().max(MAX_STAGED_SLOT_CHARS).nullish(),
+    // R-S87-7: the take's second staged object (the in-memory tail); absent = today's key.
+    stagedPart: z.literal('tail').optional(),
     seqs: z
       .array(z.number().int().min(0).max(MAX_SEGMENT_SEQ))
       .min(1)
@@ -250,6 +252,10 @@ export const UploadUrlMintSchema = z
   .refine((v) => !(v.takeId && v.stagedFor), {
     message: 'stagedFor names a staged copy, never a take',
     path: ['stagedFor'],
+  })
+  .refine((v) => !(v.stagedPart && !v.stagedFor), {
+    message: 'stagedPart names a part of a staged copy — it needs stagedFor',
+    path: ['stagedPart'],
   })
   .refine((v) => !(v.stagedTake && !v.stagedFor), {
     message: 'stagedTake names the take of a staged copy — it needs stagedFor',

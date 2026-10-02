@@ -190,6 +190,8 @@ export interface MintTakeUrlInput {
    *  `stagedFor` already carries a take pointer, THAT take fills the slot and a
    *  value disagreeing with it is `bad_input`. See the staged branch. */
   stagedTake?: string | null
+  /** R-S87-7: 'tail' = the take's second staged object. */
+  stagedPart?: 'tail'
   /** ⚖ THE SEGMENTS OF A TAKE STILL BEING RECORDED (slice five packet C, D6).
    *  The seqs this call wants keys for — the third act this one door mints, and
    *  the only one that reserves nothing AND writes nothing AND audits nothing.
@@ -1040,6 +1042,7 @@ export async function mintTakeUploadUrl(
       input.stagedFor,
       input.mimeType ?? DEFAULT_MIME,
       rowTake ?? input.stagedTake,
+      input.stagedPart,
     )
     // Only the SESSION and the container can fail the grammar now — the slot
     // never does, because composeStagedKey mints its own for anything that is

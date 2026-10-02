@@ -64,7 +64,8 @@ import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 // success only here, where finalize re-proves size and ownership afterwards;
 // see storage-put.ts's header.
 import { putDeadlineMs, putSaysAlreadyThere } from '@/lib/recording/storage-put'
-import { blobFate, damagedSecureCode, heldCopyWins, readBlobHead } from '@/lib/recording/blob-fate'
+import { blobFate, damagedSecureCode, heldCopyWins, readBlobHead, stagedFactsOf } from '@/lib/recording/blob-fate'
+import { sniffContainer } from '@/lib/recording/container-sniff'
 import { buildTakeDiag, type DiagCounts, type PumpStopCode } from '@/lib/recording/take-diag'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
@@ -76,6 +77,7 @@ import {
   markTakeHeldUpload,
   markTakeSecureError,
   markTakeStagedDamaged,
+  markTakeStagedTail,
   markTakeStartBoundAttempted,
   readTakeSecureMeta,
   stampTakeSession,
@@ -307,7 +309,7 @@ export async function secureTake(
       diagCounts: meta.diagCounts,
       lastPumpStop: meta.lastPumpStop,
       seq: facts ?? undefined,
-      staged: facts ? { arm: 'stored', bytes: facts.blob.size, segmentCount: facts.segmentCount, seqMax: facts.seqMax } : undefined,
+      staged: stagedFactsOf(blob, facts),
       sessionNullCount,
     })
   } catch (err) {
@@ -369,7 +371,13 @@ export async function ensureAudioOnServer(
       heldCopyWins(blob.size, { size: stored.size, bytesEmitted: Math.max(meta.bytesEmitted ?? 0, emittedBytes ?? 0) || undefined, tailIncomplete: meta.tailIncomplete, lastSeq: meta.lastSeq, seq: facts ?? undefined })
     if (stored && stored.size > 0 && !held) {
       await secureTake(port, takeId, undefined, undefined, undefined, emittedBytes)
-      return (await readTakeSecureMeta(takeId))?.finalizedPath ?? null
+      const after = await readTakeSecureMeta(takeId)
+      // R-S87-2: the stored copy was judged damaged (staged partial; ai-pipeline
+      // then refuses the take) — the held blob is the only way its other
+      // minutes leave the phone. A retryable failure keeps today's path.
+      if (after?.secureError && DAMAGED_SECURE_CODES.has(after.secureError))
+        await stageHeldTail(port, takeId, blob, after.recordingSessionId ?? recordingSessionId, stored.size)
+      return after?.finalizedPath ?? null
     }
     const session = meta?.recordingSessionId ?? recordingSessionId
     // No row to attach to, no honest duration for finalize, or nothing to send.
@@ -392,6 +400,34 @@ export async function ensureAudioOnServer(
   } catch (err) {
     console.warn('[secure-take] fallback attach failed:', err)
     return null
+  }
+}
+
+/** R-S87-2: the stored copy won, but the held blob may be the only copy of
+ *  other minutes (the field cut: disjoint halves). It goes to the staged door
+ *  as the take's TAIL part, `partial: true` — never the take key, never the
+ *  stored copy's staged object — unless it is the same bytes (equal size AND a
+ *  readable head). A receipt for nothing (R-S87-1); a refusal keeps it here. */
+async function stageHeldTail(
+  port: RecordingPipelinePort,
+  takeId: string,
+  blob: Blob,
+  session: string | null,
+  storedSize: number,
+): Promise<void> {
+  if (!RECORDING_SWITCHES.stagedPartialDoor || !session || blob.size === 0) return
+  const head = await readBlobHead(blob)
+  if (blob.size === storedSize && head && sniffContainer(head).kind !== 'unknown') return
+  try {
+    const staged = await port.prepareTranscription(blob, null, {
+      stagedFor: session,
+      stagedTake: takeId,
+      partial: true,
+      stagedPart: 'tail',
+    })
+    await markTakeStagedTail(takeId, staged.path)
+  } catch (err) {
+    console.warn('[secure-take] tail staging failed — the blob stays with this run:', err)
   }
 }
 

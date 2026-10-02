@@ -53,6 +53,14 @@ export function heldCopyWins(
   return decideBlobFate({ ...stored, head: null, size: stored.size }) === 'partial' && heldBytes > stored.size
 }
 
+/** R-S87-1: the record a stored-arm staging writes beside its path (secure-take,
+ *  discard-transcript): undefined unless every fact is known — never a receipt. */
+export function stagedFactsOf(blob: Blob, f?: { segmentCount?: number; seqMax?: number } | null) {
+  return f && typeof f.segmentCount === 'number' && typeof f.seqMax === 'number'
+    ? { arm: 'stored' as const, bytes: blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax }
+    : undefined
+}
+
 /** The first PROBE_MIN_HEAD_BYTES of the blob, or null: a blob shorter than
  *  that is unknown, and a head read that throws is unknown — never `network`. */
 export async function readBlobHead(blob: Blob): Promise<Uint8Array | null> {
