@@ -1754,6 +1754,7 @@ export function RecordPageView({
         locale,
         customers,
         duration: Math.round(result.durationMs / 1000),
+        emittedBytes: result.bytesEmitted,
         appointmentId: effectiveAppointmentId,
         appointmentCustomerId: effectiveCustomerId,
         pickedCustomerName: target?.customerName,

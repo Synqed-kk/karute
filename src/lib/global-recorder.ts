@@ -1262,7 +1262,7 @@ class GlobalRecorder {
       // this handler provides it without the delete.
       if (!p.abandoned) {
         const blob = new Blob(p.chunks, { type: mimeType || recorder.mimeType })
-        this.result = { blob, mimeType: mimeType || recorder.mimeType, durationMs }
+        this.result = { blob, mimeType: mimeType || recorder.mimeType, durationMs, bytesEmitted: p.bytesEmitted }
         this.state = 'recorded'
       }
       this.startedAt = null
@@ -1496,6 +1496,9 @@ class GlobalRecorder {
               durationMs / 1000,
               (id) => this.isActiveTake(id),
               nullReads,
+              // R-S87-3a: a belt — reached only once flushTake answered the
+              // whole take written (flushedWholeTake), so Σ rows === this.
+              p.bytesEmitted,
             )
           } finally {
             // Every OTHER exit of the leg — the skipped-tail return above, and

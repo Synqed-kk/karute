@@ -500,3 +500,26 @@ describe('M-B4 — the thin take-key mint body never carries partial', () => {
     expect('partial' in stagedBodies[0]).toBe(false)
   })
 })
+
+// model: claude-opus-5-5 · S87 F3 (SF-3, R-S87-3a): the recorder's own emitted
+// count reaches the verdict — a stored copy short of it is never a whole take.
+describe.each(PORTS)('S87 F3 — the recorder emitted count — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  it('all flushed: stored bytes === emitted → ok, the take key is sealed', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta())
+    m.loadTakeBlob.mockResolvedValue(GOOD)
+    const port = withTakeDoors(base)
+    await secureTake(port, TAKE, 5, undefined, undefined, GOOD.size)
+    expect(port.finalizeTake).toHaveBeenCalledTimes(1)
+    expect(m.markTakeStagedDamaged).not.toHaveBeenCalled()
+  })
+  it('one flush refused: stored bytes < emitted → partial, staged, the take key never sealed', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta())
+    m.loadTakeBlob.mockResolvedValue(GOOD)
+    const port = withTakeDoors(base)
+    await secureTake(port, TAKE, 5, undefined, undefined, GOOD.size + 50)
+    expect(port.mintTakeUrl).not.toHaveBeenCalled()
+    expect(port.finalizeTake).not.toHaveBeenCalled()
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_partial', expect.objectContaining({ arm: 'stored' }))
+  })
+})

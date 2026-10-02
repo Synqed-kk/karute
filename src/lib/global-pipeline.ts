@@ -57,6 +57,8 @@ export interface PipelineContext {
   customers: CustomerOption[]
   /** Recording length in seconds — passed straight to ReviewScreen. */
   duration?: number
+  /** R-S87-3a: the recorder's emitted bytes for this run — absent after a reload. */
+  emittedBytes?: number
   /** The booking this recording targets, if any. */
   appointmentId?: string
   /** Customer carried from the booking so review pre-fills attribution. */
@@ -479,6 +481,7 @@ class GlobalPipeline {
           sessionDate,
           recordingSessionId: this.context.recordingSessionId,
           durationSeconds: this.context.duration,
+          emittedBytes: this.context.emittedBytes,
           customerId: this.context.appointmentCustomerId,
           appointmentId: this.context.appointmentId,
           onSessionAdopted: (id) => this.adoptRecordingSession(runId, id),

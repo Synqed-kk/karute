@@ -118,6 +118,8 @@ describe('T-5b — the recorder carries the session-null difference to the final
     expect(mockSecureTake).toHaveBeenCalledTimes(1)
     const args = mockSecureTake.mock.calls[0]
     expect(args[1]).toBe(takeId)
-    expect(args[args.length - 1]).toBe(3)
+    // S87 F3 appended the recorder's emitted count after it: the session-null
+    // count stays secureTake's 5th argument (sessionNullCount).
+    expect(args[4]).toBe(3)
   })
 })

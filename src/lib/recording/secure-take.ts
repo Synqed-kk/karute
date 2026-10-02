@@ -126,6 +126,9 @@ export async function secureTake(
   isActive?: (takeId: string) => boolean,
   /** PR-B 5b: the stop leg's session-null count for this take (the diag). */
   sessionNullCount?: number,
+  /** R-S87-3a: the recorder's own emitted count for this run, while it is in
+   *  memory. After a reload nothing carries it and this layer is silent. */
+  emittedBytes?: number,
 ): Promise<void> {
   // ⚖ NEVER FINALIZE A LIVE TAKE (fix round 5) — the belt behind the drain's
   // stopped-only filter. Finalizing a take that is still recording (or paused
@@ -297,7 +300,7 @@ export async function secureTake(
     }
 
     await secureBlob(port, blob, takeId, recordingSessionId, mimeType, measuredSeconds ?? 0, {
-      bytesEmitted: meta.bytesEmitted,
+      bytesEmitted: Math.max(meta.bytesEmitted ?? 0, emittedBytes ?? 0) || undefined,
       tailIncomplete,
       arm: 'stored',
       lastSeq: meta.lastSeq,
@@ -349,6 +352,8 @@ export async function ensureAudioOnServer(
   blob: Blob,
   recordingSessionId: string | null,
   durationSeconds?: number,
+  /** R-S87-3a: the recorder's emitted count (the pipeline context); absent after a reload. */
+  emittedBytes?: number,
 ): Promise<string | null> {
   try {
     // ponytail: reads the whole stored take once more just to ask "any bytes?"
@@ -361,9 +366,9 @@ export async function ensureAudioOnServer(
       !!stored &&
       stored.size > 0 &&
       !!meta?.recordingSessionId &&
-      heldCopyWins(blob.size, { size: stored.size, bytesEmitted: meta.bytesEmitted, tailIncomplete: meta.tailIncomplete, lastSeq: meta.lastSeq, seq: facts ?? undefined })
+      heldCopyWins(blob.size, { size: stored.size, bytesEmitted: Math.max(meta.bytesEmitted ?? 0, emittedBytes ?? 0) || undefined, tailIncomplete: meta.tailIncomplete, lastSeq: meta.lastSeq, seq: facts ?? undefined })
     if (stored && stored.size > 0 && !held) {
-      await secureTake(port, takeId)
+      await secureTake(port, takeId, undefined, undefined, undefined, emittedBytes)
       return (await readTakeSecureMeta(takeId))?.finalizedPath ?? null
     }
     const session = meta?.recordingSessionId ?? recordingSessionId

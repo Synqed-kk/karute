@@ -128,6 +128,8 @@ export type PipelineContext = {
   recordingSessionId?: string | null
   /** The recorder's measured length, so the fallback attach can finalize. */
   durationSeconds?: number
+  /** R-S87-3a: the recorder's emitted bytes for this run (absent after a reload). */
+  emittedBytes?: number
   /** The visit (global-pipeline's appointmentCustomerId / appointmentId), sent
    *  on the 'no_session' fallback only — what a row the mint creates carries. */
   customerId?: string | null
@@ -273,6 +275,7 @@ export async function runAIPipeline(
         audioBlob,
         meta?.recordingSessionId ?? ctx.recordingSessionId ?? null,
         ctx.durationSeconds,
+        ctx.emittedBytes,
       )
     // Re-read: the attach may have minted the take's row itself (secureTake).
     const after = takeId ? await readTakeSecureMeta(takeId) : null
