@@ -132,7 +132,8 @@ export function sealTakeCopy(
           await req(store.put({ takeId: s.takeId, seq: s.seq, blob: s.blob }))
       }
       await req(tx.objectStore(VAULT_TAKES).put(meta))
-      const rows = (await req(store.getAll())) as SealedSegment[]
+      // R-S87-4: this take's rows only — the key range over [takeId, seq].
+      const rows = (await req(store.getAll(IDBKeyRange.bound([meta.takeId, 0], [meta.takeId, []])))) as SealedSegment[]
       const held = new Map(rows.filter((r) => r.takeId === meta.takeId).map((r) => [r.seq, r.blob.size]))
       if (!(await committed)) return end(false, 'copy aborted')
       end(held)

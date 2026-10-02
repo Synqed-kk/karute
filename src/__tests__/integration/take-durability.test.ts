@@ -7481,3 +7481,28 @@ describe('PR-B Wn — the sealed copy before a human delete', () => {
     })
   })
 })
+
+// model: claude-opus-5-5 · S87 F5 (SF-5, R-S87-4): the vault read-back is a
+// key range over THIS take, never a walk of every take ever sealed.
+describe('S87 F5 — the sealed copy reads back its own take only', () => {
+  it('getAll is bounded [takeId, 0]..[takeId, []] and the answer holds this take alone', async () => {
+    const { sealTakeCopy } = await import('@/lib/karute/take-vault')
+    const other = await sealTakeCopy({ takeId: 'take-s87-other' }, [{ takeId: 'take-s87-other', seq: 0, blob: new Blob(['zz']) }], 30_000)
+    expect(other).toEqual(new Map([[0, 2]]))
+    const bound = jest.spyOn(IDBKeyRange, 'bound')
+    try {
+      const held = await sealTakeCopy(
+        { takeId: 'take-s87' },
+        [
+          { takeId: 'take-s87', seq: 0, blob: new Blob(['abc']) },
+          { takeId: 'take-s87', seq: 1, blob: new Blob(['d']) },
+        ],
+        30_000,
+      )
+      expect(held).toEqual(new Map([[0, 3], [1, 1]]))
+      expect(bound.mock.calls).toEqual([[['take-s87', 0], ['take-s87', []]]])
+    } finally {
+      bound.mockRestore()
+    }
+  })
+})
