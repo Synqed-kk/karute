@@ -120,3 +120,47 @@ describe("Karute's org-settings writer and Business-owned keys", () => {
     expect(upsert.mock.calls[0][0]).toEqual({ name: 'New name', settings: { business_type: 'massage', ticket_packs_enabled: true } })
   })
 })
+
+/** ⚖ S51 R116 (F0 SF-3 = GPT-6 F0 #1) — the caller's half of the class: a patch carrying a Business-owned key is
+ *  REFUSED by name (typed reason) and core is never read or written; a strip would hide the caller's bug. */
+describe("Karute's org-settings writer refuses a caller's Business-owned key", () => {
+  const CALLER_KEYS: Array<[string, unknown]> = [
+    ['booking_colors:x', { new: '#3b6fd4' }],
+    ['reserve_store_capabilities:x', { v: 1, business_type: 'SALON', switches: {} }],
+    ['booking_colors:aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f', { new: '#3b6fd4' }],
+    ['reserve_store_capabilities:8ac43a4b-7763-4a10-9f73-a662085460af', { v: 1 }],
+    ['reserve_card_color', '#000000'],
+    ['booking_colors', {}],
+  ]
+
+  it.each(CALLER_KEYS)('a patch carrying %s → refused by name, core never called, the stored row unchanged', async (key, value) => {
+    const stored = { business_type: 'beauty', [key]: 'business-value' }
+    const { upsert, get, client } = clientReading(stored)
+    const patch = { recording_disclosure_mode: 'B', [key]: value } as Parameters<typeof writeOrgSettingsBlobWithClient>[1]
+    const result = await writeOrgSettingsBlobWithClient(client, patch)
+    expect(result).toEqual({
+      error: `Settings key ${key} is owned by SYNQED Business and cannot be written here.`,
+      reason: 'business_owned_key',
+      key,
+    })
+    expect(get).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+    expect((await client.orgSettings.get())?.settings).toEqual(stored)
+  })
+
+  it('a replayed Business-owned key read from core is not refused: the save goes through and the stored key survives unchanged', async () => {
+    const caps = { v: 1, business_type: 'SALON', switches: { posts: { on: true, source: 'TYPE_DEFAULT' } } }
+    const stored = { business_type: 'beauty', 'booking_colors:x': { new: '#3b6fd4' }, 'reserve_store_capabilities:x': caps }
+    const { upsert, client } = clientReading(stored)
+    await expect(writeOrgSettingsBlobWithClient(client, { recording_disclosure_mode: 'B' })).resolves.toEqual({ success: true })
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect((await client.orgSettings.get())?.settings).toEqual({ ...stored, recording_disclosure_mode: 'B' })
+  })
+
+  it('ordinary keys (stem-sharing ones included) are unchanged: written exactly as given', async () => {
+    const { upsert, client } = clientReading({ business_type: 'beauty' })
+    const patch = { recording_disclosure_mode: 'B', booking_colors_note: 'k', reserve_store_capabilities: 'k', reserve_card_colour: 'k' } as Parameters<typeof writeOrgSettingsBlobWithClient>[1]
+    await expect(writeOrgSettingsBlobWithClient(client, patch)).resolves.toEqual({ success: true })
+    expect(upsert.mock.calls[0][0]).toEqual({ settings: { business_type: 'beauty', ...patch } })
+  })
+})
