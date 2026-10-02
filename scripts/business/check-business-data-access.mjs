@@ -123,15 +123,24 @@ const FORBIDDEN_SPECIFIER = [
   },
 ]
 
-/** ⚖ S51 R116 (F0 SF-2 = GPT-6 F0 #3) — one write verb's call in EVERY static spelling, not only `x.verb(`:
+/** ⚖ S51 R116 (F0 SF-2 = GPT-6 F0 #3) + R125 — one write verb's call in the ORDINARY static spellings:
  *  whitespace or a newline on either side of the dot (`x.\n  verb (`), optional chaining before the
  *  member (`x?.verb(`) or on the call (`x.verb?.(`), bracket access with any quote (`x['verb'](`,
- *  `x?.["verb"](`, `` x[`verb`]( ``), and the indirect calls `.call(` / `.apply(` on the member. The hit
- *  index stays on the `.` (or `[`) so an allowlist pin covers exactly what it covered before.
- *  Ceiling: a COMPUTED member (`x[name](`) is not statically resolvable and is not caught here. */
+ *  `x?.["verb"](`, `` x[`verb`]( ``), the TS non-null `x.verb!(`, a generic argument list
+ *  `x.verb<Row>(` / `insert<Row, Opts>(` (one level of nesting inside the `<…>`: `<Pick<Row, 'a'>>` is
+ *  caught, `<A<B<C>>>` is NOT; the list may not contain `;`), and the indirect calls `.call(` /
+ *  `.apply(` on the member, each optionally chained (`?.call(`, `.call?.(`, `?.apply(`, `.apply?.(`).
+ *  The hit index stays on the `.` (or `[`) so an allowlist pin covers exactly what it covered before.
+ *  CEILING (R125, stated honestly — these are NOT caught): an alias (`const u = x.verb; u()`),
+ *  destructuring (`const { verb } = x`), `Reflect.apply(x.verb, …)`, a parenthesised member
+ *  `(x.verb)(`, a computed member `x[name](` or `x['verb' as const](`, escapes (`x.\\u0075psert`,
+ *  `x['\\x75psert']`); and two comment-blanker weaknesses (stripComments works per line): a line
+ *  beginning with `*` inside non-comment code is blanked as a doc-comment line, and a multi-line
+ *  template string containing `/*` flips the comment state. Those two are a carried fences item, not
+ *  fixed here. Known safe-side false positive: a string literal containing `.verb(` is flagged. */
 const writeCall = (verb) =>
   new RegExp(
-    `(?:\\.\\s*${verb}|\\[\\s*(['"\`])${verb}\\1\\s*\\])\\s*(?:\\?\\.\\s*)?(?:\\(|\\.\\s*(?:call|apply)\\s*\\()`,
+    `(?:\\.\\s*${verb}|\\[\\s*(['"\`])${verb}\\1\\s*\\])\\s*(?:!\\s*)?(?:<(?:[^<>;]|<[^<>;]*>)*>\\s*)?(?:(?:\\?\\.\\s*)?\\(|(?:\\?\\.|\\.)\\s*(?:call|apply)\\s*(?:\\?\\.\\s*)?\\()`,
     'g',
   )
 const BIND_VERBS = 'insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay'

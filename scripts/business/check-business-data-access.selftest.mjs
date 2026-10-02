@@ -461,10 +461,41 @@ write(capsPath, "    const saved = await writer.orgSettings['upsert']({ settings
 const respelled = scanDataAccess(root)
 assert.equal(respelled.length, 1, `21e: expected the respelled call flagged, got ${JSON.stringify(respelled)}`)
 assert.equal(respelled[0].label, 'write call .upsert(')
+clear('src/business/lib') // 21e leaves the respelled caps file
+// 22. ⚖ S51 R125 — the ordinary TypeScript spellings the FENCES attack found are caught.
+const R125_FORMS = [
+  ['generic argument list', 'await c.orgSettings.upsert<Row>({ settings })\n', 'upsert'],
+  ['generic, two args, after from()', "await db.from('t').insert<Row, Opts>(row)\n", 'insert'],
+  ['generic, one nested level', "await db.update<Pick<Row, 'a'>>(row)\n", 'update'],
+  ['non-null', 'await c.orgSettings.upsert!({ settings })\n', 'upsert'],
+  ['non-null + generic', 'await db.delete!<Row>(id)\n', 'delete'],
+  ['optional .call(', 'await c.orgSettings.upsert?.call(c.orgSettings, { settings })\n', 'upsert'],
+  ['.call optional call', 'await c.orgSettings.upsert.call?.(c.orgSettings, { settings })\n', 'upsert'],
+  ['optional .apply(', 'await db.rpc?.apply(db, [fn])\n', 'rpc'],
+  ['.apply optional call', "await db['insert'].apply?.(db, [row])\n", 'insert'],
+]
+for (const [form, src, verb] of R125_FORMS) {
+  write(formPath, src)
+  const f = scanDataAccess(root)
+  assert.equal(f.length, 1, `22 ${form}: expected 1 finding, got ${JSON.stringify(f)}`)
+  assert.equal(f[0].label, `write call .${verb}(`, `22 ${form}`)
+}
+// 22b. GREEN — near misses stay clean.
+for (const src of ['await x.upsert_log(row)\n', 'await x.upserted(row)\n', 'const upsert = 1;\n']) {
+  write(formPath, src)
+  assert.deepEqual(scanDataAccess(root), [], `22b near miss must stay clean: ${src.trim()}`)
+}
+// 22c. The hit index of a generic call is still the `.`: a pin on `.upsert` (which starts AT the dot and
+//      ends before the `<`) covers it; a pin on the generic tail `<Row>(` (after the dot) does not.
+write(formPath, 'await db.upsert<Row>(row)\n')
+const pinDot = [{ path: formPath, label: 'write call .upsert(', match: ['.upsert'], count: 1, reason: 'selftest' }]
+assert.deepEqual(scanDataAccess(root, pinDot), [], '22c: a pin starting at the dot covers the generic call')
+const pinTail = [{ path: formPath, label: 'write call .upsert(', match: ['<Row>('], count: 1, reason: 'selftest' }]
+assert.equal(scanDataAccess(root, pinTail).length, 1, '22c: a pin after the dot does not cover it')
 clear('src/business/lib')
 
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 70 cases green')
+console.log('✓ business data-access guard selftest: 83 cases green')
