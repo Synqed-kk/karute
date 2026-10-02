@@ -71,7 +71,6 @@ import {
   clearTakeHeldUpload,
   DAMAGED_SECURE_CODES,
   isStoppedTake,
-  loadTakeBlob,
   loadTakeBlobFacts,
   markTakeFinalized,
   markTakeHeldUpload,
@@ -352,14 +351,15 @@ export async function ensureAudioOnServer(
   try {
     // ponytail: reads the whole stored take once more just to ask "any bytes?"
     // — fallback-only; a segment count read if this ever shows up in a profile.
-    const stored = await loadTakeBlob(takeId)
+    const facts = await loadTakeBlobFacts(takeId)
+    const stored = facts?.blob ?? null
     const meta = await readTakeSecureMeta(takeId)
     // S76 W-1: the one exception to S33 R2 (see the docblock).
     const held =
       !!stored &&
       stored.size > 0 &&
       !!meta?.recordingSessionId &&
-      heldCopyWins(blob.size, { size: stored.size, bytesEmitted: meta.bytesEmitted, tailIncomplete: meta.tailIncomplete })
+      heldCopyWins(blob.size, { size: stored.size, bytesEmitted: meta.bytesEmitted, tailIncomplete: meta.tailIncomplete, lastSeq: meta.lastSeq, seq: facts ?? undefined })
     if (stored && stored.size > 0 && !held) {
       await secureTake(port, takeId)
       return (await readTakeSecureMeta(takeId))?.finalizedPath ?? null
@@ -453,7 +453,7 @@ async function secureBlob(
     lastSeq?: number
     diagCounts?: DiagCounts
     lastPumpStop?: PumpStopCode
-    seq?: { seqMin?: number; segmentCount?: number; seq0Present?: boolean }
+    seq?: { seqMin?: number; seqMax?: number; segmentCount?: number; seq0Present?: boolean }
     sessionNullCount?: number
   },
 ): Promise<string | null> {

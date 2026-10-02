@@ -459,7 +459,9 @@ describe.each(PORTS)('the flight record fills all twelve keys — %s port', (_na
   const facts = (blob: Blob) => ({ blob, segmentCount: 3, seqMin: 0, seqMax: 2, seq0Present: true })
 
   it('the three seq keys ride the stored arm\'s finalize body', async () => {
-    m.readTakeSecureMeta.mockResolvedValue(meta())
+    // S87 F4: lastSeq agrees with the rows (seq 0..2) — a whole take; with the
+    // old `lastSeq: 0` these facts are a hole and the verdict is 'partial'.
+    m.readTakeSecureMeta.mockResolvedValue(meta({ lastSeq: 2 }))
     m.loadTakeBlobFacts.mockResolvedValueOnce(facts(GOOD) as never)
     const port = withTakeDoors(base)
     await secureTake(port, TAKE, 5)

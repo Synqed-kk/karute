@@ -18,6 +18,10 @@ import { AUDIO_PARTIAL, AUDIO_UNREADABLE } from '@/lib/recording/job-errors'
 
 export type BlobFate = 'ok' | 'partial' | 'unreadable'
 
+/** R-S87-3b: the stored copy's seq facts (loadTakeBlobFacts) and the take's
+ *  `lastSeq`. Absent (the memory arm, a null meta) → no claim. */
+export type SeqFacts = { lastSeq?: number; seq?: { segmentCount?: number; seqMin?: number; seqMax?: number } }
+
 /** Pure. `head` null = unknown (too short, or the read threw) → never a
  *  refusal (B7). `bytesEmitted` undefined = a reload lost the count → no
  *  partial claim. A take whose tail never landed is partial by its own mark. */
@@ -26,10 +30,15 @@ export function decideBlobFate(facts: {
   size: number
   bytesEmitted?: number
   tailIncomplete?: boolean
-}): BlobFate {
+} & SeqFacts): BlobFate {
   if (facts.head && facts.head.length >= PROBE_MIN_HEAD_BYTES && sniffContainer(facts.head).kind === 'unknown')
     return 'unreadable'
   if (facts.tailIncomplete) return 'partial'
+  // R-S87-3b: a hole in the sequence (the recorder's first seq is 0) is partial.
+  const s = facts.seq
+  if (s?.segmentCount !== undefined && s.seqMin !== undefined && s.seqMax !== undefined)
+    if (s.segmentCount !== s.seqMax - s.seqMin + 1 || s.seqMin !== 0 || (facts.lastSeq !== undefined && s.seqMax !== facts.lastSeq))
+      return 'partial'
   if (facts.bytesEmitted !== undefined && facts.size < facts.bytesEmitted) return 'partial'
   return 'ok'
 }
@@ -38,7 +47,7 @@ export function decideBlobFate(facts: {
  *  partial (the same verdict, never restated) and is larger. OFF = never. */
 export function heldCopyWins(
   heldBytes: number,
-  stored: { size?: number; bytesEmitted?: number; tailIncomplete?: boolean },
+  stored: { size?: number; bytesEmitted?: number; tailIncomplete?: boolean } & SeqFacts,
 ): boolean {
   if (!RECORDING_SWITCHES.stagedPartialDoor || stored.size === undefined) return false
   return decideBlobFate({ ...stored, head: null, size: stored.size }) === 'partial' && heldBytes > stored.size
@@ -58,7 +67,7 @@ export async function readBlobHead(blob: Blob): Promise<Uint8Array | null> {
 /** The verdict for a whole blob; `stagedPartialDoor` OFF = always 'ok' (today). */
 export async function blobFate(
   blob: Blob,
-  facts: { bytesEmitted?: number; tailIncomplete?: boolean } = {},
+  facts: { bytesEmitted?: number; tailIncomplete?: boolean } & SeqFacts = {},
 ): Promise<BlobFate> {
   if (!RECORDING_SWITCHES.stagedPartialDoor) return 'ok'
   return decideBlobFate({ head: await readBlobHead(blob), size: blob.size, ...facts })
