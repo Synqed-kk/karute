@@ -123,6 +123,19 @@ const FORBIDDEN_SPECIFIER = [
   },
 ]
 
+/** ⚖ S51 R116 (F0 SF-2 = GPT-6 F0 #3) — one write verb's call in EVERY static spelling, not only `x.verb(`:
+ *  whitespace or a newline on either side of the dot (`x.\n  verb (`), optional chaining before the
+ *  member (`x?.verb(`) or on the call (`x.verb?.(`), bracket access with any quote (`x['verb'](`,
+ *  `x?.["verb"](`, `` x[`verb`]( ``), and the indirect calls `.call(` / `.apply(` on the member. The hit
+ *  index stays on the `.` (or `[`) so an allowlist pin covers exactly what it covered before.
+ *  Ceiling: a COMPUTED member (`x[name](`) is not statically resolvable and is not caught here. */
+const writeCall = (verb) =>
+  new RegExp(
+    `(?:\\.\\s*${verb}|\\[\\s*(['"\`])${verb}\\1\\s*\\])\\s*(?:\\?\\.\\s*)?(?:\\(|\\.\\s*(?:call|apply)\\s*\\()`,
+    'g',
+  )
+const BIND_VERBS = 'insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay'
+
 const CALL_PATTERNS = [
   { re: /\bnew\s+SynqedClient\s*\(/g, label: 'new SynqedClient(', scope: EVERYWHERE },
   { re: /\bgetSynqedClient\s*\(/g, label: 'getSynqedClient(', scope: EVERYWHERE },
@@ -130,14 +143,15 @@ const CALL_PATTERNS = [
   { re: /\bcreateClient\s*\(/g, label: 'createClient(', scope: OUTSIDE_LOCK_FILES },
   // Writes: banned territory-wide, lock files included. Nothing in Business
   // edits anything during the play phase.
-  { re: /\.insert\s*\(/g, label: 'write call .insert(', scope: EVERYWHERE },
-  { re: /\.update\s*\(/g, label: 'write call .update(', scope: EVERYWHERE },
-  { re: /\.upsert\s*\(/g, label: 'write call .upsert(', scope: EVERYWHERE },
-  { re: /\.delete\s*\(/g, label: 'write call .delete(', scope: EVERYWHERE },
-  { re: /\.rpc\s*\(/g, label: 'write call .rpc(', scope: EVERYWHERE },
+  { re: writeCall('insert'), label: 'write call .insert(', scope: EVERYWHERE },
+  { re: writeCall('update'), label: 'write call .update(', scope: EVERYWHERE },
+  { re: writeCall('upsert'), label: 'write call .upsert(', scope: EVERYWHERE },
+  { re: writeCall('delete'), label: 'write call .delete(', scope: EVERYWHERE },
+  { re: writeCall('rpc'), label: 'write call .rpc(', scope: EVERYWHERE },
   // A bound write method is the same reach, one step removed (R-A2-15 §5).
   {
-    re: /\.(insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay)\s*\.\s*bind\s*\(/g,
+    // ⚖ S51 R116 — and its bracket spelling (`x['upsert'].bind(`), any quote.
+    re: new RegExp(`(?:\\.\\s*(?:${BIND_VERBS})|\\[\\s*(['"\`])(?:${BIND_VERBS})\\1\\s*\\])\\s*\\.\\s*bind\\s*\\(`, 'g'),
     label: 'bound write method .X.bind(',
     scope: EVERYWHERE,
   },
