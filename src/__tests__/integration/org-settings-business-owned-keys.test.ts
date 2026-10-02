@@ -5,6 +5,8 @@
  * ⚖ PKT-S38 R5 — and 予約の色分け's `booking_colors` the same way.
  * ⚖ PKT-S41 R-S41-1 (Liam 9/25 A) — and its one-key-per-store `booking_colors:<storeId>` keys: the PREFIX
  * is Business-owned, so a store id this suite never names is never replayed either.
+ * ⚖ S49 R86 (Liam 10/1) — and お店ページ's one-key-per-store `reserve_store_capabilities:<storeId>` switches
+ * (the CORE-47 wire record), by the same prefix rule.
  */
 jest.mock('next/cache', () => ({
   unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
@@ -38,6 +40,10 @@ const BUSINESS_OWNED: Array<[string, unknown]> = [
   ['reserve_card_color', '#1C2247'],
   ['booking_colors', { 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f': { new: '#3b6fd4', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' } }],
   ['booking_colors:aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f', { new: '#3b6fd4', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }],
+  ['reserve_store_capabilities:aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f', {
+    v: 1, business_type: 'SALON',
+    switches: { posts: { on: true, source: 'OWNER', changed_at: '2026-10-01T10:00:00.000Z', changed_by: 'staff-1' }, shop: { on: false, source: 'TYPE_DEFAULT' } },
+  }],
 ]
 
 describe("Karute's org-settings writer and Business-owned keys", () => {
@@ -61,7 +67,7 @@ describe("Karute's org-settings writer and Business-owned keys", () => {
     })
   })
 
-  it('a read holding ALL THREE Business keys: the PUT carries none of them', async () => {
+  it('a read holding EVERY Business key: the PUT carries none of them', async () => {
     const { upsert, client } = clientReading({ business_type: 'beauty', ...Object.fromEntries(BUSINESS_OWNED) })
     await writeOrgSettingsBlobWithClient(client, { recording_disclosure_mode: 'B' })
     expect(upsert.mock.calls[0][0]).toEqual({ settings: { business_type: 'beauty', recording_disclosure_mode: 'B' } })
@@ -74,6 +80,23 @@ describe("Karute's org-settings writer and Business-owned keys", () => {
     await writeOrgSettingsBlobWithClient(client, { recording_disclosure_mode: 'B' })
     expect(upsert.mock.calls[0][0]).toEqual({ settings: { business_type: 'beauty', recording_disclosure_mode: 'B' } })
     expect((await client.orgSettings.get())?.settings).toEqual({ business_type: 'beauty', [yokohama]: four, recording_disclosure_mode: 'B' })
+  })
+
+  it('a switches key for a DIFFERENT store id (テスト横浜店) is never replayed either, and survives the Karute save', async () => {
+    const yokohama = 'reserve_store_capabilities:8ac43a4b-7763-4a10-9f73-a662085460af'
+    const record = { v: 1, business_type: 'GYM', switches: { classes: { on: true, source: 'TYPE_DEFAULT' } } }
+    const { upsert, client } = clientReading({ business_type: 'beauty', [yokohama]: record })
+    await writeOrgSettingsBlobWithClient(client, { recording_disclosure_mode: 'B' })
+    expect(upsert.mock.calls[0][0]).toEqual({ settings: { business_type: 'beauty', recording_disclosure_mode: 'B' } })
+    expect((await client.orgSettings.get())?.settings).toEqual({ business_type: 'beauty', [yokohama]: record, recording_disclosure_mode: 'B' })
+  })
+
+  it('the switches prefix is exactly `reserve_store_capabilities:` — a key that only shares the stem (no colon) still replays', async () => {
+    const { upsert, client } = clientReading({ business_type: 'beauty', reserve_store_capabilities: 'karute', reserve_store_capabilities_note: 1 })
+    await writeOrgSettingsBlobWithClient(client, { recording_disclosure_mode: 'B' })
+    expect(upsert.mock.calls[0][0]).toEqual({
+      settings: { business_type: 'beauty', reserve_store_capabilities: 'karute', reserve_store_capabilities_note: 1, recording_disclosure_mode: 'B' },
+    })
   })
 
   it('the prefix is exactly `booking_colors:` — a key that only shares the stem (no colon) still replays', async () => {

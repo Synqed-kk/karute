@@ -188,6 +188,15 @@ const ALLOW = [
     reason: "⚖ Liam 9/25 「make it work」 (PKT-S38-COLORS-PR2 R3/R8) + ⚖ Liam 9/25 A (PKT-S41 R-S41-1): the second Business writer, 予約の色分け — one key PER STORE (`booking_colors:<storeId>`, core merges top-level keys → no cross-store race), closed palette, settings.manage + a store the operator may see, admitted tenant only, read-before-write, one PUT",
   },
   {
+    path: 'src/business/lib/practice-door/door-store-capabilities.ts',
+    // ⚖ S49 R86 — the third writer, in its own file (one allowlist key per file::call), tolerated until it lands.
+    // Double-quoted, same reason as the entries above.
+    label: "write call .upsert(",
+    match: ['orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })'],
+    count: 1,
+    reason: "⚖ S49 R86 (Liam 10/1 「If there's no harm in doing it now, use it now.」): the third Business writer, お店ページ's switches — one key PER STORE (`reserve_store_capabilities:<storeId>`, the CORE-47 wire record; core merges top-level keys), settings.manage + a store the operator may see, admitted tenant only (Dev Salon until CORE-47), read-before-write, one PUT",
+  },
+  {
     path: 'src/business/lib/practice-door/core-reach.ts',
     label: 'bound write method .X.bind(',
     match: ['client.orgSettings.upsert.bind(client.orgSettings)'],
