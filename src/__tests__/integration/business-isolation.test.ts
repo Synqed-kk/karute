@@ -205,6 +205,8 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   // §9's sibling.
   const RENDER_TEST_FILE = /^src\/__tests__\/integration\/business\/[^/]+\.test\.tsx$/
   const RENDER_TEST_BARE = new Set(['react-dom/client', '@testing-library/react'])
+  // R123 (S51): react-dom for the shared Dialog's createPortal only — React's own renderer, no data access
+  const FILE_ALLOWED_BARE: Record<string, string[]> = { 'src/app/[locale]/(business)/business/settings/Dialog.tsx': ['react-dom'] }
 
   /** Repo-relative target of a specifier, or null when it is a bare package. */
   function resolveSpecifier(spec: string, fromFile: string): string | null {
@@ -223,6 +225,7 @@ describe('Business import isolation (phone-safety lock 3)', () => {
       if (/^next\/dist(?:\/|$)/.test(spec)) return 'next/dist internals are not a public entry'
       if (ALLOWED_BARE.test(spec)) return null
       if (RENDER_TEST_FILE.test(fromFile) && RENDER_TEST_BARE.has(spec)) return null
+      if (FILE_ALLOWED_BARE[fromFile]?.includes(spec)) return null
       return 'bare package off the allowlist'
     }
     // Tests may import tests; runtime + e2e never import the test folder (a *.test.tsx may re-export the door).
