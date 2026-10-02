@@ -644,3 +644,38 @@ describe.each(PORTS)('S87 (f) — real facts and the emitted-count route — %s 
     }
   })
 })
+
+// model: claude-opus-5-5 · S87 fix round 3 — B-2 (R-S87-18 a): a failed MEMORY-arm
+// staged upload (path A: the held blob is the only copy) ends the run retryable.
+describe.each(PORTS)('S87 B-2 — a failed memory-arm upload is retryable — %s port', (_name, wire, base) => {
+  beforeEach(() => wire())
+  it('path A, upload rejects → TailPendingError, tailPending set, no damaged mark; the second attempt stages the tail', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta())
+    m.loadTakeBlob.mockResolvedValue(null)
+    const port = withTakeDoors(base)
+    const real = port.prepareTranscription.bind(port)
+    let calls = 0
+    port.prepareTranscription = jest.fn(async (...a: Parameters<typeof real>) => {
+      calls++
+      if (calls === 1) throw new Error('offline')
+      return real(...a)
+    })
+    await expect(ensureAudioOnServer(port, TAKE, HEADLESS, SESSION, 5)).rejects.toBeInstanceOf(TailPendingError)
+    expect(m.markTakeTailPending).toHaveBeenCalledWith(TAKE, HEADLESS.size)
+    expect(m.markTakeTailDamaged).not.toHaveBeenCalled()
+    expect(m.markTakeStagedDamaged).not.toHaveBeenCalled()
+    expect(await ensureAudioOnServer(port, TAKE, HEADLESS, SESSION, 5)).toBeNull()
+    expect(m.markTakeTailDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable')
+  })
+  it('the STORED arm\'s failed damaged staging keeps today\'s path (no TailPendingError)', async () => {
+    m.readTakeSecureMeta.mockResolvedValue(meta())
+    m.loadTakeBlob.mockResolvedValue(HEADLESS)
+    const port = withTakeDoors(base)
+    port.prepareTranscription = jest.fn(async () => {
+      throw new Error('offline')
+    })
+    await secureTake(port, TAKE, 5)
+    expect(m.markTakeTailPending).not.toHaveBeenCalled()
+    expect(m.markTakeSecureError).toHaveBeenCalledWith(TAKE, 'network')
+  })
+})

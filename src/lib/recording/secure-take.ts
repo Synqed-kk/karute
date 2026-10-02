@@ -551,6 +551,12 @@ async function secureBlob(
       partial: true,
       ...(tail ? { stagedPart: 'tail' as const } : {}),
       ...(diag ? { diag } : {}),
+    }).catch(async (err: unknown) => {
+      // R-S87-18 (a) B-2: the MEMORY arm's blob is the only copy — a failed
+      // upload ends the run RETRYABLE (as B-1); the stored arm keeps today's.
+      if (facts.arm !== 'memory') throw err
+      await markTakeTailPending(takeId, blob.size)
+      throw new TailPendingError()
     })
     if (tail) {
       await markTakeTailDamaged(takeId, staged.path, damagedSecureCode(fate))
