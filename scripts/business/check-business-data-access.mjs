@@ -123,26 +123,82 @@ const FORBIDDEN_SPECIFIER = [
   },
 ]
 
-/** ⚖ S51 R116 (F0 SF-2 = GPT-6 F0 #3) + R125 — one write verb's call in the ORDINARY static spellings:
- *  whitespace or a newline on either side of the dot (`x.\n  verb (`), optional chaining before the
- *  member (`x?.verb(`) or on the call (`x.verb?.(`), bracket access with any quote (`x['verb'](`,
- *  `x?.["verb"](`, `` x[`verb`]( ``), the TS non-null `x.verb!(`, a generic argument list
- *  `x.verb<Row>(` / `insert<Row, Opts>(` (one level of nesting inside the `<…>`: `<Pick<Row, 'a'>>` is
- *  caught, `<A<B<C>>>` is NOT; the list may not contain `;`), and the indirect calls `.call(` /
- *  `.apply(` on the member, each optionally chained (`?.call(`, `.call?.(`, `?.apply(`, `.apply?.(`).
- *  The hit index stays on the `.` (or `[`) so an allowlist pin covers exactly what it covered before.
- *  CEILING (R125, stated honestly — these are NOT caught): an alias (`const u = x.verb; u()`),
- *  destructuring (`const { verb } = x`), `Reflect.apply(x.verb, …)`, a parenthesised member
- *  `(x.verb)(`, a computed member `x[name](` or `x['verb' as const](`, escapes (`x.\\u0075psert`,
- *  `x['\\x75psert']`); and two comment-blanker weaknesses (stripComments works per line): a line
- *  beginning with `*` inside non-comment code is blanked as a doc-comment line, and a multi-line
- *  template string containing `/*` flips the comment state. Those two are a carried fences item, not
- *  fixed here. Known safe-side false positive: a string literal containing `.verb(` is flagged. */
-const writeCall = (verb) =>
-  new RegExp(
-    `(?:\\.\\s*${verb}|\\[\\s*(['"\`])${verb}\\1\\s*\\])\\s*(?:!\\s*)?(?:<(?:[^<>;]|<[^<>;]*>)*>\\s*)?(?:(?:\\?\\.\\s*)?\\(|(?:\\?\\.|\\.)\\s*(?:call|apply)\\s*(?:\\?\\.\\s*)?\\()`,
-    'g',
-  )
+/** ⚖ S51 R116 (F0 SF-2 = GPT-6 F0 #3) + R125 + S52 FENCES-R3 (Greptile P2 on the generic form) — one
+ *  write verb's call. A head regex finds the member; `writeTail` then confirms a call follows it. The
+ *  hit index stays on the `.` (or `[`) so an allowlist pin covers exactly what it covered before.
+ *  CAUGHT:
+ *   - dot with whitespace or a newline on either side (`x.\n  verb (`)
+ *   - `?.` before the member (`x?.verb(`) or on the call (`x.verb?.(`)
+ *   - bracket access with any quote (`x['verb'](`, `x?.["verb"](`, `` x[`verb`]( ``)
+ *   - the indirect calls `.call(` / `.apply(` on the member, each optionally chained on either side
+ *     (`?.call(`, `.call?.(`, `?.apply(`, `.apply?.(`)
+ *   - a generic argument list of any nesting, incl. braces, semicolons, arrows and quoted `>`
+ *     (`x.verb<{ id: string; s: string }>(`, `x.verb<Map<K, { f: () => void }>>(`, `x.verb<Row[]>(`)
+ *   - the TS non-null `!` before and/or after the generic list (`x.verb!(`, `x.verb!<R>(`, `x.verb<R>!(`)
+ *  GIVE-UP RULE of the generic walker (`walkGeneric`): from the `<` it tracks a stack of `<` `{` `(` `[`
+ *  (skipping '…' "…" `…` literals; a `>` that ends `=>` is an arrow, not a closer); it stops with NO hit
+ *  when, while no `{` `(` `[` is open, it meets `;`, a newline, `&&`, `||`, or an `=` that is not `=>`;
+ *  or on a mismatched closer, an unterminated literal, end of text, or 4000 chars without closing.
+ *  So `x.verb < 3 && y > (z)` is a comparison, not a call.
+ *  NOT CAUGHT (R125 ceiling, stated honestly):
+ *   - an alias (`const u = x.verb; u()`), destructuring (`const { verb } = x`), `Reflect.apply(x.verb, …)`,
+ *     a parenthesised member `(x.verb)(`
+ *   - a computed member `x[name](` or `x['verb' as const](`, escapes (`x.\\u0075psert`, `x['\\x75psert']`)
+ *   - the comment-blanker's two per-line weaknesses: a line beginning with `*` inside non-comment code is
+ *     blanked as a doc-comment line, and a multi-line template string containing `/*` flips the comment
+ *     state (a carried fences item, not fixed here)
+ *   - `.bind(` forms beyond `x.verb.bind(` / `x['verb'].bind(` (no `?.`, `!` or generic there)
+ *   - `.call<T>(` / `.apply<T>(` (a generic on the indirect call)
+ *   - tagged templates (`` x.verb`…` ``) and a doubled non-null `x.verb!!(`
+ *   - a generic list whose top level spans a newline (`x.verb<\n Row\n>(`) — the give-up rule above
+ *  Known safe-side false positive: a string literal containing `.verb(` is flagged. */
+const writeHead = (verb) => new RegExp(`(?:\\.\\s*${verb}|\\[\\s*(['"\`])${verb}\\1\\s*\\])`, 'g')
+const CALL_TAIL = /^\s*(?:(?:\?\.\s*)?\(|(?:\?\.|\.)\s*(?:call|apply)\s*(?:\?\.\s*)?\()/
+const GENERIC_LIMIT = 4000
+const CLOSER = { '>': '<', '}': '{', ')': '(', ']': '[' }
+
+/** From the `<` at `start`, return the index just past its closing `>`, or -1 (the give-up rule above). */
+function walkGeneric(code, start) {
+  const stack = []
+  const end = Math.min(code.length, start + GENERIC_LIMIT)
+  for (let i = start; i < end; i++) {
+    const ch = code[i]
+    const angleOnly = stack.every((o) => o === '<')
+    if (ch === "'" || ch === '"' || ch === '`') {
+      let j = i + 1
+      while (j < end && code[j] !== ch && !(ch !== '`' && code[j] === '\n')) j += code[j] === '\\' ? 2 : 1
+      if (j >= end || code[j] !== ch) return -1
+      i = j
+    } else if (ch === '<' || ch === '{' || ch === '(' || ch === '[') stack.push(ch)
+    else if (ch === '>' && code[i - 1] === '=') continue // arrow `=>`
+    else if (ch in CLOSER) {
+      if (stack.pop() !== CLOSER[ch]) return -1
+      if (stack.length === 0) return i + 1
+    } else if (angleOnly) {
+      if (ch === ';' || ch === '\n') return -1
+      if ((ch === '&' || ch === '|') && code[i + 1] === ch) return -1
+      if (ch === '=' && code[i + 1] !== '>') return -1
+    }
+  }
+  return -1
+}
+
+/** After the member (index `at`): optional `!`, optional generic list, optional `!`, then a call. */
+function writeTail(code, at) {
+  let i = at
+  const skip = (re) => {
+    const m = re.exec(code.slice(i, i + 64))
+    if (m) i += m[0].length
+  }
+  skip(/^\s*(?:!\s*)?/)
+  if (code[i] === '<') {
+    i = walkGeneric(code, i)
+    if (i === -1) return false
+    skip(/^\s*(?:!\s*)?/)
+  }
+  return CALL_TAIL.test(code.slice(i, i + 64))
+}
+const writeCall = (verb) => ({ re: writeHead(verb), confirm: writeTail })
 const BIND_VERBS = 'insert|update|upsert|delete|rpc|create|save|set|log|addClosedDay|removeClosedDay'
 
 const CALL_PATTERNS = [
@@ -152,11 +208,11 @@ const CALL_PATTERNS = [
   { re: /\bcreateClient\s*\(/g, label: 'createClient(', scope: OUTSIDE_LOCK_FILES },
   // Writes: banned territory-wide, lock files included. Nothing in Business
   // edits anything during the play phase.
-  { re: writeCall('insert'), label: 'write call .insert(', scope: EVERYWHERE },
-  { re: writeCall('update'), label: 'write call .update(', scope: EVERYWHERE },
-  { re: writeCall('upsert'), label: 'write call .upsert(', scope: EVERYWHERE },
-  { re: writeCall('delete'), label: 'write call .delete(', scope: EVERYWHERE },
-  { re: writeCall('rpc'), label: 'write call .rpc(', scope: EVERYWHERE },
+  { ...writeCall('insert'), label: 'write call .insert(', scope: EVERYWHERE },
+  { ...writeCall('update'), label: 'write call .update(', scope: EVERYWHERE },
+  { ...writeCall('upsert'), label: 'write call .upsert(', scope: EVERYWHERE },
+  { ...writeCall('delete'), label: 'write call .delete(', scope: EVERYWHERE },
+  { ...writeCall('rpc'), label: 'write call .rpc(', scope: EVERYWHERE },
   // A bound write method is the same reach, one step removed (R-A2-15 §5).
   {
     // ⚖ S51 R116 — and its bracket spelling (`x['upsert'].bind(`), any quote.
@@ -351,10 +407,12 @@ export function scanDataAccess(rootDir, allow = ALLOW) {
         if (rule) hit(m.index, rule.label)
       }
     }
-    for (const { re, label, scope } of CALL_PATTERNS) {
+    for (const { re, confirm, label, scope } of CALL_PATTERNS) {
       if (!scope(rel)) continue
       re.lastIndex = 0
-      for (let m = re.exec(code); m; m = re.exec(code)) hit(m.index, label)
+      for (let m = re.exec(code); m; m = re.exec(code)) {
+        if (!confirm || confirm(code, m.index + m[0].length)) hit(m.index, label)
+      }
     }
 
     for (const { line, col, label } of hits) {

@@ -494,8 +494,46 @@ const pinTail = [{ path: formPath, label: 'write call .upsert(', match: ['<Row>(
 assert.equal(scanDataAccess(root, pinTail).length, 1, '22c: a pin after the dot does not cover it')
 clear('src/business/lib')
 
+// 23. S52 FENCES-R3 (Greptile P2, scanner :143) — the generic list is WALKED, not regex-matched: braces,
+//     semicolons, arrows, arrays, any nesting and a quoted `>` inside it all still reach the call.
+const R3_HIT = [
+  ['braces + semicolons', 'await db.update<{ id: string; status: string }>(row)\n', 'update'],
+  ['nested map + arrow', 'await db.upsert<Map<string, { a: number; b: () => void }>>(x)\n', 'upsert'],
+  ['array type', 'await db.delete<Row[]>(k)\n', 'delete'],
+  ['after from(), trailing semicolon, then non-null', "await sb.from('t').update<{ s: string; }>!(r)\n", 'update'],
+  ['quoted > inside the generic', "await db.insert<{ k: 'a>b'; j: \"<\" }>(row)\n", 'insert'],
+  ['four levels deep', "await db.rpc<A<B<C<D>>>>('fn')\n", 'rpc'],
+  ['multi-line object type', 'await db.upsert<{\n  a: string;\n  b: number\n}>(row)\n', 'upsert'],
+  ['generic + optional call', 'await db.update<Row>?.(r)\n', 'update'],
+]
+for (const [form, src, verb] of R3_HIT) {
+  write(formPath, src)
+  const f = scanDataAccess(root)
+  assert.equal(f.length, 1, `23 ${form}: expected 1 finding, got ${JSON.stringify(f)}`)
+  assert.equal(f[0].label, `write call .${verb}(`, `23 ${form}`)
+  assert.equal(f[0].line, 1, `23 ${form}: the hit is on the member's line`)
+}
+// 23b. MUST-NOT-HIT — comparisons and non-calls: the walker gives up (see the header's GIVE-UP RULE).
+const R3_MISS = [
+  ['comparison with &&', 'if (x.update < 3 && y > (z)) go()\n'],
+  ['comparison with ||', 'const q = x.update < 3 || y > (z)\n'],
+  ['comparison with ===', 'const q = x.update < a === b > (c)\n'],
+  ['semicolon at top level', 'const r = x.update < a; const s = b > (c)\n'],
+  ['newline at top level', 'const t = x.update < a\nconst u = b > (c)\n'],
+  ['instantiation, no call', 'type T = typeof db.update<Row>\n'],
+]
+for (const [form, src] of R3_MISS) {
+  write(formPath, src)
+  assert.deepEqual(scanDataAccess(root), [], `23b ${form} must stay clean`)
+}
+// 23c. The hit index of a walked generic call is still the `.`: a pin on `.update` covers it.
+write(formPath, 'await db.update<{ id: string; status: string }>(row)\n')
+const pinDotR3 = [{ path: formPath, label: 'write call .update(', match: ['.update'], count: 1, reason: 'selftest' }]
+assert.deepEqual(scanDataAccess(root, pinDotR3), [], '23c: a pin starting at the dot covers the walked generic call')
+clear('src/business/lib')
+
 // 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 83 cases green')
+console.log('✓ business data-access guard selftest: 98 cases green')
