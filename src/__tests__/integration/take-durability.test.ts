@@ -1230,12 +1230,15 @@ describe('listOwnTakes carries secureError (piece r prerequisite)', () => {
   it.each([
     ['audio_partial alone', false, 'partial'],
     ['audio_partial + a held-upload note', true, undefined],
-  ])('S76 A4: %s → damaged %s', async (_n, noted, damaged) => {
+    // PR-B commit 8 (R-S77-5, the M-S75-17 killer of record): the server's
+    // unreadable_object reads as unreadable on the row, never as partial.
+    ['unreadable_object', false, 'unreadable'],
+  ])('S76 A4: %s → damaged %s', async (n, noted, damaged) => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
     await passGrace()
-    await markTakeSecureError(takeId, 'audio_partial')
+    await markTakeSecureError(takeId, n === 'unreadable_object' ? 'unreadable_object' : 'audio_partial')
     if (noted) expect(await markTakeHeldUpload(takeId, 20_030, 600)).toBe(true)
     const [row] = await listOwnTakes([])
     expect(row.damaged).toBe(damaged)

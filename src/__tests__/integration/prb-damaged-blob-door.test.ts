@@ -487,3 +487,14 @@ describe.each(PORTS)('the flight record fills all twelve keys — %s port', (_na
     expect(port.finalizeTake.mock.calls[0][0].diag).toMatchObject({ hidden_count: 1, pump_stop_code: 'landed' })
   })
 })
+
+// PR-B commit 8 (R-S84-4 path 2, the M-B4 killer of record): `partial` rides
+// the STAGED body only — the client-named take-key mint keeps today's body.
+describe('M-B4 — the thin take-key mint body never carries partial', () => {
+  it('mintTakeUrl sends exactly { takeId, mimeType, recordingSessionId } — no partial key', async () => {
+    PORTS[0][1]()
+    await viteRecordingPort.mintTakeUrl(TAKE, 'audio/webm', SESSION)
+    expect(stagedBodies).toEqual([{ takeId: TAKE, mimeType: 'audio/webm', recordingSessionId: SESSION }])
+    expect('partial' in stagedBodies[0]).toBe(false)
+  })
+})

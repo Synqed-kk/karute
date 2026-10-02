@@ -342,3 +342,16 @@ describe('A3 — secureTake finishes a noted whole copy; the server’s answer r
     }
   })
 })
+
+// PR-B commit 8 (R-S77-5, the M-S75-2 killer of record): a stored copy the
+// recorder counted whole (bytesEmitted = its size, tailIncomplete unset) is
+// never 'partial', so the larger held copy does not win on size alone.
+describe('R-S77-5 — a whole stored copy is not beaten by size alone', () => {
+  it('a session, stored 27 B with bytesEmitted 27 and tailIncomplete unset, held 20,030 B → the stored copy is PUT and markTakeHeldUpload is never called', async () => {
+    store.meta = { ...store.meta!, tailIncomplete: undefined, bytesEmitted: 27, durationMs: 600_000 }
+    expect([stored.size, memory.size, store.meta.recordingSessionId]).toEqual([27, 20_030, SESSION])
+    expect(await outcomeOf(run())).toBe('resolved')
+    expect(markTakeHeldUpload).not.toHaveBeenCalled()
+    expect(put.mock.calls.map((c) => c[1].body.size)).toEqual([stored.size])
+  })
+})
