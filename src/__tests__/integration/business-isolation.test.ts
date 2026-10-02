@@ -206,6 +206,7 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   const RENDER_TEST_FILE = /^src\/__tests__\/integration\/business\/[^/]+\.test\.tsx$/
   const RENDER_TEST_BARE = new Set(['react-dom/client', '@testing-library/react'])
   // R123 (S51): react-dom for the shared Dialog's createPortal only — React's own renderer, no data access
+  // Single consumer: settings/Dialog.tsx — not on main yet; it lands with the Dialog PR (P5c).
   const FILE_ALLOWED_BARE: Record<string, string[]> = { 'src/app/[locale]/(business)/business/settings/Dialog.tsx': ['react-dom'] }
 
   /** Repo-relative target of a specifier, or null when it is a bare package. */
@@ -408,6 +409,29 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     expect(outwardOffense('next/navigation', data)).toBeNull()
     expect(outwardOffense('next/link', data)).toBeNull()
     expect(outwardOffense('next/headers', data)).toBeNull()
+  })
+
+  it('the Dialog react-dom door (R123): one file, the bare package only, every subpath and every other file refused', () => {
+    const BARE_OFF = 'bare package off the allowlist'
+    const dialog = 'src/app/[locale]/(business)/business/settings/Dialog.tsx'
+    // The one admitted import: bare react-dom from the shared Dialog (createPortal).
+    expect(outwardOffense('react-dom', dialog)).toBeNull()
+    // Exact specifier, never a prefix: the renderer's other entries stay shut even from Dialog.tsx.
+    expect(outwardOffense('react-dom/client', dialog)).toBe(BARE_OFF)
+    expect(outwardOffense('react-dom/server', dialog)).toBe(BARE_OFF)
+    expect(outwardOffense('react-dom/test-utils', dialog)).toBe(BARE_OFF)
+    // Every OTHER Business file — siblings, look-alike names, other folders — stays shut to bare react-dom.
+    const others = [
+      'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx',
+      'src/app/[locale]/(business)/business/settings/Dialog.test.tsx',
+      'src/app/[locale]/(business)/business/settings/sub/Dialog.tsx',
+      'src/app/[locale]/(business)/business/today/Dialog.tsx',
+      'src/app/[locale]/(business)/business/today/TodayScreen.tsx',
+      'src/business/components/Dialog.tsx',
+      'src/business/lib/data.ts',
+    ]
+    const verdicts = Object.fromEntries(others.map((f) => [f, outwardOffense('react-dom', f)]))
+    expect(verdicts).toEqual(Object.fromEntries(others.map((f) => [f, BARE_OFF])))
   })
 
   it('the door is one hop: runtime and e2e never import the test folder', () => {
