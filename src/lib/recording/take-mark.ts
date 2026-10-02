@@ -62,7 +62,7 @@ export type MarkTakeResult = 'created' | 'exists' | 'error'
  *  `key` is the full mark key, so a caller can tell a webm copy's mark from
  *  an mp4 copy's mark of the same session. */
 export type StagedMark = TakeMark & {
-  target: { sessionId: string; uuid: string; ext: string }
+  target: { sessionId: string; uuid: string; ext: string; part?: 'tail' }
   key: string
 }
 
@@ -302,8 +302,8 @@ export async function readStagedMarks(
           warnStorageUnknown('take-mark.corrupt', null)
           return null
         }
-        const { sessionId: targetSession, uuid, ext } = parsed.target
-        return { ...mark, target: { sessionId: targetSession, uuid, ext }, key }
+        const { sessionId: targetSession, uuid, ext, part } = parsed.target
+        return { ...mark, target: { sessionId: targetSession, uuid, ext, ...(part ? { part } : {}) }, key }
       } catch (err) {
         warnStorageUnknown('take-mark.read', err)
         return null
