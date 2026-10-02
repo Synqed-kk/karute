@@ -509,6 +509,9 @@ const R3_HIT = [
   // call. 200, not 80: below 128 the old code passed too, and after the DOT the head regex's `\s*` covers it.
   ['newline + 200 spaces after the member', 'await x.update\n' + ' '.repeat(200) + '(r)\n', 'update'],
   ['newline + 200 spaces after the generic', 'await x.update<Row>\n' + ' '.repeat(200) + '(r)\n', 'update'],
+  // S52 FENCES-R3c: a newline at angle-only depth no longer gives up (Prettier breaks long type arguments).
+  ['Prettier-broken generic, 3 lines', "await db.update<\n  Database['public']['Tables']['x']['Row']\n>(row)\n", 'update'],
+  ['short generic over 3 lines', 'await x.update<\n Row\n>(r)\n', 'update'],
 ]
 for (const [form, src, verb] of R3_HIT) {
   write(formPath, src)
@@ -523,7 +526,7 @@ const R3_MISS = [
   ['comparison with ||', 'const q = x.update < 3 || y > (z)\n'],
   ['comparison with ===', 'const q = x.update < a === b > (c)\n'],
   ['semicolon at top level', 'const r = x.update < a; const s = b > (c)\n'],
-  ['newline at top level', 'const t = x.update < a\nconst u = b > (c)\n'],
+  ['newline, then a non-arrow = at top level', 'const t = x.update < a\nconst u = b > (c)\n'],
   ['instantiation, no call', 'type T = typeof db.update<Row>\n'],
 ]
 for (const [form, src] of R3_MISS) {
@@ -540,4 +543,4 @@ clear('src/business/lib')
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 100 cases green')
+console.log('✓ business data-access guard selftest: 102 cases green')

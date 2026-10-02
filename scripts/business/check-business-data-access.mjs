@@ -136,9 +136,12 @@ const FORBIDDEN_SPECIFIER = [
  *   - a generic argument list of any nesting, incl. braces, semicolons, arrows and quoted `>`
  *     (`x.verb<{ id: string; s: string }>(`, `x.verb<Map<K, { f: () => void }>>(`, `x.verb<Row[]>(`)
  *   - the TS non-null `!` before and/or after the generic list (`x.verb!(`, `x.verb!<R>(`, `x.verb<R>!(`)
+ *   - a generic list whose top level spans a newline, as Prettier breaks a long type argument
+ *     (`x.verb<\n  Database['public']['Tables']['x']['Row']\n>(`, `x.verb<\n Row\n>(`)
  *  GIVE-UP RULE of the generic walker (`walkGeneric`): from the `<` it tracks a stack of `<` `{` `(` `[`
  *  (skipping '…' "…" `…` literals; a `>` that ends `=>` is an arrow, not a closer); it stops with NO hit
- *  when, while no `{` `(` `[` is open, it meets `;`, a newline, `&&`, `||`, or an `=` that is not `=>`;
+ *  when, while no `{` `(` `[` is open, it meets `;`, `&&`, `||`, or an `=` that is not `=>` (a newline
+ *  does NOT stop it — S52 FENCES-R3c);
  *  or on a mismatched closer, an unterminated literal, end of text, or 4000 chars without closing.
  *  So `x.verb < 3 && y > (z)` is a comparison, not a call.
  *  NOT CAUGHT (R125 ceiling, stated honestly):
@@ -151,8 +154,8 @@ const FORBIDDEN_SPECIFIER = [
  *   - `.bind(` forms beyond `x.verb.bind(` / `x['verb'].bind(` (no `?.`, `!` or generic there)
  *   - `.call<T>(` / `.apply<T>(` (a generic on the indirect call)
  *   - tagged templates (`` x.verb`…` ``) and a doubled non-null `x.verb!!(`
- *   - a generic list whose top level spans a newline (`x.verb<\n Row\n>(`) — the give-up rule above
- *  Known safe-side false positive: a string literal containing `.verb(` is flagged. */
+ *  Known safe-side false positives: a string literal containing `.verb(` is flagged; so is a comparison
+ *  `x.verb < a` whose next line (ASI) starts `b > (…)` with no `;` `&&` `||` `=` between them. */
 const writeHead = (verb) => new RegExp(`(?:\\.\\s*${verb}|\\[\\s*(['"\`])${verb}\\1\\s*\\])`, 'g')
 const CALL_TAIL = /^\s*(?:(?:\?\.\s*)?\(|(?:\?\.|\.)\s*(?:call|apply)\s*(?:\?\.\s*)?\()/
 const GENERIC_LIMIT = 4000
@@ -176,7 +179,7 @@ function walkGeneric(code, start) {
       if (stack.pop() !== CLOSER[ch]) return -1
       if (stack.length === 0) return i + 1
     } else if (angleOnly) {
-      if (ch === ';' || ch === '\n') return -1
+      if (ch === ';') return -1
       if ((ch === '&' || ch === '|') && code[i + 1] === ch) return -1
       if (ch === '=' && code[i + 1] !== '>') return -1
     }
