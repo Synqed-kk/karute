@@ -441,11 +441,11 @@ async function stageHeldTail(
   blob: Blob,
   session: string | null,
   storedCode: string,
-  staged: StagedFacts | undefined,
+  stagedFacts: StagedFacts | undefined,
 ): Promise<void> {
   if (!RECORDING_SWITCHES.stagedPartialDoor || !session || blob.size === 0) return
   const head = await readBlobHead(blob)
-  if (storedCode === AUDIO_PARTIAL && staged?.arm === 'stored' && staged.bytes === blob.size && head && sniffContainer(head).kind !== 'unknown') return
+  if (storedCode === AUDIO_PARTIAL && stagedFacts?.arm === 'stored' && stagedFacts.bytes === blob.size && head && sniffContainer(head).kind !== 'unknown') return
   try {
     const staged = await port.prepareTranscription(blob, null, {
       stagedFor: session,
