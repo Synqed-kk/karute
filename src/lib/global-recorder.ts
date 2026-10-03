@@ -51,12 +51,12 @@ export interface RecordingTarget {
 
 // ── Runaway-recording safety nets ────────────────────────────────────────────
 // Interim guard until segmented capture removes the length ceiling entirely.
-// Tied to the storage limit: at 48 kbps a recording is ~0.36 MB/min, and the
-// effective upload cap is 50 MB (Supabase Free plan's global file size limit —
-// it overrides any larger per-bucket value, so ~139 min is the absolute max).
-// The 2h hard stop yields ~43 MB, a comfortable margin under the cap, so the
-// auto-saved recording can still upload. A forgotten 3-4h recording would
-// otherwise be both too big to save AND a total loss of the session.
+// Sizes: a 2-hour recording measured 70,950,340 bytes (≈79 kbit/s) on
+// 2026-10-03. The storage service's project-wide file size limit was read on
+// its dashboard as 1 GB on 2026-10-03 (the 50 MB figure once quoted here is
+// stale); this code's own byte limit is 2 GiB (MAX_TAKE_BYTES,
+// src/lib/app-api/record-schemas.ts). A forgotten 3-4h recording would
+// otherwise be a total loss of the session.
 //
 // NOTE: a locked or pocketed iPhone KEEPS recording (⚖ field-proven): the
 // iPhone shell declares `UIBackgroundModes: audio` (ios/App/App/Info.plist).
@@ -64,23 +64,41 @@ export interface RecordingTarget {
 // nets cover those recordings too. What take-store persistence guarantees is
 // that whatever WAS captured before a kill is recoverable.
 const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
-const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (~43 MB, keeps blob < 50 MB cap)
+export const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (≈71 MB measured 2026-10-03)
 const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
 
 // Take durability: flush accumulated chunks to IndexedDB (take-store) every
-// ~5 s — NOT per 100 ms chunk, so the disk isn't ground — plus on pause/stop/
+// ~5 s — NOT per 1000 ms chunk, so the disk isn't ground — plus on pause/stop/
 // visibilitychange-hidden. Persistence is best-effort and must NEVER block
 // capture: any failure disables the layer for this take and recording
 // continues memory-only exactly as before.
-const TAKE_FLUSH_MS = 5_000
+export const TAKE_FLUSH_MS = 5_000
+
+// ⚖ THE RECORDER'S TIMESLICE: ONE PIECE A SECOND (S92). On iPhones each piece
+// holds one open file inside the app's network helper; at ten a second the
+// phone's table of open files ran out at about 41 minutes and iOS stopped the
+// helper, cutting the recording. One a second is what a real phone already ran
+// for 2 hours uncut (test build d550ec5b3). The ONLY timeslice:
+// `recorder.start(RECORDER_SLICE_MS)` below reads it, and SEGMENT_MAX_CHUNKS is
+// derived from it.
+export const RECORDER_SLICE_MS = 1000
+
+// ⚖ PIECES ONE RECORDING MAY CREATE (S92). A bound on the pieces CREATED by one
+// recording (AUTO_STOP_MS / RECORDER_SLICE_MS), NOT on what the helper holds.
+// One 2-hour recording creates 7,200. Two full-length recordings held at once =
+// 2 × 7,200 = 14,400, under the ≈16,000 entries ONE test phone had free — one
+// phone's measurement, a margin, not a guarantee; 2 × 8,000 would leave no
+// margin. Read only by the pin test; it changes no behaviour.
+export const PIECES_PER_RECORDING_BUDGET = 8_000
 
 // ⚖ ONE APPEND IS AT MOST ONE NORMAL SEGMENT (S36 PR-1): one TAKE_FLUSH_MS
-// tick of the recorder's 100 ms timeslice (`recorder.start(100)` below). A
+// tick of the recorder's 1000 ms timeslice (`recorder.start(RECORDER_SLICE_MS)`
+// below). A
 // flush after storage was off — the revive's catch-up — would otherwise write
 // every chunk held in memory as ONE blob: after an eight-minute outage a
 // multi-MB IndexedDB write and a segment far past the pump's per-PUT floor. A
 // chunk count, not a length of anything the salon sets.
-const SEGMENT_MAX_CHUNKS = 50
+export const SEGMENT_MAX_CHUNKS = TAKE_FLUSH_MS / RECORDER_SLICE_MS
 
 // ⚖ THE REVIVE'S WAIT AFTER EACH FAILED TRY (S36 PR-1), the last one repeating
 // while the take records. On the flush tick, so each is at least one tick.
@@ -1475,7 +1493,7 @@ class GlobalRecorder {
     this.recorder = recorder
     this.startTime = Date.now()
     this.startedAt = Date.now()
-    recorder.start(100)
+    recorder.start(RECORDER_SLICE_MS)
     this.state = 'recording'
     this.armRunawayGuard()
 
