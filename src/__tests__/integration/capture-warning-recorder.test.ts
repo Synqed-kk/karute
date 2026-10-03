@@ -92,7 +92,7 @@ jest.mock('@/lib/recording/segment-uploader', () => ({
 jest.mock('@/lib/recording/secure-take', () => ({ secureTake: async () => {} }))
 jest.mock('@/lib/ports/recording-port', () => ({ getRecordingPipelinePort: () => ({}) }))
 
-import { globalRecorder } from '@/lib/global-recorder'
+import { globalRecorder, SEGMENT_MAX_CHUNKS } from '@/lib/global-recorder'
 import type { SegmentSource } from '@/lib/recording/segment-uploader'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
@@ -559,11 +559,12 @@ describe('PR-6 — the four pins the fresh-eyes mutants found missing (FRESH-S39
     expect(firstSince).toBeGreaterThan(0)
 
     // Storage comes back: the 10 s try creates the row, and the catch-up
-    // behind it writes what memory held — sixty chunks, TWO segments — and
-    // both land. That is the recovery completing, and only it clears the clock.
+    // behind it writes what memory held — one full segment and one chunk more,
+    // TWO segments — and both land. That is the recovery completing, and only
+    // it clears the clock.
     mockCreateOk = true
     mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 1, lastSeq: 1 }
-    for (let i = 0; i < 60; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    for (let i = 0; i < SEGMENT_MAX_CHUNKS + 1; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
     await tick() // 10 s
     expect(persistOf().disabled).toBe(false)
     expect(persistOf().seq).toBe(2)
@@ -729,7 +730,7 @@ describe('PR-6 fix 2 — Greptile thread 4: a partial recovery keeps the outage 
     // be won back after that (a seq is on disk, the row cannot be read).
     mockCreateOk = true
     mockAppendTakeSegment.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
-    for (let i = 0; i < 60; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    for (let i = 0; i < SEGMENT_MAX_CHUNKS + 1; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
     await tick() // 10 s
     expect(mockAppendTakeSegment).toHaveBeenCalledTimes(2)
     expect(persistOf().seq).toBe(1)
@@ -898,7 +899,7 @@ describe('PR-6 fix 3 — FIX E: storage dying after healthy uploading is the dev
     mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 1, lastSeq: 1 }
     const held = deferred<boolean>()
     mockIsTakeHeldByAnother.mockImplementationOnce(() => held.promise)
-    for (let i = 0; i < 60; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
+    for (let i = 0; i < SEGMENT_MAX_CHUNKS + 1; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })
     await tick() // 80 s
     expect(persistOf().disabled).toBe(false)
     expect(recordedMsOf()).toBeGreaterThanOrEqual(60_000)
@@ -1084,11 +1085,11 @@ describe('PR-6 fix 6 — FIX I (gr thread 4108401327): the hold ends on memory l
       expect(persistOf().disabled).toBe(false)
       expect(globalRecorder.captureWarning).toBe('server')
 
-      // ── OUTAGE 1. Storage goes with one full segment (50 chunks) in memory,
+      // ── OUTAGE 1. Storage goes with one full segment (SEGMENT_MAX_CHUNKS chunks) in memory,
       // none of it on disk, and the row cannot be made yet.
       mockAppendOk = false
       mockCreateOk = false
-      chunks(50)
+      chunks(SEGMENT_MAX_CHUNKS)
       await tick() // 65 s: the flush refuses
       expect(persistOf().disabled).toBe(true)
       expect(persistOf().seq).toBe(0)
@@ -1138,7 +1139,7 @@ describe('PR-6 fix 6 — FIX I (gr thread 4108401327): the hold ends on memory l
       try {
         // The server stalls again: eighteen segments written (seqs 1–18), the
         // server still has only seq 0 — the row says server.
-        chunks(18 * 50)
+        chunks(18 * SEGMENT_MAX_CHUNKS)
         mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 0, lastSeq: 18 }
         await tick() // 95 s
         await drain(300)

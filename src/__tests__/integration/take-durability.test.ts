@@ -131,6 +131,11 @@ const SEGMENT_RETRY_WINDOW_MS = 200
  *  round 18's first act stamps in, and the only shape in which a stop stamp can
  *  still lose a write of its own. */
 let emptyTailChunk = false
+/** Off by default: the fake recorder emits no timed pieces. On, it fires one
+ *  piece per `timeslice` ms it was STARTED with, as a real recorder does. Every
+ *  piece any fake recorder fires (timed, requested, tail) is counted in
+ *  `FakeMediaRecorder.pieces`. */
+let timedPieces = false
 /** Every TAKES put that INTRODUCED a `durationMs` (the row had none before),
  *  by the `lastSeq` it carried. The round-18 claim in one array: exactly one
  *  write ever carries the stamp, and when a tail is owed it is the write that
@@ -431,6 +436,8 @@ const connections: FakeIDB[] = []
 
 class FakeMediaRecorder {
   static last: FakeMediaRecorder | null = null
+  static all: FakeMediaRecorder[] = []
+  static pieces = 0
   static isTypeSupported() {
     return true
   }
@@ -438,17 +445,33 @@ class FakeMediaRecorder {
   onstop: (() => void) | null = null
   state: 'inactive' | 'recording' | 'paused' = 'inactive'
   mimeType = 'audio/webm'
+  private cadence: ReturnType<typeof setInterval> | null = null
   constructor() {
     FakeMediaRecorder.last = this
+    FakeMediaRecorder.all.push(this)
   }
-  start() {
+  private emit(data: Blob) {
+    FakeMediaRecorder.pieces++
+    this.ondataavailable?.({ data })
+  }
+  start(timeslice?: number) {
     this.state = 'recording'
+    if (timedPieces && timeslice !== undefined) {
+      this.cadence = setInterval(() => {
+        if (this.state === 'recording') this.emit(new Blob(['PIECE']))
+      }, timeslice)
+    }
+  }
+  requestData() {
+    if (this.state !== 'inactive') this.emit(new Blob(['REQUESTED']))
   }
   stop() {
+    if (this.cadence) clearInterval(this.cadence)
+    this.cadence = null
     // Real MediaRecorder emits the final dataavailable BEFORE the stop event —
     // the tail chunk exercises the onstop final flush.
     if (this.state !== 'inactive') {
-      this.ondataavailable?.({ data: new Blob(emptyTailChunk ? [] : ['TAIL']) })
+      this.emit(new Blob(emptyTailChunk ? [] : ['TAIL']))
     }
     this.state = 'inactive'
     this.onstop?.()
@@ -467,7 +490,15 @@ Object.defineProperty(navigator, 'mediaDevices', {
   value: { getUserMedia: async () => ({ getTracks: () => [] }) },
 })
 
-import { globalRecorder } from '@/lib/global-recorder'
+import {
+  AUTO_STOP_MS,
+  globalRecorder,
+  PIECES_PER_RECORDING_BUDGET,
+  RECORDER_SLICE_MS,
+  RUNAWAY_TICK_MS,
+  SEGMENT_MAX_CHUNKS,
+  TAKE_FLUSH_MS,
+} from '@/lib/global-recorder'
 import {
   appendTakeSegment,
   BINDING_SECURE_REFUSALS,
@@ -699,6 +730,7 @@ beforeEach(async () => {
   failNextTailMarks = 0
   failNextSegmentWrites = 0
   emptyTailChunk = false
+  timedPieces = false
   stampWrites.length = 0
   finalizeMarks.length = 0
   segmentRowsRead.length = 0
@@ -706,6 +738,8 @@ beforeEach(async () => {
   localStorage.clear()
   globalRecorder.discard()
   await drain()
+  FakeMediaRecorder.pieces = 0
+  FakeMediaRecorder.all.length = 0
   fakeDb.stores.get('takes')?.data.clear()
   fakeDb.stores.get('segments')?.data.clear()
 })
@@ -5669,11 +5703,11 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbccc'.length)
   })
 
-  it('T3 300 s held only in memory → ~60 segments of at most 50 chunks, seqs consecutive, the stamp on the last only', async () => {
+  it('T3 300 s held only in memory → ~60 segments of at most SEGMENT_MAX_CHUNKS chunks, seqs consecutive, the stamp on the last only', async () => {
     mockUid = null // storage never answers for the whole five minutes
     const takeId = await startAndSettle()
     for (let tick = 0; tick < 60; tick++) {
-      for (let i = 0; i < 50; i++) pushChunk('x') // 5 s of the recorder's 100 ms chunks
+      for (let i = 0; i < SEGMENT_MAX_CHUNKS; i++) pushChunk('x') // 5 s of the recorder's RECORDER_SLICE_MS chunks
       await jest.advanceTimersByTimeAsync(5_000)
     }
     await drain(200)
@@ -5685,13 +5719,13 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     await jest.advanceTimersByTimeAsync(50)
     await drain(400)
 
-    // 3,000 chunks + the TAIL: sixty full segments and the tail's own.
+    // 60 × SEGMENT_MAX_CHUNKS chunks + the TAIL: sixty full segments and the tail's own.
     expect(metaOf(takeId).lastSeq).toBe(60)
-    for (let seq = 0; seq < 60; seq++) expect(segmentOf(takeId, seq)?.size).toBe(50)
+    for (let seq = 0; seq < 60; seq++) expect(segmentOf(takeId, seq)?.size).toBe(SEGMENT_MAX_CHUNKS)
     expect(segmentOf(takeId, 60)?.size).toBe('TAIL'.length)
     expect(stampWrites).toEqual([60]) // exactly one write carried the stamp: the last
     expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
-    expect(putBodies.at(-1)?.size).toBe(3_000 + 'TAIL'.length) // secured WHOLE
+    expect(putBodies.at(-1)?.size).toBe(60 * SEGMENT_MAX_CHUNKS + 'TAIL'.length) // secured WHOLE
   })
 
   it('T6 the stop-time revive reaches secureTake: the take is secured whole, not flagged', async () => {
@@ -6095,24 +6129,24 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     mockStartRecordingSession.mockImplementation(async () => ({ id: 'rs-mem' }))
   })
 
-  it('MB1 storage off from the start: full segments go up from memory, seqs consecutive, 50 chunks each — and the stop is unchanged', async () => {
+  it('MB1 storage off from the start: full segments go up from memory, seqs consecutive, SEGMENT_MAX_CHUNKS chunks each — and the stop is unchanged', async () => {
     mockUid = null // no row can be made: storage is off from the first write
     await startAndSettle()
     expect(globalRecorder.recordingSessionId).toBe('rs-mem')
     for (let i = 0; i < 3; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
     }
-    pushN(20) // the segment still filling
+    pushN(2) // the segment still filling
     await tick()
     expect(takes().size).toBe(0)
-    expect(segPuts).toEqual([0, 1, 2].map((seq) => ({ seq, size: 50 })))
+    expect(segPuts).toEqual([0, 1, 2].map((seq) => ({ seq, size: SEGMENT_MAX_CHUNKS })))
     expect([...server.keys()]).toEqual([0, 1, 2])
     expect(persistOf().uploadedSeq).toBe(2)
 
     // ⚖ MU-3 — the stop sends nothing from memory, not even a segment that
     // filled since the last tick; the whole take is its.
-    pushN(30)
+    pushN(SEGMENT_MAX_CHUNKS - 2) // …which fills it
     globalRecorder.stop()
     await drain(400)
     await jest.advanceTimersByTimeAsync(50)
@@ -6124,13 +6158,13 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     mockUid = null
     const takeId = await startAndSettle()
     for (let i = 0; i < 3; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
     }
     expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2])
 
     mockUid = 'staff-A' // the store answers again
-    pushN(20)
+    pushN(2)
     await tick()
     expect(persistOf().disabled).toBe(false)
     expect(metaOf(takeId)).toMatchObject({ lastSeq: 3, uploadedSeq: 3 })
@@ -6139,35 +6173,35 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     // Every seq asked for once and PUT once — memory's three, then the store's one.
     expect(minted).toEqual([0, 1, 2, 3])
     expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2, 3])
-    expect(server.get(3)).toBe(20)
+    expect(server.get(3)).toBe(2)
   })
 
   it('MB3 a memory upload that fails leaves uploadedSeq where it was, and the backoff sends it again', async () => {
     mockUid = null
     await startAndSettle()
     failSegPuts = 1
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
-    expect(segPuts).toEqual([{ seq: 0, size: 50 }])
+    expect(segPuts).toEqual([{ seq: 0, size: SEGMENT_MAX_CHUNKS }])
     expect(server.size).toBe(0)
     expect(persistOf().uploadedSeq).toBe(-1)
 
     for (let i = 0; i < 3; i++) await tick() // past the 5–10 s backoff
     expect(segPuts.filter((p) => p.seq === 0)).toHaveLength(2)
-    expect(server.get(0)).toBe(50)
+    expect(server.get(0)).toBe(SEGMENT_MAX_CHUNKS)
     expect(persistOf().uploadedSeq).toBe(0)
   })
 
   it('MB4 a take whose row is a colleague\'s never uploads from memory', async () => {
     const takeId = await startAndSettle()
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // an ordinary flush, and the store's pump sends seq 0
     expect(segPuts.map((p) => p.seq)).toEqual([0])
     expect(metaOf(takeId)?.uploadedSeq).toBe(0)
 
     mockUid = 'staff-B' // the next staffer signs in; the owner gate latches the take
     for (let i = 0; i < 5; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
     }
     expect(persistOf().disabled).toBe(true)
@@ -6178,7 +6212,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
   it('MB6 a signed-out take sends nothing from memory, even from a tick inside the stop\'s gap', async () => {
     mockUid = null
     await startAndSettle()
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     expect(segPuts.map((p) => p.seq)).toEqual([0])
     // A real recorder's stop EVENT is a task, not a call: a tick can land
@@ -6190,7 +6224,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     }
     mockUid = 'staff-A' // the web wipe runs before signOut: the session is still live
     globalRecorder.abandon()
-    pushN(50) // a full segment in memory, and the timer has not been cleared yet
+    pushN(SEGMENT_MAX_CHUNKS) // a full segment in memory, and the timer has not been cleared yet
     await tick()
     expect(segPuts.map((p) => p.seq)).toEqual([0])
     onstop()
@@ -6204,11 +6238,11 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
       minted.push(...seqs)
       return { error: 'not_reserved' }
     })
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     expect(minted).toEqual([0])
     for (let i = 0; i < 6; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
     }
     expect(minted).toEqual([0]) // stopped, as segmentError stops the row's pump
@@ -6218,15 +6252,15 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
   it('MB5 seqs already on disk go up from memory byte for byte, continuous with what the server has', async () => {
     mockStartRecordingSession.mockImplementation(async () => null) // no session yet: nothing uploads
     const takeId = await startAndSettle()
-    pushN(30, 'a')
-    await tick() // seq 0: 30 chunks on disk
-    pushN(40, 'b')
-    await tick() // seq 1: 40 chunks on disk
+    pushN(3, 'a')
+    await tick() // seq 0: 3 chunks on disk
+    pushN(4, 'b')
+    await tick() // seq 1: 4 chunks on disk
     expect(metaOf(takeId)?.lastSeq).toBe(1)
     expect(segPuts).toEqual([])
 
     failNextSegmentWrites = Infinity // …then the disk refuses segments for good
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
     await drain(200)
@@ -6235,16 +6269,16 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     // The session retry lands a row at 30 s; memory then sends what the server lacks.
     mockStartRecordingSession.mockImplementation(async () => ({ id: 'rs-late' }))
     for (let i = 0; i < 6; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
       await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
       await drain(200)
     }
     expect(metaOf(takeId)?.recordingSessionId).toBe('rs-late')
     expect(segPuts.slice(0, 3)).toEqual([
-      { seq: 0, size: 30 },
-      { seq: 1, size: 40 },
-      { seq: 2, size: 50 },
+      { seq: 0, size: 3 },
+      { seq: 1, size: 4 },
+      { seq: 2, size: SEGMENT_MAX_CHUNKS },
     ])
     expect(new Set(segPuts.map((p) => p.seq)).size).toBe(segPuts.length) // none twice
     failNextSegmentWrites = 0
@@ -6253,15 +6287,15 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
   it('MB8 a discarded take\'s leftover flush never uploads from memory under the next recording', async () => {
     mockUid = null
     const takeId = await startAndSettle()
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
-    expect(segPuts).toEqual([{ seq: 0, size: 50 }])
+    expect(segPuts).toEqual([{ seq: 0, size: SEGMENT_MAX_CHUNKS }])
 
     // A full segment in memory, and its flush QUEUED — not yet run — when the
     // staffer discards. discard() replaces `this.persist` and never sets
     // `abandoned`, so only the recorder-identity check stands between that
     // flush and the memory pump (FE1b finding 1).
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     jest.advanceTimersByTime(5_000)
     globalRecorder.discard()
     const mintsBefore = mintSegmentUrls.mock.calls.length
@@ -6269,7 +6303,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     segPuts = []
     const nextTakeId = await startAndSettle()
     expect(nextTakeId).not.toBe(takeId)
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     await drain(300)
 
@@ -6278,7 +6312,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(later.filter(([t]) => t === takeId)).toEqual([])
     // The new take: its own id only, and its own first segment.
     expect(later.map(([t, , , seqs]) => [t, seqs])).toEqual([[nextTakeId, [0]]])
-    expect(segPuts).toEqual([{ seq: 0, size: 50 }])
+    expect(segPuts).toEqual([{ seq: 0, size: SEGMENT_MAX_CHUNKS }])
   })
 
   it('MB9 a terminal refusal memory got goes on the row at the revive — the store\'s pump never asks that door again', async () => {
@@ -6288,16 +6322,16 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
       minted.push(...seqs)
       return { error: 'not_reserved' }
     })
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // the memory pump mints seq 0; the door refuses for good
     expect(minted).toEqual([0])
     expect(persistOf()).toMatchObject({ disabled: true, segmentError: 'not_reserved' })
 
     mockUid = 'staff-A' // the store answers again: this tick revives the take
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     expect(persistOf().disabled).toBe(false)
-    pushN(50) // …and a further flush, store-backed now
+    pushN(SEGMENT_MAX_CHUNKS) // …and a further flush, store-backed now
     await tick()
     expect(minted).toEqual([0]) // zero mints since the refusal, from either source
     expect(segPuts).toEqual([])
@@ -6307,7 +6341,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
   it('MB10 a memory upload that lands AFTER the revive writes its mark on the row — the store\'s pump never asks for that seq again', async () => {
     mockUid = null
     const takeId = await startAndSettle()
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // memory sends seq 0; the revive's first try fails
     expect(persistOf().uploadedSeq).toBe(0)
 
@@ -6319,7 +6353,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
       await held
       return put(url, init)
     })
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // the revive fails again (next try in 10 s); memory mints seq 1, its PUT held
     expect(minted).toEqual([0, 1])
     mockUid = 'staff-A'
@@ -6332,10 +6366,116 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     releasePut() // seq 1 lands, after the revive
     await drain(300)
     const rowAfterLanding = metaOf(takeId)?.uploadedSeq
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // a store-backed flush: seq 2
     expect(minted.slice(mintsAtRevive)).toEqual([2]) // seq 1 never asked for again
     expect(rowAfterLanding).toBe(1)
     expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2])
+  })
+})
+
+// ⚖ PIECES CREATED BY ONE RECORDING (S92). On iPhones every piece the recorder
+// makes holds one open file in the app's network helper. On the test phone, at
+// ten a second the helper's table of open files ran out at about 41 minutes
+// and the recording was cut (very likely the cause of the field cuts).
+// This bounds what ONE recording CREATES — not what the helper holds at any
+// moment: whether the helper releases a finished recording's pieces before the
+// next one is measured separately (gate G3), never here.
+describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
+  // ≈16,000 free on ONE test phone, build-s88 B1; a margin, not a guarantee.
+  const ONE_PHONE_FREE_ENTRIES = 16_000
+
+  it('a full-length recording creates at most PIECES_PER_RECORDING_BUDGET pieces', () => {
+    expect(AUTO_STOP_MS / RECORDER_SLICE_MS).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+  })
+
+  it('the budget itself is pinned at 8,000', () => {
+    expect(PIECES_PER_RECORDING_BUDGET).toBe(8_000)
+  })
+
+  it('two full-length recordings create fewer pieces than one phone had free', () => {
+    expect(2 * (AUTO_STOP_MS / RECORDER_SLICE_MS)).toBeLessThan(ONE_PHONE_FREE_ENTRIES)
+  })
+
+  it('the runaway guard stops a real recording at AUTO_STOP_MS, not before', async () => {
+    await startAndSettle()
+    const rec = FakeMediaRecorder.last!
+    // One guard tick BEFORE AUTO_STOP_MS: still recording.
+    await jest.advanceTimersByTimeAsync(AUTO_STOP_MS - RUNAWAY_TICK_MS)
+    expect(globalRecorder.autoStopped).toBe(false)
+    expect(globalRecorder.state).toBe('recording')
+    expect(rec.state).toBe('recording')
+    // The first guard tick at AUTO_STOP_MS: stopped by the guard.
+    await jest.advanceTimersByTimeAsync(RUNAWAY_TICK_MS)
+    expect(globalRecorder.autoStopped).toBe(true)
+    expect(rec.state).toBe('inactive')
+    expect(globalRecorder.state).not.toBe('recording')
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
+  }, 30_000)
+
+  // The pins above are arithmetic or watch one recorder; this counts the pieces
+  // recordings really emit, at the timeslice production hands the recorder:
+  // every piece any fake recorder instance emits during the test (timeslice,
+  // requestData, the tail at the stop), whether or not a handler receives it.
+  // Those are the pieces the recorder CREATES, which is what holds a file on
+  // the phone.
+  it('a full-length recording emits at most PIECES_PER_RECORDING_BUDGET pieces', async () => {
+    timedPieces = true
+    await startAndSettle()
+    // A minute at a time: too many pieces go red on the step that passes the
+    // budget, not at the test's timeout.
+    for (let ms = 0; ms < AUTO_STOP_MS; ms += 60_000) {
+      await jest.advanceTimersByTimeAsync(60_000)
+      expect(FakeMediaRecorder.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+    }
+    // Let the stop settle, then one more minute: nothing may start again.
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(60_000)
+    await drain(400)
+    expect(globalRecorder.autoStopped).toBe(true)
+    for (const rec of FakeMediaRecorder.all) expect(rec.state).toBe('inactive')
+    expect(FakeMediaRecorder.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+    expect(FakeMediaRecorder.pieces).toBeGreaterThanOrEqual(AUTO_STOP_MS / RECORDER_SLICE_MS - 1)
+    // 7,200 timed pieces + the tail the stop emits. The last timed piece fires
+    // at AUTO_STOP_MS just before the guard's tick there because production
+    // starts the recorder before it arms the guard; the reverse order gives 7,200.
+    expect(FakeMediaRecorder.pieces).toBe(7_201)
+    // No fake timer is left once the stop has settled; a restart scheduled on
+    // one, at any delay, would be.
+    expect(jest.getTimerCount()).toBe(0)
+    // About 10.7 s on this Mac (Node 24 and Node 20); the wide timeout is for
+    // CI's slower, parallel runner. Too many pieces fail fast above, never
+    // here.
+  }, 120_000)
+
+  it('one segment is exactly one flush tick of pieces', () => {
+    expect(SEGMENT_MAX_CHUNKS * RECORDER_SLICE_MS).toBe(TAKE_FLUSH_MS)
+  })
+
+  it('the segment cap is a whole number of pieces, at least one', () => {
+    // A fractional cap would corrupt the slicing (filled(), the memory path and
+    // the catch-up all count whole pieces by it).
+    expect(Number.isInteger(SEGMENT_MAX_CHUNKS) && SEGMENT_MAX_CHUNKS >= 1).toBe(true)
+  })
+
+  it('the real recorder is started with RECORDER_SLICE_MS, exactly once per recording', async () => {
+    const startSpy = jest.spyOn(FakeMediaRecorder.prototype, 'start')
+    try {
+      for (let recording = 0; recording < 2; recording++) {
+        startSpy.mockClear()
+        await startAndSettle()
+        expect(startSpy).toHaveBeenCalledTimes(1)
+        expect(startSpy.mock.calls[0]).toEqual([RECORDER_SLICE_MS])
+        globalRecorder.stop()
+        await drain(400)
+        await jest.advanceTimersByTimeAsync(50)
+        await drain(400)
+        expect(startSpy).toHaveBeenCalledTimes(1)
+      }
+    } finally {
+      startSpy.mockRestore()
+    }
   })
 })
