@@ -6415,11 +6415,12 @@ describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
     await drain(400)
   }, 30_000)
 
-  // The pins above are arithmetic or watch one recorder; this counts the pieces recordings really
-  // emit, at the timeslice production hands the recorder: every piece any fake
-  // recorder instance emits during the test (timeslice, requestData, the tail
-  // at the stop), whether or not a handler receives it. Those are the pieces
-  // the recorder CREATES, which is what holds a file on the phone.
+  // The pins above are arithmetic or watch one recorder; this counts the pieces
+  // recordings really emit, at the timeslice production hands the recorder:
+  // every piece any fake recorder instance emits during the test (timeslice,
+  // requestData, the tail at the stop), whether or not a handler receives it.
+  // Those are the pieces the recorder CREATES, which is what holds a file on
+  // the phone.
   it('a full-length recording emits at most PIECES_PER_RECORDING_BUDGET pieces', async () => {
     timedPieces = true
     await startAndSettle()
@@ -6441,10 +6442,13 @@ describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
     // at AUTO_STOP_MS just before the guard's tick there because production
     // starts the recorder before it arms the guard; the reverse order gives 7,200.
     expect(FakeMediaRecorder.pieces).toBe(7_201)
-    // Nothing is scheduled once the stop has settled; a restart at any delay would be.
+    // No fake timer is left once the stop has settled; a restart scheduled on
+    // one, at any delay, would be.
     expect(jest.getTimerCount()).toBe(0)
-    // About 10.7 s measured on Node 24 and on Node 20: about 3x headroom.
-  }, 36_000)
+    // About 10.7 s on this Mac (Node 24 and Node 20); the wide timeout is for
+    // CI's slower, parallel runner. Too many pieces fail fast above, never
+    // here.
+  }, 120_000)
 
   it('one segment is exactly one flush tick of pieces', () => {
     expect(SEGMENT_MAX_CHUNKS * RECORDER_SLICE_MS).toBe(TAKE_FLUSH_MS)
