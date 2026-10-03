@@ -5676,11 +5676,11 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbccc'.length)
   })
 
-  it('T3 300 s held only in memory → ~60 segments of at most 50 chunks, seqs consecutive, the stamp on the last only', async () => {
+  it('T3 300 s held only in memory → ~60 segments of at most SEGMENT_MAX_CHUNKS chunks, seqs consecutive, the stamp on the last only', async () => {
     mockUid = null // storage never answers for the whole five minutes
     const takeId = await startAndSettle()
     for (let tick = 0; tick < 60; tick++) {
-      for (let i = 0; i < 50; i++) pushChunk('x') // 5 s of the recorder's 100 ms chunks
+      for (let i = 0; i < SEGMENT_MAX_CHUNKS; i++) pushChunk('x') // 5 s of the recorder's RECORDER_SLICE_MS chunks
       await jest.advanceTimersByTimeAsync(5_000)
     }
     await drain(200)
@@ -5692,13 +5692,13 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     await jest.advanceTimersByTimeAsync(50)
     await drain(400)
 
-    // 3,000 chunks + the TAIL: sixty full segments and the tail's own.
+    // 60 × SEGMENT_MAX_CHUNKS chunks + the TAIL: sixty full segments and the tail's own.
     expect(metaOf(takeId).lastSeq).toBe(60)
-    for (let seq = 0; seq < 60; seq++) expect(segmentOf(takeId, seq)?.size).toBe(50)
+    for (let seq = 0; seq < 60; seq++) expect(segmentOf(takeId, seq)?.size).toBe(SEGMENT_MAX_CHUNKS)
     expect(segmentOf(takeId, 60)?.size).toBe('TAIL'.length)
     expect(stampWrites).toEqual([60]) // exactly one write carried the stamp: the last
     expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
-    expect(putBodies.at(-1)?.size).toBe(3_000 + 'TAIL'.length) // secured WHOLE
+    expect(putBodies.at(-1)?.size).toBe(60 * SEGMENT_MAX_CHUNKS + 'TAIL'.length) // secured WHOLE
   })
 
   it('T6 the stop-time revive reaches secureTake: the take is secured whole, not flagged', async () => {
@@ -6102,24 +6102,24 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     mockStartRecordingSession.mockImplementation(async () => ({ id: 'rs-mem' }))
   })
 
-  it('MB1 storage off from the start: full segments go up from memory, seqs consecutive, 50 chunks each — and the stop is unchanged', async () => {
+  it('MB1 storage off from the start: full segments go up from memory, seqs consecutive, SEGMENT_MAX_CHUNKS chunks each — and the stop is unchanged', async () => {
     mockUid = null // no row can be made: storage is off from the first write
     await startAndSettle()
     expect(globalRecorder.recordingSessionId).toBe('rs-mem')
     for (let i = 0; i < 3; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
     }
-    pushN(20) // the segment still filling
+    pushN(2) // the segment still filling
     await tick()
     expect(takes().size).toBe(0)
-    expect(segPuts).toEqual([0, 1, 2].map((seq) => ({ seq, size: 50 })))
+    expect(segPuts).toEqual([0, 1, 2].map((seq) => ({ seq, size: SEGMENT_MAX_CHUNKS })))
     expect([...server.keys()]).toEqual([0, 1, 2])
     expect(persistOf().uploadedSeq).toBe(2)
 
     // ⚖ MU-3 — the stop sends nothing from memory, not even a segment that
     // filled since the last tick; the whole take is its.
-    pushN(30)
+    pushN(SEGMENT_MAX_CHUNKS - 2) // …which fills it
     globalRecorder.stop()
     await drain(400)
     await jest.advanceTimersByTimeAsync(50)
@@ -6131,13 +6131,13 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     mockUid = null
     const takeId = await startAndSettle()
     for (let i = 0; i < 3; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
     }
     expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2])
 
     mockUid = 'staff-A' // the store answers again
-    pushN(20)
+    pushN(2)
     await tick()
     expect(persistOf().disabled).toBe(false)
     expect(metaOf(takeId)).toMatchObject({ lastSeq: 3, uploadedSeq: 3 })
@@ -6146,35 +6146,35 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     // Every seq asked for once and PUT once — memory's three, then the store's one.
     expect(minted).toEqual([0, 1, 2, 3])
     expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2, 3])
-    expect(server.get(3)).toBe(20)
+    expect(server.get(3)).toBe(2)
   })
 
   it('MB3 a memory upload that fails leaves uploadedSeq where it was, and the backoff sends it again', async () => {
     mockUid = null
     await startAndSettle()
     failSegPuts = 1
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
-    expect(segPuts).toEqual([{ seq: 0, size: 50 }])
+    expect(segPuts).toEqual([{ seq: 0, size: SEGMENT_MAX_CHUNKS }])
     expect(server.size).toBe(0)
     expect(persistOf().uploadedSeq).toBe(-1)
 
     for (let i = 0; i < 3; i++) await tick() // past the 5–10 s backoff
     expect(segPuts.filter((p) => p.seq === 0)).toHaveLength(2)
-    expect(server.get(0)).toBe(50)
+    expect(server.get(0)).toBe(SEGMENT_MAX_CHUNKS)
     expect(persistOf().uploadedSeq).toBe(0)
   })
 
   it('MB4 a take whose row is a colleague\'s never uploads from memory', async () => {
     const takeId = await startAndSettle()
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // an ordinary flush, and the store's pump sends seq 0
     expect(segPuts.map((p) => p.seq)).toEqual([0])
     expect(metaOf(takeId)?.uploadedSeq).toBe(0)
 
     mockUid = 'staff-B' // the next staffer signs in; the owner gate latches the take
     for (let i = 0; i < 5; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
     }
     expect(persistOf().disabled).toBe(true)
@@ -6185,7 +6185,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
   it('MB6 a signed-out take sends nothing from memory, even from a tick inside the stop\'s gap', async () => {
     mockUid = null
     await startAndSettle()
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     expect(segPuts.map((p) => p.seq)).toEqual([0])
     // A real recorder's stop EVENT is a task, not a call: a tick can land
@@ -6197,7 +6197,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     }
     mockUid = 'staff-A' // the web wipe runs before signOut: the session is still live
     globalRecorder.abandon()
-    pushN(50) // a full segment in memory, and the timer has not been cleared yet
+    pushN(SEGMENT_MAX_CHUNKS) // a full segment in memory, and the timer has not been cleared yet
     await tick()
     expect(segPuts.map((p) => p.seq)).toEqual([0])
     onstop()
@@ -6211,11 +6211,11 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
       minted.push(...seqs)
       return { error: 'not_reserved' }
     })
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     expect(minted).toEqual([0])
     for (let i = 0; i < 6; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
     }
     expect(minted).toEqual([0]) // stopped, as segmentError stops the row's pump
@@ -6225,15 +6225,15 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
   it('MB5 seqs already on disk go up from memory byte for byte, continuous with what the server has', async () => {
     mockStartRecordingSession.mockImplementation(async () => null) // no session yet: nothing uploads
     const takeId = await startAndSettle()
-    pushN(30, 'a')
-    await tick() // seq 0: 30 chunks on disk
-    pushN(40, 'b')
-    await tick() // seq 1: 40 chunks on disk
+    pushN(3, 'a')
+    await tick() // seq 0: 3 chunks on disk
+    pushN(4, 'b')
+    await tick() // seq 1: 4 chunks on disk
     expect(metaOf(takeId)?.lastSeq).toBe(1)
     expect(segPuts).toEqual([])
 
     failNextSegmentWrites = Infinity // …then the disk refuses segments for good
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
     await drain(200)
@@ -6242,16 +6242,16 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     // The session retry lands a row at 30 s; memory then sends what the server lacks.
     mockStartRecordingSession.mockImplementation(async () => ({ id: 'rs-late' }))
     for (let i = 0; i < 6; i++) {
-      pushN(50)
+      pushN(SEGMENT_MAX_CHUNKS)
       await tick()
       await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
       await drain(200)
     }
     expect(metaOf(takeId)?.recordingSessionId).toBe('rs-late')
     expect(segPuts.slice(0, 3)).toEqual([
-      { seq: 0, size: 30 },
-      { seq: 1, size: 40 },
-      { seq: 2, size: 50 },
+      { seq: 0, size: 3 },
+      { seq: 1, size: 4 },
+      { seq: 2, size: SEGMENT_MAX_CHUNKS },
     ])
     expect(new Set(segPuts.map((p) => p.seq)).size).toBe(segPuts.length) // none twice
     failNextSegmentWrites = 0
@@ -6260,15 +6260,15 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
   it('MB8 a discarded take\'s leftover flush never uploads from memory under the next recording', async () => {
     mockUid = null
     const takeId = await startAndSettle()
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
-    expect(segPuts).toEqual([{ seq: 0, size: 50 }])
+    expect(segPuts).toEqual([{ seq: 0, size: SEGMENT_MAX_CHUNKS }])
 
     // A full segment in memory, and its flush QUEUED — not yet run — when the
     // staffer discards. discard() replaces `this.persist` and never sets
     // `abandoned`, so only the recorder-identity check stands between that
     // flush and the memory pump (FE1b finding 1).
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     jest.advanceTimersByTime(5_000)
     globalRecorder.discard()
     const mintsBefore = mintSegmentUrls.mock.calls.length
@@ -6276,7 +6276,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     segPuts = []
     const nextTakeId = await startAndSettle()
     expect(nextTakeId).not.toBe(takeId)
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     await drain(300)
 
@@ -6285,7 +6285,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(later.filter(([t]) => t === takeId)).toEqual([])
     // The new take: its own id only, and its own first segment.
     expect(later.map(([t, , , seqs]) => [t, seqs])).toEqual([[nextTakeId, [0]]])
-    expect(segPuts).toEqual([{ seq: 0, size: 50 }])
+    expect(segPuts).toEqual([{ seq: 0, size: SEGMENT_MAX_CHUNKS }])
   })
 
   it('MB9 a terminal refusal memory got goes on the row at the revive — the store\'s pump never asks that door again', async () => {
@@ -6295,16 +6295,16 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
       minted.push(...seqs)
       return { error: 'not_reserved' }
     })
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // the memory pump mints seq 0; the door refuses for good
     expect(minted).toEqual([0])
     expect(persistOf()).toMatchObject({ disabled: true, segmentError: 'not_reserved' })
 
     mockUid = 'staff-A' // the store answers again: this tick revives the take
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick()
     expect(persistOf().disabled).toBe(false)
-    pushN(50) // …and a further flush, store-backed now
+    pushN(SEGMENT_MAX_CHUNKS) // …and a further flush, store-backed now
     await tick()
     expect(minted).toEqual([0]) // zero mints since the refusal, from either source
     expect(segPuts).toEqual([])
@@ -6314,7 +6314,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
   it('MB10 a memory upload that lands AFTER the revive writes its mark on the row — the store\'s pump never asks for that seq again', async () => {
     mockUid = null
     const takeId = await startAndSettle()
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // memory sends seq 0; the revive's first try fails
     expect(persistOf().uploadedSeq).toBe(0)
 
@@ -6326,7 +6326,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
       await held
       return put(url, init)
     })
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // the revive fails again (next try in 10 s); memory mints seq 1, its PUT held
     expect(minted).toEqual([0, 1])
     mockUid = 'staff-A'
@@ -6339,7 +6339,7 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     releasePut() // seq 1 lands, after the revive
     await drain(300)
     const rowAfterLanding = metaOf(takeId)?.uploadedSeq
-    pushN(50)
+    pushN(SEGMENT_MAX_CHUNKS)
     await tick() // a store-backed flush: seq 2
     expect(minted.slice(mintsAtRevive)).toEqual([2]) // seq 1 never asked for again
     expect(rowAfterLanding).toBe(1)
