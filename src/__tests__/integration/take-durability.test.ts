@@ -131,6 +131,10 @@ const SEGMENT_RETRY_WINDOW_MS = 200
  *  round 18's first act stamps in, and the only shape in which a stop stamp can
  *  still lose a write of its own. */
 let emptyTailChunk = false
+/** Off by default: the fake recorder emits no timed pieces. On, it fires one
+ *  piece per `timeslice` ms it was STARTED with, as a real recorder does, and
+ *  counts every piece it fires (timed, requested, tail) in `pieces`. */
+let timedPieces = false
 /** Every TAKES put that INTRODUCED a `durationMs` (the row had none before),
  *  by the `lastSeq` it carried. The round-18 claim in one array: exactly one
  *  write ever carries the stamp, and when a tail is owed it is the write that
@@ -438,17 +442,33 @@ class FakeMediaRecorder {
   onstop: (() => void) | null = null
   state: 'inactive' | 'recording' | 'paused' = 'inactive'
   mimeType = 'audio/webm'
+  pieces = 0
+  private cadence: ReturnType<typeof setInterval> | null = null
   constructor() {
     FakeMediaRecorder.last = this
   }
-  start() {
+  private emit(data: Blob) {
+    this.pieces++
+    this.ondataavailable?.({ data })
+  }
+  start(timeslice?: number) {
     this.state = 'recording'
+    if (timedPieces && timeslice !== undefined) {
+      this.cadence = setInterval(() => {
+        if (this.state === 'recording') this.emit(new Blob(['PIECE']))
+      }, timeslice)
+    }
+  }
+  requestData() {
+    if (this.state !== 'inactive') this.emit(new Blob(['REQUESTED']))
   }
   stop() {
+    if (this.cadence) clearInterval(this.cadence)
+    this.cadence = null
     // Real MediaRecorder emits the final dataavailable BEFORE the stop event —
     // the tail chunk exercises the onstop final flush.
     if (this.state !== 'inactive') {
-      this.ondataavailable?.({ data: new Blob(emptyTailChunk ? [] : ['TAIL']) })
+      this.emit(new Blob(emptyTailChunk ? [] : ['TAIL']))
     }
     this.state = 'inactive'
     this.onstop?.()
@@ -707,6 +727,7 @@ beforeEach(async () => {
   failNextTailMarks = 0
   failNextSegmentWrites = 0
   emptyTailChunk = false
+  timedPieces = false
   stampWrites.length = 0
   finalizeMarks.length = 0
   segmentRowsRead.length = 0
@@ -6388,6 +6409,26 @@ describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
     await jest.advanceTimersByTimeAsync(50)
     await drain(400)
   }, 30_000)
+
+  // The pins above are arithmetic; this counts the pieces a full recording
+  // really emits, at the timeslice production hands the recorder, so pieces
+  // made by any route (a second start, a requestData loop) are seen.
+  it('a full-length recording emits at most PIECES_PER_RECORDING_BUDGET pieces', async () => {
+    timedPieces = true
+    await startAndSettle()
+    const rec = FakeMediaRecorder.last!
+    await jest.advanceTimersByTimeAsync(AUTO_STOP_MS)
+    expect(globalRecorder.autoStopped).toBe(true)
+    expect(rec.state).toBe('inactive')
+    expect(rec.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+    expect(rec.pieces).toBeGreaterThanOrEqual(AUTO_STOP_MS / RECORDER_SLICE_MS - 1)
+    // 7,200 timed pieces (the last one at AUTO_STOP_MS fires just before the
+    // guard's tick there) + the tail the stop emits.
+    expect(rec.pieces).toBe(7_201)
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
+  }, 36_000)
 
   it('one segment is exactly one flush tick of pieces', () => {
     expect(SEGMENT_MAX_CHUNKS * RECORDER_SLICE_MS).toBe(TAKE_FLUSH_MS)
