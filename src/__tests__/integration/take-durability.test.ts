@@ -6352,10 +6352,41 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
 // the helper's table ran out at about 41 minutes and the recording was cut.
 // This bounds what ONE recording CREATES — not what the helper holds at any
 // moment: whether the helper releases a finished recording's pieces before the
-// next one is measured separately, on a phone (gate G3), never here.
+// next one is measured separately (gate G3), never here.
 describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
+  // ≈16,000 free on ONE test phone, build-s88 B1; a margin, not a guarantee.
+  const ONE_PHONE_FREE_ENTRIES = 16_000
+  // RUNAWAY_TICK_MS (gr) is not exported; this is the test's copy of its 15 s.
+  const GUARD_TICK_MS = 15_000
+
   it('a full-length recording creates at most PIECES_PER_RECORDING_BUDGET pieces', () => {
     expect(AUTO_STOP_MS / RECORDER_SLICE_MS).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+  })
+
+  it('the budget itself is pinned at 8,000', () => {
+    expect(PIECES_PER_RECORDING_BUDGET).toBe(8_000)
+  })
+
+  it('two full-length recordings create fewer pieces than one phone had free', () => {
+    expect(2 * (AUTO_STOP_MS / RECORDER_SLICE_MS)).toBeLessThan(ONE_PHONE_FREE_ENTRIES)
+  })
+
+  it('the runaway guard stops a real recording at AUTO_STOP_MS, not before', async () => {
+    await startAndSettle()
+    const rec = FakeMediaRecorder.last!
+    // One guard tick BEFORE AUTO_STOP_MS: still recording.
+    await jest.advanceTimersByTimeAsync(AUTO_STOP_MS - GUARD_TICK_MS)
+    expect(globalRecorder.autoStopped).toBe(false)
+    expect(globalRecorder.state).toBe('recording')
+    expect(rec.state).toBe('recording')
+    // The first guard tick at AUTO_STOP_MS: stopped by the guard.
+    await jest.advanceTimersByTimeAsync(GUARD_TICK_MS)
+    expect(globalRecorder.autoStopped).toBe(true)
+    expect(rec.state).toBe('inactive')
+    expect(globalRecorder.state).not.toBe('recording')
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(400)
   })
 
   it('one segment is exactly one flush tick of pieces', () => {

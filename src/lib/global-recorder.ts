@@ -55,8 +55,10 @@ export interface RecordingTarget {
 // 2026-10-03. The storage service's project-wide file size limit was read on
 // its dashboard as 1 GB on 2026-10-03 (the 50 MB figure once quoted here is
 // stale); this code's own byte limit is 2 GiB (MAX_TAKE_BYTES,
-// src/lib/app-api/record-schemas.ts). A forgotten 3-4h recording would
-// otherwise be a total loss of the session.
+// src/lib/app-api/record-schemas.ts). The 2-hour stop is what bounds the
+// pieces one recording creates (AUTO_STOP_MS ÷ RECORDER_SLICE_MS = 7,200): a
+// forgotten 3-4 hour recording would create 10,800-14,400 pieces against the
+// ≈16,000 entries one test phone had free.
 //
 // NOTE: a locked or pocketed iPhone KEEPS recording (⚖ field-proven): the
 // iPhone shell declares `UIBackgroundModes: audio` (ios/App/App/Info.plist).
@@ -75,12 +77,13 @@ const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording ti
 export const TAKE_FLUSH_MS = 5_000
 
 // ⚖ THE RECORDER'S TIMESLICE: ONE PIECE A SECOND (S92). On iPhones each piece
-// holds one open file inside the app's network helper; at ten a second the
-// phone's table of open files ran out at about 41 minutes and iOS stopped the
-// helper, cutting the recording. One a second is what a real phone already ran
-// for 2 hours uncut (test build d550ec5b3). The ONLY timeslice:
-// `recorder.start(RECORDER_SLICE_MS)` below reads it, and SEGMENT_MAX_CHUNKS is
-// derived from it.
+// holds one open file inside the app's network helper. On the test phone, at
+// ten a second the table of open files ran out at about 41 minutes and iOS
+// stopped the helper, cutting the recording (very likely the cause of the
+// field cuts). One a second is what a real phone already ran for 2 hours
+// uncut (test build d550ec5b3). The ONLY timeslice:
+// `recorder.start(RECORDER_SLICE_MS)` below reads it, and SEGMENT_MAX_CHUNKS
+// is derived from it.
 export const RECORDER_SLICE_MS = 1000
 
 // ⚖ PIECES ONE RECORDING MAY CREATE (S92). A bound on the pieces CREATED by one
@@ -93,8 +96,7 @@ export const PIECES_PER_RECORDING_BUDGET = 8_000
 
 // ⚖ ONE APPEND IS AT MOST ONE NORMAL SEGMENT (S36 PR-1): one TAKE_FLUSH_MS
 // tick of the recorder's 1000 ms timeslice (`recorder.start(RECORDER_SLICE_MS)`
-// below). A
-// flush after storage was off — the revive's catch-up — would otherwise write
+// below). A flush after storage was off — the revive's catch-up — would otherwise write
 // every chunk held in memory as ONE blob: after an eight-minute outage a
 // multi-MB IndexedDB write and a segment far past the pump's per-PUT floor. A
 // chunk count, not a length of anything the salon sets.
@@ -333,8 +335,8 @@ class GlobalRecorder {
    *  first and would otherwise refuse the one caller holding the live
    *  measurement (see the release below). Which means the hold is already gone
    *  for the whole of the PUT and the finalize: a reader that asked it "is the
-   *  stop still working on this take?" would be told no while 43 MB is in
-   *  flight, read `finalizedPath` as null, and stage a SECOND whole copy of
+   *  stop still working on this take?" would be told no while the whole
+   *  recording (≈71 MB for 2 hours, measured 2026-10-03) is in flight, read `finalizedPath` as null, and stage a SECOND whole copy of
    *  the same recording to a row-less key. The leg's own promise is the only
    *  thing in this file that spans the upload, so it is what `awaitTakeSecured`
    *  waits on. */
@@ -395,8 +397,8 @@ class GlobalRecorder {
     this.runawayTimer = setInterval(() => {
       const ms = this.recordedMs()
       if (ms >= AUTO_STOP_MS) {
-        // Hard cap: stop + save so a forgotten recording is never lost to size and
-        // never grows past what the storage bucket accepts. stop() routes through
+        // Hard cap: stop + save at 2 hours, which bounds the pieces one
+        // recording creates (see AUTO_STOP_MS above). stop() routes through
         // onstop → the existing pipeline saves it.
         this.autoStopped = true
         this.stop()
@@ -1165,14 +1167,14 @@ class GlobalRecorder {
     }
 
     this.stream = micStream
-    // Voice-optimized bitrate. The browser default (~128 kbps) makes a 60-90 min
-    // session ~80-90 MB, which blows past Supabase Storage's per-bucket limit
-    // (50 MB on Free) — the upload fails with "object exceeded the maximum allowed
-    // size". 48 kbps opus is ~2.7x smaller (~32 MB for 90 min) and keeps a
-    // comfortable accuracy margin: ASR shows no significant Opus degradation at
-    // ≥16 kbps, so 48 leaves 3x headroom for noisy-salon / phone-mic / 2-speaker
-    // audio. Deepgram accuracy tracks sample rate, not bitrate. (Pair with a
-    // raised bucket file_size_limit + resumable uploads for 2-hr sessions.)
+    // Voice-optimized bitrate: asks for 48 kbps. ASR shows no significant Opus
+    // degradation at ≥16 kbps, so 48 leaves 3x headroom for noisy-salon /
+    // phone-mic / 2-speaker audio. Deepgram accuracy tracks sample rate, not
+    // bitrate. What is stored is larger than the request: a 2-hour recording
+    // measured 70,950,340 bytes (≈79 kbit/s) on 2026-10-03. The storage
+    // service's project-wide file size limit was read on its dashboard as 1 GB
+    // on 2026-10-03 (the 50 MB figure once quoted here is stale); this code's
+    // own byte limit is 2 GiB (MAX_TAKE_BYTES).
     const recorder = new MediaRecorder(micStream, {
       ...(mimeType ? { mimeType } : {}),
       audioBitsPerSecond: 48_000,
@@ -1755,7 +1757,8 @@ class GlobalRecorder {
    *  the stop leg's PUT + finalize is still in flight — so `finalizedPath` read
    *  null on every ordinary recording and the in-tab leg staged a second whole
    *  copy of the same take to a server-named key nothing points at. Two uploads
-   *  of the same 43 MB and a permanent orphan object, per recording. The
+   *  of the same recording (≈71 MB for 2 hours, measured 2026-10-03) and a
+   *  permanent orphan object, per recording. The
    *  fallback is meant for a take the store never held; this made it the
    *  common case.
    *
