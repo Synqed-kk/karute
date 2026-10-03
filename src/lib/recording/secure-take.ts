@@ -389,7 +389,7 @@ export async function ensureAudioOnServer(
       // then refuses the take) — the held blob is the only way its other
       // minutes leave the phone. A retryable failure keeps today's path.
       if (after?.secureError && DAMAGED_SECURE_CODES.has(after.secureError))
-        await stageHeldTail(port, takeId, blob, after.recordingSessionId ?? recordingSessionId, stored.size, after.secureError)
+        await stageHeldTail(port, takeId, blob, after.recordingSessionId ?? recordingSessionId, after.secureError, after.stagedFacts)
       return after?.finalizedPath ?? null
     }
     const session = meta?.recordingSessionId ?? recordingSessionId
@@ -420,13 +420,19 @@ export async function ensureAudioOnServer(
 /** R-S87-2: the stored copy won, but the held blob may be the only copy of
  *  other minutes (the field cut: disjoint halves). It goes to the staged door
  *  as the take's TAIL part, `partial: true` — never the take key, never the
- *  stored copy's staged object — unless it is the same bytes. Same bytes is
- *  claimed ONLY when the stored copy's code is AUDIO_PARTIAL (a readable but
- *  incomplete copy) AND the sizes are equal AND the held head is readable
- *  (R-S87-21 b). Any other code — `audio_unreadable`, `unreadable_object`, or
- *  one added later — always stages the tail: an unreadable stored copy and a
- *  readable held one are different bytes whatever their sizes. An allow-list,
- *  so an unknown code fails toward sending. A receipt for nothing (R-S87-1).
+ *  stored copy's staged object — unless the server already holds these bytes
+ *  (R-S88-1). That is claimed ONLY when the take's code is AUDIO_PARTIAL AND
+ *  its staged copy came from the stored arm (`stagedFacts.arm === 'stored'`)
+ *  AND that copy's byte count equals the held blob's AND the held head is
+ *  readable (R-S87-21 b). The comparison is against what was STAGED, never
+ *  against what the store holds now: the code may be an earlier run's verdict
+ *  (damaged codes are terminal) and the store may have grown since. No staged
+ *  facts (the memory arm writes none), another code — `audio_unreadable`,
+ *  `unreadable_object` (finalize refused the object; the local head may have
+ *  been readable, so the tail may duplicate it — the port accepts an existing
+ *  equal-size object without re-uploading) — or a code added later: the tail
+ *  is staged. An allow-list, so every unknown fails toward sending. A receipt
+ *  for nothing (R-S87-1).
  *  A failed upload notes `tailPending` and ends the run RETRYABLE (R-S87-15 a): the run keeps the
  *  blob and 再試行 re-stages it. */
 async function stageHeldTail(
@@ -434,12 +440,12 @@ async function stageHeldTail(
   takeId: string,
   blob: Blob,
   session: string | null,
-  storedSize: number,
   storedCode: string,
+  staged: StagedFacts | undefined,
 ): Promise<void> {
   if (!RECORDING_SWITCHES.stagedPartialDoor || !session || blob.size === 0) return
   const head = await readBlobHead(blob)
-  if (storedCode === AUDIO_PARTIAL && blob.size === storedSize && head && sniffContainer(head).kind !== 'unknown') return
+  if (storedCode === AUDIO_PARTIAL && staged?.arm === 'stored' && staged.bytes === blob.size && head && sniffContainer(head).kind !== 'unknown') return
   try {
     const staged = await port.prepareTranscription(blob, null, {
       stagedFor: session,

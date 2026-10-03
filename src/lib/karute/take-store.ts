@@ -1301,6 +1301,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'diagCounts'
   | 'lastPumpStop'
   | 'heldUpload'
+  | 'stagedFacts'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -1324,6 +1325,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     diagCounts: meta.diagCounts,
     lastPumpStop: meta.lastPumpStop,
     heldUpload: meta.heldUpload,
+    stagedFacts: meta.stagedFacts,
   }
 }
 

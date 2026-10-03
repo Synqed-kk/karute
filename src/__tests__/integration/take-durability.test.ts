@@ -780,6 +780,7 @@ import {
   type RecordingPipelinePort,
 } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
+import { stagedFactsOf } from '@/lib/recording/blob-fate'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { extFromMime, normalizeAudioMime } from '@/lib/recording/key-grammar'
 
@@ -7563,6 +7564,30 @@ describe('S87 — the tail facts on the real store', () => {
     await takeStore.markTakeTailDamaged(done, 'stg/b_s_u_tail.webm', 'audio_unreadable')
     expect(raw(done)?.stagedTailPath).toBeUndefined()
     expect(raw(done)?.secureError).toBeUndefined()
+  })
+  // model: claude-opus-5-5 · S88 P1 round 2 (R-S88-1): the tail skip reads the
+  // STAGED facts through readTakeSecureMeta — on the real store, not a mock.
+  it('(f) readTakeSecureMeta carries the stored arm\'s stagedFacts; none for the memory arm or a tail; a re-staging replaces them', async () => {
+    const id = await take('s88-facts-1')
+    const f1 = await takeStore.loadTakeBlobFacts(id)
+    const staged1 = stagedFactsOf(f1!.blob, f1)
+    expect(staged1).toEqual({ arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 })
+    await takeStore.markTakeStagedDamaged(id, 'stg/b_s_u.webm', 'audio_partial', staged1)
+    expect((await read(id))?.stagedFacts).toEqual({ arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 })
+    // a later stored-arm staging REPLACES the facts
+    await appendTakeSegment(id, 1, new Blob(['bbbb']))
+    const f2 = await takeStore.loadTakeBlobFacts(id)
+    await takeStore.markTakeStagedDamaged(id, 'stg/b_s_u.webm', 'audio_partial', stagedFactsOf(f2!.blob, f2))
+    expect((await read(id))?.stagedFacts).toEqual({ arm: 'stored', bytes: 7, segmentCount: 2, seqMax: 1 })
+    // a memory-arm staging (no facts) leaves none — the earlier facts do not survive it
+    await takeStore.markTakeStagedDamaged(id, 'stg/b_s_u.webm', 'audio_partial')
+    expect((await read(id))?.stagedFacts).toBeUndefined()
+    const mem = await take('s88-facts-2')
+    await takeStore.markTakeStagedDamaged(mem, 'stg/b_s_u.webm', 'audio_partial')
+    expect((await read(mem))?.stagedFacts).toBeUndefined()
+    const tail = await take('s88-facts-3')
+    await takeStore.markTakeTailDamaged(tail, 'stg/b_s_u_tail.webm', 'audio_unreadable')
+    expect((await read(tail))?.stagedFacts).toBeUndefined()
   })
   it('SF-A residual (R-S87-17 a): after the tail-damaged mark, secureTake stages nothing — the plain key stays free, the prefix stays on the phone', async () => {
     // R-S87-19: a REAL headerless stored blob (≥ the 12-byte probe, first byte

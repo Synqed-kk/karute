@@ -549,11 +549,14 @@ describe.each(PORTS)('S87 F2 — the held blob is staged as the tail part — %s
     expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
     expect(m.markTakeStagedDamaged).toHaveBeenCalledTimes(1)
   })
+  // S88 P1 round 2 (R-S88-1): "the same bytes" = the stored arm STAGED exactly
+  // this many bytes (stagedFacts), never "the store holds this many now".
+  const STAGED_SAME = { arm: 'stored', bytes: GOOD.size, segmentCount: 1, seqMax: 0 }
   it('the same bytes (equal size, readable head) → no tail upload', async () => {
     m.readTakeSecureMeta
       .mockResolvedValueOnce(meta())
       .mockResolvedValueOnce(meta())
-      .mockResolvedValue(meta({ secureError: 'audio_partial', stagedPath: STAGED_PATH }))
+      .mockResolvedValue(meta({ secureError: 'audio_partial', stagedPath: STAGED_PATH, stagedFacts: STAGED_SAME }))
     m.loadTakeBlob.mockResolvedValue(GOOD)
     const port = withTakeDoors(base)
     await ensureAudioOnServer(port, TAKE, new Blob([GOOD], { type: 'audio/webm' }), SESSION, 5)
@@ -580,12 +583,52 @@ describe.each(PORTS)('S87 F2 — the held blob is staged as the tail part — %s
     m.readTakeSecureMeta
       .mockResolvedValueOnce(meta())
       .mockResolvedValueOnce(meta())
-      .mockResolvedValue(meta({ secureError: 'audio_partial', stagedPath: STAGED_PATH }))
+      .mockResolvedValue(meta({ secureError: 'audio_partial', stagedPath: STAGED_PATH, stagedFacts: STAGED_SAME }))
     m.loadTakeBlob.mockResolvedValue(GOOD)
     const port = withTakeDoors(base)
     const held = new Blob([new Uint8Array(GOOD.size)], { type: 'audio/webm' })
     await ensureAudioOnServer(port, TAKE, held, SESSION, 5)
     expect(stagedBodies.filter((b) => (b as { stagedPart?: string }).stagedPart === 'tail')).toHaveLength(1)
+    expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
+  })
+  // model: claude-opus-5-5 · S88 P1 round 2 (R-S88-1, attack F1 + cold read).
+  const tails = () => stagedBodies.filter((b) => (b as { stagedPart?: string }).stagedPart === 'tail')
+  it('(a) a STALE audio_partial, staged 1000 B, store and held both 3000 B readable but different bytes → the tail is staged', async () => {
+    const webm = (n: number, fill: number) =>
+      new Blob([WEBM_HEAD, new Uint8Array(n - WEBM_HEAD.length).fill(fill)], { type: 'audio/webm' })
+    // the terminal code is already on the take: secureTake returns early, `after` is the earlier run's verdict
+    m.readTakeSecureMeta.mockResolvedValue(
+      meta({ secureError: 'audio_partial', stagedPath: STAGED_PATH, stagedFacts: { arm: 'stored', bytes: 1000, segmentCount: 1, seqMax: 0 } }),
+    )
+    m.loadTakeBlob.mockResolvedValue(webm(3000, 0x11))
+    const port = withTakeDoors(base)
+    const held = webm(3000, 0x22)
+    await ensureAudioOnServer(port, TAKE, held, SESSION, 5)
+    expect(stagedBodies).toHaveLength(1)
+    expect(tails()).toHaveLength(1)
+    expect(stagedBodies[0]).toMatchObject({ stagedFor: SESSION, stagedTake: TAKE, partial: true, stagedPart: 'tail' })
+    expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
+  })
+  it('(b) unreadable_object, equal size, readable held head, matching staged facts → the tail is staged (allow-list, not deny-list)', async () => {
+    m.readTakeSecureMeta
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValue(meta({ secureError: 'unreadable_object', stagedPath: STAGED_PATH, stagedFacts: STAGED_SAME }))
+    m.loadTakeBlob.mockResolvedValue(GOOD)
+    const port = withTakeDoors(base)
+    await ensureAudioOnServer(port, TAKE, new Blob([GOOD], { type: 'audio/webm' }), SESSION, 5)
+    expect(tails()).toHaveLength(1)
+    expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
+  })
+  it('(c) audio_partial with NO staged facts (the memory-arm shape), equal size, readable head → the tail is staged', async () => {
+    m.readTakeSecureMeta
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValue(meta({ secureError: 'audio_partial', stagedPath: STAGED_PATH }))
+    m.loadTakeBlob.mockResolvedValue(GOOD)
+    const port = withTakeDoors(base)
+    await ensureAudioOnServer(port, TAKE, new Blob([GOOD], { type: 'audio/webm' }), SESSION, 5)
+    expect(tails()).toHaveLength(1)
     expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
   })
 })
