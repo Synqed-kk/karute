@@ -467,7 +467,14 @@ Object.defineProperty(navigator, 'mediaDevices', {
   value: { getUserMedia: async () => ({ getTracks: () => [] }) },
 })
 
-import { globalRecorder } from '@/lib/global-recorder'
+import {
+  AUTO_STOP_MS,
+  globalRecorder,
+  PIECES_PER_RECORDING_BUDGET,
+  RECORDER_SLICE_MS,
+  SEGMENT_MAX_CHUNKS,
+  TAKE_FLUSH_MS,
+} from '@/lib/global-recorder'
 import {
   appendTakeSegment,
   BINDING_SECURE_REFUSALS,
@@ -6337,5 +6344,46 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(minted.slice(mintsAtRevive)).toEqual([2]) // seq 1 never asked for again
     expect(rowAfterLanding).toBe(1)
     expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2])
+  })
+})
+
+// ⚖ PIECES CREATED BY ONE RECORDING (S92). On iPhones every piece the recorder
+// makes holds one open file in the app's network helper, and at ten a second
+// the helper's table ran out at about 41 minutes and the recording was cut.
+// This bounds what ONE recording CREATES — not what the helper holds at any
+// moment: whether the helper releases a finished recording's pieces before the
+// next one is measured separately, on a phone (gate G3), never here.
+describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
+  it('a full-length recording creates at most PIECES_PER_RECORDING_BUDGET pieces', () => {
+    expect(AUTO_STOP_MS / RECORDER_SLICE_MS).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+  })
+
+  it('one segment is exactly one flush tick of pieces', () => {
+    expect(SEGMENT_MAX_CHUNKS * RECORDER_SLICE_MS).toBe(TAKE_FLUSH_MS)
+  })
+
+  it('the segment cap is a whole number of pieces, at least one', () => {
+    // A fractional cap would corrupt the slicing (filled(), the memory path and
+    // the catch-up all count whole pieces by it).
+    expect(Number.isInteger(SEGMENT_MAX_CHUNKS) && SEGMENT_MAX_CHUNKS >= 1).toBe(true)
+  })
+
+  it('the real recorder is started with RECORDER_SLICE_MS, exactly once per recording', async () => {
+    const startSpy = jest.spyOn(FakeMediaRecorder.prototype, 'start')
+    try {
+      for (let recording = 0; recording < 2; recording++) {
+        startSpy.mockClear()
+        await startAndSettle()
+        expect(startSpy).toHaveBeenCalledTimes(1)
+        expect(startSpy.mock.calls[0]).toEqual([RECORDER_SLICE_MS])
+        globalRecorder.stop()
+        await drain(400)
+        await jest.advanceTimersByTimeAsync(50)
+        await drain(400)
+        expect(startSpy).toHaveBeenCalledTimes(1)
+      }
+    } finally {
+      startSpy.mockRestore()
+    }
   })
 })
