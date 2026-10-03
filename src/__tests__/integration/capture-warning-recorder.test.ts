@@ -560,7 +560,8 @@ describe('PR-6 — the four pins the fresh-eyes mutants found missing (FRESH-S39
 
     // Storage comes back: the 10 s try creates the row, and the catch-up
     // behind it writes what memory held — one full segment and one chunk more,
-    // TWO segments — and both land. That is the recovery completing, and only it clears the clock.
+    // TWO segments — and both land. That is the recovery completing, and only
+    // it clears the clock.
     mockCreateOk = true
     mockRowMeta = { recordingSessionId: 'rs-1', mimeType: 'audio/webm', uploadedSeq: 1, lastSeq: 1 }
     for (let i = 0; i < SEGMENT_MAX_CHUNKS + 1; i++) FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(['x']) })

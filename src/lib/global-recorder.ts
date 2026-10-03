@@ -67,7 +67,7 @@ export interface RecordingTarget {
 // that whatever WAS captured before a kill is recoverable.
 const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
 export const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (≈71 MB measured 2026-10-03)
-const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
+export const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
 
 // Take durability: flush accumulated chunks to IndexedDB (take-store) every
 // ~5 s — NOT per 1000 ms chunk, so the disk isn't ground — plus on pause/stop/
@@ -96,10 +96,10 @@ export const PIECES_PER_RECORDING_BUDGET = 8_000
 
 // ⚖ ONE APPEND IS AT MOST ONE NORMAL SEGMENT (S36 PR-1): one TAKE_FLUSH_MS
 // tick of the recorder's 1000 ms timeslice (`recorder.start(RECORDER_SLICE_MS)`
-// below). A flush after storage was off — the revive's catch-up — would otherwise write
-// every chunk held in memory as ONE blob: after an eight-minute outage a
-// multi-MB IndexedDB write and a segment far past the pump's per-PUT floor. A
-// chunk count, not a length of anything the salon sets.
+// below). A flush after storage was off — the revive's catch-up — would
+// otherwise write every chunk held in memory as ONE blob: after an
+// eight-minute outage a multi-MB IndexedDB write and a segment far past the
+// pump's per-PUT floor. A chunk count, not a length of anything the salon sets.
 export const SEGMENT_MAX_CHUNKS = TAKE_FLUSH_MS / RECORDER_SLICE_MS
 
 // ⚖ THE REVIVE'S WAIT AFTER EACH FAILED TRY (S36 PR-1), the last one repeating
@@ -336,10 +336,11 @@ class GlobalRecorder {
    *  measurement (see the release below). Which means the hold is already gone
    *  for the whole of the PUT and the finalize: a reader that asked it "is the
    *  stop still working on this take?" would be told no while the whole
-   *  recording (≈71 MB for 2 hours, measured 2026-10-03) is in flight, read `finalizedPath` as null, and stage a SECOND whole copy of
-   *  the same recording to a row-less key. The leg's own promise is the only
-   *  thing in this file that spans the upload, so it is what `awaitTakeSecured`
-   *  waits on. */
+   *  recording (≈71 MB for 2 hours, measured 2026-10-03) is in flight, read
+   *  `finalizedPath` as null, and stage a SECOND whole copy of the same
+   *  recording to a row-less key. The leg's own promise is the only thing in
+   *  this file that spans the upload, so it is what `awaitTakeSecured` waits
+   *  on. */
   private stopLegs = new Map<string, Promise<void>>()
   private startTime = 0
   private pausedDuration = 0
@@ -1758,9 +1759,8 @@ class GlobalRecorder {
    *  null on every ordinary recording and the in-tab leg staged a second whole
    *  copy of the same take to a server-named key nothing points at. Two uploads
    *  of the same recording (≈71 MB for 2 hours, measured 2026-10-03) and a
-   *  permanent orphan object, per recording. The
-   *  fallback is meant for a take the store never held; this made it the
-   *  common case.
+   *  permanent orphan object, per recording. The fallback is meant for a take
+   *  the store never held; this made it the common case.
    *
    *  Resolves IMMEDIATELY when this runtime has no stop leg for the take —
    *  another tab's take, the mount drain's, a take recorded before this bundle
