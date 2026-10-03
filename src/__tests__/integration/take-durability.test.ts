@@ -132,8 +132,9 @@ const SEGMENT_RETRY_WINDOW_MS = 200
  *  still lose a write of its own. */
 let emptyTailChunk = false
 /** Off by default: the fake recorder emits no timed pieces. On, it fires one
- *  piece per `timeslice` ms it was STARTED with, as a real recorder does, and
- *  counts every piece it fires (timed, requested, tail) in `pieces`. */
+ *  piece per `timeslice` ms it was STARTED with, as a real recorder does. Every
+ *  piece any fake recorder fires (timed, requested, tail) is counted in
+ *  `FakeMediaRecorder.pieces`. */
 let timedPieces = false
 /** Every TAKES put that INTRODUCED a `durationMs` (the row had none before),
  *  by the `lastSeq` it carried. The round-18 claim in one array: exactly one
@@ -435,6 +436,8 @@ const connections: FakeIDB[] = []
 
 class FakeMediaRecorder {
   static last: FakeMediaRecorder | null = null
+  static all: FakeMediaRecorder[] = []
+  static pieces = 0
   static isTypeSupported() {
     return true
   }
@@ -442,13 +445,13 @@ class FakeMediaRecorder {
   onstop: (() => void) | null = null
   state: 'inactive' | 'recording' | 'paused' = 'inactive'
   mimeType = 'audio/webm'
-  pieces = 0
   private cadence: ReturnType<typeof setInterval> | null = null
   constructor() {
     FakeMediaRecorder.last = this
+    FakeMediaRecorder.all.push(this)
   }
   private emit(data: Blob) {
-    this.pieces++
+    FakeMediaRecorder.pieces++
     this.ondataavailable?.({ data })
   }
   start(timeslice?: number) {
@@ -728,6 +731,8 @@ beforeEach(async () => {
   failNextSegmentWrites = 0
   emptyTailChunk = false
   timedPieces = false
+  FakeMediaRecorder.pieces = 0
+  FakeMediaRecorder.all.length = 0
   stampWrites.length = 0
   finalizeMarks.length = 0
   segmentRowsRead.length = 0
@@ -6410,29 +6415,33 @@ describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
     await drain(400)
   }, 30_000)
 
-  // The pins above are arithmetic; this counts the pieces a full recording
-  // really emits, at the timeslice production hands the recorder, so pieces
-  // made by any route (a second start, a requestData loop) are seen.
+  // The pins above are arithmetic; this counts the pieces recordings really
+  // emit, at the timeslice production hands the recorder: every piece any fake
+  // recorder instance emits during the test (timeslice, requestData, the tail
+  // at the stop), whether or not a handler receives it. Those are the pieces
+  // the recorder CREATES, which is what holds a file on the phone.
   it('a full-length recording emits at most PIECES_PER_RECORDING_BUDGET pieces', async () => {
     timedPieces = true
     await startAndSettle()
-    const rec = FakeMediaRecorder.last!
     // A minute at a time: too many pieces go red on the step that passes the
     // budget, not at the test's timeout.
     for (let ms = 0; ms < AUTO_STOP_MS; ms += 60_000) {
       await jest.advanceTimersByTimeAsync(60_000)
-      expect(rec.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+      expect(FakeMediaRecorder.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
     }
+    // Let the stop settle, then one more minute: nothing may start again.
+    await drain(400)
+    await jest.advanceTimersByTimeAsync(60_000)
+    await drain(400)
     expect(globalRecorder.autoStopped).toBe(true)
-    expect(rec.state).toBe('inactive')
-    expect(rec.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
-    expect(rec.pieces).toBeGreaterThanOrEqual(AUTO_STOP_MS / RECORDER_SLICE_MS - 1)
-    // 7,200 timed pieces (the last one at AUTO_STOP_MS fires just before the
-    // guard's tick there) + the tail the stop emits.
-    expect(rec.pieces).toBe(7_201)
-    await drain(400)
-    await jest.advanceTimersByTimeAsync(50)
-    await drain(400)
+    for (const rec of FakeMediaRecorder.all) expect(rec.state).toBe('inactive')
+    expect(FakeMediaRecorder.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+    expect(FakeMediaRecorder.pieces).toBeGreaterThanOrEqual(AUTO_STOP_MS / RECORDER_SLICE_MS - 1)
+    // 7,200 timed pieces + the tail the stop emits. The last timed piece fires
+    // at AUTO_STOP_MS just before the guard's tick there because production
+    // starts the recorder before it arms the guard; the reverse order gives 7,200.
+    expect(FakeMediaRecorder.pieces).toBe(7_201)
+    // About 10.7 s measured on Node 24 and on Node 20: about 3x headroom.
   }, 36_000)
 
   it('one segment is exactly one flush tick of pieces', () => {
