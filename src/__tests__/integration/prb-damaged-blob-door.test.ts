@@ -559,6 +559,35 @@ describe.each(PORTS)('S87 F2 — the held blob is staged as the tail part — %s
     await ensureAudioOnServer(port, TAKE, new Blob([GOOD], { type: 'audio/webm' }), SESSION, 5)
     expect(stagedBodies.filter((b) => (b as { stagedPart?: string }).stagedPart === 'tail')).toHaveLength(0)
   })
+  // model: claude-opus-5-5 · S88 P1 (R-S87-21 b): an UNREADABLE stored copy and a
+  // readable held blob of the same length are different bytes — the tail goes.
+  it('stored copy unreadable, held blob readable and the SAME length → the tail is staged', async () => {
+    m.readTakeSecureMeta
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValue(meta({ secureError: 'audio_unreadable', stagedPath: STAGED_PATH }))
+    m.loadTakeBlob.mockResolvedValue(HEADLESS)
+    const port = withTakeDoors(base)
+    const held = new Blob([WEBM_HEAD, new Uint8Array(HEADLESS.size - WEBM_HEAD.length)], { type: 'audio/webm' })
+    expect(held.size).toBe(HEADLESS.size)
+    expect(await ensureAudioOnServer(port, TAKE, held, SESSION, 5)).toBeNull()
+    expect(m.markTakeStagedDamaged).toHaveBeenCalledWith(TAKE, STAGED_PATH, 'audio_unreadable', undefined)
+    expect(stagedBodies).toHaveLength(2)
+    expect(stagedBodies[1]).toMatchObject({ stagedFor: SESSION, stagedTake: TAKE, partial: true, stagedPart: 'tail' })
+    expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
+  })
+  it('stored copy partial, held blob the same length but its head UNREADABLE → the tail is staged', async () => {
+    m.readTakeSecureMeta
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValueOnce(meta())
+      .mockResolvedValue(meta({ secureError: 'audio_partial', stagedPath: STAGED_PATH }))
+    m.loadTakeBlob.mockResolvedValue(GOOD)
+    const port = withTakeDoors(base)
+    const held = new Blob([new Uint8Array(GOOD.size)], { type: 'audio/webm' })
+    await ensureAudioOnServer(port, TAKE, held, SESSION, 5)
+    expect(stagedBodies.filter((b) => (b as { stagedPart?: string }).stagedPart === 'tail')).toHaveLength(1)
+    expect(m.markTakeStagedTail).toHaveBeenCalledTimes(1)
+  })
 })
 
 // model: claude-opus-5-5 · S87 fix round 2 (a) — B-1 (R-S87-15 a): a failed tail
