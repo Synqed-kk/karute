@@ -207,7 +207,13 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   const RENDER_TEST_BARE = new Set(['react-dom/client', '@testing-library/react'])
   // R123 (S51): react-dom for the shared Dialog's createPortal only — React's own renderer, no data access
   // Single consumer: settings/Dialog.tsx — not on main yet; it lands with the Dialog PR (P5c).
-  const FILE_ALLOWED_BARE: Record<string, string[]> = { 'src/app/[locale]/(business)/business/settings/Dialog.tsx': ['react-dom'] }
+  // R172 (S56, declared in package.json per R179/R180): postcss, the CSS parser, for two TEST files that parse the
+  // Business sheets — business-css-parses.test.ts + settings-primitives.test.tsx (land with P5c). Exact specifier only.
+  const FILE_ALLOWED_BARE: Record<string, string[]> = {
+    'src/app/[locale]/(business)/business/settings/Dialog.tsx': ['react-dom'],
+    'src/__tests__/integration/business/business-css-parses.test.ts': ['postcss'],
+    'src/__tests__/integration/business/settings-primitives.test.tsx': ['postcss'],
+  }
 
   /** Repo-relative target of a specifier, or null when it is a bare package. */
   function resolveSpecifier(spec: string, fromFile: string): string | null {
@@ -431,6 +437,38 @@ describe('Business import isolation (phone-safety lock 3)', () => {
       'src/business/lib/data.ts',
     ]
     const verdicts = Object.fromEntries(others.map((f) => [f, outwardOffense('react-dom', f)]))
+    expect(verdicts).toEqual(Object.fromEntries(others.map((f) => [f, BARE_OFF])))
+  })
+
+  it('the postcss test door (R172): two test files, the bare package only, every subpath, other package and other file refused', () => {
+    const BARE_OFF = 'bare package off the allowlist'
+    const consumers = [
+      'src/__tests__/integration/business/business-css-parses.test.ts',
+      'src/__tests__/integration/business/settings-primitives.test.tsx',
+    ]
+    for (const f of consumers) {
+      // The one admitted import per file: bare postcss.
+      expect(outwardOffense('postcss', f)).toBeNull()
+      // Exact specifier, never a prefix: subpaths and look-alikes stay shut even here.
+      expect(outwardOffense('postcss/lib/parse', f)).toBe(BARE_OFF)
+      expect(outwardOffense('postcss/lib/postcss', f)).toBe(BARE_OFF)
+      expect(outwardOffense('postcss-selector-parser', f)).toBe(BARE_OFF)
+      // Another bare package is not admitted by this entry.
+      expect(outwardOffense('sass', f)).toBe(BARE_OFF)
+      expect(outwardOffense('@tailwindcss/postcss', f)).toBe(BARE_OFF)
+      expect(outwardOffense('lodash', f)).toBe(BARE_OFF)
+    }
+    // Every OTHER Business file — sibling tests, look-alike names, runtime code, the Dialog — stays shut to postcss.
+    const others = [
+      'src/__tests__/integration/business/other.test.ts',
+      'src/__tests__/integration/business/business-css-parses.test.tsx',
+      'src/__tests__/integration/business/sub/business-css-parses.test.ts',
+      'src/__tests__/integration/business/settings-primitives.test.ts',
+      'src/app/[locale]/(business)/business/settings/Dialog.tsx',
+      'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx',
+      'src/business/lib/data.ts',
+    ]
+    const verdicts = Object.fromEntries(others.map((f) => [f, outwardOffense('postcss', f)]))
     expect(verdicts).toEqual(Object.fromEntries(others.map((f) => [f, BARE_OFF])))
   })
 
