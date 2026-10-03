@@ -731,8 +731,6 @@ beforeEach(async () => {
   failNextSegmentWrites = 0
   emptyTailChunk = false
   timedPieces = false
-  FakeMediaRecorder.pieces = 0
-  FakeMediaRecorder.all.length = 0
   stampWrites.length = 0
   finalizeMarks.length = 0
   segmentRowsRead.length = 0
@@ -740,6 +738,8 @@ beforeEach(async () => {
   localStorage.clear()
   globalRecorder.discard()
   await drain()
+  FakeMediaRecorder.pieces = 0
+  FakeMediaRecorder.all.length = 0
   fakeDb.stores.get('takes')?.data.clear()
   fakeDb.stores.get('segments')?.data.clear()
 })
@@ -6415,7 +6415,7 @@ describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
     await drain(400)
   }, 30_000)
 
-  // The pins above are arithmetic; this counts the pieces recordings really
+  // The pins above are arithmetic or watch one recorder; this counts the pieces recordings really
   // emit, at the timeslice production hands the recorder: every piece any fake
   // recorder instance emits during the test (timeslice, requestData, the tail
   // at the stop), whether or not a handler receives it. Those are the pieces
@@ -6441,6 +6441,8 @@ describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
     // at AUTO_STOP_MS just before the guard's tick there because production
     // starts the recorder before it arms the guard; the reverse order gives 7,200.
     expect(FakeMediaRecorder.pieces).toBe(7_201)
+    // Nothing is scheduled once the stop has settled; a restart at any delay would be.
+    expect(jest.getTimerCount()).toBe(0)
     // About 10.7 s measured on Node 24 and on Node 20: about 3x headroom.
   }, 36_000)
 
