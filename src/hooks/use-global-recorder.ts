@@ -43,6 +43,8 @@ export function useGlobalRecorder() {
     overrun: globalRecorder.overrun,
     /** The yellow notice while recording/paused (PR-6): 'device' | 'server' | null. */
     captureWarning: globalRecorder.captureWarning,
+    /** PR-B commit 4: the 'recorded'-state line — capture ended by itself (gated). */
+    endedBySystemNotice: globalRecorder.endedBySystemNotice,
     /** The hard cap auto-stopped + saved the recording (~2.5h). */
     autoStopped: globalRecorder.autoStopped,
     /** Customer/appointment the live recording is bound to (null when idle). */

@@ -47,9 +47,12 @@ import {
   listTakeSegmentsAfter,
   markSegmentError,
   markSegmentsUploaded,
+  noteTakeDiagEvent,
   readTakeUploadMeta,
   TERMINAL_SECURE_ERRORS,
 } from '@/lib/karute/take-store'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import type { PumpStopCode } from '@/lib/recording/take-diag'
 import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 import { PUT_BYTES_PER_MS } from '@/lib/recording/storage-put'
 
@@ -303,6 +306,16 @@ function startPump(
   return run
 }
 
+/** R-S74-10 (b): the pump's exit code onto the take's ring through commit 5's
+ *  one writer — only when it differs from the last one noted (most flushes
+ *  repeat theirs, so writes are rare). Records; never changes an exit. */
+const lastPumpStop = new Map<string, PumpStopCode>()
+function notePumpStop(takeId: string, stop: PumpStopCode): void {
+  if (!RECORDING_SWITCHES.takeDiag || lastPumpStop.get(takeId) === stop) return
+  lastPumpStop.set(takeId, stop)
+  void noteTakeDiagEvent(takeId, { code: 'pump_stop', stop })
+}
+
 async function pumpOnce(
   port: RecordingPipelinePort,
   takeId: string,
@@ -322,35 +335,35 @@ async function pumpOnce(
     // budget), and a failure still arms the backoff below for the flushes that
     // come after.
     const wait = opts?.fresh ? undefined : backoff.get(takeId)
-    if (wait && Date.now() < wait.until) return
+    if (wait && Date.now() < wait.until) return notePumpStop(takeId, 'backoff')
 
     const meta = await src.readUploadMeta()
     // Gone, another staffer's, or no store at all — the owner gate's answer,
     // and nothing to send either way.
-    if (!meta) return
+    if (!meta) return notePumpStop(takeId, 'no_meta')
     // The start-mint has not stamped a row yet. The segment door mints against
     // that row, so there is nothing to ask for; the next flush asks again, and
     // the stop leg waits for the mint on its own account.
-    if (!meta.recordingSessionId) return
+    if (!meta.recordingSessionId) return notePumpStop(takeId, 'no_session')
     // The WHOLE take is already on the server under its immutable finalized key
     // — which supersedes every segment of it. Nothing left to catch up.
-    if (meta.finalizedAt) return
+    if (meta.finalizedAt) return notePumpStop(takeId, 'finalized')
     // A refusal that cannot become a yes: a terminal mint code, or the
     // mismatch below. Read BEFORE the segment blobs, so a stopped pump costs
     // one meta read rather than a disk walk.
-    if (meta.segmentError) return
+    if (meta.segmentError) return notePumpStop(takeId, 'seg_error')
 
     const from = meta.uploadedSeq ?? -1
     // The disk holds nothing the server does not. The ordinary answer between
     // the last flush that landed and the next one.
-    if (meta.lastSeq <= from) return
+    if (meta.lastSeq <= from) return notePumpStop(takeId, 'nothing_new')
 
     // CONTIGUOUS from `from + 1`, stopping at the first gap — `uploadedSeq` is a
     // prefix, and a seq behind a hole advances nothing (see the store's own
     // docblock).
     const ask = batchAsk.get(takeId) ?? SEGMENT_BATCH
     const rows = await src.listSegmentsAfter(from, ask)
-    if (rows.length === 0) return
+    if (rows.length === 0) return notePumpStop(takeId, 'no_rows')
 
     const minted = await port.mintSegmentUrls(
       takeId,
@@ -365,6 +378,7 @@ async function pumpOnce(
       // TERMINAL_SECURE_ERRORS is the ONE list that says which refusals can
       // never turn into a yes — shared with the whole-take path so the two
       // cannot drift, and read here without writing anything of that path's.
+      notePumpStop(takeId, TERMINAL_SECURE_ERRORS.has(minted.error) ? 'mint_terminal' : 'mint_retry')
       if (TERMINAL_SECURE_ERRORS.has(minted.error)) await stopSegments(src, takeId, minted.error)
       else {
         // The door ran out of time (or storage did) — ask for less next time,
@@ -441,9 +455,11 @@ async function pumpOnce(
     while (landed.has(landedUpTo + 1)) landedUpTo++
     if (landedUpTo > from) await src.markUploaded(landedUpTo)
 
+    notePumpStop(takeId, mismatch ? 'mismatch' : failed ? 'put_failed' : 'landed')
     if (failed || mismatch) bumpBackoff(takeId)
     else backoff.delete(takeId)
   } catch (err) {
+    notePumpStop(takeId, 'threw')
     // Nothing above is allowed to fail a recording (see the export's docblock).
     // A throw that reaches here is a store or a door behaving in a way nobody
     // classified — a moment in time, so the take is left exactly as it was and
@@ -461,4 +477,5 @@ export function __resetSegmentPumpState(): void {
   pendingFresh.clear()
   backoff.clear()
   batchAsk.clear()
+  lastPumpStop.clear()
 }

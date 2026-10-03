@@ -107,6 +107,8 @@ const mockSettleTakeAfterSave = jest.fn(async (_takeId: string) => {})
 jest.mock('@/lib/recording/secure-take', () => ({ secureTake: jest.fn(async () => {}) }))
 
 jest.mock('@/lib/karute/take-store', () => ({
+  // PR-B commit 3: the error card reads takeReference (mock member only, no assertion changed).
+  takeReference: () => null,
   appendTakeSegment: jest.fn(),
   // A2-2 — the discard-transcript register.
   stampDiscardPending: (takeId: string, pending: unknown) =>

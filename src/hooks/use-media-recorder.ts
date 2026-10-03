@@ -9,6 +9,8 @@ export interface RecordingResult {
   blob: Blob
   mimeType: string
   durationMs: number
+  /** R-S87-3a: every byte the recorder emitted for this run (global-recorder). */
+  bytesEmitted?: number
 }
 
 /** The MIME types this recorder negotiates, in preference order. Exported so

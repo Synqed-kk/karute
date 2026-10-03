@@ -8,6 +8,17 @@ export const WEBM_HEAD = new Uint8Array([
   0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01, 0x42, 0xf7, 0x81, 0x01, 0x42,
 ])
 
+/** An MP4 head: a box size, then `ftyp` at 4 and a brand — what an iOS
+ *  MediaRecorder mp4 take starts with (14 bytes, the
+ *  WebM head's length, so a same-size pair stays the same size). */
+export const MP4_HEAD = new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00])
+
+/** B-S66-2 (PR-B): a test blob's bytes behind a real container head, so the
+ *  phone's sniff reads the mock as the recording it stands for. One home. */
+export function withContainerHead(bytes: BlobPart, kind: 'webm' | 'mp4'): BlobPart[] {
+  return [kind === 'webm' ? WEBM_HEAD : MP4_HEAD, bytes]
+}
+
 /** The field object's head (La Estro 9/29): 14 bytes, no container signature. */
 export const HEADERLESS_HEAD = new Uint8Array(14)
 

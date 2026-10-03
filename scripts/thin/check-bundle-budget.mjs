@@ -2131,7 +2131,11 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // raised 2026-09-25, PR #1039 (the in-tab fallback adopts the row the server made — S34 piece 3): merged tree origin/main df86b6e3b + 41f20dcb2 = 140,406 + 1,088,486 + 937,800 = 2,166,692 B (183 B over); main alone 2,165,434 B → the PR adds 1,258 B (piece 3 adoption +1,065 · O1/O2 finalize mark +193); ceiling = 2,165,434 + 1,258 + 1,024 = 2,167,716 B.
 //
 // raised 2026-09-25 once by ~1% on Liam's ruling (the gate is an alarm for accidental growth, not a limit; no more per-PR topping-up): main cb4bdf79f (79bf3dbac byte-identical) = 140,406 + 1,088,742 + 937,800 = 2,166,948 B; ceiling = ceil(2,166,948 × 1.01 / 100) × 100 = 2,188,700 B.
-const BUDGET_BYTES = 2_188_700
+//
+// raised 2026-10-01, PR-B (build 32), on Liam's word ("If you need to raise the phone bundle limit, you don't need to ask me."): RAW 2,189,541 B at b3f07ab2c was 841 B over 2,188,700 B → 2,200,000 B. Measured at PR-B commit W (8a0b12674): RAW 2,195,724 B, headroom 4,276 B. The 10/1 rule: a later raise is its own commit quoting the measured figure, made only when headroom falls under 1,000 B.
+//
+// raised 2026-10-03, PR-B S87 fix round (build 32), on Liam's 10/1 word: RAW 2,200,147 B at 9bb4d4977 was 147 B over 2,200,000 B → 2,220,000 B, room for the duplicate-save PR that merges with it; the 10/1 rule stands: a later raise is its own commit quoting the measured figure, made only when headroom falls under 1,000 B.
+const BUDGET_BYTES = 2_220_000
 let dir
 try {
   dir = readdirSync(DIST)

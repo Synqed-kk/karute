@@ -25,8 +25,18 @@
  * identically in Safari and the WKWebView shell.
  */
 
+import {
+  foldDiagEvent,
+  type DiagCounts,
+  type DiagEvent,
+  type DiagRingEntry,
+  type PumpStopCode,
+} from '@/lib/recording/take-diag'
+import { AUDIO_PARTIAL, AUDIO_UNREADABLE, UNREADABLE_OBJECT } from '@/lib/recording/job-errors'
 import { currentUserId } from '@/lib/karute/draft'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { isNativeShell } from '@/lib/platform'
+import { sealTakeCopy } from '@/lib/karute/take-vault'
 import type { RecordingTarget } from '@/lib/global-recorder'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -121,6 +131,55 @@ const SECURE_RETRY_COOLDOWN_MS = 60_000
 const STAMP_WRITE_TRIES = 3
 const STAMP_RETRY_MS = 50
 
+/** PR-B B3 (build 32): the codes of a take whose audio is DAMAGED — the phone
+ *  refused to seal it (`audio_unreadable` / `audio_partial`, written only
+ *  after its staged copy landed) or finalize refused the object
+ *  (`unreadable_object`). Terminal for the 60-s loop, never for the local
+ *  copy: serverHoldsTake and the discard sweep both refuse such a take, so the
+ *  sweep never stages it and no automatic path prunes a damaged take. A human
+ *  settle deletes a phone recording only after the server's receipt or a
+ *  sealed copy; with the keep switch OFF a damaged one only after the server's
+ *  own copy (`finalizedAt` or `stg/`). */
+export const DAMAGED_SECURE_CODES: ReadonlySet<string> = new Set([
+  AUDIO_UNREADABLE,
+  AUDIO_PARTIAL,
+  UNREADABLE_OBJECT,
+])
+
+/** The one reading of DAMAGED_SECURE_CODES (B3); `stagedPartialDoor` OFF = never. */
+function damagedCodeKind(code: string | undefined): 'partial' | 'unreadable' | undefined {
+  if (!RECORDING_SWITCHES.stagedPartialDoor || code === undefined || !DAMAGED_SECURE_CODES.has(code)) return undefined
+  return code === AUDIO_PARTIAL ? 'partial' : 'unreadable'
+}
+
+export function isDamagedTake(meta: Pick<TakeMeta, 'secureError'>): boolean {
+  return damagedCodeKind(meta.secureError) !== undefined
+}
+
+/** S76 W-3 (R-S76-7): the 録音履歴 ROW's reading — the code's kind, or 'partial'
+ *  for a take whose tail never landed and whose server answer is final (its
+ *  保存する can only end in the partial card). Never reads the note. */
+export function damagedKind(
+  meta: Pick<TakeMeta, 'secureError' | 'tailIncomplete'>,
+): 'partial' | 'unreadable' | undefined {
+  const kind = damagedCodeKind(meta.secureError)
+  if (kind || !RECORDING_SWITCHES.stagedPartialDoor || meta.tailIncomplete !== true) return kind
+  return meta.secureError && TERMINAL_SECURE_ERRORS.has(meta.secureError) ? 'partial' : undefined
+}
+
+/** PR-B B11/F12d: the ONE reference number a failed take's card shows (⚖ Liam
+ *  9/30: a SHORT REFERENCE NUMBER, never the technical cause) — the take
+ *  uuid's first 8 chars when the take id is a uuid, else the session id's
+ *  first 8, else null. The black-box lane keys on this same function later. */
+export function takeReference(meta: {
+  takeId?: string | null
+  recordingSessionId?: string | null
+}): string | null {
+  if (meta.takeId && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(meta.takeId))
+    return meta.takeId.slice(0, 8)
+  return meta.recordingSessionId ? meta.recordingSessionId.slice(0, 8) : null
+}
+
 /** Secure-attempt refusals that CANNOT become a yes by trying again, so trying
  *  again is pure cost — and the cost here is a whole take (43 MB on cellular)
  *  re-uploaded on every mount, forever. The door refuses these on facts that do
@@ -163,6 +222,9 @@ export const TERMINAL_SECURE_ERRORS = new Set([
   // renegotiate, and a retry sends the identical rejected value.
   'bad_take_id',
   'bad_mime',
+  // PR-B B2/B3: a damaged take — re-uploading the same bytes can only produce
+  // the same answer. Read at module load, so the OFF state is today's set.
+  ...(RECORDING_SWITCHES.stagedPartialDoor ? [...DAMAGED_SECURE_CODES] : []),
 ])
 
 /**
@@ -189,6 +251,15 @@ export const TERMINAL_SECURE_ERRORS = new Set([
  * so the fence lives in exactly one place and the two can never drift apart.
  */
 export const BINDING_SECURE_REFUSALS = new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded'])
+
+/** PR-B commit 4 (B8): when, and which system sign — a 'muted' that lifts is withdrawn. */
+export type EndedBySystem = {
+  at: number
+  why: 'track_ended' | 'muted' | 'recorder_error' | 'pagehide' | 'freeze'
+  /** PR-B Wn (W-6, R-S77-9): a REAL sign that replaced a held 'muted' keeps
+   *  that mute's own `at` here — device-only, like the rest of the mark. */
+  mutedAt?: number
+}
 
 export type TakeMeta = {
   takeId: string
@@ -270,6 +341,15 @@ export type TakeMeta = {
    *  Never a substitute for `finalizedPath` — that one wins wherever both
    *  exist, because it is the key the whole pipeline reads. */
   stagedPath?: string
+  /** R-S87-1: what the staged copy was made FROM — written beside
+   *  `stagedPath` by the stored arm only; absent = a receipt for nothing. */
+  stagedFacts?: StagedFacts
+  /** R-S87-7: the take's TAIL part (the in-memory blob staged when the stored
+   *  copy won). A receipt for NOTHING — for the rescue and the diag only. */
+  stagedTailPath?: string
+  /** R-S87-15 (a): a tail upload FAILED (bytes, when) and has not landed since —
+   *  a fact for the rescue and the diag; nothing that licenses a delete reads it. */
+  tailPending?: { bytes: number; at: number }
   /** ⚖ HOW FAR THE SERVER HAS THIS TAKE ALREADY (slice five packet C, D7) — the
    *  highest CONTIGUOUS segment seq storage has confirmed, so the pump knows
    *  where to resume and never re-uploads what already landed. Contiguous is
@@ -348,6 +428,27 @@ export type TakeMeta = {
    *  deletes, the audio stays on the device and the take stays plainly
    *  un-finalized, which is what surfaces it as 要対応 for a human. */
   tailIncomplete?: boolean
+  /** ⚖ THE BYTES THIS TAKE HAS ON DISK (PR-B commit 1, B6 / B-S66-6): the sum
+   *  of every segment blob's size, added in the SAME transaction that writes
+   *  the segment — never the recorder's live counter, so it can only say what
+   *  the store really holds. Absent = unknown (a take whose first segment
+   *  went down without it, or the `stagedPartialDoor` switch OFF): no door
+   *  may claim a short blob from an unknown count. */
+  bytesEmitted?: number
+  /** PR-B commit 4 (B8): the first sign the SYSTEM ended or interrupted this
+   *  capture (captureEndHooks). LOCAL only — not a TakeDiag key, never sent. */
+  endedBySystem?: EndedBySystem
+  /** PR-B commit 5 (B5): the take's local flight record — a bounded ring of
+   *  short event codes (take-diag.ts). LOCAL; only counts derived from it,
+   *  inside the 12 TakeDiag keys, ever leave the phone. */
+  diagRing?: DiagRingEntry[]
+  /** 5c (FM-5): the whole take's counts and its last pump exit code — the
+   *  finalize diag reads these, never the ring. Same writer as the ring. */
+  diagCounts?: DiagCounts
+  lastPumpStop?: PumpStopCode
+  /** S76 W-1: a whole copy of `bytes` / `seconds` is being sent to the take
+   *  key (written, committed, before the PUT) so a later run finishes it. */
+  heldUpload?: { bytes: number; seconds: number }
   /** ⚖ A STOP IS IN FLIGHT — OR DIED IN ONE (fix round 17). Written by the stop
    *  leg as its FIRST act, ahead of the tail flush and of anything that could
    *  release the hold; cleared in the same patch that stamps `durationMs`.
@@ -433,9 +534,41 @@ export type RecoverableTake = Omit<TakeMeta, 'ownerUid' | 'lastSeq'> & {
    *  window, so without this the fold would drop the one row a human can act
    *  on. */
   expiredUnsecured?: boolean
+  /** S76 W-3: listOwnTakes' damagedKind for a take with no held-upload note. */
+  damaged?: 'partial' | 'unreadable'
 }
 
 type SegmentRow = { takeId: string; seq: number; blob: Blob }
+
+/** PR-B commit 7 (C1, B9): how long a segment's transaction may take to
+ *  report its commit before the write is treated as lost (false). */
+export const SEGMENT_COMMIT_DEADLINE_MS = 5_000
+
+/** PR-B Wn (R-S82-3): how long a human settle waits for the sealed copy —
+ *  the vault's open AND the whole copy, every request + the strict commit —
+ *  before it answers false and deletes nothing. 30 s, the lead's value:
+ *  nothing staff feel waits on it (every settle caller is fire-and-forget);
+ *  a long take is many segments in ONE strict transaction where 5 s is one
+ *  segment's budget, so 6× that is a generous margin by judgement (copy time
+ *  on a real phone is NOT measured); and both failure directions lose
+ *  nothing — too short keeps the take, too long only holds the settle open. */
+export const SEALED_COPY_DEADLINE_MS = 30_000
+
+/** The transaction's own verdict: `complete` → true; `abort`, `error` or the
+ *  deadline → false. Attached after the last request resolved, which is still
+ *  before `complete` (that event is its own task, after the success events). */
+function segmentCommitted(tx: IDBTransaction): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), SEGMENT_COMMIT_DEADLINE_MS)
+    const end = (ok: boolean) => {
+      clearTimeout(timer)
+      resolve(ok)
+    }
+    tx.onabort = () => end(false)
+    tx.onerror = () => end(false)
+    tx.oncomplete = () => end(true)
+  })
+}
 
 function req<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -626,12 +759,22 @@ export async function appendTakeSegment(
       const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
       if (!meta || (uid && meta.ownerUid !== uid)) return false
       await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
+      // B6 / B-S66-6: the count rides this transaction. Seq 0 starts it; a
+      // later seq only extends a count that exists — never guesses one.
+      const emitted = !RECORDING_SWITCHES.stagedPartialDoor
+        ? undefined
+        : meta.bytesEmitted !== undefined
+          ? meta.bytesEmitted + blob.size
+          : seq === 0
+            ? blob.size
+            : undefined
+      const counted = emitted === undefined ? meta : { ...meta, bytesEmitted: emitted }
       await req(
         tx.objectStore(TAKES).put(
           stampDurationMs === undefined
-            ? { ...meta, updatedAt: Date.now(), lastSeq: seq }
+            ? { ...counted, updatedAt: Date.now(), lastSeq: seq }
             : {
-                ...meta,
+                ...counted,
                 updatedAt: Date.now(),
                 lastSeq: seq,
                 durationMs: stampDurationMs,
@@ -640,6 +783,10 @@ export async function appendTakeSegment(
               },
         ),
       )
+      // ⚖ C1 (PR-B commit 7, B9): a request's success is not a commit — the
+      // segment counts (the recorder advances its seq) only once the
+      // transaction completes; an abort after onsuccess answers false.
+      if (RECORDING_SWITCHES.awaitSegmentCommit && !(await segmentCommitted(tx))) return false
       return true
     } catch (err) {
       console.error('[take-store] appendTakeSegment failed:', err)
@@ -762,7 +909,7 @@ async function patchTakeMeta(
   takeId: string,
   patch: Partial<TakeMeta>,
   when?: (meta: TakeMeta) => boolean,
-  opts?: { gate?: 'require' | 'compare' },
+  opts?: { gate?: 'require' | 'compare'; awaitCommit?: boolean },
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= STAMP_WRITE_TRIES; attempt++) {
     try {
@@ -770,11 +917,15 @@ async function patchTakeMeta(
       if (!db) return false
       const uid = await currentUserId()
       if (!uid && opts?.gate !== 'compare') return false
-      const tx = db.transaction(TAKES, 'readwrite')
+      const tx = opts?.awaitCommit
+        ? db.transaction(TAKES, 'readwrite', { durability: 'strict' })
+        : db.transaction(TAKES, 'readwrite')
       const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
       if (!meta || (uid && meta.ownerUid !== uid)) return false
       if (when && !when(meta)) return false
       await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
+      // S76 A1: true only on the transaction's `complete` (never retried).
+      if (opts?.awaitCommit) return await segmentCommitted(tx)
       return true
     } catch (err) {
       console.error('[take-store] patchTakeMeta failed:', err)
@@ -827,12 +978,81 @@ export async function markDiscardTranscriptDone(takeId: string): Promise<void> {
   await patchTakeMeta(takeId, { discardTranscriptDoneAt: Date.now() })
 }
 
+/** R-S87-1: the stored rows a staged copy was made from (loadTakeBlobFacts). */
+export type StagedFacts = { arm: 'stored'; bytes: number; segmentCount: number; seqMax: number }
+
+/** R-S87-1: a `stg/` copy is the server's receipt ONLY for the stored rows it
+ *  was made from — a stored-arm record whose facts EQUAL these rows (strict).
+ *  Memory arm, an older meta, missing facts → not a receipt (fail closed).
+ *  `rows` absent = the TTL pre-filter only: deleteTakeRows re-asks with rows. */
+function stagedReceipt(meta: Pick<TakeMeta, 'stagedPath' | 'stagedFacts'>, rows?: readonly SegmentRow[]): boolean {
+  const f = meta.stagedFacts
+  if (!meta.stagedPath?.startsWith('stg/') || f?.arm !== 'stored') return false
+  if (!rows) return true
+  const bytes = rows.reduce((n, r) => n + r.blob.size, 0)
+  return f.bytes === bytes && f.segmentCount === rows.length && f.seqMax === Math.max(-1, ...rows.map((r) => r.seq))
+}
+
 /** Capture pipeline PR4 fix round 4: this take's audio has been STAGED, and
  *  here is the key it went to. Written once, right after the first successful
  *  staging, so a transcription that keeps failing re-reads that copy instead of
  *  re-uploading the whole take on every record-page mount. */
-export async function markTakeStaged(takeId: string, stagedPath: string): Promise<void> {
-  await patchTakeMeta(takeId, { stagedPath })
+export async function markTakeStaged(takeId: string, stagedPath: string, stagedFacts?: StagedFacts): Promise<void> {
+  await patchTakeMeta(takeId, { stagedPath, stagedFacts })
+}
+
+/** R-S87-7: where the take's tail part was staged (never `stagedPath`). */
+export async function markTakeStagedTail(takeId: string, stagedTailPath: string): Promise<void> {
+  await patchTakeMeta(takeId, { stagedTailPath, tailPending: undefined })
+}
+
+/** R-S87-15 (b): a headerless memory-arm blob staged as the TAIL part, and its
+ *  damaged code, in ONE write (as markTakeStagedDamaged) — no `stagedPath`, so
+ *  such a take holds no `stg/` receipt and is kept (R-S81-1). */
+export async function markTakeTailDamaged(takeId: string, stagedTailPath: string, code: string): Promise<void> {
+  await patchTakeMeta(
+    takeId,
+    { stagedTailPath, tailPending: undefined, secureError: code, lastSecureAttemptAt: Date.now() },
+    (meta) => !meta.finalizedAt,
+  )
+}
+
+/** R-S87-15 (a): the tail upload failed — the run ends retryable. */
+export async function markTakeTailPending(takeId: string, bytes: number): Promise<void> {
+  await patchTakeMeta(takeId, { tailPending: { bytes, at: Date.now() } })
+}
+
+/** PR-B Wn (W-4, R-S77-1 + FOLD): the damaged branch's staged copy AND its
+ *  damaged code in ONE write — a kill between two writes used to leave a
+ *  `stg/` path with no damaged mark. Exactly what the two calls wrote:
+ *  `stagedPath` + `secureError` + `lastSecureAttemptAt`, all under
+ *  markTakeSecureError's `!finalizedAt` (a finalized take is held; its
+ *  `finalizedPath` wins). Failure as today: patchTakeMeta swallows, no throw. */
+export async function markTakeStagedDamaged(
+  takeId: string,
+  stagedPath: string,
+  code: string,
+  stagedFacts?: StagedFacts,
+): Promise<void> {
+  await patchTakeMeta(
+    takeId,
+    { stagedPath, stagedFacts, secureError: code, lastSecureAttemptAt: Date.now() },
+    (meta) => !meta.finalizedAt,
+  )
+}
+
+/** S76 A1: the held-upload note; true only once COMMITTED. Never replaces a
+ *  note of different bytes. */
+export async function markTakeHeldUpload(takeId: string, bytes: number, seconds: number): Promise<boolean> {
+  const note = { bytes, seconds }
+  return patchTakeMeta(takeId, { heldUpload: note }, (m) => !m.heldUpload || m.heldUpload.bytes === bytes, {
+    awaitCommit: true,
+  })
+}
+
+/** S76 A3: the server answered the note finally — forget it (committed). */
+export async function clearTakeHeldUpload(takeId: string): Promise<boolean> {
+  return patchTakeMeta(takeId, { heldUpload: undefined }, undefined, { awaitCommit: true })
 }
 
 /** Capture pipeline PR4 fix round 7: forget where this take was staged, so the
@@ -960,6 +1180,28 @@ export async function markTakeTailIncomplete(takeId: string): Promise<void> {
   })
 }
 
+/** PR-B commit 4 (B8): the recorder's own note of a system end (null = a lifted
+ *  mute withdrawn). Same gate as the stop leg's own marks. */
+export async function markTakeEndedBySystem(takeId: string, mark: EndedBySystem | null): Promise<void> {
+  await patchTakeMeta(takeId, { endedBySystem: mark ?? undefined }, undefined, { gate: 'compare' })
+}
+
+/** PR-B commit 5 (B5): one event onto the take's local ring (takeDiag). Best
+ *  effort — the recorder's own queued write on its own take. */
+export async function noteTakeDiagEvent(takeId: string, event: DiagEvent): Promise<void> {
+  if (!RECORDING_SWITCHES.takeDiag) return
+  // The ring AND the counters (5c) are extended from the row read INSIDE the
+  // write (commit 5b): the recorder and the uploader both write here, and
+  // neither may drop the other.
+  const patch: Partial<TakeMeta> = {}
+  await patchTakeMeta(
+    takeId,
+    patch,
+    (m) => (Object.assign(patch, foldDiagEvent(m, event, Date.now())), true),
+    { gate: 'compare' },
+  )
+}
+
 /** Capture pipeline PR3 fix round 17: this take's stop leg has BEGUN. Queued as
  *  the leg's first act — see `stopPendingAt` above for why the stop is written
  *  down before the tail rather than after it.
@@ -1055,6 +1297,11 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'heartbeatAt'
   | 'tailIncomplete'
   | 'stopPendingAt'
+  | 'bytesEmitted'
+  | 'diagCounts'
+  | 'lastPumpStop'
+  | 'heldUpload'
+  | 'stagedFacts'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -1074,6 +1321,11 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     heartbeatAt: meta.heartbeatAt,
     tailIncomplete: meta.tailIncomplete,
     stopPendingAt: meta.stopPendingAt,
+    bytesEmitted: meta.bytesEmitted,
+    diagCounts: meta.diagCounts,
+    lastPumpStop: meta.lastPumpStop,
+    heldUpload: meta.heldUpload,
+    stagedFacts: meta.stagedFacts,
   }
 }
 
@@ -1296,7 +1548,80 @@ export async function deleteTake(
   opts?: { humanResolved?: boolean },
 ): Promise<void> {
   if (!(await readOwnTakeMeta(takeId))) return
-  await deleteTakeRows(takeId, opts)
+  // PR-B Wn: a human settle carries the door value (R-S82-2); false = the
+  // sealed copy did not finish → nothing is deleted, the take stays as it was.
+  const door = opts?.humanResolved ? await sealedCopyDoor(takeId) : undefined
+  if (door === false) return
+  await deleteTakeRows(takeId, opts, door)
+}
+
+/** What a human settle hands the door (R-S82-2): the keep switch as read ONCE
+ *  at the call, and — switch ON — what the sealed copy holds of this take
+ *  (`{seq → Blob.size}`; empty when nothing needed copying). */
+type DoorValue = { keep: false } | { keep: true; held: Map<number, number> }
+
+/** The server's receipt for at least the phone's copy (R-S79-1): (1)
+ *  `finalizedAt` · (2) a `stg/` staged copy · (3) the fallback's own receipt,
+ *  `transcript.audio.size` ≥ Σ `Blob.size` of THIS take's segment rows. A
+ *  damaged take counts arms 1–2 only. The server's receipt — not a proof of
+ *  the bytes. */
+function serverReceipt(meta: TakeMeta, rows: readonly SegmentRow[]): boolean {
+  if (meta.finalizedAt) return true
+  if (stagedReceipt(meta, rows)) return true
+  if (isDamagedTake(meta)) return false
+  const sent = meta.transcript?.fallback === true ? meta.transcript.audio?.size : undefined
+  return typeof sent === 'number' && sent >= rows.reduce((n, r) => n + r.blob.size, 0)
+}
+
+/** Keep switch OFF → `{ keep: false }`. ON → read the live meta + this take's
+ *  rows (one readonly transaction); nothing to copy (no meta, no rows, a
+ *  receipt) → an empty map; else seal a copy and wait for it — false when it
+ *  does not finish. The door re-decides on its own fresh read either way. */
+async function sealedCopyDoor(takeId: string): Promise<DoorValue | false> {
+  if (!RECORDING_SWITCHES.sealBeforeHumanDelete) return { keep: false }
+  const live = await readLiveTake(takeId)
+  if (live === false) return false
+  if (!live.meta || live.rows.length === 0 || serverReceipt(live.meta, live.rows))
+    return { keep: true, held: new Map() }
+  const held = await sealTakeCopy(live.meta, live.rows, SEALED_COPY_DEADLINE_MS)
+  return held ? { keep: true, held } : false
+}
+
+/** The live meta + THIS take's segment rows, in one readonly transaction.
+ *  false = the read failed (fail closed); an unavailable store reads as empty. */
+async function readLiveTake(
+  takeId: string,
+): Promise<{ meta: TakeMeta | undefined; rows: SegmentRow[] } | false> {
+  try {
+    const db = await openDb()
+    if (!db) return { meta: undefined, rows: [] }
+    const tx = db.transaction([TAKES, SEGMENTS], 'readonly')
+    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    const all = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
+    return { meta, rows: all.filter((r) => r.takeId === takeId) }
+  } catch (err) {
+    console.error('[take-store] sealed copy read failed — nothing deleted:', err)
+    return false
+  }
+}
+
+/** THE DOOR on a human settle, inside deleteTakeRows' own transaction, on its
+ *  fresh read. No door value → nothing (unreachable by construction).
+ *  Keep OFF → today's release, except a DAMAGED take is kept until the server
+ *  holds its own copy (R-S77-7: `finalizedAt` or `stg/`; `isDamagedTake` is
+ *  live). Keep ON → no meta → nothing (orphans stay for the sweeps); a receipt
+ *  now → release; else release only if every live row's (seq, `Blob.size`)
+ *  EQUALS what the sealed copy holds (no live rows → nothing to lose). */
+function humanDoorReleases(meta: TakeMeta | undefined, rows: readonly SegmentRow[], door?: DoorValue): boolean {
+  if (!door) {
+    console.error('[take-store] a human settle reached the door without its value — nothing deleted')
+    return false
+  }
+  if (!door.keep)
+    return !meta || !isDamagedTake(meta) || !!meta.finalizedAt || stagedReceipt(meta, rows)
+  if (!meta) return false
+  if (serverReceipt(meta, rows)) return true
+  return rows.every((r) => door.held.get(r.seq) === r.blob.size)
 }
 
 /** ⚖ WHAT A SAVE MAY SETTLE — the rule, in ONE place, for all three exits
@@ -1365,17 +1690,21 @@ export function serverHoldsTake(
     TakeMeta,
     | 'finalizedAt'
     | 'stagedPath'
+    | 'stagedFacts'
     | 'discardTranscriptDoneAt'
     | 'tailIncomplete'
     | 'stopPendingAt'
     | 'durationMs'
     | 'secureError'
   >,
+  rows?: readonly SegmentRow[],
 ): boolean {
+  // PR-B B3 / B-S66-3: a damaged take is NEVER held by the server — its staged
+  // copy is what the phone could not vouch for — so it is never pruned.
+  if (isDamagedTake(meta)) return false
   if (meta.finalizedAt) return true
   return (
-    typeof meta.stagedPath === 'string' &&
-    meta.stagedPath.startsWith('stg/') &&
+    stagedReceipt(meta, rows) &&
     meta.discardTranscriptDoneAt !== undefined &&
     isUnsecurableTake(meta)
   )
@@ -1427,22 +1756,28 @@ export function serverHoldsTake(
 async function deleteTakeRows(
   takeId: string,
   opts?: { humanResolved?: boolean },
+  door?: DoorValue,
 ): Promise<void> {
   try {
     const db = await openDb()
     if (!db) return
     const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    if (opts?.humanResolved) {
+      const all = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
+      if (!humanDoorReleases(meta, all.filter((r) => r.takeId === takeId), door)) return
+    }
     // A take the server does NOT hold is audio that exists nowhere else. The
     // released cohort is the one serverHoldsTake names: a discarded take that
     // could never be sealed, whose staged copy the server holds and whose
     // words are settled.
-    if (meta && !serverHoldsTake(meta) && !opts?.humanResolved) return
-    await req(tx.objectStore(TAKES).delete(takeId))
     // ponytail: full getAll + filter — rows are few and blobs are lazy
     // handles; switch to IDBKeyRange.bound([takeId], [takeId, []]) on the
-    // compound key if profiling ever cares.
+    // compound key if profiling ever cares. Read BEFORE the guard: R-S87-1's
+    // staged receipt is judged against THIS take's live rows.
     const segments = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
+    if (meta && !serverHoldsTake(meta, segments.filter((s) => s.takeId === takeId)) && !opts?.humanResolved) return
+    await req(tx.objectStore(TAKES).delete(takeId))
     for (const s of segments) {
       if (s.takeId === takeId) await req(tx.objectStore(SEGMENTS).delete([s.takeId, s.seq]))
     }
@@ -1557,6 +1892,8 @@ export async function listOwnTakes(
       if (m.lastSeq < 0) continue
       // Recently flushed = possibly live in another tab; wait out the grace.
       if (now - lastActivity < ACTIVE_GRACE_MS) continue
+      // S76 A4: a take with a held-upload note keeps 保存する (never `damaged`).
+      const damaged = m.heldUpload ? undefined : damagedKind(m)
       out.push({
         takeId: m.takeId,
         target: m.target,
@@ -1593,6 +1930,7 @@ export async function listOwnTakes(
         // `TakeMeta`, so the 録音履歴 fold's `bindingRefused` mapping was always
         // false and piece r was dead code without this line.
         secureError: m.secureError,
+        ...(damaged ? { damaged } : {}),
       })
     }
     out.sort((a, b) => b.startedAt - a.startedAt)
@@ -1894,6 +2232,22 @@ export async function listTakeSegmentsAfter(
  *  null when the caller isn't the owner, the take has no segments, or the
  *  read fails. */
 export async function loadTakeBlob(takeId: string): Promise<Blob | null> {
+  return (await loadTakeBlobFacts(takeId))?.blob ?? null
+}
+
+/** loadTakeBlob's blob plus what the store says about the segments it was
+ *  joined from (PR-B commit 1, for the whole-blob doors and the diag):
+ *  how many, the lowest and highest seq, and whether seq 0 — the one that
+ *  carries the container head — is among them. Same gates, same nulls. */
+export type TakeBlobFacts = {
+  blob: Blob
+  segmentCount: number
+  seqMin: number
+  seqMax: number
+  seq0Present: boolean
+}
+
+export async function loadTakeBlobFacts(takeId: string): Promise<TakeBlobFacts | null> {
   try {
     const db = await openDb()
     if (!db) return null
@@ -1904,12 +2258,18 @@ export async function loadTakeBlob(takeId: string): Promise<Blob | null> {
     if (!meta || meta.ownerUid !== uid) return null
     // ponytail: getAll + filter, same trade-off as deleteTake above.
     const segments = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
-    const parts = segments
-      .filter((s) => s.takeId === takeId)
-      .sort((a, b) => a.seq - b.seq)
-      .map((s) => s.blob)
-    if (parts.length === 0) return null
-    return new Blob(parts, meta.mimeType ? { type: meta.mimeType } : undefined)
+    const own = segments.filter((s) => s.takeId === takeId).sort((a, b) => a.seq - b.seq)
+    if (own.length === 0) return null
+    return {
+      blob: new Blob(
+        own.map((s) => s.blob),
+        meta.mimeType ? { type: meta.mimeType } : undefined,
+      ),
+      segmentCount: own.length,
+      seqMin: own[0].seq,
+      seqMax: own[own.length - 1].seq,
+      seq0Present: own[0].seq === 0,
+    }
   } catch (err) {
     console.error('[take-store] loadTakeBlob failed:', err)
     return null

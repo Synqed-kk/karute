@@ -89,6 +89,9 @@ const SEQ = /^[0-9]{6}$/
 const TAKE_PREFIX = 'app_'
 const SEGMENT_PREFIX = 'seg/'
 const STAGED_PREFIX = 'stg/'
+/** R-S87-7: a take's SECOND staged object (the in-memory tail) — the same key
+ *  with this suffix after the uuid: stg/<biz>_<session>_<uuid>_tail.<ext>. */
+const TAIL_SUFFIX = '_tail'
 /** The nightly assembler's SIDE KEY — a take's rebuilt audio, one folder level
  *  in, so the take's own key is never occupied by it (⚖ Liam 2026-09-06, "b").
  *  Exported because the assembler's own docs and the resolver name the prefix. */
@@ -139,14 +142,14 @@ const EXTENSIONS: readonly string[] = Object.values(MIME_TO_EXT)
 export type ParsedRecordingKey =
   | { kind: 'take'; takeId: string; ext: string }
   | { kind: 'segment'; takeId: string; seq: number; ext: string }
-  | { kind: 'staged'; recordingSessionId: string; ext: string }
+  | { kind: 'staged'; recordingSessionId: string; ext: string; part?: 'tail' }
   | { kind: 'rescue'; takeId: string; ext: string }
   | { kind: 'transcript'; audioKey: string; locale: 'ja' | 'en' }
   | {
       kind: 'mark'
       target:
         | { kind: 'take'; takeId: string; ext: string }
-        | { kind: 'staged'; sessionId: string; uuid: string; ext: string }
+        | { kind: 'staged'; sessionId: string; uuid: string; ext: string; part?: 'tail' }
       mark: MarkKind
     }
 
@@ -220,11 +223,14 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
     const tenant = `${businessId}_`
     if (!rest.startsWith(tenant)) return null
     const parts = splitExtension(rest.slice(tenant.length))
-    if (!parts || parts.stem[UUID_LENGTH] !== '_') return null
-    const recordingSessionId = parts.stem.slice(0, UUID_LENGTH)
+    // R-S87-7: the tail part is the same shape with TAIL_SUFFIX after the uuid.
+    const tail = !!parts && parts.stem.endsWith(TAIL_SUFFIX)
+    const stem = parts && tail ? parts.stem.slice(0, -TAIL_SUFFIX.length) : parts?.stem
+    if (!parts || !stem || stem[UUID_LENGTH] !== '_') return null
+    const recordingSessionId = stem.slice(0, UUID_LENGTH)
     if (!TAKE_UUID.test(recordingSessionId)) return null
-    if (!TAKE_UUID.test(parts.stem.slice(UUID_LENGTH + 1))) return null
-    return { kind: 'staged', recordingSessionId, ext: parts.ext }
+    if (!TAKE_UUID.test(stem.slice(UUID_LENGTH + 1))) return null
+    return { kind: 'staged', recordingSessionId, ext: parts.ext, ...(tail ? { part: 'tail' as const } : {}) }
   }
 
   if (key.startsWith(RESCUE_PREFIX)) {
@@ -274,11 +280,11 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
     if (target?.kind === 'staged') {
       // The staged read above proved the uuid slot: the fixed-width stretch
       // right before `.<ext>`.
-      const end = targetKey.length - target.ext.length - 1
+      const end = targetKey.length - target.ext.length - 1 - (target.part ? TAIL_SUFFIX.length : 0)
       const uuid = targetKey.slice(end - UUID_LENGTH, end)
       return {
         kind: 'mark',
-        target: { kind: 'staged', sessionId: target.recordingSessionId, uuid, ext: target.ext },
+        target: { kind: 'staged', sessionId: target.recordingSessionId, uuid, ext: target.ext, ...(target.part ? { part: target.part } : {}) },
         mark: mark as MarkKind,
       }
     }
@@ -497,7 +503,8 @@ export function composeMarkKey(
       ? parsed.target.kind === 'take' && parsed.target.takeId === target.takeId
       : parsed.target.kind === 'staged' &&
         parsed.target.sessionId === target.recordingSessionId &&
-        (targetKey as string).endsWith(`_${parsed.target.uuid}.${target.ext}`))
+        parsed.target.part === target.part &&
+        (targetKey as string).endsWith(`_${parsed.target.uuid}${target.part ? TAIL_SUFFIX : ''}.${target.ext}`))
   if (!same) {
     throw new Error('composed mark key failed its own grammar')
   }
@@ -637,14 +644,17 @@ export function composeStagedKey(
   recordingSessionId: unknown,
   mimeType: unknown,
   slot?: unknown,
+  /** R-S87-7: 'tail' = the take's second staged object; absent = today's key. */
+  part?: 'tail',
 ): { key: string; ext: string; contentType: string; uuid: string } | null {
   if (typeof recordingSessionId !== 'string' || !TAKE_UUID.test(recordingSessionId)) return null
   const contentType = normalizeAudioMime(mimeType)
   if (contentType === null) return null
   const ext = MIME_TO_EXT[contentType]
   const uuid = typeof slot === 'string' && TAKE_UUID.test(slot) ? slot : crypto.randomUUID()
-  const key = `${STAGED_PREFIX}${businessId}_${recordingSessionId}_${uuid}.${ext}`
-  if (parseRecordingKey(key, businessId)?.kind !== 'staged') {
+  const key = `${STAGED_PREFIX}${businessId}_${recordingSessionId}_${uuid}${part ? TAIL_SUFFIX : ''}.${ext}`
+  const parsed = parseRecordingKey(key, businessId)
+  if (parsed?.kind !== 'staged' || parsed.part !== part) {
     throw new Error('composed staged key failed its own grammar')
   }
   return { key, ext, contentType, uuid }
@@ -665,7 +675,8 @@ export function isStagedKeyFor(
   recordingSessionId: string,
 ): key is string {
   const parsed = parseRecordingKey(key, businessId)
-  return parsed?.kind === 'staged' && parsed.recordingSessionId === recordingSessionId
+  // R-S87-7: a tail part is never a session's staged copy for its words.
+  return parsed?.kind === 'staged' && !parsed.part && parsed.recordingSessionId === recordingSessionId
 }
 
 /**
@@ -726,7 +737,9 @@ export function looksLikeRecordingKey(name: unknown): boolean {
   // ids are fixed-width, so the offset is the only difference.
   // `+ 2` = the separator plus at least one businessId character.
   const staged = name.startsWith(STAGED_PREFIX)
-  const uuidStart = name.lastIndexOf('.') - UUID_LENGTH
+  // R-S87-7: a staged tail part carries TAIL_SUFFIX between the uuid and the dot.
+  const dot = name.lastIndexOf('.')
+  const uuidStart = dot - UUID_LENGTH - (staged && name.slice(0, dot).endsWith(TAIL_SUFFIX) ? TAIL_SUFFIX.length : 0)
   const idStart = staged ? uuidStart - UUID_LENGTH - 1 : uuidStart
   if (idStart < TAKE_PREFIX.length + 2 || name[idStart - 1] !== '_') return false
   const businessId = name.slice(TAKE_PREFIX.length, idStart - 1)

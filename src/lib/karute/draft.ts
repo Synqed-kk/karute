@@ -83,14 +83,19 @@ export type KaruteDraft = {
  *  never restorable, which fails closed for privacy. Exported for
  *  take-store.ts so both owner gates stamp the exact same identity. */
 export async function currentUserId(): Promise<string | null> {
+  let id: string | null = null
   try {
     const supabase = createClient()
     const { data } = await supabase.auth.getSession()
-    return data.session?.user?.id ?? null
-  } catch {
-    return null
-  }
+    id = data.session?.user?.id ?? null
+  } catch {}
+  if (!id) sessionNullReads++
+  return id
 }
+/** PR-B commit 5b (R-S74-10): every null answer above, any caller — ONE
+ *  count; the recorder diffs it across a take (session_null_count). */
+let sessionNullReads = 0
+export const sessionNullReadCount = (): number => sessionNullReads
 
 // ---------------------------------------------------------------------------
 // Helpers

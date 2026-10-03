@@ -120,6 +120,10 @@ let failNextTailMarks = 0
  *  coming back — and a single one is the momentary blip the retry exists to
  *  ride out. Every skipped-tail case below therefore fails ALL THREE. */
 let failNextSegmentWrites = 0
+/** PR-B commit 7 (C1): the next N transactions ABORT after their requests succeeded. */
+let abortNextCommits = 0
+/** S76 A1: the next N commits never report (a hung transaction) — the shim's one new member. */
+let hangNextCommits = 0
 /** STAMP_WRITE_TRIES' two backoffs (STAMP_RETRY_MS · 1 + · 2 = 150 ms) plus
  *  slack, advanced on the fake clock so a refused flush can reach its last try.
  *  Kept as a local literal rather than an import: take-store does not export
@@ -226,8 +230,13 @@ class FakeRequest<T> {
 
 const SEGMENTS_STORE = 'segments'
 const TAKES_STORE = 'takes'
+/** take-store's live database (its DB_NAME). Every other name is a SEALED
+ *  database (PR-B Wn, R-S81-7) — see `ShimDb` below. */
+const LIVE_DB = 'karute_takes'
 
 class FakeIDB {
+  /** PR-B Wn (R-S81-7): the database this object (or connection) belongs to. */
+  constructor(public dbName: string = LIVE_DB) {}
   stores = new Map<string, FakeObjectStore>()
   objectStoreNames = { contains: (n: string) => this.stores.has(n) }
   createObjectStore(name: string, opts: { keyPath: string | string[] }) {
@@ -257,12 +266,19 @@ class FakeIDB {
     this.closed = true
     this.onclose?.()
   }
-  // Args ignored — the shim scopes stores per call, not per transaction.
-  transaction() {
+  // Store names and mode are recorded, not enforced — the shim scopes stores
+  // per call, not per transaction. PR-B Wn: every call is logged with its
+  // OPTIONS and counted per database name; a sealed database's transaction is
+  // `sealedTransaction` (below), the live one is unchanged from here down.
+  transaction(storeNames?: string | string[], mode?: string, options?: { durability?: string }) {
+    const db = shimOf(this.dbName)
+    db.transactions++
+    txLog.push({ db: this.dbName, storeNames, mode, options })
     if (this.closed)
       throw Object.assign(new Error('The database connection is closing. (test)'), {
         name: 'InvalidStateError',
       })
+    if (db.sealed) return sealedTransaction(db, options)
     // ⚖ AND IT IS ALL OR NOTHING (fix round 18). Real IndexedDB ABORTS the whole
     // transaction when one request errors and rolls back every write it already
     // made. The shim used to leave the earlier ones standing, so "the tail bytes
@@ -283,7 +299,14 @@ class FakeIDB {
           throw e
         }
       }
-    return {
+    // PR-B commit 7 (C1, B-S66-8): the shim reports its commit as IndexedDB does — `complete` after the requests, or `abort` when a test asks (abortNextCommits).
+    const tx = {
+      onabort: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      set oncomplete(done: (() => void) | null) {
+        if (done && hangNextCommits > 0) hangNextCommits--
+        else if (done) queueMicrotask(() => (abortNextCommits > 0 ? (abortNextCommits--, tx.onabort?.()) : done()))
+      },
       objectStore: (n: string) => {
         const s = this.stores.get(n)!
         /** `put`, and — S36 PR-1 — `add`, which is `put` that refuses a key
@@ -374,13 +397,231 @@ class FakeIDB {
         }
       },
     }
+    return tx
   }
 }
 
 const fakeDb = new FakeIDB()
 /** S51: every connection the shim handed out, in order — the length is how a
- *  REOPEN is counted, the last one is the store's current connection. */
+ *  REOPEN is counted, the last one is the store's current connection.
+ *  PR-B Wn: `karute_takes` connections only; a sealed database keeps its own. */
 const connections: FakeIDB[] = []
+
+/** ⚖ PR-B Wn (R-S81-7) — ONE DATABASE PER NAME. `karute_takes` is `fakeDb` +
+ *  `connections` + the global `abortNextCommits`/`hangNextCommits`, exactly as
+ *  before. Any other name gets its own FakeIDB (version, stores, rows), its own
+ *  connection list (versionchange reaches only connections of the SAME name)
+ *  and its own commit controls — so a counter a test sets for one database can
+ *  never fire in the other. A sealed database differs from the live one in four
+ *  modelled ways, each one a real engine's rule the vault's proof leans on:
+ *    · `complete` fires only after EVERY request it was given has settled and
+ *      the callbacks' microtasks have drained (the live shim fires one
+ *      microtask after the handler is set — kept as it is);
+ *    · an abort after every request succeeded ROLLS BACK every write;
+ *    · the transaction reports `durability` — by default the value it was
+ *      opened with (`'default'` when none), overridable per test;
+ *    · a commit can be HELD (requests succeeded, commit pending) and released
+ *      later as `complete` or `abort`; an open can fail, block, refuse the
+ *      version, or be held and succeed late. */
+type OpenFault = 'error' | 'blocked' | 'version' | 'hold' | 'blockedThenHold'
+type DurabilityMode =
+  | { kind: 'echo' }
+  | { kind: 'value'; value: unknown }
+  | { kind: 'absent' }
+  | { kind: 'throw' }
+type ShimDb = {
+  name: string
+  db: FakeIDB
+  connections: FakeIDB[]
+  sealed: boolean
+  /** Sealed only: the next N commits abort / are held. */
+  abortNextCommits: number
+  holdNextCommits: number
+  heldCommits: Array<(outcome: 'complete' | 'abort') => void>
+  durability: DurabilityMode
+  durabilityReads: number
+  openFaults: OpenFault[]
+  heldOpens: Array<() => void>
+  transactions: number
+}
+const shimDbs = new Map<string, ShimDb>()
+const freshShimDb = (name: string, db: FakeIDB, conns: FakeIDB[]): ShimDb => ({
+  name,
+  db,
+  connections: conns,
+  sealed: name !== LIVE_DB,
+  abortNextCommits: 0,
+  holdNextCommits: 0,
+  heldCommits: [],
+  durability: { kind: 'echo' },
+  durabilityReads: 0,
+  openFaults: [],
+  heldOpens: [],
+  transactions: 0,
+})
+shimDbs.set(LIVE_DB, freshShimDb(LIVE_DB, fakeDb, connections))
+function shimOf(name: string): ShimDb {
+  let db = shimDbs.get(name)
+  if (!db) {
+    db = freshShimDb(name, new FakeIDB(name), [])
+    shimDbs.set(name, db)
+  }
+  return db
+}
+/** Every `transaction()` call on any database, with its arguments. */
+const txLog: Array<{
+  db: string
+  storeNames?: string | string[]
+  mode?: string
+  options?: { durability?: string }
+}> = []
+/** Sealed databases forget their ROWS and every test control between tests;
+ *  their version and the connections already handed out stay (a module-level
+ *  cached connection lives across tests, as it does across a page life). */
+const resetSealedDatabases = () => {
+  txLog.length = 0
+  shimOf(LIVE_DB).transactions = 0
+  for (const db of shimDbs.values()) {
+    if (!db.sealed) continue
+    db.db.stores.forEach((st) => st.data.clear())
+    Object.assign(db, {
+      abortNextCommits: 0,
+      holdNextCommits: 0,
+      heldCommits: [],
+      durability: { kind: 'echo' },
+      durabilityReads: 0,
+      openFaults: [],
+      heldOpens: [],
+      transactions: 0,
+    })
+  }
+}
+/** The commit microtask budget: a sealed transaction commits once it has had
+ *  no pending request for this many consecutive microtasks — long enough for
+ *  an `await req(...)` continuation (or an `await Promise.all`) to issue the
+ *  next request, short enough that a NON-request await (a timer, a fetch)
+ *  finds the transaction committed, as a real engine's auto-commit does. */
+const SEALED_IDLE_HOPS = 10
+
+function sealedTransaction(db: ShimDb, options?: { durability?: string }) {
+  const undo: Array<() => void> = []
+  let pending = 0
+  let finished = false
+  let committing = false
+  let onComplete: (() => void) | null = null
+  const finish = (outcome: 'complete' | 'abort') => {
+    if (finished) return
+    finished = true
+    if (outcome === 'abort') {
+      undo.splice(0).reverse().forEach((back) => back())
+      tx.onabort?.()
+    } else onComplete?.()
+  }
+  const commit = () => {
+    if (committing || finished) return
+    committing = true
+    if (db.abortNextCommits > 0) {
+      db.abortNextCommits--
+      finish('abort')
+    } else if (db.holdNextCommits > 0) {
+      db.holdNextCommits--
+      db.heldCommits.push(finish)
+    } else finish('complete')
+  }
+  const armIdleCommit = () => {
+    let hops = 0
+    const tick = () => {
+      if (finished || committing || pending > 0) return
+      if (++hops < SEALED_IDLE_HOPS) queueMicrotask(tick)
+      else commit()
+    }
+    queueMicrotask(tick)
+  }
+  const request = <T,>(exec: () => T) => {
+    if (finished || committing)
+      throw Object.assign(new Error('The transaction has finished. (test)'), {
+        name: 'TransactionInactiveError',
+      })
+    pending++
+    return new FakeRequest(() => {
+      try {
+        return exec()
+      } catch (e) {
+        queueMicrotask(() => {
+          tx.onerror?.()
+          finish('abort')
+        })
+        throw e
+      } finally {
+        pending--
+        if (pending === 0) armIdleCommit()
+      }
+    })
+  }
+  const tx = {
+    onabort: null as (() => void) | null,
+    onerror: null as (() => void) | null,
+    set oncomplete(done: (() => void) | null) {
+      onComplete = done
+    },
+    objectStore: (n: string) => {
+      const s = db.db.stores.get(n)!
+      const keep = (key: string) => {
+        const had = s.data.get(key)
+        undo.push(() => {
+          if (had === undefined) s.data.delete(key)
+          else s.data.set(key, had)
+        })
+      }
+      return {
+        put: (row: Row) =>
+          request(() => {
+            const key = s.keyOf(row)
+            keep(key)
+            s.data.set(key, row)
+          }),
+        get: (key: unknown) => request(() => s.data.get(norm(key))),
+        getAll: (range?: FakeKeyRange) =>
+          request(() => {
+            const all = [...s.data.values()]
+            return range
+              ? all
+                  .map((row) => ({ key: s.keyArray(row), row }))
+                  .filter(
+                    ({ key }) => cmpKey(key, range.lower) >= 0 && cmpKey(key, range.upper) <= 0,
+                  )
+                  .sort((x, y) => cmpKey(x.key, y.key))
+                  .map(({ row }) => row)
+              : all
+          }),
+        delete: (key: unknown) =>
+          request(() => {
+            keep(norm(key))
+            s.data.delete(norm(key))
+          }),
+        clear: () =>
+          request(() => {
+            const before = new Map(s.data)
+            undo.push(() => before.forEach((row, key) => s.data.set(key, row)))
+            s.data.clear()
+          }),
+      }
+    },
+  }
+  const d = db.durability
+  if (d.kind !== 'absent')
+    Object.defineProperty(tx, 'durability', {
+      enumerable: true,
+      get() {
+        db.durabilityReads++
+        if (d.kind === 'throw') throw new Error('durability getter (test)')
+        return d.kind === 'value' ? d.value : (options?.durability ?? 'default')
+      },
+    })
+  armIdleCommit() // a transaction given no request still commits
+  return tx
+}
+
 ;(globalThis as unknown as { indexedDB: unknown }).indexedDB = {
   /** ⚖ S51 fold — the real API's three version rules (an upgrade test that
    *  never changes the version cannot prove the upgrade path). The same
@@ -390,10 +631,14 @@ const connections: FakeIDB[] = []
    *  request would wait; no test here needs the wait). A lower one →
    *  `VersionError`. A request that never became a connection is marked
    *  closed, so it never counts as one holding on. Stores are
-   *  create-if-missing, so an upgrade touches no data. */
-  open: (_name: string, version?: number) => {
-    const connection = Object.create(fakeDb) as FakeIDB
-    connections.push(connection)
+   *  create-if-missing, so an upgrade touches no data.
+   *  PR-B Wn: all of it PER NAME (`shimOf`); a test-queued `openFaults` entry
+   *  (none for `karute_takes`, ever) replaces the outcome of the next open. */
+  open: (name: string, version?: number) => {
+    const shim = shimOf(name)
+    const base = shim.db
+    const connection = Object.create(base) as FakeIDB
+    shim.connections.push(connection)
     const req = {
       result: connection,
       error: null as { name: string } | null,
@@ -402,16 +647,16 @@ const connections: FakeIDB[] = []
       onerror: null as (() => void) | null,
       onblocked: null as (() => void) | null,
     }
-    const want = version ?? Math.max(fakeDb.version, 1)
-    queueMicrotask(() => {
-      if (want < fakeDb.version) {
+    const want = version ?? Math.max(base.version, 1)
+    const run = () => {
+      if (want < base.version) {
         connection.closed = true
         req.error = { name: 'VersionError' }
         req.onerror?.()
         return
       }
-      if (want > fakeDb.version) {
-        const holding = () => connections.filter((c) => c !== connection && !c.closed)
+      if (want > base.version) {
+        const holding = () => shim.connections.filter((c) => c !== connection && !c.closed)
         holding().forEach((c) => c.onversionchange?.())
         if (holding().length > 0) {
           connection.closed = true
@@ -419,9 +664,24 @@ const connections: FakeIDB[] = []
           return
         }
         req.onupgradeneeded?.()
-        fakeDb.version = want
+        base.version = want
       }
       req.onsuccess?.()
+    }
+    const fault = shim.openFaults.shift()
+    queueMicrotask(() => {
+      if (fault === 'error' || fault === 'version') {
+        connection.closed = true
+        req.error = { name: fault === 'version' ? 'VersionError' : 'UnknownError' }
+        req.onerror?.()
+      } else if (fault === 'blocked') {
+        connection.closed = true
+        req.onblocked?.()
+      } else if (fault === 'hold') shim.heldOpens.push(run)
+      else if (fault === 'blockedThenHold') {
+        req.onblocked?.()
+        shim.heldOpens.push(run)
+      } else run()
     })
     return req
   },
@@ -472,6 +732,7 @@ import {
   appendTakeSegment,
   BINDING_SECURE_REFUSALS,
   clearOwnTakes,
+  clearTakeHeldUpload,
   clearTakeStaged,
   createTake,
   deleteTake,
@@ -484,11 +745,13 @@ import {
   listPendingDiscardTakes,
   listTakeSegmentsAfter,
   loadTakeBlob,
+  loadTakeBlobFacts,
   markDiscardTranscriptDone,
   markSegmentError,
   markSegmentsUploaded,
   readTakeUploadMeta,
   markTakeFinalized,
+  markTakeHeldUpload,
   markTakeSecureError,
   markTakeStaged,
   markTakeStopPending,
@@ -506,6 +769,7 @@ import {
   TERMINAL_SECURE_ERRORS,
   writeTakeHeartbeat,
 } from '@/lib/karute/take-store'
+import * as takeStore from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { deriveInboxRows, type InboxLocalTake } from '@/lib/recordings/inbox'
 import {
@@ -516,6 +780,8 @@ import {
   type RecordingPipelinePort,
 } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
+import { stagedFactsOf } from '@/lib/recording/blob-fate'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import { extFromMime, normalizeAudioMime } from '@/lib/recording/key-grammar'
 
 // ── The secure-at-stop doors (capture pipeline PR3) ─────────────────────────
@@ -708,6 +974,7 @@ beforeEach(async () => {
   await drain()
   fakeDb.stores.get('takes')?.data.clear()
   fakeDb.stores.get('segments')?.data.clear()
+  resetSealedDatabases()
 })
 
 afterEach(() => {
@@ -958,6 +1225,24 @@ describe('listOwnTakes carries secureError (piece r prerequisite)', () => {
 
     const [row] = await listOwnTakes([])
     expect(row.secureError).toBe('reserved_elsewhere')
+  })
+
+  // S76 A4: a take with a held-upload note never carries `damaged` (keeps 保存する).
+  it.each([
+    ['audio_partial alone', false, 'partial'],
+    ['audio_partial + a held-upload note', true, undefined],
+    // PR-B commit 8 (R-S77-5, the M-S75-17 killer of record): the server's
+    // unreadable_object reads as unreadable on the row, never as partial.
+    ['unreadable_object', false, 'unreadable'],
+  ])('S76 A4: %s → damaged %s', async (n, noted, damaged) => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await passGrace()
+    await markTakeSecureError(takeId, n === 'unreadable_object' ? 'unreadable_object' : 'audio_partial')
+    if (noted) expect(await markTakeHeldUpload(takeId, 20_030, 600)).toBe(true)
+    const [row] = await listOwnTakes([])
+    expect(row.damaged).toBe(damaged)
   })
 })
 
@@ -1467,7 +1752,9 @@ describe('take durability — deletion lifecycle', () => {
 
     it('staged + words settled + unsealable → the TTL finally collects it', async () => {
       const takeId = await unsecurableTake()
-      await markTakeStaged(takeId, STAGED)
+      // R-S87-8: the sweep records the stored rows the copy was made from.
+      const f = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, STAGED, { arm: 'stored', bytes: f.blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax })
       await markDiscardTranscriptDone(takeId)
       age(takeId)
 
@@ -1479,7 +1766,9 @@ describe('take durability — deletion lifecycle', () => {
 
     it('…and the logout wipe may take it too — the same one rule, one spelling', async () => {
       const takeId = await unsecurableTake()
-      await markTakeStaged(takeId, STAGED)
+      // R-S87-8: the sweep records the stored rows the copy was made from.
+      const f = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, STAGED, { arm: 'stored', bytes: f.blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax })
       await markDiscardTranscriptDone(takeId)
 
       await clearOwnTakes()
@@ -1493,7 +1782,9 @@ describe('take durability — deletion lifecycle', () => {
       // something is still reading this blob, and releasing it would destroy the
       // audio the discard record's words are owed from.
       const takeId = await unsecurableTake()
-      await markTakeStaged(takeId, STAGED)
+      // R-S87-8: the sweep records the stored rows the copy was made from.
+      const f = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, STAGED, { arm: 'stored', bytes: f.blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax })
       age(takeId)
 
       const listed = await listOwnTakes()
@@ -1511,7 +1802,9 @@ describe('take durability — deletion lifecycle', () => {
     // device copy is all there is.
     it('a take-shaped stagedPath proves nothing — the take is KEPT', async () => {
       const takeId = await unsecurableTake()
-      await markTakeStaged(takeId, 'app_biz_old-staged.webm')
+      // R-S87-15 (f): a real stored-arm record, so only the key's prefix decides.
+      const rf = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, 'app_biz_old-staged.webm', { arm: 'stored', bytes: rf.blob.size, segmentCount: rf.segmentCount, seqMax: rf.seqMax })
       await markDiscardTranscriptDone(takeId)
       age(takeId)
 
@@ -1532,7 +1825,9 @@ describe('take durability — deletion lifecycle', () => {
       globalRecorder.discard({ keepTake: true })
       await drain()
       await markTakeSecureError(takeId, 'network')
-      await markTakeStaged(takeId, STAGED)
+      // R-S87-8: the sweep records the stored rows the copy was made from.
+      const f = (await loadTakeBlobFacts(takeId))!
+      await markTakeStaged(takeId, STAGED, { arm: 'stored', bytes: f.blob.size, segmentCount: f.segmentCount, seqMax: f.seqMax })
       await markDiscardTranscriptDone(takeId)
       expect(isUnsecurableTake((await readTakeSecureMeta(takeId))!)).toBe(false)
       age(takeId)
@@ -2233,6 +2528,8 @@ describe('secure at stop', () => {
       // REQUIRED now, and never null: this start-mint failed, so the row is the
       // one the SESSION DOOR minted a moment earlier (fix round 6).
       recordingSessionId: MINTED_SESSION,
+      // PR-B commit 5 (B7/K-9, the ONE licensed change): the body gains the take's diag.
+      diag: expect.objectContaining({ arm: 'stored', blob_bytes: 'aaa'.length + 'TAIL'.length }),
     })
     // The PUT carries the SERVER's content type for the key it composed —
     // normalized, not the client's string.
@@ -5669,6 +5966,119 @@ describe('S36 PR-1 — the take recovers its own storage', () => {
     expect((await loadTakeBlob(takeId))?.size).toBe('aaabbbccc'.length)
   })
 
+  // PR-B commit 6 (P:88, B3): THE REOPEN CHAIN, pinned at the recorder. The
+  // browser closes the store's connection mid-recording (eviction, OS
+  // pressure); the next flush reopens, the segment lands, and the take stays
+  // (or comes back) enabled — no segment is left to memory only.
+  it('P:88 a close during recording → the next flush reopens → the segment lands → the take is enabled', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(takeId).lastSeq).toBe(0)
+    const opened = connections.length
+    connections.forEach((c) => c.forceClose())
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(connections.length - opened).toBeGreaterThanOrEqual(1) // reopened
+    expect(persistOf().disabled).toBe(false) // enabled (the revive, if a write lost)
+    expect(metaOf(takeId).lastSeq).toBeGreaterThanOrEqual(1)
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaabbb'.length) // nothing left behind
+  })
+
+  // PR-B commit 7 (P:89, C1, B9): a segment counts only once it is committed.
+  // S76 W-2: the switch ships OFF; this pins the ON behaviour (save/restore, as below).
+  it('P:89 a transaction that aborts after onsuccess → false, and the recorder does not advance its seq', async () => {
+    const restore = RECORDING_SWITCHES.awaitSegmentCommit
+    ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = true
+    try {
+      expect(await createTake(takeMeta('c1'))).toBe(true)
+      abortNextCommits = 1
+      expect(await appendTakeSegment('c1', 0, new Blob(['aaa']))).toBe(false)
+      await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+      const p = persistOf() as unknown as { disabled: boolean; seq: number }
+      const seqBefore = p.seq
+      expect(p.disabled).toBe(false)
+      abortNextCommits = 1
+      pushChunk('bbb')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+      expect(p.disabled).toBe(true) // today's p.disabled path
+      expect(p.seq).toBe(seqBefore) // not advanced
+    } finally {
+      abortNextCommits = 0
+      ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = restore
+    }
+  })
+
+  it('C1 OFF (awaitSegmentCommit false) → today: the request success answers true, the commit is not awaited', async () => {
+    const restore = RECORDING_SWITCHES.awaitSegmentCommit
+    ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = false
+    try {
+      expect(await createTake(takeMeta('c1-off'))).toBe(true)
+      abortNextCommits = 1
+      expect(await appendTakeSegment('c1-off', 0, new Blob(['aaa']))).toBe(true)
+      expect(abortNextCommits).toBe(1) // no commit was ever asked for
+    } finally {
+      abortNextCommits = 0
+      ;(RECORDING_SWITCHES as { awaitSegmentCommit: boolean }).awaitSegmentCommit = restore
+    }
+  })
+
+  // S76 A1: the held-upload note answers true ONLY on its transaction's commit.
+  describe('S76 A1 — markTakeHeldUpload is durable only on COMMIT', () => {
+    afterEach(() => {
+      abortNextCommits = 0
+      hangNextCommits = 0
+    })
+    it('committed → true and read back', async () => {
+      expect(await createTake(takeMeta('h1'))).toBe(true)
+      expect(await markTakeHeldUpload('h1', 20_030, 600)).toBe(true)
+      expect((await readTakeSecureMeta('h1'))?.heldUpload).toEqual({ bytes: 20_030, seconds: 600 })
+    })
+    it('commit aborted → false (the ANSWER only: the shim keeps the row on abort, real IndexedDB does not)', async () => {
+      expect(await createTake(takeMeta('h2'))).toBe(true)
+      abortNextCommits = 1
+      expect(await markTakeHeldUpload('h2', 20_030, 600)).toBe(false)
+    })
+    it('awaitSegmentCommit OFF (the default) → an aborted note still answers false, and the commit was awaited', async () => {
+      expect(RECORDING_SWITCHES.awaitSegmentCommit).toBe(false)
+      expect(await createTake(takeMeta('h3'))).toBe(true)
+      abortNextCommits = 1
+      expect(await markTakeHeldUpload('h3', 20_030, 600)).toBe(false)
+      expect(abortNextCommits).toBe(0)
+    })
+    it('a commit that never reports → false at the 5 s deadline, never before', async () => {
+      expect(await createTake(takeMeta('h4'))).toBe(true)
+      hangNextCommits = 1
+      let answer: boolean | undefined
+      void markTakeHeldUpload('h4', 20_030, 600).then((a) => (answer = a))
+      await jest.advanceTimersByTimeAsync(4_999)
+      expect(answer).toBeUndefined()
+      await jest.advanceTimersByTimeAsync(1)
+      expect(answer).toBe(false)
+    })
+    it('an existing note with different bytes → false, the row unchanged; the same bytes → true', async () => {
+      expect(await createTake(takeMeta('h5'))).toBe(true)
+      expect(await markTakeHeldUpload('h5', 20_030, 600)).toBe(true)
+      expect(await markTakeHeldUpload('h5', 99, 1)).toBe(false)
+      expect((await readTakeSecureMeta('h5'))?.heldUpload).toEqual({ bytes: 20_030, seconds: 600 })
+      expect(await markTakeHeldUpload('h5', 20_030, 600)).toBe(true)
+    })
+    it('clearTakeHeldUpload → committed true, the note gone', async () => {
+      expect(await createTake(takeMeta('h6'))).toBe(true)
+      expect(await markTakeHeldUpload('h6', 20_030, 600)).toBe(true)
+      expect(await clearTakeHeldUpload('h6')).toBe(true)
+      expect((await readTakeSecureMeta('h6'))?.heldUpload).toBeUndefined()
+    })
+  })
+
   it('T3 300 s held only in memory → ~60 segments of at most 50 chunks, seqs consecutive, the stamp on the last only', async () => {
     mockUid = null // storage never answers for the whole five minutes
     const takeId = await startAndSettle()
@@ -6337,5 +6747,869 @@ describe('S36 PR-1b — the upload keeps working from memory', () => {
     expect(minted.slice(mintsAtRevive)).toEqual([2]) // seq 1 never asked for again
     expect(rowAfterLanding).toBe(1)
     expect(segPuts.map((p) => p.seq)).toEqual([0, 1, 2])
+  })
+})
+
+// ── PR-B commit 1: the recorder counts what it emits (B6 / B-S66-6) ─────────
+describe('PR-B commit 1 — the recorder counts what it emits', () => {
+  const metaBytes = (takeId: string) =>
+    (takes().get(JSON.stringify(takeId)) as { bytesEmitted?: number } | undefined)?.bytesEmitted
+  const liveBytes = () =>
+    (globalRecorder as unknown as { persist: { bytesEmitted: number } }).persist.bytesEmitted
+  const diskBytes = () =>
+    [...segments().values()].reduce((n, r) => n + (r as { blob: Blob }).blob.size, 0)
+
+  it('mirrors the bytes on disk into the take meta at every flush, equal to the segment sum', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    pushChunk('bbb')
+    expect(liveBytes()).toBe(6)
+    expect(metaBytes(takeId)).toBeUndefined() // nothing on disk yet
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(metaBytes(takeId)).toBe(6)
+    pushChunk('cc')
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(liveBytes()).toBe(8)
+    expect(metaBytes(takeId)).toBe(8)
+    expect(diskBytes()).toBe(8)
+  })
+
+  it('a refused segment write never counts: the meta holds only what the store took', async () => {
+    const takeId = 'take-refused-write'
+    await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    expect(await appendTakeSegment(takeId, 0, new Blob(['aaa']))).toBe(true)
+    expect(metaBytes(takeId)).toBe(3)
+    failNextSegmentWrites = 99 // every try of the next append is refused
+    const refused = appendTakeSegment(takeId, 1, new Blob(['bbbb']))
+    await jest.advanceTimersByTimeAsync(60_000) // past every retry's backoff
+    expect(await refused).toBe(false)
+    failNextSegmentWrites = 0
+    expect(metaBytes(takeId)).toBe(3) // the store never took it, so the meta never says so
+    expect(diskBytes()).toBe(3)
+  })
+
+  it('an unknown count stays unknown: a later seq never starts one', async () => {
+    const takeId = 'take-unknown-count'
+    await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    expect(await appendTakeSegment(takeId, 3, new Blob(['zzzz']))).toBe(true)
+    expect(metaBytes(takeId)).toBeUndefined()
+    expect(await appendTakeSegment(takeId, 0, new Blob(['ab']))).toBe(true)
+    expect(metaBytes(takeId)).toBe(2)
+  })
+
+  it('switch OFF: no count is written — the meta is pre-PR-B exactly', async () => {
+    const replaced = jest.replaceProperty(
+      RECORDING_SWITCHES as { stagedPartialDoor: boolean },
+      'stagedPartialDoor',
+      false,
+    )
+    try {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      expect(segments().size).toBe(1)
+      expect('bytesEmitted' in (takes().get(JSON.stringify(takeId)) as object)).toBe(false)
+    } finally {
+      replaced.restore()
+    }
+  })
+
+  it('loadTakeBlobFacts: the same blob as loadTakeBlob plus the seq facts', async () => {
+    const takeId = 'take-facts'
+    await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    await appendTakeSegment(takeId, 2, new Blob(['cc']))
+    await appendTakeSegment(takeId, 0, new Blob(['aa']))
+    await appendTakeSegment(takeId, 1, new Blob(['bb']))
+    const facts = await loadTakeBlobFacts(takeId)
+    expect(facts).toMatchObject({ segmentCount: 3, seqMin: 0, seqMax: 2, seq0Present: true })
+    expect(facts!.blob.size).toBe(6)
+    expect((await loadTakeBlob(takeId))!.size).toBe(6)
+    expect(facts!.blob.type).toBe('audio/webm')
+
+    const gap = 'take-facts-gap'
+    await createTake({ takeId: gap, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    await appendTakeSegment(gap, 1, new Blob(['b']))
+    await appendTakeSegment(gap, 3, new Blob(['d']))
+    expect(await loadTakeBlobFacts(gap)).toMatchObject({ segmentCount: 2, seqMin: 1, seqMax: 3, seq0Present: false })
+    expect(await loadTakeBlobFacts('no-such-take')).toBeNull()
+  })
+})
+
+describe('PR-B commit 2 — a damaged take is never pruned (B3, B-S66-3)', () => {
+  // The same three server-side facts that let the TTL collect an unsecurable
+  // take ('a staged copy the server holds releases the device copy', above) —
+  // staged, words settled, unsealable — plus ONE damaged code: the copy the
+  // server holds is the one the phone could not vouch for, so the device copy
+  // stays. The clock is jest's fake one, moved 8 days past the TTL.
+  it.each(['audio_unreadable', 'audio_partial', 'unreadable_object'])(
+    '%s: staged + words settled + 8 days on the fake clock → still on the device',
+    async (code) => {
+      const takeId = `take-damaged-${code}`
+      await createTake({ takeId, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+      await appendTakeSegment(takeId, 0, new Blob(['aaa']))
+      await markTakeTailIncomplete(takeId)
+      // R-S87-15 (d)/(f): a REAL stored-arm record equal to the rows — only the damaged guard keeps it (M-B7).
+      await markTakeStaged(takeId, 'stg/biz_sess_take.webm', { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 })
+      await markDiscardTranscriptDone(takeId)
+      await markTakeSecureError(takeId, code)
+      jest.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000)
+
+      await listOwnTakes()
+      await drain()
+      expect(takes().has(JSON.stringify(takeId))).toBe(true)
+      expect((await loadTakeBlob(takeId))?.size).toBe(3)
+    },
+  )
+})
+
+// ── PR-B Wn — THE SEALED COPY BEFORE A HUMAN DELETE ─────────────────────────
+// RULINGS-S80 R-S80-1 · S81 R-S81-2…10 · S82 R-S82-1…6. Every row asserts BOTH
+// the live stores (`karute_takes`) and the sealed database. The ordering rows
+// use `onLiveTx`: a one-shot hook on the live database's `transaction()` that
+// mutates the stores synchronously right before the matching transaction is
+// created — the first read is the READONLY [takes, segments] transaction
+// (`readLiveTake`), the door is the READWRITE [takes, segments] one
+// (`deleteTakeRows`). That is how "lands between the copy and the delete" is
+// built: the shim does not serialise transactions (see `finalizeMarks`).
+describe('PR-B Wn — the sealed copy before a human delete', () => {
+  const VAULT = 'karute_sealed_copies'
+  const HR = { humanResolved: true }
+  const vault = () => shimOf(VAULT)
+  const sealedStore = (n: string) => vault().db.stores.get(n)?.data ?? new Map<string, Row>()
+  const vaultTx = () => txLog.filter((t) => t.db === VAULT).length
+  type Seg = { takeId: string; seq: number; blob: Blob }
+  const sizes = (rows: Iterable<Row>, takeId: string) =>
+    [...rows]
+      .map((r) => r as unknown as Seg)
+      .filter((r) => r.takeId === takeId)
+      .map((r) => [r.seq, r.blob.size])
+      .sort((a, b) => a[0] - b[0])
+  const live = (id: string) => ({ meta: takes().has(norm(id)), seqs: sizes(segments().values(), id) })
+  const sealed = (id: string) => ({
+    meta: sealedStore('sealed_metas').has(norm(id)),
+    seqs: sizes(sealedStore('sealed_segments').values(), id),
+  })
+  const NONE = { meta: false, seqs: [] }
+  const blob = (n: number, fill = 'a') => new Blob([fill.repeat(n)])
+  const sw = RECORDING_SWITCHES as unknown as { sealBeforeHumanDelete: boolean; stagedPartialDoor: boolean }
+  let saved: [boolean, boolean]
+  function seed(takeId: string, meta: Record<string, unknown>, segs: Array<[number, Blob]>) {
+    const t = fakeDb.stores.get(TAKES_STORE)!
+    const s = fakeDb.stores.get(SEGMENTS_STORE)!
+    const row = {
+      takeId,
+      ownerUid: 'staff-A',
+      target: null,
+      recordingSessionId: 'rs-1',
+      mimeType: 'audio/webm',
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      lastSeq: Math.max(-1, ...segs.map(([q]) => q)),
+      ...meta,
+    }
+    t.data.set(t.keyOf(row), row)
+    for (const [seq, b] of segs) {
+      const r = { takeId, seq, blob: b }
+      s.data.set(s.keyOf(r), r)
+    }
+  }
+  const addSeg = (takeId: string, seq: number, b: Blob) => {
+    const s = fakeDb.stores.get(SEGMENTS_STORE)!
+    const r = { takeId, seq, blob: b }
+    s.data.set(s.keyOf(r), r)
+  }
+  const isPair = (stores: unknown) => Array.isArray(stores) && stores.length === 2
+  const FIRST_READ = (stores: unknown, mode?: string) => isPair(stores) && mode === 'readonly'
+  const DOOR = (stores: unknown, mode?: string) => isPair(stores) && mode === 'readwrite'
+  function onLiveTx(match: (stores: unknown, mode?: string) => boolean, fn: () => void) {
+    const real = FakeIDB.prototype.transaction
+    let fired = false
+    ;(fakeDb as unknown as { transaction: unknown }).transaction = function (
+      this: FakeIDB,
+      ...a: Parameters<FakeIDB['transaction']>
+    ) {
+      if (!fired && this.dbName === LIVE_DB && match(a[0], a[1])) {
+        fired = true
+        fn()
+      }
+      return real.apply(this, a)
+    }
+  }
+  /** Drop the vault's cached connection (its own versionchange handler). */
+  const dropVault = () => vault().connections.forEach((c) => c.onversionchange?.())
+  const textOf = (b: Blob) =>
+    new Promise<string>((res, rej) => {
+      const r = new FileReader()
+      r.onload = () => res(String(r.result))
+      r.onerror = () => rej(r.error)
+      r.readAsText(b)
+    })
+  /** A take with no receipt that settle routes through the human door. */
+  const noReceipt = (extra: Record<string, unknown> = {}) => ({ tailIncomplete: true, ...extra })
+  /** The fallback's own receipt (arm 3) for `size` bytes. */
+  const fb = (size: number) => ({
+    transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true, audio: { size, type: 'audio/webm' } },
+  })
+
+  beforeEach(async () => {
+    saved = [sw.sealBeforeHumanDelete, sw.stagedPartialDoor]
+    await readTakeSecureMeta('warm-the-store') // creates the live stores
+    txLog.length = 0
+  })
+  afterEach(() => {
+    ;[sw.sealBeforeHumanDelete, sw.stagedPartialDoor] = saved
+    delete (fakeDb as unknown as { transaction?: unknown }).transaction
+    mockUid = 'staff-A'
+  })
+
+  describe('what is sealed, and when nothing needs to be', () => {
+    it('no receipt, UNEQUAL non-contiguous seqs → sealed meta + every seq at equal size AND bytes; live empty', async () => {
+      const parts: Array<[number, string]> = [[0, 'abc'], [2, 'defghij'], [5, 'klmnopqrstu']]
+      seed('w-1', noReceipt(), parts.map(([q, t]) => [q, new Blob([t])]))
+      await settleTakeAfterSave('w-1')
+      expect(live('w-1')).toEqual(NONE)
+      expect(sealed('w-1')).toEqual({ meta: true, seqs: [[0, 3], [2, 7], [5, 11]] })
+      jest.useRealTimers() // jsdom's FileReader answers on a real tick
+      const rows = [...sealedStore('sealed_segments').values()] as unknown as Seg[]
+      for (const [q, t] of parts) expect(await textOf(rows.find((r) => r.seq === q)!.blob)).toBe(t)
+    })
+
+    it.each([
+      ['finalizedAt (D-6: a POPULATED finalized take through a direct human deleteTake)', { finalizedAt: 5, finalizedPath: 'app_biz-1_w.webm', tailIncomplete: true }],
+      ["stagedPath 'stg/x' + stored-arm facts EQUAL to the rows (R-S87-1)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 2, seqMax: 1 } })],
+      ['fallback audio.size = Σ', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true, audio: { size: 8, type: 'audio/webm' } } })],
+      ['fallback audio.size > Σ', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true, audio: { size: 9, type: 'audio/webm' } } })],
+    ])('a receipt — %s → live empty, NOTHING sealed, the vault never opened', async (_l, meta) => {
+      seed('w-2', meta, [[0, blob(3)], [1, blob(5)]])
+      await deleteTake('w-2', HR)
+      expect(live('w-2')).toEqual(NONE)
+      expect(sealed('w-2')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it.each([
+      ["'stgx' (no slash) — facts EQUAL to the rows (D-7)", noReceipt({ stagedPath: 'stgx/x', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 2, seqMax: 1 } })],
+      ["segmentCount alone differs (R-S87-15 f)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 3, seqMax: 1 } })],
+      ["seqMax alone differs (R-S87-15 f)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 2, seqMax: 2 } })],
+      ["'stg/x' with no facts — a memory-arm copy or an older meta (R-S87-1)", noReceipt({ stagedPath: 'stg/x' })],
+      ["'stg/x' whose facts are of OTHER bytes (R-S87-1)", noReceipt({ stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 7, segmentCount: 2, seqMax: 1 } })],
+      ["an 'app_…' staged pointer — facts EQUAL to the rows", noReceipt({ stagedPath: 'app_biz-1_x.webm', stagedFacts: { arm: 'stored', bytes: 8, segmentCount: 2, seqMax: 1 } })],
+      ['audio.size < Σ', noReceipt(fb(7))],
+      ['a receipt between the first segment and Σ', noReceipt(fb(4))],
+      ['bytesEmitted = the receipt, below Σ', noReceipt({ ...fb(3), bytesEmitted: 3 })],
+      ['bytesEmitted absent, receipt = the first segment', noReceipt(fb(3))],
+      ['fallback absent (audio.size = Σ)', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, audio: { size: 8, type: 'audio/webm' } } })],
+      ['audio missing', noReceipt({ transcript: { finalizedPath: 'k', locale: 'ja', response: {}, at: 1, fallback: true } })],
+    ])('a near-miss — %s → SEALED, live empty', async (_l, meta) => {
+      seed('w-3', meta, [[0, blob(3)], [1, blob(5)]])
+      await deleteTake('w-3', HR)
+      expect(live('w-3')).toEqual(NONE)
+      expect(sealed('w-3')).toEqual({ meta: true, seqs: [[0, 3], [1, 5]] })
+    })
+
+    it("another take's segments with audio.size = THIS take's Σ → a receipt: nothing sealed; the other take untouched", async () => {
+      seed('w-4', noReceipt(fb(4)), [[0, blob(4)]])
+      seed('w-4-other', noReceipt(), [[0, blob(6)]])
+      await deleteTake('w-4', HR)
+      expect(live('w-4')).toEqual(NONE)
+      expect(sealed('w-4')).toEqual(NONE)
+      expect(live('w-4-other')).toEqual({ meta: true, seqs: [[0, 6]] })
+    })
+
+    it.each(['audio_unreadable', 'audio_partial', 'unreadable_object'])(
+      'damaged %s, no receipt, through settle → SEALED, live empty',
+      async (code) => {
+        seed('w-5', { secureError: code }, [[0, blob(3)], [1, blob(4)]])
+        await settleTakeAfterSave('w-5')
+        expect(live('w-5')).toEqual(NONE)
+        expect(sealed('w-5')).toEqual({ meta: true, seqs: [[0, 3], [1, 4]] })
+      },
+    )
+
+    it('a DAMAGED take with a fallback receipt ≥ Σ (arm 3 only) → SEALED, live empty', async () => {
+      seed('w-6', { secureError: 'audio_partial', ...fb(99) }, [[0, blob(3)]])
+      await settleTakeAfterSave('w-6')
+      expect(live('w-6')).toEqual(NONE)
+      expect(sealed('w-6')).toEqual({ meta: true, seqs: [[0, 3]] })
+    })
+
+    it('zero segment rows → live empty, nothing sealed', async () => {
+      seed('w-7', noReceipt(), [])
+      await settleTakeAfterSave('w-7')
+      expect(live('w-7')).toEqual(NONE)
+      expect(sealed('w-7')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+  })
+
+  describe('the door decides alone, on its own fresh read', () => {
+    it('no meta at the first read, a meta + segment land before the door → live INTACT', async () => {
+      seed('w-8', noReceipt(), [])
+      const metaRow = takes().get(norm('w-8'))!
+      onLiveTx(FIRST_READ, () => {
+        takes().delete(norm('w-8'))
+        onLiveTx(DOOR, () => {
+          takes().set(norm('w-8'), metaRow)
+          addSeg('w-8', 0, blob(3))
+        })
+      })
+      await deleteTake('w-8', HR)
+      expect(live('w-8')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-8')).toEqual(NONE)
+    })
+
+    it('zero rows at the first read, a segment lands before the door → live INTACT (D-21)', async () => {
+      seed('w-9', noReceipt(), [])
+      onLiveTx(DOOR, () => addSeg('w-9', 0, blob(3)))
+      await settleTakeAfterSave('w-9')
+      expect(live('w-9')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-9')).toEqual(NONE)
+    })
+
+    it('a segment lands after the copy, before the delete → live INTACT, sealed = the first set; a second settle seals it, live empty', async () => {
+      seed('w-10', noReceipt(), [[0, blob(3)], [1, blob(4)]])
+      onLiveTx(DOOR, () => addSeg('w-10', 2, blob(5)))
+      await settleTakeAfterSave('w-10')
+      expect(live('w-10')).toEqual({ meta: true, seqs: [[0, 3], [1, 4], [2, 5]] })
+      expect(sealed('w-10')).toEqual({ meta: true, seqs: [[0, 3], [1, 4]] })
+      delete (fakeDb as unknown as { transaction?: unknown }).transaction
+      await settleTakeAfterSave('w-10')
+      expect(live('w-10')).toEqual(NONE)
+      expect(sealed('w-10')).toEqual({ meta: true, seqs: [[0, 3], [1, 4], [2, 5]] })
+    })
+
+    it('the SAME seq rewritten larger between the copy and the delete → live INTACT (D-20); a second settle seals the larger, live empty', async () => {
+      seed('w-11', noReceipt(), [[0, blob(3)]])
+      onLiveTx(DOOR, () => addSeg('w-11', 0, blob(9)))
+      await settleTakeAfterSave('w-11')
+      expect(live('w-11')).toEqual({ meta: true, seqs: [[0, 9]] })
+      expect(sealed('w-11')).toEqual({ meta: true, seqs: [[0, 3]] })
+      delete (fakeDb as unknown as { transaction?: unknown }).transaction
+      await settleTakeAfterSave('w-11')
+      expect(live('w-11')).toEqual(NONE)
+      expect(sealed('w-11')).toEqual({ meta: true, seqs: [[0, 9]] })
+    })
+
+    it('a covering receipt at the first read, then a segment lands so Σ > audio.size → live INTACT (D-13)', async () => {
+      seed('w-12', noReceipt(fb(4)), [[0, blob(4)]])
+      onLiveTx(DOOR, () => addSeg('w-12', 1, blob(4)))
+      await deleteTake('w-12', HR)
+      expect(live('w-12')).toEqual({ meta: true, seqs: [[0, 4], [1, 4]] })
+      expect(sealed('w-12')).toEqual(NONE)
+    })
+
+    it('the meta deleted between the copy and the door → delete NOTHING (orphans stay for the sweeps)', async () => {
+      seed('w-13', noReceipt(), [[0, blob(3)]])
+      onLiveTx(DOOR, () => takes().delete(norm('w-13')))
+      await deleteTake('w-13', HR)
+      expect(live('w-13')).toEqual({ meta: false, seqs: [[0, 3]] })
+      expect(sealed('w-13')).toEqual({ meta: true, seqs: [[0, 3]] })
+    })
+
+    it('the keep switch flipped OFF between deleteTake\'s read and the door → the passed value (ON) decides', async () => {
+      seed('w-14', { secureError: 'audio_partial' }, [[0, blob(3)]])
+      onLiveTx(DOOR, () => (sw.sealBeforeHumanDelete = false))
+      await deleteTake('w-14', HR)
+      expect(live('w-14')).toEqual(NONE) // keep OFF at the door would have KEPT it (R-S77-7)
+      expect(sealed('w-14')).toEqual({ meta: true, seqs: [[0, 3]] })
+    })
+  })
+
+  describe('the vault only grows', () => {
+    it('a newer copy (0–3) commits, then a stale smaller subset (0–2) → sealed keeps every seq at its larger size; the shorter blobs refused, live KEPT', async () => {
+      seed('w-15', noReceipt(), [[0, blob(5)], [1, blob(5)], [2, blob(5)], [3, blob(5)]])
+      await settleTakeAfterSave('w-15')
+      expect(live('w-15')).toEqual(NONE)
+      seed('w-15', noReceipt(), [[0, blob(2)], [1, blob(2)], [2, blob(2)]])
+      await settleTakeAfterSave('w-15')
+      expect(sealed('w-15')).toEqual({ meta: true, seqs: [[0, 5], [1, 5], [2, 5], [3, 5]] })
+      expect(live('w-15')).toEqual({ meta: true, seqs: [[0, 2], [1, 2], [2, 2]] })
+    })
+
+    it('an EQUAL-size, DIFFERENT-bytes blob at an existing sealed seq → the vault keeps the FIRST bytes (D-23 equal)', async () => {
+      seed('w-16', noReceipt(), [[0, new Blob(['aaaa'])]])
+      await settleTakeAfterSave('w-16')
+      seed('w-16', noReceipt(), [[0, new Blob(['bbbb'])]])
+      await settleTakeAfterSave('w-16')
+      expect(live('w-16')).toEqual(NONE)
+      expect(sealed('w-16')).toEqual({ meta: true, seqs: [[0, 4]] })
+      jest.useRealTimers()
+      const row = [...sealedStore('sealed_segments').values()][0] as unknown as Seg
+      expect(await textOf(row.blob)).toBe('aaaa')
+    })
+  })
+
+  describe('a copy that cannot finish deletes nothing', () => {
+    it.each([
+      ['open fails', 'error'],
+      ['open blocked', 'blocked'],
+      ['VersionError', 'version'],
+    ] as const)('sealed database %s → live INTACT, nothing sealed', async (_l, fault) => {
+      seed('w-17', noReceipt(), [[0, blob(3)]])
+      dropVault()
+      vault().openFaults.push(fault)
+      await settleTakeAfterSave('w-17')
+      expect(live('w-17')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-17')).toEqual(NONE)
+    })
+
+    it('the copy transaction aborts AFTER every request succeeded → live INTACT and the sealed writes rolled back', async () => {
+      seed('w-18', noReceipt(), [[0, blob(3)], [1, blob(4)]])
+      vault().abortNextCommits = 1
+      await settleTakeAfterSave('w-18')
+      expect(live('w-18')).toEqual({ meta: true, seqs: [[0, 3], [1, 4]] })
+      expect(sealed('w-18')).toEqual(NONE)
+    })
+
+    it('the copy commit held pending → the live delete has not begun; released → live empty', async () => {
+      seed('w-19', noReceipt(), [[0, blob(3)]])
+      vault().holdNextCommits = 1
+      const p = settleTakeAfterSave('w-19')
+      await drain(300)
+      expect(vault().heldCommits).toHaveLength(1)
+      expect(sealed('w-19')).toEqual({ meta: true, seqs: [[0, 3]] }) // every request succeeded
+      expect(live('w-19')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(txLog.filter((t) => t.db === LIVE_DB && t.mode === 'readwrite')).toHaveLength(0)
+      vault().heldCommits.shift()!('complete')
+      await p
+      expect(live('w-19')).toEqual(NONE)
+    })
+
+    it('the copy commit hangs past SEALED_COPY_DEADLINE_MS → deleteTake resolves, live INTACT (D-25); the late commit lands → still no delete', async () => {
+      seed('w-20', noReceipt(), [[0, blob(3)]])
+      vault().holdNextCommits = 1
+      let done = false
+      const p = deleteTake('w-20', HR).then(() => (done = true))
+      await drain(300)
+      expect(done).toBe(false)
+      await jest.advanceTimersByTimeAsync(takeStore.SEALED_COPY_DEADLINE_MS)
+      await p
+      expect(live('w-20')).toEqual({ meta: true, seqs: [[0, 3]] })
+      vault().heldCommits.shift()!('complete')
+      await drain(300)
+      expect(live('w-20')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-20')).toEqual({ meta: true, seqs: [[0, 3]] }) // the late copy only grew the vault
+    })
+
+    it('a late vault open success after the deadline → THAT connection closed; the cached connection a later copy uses stays open', async () => {
+      seed('w-21a', noReceipt(), [[0, blob(3)]])
+      dropVault()
+      vault().openFaults.push('hold')
+      const pa = deleteTake('w-21a', HR)
+      await drain(100)
+      const late = vault().connections.at(-1)!
+      await jest.advanceTimersByTimeAsync(takeStore.SEALED_COPY_DEADLINE_MS)
+      await pa
+      expect(live('w-21a')).toEqual({ meta: true, seqs: [[0, 3]] })
+      seed('w-21b', noReceipt(), [[0, blob(4)]])
+      vault().holdNextCommits = 1
+      const pb = deleteTake('w-21b', HR)
+      await drain(300)
+      const inUse = vault().connections.at(-1)!
+      expect(inUse).not.toBe(late)
+      vault().heldOpens.shift()!() // the late success arrives mid-copy
+      await drain(100)
+      expect(late.closed).toBe(true)
+      expect(inUse.closed).toBe(false)
+      vault().heldCommits.shift()!('complete')
+      await pb
+      expect(live('w-21b')).toEqual(NONE)
+      expect(sealed('w-21b')).toEqual({ meta: true, seqs: [[0, 4]] })
+      expect(sealed('w-21a')).toEqual(NONE)
+    })
+
+    it('a late vault open success after onblocked → that late connection is closed and never cached; live INTACT', async () => {
+      seed('w-21c', noReceipt(), [[0, blob(3)]])
+      dropVault()
+      vault().openFaults.push('blockedThenHold')
+      await settleTakeAfterSave('w-21c')
+      expect(live('w-21c')).toEqual({ meta: true, seqs: [[0, 3]] })
+      const late = vault().connections.at(-1)!
+      vault().heldOpens.shift()!()
+      await drain(50)
+      expect(late.closed).toBe(true)
+      expect(late.closeCalls).toBe(1)
+      await settleTakeAfterSave('w-21c') // the next copy opens its own connection
+      expect(vault().connections.at(-1)).not.toBe(late)
+      expect(live('w-21c')).toEqual(NONE)
+    })
+
+    it.each([
+      ["'relaxed'", { kind: 'value', value: 'relaxed' }],
+      ["'default'", { kind: 'value', value: 'default' }],
+      ['NO durability attribute (D-26)', { kind: 'absent' }],
+    ] as const)('the sealed transaction reports durability %s → live INTACT', async (_l, mode) => {
+      seed('w-22', noReceipt(), [[0, blob(3)]])
+      vault().durability = mode
+      await settleTakeAfterSave('w-22')
+      expect(live('w-22')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-22')).toEqual(NONE)
+    })
+
+    it("'strict' → the delete proceeds; the copy transaction was OPENED with { durability: 'strict' } (D-24)", async () => {
+      seed('w-23', noReceipt(), [[0, blob(3)]])
+      vault().durability = { kind: 'value', value: 'strict' }
+      await settleTakeAfterSave('w-23')
+      expect(live('w-23')).toEqual(NONE)
+      expect(txLog.filter((t) => t.db === VAULT)).toEqual([
+        { db: VAULT, storeNames: ['sealed_metas', 'sealed_segments'], mode: 'readwrite', options: { durability: 'strict' } },
+      ])
+    })
+
+    it('the durability getter THROWS → live INTACT, deleteTake resolves, read once, no unhandled rejection', async () => {
+      const unhandled = jest.fn()
+      process.on('unhandledRejection', unhandled)
+      try {
+        seed('w-24', noReceipt(), [[0, blob(3)]])
+        vault().durability = { kind: 'throw' }
+        await expect(deleteTake('w-24', HR)).resolves.toBeUndefined()
+        await drain(100)
+        expect(vault().durabilityReads).toBe(1)
+        expect(live('w-24')).toEqual({ meta: true, seqs: [[0, 3]] })
+        expect(unhandled).not.toHaveBeenCalled()
+      } finally {
+        process.off('unhandledRejection', unhandled)
+      }
+    })
+
+    it.each([
+      ['settleTakeAfterSave', (id: string) => settleTakeAfterSave(id)],
+      ['a direct deleteTake(id, { humanResolved: true })', (id: string) => deleteTake(id, HR)],
+    ])('AN UNFINISHED SETTLE (R-S82-4) through %s → the live meta and every segment row DEEP-EQUAL before and after', async (_l, settle) => {
+      seed('w-25', noReceipt({ outcome: { kind: 'x' } }), [[0, blob(3)], [3, blob(6)]])
+      const before = { meta: { ...(takes().get(norm('w-25')) as object) }, segs: [...segments().values()] }
+      dropVault()
+      vault().openFaults.push('error')
+      await settle('w-25')
+      expect(takes().get(norm('w-25'))).toEqual(before.meta)
+      expect([...segments().values()]).toEqual(before.segs)
+      expect(sealed('w-25')).toEqual(NONE)
+    })
+
+    it('a live reader run while the copy is HELD returns exactly what it returned before the call', async () => {
+      seed('w-26', noReceipt({ outcome: { kind: 'x' }, updatedAt: Date.now() - 60_000 }), [[0, blob(3)]])
+      const read = async () => [await listOwnTakes(), await getRecoverableTake(), await readTakeOutcome('w-26')]
+      const before = await read()
+      vault().holdNextCommits = 1
+      const p = settleTakeAfterSave('w-26')
+      await drain(300)
+      expect(vault().heldCommits).toHaveLength(1)
+      expect(await read()).toEqual(before)
+      vault().heldCommits.shift()!('complete')
+      await p
+    })
+  })
+
+  describe('the switches', () => {
+    it('keep OFF (flipped after import, read at the call — D-14/D-15) → the vault never opened; released as today', async () => {
+      sw.sealBeforeHumanDelete = false
+      seed('w-27', noReceipt(), [[0, blob(3)]])
+      await settleTakeAfterSave('w-27')
+      expect(live('w-27')).toEqual(NONE)
+      expect(sealed('w-27')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it.each([
+      [true, true, NONE, { meta: true, seqs: [[0, 3]] }],
+      [true, false, NONE, { meta: true, seqs: [[0, 3]] }],
+      [false, true, { meta: true, seqs: [[0, 3]] }, NONE],
+      [false, false, NONE, NONE],
+    ])('keep %s · stagedPartialDoor %s · damaged, no receipt → live %j · sealed %j', async (keep, staged, wantLive, wantSealed) => {
+      sw.sealBeforeHumanDelete = keep
+      sw.stagedPartialDoor = staged
+      seed('w-28', { secureError: 'audio_partial' }, [[0, blob(3)]])
+      await deleteTake('w-28', HR)
+      expect(live('w-28')).toEqual(wantLive)
+      expect(sealed('w-28')).toEqual(wantSealed)
+      if (!keep) expect(vaultTx()).toBe(0)
+    })
+
+    it.each([
+      ['finalizedAt (hand-written; impossible in production)', { finalizedAt: 5 }, NONE],
+      ["a 'stg/' stored-arm copy of these rows", { stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 } }, NONE],
+      ["a memory-arm 'stg/' copy — no facts (R-S87-1, M-S87-1)", { stagedPath: 'stg/x' }, { meta: true, seqs: [[0, 3]] }],
+      ["a 'stg/' copy of other bytes (R-S87-1)", { stagedPath: 'stg/x', stagedFacts: { arm: 'stored', bytes: 2, segmentCount: 1, seqMax: 0 } }, { meta: true, seqs: [[0, 3]] }],
+      ["an 'app_…' pointer — facts of these rows", { stagedPath: 'app_biz-1_x.webm', stagedFacts: { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 } }, { meta: true, seqs: [[0, 3]] }],
+      ["a 'stgX/' path — facts of these rows (D-7)", { stagedPath: 'stgX/x', stagedFacts: { arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 } }, { meta: true, seqs: [[0, 3]] }],
+      ['no receipt', {}, { meta: true, seqs: [[0, 3]] }],
+    ])('R-S77-7, keep OFF + staged ON: damaged + %s → live %j, nothing sealed (M-S77-11/-12/-13)', async (_l, extra, want) => {
+      sw.sealBeforeHumanDelete = false
+      seed('w-29', { secureError: 'unreadable_object', ...extra }, [[0, blob(3)]])
+      await deleteTake('w-29', HR)
+      expect(live('w-29')).toEqual(want)
+      expect(sealed('w-29')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it('keep OFF + a NON-damaged TERMINAL code (bad_take_id), no receipt → released as today (M-S77-14)', async () => {
+      sw.sealBeforeHumanDelete = false
+      seed('w-30', { secureError: 'bad_take_id' }, [[0, blob(3)]])
+      await settleTakeAfterSave('w-30')
+      expect(live('w-30')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it('stagedPartialDoor ON at load, OFF before a DIRECT human deleteTake, keep OFF → isDamagedTake reads it live → RELEASED, zero vault transactions (M-S77-14)', async () => {
+      sw.sealBeforeHumanDelete = false
+      sw.stagedPartialDoor = false
+      seed('w-31', { secureError: 'audio_unreadable' }, [[0, blob(3)]])
+      await deleteTake('w-31', HR)
+      expect(live('w-31')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+
+    it('TTL prune, clearOwnTakes, a bare deleteTake and a humanResolved:false call never open the vault (D-16/D-17)', async () => {
+      seed('w-32-old', { finalizedAt: 5, startedAt: 0, updatedAt: 0 }, [[0, blob(3)]])
+      await listOwnTakes()
+      await drain(100)
+      expect(live('w-32-old')).toEqual(NONE) // the prune ran
+      seed('w-32-fin', { finalizedAt: 5 }, [[0, blob(3)]])
+      await clearOwnTakes()
+      expect(live('w-32-fin')).toEqual(NONE) // the wipe ran
+      seed('w-32', noReceipt(), [[0, blob(3)]])
+      await deleteTake('w-32')
+      await deleteTake('w-32', { humanResolved: false })
+      expect(live('w-32')).toEqual({ meta: true, seqs: [[0, 3]] })
+      expect(sealed('w-32')).toEqual(NONE)
+      expect(vaultTx()).toBe(0)
+    })
+  })
+
+  // THE TABLE TEST (R-S80-1 structural proof, narrowed by R-S81-8, + R-S82-6).
+  // Claim: every take-store export is classified here, and no classified live
+  // call touches the sealed database. Not a guarantee for everything.
+  describe('THE TABLE TEST — no live reader or writer ever touches the sealed database', () => {
+    const TABLE: Record<string, 'reader' | 'writer' | 'pure' | 'constant' | 'lifecycle'> = {
+      listOwnTakes: 'reader', getRecoverableTake: 'reader', listOwnStoppedUnsecuredTakeIds: 'reader',
+      readTakeSecureMeta: 'reader', readTakeUploadMeta: 'reader', isTakeHeldByAnother: 'reader',
+      listPendingDiscardTakes: 'reader', readTakeOutcome: 'reader', readTakeTranscript: 'reader',
+      listTakeSegmentsAfter: 'reader', loadTakeBlob: 'reader', loadTakeBlobFacts: 'reader',
+      isDamagedTake: 'pure', damagedKind: 'pure', takeReference: 'pure', serverHoldsTake: 'pure',
+      isStoppedTake: 'pure', isUnsecurableTake: 'pure',
+      DAMAGED_SECURE_CODES: 'constant', TERMINAL_SECURE_ERRORS: 'constant', BINDING_SECURE_REFUSALS: 'constant',
+      SEGMENT_COMMIT_DEADLINE_MS: 'constant', SEALED_COPY_DEADLINE_MS: 'constant',
+      writeTakeHeartbeat: 'writer', clearTakeHeartbeat: 'writer', createTake: 'writer', appendTakeSegment: 'writer',
+      stampTakeSession: 'writer', detachTakeFromRecordedSession: 'writer', markTakeFinalized: 'writer',
+      adoptTakeSession: 'writer', markDiscardTranscriptDone: 'writer', markTakeStaged: 'writer', markTakeStagedTail: 'writer', markTakeTailPending: 'writer', markTakeTailDamaged: 'writer',
+      markTakeStagedDamaged: 'writer', markTakeHeldUpload: 'writer', clearTakeHeldUpload: 'writer',
+      clearTakeStaged: 'writer', ensureFinalizedPath: 'writer', markTakeSecureError: 'writer',
+      markSegmentsUploaded: 'writer', markSegmentError: 'writer', markTakeStartBoundAttempted: 'writer',
+      markTakeTailIncomplete: 'writer', markTakeEndedBySystem: 'writer', noteTakeDiagEvent: 'writer',
+      markTakeStopPending: 'writer', stampTakeDuration: 'writer', stampTakeOutcome: 'writer',
+      stampTakeTranscript: 'writer', stampDiscardPending: 'writer',
+      deleteTake: 'lifecycle', settleTakeAfterSave: 'lifecycle', clearOwnTakes: 'lifecycle',
+    }
+    const ID = 'w-table'
+    const OLD = 'w-table-old'
+    const snap = (v: unknown) => JSON.parse(JSON.stringify(v, (_k, x) => (x instanceof Blob ? { blob: x.size } : x)))
+    /** Every classified reader, with its argument variants, as owner AND as another user. */
+    const readAll = async () => {
+      const out: unknown[] = []
+      for (const uid of ['staff-A', 'staff-B']) {
+        mockUid = uid
+        for (const id of [ID, OLD]) {
+          out.push(
+            await readTakeSecureMeta(id), await readTakeUploadMeta(id), await takeStore.isTakeHeldByAnother(id),
+            await readTakeOutcome(id), await readTakeTranscript(id), await listTakeSegmentsAfter(id, -1, 10),
+            await listTakeSegmentsAfter(id, 0, 1), await loadTakeBlob(id), await loadTakeBlobFacts(id),
+          )
+        }
+        out.push(
+          await listOwnTakes(), await listOwnTakes([ID]), await listOwnTakes([OLD]),
+          await getRecoverableTake(), await getRecoverableTake([ID]), await getRecoverableTake([ID, OLD]),
+          await listOwnStoppedUnsecuredTakeIds(), await listPendingDiscardTakes(),
+        )
+      }
+      mockUid = 'staff-A'
+      return snap(out)
+    }
+    /** Every classified writer once, loose arguments; a throw is caught — only the vault's transaction count matters. */
+    const writeAll = async () => {
+      for (const [name, kind] of Object.entries(TABLE)) {
+        if (kind !== 'writer') continue
+        try {
+          await (takeStore as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](ID, 'stg/w', 1)
+        } catch {
+          /* only the count matters */
+        }
+      }
+      await drain(100)
+    }
+    const fixture = () => {
+      seed(ID, noReceipt({ outcome: { kind: 'x' }, outcomeLegs: { burn: 'pending', pack: 'none' } }), [[0, blob(3)], [2, blob(5)]])
+      seed(OLD, noReceipt({ startedAt: 0, updatedAt: 0 }), [[0, blob(2)]])
+    }
+
+    it('every take-store export is classified', () => {
+      expect(Object.keys(takeStore).sort()).toEqual(Object.keys(TABLE).sort())
+    })
+
+    it('OFF first on an empty shim, then ON: EQUAL reader outputs after the settle, detach false in both, zero vault transactions during the reads', async () => {
+      const world = async (keep: boolean) => {
+        takes().clear()
+        segments().clear()
+        sw.sealBeforeHumanDelete = keep
+        fixture()
+        await settleTakeAfterSave(ID)
+        const before = vaultTx()
+        const out = await readAll()
+        const detached = await detachTakeFromRecordedSession(ID)
+        return { out, detached, vaultDuring: vaultTx() - before }
+      }
+      const off = await world(false)
+      expect(vaultTx()).toBe(0)
+      const on = await world(true)
+      expect(sealed(ID).meta).toBe(true) // the ON world really sealed
+      expect(on.out).toEqual(off.out)
+      expect([off.detached, on.detached]).toEqual([false, false])
+      expect([off.vaultDuring, on.vaultDuring]).toEqual([0, 0])
+    })
+
+    it.each([
+      ['FAILED (the vault will not open)', () => (dropVault(), vault().openFaults.push('error'))],
+      ['HELD (commit pending)', () => (vault().holdNextCommits = 1)],
+    ])('a POPULATED take whose copy %s: every classified reader and writer runs with ZERO vault transactions', async (_l, arrange) => {
+      fixture()
+      arrange()
+      const p = settleTakeAfterSave(ID)
+      await drain(300)
+      expect(await readTakeOutcome(ID)).not.toBeNull() // past the !meta guard
+      const before = vaultTx()
+      await readAll()
+      await writeAll()
+      expect(vaultTx() - before).toBe(0)
+      vault().heldCommits.splice(0).forEach((finish) => finish('complete'))
+      await p
+    })
+  })
+
+  describe('W-4 — one write (R-S77-1)', () => {
+    it('markTakeStagedDamaged writes stagedPath + secureError + lastSecureAttemptAt together; a finalized take gets none of them', async () => {
+      seed('w-33', {}, [[0, blob(3)]])
+      await takeStore.markTakeStagedDamaged('w-33', 'stg/p', 'audio_partial')
+      expect(takes().get(norm('w-33'))).toMatchObject({
+        stagedPath: 'stg/p',
+        secureError: 'audio_partial',
+        lastSecureAttemptAt: Date.now(),
+      })
+      seed('w-34', { finalizedAt: 5, finalizedPath: 'app_x' }, [[0, blob(3)]])
+      await takeStore.markTakeStagedDamaged('w-34', 'stg/q', 'audio_partial')
+      const m = takes().get(norm('w-34')) as Record<string, unknown>
+      expect([m.stagedPath, m.secureError, m.lastSecureAttemptAt]).toEqual([undefined, undefined, undefined])
+    })
+  })
+})
+
+// model: claude-opus-5-5 · S87 F5 (SF-5, R-S87-4): the vault read-back is a
+// key range over THIS take, never a walk of every take ever sealed.
+describe('S87 F5 — the sealed copy reads back its own take only', () => {
+  it('getAll is bounded [takeId, 0]..[takeId, []] and the answer holds this take alone', async () => {
+    const { sealTakeCopy } = await import('@/lib/karute/take-vault')
+    const other = await sealTakeCopy({ takeId: 'take-s87-other' }, [{ takeId: 'take-s87-other', seq: 0, blob: new Blob(['zz']) }], 30_000)
+    expect(other).toEqual(new Map([[0, 2]]))
+    const bound = jest.spyOn(IDBKeyRange, 'bound')
+    try {
+      const held = await sealTakeCopy(
+        { takeId: 'take-s87' },
+        [
+          { takeId: 'take-s87', seq: 0, blob: new Blob(['abc']) },
+          { takeId: 'take-s87', seq: 1, blob: new Blob(['d']) },
+        ],
+        30_000,
+      )
+      expect(held).toEqual(new Map([[0, 3], [1, 1]]))
+      expect(bound.mock.calls).toEqual([[['take-s87', 0], ['take-s87', []]]])
+    } finally {
+      bound.mockRestore()
+    }
+  })
+})
+
+// model: claude-opus-5-5 · S87 (R-S87-17 b): the tail writers on the REAL store,
+// and SF-A's residual stated as what the code does (a stateful assertion).
+describe('S87 — the tail facts on the real store', () => {
+  const port = () =>
+    ({
+      prepareTranscription: jest.fn(async () => ({ path: 'stg/x' })),
+      mintTakeUrl: jest.fn(async () => ({ error: 'unexpected' })),
+      finalizeTake: jest.fn(async () => ({ error: 'unexpected' })),
+      startSession: jest.fn(async () => null),
+    }) as unknown as Parameters<typeof secureTake>[0]
+  async function take(id: string) {
+    await createTake({ takeId: id, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET } as Parameters<typeof createTake>[0])
+    await appendTakeSegment(id, 0, new Blob(['aaa']))
+    return id
+  }
+  const read = async (id: string) => (await takeStore.readTakeSecureMeta(id)) as Record<string, unknown> | null
+  const raw = (id: string) => takes().get(norm(id)) as Record<string, unknown> | undefined
+  it('markTakeTailPending notes {bytes, at}; markTakeStagedTail sets the path and clears it', async () => {
+    const id = await take('s87-tail-1')
+    await takeStore.markTakeTailPending(id, 123)
+    expect(raw(id)?.tailPending).toEqual({ bytes: 123, at: expect.any(Number) })
+    await takeStore.markTakeStagedTail(id, 'stg/b_s_u_tail.webm')
+    expect(raw(id)?.stagedTailPath).toBe('stg/b_s_u_tail.webm')
+    expect(raw(id)?.tailPending).toBeUndefined()
+    expect(raw(id)?.stagedPath).toBeUndefined()
+  })
+  it('markTakeTailDamaged writes the tail path + the damaged code in one write (no stagedPath), and never over a finalized take', async () => {
+    const id = await take('s87-tail-2')
+    await takeStore.markTakeTailPending(id, 9)
+    await takeStore.markTakeTailDamaged(id, 'stg/b_s_u_tail.webm', 'audio_unreadable')
+    expect(raw(id)).toMatchObject({ stagedTailPath: 'stg/b_s_u_tail.webm', secureError: 'audio_unreadable' })
+    expect(raw(id)?.stagedPath).toBeUndefined()
+    expect(raw(id)?.tailPending).toBeUndefined()
+    const done = await take('s87-tail-3')
+    await takeStore.markTakeFinalized(done, 'app_biz_x.webm')
+    await takeStore.markTakeTailDamaged(done, 'stg/b_s_u_tail.webm', 'audio_unreadable')
+    expect(raw(done)?.stagedTailPath).toBeUndefined()
+    expect(raw(done)?.secureError).toBeUndefined()
+  })
+  // model: claude-opus-5-5 · S88 P1 round 2 (R-S88-1): the tail skip reads the
+  // STAGED facts through readTakeSecureMeta — on the real store, not a mock.
+  it('(f) readTakeSecureMeta carries the stored arm\'s stagedFacts; none for the memory arm or a tail; a re-staging replaces them', async () => {
+    const id = await take('s88-facts-1')
+    const f1 = await takeStore.loadTakeBlobFacts(id)
+    const staged1 = stagedFactsOf(f1!.blob, f1)
+    expect(staged1).toEqual({ arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 })
+    await takeStore.markTakeStagedDamaged(id, 'stg/b_s_u.webm', 'audio_partial', staged1)
+    expect((await read(id))?.stagedFacts).toEqual({ arm: 'stored', bytes: 3, segmentCount: 1, seqMax: 0 })
+    // a later stored-arm staging REPLACES the facts
+    await appendTakeSegment(id, 1, new Blob(['bbbb']))
+    const f2 = await takeStore.loadTakeBlobFacts(id)
+    await takeStore.markTakeStagedDamaged(id, 'stg/b_s_u.webm', 'audio_partial', stagedFactsOf(f2!.blob, f2))
+    expect((await read(id))?.stagedFacts).toEqual({ arm: 'stored', bytes: 7, segmentCount: 2, seqMax: 1 })
+    // a memory-arm staging (no facts) leaves none — the earlier facts do not survive it
+    await takeStore.markTakeStagedDamaged(id, 'stg/b_s_u.webm', 'audio_partial')
+    expect((await read(id))?.stagedFacts).toBeUndefined()
+    const mem = await take('s88-facts-2')
+    await takeStore.markTakeStagedDamaged(mem, 'stg/b_s_u.webm', 'audio_partial')
+    expect((await read(mem))?.stagedFacts).toBeUndefined()
+    const tail = await take('s88-facts-3')
+    await takeStore.markTakeTailDamaged(tail, 'stg/b_s_u_tail.webm', 'audio_unreadable')
+    expect((await read(tail))?.stagedFacts).toBeUndefined()
+  })
+  it('SF-A residual (R-S87-17 a): after the tail-damaged mark, secureTake stages nothing — the plain key stays free, the prefix stays on the phone', async () => {
+    // R-S87-19: a REAL headerless stored blob (≥ the 12-byte probe, first byte
+    // 0xA3, no EBML/ftyp head) on a take with its row — without the TERMINAL
+    // gate this copy would be judged 'unreadable' and staged, so the row is red.
+    const sw = RECORDING_SWITCHES as unknown as { stagedPartialDoor: boolean }
+    const before = sw.stagedPartialDoor
+    sw.stagedPartialDoor = true
+    const id = 's87-tail-4'
+    await createTake({ takeId: id, startedAt: Date.now(), mimeType: 'audio/webm', target: TARGET, recordingSessionId: 'rs-1' } as Parameters<typeof createTake>[0])
+    const headless = new Uint8Array(64)
+    headless[0] = 0xa3
+    await appendTakeSegment(id, 0, new Blob([headless]))
+    await takeStore.markTakeTailDamaged(id, 'stg/b_s_u_tail.webm', 'audio_unreadable')
+    const p = port()
+    await secureTake(p, id, 5)
+    // No door at all: not the staged door, and not the take key either (this
+    // env's Blob may not read its head, B7 → 'ok' → the take key would be asked).
+    expect(p.prepareTranscription).not.toHaveBeenCalled()
+    expect(p.mintTakeUrl).not.toHaveBeenCalled()
+    expect((await read(id))?.stagedPath).toBeUndefined()
+    expect(segments().size).toBeGreaterThan(0)
+    sw.stagedPartialDoor = before
   })
 })

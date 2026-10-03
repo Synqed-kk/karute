@@ -89,3 +89,12 @@ describe('globalPipeline prompt-anchor ctx', () => {
     expect(mockCalls[0].ctx?.customerName).toBeNull()
   })
 })
+
+// model: claude-opus-5-5 · S87 (f): the recorder's emitted count reaches the run's ctx (R-S87-3a route ii).
+describe('S87 — emittedBytes rides the pipeline context', () => {
+  it('context.emittedBytes reaches the AI pipeline ctx', () => {
+    globalPipeline.start(new Blob(['x']), { locale: 'ja', customers: CUSTOMERS, emittedBytes: 1234 })
+    expect(mockCalls).toHaveLength(1)
+    expect(mockCalls[0].ctx?.emittedBytes).toBe(1234)
+  })
+})

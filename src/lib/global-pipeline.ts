@@ -2,6 +2,7 @@
 
 import {
   runAIPipeline,
+  DamagedAudioError,
   EmptyTranscriptError,
   type PaidFallback,
   type PipelineStep,
@@ -12,7 +13,13 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { ensureFinalizedPath, readTakeSecureMeta, settleTakeAfterSave } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
+import {
+  AUDIO_PARTIAL,
+  AUDIO_UNREADABLE,
+  DISCARDED_BY_STAFF,
+  damagedAudioCode,
+} from '@/lib/recording/job-errors'
 import type { RecordingJobStatusView } from '@/actions/recording-jobs'
 
 /**
@@ -50,6 +57,8 @@ export interface PipelineContext {
   customers: CustomerOption[]
   /** Recording length in seconds — passed straight to ReviewScreen. */
   duration?: number
+  /** R-S87-3a: the recorder's emitted bytes for this run — absent after a reload. */
+  emittedBytes?: number
   /** The booking this recording targets, if any. */
   appointmentId?: string
   /** Customer carried from the booking so review pre-fills attribution. */
@@ -144,7 +153,39 @@ export type PipelineErrorCode =
    *  録音履歴 row beside it already reads 破棄済み. A staffer must never be
    *  handed a button that cannot work. */
   | 'discarded'
+  /** PR-B B2: the audio is damaged — unreadable, or missing part of itself.
+   *  TERMINAL like 'discarded': the same bytes give the same answer, so the
+   *  card offers no 再試行; the recording is kept and the card shows its
+   *  reference number (takeReference). */
+  | 'audio-unreadable'
+  | 'audio-partial'
   | 'unknown'
+
+/** PR-B cut #3 (B2, B-S66-8): the ONE table from a failure word — the server
+ *  job's `last_error` sentinel, or the in-tab run's typed error — to the card's
+ *  code. Anything else is 'unknown' (再試行 shown): a plain Error from a staged
+ *  door (the literal 'staged copy mismatch') or a StagedDoorError is never a
+ *  terminal word here (D-4). */
+const PIPELINE_ERROR_CODES = new Map<string, PipelineErrorCode>([
+  [CONSENT_REQUIRED_ERROR, 'consent-required'],
+  ['EMPTY_TRANSCRIPT', 'empty-transcript'],
+  [DISCARDED_BY_STAFF, 'discarded'],
+])
+
+export function pipelineErrorCode(err: unknown): PipelineErrorCode {
+  const word =
+    err instanceof EmptyTranscriptError
+      ? 'EMPTY_TRANSCRIPT'
+      : err instanceof DamagedAudioError
+        ? err.kind === 'partial'
+          ? AUDIO_PARTIAL
+          : AUDIO_UNREADABLE
+        : err
+  // The damaged-audio arm lives in job-errors.ts (R-A3) — the row asks it too.
+  return (
+    (typeof word === 'string' && PIPELINE_ERROR_CODES.get(word)) || damagedAudioCode(word) || 'unknown'
+  )
+}
 
 type Listener = () => void
 
@@ -349,8 +390,17 @@ class GlobalPipeline {
    *  clobber is the old run's transcription fee, not the session. True
    *  concurrent takes need the server-side durable pipeline (v2, Anthony). */
   start(blob: Blob, context: PipelineContext) {
-    this.blob = blob
-    this.context = context
+    // S76 A5: a 録音履歴 save of the take this errored run still HOLDS whole
+    // keeps the larger blob and its measured length (never the flush window).
+    const keep =
+      RECORDING_SWITCHES.stagedPartialDoor &&
+      this.state === 'error' &&
+      this.blob !== null &&
+      !!context.takeId &&
+      this.context?.takeId === context.takeId &&
+      this.blob.size > blob.size
+    this.blob = keep ? this.blob : blob
+    this.context = keep ? { ...context, duration: this.context?.duration } : context
     this.paidFallback = null
     this.state = 'processing'
     this.step = 'transcribing'
@@ -431,6 +481,7 @@ class GlobalPipeline {
           sessionDate,
           recordingSessionId: this.context.recordingSessionId,
           durationSeconds: this.context.duration,
+          emittedBytes: this.context.emittedBytes,
           customerId: this.context.appointmentCustomerId,
           appointmentId: this.context.appointmentId,
           onSessionAdopted: (id) => this.adoptRecordingSession(runId, id),
@@ -462,7 +513,7 @@ class GlobalPipeline {
       if (runId !== this.runId) return
       // Raw text is for the console only — the UI localizes from the code.
       console.error('[global-pipeline] run failed:', err)
-      this.error = err instanceof EmptyTranscriptError ? 'empty-transcript' : 'unknown'
+      this.error = pipelineErrorCode(err)
       // c: same code as the retry's own memory → this attempt failed IDENTICALLY.
       this.errorRepeated = this.lastErrorCode !== null && this.lastErrorCode === this.error
       this.state = 'error'
@@ -702,14 +753,7 @@ class GlobalPipeline {
         // recordingJobs.fail is untouched; this is a client console line.
         console.error('[global-pipeline] server job failed:', status.lastError)
         // Take is NEVER deleted on FAILED — the staff can retry or fall back.
-        this.error =
-          status.lastError === CONSENT_REQUIRED_ERROR
-            ? 'consent-required'
-            : status.lastError === 'EMPTY_TRANSCRIPT'
-              ? 'empty-transcript'
-              : status.lastError === DISCARDED_BY_STAFF
-                ? 'discarded'
-                : 'unknown'
+        this.error = pipelineErrorCode(status.lastError)
         // c: same code as the retry's own memory → this attempt failed IDENTICALLY.
         this.errorRepeated = this.lastErrorCode !== null && this.lastErrorCode === this.error
         this.state = 'error'

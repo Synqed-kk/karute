@@ -70,4 +70,44 @@ export const RECORDING_SWITCHES = {
    *  mark) and byte-identical answers — pre-PR-A behaviour exactly.
    *  Server-side: a flip lands with the deploy. */
   finalizeProbe: true,
+  /** The phone's partial door (build 32, PR-B commits 1-2): the recorder
+   *  counts the bytes it put on disk per take (`TakeMeta.bytesEmitted`,
+   *  mirrored inside the segment transaction) so a whole-blob door can tell
+   *  a short blob from a whole one. Default ON. OFF = no counter is written —
+   *  pre-PR-B behaviour exactly. Client code: a flip reaches the phone with
+   *  its next bake. */
+  stagedPartialDoor: true,
+  /** Capture that ends by itself says so (build 32, PR-B commit 4, B8): the
+   *  mic track's ended / mute, the recorder's error and the page's pagehide /
+   *  freeze write `TakeMeta.endedBySystem {at, why}` — LOCAL only, never sent —
+   *  and, once stopped, one line in the 'recorded' state, shown only under
+   *  `captureWarningNotice` (the outer gate). Records only: nothing restarts
+   *  capture, the stop leg's order is untouched. Default ON. OFF = no hook
+   *  attached, no field, no line — pre-PR-B exactly. Client code. */
+  captureEndHooks: true,
+  /** The take keeps its own flight record (build 32, PR-B commit 5, B5): a
+   *  bounded local ring on the take (hidden / freeze / store-error events),
+   *  and a `diag` of ONLY the 12 keys the server already accepts on the
+   *  finalize body and the staged mint body — checked on the phone first and
+   *  omitted when not valid. Default ON. OFF = no ring written, no diag sent —
+   *  pre-PR-B exactly. Client code. */
+  takeDiag: true,
+  /** A segment counts only once it is committed (build 32, PR-B commit 7, C1
+   *  / B9): appendTakeSegment answers true only after the IndexedDB
+   *  transaction's `complete`; an abort, an error or SEGMENT_COMMIT_DEADLINE_MS
+   *  without an answer → false → the recorder's existing p.disabled path (the
+   *  seq is not advanced). Default OFF (S76 W-2: a slow commit that LANDS was
+   *  answered lost and switched storage off; awaiting Fable's slow-save
+   *  design). OFF = today: true on the request's success. Client code. */
+  awaitSegmentCommit: false,
+  /** A human settle seals before it deletes (build 32, PR-B Wn, R-S78-2 /
+   *  R-S80-1): when 確認する or the settle at a save would delete a phone
+   *  recording the server holds no receipt for, the phone first copies it into
+   *  a separate database nothing live reads (take-vault.ts) and deletes only
+   *  once that copy committed and still covers every live segment; a copy that
+   *  cannot finish deletes nothing. Read at the call, never at load. Default
+   *  ON. OFF = no copy is ever made and the sealed database is never opened —
+   *  today's delete, except that (with `stagedPartialDoor` ON) a DAMAGED take is kept until the server
+   *  holds its own copy (R-S77-7). Client code. */
+  sealBeforeHumanDelete: true,
 } as const

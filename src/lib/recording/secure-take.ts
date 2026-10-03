@@ -64,15 +64,28 @@ import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 // success only here, where finalize re-proves size and ownership afterwards;
 // see storage-put.ts's header.
 import { putDeadlineMs, putSaysAlreadyThere } from '@/lib/recording/storage-put'
+import { blobFate, damagedSecureCode, heldCopyWins, readBlobHead, stagedFactsOf } from '@/lib/recording/blob-fate'
+import { sniffContainer } from '@/lib/recording/container-sniff'
+import { AUDIO_PARTIAL } from '@/lib/recording/job-errors'
+import { buildTakeDiag, type DiagCounts, type PumpStopCode } from '@/lib/recording/take-diag'
+import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 import {
+  clearTakeHeldUpload,
+  DAMAGED_SECURE_CODES,
   isStoppedTake,
-  loadTakeBlob,
+  loadTakeBlobFacts,
   markTakeFinalized,
+  markTakeHeldUpload,
   markTakeSecureError,
+  markTakeStagedDamaged,
+  markTakeStagedTail,
+  markTakeTailDamaged,
+  markTakeTailPending,
   markTakeStartBoundAttempted,
   readTakeSecureMeta,
   stampTakeSession,
   TERMINAL_SECURE_ERRORS,
+  type StagedFacts,
 } from '@/lib/karute/take-store'
 
 /** Takes stamped before the recorder persisted its negotiated container. The
@@ -96,6 +109,15 @@ const DEFAULT_MIME = 'audio/webm'
  *  WebView shell, which is where staff actually record, cannot have two. */
 const inFlight = new Set<string>()
 
+/** R-S87-15 (a): the held tail did not reach the server. Not a damaged-audio
+ *  error — the pipeline's card offers 再試行, which re-stages the tail. */
+export class TailPendingError extends Error {
+  constructor() {
+    super('The held tail did not reach the server.')
+    this.name = 'TailPendingError'
+  }
+}
+
 /**
  * Upload the whole take to its finalized key and tell the server it is complete.
  *
@@ -116,6 +138,11 @@ export async function secureTake(
   takeId: string,
   durationSeconds?: number,
   isActive?: (takeId: string) => boolean,
+  /** PR-B 5b: the stop leg's session-null count for this take (the diag). */
+  sessionNullCount?: number,
+  /** R-S87-3a: the recorder's own emitted count for this run, while it is in
+   *  memory. After a reload nothing carries it and this layer is silent. */
+  emittedBytes?: number,
 ): Promise<void> {
   // ⚖ NEVER FINALIZE A LIVE TAKE (fix round 5) — the belt behind the drain's
   // stopped-only filter. Finalizing a take that is still recording (or paused
@@ -143,7 +170,24 @@ export async function secureTake(
     // that rule). Mark NOTHING — the take has not FAILED at anything, it is
     // simply not whole, and that is a truth for a human to act on, not an
     // error to retry against.
-    if (meta.tailIncomplete) return
+    //
+    // ⚖ …AND SINCE PR-B (B11, RULING-S72-PRB-C2-STOPS STOP 1) IT GOES TO THE
+    // STAGED DOOR. A known partial must reach the server — but never under the
+    // take key. With `stagedPartialDoor` ON and a session settled, the take is
+    // taken to secureBlob with `tailIncomplete`, whose verdict is never 'ok':
+    // the staged copy with `partial: true`, then `audio_partial`. No session →
+    // the local hold, marked nothing (B4). OFF → today's early return.
+    const tailIncomplete = meta.tailIncomplete === true
+    if (tailIncomplete && !(RECORDING_SWITCHES.stagedPartialDoor && meta.recordingSessionId)) return
+    // S76 W-1 (S-7): a whole copy this take noted as sent is FINISHED, never
+    // displaced by the stored part. Before the terminal check (:195), so an
+    // earlier run's `audio_partial` cannot strand it. 'absent' = carry on.
+    const held = meta.heldUpload
+    if (RECORDING_SWITCHES.stagedPartialDoor && held && meta.recordingSessionId) {
+      const mime = meta.mimeType || DEFAULT_MIME
+      if ((await finishHeldUpload(port, takeId, mime, meta.recordingSessionId, held, meta.secureError)) !== 'absent')
+        return
+    }
     // ⚖ NO STOP STAMP, NO SECURING (fix round 6) — the belt's second half.
     // isActive above can only answer for the take the recorder in THIS runtime
     // is holding; a stop that happened off-page (the staffer navigates to 記録
@@ -172,12 +216,15 @@ export async function secureTake(
     // number on the row is.
     if (measuredSeconds === undefined && isStoppedTake(takeId, meta, isActive))
       measuredSeconds = Math.max(0, meta.updatedAt - meta.startedAt) / 1000
-    if (measuredSeconds === undefined) return
+    // A tailIncomplete take never reaches the finalize (its verdict is damaged).
+    if (measuredSeconds === undefined && !tailIncomplete) return
     // A refusal that can never turn into a yes — see TERMINAL_SECURE_ERRORS
     // (it lives in take-store, beside the field it judges). Read BEFORE the
     // blob so a terminal take costs one meta read, not a re-upload.
     if (meta.secureError && TERMINAL_SECURE_ERRORS.has(meta.secureError)) return
-    const blob = await loadTakeBlob(takeId)
+    // PR-B 5b: the stored copy's seq facts ride beside the blob (the diag).
+    const facts = await loadTakeBlobFacts(takeId)
+    const blob = facts?.blob ?? null
     // No segments on disk (a kill before the first flush, persistence failed
     // open to memory-only). Nothing to send, and nothing this PR can fix — but
     // it IS recorded now (fix round 13): without a mark the take carried no
@@ -266,7 +313,17 @@ export async function secureTake(
           (await readTakeSecureMeta(takeId))?.recordingSessionId ?? recordingSessionId
     }
 
-    await secureBlob(port, blob, takeId, recordingSessionId, mimeType, measuredSeconds)
+    await secureBlob(port, blob, takeId, recordingSessionId, mimeType, measuredSeconds ?? 0, {
+      bytesEmitted: Math.max(meta.bytesEmitted ?? 0, emittedBytes ?? 0) || undefined,
+      tailIncomplete,
+      arm: 'stored',
+      lastSeq: meta.lastSeq,
+      diagCounts: meta.diagCounts,
+      lastPumpStop: meta.lastPumpStop,
+      seq: facts ?? undefined,
+      staged: stagedFactsOf(blob, facts),
+      sessionNullCount,
+    })
   } catch (err) {
     // A dead socket, or a door that threw instead of answering. The take keeps
     // its audio and stays un-finalized, which is exactly what the retry looks
@@ -283,7 +340,8 @@ export async function secureTake(
  * THE IN-TAB FALLBACK'S ATTACH (S33 option D): put this take's audio on its
  * OWN row, under its OWN key, through the doors secureTake already knocks on —
  * never a new row for a recording that has one. Answers the finalized key, or
- * null, and then the caller falls back to today's unbound door. Never throws.
+ * null, and then the caller falls back to today's unbound door. Never throws —
+ * except TailPendingError (R-S87-15 a: a failed tail upload ends the run retryable).
  *
  * ⚖ STORED BYTES WIN WHENEVER THE STORE HOLDS ANY (S33 R2). The in-memory
  * blob is every chunk the recorder captured (global-recorder onstop); the
@@ -294,6 +352,12 @@ export async function secureTake(
  * through secureTake (same bytes, same single-flight); the in-memory blob is
  * sent only when the store has no bytes for this take.
  *
+ * ⚖ …EXCEPT (S76 W-1, Liam's option 1) when the stored copy can only ever be
+ * filed as partial and this run holds a LARGER copy of a take whose row is
+ * stamped: the held copy goes to the take key, after the take durably notes
+ * it (markTakeHeldUpload). No partial copy ever goes under the take key, and
+ * the only later sender for that key finalizes the SAME noted bytes.
+ *
  * No discardPending check: bytes are never gated on what a surface may show
  * (take-store's drain note) — a discard is a mark, and its audio is kept.
  */
@@ -303,30 +367,142 @@ export async function ensureAudioOnServer(
   blob: Blob,
   recordingSessionId: string | null,
   durationSeconds?: number,
+  /** R-S87-3a: the recorder's emitted count (the pipeline context); absent after a reload. */
+  emittedBytes?: number,
 ): Promise<string | null> {
   try {
     // ponytail: reads the whole stored take once more just to ask "any bytes?"
     // — fallback-only; a segment count read if this ever shows up in a profile.
-    const stored = await loadTakeBlob(takeId)
-    if (stored && stored.size > 0) {
-      await secureTake(port, takeId)
-      return (await readTakeSecureMeta(takeId))?.finalizedPath ?? null
-    }
+    const facts = await loadTakeBlobFacts(takeId)
+    const stored = facts?.blob ?? null
     const meta = await readTakeSecureMeta(takeId)
+    // S76 W-1: the one exception to S33 R2 (see the docblock).
+    const held =
+      !!stored &&
+      stored.size > 0 &&
+      !!meta?.recordingSessionId &&
+      heldCopyWins(blob.size, { size: stored.size, bytesEmitted: Math.max(meta.bytesEmitted ?? 0, emittedBytes ?? 0) || undefined, tailIncomplete: meta.tailIncomplete, lastSeq: meta.lastSeq, seq: facts ?? undefined })
+    if (stored && stored.size > 0 && !held) {
+      await secureTake(port, takeId, undefined, undefined, undefined, emittedBytes)
+      const after = await readTakeSecureMeta(takeId)
+      // R-S87-2: the stored copy was judged damaged (staged partial; ai-pipeline
+      // then refuses the take) — the held blob is the only way its other
+      // minutes leave the phone. A retryable failure keeps today's path.
+      if (after?.secureError && DAMAGED_SECURE_CODES.has(after.secureError))
+        await stageHeldTail(port, takeId, blob, after.recordingSessionId ?? recordingSessionId, after.secureError, after.stagedFacts)
+      return after?.finalizedPath ?? null
+    }
     const session = meta?.recordingSessionId ?? recordingSessionId
     // No row to attach to, no honest duration for finalize, or nothing to send.
     if (!session || durationSeconds === undefined || blob.size === 0) return null
     if (inFlight.has(takeId)) return null
     inFlight.add(takeId)
     try {
+      // The note lands (committed) before a byte goes to the take key, or nothing does.
+      if (held && !(await markTakeHeldUpload(takeId, blob.size, durationSeconds))) return null
       const mimeType = meta?.mimeType || blob.type || DEFAULT_MIME
-      return await secureBlob(port, blob, takeId, session, mimeType, durationSeconds)
+      return await secureBlob(port, blob, takeId, session, mimeType, durationSeconds, {
+        bytesEmitted: meta?.bytesEmitted,
+        arm: 'memory',
+        diagCounts: meta?.diagCounts,
+        lastPumpStop: meta?.lastPumpStop,
+      })
     } finally {
       inFlight.delete(takeId)
     }
   } catch (err) {
+    if (err instanceof TailPendingError) throw err
     console.warn('[secure-take] fallback attach failed:', err)
     return null
+  }
+}
+
+/** R-S87-2: the stored copy won, but the held blob may be the only copy of
+ *  other minutes (the field cut: disjoint halves). It goes to the staged door
+ *  as the take's TAIL part, `partial: true` — never the take key, never the
+ *  stored copy's staged object — unless the server already holds these bytes
+ *  (R-S88-1). That is claimed ONLY when the take's code is AUDIO_PARTIAL AND
+ *  its staged copy came from the stored arm (`stagedFacts.arm === 'stored'`)
+ *  AND that copy's byte count equals the held blob's AND the held head is
+ *  readable (R-S87-21 b). The comparison is against what was STAGED, never
+ *  against what the store holds now: the code may be an earlier run's verdict
+ *  (damaged codes are terminal) and the store may have grown since. No staged
+ *  facts (the memory arm writes none), another code — `audio_unreadable`,
+ *  `unreadable_object` (finalize refused the object; the local head may have
+ *  been readable, so the tail may duplicate it — the port accepts an existing
+ *  equal-size object without re-uploading) — or a code added later: the tail
+ *  is staged. An allow-list, so every unknown fails toward sending. A receipt
+ *  for nothing (R-S87-1).
+ *  A failed upload notes `tailPending` and ends the run RETRYABLE (R-S87-15 a): the run keeps the
+ *  blob and 再試行 re-stages it. */
+async function stageHeldTail(
+  port: RecordingPipelinePort,
+  takeId: string,
+  blob: Blob,
+  session: string | null,
+  storedCode: string,
+  stagedFacts: StagedFacts | undefined,
+): Promise<void> {
+  if (!RECORDING_SWITCHES.stagedPartialDoor || !session || blob.size === 0) return
+  const head = await readBlobHead(blob)
+  if (storedCode === AUDIO_PARTIAL && stagedFacts?.arm === 'stored' && stagedFacts.bytes === blob.size && head && sniffContainer(head).kind !== 'unknown') return
+  try {
+    const staged = await port.prepareTranscription(blob, null, {
+      stagedFor: session,
+      stagedTake: takeId,
+      partial: true,
+      stagedPart: 'tail',
+    })
+    await markTakeStagedTail(takeId, staged.path)
+  } catch (err) {
+    console.warn('[secure-take] tail staging failed — the run ends retryable:', err)
+    await markTakeTailPending(takeId, blob.size)
+    throw new TailPendingError()
+  }
+}
+
+/** S76 A3: finish a noted whole copy. The mint signs a url → nothing landed:
+ *  clear the note, 'absent'. No url → the object is at the key: finalize the
+ *  noted size. A final refusal is written and clears the note; a passing one
+ *  is written (never over a damaged code) and keeps it for the row's retry. */
+async function finishHeldUpload(
+  port: RecordingPipelinePort,
+  takeId: string,
+  mimeType: string,
+  session: string,
+  held: { bytes: number; seconds: number },
+  priorError: string | undefined,
+): Promise<'absent' | 'refused' | 'finished'> {
+  const clear = async () => {
+    if (!(await clearTakeHeldUpload(takeId))) console.warn('[secure-take] held note not cleared:', takeId)
+  }
+  const refuse = async (code: string) => {
+    if (TERMINAL_SECURE_ERRORS.has(code)) {
+      await markTakeSecureError(takeId, code)
+      await clear()
+    } else if (!(priorError && DAMAGED_SECURE_CODES.has(priorError))) await markTakeSecureError(takeId, code)
+    return 'refused' as const
+  }
+  try {
+    const minted = await port.mintTakeUrl(takeId, mimeType, session)
+    if ('error' in minted) return await refuse(minted.error)
+    if ('url' in minted && minted.url) {
+      await clear()
+      return 'absent'
+    }
+    const result = await port.finalizeTake({
+      takeId,
+      mimeType,
+      durationSeconds: Math.max(0, held.seconds),
+      byteLength: held.bytes,
+      recordingSessionId: session,
+    })
+    if (!('ok' in result)) return await refuse(result.error)
+    await markTakeFinalized(takeId, minted.path)
+    return 'finished'
+  } catch (err) {
+    console.warn('[secure-take] held finish failed:', err)
+    return await refuse('network')
   }
 }
 
@@ -343,7 +519,65 @@ async function secureBlob(
   recordingSessionId: string,
   mimeType: string,
   measuredSeconds: number,
+  facts: {
+    bytesEmitted?: number
+    tailIncomplete?: boolean
+    arm?: 'stored' | 'memory'
+    lastSeq?: number
+    diagCounts?: DiagCounts
+    lastPumpStop?: PumpStopCode
+    seq?: { seqMin?: number; seqMax?: number; segmentCount?: number; seq0Present?: boolean }
+    sessionNullCount?: number
+    /** R-S87-1: the stored arm's facts — the memory arm never passes them. */
+    staged?: StagedFacts
+  },
 ): Promise<string | null> {
+  // PR-B commit 5 (B5, A13): the take's flight record, ONLY the 12 keys the
+  // server accepts, checked here first — invalid or switch OFF → no diag.
+  const diag = RECORDING_SWITCHES.takeDiag
+    ? buildTakeDiag({
+        arm: facts.arm ?? 'stored',
+        blobBytes: blob.size,
+        firstByte: (await readBlobHead(blob))?.[0],
+        lastSeq: facts.lastSeq,
+        counts: facts.diagCounts,
+        pumpStop: facts.lastPumpStop,
+        seq: facts.seq,
+        sessionNullCount: facts.sessionNullCount,
+      })
+    : undefined
+  // ⚖ A DAMAGED BLOB NEVER SEALS THE TAKE KEY (PR-B commit 2 — B1, B5, R-2).
+  // The verdict is taken ONCE, here, before a door is chosen; this is the
+  // branch split, so it is applied here and nowhere downstream. Damaged →
+  // the STAGED door (which never refuses it) with `partial: true`: never
+  // mint, PUT or finalize the take key. The staged path and the terminal code
+  // are written ONLY after that door answers (a 2xx PUT or a size match);
+  // any refusal throws to the caller's catch — today's retry path.
+  const fate = await blobFate(blob, facts)
+  if (fate !== 'ok') {
+    // R-S87-15 (b): a headerless MEMORY-arm blob is by definition a tail — it
+    // takes the TAIL part; the plain staged key is reserved for stored copies.
+    const tail = facts.arm === 'memory' && fate === 'unreadable'
+    const staged = await port.prepareTranscription(blob, null, {
+      stagedFor: recordingSessionId,
+      stagedTake: takeId,
+      partial: true,
+      ...(tail ? { stagedPart: 'tail' as const } : {}),
+      ...(diag ? { diag } : {}),
+    }).catch(async (err: unknown) => {
+      // R-S87-18 (a) B-2: the MEMORY arm's blob is the only copy — a failed
+      // upload ends the run RETRYABLE (as B-1); the stored arm keeps today's.
+      if (facts.arm !== 'memory') throw err
+      await markTakeTailPending(takeId, blob.size)
+      throw new TailPendingError()
+    })
+    if (tail) {
+      await markTakeTailDamaged(takeId, staged.path, damagedSecureCode(fate))
+      return null
+    }
+    await markTakeStagedDamaged(takeId, staged.path, damagedSecureCode(fate), facts.staged)
+    return null
+  }
   // The row the mint RESERVES this key on — never null now, and never
   // re-pointed from the reply: a take's row is what its discard and its
   // karute write against.
@@ -426,6 +660,7 @@ async function secureBlob(
     // REQUIRED by the door — the take's own row, stamped on the take before
     // the mint was even asked.
     recordingSessionId,
+    ...(diag ? { diag } : {}),
   })
   // `already: true` rides the ok arm on purpose — an exact retry and a take a
   // job already finished are both settled successes, not failures to re-run.

@@ -21,6 +21,7 @@ import type {
 } from '@/lib/recording/finalize-take'
 import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
 import type { AttachOutcome } from '@/lib/app-api/record-schemas'
+import type { PhoneTakeDiag } from '@/lib/recording/take-diag'
 // The staged PUT's deadline, from the module that holds the whole-take one
 // (slice five fix round 3, F7). It imports nothing app-side, so a port may
 // reach it without a cycle.
@@ -181,6 +182,14 @@ export interface RecordingPipelinePort {
     opts?: {
       stagedFor?: string | null
       stagedTake?: string | null
+      /** R-S87-7: the take's second staged object (the in-memory tail). */
+      stagedPart?: 'tail'
+      /** PR-B (build 32): the staged copy is DAMAGED (partial or unreadable) —
+       *  sent with `stagedFor` only, and only as `true` (never `partial: false`). */
+      partial?: boolean
+      /** PR-B commit 5 (B5, R-1): the take's flight record, the 12 accepted
+       *  keys only, already checked by the phone — sent with `stagedFor` only. */
+      diag?: PhoneTakeDiag
       /** The unbound fallback only (S33): why the take's own row was not used. */
       attachOutcome?: AttachOutcome | null
       /** The visit, sent with `attachOutcome` only (S34): what a row the
@@ -502,7 +511,11 @@ export const webRecordingPort: RecordingPipelinePort = {
           ? {
               stagedFor: opts.stagedFor,
               stagedTake: opts.stagedTake ?? null,
+              ...(opts.stagedPart ? { stagedPart: opts.stagedPart } : {}),
               mimeType: blob.type || undefined,
+              // PR-B R-1: the one web-side edit — a damaged copy says so.
+              ...(opts.partial === true ? { partial: true } : {}),
+              ...(opts.diag ? { diag: opts.diag } : {}),
             }
           : opts?.attachOutcome
             ? {

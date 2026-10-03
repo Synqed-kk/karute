@@ -15,8 +15,12 @@ export function PipelineErrorCard({
   onDiscard,
   errorRepeated = false,
   onHandwrite,
+  reference = null,
 }: {
   code: PipelineErrorCode | null
+  /** PR-B B11/F12d — the take's short reference number (takeReference), shown
+   *  on the two damaged-audio codes only, labelled as what it is. */
+  reference?: string | null
   onCancel: () => void
   onRetry: () => void
   /** ⚖ 8/26 rider — the moment this refusal is known is the moment the
@@ -37,6 +41,7 @@ export function PipelineErrorCard({
 }) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
+  const damaged = code === 'audio-unreadable' || code === 'audio-partial'
   return (
     <div className="mx-auto w-full max-w-md">
       <div className="rounded-2xl border border-red-500/30 bg-card p-6 text-center shadow-sm">
@@ -48,9 +53,16 @@ export function PipelineErrorCard({
                 ? 'pipelineErrorConsentRequired'
                 : code === 'discarded'
                   ? 'pipelineErrorDiscarded'
-                  : 'pipelineErrorGeneric',
+                  : code === 'audio-unreadable'
+                    ? 'pipelineErrorAudioUnreadable'
+                    : code === 'audio-partial'
+                      ? 'pipelineErrorAudioPartial'
+                      : 'pipelineErrorGeneric',
           )}
         </p>
+        {damaged && reference && (
+          <p className="mt-2 text-xs text-muted-foreground">{t('pipelineErrorReference', { reference })}</p>
+        )}
         {errorRepeated && (
           <p className="mt-2 text-sm text-muted-foreground">{t('pipelineErrorRepeated')}</p>
         )}
@@ -67,8 +79,9 @@ export function PipelineErrorCard({
               a staff member made a decision and wrote why, and the worker
               refuses the re-armed job on exactly the same ground. The button
               is not disabled, it is absent: a greyed control still reads as
-              "later, maybe". */}
-          {code !== 'discarded' && (
+              "later, maybe". The two damaged-audio codes likewise (PR-B B2):
+              the same bytes can only give the same answer. */}
+          {code !== 'discarded' && !damaged && (
             <button
               type="button"
               onClick={onRetry}

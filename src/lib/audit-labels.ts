@@ -4,6 +4,7 @@
 // table/boundary test, none of them React.
 import type { AuditLogEvent } from '@/actions/audit-log'
 import { AUDIO_UNREADABLE } from '@/lib/recording/job-errors'
+import type { FailedRowReason } from '@/lib/recordings/inbox'
 
 /** I2 — which settings.auditLog.automation.* key names the job that wrote a
  *  system-actor row, or null for today's plain システム label. Specific
@@ -34,32 +35,31 @@ export function automationLabelKey(action: string): string | null {
  *  18:24) — collapsed to the 6 reason.* keys the page actually ships (YAGNI:
  *  no writer produces the other candidates named in the first native-pass
  *  table). Unknown/missing -> null (no reason word), never a raw code. */
+/** R-A2 (RULING-S74-AUDIT-REASON): typed on inbox.ts's FAILED_ROW_REASONS,
+ *  so a failure reason with no audit word is a tsc error, never a silent
+ *  null. audioUnreadable shares the worker's own transcribe_failed word. */
+const KARUTE_MISSING_REASON_KEYS: Record<FailedRowReason, string> = {
+  emptyTranscript: 'reason.empty_transcript',
+  genericFailure: 'reason.job_failed',
+  // Recording hole PR-7: the recorder was warned during the take.
+  warnedDevice: 'reason.warned_device',
+  warnedServer: 'reason.warned_server',
+  // Recording hole PR-1: the inbox now names the failed stage, and this
+  // row copies it — same words as the worker's own transcribe_failed row.
+  transcriptionFailed: 'reason.transcription_failed',
+  aiFailed: 'reason.ai_failed',
+  saveFailed: 'reason.karute_save_failed',
+  // PR-B 4b: the card's damaged-audio codes.
+  audioUnreadable: 'reason.audio_unreadable',
+  audioPartial: 'reason.audio_partial',
+  localAudio: 'reason.not_transcribed',
+  tailIncomplete: 'reason.not_transcribed',
+  serverAudio: 'reason.not_transcribed',
+}
 export function karuteMissingReasonKey(reason: unknown): string | null {
-  switch (reason) {
-    case 'emptyTranscript':
-      return 'reason.empty_transcript'
-    case 'genericFailure':
-      return 'reason.job_failed'
-    // Recording hole PR-7: the recorder was warned during the take.
-    case 'warnedDevice':
-      return 'reason.warned_device'
-    case 'warnedServer':
-      return 'reason.warned_server'
-    // Recording hole PR-1: the inbox now names the failed stage, and this
-    // row copies it — same words as the worker's own transcribe_failed row.
-    case 'transcriptionFailed':
-      return 'reason.transcription_failed'
-    case 'aiFailed':
-      return 'reason.ai_failed'
-    case 'saveFailed':
-      return 'reason.karute_save_failed'
-    case 'localAudio':
-    case 'tailIncomplete':
-    case 'serverAudio':
-      return 'reason.not_transcribed'
-    default:
-      return null
-  }
+  return typeof reason === 'string' && Object.prototype.hasOwnProperty.call(KARUTE_MISSING_REASON_KEYS, reason)
+    ? KARUTE_MISSING_REASON_KEYS[reason as FailedRowReason]
+    : null
 }
 
 /** I6 — recording.transcribe_failed's detail.reason is already spelled as

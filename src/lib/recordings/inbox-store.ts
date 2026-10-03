@@ -191,6 +191,8 @@ async function readLocalTakes() {
     // `TERMINAL_SECURE_ERRORS`, whose other seven codes mean only "cannot
     // upload" and never licensed a detach.
     bindingRefused: !!t.secureError && BINDING_SECURE_REFUSALS.has(t.secureError),
+    // S76 W-3: the store's damagedKind (never computed here — F6).
+    damaged: t.damaged,
   }))
 }
 

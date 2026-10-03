@@ -14,6 +14,8 @@ import { getDataPort } from '@/lib/ports/data-port'
 // one (slice five fix round 3, F7). It imports nothing app-side, which is why
 // a port may reach it.
 import { putDeadlineMs } from '@/lib/recording/storage-put'
+// PR-B B-S66-5: the staged door's one typed refusal, from the shared leaf.
+import { StagedDoorError } from '@/lib/recording/blob-fate'
 import type {
   EnqueueRecordingJobInput,
   RecordingJobStatusView,
@@ -161,7 +163,11 @@ export const viteRecordingPort: RecordingPipelinePort = {
           ? {
               stagedFor: opts.stagedFor,
               stagedTake: opts.stagedTake ?? null,
+              ...(opts.stagedPart ? { stagedPart: opts.stagedPart } : {}),
               ...(blob.type ? { mimeType: blob.type } : {}),
+              // PR-B (B1/B11): a damaged copy says so. Never `partial: false` (N2).
+              ...(opts.partial === true ? { partial: true } : {}),
+              ...(opts.diag ? { diag: opts.diag } : {}),
             }
           : {
               stagedFor: null,
@@ -176,7 +182,12 @@ export const viteRecordingPort: RecordingPipelinePort = {
             },
       ),
     })
-    if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
+    if (!res.ok)
+      throw new StagedDoorError(
+        mintErrorCode(await res.json().catch(() => null), res.status),
+        res.status,
+        `Upload URL failed (${res.status})`,
+      )
     // The facade echoes the mint's WHOLE result (…/upload-url/route.ts's
     // `ok(ctx, minted)`), so contentType is the same closed-map answer that
     // decided the key's extension — never this arm's own guess. `url` is absent
@@ -205,7 +216,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
       if (minted.existingSize !== blob.size) throw new Error('staged copy mismatch')
       return { body: withRow(minted.path, recordingSessionId), path: minted.path, recordingSessionId }
     }
-    if (!minted.url) throw new Error('Upload URL failed (no url)')
+    if (!minted.url) throw new StagedDoorError('no_url', res.status, 'Upload URL failed (no url)')
 
     // 2. PUT the blob directly to storage (the signed URL carries the token).
     //    ⚖ UNDER A DEADLINE, LIKE EVERY OTHER CALL ON THIS ARM (slice five fix
@@ -236,7 +247,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // row-less and has no finalize, so the size match at the MINT is the only
     // proof there is. A 409 reaching here is a race the mint did not see a
     // moment ago — the next mount's mint answers it with a size.
-    if (!put.ok) throw new Error(`Upload failed (${put.status})`)
+    if (!put.ok) throw new StagedDoorError('upload', put.status, `Upload failed (${put.status})`)
 
     // 3. Transcribe by PATH.
     return { body: withRow(minted.path, recordingSessionId), path: minted.path, recordingSessionId }

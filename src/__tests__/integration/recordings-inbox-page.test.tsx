@@ -151,6 +151,8 @@ const mockDetachTakeFromRecordedSession = jest.fn(async (takeId: string) => {
   return true
 })
 jest.mock('@/lib/karute/take-store', () => ({
+  // PR-B commit 3: the error card reads takeReference (mock member only, no assertion changed).
+  takeReference: () => null,
   // A2-2: the discard-transcript register. Default false/[] = nothing is
   // held back, so every case below behaves exactly as it did pre-A2-2.
   stampDiscardPending: jest.fn(async () => false),

@@ -146,7 +146,7 @@ describe('what REPLACED them', () => {
 
   it('deleteTake carries the one guard: the server does not hold it, no delete', () => {
     const src = code('src/lib/karute/take-store.ts')
-    expect(src).toContain("if (meta && !serverHoldsTake(meta) && !opts?.humanResolved) return")
+    expect(src).toContain("if (meta && !serverHoldsTake(meta, segments.filter((s) => s.takeId === takeId)) && !opts?.humanResolved) return")
     // …and the rule itself, spelled where both readers can see it. All four
     // facts, because dropping any one of them releases audio the server may
     // not have: the staged PUT landed under the STAGED prefix (round 4's
@@ -154,7 +154,7 @@ describe('what REPLACED them', () => {
     // can never be sealed under its own key.
     expect(src).toContain('export function serverHoldsTake(')
     expect(src).toContain('if (meta.finalizedAt) return true')
-    expect(src).toContain("meta.stagedPath.startsWith('stg/')")
+    expect(src).toContain('stagedReceipt(meta, rows) &&')
     expect(src).toContain('meta.discardTranscriptDoneAt !== undefined')
     expect(src).toContain('isUnsecurableTake(meta)')
   })

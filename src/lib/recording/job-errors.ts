@@ -48,6 +48,17 @@ export const TRANSCRIPTION_LEDGER_UNAVAILABLE = 'transcription ledger unavailabl
  *  server-only transcribe.ts, so the audit page can read it too. */
 export const AUDIO_UNREADABLE = 'audio_unreadable'
 
+/** PR-B (RULING-S74-AUDIT-REASON R-A3): the ONE home of the damaged-audio
+ *  words → the card's two codes. The phone's own `audio_partial`, finalize's
+ *  `unreadable_object` and the job sentinel above. global-pipeline's table and
+ *  the 録音履歴 row (inbox.ts) both ask this — never a copy of the words. */
+export const AUDIO_PARTIAL = 'audio_partial'
+export const UNREADABLE_OBJECT = 'unreadable_object'
+export function damagedAudioCode(word: unknown): 'audio-unreadable' | 'audio-partial' | null {
+  if (word === AUDIO_UNREADABLE || word === UNREADABLE_OBJECT) return 'audio-unreadable'
+  return word === AUDIO_PARTIAL ? 'audio-partial' : null
+}
+
 /** Which of the worker's three paid-or-saving stages refused (the recording
  *  hole, PR-1, 2026-09-23): the job's `last_error` becomes
  *  `${code}: ${cause}` so 録音履歴 can name the step instead of a bare

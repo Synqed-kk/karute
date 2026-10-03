@@ -49,6 +49,9 @@ describe('karuteMissingReasonKey (I6 — InboxReason -> reason.* key)', () => {
     ['localAudio', 'reason.not_transcribed'],
     ['tailIncomplete', 'reason.not_transcribed'],
     ['serverAudio', 'reason.not_transcribed'],
+    // PR-B 4b (RULING-S74-AUDIT-REASON R-A5): the two damaged-audio rows.
+    ['audioUnreadable', 'reason.audio_unreadable'],
+    ['audioPartial', 'reason.audio_partial'],
     ['someUnknownFutureValue', null],
     [undefined, null],
     [null, null],

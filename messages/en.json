@@ -667,6 +667,10 @@
     "pipelineErrorGeneric": "Something went wrong while processing. Please try again.",
     "pipelineErrorDiscarded": "This recording was discarded by a staff member, so it cannot be saved to a karute.",
     "pipelineErrorRepeated": "Retrying gave the same result.",
+    "pipelineErrorAudioUnreadable": "The audio could not be read, so a karute cannot be created automatically. The recording stays on this device, and what was sent is kept on the server. The owner or support will restore it.",
+    "pipelineErrorAudioPartial": "Part of the recording is missing, so a karute cannot be created automatically. The recording stays on this device, and what was sent is kept on the server. The owner or support will restore it.",
+    "pipelineErrorReference": "Reference number: {reference}",
+    "captureEndedBySystem": "The device may have interrupted this recording.",
     "serverRowMissing": "Could not create the recording's server record. The karute will be saved, but the audio stays on this device only",
     "deviceSaveUnavailable": "This phone cannot save the recording, so audio is being sent straight to the server. Keep the app open until you stop recording",
     "serverSendStalled": "The server is not receiving audio. It is being kept on this phone and will be sent automatically",
@@ -2675,6 +2679,7 @@
         "ai_failed": "AI processing error",
         "karute_save_failed": "Karute save error",
         "audio_unreadable": "Unreadable audio",
+        "audio_partial": "Partial audio",
         "warned_device": "Device storage warning shown",
         "warned_server": "Server upload warning shown",
         "other": "Other"

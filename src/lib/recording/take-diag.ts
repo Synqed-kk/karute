@@ -1,0 +1,155 @@
+// PR-B commit 5 (build 32) — the take's own flight record (B5, B-S66-1, K-2).
+// A LEAF with no imports: the phone never imports zod or the server schema
+// (B5). What leaves the phone is ONLY the 12 TakeDiag keys the server already
+// accepts (record-schemas.ts TakeDiagSchema), mirrored here with their bounds;
+// prb-flight-record.test.ts pins both to the schema, so a drift fails a test,
+// never the field. A diag that does not pass these bounds is OMITTED — never
+// sent (A13: 「send a valid diag or none」).
+
+/** The 12 keys of `TakeDiagSchema`, in its order (K-2). */
+export const TAKE_DIAG_KEYS = [
+  'arm',
+  'seq_min',
+  'seq_max',
+  'seq_count',
+  'seq0_present',
+  'blob_bytes',
+  'first_byte',
+  'store_error_count',
+  'pump_stop_code',
+  'hidden_count',
+  'freeze_count',
+  'session_null_count',
+] as const
+export type TakeDiagKey = (typeof TAKE_DIAG_KEYS)[number]
+
+/** The server's bounds, mirrored (record-schemas.ts DIAG_MAX_* / DIAG_CODE_*). */
+export const PHONE_DIAG_MAX_SEQ = 999_999
+export const PHONE_DIAG_MAX_SEQ_COUNT = 1_000_000
+export const PHONE_DIAG_MAX_BLOB_BYTES = 2 * 1024 * 1024 * 1024
+export const PHONE_DIAG_MAX_BYTE_VALUE = 255
+export const PHONE_DIAG_MAX_EVENT_COUNT = 999_999
+export const PHONE_DIAG_CODE_MAX_CHARS = 16
+export const PHONE_DIAG_CODE_PATTERN = /^[a-z0-9_]+$/
+
+/** The local ring's bounds (packet P:80): entries kept, newest last; an
+ *  entry larger than its byte ceiling is not kept at all. */
+export const DIAG_RING_MAX_ENTRIES = 64
+export const DIAG_ENTRY_MAX_BYTES = 64
+
+/** R-S74-10 (b): the uploader's exits (segment-uploader.ts pumpOnce), one
+ *  short code each. pump_stop_code = the last uploader exit code recorded
+ *  before finalize. */
+export const PUMP_STOP_CODES = [
+  'backoff', 'no_meta', 'no_session', 'finalized', 'seg_error', 'nothing_new', 'no_rows',
+  'mint_terminal', 'mint_retry', 'mismatch', 'put_failed', 'landed', 'threw',
+] as const
+export type PumpStopCode = (typeof PUMP_STOP_CODES)[number]
+
+/** A ring event: a short code (+ the pump's exit code). Codes + numbers only. */
+export type DiagEvent = { code: 'hidden' | 'freeze' | 'store_error' } | { code: 'pump_stop'; stop: PumpStopCode }
+export type DiagRingEntry = DiagEvent & { at: number }
+/** 5c (FM-5): a count never comes from the bounded ring — monotonic counters
+ *  on the take, written by the same event writer; the ring is recent detail. */
+export type DiagCounts = { hidden: number; freeze: number; store_error: number }
+export type DiagFields = { diagRing?: DiagRingEntry[]; diagCounts?: DiagCounts; lastPumpStop?: PumpStopCode }
+/** The ONE fold noteTakeDiagEvent runs on the row inside its own write. */
+export function foldDiagEvent(m: DiagFields, e: DiagEvent, at: number): DiagFields {
+  const diagCounts = { hidden: 0, freeze: 0, store_error: 0, ...m.diagCounts }
+  if (e.code !== 'pump_stop') diagCounts[e.code] = Math.min(diagCounts[e.code] + 1, PHONE_DIAG_MAX_EVENT_COUNT)
+  const lastPumpStop = e.code === 'pump_stop' ? e.stop : m.lastPumpStop
+  return { diagRing: pushDiagEntry(m.diagRing, { ...e, at }), diagCounts, lastPumpStop }
+}
+
+export type PhoneTakeDiag = {
+  arm?: 'stored' | 'memory'
+  seq_min?: number
+  seq_max?: number
+  seq_count?: number
+  seq0_present?: boolean
+  blob_bytes?: number
+  first_byte?: number
+  store_error_count?: number
+  pump_stop_code?: string
+  hidden_count?: number
+  freeze_count?: number
+  session_null_count?: number
+}
+
+export function pushDiagEntry(ring: readonly DiagRingEntry[] | undefined, entry: DiagRingEntry): DiagRingEntry[] {
+  const next = [...(ring ?? [])]
+  if (JSON.stringify(entry).length > DIAG_ENTRY_MAX_BYTES) return next
+  next.push(entry)
+  return next.length > DIAG_RING_MAX_ENTRIES ? next.slice(next.length - DIAG_RING_MAX_ENTRIES) : next
+}
+
+const INT_MAX: Partial<Record<TakeDiagKey, number>> = {
+  seq_min: PHONE_DIAG_MAX_SEQ,
+  seq_max: PHONE_DIAG_MAX_SEQ,
+  seq_count: PHONE_DIAG_MAX_SEQ_COUNT,
+  blob_bytes: PHONE_DIAG_MAX_BLOB_BYTES,
+  first_byte: PHONE_DIAG_MAX_BYTE_VALUE,
+  store_error_count: PHONE_DIAG_MAX_EVENT_COUNT,
+  hidden_count: PHONE_DIAG_MAX_EVENT_COUNT,
+  freeze_count: PHONE_DIAG_MAX_EVENT_COUNT,
+  session_null_count: PHONE_DIAG_MAX_EVENT_COUNT,
+}
+
+/** The phone's own check before any send: ONLY the 12 keys are copied (every
+ *  other field — bytesEmitted, endedBySystem, the ring — stays local by
+ *  construction); one value out of bounds → undefined (omit the whole diag). */
+export function validTakeDiag(d: Record<string, unknown>): PhoneTakeDiag | undefined {
+  const out: Record<string, unknown> = {}
+  for (const k of TAKE_DIAG_KEYS) {
+    const v = d[k]
+    if (v === undefined) continue
+    const max = INT_MAX[k]
+    const ok =
+      max !== undefined
+        ? Number.isInteger(v) && (v as number) >= 0 && (v as number) <= max
+        : k === 'arm'
+          ? v === 'stored' || v === 'memory'
+          : k === 'seq0_present'
+            ? typeof v === 'boolean'
+            : typeof v === 'string' &&
+              v.length >= 1 &&
+              v.length <= PHONE_DIAG_CODE_MAX_CHARS &&
+              PHONE_DIAG_CODE_PATTERN.test(v)
+    if (!ok) return undefined
+    out[k] = v
+  }
+  return out as PhoneTakeDiag
+}
+
+/** The facts the secure leg holds → the diag it may send (then validated). */
+export function buildTakeDiag(f: {
+  arm: 'stored' | 'memory'
+  blobBytes: number
+  firstByte?: number
+  lastSeq?: number
+  /** Absent on a take written before 5c → the three counts are omitted. */
+  counts?: DiagCounts
+  pumpStop?: PumpStopCode
+  /** The stored copy only (loadTakeBlobFacts); the in-memory arm omits them. */
+  seq?: { seqMin?: number; segmentCount?: number; seq0Present?: boolean }
+  /** session_null_count = how many times during the take the phone asked who
+   *  is signed in and got no one — any caller, reads included; absent when the
+   *  take was secured after a reload (only the stop leg knows it). */
+  sessionNullCount?: number
+}): PhoneTakeDiag | undefined {
+  const stored = f.arm === 'stored' ? f.seq : undefined
+  return validTakeDiag({
+    seq_min: stored?.seqMin,
+    seq_count: stored?.segmentCount,
+    seq0_present: stored?.seq0Present,
+    pump_stop_code: f.pumpStop,
+    session_null_count: f.sessionNullCount,
+    arm: f.arm,
+    blob_bytes: f.blobBytes,
+    first_byte: f.firstByte,
+    seq_max: f.arm === 'stored' && f.lastSeq !== undefined && f.lastSeq >= 0 ? f.lastSeq : undefined,
+    hidden_count: f.counts?.hidden,
+    freeze_count: f.counts?.freeze,
+    store_error_count: f.counts?.store_error,
+  })
+}

@@ -115,11 +115,13 @@ const put = jest.fn<Promise<Response>, [string, unknown?]>(
 )
 global.fetch = put as unknown as typeof fetch
 
+import { withContainerHead } from './helpers/container-head-fetch'
 import { runAIPipeline } from '@/lib/ai-pipeline'
 import { webRecordingPort } from '@/lib/ports/recording-port'
 
 const TAKE = '5e1d2c3b-4a59-4687-9a0b-c1d2e3f4a5b6'
-const memory = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
+// B-S66-2 (PR-B): a real container head, so the phone's sniff reads this mock as the recording it stands for.
+const memory = new Blob(withContainerHead('in-memory: every chunk the recorder captured', 'webm'), { type: 'audio/webm' })
 const run = () => runAIPipeline(memory, TAKE, 'ja', () => {}, { durationSeconds: 42 })
 const outcome = (p: Promise<unknown>) => p.then(() => 'ok' as const, (e: unknown) => e)
 /** A take the store holds, with no row and no finalized key — the 'no_session' cohort. */

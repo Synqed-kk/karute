@@ -70,6 +70,8 @@ const stampTakeTranscript = jest.fn(
 jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: async () => (store.meta ? { ...store.meta } : null),
   loadTakeBlob: async () => store.blob,
+  // PR-B 5b (R-S74-10): secureTake reads the blob with its seq facts.
+  loadTakeBlobFacts: async () => (store.blob ? { blob: store.blob } : null),
   ensureFinalizedPath: async (_id: string, meta: Meta) => meta.finalizedPath ?? null,
   readTakeTranscript: async () => {
     // One shot: what another tab / the drain does between this run's start and its replay.
@@ -175,13 +177,16 @@ jest.mock('@/lib/ports/data-port', () => ({
 const put = jest.fn(async (_url: string, _init: { body: Blob }) => ({ ok: true, status: 200 }) as Response)
 global.fetch = put as unknown as typeof fetch
 
+import { withContainerHead } from './helpers/container-head-fetch'
 import { EmptyTranscriptError, runAIPipeline, type PipelineContext } from '@/lib/ai-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { RECORDING_SWITCHES } from '@/lib/recording/recording-switches'
 
-const memory = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
+// B-S66-2 (PR-B): a real container head, so the phone's sniff reads this mock as the recording it stands for.
+const memory = new Blob(withContainerHead('in-memory: every chunk the recorder captured', 'webm'), { type: 'audio/webm' })
 /** A recovery's audio, assembled from the take's saved segments: the tail was never saved. */
-const recovered = new Blob(['in-memory: every chunk'], { type: 'audio/webm' })
+// B-S66-2 (PR-B): a real container head, so the phone's sniff reads this mock as the recording it stands for.
+const recovered = new Blob(withContainerHead('in-memory: every chunk', 'webm'), { type: 'audio/webm' })
 /** What the pipeline fingerprints: the blob's size + type, + the run's length when it knows one. */
 const fp = (blob: Blob, durationSeconds?: number): Audio => ({
   size: blob.size,
@@ -432,7 +437,8 @@ describe('⚖ C3 fold — Greptile P1: a fallback answer replays only onto the a
     expect(await outcome(direct())).toBeInstanceOf(Error)
     extractRefuses = false
     posts.length = 0
-    const same = new Blob(['in-memory: every chunk the recorder captured'], { type: 'audio/webm' })
+    // B-S66-2 (PR-B): a real container head, so the phone's sniff reads this mock as the recording it stands for.
+    const same = new Blob(withContainerHead('in-memory: every chunk the recorder captured', 'webm'), { type: 'audio/webm' })
     const result = await recovery(same)
     expect(result.transcript).toBe('answer-1')
     expect(posts.filter((u) => u.endsWith('/transcribe'))).toHaveLength(0)
@@ -478,8 +484,10 @@ describe('⚖ C3 fold — Greptile P1: a fallback answer replays only onto the a
   })
 
   it('(f5) S51 — the same size and length in a DIFFERENT type is different audio: the door is asked again (slot and stamp)', async () => {
-    const webm = new Blob(['x'.repeat(1000)], { type: 'audio/webm' })
-    const mp4 = new Blob(['x'.repeat(1000)], { type: 'audio/mp4' })
+    // B-S66-2 (PR-B): a real container head, so the phone's sniff reads this mock as the recording it stands for.
+    const webm = new Blob(withContainerHead('x'.repeat(1000 - 14), 'webm') /* + the 14-byte head = the 1000 bytes this case pins */, { type: 'audio/webm' })
+    // B-S66-2 (PR-B): a real container head, so the phone's sniff reads this mock as the recording it stands for.
+    const mp4 = new Blob(withContainerHead('x'.repeat(1000 - 14), 'mp4') /* + the 14-byte head = the 1000 bytes this case pins */, { type: 'audio/mp4' })
     const paidAudio = { size: 1000, type: 'audio/webm', durationSeconds: 12.5 }
     expect([fp(webm, 12.5), fp(mp4, 12.5)]).toEqual([paidAudio, { ...paidAudio, type: 'audio/mp4' }])
     const len = { durationSeconds: 12.5 }
