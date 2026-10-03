@@ -184,7 +184,7 @@ export const RAIL: readonly RailEntry[] = [
   { id: 'reserve-acceptance', group: 'Reserve設定', label: 'Reserve 受付', scope: 'store', needs: 'settings.manage' },
   // ⚖ A1b (R2/R3) — the Reserve card's colour: one value per business, the same
   // capability as its two neighbours, and it renders under every lens.
-  { id: 'reserve-card-look', group: 'Reserve設定', label: 'カードの見た目', scope: 'business', needs: 'settings.manage' },
+  { id: 'reserve-store-page', group: 'Reserve設定', label: 'お店ページ', scope: 'business', needs: 'settings.manage' },
   { id: 'notifications', group: 'Reserve設定', label: '通知', scope: 'store', needs: 'settings.manage' },
   // canon gates スタッフ管理 on staff.manage OR staff.invite; the room takes the
   // stricter of the two it can express, which is the one the matrix edits with.
@@ -208,10 +208,10 @@ export const RAIL: readonly RailEntry[] = [
  *  beside the entry it belongs to. */
 export const BOOKING_GUARD_ID = 'booking-guard'
 
-/** ⚖ A1b — カードの見た目 also renders itself (`ReserveCardLookSection`), and
- *  its one value rides the room's own values map under this id, so 変更 n件,
+/** ⚖ A1b — お店ページ (S48 E1: was カードの見た目) renders itself (`ReserveCardLookSection`, its
+ *  first block), and the card colour rides the room's own values map under this id, so 変更 n件,
  *  the dot and 保存する count and commit it like any other control. */
-export const CARD_LOOK_ID = 'reserve-card-look'
+export const STORE_PAGE_ID = 'reserve-store-page'
 export const CARD_COLOR_ID = 'reserve-card-look.color'
 
 export type SectionGate = 'open' | 'no-rights'

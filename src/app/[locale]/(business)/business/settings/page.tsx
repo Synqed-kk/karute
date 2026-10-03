@@ -12,7 +12,7 @@
 // サンプルデータ dateline and ONE footnote per store section carry that fact;
 // 自分の表示設定 is the single exception and it is a designed one, saving to this
 // browser for this reader, because a self-scoped preference is nobody else's
-// permission. ⚖ A2 (Liam 9/24): with the practice door ON, カードの見た目 is the
+// permission. ⚖ A2 (Liam 9/24): with the practice door ON, お店ページ (its カードの見た目 block) is the
 // one section whose 保存 reaches core (the /api/business/card-color route) — the
 // screen is told so only then.
 //

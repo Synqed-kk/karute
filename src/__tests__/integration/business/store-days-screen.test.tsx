@@ -755,7 +755,7 @@ describe('B2 act 1c stamp time', () => {
   // ⚖ R42 — a core-backed save commits on core's yes, so its stamp is THAT instant: pressed 03:10,
   // core answered 03:17 → 「03:17」. The card-colour PUT is held open while the fake clock moves.
   it('(i) カードの見た目, door ON: pressed 03:10, core says yes at 03:17 → 「✓ 保存しました 03:17」', async () => {
-    await open(STORE.tokyo, 'reserve-card-look')
+    await open(STORE.tokyo, 'reserve-store-page')
     let answer: (r: Response) => void = () => {}
     let sentColor: unknown = null
     global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -777,7 +777,7 @@ describe('B2 act 1c stamp time', () => {
   })
   // S40 1b-1 N1 — the source line follows core's confirmed colour after a save, without a reload.
   it('(i2) カードの見た目, door ON: the source line follows each confirmed save (紺 → 深緑 → 紺)', async () => {
-    await open(STORE.tokyo, 'reserve-card-look')
+    await open(STORE.tokyo, 'reserve-store-page')
     global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/business/card-color')
       return Promise.resolve(fakeRes(200, { ok: true, color: JSON.parse(String(init?.body)).color }))
@@ -797,7 +797,7 @@ describe('B2 act 1c stamp time', () => {
     expect(global.fetch).toHaveBeenCalledTimes(3)
   })
   it('(i3) カードの見た目, door ON: core echoes a different colour → the source line follows the echo, not the pick', async () => {
-    await open(STORE.tokyo, 'reserve-card-look')
+    await open(STORE.tokyo, 'reserve-store-page')
     let sent: unknown = null
     global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('/api/business/card-color')
@@ -903,7 +903,7 @@ describe('B2 act 2a honest stamp every page-only save', () => {
   })
   it('(b) door OFF, カードの見た目 colour saved → the honest stamp AND zero write requests (no PUT to /api/business/card-color)', async () => {
     delete process.env.BUSINESS_PRACTICE_TENANT
-    await open(STORE_A, 'reserve-card-look')
+    await open(STORE_A, 'reserve-store-page')
     pickCard()
     await press()
     expect(stamps()).toEqual([`${PAGE_ONLY} 03:10`])
@@ -948,7 +948,7 @@ describe('B2 act 2a honest stamp every page-only save', () => {
     expect(writes()).toEqual([])
   })
   it('(f) door ON, the card PUT fails → no stamp (still the pending count), the existing error line', async () => {
-    await open(STORE.tokyo, 'reserve-card-look')
+    await open(STORE.tokyo, 'reserve-store-page')
     reply = (url, method) => (url === '/api/business/card-color' && method === 'PUT' ? { status: 500, body: { ok: false, reason: 'core' } } : { status: 500, body: null })
     pickCard()
     await press()

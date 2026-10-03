@@ -52,7 +52,7 @@ import {
   addToCollection,
   blockDirty,
   CARD_COLOR_ID,
-  CARD_LOOK_ID,
+  STORE_PAGE_ID,
   hitOf,
   blockingError,
   changedCount,
@@ -605,9 +605,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // is the third: canon has no page for it because it is #812's room, which
     // arrived as ONE section of this rail rather than as a second 設定 route at
     // the same path. It sits SECOND, right after 店舗情報・営業時間.
-    // ⚖ A1b — カードの見た目 is the fourth: canon has no page for the Reserve card's
+    // ⚖ A1b — お店ページ (was カードの見た目) is the fourth: canon has no page for the Reserve card's
     // colour; it sits between Reserve 受付 and 通知, one value for the business.
-    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', 'カードの見た目', '自分の表示設定'])
+    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', 'お店ページ', '自分の表示設定'])
     expect(labels[1]).toBe('予約と確保')
     expect(RAIL).toHaveLength(23)
   })
@@ -624,9 +624,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
         // directly below, against that payload, rather than against blocks it
         // deliberately does not have.
         if (s.id === 'booking-guard') continue
-        // ⚖ A1b — カードの見た目 renders itself too (the picker + the ported card);
+        // ⚖ A1b — お店ページ renders itself too (the picker + the ported card);
         // its substance is its payload, asserted in the A1b block at the end.
-        if (s.id === 'reserve-card-look') continue
+        if (s.id === 'reserve-store-page') continue
         const rows = s.blocks.reduce((n, b) => n + b.rows.length, 0)
         const substance = s.blocks.reduce((n, b) => n + b.rows.length + b.facts.length + (b.list ? 1 : 0) + (b.table ? 1 : 0), 0)
         expect({ role, id: s.id, blocks: s.blocks.length > 0 }).toEqual({ role, id: s.id, blocks: true })
@@ -2290,7 +2290,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // …and the SCREEN really hands them over — to the filter AND to the chip.
     // Without this the list above is a fact about a function nobody calls with
     // it, which is exactly how the battery caught the first cut of this pin.
-    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === CARD_LOOK_ID ? CARD_LOOK_HEADINGS : undefined)')
+    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? CARD_LOOK_HEADINGS : undefined)')
     expect(SCREEN_CODE).toContain('searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id))')
     expect(SCREEN_CODE).toContain('hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))')
     // An empty query is not a filter; a query nothing matches is honest silence.
@@ -4374,14 +4374,14 @@ describe('S28 — the 0-minute fact and the auto-assignment note, byte-for-byte'
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ A1b — カードの見た目: one colour per business, the curated 12, the room’s own save bar', () => {
   const LOOK_CODE = stripLine(stripComments(read(`${ROOM_DIR}/ReserveCardLookSection.tsx`)))
-  const lookOf = async (input?: { store?: string; role?: string }) => sectionOf(await room(input), CARD_LOOK_ID)
+  const lookOf = async (input?: { store?: string; role?: string }) => sectionOf(await room(input), STORE_PAGE_ID)
 
   it('the rail row sits between Reserve 受付 and 通知, scope business, gated by settings.manage', () => {
     const ids = RAIL.map((e) => e.id)
-    expect(ids.indexOf(CARD_LOOK_ID)).toBe(ids.indexOf('reserve-acceptance') + 1)
-    expect(ids.indexOf('notifications')).toBe(ids.indexOf(CARD_LOOK_ID) + 1)
-    const entry = sectionById(CARD_LOOK_ID)!
-    expect(entry).toEqual({ id: CARD_LOOK_ID, group: 'Reserve設定', label: 'カードの見た目', scope: 'business', needs: 'settings.manage' })
+    expect(ids.indexOf(STORE_PAGE_ID)).toBe(ids.indexOf('reserve-acceptance') + 1)
+    expect(ids.indexOf('notifications')).toBe(ids.indexOf(STORE_PAGE_ID) + 1)
+    const entry = sectionById(STORE_PAGE_ID)!
+    expect(entry).toEqual({ id: STORE_PAGE_ID, group: 'Reserve設定', label: 'お店ページ', scope: 'business', needs: 'settings.manage' })
     expect(gateOf(entry, accessFor('店舗管理者', rulebook))).toBe('open')
     expect(gateOf(entry, accessFor('スタッフ', rulebook))).toBe('no-rights')
   })
@@ -4396,7 +4396,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
 
   it('switch OFF: the value is null (no fixture home), the payload is this business and this lens', async () => {
     const s = await lookOf({ store: STORE_A })
-    expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'カードの見た目' })
+    expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'お店ページ' })
     expect(s.lead).toBe('「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
     expect(s.guide).toBe('お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
@@ -4523,7 +4523,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
   it('the section speaks the approved mock: h3/h4, the 全店共通 chip, the search headings, the home-only notes', async () => {
     const s = await lookOf({ store: STORE_A })
     expect(s.cardLook?.scopeLabel).toBe('全店共通')
-    expect(CARD_LOOK_HEADINGS).toEqual(['カードの色', 'お客様のアプリでの見え方'])
+    expect(CARD_LOOK_HEADINGS).toEqual(['カードの見た目', 'カードの色', 'お客様のアプリでの見え方'])
     expect(LOOK_CODE).toContain('<h3 id="clLookHead">カードの見た目</h3>')
     expect(LOOK_CODE).toContain('<h4 className="st-sec-l" id="clPickHead">カードの色</h4>')
     expect(LOOK_CODE).toContain('title="この事業者のすべての店舗に適用されます"')
