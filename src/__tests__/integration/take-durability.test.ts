@@ -6417,7 +6417,12 @@ describe('pieces CREATED by one recording stay inside the budget (S92)', () => {
     timedPieces = true
     await startAndSettle()
     const rec = FakeMediaRecorder.last!
-    await jest.advanceTimersByTimeAsync(AUTO_STOP_MS)
+    // A minute at a time: too many pieces go red on the step that passes the
+    // budget, not at the test's timeout.
+    for (let ms = 0; ms < AUTO_STOP_MS; ms += 60_000) {
+      await jest.advanceTimersByTimeAsync(60_000)
+      expect(rec.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
+    }
     expect(globalRecorder.autoStopped).toBe(true)
     expect(rec.state).toBe('inactive')
     expect(rec.pieces).toBeLessThanOrEqual(PIECES_PER_RECORDING_BUDGET)
