@@ -197,6 +197,25 @@ describe('T2c alarm caps', () => {
   })
 })
 
+describe('T2g the alarm rebuild also passes the deep query rule', () => {
+  it('message, fingerprint, tags and extra strings lose a URL query; keys and caps unchanged', () => {
+    const event: ErrorEvent = {
+      type: undefined,
+      message: 'alarm /api/x?token=' + URLQ,
+      fingerprint: ['karute-alarm', '/p?token=' + URLQ],
+      tags: { alarm: '1', alarm_kind: 'k', business_id: '/b?token=' + URLQ },
+      extra: { reason: 'https://x.test/r?token=' + URLQ, take_ids: ['/t?token=' + URLQ] },
+    }
+    const out = scrubEvent(event)
+    expect(out).not.toBeNull()
+    expect(out!.message).toBe('alarm /api/x')
+    expect(out!.fingerprint).toEqual(['karute-alarm', '/p'])
+    expect(out!.tags).toEqual({ alarm: '1', alarm_kind: 'k', business_id: '/b' })
+    expect(out!.extra).toEqual({ reason: 'https://x.test/r', take_ids: ['/t'] })
+    expect(JSON.stringify(out)).not.toContain(URLQ)
+  })
+})
+
 describe('T3 scrubBreadcrumb', () => {
   it.each(['console', 'http', 'fetch', 'xhr'])('drops %s', (category) => {
     expect(scrubBreadcrumb({ category, message: NAME })).toBeNull()
@@ -368,6 +387,20 @@ describe('T2e the body is removed before any traversal', () => {
   })
 })
 
+describe('T2e2 the body is removed before ANY traversal (a throwing getter)', () => {
+  it('request.data with a getter that throws: an event comes back (not null), no data', () => {
+    const body = {
+      get note(): string {
+        throw new Error('boom')
+      },
+    }
+    const out = scrubEvent(requestErrorEvent(body))
+    expect(out).not.toBeNull()
+    expect(out!.request).not.toHaveProperty('data')
+    expect(out!.request!.method).toBe('POST')
+  })
+})
+
 describe('T2d stack-frame URLs lose their query', () => {
   it('abs_path and filename keep the path, lose the query; the exception value is untouched', () => {
     const value = 'boom ' + C + '?x=1'
@@ -398,6 +431,23 @@ describe('T2d stack-frame URLs lose their query', () => {
       lineno: 1,
     })
     expect(ex.value).toBe(value)
+    expect(JSON.stringify(out)).not.toContain(URLQ)
+  })
+
+  it('a bare filename with no slash (app.js?token=...) becomes app.js', () => {
+    const event: ErrorEvent = {
+      type: undefined,
+      exception: {
+        values: [{
+          type: 'Error',
+          value: 'boom',
+          stacktrace: { frames: [{ filename: 'app.js?token=' + URLQ, function: 'f', lineno: 1 }] },
+        }],
+      },
+    }
+    const out = scrubEvent(event)
+    expect(out).not.toBeNull()
+    expect(out!.exception!.values![0].stacktrace!.frames![0].filename).toBe('app.js')
     expect(JSON.stringify(out)).not.toContain(URLQ)
   })
 })
@@ -573,6 +623,24 @@ describe('T3h scrubSpan (beforeSendSpan) scrubs a standalone INP-shaped span and
       description: 'ui.interaction.click',
       data: {},
     })
+    expect(JSON.stringify(out)).not.toContain(URLQ)
+  })
+
+  it('the blanked copy strips the query off op (used as op and as description)', () => {
+    const span = {
+      span_id: 's1',
+      trace_id: 't1',
+      start_timestamp: 1,
+      op: 'GET /photos?token=' + URLQ,
+      get data(): Record<string, unknown> {
+        throw new Error('boom')
+      },
+    } as SpanJson
+    const out = scrubSpan(span)
+    expect(out).not.toBe(span)
+    expect(out.op).toBe('GET /photos')
+    expect(out.description).toBe('GET /photos')
+    expect(out.data).toEqual({})
     expect(JSON.stringify(out)).not.toContain(URLQ)
   })
 })

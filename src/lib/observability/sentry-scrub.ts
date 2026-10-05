@@ -309,6 +309,9 @@ function buildAlarmEvent(event: ErrorEvent): ErrorEvent {
     out.extra = extra
   }
 
+  // The rebuilt event also passes the ONE deep query rule: no message,
+  // fingerprint, tag or extra string may carry a URL query.
+  stripQueriesDeep(out)
   return out
 }
 
@@ -352,9 +355,12 @@ function safeRead(obj: object, key: string): unknown {
   }
 }
 
-/** The fail-closed span: ids and timestamps kept, description = op (or ''), data = {}. Never throws. */
+/** The fail-closed span: ids and timestamps kept, description = op without its query (or ''), data = {}. Never throws. */
 function blankSpan(span: SpanJson): SpanJson {
-  const op = safeRead(span, 'op')
+  // Even the fallback never copies text raw: op loses its query before it is
+  // used as op and as description.
+  const rawOp = safeRead(span, 'op')
+  const op = typeof rawOp === 'string' ? stripQuery(rawOp) : rawOp
   const out: SpanJson = {
     span_id: '',
     trace_id: '',
