@@ -160,6 +160,14 @@ export function scrubBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
 // ---- events ----
 
 function scrubOrdinary<T extends AnyEvent>(input: T): T | null {
+  // Body, query string, cookies and env are removed BEFORE any traversal, so a
+  // huge or cyclic body is never walked.
+  if (input.request) {
+    delete input.request.data
+    delete input.request.query_string
+    delete input.request.cookies
+    delete input.request.env
+  }
   const event = scrubPii(input)
   if (!event) return null
 
@@ -180,10 +188,6 @@ function scrubOrdinary<T extends AnyEvent>(input: T): T | null {
       }
       req.headers = kept
     }
-    delete req.data
-    delete req.query_string
-    delete req.cookies
-    delete req.env
   }
 
   const nextjs = event.contexts?.nextjs

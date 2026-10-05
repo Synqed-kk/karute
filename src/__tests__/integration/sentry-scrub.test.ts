@@ -354,6 +354,19 @@ describe('T3d span names lose their query (browser resource spans are named by U
   })
 })
 
+describe('T2e the body is removed before any traversal', () => {
+  it('a cyclic request.data: an event comes back (not null), no data, method and url kept', () => {
+    const body: Record<string, unknown> = { note: BODY }
+    body.self = body
+    const out = scrubEvent(requestErrorEvent(body))
+    expect(out).not.toBeNull()
+    expect(out!.request).not.toHaveProperty('data')
+    expect(out!.request!.method).toBe('POST')
+    expect(out!.request!.url).toBe('https://karute.test/api/x')
+    assertClean(out)
+  })
+})
+
 describe('T2d stack-frame URLs lose their query', () => {
   it('abs_path and filename keep the path, lose the query; the exception value is untouched', () => {
     const value = 'boom ' + C + '?x=1'
