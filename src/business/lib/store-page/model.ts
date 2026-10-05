@@ -109,6 +109,8 @@ const FAMILY_OF: Readonly<Record<BusinessTypeKey, Family>> = {
 }
 /** The internal family of a type; anything typeKeyOf maps to 'other' → GENERIC. */
 export const familyOf = (typeKey: unknown): Family => FAMILY_OF[typeKeyOf(typeKey)]
+/** R188 / R162 — the type a store's first save seeds from: its own type, else (only when empty) the signup type, through typeKeyOf. */
+export const seedTypeOf = (storeType: unknown, signupType: unknown): BusinessTypeKey => typeKeyOf(storeType || signupType)
 
 const isOn = (rec: CapRecord, k: CapKey): boolean => rec.switches[k].on
 /** Attack S52-1: the ONE reader of a count. Anything but a finite number >= 0 (null from a failed Supabase count,
@@ -194,7 +196,8 @@ export function applyReset(record: CapRecord): CapRecord {
  *  are ignored). Unchanged keys keep their saved stamps exactly. A changed key stays TYPE_DEFAULT only when its SAVED
  *  source is TYPE_DEFAULT, the client lists it in resetKeys (keys 戻す flipped since the last save), and its new value
  *  equals the draft type's default; every other changed key becomes OWNER + changed_at + changed_by. An OWNER key
- *  never returns to TYPE_DEFAULT. Call only with what core accepted (D-SAVE). */
+ *  never returns to TYPE_DEFAULT. Call only with what core accepted (D-SAVE). TYPE_DEFAULT means untouched by the owner, not
+ *  equal to the current type's default: after a type change an untouched switch keeps its value until 戻す (D7). */
 export function stampSave(
   saved: CapRecord, draft: CapRecord, resetKeys: readonly CapKey[], now: Date, actingStaffId: string,
 ): CapRecord {
@@ -294,6 +297,35 @@ export function parseRecord(raw: unknown): CapRecord | null {
   if (Object.keys(read).length === 0) return null
   return build(raw.business_type, (k) => read[k] ?? { on: false, source: 'TYPE_DEFAULT' })
 }
+
+/** A plain JSON object only: a class instance or an object with an inherited prototype chain is not a record. */
+const bareObject = (v: unknown): v is Record<string, unknown> => {
+  if (!plainObject(v)) return false
+  const proto: unknown = Object.getPrototypeOf(v)
+  return proto === null || Object.getPrototypeOf(proto) === null
+}
+const exactly = (o: Record<string, unknown>, keys: readonly string[]): boolean =>
+  Object.keys(o).length === keys.length && Object.keys(o).every((k) => keys.includes(k))
+const RECORD_FIELDS = ['v', 'business_type', 'switches'] as const
+const INTERNAL_SWITCH_FIELDS = ['on', 'source', 'changed_at', 'changed_by'] as const
+/** R126 — the STRICT read of a draft in the INTERNAL spelling (lowercase keys, `changed_by`): the body between the
+ *  page and the door. Unlike parseRecord (the defensive core-side reader) nothing is skipped or filled: exactly the
+ *  record's three fields, exactly the 16 lowercase switch keys, each switch only its four known fields, the same
+ *  per-field types and caps as parseSwitch, business_type one of the 26 type keys — anything else → null. */
+export function parseInternalRecord(draft: unknown): CapRecord | null {
+  if (!bareObject(draft) || !exactly(draft, RECORD_FIELDS) || draft.v !== 1 || !isTypeKey(draft.business_type)) return null
+  const sw = draft.switches
+  if (!bareObject(sw) || !exactly(sw, CAP_KEYS)) return null
+  const read: Partial<Record<CapKey, SwitchState>> = {}
+  for (const k of CAP_KEYS) {
+    const s: unknown = sw[k]
+    if (!bareObject(s) || !Object.keys(s).every((f) => (INTERNAL_SWITCH_FIELDS as readonly string[]).includes(f))) return null
+    const parsed = parseSwitch({ on: s.on, source: s.source, changed_at: s.changed_at, changed_by_staff_id: s.changed_by })
+    if (!parsed) return null
+    read[k] = parsed
+  }
+  return build(draft.business_type, (k) => read[k] as SwitchState)
+}
 /** The wire value written under storeCapabilitiesKeyFor(storeId): all 16 UPPER keys, registry order (R121). */
 export const serializeRecord = (rec: CapRecord): WireRecord => ({
   v: 1,
@@ -305,6 +337,21 @@ const canonical = (v: unknown): string =>
   plainObject(v)
     ? '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}'
     : Array.isArray(v) ? '[' + v.map(canonical).join(',') + ']' : JSON.stringify(v)
+/** R273 — two JSON values are the same value: same keys and values at every depth, arrays in order, object key order ignored. */
+export const sameJson = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b)
+/** `raw` held inside `wire`: every own key of a raw object, at every depth, is present in `wire` with a deep-equal
+ *  value; keys `wire` adds are not loss. Anything not an object is compared whole (canonical JSON). */
+const heldIn = (raw: unknown, wire: unknown): boolean =>
+  plainObject(raw)
+    ? plainObject(wire) && Object.keys(raw).every((k) => Object.prototype.hasOwnProperty.call(wire, k) && heldIn(raw[k], wire[k]))
+    : canonical(raw) === canonical(wire)
+/** R201 (R190's 「nothing stored is ever dropped without its raw line」) — the ONE loss check of a stored value: true
+ *  when the parse did not carry all of `raw` back, i.e. `raw` is NOT held in serializeRecord(parseRecord(raw)) — the
+ *  parse's own round trip, never the record a save is about to write. A value that does not parse at all → true. */
+export function parseLoses(raw: unknown): boolean {
+  const rec = parseRecord(raw)
+  return rec === null || !heldIn(raw, serializeRecord(rec))
+}
 /** R96 / R102: a pure, synchronous fingerprint of the saved record the page loaded (the save's `based_on`) —
  *  canonical sorted-key JSON of serializeRecord through cyrb53 (fixed, non-crypto; identical in node and the
  *  browser). null → the fixed hash of `null`. Staleness detection only, never security. */

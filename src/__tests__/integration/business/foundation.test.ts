@@ -315,11 +315,14 @@ describe('the fixture data door', () => {
       // ⚖ R-S39-1 — `./practice-door/door-booking-colors`: 予約の色分け's writer, door.ts's sibling (its own allowlist key).
       // ⚖ PKT-S29-B1 — `./practice-door/door-writes`: the store-days writer, data.ts's sibling to
       // `door-booking-colors` (its own allowlist key — one file per writer, R-S39-1's own law).
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/actor', './practice-door/door', './practice-door/door-booking-colors', './practice-door/door-writes', './practice-door/store-hours'],
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-settings', './fixtures-today', './practice-door/actor', './practice-door/door', './practice-door/door-booking-colors', './practice-door/door-store-capabilities', './practice-door/door-writes', './practice-door/store-hours'],
       // ⚖ R-S39-1 — the second writer's file: the actor and the switch (OFF has no writer), door.ts's two exported
       // helpers (the once-per-actor org read, the one settings.manage truth), the clock (the audit line's time),
       // the import-free palette leaf (never today-board.ts, which would bring the fixtures), and a LAZY ./core-reach.
       'src/business/lib/practice-door/door-booking-colors.ts': ['../booking-colors', '../clock', './actor', './core-reach', './door', './switch'],
+      // S49 P2 (DECISIONS-S49 R86) — お店ページ's switches writer, door-booking-colors.ts's twin: the same five, plus P1's
+      // pure model (its one non-local import is `import type`, erased — no fixture reaches the door) in place of the palette.
+      'src/business/lib/practice-door/door-store-capabilities.ts': ['../clock', '../store-page/model', './actor', './core-reach', './door', './switch'],
       // ⚖ Liam 9/19 — the practice-salon door (DESIGN-PRACTICE-DOOR.md §9). core-reach
       // is the ONE territory file naming the core client factory; the rest are
       // territory-only or import nothing.
@@ -893,6 +896,8 @@ describe('the fixture data door', () => {
       'src/app/api/business/card-color/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       // ⚖ PKT-S38 R4 — 予約の色分け's route, the card route's twin: admission and the data seam, nothing else.
       'src/app/api/business/booking-colors/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
+      // S49 P2 — お店ページ's switches route, the booking-colours route's twin: admission and the data seam, nothing else.
+      'src/app/api/business/store-capabilities/route.ts': ['@/business/lib/admission', '@/business/lib/data'],
       'src/app/[locale]/(business)/business/settings/settings-props.ts': [
         // ⚖ S17 FOLD (A1) — ONE ASSEMBLY. 予約と確保's payload is built by the
         // section's own props file and handed through this one, so the route and
@@ -1280,7 +1285,7 @@ describe('the fixture data door', () => {
     // ⚖ PKT-S29-B1 — door-writes.ts imports door.ts too (canManageSettings), so it joins doorImporters;
     // it is its OWN sibling-writer file (data.ts's one importer, business-isolation.test.ts's own pin) —
     // siblingImporters here only tracks door-booking-colors.ts by name, unaffected.
-    expect(doorImporters.sort()).toEqual(['src/business/lib/data.ts', `${PRACTICE_DOOR}/door-booking-colors.ts`, `${PRACTICE_DOOR}/door-writes.ts`])
+    expect(doorImporters.sort()).toEqual(['src/business/lib/data.ts', `${PRACTICE_DOOR}/door-booking-colors.ts`, `${PRACTICE_DOOR}/door-store-capabilities.ts`, `${PRACTICE_DOOR}/door-writes.ts`])
     expect(siblingImporters).toEqual(['src/business/lib/data.ts'])
     expect(factoryImporters).toEqual([`${PRACTICE_DOOR}/core-reach.ts`])
   })
@@ -1293,6 +1298,8 @@ describe('the fixture data door', () => {
   const WRITERS = [
     { file: 'door.ts', line: 'orgSettings.upsert({ settings: { reserve_card_color: next } })', count: 1 },
     { file: 'door-booking-colors.ts', line: 'orgSettings.upsert({ settings: { [bookingColorsKeyFor(storeId)]: next } })', count: 1 },
+    // S49 P2 (DECISIONS-S49 R86) — お店ページ's switches: ONE key per store (`reserve_store_capabilities:<storeId>`).
+    { file: 'door-store-capabilities.ts', line: 'orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })', count: 1 },
     // ⚖ PKT-S29-B1 — the store-days writer's lines. ⚖ PKT-S30 F13 (tightening) — `.set(` appears ONCE:
     // since F7 the add/remove wrappers reach core only through setSpecialOpenDays' one admitted set.
     { file: 'door-writes.ts', line: 'await writer.storePolicies.set(storeId, { acting_staff_id: actor.sheet.staff_id, special_open_days: next })', count: 1 },
@@ -1351,6 +1358,14 @@ describe('the fixture data door', () => {
     expect(doorHits([['door-booking-colors.ts', line2.replace('[bookingColorsKeyFor(storeId)]', 'booking_colors')]])).toEqual(['door-booking-colors.ts: .upsert('])
     expect(doorHits([['door-booking-colors.ts', line + line2]])).toEqual(['door-booking-colors.ts: .upsert(']) // the card line never moves here
     expect(doorHits([['door.ts', line + line2]])).toEqual(['door.ts: .upsert(']) // …nor the booking line back into door.ts
+    // S49 P2 — the switches writer's line: once, in its own file only, never the booking line or a nested store map.
+    const line3 = `  const saved = await writer.orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })\n`
+    expect(doorHits([['door-store-capabilities.ts', line3]])).toEqual([])
+    expect(doorHits([['door-store-capabilities.ts', line3 + line3]])).toEqual(['door-store-capabilities.ts: the writer line ×2 > 1'])
+    expect(doorHits([['door-store-capabilities.ts', line3.replace('[storeCapabilitiesKeyFor(storeId)]: next', 'reserve_store_capabilities: { [storeId]: next }')]])).toEqual(['door-store-capabilities.ts: .upsert('])
+    expect(doorHits([['door-store-capabilities.ts', line2]])).toEqual(['door-store-capabilities.ts: .upsert('])
+    expect(doorHits([['door-booking-colors.ts', line3]])).toEqual(['door-booking-colors.ts: .upsert('])
+    expect(doorHits([['door.ts', line3]])).toEqual(['door.ts: .upsert('])
     // ⚖ PKT-S31 R11 — door-writes.ts's four writer lines carry the same ceiling: a duplicated line goes red.
     const storeDaysWriters = WRITERS.filter((w) => w.file === 'door-writes.ts')
     expect(storeDaysWriters).toHaveLength(4)

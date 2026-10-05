@@ -1046,6 +1046,14 @@ export const SDK_WRITE_ALLOWLIST: {
       'PKT-S30 F6 · PKT-S32 R19/R20/R21 — the closure-removal audit events: core\'s SDK removeClosedDay takes no audit payload and hard-deletes the row, so the door writes its own rows through core-reach.ts\'s write-only `{ audit: { log } }` handle (same nested shape as the storePolicies handle, so CP3 sees the site), one call site, each bounded by AUDIT_LOG_BOUND_MS: store_closed_day.remove_attempt BEFORE the delete — blocking (no row within the bound → the removal is refused, nothing deleted; the midnight re-check can still refuse after it) — and store_closed_day.remove only AFTER a successful delete, best-effort (a failure is warned, the removal stands). An attempt row is NOT a completed removal; a remove row always is. A failed delete writes no further row: the attempt row + the closure still in core is the truth.',
     dated: '2026-09-29',
   },
+  {
+    file: 'src/business/lib/practice-door/door-store-capabilities.ts',
+    call: 'orgSettings.upsert',
+    symbols: ['writeStoreCapabilities'],
+    justification:
+      'Parity with writeOrgSettingsBlobWithClient above (org settings are unaudited by design). DECISIONS-S49 R86 (Liam 10/1 「If there\'s no harm in doing it now, use it now.」): お店ページ\'s 16 switches — the CORE-47 wire record under ONE key per store (reserve_store_capabilities:<storeId>, sent alone) until CORE-47 lands; strict record parse, settings.manage + a store the operator may see + the admitted practice tenant only (real mode DISCONNECTED), read-before-write with server-side stamps; one structured server log line per real write; a core audit row is R5 (later).',
+    dated: '2026-10-01',
+  },
 ]
 
 // ── RAW_SUPABASE_WRITE_ALLOWLIST ─────────────────────────────────────────────
