@@ -15,8 +15,10 @@ import { ReserveCardPreview } from '@/business/lib/reserve-card/ReserveCardPrevi
 import { satinVars } from '@/business/lib/reserve-card/satin-material'
 import { STORES, type StorePageSample } from '@/business/lib/reserve-card/store-page-sample'
 import { honestLines, publicProjection, type CapRecord, type Counts } from '@/business/lib/store-page/model'
+import type { Mark, MarkEvent } from '@/business/lib/store-page/card-mark'
 import { makeSpring, type Spring } from '@/business/lib/spring'
 import type { SettingsSection } from '@/business/lib/settings'
+import { CardMarkBlock } from './CardMarkBlock'
 import { Dialog } from './Dialog'
 
 type Look = NonNullable<SettingsSection['cardLook']>
@@ -26,7 +28,7 @@ type View = 'home' | 'store'
 export type StoreView = { draft: CapRecord; counts: Counts; sampleKey: NonNullable<SettingsSection['storePage']>['sampleKey'] }
 
 /** What a reader can type to find this section (the room's search), like STORE_POLICY_HEADINGS. */
-export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの見た目', 'カードの色', 'お客様のアプリでの見え方']
+export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの見た目', 'カードの色', 'お客様のアプリでの見え方', 'ロゴ', 'ロゴ画像']
 
 /** ⚖ S62 R230 — the preview's OWN tour pair, read by the preview AND by 「見え方を見る」 (at ≤ 899 the button stands in for it). */
 const PREVIEW_GUIDE = {
@@ -100,6 +102,19 @@ export function ReserveCardLookSection({
   // ⚖ S62 R226 — the sheet exists only ≤ 899: leaving the band closes it AND forgets it, so narrowing again never reopens it
   const [sheetOpen, setSheetOpen] = useState(false)
   if (!narrow && sheetOpen) setSheetOpen(false)
+  // ⚖ S64 R241 — the picked mark lives HERE, never in the room's values, the count or a request. A `practice` flip drops it
+  // during render (the same pattern as `sheetOpen` above), and the block is keyed by `practice`, so it remounts (URL revoked).
+  const [mark, setMark] = useState<Mark | null>(null)
+  const [markPractice, setMarkPractice] = useState(look.practice)
+  if (markPractice !== look.practice) { setMarkPractice(look.practice); setMark(null) }
+  const onMark = (e: MarkEvent) => {
+    switch (e.cause) {
+      case 'picked': setMark(e.mark); return // the block accepted the file (R239)
+      case 'removed': setMark(null); return // the owner's own remove (R239)
+      case 'refused': setMark(null); return // R191: a refused pick clears the held mark in its OWN case, never read as a removal (R239)
+      default: { const _never: never = e; return _never }
+    }
+  }
   const shown = value === '' ? null : value
   // The source line speaks for the SAVED colour (mock :1340), never the unsaved pick; the preview follows the pick.
   const saved = look.value === '' ? null : look.value
@@ -226,6 +241,7 @@ export function ReserveCardLookSection({
               : '現在の色は、以前に設定された色で、12色には含まれていません。12色のどれかを選ぶまで、この設定は変わりません。'}
         </p>
       )}
+      <CardMarkBlock key={look.practice ? 'practice' : 'real'} practice={look.practice} onMark={onMark} />
     </section>
   )
 
@@ -250,7 +266,7 @@ export function ReserveCardLookSection({
       <div className="cl-strip" ref={stripRef}>
         <div className="cl-frame">
           <div className="cl-phone" ref={phoneRef} aria-hidden="true" tabIndex={-1} onClick={onPhoneClick}>
-            <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} on={store?.on} sample={store?.sample} />
+            <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} on={store?.on} sample={store?.sample} markUrl={look.practice ? mark?.url : undefined} />
           </div>
         </div>
       </div>

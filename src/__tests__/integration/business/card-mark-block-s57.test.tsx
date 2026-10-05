@@ -35,13 +35,13 @@ it('A1 R191: good then bad (early refusal) → the alert alone, the held mark cl
   expect(await screen.findByRole('alert')).toHaveTextContent(MARK_REFUSAL.type)
   expect(screen.queryByText('このロゴを使えます')).toBeNull()
   expect(screen.queryByText('good.png')).toBeNull()
-  expect(onMark).toHaveBeenLastCalledWith(null)
-  expect(onMark.mock.calls.filter(c => c[0] === null)).toHaveLength(1)
+  expect(onMark).toHaveBeenLastCalledWith({ cause: 'refused', why: 'type' })
+  expect(onMark.mock.calls.filter(c => c[0].cause !== 'picked')).toHaveLength(1)
   expect(revoked).toEqual(['blob:mark-1'])
   // a good pick after the refusal clears the refusal
   pickOn(fileOf(PNG_HEAD, 'again.png', 'image/png')); await screen.findByText('again.png')
   expect(screen.queryByRole('alert')).toBeNull()
-  expect(onMark).toHaveBeenLastCalledWith({ url: 'blob:mark-2', width: 512, height: 512 })
+  expect(onMark).toHaveBeenLastCalledWith({ cause: 'picked', mark: { url: 'blob:mark-2', width: 512, height: 512 } })
 })
 
 it('A1b R191: good then bad (late refusal, not square) → the alert alone, both URLs revoked', async () => {
@@ -52,8 +52,8 @@ it('A1b R191: good then bad (late refusal, not square) → the alert alone, both
   expect(await screen.findByRole('alert')).toHaveTextContent(MARK_REFUSAL.square)
   expect(screen.queryByText('このロゴを使えます')).toBeNull()
   expect(screen.queryByText('good.png')).toBeNull()
-  expect(onMark).toHaveBeenLastCalledWith(null)
-  expect(onMark.mock.calls.filter(c => c[0] === null)).toHaveLength(1)
+  expect(onMark).toHaveBeenLastCalledWith({ cause: 'refused', why: 'square' })
+  expect(onMark.mock.calls.filter(c => c[0].cause !== 'picked')).toHaveLength(1)
   expect([...revoked].sort()).toEqual(['blob:mark-1', 'blob:mark-2'])
 })
 
@@ -63,7 +63,7 @@ it('A2 stale guard: first pick finishes LAST is dropped and its URL revoked', as
   pickOn(fileOf(PNG_HEAD, 'first.png', 'image/png')); await waitFor(() => expect(made).toBe(1))
   pickOn(fileOf(PNG_HEAD, 'second.png', 'image/png')); await screen.findByText('second.png')
   await act(async () => { slow.res({ width: 300, height: 300 }) })
-  expect(onMark.mock.calls).toEqual([[{ url: 'blob:mark-2', width: 400, height: 400 }]])
+  expect(onMark.mock.calls).toEqual([[{ cause: 'picked', mark: { url: 'blob:mark-2', width: 400, height: 400 } }]])
   expect(screen.getByText('second.png')).toBeInTheDocument()
   expect(revoked).toEqual(['blob:mark-1'])
   v.unmount(); expect(revoked).toEqual(['blob:mark-1', 'blob:mark-2'])
@@ -83,7 +83,7 @@ it('A4 外す while a pick is still measuring: the late pick never lands', async
   pickOn(fileOf(PNG_HEAD, 'two.png', 'image/png')); await waitFor(() => expect(made).toBe(2))
   fireEvent.click(screen.getByRole('button', { name: '外す' }))
   await act(async () => { slow.res({ width: 300, height: 300 }) })
-  expect(onMark).toHaveBeenLastCalledWith(null); expect(screen.queryByText('two.png')).toBeNull()
+  expect(onMark).toHaveBeenLastCalledWith({ cause: 'removed' }); expect(screen.queryByText('two.png')).toBeNull()
   expect([...revoked].sort()).toEqual(['blob:mark-1', 'blob:mark-2'])
 })
 

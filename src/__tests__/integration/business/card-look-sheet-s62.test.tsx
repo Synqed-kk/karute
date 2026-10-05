@@ -22,7 +22,7 @@ type Slots = { main: ReactNode; preview: ReactNode; viewButton: ReactNode }
 let last: Slots | null = null
 const section = (narrow?: boolean, onPick: (hex: string) => void = () => {}) => (
   <ReserveCardLookSection
-    look={{ storeLine: 'Test store', scopeLabel: 'all', value: PALETTE[0].hex, palette: PALETTE }}
+    look={{ storeLine: 'Test store', scopeLabel: 'all', value: PALETTE[0].hex, palette: PALETTE, practice: true }}
     value={PALETTE[0].hex}
     onPick={onPick}
     reduced
@@ -199,7 +199,7 @@ const rec = (on: readonly CapKey[]): CapRecord => {
 const SV: StoreView = { draft: rec(['checkin_qr', 'packs', 'homecare']), counts: STORES.laestro.counts, sampleKey: 'laestro' }
 const storeSection = () => (
   <ReserveCardLookSection
-    look={{ storeLine: 'Test store', scopeLabel: 'all', value: PALETTE[0].hex, palette: PALETTE }}
+    look={{ storeLine: 'Test store', scopeLabel: 'all', value: PALETTE[0].hex, palette: PALETTE, practice: true }}
     value={PALETTE[0].hex}
     onPick={() => {}}
     reduced

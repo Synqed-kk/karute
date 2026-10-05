@@ -725,6 +725,9 @@ export interface SettingsSection {
     scopeLabel: string
     value: string | null
     palette: ReadonlyArray<{ order: number; name: string; hex: string }>
+    /** ⚖ S64 R242 — true = a practice room (sample data, or the Dev Salon with the door ON): the logo can be picked
+     *  for the picture. false = a real business: the block's L7 line (MARK_REAL_LINE), until CORE-55. */
+    practice: boolean
   }
   /** S50 P3 — お店ページ's per-store part, under a STORE lens only (PACKETS-S50-WAVE3 「THE SHARED SHAPE」, verbatim).
    *  `saved` = the parsed saved record, or the seed of the SAVE PATH's own seed type when none / unreadable (R90; R188:

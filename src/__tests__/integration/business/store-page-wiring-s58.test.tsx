@@ -19,7 +19,7 @@ afterEach(cleanup)
 
 const LA = STORES.laestro
 const FORCE = STORES.force
-const LOOK = { storeLine: 'テスト東京店', scopeLabel: '全店共通', value: '#1C2247', palette: [{ order: 1, hex: '#1C2247', name: '紺' }, { order: 2, hex: '#1a6b55', name: '緑' }] }
+const LOOK = { storeLine: 'テスト東京店', scopeLabel: '全店共通', value: '#1C2247', palette: [{ order: 1, hex: '#1C2247', name: '紺' }, { order: 2, hex: '#1a6b55', name: '緑' }], practice: true }
 const rec = (on: readonly CapKey[], typeKey: CapRecord['business_type'] = 'hair_salon'): CapRecord => {
   const s = seedRecord(typeKey)
   return { ...s, switches: Object.fromEntries(Object.keys(s.switches).map((k) => [k, { on: on.includes(k as CapKey), source: 'TYPE_DEFAULT' }])) as CapRecord['switches'] }

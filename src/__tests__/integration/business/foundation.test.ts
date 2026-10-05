@@ -1068,6 +1068,7 @@ describe('the fixture data door', () => {
       // only colour math); the room's spring and the tour's ring helper; no data door.
       'src/app/[locale]/(business)/business/settings/ReserveCardLookSection.tsx': [
         // ⚖ S62 R227 — the preview's sheet at ≤ 899 is the room's ONE Dialog.
+        './CardMarkBlock',
         './Dialog',
         '@/business/lib/guide',
         '@/business/lib/reserve-card/ReserveCardPreview',
@@ -1075,6 +1076,7 @@ describe('the fixture data door', () => {
         '@/business/lib/reserve-card/store-page-sample',
         '@/business/lib/settings',
         '@/business/lib/spring',
+        '@/business/lib/store-page/card-mark',
         '@/business/lib/store-page/model',
         'react',
       ],

@@ -102,8 +102,8 @@ const propsFor = async (store: string): Promise<ScreenProps> =>
   ((await SettingsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store, section: SP }) })) as ReactElement<ScreenProps>).props
 const pairs = () => spotTargets(document).map((t) => ({ title: t.dataset.guideTitle, guide: t.dataset.guide }))
 
-describe('S60 P7A-R2d Tg (R211) — the guide walk holds the card look, then 業種, then 機能', () => {
-  it('under a store lens: the card look pair, then the payload pairs in order, on .sp-type and the 機能 head', async () => {
+describe('S60 P7A-R2d Tg (R211, R247) — the guide walk holds the card look, then logo, then 業種, then 機能', () => {
+  it('under a store lens: the card look and logo pairs, then the payload pairs in order, on .sp-type and the 機能 head', async () => {
     await open(SP)
     // jsdom draws nothing, and spotTargets keeps only drawn targets (guide.ts:84-89): every element gets a 10x10 box
     const undo = stubProto(Element.prototype, 'getBoundingClientRect', { value: () => ({ x: 0, y: 0, top: 0, left: 0, bottom: 10, right: 10, width: 10, height: 10, toJSON() {} }), writable: true })
@@ -111,7 +111,10 @@ describe('S60 P7A-R2d Tg (R211) — the guide walk holds the card look, then 業
     try { walk = pairs() } finally { undo() }
     const card = walk.findIndex((p) => p.title === document.querySelector('.cl-swatches')?.closest('[data-guide-title]')?.getAttribute('data-guide-title'))
     expect(card).toBeGreaterThanOrEqual(0)
-    expect(walk.slice(card + 1, card + 3)).toEqual(BLOCK_GUIDES.map((g) => ({ title: g.title, guide: g.guide })))
+    expect(walk.slice(card + 1, card + 4)).toEqual([
+      { title: 'ロゴ', guide: 'お店のロゴ画像を選びます。選ぶと、見本では店名の前にそのロゴが付きます。保存はされず、お客様のアプリにも反映されません。' },
+      ...BLOCK_GUIDES.map((g) => ({ title: g.title, guide: g.guide })),
+    ])
     expect(document.querySelector('.sp-type')!.getAttribute('data-guide-title')).toBe(BLOCK_GUIDES[0].title)
     expect(document.querySelector('.spr > .st-block-head')!.getAttribute('data-guide-title')).toBe(BLOCK_GUIDES[1].title)
   })

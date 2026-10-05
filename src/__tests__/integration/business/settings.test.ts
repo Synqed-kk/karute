@@ -4413,7 +4413,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
       address: storeDials[STORE_A].profile.address,
       scopeLabel: '全店共通',
       value: null,
-      palette: PALETTE,
+      palette: PALETTE, practice: true, // S64 R242 — door OFF (sample data) is a practice room
     })
   })
 
@@ -4534,7 +4534,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
   it('the section speaks the approved mock: h3/h4, the 全店共通 chip, the search headings, the home-only notes', async () => {
     const s = await lookOf({ store: STORE_A })
     expect(s.cardLook?.scopeLabel).toBe('全店共通')
-    expect(CARD_LOOK_HEADINGS).toEqual(['カードの見た目', 'カードの色', 'お客様のアプリでの見え方'])
+    expect(CARD_LOOK_HEADINGS).toEqual(['カードの見た目', 'カードの色', 'お客様のアプリでの見え方', 'ロゴ', 'ロゴ画像'])
     expect(LOOK_CODE).toContain('<h3 id="clLookHead">カードの見た目</h3>')
     expect(LOOK_CODE).toContain('<h4 className="st-sec-l" id="clPickHead">カードの色</h4>')
     expect(LOOK_CODE).toContain('title="この事業者のすべての店舗に適用されます"')

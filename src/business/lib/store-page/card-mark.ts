@@ -6,6 +6,8 @@
 export type MarkFormat = 'png' | 'jpeg' | 'webp'
 export type MarkRefusal = 'type' | 'bytes' | 'square' | 'small' | 'large'
 export type Mark = { url: string; width: number; height: number }
+// ⚖ S64 R239 — a refusal and the owner's remove are different events; a refused pick must never become a saved removal.
+export type MarkEvent = { cause: 'picked'; mark: Mark } | { cause: 'removed' } | { cause: 'refused'; why: MarkRefusal }
 
 /** ≤ 2 MB (CORE-55), R192: the stricter reading of 「2MB以下」 — 2 000 000 bytes is accepted, one byte more is
  *  refused, so a file we accept is never over core's limit whichever unit core means. */

@@ -1972,6 +1972,7 @@ function reserveStorePage(base: SectionBase, ctx: Ctx): SettingsSection {
       scopeLabel: CARD_SCOPE,
       value: ctx.cardColor,
       palette: PALETTE,
+      practice: !STORE_CAPABILITIES_REAL_MODE || ctx.doorOn,
     },
     ...storePageOf(ctx),
     blocks: [],

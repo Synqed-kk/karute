@@ -60,6 +60,13 @@ export interface ReserveCardPreviewProps {
   on?: ReadonlySet<string>;
   /** the practice sample the body draws (store-page-sample.ts); absent = cover only */
   sample?: StorePageSample;
+  /** ⚖ S64 R240 — the business's square mark, a URL the caller owns (today the practice pick's blob: URL), shown exactly as uploaded BEFORE the name; absent or '' = the name alone, exactly as before */
+  markUrl?: string;
+}
+
+function Emb({ className, src }: { className: string; src?: string }) {
+  // eslint-disable-next-line @next/next/no-img-element -- ⚖ S64 R240 (MOCK :1171): a blob: URL shown exactly as uploaded, no mask, no style; next/image cannot serve it
+  return src ? <img className={className} data-logo="1" alt="" aria-hidden="true" src={src} /> : null;
 }
 
 // The demo member Reserve's mock shows at 4db48b7 (src/lib/mock.ts + ja/member.json), frozen on the
@@ -127,7 +134,9 @@ function QrCode({ size }: { size: number }) {
   );
 }
 
-export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, address, view, on, sample }: ReserveCardPreviewProps) {
+export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, address, view, on, sample, markUrl }: ReserveCardPreviewProps) {
+  // ⚖ S64 R245 — the measure effects run on mount only, so the two measured surfaces remount when a mark arrives or leaves (Emb's own test); a mark replaced by another changes no width and remounts nothing
+  const markKey = markUrl ? "mark" : "name";
   // Reserve's MembershipCard/TenantCard/StudioCover each take `memberTenantVars(theme)`; the theme here is
   // the two colours the caller owns. The same vars also sit on the root (packet): custom properties inherit.
   // Each colour passes the boundary first; a null is the absent colour Reserve already handles (satin default).
@@ -146,13 +155,13 @@ export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, a
             <p className="studio-greet__name">{SAMPLE.greetName}</p>
           </div>
           <div className="studio-cards">
-            <MembershipCard row={{ tenant }} storeLine={storeLine} cardTheme={theme} />
-            <TenantCard row={{ tenant }} cardTheme={theme} />
+            <MembershipCard key={markKey} row={{ tenant }} storeLine={storeLine} cardTheme={theme} markUrl={markUrl} />
+            <TenantCard row={{ tenant }} cardTheme={theme} markUrl={markUrl} />
           </div>
         </div>
       ) : (
         <>
-          <StudioCover tenant={tenant} storeLine={storeLine} address={address} theme={theme} />
+          <StudioCover key={markKey} tenant={tenant} storeLine={storeLine} address={address} theme={theme} markUrl={markUrl} />
           {on && sample && <StoreBody on={on} sample={sample} />}
         </>
       )}
@@ -165,10 +174,12 @@ function MembershipCard({
   row,
   storeLine,
   cardTheme,
+  markUrl,
 }: {
   row: { tenant: { displayName: string } };
   storeLine: string;
   cardTheme: BrandTheme;
+  markUrl?: string;
 }) {
   const cardRef = useRef<HTMLAnchorElement>(null);
   const chips = SAMPLE.chips;
@@ -226,7 +237,7 @@ function MembershipCard({
       </span>
       <span className="mcard__in">
         <span className="mcard__hd">
-          {/* B's slot (MOCK-VERDICT 9/23): the square mark <span className="mcard__emb ink" style={{"--lg": …}}/> goes here, before the name — Stage 4 renders it; its geometry is already in index.css */}
+          <Emb className="mcard__emb" src={markUrl} />
           {/* the ONE thing that travels with the box into the store cover */}
           <span className="mcard__wm" data-morph-wm>
             {row.tenant.displayName}
@@ -259,7 +270,7 @@ function MembershipCard({
       {/* the cover's own probe (PKT-CARD-STAGE-3 above): hidden, nowrap, 36px.
           It carries NO data-morph-* attribute on purpose — member-morph.ts's
           nameOf/glyphsOf read [data-morph-wm] and must never see it. */}
-      <span className="salon-cover__wm-probe" aria-hidden="true" ref={probeRef}>
+      <span className={`salon-cover__wm-probe${markUrl ? " withemb" : ""}`} aria-hidden="true" ref={probeRef}>
         {row.tenant.displayName}
       </span>
     </a>
@@ -267,7 +278,7 @@ function MembershipCard({
 }
 
 /** reserve studio-home.tsx TenantCard (671–706) — the small card, static. */
-function TenantCard({ row, cardTheme }: { row: { tenant: { displayName: string } }; cardTheme: BrandTheme }) {
+function TenantCard({ row, cardTheme, markUrl }: { row: { tenant: { displayName: string } }; cardTheme: BrandTheme; markUrl?: string }) {
   const chips = SAMPLE.chips;
   return (
     <a
@@ -278,7 +289,8 @@ function TenantCard({ row, cardTheme }: { row: { tenant: { displayName: string }
         <span className="mcard__sheen" />
       </span>
       <span className="tcard__body">
-        <span className="tcard__name" data-morph-wm>{row.tenant.displayName}</span>
+        <Emb className="tcard__emb" src={markUrl} />
+        <span className={markUrl ? "tcard__name withemb" : "tcard__name"} data-morph-wm>{row.tenant.displayName}</span>
         <span className="tcard__sub" data-morph-hide>
           {SAMPLE.smallLine}
         </span>
@@ -300,11 +312,13 @@ function StudioCover({
   storeLine,
   address,
   theme,
+  markUrl,
 }: {
   tenant: { displayName: string };
   storeLine: string;
   address?: string;
   theme: BrandTheme;
+  markUrl?: string;
 }) {
   const { line2, line3 } = coverLinesOf(storeLine, address);
   // studio-salon.tsx:75–121 @ 4db48b7, verbatim
@@ -374,12 +388,13 @@ function StudioCover({
         </a>
         <div
           ref={nameRef}
-          className={`salon-cover__wm${nameIsLong ? " salon-cover__wm--long" : ""}`}
+          className={`salon-cover__wm${nameIsLong ? " salon-cover__wm--long" : ""}${markUrl ? " withemb" : ""}`}
           data-morph-wm
         >
+          <Emb className="salon-cover__emb" src={markUrl} />
           {tenant.displayName}
         </div>
-        <span className="salon-cover__wm-probe" aria-hidden="true" ref={probeRef}>
+        <span className={`salon-cover__wm-probe${markUrl ? " withemb" : ""}`} aria-hidden="true" ref={probeRef}>
           {tenant.displayName}
         </span>
         <p className="salon-cover__st" data-morph-branch>

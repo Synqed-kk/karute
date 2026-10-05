@@ -45,7 +45,7 @@ it('2 MB + 1 byte is refused (L2); exactly 2 MB passes', async () => {
   pick(fileOf(PNG_HEAD, 'big.png', 'image/png', MARK_MAX_BYTES + 1))
   expect(await screen.findByRole('alert')).toHaveTextContent(MARK_REFUSAL.bytes)
   pick(fileOf(PNG_HEAD, 'ok.png', 'image/png', MARK_MAX_BYTES))
-  await waitFor(() => expect(onMark).toHaveBeenCalledWith({ url: 'blob:mark-1', width: 512, height: 512 }))
+  await waitFor(() => expect(onMark).toHaveBeenCalledWith({ cause: 'picked', mark: { url: 'blob:mark-1', width: 512, height: 512 } }))
 })
 
 it.each([
@@ -57,7 +57,7 @@ it.each([
   const { onMark, pick } = mount(size)
   pick(fileOf(PNG_HEAD, 'm.png', 'image/png'))
   if (refusal === null) {
-    await waitFor(() => expect(onMark).toHaveBeenCalledWith({ url: 'blob:mark-1', ...size }))
+    await waitFor(() => expect(onMark).toHaveBeenCalledWith({ cause: 'picked', mark: { url: 'blob:mark-1', ...size } }))
     expect(screen.queryByRole('alert')).toBeNull()
   } else {
     expect(await screen.findByRole('alert')).toHaveTextContent(refusal)
@@ -66,7 +66,7 @@ it.each([
   }
 })
 
-it('accept shows the file; replace revokes the old URL; 外す → null + revoked; unmount revokes', async () => {
+it('accept shows the file; replace revokes the old URL; 外す → removed + revoked; unmount revokes', async () => {
   const { onMark, pick, view } = mount({ width: 300, height: 300 })
   pick(fileOf(PNG_HEAD, 'first.png', 'image/png'))
   expect(await screen.findByText('first.png')).toBeInTheDocument()
@@ -75,7 +75,7 @@ it('accept shows the file; replace revokes the old URL; 外す → null + revoke
   expect(await screen.findByText('second.png')).toBeInTheDocument()
   expect(revoked).toEqual(['blob:mark-1'])
   fireEvent.click(screen.getByRole('button', { name: '外す' }))
-  expect(onMark).toHaveBeenLastCalledWith(null)
+  expect(onMark).toHaveBeenLastCalledWith({ cause: 'removed' })
   expect(revoked).toEqual(['blob:mark-1', 'blob:mark-2'])
   expect(screen.queryByText('second.png')).toBeNull()
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'ロゴ画像を選ぶ' }))
@@ -93,4 +93,15 @@ it('practice shows L6 and the picker; a real business shows L7 and no picker', (
   expect(screen.getByText(MARK_REAL_LINE)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'ロゴ画像を選ぶ' })).toBeNull()
   expect(screen.queryByTestId('card-mark-file')).toBeNull()
+})
+
+it.each([
+  [true, 'お店のロゴ画像を選びます。選ぶと、見本では店名の前にそのロゴが付きます。保存はされず、お客様のアプリにも反映されません。'],
+  [false, 'カードの店名の前に付けるロゴを設定する場所です。いまは準備中です。'],
+] as const)('R247 practice=%s: the block root declares its exact guide title and body', (practice, body) => {
+  const { container } = render(<CardMarkBlock practice={practice} onMark={jest.fn()} />)
+  const root = container.firstElementChild
+  expect(root).toHaveClass('cm-block')
+  expect(root?.getAttribute('data-guide-title')).toBe('ロゴ')
+  expect(root?.getAttribute('data-guide')).toBe(body)
 })

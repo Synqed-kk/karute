@@ -20,6 +20,7 @@ const LOOK = {
   scopeLabel: '全店共通',
   value: '#1C2247',
   palette: [{ order: 1, hex: '#1C2247', name: '紺' }, { order: 2, hex: '#1a6b55', name: '緑' }],
+  practice: true,
 }
 const LA: Counts = STORES.laestro.counts
 /** LA with some counts UNKNOWN (the key absent, R92). */

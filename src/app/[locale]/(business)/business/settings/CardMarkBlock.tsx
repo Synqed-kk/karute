@@ -4,11 +4,12 @@
 // ONE square mark per business, shown as uploaded: a file input and 外す, nothing else (no seg, no radios,
 // no A/B strip, no transparency rule). The picked mark goes OUT through `onMark` only; this block never
 // touches the room's values map, so it is NOT counted as a change and NOT saved.
+// S64 R239: `onMark` names its cause (picked · removed · refused) — a refused pick never reads as a removal.
 // Strings: mock :773 「ロゴ」 · :1348 「ロゴ画像を選ぶ」 · :1364 「このロゴを使えます」 · :1366 「外す」;
 // COPY-S49 L1–L5 (refusals, card-mark.ts) · L6 (practice line) · L7 (real business line).
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import {
-  MARK_HEAD_BYTES, MARK_REFUSAL, checkMarkFile, checkMarkSize, sniffMarkFormat, type Mark, type MarkRefusal,
+  MARK_HEAD_BYTES, MARK_REFUSAL, checkMarkFile, checkMarkSize, sniffMarkFormat, type MarkEvent, type MarkRefusal,
 } from '@/business/lib/store-page/card-mark'
 import './card-mark.css'
 
@@ -37,7 +38,7 @@ function readHead(file: Blob): Promise<Uint8Array> {
 type Props = {
   /** Practice (Dev Salon) business: the mark can be picked for the preview. A real business sees L7 only. */
   practice: boolean
-  onMark: (mark: Mark | null) => void
+  onMark: (e: MarkEvent) => void
   /** Test seam for the pixel size (jsdom decodes nothing). */
   measure?: MeasureMark
 }
@@ -60,7 +61,7 @@ export function CardMarkBlock({ practice, onMark, measure = measureInBrowser }: 
     drop()
     setName(null)
     setRefusal(why)
-    if (held) onMark(null)
+    if (held) onMark({ cause: 'refused', why })
   }
   useEffect(() => () => {
     turn.current += 1
@@ -88,7 +89,7 @@ export function CardMarkBlock({ practice, onMark, measure = measureInBrowser }: 
     urlRef.current = url
     setRefusal(null)
     setName(file.name)
-    onMark({ url, width: size.width, height: size.height })
+    onMark({ cause: 'picked', mark: { url, width: size.width, height: size.height } })
   }
 
   const remove = () => {
@@ -96,12 +97,18 @@ export function CardMarkBlock({ practice, onMark, measure = measureInBrowser }: 
     drop()
     setName(null)
     setRefusal(null)
-    onMark(null)
+    onMark({ cause: 'removed' })
     pickRef.current?.focus()
   }
 
   return (
-    <div className="cm-block">
+    <div
+      className="cm-block"
+      data-guide-title="ロゴ"
+      data-guide={practice
+        ? 'お店のロゴ画像を選びます。選ぶと、見本では店名の前にそのロゴが付きます。保存はされず、お客様のアプリにも反映されません。'
+        : 'カードの店名の前に付けるロゴを設定する場所です。いまは準備中です。'}
+    >
       <h4 className="st-sec-l" id="cmHead">ロゴ</h4>
       {practice ? (
         <>

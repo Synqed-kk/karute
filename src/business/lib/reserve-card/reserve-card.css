@@ -965,6 +965,13 @@
 /* B's slot — the square mark's place before the name; geometry copied from MOCK-SWITCHBOARD-v2.html:437–439; nothing renders it yet (Stage 4) */
 .member-ground .mcard__hd .mcard__emb { display:block; flex:none; width:28px; height:28px; margin:.85px -2px 0 0; }
 .member-ground .mcard__emb.ink { background:var(--satin-ink); -webkit-mask:var(--lg) no-repeat 0 0/100% 100%; mask:var(--lg) no-repeat 0 0/100% 100%; }
+/* ⚖ S64 R240/R244 — the mark before the name (geometry = MOCK :439-444); the cover's mark sits in its name's 36px padding, the probe carries the same 36px */
+.member-ground .tcard__body .tcard__emb { display:block; position:absolute; left:0; top:.625px; width:20px; height:20px; }
+.member-ground .tcard__name.withemb { padding-left:28px; }
+.member-ground .salon-cover__wm.withemb, .member-ground .salon-cover__wm-probe.withemb { padding-left:36px; }
+.member-ground .salon-cover__wm.withemb { box-sizing:content-box; }
+.member-ground .salon-cover .salon-cover__wm--long.withemb { max-width:calc(100% - 86px); }
+.member-ground .salon-cover__wm .salon-cover__emb { display:block; position:absolute; left:0; top:calc((1lh - 28px) / 2); width:28px; height:28px; }
 
 /* NOT Reserve — the お店ページ posts' reactions line has no Reserve source; drawn from the approved mock
    (MOCK-SWITCHBOARD-v2 :501 `.rv .react{font-size:13px;color:var(--rv-mut);margin-top:4px}`, --rv-mut #5f6275 =
