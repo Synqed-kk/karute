@@ -100,6 +100,12 @@ export const RESET = {
   toast: (typeJa: string): string => '業種「' + typeJa + '」の標準に戻しました。保存するとお客様のアプリに反映されます',
 } as const
 
+/** The 業種 block (:799-801): h3 (doubles as the seg's aria-label, :803) + its sub. */
+export const TYPE_BLOCK = {
+  title: '業種',
+  sub: '業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。',
+} as const
+
 /** renderHonest (:1947-1958). */
 export const HONEST = {
   pending: (ja: string, needJa: string): string => ja + 'はオンですが、' + needJa + 'が0件のため、まだお客様には出ません',
