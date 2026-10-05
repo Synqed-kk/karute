@@ -14,6 +14,7 @@ import {
   scrubBreadcrumb,
   scrubEvent,
   scrubPii,
+  scrubSpanData,
   scrubTransaction,
   stripQuery,
 } from '@/lib/observability/sentry-scrub'
@@ -336,6 +337,32 @@ describe('T3e scrubSpanData drops every client / peer IP attribute', () => {
     expect(out!.contexts!.trace!.data).toEqual({ 'http.method': 'GET' })
     expect(out!.spans![0].data).toEqual({ 'http.method': 'GET' })
     expect(JSON.stringify(out)).not.toContain(ip)
+  })
+})
+
+describe('T3g scrubSpanData strips the query off every URL- or path-shaped value, under any key', () => {
+  it('lcp.url, browser.web_vital.lcp.url, ui.element.url, an unnamed key and a path lose the query; non-URL text is left', () => {
+    const u = 'https://x.test/a?token=' + URLQ
+    const data: Record<string, unknown> = {
+      'lcp.url': u,
+      'browser.web_vital.lcp.url': u,
+      'ui.element.url': u,
+      'x.custom': u,
+      'x.path': '/a?token=' + URLQ,
+      'x.text': 'what?',
+      'x.num': 3,
+    }
+    scrubSpanData(data)
+    expect(data).toEqual({
+      'lcp.url': 'https://x.test/a',
+      'browser.web_vital.lcp.url': 'https://x.test/a',
+      'ui.element.url': 'https://x.test/a',
+      'x.custom': 'https://x.test/a',
+      'x.path': '/a',
+      'x.text': 'what?',
+      'x.num': 3,
+    })
+    expect(JSON.stringify(data)).not.toContain(URLQ)
   })
 })
 

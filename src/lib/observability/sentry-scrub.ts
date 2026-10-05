@@ -90,7 +90,18 @@ export function scrubSpanData<T extends Record<string, unknown>>(data: T): T {
     const v = rec[key]
     if (typeof v === 'string') rec[key] = stripQuery(v)
   }
+  // Generic rule: any URL- or path-shaped string under ANY key loses its query
+  // (lcp.url, browser.web_vital.lcp.url, ui.element.url and keys not named here).
+  for (const key of Object.keys(rec)) {
+    const v = rec[key]
+    if (typeof v === 'string' && looksLikeUrl(v)) rec[key] = stripQuery(v)
+  }
   return data
+}
+
+/** A path (`/…`) or an absolute URL (`…://…`). */
+function looksLikeUrl(v: string): boolean {
+  return v.startsWith('/') || v.includes('://')
 }
 
 /** Strips the query off a span's (or trace context's) name: browser resource spans are named by their URL. */
