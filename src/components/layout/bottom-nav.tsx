@@ -573,6 +573,7 @@ function CenterRecordButton({
             stopRecording()
           })}
           aria-label="録音を停止"
+          data-bar-record
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
           <Square className="relative h-3.5 w-3.5" fill="currentColor" strokeWidth={0} />
@@ -613,6 +614,7 @@ function CenterRecordButton({
             )
           })}
           aria-label="録音画面に戻る"
+          data-bar-record
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
           <Mic className="relative h-5 w-5" strokeWidth={2.25} />
@@ -656,6 +658,8 @@ function CenterRecordButton({
             : ariaLabelIdle
         }
         aria-current={isOnSessionsPage ? 'page' : undefined}
+        // The bar touch guard's handle on this circle (bar-touch-guard.ts).
+        data-bar-record
       >
         <Mic className="h-5 w-5" />
         {/* 要対応 (Build F1) — recordings that still owe the staffer something,
