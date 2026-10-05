@@ -44,8 +44,8 @@
       「‹ 設定」 back control, and the back control returns focus to the row it was
       opened from. このページの中身 rides under the head as a short list; the save
       state sticks to the bottom of the screen, where a thumb already is. Touch
-      targets ≥44px from 1023 down, because 744–1023 is a finger on glass exactly
-      as 743 is (room 8's C8-7).
+      targets ≥44px wherever the pointer is coarse (⚖ R70: a hit area, never a
+      width rule; room 8's C8-7).
 
    ② STRIP (`.st-body` < 960 and viewport ≥ 900 — narrow laptops, an iPad in
       landscape, any window with the shell's rail open at 1024–1272)
@@ -259,7 +259,7 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-eyebrow { color: var(--quiet); font-size: 11.5px; letter-spacing: .02em; }
 .biz .pg-settings .st-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 2px; min-width: 0; }
 /* ⚖ S17 fix round 4 · L3 — 28, NOT 22. WCAG 2.5.8 asks 24 CSS px of any
-   pointer target, and the ≤1023 band's 44px floor does not reach a desk. The ?
+   pointer target, and the coarse-pointer 44px floor does not reach a desk. The ?
    is this room's ONLY entry to 画面の説明, and it was the smallest thing on the
    page. */
 .biz .pg-settings .st-help {
@@ -325,7 +325,6 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-opt,
 .biz .pg-settings .st-pick,
 .biz .pg-settings .st-swatch,
-.biz .pg-settings .st-switch,
 .biz .pg-settings .st-save,
 .biz .pg-settings .st-act,
 .biz .pg-settings .st-link,
@@ -729,26 +728,7 @@ html:has(.biz .page.pg-settings) {
   background: var(--amber-soft); color: var(--amber); font-size: 11.5px; line-height: 1.75; text-wrap: pretty;
 }
 
-/* a switch, with a thumb that rides the same spring */
-.biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
-.biz .pg-settings .st-state { color: var(--ink-3); font-size: 12px; line-height: 1.5; white-space: nowrap; }
-.biz .pg-settings .st-state.is-on { color: var(--ink); font-weight: 600; }
-.biz .pg-settings .st-switch {
-  position: relative; flex: none;
-  width: 42px; height: 24px; padding: 0;
-  border: 1px solid var(--line); border-radius: 999px;
-  background: #e6e8ee; cursor: pointer;
-  transition: background-color 200ms ease, border-color 200ms ease;
-}
-.biz .pg-settings .st-switch[aria-checked="true"] { border-color: var(--st-accent); background: var(--st-accent-wash); }
-.biz .pg-settings .st-switch-thumb {
-  position: absolute; top: 2px; left: 2px;
-  width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, .18);
-  pointer-events: none; will-change: transform;
-}
-.biz .pg-settings .st-switch[aria-checked="true"] .st-switch-thumb { background: var(--st-accent); }
-.biz .pg-settings .st-switch[aria-disabled="true"] { cursor: default; }
+/* the switch's own rules live in switch.css, beside Switch.tsx (⚖ R93) */
 /* ⚖ S17 fix round 4 · M5 — 予約と確保's 保存 is REFUSED, not disabled: it keeps
    its place in the tab order so its reason is reachable, and it still LOOKS
    refused. The shell paints `button:disabled` (`.biz button:disabled { cursor:
@@ -1632,6 +1612,13 @@ html:has(.biz .page.pg-settings) {
 
 @media (max-width: 1023px) {
   .biz .page.pg-settings { padding-left: 18px; padding-right: 18px; }
+}
+
+/* ⚖ R70 (Liam 9/29) — 44px is a HIT AREA for a finger, never a width rule: a
+   fine pointer at any width draws the room's normal sizes, and a coarse one
+   gets the 44px floor at every width. (The switch's own coarse size is in
+   switch.css.) */
+@media (pointer: coarse) {
   .biz .pg-settings .st-opt,
   .biz .pg-settings .st-pick,
   .biz .pg-settings .st-jump-item,
@@ -1683,14 +1670,15 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
   .biz .pg-settings .st-search-field { min-height: 44px; }
   .biz .pg-settings .st-search-clear { width: 32px; height: 32px; }
-  .biz .pg-settings .st-switch { width: 68px; height: 44px; }
-  .biz .pg-settings .st-switch-thumb { top: 4px; left: 4px; width: 34px; height: 34px; }
   .biz .pg-settings .st-swatch { width: 44px; height: 44px; }
+  /* このページの中身's head is a control only at ①; its touch height lives here too */
+  .biz .pg-settings .st-jump-head { min-height: 44px; }
 }
 
 /* ═══ ① ≤899 — LIST IS THE PAGE. ⚖ ALL-SCREEN's device clause: the rail IS the
    page, and a chosen section replaces it with a way back. This is the ONE
    media-driven composition swap in the room — see the header. ═══ */
+
 @media (max-width: 899px) {
   /* ⚖ S17 fix round 1 · F19 — AT ① このページの中身 IS A DISCLOSURE, CLOSED.
      Rendered open it is four items plus a two-line note between the section head
@@ -1701,7 +1689,7 @@ html:has(.biz .page.pg-settings) {
      `aria-expanded`, and the band's own touch height. */
   .biz .pg-settings .st-jump-head {
     display: flex; align-items: center; justify-content: space-between;
-    min-height: 44px; padding: 0 2px; cursor: pointer;
+    padding: 0 2px; cursor: pointer;
   }
   .biz .pg-settings .st-jump-head .st-det-caret { display: inline-block; }
   .biz .pg-settings .st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }
@@ -1854,7 +1842,6 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-opt,
   .biz .pg-settings .st-pick,
   .biz .pg-settings .st-swatch,
-  .biz .pg-settings .st-switch,
   .biz .pg-settings .st-save,
   .biz .pg-settings .st-act,
   .biz .pg-settings .st-link,

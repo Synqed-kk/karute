@@ -77,6 +77,7 @@ import { jstClock } from '@/business/lib/clock'
 import { makeSpring } from '@/business/lib/spring'
 import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsRoomBlock, wordsRoomOptions, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
+import { SPRING_THUMB, Switch, type InertProps } from './Switch'
 import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSection'
 import {
   ADD_PENDING_LABEL,
@@ -186,8 +187,8 @@ const EMPHASIS_ID = 'my-display.emphasis'
  *  house default is 0.30s critically damped — thumbs and the save card's rise;
  *  a height panel gets 0.34 because it travels further and a fast height reads
  *  as a jump rather than as an opening. No third number, and no second easing:
- *  `makeSpring` is the room's only integrator (`spring.ts` is FROZEN, reused). */
-const SPRING_THUMB = 0.3
+ *  `makeSpring` is the room's only integrator (`spring.ts` is FROZEN, reused).
+ *  The thumb's 0.30 (`SPRING_THUMB`) is declared beside the switch, in ./Switch. */
 /** ⚖ S17 fix round 1 · F16 — the panel's arrival. Slower than a thumb because
  *  it is the whole reading column moving, still well under a beat: ⚖ apple-
  *  design's 「response is how quickly the value reaches the target, not a
@@ -3164,10 +3165,7 @@ function NumberField({
 // thumb is decoration behind it, `pointer-events: none`, so nothing about the
 // keyboard or a screen reader depends on the motion.
 
-/** What a LOCKED control wears instead of `disabled` — the reason, reachable by
- *  keyboard and by a screen reader. Spelled as a type rather than inline so the
- *  two controls whose thumb travels take exactly what `Control` hands them. */
-type InertProps = { 'aria-disabled'?: 'true'; title?: string; 'aria-label'?: string }
+// `InertProps` and `Switch` live in ./Switch (⚖ R93 — one switch for the room).
 
 function Segment({
   options,
@@ -3253,78 +3251,6 @@ function Segment({
           </button>
         )
       })}
-    </div>
-  )
-}
-
-function Switch({
-  on,
-  aria,
-  ariaLabelledBy,
-  onLabel,
-  offLabel,
-  inert,
-  reduced,
-  onToggle,
-}: {
-  on: boolean
-  /** The accessible name when no visible label names the switch. */
-  aria?: string
-  /** WCAG 2.5.3 — a switch with its own visible field label is named BY it (aria-labelledby
-   *  instead of aria-label), so the spoken name contains the visible text. */
-  ariaLabelledBy?: string
-  /** Optional: a switch that has its own field label (特別営業日's 24:00閉店) shows no state word. */
-  onLabel?: string
-  offLabel?: string
-  inert: InertProps
-  reduced: boolean
-  onToggle?: () => void
-}) {
-  const thumbRef = useRef<HTMLSpanElement>(null)
-  const springRef = useRef<ReturnType<typeof makeSpring> | null>(null)
-  const seated = useRef(false)
-
-  /** Same shape, same reason as `Segment` above: built unconditionally, keyed on
-   *  `reduced`, so the flag can never be pinned at its first value. */
-  useLayoutEffect(() => {
-    springRef.current?.stop()
-    springRef.current = makeSpring(
-      (v) => { if (thumbRef.current) thumbRef.current.style.transform = `translateX(${v.toFixed(2)}px)` },
-      { response: SPRING_THUMB, eps: 0.3, reduced },
-    )
-    seated.current = false
-  }, [reduced])
-
-  useLayoutEffect(() => {
-    const thumb = thumbRef.current
-    if (!thumb || !springRef.current) return
-    /** The travel is the track's own arithmetic, read from the element rather
-     *  than typed: the touch band widens the track to 44px and a hard-coded
-     *  20px would leave the thumb short of its own end there. */
-    const track = thumb.parentElement
-    const travel = track ? Math.max(0, track.clientWidth - thumb.offsetWidth - 4) : 18
-    if (!seated.current) { seated.current = true; springRef.current.jump(on ? travel : 0); return }
-    springRef.current.set(on ? travel : 0)
-  }, [on, reduced])
-
-  useEffect(() => () => springRef.current?.stop(), [])
-
-  return (
-    <div className="st-switchline">
-      {onLabel !== undefined && offLabel !== undefined && (
-        <span className={`st-state${on ? ' is-on' : ''}`}>{on ? onLabel : offLabel}</span>
-      )}
-      <button
-        type="button"
-        className="st-switch"
-        role="switch"
-        aria-checked={on}
-        {...(ariaLabelledBy !== undefined ? { 'aria-labelledby': ariaLabelledBy } : { 'aria-label': aria })}
-        {...inert}
-        onClick={onToggle}
-      >
-        <span className="st-switch-thumb" aria-hidden="true" ref={thumbRef} />
-      </button>
     </div>
   )
 }

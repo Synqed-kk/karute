@@ -79,6 +79,8 @@ const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
 const stripLineComments = (src: string) => stripComments(src).replace(/^\s*\/\/.*$/gm, '')
 const DISCLOSURE = stripLineComments(readFileSync(join(process.cwd(), `${ROOM_DIR}/Collapse.tsx`), 'utf8'))
 const SRC_CODE = stripComments(SRC).replace(/^\s*\/\/.*$/gm, '')
+// ⚖ R93 (S50 P5c) — the room's Switch moved into its own file; its spring is read there.
+const SWITCH_CODE = stripComments(readFileSync(join(process.cwd(), `${ROOM_DIR}/Switch.tsx`), 'utf8')).replace(/^\s*\/\/.*$/gm, '')
 const CSS_CODE = stripComments(CSS)
 
 /** Every OPENING TAG of `<tag …>` in the source, whole. JSX attributes hold
@@ -358,7 +360,7 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
       }
       return out
     }
-    const springs = [...callsOf(SRC_CODE), ...callsOf(DISCLOSURE)]
+    const springs = [...callsOf(SRC_CODE), ...callsOf(SWITCH_CODE), ...callsOf(DISCLOSURE)]
     expect(springs.length).toBeGreaterThanOrEqual(5)
     /** ⚠ D-32 RE-POINT (⚖ S17 fix round 4 · H5) — AND THE TOKEN IS NOT THE
      *  CLAIM. This loop used to ask `sp.includes('reduced')`, which is true of
@@ -448,7 +450,7 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
       // Segment — the pair of thumb springs
       { what: 'Segment', slice: sliceOf(SRC_CODE, 'const paint = () => {', '}, [reduced])'), stops: ['xRef.current?.stop()', 'wRef.current?.stop()'] },
       // Switch — one thumb spring
-      { what: 'Switch', slice: sliceOf(SRC_CODE, 'springRef.current?.stop()', '}, [reduced])'), stops: ['springRef.current?.stop()'] },
+      { what: 'Switch', slice: sliceOf(SWITCH_CODE, 'springRef.current?.stop()', '}, [reduced])'), stops: ['springRef.current?.stop()'] },
       // Collapse — the 詳しく height, in its own file (D-20)
       { what: 'Collapse', slice: sliceOf(DISCLOSURE, 'if (!springRef.current || builtWith.current !== reduced)', 'const spring = springRef.current'), stops: ['springRef.current?.stop()'] },
     ]
@@ -491,11 +493,13 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(motionHook).toContain("mq.removeEventListener('change', apply)")
     // …and re-seats, so a rebuilt spring places its thumb instead of sliding it
     // in from zero.
-    expect((SRC_CODE.match(/seated\.current = false/g) ?? []).length).toBeGreaterThanOrEqual(2)
+    // (Segment in the screen, Switch in its own file since ⚖ R93.)
+    expect((SRC_CODE.match(/seated\.current = false/g) ?? []).length).toBeGreaterThanOrEqual(1)
+    expect((SWITCH_CODE.match(/seated\.current = false/g) ?? []).length).toBeGreaterThanOrEqual(1)
     // …and the re-seat runs when the answer CHANGES, so a reader who turns the
     // preference on mid-session is obeyed without a reload.
     expect(SRC_CODE).toContain('}, [value, options, reduced])')
-    expect(SRC_CODE).toContain('}, [on, reduced])')
+    expect(SWITCH_CODE).toContain('}, [on, reduced])')
   })
 
   // ⚖ S17 · F17 — THE TOUR CARD NEVER SITS ON THE BLOCK IT IS EXPLAINING.
