@@ -287,7 +287,8 @@ export async function writeBookingColors(storeId: string, colors: unknown): Prom
 /** ⚖ DECISIONS-S49 R86 — THE NAMED OFF-SWITCH for お店ページ's switches in REAL MODE. false (default) = any
  *  business that is not the admitted practice tenant (or the door OFF) is DISCONNECTED: no read, no write,
  *  the route answers 501 `disconnected`. Only CORE-47 (core's own capabilities endpoint) may flip it, with the
- *  storage call moved to it; until then the temporary org-settings key is Dev Salon's alone. */
+ *  storage call moved to it; until then the temporary org-settings key is Dev Salon's alone.
+ *  Must stay false until the store-capabilities write is version-checked by core (CORE-47): with read-then-write, two owners' saves can overwrite each other silently. */
 const STORE_CAPABILITIES_REAL_MODE = false as boolean
 
 /** お店ページ — one store's saved switches record (P1's CapRecord) or null (none yet → the page seeds it).

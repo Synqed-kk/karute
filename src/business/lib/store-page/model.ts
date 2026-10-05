@@ -196,7 +196,8 @@ export function applyReset(record: CapRecord): CapRecord {
  *  are ignored). Unchanged keys keep their saved stamps exactly. A changed key stays TYPE_DEFAULT only when its SAVED
  *  source is TYPE_DEFAULT, the client lists it in resetKeys (keys 戻す flipped since the last save), and its new value
  *  equals the draft type's default; every other changed key becomes OWNER + changed_at + changed_by. An OWNER key
- *  never returns to TYPE_DEFAULT. Call only with what core accepted (D-SAVE). */
+ *  never returns to TYPE_DEFAULT. Call only with what core accepted (D-SAVE). TYPE_DEFAULT means untouched by the owner, not
+ *  equal to the current type's default: after a type change an untouched switch keeps its value until 戻す (D7). */
 export function stampSave(
   saved: CapRecord, draft: CapRecord, resetKeys: readonly CapKey[], now: Date, actingStaffId: string,
 ): CapRecord {

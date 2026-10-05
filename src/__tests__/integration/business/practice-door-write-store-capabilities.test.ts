@@ -178,7 +178,7 @@ describe('S49 P2 — the door: data.writeStoreCapabilities → door-store-capabi
     expect(mockCore.upsert).toHaveBeenCalledTimes(1)
   })
 
-  it('R90: an unreadable stored value is ABSENT — based_on = recordHash(null), overwritten, the log carries the raw value (≤ 2 000 chars)', async () => {
+  it('R90: an unreadable stored value is ABSENT — based_on = recordHash(null), overwritten, the log carries the raw value whole (below the 8 000 cut) and its length', async () => {
     const raw = { v: 1, business_type: 'SALON', note: 'x'.repeat(5000) } // a family name parses as absent (B10)
     seed({ [K(S)]: raw })
     expect(await data.readStoreCapabilities(S)).toBeNull()
@@ -189,8 +189,8 @@ describe('S49 P2 — the door: data.writeStoreCapabilities → door-store-capabi
     expect(info.mock.calls[0][0]).toBe('[business store capabilities] replacing an unreadable stored value')
     const pre = JSON.parse(info.mock.calls[0][1] as string) as { replaced_unreadable: string; store_id: string; key: string }
     expect(pre).toMatchObject({ store_id: S, key: K(S) })
-    expect(pre.replaced_unreadable).toBe(JSON.stringify(raw).slice(0, 2000))
-    expect(pre.replaced_unreadable).toHaveLength(2000)
+    expect(pre.replaced_unreadable).toBe(JSON.stringify(raw))
+    expect((pre as { replaced_chars?: number }).replaced_chars).toBe(JSON.stringify(raw).length)
     const done = JSON.parse(info.mock.calls[1][1] as string) as { replaced_unreadable: unknown }
     expect(done.replaced_unreadable).toBe(true)
   })
@@ -272,6 +272,37 @@ describe('S49 P2 — the door: data.writeStoreCapabilities → door-store-capabi
     delete process.env.BUSINESS_PRACTICE_TENANT
     expect(await save(SAVED)).toEqual({ ok: false, reason: 'disconnected' })
     expect(mockCore.upsert).not.toHaveBeenCalled()
+  })
+
+  describe('KNOWN, gated by the practice tenant + REAL_MODE=false until CORE-47 — two saves on the same based_on (R86 / L2)', () => {
+    const basedOn = recordHash(SAVED)
+    const sentBy = (call: number) => (mockCore.upsert.mock.calls[call][0] as { settings: Record<string, WireRecord> }).settings[K(S)]
+    it('(i) X writes and answers, then Y writes and answers → BOTH ok, core holds Y (last save wins; not covered, gated)', async () => {
+      seed({ [K(S)]: W(SAVED) }) // both reads answer this record: neither save sees the other's write
+      const x = await save(toggle(SAVED, 'posts'), { basedOn })
+      const y = await save(toggle(SAVED, 'shop'), { basedOn })
+      expect(x.ok && y.ok).toBe(true)
+      expect(stored[K(S)]).toEqual(sentBy(1))
+      expect(parseRecord(stored[K(S)])!.switches.posts.on).toBe(SAVED.switches.posts.on) // X's flip is gone
+    })
+    it('(ii) both write before either answer is read (core main: merge write, then a separate read) → the first gets core (R273), the second ok', async () => {
+      seed({ [K(S)]: W(SAVED) })
+      let release: () => void = () => {}
+      const bothWritten = new Promise<void>((r) => { release = r })
+      let writes = 0
+      mockCore.upsert = jest.fn(async (input: { settings: Record<string, unknown> }) => {
+        stored = { ...stored, ...input.settings }
+        if (++writes === 2) release()
+        await bothWritten
+        return coreRow(stored)
+      })
+      const [x, y] = await Promise.all([save(toggle(SAVED, 'posts'), { basedOn }), save(toggle(SAVED, 'shop'), { basedOn })])
+      const firstIsX = sentBy(0).switches.POSTS.on !== W(SAVED).switches.POSTS.on
+      const [first, second] = firstIsX ? [x, y] : [y, x]
+      expect(first).toEqual({ ok: false, reason: 'core' })
+      expect(second.ok).toBe(true)
+      expect(stored[K(S)]).toEqual(sentBy(1))
+    })
   })
 
   it('core throws on the PUT → core (reported, not retried)', async () => {
@@ -404,6 +435,32 @@ describe('S68 P2 — R273: ok only when core’s answer holds exactly what was s
     const r = await save(toggle(SAVED, 'posts'), { basedOn: recordHash(null) })
     expect(r).toEqual({ ok: true, record: parseRecord(sentRecord()) })
     expect(error).not.toHaveBeenCalled()
+  })
+})
+
+describe('S68 — R90 amended: a stored value is logged whole (cut only above 8 000 chars, replaced_chars says so)', () => {
+  const id36 = '00000000-0000-4000-8000-000000000036'
+  const stamped: CapRecord = { ...SAVED, switches: Object.fromEntries(Object.entries(SAVED.switches).map(([k, s]) => [k, { ...s, source: 'OWNER', changed_at: '2026-09-01T00:00:00.000Z', changed_by: id36 }])) as CapRecord['switches'] }
+  it('an all-owner-stamped record (36-char staff ids) + one unknown field at the END → the read-with-loss line holds that field and parses', async () => {
+    const raw = { ...W(stamped), zz_extra: 'kept-in-the-log' }
+    expect(JSON.stringify(raw).length).toBeGreaterThan(2000)
+    expect(JSON.stringify(raw).endsWith('"zz_extra":"kept-in-the-log"}')).toBe(true)
+    seed({ [K(S)]: raw })
+    expect((await save(toggle(stamped, 'posts'))).ok).toBe(true)
+    expect(info.mock.calls[0][0]).toBe('[business store capabilities] replacing a stored value read with loss')
+    const pre = JSON.parse(String(info.mock.calls[0][1])) as { replaced_lossy: string; replaced_chars: number }
+    expect(pre.replaced_lossy).toContain('"zz_extra":"kept-in-the-log"')
+    expect(JSON.parse(pre.replaced_lossy)).toEqual(raw)
+    expect(pre.replaced_chars).toBe(JSON.stringify(raw).length)
+  })
+  it('an unreadable value of 9 000 chars → the logged text is 8 000 long and replaced_chars is the full length', async () => {
+    const raw = { v: 1, business_type: 'SALON', note: 'z'.repeat(9000) }
+    seed({ [K(S)]: raw })
+    expect((await save(toggle(SAVED, 'posts'), { basedOn: recordHash(null) })).ok).toBe(true)
+    const pre = JSON.parse(String(info.mock.calls[0][1])) as { replaced_unreadable: string; replaced_chars: number }
+    expect(pre.replaced_unreadable).toHaveLength(8000)
+    expect(pre.replaced_unreadable).toBe(JSON.stringify(raw).slice(0, 8000))
+    expect(pre.replaced_chars).toBe(JSON.stringify(raw).length)
   })
 })
 

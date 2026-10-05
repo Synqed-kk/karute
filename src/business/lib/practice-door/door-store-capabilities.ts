@@ -19,10 +19,9 @@ export type WriteStoreCapabilitiesResult =
   | { ok: true; record: CapRecord }
   | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core' }
 
-/** R90 — the replaced raw text kept in the log line is cut at 2 000 chars. */
-const REPLACED_MAX = 2000
-/** R273 — a faithful wire record is ≈2.4k chars, so a real answer is always logged whole; the cut guards a runaway answer. */
-const ANSWER_MAX = 8000
+/** R90 amended S68 — a faithful wire record is at most ≈4.4k chars (parse caps: changed_at 64, changed_by 128, 16 switches),
+ *  so a stored record is always logged whole; the cut only guards a runaway value. */
+const REPLACED_MAX = 8000
 
 /** A4 — reset_keys: an array of known capability keys (internal spelling), each at most once; anything else → null. */
 function resetKeysOf(raw: unknown): CapKey[] | null {
@@ -111,16 +110,20 @@ export async function writeStoreCapabilities(
     const writer = reach.orgSettingsWriterFor({ businessId: actor.businessId })
     // R176: an unreadable stored value is recorded BEFORE it is replaced — a save that fails after core committed loses nothing silently
     const unreadable = before === null && raw !== undefined && raw !== null
-    if (unreadable) console.info('[business store capabilities] replacing an unreadable stored value', JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, replaced_unreadable: String(JSON.stringify(raw)).slice(0, REPLACED_MAX), at: renderNow().toISOString() }))
+    if (unreadable) console.info('[business store capabilities] replacing an unreadable stored value', JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, replaced_unreadable: String(JSON.stringify(raw)).slice(0, REPLACED_MAX), replaced_chars: String(JSON.stringify(raw)).length, at: renderNow().toISOString() }))
     // R190: a value that parsed WITH LOSS gets the same line before it is replaced — nothing stored is dropped unlogged
     const lossy = before !== null && lossyOf(raw)
-    if (lossy) console.info('[business store capabilities] replacing a stored value read with loss', JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, replaced_lossy: String(JSON.stringify(raw)).slice(0, REPLACED_MAX), at: renderNow().toISOString() }))
+    if (lossy) console.info('[business store capabilities] replacing a stored value read with loss', JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, replaced_lossy: String(JSON.stringify(raw)).slice(0, REPLACED_MAX), replaced_chars: String(JSON.stringify(raw)).length, at: renderNow().toISOString() }))
     // one key per store: core merges top-level keys, so another store's save in the same instant is untouched (R86)
+    // KNOWN + GATED (R86 / L2): the read above and this write are not atomic — two saves that loaded the same record both
+    // pass the basedOn check and the later one wins. Core's upsert takes no expected version yet (CORE-47); until it does
+    // this writer stays behind the practice-tenant gate (`practiceTenant()`, the first guard) and STORE_CAPABILITIES_REAL_MODE
+    // (data.ts) must stay false. R273's answer check below catches the overlap where both writes land before either answer.
     const saved = await writer.orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })
     const { raw: answered, record: out } = storedOf(saved?.settings ?? null, key)
     // R273: the answer must hold exactly what was sent (a parse alone passes an old or another record); key order is jsonb's
     if (!sameJson(answered, JSON.parse(JSON.stringify(next)))) {
-      console.error(`[business store capabilities] core's answer does not hold ${key} as sent`, JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, sent: JSON.stringify(next).slice(0, ANSWER_MAX), answered: String(JSON.stringify(answered)).slice(0, ANSWER_MAX) }))
+      console.error(`[business store capabilities] core's answer does not hold ${key} as sent`, JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, sent: JSON.stringify(next).slice(0, REPLACED_MAX), answered: String(JSON.stringify(answered)).slice(0, REPLACED_MAX) }))
       return { ok: false, reason: 'core' }
     }
     if (out === null) {

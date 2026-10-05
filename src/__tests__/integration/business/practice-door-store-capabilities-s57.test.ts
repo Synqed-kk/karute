@@ -189,19 +189,20 @@ describe('S57 P2 — R190: a value read WITH LOSS is logged raw before it is rep
     expect(lines().some((l) => l.includes('nnnn'))).toBe(true)
     expect(order).toEqual(['[business store capabilities] replacing a stored value read with loss', 'upsert', '[business store capabilities]'])
     const pre = JSON.parse(String(info.mock.calls[0][1])) as Record<string, unknown>
-    expect(pre).toEqual({ business_id: TENANT, store_id: S, key: K(S), replaced_lossy: JSON.stringify(raw).slice(0, 2000), at: expect.stringMatching(ISO) })
+    expect(pre).toEqual({ business_id: TENANT, store_id: S, key: K(S), replaced_lossy: JSON.stringify(raw), replaced_chars: JSON.stringify(raw).length, at: expect.stringMatching(ISO) })
     expect(successLine().replaced_lossy).toBe(true)
     expect(successLine()).not.toHaveProperty('replaced_unreadable')
   })
 
-  it('a top-level key outside v / business_type / switches → the same raw line (cut at 2 000 chars)', async () => {
-    const raw = { ...W(SAVED), extra: 'x'.repeat(5000) }
+  it('a top-level key outside v / business_type / switches → the same raw line (cut at 8 000 chars, replaced_chars the full length)', async () => {
+    const raw = { ...W(SAVED), extra: 'x'.repeat(9000) }
     seed({ [K(S)]: raw })
     expect((await save(toggle(SAVED, 'posts'), { basedOn: recordHash(SAVED) })).ok).toBe(true)
     const pre = JSON.parse(String(info.mock.calls[0][1])) as { replaced_lossy: string }
     expect(String(info.mock.calls[0][0])).toBe('[business store capabilities] replacing a stored value read with loss')
-    expect(pre.replaced_lossy).toBe(JSON.stringify(raw).slice(0, 2000))
-    expect(pre.replaced_lossy).toHaveLength(2000)
+    expect(pre.replaced_lossy).toBe(JSON.stringify(raw).slice(0, 8000))
+    expect(pre.replaced_lossy).toHaveLength(8000)
+    expect((pre as { replaced_chars?: number }).replaced_chars).toBe(JSON.stringify(raw).length)
     expect(successLine().replaced_lossy).toBe(true)
   })
 

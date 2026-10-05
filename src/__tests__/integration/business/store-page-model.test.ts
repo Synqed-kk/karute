@@ -234,6 +234,24 @@ describe('戻す (D9 per DECISIONS D-RESET)', () => {
   })
 })
 
+describe('D7 — a type change alone moves no switch; TYPE_DEFAULT = untouched by the owner (S68, DECISIONS-S49:17)', () => {
+  const A = seedRecord('hair_salon')
+  const B = seedRecord('yoga_studio')
+  const differing = CAP_KEYS.filter((k) => A.switches[k].on !== B.switches[k].on)
+  it('E1 (D7) saved hair_salon, the draft changes only business_type to yoga_studio, reset_keys [] → the type moves, every switch keeps its value, 0 OWNER', () => {
+    expect(differing.length).toBeGreaterThan(0)
+    const after = stampSave(A, { ...A, business_type: 'yoga_studio' }, [], NOW, 'staff-1')
+    expect(after.business_type).toBe('yoga_studio')
+    for (const k of CAP_KEYS) expect(after.switches[k].on).toBe(A.switches[k].on)
+    expect(CAP_KEYS.filter((k) => after.switches[k].source === 'OWNER')).toEqual([])
+  })
+  it('E1b then 戻す: yoga_studio\'s defaults on the differing keys, those keys in reset_keys → exactly seedRecord(yoga_studio), 0 OWNER', () => {
+    const typed = stampSave(A, { ...A, business_type: 'yoga_studio' }, [], NOW, 'staff-1')
+    const draft: CapRecord = { ...typed, switches: { ...typed.switches, ...Object.fromEntries(differing.map((k) => [k, { ...typed.switches[k], on: B.switches[k].on }])) } }
+    expect(stampSave(typed, draft, differing, NOW, 'staff-1')).toEqual(B)
+  })
+})
+
 describe('applyReset / resetDiff read the type from the record (R134 / R144)', () => {
   it('a record set to personal_gym resets to personal_gym\'s set; the save keeps those keys TYPE_DEFAULT (R89)', () => {
     const saved = seedRecord('beauty_chiropractic')
