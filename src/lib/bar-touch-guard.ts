@@ -32,6 +32,45 @@ const SLOP_PX = 10
 const CLICK_AFTER_TOUCH_MS = 800
 const BAR_Z = 40
 
+// ── The silent recorder (local only) ──
+// Each interception appends one line to a ring buffer in localStorage and
+// console.debugs it — so the next field report can be read off the device.
+// Nothing is shown to staff and nothing is sent anywhere. Never stored: any
+// text, aria-label, name or id — only tag/role, coordinates, timings, and the
+// activated control as a bare route path (query dropped: the record button's
+// href can carry a customerId) or 'record' / 'button'.
+export const BAR_GUARD_LOG_KEY = 'karute.barTouchGuard.log'
+const LOG_MAX = 50
+let lastVisible = -1
+let lastScroll = -1
+const since = (t: number) => (t < 0 ? null : Date.now() - t)
+
+function writeLog(e: Event, x: number, y: number, bar: Element | null, activated: string | null) {
+  const t = e.target as Element
+  const line = {
+    at: new Date().toISOString(),
+    type: e.type,
+    x: Math.round(x),
+    y: Math.round(y),
+    tag: t.tagName.toLowerCase(),
+    role: t.getAttribute('role'),
+    barTop: bar ? Math.round(bar.getBoundingClientRect().top) : null,
+    scrollY: Math.round(window.scrollY),
+    vvTop: window.visualViewport ? Math.round(window.visualViewport.offsetTop) : null,
+    msSinceVisible: since(lastVisible),
+    msSinceScroll: since(lastScroll),
+    activated,
+  }
+  console.debug('[bar-touch-guard]', line)
+  try {
+    const log = JSON.parse(localStorage.getItem(BAR_GUARD_LOG_KEY) ?? '[]')
+    log.push(line)
+    localStorage.setItem(BAR_GUARD_LOG_KEY, JSON.stringify(log.slice(-LOG_MAX)))
+  } catch {
+    // storage full/blocked or a corrupt entry: the recorder is best-effort
+  }
+}
+
 type Box = { left: number; right: number; top: number; bottom: number; height: number }
 const within = (b: Box, x: number, y: number, pad = 0) =>
   b.height > 0 && x >= b.left - pad && x <= b.right + pad && y >= b.top - pad && y <= b.bottom + pad
@@ -70,15 +109,18 @@ export function installBarTouchGuard(wrapper: HTMLElement, page: HTMLElement): (
     return null
   }
 
-  const activate = (x: number, y: number) => {
+  const activate = (x: number, y: number): string | null => {
     const el = controlAt(x, y)
-    if (!el) return
+    if (!el) return null
     own = true
     try {
       clickAsTap(el)
     } finally {
       own = false
     }
+    if (el.hasAttribute('data-bar-record')) return 'record'
+    const href = el.getAttribute('href')
+    return href ? href.split('?')[0] : 'button'
   }
 
   const onEvent = (e: Event) => {
@@ -94,6 +136,7 @@ export function installBarTouchGuard(wrapper: HTMLElement, page: HTMLElement): (
     if (e.type === 'click' && now - lastTouchEnd < CLICK_AFTER_TOUCH_MS && inside(x, y)) {
       e.stopPropagation()
       e.preventDefault()
+      writeLog(e, x, y, bar(), null)
       return
     }
     const t = e.target
@@ -104,21 +147,33 @@ export function installBarTouchGuard(wrapper: HTMLElement, page: HTMLElement): (
     }
     e.stopPropagation()
     if (e.type !== 'touchstart' && e.cancelable) e.preventDefault()
+    let activated: string | null = null
     if (e.type === 'touchstart') {
       start = { id, x, y }
     } else if (e.type === 'touchend') {
       lastTouchEnd = now
       const s = start
       start = null
-      if (s && s.id === id && (x - s.x) ** 2 + (y - s.y) ** 2 <= SLOP_PX ** 2) activate(x, y)
+      if (s && s.id === id && (x - s.x) ** 2 + (y - s.y) ** 2 <= SLOP_PX ** 2) activated = activate(x, y)
     } else if (e.type === 'click') {
-      activate(x, y)
+      activated = activate(x, y)
     }
+    writeLog(e, x, y, bar(), activated)
+  }
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') lastVisible = Date.now()
+  }
+  const onScroll = () => {
+    lastScroll = Date.now()
   }
 
   const types = ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click'] as const
   for (const type of types) document.addEventListener(type, onEvent, { capture: true, passive: type === 'touchstart' })
+  document.addEventListener('visibilitychange', onVisible)
+  window.addEventListener('scroll', onScroll, { passive: true })
   return () => {
     for (const type of types) document.removeEventListener(type, onEvent, { capture: true })
+    document.removeEventListener('visibilitychange', onVisible)
+    window.removeEventListener('scroll', onScroll)
   }
 }
