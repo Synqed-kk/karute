@@ -6,7 +6,10 @@
  * area as transparent `data-bar-hit` span(s) INSIDE itself (bottom-nav.tsx), so
  * the bar's only interactive elements are still the five controls and a touch
  * on a span is the control's own touch (tapActivation). jsdom has no layout:
- * geometry is proven by the Playwright grid (build-s105/tabfix/r5-proof).
+ * the geometry is PINNED BY EXACT CLASS STRINGS below (S106 R5), not by a
+ * layout check — any change to an offset, z-index, the safe-area strips, the
+ * slop, the row-cap variable or `hidden` fails here; whether those classes
+ * still lay out contiguously is proven by the Playwright grid outside CI.
  */
 import { render, fireEvent } from '@testing-library/react'
 import type { ReactNode, MouseEvent } from 'react'
@@ -80,13 +83,43 @@ describe.each(STATES)('bottom bar hit columns — $name', ({ path, rec }) => {
         expect(h.tagName).toBe('SPAN')
         expect(h.getAttribute('aria-hidden')).toBe('true')
         expect(h.className).toMatch(/\babsolute\b/)
-        expect(h.className).toMatch(/\bhidden pointer-coarse:block\b|\bpointer-coarse:block\b/)
       }
       // the span's containing block is the control itself
       expect(c.className).toMatch(/\brelative\b/)
     }
     // every hit span in the bar belongs to one of the five controls
     for (const h of nav.querySelectorAll('[data-bar-hit]')) expect(controls).toContain(h.parentElement)
+  })
+
+  it('every hit span carries exactly its pinned classes (geometry pinned by class strings)', () => {
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+    const nav = container.querySelector('nav[aria-label="Primary navigation"]')!
+    const controls = Array.from(nav.querySelectorAll('a,button'))
+    const got = controls.map((c) =>
+      Array.from(c.children)
+        .filter((h) => h.hasAttribute('data-bar-hit'))
+        .map((h) => h.className),
+    )
+    const tab = (edge: string) =>
+      `absolute -top-px bottom-[calc(-1*env(safe-area-inset-bottom))] z-[1] hidden pointer-coarse:block ${edge}`
+    const capEdge = 'calc(-8px_-_max(0px,(100vw_-_var(--breakpoint-sm))/2))'
+    const record =
+      path === '/sessions' && rec === 'recording'
+        ? [] // the stop button keeps its own size (S106 R2)
+        : [
+            'absolute -left-3 -right-3 -top-3 hidden h-[19px] pointer-coarse:block',
+            'absolute -left-16 -right-16 top-[7px] bottom-[calc(-44px_-_env(safe-area-inset-bottom))] hidden pointer-coarse:block',
+          ]
+    expect(got).toEqual([
+      [tab(`left-[${capEdge}] right-0`)],
+      [tab('left-0 right-0')],
+      record,
+      [tab('left-0 right-0')],
+      [tab(`left-0 right-[${capEdge}]`)],
+    ])
+    // the row's cap is the same variable the edge spans read (S106 R4)
+    expect(nav.querySelector('.max-w-screen-sm')).not.toBeNull()
+    expect(nav.innerHTML).not.toContain('640px')
   })
 
   it('a tap on each hit span activates its own control, once', () => {
