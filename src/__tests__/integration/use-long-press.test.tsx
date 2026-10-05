@@ -3,6 +3,9 @@
  *
  * Unit coverage for useLongPress (PR #96/replay/22): hold-past-threshold fires
  * onLongPress; early release fires onShortTap; leave/cancel fires neither.
+ * S103 contract: onShortTap runs from the element's CLICK (the returned
+ * onClick), never from pointerup — a pointerup the engine never follows with a
+ * click opens nothing, and the click trailing a hold or a drag is swallowed.
  * Movement tolerance (booking-page drag bug): pointer travel past 10px is a
  * scroll attempt, not a tap or a hold — fires neither.
  */
@@ -29,6 +32,7 @@ describe('useLongPress', () => {
     })
     expect(onLongPress).toHaveBeenCalledTimes(1)
     act(() => result.current.onPointerUp())
+    act(() => result.current.onClick?.()) // the click that trails the hold
     expect(onShortTap).not.toHaveBeenCalled()
   })
 
@@ -41,6 +45,8 @@ describe('useLongPress', () => {
       jest.advanceTimersByTime(200)
     })
     act(() => result.current.onPointerUp())
+    expect(onShortTap).not.toHaveBeenCalled() // pointerup alone opens nothing
+    act(() => result.current.onClick?.())
     expect(onShortTap).toHaveBeenCalledTimes(1)
     expect(onLongPress).not.toHaveBeenCalled()
   })
@@ -93,6 +99,7 @@ describe('useLongPress', () => {
       jest.advanceTimersByTime(200)
     })
     act(() => result.current.onPointerUp())
+    act(() => result.current.onClick?.())
     expect(onShortTap).not.toHaveBeenCalled()
     expect(onLongPress).not.toHaveBeenCalled()
   })
@@ -108,6 +115,7 @@ describe('useLongPress', () => {
     })
     expect(onLongPress).not.toHaveBeenCalled()
     act(() => result.current.onPointerUp())
+    act(() => result.current.onClick?.())
     expect(onShortTap).not.toHaveBeenCalled()
   })
 
@@ -122,9 +130,22 @@ describe('useLongPress', () => {
     // a second stray pointerup after a completed tap is also not a tap
     act(() => result.current.onPointerDown(pt()))
     act(() => result.current.onPointerUp())
+    act(() => result.current.onClick?.())
     expect(onShortTap).toHaveBeenCalledTimes(1)
     act(() => result.current.onPointerUp())
     expect(onShortTap).toHaveBeenCalledTimes(1)
+  })
+
+  it('keyboard activation (a click with no pointer sequence) fires onShortTap', () => {
+    const onShortTap = jest.fn()
+    const { result } = renderHook(() => useLongPress({ onLongPress: jest.fn(), onShortTap }))
+    act(() => result.current.onClick?.())
+    expect(onShortTap).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns no onClick when there is no onShortTap (hold-only callers keep theirs)', () => {
+    const { result } = renderHook(() => useLongPress({ onLongPress: jest.fn() }))
+    expect('onClick' in result.current).toBe(false)
   })
 
   it('tolerates sub-threshold finger jitter — a steady hold still fires', () => {

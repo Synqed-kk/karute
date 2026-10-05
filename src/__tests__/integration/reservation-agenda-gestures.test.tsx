@@ -5,7 +5,8 @@
  * 2026-07-13): the row spreads useLongPress's handlers, so a tap opens the
  * action sheet, a 450ms hold opens the cancel sheet, and a DRAG — a scroll
  * attempt on a day that fits one screen, where no pointercancel ever comes —
- * opens neither.
+ * opens neither. S103: the tap opens on the row's CLICK, not its pointerup,
+ * so a pointerup the engine never follows with a click opens nothing.
  */
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
@@ -80,8 +81,23 @@ describe('予約 agenda row gestures', () => {
       jest.advanceTimersByTime(150)
     })
     fireEvent.pointerUp(row)
+    fireEvent.click(row)
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(onLongPress).not.toHaveBeenCalled()
+  })
+
+  it('(f) pointerup with no click (a tap that stops a glide) → no sheet', () => {
+    const { row, onSelect, onLongPress } = renderRow()
+    fireEvent.pointerDown(row, { clientX: 50, clientY: 100 })
+    fireEvent.pointerUp(row)
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(onLongPress).not.toHaveBeenCalled()
+  })
+
+  it('keyboard Enter/Space (a click with no pointer sequence) → onSelect', () => {
+    const { row, onSelect } = renderRow()
+    fireEvent.click(row)
+    expect(onSelect).toHaveBeenCalledTimes(1)
   })
 
   it('450ms hold → onLongPress (cancel sheet), no onSelect', () => {
@@ -91,6 +107,7 @@ describe('予約 agenda row gestures', () => {
       jest.advanceTimersByTime(450)
     })
     fireEvent.pointerUp(row)
+    fireEvent.click(row) // (e) the click that trails a completed hold
     expect(onLongPress).toHaveBeenCalledTimes(1)
     expect(onSelect).not.toHaveBeenCalled()
   })
@@ -103,6 +120,7 @@ describe('予約 agenda row gestures', () => {
       jest.advanceTimersByTime(200)
     })
     fireEvent.pointerUp(row)
+    fireEvent.click(row)
     expect(onSelect).not.toHaveBeenCalled()
     expect(onLongPress).not.toHaveBeenCalled()
   })
@@ -115,6 +133,7 @@ describe('予約 agenda row gestures', () => {
       jest.advanceTimersByTime(1000)
     })
     fireEvent.pointerUp(row)
+    fireEvent.click(row)
     expect(onSelect).not.toHaveBeenCalled()
     expect(onLongPress).not.toHaveBeenCalled()
   })

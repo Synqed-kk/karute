@@ -536,8 +536,11 @@ function AgendaRow({
   }`
 
   if (interactive) {
-    // No onClick: the hold hook's onShortTap carries the tap (and swallows the
-    // click that trails a completed hold). touch-action pan-y keeps vertical
+    // The tap opens on the row's CLICK — holdHandlers carries the hook's
+    // onClick, which runs onShortTap and swallows the click that trails a
+    // completed hold or a drag. A pointerup alone opens nothing, so a touch
+    // that only stops a scroll glide (iOS sends it no click) cannot open a
+    // booking; Enter/Space still do. touch-action pan-y keeps vertical
     // scrolling native — a scroll fires pointercancel and aborts the hold
     // (the hook's own move tolerance covers the fits-on-one-screen case where
     // no scroll ever starts). select-none + touch-callout keep iOS's native

@@ -33,7 +33,11 @@ interface UseLongPressOptions {
   thresholdMs?: number
   /** Fires when the user holds past the threshold. */
   onLongPress: () => void
-  /** Optional — fires on a regular tap (held < threshold). */
+  /** Optional — fires on a regular tap (held < threshold). Runs from the
+   *  element's CLICK, not its pointerup: a touch the engine never turns into
+   *  a click (one that only stops a scroll glide, or one aimed at the fixed
+   *  tab bar that the engine delivered to the row) opens nothing, and
+   *  keyboard Enter/Space still opens. */
   onShortTap?: () => void
 }
 
@@ -77,15 +81,19 @@ export function useLongPress({
 
   const end = useCallback(() => {
     cancel()
-    // A pointerup with no matching pointerdown on this element is a phantom:
-    // e.g. mousedown on a dialog overlay closes it, the overlay unmounts, and
-    // the mouseup lands on the row underneath — that must not count as a tap.
-    const pressed = origin.current !== null
     origin.current = null
-    if (pressed && !firedLong.current && !moved.current && onShortTap) {
-      onShortTap()
-    }
-  }, [cancel, onShortTap])
+  }, [cancel])
+
+  // The tap itself. The click that trails a completed hold, or a drag that
+  // left the slop, is swallowed (and the flags reset, so the next click —
+  // keyboard included — opens). A click with no pointer sequence at all
+  // (Enter/Space) sees both flags false and opens.
+  const click = useCallback(() => {
+    const swallow = firedLong.current || moved.current
+    firedLong.current = false
+    moved.current = false
+    if (!swallow) onShortTap?.()
+  }, [onShortTap])
 
   return {
     onPointerDown: start,
@@ -93,5 +101,8 @@ export function useLongPress({
     onPointerUp: end,
     onPointerLeave: cancel,
     onPointerCancel: cancel,
+    // Only when a tap means something: the hold-only callers spread these
+    // handlers next to their own onClick and must keep it.
+    ...(onShortTap ? { onClick: click } : {}),
   }
 }
