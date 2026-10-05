@@ -401,6 +401,75 @@ describe('T2d stack-frame URLs lose their query', () => {
   })
 })
 
+describe('T2f the deep query rule walks the whole event except the out-of-scope free text', () => {
+  const Q2 = C + '-Q2'
+  function deepEvent(): ErrorEvent {
+    return {
+      type: undefined,
+      message: '/p?token=' + Q2,
+      extra: { where: '/p?token=' + Q2 },
+      exception: { values: [{ type: 'Error', value: '/p?token=' + Q2 }] },
+      debug_meta: {
+        images: [{ type: 'sourcemap', code_file: 'https://x.test/app.js?token=' + URLQ, debug_id: 'd' }],
+      },
+      tags: { page: '/photos?token=' + URLQ, plain: 'what?' },
+      contexts: { app: { start_url: 'https://x.test/s?token=' + URLQ, list: ['/a?token=' + URLQ] } },
+    }
+  }
+
+  it('debug_meta code_file, tags and contexts.app lose the query', () => {
+    const out = scrubEvent(deepEvent())
+    expect(out).not.toBeNull()
+    expect(out!.debug_meta!.images![0]).toEqual({
+      type: 'sourcemap', code_file: 'https://x.test/app.js', debug_id: 'd',
+    })
+    expect(out!.tags).toEqual({ page: '/photos', plain: 'what?' })
+    expect(out!.contexts!.app).toEqual({ start_url: 'https://x.test/s', list: ['/a'] })
+    expect(JSON.stringify(out)).not.toContain(URLQ)
+  })
+
+  it('message, extra and the exception value come back UNCHANGED (out of scope, R-S97-3)', () => {
+    const out = scrubEvent(deepEvent())
+    expect(out!.message).toBe('/p?token=' + Q2)
+    expect(out!.extra).toEqual({ where: '/p?token=' + Q2 })
+    expect(out!.exception!.values![0].value).toBe('/p?token=' + Q2)
+  })
+
+  it('a cyclic contexts.app: the event comes back (not null), its query stripped', () => {
+    const app: Record<string, unknown> = { start_url: '/s?token=' + URLQ }
+    app.self = app
+    const out = scrubEvent({ type: undefined, contexts: { app } })
+    expect(out).not.toBeNull()
+    expect(out!.contexts!.app!.start_url).toBe('/s')
+  })
+
+  it('a cyclic span attribute: the deep rule terminates and strips the query', () => {
+    const inner: Record<string, unknown> = { u: '/s?token=' + URLQ }
+    inner.self = inner
+    const data: Record<string, unknown> = { 'x.obj': inner, 'x.list': [inner] }
+    scrubSpanData(data)
+    expect(inner.u).toBe('/s')
+    expect(inner.self).toBe(inner)
+  })
+
+  it("a 25-deep object: the subtree past the cap becomes '[depth]'", () => {
+    const leaf: Record<string, unknown> = { u: '/x?token=' + URLQ }
+    let chain: Record<string, unknown> = leaf
+    for (let i = 0; i < 25; i++) chain = { n: chain }
+    const out = scrubEvent({ type: undefined, contexts: { app: chain } })
+    expect(out).not.toBeNull()
+    // event = depth 0, contexts = 1, app = 2: objects to depth 20 are kept, depth 21 is cut.
+    let node: unknown = out!.contexts!.app
+    let depth = 2
+    while (node && typeof node === 'object') {
+      node = (node as Record<string, unknown>).n
+      depth++
+    }
+    expect([depth, node]).toEqual([21, '[depth]'])
+    expect(JSON.stringify(out)).not.toContain(URLQ)
+  })
+})
+
 describe('T3e scrubSpanData drops every client / peer IP attribute', () => {
   const IP_KEYS = [
     'http.client_ip', 'net.peer.ip', 'net.sock.peer.addr', 'client.address',
@@ -432,6 +501,8 @@ describe('T3g scrubSpanData strips the query off every URL- or path-shaped value
       'x.text': 'what?',
       'x.num': 3,
       transaction: 'GET /photos?token=' + URLQ,
+      'asset.urls': ['/photos/a.jpg?token=' + URLQ, 'https://x.test/b?token=' + URLQ, 'what?'],
+      'x.nested': { a: { url: '/p?token=' + URLQ, list: [{ u: '//cdn/x?token=' + URLQ }] } },
       'http.request.body': 'customer=' + BODY,
       'http.response.body.size': 42,
     }
@@ -445,6 +516,8 @@ describe('T3g scrubSpanData strips the query off every URL- or path-shaped value
       'x.text': 'what?',
       'x.num': 3,
       transaction: 'GET /photos',
+      'asset.urls': ['/photos/a.jpg', 'https://x.test/b', 'what?'],
+      'x.nested': { a: { url: '/p', list: [{ u: '//cdn/x' }] } },
     })
     expect(JSON.stringify(data)).not.toContain(URLQ)
     expect(JSON.stringify(data)).not.toContain(BODY)

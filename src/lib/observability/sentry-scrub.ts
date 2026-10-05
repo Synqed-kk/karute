@@ -56,13 +56,23 @@ export function scrubPii<T extends AnyEvent>(event: T): T | null {
   return event
 }
 
-export function redact(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redact)
+// FIX-4: cycle-safe (a back-reference to an ancestor becomes '[cycle]' instead
+// of overflowing the stack and dropping the whole event); otherwise unchanged.
+export function redact(value: unknown, ancestors: WeakSet<object> = new WeakSet()): unknown {
   if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = PII_KEYS.has(k.toLowerCase()) ? '[redacted]' : redact(v)
+    if (ancestors.has(value)) return '[cycle]'
+    ancestors.add(value)
+    let out: unknown
+    if (Array.isArray(value)) {
+      out = value.map((v) => redact(v, ancestors))
+    } else {
+      const rec: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(value)) {
+        rec[k] = PII_KEYS.has(k.toLowerCase()) ? '[redacted]' : redact(v, ancestors)
+      }
+      out = rec
     }
+    ancestors.delete(value)
     return out
   }
   return value
@@ -96,13 +106,9 @@ export function scrubSpanData<T extends Record<string, unknown>>(data: T): T {
     const v = rec[key]
     if (typeof v === 'string') rec[key] = stripQuery(v)
   }
-  // Generic rule: any URL- or path-shaped string under ANY key loses its query
-  // (lcp.url, browser.web_vital.lcp.url, ui.element.url, a `GET /photos?...`
-  // transaction and keys not named here).
-  for (const key of Object.keys(rec)) {
-    const v = rec[key]
-    if (typeof v === 'string' && hasSlashBeforeQuery(v)) rec[key] = stripQuery(v)
-  }
+  // The deep rule: any URL- or path-shaped string under ANY key, at any depth,
+  // inside arrays too (lcp.url, asset.urls[], a `GET /photos?...` transaction).
+  stripQueriesDeep(rec)
   return data
 }
 
@@ -113,6 +119,36 @@ export function scrubSpanData<T extends Record<string, unknown>>(data: T): T {
 function hasSlashBeforeQuery(v: string): boolean {
   const cut = v.search(/[?#]/)
   return cut !== -1 && v.slice(0, cut).includes('/')
+}
+
+// ---- the ONE deep query rule ----
+
+const DEPTH_CAP = 20
+
+function walkStrip(node: unknown, depth: number, seen: WeakSet<object>, skip: readonly string[]): unknown {
+  if (typeof node === 'string') return hasSlashBeforeQuery(node) ? stripQuery(node) : node
+  if (!node || typeof node !== 'object') return node
+  if (seen.has(node)) return node
+  if (depth > DEPTH_CAP) return '[depth]'
+  seen.add(node)
+  const rec = node as Record<string, unknown>
+  for (const key of Object.keys(rec)) {
+    if (skip.includes(key)) continue
+    const v = rec[key]
+    const next = walkStrip(v, depth + 1, seen, [])
+    if (next !== v) rec[key] = next
+  }
+  return node
+}
+
+/**
+ * The ONE deep query rule: walks objects and arrays (cycle-safe, depth cap 20 —
+ * a deeper subtree becomes '[depth]') and strips the query off every string
+ * that is URL- or path-shaped (hasSlashBeforeQuery). Mutates in place; the keys
+ * in `skip` are left untouched at the top level only.
+ */
+export function stripQueriesDeep<T>(root: T, skip: readonly string[] = [], seen = new WeakSet<object>()): T {
+  return walkStrip(root, 0, seen, skip) as T
 }
 
 /** Strips the query off a span's (or trace context's) name: browser resource spans are named by their URL. */
@@ -208,6 +244,17 @@ function scrubOrdinary<T extends AnyEvent>(input: T): T | null {
   const traceData = event.contexts?.trace?.data
   if (traceData) scrubSpanData(traceData)
   stripSpanNames(event.contexts?.trace)
+
+  // The deep rule over the WHOLE event, except the free text that is out of
+  // PR-A0's scope (R-S97-3, queue item 102): message, logentry, extra and each
+  // exception value stay byte-for-byte untouched.
+  const seen = new WeakSet<object>()
+  stripQueriesDeep(event, ['message', 'logentry', 'extra', 'exception'], seen)
+  const exception = event.exception
+  if (exception) {
+    stripQueriesDeep(exception, ['values'], seen)
+    for (const value of exception.values ?? []) stripQueriesDeep(value, ['value'], seen)
+  }
 
   return event
 }
