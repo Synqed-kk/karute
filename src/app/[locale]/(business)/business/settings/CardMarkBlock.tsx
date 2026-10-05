@@ -17,6 +17,8 @@ export const MARK_PRACTICE_LINE = 'ロゴはまだ保存できないため、選
 export const MARK_REAL_LINE = 'ロゴの設定は準備中のため、まだ画像を選べません。' // COPY-S49 L7
 
 export type MeasureMark = (url: string) => Promise<{ width: number; height: number }>
+/** ⚖ S66 R263 — the full pixel decode, run only AFTER the size checks pass (so at most 2048×2048 is ever allocated). */
+export type DecodeMark = (file: Blob) => Promise<void>
 
 /** The browser's own decode: the image's natural size. */
 const measureInBrowser: MeasureMark = (url) => new Promise((resolve, reject) => {
@@ -25,6 +27,14 @@ const measureInBrowser: MeasureMark = (url) => new Promise((resolve, reject) => 
   img.onerror = () => reject(new Error('decode'))
   img.src = url
 })
+
+/** ⚖ S66 R260/R263 (proof check 33): Chromium fires <img> load for a truncated file (header only, no image data) and
+ *  reports its header size; createImageBitmap rejects it. A throw here = the existing type refusal. Bitmap released at once. */
+const decodeInBrowser: DecodeMark = async (file) => {
+  if (typeof createImageBitmap === 'undefined') return // an old browser without it: never refuse every logo
+  const bitmap = await createImageBitmap(file)
+  bitmap.close()
+}
 
 function readHead(file: Blob): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
@@ -41,9 +51,11 @@ type Props = {
   onMark: (e: MarkEvent) => void
   /** Test seam for the pixel size (jsdom decodes nothing). */
   measure?: MeasureMark
+  /** Test seam for the full pixel decode (R263). */
+  decode?: DecodeMark
 }
 
-export function CardMarkBlock({ practice, onMark, measure = measureInBrowser }: Props) {
+export function CardMarkBlock({ practice, onMark, measure = measureInBrowser, decode = decodeInBrowser }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const pickRef = useRef<HTMLButtonElement>(null)
   const urlRef = useRef<string | null>(null)
@@ -79,12 +91,18 @@ export function CardMarkBlock({ practice, onMark, measure = measureInBrowser }: 
     const early = checkMarkFile(head, file.size)
     if (early !== null) { refuse(early); return }
     // R193: the URL is typed by the sniffed format, never the file's declared type.
-    const url = URL.createObjectURL(new Blob([file], { type: `image/${sniffMarkFormat(head)}` }))
+    const typed = new Blob([file], { type: `image/${sniffMarkFormat(head)}` })
+    const url = URL.createObjectURL(typed)
     let size: { width: number; height: number } | null = null
     try { size = await measure(url) } catch { size = null }
     if (mine !== turn.current) { URL.revokeObjectURL(url); return }
     const late = size === null ? 'type' : checkMarkSize(size.width, size.height)
     if (late !== null || size === null) { URL.revokeObjectURL(url); refuse(late ?? 'type'); return }
+    // R263: only a size that passed reaches the full decode; a newer pick or a flip during it drops this one.
+    let decoded = true
+    try { await decode(typed) } catch { decoded = false }
+    if (mine !== turn.current) { URL.revokeObjectURL(url); return }
+    if (!decoded) { URL.revokeObjectURL(url); refuse('type'); return }
     drop()
     urlRef.current = url
     setRefusal(null)

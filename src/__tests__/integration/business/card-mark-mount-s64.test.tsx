@@ -154,11 +154,14 @@ beforeEach(() => {
     revokeObjectURL: (u: string) => { revoked.push(u) },
   })
   window.Image = SquareImage as unknown as typeof Image
+  // S66 P10: the block also needs the browser's full decode (createImageBitmap); jsdom has none — stub a good one.
+  ;(globalThis as unknown as { createImageBitmap: unknown }).createImageBitmap = async () => ({ width: 512, height: 512, close() {} })
 })
 afterEach(() => {
   cleanup()
   Object.assign(URL, URL_BEFORE)
   window.Image = IMAGE_BEFORE
+  delete (globalThis as unknown as { createImageBitmap?: unknown }).createImageBitmap
 })
 const settle = () => act(async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0)) })
 const choose = async (f: File) => {

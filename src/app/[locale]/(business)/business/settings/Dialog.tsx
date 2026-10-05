@@ -12,7 +12,9 @@
  *     is skipped (the mock's 業種 dialog leaked when 戻す was disabled — SPECCHECK
  *     fix 2). An `aria-disabled` control stays reachable, as the room intends.
  *  4. Initial focus is the caller's choice (`initialFocus`); on close focus
- *     returns to the control that opened it.
+ *     returns to the control that opened it — or, ⚖ S66 R260, to `returnFocus`
+ *     when the caller names one (WebKit never focuses a clicked button, so the
+ *     focused element at a pointer/tap open is BODY).
  *  5. ⚖ R112 — a click on the SCRIM itself closes it too (the mock's three cancel
  *     paths: Esc · scrim · やめる). Only a click whose target IS the scrim counts
  *     (never one that bubbles up from the panel), and never a press that began
@@ -81,6 +83,7 @@ export function Dialog({
   root,
   className,
   sheet,
+  returnFocus,
   children,
 }: {
   open: boolean
@@ -96,6 +99,8 @@ export function Dialog({
   className?: string
   /** ⚖ S62 R227 (rule 9) — draw the dialog as a bottom sheet. */
   sheet?: boolean
+  /** ⚖ S66 R260 — where focus returns on close, however the dialog was opened (falls back to the opener). */
+  returnFocus?: RefObject<HTMLElement | null>
   children: ReactNode
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
@@ -107,6 +112,8 @@ export function Dialog({
   const idRef = useRef<symbol>(Symbol('dialog'))
   const onCloseRef = useRef(onClose)
   useLayoutEffect(() => { onCloseRef.current = onClose }, [onClose])
+  const returnRef = useRef(returnFocus)
+  useLayoutEffect(() => { returnRef.current = returnFocus }, [returnFocus])
 
   // Opening: remember the opener (fresh on every open — the target is cleared on
   // close, so nothing renders before this runs), find the room root. Closing:
@@ -128,7 +135,9 @@ export function Dialog({
       // target first, an autoFocus child takes focus in that commit, and this
       // effect would capture the child as the opener.
       setTarget(null)
-      if (opener && opener.isConnected) opener.focus()
+      const back = returnRef.current?.current
+      if (back && back.isConnected) back.focus()
+      else if (opener && opener.isConnected) opener.focus()
     }
   }, [open, root])
 

@@ -101,6 +101,8 @@ export function ReserveCardLookSection({
   const [view, setView] = useState<View>('home')
   // ⚖ S62 R226 — the sheet exists only ≤ 899: leaving the band closes it AND forgets it, so narrowing again never reopens it
   const [sheetOpen, setSheetOpen] = useState(false)
+  // ⚖ S66 R260 — the sheet's trigger: on close focus returns HERE however it was opened (WebKit leaves a click on BODY)
+  const viewBtnRef = useRef<HTMLButtonElement>(null)
   if (!narrow && sheetOpen) setSheetOpen(false)
   // ⚖ S64 R241 — the picked mark lives HERE, never in the room's values, the count or a request. A `practice` flip drops it
   // during render (the same pattern as `sheetOpen` above), and the block is keyed by `practice`, so it remounts (URL revoked).
@@ -279,11 +281,11 @@ export function ReserveCardLookSection({
   // ⚖ S62 R230 — 「見え方を見る」 + the sheet it opens (the room's ONE Dialog, sheet form). Never disabled (spec D13).
   const viewButton = (
     <>
-      <button type="button" className="cl-viewbtn" data-guide-title={PREVIEW_GUIDE.title} data-guide={PREVIEW_GUIDE.body} onClick={() => setSheetOpen(true)}>
+      <button type="button" ref={viewBtnRef} className="cl-viewbtn" data-guide-title={PREVIEW_GUIDE.title} data-guide={PREVIEW_GUIDE.body} onClick={() => setSheetOpen(true)}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3" /><path d="M10.5 18.6h3" /></svg>
         見え方を見る
       </button>
-      <Dialog sheet open={narrow && sheetOpen} onClose={() => setSheetOpen(false)} labelledBy="clPvHead">{preview}</Dialog>
+      <Dialog sheet open={narrow && sheetOpen} onClose={() => setSheetOpen(false)} labelledBy="clPvHead" returnFocus={viewBtnRef}>{preview}</Dialog>
     </>
   )
 
