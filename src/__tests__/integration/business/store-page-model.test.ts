@@ -475,15 +475,30 @@ describe('R155 — every type reader goes through typeKeyOf (attack S53 finding 
   })
 })
 
-// LAST in the file on purpose: the runtime add below changes the shared public Set for the rest of this module.
 describe('the defaults are frozen (attack S53 NIT 5)', () => {
-  it('TYPE_DEFAULTS and BUSINESS_TYPE_KEYS are frozen; a runtime add to a Set does not change the seed or the reset', () => {
+  it('TYPE_DEFAULTS and BUSINESS_TYPE_KEYS are frozen; the record cannot be reassigned', () => {
     expect(Object.isFrozen(TYPE_DEFAULTS)).toBe(true)
     expect(Object.isFrozen(BUSINESS_TYPE_KEYS)).toBe(true)
     expect(() => { (BUSINESS_TYPE_KEYS as BusinessTypeKey[]).push('other') }).toThrow(TypeError)
     expect(() => { (TYPE_DEFAULTS as Record<string, unknown>).other = new Set<CapKey>(['shop']) }).toThrow(TypeError)
-    ;(TYPE_DEFAULTS.other as Set<CapKey>).add('shop')
     expect(onKeys(seedRecord('other'))).toEqual(['checkin_qr'])
     expect(resetDiff(seedRecord('other')).none).toBe(true)
+  })
+  // Greptile PR #1126 (model.ts:89): no type default a caller can reach may be changed at runtime, for ANY type.
+  it('a caller cannot add, delete or clear any type default; the sets and the model answer are unchanged after', () => {
+    for (const t of BUSINESS_TYPE_KEYS) {
+      const s = TYPE_DEFAULTS[t] as Set<CapKey>
+      const before = [...s]
+      expect(() => s.add('shop')).toThrow(TypeError)
+      expect(() => s.add('video_proof')).toThrow(TypeError)
+      expect(() => s.delete('checkin_qr')).toThrow(TypeError)
+      expect(() => s.clear()).toThrow(TypeError)
+      expect(Object.isFrozen(s)).toBe(true)
+      expect([...s]).toEqual(before)
+      expect(s.size).toBe(onKeys(seedRecord(t)).length)
+      expect(onKeys(seedRecord(t))).toEqual(CAP_KEYS.filter((k) => s.has(k)))
+      expect(resetDiff(seedRecord(t)).none).toBe(true)
+    }
+    expect([...TYPE_DEFAULTS.other]).toEqual(['checkin_qr'])
   })
 })

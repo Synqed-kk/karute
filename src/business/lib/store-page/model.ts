@@ -79,11 +79,16 @@ const TYPE_ON: Readonly<Record<BusinessTypeKey, readonly CapKey[]>> = Object.fre
   veterinary: setOf('checkin_qr', 'intake', 'homecare', 'posts', 'read_points', 'shop'),
   other: setOf('checkin_qr'),
 })
-/** The public view of the same sets: a frozen record of ReadonlySets built once from the frozen arrays above. A Set
- *  cannot be frozen at runtime, so the model never reads these — defaultOn reads the frozen array. */
+/** The public view of the same sets, derived from the frozen arrays above (the ONE definition). Greptile PR #1126:
+ *  every exported default is read-only for every caller — ReadonlySet at compile time, and at runtime each Set's
+ *  add/delete/clear throw a TypeError and the Set itself is frozen. The model still never reads these (defaultOn
+ *  reads the frozen array), so not even Set.prototype.add.call can change a model answer. */
+const refuse = (): never => { throw new TypeError('TYPE_DEFAULTS is read-only') }
+const readonlySetOf = (keys: readonly CapKey[]): ReadonlySet<CapKey> =>
+  Object.freeze(Object.assign(new Set<CapKey>(keys), { add: refuse, delete: refuse, clear: refuse }))
 const publicSets = (): Record<BusinessTypeKey, ReadonlySet<CapKey>> => {
   const out = {} as Record<BusinessTypeKey, ReadonlySet<CapKey>>
-  for (const t of TYPE_KEY_LIST) out[t] = new Set<CapKey>(TYPE_ON[t])
+  for (const t of TYPE_KEY_LIST) out[t] = readonlySetOf(TYPE_ON[t])
   return out
 }
 export const TYPE_DEFAULTS: Readonly<Record<BusinessTypeKey, ReadonlySet<CapKey>>> = Object.freeze(publicSets())
