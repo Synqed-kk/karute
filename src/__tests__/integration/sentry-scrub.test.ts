@@ -315,6 +315,45 @@ describe('T3c scrubEvent on an error carrying header span attributes', () => {
   })
 })
 
+describe('T3f every hook fails closed: a throw drops the event, never sends it raw', () => {
+  function throwing<T extends object>(base: T, key: string): T {
+    Object.defineProperty(base, key, {
+      enumerable: true,
+      get() {
+        throw new Error('boom ' + C)
+      },
+    })
+    return base
+  }
+
+  it('scrubEvent returns null when event.request throws', () => {
+    const event = throwing({ type: undefined } as ErrorEvent, 'request')
+    let out: unknown = 'not-called'
+    expect(() => {
+      out = scrubEvent(event)
+    }).not.toThrow()
+    expect(out).toBeNull()
+  })
+
+  it('scrubEvent returns null when event.breadcrumbs throws', () => {
+    const event = throwing({ type: undefined } as ErrorEvent, 'breadcrumbs')
+    expect(() => scrubEvent(event)).not.toThrow()
+    expect(scrubEvent(event)).toBeNull()
+  })
+
+  it('scrubTransaction returns null when event.spans throws', () => {
+    const tx = throwing({ type: 'transaction' } as TxEvent, 'spans')
+    expect(() => scrubTransaction(tx)).not.toThrow()
+    expect(scrubTransaction(tx)).toBeNull()
+  })
+
+  it('scrubBreadcrumb returns null when breadcrumb.category throws', () => {
+    const crumb = throwing({} as Breadcrumb, 'category')
+    expect(() => scrubBreadcrumb(crumb)).not.toThrow()
+    expect(scrubBreadcrumb(crumb)).toBeNull()
+  })
+})
+
 describe('T4 the moved scrubPii keeps every behaviour of the old function', () => {
   it('deletes request.cookies', () => {
     const out = scrubPii({ type: undefined, request: { cookies: { sid: COOKIE } } } as ErrorEvent)

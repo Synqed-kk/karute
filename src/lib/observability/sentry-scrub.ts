@@ -115,9 +115,13 @@ function keepBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
   return { ...breadcrumb, data }
 }
 
-/** beforeBreadcrumb. */
+/** beforeBreadcrumb. Fails closed: any throw drops the breadcrumb. */
 export function scrubBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
-  return keepBreadcrumb(breadcrumb)
+  try {
+    return keepBreadcrumb(breadcrumb)
+  } catch {
+    return null
+  }
 }
 
 // ---- events ----
@@ -215,25 +219,33 @@ function buildAlarmEvent(event: ErrorEvent): ErrorEvent {
   return out
 }
 
-/** beforeSend: alarm events are rebuilt from the allow-list; every other event is scrubbed. */
+/** beforeSend: alarm events are rebuilt from the allow-list; every other event is scrubbed. Fails closed: any throw drops the event. */
 export function scrubEvent(event: ErrorEvent): ErrorEvent | null {
-  if (event.tags?.alarm === '1') return buildAlarmEvent(event)
-  return scrubOrdinary(event)
+  try {
+    if (event.tags?.alarm === '1') return buildAlarmEvent(event)
+    return scrubOrdinary(event)
+  } catch {
+    return null
+  }
 }
 
-/** beforeSendTransaction: transactions never pass beforeSend, so they get the same scrub plus every span's data and name. */
+/** beforeSendTransaction: transactions never pass beforeSend, so they get the same scrub plus every span's data and name. Fails closed: any throw drops the event. */
 export function scrubTransaction(event: TransactionEvent): TransactionEvent | null {
-  const out = scrubOrdinary(event)
-  if (!out) return null
-  const traceData = out.contexts?.trace?.data
-  if (traceData) scrubSpanData(traceData)
-  if (out.spans) {
-    for (const span of out.spans) {
-      if (span.data) scrubSpanData(span.data)
-      stripSpanNames(span)
+  try {
+    const out = scrubOrdinary(event)
+    if (!out) return null
+    const traceData = out.contexts?.trace?.data
+    if (traceData) scrubSpanData(traceData)
+    if (out.spans) {
+      for (const span of out.spans) {
+        if (span.data) scrubSpanData(span.data)
+        stripSpanNames(span)
+      }
     }
+    return out
+  } catch {
+    return null
   }
-  return out
 }
 
 /** The one object every Sentry.init spreads. */
