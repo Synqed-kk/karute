@@ -118,14 +118,25 @@ function stripSpanNames(span: object | undefined): void {
 
 // ---- breadcrumbs ----
 
-/** The ONE breadcrumb rule (allow-list): only `navigation` is kept, its from/to without query; everything else is dropped. */
+/**
+ * The ONE breadcrumb rule (allow-list): only `navigation` is kept, REBUILT as
+ * { type, category, level, timestamp, data: { from, to } } with from/to
+ * query-stripped (each only if a string); `message` and every other key are dropped.
+ */
 function keepBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
   if (breadcrumb.category !== 'navigation') return null
-  if (!breadcrumb.data) return breadcrumb
-  const data = { ...breadcrumb.data }
-  if (typeof data.from === 'string') data.from = stripQuery(data.from)
-  if (typeof data.to === 'string') data.to = stripQuery(data.to)
-  return { ...breadcrumb, data }
+  const out: Breadcrumb = { category: 'navigation' }
+  if (breadcrumb.type !== undefined) out.type = breadcrumb.type
+  if (breadcrumb.level !== undefined) out.level = breadcrumb.level
+  if (breadcrumb.timestamp !== undefined) out.timestamp = breadcrumb.timestamp
+  const src = breadcrumb.data
+  if (src) {
+    const data: Record<string, string> = {}
+    if (typeof src.from === 'string') data.from = stripQuery(src.from)
+    if (typeof src.to === 'string') data.to = stripQuery(src.to)
+    out.data = data
+  }
+  return out
 }
 
 /** beforeBreadcrumb. Fails closed: any throw drops the breadcrumb. */
@@ -152,6 +163,7 @@ function scrubOrdinary<T extends AnyEvent>(input: T): T | null {
   if (event.request) {
     const req = event.request
     if (typeof req.url === 'string') req.url = stripQuery(req.url)
+    else if (req.url != null) req.url = stripQuery(String(req.url))
     if (req.headers) {
       const kept: Record<string, string> = {}
       for (const [k, v] of Object.entries(req.headers)) {

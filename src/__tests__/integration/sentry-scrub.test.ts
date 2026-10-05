@@ -98,6 +98,14 @@ describe('T2 scrubEvent on an onRequestError-shaped event', () => {
     assertClean(out)
   })
 
+  it('a non-string request.url (a URL object) loses its query', () => {
+    const event = requestErrorEvent({})
+    ;(event.request as Record<string, unknown>).url = new URL('https://karute.test/api/x?token=' + URLQ)
+    const out = scrubEvent(event)
+    expect(out!.request!.url).toBe('https://karute.test/api/x')
+    expect(JSON.stringify(out)).not.toContain(URLQ)
+  })
+
   it('HEADER_ALLOW_LIST is exactly the five allowed headers', () => {
     expect(HEADER_ALLOW_LIST).toEqual(['host', 'user-agent', 'content-type', 'content-length', 'accept'])
   })
@@ -195,6 +203,25 @@ describe('T3 scrubBreadcrumb', () => {
     })
     expect(out).not.toBeNull()
     expect(out!.data).toEqual({ from: '/customers/1', to: '/customers/2' })
+    assertClean(out)
+  })
+
+  it('navigation is rebuilt from the allow-list: message and extra data keys are dropped', () => {
+    const out = scrubBreadcrumb({
+      type: 'navigation',
+      category: 'navigation',
+      level: 'info',
+      timestamp: 5,
+      message: 'went to ' + NAME,
+      data: { from: '/a?q=' + URLQ, to: '/b', href: 'https://x.test/b?token=' + URLQ },
+    })
+    expect(out).toEqual({
+      type: 'navigation',
+      category: 'navigation',
+      level: 'info',
+      timestamp: 5,
+      data: { from: '/a', to: '/b' },
+    })
     assertClean(out)
   })
 
