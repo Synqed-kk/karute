@@ -27,6 +27,17 @@ import { useCallback, useRef } from 'react'
 
 /** Pointer travel past this cancels tap AND hold (px, straight-line). */
 const MOVE_TOLERANCE_PX = 10
+/** The token of the hook element the last pointer press began on (one for
+ *  the whole page): a pointer click opens only the element still holding it,
+ *  so a press on row A never lets a later click open row B. No clock. */
+let lastPress: object | null = null
+
+// Any new finger-down ends the last press, even one the hook never sees
+// (the bar guard stops an owned pointerdown before it reaches a row): the
+// row's own pointerdown, which runs after this, takes the token again.
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerdown', () => { lastPress = null }, true)
+}
 
 interface UseLongPressOptions {
   /** Threshold in ms. Default 450. */
@@ -50,10 +61,13 @@ export function useLongPress({
   const firedLong = useRef(false)
   const origin = useRef<{ x: number; y: number } | null>(null)
   const moved = useRef(false)
+  /** This element's own token for `lastPress`. */
+  const token = useRef({})
 
   const start = useCallback((e: React.PointerEvent) => {
     firedLong.current = false
     moved.current = false
+    lastPress = token.current
     origin.current = { x: e.clientX, y: e.clientY }
     if (typeof window === 'undefined') return
     timer.current = window.setTimeout(() => {
@@ -84,15 +98,24 @@ export function useLongPress({
     origin.current = null
   }, [cancel])
 
-  // The tap itself. The click that trails a completed hold, or a drag that
-  // left the slop, is swallowed (and the flags reset, so the next click —
-  // keyboard included — opens). A click with no pointer sequence at all
-  // (Enter/Space) sees both flags false and opens.
-  const click = useCallback(() => {
-    const swallow = firedLong.current || moved.current
+  // A scroll took the touch: no click follows, the press is over.
+  const abort = useCallback(() => {
+    cancel()
+    if (lastPress === token.current) lastPress = null
+  }, [cancel])
+
+  // The tap itself. A pointer click (detail ≥ 1) opens only when the last
+  // pointer press began on this element, and not after a completed hold or a
+  // drag past the slop — so a press that began elsewhere (a touch the bar guard
+  // owns, or another row) opens nothing, however late its click comes. A
+  // keyboard click (Enter/Space, detail 0) always opens: flags left by an
+  // earlier hold or drag never swallow it.
+  const click = useCallback((e: React.MouseEvent) => {
+    const open = e.detail === 0 || (lastPress === token.current && !firedLong.current && !moved.current)
+    lastPress = null
     firedLong.current = false
     moved.current = false
-    if (!swallow) onShortTap?.()
+    if (open) onShortTap?.()
   }, [onShortTap])
 
   return {
@@ -100,7 +123,7 @@ export function useLongPress({
     onPointerMove: move,
     onPointerUp: end,
     onPointerLeave: cancel,
-    onPointerCancel: cancel,
+    onPointerCancel: abort,
     // Only when a tap means something: the hold-only callers spread these
     // handlers next to their own onClick and must keep it.
     ...(onShortTap ? { onClick: click } : {}),

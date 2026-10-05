@@ -9,18 +9,21 @@
 // Why the engine does that is NOT known — so this enforces the rule without
 // needing the cause:
 //
-//   a touch whose POSITION is inside the bar's rect (or the record button's
-//   rect plus its painted ring, which sticks out above the bar) belongs to
-//   the bar, whatever element the engine says received it.
+//   WHERE A TOUCH STARTS DECIDES. A touch (or mouse press) that STARTS inside
+//   the bar's rect (or on the record button's circle plus its painted ring,
+//   which sticks out above the bar) on page content under the bar belongs to
+//   the bar from start to finish, whatever element the engine says received
+//   it. A touch that starts anywhere else is never touched, wherever it ends.
 //
 // One choke point: capture-phase listeners on document, installed once by the
-// thin shell. Inert unless the target is inside the PAGE (<main>) — a target
-// inside the bar is the normal case and is never touched, and portaled
-// dialogs/sheets live outside <main>. A page element stacked ABOVE the bar
-// (fixed, z > 40: inline sheets like CancelBookingSheet) also keeps its touch.
-// An intercepted touch is stopped before the page sees it and, once per
-// touch, the bar control under the finger is activated through the bar's own
-// click handler (clickAsTap) — no second navigation path.
+// thin shell. Only page content under the bar is ever intercepted: a target
+// inside the bar is the normal case and is never touched, portaled dialogs and
+// sheets live outside <main>, and a page element stacked ABOVE the bar
+// (positioned, z > 40: inline sheets, dropdowns, sticky footers) keeps its
+// touch. An owned touch is stopped before the page sees it and, on its
+// touchend, the bar control under its START point is activated through the
+// bar's own click handler (clickAsTap) — no second navigation path. Keyboard
+// and assistive-technology clicks (detail 0) are never intercepted.
 
 import { clickAsTap } from './tap-activation'
 
@@ -28,15 +31,15 @@ import { clickAsTap } from './tap-activation'
 const RING_PX = 4
 /** Same slop as tap-activation / useLongPress. */
 const SLOP_PX = 10
-/** A click this soon after a guarded touchend belongs to that touch. */
-const CLICK_AFTER_TOUCH_MS = 800
 const BAR_Z = 40
 
 // ── The silent recorder (local only) ──
-// Each interception appends one line to a ring buffer in localStorage and
-// console.debugs it — so the next field report can be read off the device.
+// Each incident (an owned touch's touchend, an intercepted click with no touch,
+// a swallowed ghost click) appends ONE line to a ring buffer in localStorage
+// and console.debugs it — so the next field report can be read off the device.
 // Nothing is shown to staff and nothing is sent anywhere. Never stored: any
-// text, aria-label, name or id — only tag/role, coordinates, timings, and the
+// text, aria-label, name or id — only tag, a bare lowercase ARIA role (any
+// other role value is stored as null), coordinates, timings, and the
 // activated control as a bare route path (query dropped: the record button's
 // href can carry a customerId) or 'record' / 'button'.
 export const BAR_GUARD_LOG_KEY = 'karute.barTouchGuard.log'
@@ -53,7 +56,7 @@ function writeLog(e: Event, x: number, y: number, bar: Element | null, activated
     x: Math.round(x),
     y: Math.round(y),
     tag: t.tagName.toLowerCase(),
-    role: t.getAttribute('role'),
+    role: /^[a-z]+$/.test(t.getAttribute('role') ?? '') ? t.getAttribute('role') : null,
     barTop: bar ? Math.round(bar.getBoundingClientRect().top) : null,
     scrollY: Math.round(window.scrollY),
     vvTop: window.visualViewport ? Math.round(window.visualViewport.offsetTop) : null,
@@ -63,102 +66,151 @@ function writeLog(e: Event, x: number, y: number, bar: Element | null, activated
   }
   console.debug('[bar-touch-guard]', line)
   try {
-    const log = JSON.parse(localStorage.getItem(BAR_GUARD_LOG_KEY) ?? '[]')
+    let log: unknown[] = []
+    try {
+      const prev: unknown = JSON.parse(localStorage.getItem(BAR_GUARD_LOG_KEY) ?? '[]')
+      if (Array.isArray(prev)) log = prev
+    } catch {
+      // a corrupt entry: start again from an empty log
+    }
     log.push(line)
     localStorage.setItem(BAR_GUARD_LOG_KEY, JSON.stringify(log.slice(-LOG_MAX)))
   } catch {
-    // storage full/blocked or a corrupt entry: the recorder is best-effort
+    // storage full or blocked: the recorder is best-effort
   }
 }
 
-type Box = { left: number; right: number; top: number; bottom: number; height: number }
-const within = (b: Box, x: number, y: number, pad = 0) =>
-  b.height > 0 && x >= b.left - pad && x <= b.right + pad && y >= b.top - pad && y <= b.bottom + pad
+type Box = { left: number; right: number; top: number; bottom: number; height: number; width: number }
+const within = (b: Box, x: number, y: number) =>
+  b.height > 0 && x >= b.left && x <= b.right && y >= b.top && y <= b.bottom
+/** The record button's area is its CIRCLE plus the ring — never its square. */
+const onCircle = (b: Box, x: number, y: number) =>
+  b.width > 0 && (x - (b.left + b.right) / 2) ** 2 + (y - (b.top + b.bottom) / 2) ** 2 <= (b.width / 2 + RING_PX) ** 2
+const near = (s: { x: number; y: number }, x: number, y: number) => (x - s.x) ** 2 + (y - s.y) ** 2 <= SLOP_PX ** 2
 
-/** Some page element between target and <main> paints above the bar. */
+/** Some page element between target and <main> paints above the bar:
+ *  positioned (fixed, absolute, sticky, relative) with a z-index over 40. */
 function aboveBar(t: Element | null, page: Element): boolean {
   for (; t && t !== page; t = t.parentElement) {
     const s = getComputedStyle(t)
-    if (s.position === 'fixed' && Number(s.zIndex) > BAR_Z) return true
+    if (s.position !== 'static' && Number(s.zIndex) > BAR_Z) return true
   }
   return false
 }
 
 export function installBarTouchGuard(wrapper: HTMLElement, page: HTMLElement): () => void {
+  /** The touch this guard owns (its touchstart was intercepted). */
   let start: { id: number; x: number; y: number } | null = null
-  let lastTouchEnd = -Infinity
-  let own = false
+  /** The mouse/pointer press since the last click: its start point when the
+   *  guard owns it, null when it started elsewhere, undefined when none. */
+  let down: { x: number; y: number } | null | undefined
+  // Gesture-scoped, never timed: each is set at a touchend and cleared by the
+  // click it expects or by the next gesture's pointerdown/touchstart.
+  let owed = false // an owned touch lifted: its trailing click is swallowed silently, wherever it lands
+  let barTouched = false // a touch lifted inside the bar on the bar itself: a ghost click under it is swallowed
+  let otherEnd = false // a touch that was not ours lifted: the next click is that touch's click
 
   const bar = () => wrapper.querySelector('[aria-label="Primary navigation"]')
-  const record = () => wrapper.querySelector('[data-bar-record]')
+  const record = () => wrapper.querySelector<HTMLElement>('[data-bar-record]')
 
   /** Is (x,y) the bar's? */
   const inside = (x: number, y: number) => {
     const b = bar()
     const r = record()
-    return !!b && (within(b.getBoundingClientRect(), x, y) || (!!r && within(r.getBoundingClientRect(), x, y, RING_PX)))
+    return !!b && (within(b.getBoundingClientRect(), x, y) || (!!r && onCircle(r.getBoundingClientRect(), x, y)))
   }
 
-  /** The bar control whose own rect holds (x,y); null → nothing to do. */
+  /** The enabled bar control under (x,y); null → nothing to do. */
   const controlAt = (x: number, y: number): HTMLElement | null => {
-    const r = record() as HTMLElement | null
-    if (r && within(r.getBoundingClientRect(), x, y, RING_PX)) return r
-    for (const el of bar()?.querySelectorAll<HTMLElement>('a,button') ?? []) {
-      if (within(el.getBoundingClientRect(), x, y)) return el
+    const r = record()
+    let el: HTMLElement | null = r && onCircle(r.getBoundingClientRect(), x, y) ? r : null
+    for (const c of bar()?.querySelectorAll<HTMLElement>('a,button') ?? []) {
+      if (!el && c !== r && within(c.getBoundingClientRect(), x, y)) el = c
     }
-    return null
+    if (!el || (el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') return null
+    return el
   }
 
   const activate = (x: number, y: number): string | null => {
     const el = controlAt(x, y)
     if (!el) return null
-    own = true
-    try {
-      clickAsTap(el)
-    } finally {
-      own = false
-    }
+    clickAsTap(el)
     if (el.hasAttribute('data-bar-record')) return 'record'
     const href = el.getAttribute('href')
     return href ? href.split('?')[0] : 'button'
   }
 
   const onEvent = (e: Event) => {
-    if (own) return
     const te = (e as TouchEvent).changedTouches
-    const p = te ? te[0] : (e as MouseEvent)
+    // The owned touch by its identifier: a two-finger lift may list it second.
+    const p = te ? (Array.from(te).find((c) => c.identifier === start?.id) ?? te[0]) : (e as MouseEvent)
     if (!p) return
     const { clientX: x, clientY: y } = p
-    const id = te ? te[0].identifier : -1
-    const now = Date.now()
-    // The click trailing a touch this guard already handled: whatever it now
-    // targets (the bar included), the touch's activation was the tap.
-    if (e.type === 'click' && now - lastTouchEnd < CLICK_AFTER_TOUCH_MS && inside(x, y)) {
+    const id = te ? (p as Touch).identifier : -1
+    const t = e.target instanceof Element ? e.target : null
+    /** Page content (in <main>, not in the bar, not stacked above it). */
+    const underBar = () => !!t && !wrapper.contains(t) && page.contains(t) && !aboveBar(t, page)
+    const stop = () => {
       e.stopPropagation()
-      e.preventDefault()
-      writeLog(e, x, y, bar(), null)
-      return
+      if (e.cancelable && e.type !== 'touchstart') e.preventDefault()
     }
-    const t = e.target
-    if (!(t instanceof Element) || wrapper.contains(t) || !page.contains(t)) return
-    if (!inside(x, y) || aboveBar(t, page)) {
-      if (e.type === 'touchstart') start = null
-      return
-    }
-    e.stopPropagation()
-    if (e.type !== 'touchstart' && e.cancelable) e.preventDefault()
-    let activated: string | null = null
-    if (e.type === 'touchstart') {
-      start = { id, x, y }
+
+    if (e.type === 'pointerdown' || e.type === 'touchstart') owed = barTouched = otherEnd = false
+    if (e.type === 'pointerdown') {
+      down = inside(x, y) && underBar() ? { x, y } : null
+      if (down) stop()
+    } else if (e.type === 'touchstart') {
+      if (inside(x, y) && underBar()) {
+        start = { id, x, y }
+        stop()
+      } else if (start?.id === id) start = null
     } else if (e.type === 'touchend') {
-      lastTouchEnd = now
       const s = start
+      if (!s || s.id !== id) {
+        // A touch that started elsewhere is never touched.
+        otherEnd = true
+        if (t && wrapper.contains(t) && inside(x, y)) barTouched = true
+        return
+      }
       start = null
-      if (s && s.id === id && (x - s.x) ** 2 + (y - s.y) ** 2 <= SLOP_PX ** 2) activated = activate(x, y)
-    } else if (e.type === 'click') {
-      activated = activate(x, y)
+      owed = true
+      stop()
+      // No activation while another finger is down (as tap-activation.ts).
+      const tap = (e as TouchEvent).touches.length === 0 && near(s, x, y)
+      writeLog(e, x, y, bar(), tap ? activate(s.x, s.y) : null)
+    } else if (e.type === 'touchcancel') {
+      // The owned touch was cancelled: it owns nothing any more.
+      if (start?.id === id) {
+        start = null
+        down = undefined
+      }
+    } else {
+      const d = down
+      down = undefined
+      // Keyboard / assistive-technology clicks are never touched (the guard's
+      // own re-entrant el.click() is one: it returns here, before `owed` is read).
+      if ((e as MouseEvent).detail === 0) return
+      // The owned touch's own click: swallowed wherever it lands (the bar
+      // control itself, a portal, a layer above the bar, or page content).
+      if (owed) {
+        owed = otherEnd = false
+        return stop()
+      }
+      // Any other click not on page content under the bar (the bar itself,
+      // portals, layers above it) is never touched.
+      if (!underBar()) return
+      const other = otherEnd
+      otherEnd = false
+      if (barTouched && inside(x, y)) {
+        barTouched = false
+        stop()
+        return writeLog(e, x, y, bar(), null)
+      }
+      if (other || d === null || (d === undefined && !inside(x, y))) return
+      stop()
+      const s = d ?? { x, y }
+      writeLog(e, x, y, bar(), near(s, x, y) ? activate(s.x, s.y) : null)
     }
-    writeLog(e, x, y, bar(), activated)
   }
   const onVisible = () => {
     if (document.visibilityState === 'visible') lastVisible = Date.now()
@@ -167,7 +219,10 @@ export function installBarTouchGuard(wrapper: HTMLElement, page: HTMLElement): (
     lastScroll = Date.now()
   }
 
-  const types = ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click'] as const
+  // No pointerup: stopping it would leave a row's hold timer running (a short
+  // tap near the bar's top edge would open hold-to-cancel). pointerdown is
+  // enough — a row never starts a press inside the bar.
+  const types = ['pointerdown', 'touchstart', 'touchend', 'touchcancel', 'click'] as const
   for (const type of types) document.addEventListener(type, onEvent, { capture: true, passive: type === 'touchstart' })
   document.addEventListener('visibilitychange', onVisible)
   window.addEventListener('scroll', onScroll, { passive: true })
