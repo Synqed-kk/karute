@@ -47,9 +47,8 @@ interface UseLongPressOptions {
   onLongPress: () => void
   /** Optional — fires on a regular tap (held < threshold). Runs from the
    *  element's CLICK, not its pointerup: a touch the engine never turns into
-   *  a click (one that only stops a scroll glide, or one aimed at the fixed
-   *  tab bar that the engine delivered to the row) opens nothing, and
-   *  keyboard Enter/Space still opens. */
+   *  a click (for example one that only stops a scroll glide) opens
+   *  nothing, and keyboard Enter/Space still opens. */
   onShortTap?: () => void
 }
 

@@ -29,7 +29,10 @@ type Route = { href: string; label: string; icon: React.ComponentType<{ classNam
 // ── The bar has no dead space (S105 round 5) ──
 // Every point of the bar — its 1px top border, its px-2 side margins (out to
 // the screen edge when the row is capped at max-w-screen-sm) and its
-// safe-area strip — belongs to one of the five controls. The growth is a
+// safe-area strip — belongs to one of the five controls, except while the
+// STOP button shows (recording on /sessions): its column keeps the dead space
+// it always had, so a stray thumb cannot end a recording (see RecordHit).
+// The growth is a
 // transparent, aria-hidden `data-bar-hit` span INSIDE each control, so a touch
 // on it is the control's own touch (tapActivation on the control) and nothing
 // drawn changes: the spans paint nothing, the press scale still sizes off the
