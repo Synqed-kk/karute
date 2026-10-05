@@ -58,7 +58,12 @@ function TabHit({ edge }: { edge: keyof typeof TAB_HIT }) {
  *  content bottom): the proud part plus a 12px slop above and each side, and
  *  under the bar's top edge the whole column down through the safe-area
  *  strip (±64px is wider than any column; the tabs' spans cover the excess).
- *  Idle and recording-elsewhere only: the stop button has none (S106 R2). */
+ *  Idle and recording-elsewhere only: the stop button has none (S106 R2).
+ *  The column's bottom overshoots the bar's bottom edge by a fixed 16px
+ *  (-44px = -28px - 16px; S106 R3): flex-shrink can make the circle ~43px
+ *  and active:scale-95 pulls the span ~5px up, so an exact -28px left a thin
+ *  dead strip. The bar sits at the viewport bottom, so the excess is
+ *  off-screen; nothing drawn changes. */
 function RecordHit() {
   return (
     <>
@@ -66,7 +71,7 @@ function RecordHit() {
       <span
         aria-hidden
         data-bar-hit
-        className="absolute -left-16 -right-16 top-[7px] bottom-[calc(-28px_-_env(safe-area-inset-bottom))] hidden pointer-coarse:block"
+        className="absolute -left-16 -right-16 top-[7px] bottom-[calc(-44px_-_env(safe-area-inset-bottom))] hidden pointer-coarse:block"
       />
     </>
   )
