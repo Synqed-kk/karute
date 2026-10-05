@@ -1056,7 +1056,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // `aria-expanded`, and a press.
     const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
     const head = phone.slice(phone.indexOf('.st-jump-head'))
-    expect(head).toContain('min-height: 44px')
+    // ⚖ R70 — its 44 is a finger's hit area, so it is stated in the coarse band.
+    expect(CSS_CODE.slice(CSS_CODE.indexOf('@media (pointer: coarse)'), CSS_CODE.indexOf('@media (max-width: 899px)')))
+      .toContain('.biz .pg-settings .st-jump-head { min-height: 44px; }')
     expect(head).toContain('cursor: pointer')
     expect(head).toContain('.st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }')
     expect(head).toContain('.st-jump-head:active { transform: scale(.97); }')
@@ -3378,6 +3380,7 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
       '@media (min-width: 1440px)',
       '@media (max-width: 1399px)',
       '@media (max-width: 1023px)',
+      '@media (pointer: coarse)',
       '@media (max-width: 899px)',
       '@media (min-width: 900px)',
       '@media (prefers-reduced-motion: reduce)',
@@ -3386,10 +3389,13 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     }
   })
 
-  it('≥44px targets from 1023 down — every touch device, not just the phone', () => {
-    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
+  // ⚖ R70 (S50 P5c) — the floor moved from `(max-width: 1023px)` to `(pointer: coarse)`:
+  // 44px is a hit area for a finger, never a width rule. The switch's own coarse size
+  // moved with it into switch.css (⚖ R93), pinned in settings-primitives.test.tsx.
+  it('≥44px targets wherever the pointer is coarse — every touch device, at every width', () => {
+    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (pointer: coarse)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
     for (const sel of [
-      '.st-opt', '.st-pick', '.st-help', '.st-switch', '.st-swatch', '.st-select', '.st-input',
+      '.st-opt', '.st-pick', '.st-help', '.st-swatch', '.st-select', '.st-input',
       '.st-back', '.st-link', '.st-save', '.st-jump-item', '.st-rail-item', '.st-det-btn',
       '.st-search-field', '.st-coll-del', '.st-spot-foot button',
       // ⚖ S17 fix round 1 · F14 — AND #812'S OWN CONTROL VOCABULARY. This list
@@ -3520,7 +3526,9 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
        is named for is its head's 44px touch height — nothing held the box's own
        padding. The head is 44 and the box's borders are 1 each way, so 3px of
        padding puts the closed box at 52 against the bar's 56. */
-    expect(phone).toMatch(/\.st-jump-head \{[\s\S]*?min-height: 44px/)
+    // ⚖ R70 — the head's 44 is a finger's hit area, so it lives in the coarse band:
+    // pinned on the PARSED tree in business-css-parses.test.ts (S54 R165(2)), one truth.
+    expect(phone).not.toMatch(/\.st-jump-head \{[^}]*min-height/)
     expect(phone).toContain('.biz .pg-settings .st-jump:has(.st-jump-head[aria-expanded="false"]) { padding-top: 3px; padding-bottom: 3px; }')
     // …and only when it is CLOSED: an open list keeps the box it needs.
     expect(phone).not.toMatch(/\.st-jump:has\(\.st-jump-head\[aria-expanded="true"\]\)/)
@@ -3541,7 +3549,7 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     expect(phone).toMatch(/\.st-back \{[\s\S]*?align-self: flex-start; justify-self: start;/)
     expect(phone).toMatch(/\.pg-settings\.is-detail \.st-panel \{ display: grid; \}/)
     // …and it is still a 44px target: the floor is the touch band's shared group.
-    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
+    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (pointer: coarse)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
     expect(touch).toMatch(/\.st-back,[\s\S]*min-height: 44px/)
   })
 })

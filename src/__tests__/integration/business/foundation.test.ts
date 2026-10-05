@@ -941,8 +941,20 @@ describe('the fixture data door', () => {
         '@/business/lib/spring',
         'react',
       ],
+      // ⚖ R93 (S50 P5c) — the room's shared switch and its ONE dialog primitive.
+      'src/app/[locale]/(business)/business/settings/Switch.tsx': [
+        './switch.css',
+        '@/business/lib/spring',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/settings/Dialog.tsx': [
+        './dialog.css',
+        'react',
+        'react-dom',
+      ],
       'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
         './Collapse',
+        './Switch',
         // ⚖ S17 FOLD (A1) — the rail renders #812's room for its 予約と確保 row.
         './StorePolicySection',
         // ⚖ A1b — …and カードの見た目's picker + ported card for its row.

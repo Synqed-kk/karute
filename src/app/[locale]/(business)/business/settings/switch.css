@@ -1,0 +1,49 @@
+/* ⚖ R93 — the room's ONE switch: its rules, moved byte-for-byte out of
+   settings.css, beside the component that draws it (R95: a component imports
+   its own css). Self-contained on purpose: every rule that touches `.st-switch`
+   in this file is stated here, so the order in which the bundler places this
+   sheet against settings.css cannot change what wins. (The press scale on
+   `:active` stays in settings.css's shared press list; nothing here sets
+   `transform` on the track.) */
+
+/* a switch, with a thumb that rides the same spring */
+.biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
+.biz .pg-settings .st-state { color: var(--ink-3); font-size: 12px; line-height: 1.5; white-space: nowrap; }
+.biz .pg-settings .st-state.is-on { color: var(--ink); font-weight: 600; }
+/* ⚖ S54 R165(4) — the switch's geometry is FOUR tokens, and the thumb's travel is
+   a calc of the same four: track − 2×border − thumb − 2×inset. Nothing is
+   measured in JS, so a switch that mounts inside a `display: none` panel (≤ 899px
+   hides .st-panel) draws its thumb at the far end the moment it is shown. The
+   component writes only the 0…1 progress `--st-sw-p`. */
+.biz .pg-settings .st-switch {
+  --st-sw-w: 42px; --st-sw-h: 24px; --st-sw-border: 1px; --st-sw-thumb: 18px; --st-sw-inset: 2px;
+  --st-sw-travel: calc(var(--st-sw-w) - 2 * var(--st-sw-border) - var(--st-sw-thumb) - 2 * var(--st-sw-inset));
+  position: relative; flex: none; box-sizing: border-box;
+  width: var(--st-sw-w); height: var(--st-sw-h); padding: 0;
+  border: var(--st-sw-border) solid var(--line); border-radius: 999px;
+  background: #e6e8ee; cursor: pointer;
+}
+.biz .pg-settings .st-switch[aria-checked="true"] { border-color: var(--st-accent); background: var(--st-accent-wash); }
+.biz .pg-settings .st-switch-thumb {
+  position: absolute; top: var(--st-sw-inset); left: var(--st-sw-inset);
+  width: var(--st-sw-thumb); height: var(--st-sw-thumb); border-radius: 50%;
+  transform: translateX(calc(var(--st-sw-travel) * var(--st-sw-p, 0)));
+  background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, .18);
+  pointer-events: none; will-change: transform;
+}
+.biz .pg-settings .st-switch[aria-checked="true"] .st-switch-thumb { background: var(--st-accent); }
+.biz .pg-settings .st-switch[aria-disabled="true"] { cursor: default; }
+
+/* ⚖ R70 — the 44px is a HIT AREA for a finger, never a width rule. The travel is
+   a calc of the tokens, so the wider track needs only its tokens restated. */
+@media (pointer: coarse) {
+  .biz .pg-settings .st-switch { --st-sw-w: 68px; --st-sw-h: 44px; --st-sw-thumb: 34px; --st-sw-inset: 4px; }
+}
+
+/* Only transform and opacity animate (the room's rule): the colour change is
+   instant, and the thumb's travel is the spring's transform, which the reduced
+   flag already collapses to a jump (Switch.tsx). Reduced motion here drops any
+   transition a shared rule might add. */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-settings .st-switch, .biz .pg-settings .st-switch-thumb { transition: none; }
+}
