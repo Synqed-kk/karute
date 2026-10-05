@@ -370,10 +370,11 @@ function FilterChip({
 // shared useLongPress hook (DiscreetRecordingIndicator's hold-to-reveal) —
 // its internal setTimeout(thresholdMs) is the source of truth for the
 // actual close; the SVG ring below is a CSS-transition-driven visual only,
-// it never gates it. The hook's onShortTap only fires on pointerup (leave/
-// cancel stay silent, right for a discreet reveal); this control wants the
-// same reset+shake for all three early-release paths, so that's handled
-// here instead of via onShortTap. Keyboard Enter/Space is the
+// it never gates it. The hook's onShortTap fires only from the element's
+// click (pointerup, leave and cancel stay silent, right for a discreet
+// reveal); this control wants the same reset+shake for all three
+// early-release paths, so that's handled here instead of via onShortTap.
+// Keyboard Enter/Space is the
 // accessibility escape hatch (a customer holding the phone has no
 // keyboard) and closes immediately, matching Escape's instant close via
 // the Dialog's own onOpenChange.

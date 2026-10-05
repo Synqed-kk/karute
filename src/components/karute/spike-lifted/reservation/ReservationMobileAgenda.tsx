@@ -256,10 +256,15 @@ export function ReservationMobileAgenda({
       {/* Bottom-pinned mid-day bar — the two numbers staff glance for
        *  between sessions. Today only; hidden once the day is done.
        *  position:fixed (NOT sticky) so it stays pinned to the viewport
-       *  bottom instead of riding up with the list on scroll: the scroll
-       *  container is <main> and the tab bar is a flex sibling below it
-       *  (h-16 + safe-area), which the bottom offset clears. The in-flow
-       *  spacer lets the last card scroll clear of the now-floating bar. */}
+       *  bottom instead of riding up with the list on scroll. In the thin
+       *  shell the DOCUMENT scrolls and the tab bar is itself a fixed z-40
+       *  overlay at the viewport bottom (thin/shell.tsx); this strip is
+       *  z-30, and its bottom offset (4rem + safe-area + 0.5rem) clears the
+       *  bar's h-16 tab row, leaving a ~0.5rem band (less the bar's 1px top
+       *  border) where rows scroll past between strip and bar. (The web
+       *  layout keeps the bar as a flex sibling below an inner-scrolling
+       *  <main>; the same offset clears it there.) The in-flow spacer lets
+       *  the last card scroll clear of the now-floating strip. */}
       {SHOW_MIDDAY_BAR && nowHm && remaining > 0 && (
         <>
           <div aria-hidden className="h-20" />
@@ -536,8 +541,11 @@ function AgendaRow({
   }`
 
   if (interactive) {
-    // No onClick: the hold hook's onShortTap carries the tap (and swallows the
-    // click that trails a completed hold). touch-action pan-y keeps vertical
+    // The tap opens on the row's CLICK — holdHandlers carries the hook's
+    // onClick, which runs onShortTap and swallows the click that trails a
+    // completed hold or a drag. A pointerup alone opens nothing, so a touch
+    // that only stops a scroll glide (iOS sends it no click) cannot open a
+    // booking; Enter/Space still do. touch-action pan-y keeps vertical
     // scrolling native — a scroll fires pointercancel and aborts the hold
     // (the hook's own move tolerance covers the fits-on-one-screen case where
     // no scroll ever starts). select-none + touch-callout keep iOS's native

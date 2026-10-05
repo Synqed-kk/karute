@@ -5,7 +5,8 @@
  * 2026-07-13): the row spreads useLongPress's handlers, so a tap opens the
  * action sheet, a 450ms hold opens the cancel sheet, and a DRAG — a scroll
  * attempt on a day that fits one screen, where no pointercancel ever comes —
- * opens neither.
+ * opens neither. S103: the tap opens on the row's CLICK, not its pointerup,
+ * so a pointerup the engine never follows with a click opens nothing.
  */
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
@@ -80,8 +81,23 @@ describe('予約 agenda row gestures', () => {
       jest.advanceTimersByTime(150)
     })
     fireEvent.pointerUp(row)
+    fireEvent.click(row, { detail: 1 })
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(onLongPress).not.toHaveBeenCalled()
+  })
+
+  it('(f) pointerup with no click (a tap that stops a glide) → no sheet', () => {
+    const { row, onSelect, onLongPress } = renderRow()
+    fireEvent.pointerDown(row, { clientX: 50, clientY: 100 })
+    fireEvent.pointerUp(row)
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(onLongPress).not.toHaveBeenCalled()
+  })
+
+  it('keyboard Enter/Space (a click with no pointer sequence) → onSelect', () => {
+    const { row, onSelect } = renderRow()
+    fireEvent.click(row) // detail 0: the keyboard's click
+    expect(onSelect).toHaveBeenCalledTimes(1)
   })
 
   it('450ms hold → onLongPress (cancel sheet), no onSelect', () => {
@@ -91,6 +107,7 @@ describe('予約 agenda row gestures', () => {
       jest.advanceTimersByTime(450)
     })
     fireEvent.pointerUp(row)
+    fireEvent.click(row, { detail: 1 }) // (e) the click that trails a completed hold
     expect(onLongPress).toHaveBeenCalledTimes(1)
     expect(onSelect).not.toHaveBeenCalled()
   })
@@ -103,6 +120,7 @@ describe('予約 agenda row gestures', () => {
       jest.advanceTimersByTime(200)
     })
     fireEvent.pointerUp(row)
+    fireEvent.click(row, { detail: 1 })
     expect(onSelect).not.toHaveBeenCalled()
     expect(onLongPress).not.toHaveBeenCalled()
   })
@@ -115,6 +133,7 @@ describe('予約 agenda row gestures', () => {
       jest.advanceTimersByTime(1000)
     })
     fireEvent.pointerUp(row)
+    fireEvent.click(row, { detail: 1 })
     expect(onSelect).not.toHaveBeenCalled()
     expect(onLongPress).not.toHaveBeenCalled()
   })
@@ -122,5 +141,37 @@ describe('予約 agenda row gestures', () => {
   it('row is unselectable — iOS long-press text selection is off', () => {
     const { row } = renderRow()
     expect(row.className).toContain('select-none')
+  })
+  it('scroll took the press (pointercancel, no click), then keyboard Enter → opens', () => {
+    const { row, onSelect } = renderRow()
+    fireEvent.pointerDown(row, { clientX: 50, clientY: 100 })
+    fireEvent.pointerMove(row, { clientX: 50, clientY: 70 })
+    fireEvent.pointerCancel(row)
+    fireEvent.click(row) // detail 0: the keyboard's click
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it('completed hold with no trailing click (iOS), then keyboard Enter → opens', () => {
+    const { row, onSelect, onLongPress } = renderRow()
+    fireEvent.pointerDown(row, { clientX: 50, clientY: 100 })
+    act(() => {
+      jest.advanceTimersByTime(600)
+    })
+    fireEvent.pointerUp(row)
+    fireEvent.click(row) // detail 0: the keyboard's click
+    expect(onLongPress).toHaveBeenCalledTimes(1)
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it('press on row A, the click lands on row B → B (never pressed) does not open', () => {
+    const b2: ReservationView = { ...booking, id: 'appt-2', customerName: '山田花子', customerInitials: '山', startTimeHm: '19:00' }
+    const onSelect = jest.fn()
+    render(<ReservationMobileAgenda reservations={[booking, b2]} onSelect={onSelect} onLongPress={jest.fn()} />)
+    const a = screen.getByRole('button', { name: /魚谷真佐美/ })
+    const b = screen.getByRole('button', { name: /山田花子/ })
+    fireEvent.pointerDown(a, { clientX: 120, clientY: 650 })
+    fireEvent.pointerUp(a, { clientX: 120, clientY: 650 })
+    fireEvent.click(b, { clientX: 120, clientY: 650, detail: 1 })
+    expect(onSelect).not.toHaveBeenCalled()
   })
 })

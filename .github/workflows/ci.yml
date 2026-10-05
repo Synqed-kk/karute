@@ -76,6 +76,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://test-dummy.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: dummy-not-a-key
 
+      - name: Bottom bar hit test (real layout, Chromium + WebKit)
+        # Measured on ubuntu-latest (run 37374694834, caee3a929): 2 m 11 s
+        # including the browser install. 8 min caps a hung install or build.
+        timeout-minutes: 8
+        # Greptile on #1131: the jest test pins the bar's class strings, not
+        # which control a touch at each point reaches — a change to the bar's
+        # overflow, positioning or stacking could pass jest and bring the dead
+        # space back. This builds the REAL bottom-nav.tsx with the REAL
+        # globals.css (vite + Tailwind, navigation/intl/recorder stubbed) and
+        # hit-tests a 2 px grid over the bar in headless Chromium (34 px safe
+        # area) and WebKit, touch and mouse. No secrets, no database, no next
+        # dev, no seeds — its own config, NOT the e2e one. Only the two
+        # browsers it needs: Chromium as the headless shell.
+        run: |
+          npx --no -- playwright install --with-deps --only-shell chromium webkit
+          npx --no -- playwright test -c e2e/layout/playwright.config.ts
+
       - name: Seeder core-target guard selftest (fixture red→green)
         # seed-booking-data.ts wipes core data; it must refuse any non-local
         # core before a client or request exists. Here, not in audit-gates:
