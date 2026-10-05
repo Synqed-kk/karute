@@ -384,6 +384,9 @@ describe('T3g scrubSpanData strips the query off every URL- or path-shaped value
       'x.path': '/a?token=' + URLQ,
       'x.text': 'what?',
       'x.num': 3,
+      transaction: 'GET /photos?token=' + URLQ,
+      'http.request.body': 'customer=' + BODY,
+      'http.response.body.size': 42,
     }
     scrubSpanData(data)
     expect(data).toEqual({
@@ -394,8 +397,10 @@ describe('T3g scrubSpanData strips the query off every URL- or path-shaped value
       'x.path': '/a',
       'x.text': 'what?',
       'x.num': 3,
+      transaction: 'GET /photos',
     })
     expect(JSON.stringify(data)).not.toContain(URLQ)
+    expect(JSON.stringify(data)).not.toContain(BODY)
   })
 })
 

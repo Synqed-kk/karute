@@ -85,6 +85,10 @@ export function scrubSpanData<T extends Record<string, unknown>>(data: T): T {
     if (key.startsWith('http.request.header.') || key.startsWith('http.response.header.')) {
       delete rec[key]
     }
+    // Bodies never leave (http.request.body, http.response.body.size, ...).
+    if (key.startsWith('http.request.body') || key.startsWith('http.response.body')) {
+      delete rec[key]
+    }
   }
   for (const key of SPAN_KEYS_DELETED) delete rec[key]
   for (const key of SPAN_KEYS_PEER_IP) delete rec[key]
@@ -93,17 +97,22 @@ export function scrubSpanData<T extends Record<string, unknown>>(data: T): T {
     if (typeof v === 'string') rec[key] = stripQuery(v)
   }
   // Generic rule: any URL- or path-shaped string under ANY key loses its query
-  // (lcp.url, browser.web_vital.lcp.url, ui.element.url and keys not named here).
+  // (lcp.url, browser.web_vital.lcp.url, ui.element.url, a `GET /photos?...`
+  // transaction and keys not named here).
   for (const key of Object.keys(rec)) {
     const v = rec[key]
-    if (typeof v === 'string' && looksLikeUrl(v)) rec[key] = stripQuery(v)
+    if (typeof v === 'string' && hasSlashBeforeQuery(v)) rec[key] = stripQuery(v)
   }
   return data
 }
 
-/** A path (`/…`) or an absolute URL (`…://…`). */
-function looksLikeUrl(v: string): boolean {
-  return v.startsWith('/') || v.includes('://')
+/**
+ * The ONE URL-shape rule: a `/` appears before the first `?` or `#` (a path,
+ * a protocol-relative or absolute URL, a method-prefixed path). `what?` does not.
+ */
+function hasSlashBeforeQuery(v: string): boolean {
+  const cut = v.search(/[?#]/)
+  return cut !== -1 && v.slice(0, cut).includes('/')
 }
 
 /** Strips the query off a span's (or trace context's) name: browser resource spans are named by their URL. */
