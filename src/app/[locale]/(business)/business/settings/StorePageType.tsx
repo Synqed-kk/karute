@@ -50,8 +50,9 @@ export function StorePageType({ draft, canEdit, onChange, onResetKeys, onToast }
   // R144: the asked record carries the picked type before any diff / reset is computed from it.
   const asked: CapRecord | null = ask ? { ...draft, business_type: ask } : null
   const diff = asked ? resetDiff(asked) : null
+  // Editing withdrawn while the dialog is open: 戻す goes dead and confirm refuses, like pick (the opener is already disabled).
   const confirm = () => {
-    if (!ask || !asked || !diff) return
+    if (!canEdit || !ask || !asked || !diff) return
     const flipped = diff.flips.map((f) => f.key)
     onResetKeys((prev) => [...prev, ...flipped.filter((k) => !prev.includes(k))])
     onChange(applyReset(asked))
@@ -107,7 +108,7 @@ export function StorePageType({ draft, canEdit, onChange, onResetKeys, onToast }
             </div>
             <div className="sp-type-acts">
               <button type="button" className="btn" ref={cancelRef} onClick={() => setAsk(null)}>{RESET.cancel}</button>
-              <button type="button" className="btn primary" disabled={diff.none} onClick={confirm}>{RESET.confirm}</button>
+              <button type="button" className="btn primary" disabled={!canEdit || diff.none} onClick={confirm}>{RESET.confirm}</button>
             </div>
           </>
         )}

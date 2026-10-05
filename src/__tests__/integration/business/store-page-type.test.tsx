@@ -211,3 +211,53 @@ describe('the diff dialog — the shared Dialog (R93)', () => {
     expect(h.changes).toEqual([])
   })
 })
+
+describe('R285 — editing withdrawn while the reset dialog is open', () => {
+  // The D8 fixture: hair_salon with 物販 flipped off its default — the current type's diff has exactly one flip.
+  const start = with_(seedRecord('hair_salon'), 'shop', !seedRecord('hair_salon').switches.shop.on)
+  /** Same tree re-rendered with a new canEdit: the room owns the draft, the dialog state survives the re-render. */
+  function open(canEdit: boolean) {
+    const calls = { change: 0, keys: 0, toast: 0 }
+    function Room({ edit }: { edit: boolean }) {
+      const [draft, setDraft] = useState(start)
+      return (
+        <StorePageType
+          draft={draft}
+          saved={start}
+          canEdit={edit}
+          onChange={(n) => { calls.change++; setDraft(n) }}
+          onResetKeys={() => { calls.keys++ }}
+          onToast={() => { calls.toast++ }}
+        />
+      )
+    }
+    const r = render(<Room edit />)
+    fireEvent.click(screen.getByRole('button', { name: '業種の標準に戻す' }))
+    expect(resetDiff(start).flips).toHaveLength(1)
+    expect(lines()).toEqual(expectedLines(start))
+    if (!canEdit) r.rerender(<Room edit={false} />)
+    return { calls, yes: () => screen.getByRole('button', { name: '戻す' }) as HTMLButtonElement }
+  }
+
+  it('(a) canEdit turns false while open → 戻す is disabled', () => {
+    const h = open(false)
+    expect(dialog()).not.toBeNull()
+    expect(h.yes().disabled).toBe(true)
+  })
+
+  it('(b) a click on 戻す then calls none of onChange / onResetKeys / onToast; the dialog stays as it is', () => {
+    const h = open(false)
+    fireEvent.click(h.yes())
+    expect(h.calls).toEqual({ change: 0, keys: 0, toast: 0 })
+    expect(dialog()).not.toBeNull()
+    expect(lines()).toEqual(expectedLines(start))
+  })
+
+  it('(c) control: with canEdit still true the same click calls all three', () => {
+    const h = open(true)
+    expect(h.yes().disabled).toBe(false)
+    fireEvent.click(h.yes())
+    expect(h.calls).toEqual({ change: 1, keys: 1, toast: 1 })
+    expect(dialog()).toBeNull()
+  })
+})
