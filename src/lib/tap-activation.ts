@@ -212,13 +212,3 @@ export function tapActivation(
     },
   }
 }
-
-/** Activate a bar control from OUTSIDE its own touch sequence (the bar touch
- *  guard, bar-touch-guard.ts): through the element's own click handler — the
- *  same handler the mouse path runs — after dropping any stale per-element
- *  state, so a swallowClick left by a momentum tap whose click never came
- *  cannot eat this one. */
-export function clickAsTap(el: HTMLElement) {
-  taps.delete(el)
-  el.click()
-}

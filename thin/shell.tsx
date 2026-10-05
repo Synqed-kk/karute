@@ -1,6 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
-
-import { installBarTouchGuard } from '@/lib/bar-touch-guard'
+import { useRef, type ReactNode } from 'react'
 
 import { useStandardIOSGestures } from './gestures'
 
@@ -44,19 +42,12 @@ export function ThinShell({
   // full contract. (Status-bar tap needs no wiring: native, see above.)
   const mainRef = useRef<HTMLElement | null>(null)
   useStandardIOSGestures(mainRef)
-  // A touch AT the bar belongs to the bar, whatever the page under it says
-  // received it — the one choke point (src/lib/bar-touch-guard.ts).
-  const barRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!barRef.current || !mainRef.current) return
-    return installBarTouchGuard(barRef.current, mainRef.current)
-  }, [])
   return (
     <div className="flex min-h-dvh flex-col bg-[var(--color-bg)]">
       <main ref={mainRef} className="relative flex-1">{children}</main>
       {/* Pinned to the viewport now that the page scrolls — the bar must not
        *  scroll away with content. It still carries its own safe-area inset. */}
-      <div ref={barRef} className="fixed inset-x-0 bottom-0 z-40">{nav}</div>
+      <div className="fixed inset-x-0 bottom-0 z-40">{nav}</div>
     </div>
   )
 }

@@ -35,8 +35,7 @@ type Route = { href: string; label: string; icon: React.ComponentType<{ classNam
 // drawn changes: the spans paint nothing, the press scale still sizes off the
 // control's own box. Touch screens only (⚖ 44 px is a hit area, sizing fires
 // on pointer: coarse) — under a mouse the spans are display:none, so desktop
-// hover/click is exactly as before. bar-touch-guard.ts reads these same spans'
-// rects, so the markup and the guard share one definition. z-[1]: a tab's span
+// hover/click is exactly as before. z-[1]: a tab's span
 // sits over the record column's wide span (below), which is what keeps the
 // record column exactly the gap between カルテ and 顧客 at any bar width.
 const TAB_HIT: Record<'first' | 'middle' | 'last', string> = {
@@ -621,7 +620,6 @@ function CenterRecordButton({
             stopRecording()
           })}
           aria-label="録音を停止"
-          data-bar-record
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
           <RecordHit />
@@ -663,7 +661,6 @@ function CenterRecordButton({
             )
           })}
           aria-label="録音画面に戻る"
-          data-bar-record
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
           <RecordHit />
@@ -708,8 +705,6 @@ function CenterRecordButton({
             : ariaLabelIdle
         }
         aria-current={isOnSessionsPage ? 'page' : undefined}
-        // The bar touch guard's handle on this circle (bar-touch-guard.ts).
-        data-bar-record
       >
         <RecordHit />
         <Mic className="h-5 w-5" />

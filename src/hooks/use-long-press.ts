@@ -32,9 +32,10 @@ const MOVE_TOLERANCE_PX = 10
  *  so a press on row A never lets a later click open row B. No clock. */
 let lastPress: object | null = null
 
-// Any new finger-down ends the last press, even one the hook never sees
-// (the bar guard stops an owned pointerdown before it reaches a row): the
-// row's own pointerdown, which runs after this, takes the token again.
+// Any new finger-down ends the last press, even one the hook never sees (a
+// press on another element): the row's own pointerdown, which runs after
+// this, takes the token again, so a stale token never lets a click with no
+// pointerdown of its own (a phantom) open the row.
 if (typeof document !== 'undefined') {
   document.addEventListener('pointerdown', () => { lastPress = null }, true)
 }
@@ -106,8 +107,8 @@ export function useLongPress({
 
   // The tap itself. A pointer click (detail ≥ 1) opens only when the last
   // pointer press began on this element, and not after a completed hold or a
-  // drag past the slop — so a press that began elsewhere (a touch the bar guard
-  // owns, or another row) opens nothing, however late its click comes. A
+  // drag past the slop — so a press that began elsewhere (another element or
+  // another row) opens nothing, however late its click comes. A
   // keyboard click (Enter/Space, detail 0) always opens: flags left by an
   // earlier hold or drag never swallow it.
   const click = useCallback((e: React.MouseEvent) => {

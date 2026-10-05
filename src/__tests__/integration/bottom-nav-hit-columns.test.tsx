@@ -75,7 +75,7 @@ describe.each(STATES)('bottom bar hit columns — $name', ({ path, rec }) => {
     expect(controls.map((c) => c.getAttribute('href') ?? c.getAttribute('aria-label') ?? c.getAttribute('aria-haspopup'))).toHaveLength(5)
     for (const c of controls) {
       const spans = Array.from(c.children).filter((h) => h.hasAttribute('data-bar-hit'))
-      expect(spans.length).toBe(c.hasAttribute('data-bar-record') ? 2 : 1)
+      expect(spans.length).toBe(controls.indexOf(c) === 2 ? 2 : 1)
       for (const h of spans) {
         expect(h.tagName).toBe('SPAN')
         expect(h.getAttribute('aria-hidden')).toBe('true')
@@ -92,6 +92,7 @@ describe.each(STATES)('bottom bar hit columns — $name', ({ path, rec }) => {
   it('a tap on each hit span activates its own control, once', () => {
     const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
     const nav = container.querySelector('nav[aria-label="Primary navigation"]')!
+    const controls = Array.from(nav.querySelectorAll('a,button'))
     for (const h of Array.from(nav.querySelectorAll('[data-bar-hit]'))) {
       push.mockReset()
       stopRecording.mockReset()
@@ -102,12 +103,12 @@ describe.each(STATES)('bottom bar hit columns — $name', ({ path, rec }) => {
         tap(h) // close again for the next span
         expect(c.getAttribute('aria-expanded')).toBe('false')
         expect(push).not.toHaveBeenCalled()
-      } else if (c.hasAttribute('data-bar-record') && path === '/sessions') {
+      } else if (controls.indexOf(c) === 2 && path === '/sessions') {
         expect(stopRecording).toHaveBeenCalledTimes(1)
         expect(push).not.toHaveBeenCalled()
       } else {
         expect(push).toHaveBeenCalledTimes(1)
-        expect(push).toHaveBeenCalledWith(c.hasAttribute('data-bar-record') ? '/sessions' : c.getAttribute('href'))
+        expect(push).toHaveBeenCalledWith(controls.indexOf(c) === 2 ? '/sessions' : c.getAttribute('href'))
       }
     }
   })
