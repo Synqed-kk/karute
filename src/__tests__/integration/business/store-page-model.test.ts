@@ -4,7 +4,7 @@
 import { businessProfiles } from '@/business/lib/fixtures-settings'
 import { HONEST, RESET, TYPE_JA } from '@/business/lib/store-page/copy'
 import {
-  BUSINESS_TYPE_KEYS, CAP_KEYS, TYPE_DEFAULTS, applyReset, asksBeforeOff, changeCount, chipState, chipText, familyOf, honestLines, internalKeyOf, parseRecord,
+  BUSINESS_TYPE_KEYS, CAP_KEYS, TYPE_DEFAULTS, applyReset, asksBeforeOff, changeCount, chipState, chipText, familyOf, honestLines, internalKeyOf, parseInternalRecord, parseRecord,
   pending, publicProjection, ready, recordHash, resetDiff, seedRecord, serializeRecord, stampSave, storeCapabilitiesKeyFor, typeKeyOf, wireKeyOf,
   type BusinessTypeKey, type CapKey, type CapRecord,
 } from '@/business/lib/store-page/model'
@@ -503,5 +503,42 @@ describe('the defaults are frozen (attack S53 NIT 5)', () => {
     }
     expect(Object.isFrozen(TYPE_DEFAULTS)).toBe(true)
     expect(TYPE_DEFAULTS.other).toEqual(['checkin_qr'])
+  })
+})
+
+describe('parseInternalRecord — the strict INTERNAL draft read (R126)', () => {
+  const rec = { ...seedRecord('hair_salon'), switches: { ...seedRecord('hair_salon').switches, packs: { on: true, source: 'OWNER' as const, changed_at: '2026-09-01T00:00:00.000Z', changed_by: 'staff-9' } } }
+  const json = (v: unknown) => JSON.parse(JSON.stringify(v)) as Record<string, unknown>
+  it('a whole internal record round-trips exactly (changed_by kept)', () => {
+    expect(parseInternalRecord(json(rec))).toEqual(rec)
+    for (const t of BUSINESS_TYPE_KEYS) expect(parseInternalRecord(json(seedRecord(t)))?.business_type).toBe(t)
+  })
+  const sw = rec.switches as Record<string, unknown>
+  it.each([
+    ['null', null],
+    ['an array', [rec]],
+    ['an extra record field', { ...rec, extra: 1 }],
+    ['no switches', { v: 1, business_type: 'hair_salon' }],
+    ['v = 2', { ...rec, v: 2 }],
+    ['a family name as the type', { ...rec, business_type: 'SALON' }],
+    ['a padded type key', { ...rec, business_type: ' hair_salon' }],
+    ['the wire spelling', serializeRecord(rec)],
+    ['a missing switch', { ...rec, switches: Object.fromEntries(Object.entries(sw).filter(([k]) => k !== 'posts')) }],
+    ['an unknown switch', { ...rec, switches: { ...sw, sauna: { on: true, source: 'OWNER' } } }],
+    ['an UPPER key among the lowercase', { ...rec, switches: { ...Object.fromEntries(Object.entries(sw).filter(([k]) => k !== 'posts')), POSTS: { on: true, source: 'OWNER' } } }],
+    ['on a string', { ...rec, switches: { ...sw, posts: { on: 'true', source: 'OWNER' } } }],
+    ['an unknown source', { ...rec, switches: { ...sw, posts: { on: true, source: 'ADMIN' } } }],
+    ['changed_by_staff_id (wire field)', { ...rec, switches: { ...sw, posts: { on: true, source: 'OWNER', changed_by_staff_id: 'x' } } }],
+    ['changed_by a number', { ...rec, switches: { ...sw, posts: { on: true, source: 'OWNER', changed_by: 5 } } }],
+    ['changed_by over 128', { ...rec, switches: { ...sw, posts: { on: true, source: 'OWNER', changed_by: 'b'.repeat(129) } } }],
+    ['changed_at over 64', { ...rec, switches: { ...sw, posts: { on: true, source: 'OWNER', changed_at: 't'.repeat(65) } } }],
+    ['a switch that is an array', { ...rec, switches: { ...sw, posts: [true] } }],
+  ])('anything else → null (%s)', (_l, raw) => {
+    expect(parseInternalRecord(raw)).toBeNull()
+  })
+  it('a non-plain object (class instance / inherited prototype) → null', () => {
+    class Rec { v = 1; business_type = 'hair_salon'; switches = sw }
+    expect(parseInternalRecord(new Rec())).toBeNull()
+    expect(parseInternalRecord(Object.assign(Object.create({ inherited: 1 }), json(rec)))).toBeNull()
   })
 })

@@ -25,6 +25,7 @@ import { jstDayKey, jstSlotEnd, renderNow } from './clock'
 import { doorOn } from './practice-door/actor'
 import * as door from './practice-door/door'
 import { writeBookingColors as doorWriteBookingColors, type WriteBookingColorsResult } from './practice-door/door-booking-colors'
+import { readStoreCapabilities as doorReadStoreCapabilities, readStoreSeedType as doorReadStoreSeedType, writeStoreCapabilities as doorWriteStoreCapabilities, type BusinessTypeKey, type CapRecord, type WriteStoreCapabilitiesResult } from './practice-door/door-store-capabilities'
 import * as doorWrites from './practice-door/door-writes'
 import { weekFromPair } from './practice-door/store-hours'
 import {
@@ -281,6 +282,35 @@ export async function writeReserveCardColor(next: string | null): Promise<door.W
  *  the door. OFF has no writer — the door answers 'tenant' before anything else. */
 export async function writeBookingColors(storeId: string, colors: unknown): Promise<WriteBookingColorsResult> {
   return doorWriteBookingColors(storeId, colors)
+}
+
+/** ⚖ DECISIONS-S49 R86 — THE NAMED OFF-SWITCH for お店ページ's switches in REAL MODE. false (default) = any
+ *  business that is not the admitted practice tenant (or the door OFF) is DISCONNECTED: no read, no write,
+ *  the route answers 501 `disconnected`. Only CORE-47 (core's own capabilities endpoint) may flip it, with the
+ *  storage call moved to it; until then the temporary org-settings key is Dev Salon's alone. */
+const STORE_CAPABILITIES_REAL_MODE = false as boolean
+
+/** お店ページ — one store's saved switches record (P1's CapRecord) or null (none yet → the page seeds it).
+ *  OFF / real mode: null — DISCONNECTED, never a core read. */
+export async function readStoreCapabilities(storeId: string): Promise<CapRecord | null> {
+  if (!STORE_CAPABILITIES_REAL_MODE && !(await doorOn())) return null
+  return doorReadStoreCapabilities(storeId)
+}
+
+/** R188 — the type this store's first save seeds from (the door's one answer, the write's own chain), or null.
+ *  OFF / real mode: null — DISCONNECTED, never a core read (the same off-switch as readStoreCapabilities). */
+export async function readStoreSeedType(storeId: string): Promise<BusinessTypeKey | null> {
+  if (!STORE_CAPABILITIES_REAL_MODE && !(await doorOn())) return null
+  return doorReadStoreSeedType(storeId)
+}
+
+/** お店ページ (S49 P2) — one store's switches, through the door. Real mode is DISCONNECTED (the off-switch above):
+ *  a non-practice business, or the door OFF, gets `disconnected` before anything else. */
+export async function writeStoreCapabilities(
+  storeId: string, record: unknown, resetKeys: unknown, basedOn: string,
+): Promise<WriteStoreCapabilitiesResult | { ok: false; reason: 'disconnected' }> {
+  if (!STORE_CAPABILITIES_REAL_MODE && !(await doorOn())) return { ok: false, reason: 'disconnected' }
+  return doorWriteStoreCapabilities(storeId, record, resetKeys, basedOn)
 }
 
 /** ⚖ PKT-S29-B1 — one store's 臨時休業 + 特別営業日, through the door. OFF: no read at all — the
