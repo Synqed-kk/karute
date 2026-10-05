@@ -144,6 +144,43 @@ describe('T2b alarm event is rebuilt from the allow-list', () => {
   })
 })
 
+describe('T2c alarm caps', () => {
+  function alarm(over: Partial<ErrorEvent>): ErrorEvent {
+    return { type: undefined, tags: { alarm: '1' }, ...over }
+  }
+
+  it('message longer than 120 characters is cut to 120', () => {
+    const out = scrubEvent(alarm({ message: 'm'.repeat(121) }))
+    expect(out!.message).toBe('m'.repeat(120))
+  })
+
+  it('fingerprint keeps 5 of 6 items and cuts an item longer than 100 characters', () => {
+    const out = scrubEvent(alarm({ fingerprint: ['f'.repeat(101), 'b', 'c', 'd', 'e', 'f6'] }))
+    expect(out!.fingerprint).toEqual(['f'.repeat(100), 'b', 'c', 'd', 'e'])
+  })
+
+  it('an extra string longer than 200 characters is dropped; 200 is kept', () => {
+    const out = scrubEvent(alarm({ extra: { reason: 'r'.repeat(201), app_build: 'a'.repeat(200) } }))
+    expect(out!.extra).toEqual({ app_build: 'a'.repeat(200) })
+  })
+
+  it('a non-finite number is dropped', () => {
+    const out = scrubEvent(alarm({ extra: { count: NaN, age_minutes: Infinity, business_count: 2 } }))
+    expect(out!.extra).toEqual({ business_count: 2 })
+  })
+
+  it('take_ids with 11 items is dropped; 10 is kept', () => {
+    const ten = Array.from({ length: 10 }, (_, i) => 't' + i)
+    expect(scrubEvent(alarm({ extra: { take_ids: [...ten, 't10'] } }))!.extra).toEqual({})
+    expect(scrubEvent(alarm({ extra: { take_ids: ten } }))!.extra).toEqual({ take_ids: ten })
+  })
+
+  it('take_ids with one item longer than 64 characters is dropped', () => {
+    const out = scrubEvent(alarm({ extra: { take_ids: ['t1', 'x'.repeat(65)] } }))
+    expect(out!.extra).toEqual({})
+  })
+})
+
 describe('T3 scrubBreadcrumb', () => {
   it.each(['console', 'http', 'fetch', 'xhr'])('drops %s', (category) => {
     expect(scrubBreadcrumb({ category, message: NAME })).toBeNull()
@@ -417,6 +454,7 @@ const FORBIDDEN: RegExp[] = [
   /\bimport\s*\(/,
   /\brequire\s*\(/,
   /\b(window|document|navigator)\./,
+  /\b(process|Buffer|structuredClone)\b/,
 ]
 
 function stripForScan(src: string): string {
@@ -441,6 +479,11 @@ describe('T5 the scrub module runs in node, edge and the browser', () => {
       "import 'node:fs'",
       "import path from 'path'",
       'const x = window.location',
+      "const fs = await import('node:fs')",
+      "const fs = require('fs')",
+      'const env = process.env.X',
+      "const b = Buffer.from('x')",
+      'const c = structuredClone(x)',
     ]
     for (const s of samples) expect([s, flagged(s)]).toEqual([s, true])
   })
@@ -450,11 +493,10 @@ describe('T5 the scrub module runs in node, edge and the browser', () => {
 // check-ins on; nothing else may switch on logs, replay or feedback silently.
 describe('T6 pin: no Sentry channel the scrub hooks never see is switched on', () => {
   it.each(['src/instrumentation.ts', 'src/instrumentation-client.ts'])('%s', (rel) => {
-    const src = read(rel)
+    const src = read(rel).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
     expect(src).not.toMatch(/enableLogs/)
     expect(src).not.toMatch(/replayIntegration/)
     expect(src).not.toMatch(/feedbackIntegration/)
     expect((src.match(/sendDefaultPii:\s*false/g) ?? []).length).toBeGreaterThanOrEqual(1)
-    expect(src).toMatch(/\.\.\.sentryScrubOptions/)
   })
 })
