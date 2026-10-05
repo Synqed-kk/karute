@@ -41,6 +41,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { normalizeCardColor } from "./card-color";
 import { memberTenantVars, type BrandTheme } from "./member-card-vars";
 import type { StorePageSample } from "./store-page-sample";
+import { CAP_KEYS, ready as capReady, type CapKey, type CapRecord } from "@/business/lib/store-page/model";
 import "./reserve-card.css";
 
 export interface ReserveCardPreviewProps {
@@ -392,14 +393,13 @@ function StudioCover({
   );
 }
 
-// The mock's `ready(k)` (MOCK-SWITCHBOARD-v2 :1564-1569): ON and (no count needed, or the count > 0). The count
-// keys are the mock REG `need` fields (:880-916) for the parents this body reads; CHECKIN_QR needs none.
-// (P1's store-page model owns the full table; this body reads only these seven.)
-const NEED: Readonly<Record<string, string>> = {
-  packs: "packs", posts: "posts", intake: "questions", classes: "classes", homecare: "care", shop: "products", rental: "resources",
-};
-const readyIn = (on: ReadonlySet<string>, counts: Readonly<Record<string, number>>, key: string) =>
-  on.has(key) && (NEED[key] === undefined || (counts[NEED[key]] ?? 0) > 0);
+// The mock's `ready(k)` (MOCK-SWITCHBOARD-v2 :1564-1569) is P1's `ready()` — one table, one rule. The body gets
+// the PUBLIC projection (`on`), so the record it asks about is that set: a key is ON exactly when projected.
+const projected = (on: ReadonlySet<string>): CapRecord => ({
+  v: 1,
+  business_type: "other", // a type key (R171); ready() reads only the switches
+  switches: Object.fromEntries(CAP_KEYS.map((k) => [k, { on: on.has(k), source: "TYPE_DEFAULT" }])) as CapRecord["switches"],
+});
 
 /**
  * The お店ページ body under the cover, part 1 — spec §E1 items 2-5 and 8, in the mock's order (phoneMarkup
@@ -419,7 +419,8 @@ const readyIn = (on: ReadonlySet<string>, counts: Readonly<Record<string, number
  */
 function StoreBody({ on, sample }: { on: ReadonlySet<string>; sample: StorePageSample }) {
   const v = sample.rv;
-  const ready = (key: string) => readyIn(on, sample.counts, key);
+  const rec = projected(on);
+  const ready = (key: string) => capReady(key as CapKey, rec, sample.counts);
   const readPoints = on.has("read_points");
   const reactions = on.has("reactions");
   return (
@@ -551,7 +552,7 @@ function StoreBody({ on, sample }: { on: ReadonlySet<string>; sample: StorePageS
           </div>
         </div>
       )}
-      <MyRecord key={"name" in sample ? String(sample.name) : undefined} ready={ready} photo={on.has("photo_proof")} sample={sample} />
+      <MyRecord key={sample.name} ready={ready} photo={on.has("photo_proof")} sample={sample} />
     </div>
     <div className="salon-tabbar"><div data-on="">ホーム</div><div>予約</div><div>ためる</div><div>マイページ</div></div>
     </>
@@ -587,8 +588,8 @@ function MyRecord({ ready, photo, sample }: { ready: (key: string) => boolean; p
   }, [active, segments.length]);
   const rows = (items: ReadonlyArray<{ readonly t: string; readonly d: string }>, extra = "") => (
     <div className="visit-rows bg-card divide-y divide-border/60">
-      {items.map((item) => (
-        <div key={item.t} className="flex items-center justify-between gap-3 p-4">
+      {items.map((item, i) => (
+        <div key={`${i}:${item.t}`} className="flex items-center justify-between gap-3 p-4">
           <div className="min-w-0">
             <p className="visit-row__t text-sm font-medium">{item.t}</p>
             <p className="visit-row__m text-xs text-muted-foreground mt-0.5">{item.d}{extra}</p>

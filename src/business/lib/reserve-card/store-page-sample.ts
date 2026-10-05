@@ -1,9 +1,20 @@
 // FIXTURE — practice sample data for the お店ページ preview body, not product data.
 // Copied byte-for-byte from MOCK-SWITCHBOARD-v2.html :935-1004 (`var STORES`, the mock's two sample stores and
 // their `rv` phone data); only the first line's `var STORES =` became `export const STORES =` and the closing
-// `};` became `} as const;`. Never retyped, never edited: a new sample comes from the mock, not from here.
+// `};` became `} as const);` inside deepFreeze (R185: frozen at runtime, not only in the types). Never retyped, never edited: a new sample comes from the mock, not from here.
 // The dates/names (「9/14（月）14:30」, 篠原 夢果 …) are the approved mock's fixed sample (D-NOT-BUILT: never product data).
-export const STORES = {
+import type { Counts } from "@/business/lib/store-page/model";
+
+/** Freezes every object and array under `o` (R185): a write through a cast cannot change the sample. */
+function deepFreeze<T>(o: T): T {
+  if (o !== null && typeof o === "object" && !Object.isFrozen(o)) {
+    for (const v of Object.values(o)) deepFreeze(v);
+    Object.freeze(o);
+  }
+  return o;
+}
+
+export const STORES = deepFreeze({
   laestro:{
     id:"laestro", name:"La Estro 代官山院", type:"SALON",
     counts:{packs:3, classes:0, care:2, posts:4, questions:3, products:3, resources:0},
@@ -72,11 +83,12 @@ export const STORES = {
       category:"パーソナルジム"
     }
   }
-} as const;
+} as const);
 
 /** What the preview body reads from one sample store (both STORES entries satisfy it). */
 export interface StorePageSample {
-  readonly counts: Readonly<Record<string, number>>
+  readonly name: string
+  readonly counts: Counts
   readonly rv: {
     readonly rank: string
     readonly next: { readonly line: string; readonly big: string; readonly side: string }

@@ -13,11 +13,16 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEve
 import { wrapStep } from '@/business/lib/guide'
 import { ReserveCardPreview } from '@/business/lib/reserve-card/ReserveCardPreview'
 import { satinVars } from '@/business/lib/reserve-card/satin-material'
+import { STORES, type StorePageSample } from '@/business/lib/reserve-card/store-page-sample'
+import { honestLines, publicProjection, type CapRecord, type Counts } from '@/business/lib/store-page/model'
 import { makeSpring, type Spring } from '@/business/lib/spring'
 import type { SettingsSection } from '@/business/lib/settings'
 
 type Look = NonNullable<SettingsSection['cardLook']>
 type View = 'home' | 'store'
+/** The お店ページ section's live draft (THE SHARED SHAPE, PACKETS-S50-WAVE3 :8): the room builds it from its values. */
+/** `sampleKey` = the payload's `storePage.sampleKey` (R189): the sample `counts` were computed for (the saved / seed type). */
+export type StoreView = { draft: CapRecord; counts: Counts; sampleKey: NonNullable<SettingsSection['storePage']>['sampleKey'] }
 
 /** What a reader can type to find this section (the room's search), like STORE_POLICY_HEADINGS. */
 export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの見た目', 'カードの色', 'お客様のアプリでの見え方']
@@ -50,12 +55,26 @@ export function fitScale(stripWidth: number, phoneW = PHONE_W): number {
 
 const satin = (hex: string) => satinVars(hex) as CSSProperties
 
+/** The phone's お店ページ inputs from the draft: its PUBLIC projection (a sub ON only while its parent is ON, D4)
+ *  + the practice sample the payload names (`sampleKey`, R189: the one its counts were computed for; an unsaved 業種 pick
+ *  does not change it until saved) drawn with the payload's
+ *  counts. A count the room does not know stays undefined → ready() = false → no block, no number (R101). */
+export function storeViewInputs(sv: StoreView): { on: ReadonlySet<string>; sample: StorePageSample; honest: string[] } {
+  const base: StorePageSample = STORES[sv.sampleKey]
+  // the sample's counts are P1's Counts (R185): the body reads them only through P1's ready(), which takes unknowns
+  const sample = { ...base, counts: sv.counts }
+  // spec E2 (renderHonest :1947-1958); P1's pending() takes an UNKNOWN count as not pending, so no line claims a number (R101)
+  const honest = honestLines(sv.draft, sv.counts)
+  return { on: new Set(publicProjection('', sv.draft).on), sample, honest }
+}
+
 export function ReserveCardLookSection({
   look,
   value,
   onPick,
   reduced,
   render,
+  storeView,
 }: {
   look: Look
   /** The room's LIVE value for `CARD_COLOR_ID` ('' = nothing set). */
@@ -63,6 +82,8 @@ export function ReserveCardLookSection({
   onPick: (hex: string) => void
   reduced: boolean
   render: (slots: { main: ReactNode; preview: ReactNode }) => ReactNode
+  /** the お店ページ draft (P7 wires it); absent = the cover only, exactly as before */
+  storeView?: StoreView
 }) {
   const [view, setView] = useState<View>('home')
   const shown = value === '' ? null : value
@@ -115,7 +136,13 @@ export function ReserveCardLookSection({
   }, [])
 
   // The honest slot (mock renderHonest :1947-1958): only lines that are true right now; none → no block.
-  const honest = shown === null ? ['色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。'] : []
+  // ONLY a card edit moves the view (SPECCHECK fix 1): a switch flip, type pick, 戻す or save changes `storeView`
+  // and nothing else, so the view the owner is looking at stays put.
+  const store = storeView ? storeViewInputs(storeView) : null
+  const honest = [
+    ...(shown === null ? ['色が設定されていないため、見本では仮に紺で表示しています。実際のお客様のアプリのカードとは色が異なる場合があります。'] : []),
+    ...(store?.honest ?? []),
+  ]
 
   const pick = (hex: string, i: number) => {
     onPick(hex)
@@ -202,7 +229,7 @@ export function ReserveCardLookSection({
       <div className="cl-strip" ref={stripRef}>
         <div className="cl-frame">
           <div className="cl-phone" ref={phoneRef} aria-hidden="true" tabIndex={-1} onClick={onPhoneClick}>
-            <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} />
+            <ReserveCardPreview name={look.storeLine} storeLine={look.storeLine} address={look.address} cardColor={shown} primaryColor={STAND_IN} view={view} on={store?.on} sample={store?.sample} />
           </div>
         </div>
       </div>
