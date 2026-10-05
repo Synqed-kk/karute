@@ -284,8 +284,9 @@ export async function writeBookingColors(storeId: string, colors: unknown): Prom
   return doorWriteBookingColors(storeId, colors)
 }
 
+// Must stay false until the store-capabilities write is version-checked by core (CORE-47): with read-then-write, two
+// owners' saves can overwrite each other silently.
 /** ⚖ DECISIONS-S49 R86 — THE NAMED OFF-SWITCH for お店ページ's switches in REAL MODE. false (default) = any
- *  Must stay false until the store-capabilities write is version-checked by core (CORE-47): with read-then-write, two owners' saves can overwrite each other silently.
  *  business that is not the admitted practice tenant (or the door OFF) is DISCONNECTED: no read, no write,
  *  the route answers 501 `disconnected`. Only CORE-47 (core's own capabilities endpoint) may flip it, with the
  *  storage call moved to it; until then the temporary org-settings key is Dev Salon's alone. */
