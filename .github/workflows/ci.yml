@@ -77,6 +77,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: dummy-not-a-key
 
       - name: Bottom bar hit test (real layout, Chromium + WebKit)
+        # Measured on ubuntu-latest (run 37374694834, caee3a929): 2 m 11 s
+        # including the browser install. 8 min caps a hung install or build.
+        timeout-minutes: 8
         # Greptile on #1131: the jest test pins the bar's class strings, not
         # which control a touch at each point reaches — a change to the bar's
         # overflow, positioning or stacking could pass jest and bring the dead

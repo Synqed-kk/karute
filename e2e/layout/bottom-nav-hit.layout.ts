@@ -14,6 +14,12 @@
  *  - recording-stop (/sessions while recording): no tab owns a point inside
  *    the middle column, and the stop button has no non-zero data-bar-hit.
  *  - mouse-only (no touch, pointer: fine): no data-bar-hit has a non-zero rect.
+ *  - every touch state is first proven to BE that state, read from the DOM
+ *    bottom-nav.tsx renders (cold read F1: a mock forced idle or an unknown
+ *    path otherwise passed as a copy of idle): aria-current="page" on the
+ *    tabs, the record control's element (idle <a href=/sessions…> vs the
+ *    recording <button>), its mm:ss timer sibling, its data-bar-hit spans,
+ *    and the stop control's aria-label (the one Japanese string used).
  *
  * Grid: every 2 px across and down the bar (a 4 px strip always holds a
  * sample), every 1 px in the 40 px above it, plus fractional samples at
@@ -67,6 +73,44 @@ type Probe = {
   above: Cell[]
   stopHits: number
   nonZeroHits: number
+  form: Form
+}
+// The branch bottom-nav.tsx actually rendered, read from its DOM.
+type Form = {
+  recTag: string
+  recHref: string | null
+  stop: boolean
+  timer: string | null
+  recHitSpans: number
+  current: { col: number; href: string | null }[]
+}
+type State = keyof typeof STATES
+const TIMER = /^\d{2,}:\d{2}$/
+
+function assertState(state: State, f: Form) {
+  const timerOk = f.timer !== null && TIMER.test(f.timer)
+  const msg = `${state}: ${JSON.stringify(f)}`
+  if (state === 'idle' || state === 'active-tab') {
+    expect(f.recTag, msg + ' (idle record control is the <a>)').toBe('a')
+    expect(f.recHref ?? '', msg).toMatch(/^\/sessions/)
+    expect(f.stop, msg).toBe(false)
+    expect(f.timer, msg + ' (no recording timer)').toBeNull()
+    expect(f.recHitSpans, msg).toBeGreaterThan(0)
+    expect(f.current, msg + ' (aria-current tabs)').toEqual(
+      state === 'idle' ? [] : [{ col: 1, href: '/karute' }],
+    )
+  } else {
+    expect(f.recTag, msg + ' (recording control is the <button>)').toBe('button')
+    expect(timerOk, msg + ' (mm:ss recording timer beside the control)').toBe(true)
+    expect(f.current, msg + ' (no tab is aria-current)').toEqual([])
+    if (state === 'recording-elsewhere') {
+      expect(f.stop, msg + ' (not the stop control)').toBe(false)
+      expect(f.recHitSpans, msg + ' (keeps its hit spans)').toBeGreaterThan(0)
+    } else {
+      expect(f.stop, msg + ' (the stop control)').toBe(true)
+      expect(f.recHitSpans, msg + ' (stop has no hit spans)').toBe(0)
+    }
+  }
 }
 
 async function open(page: Page, qs: string, safe: number, chromium: boolean) {
@@ -129,7 +173,20 @@ const probe = (page: Page, tol: { x: number; bottom: number }) =>
     document.body.appendChild(probeEl)
     const safe = parseFloat(getComputedStyle(probeEl).paddingBottom)
     probeEl.remove()
+    const timerEl = cols[2].querySelector(':scope > span.tabular-nums')
+    const form = {
+      recTag: recEl.tagName.toLowerCase(),
+      recHref: recEl.getAttribute('href'),
+      stop: recEl.getAttribute('aria-label') === '録音を停止',
+      timer: timerEl ? (timerEl.textContent ?? '').trim() : null,
+      recHitSpans: recEl.querySelectorAll('[data-bar-hit]').length,
+      current: Array.from(row.querySelectorAll('[aria-current="page"]')).map((e) => ({
+        col: cols.findIndex((k) => k.contains(e)),
+        href: e.getAttribute('href'),
+      })),
+    }
     return {
+      form,
       coarse: matchMedia('(pointer: coarse)').matches,
       safe,
       bar: [b.left, b.top, b.right, b.bottom],
@@ -194,11 +251,12 @@ for (const [w, h] of VIEWPORTS) {
         const page = await ctx.newPage()
         await open(page, qs, safe, chromium)
         const p = await probe(page, { x: TOL_X, bottom: TOL_BOTTOM })
+        assertState(state as State, p.form)
         const stop = state === 'recording-stop'
         const j = judge(p, stop)
         console.log(
           'HITGRID ' +
-            JSON.stringify({ browserName, vp: `${w}x${h}`, state, safe: p.safe, pts: p.cells.length, above: p.above.length, ...j, fails: j.fails.length, first: j.fails.slice(0, 3), bar: p.bar, bounds: p.bounds, rec: p.rec }),
+            JSON.stringify({ browserName, vp: `${w}x${h}`, state, form: { tag: p.form.recTag, stop: p.form.stop, timer: p.form.timer, hits: p.form.recHitSpans, current: p.form.current }, safe: p.safe, pts: p.cells.length, above: p.above.length, ...j, fails: j.fails.length, first: j.fails.slice(0, 3), bar: p.bar, bounds: p.bounds, rec: p.rec }),
         )
         expect(p.coarse, 'touch context must match pointer: coarse').toBe(true)
         expect(j.fails.slice(0, 12), `${j.fails.length} hit-test failures`).toEqual([])
