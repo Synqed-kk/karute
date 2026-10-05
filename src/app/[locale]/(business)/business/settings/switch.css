@@ -34,6 +34,13 @@
 }
 .biz .pg-settings .st-switch[aria-checked="true"] .st-switch-thumb { background: var(--st-accent); }
 .biz .pg-settings .st-switch[aria-disabled="true"] { cursor: default; }
+/* Fallback (P5c R284): an engine that cannot multiply a length by a number inside
+   calc() drops the thumb's transform. There the thumb is placed by STATE instead,
+   so it can never rest at the off end while the switch is on; only the travel
+   animation is lost. Engines that pass the test never apply this block. */
+@supports not (transform: translateX(calc(1px * 0.5))) {
+  .biz .pg-settings .st-switch[aria-checked="true"] .st-switch-thumb { left: auto; right: var(--st-sw-inset); }
+}
 
 /* ⚖ R70 — the 44px is a HIT AREA for a finger, never a width rule. The travel is
    a calc of the tokens, so the wider track needs only its tokens restated. */

@@ -637,4 +637,19 @@ describe('⚖ P5c R280 (F2) — the switch eases its press', () => {
     expect(props).toContain('transform')
     expect(props.filter((p) => /colou?r|background|border|fill|stroke|shadow|^all$/i.test(p))).toEqual([])
   })
+
+  /** P5c R284: where calc() cannot multiply a length by a number the thumb's transform
+   *  is dropped — one @supports-not fallback places the ON thumb by state instead. */
+  it('one @supports fallback places the on thumb at the right inset by state', () => {
+    const ats: postcss.AtRule[] = []
+    sheet('switch.css').walkAtRules('supports', (a) => { ats.push(a) })
+    expect(ats).toHaveLength(1)
+    expect(ats[0].params).toBe('not (transform: translateX(calc(1px * 0.5)))')
+    const rules = (ats[0].nodes ?? []).filter((n): n is postcss.Rule => n.type === 'rule')
+    expect(ats[0].nodes).toHaveLength(1)
+    expect(rules).toHaveLength(1)
+    expect(rules[0].selector).toBe('.biz .pg-settings .st-switch[aria-checked="true"] .st-switch-thumb')
+    const decls = (rules[0].nodes ?? []).filter((n): n is postcss.Declaration => n.type === 'decl').map((d) => `${d.prop}: ${d.value}`)
+    expect(decls).toEqual(['left: auto', 'right: var(--st-sw-inset)'])
+  })
 })
