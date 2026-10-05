@@ -67,7 +67,7 @@ describe('seed + TYPE_DEFAULTS (spec F1)', () => {
   it('PARENT RULE: no type set turns a sub ON without its parent (the projection drops nothing from a fresh seed)', () => {
     for (const t of BUSINESS_TYPE_KEYS) {
       expect({ t, on: publicProjection('s', seedRecord(t)).on }).toEqual({ t, on: onKeys(seedRecord(t)) })
-      expect(TYPE_DEFAULTS[t].size).toBe(onKeys(seedRecord(t)).length)
+      expect(TYPE_DEFAULTS[t].length).toBe(onKeys(seedRecord(t)).length)
     }
   })
   it('BUSINESS_TYPE_KEYS = businessProfiles values, same order (26-key twin pin)', () => {
@@ -480,25 +480,28 @@ describe('the defaults are frozen (attack S53 NIT 5)', () => {
     expect(Object.isFrozen(TYPE_DEFAULTS)).toBe(true)
     expect(Object.isFrozen(BUSINESS_TYPE_KEYS)).toBe(true)
     expect(() => { (BUSINESS_TYPE_KEYS as BusinessTypeKey[]).push('other') }).toThrow(TypeError)
-    expect(() => { (TYPE_DEFAULTS as Record<string, unknown>).other = new Set<CapKey>(['shop']) }).toThrow(TypeError)
+    expect(() => { (TYPE_DEFAULTS as Record<string, unknown>).other = ['shop'] }).toThrow(TypeError)
     expect(onKeys(seedRecord('other'))).toEqual(['checkin_qr'])
     expect(resetDiff(seedRecord('other')).none).toBe(true)
   })
-  // Greptile PR #1126 (model.ts:89): no type default a caller can reach may be changed at runtime, for ANY type.
-  it('a caller cannot add, delete or clear any type default; the sets and the model answer are unchanged after', () => {
+  // Greptile PR #1126 (model.ts:89): the export is the frozen arrays themselves — no caller can change any type default.
+  it('a caller cannot push, splice or write any type default, even via Array.prototype; the model answer is unchanged', () => {
     for (const t of BUSINESS_TYPE_KEYS) {
-      const s = TYPE_DEFAULTS[t] as Set<CapKey>
-      const before = [...s]
-      expect(() => s.add('shop')).toThrow(TypeError)
-      expect(() => s.add('video_proof')).toThrow(TypeError)
-      expect(() => s.delete('checkin_qr')).toThrow(TypeError)
-      expect(() => s.clear()).toThrow(TypeError)
-      expect(Object.isFrozen(s)).toBe(true)
-      expect([...s]).toEqual(before)
-      expect(s.size).toBe(onKeys(seedRecord(t)).length)
-      expect(onKeys(seedRecord(t))).toEqual(CAP_KEYS.filter((k) => s.has(k)))
+      const a = TYPE_DEFAULTS[t] as CapKey[]
+      const before = Array.from(a)
+      expect(Array.isArray(a)).toBe(true)
+      expect(Object.isFrozen(a)).toBe(true)
+      expect(() => a.push('shop')).toThrow(TypeError)
+      expect(() => a.splice(0, 1)).toThrow(TypeError)
+      expect(() => { a[0] = 'shop' }).toThrow(TypeError)
+      expect(() => Array.prototype.push.call(a, 'video_proof')).toThrow(TypeError)
+      expect(() => Array.prototype.splice.call(a, 0, a.length)).toThrow(TypeError)
+      expect(Array.from(a)).toEqual(before)
+      expect(a.length).toBe(onKeys(seedRecord(t)).length)
+      expect(onKeys(seedRecord(t))).toEqual(CAP_KEYS.filter((k) => a.includes(k)))
       expect(resetDiff(seedRecord(t)).none).toBe(true)
     }
-    expect([...TYPE_DEFAULTS.other]).toEqual(['checkin_qr'])
+    expect(Object.isFrozen(TYPE_DEFAULTS)).toBe(true)
+    expect(TYPE_DEFAULTS.other).toEqual(['checkin_qr'])
   })
 })
