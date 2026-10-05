@@ -75,7 +75,7 @@ describe.each(STATES)('bottom bar hit columns — $name', ({ path, rec }) => {
     expect(controls.map((c) => c.getAttribute('href') ?? c.getAttribute('aria-label') ?? c.getAttribute('aria-haspopup'))).toHaveLength(5)
     for (const c of controls) {
       const spans = Array.from(c.children).filter((h) => h.hasAttribute('data-bar-hit'))
-      expect(spans.length).toBe(controls.indexOf(c) === 2 ? 2 : 1)
+      expect(spans.length).toBe(controls.indexOf(c) !== 2 ? 1 : path === '/sessions' ? 0 : 2)
       for (const h of spans) {
         expect(h.tagName).toBe('SPAN')
         expect(h.getAttribute('aria-hidden')).toBe('true')

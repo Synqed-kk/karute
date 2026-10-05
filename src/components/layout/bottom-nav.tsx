@@ -57,7 +57,8 @@ function TabHit({ edge }: { edge: keyof typeof TAB_HIT }) {
  *  is 44px, top 7px above the bar's top edge, bottom 28px above the bar's
  *  content bottom): the proud part plus a 12px slop above and each side, and
  *  under the bar's top edge the whole column down through the safe-area
- *  strip (±64px is wider than any column; the tabs' spans cover the excess). */
+ *  strip (±64px is wider than any column; the tabs' spans cover the excess).
+ *  Idle and recording-elsewhere only: the stop button has none (S106 R2). */
 function RecordHit() {
   return (
     <>
@@ -622,7 +623,10 @@ function CenterRecordButton({
           aria-label="録音を停止"
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
-          <RecordHit />
+          {/* No RecordHit here (S106 R2): the STOP button keeps its own 44px
+           *  circle as its only touch area, so a stray thumb in the column
+           *  cannot end a recording. The column around it is dead space, as
+           *  before round 5; the tab spans stay inside their own cells. */}
           <Square className="relative h-3.5 w-3.5" fill="currentColor" strokeWidth={0} />
         </button>
         <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">
