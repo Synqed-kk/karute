@@ -71,9 +71,9 @@ describe('store page body — floor blocks follow the sample', () => {
     expect(has(c, '.salon-next')).toBe(false)
     expect(c.querySelector('.salon-acts__primary')!.textContent).toBe('予約する')
   })
-  it('the body holds nothing focusable (a picture)', () => {
+  it('the body holds nothing focusable (a picture) except the わたしの記録 tabs (D23: a tap switches the list)', () => {
     const c = mount([...ALL])
-    for (const b of c.querySelectorAll('button')) expect((b as HTMLButtonElement).disabled).toBe(true)
+    for (const b of c.querySelectorAll('button:not([role="tab"])')) expect((b as HTMLButtonElement).disabled).toBe(true)
     for (const a of c.querySelectorAll('[data-store-body] a')) expect(a.hasAttribute('href')).toBe(false)
   })
 })

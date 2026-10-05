@@ -393,9 +393,11 @@ function StudioCover({
 }
 
 // The mock's `ready(k)` (MOCK-SWITCHBOARD-v2 :1564-1569): ON and (no count needed, or the count > 0). The count
-// keys are the mock REG `need` fields (:880-916) for the four parents this body reads; CHECKIN_QR needs none.
-// (P1's store-page model owns the full table; this body reads only these four.)
-const NEED: Readonly<Record<string, string>> = { packs: "packs", posts: "posts", intake: "questions" };
+// keys are the mock REG `need` fields (:880-916) for the parents this body reads; CHECKIN_QR needs none.
+// (P1's store-page model owns the full table; this body reads only these seven.)
+const NEED: Readonly<Record<string, string>> = {
+  packs: "packs", posts: "posts", intake: "questions", classes: "classes", homecare: "care", shop: "products", rental: "resources",
+};
 const readyIn = (on: ReadonlySet<string>, counts: Readonly<Record<string, number>>, key: string) =>
   on.has(key) && (NEED[key] === undefined || (counts[NEED[key]] ?? 0) > 0);
 
@@ -409,6 +411,11 @@ const readyIn = (on: ReadonlySet<string>, counts: Readonly<Record<string, number
  * own base classes are not carried (the .salon-acts rules set every drawn property); Reserve's points row,
  * intake 「未記入」 chip and 読みました state are not drawn (the mock has none of them); the reactions line has
  * no Reserve source and is drawn from the mock (.rv .react :501, D-PHONE).
+ * Part 2 (P4b, spec §E1 items 6, 7, 9-12): ご予約 = MemberSalonPage.tsx UpcomingBookings :385-452; shop / rental =
+ * studio-salon.tsx ShopSection :327-352 / RentalSection :361-390 (their thumb, 注文する / お申し込み are the mock's;
+ * Reserve's goodsFooter line is not drawn — the mock has none); classes + キャンセル待ち and the tab bar have no
+ * Reserve store-page source and are drawn from the mock (:1809-1825, :1897; D-PHONE). Order = the mock's: Reserve
+ * puts the intake row UNDER ご予約 (MemberSalonPage.tsx :310-314), the mock above it — the mock wins (spec E1).
  */
 function StoreBody({ on, sample }: { on: ReadonlySet<string>; sample: StorePageSample }) {
   const v = sample.rv;
@@ -416,6 +423,7 @@ function StoreBody({ on, sample }: { on: ReadonlySet<string>; sample: StorePageS
   const readPoints = on.has("read_points");
   const reactions = on.has("reactions");
   return (
+    <>
     <div className="px-[22px] pb-6" data-store-body="">
       {v.rank && (
         <div className="salon-rankfloat">
@@ -452,14 +460,53 @@ function StoreBody({ on, sample }: { on: ReadonlySet<string>; sample: StorePageS
           </a>
         </div>
       )}
+      {v.bookings.length > 0 && (
+        <div className="mt-8">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">ご予約</h2>
+          <div className="bg-card divide-y divide-border/60 member-rows">
+            {v.bookings.map((booking, i) => (
+              <a key={`${i}:${booking.t}`} className="flex items-center gap-3 pressable outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+                <span className="min-w-0 flex-1">
+                  <span className="member-row__t block">{booking.t}</span>
+                  <span className="member-row__s block text-muted-foreground">{booking.s}</span>
+                </span>
+                <ChevronRight size={15} className="shrink-0 text-muted-foreground" />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+      {ready("classes") && (
+        <div className="salon-classes mt-8" data-cap="classes">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">レッスンを予約</h2>
+          <div className="salon-classes__days">
+            <span data-on="">今日 9/14</span><span>明日 9/15</span><span>火 9/16</span>
+          </div>
+          <div className="member-rows bg-card divide-y divide-border/60">
+            {v.classes.map((c, i) => (
+              <div key={`${i}:${c.tm}`} className="salon-classes__row" data-full={c.seats > 0 ? undefined : ""}>
+                <span className="salon-classes__tm">{c.tm}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="member-row__t block">{c.nm}</span>
+                  <span className="member-row__s block text-muted-foreground">{c.sub}</span>
+                </span>
+                <span className="salon-classes__seats">{c.seats > 0 ? `残り${c.seats}枠` : "満席"}</span>
+                {!(c.seats > 0) && on.has("waitlist") && (
+                  <span className="salon-classes__wl" data-cap="waitlist"><span>キャンセル待ちに登録</span></span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {ready("posts") && (
         <div className="salon-posts mt-8" data-cap="posts">
           <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">
             お店からのお知らせ{readPoints && <small>読むとポイントがたまります</small>}
           </h2>
           <div className="member-rows bg-card divide-y divide-border/60">
-            {v.posts.map((post) => (
-              <a key={post.t} className="flex items-center gap-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+            {v.posts.map((post, i) => (
+              <a key={`${i}:${post.t}`} className="flex items-center gap-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
                 <span className="min-w-0 flex-1">
                   <span className="member-row__t block">{post.t}</span>
                   <span className="member-row__s block text-muted-foreground">{post.d}</span>
@@ -471,6 +518,143 @@ function StoreBody({ on, sample }: { on: ReadonlySet<string>; sample: StorePageS
           </div>
         </div>
       )}
+      {ready("shop") && (
+        <div className="salon-goods mt-8" data-cap="shop">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">
+            ショップ<small>お店で受け取り</small>
+          </h2>
+          <div className="member-rows bg-card divide-y divide-border/60">
+            {v.products.map((product, i) => (
+              <div key={`${i}:${product.t}`} className="flex items-center gap-3">
+                <span className="salon-goods__thumb" style={{ background: product.c }} />
+                <span className="min-w-0 flex-1">
+                  <span className="member-row__t block">{product.t}</span>
+                  <span className="member-row__s block text-muted-foreground">{product.pr}</span>
+                </span>
+                <span className="salon-goods__buy">注文する</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {ready("rental") && v.lockers && (
+        <div className="salon-goods mt-8" data-cap="rental">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">ロッカー・レンタル</h2>
+          <div className="member-rows bg-card divide-y divide-border/60">
+            <div className="flex items-center gap-3">
+              <span className="min-w-0 flex-1">
+                <span className="member-row__t block">{v.lockers.t}</span>
+                <span className="member-row__s block text-muted-foreground">{v.lockers.d}</span>
+              </span>
+              <span className="salon-goods__buy">お申し込み</span>
+            </div>
+          </div>
+        </div>
+      )}
+      <MyRecord key={"name" in sample ? String(sample.name) : undefined} ready={ready} photo={on.has("photo_proof")} sample={sample} />
+    </div>
+    <div className="salon-tabbar"><div data-on="">ホーム</div><div>予約</div><div>ためる</div><div>マイページ</div></div>
+    </>
+  );
+}
+
+type SegmentKey = "visits" | "packs" | "care";
+const SEGMENT_JA: Readonly<Record<SegmentKey, string>> = { visits: "来店履歴", packs: "回数券", care: "ホームケア" };
+
+/**
+ * わたしの記録 (spec §E1 item 11 + D23). Shape = Reserve MemberSalonPage.tsx MyRecord :508-588 @ 09841a6 (segments
+ * computed from the switches; visits always) with studio-salon.tsx SegTabs :448-531 (its spring is NOT carried — the
+ * rule jumps, so nothing animates) and visit-history-list.tsx :21-72 rows; the WORDS and the pack/care/empty rows
+ * are the mock's (phoneMarkup :1854-1893, D-PHONE). The open tab falls back to 来店履歴 when its key goes away (the
+ * mock's own rule :1859: the fallback sticks, the tab does not reopen when the key comes back).
+ */
+function MyRecord({ ready, photo, sample }: { ready: (key: string) => boolean; photo: boolean; sample: StorePageSample }) {
+  const v = sample.rv;
+  const segments: SegmentKey[] = ["visits"];
+  if (ready("packs")) segments.push("packs");
+  if (ready("homecare")) segments.push("care");
+  const [tab, setTab] = useState<SegmentKey>("visits");
+  if (!segments.includes(tab)) setTab("visits");
+  const active = segments.includes(tab) ? tab : "visits";
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const lineRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const btn = wrapRef.current?.querySelector<HTMLElement>('button[aria-selected="true"]');
+    const line = lineRef.current;
+    if (!btn || !line) return;
+    line.style.width = `${btn.offsetWidth}px`;
+    line.style.transform = `translateX(${btn.offsetLeft}px)`;
+  }, [active, segments.length]);
+  const rows = (items: ReadonlyArray<{ readonly t: string; readonly d: string }>, extra = "") => (
+    <div className="visit-rows bg-card divide-y divide-border/60">
+      {items.map((item) => (
+        <div key={item.t} className="flex items-center justify-between gap-3 p-4">
+          <div className="min-w-0">
+            <p className="visit-row__t text-sm font-medium">{item.t}</p>
+            <p className="visit-row__m text-xs text-muted-foreground mt-0.5">{item.d}{extra}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div className="salon-record mt-9" data-record="">
+      <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">わたしの記録</h2>
+      <div ref={wrapRef} role="tablist" aria-label="わたしの記録" className="salon-segs">
+        {segments.map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            tabIndex={-1}
+            aria-selected={key === active}
+            onClick={() => setTab(key)}
+            className="rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            data-cap={key === "packs" ? "packs" : key === "care" ? "homecare" : undefined}
+          >
+            {SEGMENT_JA[key]}
+          </button>
+        ))}
+        <span ref={lineRef} className="salon-segline" aria-hidden="true" />
+      </div>
+      <div className="mt-4" role="tabpanel" aria-label={SEGMENT_JA[active]}>
+        {active === "visits" && (v.visits.length > 0 ? (
+          <>
+            <div className="visit-rows rounded-2xl bg-card elev-card divide-y divide-border/60">
+              {v.visits.map((visit, i) => (
+                <div key={`${i}:${visit.d}`} className="flex items-center justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <p className="visit-row__t text-sm font-medium">{visit.t}</p>
+                    <p className="visit-row__m text-xs text-muted-foreground mt-0.5">
+                      {visit.d.split(" ・ ").map((seg, i) => (
+                        <span key={i}>{i > 0 && " ・ "}<span className="visit-row__seg">{seg}</span></span>
+                      ))}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    {"badge" in visit && visit.badge && (
+                      <span className="member-chip inline-block rounded-full bg-secondary text-secondary-foreground text-[10px] font-medium px-2 py-0.5 mb-0.5">{visit.badge}</span>
+                    )}
+                    {"money" in visit && visit.money && (
+                      <p className="text-sm font-semibold"><span className="price-num">{visit.money}</span> <span className="salon-record__tax">税込</span></p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <a className="mt-3 inline-flex items-center gap-0.5 text-xs font-medium text-primary rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 pressable tameru-tbtn">
+              すべての来店履歴<ChevronRight size={13} />
+            </a>
+          </>
+        ) : (
+          <div className="salon-record__empty">
+            <p className="salon-record__empty-t">まだ来店の記録はありません</p>
+            <p className="salon-record__empty-s">{v.emptyVisits}</p>
+          </div>
+        ))}
+        {active === "packs" && rows(v.packs)}
+        {active === "care" && rows(v.care, photo ? " ・ 写真で報告できます" : "")}
+      </div>
     </div>
   );
 }

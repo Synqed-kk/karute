@@ -970,3 +970,124 @@
    (MOCK-SWITCHBOARD-v2 :501 `.rv .react{font-size:13px;color:var(--rv-mut);margin-top:4px}`, --rv-mut #5f6275 =
    --member-ink2), selector renamed into the port's scope (D-PHONE). */
 .member-ground .salon-posts__react { font-size: 13px; color: var(--member-ink2); margin-top: 4px; }
+
+/* reserve index.css:4084–4111 */
+/* ---- the underline segmented control ----
+   A 2px lead rule that SPRINGS between segments rather than appearing under
+   the new one: the underline is one object moving, which is what tells the
+   member the segments are one row and not four buttons. */
+.member-ground .salon-segs {
+  position: relative;
+  display: flex;
+  gap: 22px;
+  border-bottom: 1px solid var(--member-hair);
+}
+.member-ground .salon-segs button {
+  padding: 12px 0;
+  min-height: 44px;
+  font-size: 15px;
+  color: var(--member-ink2);
+}
+.member-ground .salon-segs button[aria-selected="true"] {
+  color: var(--member-lead);
+  font-weight: 700;
+}
+.member-ground .salon-segline {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--member-lead);
+  will-change: transform, width;
+}
+
+/* reserve index.css:4113–4176 */
+/* the visit rows, on both surfaces that render them (the segment and
+   /me/:salon/history — ONE implementation, so one restyle) */
+.member-ground .visit-rows {
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--member-obj-sm);
+}
+.member-ground .visit-rows > * {
+  padding: 15px 18px;
+  align-items: flex-start;
+}
+/* the mock's visit row WRAPS — a menu name and a date · staff · store line
+   are the whole point of the row, and an ellipsis eats the store */
+.member-ground .visit-row__t,
+.member-ground .visit-row__m {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.member-ground .visit-row__t {
+  font-size: 16px;
+  /* ⚖ SalonSurface puts the tenant's own --foreground inline on the very
+     element .member-ground is on, and inline outranks the ground's token — so
+     these rows were reading the TENANT's ink on a piece of app chrome. The row
+     names the app's ink; the tenant's colour stays on the tenant's objects.
+     400, not Tailwind's font-medium: the source's .vrow .vt sets no weight. */
+  font-weight: 400;
+  color: var(--member-ink);
+}
+/* the price at the source's own size (fragment .vrow .vp .n: 15px) — the
+   Tailwind text-sm underneath it was 14 */
+.member-ground .visit-rows .price-num {
+  font-size: 15px;
+  color: var(--member-ink);
+}
+.member-ground .visit-row__m {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+/* ⚖ …and it wraps at the SEPARATORS, never inside a name. Japanese takes a
+   line break between any two characters, so on the phone — where a price on
+   the right narrows the line — 「代官山院」 came apart as 代官 | 山院 on every
+   priced row (walk shots 49-laestro-scrolled, 57-history). Date, staff and
+   store are three names; each is one word, and the ・ between them (plain text
+   in visit-history-list.tsx, deliberately outside these spans) is the only
+   place the line may turn.
+
+   ⚖ NOTHING PAINTS OUTSIDE ITS ROW (Fable 2026-09-05). `white-space: nowrap`
+   said all of that, but it also has no way out: a segment wider than the whole
+   line simply hung over the row's edge (measured on a 24-character synthetic
+   store name: 42–86 px past the paragraph at 393/375). `keep-all` suppresses
+   the same CJK breaks WITHOUT forbidding breaking outright, so
+   `overflow-wrap: anywhere` can still step in — and it only ever steps in when
+   the segment alone is wider than its line. Normal rows are untouched.
+
+   Named ceiling: `keep-all` still honours a space INSIDE a segment, so a Latin
+   name carrying one (「La Estro 代官山院」) may turn there. That is a real word
+   boundary and a legible place to break, which is more than the overflow was. */
+.member-ground .visit-row__m .visit-row__seg {
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* NOT Reserve — spec §E1 items 7, 9, 10, 11 (empty), 12: drawn from the approved mock (MOCK-SWITCHBOARD-v2 .rv rules
+   :478-495 classes, :504/:507 shop thumb + 注文する, :516 税込, :520-522 empty, :523-528 tab bar; D-PHONE). Reserve has no
+   store-page classes block (its timetable lives on the 予約 tab, class-timetable.tsx), no 注文する/お申し込み, and its tab
+   tray is page chrome this port leaves out. Mock tokens: --rv-mut #5f6275 = --member-ink2; --rv-line #e4e5ec, --rv-ink2
+   #1c2247, --rv-commit #30375e (the same navy as .salon-acts__primary) are written as the mock's literals. */
+.member-ground .salon-goods h2 small { margin-left:auto; padding-left:8px; font-size:13px; font-weight:400; letter-spacing:0; color:var(--member-ink2); }
+.member-ground .salon-classes__days { display:flex; gap:7px; margin-bottom:9px; flex-wrap:wrap; }
+.member-ground .salon-classes__days > span { font-size:13px; border-radius:999px; padding:4px 12px; background:#fff; color:var(--member-ink2); box-shadow:inset 0 0 0 1px #e4e5ec; }
+.member-ground .salon-classes__days > span[data-on] { background:#e9eaf3; color:#1c2247; font-weight:600; box-shadow:none; }
+.member-ground .salon-classes__row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.member-ground .salon-classes__tm { font-size:15px; font-weight:700; width:50px; flex:0 0 50px; }
+.member-ground .salon-classes__seats { flex:0 0 auto; text-align:right; font-size:13px; color:#2a7a4d; font-weight:600; white-space:nowrap; }
+.member-ground .salon-classes__row[data-full] .salon-classes__seats { color:#a04a2a; }
+.member-ground .salon-classes__wl { flex:0 0 100%; padding-left:62px; }
+.member-ground .salon-classes__wl > span { font-size:13px; font-weight:600; color:#1c2247; box-shadow:inset 0 0 0 1px #e4e5ec; border-radius:8px; padding:5px 12px; display:inline-block; background:#fff; }
+.member-ground .salon-goods__thumb { width:46px; height:46px; border-radius:10px; flex:0 0 46px; }
+.member-ground .salon-goods__buy { margin-left:auto; flex:0 0 auto; font-size:13px; font-weight:700; color:#fff; background:#30375e; border-radius:9px; padding:6px 13px; }
+.member-ground .salon-record__tax { font-size:13px; font-weight:400; color:var(--member-ink2); }
+.member-ground .salon-record__empty { text-align:center; padding:44px 20px; }
+.member-ground .salon-record__empty-t { font-size:15px; font-weight:700; }
+.member-ground .salon-record__empty-s { font-size:14px; color:var(--member-ink2); margin-top:6px; }
+.member-ground .salon-tabbar { position:sticky; bottom:10px; margin:26px 16px 0; background:#fff; border-radius:999px; box-shadow:0 4px 18px rgba(20,22,40,.13); display:flex; padding:7px 6px; }
+.member-ground .salon-tabbar > div { flex:1; text-align:center; font-size:13px; color:var(--member-ink2); padding:6px 0; border-radius:999px; }
+.member-ground .salon-tabbar > div[data-on] { background:#eceefa; color:#1c2247; font-weight:700; }

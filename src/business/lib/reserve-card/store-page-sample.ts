@@ -81,5 +81,13 @@ export interface StorePageSample {
     readonly rank: string
     readonly next: { readonly line: string; readonly big: string; readonly side: string }
     readonly posts: ReadonlyArray<{ readonly t: string; readonly d: string }>
+    readonly bookings: ReadonlyArray<{ readonly t: string; readonly s: string }>
+    readonly classes: ReadonlyArray<{ readonly tm: string; readonly nm: string; readonly sub: string; readonly seats: number }>
+    readonly products: ReadonlyArray<{ readonly t: string; readonly pr: string; readonly c: string }>
+    readonly lockers: { readonly t: string; readonly d: string } | null
+    readonly visits: ReadonlyArray<{ readonly t: string; readonly d: string; readonly badge?: string; readonly money?: string }>
+    readonly packs: ReadonlyArray<{ readonly t: string; readonly d: string }>
+    readonly care: ReadonlyArray<{ readonly t: string; readonly d: string }>
+    readonly emptyVisits: string
   }
 }
