@@ -22,8 +22,6 @@ export const ALARM_EXTRA_KEYS = [
   'os_version', 'count', 'business_count', 'take_ids',
 ]
 
-const DROPPED_BREADCRUMB_CATEGORIES = new Set(['console', 'http', 'fetch', 'xhr'])
-
 /** The part of a URL before the first `?` or `#`. */
 export function stripQuery(url: string): string {
   const cut = url.search(/[?#]/)
@@ -72,8 +70,13 @@ export function redact(value: unknown): unknown {
 
 const SPAN_KEYS_DELETED = ['url.query', 'http.query', 'url.fragment', 'http.fragment']
 const SPAN_KEYS_URL = ['url', 'http.url', 'url.full', 'http.target']
+/** Client / peer IP attributes (copies of x-forwarded-for or the socket peer). */
+export const SPAN_KEYS_PEER_IP = [
+  'http.client_ip', 'net.peer.ip', 'net.sock.peer.addr', 'client.address',
+  'client.socket.address', 'network.peer.address', 'user.ip_address',
+]
 
-/** Removes header attributes and query/fragment attributes; strips the query off URL attributes. Mutates and returns `data`. */
+/** Removes header, peer-IP and query/fragment attributes; strips the query off URL attributes. Mutates and returns `data`. */
 export function scrubSpanData<T extends Record<string, unknown>>(data: T): T {
   const rec = data as Record<string, unknown>
   for (const key of Object.keys(rec)) {
@@ -82,6 +85,7 @@ export function scrubSpanData<T extends Record<string, unknown>>(data: T): T {
     }
   }
   for (const key of SPAN_KEYS_DELETED) delete rec[key]
+  for (const key of SPAN_KEYS_PEER_IP) delete rec[key]
   for (const key of SPAN_KEYS_URL) {
     const v = rec[key]
     if (typeof v === 'string') rec[key] = stripQuery(v)
@@ -89,19 +93,31 @@ export function scrubSpanData<T extends Record<string, unknown>>(data: T): T {
   return data
 }
 
+/** Strips the query off a span's (or trace context's) name: browser resource spans are named by their URL. */
+function stripSpanNames(span: object | undefined): void {
+  if (!span) return
+  const rec = span as Record<string, unknown>
+  for (const key of ['description', 'name']) {
+    const v = rec[key]
+    if (typeof v === 'string') rec[key] = stripQuery(v)
+  }
+}
+
 // ---- breadcrumbs ----
 
-function stripNavigation(breadcrumb: Breadcrumb): Breadcrumb {
-  if (breadcrumb.category !== 'navigation' || !breadcrumb.data) return breadcrumb
+/** The ONE breadcrumb rule (allow-list): only `navigation` is kept, its from/to without query; everything else is dropped. */
+function keepBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
+  if (breadcrumb.category !== 'navigation') return null
+  if (!breadcrumb.data) return breadcrumb
   const data = { ...breadcrumb.data }
   if (typeof data.from === 'string') data.from = stripQuery(data.from)
   if (typeof data.to === 'string') data.to = stripQuery(data.to)
   return { ...breadcrumb, data }
 }
 
+/** beforeBreadcrumb. */
 export function scrubBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
-  if (breadcrumb.category && DROPPED_BREADCRUMB_CATEGORIES.has(breadcrumb.category)) return null
-  return stripNavigation(breadcrumb)
+  return keepBreadcrumb(breadcrumb)
 }
 
 // ---- events ----
@@ -112,8 +128,8 @@ function scrubOrdinary<T extends AnyEvent>(input: T): T | null {
 
   if (event.breadcrumbs) {
     event.breadcrumbs = event.breadcrumbs
-      .filter((b) => !(b.category && DROPPED_BREADCRUMB_CATEGORIES.has(b.category)))
-      .map(stripNavigation)
+      .map(keepBreadcrumb)
+      .filter((b): b is Breadcrumb => b !== null)
   }
 
   if (event.request) {
@@ -141,6 +157,7 @@ function scrubOrdinary<T extends AnyEvent>(input: T): T | null {
 
   const traceData = event.contexts?.trace?.data
   if (traceData) scrubSpanData(traceData)
+  stripSpanNames(event.contexts?.trace)
 
   return event
 }
@@ -204,7 +221,7 @@ export function scrubEvent(event: ErrorEvent): ErrorEvent | null {
   return scrubOrdinary(event)
 }
 
-/** beforeSendTransaction: transactions never pass beforeSend, so they get the same scrub plus every span's data. */
+/** beforeSendTransaction: transactions never pass beforeSend, so they get the same scrub plus every span's data and name. */
 export function scrubTransaction(event: TransactionEvent): TransactionEvent | null {
   const out = scrubOrdinary(event)
   if (!out) return null
@@ -213,6 +230,7 @@ export function scrubTransaction(event: TransactionEvent): TransactionEvent | nu
   if (out.spans) {
     for (const span of out.spans) {
       if (span.data) scrubSpanData(span.data)
+      stripSpanNames(span)
     }
   }
   return out

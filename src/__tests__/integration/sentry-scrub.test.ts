@@ -91,7 +91,7 @@ describe('T2 scrubEvent on an onRequestError-shaped event', () => {
     expect(out!.request).not.toHaveProperty('env')
     expect(out!.contexts!.nextjs!.request_path).toBe('/api/x')
     expect(out!.transaction).toBe('POST /api/x')
-    expect(out!.breadcrumbs!.map((b) => b.category)).toEqual(['navigation', 'ui.click'])
+    expect(out!.breadcrumbs!.map((b) => b.category)).toEqual(['navigation'])
     expect(out!.breadcrumbs![0].data).toEqual({ from: '/a', to: '/b' })
     assertClean(out)
   })
@@ -159,9 +159,14 @@ describe('T3 scrubBreadcrumb', () => {
     assertClean(out)
   })
 
-  it('another category passes unchanged', () => {
-    const crumb: Breadcrumb = { category: 'ui.click', message: 'button.save', level: 'info' }
-    expect(scrubBreadcrumb(crumb)).toEqual({ category: 'ui.click', message: 'button.save', level: 'info' })
+  // Allow-list: only navigation is kept. ui.click / ui.input messages are
+  // htmlTreeAsString, which carries aria-label / name / title / alt text.
+  it.each([
+    ['ui.click', { category: 'ui.click', message: 'button[aria-label="' + NAME + '"]', level: 'info' }],
+    ['ui.input', { category: 'ui.input', message: 'input[name="' + NAME + '"]' }],
+    ['no category', { message: NAME }],
+  ] as [string, Breadcrumb][])('drops %s', (_label, crumb) => {
+    expect(scrubBreadcrumb(crumb)).toBeNull()
   })
 })
 
@@ -220,6 +225,80 @@ describe('T3b scrubTransaction', () => {
     expectSpanDataScrubbed(out!.spans![0].data)
     expect(out!.transaction).toBe('GET /a/path')
     assertClean(out)
+  })
+})
+
+describe('T3d span names lose their query (browser resource spans are named by URL)', () => {
+  it('span description / name and the trace description keep the path, lose the token', () => {
+    const tx: TxEvent = {
+      type: 'transaction',
+      transaction: '/photos',
+      contexts: {
+        trace: {
+          trace_id: 't',
+          span_id: 's',
+          description: '/photos?token=' + URLQ,
+        } as NonNullable<NonNullable<TxEvent['contexts']>['trace']>,
+      },
+      spans: [
+        {
+          span_id: 's2',
+          trace_id: 't',
+          start_timestamp: 1,
+          op: 'resource.img',
+          data: {},
+          description: '/storage/v1/object/sign/photos/a.jpg?token=' + URLQ,
+        },
+        {
+          span_id: 's3',
+          trace_id: 't',
+          start_timestamp: 1,
+          op: 'resource.media',
+          data: {},
+          description: 'https://x.supabase.co/storage/v1/object/sign/audio/b.webm?token=' + URLQ,
+          name: 'https://x.supabase.co/storage/v1/object/sign/audio/b.webm#' + URLQ,
+        } as unknown as NonNullable<TxEvent['spans']>[number],
+      ],
+    }
+    const out = scrubTransaction(tx)
+    expect(out).not.toBeNull()
+    expect(out!.spans![0].description).toBe('/storage/v1/object/sign/photos/a.jpg')
+    expect(out!.spans![1].description).toBe('https://x.supabase.co/storage/v1/object/sign/audio/b.webm')
+    expect((out!.spans![1] as unknown as Record<string, unknown>).name).toBe(
+      'https://x.supabase.co/storage/v1/object/sign/audio/b.webm',
+    )
+    expect((out!.contexts!.trace as unknown as Record<string, unknown>).description).toBe('/photos')
+    assertClean(out)
+  })
+
+  it('an error event loses the query from contexts.trace.description', () => {
+    const event = {
+      type: undefined,
+      contexts: { trace: { trace_id: 't', span_id: 's', description: '/a/b?token=' + URLQ } },
+    } as ErrorEvent
+    const out = scrubEvent(event)
+    expect(out).not.toBeNull()
+    expect((out!.contexts!.trace as unknown as Record<string, unknown>).description).toBe('/a/b')
+    assertClean(out)
+  })
+})
+
+describe('T3e scrubSpanData drops every client / peer IP attribute', () => {
+  const IP_KEYS = [
+    'http.client_ip', 'net.peer.ip', 'net.sock.peer.addr', 'client.address',
+    'client.socket.address', 'network.peer.address', 'user.ip_address',
+  ]
+  it.each(IP_KEYS)('%s is removed from span data and trace data', (key) => {
+    const ip = '203.0.113.' + C.length
+    const tx: TxEvent = {
+      type: 'transaction',
+      contexts: { trace: { trace_id: 't', span_id: 's', data: { [key]: ip, 'http.method': 'GET' } } },
+      spans: [{ span_id: 's2', trace_id: 't', start_timestamp: 1, data: { [key]: ip, 'http.method': 'GET' } }],
+    }
+    const out = scrubTransaction(tx)
+    expect(out!.contexts!.trace!.data).toEqual({ 'http.method': 'GET' })
+    expect(out!.spans![0].data).toEqual({ 'http.method': 'GET' })
+    expect(JSON.stringify(out)).not.toContain(ip)
   })
 })
 
