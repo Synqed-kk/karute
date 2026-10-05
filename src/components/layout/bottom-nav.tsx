@@ -38,11 +38,13 @@ type Route = { href: string; label: string; icon: React.ComponentType<{ classNam
 // hover/click is exactly as before. z-[1]: a tab's span
 // sits over the record column's wide span (below), which is what keeps the
 // record column exactly the gap between カルテ and 顧客 at any bar width.
+// The edge spans read the row's own cap, var(--breakpoint-sm) (= the
+// max-w-screen-sm on the row), so the two cannot drift (S106 R4).
 const TAB_HIT: Record<'first' | 'middle' | 'last', string> = {
   first:
-    'left-[calc(-8px_-_max(0px,(100vw_-_640px)/2))] right-0',
+    'left-[calc(-8px_-_max(0px,(100vw_-_var(--breakpoint-sm))/2))] right-0',
   middle: 'left-0 right-0',
-  last: 'left-0 right-[calc(-8px_-_max(0px,(100vw_-_640px)/2))]',
+  last: 'left-0 right-[calc(-8px_-_max(0px,(100vw_-_var(--breakpoint-sm))/2))]',
 }
 function TabHit({ edge }: { edge: keyof typeof TAB_HIT }) {
   return (
