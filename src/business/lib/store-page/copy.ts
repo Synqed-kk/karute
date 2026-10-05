@@ -118,6 +118,18 @@ export const UNDO = {
   toast: '変更を元に戻しました',
 } as const
 
+/** S61 P7B-1 (R220) — the switches' save refusal lines and the two partial lines, script-copied byte for byte from
+ *  LANE/s49-2026-10-01/COPY-S49.md by id (X4-alt :78 · X1 :64 · X2 :65 · X3 :66 · L9 :52 · L10 :56). `invalid`, `disconnected` and an unreadable answer
+ *  take `core`'s line (R220); `colourOnly` / `switchesOnly` replace it when the other half was saved (save-lines.ts). */
+export const SAVE_FAIL = {
+  stale: 'この店舗のお店ページの設定が、このページを開いたあとにほかの画面や端末で保存されたため、保存できませんでした。変更した内容はこの画面に残っていますが、再読み込みすると消えます。最新の設定を確認してから、もう一度変更してください。',
+  forbidden: '設定を変更できる権限がないため保存できず、お客様のアプリに出る機能はこれまでのままです。',
+  tenant: 'ここからはこの事業の設定を保存できないため、お客様のアプリに出る機能はこれまでのままです。',
+  core: 'いまは保存できないため、時間をおいてもう一度保存してください（お客様のアプリに出る機能はこれまでのままです）。',
+  colourOnly: 'カードの色は保存しましたが、業種と機能の設定は保存できませんでした。時間をおいてもう一度保存してください（お客様のアプリに出る機能はこれまでのままです）。',
+  switchesOnly: '業種と機能の設定は保存しましたが、カードの色は保存できませんでした。時間をおいてもう一度保存してください（お客様のアプリのカードはこれまでの色のままです）。',
+} as const
+
 /** The 業種 / 機能 blocks' headings (:800, :816) and their sub lines (:801, :817) — the tour's guide pair per block. */
 export const BLOCK_GUIDES: readonly { readonly title: string; readonly guide: string }[] = [
   { title: '業種', guide: '業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。' },

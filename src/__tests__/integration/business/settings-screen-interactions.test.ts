@@ -936,7 +936,7 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // ⚖ A2 (Liam 9/24) — every section still commits page-locally; the exceptions are お店ページ (カードの見た目)
     // while page.tsx has said the door is ON, which saves to core first (PUT /api/business/card-color),
     // and ⚖ PKT-S38 R7 言語・表示's 予約の色分け likewise (PUT /api/business/booking-colors).
-    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}')
+    expect(SRC_CODE).toContain('onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}')
     // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
     expect(SRC_CODE).toContain("{blocked ??")
@@ -956,8 +956,11 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // clock only inside the two commit event paths, through the one JST
     // formatter (clock.ts `jstClock`), and never during render — so every
     // `new Date()` in the screen is one of those two commit reads (R42).
-    expect(SRC_CODE.match(/new Date\(\)/g) ?? []).toHaveLength(2)
-    expect(SRC_CODE.match(/jstClock\(new Date\(\)\)/g) ?? []).toHaveLength(2)
+    // S61 P7B-3 (R219) — a THIRD stamp instant: the switches' 200 sets the stamp alone in
+    // `saveStorePageSection`'s answer handler, its clock read once there, before its state update.
+    // Each stamp's instant is still read ONCE, through `jstClock`, never during render.
+    expect(SRC_CODE.match(/new Date\(\)/g) ?? []).toHaveLength(3)
+    expect(SRC_CODE.match(/jstClock\(new Date\(\)\)/g) ?? []).toHaveLength(3)
   })
 
   it('EVERY control shape wires its own change — a shape with no handler is a dead lever', () => {

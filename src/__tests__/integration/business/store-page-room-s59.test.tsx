@@ -260,34 +260,33 @@ describe('S60 P7A-R2c — 元に戻す (R209)', () => {
   })
 })
 
-describe('S60 P7A-R2c — T9 (R210): 保存する never saves a switch', () => {
-  it.each([['ON'], ['OFF']])('card door %s: switch + colour → 保存する → no capabilities request, the switch still counted, no stamp, the colour saved', async (door) => {
+describe('S60 P7A-R2c — T9 (R210 → S61 P7B-2 R219): a switch is saved only through the capabilities route, door ON only', () => {
+  it.each([['ON'], ['OFF']])('card door %s: a switch flipped → 保存する → ON: exactly one capabilities PUT with the four keys, NO colour PUT; OFF: no request at all, the switch still counted', async (door) => {
     const p = await propsFor(STORE.tokyo)
     const calls: { url: string; body: unknown }[] = []
     global.fetch = jest.fn(async (url: string, init?: { body?: string }) => {
       const body = init?.body ? JSON.parse(init.body) : null
       calls.push({ url: String(url), body })
-      return { ok: true, status: 200, json: async () => ({ ok: true, color: (body as { color?: unknown })?.color ?? null }) }
+      return String(url).includes('store-capabilities')
+        ? { ok: true, status: 200, json: async () => ({ ok: true, record: (body as { record?: unknown })?.record }) }
+        : { ok: true, status: 200, json: async () => ({ ok: true, color: (body as { color?: unknown })?.color ?? null }) }
     }) as unknown as typeof fetch
     render(<SettingsScreen {...p} saveCardColor={door === 'ON' ? { businessId: TENANT, canSave: true } : undefined} />)
     await act(async () => {})
-    const savedSwatch = swatchOn()
     const savedOns = ons()
     await act(async () => { fireEvent.click(rowSwitches()[0]) })
-    await pickOtherColour()
-    const picked = swatchOn()
-    expect(count()).toBe('変更した設定 2件')
-    await act(async () => { fireEvent.click(document.querySelector('.st-save')!) })
-    expect(calls.filter((c) => c.url.includes('store-capabilities'))).toEqual([])
-    expect(calls.map((c) => c.url)).toEqual(door === 'ON' ? ['/api/business/card-color'] : [])
+    expect(ons()).not.toEqual(savedOns)
     expect(count()).toBe('変更した設定 1件')
-    expect(document.querySelector('.st-save-card')?.textContent ?? '').not.toContain('保存しました')
-    // the colour is saved exactly as today: 元に戻す puts the switch back and keeps the picked colour
-    await act(async () => { fireEvent.click(undoBtn()!) })
-    expect(ons()).toEqual(savedOns)
-    expect(swatchOn()).toBe(picked)
-    expect(picked).not.toBe(savedSwatch)
-    expect(count()).not.toMatch(/^変更した設定/) // 0 changes left: the switch was never in `saved`, the colour is
+    await act(async () => { fireEvent.click(document.querySelector('.st-save')!) })
+    await act(async () => {})
+    if (door === 'ON') {
+      expect(calls.map((c) => c.url)).toEqual(['/api/business/store-capabilities'])
+      expect(Object.keys(calls[0].body as object).sort()).toEqual(['based_on', 'record', 'reset_keys', 'storeId'])
+      expect(count()).toMatch(/^✓ 保存しました /)
+    } else {
+      expect(calls).toEqual([])
+      expect(count()).toBe('変更した設定 1件') // the page-only commit never marks one of the 17 saved (R223)
+    }
   })
 })
 

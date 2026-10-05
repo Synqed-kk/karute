@@ -1582,7 +1582,7 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(blockingError(hours, seed)).toBeNull()
     expect(blockingError(hours, { ...seed, 'store-hours.name': '   ' })).toBe('店舗名が空欄です — 保存できません。')
     // …and the save button is really disabled by it.
-    expect(SCREEN_CODE).toContain('disabled={!(section.storePage ? savable : dirty) || blocked !== null}') // S60 P7A-R3 (R214): お店ページ reads savable; every other section dirty
+    expect(SCREEN_CODE).toContain('disabled={!dirty || blocked !== null}') // S61 P7B-2 (R219): `savable` removed — every section, お店ページ too, reads dirty
   })
 
   it('a readout is a FIGURE or a PHRASE, and the sheet sizes them differently', async () => {

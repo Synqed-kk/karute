@@ -989,7 +989,13 @@ describe('the fixture data door', () => {
         '@/business/lib/store-page/copy',
         // S60 P7A-R2b — the room's one お店ページ draft (pure; imports only the model) and the model's types.
         '@/business/lib/store-page/model',
+        // S61 P7B-R1 (R224) — the saved type's sample (pure: imports copy/model types and a type-only STORES).
+        '@/business/lib/store-page/practice-counts',
         '@/business/lib/store-page/room-draft',
+        // S61 P7B-2 (R219, R220) — お店ページ's switches' save: the client call (imports only the model) and the
+        // pure line chooser (imports only copy.ts and the client's types).
+        '@/business/lib/store-page/save-client',
+        '@/business/lib/store-page/save-lines',
         // ⚖ S17 STEP 1 — the room's ONE integrator. Every moving thing on the
         // page (the segment's thumb, the switch's thumb, the 詳しく panel's
         // height, the save card's rise) is driven by `makeSpring`; a second

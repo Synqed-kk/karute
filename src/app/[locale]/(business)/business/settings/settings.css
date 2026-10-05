@@ -297,7 +297,7 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-switch:not([aria-disabled="true"]):active,
 .biz .pg-settings .st-save:not(:disabled):active,
 .biz .pg-settings .st-act:active,
-.biz .pg-settings .st-link:active,
+.biz .pg-settings .st-link:not([aria-disabled="true"]):active,
 /* ⚠ AND THE FIVE THIS LIST FORGOT (⚖ S17 fix round 1 · F18). 取り消す, the ?
    that opens the walk, 詳細設定's own summary and the walk's three footer
    buttons are pressables like every other one here — a control that answers only
@@ -1870,7 +1870,7 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-switch:not([aria-disabled="true"]):active,
   .biz .pg-settings .st-save:not(:disabled):active,
   .biz .pg-settings .st-act:active,
-  .biz .pg-settings .st-link:active,
+  .biz .pg-settings .st-link:not([aria-disabled="true"]):active,
   .biz .pg-settings .st-search-clear:active { transform: none; }
   .biz .pg-settings .st-det-caret,
   .biz .pg-settings .st-det-inner,

@@ -196,30 +196,35 @@ const recordFetch = () => {
   const calls: string[] = []
   global.fetch = jest.fn(async (url: string, init?: { body?: string }) => {
     calls.push(String(url))
+    // S61 P7B-2 — branch on the URL: the capabilities route echoes the sent record, the colour route the colour
+    if (String(url).includes('store-capabilities')) return { ok: true, status: 200, json: async () => ({ ok: true, record: JSON.parse(init!.body!).record }) }
     return { ok: true, status: 200, json: async () => ({ ok: true, color: init?.body ? JSON.parse(init.body).color ?? null : null }) }
   }) as unknown as typeof fetch
   return calls
 }
 
-describe('S60 P7A-R3 F-1 (R214) — 保存する acts only on what this layer can save', () => {
-  it.each([['ON'], ['OFF']])('card door %s: ONLY a switch flipped → 保存する disabled, a click sends nothing, count 1, no stamp; flipped back → 変更はありません, no stamp', async (door) => {
+describe('S60 P7A-R3 F-1 (R214 → S61 P7B-2 R219) — a switch-only press is a real save with the door ON, a page-only commit with it OFF', () => {
+  it.each([['ON'], ['OFF']])('card door %s: ONLY a switch flipped → 保存する enabled; ON: one capabilities PUT, 0 changes, the stamp; OFF: no request, count 1, no ✓ stamp', async (door) => {
     const calls = recordFetch()
     const p = await propsFor(STORE.tokyo)
     render(<SettingsScreen {...p} saveCardColor={door === 'ON' ? { businessId: TENANT, canSave: true } : undefined} />)
     await act(async () => {})
     await act(async () => { fireEvent.click(firstSwitch()) })
     expect(count()).toBe('変更した設定 1件')
-    expect(saveBtn().disabled).toBe(true)
+    expect(saveBtn().disabled).toBe(false)
     await act(async () => { fireEvent.click(saveBtn()) })
     await act(async () => {})
-    expect(calls).toEqual([])
-    expect(count()).toBe('変更した設定 1件')
-    expect(saveCard()).not.toContain('保存しました')
-    expect(saveCard()).not.toContain('反映しました')
-    await act(async () => { fireEvent.click(firstSwitch()) })
-    expect(count()).toBe('変更はありません')
-    expect(saveCard()).not.toContain('保存しました')
-    expect(saveCard()).not.toContain('反映しました')
+    if (door === 'ON') {
+      expect(calls).toEqual(['/api/business/store-capabilities'])
+      expect(count()).toMatch(/^✓ 保存しました /)
+    } else {
+      expect(calls).toEqual([])
+      expect(count()).toBe('変更した設定 1件')
+      expect(saveCard()).not.toContain('✓ 保存しました')
+      await act(async () => { fireEvent.click(firstSwitch()) })
+      expect(count()).not.toMatch(/^変更した設定/)
+      expect(count()).not.toMatch(/^✓ 保存しました/) // a page-only commit never claims core holds it
+    }
   })
 })
 
@@ -251,6 +256,36 @@ describe('S60 P7A-R3 F-2 (R215) — 元に戻す does nothing while the colour s
     expect(swatchOn()).toBe(picked)
     expect(count()).toMatch(/^✓ 保存しました /)
     expect(toastHost().textContent).toBe('')
+  })
+
+  it('S61 P7B-2 (R221): a SWITCHES save in flight also blocks 元に戻す and a second press; the answer lands → the stamp', async () => {
+    let release: (r: unknown) => void = () => {}
+    let sent: unknown = null
+    const calls: string[] = []
+    global.fetch = jest.fn((url: string, init?: { body?: string }) => {
+      calls.push(String(url))
+      sent = init?.body ? JSON.parse(init.body).record : null
+      return new Promise((res) => { release = res })
+    }) as unknown as typeof fetch
+    const p = await propsFor(STORE.tokyo)
+    render(<SettingsScreen {...p} saveCardColor={{ businessId: TENANT, canSave: true }} />)
+    await act(async () => {})
+    const toastHost = () => document.querySelector('.pg-settings > .st-toast') as HTMLElement
+    const before = firstSwitch().getAttribute('aria-checked')
+    await act(async () => { fireEvent.click(firstSwitch()) })
+    const flipped = firstSwitch().getAttribute('aria-checked')
+    expect(flipped).not.toBe(before)
+    await act(async () => { fireEvent.click(saveBtn()) })
+    expect(calls).toEqual(['/api/business/store-capabilities'])
+    await act(async () => { fireEvent.click(saveBtn()) })
+    expect(calls).toEqual(['/api/business/store-capabilities'])
+    await act(async () => { fireEvent.click(undoBtn()!) })
+    expect(toastHost().textContent).toBe('')
+    expect(firstSwitch().getAttribute('aria-checked')).toBe(flipped)
+    await act(async () => { release({ ok: true, status: 200, json: async () => ({ ok: true, record: sent }) }) })
+    await act(async () => {})
+    expect(firstSwitch().getAttribute('aria-checked')).toBe(flipped)
+    expect(count()).toMatch(/^✓ 保存しました /)
   })
 })
 

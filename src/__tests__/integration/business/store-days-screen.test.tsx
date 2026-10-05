@@ -840,7 +840,8 @@ describe('B2 act 1c stamp time', () => {
     const fs = jest.requireActual('node:fs') as typeof import('node:fs')
     const path = jest.requireActual('node:path') as typeof import('node:path')
     const src = fs.readFileSync(path.join(process.cwd(), 'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx'), 'utf8')
-    expect(src.split('jstClock(').length - 1).toBe(2)
+    // S61 P7B-2 (R219): a third read — the switches' 200 sets the stamp alone, its clock read once in that answer's handler
+    expect(src.split('jstClock(').length - 1).toBe(3)
     const needle = ['save', 'Stamp', 'Time'].join('') // spelled apart so this file does not hold it
     expect(src).not.toContain(`props.${needle}`)
     const hits: string[] = []
