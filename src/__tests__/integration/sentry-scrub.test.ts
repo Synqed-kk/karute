@@ -8,6 +8,7 @@
  */
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import * as ts from 'typescript'
 import type { Breadcrumb, ErrorEvent } from '@sentry/nextjs'
 import {
   HEADER_ALLOW_LIST,
@@ -694,13 +695,50 @@ const FORBIDDEN: RegExp[] = [
   /\b(process|Buffer|structuredClone)\b/,
 ]
 
-// Line comments are cut only where `//` is not preceded by `:` (as T6 does), so
-// a `x://y` string does not hide the rest of its line from the scan.
+// The ONE comment remover for T5 and T6: the TypeScript scanner (trivia kept),
+// dropping only comment tokens, so `//` inside any string ('//cdn/x', 'x://y')
+// or template never hides code. Template continuations and regex literals are
+// re-scanned so their contents are never read as comments.
+function stripComments(src: string): string {
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, src)
+  const K = ts.SyntaxKind
+  const braces: number[] = [] // open-brace count per open template substitution
+  let prev: ts.SyntaxKind = K.Unknown
+  let out = ''
+  for (let k = scanner.scan(); k !== K.EndOfFileToken; k = scanner.scan()) {
+    if (k === K.SingleLineCommentTrivia || k === K.MultiLineCommentTrivia) {
+      out += ' '
+      continue
+    }
+    if (k === K.TemplateHead) braces.push(0)
+    else if (k === K.OpenBraceToken && braces.length) braces[braces.length - 1]++
+    else if (k === K.CloseBraceToken && braces.length) {
+      if (braces[braces.length - 1] === 0) {
+        k = scanner.reScanTemplateToken(false)
+        if (k === K.TemplateTail) braces.pop()
+      } else braces[braces.length - 1]--
+    } else if ((k === K.SlashToken || k === K.SlashEqualsToken) && !endsExpression(prev)) {
+      k = scanner.reScanSlashToken()
+    }
+    out += scanner.getTokenText()
+    if (k !== K.WhitespaceTrivia && k !== K.NewLineTrivia) prev = k
+  }
+  return out
+}
+
+function endsExpression(k: ts.SyntaxKind): boolean {
+  const K = ts.SyntaxKind
+  return (
+    k === K.Identifier || k === K.CloseParenToken || k === K.CloseBracketToken ||
+    k === K.CloseBraceToken || k === K.NumericLiteral || k === K.StringLiteral ||
+    k === K.TemplateTail || k === K.NoSubstitutionTemplateLiteral || k === K.RegularExpressionLiteral ||
+    k === K.ThisKeyword || k === K.TrueKeyword || k === K.FalseKeyword || k === K.NullKeyword ||
+    k === K.PlusPlusToken || k === K.MinusMinusToken
+  )
+}
+
 function stripForScan(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1')
-    .replace(/import\s+type[\s\S]*?from\s*['"][^'"]+['"];?/g, '')
+  return stripComments(src).replace(/import\s+type[\s\S]*?from\s*['"][^'"]+['"];?/g, '')
 }
 
 const flagged = (src: string) => FORBIDDEN.some((re) => re.test(stripForScan(src)))
@@ -724,17 +762,22 @@ describe('T5 the scrub module runs in node, edge and the browser', () => {
       "const b = Buffer.from('x')",
       'const c = structuredClone(x)',
       "const u = 'x://y'; const b = Buffer.from('x')",
+      "const u = '//cdn/x'; const b = Buffer.from('x')",
+      'const u = `//cdn/${a}//x`; const b = Buffer.from(u)',
+      "const r = /\\/\\//; const b = Buffer.from('x')",
     ]
     for (const s of samples) expect([s, flagged(s)]).toEqual([s, true])
+  })
+
+  it('NEGATIVE CONTROL: a forbidden word inside a real comment is not flagged', () => {
+    const samples = ["// Buffer.from('x')", "/* require('fs') */ const ok = 1", "const ok = 1 // process.env"]
+    for (const s of samples) expect([s, flagged(s)]).toEqual([s, false])
   })
 })
 
 // PIN: PR-A1 (alarm check-ins) updates this pin ON PURPOSE when it switches
 // check-ins on; nothing else may switch on logs, replay or feedback silently.
-// Line comments are cut only where `//` is not preceded by `:`, so a `https://`
-// string does not hide the rest of its line from the pin.
-const stripComments = (src: string) =>
-  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+// Comments are removed by the shared scanner helper (stripComments, above).
 
 describe('T6 pin: no Sentry channel the scrub hooks never see is switched on', () => {
   it('NEGATIVE CONTROL: enableLogs after a https:// string on the same line is still caught', () => {
