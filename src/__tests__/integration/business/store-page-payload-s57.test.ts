@@ -8,7 +8,7 @@ jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 jest.mock('@/business/lib/data', () => {
   const actual = jest.requireActual('@/business/lib/data')
-  return { ...actual, readStoreCapabilities: jest.fn(actual.readStoreCapabilities) }
+  return { ...actual, readStoreCapabilities: jest.fn(actual.readStoreCapabilities), readStoreSeedType: jest.fn(actual.readStoreSeedType) }
 })
 jest.mock('@/business/lib/practice-door/core-reach', () => {
   const { practiceTenant } = jest.requireActual('@/business/lib/practice-door/switch')
@@ -35,16 +35,18 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
 })
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { readStoreCapabilities } from '@/business/lib/data'
+import { readStoreCapabilities, readStoreSeedType } from '@/business/lib/data'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 import { LOGIN, STORE, TENANT } from './practice-door-recorded'
 
 const admission = requireBusinessAdmission as jest.MockedFunction<typeof requireBusinessAdmission>
 const capsRead = readStoreCapabilities as jest.MockedFunction<typeof readStoreCapabilities>
+const seedRead = readStoreSeedType as jest.MockedFunction<typeof readStoreSeedType>
 
 beforeEach(() => {
   mockCore.reaches = 0
   capsRead.mockClear()
+  seedRead.mockClear()
   process.env.BUSINESS_PRACTICE_TENANT = TENANT
   jest.spyOn(console, 'error').mockImplementation(() => {})
   jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -62,6 +64,7 @@ describe('S57 P3 NIT 1 — no capabilities read for a reader the gate shuts', ()
     expect(mockCore.reaches).toBeGreaterThan(0) // the door is ON and the room was built from core
     expect(s?.storePage).toBeUndefined()
     expect(capsRead).toHaveBeenCalledTimes(0)
+    expect(seedRead).toHaveBeenCalledTimes(0) // S59 R203: the seed read sits behind the same named gate
   })
 
   it('control: the owner (settings.manage) reaches the same read exactly once, for the lens store', async () => {
@@ -70,5 +73,7 @@ describe('S57 P3 NIT 1 — no capabilities read for a reader the gate shuts', ()
     expect(s?.storePage).toBeDefined()
     expect(capsRead).toHaveBeenCalledTimes(1)
     expect(capsRead).toHaveBeenCalledWith(STORE.tokyo)
+    expect(seedRead).toHaveBeenCalledTimes(1)
+    expect(seedRead).toHaveBeenCalledWith(STORE.tokyo)
   })
 })

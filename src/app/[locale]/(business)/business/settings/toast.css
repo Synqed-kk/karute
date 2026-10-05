@@ -1,0 +1,24 @@
+/* ⚖ S60 R207 — the room's ONE toast (Toast.tsx). Drawn as the mock draws it
+   (MOCK-SWITCHBOARD-v2.html:570-577): bottom centre, a light card. The app's own
+   values, not the mock's, for the colours (dialog.css's white card), the type
+   (dialog.css's paragraph rule) and the level (today.css's toast, z 56: above
+   the save card, under the tour and the dialog scrim). The host is a child of
+   the room root `.page.pg-settings`. Only opacity and transform animate, and
+   reduced motion drops both the transition and the rise. */
+.biz .pg-settings .st-toast {
+  position: fixed; left: 50%; bottom: 26px; z-index: 56;
+  transform: translateX(-50%) translateY(10px);
+  opacity: 0; pointer-events: none;
+  max-width: min(520px, 90vw); padding: 12px 18px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: #fff; color: var(--ink);
+  box-shadow: 0 10px 30px rgba(16, 18, 32, .16);
+  font-size: 12px; line-height: 1.7;
+  transition-property: opacity, transform;
+  transition-duration: .18s;
+  transition-timing-function: ease, cubic-bezier(.32, .72, 0, 1);
+}
+.biz .pg-settings .st-toast.is-on { opacity: 1; transform: translateX(-50%) translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-settings .st-toast { transition: none; transform: translateX(-50%); }
+}

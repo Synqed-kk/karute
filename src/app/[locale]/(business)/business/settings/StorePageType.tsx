@@ -34,9 +34,11 @@ export interface StorePageTypeProps {
   onChange: (next: CapRecord) => void
   onResetKeys: (update: ResetKeysUpdate) => void
   onToast: (text: string) => void
+  /** R211 — the tour's pair for this block, on its own element (ReserveCardLookSection's shape). */
+  guide?: { title: string; guide: string }
 }
 
-export function StorePageType({ draft, canEdit, onChange, onResetKeys, onToast }: StorePageTypeProps) {
+export function StorePageType({ draft, canEdit, onChange, onResetKeys, onToast, guide }: StorePageTypeProps) {
   /** The type the open dialog speaks for; null = closed. */
   const [ask, setAsk] = useState<BusinessTypeKey | null>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
@@ -61,7 +63,7 @@ export function StorePageType({ draft, canEdit, onChange, onResetKeys, onToast }
   }
 
   return (
-    <section className="st-block sp-type">
+    <section className="st-block sp-type" data-guide-title={guide?.title} data-guide={guide?.guide}>
       <div className="st-block-head">
         <h3 id="spTypeHead">{TYPE_BLOCK.title}</h3>
       </div>

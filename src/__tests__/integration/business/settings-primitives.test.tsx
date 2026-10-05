@@ -454,7 +454,7 @@ describe('⚖ S52 R4 — the dialog: focus, keys and scrim, wherever focus is', 
 describe('⚖ S52 R4 — only transform/opacity animate; reduced motion collapses them (M11, NIT 9)', () => {
   const sheet = (n: string) => postcss.parse(readFileSync(join(process.cwd(), ROOM_DIR, n), 'utf8'))
   const ALLOWED = /^(transform|opacity)$/
-  it.each([['switch.css'], ['dialog.css']])('%s: every transition and keyframe touches only transform/opacity', (n) => {
+  it.each([['switch.css'], ['dialog.css'], ['toast.css']])('%s: every transition and keyframe touches only transform/opacity', (n) => {
     const bad: string[] = []
     sheet(n).walkDecls(/^transition(-property)?$/, (d) => {
       if (d.value.trim() === 'none') return
@@ -465,7 +465,7 @@ describe('⚖ S52 R4 — only transform/opacity animate; reduced motion collapse
   })
   it('under prefers-reduced-motion the scrim fade is gone and the switch has no transition', () => {
     const found: Record<string, string> = {}
-    for (const n of ['switch.css', 'dialog.css']) {
+    for (const n of ['switch.css', 'dialog.css', 'toast.css']) {
       sheet(n).walkAtRules('media', (m) => {
         if (!/prefers-reduced-motion:\s*reduce/.test(m.params)) return
         m.walkRules((r) => r.walkDecls((d) => { for (const s of r.selectors) found[`${s.trim()} ${d.prop}`] = d.value }))
@@ -473,6 +473,8 @@ describe('⚖ S52 R4 — only transform/opacity animate; reduced motion collapse
     }
     expect(found['.biz .pg-settings .st-dlg-scrim animation']).toBe('none')
     expect(found['.biz .pg-settings .st-switch transition']).toBe('none')
+    expect(found['.biz .pg-settings .st-toast transition']).toBe('none')
+    expect(found['.biz .pg-settings .st-toast transform']).toBe('translateX(-50%)')
   })
 })
 

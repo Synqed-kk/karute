@@ -1582,7 +1582,7 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(blockingError(hours, seed)).toBeNull()
     expect(blockingError(hours, { ...seed, 'store-hours.name': '   ' })).toBe('店舗名が空欄です — 保存できません。')
     // …and the save button is really disabled by it.
-    expect(SCREEN_CODE).toContain('disabled={!dirty || blocked !== null}')
+    expect(SCREEN_CODE).toContain('disabled={!(section.storePage ? savable : dirty) || blocked !== null}') // S60 P7A-R3 (R214): お店ページ reads savable; every other section dirty
   })
 
   it('a readout is a FIGURE or a PHRASE, and the sheet sizes them differently', async () => {
@@ -2060,7 +2060,8 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // focusable for its reason to be reachable by keyboard. The two `disabled`
     // attributes in this file are the save button and the tour's 前へ, which are
     // genuinely unusable rather than refusing — and (⚖ PR-3) a select's
-    // 「未設定」 option, which is a state shown, never a choice offered.
+    // 「未設定」 option, which is a state shown, never a choice offered. (S60 P7A-R3, R216 — お店ページ's
+    // 元に戻す is aria-disabled, so it stays focusable: three again.)
     expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(3)
   })
 
@@ -2292,7 +2293,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // …and the SCREEN really hands them over — to the filter AND to the chip.
     // Without this the list above is a fact about a function nobody calls with
     // it, which is exactly how the battery caught the first cut of this pin.
-    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? CARD_LOOK_HEADINGS : undefined)')
+    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? STORE_PAGE_TERMS : undefined)')
     expect(SCREEN_CODE).toContain('searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id))')
     expect(SCREEN_CODE).toContain('hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))')
     // An empty query is not a filter; a query nothing matches is honest silence.

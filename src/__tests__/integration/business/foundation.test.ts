@@ -958,6 +958,11 @@ describe('the fixture data door', () => {
         'react',
         'react-dom',
       ],
+      // ⚖ S60 R207 — the room's ONE toast primitive.
+      'src/app/[locale]/(business)/business/settings/Toast.tsx': [
+        './toast.css',
+        'react',
+      ],
       'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
         './Collapse',
         './Switch',
@@ -965,6 +970,10 @@ describe('the fixture data door', () => {
         './StorePolicySection',
         // ⚖ A1b — …and カードの見た目's picker + ported card for its row.
         './ReserveCardLookSection',
+        // S60 P7A-R2b — お店ページ's 業種 / 機能 blocks and the room's one toast (R207).
+        './StorePageRows',
+        './StorePageType',
+        './Toast',
         // ⚖ PR-3 — the 「サンプル」 mark's strings: Business's own string home (a JSON module, no imports).
         '@/business/i18n',
         // ⚖ S37 R41 (B2 act 1c) — the ONE JST stamp formatter (`jstClock`), read at the save press only.
@@ -976,6 +985,11 @@ describe('the fixture data door', () => {
         // ⚖ PKT-S30 F2 / P3-12 — the store-days reducers + copy: pure, no imports (so no path to the
         // practice door, which is why it lives beside settings.ts rather than in practice-door/).
         '@/business/lib/store-days-state',
+        // S59 P7A (C7) — STORE_PAGE_HEADINGS for termsFor (お店ページ's search terms); copy.ts holds only strings and REG.
+        '@/business/lib/store-page/copy',
+        // S60 P7A-R2b — the room's one お店ページ draft (pure; imports only the model) and the model's types.
+        '@/business/lib/store-page/model',
+        '@/business/lib/store-page/room-draft',
         // ⚖ S17 STEP 1 — the room's ONE integrator. Every moving thing on the
         // page (the segment's thumb, the switch's thumb, the 詳しく panel's
         // height, the save card's rise) is driven by `makeSpring`; a second

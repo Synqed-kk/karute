@@ -24,8 +24,8 @@
 .biz .pg-settings .spr-chip.is-off { background: var(--section); color: var(--ink-3); }
 
 /* the OFF ask (D3) */
-.biz .pg-settings .spr-dlg h4 { margin: 0 0 8px; color: var(--ink); line-height: 1.45; }
-.biz .pg-settings .spr-dlg p { margin: 0 0 14px; color: var(--ink-2); line-height: 1.75; }
+.biz .pg-settings .spr-dlg h4 { margin: 0 0 8px; color: var(--ink); }
+.biz .pg-settings .spr-dlg p { margin: 0 0 14px; color: var(--ink-2); }
 .biz .pg-settings .spr-acts { display: flex; justify-content: flex-end; gap: 8px; }
 .biz .pg-settings .spr-cancel,
 .biz .pg-settings .spr-commit {

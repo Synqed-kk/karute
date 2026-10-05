@@ -835,6 +835,8 @@ html:has(.biz .page.pg-settings) {
   font: inherit; font-size: 11.5px; font-weight: 700; line-height: 1.5; cursor: pointer;
 }
 .biz .pg-settings .st-link:hover { background: var(--select-bg, var(--st-accent-wash)); border-color: var(--st-accent-dark); color: var(--st-accent-dark); }
+/* S60 P7A-R2d (R212) — a disabled door looks disabled: .st-save:disabled's own values (below). R216 (R3): the selector is aria-disabled — 元に戻す stays focusable; only it sets aria-disabled on .st-link. */
+.biz .pg-settings .st-link[aria-disabled="true"] { border-color: var(--line); background: #dfe3ea; color: var(--muted); cursor: default; }
 
 .biz .pg-settings .st-action { margin-top: 9px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 /* ⚖ R13 — the two solid fills on this page are COMMITS, and this is one. */

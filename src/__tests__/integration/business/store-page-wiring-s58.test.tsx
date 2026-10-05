@@ -11,7 +11,7 @@ import { render, fireEvent, cleanup, within } from '@testing-library/react'
 import { ReserveCardLookSection, storeViewInputs, type StoreView } from '@/app/[locale]/(business)/business/settings/ReserveCardLookSection'
 import { ReserveCardPreview } from '@/business/lib/reserve-card/ReserveCardPreview'
 import { STORES, type StorePageSample } from '@/business/lib/reserve-card/store-page-sample'
-import { CAP_KEYS, honestLines, seedRecord, type CapKey, type CapRecord, type Counts } from '@/business/lib/store-page/model'
+import { CAP_KEYS, seedRecord, type CapKey, type CapRecord, type Counts } from '@/business/lib/store-page/model'
 
 class RO { observe() {} unobserve() {} disconnect() {} }
 ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver ??= RO
@@ -56,7 +56,9 @@ describe('(a) R189 — the section draws the sample the payload names', () => {
   })
 })
 
-describe('(b) R185 — junk counts through the preview draw nothing and throw nothing', () => {
+// R213 — the old cast was type-only; what this pins is model.ts countOf's runtime refusal (a mutant that lets junk
+// through countOf turns every case red: Infinity, "3", true, [5] draw).
+describe('(b) R213 — a junk count in the payload is refused before the preview draws it (and nothing throws)', () => {
   const BLOCKS = [['[data-cap="packs_chip"]', 'packs'], ['[data-cap="posts"]', 'posts'], ['[data-cap="intake"]', 'questions']] as const
   const JUNK: [string, unknown, boolean][] = [['Infinity', Infinity, false], ['"3"', '3', false], ['true', true, false], ['[5]', [5], false], ['missing', undefined, true]]
   const withCount = (need: string, v: unknown, missing: boolean): StorePageSample => {
@@ -120,12 +122,12 @@ describe('(d) R196 — two packs / care rows with one title draw with no console
 describe('(e) P6 NIT3 — the honest lines appear in the pinned order', () => {
   it('the colour line first, then the store lines in honestLines order', () => {
     const sv: StoreView = { draft: rec(['packs', 'posts']), counts: { ...LA.counts, packs: 0, posts: 0 }, sampleKey: 'laestro' }
-    const store = honestLines(sv.draft, sv.counts)
-    expect(store.length).toBeGreaterThan(0)
+    // S60 R204 · P7A-R3 F-9 — the expected lines written out as literals (packs, then posts), nothing computed
+    const store = ['回数券はオンですが、回数券が0件のため、まだお客様には出ません', 'お知らせはオンですが、投稿が0件のため、まだお客様には出ません']
     const { container } = render(el(sv, ''))
     openStore(container)
     const lines = honest(container)
-    expect(lines.length).toBe(store.length + 1)
+    expect(lines.length).toBe(3)
     expect(store).not.toContain(lines[0])
     expect(lines.slice(1)).toEqual(store)
   })

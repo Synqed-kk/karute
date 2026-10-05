@@ -78,7 +78,7 @@ describe('お店ページ view follows the draft', () => {
     expect(honest(container).join('')).not.toContain('0件')
   })
 
-  it('a GYM-family type (personal_gym) draws the STUDIO FORCE sample, every other family La Estro', () => {
+  it('the sample follows the payload\'s sampleKey: force draws the STUDIO FORCE sample, laestro La Estro', () => {
     const { container, rerender } = render(el({ draft: rec(['shop'], 'hair_salon'), counts: LA, sampleKey: 'laestro' }))
     openStore(container)
     expect(phone(container).textContent).toContain('リペアシャンプー 300ml')

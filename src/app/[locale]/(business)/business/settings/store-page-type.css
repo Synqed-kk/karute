@@ -5,7 +5,7 @@
 .biz .pg-settings .sp-typerow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: 820px; }
 
 .biz .pg-settings .sp-type-dlg h4 { margin: 0 0 10px; color: var(--ink); }
-.biz .pg-settings .sp-type-dlg p { margin: 0 0 14px; color: var(--ink-2); line-height: 1.7; }
+.biz .pg-settings .sp-type-dlg p { margin: 0 0 14px; color: var(--ink-2); }
 .biz .pg-settings .sp-type-diff { margin-bottom: 16px; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
 .biz .pg-settings .sp-type-diff div {
   display: flex; flex-wrap: wrap; gap: 10px; padding: 9px 14px;

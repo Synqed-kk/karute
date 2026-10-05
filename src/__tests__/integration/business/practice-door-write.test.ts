@@ -334,7 +334,10 @@ describe('⚖ A2 — the screen speaks the route’s contract (source pin; the c
   it('G5 — core’s sheet says no (canSave false): the card section renders no 保存する and its foot is the forbidden line', () => {
     expect(SCREEN).toContain('type CardSave = { businessId: string; canSave: boolean }')
     expect(SCREEN).toContain('{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}')
-    expect(SCREEN).toContain('{props.saveCardColor?.canSave === false ? null : roomSave(section)}')
+    // the may-save answer is named ONCE (S60 P7A-R2b) and the save bar is drawn only when it says yes
+    expect(SCREEN.match(/const maySave = /g)).toHaveLength(1)
+    expect(SCREEN).toContain('const maySave = props.saveCardColor?.canSave !== false\n')
+    expect(SCREEN).toContain('{maySave ? roomSave(section, section.storePage ? () => undoSection(section) : undefined) : null}')
   })
   it('G7 — an old refusal is cleared by a new pick and by every section change (source pin: territory cannot mount a React tree)', () => {
     const at = (needle: string) => { const i = SCREEN.indexOf(needle); expect(i).toBeGreaterThan(-1); return SCREEN.slice(i, SCREEN.indexOf('}', SCREEN.indexOf('setPicked(', i) + 1) + 1) }

@@ -202,11 +202,13 @@ export async function settingsProps({ locale, store, section, world, bookingColo
   // S50 P3 — お店ページ's per-store record, for an open gate and a store in the lens only. Real mode (R86's off-switch
   // false and the door OFF) is DISCONNECTED: no core read at all. The door answers null for absent AND unreadable (R90).
   const capsConnected = STORE_CAPABILITIES_REAL_MODE || doorOn
-  const storeCaps = clamped && capsConnected && gateOf(sectionById(STORE_PAGE_ID)!, access) === 'open' ? await readStoreCapabilities(storeId!) : null
+  // S59 R203 — ONE named answer to 「may read this store's capabilities」, asked before BOTH reads below (no inline copy).
+  const mayReadStoreCaps = clamped && capsConnected && gateOf(sectionById(STORE_PAGE_ID)!, access) === 'open'
+  const storeCaps = mayReadStoreCaps ? await readStoreCapabilities(storeId!) : null
   // P3-R4 (R188) — the seed type of an unsaved record is the SAVE PATH's own answer (the door's readStoreSeedType,
   // through data.ts), read behind the same gate as storeCaps above. null (the off-switch, or a store this operator
   // may not see) → storePageOf's disconnected rule.
-  const storeSeedType = clamped && capsConnected && gateOf(sectionById(STORE_PAGE_ID)!, access) === 'open' ? await readStoreSeedType(storeId!) : null
+  const storeSeedType = mayReadStoreCaps ? await readStoreSeedType(storeId!) : null
   const bookingColors = live && clamped && gateOf(sectionById('language-display')!, access) === 'open' ? bookingColorsFor(storeId!, live.raw) : null
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'

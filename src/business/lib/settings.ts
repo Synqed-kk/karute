@@ -727,8 +727,9 @@ export interface SettingsSection {
     palette: ReadonlyArray<{ order: number; name: string; hex: string }>
   }
   /** S50 P3 — お店ページ's per-store part, under a STORE lens only (PACKETS-S50-WAVE3 「THE SHARED SHAPE」, verbatim).
-   *  `saved` = the parsed saved record, or the seed of the store's own type key (typeKeyOf, R145) when none / unreadable (R90);
-   *  `startFamily` = P1's familyOf of that type key (R143, internal grouping); `basedOn` = the
+   *  `saved` = the parsed saved record, or the seed of the SAVE PATH's own seed type when none / unreadable (R90; R188:
+   *  the door's readStoreSeedType when connected, else seedTypeOf of the store's own type); `startFamily` = P1's familyOf
+   *  of that seed type (R143, internal grouping); `basedOn` = the
    *  hash of the saved record (or of null) the page loaded (R96); `counts` = the practice fixture (R91), P1's
    *  Counts by NeedKey (R111 corrects the shape's CapKey line), a key missing = unknown (R92/R101); `disconnected` = real mode (R86's off-switch false and the door OFF). */
   storePage?: {
@@ -1125,16 +1126,18 @@ export function changedCount(
 }
 
 /** A section is dirty when any of its controls — or any row of one of its
- *  collections — differs from what was saved. */
+ *  collections — differs from what was saved. S60 P7A-R3 (R214): `ids` narrows the controls asked about
+ *  (the room passes the ids a 保存する commits); omitted, every control of the section, as before. */
 export function sectionDirty(
   section: SettingsSection,
   values: Record<string, RowValue>,
   saved: Record<string, RowValue>,
   rows: CollectionRows = {},
   savedRows: CollectionRows = {},
+  ids: readonly string[] = controlIdsOf(section),
 ): boolean {
   if (section.blocks.some((b) => rowChanges(b, rows, savedRows) > 0)) return true
-  return controlIdsOf(section).some((id) => !sameValue(values[id], saved[id]))
+  return ids.some((id) => !sameValue(values[id], saved[id]))
 }
 
 /** ⚖ MISTAKE-PROOFING AT THE MOMENT OF THE MISTAKE. A required field left empty
