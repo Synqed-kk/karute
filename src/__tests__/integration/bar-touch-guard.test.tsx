@@ -88,6 +88,15 @@ const ZERO = box(0, 0, 0, 0)
  *  `shift` moves every bar rect vertically, `zero` collapses them. */
 const geom = { shift: 0, zero: false }
 function barBox(el: Element): [number, number, number, number] | null {
+  // S105 r5 hit spans (bottom-nav.tsx, touch screens): a tab's span is its
+  // cell (this bar has no margin or strip); the record control's are the proud
+  // part + 12px slop (y 680-700, x 166-234) and its column (±64px; the tabs'
+  // areas win over the excess) down to the bar's bottom.
+  if (el.hasAttribute('data-bar-hit')) {
+    const p = el.parentElement!
+    if (!p.hasAttribute('data-bar-record')) return barBox(p)
+    return el === p.querySelector('[data-bar-hit]') ? [166, 680, 234, 700] : [136, 700, 264, 764]
+  }
   if (el.getAttribute('aria-label') === 'Primary navigation') return [0, 700, 400, 764]
   // the record circle: centre (200,714), radius 22 (+4 ring = 26)
   if (el.hasAttribute('data-bar-record')) return [178, 692, 222, 736]
@@ -452,24 +461,67 @@ describe('bar touch guard — the bar moves after install (live rect)', () => {
   })
 })
 
-describe('bar touch guard — the record circle', () => {
-  it('a touch on page content at the record button\'s square corner (off the circle) starts no recording', () => {
+describe('bar touch guard — the record hit area (circle + ring + 12px slop + column)', () => {
+  it('a touch on page content just outside the 12px slop beside the proud circle starts no recording', () => {
     const { row } = setup()
-    touchStart(row, 176, 690) // ~34px from the centre: neither circle nor ring
-    touchEnd(row, 176, 690)
+    touchStart(row, 162, 690) // 4px left of the slop, off the circle and ring
+    touchEnd(row, 162, 690)
     expect(push).not.toHaveBeenCalled()
   })
 
-  it('while recording on /sessions, the same corner point does not stop the recording', () => {
+  it('a touch on page content just above the 12px slop starts no recording', () => {
+    const { row } = setup()
+    touchStart(row, 200, 677) // 3px above the slop's top (680)
+    touchEnd(row, 200, 677)
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('a touch on page content in the slop, off the circle and ring (old definition: nothing) → record once', () => {
+    const { row, onSelect } = setup()
+    touchStart(row, 170, 684) // ~42px from the centre: outside circle+ring (26)
+    touchEnd(row, 170, 684)
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('/sessions')
+  })
+
+  it('a touch on page content in the record column under the circle (old definition: nothing) → record once', () => {
+    render(
+      <Plain>
+        <div data-rect="0,600,400,764">content</div>
+      </Plain>,
+    )
+    touchStart(screen.getByText('content'), 170, 760)
+    touchEnd(screen.getByText('content'), 170, 760)
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('/sessions')
+  })
+
+  it('a point in both the record column span and カルテ → カルテ (a tab wins over the column excess)', () => {
+    render(
+      <Plain>
+        <div data-rect="0,600,400,764">content</div>
+      </Plain>,
+    )
+    touchStart(screen.getByText('content'), 150, 750)
+    touchEnd(screen.getByText('content'), 150, 750)
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('/karute')
+  })
+
+  it('while recording on /sessions, the point outside the slop does not stop the recording', () => {
     Object.assign(mockEnv, { rec: 'recording', path: '/sessions' })
     render(
       <Plain>
         <div data-rect="0,600,400,720">content</div>
       </Plain>,
     )
-    touchStart(screen.getByText('content'), 176, 690)
-    touchEnd(screen.getByText('content'), 176, 690)
+    touchStart(screen.getByText('content'), 162, 690)
+    touchEnd(screen.getByText('content'), 162, 690)
     expect(mockEnv.stop).not.toHaveBeenCalled()
+    touchStart(screen.getByText('content'), 170, 684)
+    touchEnd(screen.getByText('content'), 170, 684)
+    expect(mockEnv.stop).toHaveBeenCalledTimes(1)
   })
 })
 

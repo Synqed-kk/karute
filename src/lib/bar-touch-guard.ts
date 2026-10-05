@@ -11,7 +11,8 @@
 //
 //   WHERE A TOUCH STARTS DECIDES. A touch (or mouse press) that STARTS inside
 //   the bar's rect (or on the record button's circle plus its painted ring,
-//   which sticks out above the bar) on page content under the bar belongs to
+//   which sticks out above the bar, and on touch screens the record control's
+//   grown hit area — its `data-bar-hit` spans, bottom-nav.tsx) on page content under the bar belongs to
 //   the bar from start to finish, whatever element the engine says received
 //   it. A touch that starts anywhere else is never touched, wherever it ends.
 //
@@ -86,6 +87,15 @@ const within = (b: Box, x: number, y: number) =>
 /** The record button's area is its CIRCLE plus the ring — never its square. */
 const onCircle = (b: Box, x: number, y: number) =>
   b.width > 0 && (x - (b.left + b.right) / 2) ** 2 + (y - (b.top + b.bottom) / 2) ** 2 <= (b.width / 2 + RING_PX) ** 2
+/** A control's grown touch area: its own `data-bar-hit` spans (bottom-nav.tsx;
+ *  laid out on touch screens only, zero-size and so never matched elsewhere). */
+const hits = (c: Element) =>
+  Array.from(c.children)
+    .filter((h) => h.hasAttribute('data-bar-hit'))
+    .map((h) => h.getBoundingClientRect())
+/** The record control's area: its circle plus the ring, and its hit spans. */
+const onRecord = (r: Element, x: number, y: number) =>
+  onCircle(r.getBoundingClientRect(), x, y) || hits(r).some((b) => within(b, x, y))
 const near = (s: { x: number; y: number }, x: number, y: number) => (x - s.x) ** 2 + (y - s.y) ** 2 <= SLOP_PX ** 2
 
 /** Some page element between target and <main> paints above the bar:
@@ -117,16 +127,19 @@ export function installBarTouchGuard(wrapper: HTMLElement, page: HTMLElement): (
   const inside = (x: number, y: number) => {
     const b = bar()
     const r = record()
-    return !!b && (within(b.getBoundingClientRect(), x, y) || (!!r && onCircle(r.getBoundingClientRect(), x, y)))
+    return !!b && (within(b.getBoundingClientRect(), x, y) || (!!r && onRecord(r, x, y)))
   }
 
-  /** The enabled bar control under (x,y); null → nothing to do. */
+  /** The enabled bar control under (x,y); null → nothing to do. A tab's area
+   *  (its box or its hit span) wins over the record control's wide column
+   *  span, as the tab's span paints over it in the bar. */
   const controlAt = (x: number, y: number): HTMLElement | null => {
     const r = record()
-    let el: HTMLElement | null = r && onCircle(r.getBoundingClientRect(), x, y) ? r : null
+    let el: HTMLElement | null = null
     for (const c of bar()?.querySelectorAll<HTMLElement>('a,button') ?? []) {
-      if (!el && c !== r && within(c.getBoundingClientRect(), x, y)) el = c
+      if (!el && c !== r && [c.getBoundingClientRect(), ...hits(c)].some((b) => within(b, x, y))) el = c
     }
+    if (!el && r && onRecord(r, x, y)) el = r
     if (!el || (el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') return null
     return el
   }
