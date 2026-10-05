@@ -193,6 +193,14 @@ function scrubOrdinary<T extends AnyEvent>(input: T): T | null {
 
   if (typeof event.transaction === 'string') event.transaction = stripQuery(event.transaction)
 
+  // Stack-frame URLs lose their query; nothing else in the exception is touched.
+  for (const value of event.exception?.values ?? []) {
+    for (const frame of value.stacktrace?.frames ?? []) {
+      if (typeof frame.abs_path === 'string') frame.abs_path = stripQuery(frame.abs_path)
+      if (typeof frame.filename === 'string') frame.filename = stripQuery(frame.filename)
+    }
+  }
+
   const traceData = event.contexts?.trace?.data
   if (traceData) scrubSpanData(traceData)
   stripSpanNames(event.contexts?.trace)

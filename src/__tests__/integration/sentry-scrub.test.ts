@@ -354,6 +354,40 @@ describe('T3d span names lose their query (browser resource spans are named by U
   })
 })
 
+describe('T2d stack-frame URLs lose their query', () => {
+  it('abs_path and filename keep the path, lose the query; the exception value is untouched', () => {
+    const value = 'boom ' + C + '?x=1'
+    const event: ErrorEvent = {
+      type: undefined,
+      exception: {
+        values: [{
+          type: 'Error',
+          value,
+          stacktrace: {
+            frames: [{
+              abs_path: '/assets/app.js?token=' + URLQ,
+              filename: 'https://x.test/app.js?token=' + URLQ,
+              function: 'f',
+              lineno: 1,
+            }],
+          },
+        }],
+      },
+    }
+    const out = scrubEvent(event)
+    expect(out).not.toBeNull()
+    const ex = out!.exception!.values![0]
+    expect(ex.stacktrace!.frames![0]).toEqual({
+      abs_path: '/assets/app.js',
+      filename: 'https://x.test/app.js',
+      function: 'f',
+      lineno: 1,
+    })
+    expect(ex.value).toBe(value)
+    expect(JSON.stringify(out)).not.toContain(URLQ)
+  })
+})
+
 describe('T3e scrubSpanData drops every client / peer IP attribute', () => {
   const IP_KEYS = [
     'http.client_ip', 'net.peer.ip', 'net.sock.peer.addr', 'client.address',
