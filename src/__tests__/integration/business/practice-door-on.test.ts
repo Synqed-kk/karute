@@ -391,7 +391,7 @@ describe('(2b) role labels — the Business vocabulary, from the rulebook', () =
     for (const s of closed) expect(s.boundaryLine).toContain('スタッフの権限では開けません')
     // ⚖ A1b — every GATED section, store or business: `!== 'self'` is what `scope === 'store'` meant here.
     const needsManage = RAIL.filter((e) => e.scope !== 'self' && e.needs === 'settings.manage').map((e) => e.id)
-    expect(needsManage).toContain('reserve-card-look')
+    expect(needsManage).toContain('reserve-store-page')
     expect(needsManage.length).toBeGreaterThan(0)
     for (const id of needsManage) expect(props.sections.find((x) => x.id === id)?.gate).toBe('no-rights')
   })
@@ -849,7 +849,7 @@ describe('(12) PR-2b — the register plane under ON is neutral, never fixture m
 
 describe('⚖ A1b — カードの見た目 under ON: the colour comes from org settings through the door, one per business', () => {
   const orgWith = (settings: Record<string, unknown>) => ({ business_id: TENANT, name: 'Dev Salon', settings, created_at: 'x', updated_at: 'x' })
-  const look = async (store?: string) => (await settingsProps({ locale: 'ja', store })).props.sections.find((s) => s.id === 'reserve-card-look')!
+  const look = async (store?: string) => (await settingsProps({ locale: 'ja', store })).props.sections.find((s) => s.id === 'reserve-store-page')!
 
   it.each([
     ['#1c2247', '#1C2247'],
@@ -883,7 +883,7 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     spy.storesList.mockResolvedValue({ stores: [] }) // the owner sees no store: the all-stores view
     const { props } = await settingsProps({ locale: 'ja' })
     expect(props.dateline.endsWith('/ すべての店舗')).toBe(true)
-    const all = props.sections.find((s) => s.id === 'reserve-card-look')!
+    const all = props.sections.find((s) => s.id === 'reserve-store-page')!
     expect({ gate: all.gate, kicker: all.kicker, value: all.cardLook?.value, storeLine: all.cardLook?.storeLine, address: 'address' in all.cardLook! })
       .toEqual({ gate: 'open', kicker: 'Reserve設定', value: '#00304C', storeLine: '', address: false })
   })
@@ -904,7 +904,7 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     const colour = data.readReserveCardColor as jest.Mock
     colour.mockClear()
     const { props } = await settingsProps({ locale: 'ja', store: STORE.tokyo })
-    expect(props.sections.find((s) => s.id === 'reserve-card-look')!.gate).toBe('open')
+    expect(props.sections.find((s) => s.id === 'reserve-store-page')!.gate).toBe('open')
     expect(colour).toHaveBeenCalledTimes(1)
     expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1)
   })
@@ -916,7 +916,7 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
     colour.mockClear()
     address.mockClear()
     const { props } = await settingsProps({ locale: 'ja' })
-    expect(props.sections.find((s) => s.id === 'reserve-card-look')!.gate).toBe('no-rights')
+    expect(props.sections.find((s) => s.id === 'reserve-store-page')!.gate).toBe('no-rights')
     expect(colour).not.toHaveBeenCalled()
     expect(address).not.toHaveBeenCalled()
     expect(spy.orgSettingsGet).toHaveBeenCalledTimes(1) // the shell's own (the business name)
