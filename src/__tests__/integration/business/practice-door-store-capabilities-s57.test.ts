@@ -24,7 +24,8 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
   }
   return {
     ...actual,
-    clientFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.reads),
+    // a FRESH reads object per request: door.ts keeps its once-per-actor org read on it, so a shared one would carry between saves
+    clientFor: (admitted: { businessId: string }) => (guard(admitted), { ...mockCore.reads }),
     orgSettingsWriterFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.writerFor(admitted), { orgSettings: { upsert: mockCore.upsert } }),
   }
 })

@@ -336,6 +336,8 @@ const canonical = (v: unknown): string =>
   plainObject(v)
     ? '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}'
     : Array.isArray(v) ? '[' + v.map(canonical).join(',') + ']' : JSON.stringify(v)
+/** R273 — two JSON values are the same value: same keys and values at every depth, arrays in order, object key order ignored. */
+export const sameJson = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b)
 /** `raw` held inside `wire`: every own key of a raw object, at every depth, is present in `wire` with a deep-equal
  *  value; keys `wire` adds are not loss. Anything not an object is compared whole (canonical JSON). */
 const heldIn = (raw: unknown, wire: unknown): boolean =>

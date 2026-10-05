@@ -10,7 +10,7 @@ import { practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings, listStoreOptions, orgSettingsOf } from './door'
 import { renderNow } from '../clock'
-import { CAP_KEYS, parseInternalRecord, parseLoses, parseRecord, recordHash, seedRecord, seedTypeOf, serializeRecord, stampSave, storeCapabilitiesKeyFor, type BusinessTypeKey, type CapKey, type CapRecord } from '../store-page/model'
+import { CAP_KEYS, parseInternalRecord, parseLoses, parseRecord, recordHash, sameJson, seedRecord, seedTypeOf, serializeRecord, stampSave, storeCapabilitiesKeyFor, type BusinessTypeKey, type CapKey, type CapRecord } from '../store-page/model'
 
 /** The record + key types, for data.ts (its sealed import inventory names this file, not the model). */
 export type { BusinessTypeKey, CapRecord }
@@ -115,7 +115,12 @@ export async function writeStoreCapabilities(
     if (lossy) console.info('[business store capabilities] replacing a stored value read with loss', JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, replaced_lossy: String(JSON.stringify(raw)).slice(0, REPLACED_MAX), at: renderNow().toISOString() }))
     // one key per store: core merges top-level keys, so another store's save in the same instant is untouched (R86)
     const saved = await writer.orgSettings.upsert({ settings: { [storeCapabilitiesKeyFor(storeId)]: next } })
-    const out = storedOf(saved?.settings ?? null, key).record
+    const { raw: answered, record: out } = storedOf(saved?.settings ?? null, key)
+    // R273: the answer must hold exactly what was sent (a parse alone passes an old or another record); key order is jsonb's
+    if (!sameJson(answered, JSON.parse(JSON.stringify(next)))) {
+      console.error(`[business store capabilities] core's answer does not hold ${key} as sent`, JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, sent: JSON.stringify(next).slice(0, REPLACED_MAX), answered: String(JSON.stringify(answered)).slice(0, REPLACED_MAX) }))
+      return { ok: false, reason: 'core' }
+    }
     if (out === null) {
       console.error(`[business store capabilities] core's answer does not hold ${key} as sent`)
       return { ok: false, reason: 'core' }

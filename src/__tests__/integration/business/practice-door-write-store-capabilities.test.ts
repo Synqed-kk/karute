@@ -20,7 +20,8 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
   }
   return {
     ...actual,
-    clientFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.reads),
+    // a FRESH reads object per request: door.ts keeps its once-per-actor org read on it, so a shared one would carry between saves
+    clientFor: (admitted: { businessId: string }) => (guard(admitted), { ...mockCore.reads }),
     orgSettingsWriterFor: (admitted: { businessId: string }) => (guard(admitted), mockCore.writerFor(admitted), { orgSettings: { upsert: mockCore.upsert } }),
   }
 })
@@ -290,6 +291,90 @@ describe('S49 P2 — the door: data.writeStoreCapabilities → door-store-capabi
     as(LOGIN.goro)
     seed({ [K(STORE.devSalon)]: W(SAVED) })
     expect(await data.readStoreCapabilities(STORE.devSalon)).toBeNull()
+  })
+})
+
+describe('S68 P2 — R273: ok only when core’s answer holds exactly what was sent (key order is jsonb’s, ignored)', () => {
+  /** core answers `answer(sent)` under the store's key, every other stored setting kept. */
+  const answering = (answer: (sent: WireRecord) => unknown) => {
+    mockCore.upsert = jest.fn(async (input: { settings: Record<string, WireRecord> }) => coreRow({ ...stored, [K(S)]: answer(JSON.parse(JSON.stringify(input.settings[K(S)])) as WireRecord) }))
+  }
+  /** Every object's keys reversed, at every depth (what jsonb may do to the order). */
+  const reversed = (v: unknown): unknown =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).reverse().map(([k, x]) => [k, reversed(x)]))
+      : v
+  const successLines = () => info.mock.calls.filter((c) => c[0] === '[business store capabilities]')
+  const mismatchLine = () => {
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(error.mock.calls[0][0]).toBe(`[business store capabilities] core's answer does not hold ${K(S)} as sent`)
+    return JSON.parse(String(error.mock.calls[0][1])) as Record<string, unknown>
+  }
+
+  it('T1 (A1) core answers with the OLD stored record → core; the error line names what was sent and answered; no success line', async () => {
+    seed({ business_type: 'beauty', [K(S)]: W(SAVED) })
+    answering(() => W(SAVED))
+    expect(await save(toggle(SAVED, 'posts'))).toEqual({ ok: false, reason: 'core' })
+    expect(mockCore.upsert).toHaveBeenCalledTimes(1)
+    expect(mismatchLine()).toEqual({ business_id: TENANT, store_id: S, key: K(S), sent: JSON.stringify(sentRecord()), answered: JSON.stringify(W(SAVED)) })
+    expect(successLines()).toHaveLength(0)
+  })
+
+  it('T2 (A2) core answers with a different VALID record (another type, every switch off) → core', async () => {
+    seed({ [K(S)]: W(SAVED) })
+    const yoga = seedRecord('yoga_studio')
+    const allOff: CapRecord = { ...yoga, switches: Object.fromEntries(Object.entries(yoga.switches).map(([k, s]) => [k, { ...s, on: false }])) as CapRecord['switches'] }
+    expect(parseRecord(W(allOff))).toEqual(allOff)
+    answering(() => W(allOff))
+    expect(await save(toggle(SAVED, 'posts'))).toEqual({ ok: false, reason: 'core' })
+    expect(mismatchLine()).toMatchObject({ answered: JSON.stringify(W(allOff)) })
+    expect(successLines()).toHaveLength(0)
+  })
+
+  it('T3 core answers what was sent with object keys reversed at EVERY depth → ok, the parse of what was sent', async () => {
+    seed({ [K(S)]: W(SAVED) })
+    answering((sent) => reversed(sent))
+    const r = await save(toggle(SAVED, 'posts'))
+    const answered = (await mockCore.upsert.mock.results[0].value as { settings: Record<string, WireRecord> }).settings[K(S)]
+    expect(Object.keys(answered)).toEqual(Object.keys(sentRecord()).reverse())
+    expect(Object.keys(answered.switches)).toEqual(Object.keys(sentRecord().switches).reverse())
+    expect(Object.keys(answered.switches.POSTS)).toEqual(Object.keys(sentRecord().switches.POSTS).reverse())
+    expect(r).toEqual({ ok: true, record: parseRecord(sentRecord()) })
+    expect(error).not.toHaveBeenCalled()
+    expect(successLines()).toHaveLength(1)
+  })
+
+  it('T3 the answer carries OTHER top-level settings (another store’s key, business_type) → still ok', async () => {
+    seed({ business_type: 'beauty', [K(STORE.yokohama)]: W(seedRecord('yoga_studio')), [K(S)]: W(SAVED) })
+    answering((sent) => sent)
+    const r = await save(toggle(SAVED, 'posts'))
+    const answer = (await mockCore.upsert.mock.results[0].value as { settings: Record<string, unknown> }).settings
+    expect(Object.keys(answer).sort()).toEqual(['business_type', K(STORE.yokohama), K(S)].sort())
+    expect(r).toEqual({ ok: true, record: parseRecord(sentRecord()) })
+  })
+
+  it('T4 the answer is what was sent plus one unknown field inside the record → core', async () => {
+    seed({ [K(S)]: W(SAVED) })
+    answering((sent) => ({ ...sent, switches: { ...sent.switches, POSTS: { ...sent.switches.POSTS, note: 'x' } } }))
+    expect(await save(toggle(SAVED, 'posts'))).toEqual({ ok: false, reason: 'core' })
+    mismatchLine()
+    expect(successLines()).toHaveLength(0)
+  })
+
+  it('T5 the answer is what was sent minus one field → core', async () => {
+    seed({ [K(S)]: W(SAVED) })
+    answering((sent) => ({ ...sent, switches: { ...sent.switches, POSTS: Object.fromEntries(Object.entries(sent.switches.POSTS).filter(([k]) => k !== 'changed_by_staff_id')) } }))
+    expect(await save(toggle(SAVED, 'posts'))).toEqual({ ok: false, reason: 'core' })
+    mismatchLine()
+    expect(successLines()).toHaveLength(0)
+  })
+
+  it('T6 a first save (no stored record → the seed) round-trips: the matching answer is accepted', async () => {
+    seed({})
+    answering((sent) => sent)
+    const r = await save(toggle(SAVED, 'posts'), { basedOn: recordHash(null) })
+    expect(r).toEqual({ ok: true, record: parseRecord(sentRecord()) })
+    expect(error).not.toHaveBeenCalled()
   })
 })
 
