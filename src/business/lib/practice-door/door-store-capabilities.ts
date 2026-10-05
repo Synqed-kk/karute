@@ -21,6 +21,8 @@ export type WriteStoreCapabilitiesResult =
 
 /** R90 — the replaced raw text kept in the log line is cut at 2 000 chars. */
 const REPLACED_MAX = 2000
+/** R273 — a faithful wire record is ≈2.4k chars, so a real answer is always logged whole; the cut guards a runaway answer. */
+const ANSWER_MAX = 8000
 
 /** A4 — reset_keys: an array of known capability keys (internal spelling), each at most once; anything else → null. */
 function resetKeysOf(raw: unknown): CapKey[] | null {
@@ -118,7 +120,7 @@ export async function writeStoreCapabilities(
     const { raw: answered, record: out } = storedOf(saved?.settings ?? null, key)
     // R273: the answer must hold exactly what was sent (a parse alone passes an old or another record); key order is jsonb's
     if (!sameJson(answered, JSON.parse(JSON.stringify(next)))) {
-      console.error(`[business store capabilities] core's answer does not hold ${key} as sent`, JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, sent: JSON.stringify(next).slice(0, REPLACED_MAX), answered: String(JSON.stringify(answered)).slice(0, REPLACED_MAX) }))
+      console.error(`[business store capabilities] core's answer does not hold ${key} as sent`, JSON.stringify({ business_id: actor.businessId, store_id: storeId, key, sent: JSON.stringify(next).slice(0, ANSWER_MAX), answered: String(JSON.stringify(answered)).slice(0, ANSWER_MAX) }))
       return { ok: false, reason: 'core' }
     }
     if (out === null) {

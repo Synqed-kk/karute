@@ -369,6 +369,35 @@ describe('S68 P2 — R273: ok only when core’s answer holds exactly what was s
     expect(successLines()).toHaveLength(0)
   })
 
+  it('T7 the answer is what was sent except `business_type` → core, the mismatch line, no success line', async () => {
+    seed({ [K(S)]: W(SAVED) })
+    answering((sent) => ({ ...sent, business_type: sent.business_type === 'yoga_studio' ? 'dental_clinic' : 'yoga_studio' }))
+    expect(await save(toggle(SAVED, 'posts'))).toEqual({ ok: false, reason: 'core' })
+    mismatchLine()
+    expect(successLines()).toHaveLength(0)
+  })
+
+  it('T8 the answer is what was sent except `v` (2) → core', async () => {
+    seed({ [K(S)]: W(SAVED) })
+    answering((sent) => ({ ...sent, v: 2 }))
+    expect(await save(toggle(SAVED, 'posts'))).toEqual({ ok: false, reason: 'core' })
+    mismatchLine()
+    expect(successLines()).toHaveLength(0)
+  })
+
+  it('T9 a fully owner-stamped record with 36-char staff ids is logged WHOLE on a mismatch (sent and answered parse back)', async () => {
+    const id36 = '00000000-0000-4000-8000-000000000036'
+    const stamped: CapRecord = { ...SAVED, switches: Object.fromEntries(Object.entries(SAVED.switches).map(([k, s]) => [k, { ...s, source: 'OWNER', changed_at: '2026-09-01T00:00:00.000Z', changed_by: id36 }])) as CapRecord['switches'] }
+    seed({ [K(S)]: W(stamped) })
+    mockCore.reads.answerSheet = jest.fn(async () => ({ ...SHEETS[CARD.owner], staff_id: id36 }))
+    answering(() => W(stamped))
+    expect(await save(toggle(stamped, 'posts'))).toEqual({ ok: false, reason: 'core' })
+    const line = mismatchLine() as { sent: string; answered: string }
+    expect(JSON.stringify(sentRecord()).length).toBeGreaterThan(2000)
+    expect(line.sent).toBe(JSON.stringify(sentRecord()))
+    expect(JSON.parse(line.answered)).toEqual(W(stamped))
+  })
+
   it('T6 a first save (no stored record → the seed) round-trips: the matching answer is accepted', async () => {
     seed({})
     answering((sent) => sent)
