@@ -3595,7 +3595,7 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
       // exemption (「focus rings and focus-visible styles (a11y)」: a ring drawn
       // around the thing being taught is the same category), the second is a
       // control.
-      const pressable = /st-rail-item|st-rail-hit|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-swatch|st-save|st-act|st-link|st-jump-item|st-det-btn|st-back|st-search-field|st-coll-del|st-spot-hole|st-spot-next/.test(sel)
+      const pressable = /st-rail-item|st-rail-hit|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-swatch|st-save|st-act|st-link|cl-viewbtn|st-jump-item|st-det-btn|st-back|st-search-field|st-coll-del|st-spot-hole|st-spot-next/.test(sel)
       expect({ sel, pressable }).toEqual({ sel, pressable: true })
     }
     // …and the WASH really is limited to the surfaces the law names — a selected
@@ -3603,7 +3603,7 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
     // the scan above stopped looking at it.
     const washed = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*var\(--st-accent-wash\)[^}]*\}/g)].map((m) => m[1].trim())
     for (const sel of washed) {
-      const named = /st-preview|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-rail-item|st-link|st-jump-item|st-det-btn|st-back|st-block|st-spot-next/.test(sel)
+      const named = /st-preview|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-rail-item|st-link|cl-viewbtn|st-jump-item|st-det-btn|st-back|st-block|st-spot-next/.test(sel)
       expect({ sel, named }).toEqual({ sel, named: true })
     }
     // The selected option really is R13's wash recipe, never a solid fill — and

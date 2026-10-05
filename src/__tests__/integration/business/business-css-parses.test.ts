@@ -189,8 +189,8 @@ describe('⚖ S57 R187 — the shared dialog', () => {
   })
 
   it.each([
-    ['.biz .pg-settings .st-dlg h4', { 'font-size': '14px', 'font-weight': '700', 'line-height': '1.4' }],
-    ['.biz .pg-settings .st-dlg p', { 'font-size': '12px', 'font-weight': '400', 'line-height': '1.7' }],
+    ['.biz .pg-settings .st-dlg:not(.st-sheet) h4', { 'font-size': '14px', 'font-weight': '700', 'line-height': '1.4' }],
+    ['.biz .pg-settings .st-dlg:not(.st-sheet) p', { 'font-size': '12px', 'font-weight': '400', 'line-height': '1.7' }],
   ])('(c) %s type is defined once', (selector, want) => {
     const rules = rulesFor(selector)
     expect(rules).toHaveLength(1)

@@ -1067,6 +1067,8 @@ describe('the fixture data door', () => {
       // ⚖ A1b — カードの見た目: the port is its ONLY card drawing (and its satin the
       // only colour math); the room's spring and the tour's ring helper; no data door.
       'src/app/[locale]/(business)/business/settings/ReserveCardLookSection.tsx': [
+        // ⚖ S62 R227 — the preview's sheet at ≤ 899 is the room's ONE Dialog.
+        './Dialog',
         '@/business/lib/guide',
         '@/business/lib/reserve-card/ReserveCardPreview',
         '@/business/lib/reserve-card/satin-material',

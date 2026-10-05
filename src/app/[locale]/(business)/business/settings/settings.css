@@ -311,6 +311,7 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-spot-prev:active,
 .biz .pg-settings .st-spot-next:active,
 .biz .pg-settings .st-spot-done:active,
+.biz .pg-settings .cl-viewbtn:active,
 .biz .pg-settings .st-search-clear:active { transform: scale(.97); }
 .biz .pg-settings .st-rail-item,
 .biz .pg-settings .st-back,
@@ -328,6 +329,7 @@ html:has(.biz .page.pg-settings) {
 .biz .pg-settings .st-save,
 .biz .pg-settings .st-act,
 .biz .pg-settings .st-link,
+.biz .pg-settings .cl-viewbtn,
 .biz .pg-settings .st-search-clear { transition: transform 100ms cubic-bezier(0, 0, .2, 1), background-color 140ms ease, border-color 140ms ease, color 140ms ease; }
 
 /* ── the body: THE CONTAINER, and the grid inside it ───────────────────────── */
@@ -675,6 +677,17 @@ html:has(.biz .page.pg-settings) {
 }
 .biz .pg-settings .cl-preview { max-width: 393px; }
 .biz .pg-settings .cl-preview .sp-seg { margin-bottom: 12px; }
+/* ⚖ S62 R230 — the sheet's opener: always in the DOM, shown by CSS alone inside the ONE ≤ 899 block (the first
+   render, before `narrow` is known, is right too). R13's wash + accent text + accent line; the room's button
+   metrics (.st-act: padding, radius, type), never the mock's 15px/700/12px; the mock's own gap / width / margin. */
+.biz .pg-settings .cl-viewbtn {
+  display: none; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  margin: 18px 0 4px; padding: 6px 15px; border: 1px solid var(--st-accent); border-radius: 9px;
+  background: var(--st-accent-wash); color: var(--st-accent);
+  font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.5; cursor: pointer;
+}
+/* ⚖ S62 R233 — the sheet's close button sits at the end of the preview's head row */
+.biz .pg-settings .cl-preview .st-sec-h > .st-link { margin-left: auto; }
 /* ⚖ R-A1b-1b — THE STRIP IS A CLIP BOX, NEVER A SCROLLER (S46; it was a 1:1
    scroll container before). A 393px phone in a 393px strip has nothing to pan,
    and the 1:1 paint is unchanged by the switch (the strip's 1280 screenshot is
@@ -1656,6 +1669,7 @@ html:has(.biz .page.pg-settings) {
      (⚖ F14's own lesson). A floor costs nothing on a control that is taller. */
   .biz .pg-settings .st-pcard,
   .biz .pg-settings .st-adv > summary,
+  .biz .pg-settings .cl-viewbtn,
   .biz .pg-settings .st-spot-foot button { min-height: 44px; }
   /* the stepper is a bordered group, so the group has to grow with its buttons */
   .biz .pg-settings .st-step-g { height: 44px; }
@@ -1821,6 +1835,10 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-coll-add > .st-act { width: 100%; }
   /* ⚖ A1b — the phone sits centred under the picker (list-is-the-page). */
   .biz .pg-settings .cl-preview { margin-inline: auto; }
+  /* ⚖ S62 R230 / R226 — the phone opens in the sheet here: the button shows, and an inline preview (the first
+     render, before `narrow` is known) never paints */
+  .biz .pg-settings .cl-viewbtn { display: flex; }
+  .biz .pg-settings .st-side-card:has(> .cl-preview) { display: none; }
 }
 
 /* ═══ ≥900 — the rail and the panel share the page, and a data table earns its
@@ -1847,6 +1865,7 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-save,
   .biz .pg-settings .st-act,
   .biz .pg-settings .st-link,
+  .biz .pg-settings .cl-viewbtn,
   .biz .pg-settings .st-search-clear { transition: background-color 120ms linear, border-color 120ms linear, color 120ms linear; }
   .biz .pg-settings .st-rail-item:active,
   .biz .pg-settings .st-back:active,
@@ -1871,6 +1890,7 @@ html:has(.biz .page.pg-settings) {
   .biz .pg-settings .st-save:not(:disabled):active,
   .biz .pg-settings .st-act:active,
   .biz .pg-settings .st-link:not([aria-disabled="true"]):active,
+  .biz .pg-settings .cl-viewbtn:active,
   .biz .pg-settings .st-search-clear:active { transform: none; }
   .biz .pg-settings .st-det-caret,
   .biz .pg-settings .st-det-inner,

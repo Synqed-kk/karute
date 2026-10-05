@@ -1794,6 +1794,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 setSpPress((prev) => ({ ...prev, cardOk: false })) // S61 P7B-R1 (R225): …nor the last press's "colour saved" (cardOk)
               }}
               reduced={reduced}
+              narrow={narrow && isDetail} // S62 — the band WHILE the section is its own screen: back to the list closes the sheet
               render={(slots) =>
                 columnAnd(
                   <div className="st-main">
@@ -1822,7 +1823,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
                         />
                       </>
                     ) : section.storePageNoStore ? <p className="st-block-note">{section.storePageNoStore}</p> : null}
-                    <p className="st-foot">{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}</p></div>,
+                    <p className="st-foot">{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}</p>
+                    {/* S62 R230 — the sheet's opener, LAST in the reading column for every branch above (CSS shows it only ≤ 899) */}
+                    {slots.viewButton}</div>,
                   sideNode(
                     [],
                     slots.preview,

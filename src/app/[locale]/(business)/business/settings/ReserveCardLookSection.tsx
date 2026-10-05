@@ -9,7 +9,7 @@
 // (A2 is the write). Like 予約と確保, the section hands its two pieces back as SLOTS and the room places them:
 // the picker in the reading column, the card at the top of the sticky stack (below the picker at ② and ①).
 // Every Japanese string is the switchboard mock's (S40 1b-1), or JP-COPY-A1-FINAL's with Reserve → お客様のアプリ.
-import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { wrapStep } from '@/business/lib/guide'
 import { ReserveCardPreview } from '@/business/lib/reserve-card/ReserveCardPreview'
 import { satinVars } from '@/business/lib/reserve-card/satin-material'
@@ -17,6 +17,7 @@ import { STORES, type StorePageSample } from '@/business/lib/reserve-card/store-
 import { honestLines, publicProjection, type CapRecord, type Counts } from '@/business/lib/store-page/model'
 import { makeSpring, type Spring } from '@/business/lib/spring'
 import type { SettingsSection } from '@/business/lib/settings'
+import { Dialog } from './Dialog'
 
 type Look = NonNullable<SettingsSection['cardLook']>
 type View = 'home' | 'store'
@@ -26,6 +27,12 @@ export type StoreView = { draft: CapRecord; counts: Counts; sampleKey: NonNullab
 
 /** What a reader can type to find this section (the room's search), like STORE_POLICY_HEADINGS. */
 export const CARD_LOOK_HEADINGS: ReadonlyArray<string> = ['カードの見た目', 'カードの色', 'お客様のアプリでの見え方']
+
+/** ⚖ S62 R230 — the preview's OWN tour pair, read by the preview AND by 「見え方を見る」 (at ≤ 899 the button stands in for it). */
+const PREVIEW_GUIDE = {
+  title: 'お客様のアプリでの見え方',
+  body: '選んだ色で、お店のカードがお客様のアプリでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。',
+} as const
 
 /** The stand-in the preview paints when no colour is set (note.empty.preview says so). */
 export const STAND_IN = '#1C2247'
@@ -75,17 +82,24 @@ export function ReserveCardLookSection({
   reduced,
   render,
   storeView,
+  narrow = false,
 }: {
   look: Look
   /** The room's LIVE value for `CARD_COLOR_ID` ('' = nothing set). */
   value: string
   onPick: (hex: string) => void
   reduced: boolean
-  render: (slots: { main: ReactNode; preview: ReactNode }) => ReactNode
+  /** ⚖ S62 R226 — the room's ≤ 899 band: `slots.preview` is null and the ONE preview is drawn in the sheet instead.
+   *  `viewButton` (the sheet's opener, CSS-shown only ≤ 899) is always handed back. */
+  render: (slots: { main: ReactNode; preview: ReactNode; viewButton: ReactNode }) => ReactNode
   /** the お店ページ draft (P7 wires it); absent = the cover only, exactly as before */
   storeView?: StoreView
+  narrow?: boolean
 }) {
   const [view, setView] = useState<View>('home')
+  // ⚖ S62 R226 — the sheet exists only ≤ 899: leaving the band closes it AND forgets it, so narrowing again never reopens it
+  const [sheetOpen, setSheetOpen] = useState(false)
+  if (!narrow && sheetOpen) setSheetOpen(false)
   const shown = value === '' ? null : value
   // The source line speaks for the SAVED colour (mock :1340), never the unsaved pick; the preview follows the pick.
   const saved = look.value === '' ? null : look.value
@@ -120,9 +134,12 @@ export function ReserveCardLookSection({
   // scrolls INSIDE it (.cl-phone = the mock's .pv), so the page never grows with the card list.
   // ⚖ S46 — the script writes PAINT ONLY (`--cl-scale`, a transform): the strip's height is CSS (settings.css),
   // because a height written here would feed the side column's scrollbar, and that bar back into the width.
-  const stripRef = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const strip = stripRef.current
+  // ⚖ S62 R232 — the observer follows the strip's MOUNT (inline, or inside the sheet a commit after it opens), and the
+  // scale is written at once, so the sheet's first painted frame is already at its final scale.
+  const stripObs = useRef<ResizeObserver | null>(null)
+  const stripRef = useCallback((strip: HTMLDivElement | null) => {
+    stripObs.current?.disconnect()
+    stripObs.current = null
     if (!strip) return
     const fit = () => {
       const scale = fitScale(strip.clientWidth)
@@ -130,9 +147,11 @@ export function ReserveCardLookSection({
       if (scale === 1) strip.style.removeProperty('--cl-scale')
       else strip.style.setProperty('--cl-scale', String(scale))
     }
+    fit()
+    if (typeof ResizeObserver === 'undefined') return // ⚖ S63 R236 — no observer: the scale is written once, nothing throws
     const ro = new ResizeObserver(fit) // the strip's width (the frame's box is fixed, so it is not observed)
     ro.observe(strip)
-    return () => ro.disconnect()
+    stripObs.current = ro
   }, [])
 
   // The honest slot (mock renderHonest :1947-1958): only lines that are true right now; none → no block.
@@ -214,12 +233,14 @@ export function ReserveCardLookSection({
     <section
       className="cl-preview"
       aria-labelledby="clPvHead"
-      data-guide-title="お客様のアプリでの見え方"
-      data-guide="選んだ色で、お店のカードがお客様のアプリでどう見えるかの見本です。表示だけで、ここを押しても設定は変わりません。「ホーム」と「お店ページ」を切り替えると、それぞれの画面での見え方を確認できます。"
+      data-guide-title={PREVIEW_GUIDE.title}
+      data-guide={PREVIEW_GUIDE.body}
     >
       <div className="st-sec-h">
         <p className="st-sec-l" id="clPvHead">お客様のアプリでの見え方</p>
         <span className="st-chip">表示のみ</span>
+        {/* ⚖ S62 R233 — only in the sheet: its FIRST focusable control, so Dialog's own rule focuses it */}
+        {narrow && <button type="button" className="st-link" onClick={() => setSheetOpen(false)}>閉じる</button>}
       </div>
       <div className="sp-seg" role="group" aria-labelledby="clPvHead">
         <button type="button" className={view === 'home' ? 'on' : undefined} aria-pressed={view === 'home'} onClick={() => setView('home')}>ホーム</button>
@@ -239,5 +260,16 @@ export function ReserveCardLookSection({
     </section>
   )
 
-  return <>{render({ main, preview })}</>
+  // ⚖ S62 R230 — 「見え方を見る」 + the sheet it opens (the room's ONE Dialog, sheet form). Never disabled (spec D13).
+  const viewButton = (
+    <>
+      <button type="button" className="cl-viewbtn" data-guide-title={PREVIEW_GUIDE.title} data-guide={PREVIEW_GUIDE.body} onClick={() => setSheetOpen(true)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3" /><path d="M10.5 18.6h3" /></svg>
+        見え方を見る
+      </button>
+      <Dialog sheet open={narrow && sheetOpen} onClose={() => setSheetOpen(false)} labelledBy="clPvHead">{preview}</Dialog>
+    </>
+  )
+
+  return <>{render({ main, preview: narrow ? null : preview, viewButton })}</>
 }

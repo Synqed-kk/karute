@@ -24,7 +24,13 @@
  *  7. ⚖ S54 R165 — a scrim close needs the press to START on the scrim AND to be
  *     RELEASED on it (pointerup/mouseup target is the scrim), then the click.
  *  8. ⚖ S54 R165 — dialogs STACK: only the top-most open dialog hears Esc, Tab
- *     and its scrim; the ones below ignore them until they are on top again. */
+ *     and its scrim; the ones below ignore them until they are on top again.
+ *  9. ⚖ S62 R227 — `sheet` draws the SAME dialog as a bottom sheet: the scrim's
+ *     class becomes `st-dlg-scrim is-sheet` and the box gains `st-sheet` (CSS in
+ *     dialog.css). Every rule above is shared, untouched. Without it the DOM is
+ *     exactly what it was.
+ * 10. ⚖ S63 R235 — the trap's list is only what Tab can reach: never a negative
+ *     `tabIndex`, never anything under `aria-hidden="true"` or `inert` within the box. */
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
@@ -52,11 +58,17 @@ function isShown(el: HTMLElement, box: HTMLElement): boolean {
   return true
 }
 
+/** Rule 10: under `aria-hidden="true"` or `inert` inside the box (closest = the nearest, so inside wins). */
+function hiddenFromTab(el: HTMLElement, box: HTMLElement): boolean {
+  const h = el.closest('[aria-hidden="true"], [inert]')
+  return h !== null && box.contains(h)
+}
+
 /** The controls the trap cycles through, in order — never a disabled, hidden or
- *  undrawn one. */
+ *  undrawn one, nor one Tab cannot reach (rule 10). */
 export function focusablesIn(box: HTMLElement): HTMLElement[] {
   return [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (el) => !el.matches(':disabled') && isShown(el, box),
+    (el) => !el.matches(':disabled') && el.tabIndex >= 0 && !hiddenFromTab(el, box) && isShown(el, box),
   )
 }
 
@@ -68,6 +80,7 @@ export function Dialog({
   initialFocus,
   root,
   className,
+  sheet,
   children,
 }: {
   open: boolean
@@ -81,6 +94,8 @@ export function Dialog({
   /** Override of the portal target (tests, or a room that is not the settings room). */
   root?: HTMLElement | null
   className?: string
+  /** ⚖ S62 R227 (rule 9) — draw the dialog as a bottom sheet. */
+  sheet?: boolean
   children: ReactNode
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
@@ -179,10 +194,10 @@ export function Dialog({
 
   if (!open || !target) return null
   return createPortal(
-    <div className="st-dlg-scrim" onPointerDown={onScrimPress} onMouseDown={onScrimPress} onPointerUp={onScrimRelease} onMouseUp={onScrimRelease} onClick={onScrimClick}>
+    <div className={sheet ? 'st-dlg-scrim is-sheet' : 'st-dlg-scrim'} onPointerDown={onScrimPress} onMouseDown={onScrimPress} onPointerUp={onScrimRelease} onMouseUp={onScrimRelease} onClick={onScrimClick}>
       <div
         ref={boxRef}
-        className={`st-dlg${className ? ` ${className}` : ''}`}
+        className={`st-dlg${sheet ? ' st-sheet' : ''}${className ? ` ${className}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
