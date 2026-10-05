@@ -185,6 +185,11 @@ describe('T2c alarm caps', () => {
     expect(scrubEvent(alarm({ extra: { take_ids: ten } }))!.extra).toEqual({ take_ids: ten })
   })
 
+  it('a take_ids item of exactly 64 characters is kept', () => {
+    const id = 'x'.repeat(64)
+    expect(scrubEvent(alarm({ extra: { take_ids: ['t1', id] } }))!.extra).toEqual({ take_ids: ['t1', id] })
+  })
+
   it('take_ids with one item longer than 64 characters is dropped', () => {
     const out = scrubEvent(alarm({ extra: { take_ids: ['t1', 'x'.repeat(65)] } }))
     expect(out!.extra).toEqual({})
@@ -598,9 +603,20 @@ describe('T5 the scrub module runs in node, edge and the browser', () => {
 
 // PIN: PR-A1 (alarm check-ins) updates this pin ON PURPOSE when it switches
 // check-ins on; nothing else may switch on logs, replay or feedback silently.
+// Line comments are cut only where `//` is not preceded by `:`, so a `https://`
+// string does not hide the rest of its line from the pin.
+const stripComments = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+
 describe('T6 pin: no Sentry channel the scrub hooks never see is switched on', () => {
+  it('NEGATIVE CONTROL: enableLogs after a https:// string on the same line is still caught', () => {
+    const sample = "init({ dsn: 'https://public@example.invalid/1', enableLogs: true }) // note"
+    expect(stripComments(sample)).toMatch(/enableLogs/)
+    expect(stripComments('// enableLogs: true')).not.toMatch(/enableLogs/)
+  })
+
   it.each(['src/instrumentation.ts', 'src/instrumentation-client.ts'])('%s', (rel) => {
-    const src = read(rel).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    const src = stripComments(read(rel))
     expect(src).not.toMatch(/enableLogs/)
     expect(src).not.toMatch(/replayIntegration/)
     expect(src).not.toMatch(/feedbackIntegration/)
