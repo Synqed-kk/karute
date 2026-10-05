@@ -8,8 +8,11 @@
  * on a span is the control's own touch (tapActivation). jsdom has no layout:
  * the geometry is PINNED BY EXACT CLASS STRINGS below (S106 R5), not by a
  * layout check — any change to an offset, z-index, the safe-area strips, the
- * slop, the row-cap variable or `hidden` fails here; whether those classes
- * still lay out contiguously is proven by the Playwright grid outside CI.
+ * slop, the row-cap variable or `hidden` fails here. Whether those classes
+ * still lay out contiguously — which control a touch at each point of the bar
+ * reaches — is checked in a real browser layout (Chromium + WebKit) by
+ * e2e/layout/bottom-nav-hit.layout.ts, which runs in CI on every pull request
+ * (ci.yml step "Bottom bar hit test").
  */
 import { render, fireEvent } from '@testing-library/react'
 import type { ReactNode, MouseEvent } from 'react'
