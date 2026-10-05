@@ -10,6 +10,8 @@ import type {
 // so derive it from the beforeSendTransaction option it does export.
 type TransactionEvent = Parameters<NonNullable<NodeOptions['beforeSendTransaction']>>[0]
 type AnyEvent = ErrorEvent | TransactionEvent
+// Same for SpanJSON (the type beforeSendSpan receives and must return).
+type SpanJson = Parameters<NonNullable<NodeOptions['beforeSendSpan']>>[0]
 
 /** The only request headers that may leave the app (compared lower-cased). */
 export const HEADER_ALLOW_LIST = ['host', 'user-agent', 'content-type', 'content-length', 'accept']
@@ -259,9 +261,62 @@ export function scrubTransaction(event: TransactionEvent): TransactionEvent | nu
   }
 }
 
+// ---- spans (beforeSendSpan) ----
+
+/** Reads one property; a throwing getter reads as undefined. */
+function safeRead(obj: object, key: string): unknown {
+  try {
+    return (obj as Record<string, unknown>)[key]
+  } catch {
+    return undefined
+  }
+}
+
+/** The fail-closed span: ids and timestamps kept, description = op (or ''), data = {}. Never throws. */
+function blankSpan(span: SpanJson): SpanJson {
+  const op = safeRead(span, 'op')
+  const out: SpanJson = {
+    span_id: '',
+    trace_id: '',
+    start_timestamp: 0,
+    data: {},
+    description: typeof op === 'string' ? op : '',
+  }
+  if (typeof op === 'string') out.op = op
+  for (const key of ['span_id', 'trace_id', 'parent_span_id', 'segment_id'] as const) {
+    const v = safeRead(span, key)
+    if (typeof v === 'string') out[key] = v
+  }
+  for (const key of ['start_timestamp', 'timestamp'] as const) {
+    const v = safeRead(span, key)
+    if (typeof v === 'number') out[key] = v
+  }
+  const seg = safeRead(span, 'is_segment')
+  if (typeof seg === 'boolean') out.is_segment = seg
+  return out
+}
+
+/**
+ * beforeSendSpan: standalone spans (envelope item type `span`, e.g. INP) pass no
+ * other hook. The SDK runs it on those, and on a transaction's root and child
+ * spans before beforeSendTransaction. Returning null is disallowed in 10.51.0:
+ * the SDK then sends the RAW span (core envelope.js:130-133, client.js:1054-1084).
+ * So it fails closed by returning a blanked copy, never the raw span, never a throw.
+ */
+export function scrubSpan(span: SpanJson): SpanJson {
+  try {
+    if (span.data) scrubSpanData(span.data)
+    stripSpanNames(span)
+    return span
+  } catch {
+    return blankSpan(span)
+  }
+}
+
 /** The one object every Sentry.init spreads. */
 export const sentryScrubOptions = {
   beforeSend: scrubEvent,
   beforeSendTransaction: scrubTransaction,
   beforeBreadcrumb: scrubBreadcrumb,
+  beforeSendSpan: scrubSpan,
 }

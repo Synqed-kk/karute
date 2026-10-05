@@ -14,6 +14,7 @@ import {
   scrubBreadcrumb,
   scrubEvent,
   scrubPii,
+  scrubSpan,
   scrubSpanData,
   scrubTransaction,
   stripQuery,
@@ -363,6 +364,58 @@ describe('T3g scrubSpanData strips the query off every URL- or path-shaped value
       'x.num': 3,
     })
     expect(JSON.stringify(data)).not.toContain(URLQ)
+  })
+})
+
+type SpanJson = Parameters<typeof scrubSpan>[0]
+
+describe('T3h scrubSpan (beforeSendSpan) scrubs a standalone INP-shaped span and fails closed', () => {
+  it('strips the query from description and every URL-shaped attribute', () => {
+    const span: SpanJson = {
+      span_id: 's1',
+      trace_id: 't1',
+      start_timestamp: 1,
+      timestamp: 2,
+      op: 'ui.interaction.click',
+      description: '/photos?token=' + URLQ,
+      data: { transaction: '/x?token=' + URLQ, 'url.full': 'https://x.test/a?token=' + URLQ },
+    }
+    const out = scrubSpan(span)
+    expect(out.description).toBe('/photos')
+    expect(out.data).toEqual({ transaction: '/x', 'url.full': 'https://x.test/a' })
+    expect(out.span_id).toBe('s1')
+    expect(JSON.stringify(out)).not.toContain(URLQ)
+  })
+
+  it('a throwing getter: no throw, never the raw span, a blanked copy with ids and timestamps', () => {
+    const span = {
+      span_id: 's1',
+      trace_id: 't1',
+      parent_span_id: 'p1',
+      start_timestamp: 1,
+      timestamp: 2,
+      op: 'ui.interaction.click',
+      description: '/photos?token=' + URLQ,
+      get data(): Record<string, unknown> {
+        throw new Error('boom')
+      },
+    } as SpanJson
+    let out: SpanJson | undefined
+    expect(() => {
+      out = scrubSpan(span)
+    }).not.toThrow()
+    expect(out).not.toBe(span)
+    expect(out).toEqual({
+      span_id: 's1',
+      trace_id: 't1',
+      parent_span_id: 'p1',
+      start_timestamp: 1,
+      timestamp: 2,
+      op: 'ui.interaction.click',
+      description: 'ui.interaction.click',
+      data: {},
+    })
+    expect(JSON.stringify(out)).not.toContain(URLQ)
   })
 })
 

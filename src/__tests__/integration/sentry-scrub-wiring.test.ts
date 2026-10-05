@@ -40,6 +40,7 @@ function expectWired(options: InitOptions | undefined, scrub: ScrubModule) {
   expect(options!.beforeSend).toBe(scrub.scrubEvent)
   expect(options!.beforeSendTransaction).toBe(scrub.scrubTransaction)
   expect(options!.beforeBreadcrumb).toBe(scrub.scrubBreadcrumb)
+  expect(options!.beforeSendSpan).toBe(scrub.scrubSpan)
   expect(options!.sendDefaultPii).toBe(false)
   expect(options!.enableLogs).toBeFalsy()
 }
