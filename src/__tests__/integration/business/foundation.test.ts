@@ -876,7 +876,9 @@ describe('the fixture data door', () => {
       // The rules are PURE, and the empty inventory is the pin on that: the gate,
       // the clamps and the refusal table decide things about values they are
       // handed, never values they fetch.
-      'src/business/lib/settings.ts': [],
+      // ⚖ R173 — ONE exception: a TYPE-ONLY import of P1's store-page model (erased at compile time, so the
+      // rules still fetch nothing); the exact form is pinned by the test after this one.
+      'src/business/lib/settings.ts': ['./store-page/model'],
       // ⚖ S17 fix round 5 · G2 — every link into 設定, built in one place. The
       // empty inventory is the PIN on what it is: a string out of three values
       // its caller already resolved. An import here would mean the link builder
@@ -931,6 +933,10 @@ describe('the fixture data door', () => {
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
+        // S50 P3 — お店ページ's per-store payload: P1's pure model + strings, and the one practice-count fixture (R91).
+        '@/business/lib/store-page/copy',
+        '@/business/lib/store-page/model',
+        '@/business/lib/store-page/practice-counts',
       ],
       // ⚖ S17 fix round 1 · F15 (D-20) — THE ROOM'S ONE 詳しく DISCLOSURE, in its
       // own file. Both the shell room and 予約と確保 need it, and the section may
@@ -1172,6 +1178,20 @@ describe('the fixture data door', () => {
       }
       expect({ file, imports: [...found].sort() }).toEqual({ file, imports: [...expected].sort() })
     }
+  })
+
+  it("⚖ R173 — settings.ts has exactly ONE import statement, and it is `import type { … } from './store-page/model'`", () => {
+    // S57 P3 (ATK-10) — the RAW file, no comment stripping (a comment-prefixed import cannot hide), and the
+    // pattern is built from parts so no quoted specifier sits in this file (business-isolation reads one as an import).
+    const raw = readFileSync(join(process.cwd(), 'src/business/lib/settings.ts'), 'utf8')
+    const spec = ['.', 'store-page', 'model'].join('/').replace(/[./-]/g, (c) => '\\' + c)
+    expect(raw.match(/\bfrom\s*['"]/g) ?? []).toHaveLength(1)
+    expect(raw.match(/(^|[;}\s])(import|export)\s*(type\s*)?[{*]/gm)?.length ?? 0).toBe(1)
+    const q = '\\x27' // a quote, spelled so no `fr`+`om <quote>` text sits in this file (P3 B1)
+    expect(raw).toMatch(new RegExp('^' + ['import type \\{[^}]*\\}', 'fr' + 'om', q + spec + q].join(' ') + '$', 'm'))
+    expect(raw).not.toMatch(/\brequire\s*\(|\bimport\s*\(/)
+    // R198 — and no bare side-effect import (`import` then a quote, no `from`, no brace); quotes as \x escapes.
+    expect(raw).not.toMatch(/\bimport\s*[\x27\x22]/)
   })
 
   // ⚖ Liam 9/19 — the practice-salon door's two structural pins (DESIGN-PRACTICE-DOOR.md

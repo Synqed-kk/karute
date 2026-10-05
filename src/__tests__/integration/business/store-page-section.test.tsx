@@ -6,6 +6,7 @@
  * the recorded Dev Salon answer set — card-look-title.test.tsx's harness): the rail, the ?section= id,
  * the block heading + chip, the staff gate, and the room's search for both words.
  */
+const mockCore: { reaches: number; noStores: boolean; settings: Record<string, unknown> } = { reaches: 0, noStores: false, settings: {} }
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
 jest.mock('@/business/lib/admission', () => ({ requireBusinessAdmission: jest.fn() }))
 jest.mock('@/business/lib/practice-door/core-reach', () => {
@@ -22,7 +23,20 @@ jest.mock('@/business/lib/practice-door/core-reach', () => {
   return {
     PracticeTenantMismatch,
     orgSettingsWriterFor: () => { throw new Error('no writes in this suite') },
-    clientFor: (admitted: { businessId: string }) => (guard(admitted), jest.requireActual('./practice-door-recorded').recordedReads()),
+    // S50 P3 — the org settings and the store list are the test's to set; every core reach is counted.
+    clientFor: (admitted: { businessId: string }) => {
+      mockCore.reaches++
+      guard(admitted)
+      const r = jest.requireActual('./practice-door-recorded').recordedReads()
+      return {
+        ...r,
+        storesList: async () => (mockCore.noStores ? { stores: [] } : r.storesList()),
+        orgSettingsGet: async () => {
+          const got = await r.orgSettingsGet()
+          return got && { ...got, settings: { ...got.settings, ...mockCore.settings } }
+        },
+      }
+    },
     storeDaysWriterFor: () => { throw new Error('no writes in this suite') },
     auditWriterFor: () => { throw new Error('no writes in this suite') },
   }
@@ -33,6 +47,10 @@ import type { ReactElement } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import SettingsPage from '@/app/[locale]/(business)/business/settings/page'
 import { LOGIN, STORE, TENANT } from './practice-door-recorded'
+import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import { controlIdsOf, type SettingsSection } from '@/business/lib/settings'
+import { CAP_KEYS, recordHash, seedRecord, serializeRecord, type CapRecord } from '@/business/lib/store-page/model'
+import { practiceCounts } from '@/business/lib/store-page/practice-counts'
 
 const admission = requireBusinessAdmission as jest.MockedFunction<typeof requireBusinessAdmission>
 const realFetch = global.fetch
@@ -61,6 +79,7 @@ afterAll(() => {
   expect(Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')).toEqual(SCROLL_INTO_VIEW_BEFORE)
 })
 beforeEach(() => {
+  Object.assign(mockCore, { reaches: 0, noStores: false, settings: {} })
   process.env.BUSINESS_PRACTICE_TENANT = TENANT
   admission.mockResolvedValue({ userId: LOGIN.owner, email: null, displayName: null, businessId: TENANT })
   global.fetch = jest.fn(async () => ({ ok: false, status: 500, json: async () => null })) as unknown as typeof fetch
@@ -137,5 +156,95 @@ describe('S48 E1 — お店ページ: the section that holds カードの見た�
     await open()
     await search('カードの形')
     expect(railNames()).not.toContain('reserve-store-page')
+  })
+})
+
+// ── S50 P3 — the section payload (PACKETS-S50-WAVE3 「THE SHARED SHAPE」) ─────────────────────────────────────
+const KEY = (id: string) => `reserve_store_capabilities:${id}`
+const page = async (store: string): Promise<SettingsSection> =>
+  (await settingsProps({ locale: 'ja', store })).props.sections.find((x) => x.id === 'reserve-store-page')!
+/** A gym-family record (yoga_studio) with one OWNER key — differs from every type's seed. */
+const GYM_SAVED: CapRecord = (() => {
+  const seed = seedRecord('yoga_studio')
+  return { ...seed, switches: { ...seed.switches, packs: { on: true, source: 'OWNER', changed_at: '2026-09-30T01:00:00.000Z', changed_by: 'staff-1' } } }
+})()
+const LA_ESTRO = { packs: 3, classes: 0, care: 2, posts: 4, questions: 3, products: 3, resources: 0 } // mock :938
+const STUDIO_FORCE = { packs: 0, classes: 12, care: 1, posts: 2, questions: 0, products: 0, resources: 24 } // mock :979
+
+describe('S50 P3 — お店ページ payload: the per-store record, counts, ids and words', () => {
+  it('the lead is B3 verbatim, and 業種 / 機能 each carry their guide pair', async () => {
+    const s = await page(STORE.tokyo)
+    expect(s.lead).toBe('お客様のアプリに出るお店のページを、機能ごとに出す・出さないで決めます。業種を選ぶと標準の組み合わせになり、あとから一つずつ変えられます。プレビューは、いまの設定でお客様に見えるページです。「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
+    expect(s.storePageGuides?.map((g) => g.title)).toEqual(['業種', '機能'])
+    expect(s.storePageGuides?.every((g) => g.guide.length > 0)).toBe(true)
+  })
+
+  it('saved present: the parsed record, hasSaved, its hash, and counts by the SAVED family (GYM → STUDIO FORCE)', async () => {
+    mockCore.settings = { [KEY(STORE.tokyo)]: serializeRecord(GYM_SAVED) }
+    const p = (await page(STORE.tokyo)).storePage!
+    expect(p).toMatchObject({ storeId: STORE.tokyo, hasSaved: true, startFamily: 'SALON', disconnected: false })
+    expect(p.saved).toEqual(GYM_SAVED) // the PARSED record (internal keys), not the R121 wire value
+    expect(p.basedOn).toBe(recordHash(GYM_SAVED))
+    expect(p.basedOn).not.toBe(recordHash(null))
+    expect(p.counts).toEqual(STUDIO_FORCE)
+  })
+
+  it('saved absent: the seed of the store\'s family, the hash of null, La Estro counts', async () => {
+    const p = (await page(STORE.tokyo)).storePage!
+    expect(p).toMatchObject({ hasSaved: false, startFamily: 'SALON', disconnected: false })
+    expect(p.saved).toEqual(seedRecord('beauty_chiropractic')) // テスト東京店's twin STORE_A (fixtures.ts:42)
+    expect(p.basedOn).toBe(recordHash(null))
+    expect(p.counts).toEqual(LA_ESTRO)
+  })
+
+  it('saved unreadable (wrong type inside) reads as absent: the seed, never the stored text (R90)', async () => {
+    mockCore.settings = { [KEY(STORE.tokyo)]: { v: 1, business_type: 'yoga_studio', switches: { packs: { on: 'yes', source: 'OWNER' } } } }
+    const p = (await page(STORE.tokyo)).storePage!
+    expect(p).toMatchObject({ hasSaved: false, basedOn: recordHash(null) })
+    expect(p.saved).toEqual(seedRecord('beauty_chiropractic'))
+  })
+
+  it('another store\'s record is never this store\'s; a gym store starts GYM with the STUDIO FORCE counts', async () => {
+    mockCore.settings = { [KEY(STORE.tokyo)]: serializeRecord(GYM_SAVED) }
+    const p = (await page(STORE.gym)).storePage!
+    expect(p).toMatchObject({ storeId: STORE.gym, hasSaved: false, startFamily: 'GYM' })
+    expect(p.saved).toEqual(seedRecord('personal_gym')) // テスト恵比寿ジム's twin STORE_C (fixtures.ts:44)
+    expect(p.counts).toEqual(STUDIO_FORCE)
+  })
+
+  it('practiceCounts reads the record\'s TYPE KEY: the gym family → STUDIO FORCE, every other family → La Estro (R91)', () => {
+    for (const t of ['yoga_studio', 'pilates_studio', 'personal_gym', 'training_school'] as const) expect(practiceCounts(t)).toEqual(STUDIO_FORCE)
+    for (const t of ['hair_salon', 'beauty_chiropractic', 'chiropractic', 'veterinary', 'other'] as const) expect(practiceCounts(t)).toEqual(LA_ESTRO)
+  })
+
+  it('controlIdsOf: the card colour + the 業種 + one id per CAP key (17 new ids)', async () => {
+    const ids = controlIdsOf(await page(STORE.tokyo))
+    expect(ids).toEqual(['reserve-card-look.color', 'reserve-store-page.family', ...CAP_KEYS.map((k) => `reserve-store-page.sw.${k}`)])
+    expect(new Set(ids).size).toBe(18)
+  })
+
+  it('all-stores lens: no per-store part, the room\'s noStore sentence in its place, no store id counted', async () => {
+    mockCore.noStores = true
+    const s = await page(STORE.tokyo)
+    expect(s.storePage).toBeUndefined()
+    expect(s.storePageNoStore).toBe('お店の設定は店舗ごとの値です。左上の店舗の切替でどの店舗を見るか選ぶと、その店舗の値が表示されます。')
+    expect(controlIdsOf(s)).toEqual(['reserve-card-look.color'])
+  })
+
+  it('door OFF (real mode): disconnected, seed, no counts — and core is never reached', async () => {
+    delete process.env.BUSINESS_PRACTICE_TENANT
+    mockCore.settings = { [KEY(STORE.tokyo)]: serializeRecord(GYM_SAVED) }
+    const s = await page('store-test-ginza')
+    expect(mockCore.reaches).toBe(0)
+    expect(s.storePage).toMatchObject({ hasSaved: false, disconnected: true, basedOn: recordHash(null) })
+    expect(s.storePage?.counts).toEqual({})
+  })
+
+  it('a shut gate ships no per-store part', async () => {
+    admission.mockResolvedValue({ userId: LOGIN.perry, email: null, displayName: null, businessId: TENANT })
+    mockCore.settings = { [KEY(STORE.devSalon)]: serializeRecord(GYM_SAVED) }
+    const s = await page(STORE.devSalon)
+    expect(s.storePage).toBeUndefined()
+    expect(s.storePageGuides).toBeUndefined()
   })
 })

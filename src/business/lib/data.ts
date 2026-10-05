@@ -290,7 +290,7 @@ export async function writeBookingColors(storeId: string, colors: unknown): Prom
  *  business that is not the admitted practice tenant (or the door OFF) is DISCONNECTED: no read, no write,
  *  the route answers 501 `disconnected`. Only CORE-47 (core's own capabilities endpoint) may flip it, with the
  *  storage call moved to it; until then the temporary org-settings key is Dev Salon's alone. */
-const STORE_CAPABILITIES_REAL_MODE = false as boolean
+export const STORE_CAPABILITIES_REAL_MODE = false as boolean
 
 /** お店ページ — one store's saved switches record (P1's CapRecord) or null (none yet → the page seeds it).
  *  OFF / real mode: null — DISCONNECTED, never a core read. */

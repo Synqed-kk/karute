@@ -48,6 +48,9 @@ import {
   readReserveCardColor,
   readShellIdentity,
   readStoreAddress,
+  readStoreCapabilities,
+  readStoreSeedType,
+  STORE_CAPABILITIES_REAL_MODE,
   readStoreDays,
   readStoreHours,
   renderNow,
@@ -59,6 +62,9 @@ import {
 } from '@/business/lib/data'
 import type { StoreDaysWriteState } from '@/business/lib/data'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
+import { familyOf, recordHash, seedRecord, seedTypeOf, type BusinessTypeKey, type CapRecord } from '@/business/lib/store-page/model'
+import { BLOCK_GUIDES } from '@/business/lib/store-page/copy'
+import { practiceSample } from '@/business/lib/store-page/practice-counts'
 import {
   AUDIT_CATEGORIES,
   businessProfiles,
@@ -193,6 +199,14 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     : [null, null]
   // ⚖ PKT-S38 R7 — 予約の色分け, LIVE while the door is ON: the lens store's four, for a reader who may open
   // the section (a shut gate ships nothing, the G1 rule).
+  // S50 P3 — お店ページ's per-store record, for an open gate and a store in the lens only. Real mode (R86's off-switch
+  // false and the door OFF) is DISCONNECTED: no core read at all. The door answers null for absent AND unreadable (R90).
+  const capsConnected = STORE_CAPABILITIES_REAL_MODE || doorOn
+  const storeCaps = clamped && capsConnected && gateOf(sectionById(STORE_PAGE_ID)!, access) === 'open' ? await readStoreCapabilities(storeId!) : null
+  // P3-R4 (R188) — the seed type of an unsaved record is the SAVE PATH's own answer (the door's readStoreSeedType,
+  // through data.ts), read behind the same gate as storeCaps above. null (the off-switch, or a store this operator
+  // may not see) → storePageOf's disconnected rule.
+  const storeSeedType = clamped && capsConnected && gateOf(sectionById(STORE_PAGE_ID)!, access) === 'open' ? await readStoreSeedType(storeId!) : null
   const bookingColors = live && clamped && gateOf(sectionById('language-display')!, access) === 'open' ? bookingColorsFor(storeId!, live.raw) : null
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
@@ -251,6 +265,9 @@ export async function settingsProps({ locale, store, section, world, bookingColo
     cardColor,
     cardStore,
     cardAddress,
+    capsConnected,
+    storeCaps,
+    storeSeedType,
     bookingColors,
     storeDaysRead,
   }
@@ -370,6 +387,11 @@ interface Ctx {
   operator: { name: string; role: string; staff_id: string }
   /** ⚖ A1b — the business's Reserve card colour (readReserveCardColor). */
   cardColor: string | null
+  /** S50 P3 — false = real mode, DISCONNECTED (no read); `storeCaps` = the lens store's saved record, null = none. */
+  capsConnected: boolean
+  storeCaps: CapRecord | null
+  /** P3-R4 (R188) — the door's seed type for the lens store (readStoreSeedType); null = not read or not answered. */
+  storeSeedType: BusinessTypeKey | null
   /** ⚖ A1b · K11 — the store the card shows, and its own address (readStoreAddress). */
   cardStore: Ctx['stores'][number] | undefined
   cardAddress: string | null
@@ -611,12 +633,13 @@ function boundaryLineFor(entry: RailEntry, role: string): string {
   return `${entry.label}は、${role}の権限では開けません。この設定を変更できる権限を持つアカウントでのみ表示されます。`
 }
 
+const NO_STORE_LEAD = 'お店の設定は店舗ごとの値です。左上の店舗の切替でどの店舗を見るか選ぶと、その店舗の値が表示されます。'
 function noStore(base: SectionBase, entry: RailEntry): SettingsSection {
   return {
     ...base,
     kicker: '店舗を選んでください',
     title: entry.label,
-    lead: 'お店の設定は店舗ごとの値です。左上の店舗の切替でどの店舗を見るか選ぶと、その店舗の値が表示されます。',
+    lead: NO_STORE_LEAD,
     blocks: [],
     persist: null,
   }
@@ -1939,7 +1962,7 @@ function reserveStorePage(base: SectionBase, ctx: Ctx): SettingsSection {
     ...base,
     kicker: 'Reserve設定',
     title: 'お店ページ',
-    lead: '「カードの見た目」の設定は、すべての店舗に共通で適用されます。',
+    lead: 'お客様のアプリに出るお店のページを、機能ごとに出す・出さないで決めます。業種を選ぶと標準の組み合わせになり、あとから一つずつ変えられます。プレビューは、いまの設定でお客様に見えるページです。「カードの見た目」の設定は、すべての店舗に共通で適用されます。',
     guide: 'お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。',
     cardLook: {
       storeLine: ctx.cardStore?.name ?? '',
@@ -1948,8 +1971,36 @@ function reserveStorePage(base: SectionBase, ctx: Ctx): SettingsSection {
       value: ctx.cardColor,
       palette: PALETTE,
     },
+    ...storePageOf(ctx),
     blocks: [],
     persist: null,
+  }
+}
+
+/** S50 P3 — the per-store part (「THE SHARED SHAPE」). No store in the lens → the room's noStore sentence instead.
+ *  Practice mode only carries counts (R91's fixture, by the saved record's family); real mode carries none. */
+function storePageOf(ctx: Ctx): Pick<SettingsSection, 'storePage' | 'storePageNoStore' | 'storePageGuides'> {
+  if (ctx.storeId === null) return { storePageNoStore: NO_STORE_LEAD }
+  // P3-R4 (R188): the seed is the type the save path seeds from — connected, the door's answer; disconnected (or
+  // no answer), seedTypeOf of the store's own type alone (no save is possible there). startFamily is that seed's
+  // family (R143, P1's familyOf). A SAVED record is its own: the seed is never consulted for it.
+  const seedType = ctx.storeSeedType ?? seedTypeOf(ctx.businessType, undefined)
+  const startFamily = familyOf(seedType)
+  const saved = ctx.storeCaps ?? seedRecord(seedType)
+  // R189: the counts and the sample they were computed for come from ONE answer (the record's own type).
+  const sample = practiceSample(saved.business_type)
+  return {
+    storePage: {
+      storeId: ctx.storeId,
+      saved,
+      hasSaved: ctx.storeCaps !== null,
+      basedOn: recordHash(ctx.storeCaps),
+      counts: ctx.doorOn ? sample.counts : {},
+      sampleKey: sample.sampleKey,
+      startFamily,
+      disconnected: !ctx.capsConnected,
+    },
+    storePageGuides: BLOCK_GUIDES,
   }
 }
 

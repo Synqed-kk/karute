@@ -4405,7 +4405,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
   it('switch OFF: the value is null (no fixture home), the payload is this business and this lens', async () => {
     const s = await lookOf({ store: STORE_A })
     expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'お店ページ' })
-    expect(s.lead).toBe('「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
+    expect(s.lead).toBe('お客様のアプリに出るお店のページを、機能ごとに出す・出さないで決めます。業種を選ぶと標準の組み合わせになり、あとから一つずつ変えられます。プレビューは、いまの設定でお客様に見えるページです。「カードの見た目」の設定は、すべての店舗に共通で適用されます。') // S50 P3 — spec B3 / mock :758
     expect(s.guide).toBe('お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
       storeLine: stores.find((x) => x.id === STORE_A)!.name,
@@ -4430,7 +4430,9 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
 
   it('the value rides the room’s save bar: one control id, +1 on a pick, 0 after 保存', async () => {
     const s = await lookOf({ store: STORE_A })
-    expect(controlIdsOf(s)).toEqual([CARD_COLOR_ID])
+    // S50 P3 — the colour first, then the store lens's 業種 + 16 switches (store-page-section.test.tsx pins those 17)
+    expect(controlIdsOf(s)[0]).toBe(CARD_COLOR_ID)
+    expect(controlIdsOf(s)).toHaveLength(18)
     const seed = { [CARD_COLOR_ID]: '' }
     expect(changedCount(s, seed, seed)).toBe(0)
     const picked = { [CARD_COLOR_ID]: '#00304C' }

@@ -117,3 +117,13 @@ export const UNDO = {
   button: '元に戻す',
   toast: '変更を元に戻しました',
 } as const
+
+/** The 業種 / 機能 blocks' headings (:800, :816) and their sub lines (:801, :817) — the tour's guide pair per block. */
+export const BLOCK_GUIDES: readonly { readonly title: string; readonly guide: string }[] = [
+  { title: '業種', guide: '業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。' },
+  { title: '機能', guide: 'オンにすると、お客様のアプリのお店ページにその場所が出ます。出すものがまだ無いときは、用意できるまでお客様には出ません。' },
+]
+
+/** What a reader can type to find お店ページ beyond カードの見た目 (CARD_LOOK_HEADINGS' pattern): the two block
+ *  headings and the 16 row names, straight from REG (one home). */
+export const STORE_PAGE_HEADINGS: readonly string[] = [...BLOCK_GUIDES.map((b) => b.title), ...REG.map((r) => r.ja)]
