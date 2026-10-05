@@ -451,11 +451,14 @@ describe('⚖ S52 R4 — the dialog: focus, keys and scrim, wherever focus is', 
 describe('⚖ S52 R4 — only transform/opacity animate; reduced motion collapses them (M11, NIT 9)', () => {
   const sheet = (n: string) => postcss.parse(readFileSync(join(process.cwd(), ROOM_DIR, n), 'utf8'))
   const ALLOWED = /^(transform|opacity)$/
+  /** P5c R281: split a transition list on top-level commas only — a comma inside
+   *  `cubic-bezier(…)` / `steps(…)` belongs to its timing function, not the list. */
+  const topLevelParts = (v: string) => v.split(/,(?![^(]*\))/)
   it.each([['switch.css'], ['dialog.css']])('%s: every transition and keyframe touches only transform/opacity', (n) => {
     const bad: string[] = []
     sheet(n).walkDecls(/^transition(-property)?$/, (d) => {
       if (d.value.trim() === 'none') return
-      for (const part of d.value.split(',')) if (!ALLOWED.test(part.trim().split(/\s+/)[0])) bad.push(`${d.prop}: ${d.value}`)
+      for (const part of topLevelParts(d.value)) if (!ALLOWED.test(part.trim().split(/\s+/)[0])) bad.push(`${d.prop}: ${d.value}`)
     })
     sheet(n).walkAtRules('keyframes', (k) => k.walkDecls((d) => { if (!ALLOWED.test(d.prop)) bad.push(`@keyframes ${k.params} ${d.prop}`) }))
     expect(bad).toEqual([])
@@ -470,6 +473,18 @@ describe('⚖ S52 R4 — only transform/opacity animate; reduced motion collapse
     }
     expect(found['.biz .pg-settings .st-dlg-scrim animation']).toBe('none')
     expect(found['.biz .pg-settings .st-switch transition']).toBe('none')
+  })
+  /** P5c R280 (F2): the track's :active press scale eases like its sibling
+   *  controls — the top-level `.st-switch` rule transitions transform, never a colour. */
+  it('the .st-switch rule transitions transform and no colour property', () => {
+    const vs: string[] = []
+    sheet('switch.css').walkRules('.biz .pg-settings .st-switch', (r) => {
+      if (r.parent?.type === 'root') r.walkDecls(/^transition(-property)?$/, (d) => { vs.push(d.value) })
+    })
+    expect(vs).toHaveLength(1)
+    const props = topLevelParts(vs[0]).map((p) => p.trim().split(/\s+/)[0])
+    expect(props).toContain('transform')
+    expect(props.filter((p) => /colou?r|background|border|fill|stroke|shadow|^all$/i.test(p))).toEqual([])
   })
 })
 

@@ -3,8 +3,8 @@
    its own css). Self-contained on purpose: every rule that touches `.st-switch`
    in this file is stated here, so the order in which the bundler places this
    sheet against settings.css cannot change what wins. (The press scale on
-   `:active` stays in settings.css's shared press list; nothing here sets
-   `transform` on the track.) */
+   `:active` stays in settings.css's shared press list; the track's transform
+   transition below eases it, and nothing here sets `transform` on the track.) */
 
 /* a switch, with a thumb that rides the same spring */
 .biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
@@ -22,6 +22,7 @@
   width: var(--st-sw-w); height: var(--st-sw-h); padding: 0;
   border: var(--st-sw-border) solid var(--line); border-radius: 999px;
   background: #e6e8ee; cursor: pointer;
+  transition: transform 100ms cubic-bezier(0, 0, .2, 1);
 }
 .biz .pg-settings .st-switch[aria-checked="true"] { border-color: var(--st-accent); background: var(--st-accent-wash); }
 .biz .pg-settings .st-switch-thumb {
@@ -41,9 +42,10 @@
 }
 
 /* Only transform and opacity animate (the room's rule): the colour change is
-   instant, and the thumb's travel is the spring's transform, which the reduced
-   flag already collapses to a jump (Switch.tsx). Reduced motion here drops any
-   transition a shared rule might add. */
+   instant, the track's press scale eases on its transform transition, and the
+   thumb's travel is the spring's transform, which the reduced flag already
+   collapses to a jump (Switch.tsx). Reduced motion here drops the track's
+   transition and any a shared rule might add. */
 @media (prefers-reduced-motion: reduce) {
   .biz .pg-settings .st-switch, .biz .pg-settings .st-switch-thumb { transition: none; }
 }
