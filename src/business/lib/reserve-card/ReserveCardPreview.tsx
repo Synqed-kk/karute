@@ -40,6 +40,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 
 import { normalizeCardColor } from "./card-color";
 import { memberTenantVars, type BrandTheme } from "./member-card-vars";
+import type { StorePageSample } from "./store-page-sample";
 import "./reserve-card.css";
 
 export interface ReserveCardPreviewProps {
@@ -54,6 +55,10 @@ export interface ReserveCardPreviewProps {
   /** the store's address, as the cover prints it (Reserve: store.address); omitted = no address line */
   address?: string;
   view: "home" | "store";
+  /** the store's public projection (snake_case keys, a sub only while its parent is ON); absent = cover only */
+  on?: ReadonlySet<string>;
+  /** the practice sample the body draws (store-page-sample.ts); absent = cover only */
+  sample?: StorePageSample;
 }
 
 // The demo member Reserve's mock shows at 4db48b7 (src/lib/mock.ts + ja/member.json), frozen on the
@@ -71,9 +76,9 @@ const SAMPLE = {
 } as const;
 
 // lucide-react 1.24.0 ChevronRight / Crown / ChevronLeft, as rendered (defaultAttributes + __iconNode).
-function ChevronRight({ size }: { size: number }) {
+function ChevronRight({ size, className }: { size: number; className?: string }) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className ? `lucide lucide-chevron-right ${className}` : "lucide lucide-chevron-right"} aria-hidden="true">
       <path d="m9 18 6-6-6-6" />
     </svg>
   );
@@ -102,7 +107,26 @@ export function MembershipDate({ value }: { value: string }) {
   )}</>;
 }
 
-export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, address, view }: ReserveCardPreviewProps) {
+// lucide-react 1.24.0 CalendarDays / QrCode (Reserve BookEntry / CheckinEntry icons), as rendered.
+function CalendarDays({ size }: { size: number }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-calendar-days" aria-hidden="true">
+      <path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M3 10h18" />
+      <path d="M8 14h.01" /><path d="M12 14h.01" /><path d="M16 14h.01" /><path d="M8 18h.01" /><path d="M12 18h.01" /><path d="M16 18h.01" />
+    </svg>
+  );
+}
+function QrCode({ size }: { size: number }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-qr-code" aria-hidden="true">
+      <rect width="5" height="5" x="3" y="3" rx="1" /><rect width="5" height="5" x="16" y="3" rx="1" /><rect width="5" height="5" x="3" y="16" rx="1" />
+      <path d="M21 16h-3a2 2 0 0 0-2 2v3" /><path d="M21 21v.01" /><path d="M12 7v3a2 2 0 0 1-2 2H7" /><path d="M3 12h.01" />
+      <path d="M12 3h.01" /><path d="M12 16v.01" /><path d="M16 12h1" /><path d="M21 12v.01" /><path d="M12 21v-1" />
+    </svg>
+  );
+}
+
+export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, address, view, on, sample }: ReserveCardPreviewProps) {
   // Reserve's MembershipCard/TenantCard/StudioCover each take `memberTenantVars(theme)`; the theme here is
   // the two colours the caller owns. The same vars also sit on the root (packet): custom properties inherit.
   // Each colour passes the boundary first; a null is the absent colour Reserve already handles (satin default).
@@ -126,7 +150,10 @@ export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, a
           </div>
         </div>
       ) : (
-        <StudioCover tenant={tenant} storeLine={storeLine} address={address} theme={theme} />
+        <>
+          <StudioCover tenant={tenant} storeLine={storeLine} address={address} theme={theme} />
+          {on && sample && <StoreBody on={on} sample={sample} />}
+        </>
       )}
     </div>
   );
@@ -361,6 +388,89 @@ function StudioCover({
           {Array.isArray(line3) ? line3.map((line, index) => <span key={index} className="block">{line}</span>) : line3}
         </p>
       </div>
+    </div>
+  );
+}
+
+// The mock's `ready(k)` (MOCK-SWITCHBOARD-v2 :1564-1569): ON and (no count needed, or the count > 0). The count
+// keys are the mock REG `need` fields (:880-916) for the four parents this body reads; CHECKIN_QR needs none.
+// (P1's store-page model owns the full table; this body reads only these four.)
+const NEED: Readonly<Record<string, string>> = { packs: "packs", posts: "posts", intake: "questions" };
+const readyIn = (on: ReadonlySet<string>, counts: Readonly<Record<string, number>>, key: string) =>
+  on.has(key) && (NEED[key] === undefined || (counts[NEED[key]] ?? 0) > 0);
+
+/**
+ * The お店ページ body under the cover, part 1 — spec §E1 items 2-5 and 8, in the mock's order (phoneMarkup
+ * :1769-1899). Markup + classes are Reserve's @ 09841a6 (MemberSalonPage.tsx :262-307 rank chip / 次回 / acts,
+ * RankStreakChip :354-366, BookEntry :460-480, CheckinEntry :486-499; studio-salon.tsx IntakeBanner :401-436,
+ * SalonPosts :277-312); the WORDS are the mock's (the sample's rv data and the mock's own literals). Edits:
+ * Reserve's <section>s are <div>s (the settings tour census counts <section> tags, R67); <Link>/<Button> become
+ * <a>/<button disabled> with no href/handler (a picture: nothing focusable, nothing navigates); shadcn Button's
+ * own base classes are not carried (the .salon-acts rules set every drawn property); Reserve's points row,
+ * intake 「未記入」 chip and 読みました state are not drawn (the mock has none of them); the reactions line has
+ * no Reserve source and is drawn from the mock (.rv .react :501, D-PHONE).
+ */
+function StoreBody({ on, sample }: { on: ReadonlySet<string>; sample: StorePageSample }) {
+  const v = sample.rv;
+  const ready = (key: string) => readyIn(on, sample.counts, key);
+  const readPoints = on.has("read_points");
+  const reactions = on.has("reactions");
+  return (
+    <div className="px-[22px] pb-6" data-store-body="">
+      {v.rank && (
+        <div className="salon-rankfloat">
+          <span className="rank-chip shrink-0" data-tier={v.rank.split(" ")[0]}>
+            <Crown size={11} />{v.rank}
+          </span>
+        </div>
+      )}
+      {v.next.big && (
+        <div className="salon-next">
+          <p className="salon-next__label">{v.next.line}</p>
+          <p className="salon-next__date"><MembershipDate value={v.next.big} /></p>
+          {ready("packs") && <span className="salon-next__meta" data-cap="packs_chip">{v.next.side}</span>}
+        </div>
+      )}
+      <div className="salon-acts">
+        <button type="button" disabled className="flex-1 h-12 rounded-full elev-float pressable salon-acts__primary">
+          <CalendarDays size={16} />予約する
+        </button>
+        {ready("checkin_qr") && (
+          <button type="button" disabled aria-haspopup="dialog" className="h-12 rounded-full px-5 pressable" data-cap="checkin_qr">
+            <QrCode size={17} />受付
+          </button>
+        )}
+      </div>
+      {ready("intake") && (
+        <div className="mt-8" data-cap="intake">
+          <a className="flex items-center gap-3 bg-card pressable outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 member-solo-row">
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium member-row__t font-normal">問診票のご記入をお願いします</span>
+              <span className="block text-[13px] text-muted-foreground mt-0.5 member-row__s">ご来店までに、3つの質問にお答えください。</span>
+            </span>
+            <ChevronRight size={16} className="text-muted-foreground shrink-0" />
+          </a>
+        </div>
+      )}
+      {ready("posts") && (
+        <div className="salon-posts mt-8" data-cap="posts">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">
+            お店からのお知らせ{readPoints && <small>読むとポイントがたまります</small>}
+          </h2>
+          <div className="member-rows bg-card divide-y divide-border/60">
+            {v.posts.map((post) => (
+              <a key={post.t} className="flex items-center gap-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+                <span className="min-w-0 flex-1">
+                  <span className="member-row__t block">{post.t}</span>
+                  <span className="member-row__s block text-muted-foreground">{post.d}</span>
+                  {reactions && <span className="salon-posts__react block" data-cap="reactions">♡ いいね ・ 💬 コメント</span>}
+                </span>
+                {readPoints && <span className="member-chip member-chip--rw" data-cap="read_points">+5pt</span>}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
