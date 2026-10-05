@@ -621,10 +621,12 @@ const FORBIDDEN: RegExp[] = [
   /\b(process|Buffer|structuredClone)\b/,
 ]
 
+// Line comments are cut only where `//` is not preceded by `:` (as T6 does), so
+// a `x://y` string does not hide the rest of its line from the scan.
 function stripForScan(src: string): string {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
     .replace(/import\s+type[\s\S]*?from\s*['"][^'"]+['"];?/g, '')
 }
 
@@ -648,6 +650,7 @@ describe('T5 the scrub module runs in node, edge and the browser', () => {
       'const env = process.env.X',
       "const b = Buffer.from('x')",
       'const c = structuredClone(x)',
+      "const u = 'x://y'; const b = Buffer.from('x')",
     ]
     for (const s of samples) expect([s, flagged(s)]).toEqual([s, true])
   })
