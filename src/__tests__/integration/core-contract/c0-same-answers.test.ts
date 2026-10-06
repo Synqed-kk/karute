@@ -428,3 +428,33 @@ describe('the CLI — R2-3 every checkInputs branch → exit 3 naming the field 
     expect(r.stderr).toContain("A store's own 予約受付期間 (booking_open_days) can make the real limit lower (N <= booking_open_days - 2): the operator checks it.")
   })
 })
+
+describe('diff — R3-3 a container kind is part of the answer (array ↔ object, array length)', () => {
+  const withZz = async (b: unknown, a: unknown) => {
+    const after = await afterC0()
+    const bb = clone(before)
+    const id = bb.pins.appointment_ids[0]
+    bb.answers.Q4[id].zz_breaks = b
+    after.answers.Q4[id].zz_breaks = a
+    return { r: judge(after, bb), id }
+  }
+  it('[600, 900] → {"0": 600, "1": 900} → FAIL naming the path', async () => {
+    const { r, id } = await withZz([600, 900], { 0: 600, 1: 900 })
+    expect(r.verdict).toBe('FAIL')
+    expect(r.changed).toEqual([expect.objectContaining({ query: 'Q4', id, path: 'zz_breaks (container: array of 2 → object)' })])
+  })
+  it('{"0": 600, "1": 900} → [600, 900] → FAIL naming the path', async () => {
+    const { r, id } = await withZz({ 0: 600, 1: 900 }, [600, 900])
+    expect(r.verdict).toBe('FAIL')
+    expect(r.changed).toEqual([expect.objectContaining({ query: 'Q4', id, path: 'zz_breaks (container: object → array of 2)' })])
+  })
+  it('an array that grows → FAIL as a changed leaf, not only a new path', async () => {
+    const { r } = await withZz([600], [600, 900])
+    expect(r.verdict).toBe('FAIL')
+    expect(r.changed).toEqual([expect.objectContaining({ query: 'Q4', path: 'zz_breaks (container: array of 1 → array of 2)' })])
+  })
+  it('the same content on both sides → PASS', async () => {
+    expect((await withZz([600, 900], [600, 900])).r.verdict).toBe('PASS')
+    expect((await withZz({ 0: 600, 1: 900 }, { 0: 600, 1: 900 })).r.verdict).toBe('PASS')
+  })
+})

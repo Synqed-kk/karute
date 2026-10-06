@@ -295,11 +295,19 @@ function sortKeys(v) {
   return v
 }
 
-/** Every leaf of `v` as [pathArray, value]; an empty object/array counts as a leaf. */
-function leaves(v, path = [], out = []) {
+/** A container's kind (R3-3): an array and an object with the same numbered keys
+ *  are different answers. Arrays carry their length; an object's key count is the
+ *  R-1 new-path check's business (the four C0 fields grow every appointment object). */
+const kindOf = (v) => (Array.isArray(v) ? { kind: 'array', size: v.length } : isObj(v) ? { kind: 'object' } : { kind: v === null ? 'null' : typeof v })
+
+/** Every leaf of `v` as [pathArray, value, isKind]; an empty object/array counts as a leaf.
+ *  With `kinds`, every container also emits a synthetic leaf [itsPath, kindOf(it), true]
+ *  so an array ↔ object swap or an array length change is a changed leaf (R3-3). */
+function leaves(v, path = [], out = [], kinds = false) {
+  if (kinds && isObj(v)) out.push([path, kindOf(v), true])
   if (isObj(v) && Object.keys(v).length > 0) {
-    for (const k of Object.keys(v)) leaves(v[k], [...path, k], out)
-  } else out.push([path, v])
+    for (const k of Object.keys(v)) leaves(v[k], [...path, k], out, kinds)
+  } else out.push([path, v, false])
   return out
 }
 
@@ -466,8 +474,14 @@ function diff(before, after, opts = {}) {
     for (const id of Object.keys(bg)) {
       if (!(id in ag)) { changed.push({ query: group, id, path: '(row)', before: 'present', after: '(missing)' }); continue }
       const crawlOnly = crawlIds[GROUP_KIND[group]] && crawlIds[GROUP_KIND[group]].has(id)
-      for (const [path, value] of leaves(bg[id])) {
+      for (const [path, value, isKind] of leaves(bg[id], [], [], true)) {
         const got = at(ag[id], path)
+        if (isKind) {
+          if (got.found && canon(kindOf(got.value)) === canon(value)) continue
+          const after = got.found ? kindOf(got.value) : '(missing)'
+          changed.push({ query: group, id, path: `${path.length ? path.join('.') : '(row)'} (container: ${value.kind}${value.size !== undefined ? ` of ${value.size}` : ''} → ${after === '(missing)' ? after : `${after.kind}${after.size !== undefined ? ` of ${after.size}` : ''}`})`, before: value, after })
+          break
+        }
         if (got.found && canon(got.value) === canon(value)) continue
         if (crawlOnly && path.length === 1 && path[0] === 'updated_at') continue // the crawl's move, noted above
         changed.push({ query: group, id, path: path.join('.'), before: value, after: got.found ? got.value : '(missing)' })
