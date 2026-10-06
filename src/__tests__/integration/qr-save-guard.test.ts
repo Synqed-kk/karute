@@ -191,13 +191,17 @@ describe('POST — each store saves only its own row', () => {
   })
 
   it('(h) no resolvable store → 409 qr_store_not_ready, nothing written', async () => {
-    actorStore.current = null
     capabilities.current = new Set(['sync.view'])
     staffStoresGet.mockResolvedValue({ store_ids: [] }) // unassigned in a 2-store business
     const upsert = mockClient([DAIKANYAMA_ROW])
-    const res = await POST(req({ username: 'owner', password: 'pw', enabled: true }))
+    // An explicit store, so the save passes the no-store guard and reaches the
+    // helper's Unassigned branch (fix round 4, Sonnet SF2).
+    const res = await POST(
+      req({ storeId: 'ea093d52-2f54-4f01-8b08-c19e3d131894', username: 'owner', password: 'pw', enabled: true }),
+    )
     expect(res.status).toBe(409)
     expect(await res.json()).toMatchObject({ error: 'qr_store_not_ready' })
+    expect(staffStoresGet).toHaveBeenCalledWith('staff-1')
     expect(upsert).not.toHaveBeenCalled()
   })
 
