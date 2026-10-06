@@ -162,6 +162,22 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     expect(button('saveConfig').disabled).toBe(true)
   })
 
+  it('while a run is in flight the login field and the auto-sync toggle are disabled (Greptile P2 on #1140)', async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    const toggle = () => screen.getByText('autoSyncTitle').parentElement!.parentElement!.querySelector('button') as HTMLButtonElement
+    expect(loginInput().disabled).toBe(false)
+    expect(toggle().disabled).toBe(false)
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    expect(loginInput().disabled).toBe(true)
+    expect(toggle().disabled).toBe(true)
+    posts[0].resolve({ created: 1, updated: 0, skipped: 0 })
+    await flush()
+    expect(loginInput().disabled).toBe(false)
+    expect(toggle().disabled).toBe(false)
+  })
+
   it.each(['invalid_body', 'invalid_store_id'])('a run refused 400 %s shows the generic localized line, never the raw code', async (code) => {
     render(<SyncSection storeId="store-a" />)
     pending[0].resolve(A)

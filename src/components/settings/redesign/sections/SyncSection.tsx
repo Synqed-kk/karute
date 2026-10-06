@@ -286,6 +286,7 @@ export function SyncSection({
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            disabled={syncing}
             className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             placeholder={t('loginIdPlaceholder')}
           />
@@ -345,6 +346,7 @@ export function SyncSection({
         <button
           type="button"
           onClick={() => setEnabled(!enabled)}
+          disabled={syncing}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
             enabled ? 'bg-primary' : 'bg-muted'
           }`}
