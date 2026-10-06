@@ -100,6 +100,12 @@ export const RESET = {
   toast: (typeJa: string): string => '業種「' + typeJa + '」の標準に戻しました。保存するとお客様のアプリに反映されます',
 } as const
 
+/** S75 (R269) — the line under a switch the 業種 locks OFF (in place of the source line). NOT from the mock: authored for
+ *  this row in the register of its siblings (SAVE_FAIL's 「…ため、…できず」, HONEST's 「…ため、まだ…」). */
+export const LOCKED = {
+  reason: '保険診療を行う業種のため、いまはオンにできません。',
+} as const
+
 /** The 業種 block (:799-801): h3 (doubles as the seg's aria-label, :803) + its sub. */
 export const TYPE_BLOCK = {
   title: '業種',

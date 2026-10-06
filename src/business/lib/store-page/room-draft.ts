@@ -27,7 +27,7 @@ export function storePageDraft(saved: CapRecord, values: Readonly<Record<string,
     const on = values[ids.sw(k)]
     switches[k] = typeof on === 'boolean' && on !== saved.switches[k].on ? { ...saved.switches[k], on } : saved.switches[k]
   }
-  return { v: 1, business_type: isTypeKey(t) ? t : saved.business_type, switches }
+  return { v: 1, business_type: isTypeKey(t) ? t : saved.business_type, defaults_type: saved.defaults_type, switches } // S75: stampSave decides it
 }
 
 /** C4 / R182 — a HAND flip removes from the reset keys every key whose `on` differs between the draft before the flip

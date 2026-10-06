@@ -13,7 +13,7 @@
 import { useRef, useState } from 'react'
 import { REG, RESET, TYPE_BLOCK } from '@/business/lib/store-page/copy'
 import {
-  BUSINESS_TYPE_KEYS, applyReset, resetDiff, typeKeyOf, type BusinessTypeKey, type CapKey, type CapRecord,
+  BUSINESS_TYPE_KEYS, applyReset, lockOff, resetDiff, typeKeyOf, type BusinessTypeKey, type CapKey, type CapRecord,
 } from '@/business/lib/store-page/model'
 import { labelOf } from '@/business/lib/store-page/type-labels'
 import { Dialog } from './Dialog'
@@ -47,7 +47,7 @@ export function StorePageType({ draft, canEdit, onChange, onResetKeys, onToast, 
   const pick = (raw: string) => {
     if (!canEdit) return
     const t = typeKeyOf(raw)
-    onChange({ ...draft, business_type: t }) // D7 / R183: the type alone — no dialog, the reset keys kept (R182)
+    onChange(lockOff({ ...draft, business_type: t })) // D7 / R183: the type alone — no dialog, the reset keys kept (R182); R269: a key the type locks goes OFF
   }
   // R144: the asked record carries the picked type before any diff / reset is computed from it.
   const asked: CapRecord | null = ask ? { ...draft, business_type: ask } : null

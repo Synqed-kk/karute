@@ -46,7 +46,7 @@ import * as doorStoreCaps from '@/business/lib/practice-door/door-store-capabili
 import { listStoreOptions } from '@/business/lib/practice-door/door'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { PracticeTenantMismatch, type CoreReads } from '@/business/lib/practice-door/core-reach'
-import { parseRecord, recordHash, seedRecord, serializeRecord, storeCapabilitiesKeyFor, typeKeyOf, type CapKey, type CapRecord, type WireRecord } from '@/business/lib/store-page/model'
+import { applyReset, lockOff, parseRecord, recordHash, resetDiff, seedRecord, serializeRecord, storeCapabilitiesKeyFor, typeKeyOf, type CapKey, type CapRecord, type WireRecord } from '@/business/lib/store-page/model'
 import { PUT } from '@/app/api/business/store-capabilities/route'
 import { LOGIN, STORE, TENANT, recordedReads } from './practice-door-recorded'
 
@@ -80,9 +80,11 @@ const W = serializeRecord
 /** The value the door sent to core for store `id` (wire). */
 const sentRecord = (id: string = S) => (mockCore.upsert.mock.calls[0][0] as { settings: Record<string, WireRecord> }).settings[K(id)]
 /** based_on as the page computes it: the hash of the record it loaded (the door's own reader). */
-const loaded = (id: string = S) => recordHash(parseRecord(stored[K(id)] ?? null))
-const save = (rec: unknown, o: { reset?: CapKey[]; basedOn?: string; id?: string } = {}) =>
-  data.writeStoreCapabilities(o.id ?? S, rec, o.reset ?? [], o.basedOn ?? loaded(o.id ?? S))
+// S75 (S68's seed case): no readable record → the hash of the seed the page showed (settings-props: storeCaps ?? seedRecord(storeSeedType))
+const loaded = async (id: string = S) =>
+  recordHash(parseRecord(stored[K(id)] ?? null) ?? seedRecord((await data.readStoreSeedType(id)) ?? 'other'))
+const save = async (rec: unknown, o: { reset?: CapKey[]; basedOn?: string; id?: string } = {}) =>
+  data.writeStoreCapabilities(o.id ?? S, rec, o.reset ?? [], o.basedOn ?? (await loaded(o.id ?? S)))
 const ownerKeys = (rec: WireRecord) => Object.entries(rec.switches).filter(([, v]) => v.source === 'OWNER').map(([k]) => k)
 
 const savedEnv = process.env.BUSINESS_PRACTICE_TENANT
@@ -223,7 +225,7 @@ describe('S57 P2 — R188: readStoreSeedType answers exactly what a first save s
     const t = await data.readStoreSeedType(S)
     expect(t).not.toBeNull()
     seed(settings)
-    expect((await save(toggle(seedRecord(t!), 'shop'), { basedOn: recordHash(null) })).ok).toBe(true)
+    expect((await save(toggle(seedRecord(t!), 'shop'), { basedOn: recordHash(seedRecord(t!)) })).ok).toBe(true)
     expect(ownerKeys(sentRecord())).toEqual(['SHOP'])
     return t
   }
@@ -305,7 +307,7 @@ describe('S59 P2 — R201: anything the parse does not carry back is logged raw 
 
   it('t4 a record exactly as our own save wrote it → saved again with no raw line and no replaced_lossy', async () => {
     seed({})
-    expect((await save(toggle(seedRecord('hair_salon'), 'shop'), { basedOn: recordHash(null) })).ok).toBe(true)
+    expect((await save(toggle(seedRecord('hair_salon'), 'shop'), { basedOn: await loaded() })).ok).toBe(true)
     const written = stored[K(S)]
     expect(written).toBeDefined()
     seed({ [K(S)]: written as Record<string, unknown> })
@@ -315,5 +317,56 @@ describe('S59 P2 — R201: anything the parse does not carry back is logged raw 
     expect(info).toHaveBeenCalledTimes(1)
     expect(info.mock.calls[0][0]).toBe('[business store capabilities]')
     expect(successLine()).not.toHaveProperty('replaced_lossy')
+  })
+})
+
+// ── S75 (DECISIONS-S75 ruling 3, 4): the fresh-store seed case, the R269 refusal, defaults_type on the wire ─────────
+describe('S75 — the door: seed-type stale, the lock, defaults_type', () => {
+  it('D5 fresh store: the seed type moved between load and save → stale, nothing written', async () => {
+    seed({ business_type: 'beauty' })
+    mockStoreTypes = { [S]: 'hair_salon' }
+    const basedOn = await loaded()
+    expect(basedOn).toBe(recordHash(seedRecord('hair_salon')))
+    mockStoreTypes = { [S]: 'yoga_studio' } // the store's 業種 changed elsewhere before the first save
+    expect(await save(toggle(seedRecord('hair_salon'), 'shop'), { basedOn })).toEqual({ ok: false, reason: 'stale' })
+    expect(mockCore.upsert).not.toHaveBeenCalled()
+    mockStoreTypes = { [S]: 'hair_salon' } // unmoved → accepted, only the toggled key OWNER, defaults_type = the seed type
+    expect((await save(toggle(seedRecord('hair_salon'), 'shop'), { basedOn })).ok).toBe(true)
+    expect(ownerKeys(sentRecord())).toEqual(['SHOP'])
+    expect(sentRecord().defaults_type).toBe('hair_salon')
+  })
+  it('R269: a draft turning a locked key ON → invalid, nothing written', async () => {
+    seed({ [K(S)]: W(seedRecord('dental_clinic')) })
+    const draft = toggle(seedRecord('dental_clinic'), 'read_points')
+    expect(draft.switches.read_points.on).toBe(true)
+    expect(await save(draft)).toEqual({ ok: false, reason: 'invalid' })
+    expect(mockCore.upsert).not.toHaveBeenCalled()
+  })
+  it('legacy record (no defaults_type) + a 業種 pick, no 戻す → written with defaults_type = the SAVED type, packs kept ON', async () => {
+    const legacy = (() => { const { defaults_type: _d, ...w } = JSON.parse(JSON.stringify(W(seedRecord('beauty_chiropractic')))); return w })() // eslint-disable-line @typescript-eslint/no-unused-vars
+    seed({ [K(S)]: legacy })
+    const page = parseRecord(legacy)!
+    const r = await save(lockOff({ ...page, business_type: 'hair_salon' }))
+    expect(r.ok).toBe(true)
+    expect(sentRecord()).toMatchObject({ business_type: 'hair_salon', defaults_type: 'beauty_chiropractic' })
+    expect(sentRecord().switches.PACKS).toEqual({ on: true, source: 'TYPE_DEFAULT' })
+    // R273: core's answer (the mock echoes what it stored) holds defaults_type exactly as sent → ok, never 'core'
+    expect(stored[K(S)]).toEqual(sentRecord())
+  })
+  it('the same pick + 戻す → PACKS OFF TYPE_DEFAULT, defaults_type hair_salon', async () => {
+    seed({ [K(S)]: W(seedRecord('beauty_chiropractic')) })
+    const asked = { ...seedRecord('beauty_chiropractic'), business_type: 'hair_salon' as const }
+    const r = await save(applyReset(asked), { reset: resetDiff(asked).flips.map((f) => f.key) })
+    expect(r.ok).toBe(true)
+    expect(sentRecord()).toMatchObject({ business_type: 'hair_salon', defaults_type: 'hair_salon' })
+    expect(sentRecord().switches.PACKS).toEqual({ on: false, source: 'TYPE_DEFAULT' })
+  })
+  it('R273: an answer that drops defaults_type is not what was sent → core', async () => {
+    seed({ [K(S)]: W(seedRecord('beauty_chiropractic')) })
+    mockCore.upsert = jest.fn(async (input: { settings: Record<string, { defaults_type?: string }> }) => {
+      const { defaults_type: _d, ...rest } = input.settings[K(S)] // eslint-disable-line @typescript-eslint/no-unused-vars
+      return coreRow({ ...stored, [K(S)]: rest })
+    })
+    expect(await save(toggle(seedRecord('beauty_chiropractic'), 'posts'))).toEqual({ ok: false, reason: 'core' })
   })
 })

@@ -43,9 +43,9 @@ describe('seed + TYPE_DEFAULTS (spec F1)', () => {
       dental_clinic: ['checkin_qr', 'intake', 'homecare', 'posts'],
       medical_clinic: ['checkin_qr', 'intake', 'posts'],
       dermatology: ['checkin_qr', 'intake', 'homecare', 'photo_proof', 'posts', 'shop'],
-      cosmetic_surgery: ['checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'posts', 'read_points', 'shop'],
+      cosmetic_surgery: ['checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'posts', 'shop'], // R269 (S75): read_points DEFAULT OFF
       physical_therapy: ['checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'video_proof', 'posts'],
-      wellness_clinic: ['checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'posts', 'read_points', 'shop'],
+      wellness_clinic: ['checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'posts', 'shop'], // R269 (S75): read_points DEFAULT OFF
       mental_health: ['checkin_qr', 'packs', 'intake', 'homecare', 'posts'],
       veterinary: ['checkin_qr', 'intake', 'homecare', 'posts', 'read_points', 'shop'],
       other: ['checkin_qr'],
@@ -58,7 +58,7 @@ describe('seed + TYPE_DEFAULTS (spec F1)', () => {
       'relaxation', 'aroma', 'pet_grooming', 'yoga_studio', 'pilates_studio', 'personal_gym', 'training_school', 'chiropractic',
       'acupuncture', 'osteopathy', 'dental_clinic', 'medical_clinic', 'dermatology', 'cosmetic_surgery', 'physical_therapy',
       'wellness_clinic', 'mental_health', 'veterinary', 'other'] as const
-    expect(TABLE_ORDER.map((t) => onKeys(seedRecord(t)).length)).toEqual([8, 7, 6, 7, 6, 7, 7, 5, 7, 6, 9, 10, 9, 8, 7, 5, 5, 4, 3, 6, 8, 7, 8, 5, 6, 1])
+    expect(TABLE_ORDER.map((t) => onKeys(seedRecord(t)).length)).toEqual([8, 7, 6, 7, 6, 7, 7, 5, 7, 6, 9, 10, 9, 8, 7, 5, 5, 4, 3, 6, 7, 7, 7, 5, 6, 1]) // S75: cosmetic_surgery, wellness_clinic −1 (R269)
     for (const t of BUSINESS_TYPE_KEYS) {
       expect(seedRecord(t).business_type).toBe(t)
       expect(CAP_KEYS.every((k) => seedRecord(t).switches[k].source === 'TYPE_DEFAULT')).toBe(true)
@@ -322,11 +322,11 @@ describe('save stamp — the server decides source (R89)', () => {
 describe('recordHash (R96 / R102)', () => {
   const rec = stampSave(seedRecord('yoga_studio'), flip(seedRecord('yoga_studio'), 'packs', false), [], NOW, 'staff-1')
   it('is key-order independent: a literal built in a different key order hashes to the pin (attack S53 NIT 4)', () => {
-    const reordered = JSON.parse(JSON.stringify({ switches: Object.fromEntries([...CAP_KEYS].reverse().map((k) => [k, { changed_by: rec.switches[k].changed_by, changed_at: rec.switches[k].changed_at, source: rec.switches[k].source, on: rec.switches[k].on }])), business_type: 'yoga_studio', v: 1 }))
-    expect(Object.keys(reordered)).toEqual(['switches', 'business_type', 'v'])
+    const reordered = JSON.parse(JSON.stringify({ switches: Object.fromEntries([...CAP_KEYS].reverse().map((k) => [k, { changed_by: rec.switches[k].changed_by, changed_at: rec.switches[k].changed_at, source: rec.switches[k].source, on: rec.switches[k].on }])), business_type: 'yoga_studio', defaults_type: 'yoga_studio', v: 1 }))
+    expect(Object.keys(reordered)).toEqual(['switches', 'business_type', 'defaults_type', 'v'])
     expect(Object.keys(reordered.switches)[0]).toBe(CAP_KEYS[CAP_KEYS.length - 1])
-    expect(recordHash(reordered)).toBe('59344d6ddaa96a7e')
-    expect(recordHash(rec)).toBe('59344d6ddaa96a7e')
+    expect(recordHash(reordered)).toBe('2649ddd863bbdc32')
+    expect(recordHash(rec)).toBe('2649ddd863bbdc32')
     expect(recordHash(rec)).toMatch(/^[0-9a-f]{16}$/)
   })
   it('changes when any field changes', () => {
@@ -342,10 +342,10 @@ describe('recordHash (R96 / R102)', () => {
     expect(new Set([h, ...hashes]).size).toBe(variants.length + 1)
   })
   it('pins a stamped OWNER record and a non-ASCII changed_by id (script-emitted, Sonnet NIT 3)', () => {
-    expect(recordHash(rec)).toBe('59344d6ddaa96a7e')
+    expect(recordHash(rec)).toBe('2649ddd863bbdc32')
     const nonAscii = stampSave(seedRecord('yoga_studio'), flip(seedRecord('yoga_studio'), 'packs', false), [], NOW, 'staff-\u03a9\u00e9\u{1F600}')
-    expect(recordHash(nonAscii)).toBe('14e138cd8435ea54')
-    expect(recordHash(JSON.parse(JSON.stringify(nonAscii)))).toBe('14e138cd8435ea54')
+    expect(recordHash(nonAscii)).toBe('d5ef94bd09c098b0')
+    expect(recordHash(JSON.parse(JSON.stringify(nonAscii)))).toBe('d5ef94bd09c098b0')
   })
   it('null hashes to one fixed string, distinct from any record', () => {
     expect(recordHash(null)).toBe(recordHash(null))
@@ -385,7 +385,7 @@ describe('wire codec (R121 = CORE-47 owner record)', () => {
   it('writes all sixteen UPPER keys, each with changed_by_staff_id, and nothing else', () => {
     const rec = stampSave(seedRecord('hair_salon'), flip(seedRecord('hair_salon'), 'rental', true), [], NOW, 'staff-1')
     const out = JSON.parse(JSON.stringify(serializeRecord(rec)))
-    expect(Object.keys(out).sort()).toEqual(['business_type', 'switches', 'v'])
+    expect(Object.keys(out).sort()).toEqual(['business_type', 'defaults_type', 'switches', 'v'])
     expect(out.v).toBe(1)
     expect(out.business_type).toBe('hair_salon')
     expect(Object.keys(out.switches).sort()).toEqual([...WIRE_KEYS].sort())
@@ -424,8 +424,9 @@ describe('wire codec (R121 = CORE-47 owner record)', () => {
   it('a mixed record keeps only its UPPER keys (lowercase twins ignored, even junk ones)', () => {
     const rec = parseRecord(wire({ CLASSES: { on: true, source: 'OWNER' }, classes: { on: 'junk' }, packs: { on: true, source: 'OWNER' }, NOMINATION: { on: 1 } }))
     expect(rec?.switches.classes).toEqual({ on: true, source: 'OWNER' })
-    expect(rec?.switches.packs).toEqual({ on: false, source: 'TYPE_DEFAULT' })
-    expect(rec?.switches.checkin_qr).toEqual({ on: false, source: 'TYPE_DEFAULT' })
+    // S75: a missing known key resolves to the defaults type's table value (resolveRecord), no longer a flat OFF
+    expect(rec?.switches.packs).toEqual({ on: TYPE_DEFAULTS.yoga_studio.includes('packs'), source: 'TYPE_DEFAULT' })
+    expect(rec?.switches.checkin_qr).toEqual({ on: true, source: 'TYPE_DEFAULT' })
   })
   it('R124: switches holding no known key = absent', () => {
     expect(parseRecord(wire({}))).toBeNull()
@@ -439,7 +440,7 @@ describe('wire codec (R121 = CORE-47 owner record)', () => {
     expect(parseRecord(wire({ PACKS: { on: true, source: 'OWNER', changed_by: 5 } }))).not.toBeNull()
   })
   it('recordHash hashes the wire spelling (script-emitted pin) and null keeps its fixed hash', () => {
-    expect(recordHash(seedRecord('other'))).toBe('9b6b4dd46fb5c0db')
+    expect(recordHash(seedRecord('other'))).toBe('0900781b9f0aca70')
     expect(recordHash(null)).toBe('9b55e0da69fcb93a')
   })
   it('caps changed_by_staff_id at 128 and changed_at at 64 UTF-16 code units; one over = the whole record absent (attack S52-5)', () => {

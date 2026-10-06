@@ -1997,7 +1997,7 @@ function storePageOf(ctx: Ctx): Pick<SettingsSection, 'storePage' | 'storePageNo
       storeId: ctx.storeId,
       saved,
       hasSaved: ctx.storeCaps !== null,
-      basedOn: recordHash(ctx.storeCaps),
+      basedOn: recordHash(saved), // S75: a fresh store's based_on = the hash of the seed shown (the door computes the same)
       counts: ctx.doorOn ? sample.counts : {},
       sampleKey: sample.sampleKey,
       startFamily,

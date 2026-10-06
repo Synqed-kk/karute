@@ -74,9 +74,11 @@ const W = serializeRecord
 /** The value the door sent to core for store `id` (wire). */
 const sentRecord = (id: string = S) => (mockCore.upsert.mock.calls[0][0] as { settings: Record<string, WireRecord> }).settings[K(id)]
 /** based_on as the page computes it: the hash of the record it loaded (the door's own reader). */
-const loaded = (id: string = S) => recordHash(parseRecord(stored[K(id)] ?? null))
-const save = (rec: unknown, o: { reset?: CapKey[]; basedOn?: string; id?: string } = {}) =>
-  data.writeStoreCapabilities(o.id ?? S, rec, o.reset ?? [], o.basedOn ?? loaded(o.id ?? S))
+// S75 (S68's seed case): no readable record → the hash of the seed the page showed (settings-props: storeCaps ?? seedRecord(storeSeedType))
+const loaded = async (id: string = S) =>
+  recordHash(parseRecord(stored[K(id)] ?? null) ?? seedRecord((await data.readStoreSeedType(id)) ?? 'other'))
+const save = async (rec: unknown, o: { reset?: CapKey[]; basedOn?: string; id?: string } = {}) =>
+  data.writeStoreCapabilities(o.id ?? S, rec, o.reset ?? [], o.basedOn ?? (await loaded(o.id ?? S)))
 const ownerKeys = (rec: WireRecord) => Object.entries(rec.switches).filter(([, v]) => v.source === 'OWNER').map(([k]) => k)
 
 const savedEnv = process.env.BUSINESS_PRACTICE_TENANT
@@ -171,18 +173,18 @@ describe('S49 P2 — the door: data.writeStoreCapabilities → door-store-capabi
     expect(mockCore.upsert).not.toHaveBeenCalled()
   })
 
-  it('R96: no saved record + based_on = recordHash(null) → accepted', async () => {
+  it('R96: no saved record + based_on = the hash of the seed shown (S75) → accepted', async () => {
     seed({})
-    const r = await save(toggle(SAVED, 'posts'), { basedOn: recordHash(null) })
+    const r = await save(toggle(SAVED, 'posts'), { basedOn: await loaded() })
     expect(r.ok).toBe(true)
     expect(mockCore.upsert).toHaveBeenCalledTimes(1)
   })
 
-  it('R90: an unreadable stored value is ABSENT — based_on = recordHash(null), overwritten, the log carries the raw value whole (below the 8 000 cut) and its length', async () => {
+  it('R90: an unreadable stored value is ABSENT — based_on = the seed\'s hash (S75), overwritten, the log carries the raw value whole (below the 8 000 cut) and its length', async () => {
     const raw = { v: 1, business_type: 'SALON', note: 'x'.repeat(5000) } // a family name parses as absent (B10)
     seed({ [K(S)]: raw })
     expect(await data.readStoreCapabilities(S)).toBeNull()
-    const r = await save(toggle(SAVED, 'posts'), { basedOn: recordHash(null) })
+    const r = await save(toggle(SAVED, 'posts'), { basedOn: await loaded() })
     expect(r.ok).toBe(true)
     expect(stored[K(S)]).toEqual(sentRecord())
     expect(info).toHaveBeenCalledTimes(2)
@@ -199,7 +201,7 @@ describe('S49 P2 — the door: data.writeStoreCapabilities → door-store-capabi
     const raw = { v: 1, business_type: 'SALON', note: 'y'.repeat(50) }
     seed({ [K(S)]: raw })
     mockCore.upsert = jest.fn(async () => { throw new Error('core committed, then the socket dropped') })
-    expect(await save(toggle(SAVED, 'posts'), { basedOn: recordHash(null) })).toEqual({ ok: false, reason: 'core' })
+    expect(await save(toggle(SAVED, 'posts'), { basedOn: await loaded() })).toEqual({ ok: false, reason: 'core' })
     expect(mockCore.upsert).toHaveBeenCalledTimes(1)
     expect(info).toHaveBeenCalledTimes(1)
     expect(info.mock.calls[0][0]).toBe('[business store capabilities] replacing an unreadable stored value')
@@ -212,7 +214,9 @@ describe('S49 P2 — the door: data.writeStoreCapabilities → door-store-capabi
     expect(mockCore.upsert).toHaveBeenCalledTimes(1)
     expect(mockPolicyReads).toEqual([])
     seed({})
-    expect((await save(toggle(SAVED, 'posts'))).ok).toBe(true)
+    const basedOn = await loaded() // the page's own read (readStoreSeedType) reads the list too — cleared, so the save's read is the one seen
+    mockPolicyReads = []
+    expect((await save(toggle(SAVED, 'posts'), { basedOn })).ok).toBe(true)
     expect(mockPolicyReads).toContain(S)
   })
 
@@ -354,7 +358,7 @@ describe('S68 P2 — R273: ok only when core’s answer holds exactly what was s
   it('T2 (A2) core answers with a different VALID record (another type, every switch off) → core', async () => {
     seed({ [K(S)]: W(SAVED) })
     const yoga = seedRecord('yoga_studio')
-    const allOff: CapRecord = { ...yoga, switches: Object.fromEntries(Object.entries(yoga.switches).map(([k, s]) => [k, { ...s, on: false }])) as CapRecord['switches'] }
+    const allOff: CapRecord = { ...yoga, switches: Object.fromEntries(Object.entries(yoga.switches).map(([k, s]) => [k, { ...s, on: false, source: 'OWNER' }])) as CapRecord['switches'] } // S75: OWNER, so the resolver keeps every OFF
     expect(parseRecord(W(allOff))).toEqual(allOff)
     answering(() => W(allOff))
     expect(await save(toggle(SAVED, 'posts'))).toEqual({ ok: false, reason: 'core' })
@@ -432,7 +436,7 @@ describe('S68 P2 — R273: ok only when core’s answer holds exactly what was s
   it('T6 a first save (no stored record → the seed) round-trips: the matching answer is accepted', async () => {
     seed({})
     answering((sent) => sent)
-    const r = await save(toggle(SAVED, 'posts'), { basedOn: recordHash(null) })
+    const r = await save(toggle(SAVED, 'posts'), { basedOn: await loaded() })
     expect(r).toEqual({ ok: true, record: parseRecord(sentRecord()) })
     expect(error).not.toHaveBeenCalled()
   })
@@ -456,7 +460,7 @@ describe('S68 — R90 amended: a stored value is logged whole (cut only above 8 
   it('an unreadable value of 9 000 chars → the logged text is 8 000 long and replaced_chars is the full length', async () => {
     const raw = { v: 1, business_type: 'SALON', note: 'z'.repeat(9000) }
     seed({ [K(S)]: raw })
-    expect((await save(toggle(SAVED, 'posts'), { basedOn: recordHash(null) })).ok).toBe(true)
+    expect((await save(toggle(SAVED, 'posts'), { basedOn: await loaded() })).ok).toBe(true)
     const pre = JSON.parse(String(info.mock.calls[0][1])) as { replaced_unreadable: string; replaced_chars: number }
     expect(pre.replaced_unreadable).toHaveLength(8000)
     expect(pre.replaced_unreadable).toBe(JSON.stringify(raw).slice(0, 8000))
