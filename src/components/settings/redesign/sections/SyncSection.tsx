@@ -50,7 +50,11 @@ const SYNC_ERROR_COPY = {
   qr_store_already_linked: 'bookingSyncQrStoreAlreadyLinked',
 } as const
 
-export function SyncSection() {
+/** `storeId` = the active store the page was rendered for. The store
+ *  switcher (setActiveStore + router.refresh) re-renders this section with a
+ *  new one while its state lives on, and Save writes to the NEW store — so
+ *  the form reloads per store and never carries the previous store's values. */
+export function SyncSection({ storeId = null }: { storeId?: string | null } = {}) {
   const t = useTranslations('settings')
   const tAuth = useTranslations('auth')
   const [username, setUsername] = useState('')
@@ -64,9 +68,20 @@ export function SyncSection() {
   const [lastResult, setLastResult] = useState<string | null>(null)
 
   useEffect(() => {
+    // Reset BEFORE the load, and drop a late answer for a store no longer
+    // selected, so another store's values can never reach this store's Save.
+    let current = true
+    setUsername('')
+    setPassword('')
+    setEnabled(false)
+    setConfigured(true)
+    setQrStoreSlug('')
+    setQrStoreId('')
+    setLastResult(null)
     getDataPort().apiFetch('/api/sync/quickreserve/config')
       .then((r) => r.json())
       .then((data) => {
+        if (!current) return
         if (data.username) setUsername(data.username)
         if (data.enabled !== undefined) setEnabled(data.enabled)
         if (data.configured === false) {
@@ -81,7 +96,10 @@ export function SyncSection() {
           )
       })
       .catch(() => {})
-  }, [])
+    return () => {
+      current = false
+    }
+  }, [storeId])
 
   // The routes' stable error codes, not messages meant for display — show OUR
   // localized copy so it follows the language toggle.

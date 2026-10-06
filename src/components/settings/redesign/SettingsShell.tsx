@@ -493,7 +493,7 @@ export function SettingsShell({
         // Defense in depth alongside the tab filter above (same idiom as the
         // audit/stores sections) — the server routes enforce sync.view
         // regardless; this only stops a stray render.
-        return canViewSync ? <SyncSection /> : null
+        return canViewSync ? <SyncSection storeId={assignableActiveStoreId ?? initialActiveStoreId} /> : null
       case 'packs':
         return isOwner ? <PacksSection orgSettings={orgSettings} /> : null
       case 'menus':
