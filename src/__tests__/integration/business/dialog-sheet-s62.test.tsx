@@ -257,3 +257,45 @@ describe('d5 - S63 R235: the Tab trap holds only what Tab can reach', () => {
     expect(document.activeElement).toBe(byText('first'))
   })
 })
+
+/** S71 (Greptile #1130 R4, rule 11) - focus returns only to a target that can take it. The card-look
+ *  sheet closes when the viewport leaves the <= 899 band, where its opener is `display: none`: focus
+ *  must fall to the first reachable control in the room, never to body. */
+function ReturnRoom() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="page pg-settings">
+      <button type="button">first</button>
+      <button type="button" onClick={() => setOpen(true)}>opener</button>
+      <Dialog open={open} onClose={() => setOpen(false)} labelledBy="rt-t" sheet>
+        <h2 id="rt-t">ret</h2>
+        <button type="button">inside</button>
+      </Dialog>
+    </div>
+  )
+}
+const roomBtn = (t: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement
+
+describe('d6 - S71 rule 11: focus returns only to a target that can take it', () => {
+  it('r1 an opener hidden by CSS at close: focus goes to the first reachable control in the room; a shown opener still gets it back', () => {
+    render(<ReturnRoom />)
+    const opener = roomBtn('opener')
+    opener.focus()
+    fireEvent.click(opener)
+    expect(document.activeElement).toBe(roomBtn('inside'))
+    opener.style.display = 'none'
+    act(() => { fireEvent.keyDown(document, { key: 'Escape' }) })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement).not.toBe(opener)
+    expect(document.activeElement).toBe(roomBtn('first'))
+    // the opener shown again: the existing behaviour, unchanged
+    opener.style.display = ''
+    opener.focus()
+    fireEvent.click(opener)
+    expect(document.activeElement).toBe(roomBtn('inside'))
+    act(() => { fireEvent.keyDown(document, { key: 'Escape' }) })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+})

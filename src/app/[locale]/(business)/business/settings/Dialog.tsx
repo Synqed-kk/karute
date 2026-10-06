@@ -33,7 +33,8 @@
  *     exactly what it was.
  * 10. ⚖ S63 R235 — the trap's list is only what Tab can reach: never a negative
  *     `tabIndex`, never anything under `aria-hidden="true"` or `inert` within the box.
- *     Tab is always handled while the dialog is top-most, so a control under aria-hidden can be reached by a click but never by Tab, and Tab from it continues in DOM order (S71). */
+ *     Tab is always handled while the dialog is top-most, so a control under aria-hidden can be reached by a click but never by Tab, and Tab from it continues in DOM order (S71).
+ * 11. S71 (Greptile #1130 R4) — focus returns only to a target that can take it: returnFocus, else the opener, else the first reachable control in the room; a return target hidden by CSS (the sheet's opener above 899 px) never swallows focus. */
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
@@ -124,21 +125,27 @@ export function Dialog({
     const id = idRef.current
     openStack = [...openStack, id]
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setTarget(
+    const home =
       root ??
-        opener?.closest<HTMLElement>(ROOM_ROOT_SELECTOR) ??
-        document.querySelector<HTMLElement>(ROOM_ROOT_SELECTOR) ??
-        document.body,
-    )
+      opener?.closest<HTMLElement>(ROOM_ROOT_SELECTOR) ??
+      document.querySelector<HTMLElement>(ROOM_ROOT_SELECTOR) ??
+      document.body
+    setTarget(home)
     return () => {
       openStack = openStack.filter((x) => x !== id)
       // NOT dead (S54 R165(5), tested): without it a reopen renders into the old
       // target first, an autoFocus child takes focus in that commit, and this
       // effect would capture the child as the opener.
       setTarget(null)
+      // Rule 11: only a target that is connected AND shown can take focus.
+      const canTake = (el: HTMLElement | null | undefined): el is HTMLElement => !!el && el.isConnected && isShown(el, document.body)
       const back = returnRef.current?.current
-      if (back && back.isConnected) back.focus()
-      else if (opener && opener.isConnected) opener.focus()
+      const dest = canTake(back)
+        ? back
+        : canTake(opener)
+          ? opener
+          : [...home.querySelectorAll<HTMLElement>(FOCUSABLE)].find((el) => !el.matches(':disabled') && el.tabIndex >= 0 && isShown(el, home))
+      dest?.focus()
     }
   }, [open, root])
 
