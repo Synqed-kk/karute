@@ -27,6 +27,12 @@ const RUN_FILE = /^tmp\/c0-same-answers-[^/]*\.json$/
 const RUN_FILE_REFUSAL = 'run files must stay under tmp/c0-same-answers-*.json — they hold customer rows and only that pattern is gitignored'
 // R3-5: the only flags any mode reads.
 const FLAGS = new Set(['days-ahead', 'before', 'after', 'out'])
+// R3-8: the flags each mode reads; a flag of another mode is refused, not silently ignored.
+const MODE_FLAGS = {
+  before: new Set(['days-ahead', 'out']),
+  after: new Set(['before', 'out']),
+  diff: new Set(['before', 'after']),
+}
 
 function usage(msg) {
   process.stderr.write(`${msg}\nUsage: node scripts/c0-same-answers.mjs <before|after|diff> [--days-ahead N] [--before <file>] [--after <file>] [--out <file>]\n` +
@@ -36,16 +42,18 @@ function usage(msg) {
     '  The after run reads the dates from the before file.\n' +
     '  --out / --before / --after: a run file path must match tmp/c0-same-answers-*.json under the repo root (the only gitignored run-file pattern) —\n' +
     '  run files hold the Dev Salon\'s rows, customers included; any other path is refused.\n' +
-    '  Flags: only --days-ahead, --before, --after, --out; any other --name is refused.\n')
+    '  Flags: only --days-ahead, --before, --after, --out; any other --name is refused.\n' +
+    '  Per mode: before takes --days-ahead, --out; after takes --before, --out; diff takes --before, --after; a flag of another mode is refused.\n')
   process.exit(core.EXIT.USAGE)
 }
 
-function flags(argv) {
+function flags(mode, argv) {
   const out = {}
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (!a.startsWith('--')) usage(`Unknown argument: ${a}`)
     if (!FLAGS.has(a.slice(2))) usage(`Unknown flag: ${a}`)
+    if (!MODE_FLAGS[mode].has(a.slice(2))) usage(`${a} is not a flag of the ${mode} mode`)
     const v = argv[i + 1]
     if (v === undefined || v.startsWith('--')) usage(`Missing value for ${a}`)
     out[a.slice(2)] = v
@@ -114,7 +122,8 @@ async function collectOrUsage(cfg) {
 }
 
 const [mode, ...rest] = process.argv.slice(2)
-const f = flags(rest)
+if (!Object.hasOwn(MODE_FLAGS, mode ?? '')) usage(mode ? `Unknown mode: ${mode}` : 'No mode given.')
+const f = flags(mode, rest) // every flag judged before core, env or any file is read
 
 if (mode === 'before') {
   const daysAhead = f['days-ahead'] === undefined ? core.DEFAULT_DAYS_AHEAD : Number(f['days-ahead'])

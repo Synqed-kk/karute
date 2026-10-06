@@ -537,6 +537,28 @@ describe('the CLI — R3-5 only the four flags · R3-6 run files only at tmp/c0-
     expect(r.status).toBe(3)
     expect(r.stderr.split('\n')[0]).toBe(`Unknown flag: ${flag}`)
   })
+  it.each([
+    ['diff', '--days-ahead', '3'],
+    ['diff', '--out', 'tmp/c0-same-answers-x.json'],
+    ['before', '--after', 'tmp/c0-same-answers-x.json'],
+    ['after', '--days-ahead', '3'],
+  ])('R3-8: %s %s %s → exit 3, the flag of another mode is refused before core, env or any file is read', (mode, flag, v) => {
+    const r = cli([mode, flag, v])
+    expect(r.status).toBe(3)
+    expect(r.stderr.split('\n')[0]).toBe(`${flag} is not a flag of the ${mode} mode`)
+    expect(r.stderr).not.toContain(NO_CONFIG)
+    expect(r.stderr).not.toContain('Cannot read the run file')
+  })
+  it.each([
+    ['before', '--days-ahead', '3', NO_CONFIG],
+    ['after', '--before', 'tmp/c0-same-answers-jest-absent.json', 'Cannot read the run file tmp/c0-same-answers-jest-absent.json.'],
+    ['diff', '--after', 'tmp/c0-same-answers-jest-absent.json', 'Cannot read the run file '],
+  ])('R3-8: %s %s %s → its own mode accepts the flag; the run stops at the next check', (mode, flag, v, next) => {
+    const r = cli([mode, flag, v])
+    expect(r.status).toBe(3)
+    expect(r.stderr.split('\n')[0]).not.toMatch(/is not a flag of the|Unknown flag/)
+    expect(r.stderr.split('\n')[0]).toContain(next)
+  })
   it('the usage text names the four flags and the run-file rule', () => {
     const r = cli([])
     expect(r.stderr).toContain('Flags: only --days-ahead, --before, --after, --out; any other --name is refused.')
