@@ -5,13 +5,26 @@
 // else the directory of the tsconfig that declared `paths` (TypeScript's pathsBasePath). Any other shape stops the
 // run naming the entry — an alias is never guessed.
 //   import { tsconfigAliases } from './tsconfig-aliases.mjs'; tsconfigAliases(root) → [{ find, replacement }]
+// TypeScript is loaded from the checkout the harness is pointed at (tsFrom, default root) — the way run.mjs loads
+// every other dependency (createRequire on ROOT/package.json) — never from this file's own location: the harness
+// may run from a separate checkout with no node_modules of its own.
 import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
-import ts from 'typescript'
+import { pathToFileURL } from 'node:url'
 
 const NO_INPUTS = 18003 // "No inputs were found in config file" — about include/files, irrelevant to paths
 
-export function tsconfigAliases(root) {
+function loadTypescript(from) {
+  try {
+    return createRequire(pathToFileURL(join(from, 'package.json')))('typescript')
+  } catch (e) {
+    throw new Error(`typescript: cannot be resolved from ${from} (${e.code ?? e.message}) — point the harness at a checkout with its dependencies installed`)
+  }
+}
+
+export function tsconfigAliases(root, tsFrom = root) {
+  const ts = loadTypescript(tsFrom)
   const file = join(root, 'tsconfig.json')
   if (!existsSync(file)) throw new Error(`tsconfig.json: not found (${file})`)
   const { config, error } = ts.readConfigFile(file, ts.sys.readFile)

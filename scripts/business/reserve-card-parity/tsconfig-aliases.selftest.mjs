@@ -2,11 +2,15 @@
 // Selftest for the parity harness's alias reader (tsconfig-aliases.mjs) — fixture red, in seconds.
 //   node scripts/business/reserve-card-parity/tsconfig-aliases.selftest.mjs
 // Each case writes a throwaway dir holding only tsconfig file(s), calls tsconfigAliases(<dir>) and asserts either
-// the exact alias table or a throw carrying the named message. Needs only typescript; nothing else is touched.
+// the exact alias table or a throw carrying the named message. Needs only typescript (from the repo root); nothing else is touched.
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { tsconfigAliases } from './tsconfig-aliases.mjs'
+
+// the temp dirs hold no node_modules, so typescript is resolved from this repo's root (HERE/../../..) as tsFrom
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
 const CASES = [
   ['comments + trailing comma read as TypeScript reads them', {
@@ -42,7 +46,7 @@ for (const [name, files, want] of CASES) {
     for (const [f, body] of Object.entries(files)) { mkdirSync(join(dir, f, '..'), { recursive: true }); writeFileSync(join(dir, f), body) }
     const expect = typeof want === 'function' ? want(dir) : want
     try {
-      got = tsconfigAliases(dir)
+      got = tsconfigAliases(dir, REPO)
       ok = Array.isArray(expect) && JSON.stringify(got) === JSON.stringify(expect)
       got = JSON.stringify(got)
     } catch (e) {
