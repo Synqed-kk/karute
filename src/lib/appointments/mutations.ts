@@ -672,24 +672,39 @@ export { BOOKING_ALREADY_STAFFED }
  * updateAppointmentCore, so the lock, the guards and the audit stay one path.
  * Core has no compare-and-set, so two taps inside the same read→write gap can
  * still both land; a tap on a booking whose staff is already SAVED cannot.
+ *
+ * ⚖ FIX ROUND 4 (R3) — each door hands in its OWN resolver (profile id → core
+ * staff id; the web's resolveSynqedStaffId, the facade's ForBusiness twin),
+ * never a resolved id. The resolver is create-on-miss and self-heals, so it
+ * runs only after the store lock and the BLOCK / terminal / already-staffed
+ * refusals: a refused assign never reaches it, so it never writes a core
+ * staff row on a booking the caller may not touch.
  */
 export async function assignStaffToBooking(
   synqed: MutationClient,
   appointmentId: string,
-  staffId: string,
+  resolveStaffId: () => Promise<string>,
   actor: BookingActor,
   scope: RecordStoreScope,
 ): Promise<{ success: true } | BookingTimeRefusal> {
   return updateAppointmentCore(
     synqed,
     appointmentId,
-    { staffId },
+    {},
     actor,
     // A staff-only patch never opens the time gate: no hours are consulted.
     { operatingHours: undefined, orgSaved: undefined },
     scope,
-    { unassigned: true },
+    { unassigned: true, resolveStaffId },
   )
+}
+
+/** A throw from a door's staff resolver (R3), carried past
+ *  updateAppointmentCore's catch so each door answers it exactly as before the
+ *  resolver moved inside (the facade's 400 / 5xx split, the web action's
+ *  coreFailureLine) — never turned into a booking `{ error }` here. */
+class StaffResolverFailure {
+  constructor(readonly cause: unknown) {}
 }
 
 /**
@@ -750,8 +765,10 @@ export async function updateAppointmentCore(
     orgSaved: readonly WeekdayKey[] | undefined
   },
   scope: RecordStoreScope,
-  /** PR-B: refuse a booking that already has a staff (assignStaffToBooking). */
-  only: { unassigned?: boolean } = {},
+  /** PR-B: refuse a booking that already has a staff (assignStaffToBooking).
+   *  `resolveStaffId` (R3): the staff is resolved only after the lock and the
+   *  refusals below, and becomes the patch's staffId. */
+  only: { unassigned?: boolean; resolveStaffId?: () => Promise<string> } = {},
 ): Promise<{ success: true } | BookingTimeRefusal> {
   try {
     // Terminal guard (Fable fix-round finding, 2026-07-27 — this core had NO
@@ -770,6 +787,16 @@ export async function updateAppointmentCore(
     // by-date's isCountedBooking — never a second literal here.
     if (only.unassigned && !isCountedBooking(appt)) return { error: 'Booking not found.' }
     if (only.unassigned && appt.staff_id) return { error: BOOKING_ALREADY_STAFFED }
+
+    // ⚖ FIX ROUND 4 (R3) — only now, past the lock and every refusal above,
+    // is the door's staff resolved (it may create or link a core staff row).
+    if (only.resolveStaffId) {
+      const resolve = only.resolveStaffId
+      const staffId = await resolve().catch((err: unknown) => {
+        throw new StaffResolverFailure(err)
+      })
+      patch = { ...patch, staffId }
+    }
 
     // ⚖ PR-B Q1 — the staff written must be able to take THIS booking. Both
     // transports (the web action and the facade's assign-staff) land here,
@@ -917,6 +944,7 @@ export async function updateAppointmentCore(
 
     return { success: true }
   } catch (err) {
+    if (err instanceof StaffResolverFailure) throw err.cause
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }

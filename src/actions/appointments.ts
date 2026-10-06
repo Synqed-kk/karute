@@ -598,11 +598,11 @@ export async function assignAppointmentStaff(appointmentId: string, staffProfile
       resolveWebAuditContext(),
       resolveStoreScope(), // store lock — see cancelAppointment
     ])
-    const staffId = await resolveSynqedStaffId(staffProfileId)
     const result = await assignStaffToBooking(
       synqed,
       appointmentId,
-      staffId,
+      // R3: resolved inside, only after the store lock and the refusals.
+      () => resolveSynqedStaffId(staffProfileId),
       { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
       scope,
     )

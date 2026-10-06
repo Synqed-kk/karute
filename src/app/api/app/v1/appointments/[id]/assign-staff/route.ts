@@ -53,26 +53,30 @@ export const POST = facadeHandler<Params>('appointment.assignStaff', async (ctx)
   })
   // The web action's resolveSynqedStaffId, Bearer-safe twin (same on-demand
   // creation of a core staff row; the core judges the resolved row).
+  // ⚖ FIX ROUND 4 (R3): handed in, not called here — assignStaffToBooking runs
+  // it only after the store lock and the refusals, so a refused assign never
+  // reaches it. A throw from it leaves the core untouched (rethrown as-is).
   // An unknown profile, or one outside this business, makes the resolver
   // throw StaffProfileNotFoundError: that is the caller's bad input, so a 4xx
   // with the same refusal an ineligible staff gets. Every other throw (a core
   // 5xx, the network, a missing env) is rethrown as-is, so the facade answers
   // its usual 5xx — never a 400 "cannot take this booking". Nothing is written
   // either way.
-  let staffId: string
-  try {
-    staffId = await resolveSynqedStaffIdForBusiness(parsed.data.staffProfileId, businessId)
-  } catch (err) {
-    if (err instanceof StaffProfileNotFoundError) {
-      throw new AppApiError('validation', STAFF_NOT_ELIGIBLE)
+  const resolveStaffId = async (): Promise<string> => {
+    try {
+      return await resolveSynqedStaffIdForBusiness(parsed.data.staffProfileId, businessId)
+    } catch (err) {
+      if (err instanceof StaffProfileNotFoundError) {
+        throw new AppApiError('validation', STAFF_NOT_ELIGIBLE)
+      }
+      throw err
     }
-    throw err
   }
 
   const result = await assignStaffToBooking(
     synqed,
     id,
-    staffId,
+    resolveStaffId,
     {
       actorId: ctx.identity.authUserId,
       businessId,

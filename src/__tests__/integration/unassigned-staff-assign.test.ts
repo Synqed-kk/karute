@@ -216,6 +216,9 @@ describe('stress', () => {
   })
 })
 
+/** A door's resolver that always yields the eligible core staff (R3 shape). */
+const staffNew = async () => 'staff-new'
+
 function resolveMock() {
   return jest.requireMock('@/lib/synqed/staff-map').resolveSynqedStaffIdForBusiness as jest.Mock
 }
@@ -251,14 +254,14 @@ describe('fix round 1', () => {
 
   it("second tap (web: the action's core function) → refused, nothing written", async () => {
     apptGet.mockResolvedValue(staffed)
-    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', staffNew, actor, scope)).resolves.toEqual({
       error: BOOKING_ALREADY_STAFFED,
     })
     expect(apptUpdate).not.toHaveBeenCalled()
   })
 
   it('first tap through assignStaffToBooking writes the staff only', async () => {
-    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({ success: true })
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', staffNew, actor, scope)).resolves.toEqual({ success: true })
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
   })
 
@@ -290,7 +293,7 @@ describe('fix round 1', () => {
 
   it('no business on the actor → refused (never skipped), nothing written', async () => {
     const noBiz = { ...actor, businessId: null } as unknown as typeof actor
-    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', noBiz, scope)).resolves.toEqual({
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', staffNew, noBiz, scope)).resolves.toEqual({
       error: STAFF_NOT_ELIGIBLE,
     })
     expect(apptUpdate).not.toHaveBeenCalled()
@@ -312,7 +315,7 @@ describe('fix round 3', () => {
 
   it('item 8: a BLOCK row (kind BLOCK, no staff) → refused like "not found", nothing written', async () => {
     apptGet.mockResolvedValue({ ...base, kind: 'BLOCK' })
-    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', staffNew, actor, scope)).resolves.toEqual({
       error: 'Booking not found.',
     })
     expect(apptUpdate).not.toHaveBeenCalled()
@@ -327,7 +330,7 @@ describe('fix round 3', () => {
   })
 
   it('item 8: a pre-kind row (kind absent) still reads as a BOOKING and is assigned', async () => {
-    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({ success: true })
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', staffNew, actor, scope)).resolves.toEqual({ success: true })
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
   })
 
@@ -335,7 +338,7 @@ describe('fix round 3', () => {
   it('item 11: store-less booking + unclamped caller → any active staff of the business may take it (no store question)', async () => {
     apptGet.mockResolvedValue({ ...base, store_id: null })
     assignments['staff-new'] = ['store-elsewhere']
-    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({ success: true })
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', staffNew, actor, scope)).resolves.toEqual({ success: true })
     expect(staffStoresGet).not.toHaveBeenCalled()
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
   })
@@ -343,10 +346,80 @@ describe('fix round 3', () => {
   it('item 11: store-less booking + clamped caller → stopped by the store lock, no staff read, nothing written', async () => {
     apptGet.mockResolvedValue({ ...base, store_id: null })
     const clamped = { allowedStoreIds: ['store-1'] } as unknown as Parameters<typeof assignStaffToBooking>[4]
-    const res = await assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, clamped)
+    const res = await assignStaffToBooking(fakeClient as never, 'appt-1', staffNew, actor, clamped)
     expect(res).toHaveProperty('error')
     expect(res).not.toEqual({ success: true })
     expect(staffGet).not.toHaveBeenCalled()
     expect(apptUpdate).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ FIX ROUND 4 (R3) — the staff resolver is create-on-miss and self-heals, so
+// it runs only after the store lock and the BLOCK / terminal / already-staffed
+// refusals, on BOTH doors: a refused assign never reaches it.
+describe('fix round 4 (R3): the resolver runs only after the lock and the refusals', () => {
+  const actor = { actorId: 'auth-user-1', businessId: 'business-1', source: 'web' as const, requestId: 'r' }
+  const open = { storeId: null, allowedStoreIds: null } as unknown as Parameters<typeof assignStaffToBooking>[4]
+  const clamped = { allowedStoreIds: ['store-1'] } as unknown as Parameters<typeof assignStaffToBooking>[4]
+  const row = {
+    id: 'appt-1',
+    customer_id: 'cust-1',
+    store_id: 'store-1',
+    staff_id: null,
+    status: 'SCHEDULED',
+    starts_at: '2026-10-06T01:00:00.000Z',
+    ends_at: '2026-10-06T02:00:00.000Z',
+  }
+
+  describe('core (the web action\'s door)', () => {
+    it.each([
+      ['clamped to store-1, booking in store-2', { ...row, store_id: 'store-2' }, clamped],
+      ['a BLOCK row', { ...row, kind: 'BLOCK' }, open],
+      ['an already-staffed booking', { ...row, staff_id: 'staff-someone' }, open],
+      ['a cancelled booking', { ...row, status: 'CANCELLED' }, open],
+    ])('%s → refused, resolver never called, nothing written', async (_label, appt, scope) => {
+      apptGet.mockResolvedValue(appt)
+      const resolve = jest.fn(async () => 'staff-new')
+      const res = await assignStaffToBooking(fakeClient as never, 'appt-1', resolve, actor, scope)
+      expect(res).toHaveProperty('error')
+      expect(resolve).not.toHaveBeenCalled()
+      expect(staffGet).not.toHaveBeenCalled()
+      expect(apptUpdate).not.toHaveBeenCalled()
+      expect(updateAudits()).toHaveLength(0)
+    })
+
+    it('an assign that passes: the resolver runs once, after the booking read, before the write', async () => {
+      const resolve = jest.fn(async () => 'staff-new')
+      await expect(assignStaffToBooking(fakeClient as never, 'appt-1', resolve, actor, clamped)).resolves.toEqual({ success: true })
+      expect(resolve).toHaveBeenCalledTimes(1)
+      expect(apptGet.mock.invocationCallOrder[0]).toBeLessThan(resolve.mock.invocationCallOrder[0])
+      expect(resolve.mock.invocationCallOrder[0]).toBeLessThan(apptUpdate.mock.invocationCallOrder[0])
+      expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
+    })
+
+    it('a resolver throw reaches the door as-is (never a booking { error }), nothing written', async () => {
+      const boom = new Error('core down')
+      await expect(
+        assignStaffToBooking(fakeClient as never, 'appt-1', async () => { throw boom }, actor, open),
+      ).rejects.toBe(boom)
+      expect(apptUpdate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('facade door', () => {
+    it.each([
+      ['clamped to store-1, booking in store-2', { ...row, store_id: 'store-2' }, ['store-1']],
+      ['a BLOCK row', { ...row, kind: 'BLOCK' }, [] as string[]],
+      ['an already-staffed booking', { ...row, staff_id: 'staff-someone' }, [] as string[]],
+    ])('%s → refused, resolver never called, nothing written', async (_label, appt, viewerStores) => {
+      assignments[VIEWER_KEY] = viewerStores
+      apptGet.mockResolvedValue(appt)
+      const res = await assignPOST(post({ staffProfileId: 'profile-new' }), params)
+      expect(await res.json()).toHaveProperty('error')
+      expect(resolveMock()).not.toHaveBeenCalled()
+      expect(staffGet).not.toHaveBeenCalled()
+      expect(apptUpdate).not.toHaveBeenCalled()
+      expect(updateAudits()).toHaveLength(0)
+    })
   })
 })
