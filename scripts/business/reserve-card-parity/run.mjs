@@ -37,6 +37,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tsconfigAliases } from './tsconfig-aliases.mjs'
+import { countWord, scopedClasses } from './scoped-classes.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // The manifest is checked whole at load: every key the harness reads, each failure a named error, so a
@@ -339,6 +340,18 @@ function writeParityMd(verbatim, scopedCheck) {
   const ranges = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) \*\//g)].map((m) => `${m[1]}–${m[2]}`)
   // a SCOPED marker never matches the verbatim pattern above, so these blocks are neither checked nor listed as verbatim
   const scoped = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/g)].map((m) => `${m[1]}–${m[2]}`)
+  // the Declared-edits line names each SCOPED block's classes from the block itself (the lines under its marker,
+  // prefix stripped as checkScoped() strips it) — no selector name is written here, so the line cannot drift
+  const cssLines = css.split('\n')
+  const scopedBlocks = []
+  cssLines.forEach((l, i) => {
+    const m = l.match(/^\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/)
+    if (m) scopedBlocks.push(cssLines.slice(i + 1, i + 2 + +m[2] - +m[1]).map((x) => x.replace(/(^\s*|, )\.member-ground (?=\.)/g, '$1')).join('\n'))
+  })
+  // zero SCOPED blocks → no scoped line at all (nothing to declare)
+  const scopedLine = scoped.length
+    ? `- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (${scopedClasses(scopedBlocks).join(', ')}) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps these ${countWord(scoped.length)} idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).\n`
+    : ''
   const PIN_DATE = sh('git', ['-C', RESERVE, 'log', '-1', '--no-show-signature', '--format=%ci', PIN]).trim()
   const md = `# Reserve member-card port — parity record
 
@@ -355,8 +368,7 @@ Verbatim check (last run): ${verbatim}
 Scoped blocks (declarations after prefix strip): ${scopedCheck}
 
 ## Declared edits (not verbatim)
-- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (.pressable, .tap44) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
-- \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
+${scopedLine}- \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 - \`ReserveCardPreview.tsx\` + \`card-color.ts\` — Colour inputs are normalised at the boundary (card-color.ts): only \`#RRGGBB\` reaches the satin math; anything else counts as absent — identical on server and client, no hydration drift.
 
 ## Left out of ${MANIFEST.leftOut.excludedFrom}, and why
@@ -373,7 +385,7 @@ The unit test (src/__tests__/integration/business/reserve-card.test.ts) reads \`
 Reserve's small card at the pin is STUDIO FORCE (its name lives outside mock.ts), so the port's small card is compared under that name and colour pair; Reserve's store page hides \`.salon-rankfloat\` (a sibling overlapping the cover's bottom edge) for the capture; the port's sample context is Reserve's demo member at 2026-09-14 10:00 JST, so Reserve's clock is frozen there.
 
 ## Shipping
-\`reserve-card.css\` is imported by the client component; it ships in a route chunk only once a route imports \`ReserveCardPreview\` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: \`.tap44\` and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
+\`reserve-card.css\` is imported by the client component; it ships in a route chunk only once a route imports \`ReserveCardPreview\` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: the scoped tap-box rule and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
 
 ## Keeping it in step
 When Reserve changes any of these ranges, re-run the harness against the new pin; a diff = re-port, never patch.
