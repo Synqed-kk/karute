@@ -345,6 +345,48 @@ describe('diff — R2-2 the rows the crawl touches (QUICKRESERVE appointments, e
     expect(r.verdict).toBe('FAIL')
     expect(core.summarize(r, before, after)).toContain('crawled customers row(s)')
   })
+  // S-1: the crawl-only skip covers the updated_at leaf of a crawled row and nothing more.
+  type Page = { appointments: Array<Record<string, unknown>> }
+  const q2Row = (a: Run, pick: (r: Record<string, unknown>) => boolean) => (a.answers.Q2 as Page[]).flatMap((p) => p.appointments).find(pick)!
+  it('S-1: a QUICKRESERVE row whose updated_at moved AND another leaf changed in a Q answer → FAIL, the changed line names the row', async () => {
+    const qr = [...d.appts.values()].find((a) => a.source === 'QUICKRESERVE')!
+    qr.updated_at = AT
+    const after = await afterC0()
+    const row = q2Row(after, (r) => r.id === qr.id)
+    const was = row.status
+    row.status = was === 'CANCELLED' ? 'SCHEDULED' : 'CANCELLED'
+    const r = judge(after)
+    expect(r.verdict).toBe('FAIL')
+    expect(r.changed).toEqual([expect.objectContaining({ query: 'Q2', id: qr.id, path: 'status' })])
+    const text = core.summarize(r, before, after)
+    expect(text).toContain('1 existing answer(s) changed')
+    expect(text).toContain(`changed: Q2 ${qr.id} at status`)
+    expect(text).toContain('the sync wrote; run again with the sync paused')
+  })
+  it('S-1: a non-QUICKRESERVE appointment with only updated_at changed in a Q answer (watermark equal) → FAIL', async () => {
+    const after = await afterC0()
+    const row = q2Row(after, (r) => r.source !== 'QUICKRESERVE')
+    row.updated_at = AT
+    const r = judge(after)
+    expect(r.verdict).toBe('FAIL')
+    expect(r.changed).toEqual([expect.objectContaining({ query: 'Q2', id: row.id, path: 'updated_at' })])
+    const text = core.summarize(r, before, after)
+    expect(text).toContain('1 existing answer(s) changed')
+    expect(text).toContain(`changed: Q2 ${String(row.id)} at updated_at`)
+    expect(text).not.toContain('the sync wrote')
+  })
+  it('S-1: a customer with only updated_at changed in the Q6 answer (watermark equal) → FAIL', async () => {
+    const after = await afterC0()
+    const row = after.answers.Q6.list[0].customers[0]
+    row.updated_at = AT
+    const r = judge(after)
+    expect(r.verdict).toBe('FAIL')
+    expect(r.changed).toEqual([expect.objectContaining({ query: 'Q6', id: row.id, path: 'updated_at' })])
+    const text = core.summarize(r, before, after)
+    expect(text).toContain('1 existing answer(s) changed')
+    expect(text).toContain(`changed: Q6 ${String(row.id)} at updated_at`)
+    expect(text).not.toContain('the sync wrote')
+  })
   it('NIT N-2: an array that grows inside a row is a new path → FAIL', async () => {
     const after = await afterC0()
     const b = clone(before)
