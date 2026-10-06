@@ -217,9 +217,9 @@ const EMPTY_WINDOW: AppointmentWindow = {
   truncated: false,
 }
 
-/** An empty window that is NOT a failure — what a caller passes when the staff
- *  filter names somebody the roster cannot place (zero rows is the honest
- *  answer there; an UNFILTERED window would be the whole salon's day). */
+/** An empty window that is NOT a failure — what a caller passes when the actor
+ *  reaches no store (zero rows is the honest answer there; an UNSCOPED window
+ *  would be every store's day). */
 export function emptyAppointmentWindow(): AppointmentWindow {
   return { ...EMPTY_WINDOW, counted: [], cancelled: [], noShow: [] }
 }
@@ -246,7 +246,8 @@ export function countedClientIds(
 }
 
 /**
- * The week/month/day window read: paged to exhaustion against core's `total`
+ * The window read behind every appointments-screen 件 (day, week, month,
+ * 先月同期間比) and the month/date-jump reads: paged to exhaustion against core's `total`
  * (the auto-burn / audit-watch idiom, src/lib/audit-watch/run.ts:130-134) and
  * partitioned by `isCountedBooking`.
  *
@@ -255,27 +256,20 @@ export function countedClientIds(
  * when the cap is genuinely hit it reports `truncated` with EVERY array empty —
  * the caller renders the failed-read state, never a number.
  *
- * `staffId` is the CORE staff id (appointments.staff_id's id space), applied AT
- * THE FETCH so the 担当/自分 filter reaches the week and month numbers instead
- * of only the day list. Core filters by equality, so a staff-less booking is
- * NOT in such a window. `staffId` remains for callers that want core's exact
- * filter; every 件 the appointments screen shows (day, week, month,
- * 先月同期間比) uses `shownUnder` below, so staff-less bookings count under
- * every staff filter, the day list's own rule.
- *
- * `shownUnder` (PR-B, 件 == rows) — the DAY line's mode: the window is read
- * WITHOUT a staff filter and kept by `isShownBooking(row, shownUnder)`, the day
- * list's own predicate, so the day 件 counts exactly the rows the list shows
- * under the current filter, staff-less ones included. A core id, or null for
- * "no filter".
+ * Core is never asked for a staff filter: it filters by equality, which would
+ * drop the 担当未定 bookings every filter shows. `shownUnder` (PR-B, 件 == rows)
+ * is the one staff rule of every window: the rows are read WITHOUT a staff
+ * filter and kept by `isShownBooking(row, shownUnder)`, the day list's own
+ * predicate, so 件 counts exactly the rows the list shows under the current
+ * filter, staff-less ones included. A core id, or null/absent for "no filter".
  */
 export async function fetchAppointmentWindow(
   synqed: Pick<SynqedClient, 'appointments'>,
   fromIso: string,
   toIso: string,
-  opts: { storeId?: string; staffId?: string | null; shownUnder?: string | null } = {},
+  opts: { storeId?: string; shownUnder?: string | null } = {},
 ): Promise<AppointmentWindow> {
-  const appFiltered = opts.shownUnder !== undefined
+  const shownUnder = opts.shownUnder ?? null
   const rows: Appointment[] = []
   let total = 0
   for (let page = 1; page <= MAX_RANGE_PAGES; page++) {
@@ -285,7 +279,8 @@ export async function fetchAppointmentWindow(
       page,
       page_size: RANGE_PAGE_SIZE,
       store_id: opts.storeId ?? undefined,
-      staff_id: appFiltered ? undefined : (opts.staffId ?? undefined),
+      // Never core's staff filter (see above): `shownUnder` keeps the rows.
+      staff_id: undefined,
     })
     total = res.total
     rows.push(...res.appointments)
@@ -300,7 +295,7 @@ export async function fetchAppointmentWindow(
   const cancelled: Appointment[] = []
   const noShow: Appointment[] = []
   for (const a of rows) {
-    if (appFiltered && !isShownBooking({ staffId: a.staff_id }, opts.shownUnder ?? null)) continue
+    if (!isShownBooking({ staffId: a.staff_id }, shownUnder)) continue
     if (isCountedBooking(a)) {
       counted.push(a)
       continue

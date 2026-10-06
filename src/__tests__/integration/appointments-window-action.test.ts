@@ -163,7 +163,7 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
   })
 })
 
-describe('getAppointmentWindow — a filter it cannot place reads ZERO, never everyone (mutant m9)', () => {
+describe('getAppointmentWindow — a filter it cannot place keeps only 担当未定 rows, read without staff_id, never everyone (mutant m9)', () => {
   it('an unplaceable ?staff= id: no placed staff\'s rows, not truncated, read without staff_id', async () => {
     const win = await getAppointmentWindow(FROM, TO, 'somebody-who-left')
     const s = await spies()

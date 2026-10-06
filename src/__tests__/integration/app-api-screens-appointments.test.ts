@@ -339,7 +339,7 @@ const route = { params: Promise.resolve({}) }
 
 // The `from` the merged route actually asks core for, for a JST day.
 //
-// Since the capacity side landed, `windowFor` asks for 86,400,000 ms BEFORE
+// Since the capacity side landed, `shownWindowFor` asks for 86,400,000 ms BEFORE
 // every window it reads, so a booking that starts before day 1's midnight and
 // runs into it is in the rows the intersection index needs. The lead-in moves
 // no count — every consumer re-applies its own YMD spans — so the numbers these
@@ -832,7 +832,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
   })
 
   // Fix round 3 (reader S3): the phone route's day line under a staff filter —
-  // 件 == rows with a 担当未定 booking on the day (dayWindowFor's shownUnder).
+  // 件 == rows with a 担当未定 booking on the day (shownWindowFor's shownUnder).
   it.each([
     ['self', ['appt-1', 'appt-nostaff']],
     ['profile-2', ['appt-2', 'appt-nostaff']],
@@ -899,7 +899,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
     // previous one, which starts seven days before the 1st.
     //
     // Each `from` also carries the route's ONE-DAY LEAD-IN: since the capacity
-    // side landed, `windowFor` asks core for 86,400,000 ms before every window
+    // side landed, `shownWindowFor` asks core for 86,400,000 ms before every window
     // it reads, so a booking that starts before day 1's midnight and runs into
     // it is in the rows the intersection index needs. It moves no count — the
     // compare re-applies its own YMD spans — which is why 先月同期間比 is still
@@ -910,7 +910,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
 
   it('the previous span is clamped EXACTLY like the month read — same store, same 担当', async () => {
     // ⚖ store isolation: a store-restricted staffer's comparison must never
-    // widen to the business. The code went through the same `windowFor`
+    // widen to the business. The code went through the same `shownWindowFor`
     // closure already — but nothing pinned it, so a previous-span read with an
     // empty clamp survived the entire suite.
     staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })

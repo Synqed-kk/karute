@@ -8,8 +8,9 @@
 //  1. It PARTITIONS (counted / cancelled / no-show) and reports `truncated`,
 //     so the screen can show キャンセル counts and can refuse to print a number
 //     it could not read in full.
-//  2. It applies the 担当/自分 filter AT THE FETCH, which is what finally makes
-//     the filter reach the week and month numbers instead of only the day list.
+//  2. It applies the 担当/自分 filter to the week and month numbers, not only
+//     to the day list: the window is read unfiltered and kept by the list's
+//     own rule (`shownUnder`), so 件 == rows, 担当未定 included.
 //  3. It THROWS. `getAppointmentsInRange` catches everything into `[]`, so a
 //     core outage painted as an empty, perfectly calm week — the one lie a
 //     booking screen must never tell (⚖ STRESS-D2 C2). The page has no catch

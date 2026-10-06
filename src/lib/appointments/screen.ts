@@ -108,10 +108,11 @@ export interface AppointmentsScreenInputs {
    *  picker may be generous, a denominator may not. null = no store to ask or
    *  the assignment read failed → no capacity at all. */
   divisorStaffIds?: Set<string> | null
-  /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place, so
-   *  the caller shipped an EMPTY window on purpose (resolveFetchStaffId's
-   *  `unknown`). Zero rows is honest about the bookings and a lie about the
-   *  store, so the day gets no capacity rather than one lane at 0 %. */
+  /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place
+   *  (resolveFetchStaffId's `unknown`), so the window holds only the 担当未定
+   *  rows. None of it is that person's work: honest about the bookings and a
+   *  lie about the store, so the day gets no capacity rather than one lane at
+   *  0 %. */
   staffFilterUnknown?: boolean
   orgSettings: OrgSettings | null
   customers: CachedCustomerOption[]
@@ -241,8 +242,8 @@ export interface AppointmentsScreen {
  *   'self' with no viewer id     → no filter (exactly the day path's behaviour)
  *   a profile id in the map      → its core id
  *   an UNLINKED core id (a map VALUE, i.e. already core-side) → itself
- *   anything else                → unknown: the caller ships an EMPTY window,
- *                                  never an unfiltered one
+ *   anything else                → unknown: the caller's window keeps only
+ *                                  the 担当未定 rows, never an unfiltered one
  */
 export function resolveFetchStaffId(
   staffFilter: string,
@@ -541,16 +542,18 @@ export function buildAppointmentsScreen(
   // as unknown.
   const rosterHeadcount = divisorStaffIds?.size ? divisorStaffIds.size : null
   // 自分/担当 = ONE person's day, so ONE lane (the module's caller contract
-  // (a)), and the window was already filtered at the fetch. The exception is
-  // 'self' with no resolvable viewer id: that fetch is NOT filtered and the
-  // views below fall back to the whole salon, so the day keeps the store's
-  // roster rather than dividing a salon by one person.
+  // (a)); that person's minutes are the window's own rows for them only
+  // (`workedRowsOf` below; the window also holds the 担当未定 rows, for 件).
+  // The exception is 'self' with no resolvable viewer id: that window is NOT
+  // filtered and the views below fall back to the whole salon, so the day
+  // keeps the store's roster rather than dividing a salon by one person.
   const filteredToOnePerson =
     staffFilter !== 'all' && !(staffFilter === 'self' && !activeStaffId)
   // ⚖ R1-9 — except when the filter names somebody the roster cannot place.
-  // That fetch is replaced with an EMPTY window by construction, so "one lane,
-  // nothing booked" would print 稼働 0 % and 空き = the whole declared day for a
-  // person nobody can find. Honest about the rows, a lie about the store.
+  // That window holds only the 担当未定 rows by construction (shownUnder), so
+  // "one lane, none of it theirs" would print 稼働 0 % and 空き = the whole
+  // declared day for a person nobody can find. Honest about the rows, a lie
+  // about the store, so no capacity at all.
   const capacityRoster = staffFilterUnknown
     ? null
     : filteredToOnePerson
