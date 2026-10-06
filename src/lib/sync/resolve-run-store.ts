@@ -9,9 +9,10 @@
 //
 // | Case                                                   | Error                    | Web                       | Phone                                          |
 // |--------------------------------------------------------|--------------------------|---------------------------|------------------------------------------------|
-// | requested store-id is not a lowercase UUID (no lookup)  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
-// | requested store is not this business's (404/403)       | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
-// | requested store outside a clamped caller's assignment  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
+// | requested store-id is not a lowercase UUID (no lookup)  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason sync_store)        |
+// | requested store is not this business's (404/403)       | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason sync_store)        |
+// | requested store outside a clamped caller's assignment  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason sync_store)        |
+// | requested store is archived                            | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason sync_store)        |
 // | caller reaches no store (unassigned in a ≥2-store      | SyncStoreUnassigned      | 409 qr_store_not_ready    | 403 store_unassigned                           |
 // |   business · web: roster cannot place them · business  |                          |                           |                                                |
 // |   has no store at all)                                 |                          |                           |                                                |
@@ -20,6 +21,10 @@
 // | staff-store read throws                                | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
 // | store-list read throws (store count · primary store)   | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
 //
+// The phone never answers reason 'store_header' here: that marker triggers
+// the thin shell's stranded-pin heal (clear the pin, retry unlensed), and an
+// ACTION must never retry itself against a different store. 'sync_store'
+// leaves the pin alone; the next screen read repairs a stale pin.
 // A dependency failure is never swallowed into "no store": it is not the
 // caller's fault and not a store verdict, so it is reported as one (502).
 // Every answer carries the store id core returned (stores.get), never the

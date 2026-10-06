@@ -133,12 +133,13 @@ describe('F3 — scope failures answer like the web run', () => {
     expect(runNow).not.toHaveBeenCalled()
   })
 
-  it('a genuine verdict stays 403 store_forbidden with its store_header marker', async () => {
+  it('a genuine verdict stays 403 store_forbidden, marked sync_store (never store_header: an action never heals the pin)', async () => {
     const res = await POST(post('90765121-c851-4786-8fa5-46ce4ed39fb9'), noRoute)
     expect(res.status).toBe(403)
     const body = await res.json()
     expect(body.error.code).toBe('store_forbidden')
-    expect(JSON.stringify(body)).toContain('store_header')
+    expect(body.error.reason).toBe('sync_store')
+    expect(JSON.stringify(body)).not.toContain('store_header')
     expect(runNow).not.toHaveBeenCalled()
   })
 })
@@ -202,7 +203,10 @@ describe('mapping table — phone column (resolve-run-store.ts)', () => {
     expect(res.status).toBe(status)
     const body = await res.json()
     expect(body.error.code).toBe(code)
-    expect(JSON.stringify(body).includes('store_header')).toBe(marker)
+    // A sync run never answers store_header (fix round 4, Opus S2): the
+    // phone's stranded-pin heal must not clear the pin and retry elsewhere.
+    expect(body.error.reason).toBe(marker ? 'sync_store' : undefined)
+    expect(JSON.stringify(body)).not.toContain('store_header')
     expect(runNow).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
   })
@@ -212,12 +216,13 @@ describe('fix round 3 (Opus S1) — the store-id header is a store id, and the r
   it.each([
     ['uppercase', '1aa03fda-eae0-4850-8ddf-90c999f9ee1d'.toUpperCase()],
     ['a path', '../customers'],
-  ])('%s header → 403 store_forbidden (store_header), no lookup, nothing runs', async (_case, header) => {
+  ])('%s header → 403 store_forbidden (sync_store), no lookup, nothing runs', async (_case, header) => {
     const res = await POST(post(header), noRoute)
     expect(res.status).toBe(403)
     const body = await res.json()
     expect(body.error.code).toBe('store_forbidden')
-    expect(JSON.stringify(body)).toContain('store_header')
+    expect(body.error.reason).toBe('sync_store')
+    expect(JSON.stringify(body)).not.toContain('store_header')
     expect(storesGet).not.toHaveBeenCalled()
     expect(runNow).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
@@ -233,5 +238,19 @@ describe('fix round 3 (Opus S1) — the store-id header is a store id, and the r
     const row = audit.mock.calls[0][0]
     expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: canonical })
     expect(row.detail).toMatchObject({ karute_store_id: canonical })
+  })
+})
+
+describe('fix round 4 (Opus S2) — an archived pin never makes the run crawl another store', () => {
+  it('archived pinned store → 403 store_forbidden (sync_store), nothing runs, no audit row', async () => {
+    capabilities.current = new Set(['sync.view', 'stores.viewAll'])
+    storesGet.mockImplementation(async (id: string) => ({ id, active: false }))
+    const res = await POST(post('1aa03fda-eae0-4850-8ddf-90c999f9ee1d'), noRoute)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error.code).toBe('store_forbidden')
+    expect(body.error.reason).toBe('sync_store')
+    expect(runNow).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
   })
 })
