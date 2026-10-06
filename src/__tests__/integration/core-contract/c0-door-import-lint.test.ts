@@ -50,8 +50,8 @@ describe('C0 core-contract door-import lint rule', () => {
   })
 
   it('a test file may import AND re-export the reader (src/__tests__ is outside the rule)', async () => {
-    expect(await restrictedErrors("import { readC0Fields } from '@/lib/core-contract/c0'\nexport const x = readC0Fields\n", 'src/__tests__/integration/business/planted.test.ts')).toBe(0)
-    expect(await restrictedErrors("export * from '@/lib/core-contract/c0'\n", 'src/__tests__/integration/business/fixtures/c0/planted-reexport.ts')).toBe(0)
+    expect(await restrictedErrors("import { readC0Fields } from '@/lib/core-contract/c0'\nexport const x = readC0Fields\n", 'src/__tests__/integration/core-contract/planted.test.ts')).toBe(0)
+    expect(await restrictedErrors("export * from '@/lib/core-contract/c0'\n", 'src/__tests__/integration/core-contract/fixtures/c0/planted-reexport.ts')).toBe(0)
   })
 
   it('src/lib/core-contract/ holds exactly c0.ts and README.md (no door file can hide inside it)', () => {
