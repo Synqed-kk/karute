@@ -36,7 +36,7 @@ export function isShownBooking(
   row: { staffId?: string | null },
   filterStaffId: string | null,
 ): boolean {
-  return filterStaffId == null || row.staffId == null || row.staffId === filterStaffId
+  return filterStaffId == null || !row.staffId || row.staffId === filterStaffId
 }
 
 /**

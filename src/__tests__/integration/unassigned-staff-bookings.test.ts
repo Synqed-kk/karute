@@ -8,6 +8,7 @@ import {
   getAppointmentsByDateWithClient,
   isCountedBooking,
   isRecordingTarget,
+  isShownBooking,
   fetchAppointmentWindow,
 } from '@/lib/appointments/by-date'
 import { buildAppointmentsScreen } from '@/lib/appointments/screen'
@@ -211,6 +212,29 @@ describe('件 == rows under the current filter (PR-B fix round 1)', () => {
   ])('filter %s: the day 件 counts exactly the rows the list shows', async (filter, self, core) => {
     const rows = [mine, noStaff, theirs]
     expect(await counted(rows, core)).toEqual(await shownRows(rows, filter, self))
+  })
+
+  // Fix round 3 (B1-3): ONE definition of staff-less = a falsy staffId. A row
+  // core hands back with staff_id '' is 担当未定 everywhere: shown AND counted
+  // under every filter, never dropped by one side only.
+  it.each([
+    ['all', null, null],
+    ['self', 'p1', 's1'],
+    ['p2', 'p1', 's2'],
+  ])("filter %s: a staff_id '' row is counted and shown (件 == rows)", async (filter, self, core) => {
+    const blank = appt({ id: 'blank-staff', staff_id: '' as unknown as null, customer_id: 'c9', starts_at: '2026-09-15T04:30:00Z' })
+    const rows = [mine, theirs, blank]
+    const c = await counted(rows, core)
+    expect(c).toContain('blank-staff')
+    expect(c).toEqual(await shownRows(rows, filter, self))
+  })
+
+  it("isShownBooking treats staffId '' / null / undefined alike (shown under any filter)", () => {
+    for (const staffId of ['', null, undefined]) {
+      expect(isShownBooking({ staffId }, 's1')).toBe(true)
+      expect(isShownBooking({ staffId }, null)).toBe(true)
+    }
+    expect(isShownBooking({ staffId: 's2' }, 's1')).toBe(false)
   })
 
   it('the day window under a filter is read WITHOUT staff_id (core cannot match "none")', async () => {

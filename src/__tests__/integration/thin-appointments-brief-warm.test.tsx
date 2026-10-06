@@ -170,3 +170,24 @@ it('a staff-less booking is skipped by both warms; the staffed ones still warm',
   ])
   expect(warmRecordForBookings).toHaveBeenCalledWith(['r-c1', 'r-c3'])
 })
+
+// Fix round 3 (B1-4): staff-less = a FALSY staffId, the wrapper's own rule —
+// a row with staffId '' is never handed to either warm.
+it("a staffId '' booking is skipped by both warms (falsy = staff-less)", async () => {
+  const dto = {
+    ...baseDto,
+    selectedDateIso: jstMidnightIso('2026-07-23'),
+    reservationViews: [
+      reservation('c1', { startTimeHm: '10:00' }),
+      reservation('c2', { staffId: '', startTimeHm: '11:00' }),
+    ],
+  }
+  mountWithDto(dto, '/appointments?date=2026-07-23')
+  await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
+
+  expect(warmBriefsForToday).toHaveBeenCalledTimes(1)
+  expect(warmBriefsForToday).toHaveBeenCalledWith([{ customerId: 'c1', appointmentId: 'r-c1' }])
+  expect(warmRecordForBookings).toHaveBeenCalledTimes(1)
+  expect(warmRecordForBookings).toHaveBeenCalledWith(['r-c1'])
+  expect(warmRecordForBookings).not.toHaveBeenCalledWith(expect.arrayContaining(['r-c2']))
+})
