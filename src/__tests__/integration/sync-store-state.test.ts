@@ -1,7 +1,7 @@
 // S53 PR-C: the all-stores list's five states come from ONE pure function.
 // Fix round 1: every threshold is the store's own interval and 稼働時間帯, read
 // in the config row's timezone; time outside the window does not count.
-import { syncFailureReason, syncStoreState, type SyncSchedule } from '@/lib/sync/sync-store-state'
+import { inWindow, syncFailureReason, syncStoreState, type SyncSchedule } from '@/lib/sync/sync-store-state'
 
 // Times are written in JST (the schedule's timezone); jest runs in UTC.
 const jst = (ymdHm: string) => Date.parse(`${ymdHm}:00+09:00`)
@@ -68,12 +68,37 @@ describe('syncStoreState — the five states', () => {
     // across midnight inside the window: 23:40 → 00:15 is 35 minutes
     expect(state({ schedule: late, lastRunAt: at(jst('2026-10-06T23:40')) }, jst('2026-10-07T00:15'))).toBe('delayed')
   })
-  it('start === end is read as all day: three hours without a run is stopped at 03:00', () => {
-    const allDay = { ...SCHEDULE, hoursStart: 0, hoursEnd: 0 }
+  it('0〜24 is all day: three hours without a run is stopped at 03:00', () => {
+    const allDay = { ...SCHEDULE, hoursStart: 0, hoursEnd: 24 }
     expect(state({ schedule: allDay, lastRunAt: at(jst('2026-10-06T00:00')) }, jst('2026-10-06T03:00'))).toBe('stopped')
+  })
+  it('start === end is an empty window (as core reads it): the clock never runs, the state stays as it was', () => {
+    const empty = { ...SCHEDULE, hoursStart: 9, hoursEnd: 9 }
+    expect(state({ schedule: empty, lastRunAt: at(jst('2026-10-06T00:00')) }, jst('2026-10-06T03:00'))).toBe('healthy')
   })
   it('an unreadable timestamp is stopped, never healthy', () => {
     expect(state({ lastRunAt: 'not a date' })).toBe('stopped')
+  })
+})
+
+// inWindow mirrors core's isWithinBusinessHours (synqed-core src/services/sync.service.ts).
+describe('inWindow — the same reading as core', () => {
+  const w = (hoursStart: number, hoursEnd: number) => ({ ...SCHEDULE, hoursStart, hoursEnd })
+  it.each([0, 8, 9, 10, 23])('start === end (9〜9) is empty: hour %i is outside', (h) => {
+    expect(inWindow(h, w(9, 9))).toBe(false)
+  })
+  it.each([
+    [23, true], [3, true], [5, true], [6, false], [10, false],
+  ])('wrap-around 22〜6: hour %i → %s', (h, expected) => {
+    expect(inWindow(h, w(22, 6))).toBe(expected)
+  })
+  it.each([
+    [8, true], [21, true], [22, false], [7, false],
+  ])('normal 8〜22: hour %i → %s', (h, expected) => {
+    expect(inWindow(h, w(8, 22))).toBe(expected)
+  })
+  it.each([0, 23])('all day 0〜24: hour %i is inside', (h) => {
+    expect(inWindow(h, w(0, 24))).toBe(true)
   })
 })
 

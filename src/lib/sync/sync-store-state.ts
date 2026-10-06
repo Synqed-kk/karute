@@ -10,9 +10,9 @@
 //     > 4 × interval → stopped · > 2 × interval → delayed · else healthy.
 // The clock stops outside the window, so overnight a store reads the state it
 // had at window end, and the morning resumes from there (no false 停止 before
-// the day's first run). A window may span midnight (start > end). start === end
-// is read as no window (all day) — GUESS at core's reading; it is the reading
-// that never hides a store core does not run.
+// the day's first run). A window may span midnight (start > end); start === end
+// is an EMPTY window and 0〜24 is all day — both exactly as core reads them
+// (see inWindow).
 export type SyncStoreState = 'notSet' | 'waiting' | 'healthy' | 'delayed' | 'stopped'
 
 export type SyncSchedule = {
@@ -27,9 +27,16 @@ const MINUTE_MS = 60_000
 // falls on a UTC quarter-hour: stepping on those never straddles a window edge.
 const STEP_MS = 15 * MINUTE_MS
 
-function inWindow(hour: number, { hoursStart: start, hoursEnd: end }: SyncSchedule): boolean {
-  if (start === end) return true
-  return start < end ? hour >= start && hour < end : hour >= start || hour < end
+/** Mirrors core's isWithinBusinessHours (synqed-core
+ *  src/services/sync.service.ts) exactly — core is the source of truth for
+ *  when a store's auto-sync is dispatched. start === end is an empty window;
+ *  end may be 24 (validations/sync.ts: start 0..23, end 0..24). */
+export function inWindow(hour: number, { hoursStart: start, hoursEnd: end }: SyncSchedule): boolean {
+  if (start <= end) {
+    return hour >= start && hour < end
+  }
+  // Wraps midnight (e.g. 22–6)
+  return hour >= start || hour < end
 }
 
 /** Milliseconds of window time between `fromMs` and `toMs`, counted up to `capMs`. */
