@@ -22,9 +22,10 @@ const DEFAULT_AFTER = 'tmp/c0-same-answers-after.json'
 
 function usage(msg) {
   process.stderr.write(`${msg}\nUsage: node scripts/c0-same-answers.mjs <before|after|diff> [--days-ahead N] [--before <file>] [--after <file>] [--out <file>]\n` +
-    `  --days-ahead N (before only): D1 = the JST today + N, default ${core.DEFAULT_DAYS_AHEAD}, from 1 to ${core.MAX_DAYS_AHEAD} —\n` +
-    `  ${core.MAX_DAYS_AHEAD} is the widest that keeps D1..D3 inside Reserve's booking grid (14 days from today when the store sets no\n` +
-    '  booking_open_days); set N to the announced apply → deploy gap + 2. The after run reads the dates from the before file.\n')
+    `  --days-ahead N (before only): D1 = the JST today + N, default ${core.DEFAULT_DAYS_AHEAD}, from 1 to ${core.MAX_DAYS_AHEAD}; set N to the announced apply → deploy gap + 2.\n` +
+    `  ${core.MAX_DAYS_AHEAD} is a conservative ceiling derived from Reserve's default grid (14 days when the store sets no 予約受付期間), measured from the requested day.\n` +
+    '  A store\'s own 予約受付期間 (booking_open_days) can make the real limit lower (N <= booking_open_days - 2): the operator checks it.\n' +
+    '  The after run reads the dates from the before file. --out: keep run files under tmp/ (gitignored) — they hold the Dev Salon\'s rows, customers included.\n')
   process.exit(core.EXIT.USAGE)
 }
 

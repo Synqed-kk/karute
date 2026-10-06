@@ -379,4 +379,10 @@ describe('the CLI — R2-3 every checkInputs branch → exit 3 naming the field 
     expect(r.status).toBe(3)
     expect(r.stderr.split('\n')[0]).toMatch(says)
   })
+  it('R2-4: the --days-ahead usage says 11 is conservative from the requested day, and booking_open_days can lower it', () => {
+    const r = cli([])
+    expect(r.status).toBe(3)
+    expect(r.stderr).toContain(`${core.MAX_DAYS_AHEAD} is a conservative ceiling derived from Reserve's default grid (14 days when the store sets no 予約受付期間), measured from the requested day.`)
+    expect(r.stderr).toContain("A store's own 予約受付期間 (booking_open_days) can make the real limit lower (N <= booking_open_days - 2): the operator checks it.")
+  })
 })

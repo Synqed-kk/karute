@@ -23,11 +23,12 @@ const RESERVE_PAGE_SIZE = 500 // reserve api/_lib/core.ts APPOINTMENT_PAGE_SIZE
 const CUSTOMER_PAGE_SIZE = 500 // karute src/business/lib/practice-door/door.ts:336
 const SHIFT_PAGE_SIZE = 200 // core src/validations/staff-shift.ts:41 max(200) @7d2f629
 const C0_NEW_FIELDS = ['hold_from', 'hold_until', 'holds_managed', 'revision']
-// R-7: D1 = today + N (default 7). The widest N keeps D1..D3 inside every door's read window:
-// Reserve's grid reads gridDays whole JST days (reserve api/_lib/storeRules.ts:169-170 windowCap,
-// applied at api/public/availability.ts:178-180; gridDays = booking_open_days + 1, else 14 —
-// storeRules.ts:122, :151-154), and the picker asks from today (availability.ts:77-82), so
-// D3 = today + N + 2 <= today + 13 → N <= 11. karute's range read takes any from/to
+// R-7 / R2-4: D1 = today + N (default 7). 11 is a CONSERVATIVE ceiling from Reserve's default grid:
+// the grid reads gridDays whole JST days from the REQUESTED day (reserve api/_lib/storeRules.ts:169-170
+// windowCap, applied at api/public/availability.ts:174-180; gridDays = booking_open_days + 1, else 14 —
+// storeRules.ts:122, :151-154); the picker asks from today (availability.ts:77-82), so keeping
+// D3 = today + N + 2 <= today + 13 gives N <= 11. A store's own booking_open_days b makes it N <= b - 2
+// (the operator checks it; no code bound). karute's range read takes any from/to
 // (src/lib/appointments/by-date.ts:229-245) — no tighter bound.
 const DEFAULT_DAYS_AHEAD = 7
 const MAX_DAYS_AHEAD = 11

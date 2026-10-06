@@ -55,7 +55,7 @@ describe('C0 core-contract door-import lint rule', () => {
   })
 
   it('src/lib/core-contract/ holds exactly c0.ts and README.md (no door file can hide inside it)', () => {
-    expect(readdirSync(path.join(ROOT, 'src/lib/core-contract')).sort()).toEqual(['README.md', 'c0.ts'])
+    expect(readdirSync(path.join(ROOT, 'src/lib/core-contract')).filter((f) => f !== '.DS_Store').sort()).toEqual(['README.md', 'c0.ts']) // NIT N-5: Finder's file, never committed
   })
 
   it('the real `npx eslint` catches 3 of 3 planted files in a scratch copy', () => {
