@@ -28,7 +28,7 @@ export const maxDuration = 300
  * contract §3.1, PR-M2: this business-wide trigger was reachable by ANY
  * signed-in staff before, ungated and unlogged.
  */
-export async function POST() {
+export async function POST(request?: Request) {
   try {
     await getBusinessId()
   } catch {
@@ -53,12 +53,15 @@ export async function POST() {
     // CORE-43: crawl the ACTIVE store's own row — 銀座's button runs 銀座.
     // The store is resolved by the ONE helper the phone run uses too; its
     // mapping table (case × web × phone) heads src/lib/sync/resolve-run-store.ts.
+    // The all-stores list (viewAll callers) names a row's store in the body;
+    // the same helper still decides whether this caller may run it.
+    const body = (await request?.json().catch(() => null)) as { storeId?: unknown } | null
     const [staffId, activeStore] = await Promise.all([getCurrentUserStaffId(), getActiveStoreId()])
     const { storeId } = await resolveSyncRunStore({
       synqed,
       authUserId: staffId,
       capabilities,
-      requestedStoreId: activeStore,
+      requestedStoreId: typeof body?.storeId === 'string' && body.storeId ? body.storeId : activeStore,
     })
     const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
     await auditWeb({
