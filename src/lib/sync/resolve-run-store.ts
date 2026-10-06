@@ -16,6 +16,7 @@
 // |   business · web: roster cannot place them · business  |                          |                           |                                                |
 // |   has no store at all)                                 |                          |                           |                                                |
 // | requested-store verify throws (5xx / 429 / network)    | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
+// | requested-store verify answers without a store id      | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
 // | staff-store read throws                                | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
 // | store-list read throws (store count · primary store)   | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
 //
@@ -85,6 +86,11 @@ export async function resolveSyncRunStore(args: {
     }
     // An archived store is not one anybody may sync.
     if ((store as { active?: unknown } | null)?.active === false) throw new SyncStoreForbidden('store-id is archived')
+    // An answer without an id is core's failure, never "no store requested":
+    // falling through would act on the default store instead.
+    if (typeof store?.id !== 'string' || !store.id) {
+      throw new SyncStoreDependencyError(new Error('core returned a store without an id'))
+    }
     canonicalId = store.id
   }
 

@@ -304,3 +304,13 @@ describe('fix round 3 (Opus S1) — the web run carries the id core returned', (
     expect(auditWeb).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 4 (Sonnet SF1) — a store answer without an id never runs the default store', () => {
+  it('stores.get answers {} → 502, nothing runs, no audit row', async () => {
+    storesGet.mockResolvedValue({})
+    const res = await POST(run())
+    expect(res.status).toBe(502)
+    expect(runNow).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+})
