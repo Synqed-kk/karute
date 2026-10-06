@@ -380,3 +380,18 @@ describe('fix round 3 (Opus S2) — a save names its store or nothing is written
     expect(await (await GET(getReq())).json()).toMatchObject({ configured: true, username: 'owner' })
   })
 })
+
+describe('fix round 3 (Opus N2) — a malformed save body is a 400, never a platform 500', () => {
+  it.each([
+    ['malformed JSON', '{"storeId":'],
+    ['JSON null', 'null'],
+    ['a JSON string', '"x"'],
+  ])('%s → 400 invalid_body, no lookup, nothing written', async (_case, raw) => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(new Request('https://app.test/api/sync/quickreserve/config', { method: 'POST', body: raw }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'invalid_body' })
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+})
