@@ -356,3 +356,27 @@ describe('fix round 3 (Opus S1) — a save writes the id core returned', () => {
     expect(upsert).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 3 (Opus S2) — a save names its store or nothing is written', () => {
+  it.each([
+    ['no storeId', undefined],
+    ['storeId: []', []],
+    ['storeId: 123', 123],
+    ["storeId: ''", ''],
+  ])('%s → 409 qr_store_not_ready, no lookup, nothing written', async (_case, storeId) => {
+    actorStore.current = null
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(req({ storeId, username: 'owner', password: 'pw', enabled: true }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(storesList).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('the GET with no storeId keeps its default (the primary store reads its row)', async () => {
+    actorStore.current = null
+    mockClient([DAIKANYAMA_ROW])
+    expect(await (await GET(getReq())).json()).toMatchObject({ configured: true, username: 'owner' })
+  })
+})

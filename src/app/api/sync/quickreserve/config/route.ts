@@ -113,6 +113,11 @@ export async function POST(request: Request) {
   }
 
   const { storeId: shown, username, password, enabled, qrStoreSlug, qrStoreId } = await request.json()
+  // A save names the store its form shows; without one it is refused before
+  // any lookup — never written onto a default store's row.
+  if (typeof shown !== 'string' || !shown) {
+    return NextResponse.json({ error: 'qr_store_not_ready' }, { status: 409 })
+  }
   const synqed = await getSynqedClient()
   // Which store's row this save changed — for the audit row below.
   let savedStoreId: string | null = null
