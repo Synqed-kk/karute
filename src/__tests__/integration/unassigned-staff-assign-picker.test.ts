@@ -69,3 +69,20 @@ describe('assignableStaffIdsByBooking', () => {
     expect((c as unknown as { staff: { list: jest.Mock } }).staff.list).not.toHaveBeenCalled()
   })
 })
+
+// ⚖ FIX ROUND 4 (R5) — a booking with NO store (legacy import): nothing to
+// judge the store against, so every ACTIVE staff is offered (the write gate
+// skips the store half for it too) and no store set is ever asked.
+describe('assignableStaffIdsByBooking — store-less booking', () => {
+  it('store_id null → every active staff (the inactive one excluded), no store lookup', async () => {
+    const storeSet = jest.fn(async () => GINZA)
+    const out = await assignableStaffIdsByBooking(
+      [{ id: 'b-nostore', staff_profile_id: null, store_id: null }],
+      STAFF,
+      core(),
+      storeSet,
+    )
+    expect(out).toEqual({ 'b-nostore': ['p-ginza', 'p-shibuya', 'p-float'] })
+    expect(storeSet).not.toHaveBeenCalled()
+  })
+})

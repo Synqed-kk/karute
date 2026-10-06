@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
-// PR-B part 1 — the read-only 担当未定 sheet and the
-// desktop grid's 担当未定 lane (present only on a day with a staff-less booking).
+// PR-B — the 担当未定 sheet (read-only and picker), the desktop grid's 担当未定
+// lane, the wrapper's picker filter, the assign tap and the already-staffed answer.
 import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 

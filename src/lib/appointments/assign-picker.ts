@@ -8,6 +8,7 @@
 // falls back to its read-only lines.
 
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
+import { isRecordingTarget } from '@/lib/appointments/by-date'
 import type { SynqedClient } from '@synqed-kk/client'
 
 export async function assignableStaffIdsByBooking(
@@ -16,7 +17,8 @@ export async function assignableStaffIdsByBooking(
   synqed: Pick<SynqedClient, 'staff'>,
   storeStaffIds: (storeId: string) => Promise<Set<string> | null>,
 ): Promise<Record<string, string[]>> {
-  const unassigned = rows.filter((r) => r.staff_profile_id == null)
+  // Staff-less = by-date's ONE rule (not a recording target), never a copy.
+  const unassigned = rows.filter((r) => !isRecordingTarget(r))
   if (unassigned.length === 0) return {}
 
   // A member whose core staff row is inactive cannot take a booking (matched by

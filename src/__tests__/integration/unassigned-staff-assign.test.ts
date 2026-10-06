@@ -423,3 +423,25 @@ describe('fix round 4 (R3): the resolver runs only after the lock and the refusa
     })
   })
 })
+
+// ⚖ FIX ROUND 4 (R4) — the assign door keeps the terminal guard: a cancelled
+// booking is never given a staff.
+describe('fix round 4 (R4): a cancelled booking', () => {
+  it("CANCELLED → { error: 'A cancelled or no-show booking cannot be edited.' }, update not called", async () => {
+    const actor = { actorId: 'auth-user-1', businessId: 'business-1', source: 'web' as const, requestId: 'r' }
+    const scope = { storeId: null, allowedStoreIds: null } as unknown as Parameters<typeof assignStaffToBooking>[4]
+    apptGet.mockResolvedValue({
+      id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      staff_id: null,
+      status: 'CANCELLED',
+      starts_at: '2026-10-06T01:00:00.000Z',
+      ends_at: '2026-10-06T02:00:00.000Z',
+    })
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', staffNew, actor, scope)).resolves.toEqual({
+      error: 'A cancelled or no-show booking cannot be edited.',
+    })
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+})
