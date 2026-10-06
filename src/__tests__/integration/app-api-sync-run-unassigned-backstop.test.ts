@@ -48,16 +48,16 @@ const post = (store?: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks()
-  storesGet.mockResolvedValue({ id: 'x' })
+  storesGet.mockImplementation(async (id: string) => ({ id }))
   // A 2-store business; this caller is assigned to neither.
-  storesList.mockResolvedValue({ stores: [{ id: 'store-a', is_primary: true }, { id: 'store-b' }] })
+  storesList.mockResolvedValue({ stores: [{ id: '714d1196-5aa7-409d-8afc-5046aa19d031', is_primary: true }, { id: '1aa03fda-eae0-4850-8ddf-90c999f9ee1d' }] })
   staffStoresGet.mockResolvedValue({ store_ids: [] })
 })
 
 describe('phone run — the route itself refuses a caller who reaches no store', () => {
   it.each([
     ['no store-id header', undefined],
-    ['a store-id header naming a real store', 'store-a'],
+    ['a store-id header naming a real store', '714d1196-5aa7-409d-8afc-5046aa19d031'],
   ])('%s → 403 store_unassigned, nothing runs, nothing audited', async (_case, header) => {
     const res = await POST(post(header), noRoute)
     expect(res.status).toBe(403)

@@ -9,6 +9,7 @@
 //
 // | Case                                                   | Error                    | Web                       | Phone                                          |
 // |--------------------------------------------------------|--------------------------|---------------------------|------------------------------------------------|
+// | requested store-id is not a lowercase UUID (no lookup)  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
 // | requested store is not this business's (404/403)       | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
 // | requested store outside a clamped caller's assignment  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
 // | caller reaches no store (unassigned in a ≥2-store      | SyncStoreUnassigned      | 409 qr_store_not_ready    | 403 store_unassigned                           |
@@ -20,10 +21,13 @@
 //
 // A dependency failure is never swallowed into "no store": it is not the
 // caller's fault and not a store verdict, so it is reported as one (502).
+// Every answer carries the store id core returned (stores.get), never the
+// request string.
 
 import type { SynqedClient } from '@synqed-kk/client'
 import type { Capability } from '@/lib/auth/permissions'
 import { storeAssignmentVerdict, storeCountForGate } from '@/lib/auth/store-gate'
+import { UUID_RE } from '@/lib/uuid-shape'
 
 /** The requested store is not one this caller may run. */
 export class SyncStoreForbidden extends Error {}
@@ -63,8 +67,14 @@ export async function resolveSyncRunStore(args: {
 }): Promise<{ storeId: string }> {
   const { synqed, authUserId, capabilities, requestedStoreId } = args
 
+  // The store id downstream acts on: the one core returned, never the request string.
+  let canonicalId: string | null = null
   if (requestedStoreId) {
-    let store: unknown
+    // A store id is a lowercase UUID; anything else is refused before any lookup.
+    if (!UUID_RE.test(requestedStoreId) || requestedStoreId !== requestedStoreId.toLowerCase()) {
+      throw new SyncStoreForbidden('store-id is not a store id')
+    }
+    let store: Awaited<ReturnType<typeof synqed.stores.get>>
     try {
       store = await synqed.stores.get(requestedStoreId)
     } catch (err) {
@@ -74,6 +84,7 @@ export async function resolveSyncRunStore(args: {
     }
     // An archived store is not one anybody may sync.
     if ((store as { active?: unknown } | null)?.active === false) throw new SyncStoreForbidden('store-id is archived')
+    canonicalId = store.id
   }
 
   let stores: { id: string; is_primary?: boolean | null; active?: boolean | null }[] | undefined
@@ -94,11 +105,11 @@ export async function resolveSyncRunStore(args: {
     }
   }
 
-  if (requestedStoreId) {
-    if (assigned && !assigned.includes(requestedStoreId)) {
+  if (canonicalId) {
+    if (assigned && !assigned.includes(canonicalId)) {
       throw new SyncStoreForbidden('store-id outside your assignment')
     }
-    return { storeId: requestedStoreId }
+    return { storeId: canonicalId }
   }
   if (assigned) return { storeId: assigned[0] }
   const list = (await listStores()).filter((s) => s.active !== false)
