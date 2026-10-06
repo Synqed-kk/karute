@@ -169,7 +169,7 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     await act(async () => { fireEvent.click(button('syncNow')) })
     posts[0].resolve({ error: code }, 400)
     await flush()
-    expect(screen.getByText('Error (400): somethingWentWrong')).toBeTruthy()
+    expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy() // PR-A's failureLine: one generic line for any code it has no copy for
     expect(screen.queryByText(new RegExp(code))).toBeNull()
   })
 
