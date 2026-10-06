@@ -1786,6 +1786,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
               key={section.storePage?.storeId}
               // the source line speaks for the colour core last confirmed: the room's `saved`, not the page payload
               look={{ ...section.cardLook, value: CARD_COLOR_ID in saved ? String(saved[CARD_COLOR_ID] ?? '') || null : section.cardLook.value }}
+              // By design (R242 / R288): STORE_CAPABILITIES_REAL_MODE (data.ts) is hard-coded false, so every room that exists today is a practice room,
+              // and the customer-app preview always shows the full believable sample with its サンプル dateline (settings-props.ts),
+              // never a real customer. A store whose features are locked is the practice door OFF, not a real business without data.
               storeView={spSample && spDraft ? { draft: spDraft, counts: spSample.counts, sampleKey: spSample.sampleKey } : undefined}
               value={String(values[CARD_COLOR_ID] ?? '')}
               onPick={(hex) => {
