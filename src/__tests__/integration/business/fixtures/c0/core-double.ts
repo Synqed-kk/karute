@@ -145,7 +145,12 @@ export class CoreDouble {
     return row
   }
 
-  pubAppt(r: Appt): Record<string, unknown> { return Object.fromEntries(PUBLIC_APPT.map((k) => [k, r[k] ?? null])) }
+  /** false = an old core (before the deploy): the appointment JSON lacks the four C0 fields. */
+  c0Fields = true
+  pubAppt(r: Appt): Record<string, unknown> {
+    const keys = this.c0Fields ? PUBLIC_APPT : PUBLIC_APPT.filter((k) => !['hold_from', 'hold_until', 'holds_managed', 'revision'].includes(k))
+    return Object.fromEntries(keys.map((k) => [k, r[k] ?? null]))
+  }
   private pubShift(r: Shift): Record<string, unknown> { return Object.fromEntries(PUBLIC_SHIFT.map((k) => [k, r[k] ?? null])) }
   private pubCustomer(r: Customer): Record<string, unknown> { return Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'deleted_by')) }
   private live(): Appt[] { return [...this.appts.values()].filter((r) => r.voided_at === null) }

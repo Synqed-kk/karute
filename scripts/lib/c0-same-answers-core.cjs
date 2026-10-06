@@ -288,7 +288,10 @@ function rowIdOf(root, path) {
   return id
 }
 
-const pattern = (path) => path.map((k) => (/^\d+$/.test(k) ? '[]' : k)).join('.')
+// Array indices → [], and the id keys of Q4 / Q6.customers → {id}, so one new field reads as one path.
+const pattern = (path) => path
+  .map((k, i) => (/^\d+$/.test(k) ? '[]' : (path[0] === 'Q4' && i === 1) || (path[0] === 'Q6' && path[1] === 'customers' && i === 2) ? '{id}' : k))
+  .join('.')
 
 /** Every appointment object of every query of a run. */
 function appointmentObjects(answers) {
