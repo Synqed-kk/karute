@@ -197,7 +197,9 @@ describe('customer delete (order § 4 (b), OR-1)', () => {
     expect((await http.request('DELETE', `/v1/customers/${c.id}`)).status).toBe(200)
     expect(core.customers.get(c.id)?.deleted_at).not.toBeNull()
     expect((await http.request('GET', `/v1/appointments/${appt.id}`)).status).toBe(200)
-    expect(await http.request('DELETE', `/v1/customers/${c.id}`)).toEqual({ status: 404, json: { error: 'Customer not found' } })
+    // As core today: 500 {error:'Customer not found'} (customer.service.ts:426 → index.ts:97-100 @7d2f629).
+    expect(await http.request('DELETE', `/v1/customers/${c.id}`)).toEqual({ status: 500, json: { error: 'Customer not found' } })
+    expect(await http.request('DELETE', '/v1/customers/c0000000-0000-4000-8000-999999999999')).toEqual({ status: 500, json: { error: 'Customer not found' } })
     const again = await http.request('POST', '/v1/customers', { body: { name: '花子', email: 'hanako@example.test' } })
     expect(again.status).toBe(201)
     expect(again.json).toEqual(expect.objectContaining({ id: c.id, deleted_at: expect.any(String) }))
@@ -214,5 +216,113 @@ describe('shift delete (order § 4 (c))', () => {
     expect(((await http.request('GET', '/v1/staff-shifts', { query: { date: '2026-10-20' } })).json as { total: number }).total).toBe(0)
     const re = await http.request('POST', '/v1/staff-shifts', { body: { staff_id: 'st-1', date: '2026-10-20' }, headers: actor })
     expect(re.status).toBe(201)
+  })
+})
+
+// ── fix round 1 (RULINGS-BUILD-S23) ─────────────────────────────────────────
+
+const OK = { hold_from: '2026-10-20T01:00:00.000Z', hold_until: '2026-10-20T02:00:00.000Z', holds_managed: false, revision: 0 }
+const okRow = (id: string) => ({ id, ...OK })
+const fixed = (answer: (n: number) => unknown): CoreHttp & { calls: () => number } => {
+  let n = 0
+  return { request: async () => ({ status: 200, json: answer(++n) }), calls: () => n }
+}
+const ENV = { appointments: [okRow('a')], total: 1, page: 1, page_size: 200, next_cursor: null }
+const messageOf = async (p: Promise<unknown>) => {
+  try { await p } catch (e) { return e instanceof C0ContractError ? `${e.code}: ${e.message}` : `other: ${String(e)}` }
+  return 'NONE'
+}
+const drain = async (h: CoreHttp) => {
+  const pages: unknown[] = []
+  for await (const page of walkOverlaps(h, W)) pages.push(page)
+  return pages
+}
+
+describe('R-8 the reader is strict', () => {
+  it.each([
+    ['revision as a numeric string', { ...OK, revision: '3' }, 'revision'],
+    ['revision 1.5', { ...OK, revision: 1.5 }, 'revision'],
+    ['revision NaN', { ...OK, revision: NaN }, 'revision'],
+    ['revision above int4', { ...OK, revision: 2147483648 }, 'revision'],
+    ['a calendar date that does not exist (Feb 30)', { ...OK, hold_from: '2026-02-30T00:00:00Z' }, 'hold_from'],
+    ['hour 24', { ...OK, hold_until: '2026-10-20T24:00:00Z' }, 'hold_until'],
+    ['exactly one of the pair null', { ...OK, hold_from: null }, 'hold_until'],
+    ['an inverted envelope', { ...OK, hold_from: '2026-10-20T03:00:00.000Z' }, 'hold_until'],
+    ['a non-object answer', 'x', 'appointment'],
+  ])('%s → FIELD_TYPE', (_name, row, field) => {
+    expect(() => readC0Fields(row)).toThrow(expect.objectContaining({ code: 'FIELD_TYPE', field }))
+  })
+  it('accepts int4 max, an offset instant and an equal pair', () => {
+    expect(readC0Fields({ ...OK, revision: 2147483647 }).revision).toBe(2147483647)
+    expect(hasC0Fields({ ...OK, hold_from: '2026-10-20T10:00:00+09:00', hold_until: '2026-10-20T01:00:00.000Z' })).toBe(true)
+    expect(hasC0Fields({ ...OK, hold_from: null, hold_until: null })).toBe(true)
+  })
+  it.each([
+    ['page 2', { ...ENV, page: 2 }],
+    ['an extra key', { ...ENV, extra: 1 }],
+    ['next_cursor missing', { appointments: ENV.appointments, total: 1, page: 1, page_size: 200 }],
+    ['next_cursor 5', { ...ENV, next_cursor: 5 }],
+    ['next_cursor empty', { ...ENV, next_cursor: '' }],
+    ['total -1', { ...ENV, total: -1 }],
+    ['total below the rows on the page', { ...ENV, total: 0 }],
+    ['page_size 0', { ...ENV, page_size: 0 }],
+    ['appointments not an array', { ...ENV, appointments: 'x' }],
+    ['a cursor with an empty page', { ...ENV, appointments: [], total: 0, next_cursor: 'x' }],
+    ['a row without an id', { ...ENV, appointments: [OK] }],
+    ['an id twice on one page', { ...ENV, appointments: [okRow('a'), okRow('a')], total: 2 }],
+  ])('listOverlaps: %s → SHAPE', async (_name, json) => {
+    expect(await codeOf(listOverlaps(fixed(() => json), W))).toEqual(expect.objectContaining({ code: 'SHAPE' }))
+  })
+  it('listOverlaps: a row lacking a field → FIELD_MISSING; a non-object row → FIELD_TYPE', async () => {
+    expect(await codeOf(listOverlaps(fixed(() => ({ ...ENV, appointments: [{ id: 'a', hold_from: null, hold_until: null, holds_managed: false }] })), W))).toEqual(expect.objectContaining({ code: 'FIELD_MISSING', field: 'revision' }))
+    expect(await codeOf(listOverlaps(fixed(() => ({ ...ENV, appointments: [7] })), W))).toEqual(expect.objectContaining({ code: 'FIELD_TYPE' }))
+  })
+  it('switches: an extra envelope key or an extra switch key → SHAPE (strict both ways)', async () => {
+    const all = Object.fromEntries(SWITCH_KEYS.map((k) => [k, 'OFF']))
+    expect(await codeOf(readStoreLessSwitches(fixed(() => ({ generation: 0, switches: all, extra: 1 }))))).toEqual(expect.objectContaining({ code: 'SHAPE' }))
+    core.switchKeys = [...core.switchKeys, 'later']
+    expect(await codeOf(readStoreSwitches(http, STORE))).toEqual(expect.objectContaining({ code: 'SHAPE', field: 'later' }))
+  })
+})
+
+describe('R-5 cursor safety: every walk ends', () => {
+  it('a core repeating its cursor (the double\'s test mode) → SHAPE', async () => {
+    core.seedAppointment({ starts_at: '2026-10-20T01:00:00.000Z', ends_at: '2026-10-20T02:00:00.000Z' })
+    core.repeatCursor = true
+    expect(await messageOf(drain(http))).toMatch(/^SHAPE: .*next_cursor repeated/)
+  })
+  it('next_cursor "" → SHAPE', async () => {
+    expect(await messageOf(drain(fixed(() => ({ ...ENV, next_cursor: '' }))))).toMatch(/^SHAPE: .*next_cursor empty/)
+  })
+  it('a non-null cursor with an empty page → SHAPE', async () => {
+    expect(await messageOf(drain(fixed((n) => (n === 1 ? { ...ENV, next_cursor: 'c1' } : { ...ENV, appointments: [], next_cursor: 'c2' }))))).toMatch(/^SHAPE: .*empty page/)
+  })
+  it('an id seen on an earlier page → SHAPE', async () => {
+    expect(await messageOf(drain(fixed((n) => ({ ...ENV, next_cursor: n === 1 ? 'c1' : null }))))).toMatch(/^SHAPE: .*repeated across the walk/)
+  })
+  it('more than 1000 pages → SHAPE, after exactly 1000 requests', async () => {
+    const h = fixed((n) => ({ ...ENV, appointments: [okRow(`r${n}`)], next_cursor: `c${n}` }))
+    expect(await messageOf(drain(h))).toMatch(/^SHAPE: .*more than 1000 pages/)
+    expect(h.calls()).toBe(1000)
+  })
+})
+
+describe('R-11 (NIT-1) the overlap read is half-open on both sides', () => {
+  it('a row starting exactly at overlaps_to is not returned', async () => {
+    core.seedAppointment({ starts_at: W.overlaps_to, ends_at: '2026-10-20T04:00:00.000Z' })
+    expect((await listOverlaps(http, W)).appointments).toEqual([])
+  })
+})
+
+describe('R-10 the double matches core', () => {
+  it('an update that changes a counted column AND supplies revision → OLD+1, the supplied value ignored', () => {
+    const r = core.seedAppointment({ starts_at: '2026-10-20T01:00:00.000Z', ends_at: '2026-10-20T02:00:00.000Z' })
+    expect(core.update(r.id, { title: 'x', revision: 6 }).revision).toBe(1)
+    expect(core.update(r.id, { title: 'y', revision: 2 }).revision).toBe(2)
+  })
+  it('a shift delete moves updated_at', async () => {
+    const s = core.seedShift({ staff_id: 'st-1', date: '2026-10-21' })
+    expect((await http.request('DELETE', `/v1/staff-shifts/${s.id}`, { headers: { [DOUBLE_ACTOR_HEADER]: 'staff-owner' } })).status).toBe(200)
+    expect((core.shifts.get(s.id)?.updated_at ?? "") > s.updated_at).toBe(true)
   })
 })

@@ -5,6 +5,8 @@
  *
  * Appointment JSON = every field core's toPublic returns today
  * (core src/services/appointment.service.ts:157-185 @7d2f629) + the four C0 fields.
+ * Tests only: the `x-double-actor-staff-id` header (DOUBLE_ACTOR_HEADER) stands in for
+ * core's actorAuthMiddleware actor on the shift writes — it is not a core header.
  */
 import type { CoreHttp, CoreMethod } from '@/lib/core-contract/c0'
 
@@ -78,6 +80,10 @@ export class CoreDouble {
   private readonly cursors = new Map<string, string>() // issued cursor → last id
   private readonly idem = new Map<string, { fingerprint: string; id: string }>()
   switchKeys = [...DOUBLE_SWITCH_KEYS]
+  /** Test mode (R-5): every overlap page answers the same next_cursor — a core that never ends. */
+  repeatCursor = false
+  /** Test mode (R-6): customers with the same name come back in the reverse insertion order. */
+  customerTiesReversed = false
   readonly requests: Array<{ method: string; path: string; query: Query }> = []
 
   constructor(opts: { businessId?: string; storeIds?: string[]; start?: string } = {}) {
@@ -237,6 +243,10 @@ export class CoreDouble {
       next = Buffer.from(`double:${this.cursorSeq}`).toString('base64url')
       this.cursors.set(next, pageRows[pageRows.length - 1].id)
     }
+    if (this.repeatCursor) {
+      next = Buffer.from('double:repeat').toString('base64url')
+      this.cursors.set(next, '')
+    }
     return { status: 200, json: { appointments: pageRows.map((r) => this.pubAppt(r)), total: matching.length, page: 1, page_size: pageSize, next_cursor: next } }
   }
 
@@ -283,20 +293,27 @@ export class CoreDouble {
       const includeDeleted = one(q, 'include_deleted') === 'true'
       const page = Number(one(q, 'page') ?? 1); const pageSize = Number(one(q, 'page_size') ?? 20)
       if (!(pageSize >= 1 && pageSize <= 500)) return err(400, 'page_size must be 1..500')
-      const rows = [...this.customers.values()].filter((c) => includeDeleted || c.deleted_at === null).sort((x, y) => (x.id < y.id ? -1 : 1))
+      // As core: ordered by name alone, no id tiebreak (customer.service.ts:85 sortBy default 'name', :98 orderBy @7d2f629) —
+      // equal names come back in no fixed order, so the double can flip them.
+      const base = [...this.customers.values()].filter((c) => includeDeleted || c.deleted_at === null)
+      if (this.customerTiesReversed) base.reverse()
+      const rows = base.sort((x, y) => String(x.name ?? '').localeCompare(String(y.name ?? '')))
       return { status: 200, json: { customers: rows.slice((page - 1) * pageSize, page * pageSize).map((c) => this.pubCustomer(c)), total: rows.length, page, page_size: pageSize } }
     }
     if (method === 'GET' && id) { const c = this.customers.get(id); return c ? { status: 200, json: this.pubCustomer(c) } : err(404, 'Customer not found') }
     if (method === 'POST' && !id) {
       const b = (body ?? {}) as Record<string, unknown>
-      // OR-1: an email collision returns the EXISTING record with 201, deleted or not (no CUSTOMER_DELETED_CONFLICT in C0).
+      // OR-1: an email collision returns the EXISTING record with 201, deleted or not (no 409 on a customer create in C0).
       const hit = typeof b.email === 'string' ? [...this.customers.values()].find((c) => c.email === b.email) : undefined
       if (hit) return { status: 201, json: this.pubCustomer(hit) }
       return { status: 201, json: this.pubCustomer(this.seedCustomer(b as Partial<Customer>)) }
     }
     if (method === 'DELETE' && id) {
       const c = this.customers.get(id)
-      if (!c || c.deleted_at !== null) return err(404, 'Customer not found')
+      // As core today: a DELETE of a missing (or already deleted) customer throws 'Customer not found'
+      // (customer.service.ts:426 @7d2f629); the DELETE route maps only CUSTOMER_MERGED (routes/customers.ts:123-135),
+      // so app.onError answers 500 {error: message} (index.ts:97-100).
+      if (!c || c.deleted_at !== null) return { status: 500, json: { error: 'Customer not found' } }
       const at = this.now()
       // Soft: deleted_at set, deleted_by NULL in C0 (OR-2); no booking touched; her keys stay reserved.
       this.customers.set(id, { ...c, deleted_at: at, deleted_by: null, updated_at: at })
@@ -335,7 +352,9 @@ export class CoreDouble {
     }
     if (method === 'DELETE' && id) {
       if (!liveRow) return err(404, 'Shift not found')
-      this.shifts.set(liveRow.id, { ...liveRow, voided_at: this.now(), voided_by: actor })
+      // The void is a Prisma update: @updatedAt stamps updated_at (schema.prisma:860 @7d2f629).
+      const at = this.now()
+      this.shifts.set(liveRow.id, { ...liveRow, voided_at: at, voided_by: actor, updated_at: at })
       return { status: 200, json: { success: true } }
     }
     return err(404, 'Not found')
