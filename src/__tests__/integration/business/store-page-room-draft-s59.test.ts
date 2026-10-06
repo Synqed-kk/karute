@@ -15,13 +15,13 @@ describe('T7 (C1) — record → values → draft', () => {
     const v = storePageValues(saved, IDS)
     expect(Object.keys(v)).toHaveLength(17)
     expect(v['reserve-store-page.family']).toBe('hair_salon')
-    expect(storePageDraft(saved, v, IDS)).toEqual(saved)
+    expect(storePageDraft(saved, v, IDS, [])).toEqual(saved)
   })
 
   it('a value taken from the room moves only business_type / on', () => {
     const k = CAP_KEYS[0]
     const v = { ...storePageValues(saved, IDS), [STORE_PAGE_FAMILY_ID]: 'personal_gym', [storePageSwitchId(k)]: !saved.switches[k].on }
-    const d = storePageDraft(saved, v, IDS)
+    const d = storePageDraft(saved, v, IDS, [k]) // S75 fix 3b (R-E′): the room hands in the flipped key as touched
     expect(d.business_type).toBe('personal_gym')
     expect(d.switches[k]).toEqual({ ...saved.switches[k], on: !saved.switches[k].on })
     for (const o of CAP_KEYS.slice(1)) expect(d.switches[o]).toBe(saved.switches[o])
@@ -36,7 +36,7 @@ describe('T7 (C1) — record → values → draft', () => {
       { [STORE_PAGE_FAMILY_ID]: null, [storePageSwitchId(k)]: null },
     ]
     for (const v of junk) {
-      const d = storePageDraft(saved, v, IDS)
+      const d = storePageDraft(saved, v, IDS, [])
       expect(d).toEqual(saved)
       expect(parseInternalRecord(d)).toEqual(d)
     }

@@ -8,7 +8,8 @@ import type { CapsSaveReason } from './save-client'
 export type CardReason = 'forbidden' | 'tenant' | 'invalid' | 'core'
 
 /** Each half: 'unsent' (not sent by this press), 'ok' (core accepted it) or its refusal. Each line says only its own
- *  half's truth (S5). Switches: stale → X4-alt · forbidden → X1 · tenant → X2 · core / invalid / disconnected → X3,
+ *  half's truth (S5). Switches: stale → X4-alt · forbidden → X1 · tenant → X2 · locked (S75) → its own reload line ·
+ *  core / invalid / disconnected → X3,
  *  or L9 when the colour was saved. Colour: its own line, except `core` while the switches were saved → L10. */
 export function saveFailLines(
   card: 'unsent' | 'ok' | CardReason,
@@ -20,6 +21,7 @@ export function saveFailLines(
       : caps === 'stale' ? SAVE_FAIL.stale
         : caps === 'forbidden' ? SAVE_FAIL.forbidden
           : caps === 'tenant' ? SAVE_FAIL.tenant
+            : caps === 'locked' ? SAVE_FAIL.locked
             : card === 'ok' ? SAVE_FAIL.colourOnly
               : SAVE_FAIL.core
   const cardLine =

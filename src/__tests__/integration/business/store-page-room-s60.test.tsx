@@ -136,7 +136,7 @@ describe('S60 P7A-R2d R212 · R216 — .st-link[aria-disabled="true"]', () => {
 
 // ---- T2 / T3
 import { STORES } from '@/business/lib/reserve-card/store-page-sample'
-import { seedRecord } from '@/business/lib/store-page/model'
+import { seedRecord, stampSave, type CapRecord } from '@/business/lib/store-page/model'
 const count = () => document.querySelector('.st-save-count')?.textContent
 const viewBtn = (label: string) => [...document.querySelectorAll('button[aria-pressed]')].find((b) => b.textContent === label) as HTMLButtonElement
 const phone = () => document.querySelector('.cl-phone') as HTMLElement
@@ -169,7 +169,7 @@ describe('S60 P7A-R2d T2 / T3', () => {
   it('T3 sampleKey force draws the FORCE sample; an unsaved 業種 pick leaves the sample as it was', async () => {
     const p = await propsFor(STORE.tokyo)
     const gym = seedRecord('personal_gym')
-    const saved = { ...gym, switches: { ...gym.switches, classes: { ...gym.switches.classes, on: true } } }
+    const saved = { ...gym, switches: { ...gym.switches, classes: { on: true, source: 'OWNER' as const, changed_at: '2026-10-01T00:00:00.000Z', changed_by: 'staff-1' } } } // R-E: resolved baseline
     const sections = p.sections.map((s) => (s.id === SP ? { ...s, storePage: { ...s.storePage!, saved, counts: STORES.force.counts, sampleKey: 'force' as const } } : s))
     render(<SettingsScreen {...p} sections={sections} />)
     await act(async () => {})
@@ -285,7 +285,9 @@ describe('S60 P7A-R3 F-2 (R215) — 元に戻す does nothing while the colour s
     await act(async () => { fireEvent.click(undoBtn()!) })
     expect(toastHost().textContent).toBe('')
     expect(firstSwitch().getAttribute('aria-checked')).toBe(flipped)
-    await act(async () => { release({ ok: true, status: 200, json: async () => ({ ok: true, record: sent }) }) })
+    // S75 fix 3 (R-E): core answers with its own stamp (the flipped key OWNER), not the draft echoed with TYPE_DEFAULT
+    const stamped = stampSave(p.sections.find((s) => s.id === SP)!.storePage!.saved, sent as CapRecord, [], new Date('2026-10-06T12:00:00.000Z'), 'staff-1')
+    await act(async () => { release({ ok: true, status: 200, json: async () => ({ ok: true, record: stamped }) }) })
     await act(async () => {})
     expect(firstSwitch().getAttribute('aria-checked')).toBe(flipped)
     expect(count()).toMatch(/^✓ 保存しました /)

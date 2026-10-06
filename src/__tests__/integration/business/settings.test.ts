@@ -4433,7 +4433,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
     const s = await lookOf({ store: STORE_A })
     // S50 P3 — the colour first, then the store lens's 業種 + 16 switches (store-page-section.test.tsx pins those 17)
     expect(controlIdsOf(s)[0]).toBe(CARD_COLOR_ID)
-    expect(controlIdsOf(s)).toHaveLength(18)
+    expect(controlIdsOf(s)).toHaveLength(19) // S75 fix 1: + the draft's defaults_type id
     const seed = { [CARD_COLOR_ID]: '' }
     expect(changedCount(s, seed, seed)).toBe(0)
     const picked = { [CARD_COLOR_ID]: '#00304C' }

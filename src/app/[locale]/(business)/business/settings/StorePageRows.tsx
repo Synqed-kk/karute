@@ -11,8 +11,8 @@
 import { useId, useRef, useState } from 'react'
 
 import { jstYmd } from '@/business/lib/clock'
-import { ASK, REG, SOURCE, type CapKey } from '@/business/lib/store-page/copy'
-import { asksBeforeOff, chipState, chipText, type CapRecord, type Counts } from '@/business/lib/store-page/model'
+import { ASK, LOCKED, REG, SOURCE, type CapKey } from '@/business/lib/store-page/copy'
+import { asksBeforeOff, chipState, chipText, isLocked, type CapRecord, type Counts } from '@/business/lib/store-page/model'
 import { Dialog } from './Dialog'
 import { Switch } from './Switch'
 import './store-page-rows.css'
@@ -96,7 +96,8 @@ export function StorePageRows({ draft, saved, counts, canEdit, onChange, roleOf,
       <div className="spr-rows" ref={rows}>
         {REG.map((r) => {
           const parentOff = !!r.parent && !draft.switches[r.parent].on
-          const locked = !canEdit || parentOff
+          const typeLocked = isLocked(draft.business_type, r.key) // R269: the 業種 locks it OFF — disabled, with the reason
+          const locked = !canEdit || parentOff || typeLocked
           const chip = chipState(r.key, draft, counts)
           return (
             <div key={r.key} className={`spr-row${r.parent ? ' is-sub' : ''}${parentOff ? ' is-dim' : ''}`} data-key={r.key}>
@@ -106,10 +107,10 @@ export function StorePageRows({ draft, saved, counts, canEdit, onChange, roleOf,
                   {chip && <span className={`spr-chip is-${chip}`}>{chipText(r.key, draft, counts)}</span>}
                 </div>
                 <div className="spr-desc">{r.desc}</div>
-                <div className="spr-src">{sourceLine(saved, r.key, roleOf)}</div>
+                <div className="spr-src">{typeLocked ? LOCKED.reason : sourceLine(saved, r.key, roleOf)}</div>
               </div>
               <Switch
-                on={draft.switches[r.key].on}
+                on={!typeLocked && draft.switches[r.key].on}
                 aria={r.ja}
                 inert={locked ? { 'aria-disabled': 'true' } : {}}
                 reduced={reduced ?? osReduced}

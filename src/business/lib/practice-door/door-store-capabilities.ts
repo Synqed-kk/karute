@@ -10,14 +10,14 @@ import { practiceActor, visibleIds, type PracticeActor } from './actor'
 import { practiceTenant } from './switch'
 import { canManageSettings, listStoreOptions, orgSettingsOf } from './door'
 import { renderNow } from '../clock'
-import { CAP_KEYS, parseInternalRecord, parseLoses, parseRecord, recordHash, sameJson, seedRecord, seedTypeOf, serializeRecord, stampSave, storeCapabilitiesKeyFor, type BusinessTypeKey, type CapKey, type CapRecord } from '../store-page/model'
+import { CAP_KEYS, LockedSwitchOn, parseInternalRecord, parseLoses, parseRecord, recordHash, sameJson, seedRecord, seedTypeOf, serializeRecord, stampSave, storeCapabilitiesKeyFor, type BusinessTypeKey, type CapKey, type CapRecord } from '../store-page/model'
 
 /** The record + key types, for data.ts (its sealed import inventory names this file, not the model). */
 export type { BusinessTypeKey, CapRecord }
 
 export type WriteStoreCapabilitiesResult =
   | { ok: true; record: CapRecord }
-  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core' }
+  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core'; locked?: CapKey }
 
 /** R90 amended S68 — a faithful wire record is at most ≈4.4k chars (parse caps: changed_at 64, changed_by 128, 16 switches),
  *  so a stored record is always logged whole; the cut only guards a runaway value. */
@@ -70,8 +70,9 @@ export async function readStoreSeedType(storeId: string): Promise<BusinessTypeKe
 /** S49 P2 — one store's 16 switches. `settings.manage` + a store the operator may see (as writeBookingColors) +
  *  the admitted practice tenant only. The draft is the INTERNAL record (R126, parseInternalRecord); only the value
  *  sent to core is the wire record (serializeRecord). Read-before-write, all on the SERVER:
- *  · R96 — `basedOn` must equal recordHash of the record the page loaded (absent / unreadable = recordHash(null));
- *    the stored record moved → `stale`, nothing written.
+ *  · R96 — `basedOn` must equal recordHash of the record the page loaded (absent / unreadable = recordHash of the
+ *    seed the page showed, S75 / S68); the stored record (or, with none, the seed type) moved → `stale`, nothing written.
+ *  · R269 — a draft that turns a key its 業種 locks OFF back ON → `invalid` (stampSave's LockedSwitchOn).
  *  · R89 — stampSave alone decides every source (the draft's source / stamps are ignored; `resetKeys` only lets a
  *    saved TYPE_DEFAULT key stay TYPE_DEFAULT). Acting staff = `actor.sheet.staff_id`, the id door-writes.ts sends
  *    core as `acting_staff_id` (A5).
@@ -100,13 +101,17 @@ export async function writeStoreCapabilities(
     const key = storeCapabilitiesKeyFor(storeId)
     const settings = (await orgSettingsOf(actor))?.settings ?? null
     const { raw, record: before } = storedOf(settings, key)
-    if (recordHash(before) !== basedOn) return { ok: false, reason: 'stale' }
     // R162 / R188: no record → the seed of seedTypeFor (the store's own 業種, else the signup type in the read above).
-    // R177: only a first save (no record) needs the store list.
+    // R177: only a first save (no record) needs the store list. S75 (S68's seed case): with no record the page's
+    // based_on is the hash of the seed it showed, so a seed type that moved between load and save answers 'stale'.
     const baseline = before ?? seedRecord(await seedTypeFor(storeId, settings))
+    if (recordHash(baseline) !== basedOn) return { ok: false, reason: 'stale' }
     const staffId = actor.sheet.staff_id
-    const next = serializeRecord(stampSave(baseline, draft, resetKeys, renderNow(), staffId))
-    if (before !== null && JSON.stringify(serializeRecord(before)) === JSON.stringify(next)) return { ok: true, record: before }
+    // S75 fix 1 (SF3): a body without defaults_type (a page from before it) takes the saved record's, never its 業種
+    const sentDt = Object.prototype.hasOwnProperty.call(record, 'defaults_type')
+    const next = serializeRecord(stampSave(baseline, sentDt ? draft : { ...draft, defaults_type: undefined }, resetKeys, renderNow(), staffId))
+    // S75: compared with what core HOLDS, so a legacy record (no defaults_type) or a stored value the table moved is rewritten
+    if (before !== null && sameJson(raw, next)) return { ok: true, record: before }
     const writer = reach.orgSettingsWriterFor({ businessId: actor.businessId })
     // R176: an unreadable stored value is recorded BEFORE it is replaced — a save that fails after core committed loses nothing silently
     const unreadable = before === null && raw !== undefined && raw !== null
@@ -134,6 +139,8 @@ export async function writeStoreCapabilities(
     return { ok: true, record: out }
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
+    // S75 fix 1 (Sonnet SF3): additive — the reason stays 'invalid' (an old page reads it), `locked` names the key
+    if (e instanceof LockedSwitchOn) return { ok: false, reason: 'invalid', locked: e.key }
     console.error('[business store capabilities] core did not save:', e instanceof Error ? e.message : String(e))
     return { ok: false, reason: 'core' }
   }

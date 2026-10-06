@@ -78,7 +78,8 @@ describe('業種 select — 26 types, businessProfiles labels', () => {
   it('draws h3, sub, ONE select with the 26 options and the outline button; pre-filled from the record', () => {
     mount(seedRecord('yoga_studio'))
     expect(screen.getByRole('heading', { level: 3, name: '業種' })).toBeTruthy()
-    expect(screen.getByText('業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。')).toBeTruthy()
+    // S75 fix 1 (SF5): the mock's sentence + the one R269 exception, a follow-on sentence
+    expect(screen.getByText('業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。ただし、保険診療が関わる業種を選ぶと、読んでポイントはオフになります。')).toBeTruthy()
     const opts = Array.from(select().options)
     expect(opts.map((o) => o.value)).toEqual([...BUSINESS_TYPE_KEYS])
     expect(opts.map((o) => o.textContent)).toEqual(BUSINESS_TYPE_KEYS.map((k) => businessProfiles.find((p) => p.value === k)!.label))

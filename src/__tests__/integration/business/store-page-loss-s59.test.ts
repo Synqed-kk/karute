@@ -21,7 +21,7 @@ describe('S59 P2 — parseLoses (R201)', () => {
     const raw = clone()
     raw.switches.CLASSES = reversed(raw.switches.CLASSES)
     const r = reversed({ ...raw, switches: reversed(raw.switches) })
-    expect(Object.keys(r)).toEqual(['switches', 'business_type', 'v'])
+    expect(Object.keys(r)).toEqual(['switches', 'defaults_type', 'business_type', 'v'])
     expect(parseLoses(r)).toBe(false)
   })
 

@@ -12,7 +12,7 @@ import { StorePageType, type ResetKeysUpdate } from '@/app/[locale]/(business)/b
 import { REG } from '@/business/lib/store-page/copy'
 import { TYPE_LABEL } from '@/business/lib/store-page/type-labels'
 import {
-  BUSINESS_TYPE_KEYS, applyReset, resetDiff, seedRecord, stampSave,
+  BUSINESS_TYPE_KEYS, applyReset, lockOff, resetDiff, seedRecord, stampSave,
   type BusinessTypeKey, type CapKey, type CapRecord,
 } from '@/business/lib/store-page/model'
 
@@ -75,7 +75,8 @@ describe('R182 — the reset keys live from one save to the next', () => {
     const h = mount(seedRecord('hair_salon'))
     pick('yoga_studio'); outline(); confirm()
     const first = [...h.resetKeys()]
-    const secondFlips = resetDiff(typed(h.draft(), 'dental_clinic')).flips.map((f) => f.key)
+    // S75 (R269): the pick itself turns the locked read_points OFF (lockOff), so 戻す no longer lists it
+    const secondFlips = resetDiff(lockOff(typed(h.draft(), 'dental_clinic'))).flips.map((f) => f.key)
     expect(first.some((k) => !secondFlips.includes(k))).toBe(true) // non-vacuous: a replace would lose a key
     pick('dental_clinic'); outline(); confirm()
     const merged = h.resetKeys()
