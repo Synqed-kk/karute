@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-// PR-B part 2 — the 担当未定 sheet (picker vs read-only by capability) and the
+// PR-B part 1 — the read-only 担当未定 sheet and the
 // desktop grid's 担当未定 lane (present only on a day with a staff-less booking).
 import React from 'react'
 import { cleanup, render, screen } from '@testing-library/react'
@@ -47,7 +47,7 @@ afterEach(() => {
 })
 
 describe('UnassignedBookingSheet', () => {
-  it('without bookings.manage → the two read-only lines and nothing else', () => {
+  it('the read-only sheet → the two read-only lines and nothing else', () => {
     render(<UnassignedBookingSheet booking={booking} isMobile={false} onClose={jest.fn()} />)
     expect(screen.getByText('unassignedStaff.sheetSubtitleReadOnly')).toBeTruthy()
     expect(screen.getByText('unassignedStaff.recordBlockedReadOnly')).toBeTruthy()
