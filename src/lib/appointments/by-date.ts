@@ -13,6 +13,19 @@ import type { AppointmentRow } from '@/actions/appointments'
 type ByDateClient = Pick<SynqedClient, 'appointments' | 'karuteRecords' | 'staff'>
 
 /**
+ * A day-list row may be recorded against only once it has a staff. A karute
+ * recording is always one staff's session (only the logged-in staff's voice is
+ * kept), so a 担当未定 booking is shown but never offered as a target; assigning
+ * the staff makes it one. THE one predicate for every recording-target list:
+ * the record screen's nearbyBookings and the recovery banner's 保存先 picker
+ * (both transports). The deep-link resolver (getAppointmentById and its facade
+ * twin) applies the same rule as its strict staff_id check.
+ */
+export function isRecordingTarget(row: Pick<AppointmentRow, 'staff_profile_id'>): boolean {
+  return row.staff_profile_id != null
+}
+
+/**
  * Fetch + map one JST calendar day's bookings to AppointmentRow[] on the given
  * client. `nameById` is the caller's customer-name source (web: the cached list;
  * facade: listAllCustomers). Terminal (CANCELLED/NO_SHOW) rows are dropped unless
