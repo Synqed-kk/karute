@@ -332,6 +332,8 @@ jobs:
         run: |
           node scripts/business/check-business-isolation.selftest.mjs
           node scripts/business/reserve-card-parity/manifest.selftest.mjs
+          node scripts/business/reserve-card-parity/tsconfig-aliases.selftest.mjs
+          node scripts/business/reserve-card-parity/scoped-classes.selftest.mjs
 
       - name: Business PRs touch only Business territory
         env:
