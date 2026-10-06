@@ -36,6 +36,8 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tsconfigAliases } from './tsconfig-aliases.mjs'
+import { countWord, scopedClasses } from './scoped-classes.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // The manifest is checked whole at load: every key the harness reads, each failure a named error, so a
@@ -115,6 +117,9 @@ const CASES = [
   { id: 'long', label: `long name (${[...LONG].length} chars), seed colour`, name: LONG, card: null, gymCard: null },
   { id: 'seed', label: 'seed #285643 (legacy, off-palette)', name: SEED.la.name, card: null, gymCard: null },
 ]
+// each case's written mock.ts carries its id as a marker (seedMock), so ids must be unique by construction
+for (const [i, c] of CASES.entries()) if (CASES.findIndex((x) => x.id === c.id) !== i) throw new Error(`CASES: duplicate case id ${JSON.stringify(c.id)}`)
+const caseMarker = (id) => JSON.stringify(`parity-case:${id}`) // a string literal: survives Vite's esbuild transform verbatim
 const ONLY = process.env.PARITY_ONLY ? process.env.PARITY_ONLY.split(',') : null
 const RUN = CASES.filter((x) => !ONLY || ONLY.includes(x.id))
 const PARTIAL = RUN.length < CASES.length // a subset never certifies: nothing is emitted into the port checkout
@@ -179,6 +184,7 @@ function seedMock(pristine, c) {
   if (c.name !== SEED.la.name) swap(SEED.orgName, `name: ${JSON.stringify(c.name)},`)
   if (c.card) swap(SEED.laCard, `  cardColor: "${c.card}",`)
   if (c.gymCard) swap(SEED.gymCard, `  cardColor: "${c.gymCard}",`)
+  t += `${t.endsWith('\n') ? '' : '\n'}export const PARITY_CASE = ${caseMarker(c.id)}\n` // unused; only the served-case check reads it
   writeFileSync(join(COPY, 'src/lib/mock.ts'), t)
   return t
 }
@@ -235,6 +241,7 @@ export default {
   server: { fs: { allow: [${JSON.stringify(APP)}, ${JSON.stringify(ROOT)}] } },
   css: { postcss: { plugins: [tailwind({ base: ${JSON.stringify(ROOT)} })] } },
   esbuild: { jsx: 'automatic' },
+  resolve: { alias: ${JSON.stringify(tsconfigAliases(ROOT))} },
 }
 `)
 }
@@ -337,6 +344,18 @@ function writeParityMd(verbatim, scopedCheck) {
   const ranges = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) \*\//g)].map((m) => `${m[1]}–${m[2]}`)
   // a SCOPED marker never matches the verbatim pattern above, so these blocks are neither checked nor listed as verbatim
   const scoped = [...css.matchAll(/\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/g)].map((m) => `${m[1]}–${m[2]}`)
+  // the Declared-edits line names each SCOPED block's classes from the block itself (the lines under its marker,
+  // prefix stripped as checkScoped() strips it) — no selector name is written here, so the line cannot drift
+  const cssLines = css.split('\n')
+  const scopedBlocks = []
+  cssLines.forEach((l, i) => {
+    const m = l.match(/^\/\* reserve index\.css:(\d+)–(\d+) — SCOPED \(/)
+    if (m) scopedBlocks.push(cssLines.slice(i + 1, i + 2 + +m[2] - +m[1]).map((x) => x.replace(/(^\s*|, )\.member-ground (?=\.)/g, '$1')).join('\n'))
+  })
+  // zero SCOPED blocks → no scoped line at all (nothing to declare)
+  const scopedLine = scoped.length
+    ? `- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (${scopedClasses(scopedBlocks).join(', ')}) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps these ${countWord(scoped.length)} idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).\n`
+    : ''
   const PIN_DATE = sh('git', ['-C', RESERVE, 'log', '-1', '--no-show-signature', '--format=%ci', PIN]).trim()
   const md = `# Reserve member-card port — parity record
 
@@ -353,8 +372,7 @@ Verbatim check (last run): ${verbatim}
 Scoped blocks (declarations after prefix strip): ${scopedCheck}
 
 ## Declared edits (not verbatim)
-- \`reserve-card.css\` ← \`src/index.css\` ${scoped.join(' · ')} (.pressable, .tap44) — SCOPED: selectors prefixed \`.member-ground \`, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
-- \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
+${scopedLine}- \`ReserveCardPreview.tsx\` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 - \`ReserveCardPreview.tsx\` + \`card-color.ts\` — Colour inputs are normalised at the boundary (card-color.ts): only \`#RRGGBB\` reaches the satin math; anything else counts as absent — identical on server and client, no hydration drift.
 
 ## Left out of ${MANIFEST.leftOut.excludedFrom}, and why
@@ -371,7 +389,7 @@ The unit test (src/__tests__/integration/business/reserve-card.test.ts) reads \`
 Reserve's small card at the pin is STUDIO FORCE (its name lives outside mock.ts), so the port's small card is compared under that name and colour pair; Reserve's store page hides \`.salon-rankfloat\` (a sibling overlapping the cover's bottom edge) for the capture; the port's sample context is Reserve's demo member at 2026-09-14 10:00 JST, so Reserve's clock is frozen there.
 
 ## Shipping
-\`reserve-card.css\` is imported by the client component; it ships in a route chunk only once a route imports \`ReserveCardPreview\` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: \`.tap44\` and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
+\`reserve-card.css\` is imported by the client component; it ships in a route chunk only once a route imports \`ReserveCardPreview\` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: the scoped tap-box rule and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
 
 ## Keeping it in step
 When Reserve changes any of these ranges, re-run the harness against the new pin; a diff = re-port, never patch.
@@ -413,11 +431,12 @@ async function main() {
       for (const f of sh('git', ['-C', COPY, 'diff', '--name-only']).split('\n').filter(Boolean)) touched.add(f)
       if (c.card) fenceStat = sh('git', ['-C', COPY, 'diff', '--stat']).trim().split('\n').join(' / ')
       const laCard = c.card ?? SEED.la.card, gymCard = c.gymCard ?? SEED.gym.card
-      // wait until Reserve's dev server serves the rewritten seed (never screenshot a stale module)
+      // wait until Reserve's dev server serves THIS case's file, proven by its unique marker (fields alone cannot
+      // tell: long and seed share both colours, so a colour probe passed on the stale long file at that hand-over)
       for (let i = 0; ; i++) {
         const served = await (await fetch(`${reserve.url}/src/lib/mock.ts`)).text()
-        if (served.includes(`cardColor: "${laCard}"`) && served.includes(`cardColor: "${gymCard}"`)) break
-        if (i > 100) throw new Error(`reserve never served the ${c.id} seed`)
+        if (served.includes(caseMarker(c.id))) { if (process.env.PARITY_DIAG) log(`served ${c.id} after ${i} waits`); break }
+        if (i > 100) throw new Error(`reserve never served the ${c.id} case (still serving ${served.match(/"parity-case:([^"]*)"/)?.[1] ?? 'no case marker'})`)
         await new Promise((r) => setTimeout(r, 100))
       }
       // …and the page must show it: the name, and the satin Reserve's own module emits for each colour

@@ -23,6 +23,8 @@
 //   declarations byte-identical to Reserve.
 // - reserve-card.css index.css:237–246 (.tap44) is SCOPED, not verbatim: selectors prefixed `.member-ground `,
 //   declarations byte-identical to Reserve.
+// - reserve-card.css index.css:254–263 (.rank-chip) is SCOPED, not verbatim: selectors prefixed `.member-ground `,
+//   declarations byte-identical to Reserve.
 // - The cover's lines 2 and 3 are Reserve's two <p>s, fed by coverLinesOf below: the SHAPE of Reserve's
 //   member-ia.ts coverLines (458–479), never its data (store lookup, practice hours, closures, clock). A
 //   storeLine with an address prints Reserve's store branch (shortName + the address split at the Latin
