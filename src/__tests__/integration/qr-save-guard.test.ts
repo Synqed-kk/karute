@@ -435,3 +435,39 @@ describe('fix round 4 (Opus N1) — core\'s refusal codes arrive as the SDK mess
     expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(502)
   })
 })
+
+describe('fix round 4 (Opus N5 + N6) — input bounds', () => {
+  const GINZA = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
+  const firstSave = (qrStoreId: string) =>
+    req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId })
+
+  it('a QR store number of 2^31 → 400 qr_store_required, nothing written', async () => {
+    actorStore.current = GINZA
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(firstSave(String(2 ** 31)))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('qr_store_required')
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('2^31 - 1 is still a QR store number', async () => {
+    actorStore.current = GINZA
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    expect((await POST(firstSave(String(2 ** 31 - 1)))).status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ store_id: 2147483647 })
+  })
+
+  it.each([
+    ['a numeric password', { password: 123 }],
+    ['a numeric login', { username: 7 }],
+    ['an object QR account name', { qrStoreSlug: {} }],
+    ['a string enabled', { enabled: 'yes' }],
+  ])('%s → 400 invalid_body, no lookup, nothing written', async (_case, extra) => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(req({ username: 'owner', enabled: true, ...extra }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'invalid_body' })
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+})

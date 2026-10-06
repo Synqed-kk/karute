@@ -42,6 +42,9 @@ async function shownStore(
  *  error's MESSAGE (its .code stays undefined); an object error carries .code. */
 const CORE_SAVE_CODES: readonly string[] = ['qr_store_already_linked', 'store_not_in_business']
 
+/** The largest Quick Reserve store number a 32-bit integer column holds. */
+const QR_STORE_ID_MAX = 2147483647
+
 /** The helper's errors as the run route answers them; anything else → 502. */
 function failure(e: unknown, fallback: string) {
   const storeError = webSyncStoreError(e)
@@ -123,6 +126,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
   }
   const { storeId: shown, username, password, enabled, qrStoreSlug, qrStoreId } = body
+  // A field of the wrong type is the caller's error too — never passed to core.
+  const notString = (v: unknown) => v !== undefined && typeof v !== 'string'
+  if (notString(username) || notString(password) || notString(qrStoreSlug) || (enabled !== undefined && typeof enabled !== 'boolean')) {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
+  }
   // A save names the store its form shows; without one it is refused before
   // any lookup — never written onto a default store's row.
   if (typeof shown !== 'string' || !shown) {
@@ -148,7 +156,7 @@ export async function POST(request: Request) {
     const slug = typeof qrStoreSlug === 'string' ? qrStoreSlug.trim() : ''
     const qrId = Number(qrStoreId)
     const login = typeof username === 'string' ? username.trim() : ''
-    if (!existing && (!slug || !Number.isInteger(qrId) || qrId <= 0 || !login || !password)) {
+    if (!existing && (!slug || !Number.isInteger(qrId) || qrId <= 0 || qrId > QR_STORE_ID_MAX || !login || !password)) {
       return NextResponse.json(
         { error: 'qr_store_required', message: 'A new store needs its Quick Reserve store and login.' },
         { status: 400 },
