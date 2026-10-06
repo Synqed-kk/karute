@@ -40,6 +40,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 
 import { normalizeCardColor } from "./card-color";
 import { memberTenantVars, type BrandTheme } from "./member-card-vars";
+import type { StorePageSample } from "./store-page-sample";
+import { CAP_KEYS, ready as capReady, type CapKey, type CapRecord } from "@/business/lib/store-page/model";
 import "./reserve-card.css";
 
 export interface ReserveCardPreviewProps {
@@ -54,6 +56,17 @@ export interface ReserveCardPreviewProps {
   /** the store's address, as the cover prints it (Reserve: store.address); omitted = no address line */
   address?: string;
   view: "home" | "store";
+  /** the store's public projection (snake_case keys, a sub only while its parent is ON); absent = cover only */
+  on?: ReadonlySet<string>;
+  /** the practice sample the body draws (store-page-sample.ts); absent = cover only */
+  sample?: StorePageSample;
+  /** ⚖ S64 R240 — the business's square mark, a URL the caller owns (today the practice pick's blob: URL), shown exactly as uploaded BEFORE the name; absent or '' = the name alone, exactly as before */
+  markUrl?: string;
+}
+
+function Emb({ className, src }: { className: string; src?: string }) {
+  // eslint-disable-next-line @next/next/no-img-element -- ⚖ S64 R240 (MOCK :1171): a blob: URL shown exactly as uploaded, no mask, no style; next/image cannot serve it
+  return src ? <img className={className} data-logo="1" alt="" aria-hidden="true" src={src} /> : null;
 }
 
 // The demo member Reserve's mock shows at 4db48b7 (src/lib/mock.ts + ja/member.json), frozen on the
@@ -71,9 +84,9 @@ const SAMPLE = {
 } as const;
 
 // lucide-react 1.24.0 ChevronRight / Crown / ChevronLeft, as rendered (defaultAttributes + __iconNode).
-function ChevronRight({ size }: { size: number }) {
+function ChevronRight({ size, className }: { size: number; className?: string }) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className ? `lucide lucide-chevron-right ${className}` : "lucide lucide-chevron-right"} aria-hidden="true">
       <path d="m9 18 6-6-6-6" />
     </svg>
   );
@@ -102,7 +115,28 @@ export function MembershipDate({ value }: { value: string }) {
   )}</>;
 }
 
-export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, address, view }: ReserveCardPreviewProps) {
+// lucide-react 1.24.0 CalendarDays / QrCode (Reserve BookEntry / CheckinEntry icons), as rendered.
+function CalendarDays({ size }: { size: number }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-calendar-days" aria-hidden="true">
+      <path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M3 10h18" />
+      <path d="M8 14h.01" /><path d="M12 14h.01" /><path d="M16 14h.01" /><path d="M8 18h.01" /><path d="M12 18h.01" /><path d="M16 18h.01" />
+    </svg>
+  );
+}
+function QrCode({ size }: { size: number }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-qr-code" aria-hidden="true">
+      <rect width="5" height="5" x="3" y="3" rx="1" /><rect width="5" height="5" x="16" y="3" rx="1" /><rect width="5" height="5" x="3" y="16" rx="1" />
+      <path d="M21 16h-3a2 2 0 0 0-2 2v3" /><path d="M21 21v.01" /><path d="M12 7v3a2 2 0 0 1-2 2H7" /><path d="M3 12h.01" />
+      <path d="M12 3h.01" /><path d="M12 16v.01" /><path d="M16 12h1" /><path d="M21 12v.01" /><path d="M12 21v-1" />
+    </svg>
+  );
+}
+
+export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, address, view, on, sample, markUrl }: ReserveCardPreviewProps) {
+  // ⚖ S64 R245 — the measure effects run on mount only, so the two measured surfaces remount when a mark arrives or leaves (Emb's own test); a mark replaced by another changes no width and remounts nothing
+  const markKey = markUrl ? "mark" : "name";
   // Reserve's MembershipCard/TenantCard/StudioCover each take `memberTenantVars(theme)`; the theme here is
   // the two colours the caller owns. The same vars also sit on the root (packet): custom properties inherit.
   // Each colour passes the boundary first; a null is the absent colour Reserve already handles (satin default).
@@ -121,12 +155,15 @@ export function ReserveCardPreview({ name, storeLine, cardColor, primaryColor, a
             <p className="studio-greet__name">{SAMPLE.greetName}</p>
           </div>
           <div className="studio-cards">
-            <MembershipCard row={{ tenant }} storeLine={storeLine} cardTheme={theme} />
-            <TenantCard row={{ tenant }} cardTheme={theme} />
+            <MembershipCard key={markKey} row={{ tenant }} storeLine={storeLine} cardTheme={theme} markUrl={markUrl} />
+            <TenantCard row={{ tenant }} cardTheme={theme} markUrl={markUrl} />
           </div>
         </div>
       ) : (
-        <StudioCover tenant={tenant} storeLine={storeLine} address={address} theme={theme} />
+        <>
+          <StudioCover key={markKey} tenant={tenant} storeLine={storeLine} address={address} theme={theme} markUrl={markUrl} />
+          {on && sample && <StoreBody on={on} sample={sample} />}
+        </>
       )}
     </div>
   );
@@ -137,10 +174,12 @@ function MembershipCard({
   row,
   storeLine,
   cardTheme,
+  markUrl,
 }: {
   row: { tenant: { displayName: string } };
   storeLine: string;
   cardTheme: BrandTheme;
+  markUrl?: string;
 }) {
   const cardRef = useRef<HTMLAnchorElement>(null);
   const chips = SAMPLE.chips;
@@ -198,7 +237,7 @@ function MembershipCard({
       </span>
       <span className="mcard__in">
         <span className="mcard__hd">
-          {/* B's slot (MOCK-VERDICT 9/23): the square mark <span className="mcard__emb ink" style={{"--lg": …}}/> goes here, before the name — Stage 4 renders it; its geometry is already in index.css */}
+          <Emb className="mcard__emb" src={markUrl} />
           {/* the ONE thing that travels with the box into the store cover */}
           <span className="mcard__wm" data-morph-wm>
             {row.tenant.displayName}
@@ -231,7 +270,7 @@ function MembershipCard({
       {/* the cover's own probe (PKT-CARD-STAGE-3 above): hidden, nowrap, 36px.
           It carries NO data-morph-* attribute on purpose — member-morph.ts's
           nameOf/glyphsOf read [data-morph-wm] and must never see it. */}
-      <span className="salon-cover__wm-probe" aria-hidden="true" ref={probeRef}>
+      <span className={`salon-cover__wm-probe${markUrl ? " withemb" : ""}`} aria-hidden="true" ref={probeRef}>
         {row.tenant.displayName}
       </span>
     </a>
@@ -239,7 +278,7 @@ function MembershipCard({
 }
 
 /** reserve studio-home.tsx TenantCard (671–706) — the small card, static. */
-function TenantCard({ row, cardTheme }: { row: { tenant: { displayName: string } }; cardTheme: BrandTheme }) {
+function TenantCard({ row, cardTheme, markUrl }: { row: { tenant: { displayName: string } }; cardTheme: BrandTheme; markUrl?: string }) {
   const chips = SAMPLE.chips;
   return (
     <a
@@ -250,7 +289,8 @@ function TenantCard({ row, cardTheme }: { row: { tenant: { displayName: string }
         <span className="mcard__sheen" />
       </span>
       <span className="tcard__body">
-        <span className="tcard__name" data-morph-wm>{row.tenant.displayName}</span>
+        <Emb className="tcard__emb" src={markUrl} />
+        <span className={markUrl ? "tcard__name withemb" : "tcard__name"} data-morph-wm>{row.tenant.displayName}</span>
         <span className="tcard__sub" data-morph-hide>
           {SAMPLE.smallLine}
         </span>
@@ -272,11 +312,13 @@ function StudioCover({
   storeLine,
   address,
   theme,
+  markUrl,
 }: {
   tenant: { displayName: string };
   storeLine: string;
   address?: string;
   theme: BrandTheme;
+  markUrl?: string;
 }) {
   const { line2, line3 } = coverLinesOf(storeLine, address);
   // studio-salon.tsx:75–121 @ 4db48b7, verbatim
@@ -346,12 +388,13 @@ function StudioCover({
         </a>
         <div
           ref={nameRef}
-          className={`salon-cover__wm${nameIsLong ? " salon-cover__wm--long" : ""}`}
+          className={`salon-cover__wm${nameIsLong ? " salon-cover__wm--long" : ""}${markUrl ? " withemb" : ""}`}
           data-morph-wm
         >
+          <Emb className="salon-cover__emb" src={markUrl} />
           {tenant.displayName}
         </div>
-        <span className="salon-cover__wm-probe" aria-hidden="true" ref={probeRef}>
+        <span className={`salon-cover__wm-probe${markUrl ? " withemb" : ""}`} aria-hidden="true" ref={probeRef}>
           {tenant.displayName}
         </span>
         <p className="salon-cover__st" data-morph-branch>
@@ -360,6 +403,273 @@ function StudioCover({
         <p className="salon-cover__ad" data-morph-hide>
           {Array.isArray(line3) ? line3.map((line, index) => <span key={index} className="block">{line}</span>) : line3}
         </p>
+      </div>
+    </div>
+  );
+}
+
+// The mock's `ready(k)` (MOCK-SWITCHBOARD-v2 :1564-1569) is P1's `ready()` — one table, one rule. The body gets
+// the PUBLIC projection (`on`), so the record it asks about is that set: a key is ON exactly when projected.
+const projected = (on: ReadonlySet<string>): CapRecord => ({
+  v: 1,
+  business_type: "other", // a type key (R171); ready() reads only the switches
+  switches: Object.fromEntries(CAP_KEYS.map((k) => [k, { on: on.has(k), source: "TYPE_DEFAULT" }])) as CapRecord["switches"],
+});
+
+/**
+ * The お店ページ body under the cover, part 1 — spec §E1 items 2-5 and 8, in the mock's order (phoneMarkup
+ * :1769-1899). Markup + classes are Reserve's @ 09841a6 (MemberSalonPage.tsx :262-307 rank chip / 次回 / acts,
+ * RankStreakChip :354-366, BookEntry :460-480, CheckinEntry :486-499; studio-salon.tsx IntakeBanner :401-436,
+ * SalonPosts :277-312); the WORDS are the mock's (the sample's rv data and the mock's own literals). Edits:
+ * Reserve's <section>s are <div>s (the settings tour census counts <section> tags, R67); <Link>/<Button> become
+ * <a>/<button disabled> with no href/handler (a picture: nothing focusable, nothing navigates); shadcn Button's
+ * own base classes are not carried (the .salon-acts rules set every drawn property); Reserve's points row,
+ * intake 「未記入」 chip and 読みました state are not drawn (the mock has none of them); the reactions line has
+ * no Reserve source and is drawn from the mock (.rv .react :501, D-PHONE).
+ * Part 2 (P4b, spec §E1 items 6, 7, 9-12): ご予約 = MemberSalonPage.tsx UpcomingBookings :385-452; shop / rental =
+ * studio-salon.tsx ShopSection :327-352 / RentalSection :361-390 (their thumb, 注文する / お申し込み are the mock's;
+ * Reserve's goodsFooter line is not drawn — the mock has none); classes + キャンセル待ち and the tab bar have no
+ * Reserve store-page source and are drawn from the mock (:1809-1825, :1897; D-PHONE). Order = the mock's: Reserve
+ * puts the intake row UNDER ご予約 (MemberSalonPage.tsx :310-314), the mock above it — the mock wins (spec E1).
+ */
+function StoreBody({ on, sample }: { on: ReadonlySet<string>; sample: StorePageSample }) {
+  const v = sample.rv;
+  const rec = projected(on);
+  const ready = (key: string) => capReady(key as CapKey, rec, sample.counts);
+  const readPoints = on.has("read_points");
+  const reactions = on.has("reactions");
+  return (
+    <>
+    <div className="px-[22px] pb-6" data-store-body="">
+      {v.rank && (
+        <div className="salon-rankfloat">
+          <span className="rank-chip shrink-0" data-tier={v.rank.split(" ")[0]}>
+            <Crown size={11} />{v.rank}
+          </span>
+        </div>
+      )}
+      {v.next.big && (
+        <div className="salon-next">
+          <p className="salon-next__label">{v.next.line}</p>
+          <p className="salon-next__date"><MembershipDate value={v.next.big} /></p>
+          {ready("packs") && <span className="salon-next__meta" data-cap="packs_chip">{v.next.side}</span>}
+        </div>
+      )}
+      <div className="salon-acts">
+        <button type="button" disabled className="flex-1 h-12 rounded-full elev-float pressable salon-acts__primary">
+          <CalendarDays size={16} />予約する
+        </button>
+        {ready("checkin_qr") && (
+          <button type="button" disabled aria-haspopup="dialog" className="h-12 rounded-full px-5 pressable" data-cap="checkin_qr">
+            <QrCode size={17} />受付
+          </button>
+        )}
+      </div>
+      {ready("intake") && (
+        <div className="mt-8" data-cap="intake">
+          <a className="flex items-center gap-3 bg-card pressable outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 member-solo-row">
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium member-row__t font-normal">問診票のご記入をお願いします</span>
+              <span className="block text-[13px] text-muted-foreground mt-0.5 member-row__s">ご来店までに、3つの質問にお答えください。</span>
+            </span>
+            <ChevronRight size={16} className="text-muted-foreground shrink-0" />
+          </a>
+        </div>
+      )}
+      {v.bookings.length > 0 && (
+        <div className="mt-8">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">ご予約</h2>
+          <div className="bg-card divide-y divide-border/60 member-rows">
+            {v.bookings.map((booking, i) => (
+              <a key={`${i}:${booking.t}`} className="flex items-center gap-3 pressable outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+                <span className="min-w-0 flex-1">
+                  <span className="member-row__t block">{booking.t}</span>
+                  <span className="member-row__s block text-muted-foreground">{booking.s}</span>
+                </span>
+                <ChevronRight size={15} className="shrink-0 text-muted-foreground" />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+      {ready("classes") && (
+        <div className="salon-classes mt-8" data-cap="classes">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">レッスンを予約</h2>
+          <div className="salon-classes__days">
+            <span data-on="">今日 9/14</span><span>明日 9/15</span><span>火 9/16</span>
+          </div>
+          <div className="member-rows bg-card divide-y divide-border/60">
+            {v.classes.map((c, i) => (
+              <div key={`${i}:${c.tm}`} className="salon-classes__row" data-full={c.seats > 0 ? undefined : ""}>
+                <span className="salon-classes__tm">{c.tm}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="member-row__t block">{c.nm}</span>
+                  <span className="member-row__s block text-muted-foreground">{c.sub}</span>
+                </span>
+                <span className="salon-classes__seats">{c.seats > 0 ? `残り${c.seats}枠` : "満席"}</span>
+                {!(c.seats > 0) && on.has("waitlist") && (
+                  <span className="salon-classes__wl" data-cap="waitlist"><span>キャンセル待ちに登録</span></span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {ready("posts") && (
+        <div className="salon-posts mt-8" data-cap="posts">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">
+            お店からのお知らせ{readPoints && <small>読むとポイントがたまります</small>}
+          </h2>
+          <div className="member-rows bg-card divide-y divide-border/60">
+            {v.posts.map((post, i) => (
+              <a key={`${i}:${post.t}`} className="flex items-center gap-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+                <span className="min-w-0 flex-1">
+                  <span className="member-row__t block">{post.t}</span>
+                  <span className="member-row__s block text-muted-foreground">{post.d}</span>
+                  {reactions && <span className="salon-posts__react block" data-cap="reactions">♡ いいね ・ 💬 コメント</span>}
+                </span>
+                {readPoints && <span className="member-chip member-chip--rw" data-cap="read_points">+5pt</span>}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+      {ready("shop") && (
+        <div className="salon-goods mt-8" data-cap="shop">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">
+            ショップ<small>お店で受け取り</small>
+          </h2>
+          <div className="member-rows bg-card divide-y divide-border/60">
+            {v.products.map((product, i) => (
+              <div key={`${i}:${product.t}`} className="flex items-center gap-3">
+                <span className="salon-goods__thumb" style={{ background: product.c }} />
+                <span className="min-w-0 flex-1">
+                  <span className="member-row__t block">{product.t}</span>
+                  <span className="member-row__s block text-muted-foreground">{product.pr}</span>
+                </span>
+                <span className="salon-goods__buy">注文する</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {ready("rental") && v.lockers && (
+        <div className="salon-goods mt-8" data-cap="rental">
+          <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">ロッカー・レンタル</h2>
+          <div className="member-rows bg-card divide-y divide-border/60">
+            <div className="flex items-center gap-3">
+              <span className="min-w-0 flex-1">
+                <span className="member-row__t block">{v.lockers.t}</span>
+                <span className="member-row__s block text-muted-foreground">{v.lockers.d}</span>
+              </span>
+              <span className="salon-goods__buy">お申し込み</span>
+            </div>
+          </div>
+        </div>
+      )}
+      <MyRecord key={sample.name} ready={ready} photo={on.has("photo_proof")} sample={sample} />
+    </div>
+    <div className="salon-tabbar"><div data-on="">ホーム</div><div>予約</div><div>ためる</div><div>マイページ</div></div>
+    </>
+  );
+}
+
+type SegmentKey = "visits" | "packs" | "care";
+const SEGMENT_JA: Readonly<Record<SegmentKey, string>> = { visits: "来店履歴", packs: "回数券", care: "ホームケア" };
+
+/**
+ * わたしの記録 (spec §E1 item 11 + D23). Shape = Reserve MemberSalonPage.tsx MyRecord :508-588 @ 09841a6 (segments
+ * computed from the switches; visits always) with studio-salon.tsx SegTabs :448-531 (its spring is NOT carried — the
+ * rule jumps, so nothing animates) and visit-history-list.tsx :21-72 rows; the WORDS and the pack/care/empty rows
+ * are the mock's (phoneMarkup :1854-1893, D-PHONE). The open tab falls back to 来店履歴 when its key goes away (the
+ * mock's own rule :1859: the fallback sticks, the tab does not reopen when the key comes back).
+ */
+function MyRecord({ ready, photo, sample }: { ready: (key: string) => boolean; photo: boolean; sample: StorePageSample }) {
+  const v = sample.rv;
+  const segments: SegmentKey[] = ["visits"];
+  if (ready("packs")) segments.push("packs");
+  if (ready("homecare")) segments.push("care");
+  const [tab, setTab] = useState<SegmentKey>("visits");
+  if (!segments.includes(tab)) setTab("visits");
+  const active = segments.includes(tab) ? tab : "visits";
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const lineRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const btn = wrapRef.current?.querySelector<HTMLElement>('button[aria-selected="true"]');
+    const line = lineRef.current;
+    if (!btn || !line) return;
+    line.style.width = `${btn.offsetWidth}px`;
+    line.style.transform = `translateX(${btn.offsetLeft}px)`;
+  }, [active, segments.length]);
+  const rows = (items: ReadonlyArray<{ readonly t: string; readonly d: string }>, extra = "") => (
+    <div className="visit-rows bg-card divide-y divide-border/60">
+      {items.map((item, i) => (
+        <div key={`${i}:${item.t}`} className="flex items-center justify-between gap-3 p-4">
+          <div className="min-w-0">
+            <p className="visit-row__t text-sm font-medium">{item.t}</p>
+            <p className="visit-row__m text-xs text-muted-foreground mt-0.5">{item.d}{extra}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div className="salon-record mt-9" data-record="">
+      <h2 className="member-eyebrow text-xs font-medium tracking-[0.12em] text-muted-foreground mb-3">わたしの記録</h2>
+      <div ref={wrapRef} role="tablist" aria-label="わたしの記録" className="salon-segs">
+        {segments.map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            tabIndex={-1}
+            aria-selected={key === active}
+            onClick={() => setTab(key)}
+            className="rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            data-cap={key === "packs" ? "packs" : key === "care" ? "homecare" : undefined}
+          >
+            {SEGMENT_JA[key]}
+          </button>
+        ))}
+        <span ref={lineRef} className="salon-segline" aria-hidden="true" />
+      </div>
+      <div className="mt-4" role="tabpanel" aria-label={SEGMENT_JA[active]}>
+        {active === "visits" && (v.visits.length > 0 ? (
+          <>
+            <div className="visit-rows rounded-2xl bg-card elev-card divide-y divide-border/60">
+              {v.visits.map((visit, i) => (
+                <div key={`${i}:${visit.d}`} className="flex items-center justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <p className="visit-row__t text-sm font-medium">{visit.t}</p>
+                    <p className="visit-row__m text-xs text-muted-foreground mt-0.5">
+                      {visit.d.split(" ・ ").map((seg, i) => (
+                        <span key={i}>{i > 0 && " ・ "}<span className="visit-row__seg">{seg}</span></span>
+                      ))}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    {"badge" in visit && visit.badge && (
+                      <span className="member-chip inline-block rounded-full bg-secondary text-secondary-foreground text-[10px] font-medium px-2 py-0.5 mb-0.5">{visit.badge}</span>
+                    )}
+                    {"money" in visit && visit.money && (
+                      <p className="text-sm font-semibold"><span className="price-num">{visit.money}</span> <span className="salon-record__tax">税込</span></p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <a className="mt-3 inline-flex items-center gap-0.5 text-xs font-medium text-primary rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 pressable tameru-tbtn">
+              すべての来店履歴<ChevronRight size={13} />
+            </a>
+          </>
+        ) : (
+          <div className="salon-record__empty">
+            <p className="salon-record__empty-t">まだ来店の記録はありません</p>
+            <p className="salon-record__empty-s">{v.emptyVisits}</p>
+          </div>
+        ))}
+        {active === "packs" && rows(v.packs)}
+        {active === "care" && rows(v.care, photo ? " ・ 写真で報告できます" : "")}
       </div>
     </div>
   );

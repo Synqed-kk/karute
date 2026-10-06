@@ -86,6 +86,8 @@
 /** The tokens THIS ROOM gates a section on. Every one is a real Karute
  *  capability (`permissions.ts:14-46`); the room simply does not gate on all
  *  eighteen, because only these six answer 「may this reader open this section」. */
+import type { BusinessTypeKey, CapKey, CapRecord, Counts, Family, NeedKey, Source, SwitchState } from './store-page/model'
+
 export type Capability =
   | 'staff.manage'
   | 'staff.invite'
@@ -213,6 +215,21 @@ export const BOOKING_GUARD_ID = 'booking-guard'
  *  the dot and 保存する count and commit it like any other control. */
 export const STORE_PAGE_ID = 'reserve-store-page'
 export const CARD_COLOR_ID = 'reserve-card-look.color'
+/** S50 P3 — お店ページ's value-map ids (PACKETS-S50-WAVE3 「THE SHARED SHAPE」): the 業種 (one of the 26 type keys; the id
+ *  keeps its S50 spelling) and one boolean per CAP key, `reserve-store-page.sw.<snake_key>`. */
+export const STORE_PAGE_FAMILY_ID = 'reserve-store-page.family'
+export const storePageSwitchId = (key: string): string => `reserve-store-page.sw.${key}`
+
+// ⚖ S50 P3 / R173 — お店ページ's types are P1's own (store-page/model.ts), named here for the room. The ONE import
+// of this file is TYPE-ONLY (erased at compile time: no runtime dependency, foundation.test.ts pins it).
+export type StorePageKey = CapKey
+export type StorePageTypeKey = BusinessTypeKey
+export type StorePageFamily = Family
+export type StorePageNeed = NeedKey
+export type StorePageCounts = Counts
+export type StorePageSource = Source
+export type StorePageSwitch = SwitchState
+export type StorePageRecord = CapRecord
 
 export type SectionGate = 'open' | 'no-rights'
 
@@ -708,7 +725,31 @@ export interface SettingsSection {
     scopeLabel: string
     value: string | null
     palette: ReadonlyArray<{ order: number; name: string; hex: string }>
+    /** ⚖ S64 R242 — true = a practice room (sample data, or the Dev Salon with the door ON): the logo can be picked
+     *  for the picture. false = a real business: the block's L7 line (MARK_REAL_LINE), until CORE-55. */
+    practice: boolean
   }
+  /** S50 P3 — お店ページ's per-store part, under a STORE lens only (PACKETS-S50-WAVE3 「THE SHARED SHAPE」, verbatim).
+   *  `saved` = the parsed saved record, or the seed of the SAVE PATH's own seed type when none / unreadable (R90; R188:
+   *  the door's readStoreSeedType when connected, else seedTypeOf of the store's own type); `startFamily` = P1's familyOf
+   *  of that seed type (R143, internal grouping); `basedOn` = the
+   *  hash of the saved record (or of null) the page loaded (R96); `counts` = the practice fixture (R91), P1's
+   *  Counts by NeedKey (R111 corrects the shape's CapKey line), a key missing = unknown (R92/R101); `disconnected` = real mode (R86's off-switch false and the door OFF). */
+  storePage?: {
+    storeId: string
+    saved: StorePageRecord
+    hasSaved: boolean
+    basedOn: string
+    counts: StorePageCounts
+    /** R189 — the sample store (store-page-sample.ts STORES key, practice-counts.ts SampleKey) `counts` were computed for. */
+    sampleKey: 'laestro' | 'force'
+    startFamily: StorePageFamily
+    disconnected: boolean
+  }
+  /** S50 P3 — under the all-stores lens: the room's noStore sentence, standing where the per-store 業種 / 機能 go. */
+  storePageNoStore?: string
+  /** S50 P3 — the tour's guide pair (data-guide-title / data-guide) for the 業種 and 機能 blocks (mock :800-801, :816-817). */
+  storePageGuides?: ReadonlyArray<{ title: string; guide: string }>
   blocks: SettingsBlock[]
   /** ⚖ PR-3 — the section-level forms of `SettingsBlock.sample` / `.sampleNone`:
    *  a block-less section whose dials are SAMPLE (予約と確保), and a
@@ -868,7 +909,9 @@ export function sameValue(a: RowValue | undefined, b: RowValue | undefined): boo
 /** Every control id a section holds, in render order. */
 export function controlIdsOf(section: SettingsSection): string[] {
   const ids = section.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls.map((c) => c.id)))
-  return section.cardLook ? [...ids, CARD_COLOR_ID] : ids
+  // S50 P3 — お店ページ under a store lens: + the 業種 and the 16 switches (17 ids, the record's own key order).
+  const store = section.storePage ? [STORE_PAGE_FAMILY_ID, ...Object.keys(section.storePage.saved.switches).map(storePageSwitchId)] : []
+  return section.cardLook ? [...ids, CARD_COLOR_ID, ...store] : [...ids, ...store]
 }
 
 // ── ⚖ S17 STEP 1 — FIND BY TYPING, AND THE INDEX IS THE PAGE'S OWN DATA ─────
@@ -1086,16 +1129,18 @@ export function changedCount(
 }
 
 /** A section is dirty when any of its controls — or any row of one of its
- *  collections — differs from what was saved. */
+ *  collections — differs from what was saved. S60 P7A-R3 (R214): `ids` narrows the controls asked about
+ *  (the room passes the ids a 保存する commits); omitted, every control of the section, as before. */
 export function sectionDirty(
   section: SettingsSection,
   values: Record<string, RowValue>,
   saved: Record<string, RowValue>,
   rows: CollectionRows = {},
   savedRows: CollectionRows = {},
+  ids: readonly string[] = controlIdsOf(section),
 ): boolean {
   if (section.blocks.some((b) => rowChanges(b, rows, savedRows) > 0)) return true
-  return controlIdsOf(section).some((id) => !sameValue(values[id], saved[id]))
+  return ids.some((id) => !sameValue(values[id], saved[id]))
 }
 
 /** ⚖ MISTAKE-PROOFING AT THE MOMENT OF THE MISTAKE. A required field left empty

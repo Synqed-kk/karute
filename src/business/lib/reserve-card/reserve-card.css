@@ -61,6 +61,18 @@
   transform: translateY(-50%);
 }
 
+/* reserve index.css:254–263 — SCOPED (selectors prefixed .member-ground; declarations verbatim) */
+.member-ground .rank-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  font-family: var(--font-num);
+}
+
 /* reserve index.css:871–884 */
 /* The ground itself. Cards keep --card (white), so the elevation the cards
    already carry finally has something to sit on. */
@@ -584,6 +596,49 @@
   }
 }
 
+/* reserve index.css:3715–3755 */
+.member-ground .member-rows {
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--member-surface);
+  box-shadow: var(--member-obj-sm);
+}
+.member-ground .member-rows > * {
+  border-radius: 0;
+  box-shadow: none;
+  border-bottom: 1px solid var(--member-hair);
+  padding: 13px 18px;
+  min-height: 60px;
+}
+.member-ground .member-rows > *:last-child {
+  border-bottom: 0;
+}
+/* ⚖ A1 — a row whose sheet is up holds the lead wash, so the panel reads as
+   having come from HERE and stays tied to it for as long as it is open. The
+   lead wash is a SELECTED state, which is exactly what this row is; the press
+   wash above is a different thing and stays a press. */
+.member-ground .member-rows > [data-open="true"] {
+  background-color: var(--member-lead-wash);
+}
+/* ONE row standing alone (the 回数券を購入 line under the ticket) — the same
+   object as a list of rows, with nothing to sit above or below it */
+.member-ground .member-solo-row {
+  border-radius: 18px;
+  box-shadow: var(--member-obj-sm);
+  padding: 13px 18px;
+  min-height: 60px;
+}
+/* a row's own two lines */
+.member-ground .member-row__t {
+  font-size: 16px;
+  line-height: 1.35;
+}
+.member-ground .member-row__s {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
 /* reserve index.css:3950–4020 */
 /* ============================================================
    お店ページ, studio skin — the design source's own store page (§お店ページ).
@@ -657,6 +712,90 @@
   color: rgb(255 255 255 / 0.82);
 }
 
+/* reserve index.css:4022–4082 */
+.member-ground .salon-rankfloat {
+  position: relative;
+  z-index: 3;
+  margin-top: -22px;
+  display: flex;
+  gap: 8px;
+}
+/* ⚖ s2, amended 2026-09-12 (F4): on the cover's edge the chip is the design
+   source's own `.ro` (fragment.html 560) — one object, half on the tenant's
+   colour and half on the paper, lifted by its shadow. Satin painted it a gold
+   plate and Liam accepted that plate on his GOLD card (9/6–9/7), so the plate
+   is THE GOLD TIER'S and its pixels stay exactly as shipped. It is not the
+   tenant's and it is not every member's: every other tier wears the colour the
+   classic `.rank-chip[data-tier=…]` rules give it everywhere else, so a SILVER
+   member never reads "SILVER MEMBER" on a gold plate. Geometry and the lift are
+   shared — ONE block here, not the three that had grown apart down the file. */
+.member-ground .salon-rankfloat .rank-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 1.5px;
+  box-shadow: 0 2px 4px #594a2310;
+}
+.member-ground .salon-rankfloat .rank-chip[data-tier="GOLD"] {
+  background: linear-gradient(110deg, #f2e6c9, #e8d6af);
+  color: #766142;
+  border: 1px solid #f8efde;
+}
+/* the two things this page is FOR, side by side: book (commit → solid) and
+   受付 (a door → wash). ⚖ never a black fill on either. */
+.member-ground .salon-acts {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.member-ground .salon-acts > * {
+  flex: 1 1 0;
+  /* ⚖ s3: the wash IS the button (fragment.html 563). 受付 comes through the
+     shadcn `outline` variant, whose 1px border drew a line the design source
+     has nowhere — the two acts differ by fill, never by an edge. */
+  border: 0;
+  height: 54px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  background: var(--member-lead-wash);
+  color: var(--member-lead);
+}
+.member-ground .salon-acts__primary {
+  background: var(--member-lead);
+  color: #fff;
+}
+
+/* reserve index.css:4453–4471 */
+.member-ground .member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  flex: none;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--member-tint);
+  color: var(--member-ink2);
+}
+.member-ground .member-chip--rw {
+  background: var(--member-reward-wash);
+  color: var(--member-reward-ink);
+  font-weight: 700;
+}
+
 /* reserve index.css:4651–4660 */
 /* Accepted Satin: one smooth colour field; the copy and card never drift. */
 .member-ground :is(.mcard,.tcard,.salon-cover,.member-minicard) { background:var(--satin-base); color:var(--satin-ink); border:0; }
@@ -678,6 +817,12 @@
 .member-ground .mcard__foot .mcard__chip:first-child { background:none; }
 .member-ground .salon-cover { height:248px; }
 .member-ground .salon-cover__wm { font-size:40px; }
+
+/* reserve index.css:4683–4686 */
+.member-ground .salon-rankfloat { margin-top:-15px; }
+.member-ground .salon-next { padding-top:27px; }
+.member-ground .salon-next__label { font-size:11px; color:var(--member-muted); letter-spacing:.07em; }
+.member-ground .salon-next__date { margin-top:5px; font-family:var(--font-num); font-size:28px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.015em; line-height:1.06; }
 
 /* reserve index.css:4687–4687 */
 .member-ground .salon-cover { touch-action:pinch-zoom; }
@@ -723,6 +868,47 @@
 .member-ground .salon-cover__wm-probe { position:absolute; left:0; top:0; visibility:hidden; pointer-events:none; white-space:nowrap; font:36px/1.1 Georgia,"Times New Roman","Reserve Card JP",serif; letter-spacing:-.66px; }
 .member-ground .salon-cover__st { position:absolute; top:199px; left:26px; right:25px; margin:0; font-size:12px; letter-spacing:1px; line-height:1.5; }
 .member-ground .salon-cover__ad { position:absolute; top:225px; left:25px; right:25px; margin:0; font-size:10px; letter-spacing:.25px; line-height:1.8; }
+
+/* reserve index.css:4729–4767 */
+.member-ground .salon-rankfloat { margin-top:-13px; height:24px; }
+.member-ground .salon-next { position:relative; height:auto; min-height:101px; padding-top:18px; padding-left:2px; padding-bottom:16px; }
+.member-ground .salon-next:after { content:""; position:absolute; left:0; right:0; bottom:12px; height:1px; background:#e7e7ed; }
+.member-ground .salon-next__meta { position:absolute; right:1px; top:42px; font-size:11px; color:#8a8a96; }
+/* item-points-flight fold 2: the box grew from a fixed two-line height
+   (label+date) to min-height when the points row became its third,
+   unconditional line — no :has() (WKWebView only gained it at iOS 15.4;
+   this app's floor is 15.0, ios/App/App.xcodeproj). */
+.member-ground .salon-next__points { display:flex; align-items:baseline; gap:6px; margin-top:14px; }
+.member-ground .salon-next__points-label { font-size:11px; font-weight:400; letter-spacing:1px; line-height:1.5; color:var(--member-ink); }
+/* the figure copies salon-next__date's size/weight (measured in the built
+   CSS: 27px/570) — `.price-num` (index.css ~202) supplies the tabular
+   tracking, never the date's own -0.7px, which was tuned for non-tabular
+   digits. */
+.member-ground .salon-next__pts { font-size:27px; font-weight:570; line-height:1.25; color:var(--member-ink); }
+.member-ground .salon-next__points-unit { font-size:11px; color:var(--member-ink2); }
+.member-ground .salon-acts { gap:9px; margin:0 0 26px; }
+/* a tenant with no wallet/next-booking block (studio-force) has .salon-acts
+   as main's first child, right against the cover — the acts row still needs
+   to breathe. 12px matches the visual gap the 次回 block leaves below its
+   own rule line (measured in the la-estro shot; with .salon-rankfloat or
+   .salon-next present, THEY supply the gap, so this only fires when neither
+   rendered). */
+.member-ground .salon-acts:first-child { margin-top: 12px; }
+.member-ground .salon-acts > button { height:45px; min-height:45px; border-radius:13px; background:#fff; border:1px solid #e4e4ec; font-size:12px; font-weight:600; flex:1; padding:0; box-shadow:none; }
+.member-ground .salon-acts > .salon-acts__primary { flex:1.7; background:#30375e; border-color:#30375e; color:#fff; }
+/* The 26px was always .salon-acts's own gap (margin:0 0 26px above), not a
+   fixed property of .salon-posts — it only applies when the acts row is
+   .salon-posts's immediate previous sibling (studio-force: no bookings list).
+   When UpcomingBookings renders its list between them, .salon-posts keeps
+   its own mt-8 (32px), the same breathing room the list itself takes. */
+.member-ground .salon-acts + .salon-posts { margin-top:0; }
+.member-ground .salon-posts h2 { display:flex; align-items:center; justify-content:space-between; margin:0 0 10px; font-size:15px; font-weight:650; letter-spacing:0; color:#252840; }
+.member-ground .salon-posts h2 small { font-size:9px; font-weight:450; color:#9b9ba7; }
+.member-ground .salon-posts .member-rows { border:1px solid #ededf2; border-radius:17px; padding:0 15px; box-shadow:none; }
+.member-ground .salon-posts .member-rows > a { padding:14px 0; }
+.member-ground .salon-posts .member-row__t { font-size:11px; font-weight:400; line-height:1.65; }
+.member-ground .salon-posts .member-row__s { font-size:9px; margin-top:10px; }
+.member-ground .salon-posts .member-chip { background:#f0f0f8; color:#787da0; font-size:10px; font-weight:400; }
 
 /* reserve index.css:4769–4822 */
 /* PKT-COVER-LONG-NAME-FOLD-5: the cover is 295px high; a short name's
@@ -779,3 +965,136 @@
 /* B's slot — the square mark's place before the name; geometry copied from MOCK-SWITCHBOARD-v2.html:437–439; nothing renders it yet (Stage 4) */
 .member-ground .mcard__hd .mcard__emb { display:block; flex:none; width:28px; height:28px; margin:.85px -2px 0 0; }
 .member-ground .mcard__emb.ink { background:var(--satin-ink); -webkit-mask:var(--lg) no-repeat 0 0/100% 100%; mask:var(--lg) no-repeat 0 0/100% 100%; }
+/* ⚖ S64 R240/R244 — the mark before the name (geometry = MOCK :439-444); the cover's mark sits in its name's 36px padding, the probe carries the same 36px */
+.member-ground .tcard__body .tcard__emb { display:block; position:absolute; left:0; top:.625px; width:20px; height:20px; }
+.member-ground .tcard__name.withemb { padding-left:28px; }
+.member-ground .salon-cover__wm.withemb, .member-ground .salon-cover__wm-probe.withemb { padding-left:36px; }
+.member-ground .salon-cover__wm.withemb { box-sizing:content-box; }
+.member-ground .salon-cover .salon-cover__wm--long.withemb { max-width:calc(100% - 86px); }
+.member-ground .salon-cover__wm .salon-cover__emb { display:block; position:absolute; left:0; top:calc((1lh - 28px) / 2); width:28px; height:28px; }
+
+/* NOT Reserve — the お店ページ posts' reactions line has no Reserve source; drawn from the approved mock
+   (MOCK-SWITCHBOARD-v2 :501 `.rv .react{font-size:13px;color:var(--rv-mut);margin-top:4px}`, --rv-mut #5f6275 =
+   --member-ink2), selector renamed into the port's scope (D-PHONE). */
+.member-ground .salon-posts__react { font-size: 13px; color: var(--member-ink2); margin-top: 4px; }
+
+/* reserve index.css:4084–4111 */
+/* ---- the underline segmented control ----
+   A 2px lead rule that SPRINGS between segments rather than appearing under
+   the new one: the underline is one object moving, which is what tells the
+   member the segments are one row and not four buttons. */
+.member-ground .salon-segs {
+  position: relative;
+  display: flex;
+  gap: 22px;
+  border-bottom: 1px solid var(--member-hair);
+}
+.member-ground .salon-segs button {
+  padding: 12px 0;
+  min-height: 44px;
+  font-size: 15px;
+  color: var(--member-ink2);
+}
+.member-ground .salon-segs button[aria-selected="true"] {
+  color: var(--member-lead);
+  font-weight: 700;
+}
+.member-ground .salon-segline {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--member-lead);
+  will-change: transform, width;
+}
+
+/* reserve index.css:4113–4176 */
+/* the visit rows, on both surfaces that render them (the segment and
+   /me/:salon/history — ONE implementation, so one restyle) */
+.member-ground .visit-rows {
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--member-obj-sm);
+}
+.member-ground .visit-rows > * {
+  padding: 15px 18px;
+  align-items: flex-start;
+}
+/* the mock's visit row WRAPS — a menu name and a date · staff · store line
+   are the whole point of the row, and an ellipsis eats the store */
+.member-ground .visit-row__t,
+.member-ground .visit-row__m {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.member-ground .visit-row__t {
+  font-size: 16px;
+  /* ⚖ SalonSurface puts the tenant's own --foreground inline on the very
+     element .member-ground is on, and inline outranks the ground's token — so
+     these rows were reading the TENANT's ink on a piece of app chrome. The row
+     names the app's ink; the tenant's colour stays on the tenant's objects.
+     400, not Tailwind's font-medium: the source's .vrow .vt sets no weight. */
+  font-weight: 400;
+  color: var(--member-ink);
+}
+/* the price at the source's own size (fragment .vrow .vp .n: 15px) — the
+   Tailwind text-sm underneath it was 14 */
+.member-ground .visit-rows .price-num {
+  font-size: 15px;
+  color: var(--member-ink);
+}
+.member-ground .visit-row__m {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+/* ⚖ …and it wraps at the SEPARATORS, never inside a name. Japanese takes a
+   line break between any two characters, so on the phone — where a price on
+   the right narrows the line — 「代官山院」 came apart as 代官 | 山院 on every
+   priced row (walk shots 49-laestro-scrolled, 57-history). Date, staff and
+   store are three names; each is one word, and the ・ between them (plain text
+   in visit-history-list.tsx, deliberately outside these spans) is the only
+   place the line may turn.
+
+   ⚖ NOTHING PAINTS OUTSIDE ITS ROW (Fable 2026-09-05). `white-space: nowrap`
+   said all of that, but it also has no way out: a segment wider than the whole
+   line simply hung over the row's edge (measured on a 24-character synthetic
+   store name: 42–86 px past the paragraph at 393/375). `keep-all` suppresses
+   the same CJK breaks WITHOUT forbidding breaking outright, so
+   `overflow-wrap: anywhere` can still step in — and it only ever steps in when
+   the segment alone is wider than its line. Normal rows are untouched.
+
+   Named ceiling: `keep-all` still honours a space INSIDE a segment, so a Latin
+   name carrying one (「La Estro 代官山院」) may turn there. That is a real word
+   boundary and a legible place to break, which is more than the overflow was. */
+.member-ground .visit-row__m .visit-row__seg {
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* NOT Reserve — spec §E1 items 7, 9, 10, 11 (empty), 12: drawn from the approved mock (MOCK-SWITCHBOARD-v2 .rv rules
+   :478-495 classes, :504/:507 shop thumb + 注文する, :516 税込, :520-522 empty, :523-528 tab bar; D-PHONE). Reserve has no
+   store-page classes block (its timetable lives on the 予約 tab, class-timetable.tsx), no 注文する/お申し込み, and its tab
+   tray is page chrome this port leaves out. Mock tokens: --rv-mut #5f6275 = --member-ink2; --rv-line #e4e5ec, --rv-ink2
+   #1c2247, --rv-commit #30375e (the same navy as .salon-acts__primary) are written as the mock's literals. */
+.member-ground .salon-goods h2 small { margin-left:auto; padding-left:8px; font-size:13px; font-weight:400; letter-spacing:0; color:var(--member-ink2); }
+.member-ground .salon-classes__days { display:flex; gap:7px; margin-bottom:9px; flex-wrap:wrap; }
+.member-ground .salon-classes__days > span { font-size:13px; border-radius:999px; padding:4px 12px; background:#fff; color:var(--member-ink2); box-shadow:inset 0 0 0 1px #e4e5ec; }
+.member-ground .salon-classes__days > span[data-on] { background:#e9eaf3; color:#1c2247; font-weight:600; box-shadow:none; }
+.member-ground .salon-classes__row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.member-ground .salon-classes__tm { font-size:15px; font-weight:700; width:50px; flex:0 0 50px; }
+.member-ground .salon-classes__seats { flex:0 0 auto; text-align:right; font-size:13px; color:#2a7a4d; font-weight:600; white-space:nowrap; }
+.member-ground .salon-classes__row[data-full] .salon-classes__seats { color:#a04a2a; }
+.member-ground .salon-classes__wl { flex:0 0 100%; padding-left:62px; }
+.member-ground .salon-classes__wl > span { font-size:13px; font-weight:600; color:#1c2247; box-shadow:inset 0 0 0 1px #e4e5ec; border-radius:8px; padding:5px 12px; display:inline-block; background:#fff; }
+.member-ground .salon-goods__thumb { width:46px; height:46px; border-radius:10px; flex:0 0 46px; }
+.member-ground .salon-goods__buy { margin-left:auto; flex:0 0 auto; font-size:13px; font-weight:700; color:#fff; background:#30375e; border-radius:9px; padding:6px 13px; }
+.member-ground .salon-record__tax { font-size:13px; font-weight:400; color:var(--member-ink2); }
+.member-ground .salon-record__empty { text-align:center; padding:44px 20px; }
+.member-ground .salon-record__empty-t { font-size:15px; font-weight:700; }
+.member-ground .salon-record__empty-s { font-size:14px; color:var(--member-ink2); margin-top:6px; }
+.member-ground .salon-tabbar { position:sticky; bottom:10px; margin:26px 16px 0; background:#fff; border-radius:999px; box-shadow:0 4px 18px rgba(20,22,40,.13); display:flex; padding:7px 6px; }
+.member-ground .salon-tabbar > div { flex:1; text-align:center; font-size:13px; color:var(--member-ink2); padding:6px 0; border-radius:999px; }
+.member-ground .salon-tabbar > div[data-on] { background:#eceefa; color:#1c2247; font-weight:700; }

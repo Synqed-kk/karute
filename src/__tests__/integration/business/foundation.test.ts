@@ -876,7 +876,9 @@ describe('the fixture data door', () => {
       // The rules are PURE, and the empty inventory is the pin on that: the gate,
       // the clamps and the refusal table decide things about values they are
       // handed, never values they fetch.
-      'src/business/lib/settings.ts': [],
+      // ⚖ R173 — ONE exception: a TYPE-ONLY import of P1's store-page model (erased at compile time, so the
+      // rules still fetch nothing); the exact form is pinned by the test after this one.
+      'src/business/lib/settings.ts': ['./store-page/model'],
       // ⚖ S17 fix round 5 · G2 — every link into 設定, built in one place. The
       // empty inventory is the PIN on what it is: a string out of three values
       // its caller already resolved. An import here would mean the link builder
@@ -931,6 +933,10 @@ describe('the fixture data door', () => {
         '@/business/lib/resource-words',
         '@/business/lib/settings',
         '@/business/lib/settings-words',
+        // S50 P3 — お店ページ's per-store payload: P1's pure model + strings, and the one practice-count fixture (R91).
+        '@/business/lib/store-page/copy',
+        '@/business/lib/store-page/model',
+        '@/business/lib/store-page/practice-counts',
       ],
       // ⚖ S17 fix round 1 · F15 (D-20) — THE ROOM'S ONE 詳しく DISCLOSURE, in its
       // own file. Both the shell room and 予約と確保 need it, and the section may
@@ -952,6 +958,11 @@ describe('the fixture data door', () => {
         'react',
         'react-dom',
       ],
+      // ⚖ S60 R207 — the room's ONE toast primitive.
+      'src/app/[locale]/(business)/business/settings/Toast.tsx': [
+        './toast.css',
+        'react',
+      ],
       'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
         './Collapse',
         './Switch',
@@ -959,6 +970,10 @@ describe('the fixture data door', () => {
         './StorePolicySection',
         // ⚖ A1b — …and カードの見た目's picker + ported card for its row.
         './ReserveCardLookSection',
+        // S60 P7A-R2b — お店ページ's 業種 / 機能 blocks and the room's one toast (R207).
+        './StorePageRows',
+        './StorePageType',
+        './Toast',
         // ⚖ PR-3 — the 「サンプル」 mark's strings: Business's own string home (a JSON module, no imports).
         '@/business/i18n',
         // ⚖ S37 R41 (B2 act 1c) — the ONE JST stamp formatter (`jstClock`), read at the save press only.
@@ -970,6 +985,17 @@ describe('the fixture data door', () => {
         // ⚖ PKT-S30 F2 / P3-12 — the store-days reducers + copy: pure, no imports (so no path to the
         // practice door, which is why it lives beside settings.ts rather than in practice-door/).
         '@/business/lib/store-days-state',
+        // S59 P7A (C7) — STORE_PAGE_HEADINGS for termsFor (お店ページ's search terms); copy.ts holds only strings and REG.
+        '@/business/lib/store-page/copy',
+        // S60 P7A-R2b — the room's one お店ページ draft (pure; imports only the model) and the model's types.
+        '@/business/lib/store-page/model',
+        // S61 P7B-R1 (R224) — the saved type's sample (pure: imports copy/model types and a type-only STORES).
+        '@/business/lib/store-page/practice-counts',
+        '@/business/lib/store-page/room-draft',
+        // S61 P7B-2 (R219, R220) — お店ページ's switches' save: the client call (imports only the model) and the
+        // pure line chooser (imports only copy.ts and the client's types).
+        '@/business/lib/store-page/save-client',
+        '@/business/lib/store-page/save-lines',
         // ⚖ S17 STEP 1 — the room's ONE integrator. Every moving thing on the
         // page (the segment's thumb, the switch's thumb, the 詳しく panel's
         // height, the save card's rise) is driven by `makeSpring`; a second
@@ -1041,11 +1067,17 @@ describe('the fixture data door', () => {
       // ⚖ A1b — カードの見た目: the port is its ONLY card drawing (and its satin the
       // only colour math); the room's spring and the tour's ring helper; no data door.
       'src/app/[locale]/(business)/business/settings/ReserveCardLookSection.tsx': [
+        // ⚖ S62 R227 — the preview's sheet at ≤ 899 is the room's ONE Dialog.
+        './CardMarkBlock',
+        './Dialog',
         '@/business/lib/guide',
         '@/business/lib/reserve-card/ReserveCardPreview',
         '@/business/lib/reserve-card/satin-material',
+        '@/business/lib/reserve-card/store-page-sample',
         '@/business/lib/settings',
         '@/business/lib/spring',
+        '@/business/lib/store-page/card-mark',
+        '@/business/lib/store-page/model',
         'react',
       ],
       'src/business/lib/reserve-card/palette.ts': ['./card-color'],
@@ -1172,6 +1204,20 @@ describe('the fixture data door', () => {
       }
       expect({ file, imports: [...found].sort() }).toEqual({ file, imports: [...expected].sort() })
     }
+  })
+
+  it("⚖ R173 — settings.ts has exactly ONE import statement, and it is `import type { … } from './store-page/model'`", () => {
+    // S57 P3 (ATK-10) — the RAW file, no comment stripping (a comment-prefixed import cannot hide), and the
+    // pattern is built from parts so no quoted specifier sits in this file (business-isolation reads one as an import).
+    const raw = readFileSync(join(process.cwd(), 'src/business/lib/settings.ts'), 'utf8')
+    const spec = ['.', 'store-page', 'model'].join('/').replace(/[./-]/g, (c) => '\\' + c)
+    expect(raw.match(/\bfrom\s*['"]/g) ?? []).toHaveLength(1)
+    expect(raw.match(/(^|[;}\s])(import|export)\s*(type\s*)?[{*]/gm)?.length ?? 0).toBe(1)
+    const q = '\\x27' // a quote, spelled so no `fr`+`om <quote>` text sits in this file (P3 B1)
+    expect(raw).toMatch(new RegExp('^' + ['import type \\{[^}]*\\}', 'fr' + 'om', q + spec + q].join(' ') + '$', 'm'))
+    expect(raw).not.toMatch(/\brequire\s*\(|\bimport\s*\(/)
+    // R198 — and no bare side-effect import (`import` then a quote, no `from`, no brace); quotes as \x escapes.
+    expect(raw).not.toMatch(/\bimport\s*[\x27\x22]/)
   })
 
   // ⚖ Liam 9/19 — the practice-salon door's two structural pins (DESIGN-PRACTICE-DOOR.md

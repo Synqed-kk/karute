@@ -12,7 +12,9 @@
  *     is skipped (the mock's 業種 dialog leaked when 戻す was disabled — SPECCHECK
  *     fix 2). An `aria-disabled` control stays reachable, as the room intends.
  *  4. Initial focus is the caller's choice (`initialFocus`); on close focus
- *     returns to the control that opened it.
+ *     returns to the control that opened it — or, ⚖ S66 R260, to `returnFocus`
+ *     when the caller names one (WebKit never focuses a clicked button, so the
+ *     focused element at a pointer/tap open is BODY).
  *  5. ⚖ R112 — a click on the SCRIM itself closes it too (the mock's three cancel
  *     paths: Esc · scrim · やめる). Only a click whose target IS the scrim counts
  *     (never one that bubbles up from the panel), and never a press that began
@@ -24,7 +26,15 @@
  *  7. ⚖ S54 R165 — a scrim close needs the press to START on the scrim AND to be
  *     RELEASED on it (pointerup/mouseup target is the scrim), then the click.
  *  8. ⚖ S54 R165 — dialogs STACK: only the top-most open dialog hears Esc, Tab
- *     and its scrim; the ones below ignore them until they are on top again. */
+ *     and its scrim; the ones below ignore them until they are on top again.
+ *  9. ⚖ S62 R227 — `sheet` draws the SAME dialog as a bottom sheet: the scrim's
+ *     class becomes `st-dlg-scrim is-sheet` and the box gains `st-sheet` (CSS in
+ *     dialog.css). Every rule above is shared, untouched. Without it the DOM is
+ *     exactly what it was.
+ * 10. ⚖ S63 R235 — the trap's list is only what Tab can reach: never a negative
+ *     `tabIndex`, never anything under `aria-hidden="true"` or `inert` within the box.
+ *     Tab is always handled while the dialog is top-most, so a control under aria-hidden can be reached by a click but never by Tab, and Tab from it continues in DOM order (S71).
+ * 11. S71 (Greptile #1130 R4) — focus returns only to a target that can take it: returnFocus, else the opener, else the first reachable control in the room; a return target hidden by CSS (the sheet's opener above 899 px) never swallows focus. */
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
@@ -52,11 +62,17 @@ function isShown(el: HTMLElement, box: HTMLElement): boolean {
   return true
 }
 
+/** Rule 10: under `aria-hidden="true"` or `inert` inside the box (closest = the nearest, so inside wins). */
+function hiddenFromTab(el: HTMLElement, box: HTMLElement): boolean {
+  const h = el.closest('[aria-hidden="true"], [inert]')
+  return h !== null && box.contains(h)
+}
+
 /** The controls the trap cycles through, in order — never a disabled, hidden or
- *  undrawn one. */
+ *  undrawn one, nor one Tab cannot reach (rule 10). */
 export function focusablesIn(box: HTMLElement): HTMLElement[] {
   return [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (el) => !el.matches(':disabled') && isShown(el, box),
+    (el) => !el.matches(':disabled') && el.tabIndex >= 0 && !hiddenFromTab(el, box) && isShown(el, box),
   )
 }
 
@@ -68,6 +84,8 @@ export function Dialog({
   initialFocus,
   root,
   className,
+  sheet,
+  returnFocus,
   children,
 }: {
   open: boolean
@@ -81,6 +99,10 @@ export function Dialog({
   /** Override of the portal target (tests, or a room that is not the settings room). */
   root?: HTMLElement | null
   className?: string
+  /** ⚖ S62 R227 (rule 9) — draw the dialog as a bottom sheet. */
+  sheet?: boolean
+  /** ⚖ S66 R260 — where focus returns on close, however the dialog was opened (falls back to the opener). */
+  returnFocus?: RefObject<HTMLElement | null>
   children: ReactNode
 }) {
   const boxRef = useRef<HTMLDivElement>(null)
@@ -92,6 +114,8 @@ export function Dialog({
   const idRef = useRef<symbol>(Symbol('dialog'))
   const onCloseRef = useRef(onClose)
   useLayoutEffect(() => { onCloseRef.current = onClose }, [onClose])
+  const returnRef = useRef(returnFocus)
+  useLayoutEffect(() => { returnRef.current = returnFocus }, [returnFocus])
 
   // Opening: remember the opener (fresh on every open — the target is cleared on
   // close, so nothing renders before this runs), find the room root. Closing:
@@ -101,19 +125,27 @@ export function Dialog({
     const id = idRef.current
     openStack = [...openStack, id]
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setTarget(
+    const home =
       root ??
-        opener?.closest<HTMLElement>(ROOM_ROOT_SELECTOR) ??
-        document.querySelector<HTMLElement>(ROOM_ROOT_SELECTOR) ??
-        document.body,
-    )
+      opener?.closest<HTMLElement>(ROOM_ROOT_SELECTOR) ??
+      document.querySelector<HTMLElement>(ROOM_ROOT_SELECTOR) ??
+      document.body
+    setTarget(home)
     return () => {
       openStack = openStack.filter((x) => x !== id)
       // NOT dead (S54 R165(5), tested): without it a reopen renders into the old
       // target first, an autoFocus child takes focus in that commit, and this
       // effect would capture the child as the opener.
       setTarget(null)
-      if (opener && opener.isConnected) opener.focus()
+      // Rule 11: only a target that is connected AND shown can take focus.
+      const canTake = (el: HTMLElement | null | undefined): el is HTMLElement => !!el && el.isConnected && isShown(el, document.body)
+      const back = returnRef.current?.current
+      const dest = canTake(back)
+        ? back
+        : canTake(opener)
+          ? opener
+          : [...home.querySelectorAll<HTMLElement>(FOCUSABLE)].find((el) => !el.matches(':disabled') && el.tabIndex >= 0 && isShown(el, home))
+      dest?.focus()
     }
   }, [open, root])
 
@@ -146,9 +178,18 @@ export function Dialog({
       if (list.length === 0) { e.preventDefault(); box.focus(); return }
       const first = list[0]
       const last = list[list.length - 1]
-      const inside = active instanceof HTMLElement && list.includes(active)
-      if (e.shiftKey && (active === first || !inside)) { e.preventDefault(); last.focus() }
-      else if (!e.shiftKey && (active === last || !inside)) { e.preventDefault(); first.focus() }
+      const n = list.length
+      const idx = active instanceof HTMLElement ? list.indexOf(active) : -1
+      let next: HTMLElement
+      if (idx >= 0) next = list[(idx + (e.shiftKey ? -1 : 1) + n) % n]
+      else if (active instanceof HTMLElement && box.contains(active)) {
+        // Inside the box but not in the list (the box, or a control Tab cannot reach): continue in DOM order.
+        next = e.shiftKey
+          ? ([...list].reverse().find((el) => active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) ?? last)
+          : (list.find((el) => active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) ?? first)
+      } else next = e.shiftKey ? last : first
+      e.preventDefault()
+      next.focus()
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
@@ -179,10 +220,10 @@ export function Dialog({
 
   if (!open || !target) return null
   return createPortal(
-    <div className="st-dlg-scrim" onPointerDown={onScrimPress} onMouseDown={onScrimPress} onPointerUp={onScrimRelease} onMouseUp={onScrimRelease} onClick={onScrimClick}>
+    <div className={sheet ? 'st-dlg-scrim is-sheet' : 'st-dlg-scrim'} onPointerDown={onScrimPress} onMouseDown={onScrimPress} onPointerUp={onScrimRelease} onMouseUp={onScrimRelease} onClick={onScrimClick}>
       <div
         ref={boxRef}
-        className={`st-dlg${className ? ` ${className}` : ''}`}
+        className={`st-dlg${sheet ? ' st-sheet' : ''}${className ? ` ${className}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}

@@ -32,6 +32,8 @@ export interface StorePageRowsProps {
   roleOf?: (staffId: string) => string | null
   /** The room's reduced-motion answer for the switch springs; absent → read once from the media query. */
   reduced?: boolean
+  /** R211 — the tour's pair. The block is tall (16 rows), so it sits on the block's head, as the room's walk does. */
+  guide?: { title: string; guide: string }
 }
 
 const withSwitch = (rec: CapRecord, key: CapKey, on: boolean): CapRecord =>
@@ -56,7 +58,7 @@ export function sourceLine(saved: CapRecord, key: CapKey, roleOf?: (id: string) 
 const prefersReduced = (): boolean =>
   typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-export function StorePageRows({ draft, saved, counts, canEdit, onChange, roleOf, reduced }: StorePageRowsProps) {
+export function StorePageRows({ draft, saved, counts, canEdit, onChange, roleOf, reduced, guide }: StorePageRowsProps) {
   const [asking, setAsking] = useState<CapKey | null>(null)
   const [osReduced] = useState(prefersReduced)
   const rows = useRef<HTMLDivElement>(null)
@@ -89,7 +91,7 @@ export function StorePageRows({ draft, saved, counts, canEdit, onChange, roleOf,
 
   return (
     <div className="st-block spr">
-      <div className="st-block-head"><h3>{ROWS_HEAD}</h3></div>
+      <div className="st-block-head" data-guide-title={guide?.title} data-guide={guide?.guide}><h3>{ROWS_HEAD}</h3></div>
       <p className="st-block-note">{ROWS_SUB}</p>
       <div className="spr-rows" ref={rows}>
         {REG.map((r) => {

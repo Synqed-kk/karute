@@ -79,6 +79,18 @@ import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFa
 import { Collapse, DetailToggle } from './Collapse'
 import { SPRING_THUMB, Switch, type InertProps } from './Switch'
 import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSection'
+// S59 P7A (C7) — the 業種 / 機能 headings and the 16 row names, so a reader can type them to find お店ページ.
+import { STORE_PAGE_HEADINGS, TYPE_BLOCK, UNDO } from '@/business/lib/store-page/copy'
+// S60 P7A-R2b — the 業種 / 機能 blocks mounted under the card look, the room's one draft, and the room's toast (R207).
+import type { CapKey, CapRecord } from '@/business/lib/store-page/model'
+import { afterHandFlip, storePageDraft, storePageValues, type StorePageIds } from '@/business/lib/store-page/room-draft'
+import { putStoreCapabilities, type CapsSaveReason } from '@/business/lib/store-page/save-client'
+import { saveFailLines } from '@/business/lib/store-page/save-lines'
+// S61 P7B-R1 (R224) — the sample of the type core last accepted (pure; imports only copy/model types).
+import { practiceSample } from '@/business/lib/store-page/practice-counts'
+import { StorePageType } from './StorePageType'
+import { ROWS_HEAD, StorePageRows } from './StorePageRows'
+import { useToast } from './Toast'
 import {
   ADD_PENDING_LABEL,
   applyClosureAdded,
@@ -111,6 +123,8 @@ import {
   BOOKING_GUARD_ID,
   CARD_COLOR_ID,
   STORE_PAGE_ID,
+  STORE_PAGE_FAMILY_ID,
+  storePageSwitchId,
   hitOf,
   blockingError,
   changedCount,
@@ -154,6 +168,17 @@ import {
  *  the room back on insertion order. */
 const ROOT = 'page pg-settings'
 
+/** S60 P7A-R2b (P0) — お店ページ's value ids, the room's own (settings.ts), never retyped. */
+const STORE_PAGE_IDS: StorePageIds = { family: STORE_PAGE_FAMILY_ID, sw: storePageSwitchId }
+
+/** S60 P7A-R2c (R210) — THE ids a 保存する commits: the section's control ids EXCEPT お店ページ's 17.
+ *  S61 P7B-2 (R223) — the permanent rule, no longer a stand-in: a page-level commit (`commitSection`) NEVER marks one
+ *  of the 17 ids saved, in any mode; only a 200 of the capabilities route does (R219, `saveStorePageSection`). */
+function committedIdsOf(target: SettingsSection): string[] {
+  const sp = target.storePage ? storePageValues(target.storePage.saved, STORE_PAGE_IDS) : {}
+  return controlIdsOf(target).filter((id) => !(id in sp))
+}
+
 /** ⚖ R6-20, CARRIED (room 6's `Overlay`, room 8's tour). A dismiss-by-backdrop
  *  surface that mounts under a pointer already resting where its opener was will
  *  eat the SECOND press of a double-click and close itself instantly — and
@@ -177,8 +202,10 @@ const HEAD_GUIDE_NARROW =
 /** ⚖ S17 · F13 — the search terms of the ONE section that renders itself. Asked
  *  exactly the way the scroll-spy asks for its anchors, so 予約と確保 is one
  *  special case in this file rather than two. */
+/** S59 P7A (C7) — お店ページ's terms: カードの見た目's headings, then 業種 / 機能 and their rows. */
+const STORE_PAGE_TERMS: readonly string[] = [...CARD_LOOK_HEADINGS, ...STORE_PAGE_HEADINGS]
 const termsFor = (id: string): readonly string[] | undefined =>
-  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? CARD_LOOK_HEADINGS : undefined)
+  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? STORE_PAGE_TERMS : undefined)
 
 const DENSITY_ID = 'my-display.density'
 const EMPHASIS_ID = 'my-display.emphasis'
@@ -217,6 +244,8 @@ function seedOf(props: SettingsProps): Record<string, RowValue> {
     for (const b of section.blocks) for (const r of b.rows) for (const c of r.controls) out[c.id] = c.value
     // ⚖ A1b — カードの見た目's one value ('' = nothing set), so the save bar counts and commits it.
     if (section.cardLook) out[CARD_COLOR_ID] = section.cardLook.value ?? ''
+    // S60 P7A-R2b (C1) — お店ページ's 17 values join the one seed, so `values` and `saved` both carry them.
+    if (section.storePage) Object.assign(out, storePageValues(section.storePage.saved, STORE_PAGE_IDS))
   }
   return out
 }
@@ -591,7 +620,21 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const [committed, setCommitted] = useState<Record<string, string>>({})
   /** ⚖ A2 — why the last real card save did not land (null = none, or it did). */
   const [cardFail, setCardFail] = useState<CardSaveReason | null>(null)
+  /** S61 P7B-2 (R221) — the section's ONE in-flight answer: the colour's save AND お店ページ's switches' save. Set at the
+   *  press, released when every sent half has answered; it guards 保存する and 元に戻す for both halves. */
   const cardSaving = useRef(false)
+  /** S60 P7A-R2b (C4) — お店ページ's reset keys (R156); 戻す adds them, a hand flip removes its own (R182). S61 P7B-2:
+   *  the switches' save body reads them. */
+  const [resetKeys, setResetKeys] = useState<readonly CapKey[]>([])
+  /** S61 P7B-2 (R218) — the last save core ACCEPTED for お店ページ (null until the first 200), written ONLY from a 200's
+   *  own record: the draft's base, both blocks' `saved`, and the next body's `based_on`. page.tsx keys the room by
+   *  store, so it dies on a store switch. */
+  const [accepted, setAccepted] = useState<{ record: CapRecord; basedOn: string } | null>(null)
+  /** S61 P7B-2 (R220) — the last お店ページ press's two outcomes beside `cardFail`: did the colour land, and the
+   *  switches' answer ('unsent' = not sent by that press). `saveFailLines` picks the two lines from them. */
+  const [spPress, setSpPress] = useState<{ cardOk: boolean; caps: 'unsent' | 'ok' | CapsSaveReason }>({ cardOk: false, caps: 'unsent' })
+  /** S60 R207 — the room's one toast; its host sits in the room root, outside the keyed お店ページ subtree. */
+  const toast = useToast()
   /** ⚖ PKT-S38 — why the last real 予約の色分け save did not land (null = none, or it did). */
   const [bookingFail, setBookingFail] = useState<CardSaveReason | null>(null)
   const bookingSaving = useRef(false)
@@ -904,7 +947,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
 
   const commitSection = useCallback((target: SettingsSection, persisted: boolean) => {
     const at = jstClock(new Date()) // ⚖ R42 — the commit instant, read once, before any state update
-    const ids = controlIdsOf(target)
+    const ids = committedIdsOf(target)
     const wordValues = committedWordValues(target, values)
     setValues((prev) => ({ ...prev, ...wordValues }))
     setSaved((prev) => {
@@ -972,6 +1015,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const openSection = useCallback((id: string, fromRail: boolean) => {
     if (fromRail) cameFromRef.current = id
     setCardFail(null) // G7 — the section changes (`picked` is state): an old card refusal goes with it
+    setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-R1 (attack F8): …and the switches' line
     setBookingFail(null) // …and an old 予約の色分け refusal
     setPicked(id)
     setJumpPin(null)
@@ -981,6 +1025,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const backToList = useCallback(() => {
     const id = cameFromRef.current
     setCardFail(null) // G7 — leaving the section clears an old card refusal
+    setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-R1 (attack F8): …and the switches' line
     setBookingFail(null)
     setPicked(null)
     if (!id) return
@@ -1297,6 +1342,88 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved, listRows, savedRows) : false
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) ?? wordsBlockingError(section, values) : null
   const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
+  /** S60 P7A-R2b (P4) — the colour's may-save answer, named once: the save bar and お店ページ's blocks read it. */
+  const maySave = props.saveCardColor?.canSave !== false
+  const spCanEdit = section?.storePage?.disconnected !== true && maySave // R208: disconnected = both blocks locked
+  /** S60 P7A-R2b (P2) — お店ページ's draft, ONE per render, from the saved record and the room's `values`. S61 P7B-2
+   *  (R218): the saved record is core's last accepted one, else the payload's. */
+  const spSaved = section?.storePage ? accepted?.record ?? section.storePage.saved : undefined
+  const spDraft = useMemo(() => (spSaved ? storePageDraft(spSaved, values, STORE_PAGE_IDS) : null), [spSaved, values])
+  /** S61 P7B-R1 (R224, R189) — the section's sample, ONE definition: the SAVED type's. `accepted` (door ON only) →
+   *  its type's sample; else the payload's. Read by the preview's `storeView` and by StorePageRows' `counts`. */
+  const spSample = section?.storePage
+    ? accepted
+      ? practiceSample(accepted.record.business_type)
+      : { counts: section.storePage.counts, sampleKey: section.storePage.sampleKey }
+    : undefined
+  /** S60 P7A-R2b (P6) — a type pick writes the record; it removes NO reset key (R182). S61 P7B-3 (R220, G7): an edit
+   *  of the switches' half clears the switches' refusal line (the colour's line is the colour pick's to clear). */
+  const typeChange = (next: CapRecord) => {
+    setValues((prev) => ({ ...prev, ...storePageValues(next, STORE_PAGE_IDS) }))
+    setSpPress((prev) => ({ ...prev, caps: 'unsent' }))
+  }
+  /** …a hand flip writes the record AND drops every key it flipped from the reset keys (C4). */
+  const rowsChange = (next: CapRecord) => {
+    typeChange(next)
+    if (spDraft) setResetKeys((prev) => afterHandFlip(prev, spDraft, next))
+  }
+  /** S60 P7A-R2c (R209 · U2) — the section's 元に戻す: one press, no confirm; every id (the 17 + the colour) back to
+   *  `saved` in ONE write, the reset keys emptied (R182), the colour's refusal cleared, and the toast says so. */
+  const undoSection = (target: SettingsSection) => {
+    if (cardSaving.current) return // S60 P7A-R3 (R215) · S61 R221: a save in flight (either half) — the save press's own guard; no write, no toast
+    setValues((prev) => {
+      const next = { ...prev }
+      for (const id of controlIdsOf(target)) next[id] = saved[id]
+      return next
+    })
+    setResetKeys(() => [])
+    setCardFail(null)
+    setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-3 (R209): the switches' line too
+    toast.show(UNDO.toast)
+  }
+  /** S61 P7B-2 (R219) — お店ページ with the door ON: THE SPLIT SAVE. At the press: the colour is sent only if it differs
+   *  from saved, the switches only if one of the 17 does; both may fly; each answer is handled alone; `cardSaving`
+   *  (R221) is released when every sent half has answered. Switches' 200: saved for the 17 and `accepted` from the
+   *  RESPONSE (R222's hash), the reset keys emptied only if still the very list sent, `values` untouched, the stamp
+   *  alone — never `commitSection`. A refusal: only its line; draft, saved, accepted, based_on, reset keys all stay. */
+  const saveStorePageSection = async (target: SettingsSection, sp: NonNullable<SettingsSection['storePage']>, card: CardSave) => {
+    if (cardSaving.current) return
+    const sendColour = values[CARD_COLOR_ID] !== saved[CARD_COLOR_ID]
+    const sendCaps = spDraft !== null && Object.keys(storePageValues(sp.saved, STORE_PAGE_IDS)).some((id) => values[id] !== saved[id])
+    if (!sendColour && !sendCaps) return
+    cardSaving.current = true
+    setCardFail(null)
+    setSpPress({ cardOk: false, caps: 'unsent' })
+    const picked = String(values[CARD_COLOR_ID] ?? '')
+    const sentKeys = resetKeys
+    const colour = sendColour
+      ? putCardColor(card, picked === '' ? null : picked).then((result) => {
+        if (!result.ok) {
+          setCardFail(result.reason)
+          return
+        }
+        setSpPress((prev) => ({ ...prev, cardOk: true }))
+        commitSection(target, true) // as saveCardSection: core confirmed it holds this colour
+        setSaved((prev) => ({ ...prev, [CARD_COLOR_ID]: result.color ?? '' }))
+      })
+      : null
+    const caps = sendCaps && spDraft !== null
+      ? putStoreCapabilities(card.businessId, { storeId: sp.storeId, record: spDraft, resetKeys: sentKeys, basedOn: accepted?.basedOn ?? sp.basedOn }).then((result) => {
+        setSpPress((prev) => ({ ...prev, caps: result.ok ? 'ok' : result.reason }))
+        if (!result.ok) return
+        setSaved((prev) => ({ ...prev, ...storePageValues(result.record, STORE_PAGE_IDS) }))
+        setAccepted({ record: result.record, basedOn: result.basedOn })
+        setResetKeys((prev) => (prev === sentKeys ? [] : prev)) // R182: a list changed during the flight is kept whole
+        const at = jstClock(new Date()) // ⚖ R42 — the stamp alone (R219), its time read once, before the state update
+        setCommitted((prev) => ({ ...prev, [target.id]: stampFor(true, at) }))
+      })
+      : null
+    try {
+      await Promise.all([colour, caps])
+    } finally {
+      cardSaving.current = false // S61 P7B-3 (L2): released even if an answer handler throws
+    }
+  }
   /** ⚖ R35 (S36) — door ON and this section holds 臨時休業/特別営業日: the footer is hidden here
    *  (the live blocks write to core). ONE definition; the footer ternary reads it. (⚖ B2 act 2a — the
    *  committed stamp no longer reads the door: `stampFor` takes the commit's own outcome.) */
@@ -1414,7 +1541,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   )
 
   /** THE ROOM'S SAVE BAR, one copy for every section that uses it (⚖ A1b: カードの見た目 too). */
-  const roomSave = (section: SettingsSection) =>
+  const roomSave = (section: SettingsSection, onUndo?: () => void) =>
     /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
        already saved, in this browser, the moment it is pressed.
        Printing 保存する under it would ask a reader to commit
@@ -1435,11 +1562,17 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 : committed[section.id] || '変更はありません')}
           </span>
         </div>
+        {/* S60 P7A-R2c (R209 · U1) — only お店ページ passes `onUndo`; the room's wash-pill text button (.st-link). */}
+        {onUndo && (
+          <button type="button" className="st-link" aria-disabled={changed === 0} onClick={() => { if (changed > 0) onUndo() }}>
+            {UNDO.button}
+          </button>
+        )}
         <button
           type="button"
           className="st-save"
           disabled={!dirty || blocked !== null}
-          onClick={() => (section.cardLook && props.saveCardColor ? void saveCardSection(section, props.saveCardColor) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}
+          onClick={() => (section.cardLook && props.saveCardColor ? void (section.storePage ? saveStorePageSection(section, section.storePage, props.saveCardColor) : saveCardSection(section, props.saveCardColor)) : section.id === LANG_SECTION_ID && props.saveBookingColors ? void saveBookingSection(section, props.saveBookingColors) : commitSection(section, false))}
         >
           保存する
         </button>
@@ -1474,6 +1607,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
 
   return (
     <div className={`${ROOT}${isDetail ? ' is-detail' : ''}`} ref={rootRef}>
+      {toast.host}
       {/* ⚖ IMPROVEMENT 1 — ONE COMPACT ROW. The dateline, the title, the ? and
           the one-line subtitle sit on one band; the old two-line lead folds into
           the head's own tour text, where a reader asks for it. */}
@@ -1648,24 +1782,67 @@ export function SettingsScreen(props: SettingsScreenProps) {
             // ⚖ A1b — カードの見た目 renders itself, like 予約と確保, but on the ROOM's save bar:
             // its one value lives in `values`, so the count, the rise and 保存する are the room's own.
             <ReserveCardLookSection
+              // S60 P7A-R2b (C6 / R184) — the whole お店ページ subtree (card look + 業種 + 機能) is the store's own
+              key={section.storePage?.storeId}
               // the source line speaks for the colour core last confirmed: the room's `saved`, not the page payload
               look={{ ...section.cardLook, value: CARD_COLOR_ID in saved ? String(saved[CARD_COLOR_ID] ?? '') || null : section.cardLook.value }}
+              // By design (R242 / R288): STORE_CAPABILITIES_REAL_MODE (data.ts) is hard-coded false, so every room that exists today is a practice room,
+              // and the customer-app preview always shows the full believable sample with its サンプル dateline (settings-props.ts),
+              // never a real customer. A store whose features are locked is the practice door OFF, not a real business without data.
+              storeView={spSample && spDraft ? { draft: spDraft, counts: spSample.counts, sampleKey: spSample.sampleKey } : undefined}
               value={String(values[CARD_COLOR_ID] ?? '')}
               onPick={(hex) => {
                 setCardFail(null) // G7 — an old refusal never stands beside a new pick
                 setValue(CARD_COLOR_ID, hex)
+                setSpPress((prev) => ({ ...prev, cardOk: false })) // S61 P7B-R1 (R225): …nor the last press's "colour saved" (cardOk)
               }}
               reduced={reduced}
+              narrow={narrow && isDetail} // S62 — the band WHILE the section is its own screen: back to the list closes the sheet
               render={(slots) =>
                 columnAnd(
-                  <div className="st-main">{slots.main}<p className="st-foot">{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}</p></div>,
+                  <div className="st-main">
+                    {slots.main}
+                    {/* S60 P7A-R2b (P11) — under the card look, 業種 then 機能 (MOCK-FUNCTION-SPEC-S48 B4/B6/B7). */}
+                    {section.storePage && spSaved && spDraft ? (
+                      <>
+                        <StorePageType
+                          draft={spDraft}
+                          saved={spSaved}
+                          canEdit={spCanEdit}
+                          onChange={typeChange}
+                          onResetKeys={setResetKeys}
+                          onToast={toast.show}
+                          // R211 — each block's pair is picked by its heading (copy.ts BLOCK_GUIDES), never by index
+                          guide={section.storePageGuides?.find((g) => g.title === TYPE_BLOCK.title)}
+                        />
+                        <StorePageRows
+                          draft={spDraft}
+                          saved={spSaved}
+                          counts={spSample?.counts ?? section.storePage.counts}
+                          canEdit={spCanEdit}
+                          onChange={rowsChange}
+                          reduced={reduced}
+                          guide={section.storePageGuides?.find((g) => g.title === ROWS_HEAD)}
+                        />
+                      </>
+                    ) : section.storePageNoStore ? <p className="st-block-note">{section.storePageNoStore}</p> : null}
+                    <p className="st-foot">{props.saveCardColor ? (props.saveCardColor.canSave ? CARD_SAVE_NOTE : CARD_SAVE_FAIL.forbidden) : props.demoSaveLine}</p>
+                    {/* S62 R230 — the sheet's opener, LAST in the reading column for every branch above (CSS shows it only ≤ 899) */}
+                    {slots.viewButton}</div>,
                   sideNode(
                     [],
                     slots.preview,
                     <>
                       {/* ⚖ G5 — core's sheet says no: no 保存する to press; the foot says why. */}
-                      {props.saveCardColor?.canSave === false ? null : roomSave(section)}
-                      {cardFail && <p className="st-act-error" role="alert">{CARD_SAVE_FAIL[cardFail]}</p>}
+                      {maySave ? roomSave(section, section.storePage ? () => undoSection(section) : undefined) : null}
+                      {/* S61 P7B-2 (R220) — the colour's line where it always stood, the switches' beside it; with no
+                          switches sent (`caps` 'unsent', always so without storePage) the colour's line is CARD_SAVE_FAIL[cardFail] as before. */}
+                      {((lines) => (
+                        <>
+                          {lines.card && <p className="st-act-error" role="alert">{lines.card}</p>}
+                          {lines.caps && <p className="st-act-error" role="alert">{lines.caps}</p>}
+                        </>
+                      ))(saveFailLines(cardFail ?? (spPress.cardOk ? 'ok' : 'unsent'), spPress.caps, CARD_SAVE_FAIL))}
                     </>,
                     () => false,
                     changed > 0,

@@ -1582,7 +1582,7 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(blockingError(hours, seed)).toBeNull()
     expect(blockingError(hours, { ...seed, 'store-hours.name': '   ' })).toBe('店舗名が空欄です — 保存できません。')
     // …and the save button is really disabled by it.
-    expect(SCREEN_CODE).toContain('disabled={!dirty || blocked !== null}')
+    expect(SCREEN_CODE).toContain('disabled={!dirty || blocked !== null}') // S61 P7B-2 (R219): `savable` removed — every section, お店ページ too, reads dirty
   })
 
   it('a readout is a FIGURE or a PHRASE, and the sheet sizes them differently', async () => {
@@ -2060,7 +2060,8 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // focusable for its reason to be reachable by keyboard. The two `disabled`
     // attributes in this file are the save button and the tour's 前へ, which are
     // genuinely unusable rather than refusing — and (⚖ PR-3) a select's
-    // 「未設定」 option, which is a state shown, never a choice offered.
+    // 「未設定」 option, which is a state shown, never a choice offered. (S60 P7A-R3, R216 — お店ページ's
+    // 元に戻す is aria-disabled, so it stays focusable: three again.)
     expect((SCREEN_CODE.match(/(?<!aria-)\bdisabled=/g) ?? [])).toHaveLength(3)
   })
 
@@ -2292,7 +2293,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // …and the SCREEN really hands them over — to the filter AND to the chip.
     // Without this the list above is a fact about a function nobody calls with
     // it, which is exactly how the battery caught the first cut of this pin.
-    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? CARD_LOOK_HEADINGS : undefined)')
+    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : id === STORE_PAGE_ID ? STORE_PAGE_TERMS : undefined)')
     expect(SCREEN_CODE).toContain('searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id))')
     expect(SCREEN_CODE).toContain('hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))')
     // An empty query is not a filter; a query nothing matches is honest silence.
@@ -3594,7 +3595,7 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
       // exemption (「focus rings and focus-visible styles (a11y)」: a ring drawn
       // around the thing being taught is the same category), the second is a
       // control.
-      const pressable = /st-rail-item|st-rail-hit|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-swatch|st-save|st-act|st-link|st-jump-item|st-det-btn|st-back|st-search-field|st-coll-del|st-spot-hole|st-spot-next/.test(sel)
+      const pressable = /st-rail-item|st-rail-hit|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-swatch|st-save|st-act|st-link|cl-viewbtn|st-jump-item|st-det-btn|st-back|st-search-field|st-coll-del|st-spot-hole|st-spot-next/.test(sel)
       expect({ sel, pressable }).toEqual({ sel, pressable: true })
     }
     // …and the WASH really is limited to the surfaces the law names — a selected
@@ -3602,7 +3603,7 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
     // the scan above stopped looking at it.
     const washed = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*var\(--st-accent-wash\)[^}]*\}/g)].map((m) => m[1].trim())
     for (const sel of washed) {
-      const named = /st-preview|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-rail-item|st-link|st-jump-item|st-det-btn|st-back|st-block|st-spot-next/.test(sel)
+      const named = /st-preview|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-rail-item|st-link|cl-viewbtn|st-jump-item|st-det-btn|st-back|st-block|st-spot-next/.test(sel)
       expect({ sel, named }).toEqual({ sel, named: true })
     }
     // The selected option really is R13's wash recipe, never a solid fill — and
@@ -4405,14 +4406,14 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
   it('switch OFF: the value is null (no fixture home), the payload is this business and this lens', async () => {
     const s = await lookOf({ store: STORE_A })
     expect({ kicker: s.kicker, title: s.title }).toEqual({ kicker: 'Reserve設定', title: 'お店ページ' })
-    expect(s.lead).toBe('「カードの見た目」の設定は、すべての店舗に共通で適用されます。')
+    expect(s.lead).toBe('お客様のアプリに出るお店のページを、機能ごとに出す・出さないで決めます。業種を選ぶと標準の組み合わせになり、あとから一つずつ変えられます。プレビューは、いまの設定でお客様に見えるページです。「カードの見た目」の設定は、すべての店舗に共通で適用されます。') // S50 P3 — spec B3 / mock :758
     expect(s.guide).toBe('お客様のアプリのホームに並ぶ、お店のカードの色を決める画面です。色は事業全体でひとつなので、店舗の切替でどの店舗を選んでも、同じ色が表示されます。')
     expect(s.cardLook).toEqual({
       storeLine: stores.find((x) => x.id === STORE_A)!.name,
       address: storeDials[STORE_A].profile.address,
       scopeLabel: '全店共通',
       value: null,
-      palette: PALETTE,
+      palette: PALETTE, practice: true, // S64 R242 — door OFF (sample data) is a practice room
     })
   })
 
@@ -4430,7 +4431,9 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
 
   it('the value rides the room’s save bar: one control id, +1 on a pick, 0 after 保存', async () => {
     const s = await lookOf({ store: STORE_A })
-    expect(controlIdsOf(s)).toEqual([CARD_COLOR_ID])
+    // S50 P3 — the colour first, then the store lens's 業種 + 16 switches (store-page-section.test.tsx pins those 17)
+    expect(controlIdsOf(s)[0]).toBe(CARD_COLOR_ID)
+    expect(controlIdsOf(s)).toHaveLength(18)
     const seed = { [CARD_COLOR_ID]: '' }
     expect(changedCount(s, seed, seed)).toBe(0)
     const picked = { [CARD_COLOR_ID]: '#00304C' }
@@ -4531,7 +4534,7 @@ describe('⚖ A1b — カードの見た目: one colour per business, the curate
   it('the section speaks the approved mock: h3/h4, the 全店共通 chip, the search headings, the home-only notes', async () => {
     const s = await lookOf({ store: STORE_A })
     expect(s.cardLook?.scopeLabel).toBe('全店共通')
-    expect(CARD_LOOK_HEADINGS).toEqual(['カードの見た目', 'カードの色', 'お客様のアプリでの見え方'])
+    expect(CARD_LOOK_HEADINGS).toEqual(['カードの見た目', 'カードの色', 'お客様のアプリでの見え方', 'ロゴ', 'ロゴ画像'])
     expect(LOOK_CODE).toContain('<h3 id="clLookHead">カードの見た目</h3>')
     expect(LOOK_CODE).toContain('<h4 className="st-sec-l" id="clPickHead">カードの色</h4>')
     expect(LOOK_CODE).toContain('title="この事業者のすべての店舗に適用されます"')

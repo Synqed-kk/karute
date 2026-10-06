@@ -26,6 +26,7 @@ describe('⚖ R130 — every Business stylesheet parses', () => {
       join('settings', 'settings.css'),
       join('settings', 'switch.css'),
       join('settings', 'dialog.css'),
+      join('settings', 'toast.css'),
     ]))
   })
 
@@ -114,6 +115,7 @@ describe('⚖ S54 R165(2) — no touch-floor size (44px/48px) outside (pointer: 
       relative(process.cwd(), join(ROOM, 'settings.css')),
       relative(process.cwd(), join(ROOM, 'switch.css')),
       relative(process.cwd(), join(ROOM, 'dialog.css')),
+      relative(process.cwd(), join(ROOM, 'toast.css')),
       join('src', 'business', 'lib', 'reserve-card', 'reserve-card.css'),
     ]))
   })
@@ -187,13 +189,27 @@ describe('⚖ S57 R187 — the shared dialog', () => {
   })
 
   it.each([
-    ['.biz .pg-settings .st-dlg h4', { 'font-size': '14px', 'font-weight': '700', 'line-height': '1.4' }],
-    ['.biz .pg-settings .st-dlg p', { 'font-size': '12px', 'font-weight': '400', 'line-height': '1.7' }],
+    ['.biz .pg-settings .st-dlg:not(.st-sheet) h4', { 'font-size': '14px', 'font-weight': '700', 'line-height': '1.4' }],
+    ['.biz .pg-settings .st-dlg:not(.st-sheet) p', { 'font-size': '12px', 'font-weight': '400', 'line-height': '1.7' }],
   ])('(c) %s type is defined once', (selector, want) => {
     const rules = rulesFor(selector)
     expect(rules).toHaveLength(1)
     const got: Record<string, string> = {}
     rules[0].walkDecls((d) => { got[d.prop] = d.value })
     expect(got).toEqual(want)
+  })
+})
+
+// S59 P7A (R195) — the adopters' own dialog h4/p carry no line-height, so dialog.css (R187c) alone decides it.
+describe('⚖ S59 R195 — no leftover dialog line-height in the adopters', () => {
+  it.each([
+    ['store-page-rows.css', ['.biz .pg-settings .spr-dlg h4', '.biz .pg-settings .spr-dlg p']],
+    ['store-page-type.css', ['.biz .pg-settings .sp-type-dlg h4', '.biz .pg-settings .sp-type-dlg p']],
+  ])('%s', (file, selectors) => {
+    const path = join(ROOM, file)
+    const css = postcss.parse(readFileSync(path, 'utf8'), { from: path })
+    const found: string[] = []
+    css.walkRules((r) => { if (r.selectors.some((x) => selectors.includes(x))) r.walkDecls('line-height', (d) => { found.push(`${r.selector} ${d.value}`) }) })
+    expect(found).toEqual([])
   })
 })
