@@ -64,13 +64,16 @@ export async function resolveSyncRunStore(args: {
   const { synqed, authUserId, capabilities, requestedStoreId } = args
 
   if (requestedStoreId) {
+    let store: unknown
     try {
-      await synqed.stores.get(requestedStoreId)
+      store = await synqed.stores.get(requestedStoreId)
     } catch (err) {
       const status = (err as { status?: unknown } | null)?.status
       if (status === 404 || status === 403) throw new SyncStoreForbidden('store-id does not belong to this business')
       throw new SyncStoreDependencyError(err)
     }
+    // An archived store is not one anybody may sync.
+    if ((store as { active?: unknown } | null)?.active === false) throw new SyncStoreForbidden('store-id is archived')
   }
 
   let stores: { id: string; is_primary?: boolean | null; active?: boolean | null }[] | undefined
@@ -98,7 +101,7 @@ export async function resolveSyncRunStore(args: {
     return { storeId: requestedStoreId }
   }
   if (assigned) return { storeId: assigned[0] }
-  const list = await listStores()
+  const list = (await listStores()).filter((s) => s.active !== false)
   const primary = list.find((s) => s.is_primary)?.id ?? list[0]?.id
   if (!primary) throw new SyncStoreUnassigned('this business has no store')
   return { storeId: primary }
