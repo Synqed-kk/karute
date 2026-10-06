@@ -39,7 +39,11 @@ export interface SwitchState {
 }
 export interface CapRecord {
   readonly v: 1
+  /** What the store IS (the page's 業種): drives the lock (TYPE_LOCKED_OFF, R269). */
   readonly business_type: BusinessTypeKey
+  /** S75 — whose standard the untouched (TYPE_DEFAULT) switches follow at READ time: set by the first save (the seed
+   *  type shown) and by 業種の標準に戻す only. A stored record without it reads as its own business_type. */
+  readonly defaults_type: BusinessTypeKey
   readonly switches: Readonly<Record<CapKey, SwitchState>>
 }
 /** A count the page could not read is UNKNOWN (undefined), never 0 (R92 / R101). */
@@ -72,9 +76,9 @@ const TYPE_ON: Readonly<Record<BusinessTypeKey, readonly CapKey[]>> = Object.fre
   dental_clinic: setOf('checkin_qr', 'intake', 'homecare', 'posts'),
   medical_clinic: setOf('checkin_qr', 'intake', 'posts'),
   dermatology: setOf('checkin_qr', 'intake', 'homecare', 'photo_proof', 'posts', 'shop'),
-  cosmetic_surgery: setOf('checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'posts', 'read_points', 'shop'),
+  cosmetic_surgery: setOf('checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'posts', 'shop'), // R269: read_points DEFAULT OFF
   physical_therapy: setOf('checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'video_proof', 'posts'),
-  wellness_clinic: setOf('checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'posts', 'read_points', 'shop'),
+  wellness_clinic: setOf('checkin_qr', 'packs', 'intake', 'homecare', 'photo_proof', 'posts', 'shop'), // R269: read_points DEFAULT OFF
   mental_health: setOf('checkin_qr', 'packs', 'intake', 'homecare', 'posts'),
   veterinary: setOf('checkin_qr', 'intake', 'homecare', 'posts', 'read_points', 'shop'),
   other: setOf('checkin_qr'),
@@ -84,9 +88,29 @@ const TYPE_ON: Readonly<Record<BusinessTypeKey, readonly CapKey[]>> = Object.fre
 export const TYPE_DEFAULTS: Readonly<Record<BusinessTypeKey, readonly CapKey[]>> = TYPE_ON
 const defaultOn = (typeKey: BusinessTypeKey, k: CapKey): boolean => TYPE_ON[typeKey].includes(k)
 
-const build = (typeKey: BusinessTypeKey, state: (k: CapKey) => SwitchState): CapRecord => ({
+/** R269 (DECISIONS-S67:28) — keys HARD-LOCKED OFF by what the store IS (its business_type): no owner switch, no type
+ *  default, no 戻す turns them ON, until the lawyer answers. R269 names no types; the six insurance-billing types are
+ *  LEGAL-POINTS-CHECK-S67.md:29-34 (保険医療機関 / 柔整・あはき 受領委任: points tied to the co-pay are prohibited and
+ *  inducement is barred; points for reading are unclear → lawyer). A type pick that lands on a locked type turns the
+ *  key OFF — R269's own 「no owner switch」, the one carved exception to D7 (DECISIONS-S75 ruling 2). */
+export const TYPE_LOCKED_OFF: Readonly<Partial<Record<BusinessTypeKey, readonly CapKey[]>>> = Object.freeze({
+  dental_clinic: setOf('read_points'),
+  medical_clinic: setOf('read_points'),
+  dermatology: setOf('read_points'),
+  osteopathy: setOf('read_points'),
+  acupuncture: setOf('read_points'),
+  physical_therapy: setOf('read_points'),
+})
+/** True when the store's 業種 locks `k` OFF (TYPE_LOCKED_OFF, read through typeKeyOf). */
+export const isLocked = (businessType: unknown, k: CapKey): boolean => TYPE_LOCKED_OFF[typeKeyOf(businessType)]?.includes(k) ?? false
+/** The value an untouched switch reads as: OFF when locked by the 業種, else the defaults type's table value. */
+export const standardOn = (businessType: BusinessTypeKey, defaultsType: BusinessTypeKey, k: CapKey): boolean =>
+  !isLocked(businessType, k) && defaultOn(defaultsType, k)
+
+const build = (typeKey: BusinessTypeKey, defaultsType: BusinessTypeKey, state: (k: CapKey) => SwitchState): CapRecord => ({
   v: 1,
   business_type: typeKey,
+  defaults_type: defaultsType,
   switches: Object.fromEntries(CAP_KEYS.map((k) => [k, state(k)])) as Record<CapKey, SwitchState>,
 })
 
@@ -94,7 +118,33 @@ const build = (typeKey: BusinessTypeKey, state: (k: CapKey) => SwitchState): Cap
  *  through typeKeyOf here too (unknown / empty / junk → 'other', never a throw), as resetDiff, applyReset and stampSave do. */
 export const seedRecord = (typeKey: BusinessTypeKey): CapRecord => {
   const t = typeKeyOf(typeKey)
-  return build(t, (k) => ({ on: defaultOn(t, k), source: 'TYPE_DEFAULT' }))
+  return build(t, t, (k) => ({ on: standardOn(t, t, k), source: 'TYPE_DEFAULT' }))
+}
+
+/** A record as stored or drafted, before resolution: defaults_type may be absent (a legacy record), a switch may be missing. */
+export interface UnresolvedRecord {
+  readonly business_type: BusinessTypeKey
+  readonly defaults_type?: BusinessTypeKey
+  readonly switches: Readonly<Partial<Record<CapKey, SwitchState>>>
+}
+/** R265(4) + R269 (DECISIONS-S75 ruling 3) — THE ONE place the read-time rule lives; every Business reader of a stored
+ *  record goes through it (parseRecord). Per key: locked by business_type → OFF · OWNER → its stored `on` ·
+ *  TYPE_DEFAULT or missing → TYPE_ON[defaults_type]. No defaults_type (legacy) → the record's OWN business_type. */
+export function resolveRecord(rec: UnresolvedRecord): CapRecord {
+  const bt = typeKeyOf(rec.business_type)
+  const dt = typeKeyOf(rec.defaults_type ?? bt)
+  return build(bt, dt, (k) => {
+    const s = rec.switches[k]
+    if (s !== undefined && s.source === 'OWNER') return isLocked(bt, k) ? { ...s, on: false } : s
+    return { ...s, on: standardOn(bt, dt, k), source: 'TYPE_DEFAULT' }
+  })
+}
+/** The lock alone, as a READ-TIME OVERLAY on a draft (resolveRecord would also undo the owner's unsaved flips): locked
+ *  keys READ OFF, nothing else moves. S75 fix 1 (SF1): never written back into the draft, so a 業種 pick back restores
+ *  the switch the owner had (room-draft's storePageDraft applies it; the room's values keep the underlying `on`). */
+export const lockOff = (rec: CapRecord): CapRecord => {
+  const bt = typeKeyOf(rec.business_type)
+  return build(bt, typeKeyOf(rec.defaults_type), (k) => (isLocked(bt, k) ? { ...rec.switches[k], on: false } : rec.switches[k]))
 }
 
 // The INTERNAL grouping of the 26 types into families (R143, ruled). None maps to RETAIL.
@@ -177,37 +227,59 @@ export function resetDiff(draft: CapRecord): ResetDiff {
   const t = typeKeyOf(draft.business_type)
   for (const k of CAP_KEYS) {
     const s = draft.switches[k]
-    const want = defaultOn(t, k)
+    const want = standardOn(t, t, k)
     if (s.source === 'OWNER') keeps.push(k)
     else if (s.on !== want) flips.push({ key: k, from: s.on, to: want })
   }
   return { flips, keeps, none: flips.length === 0 }
 }
-/** 戻す (D-RESET): flips the TYPE_DEFAULT keys only; they keep source TYPE_DEFAULT. The 業種 itself is untouched.
+/** 戻す (D-RESET): flips the TYPE_DEFAULT keys only; they keep source TYPE_DEFAULT. The 業種 itself is untouched;
+ *  S75: defaults_type becomes that 業種 (the untouched switches follow its standard from now on).
  *  R134 / R144: the target type is the record's OWN business_type — never a separate argument — so a reset can never
  *  aim at a type the record (and stampSave, which reads the same field) does not carry. Set business_type first
  *  (the type pick, D7), then reset. */
 export function applyReset(record: CapRecord): CapRecord {
   const to = new Map(resetDiff(record).flips.map((f) => [f.key, f.to]))
-  return build(typeKeyOf(record.business_type), (k) => (to.has(k) ? { on: to.get(k) as boolean, source: 'TYPE_DEFAULT' } : record.switches[k]))
+  const t = typeKeyOf(record.business_type)
+  return build(t, t, (k) => (to.has(k) ? { on: to.get(k) as boolean, source: 'TYPE_DEFAULT' } : record.switches[k]))
 }
 
 /** What a successful save writes (R89 — the SERVER alone decides source; the draft's source/changed_at/changed_by
  *  are ignored). Unchanged keys keep their saved stamps exactly. A changed key stays TYPE_DEFAULT only when its SAVED
- *  source is TYPE_DEFAULT, the client lists it in resetKeys (keys 戻す flipped since the last save), and its new value
- *  equals the draft type's default; every other changed key becomes OWNER + changed_at + changed_by. An OWNER key
+ *  source is TYPE_DEFAULT and its new value equals the draft's standard; every other changed key becomes OWNER +
+ *  changed_at + changed_by. S75 fix 3 (R-E): resetKeys (keys 戻す flipped since the last save) is now informational —
+ *  kept in the signature and on the wire, no longer read by the stamp. An OWNER key
  *  never returns to TYPE_DEFAULT. Call only with what core accepted (D-SAVE). TYPE_DEFAULT means untouched by the owner, not
  *  equal to the current type's default: after a type change an untouched switch keeps its value until 戻す (D7). */
+/** S75 (R269) — a draft that turns a key ON that its 業種 locks OFF; the door answers 'invalid'. */
+export class LockedSwitchOn extends Error {
+  constructor(readonly key: CapKey) {
+    super(`locked switch turned on: ${key}`)
+    this.name = 'LockedSwitchOn'
+  }
+}
+/** S75: `saved` is the RESOLVED baseline (parseRecord, or the seed shown). A locked key turned ON throws LockedSwitchOn.
+ *  defaults_type = the DRAFT's (S75 fix 1, SF2/SF3: the room's draft carries it and only 業種の標準に戻す sets it, flips
+ *  or not), else the saved record's, else its 業種 — a 業種 pick alone moves no switch (D7). A key kept TYPE_DEFAULT always equals its standard, so the
+ *  next read shows exactly what was saved; an untouched key that 戻す moved away from and the owner set back is OWNER. */
 export function stampSave(
-  saved: CapRecord, draft: CapRecord, resetKeys: readonly CapKey[], now: Date, actingStaffId: string,
+  saved: CapRecord, draft: Omit<CapRecord, 'defaults_type'> & { readonly defaults_type?: BusinessTypeKey }, resetKeys: readonly CapKey[], now: Date, actingStaffId: string,
 ): CapRecord {
   const at = now.toISOString()
   const t = typeKeyOf(draft.business_type) // R155: a junk type stamps as 'other' and the record it returns says so
-  return build(t, (k) => {
+  const locked = CAP_KEYS.find((k) => isLocked(t, k) && draft.switches[k].on)
+  if (locked !== undefined) throw new LockedSwitchOn(locked)
+  const dt = typeKeyOf(draft.defaults_type ?? saved.defaults_type ?? saved.business_type)
+  return build(t, dt, (k) => {
     const on = draft.switches[k].on
     const was = saved.switches[k]
-    if (on === was.on) return was
-    if (was.source === 'TYPE_DEFAULT' && resetKeys.includes(k) && on === defaultOn(t, k)) return { on, source: 'TYPE_DEFAULT' }
+    const std = standardOn(t, dt, k)
+    // S75 fix 1 (SF4): a locked key is written OFF / TYPE_DEFAULT with THIS save's stamp — never an old OWNER stamp; the
+    // owner's earlier ON is not kept (a legally locked switch resets; after the lock lifts the key follows the table)
+    if (isLocked(t, k)) return was.source === 'TYPE_DEFAULT' && !was.on ? was : { on: false, source: 'TYPE_DEFAULT', changed_at: at, changed_by: actingStaffId }
+    if (on === was.on && (was.source === 'OWNER' || on === std)) return was
+    // S75 fix 3 (R-E): a TYPE_DEFAULT key whose new value IS the standard stays TYPE_DEFAULT — never a phantom OWNER stamp
+    if (was.source === 'TYPE_DEFAULT' && on === std) return { on, source: 'TYPE_DEFAULT' }
     return { on, source: 'OWNER', changed_at: at, changed_by: actingStaffId }
   })
 }
@@ -251,6 +323,8 @@ export interface WireSwitch {
 export interface WireRecord {
   readonly v: 1
   readonly business_type: BusinessTypeKey
+  /** S75 — Business-owned like business_type; core stores the record opaque (z.record(string, unknown)). */
+  readonly defaults_type: BusinessTypeKey
   readonly switches: Readonly<Record<WireKey, WireSwitch>>
 }
 
@@ -295,7 +369,8 @@ export function parseRecord(raw: unknown): CapRecord | null {
     read[k] = s
   }
   if (Object.keys(read).length === 0) return null
-  return build(raw.business_type, (k) => read[k] ?? { on: false, source: 'TYPE_DEFAULT' })
+  // S75: returns the RESOLVED record (resolveRecord); a defaults_type outside the 26 reads as absent (legacy) — parseLoses logs it
+  return resolveRecord({ business_type: raw.business_type, ...(isTypeKey(raw.defaults_type) ? { defaults_type: raw.defaults_type } : {}), switches: read })
 }
 
 /** A plain JSON object only: a class instance or an object with an inherited prototype chain is not a record. */
@@ -307,13 +382,16 @@ const bareObject = (v: unknown): v is Record<string, unknown> => {
 const exactly = (o: Record<string, unknown>, keys: readonly string[]): boolean =>
   Object.keys(o).length === keys.length && Object.keys(o).every((k) => keys.includes(k))
 const RECORD_FIELDS = ['v', 'business_type', 'switches'] as const
+const RECORD_FIELDS_S75 = ['v', 'business_type', 'defaults_type', 'switches'] as const
 const INTERNAL_SWITCH_FIELDS = ['on', 'source', 'changed_at', 'changed_by'] as const
 /** R126 — the STRICT read of a draft in the INTERNAL spelling (lowercase keys, `changed_by`): the body between the
  *  page and the door. Unlike parseRecord (the defensive core-side reader) nothing is skipped or filled: exactly the
  *  record's three fields, exactly the 16 lowercase switch keys, each switch only its four known fields, the same
  *  per-field types and caps as parseSwitch, business_type one of the 26 type keys — anything else → null. */
 export function parseInternalRecord(draft: unknown): CapRecord | null {
-  if (!bareObject(draft) || !exactly(draft, RECORD_FIELDS) || draft.v !== 1 || !isTypeKey(draft.business_type)) return null
+  if (!bareObject(draft) || !(exactly(draft, RECORD_FIELDS) || exactly(draft, RECORD_FIELDS_S75)) || draft.v !== 1 || !isTypeKey(draft.business_type)) return null
+  // S75: defaults_type optional (a page from before it), a type key when present; absent → the draft's business_type
+  if (draft.defaults_type !== undefined && !isTypeKey(draft.defaults_type)) return null
   const sw = draft.switches
   if (!bareObject(sw) || !exactly(sw, CAP_KEYS)) return null
   const read: Partial<Record<CapKey, SwitchState>> = {}
@@ -324,12 +402,15 @@ export function parseInternalRecord(draft: unknown): CapRecord | null {
     if (!parsed) return null
     read[k] = parsed
   }
-  return build(draft.business_type, (k) => read[k] as SwitchState)
+  // A DRAFT is not resolved here (that would undo the owner's unsaved flips): the door resolves the baseline, stampSave locks.
+  return build(draft.business_type, typeKeyOf(draft.defaults_type ?? draft.business_type), (k) => read[k] as SwitchState)
 }
-/** The wire value written under storeCapabilitiesKeyFor(storeId): all 16 UPPER keys, registry order (R121). */
+/** The wire value written under storeCapabilitiesKeyFor(storeId): all 16 UPPER keys, registry order (R121), each `on`
+ *  the RESOLVED value (an old reader that trusts `on` and reads a missing key as OFF stays right), + defaults_type. */
 export const serializeRecord = (rec: CapRecord): WireRecord => ({
   v: 1,
   business_type: rec.business_type,
+  defaults_type: rec.defaults_type,
   switches: Object.fromEntries(CAP_KEYS.map((k) => [wireKeyOf(k), toWire(rec.switches[k])])) as Record<WireKey, WireSwitch>,
 })
 
@@ -356,7 +437,10 @@ export function parseLoses(raw: unknown): boolean {
  *  canonical sorted-key JSON of serializeRecord through cyrb53 (fixed, non-crypto; identical in node and the
  *  browser). null → the fixed hash of `null`. Staleness detection only, never security. */
 export function recordHash(record: CapRecord | null): string {
-  const text = record === null ? 'null' : canonical(serializeRecord(record))
+  return cyrb53(record === null ? 'null' : canonical(serializeRecord(record)))
+}
+/** The fixed, non-crypto fingerprint behind recordHash and typeTableHash. */
+function cyrb53(text: string): string {
   let h1 = 0xdeadbeef
   let h2 = 0x41c6ce57
   for (let i = 0; i < text.length; i++) {
@@ -368,3 +452,12 @@ export function recordHash(record: CapRecord | null): string {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
   return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')
 }
+
+const sortedTable = (t: Readonly<Partial<Record<string, readonly string[]>>>): Record<string, string[]> =>
+  Object.fromEntries(Object.keys(t).sort().map((k) => [k, [...(t[k] ?? [])].sort()]))
+/** S75 (DECISIONS-S75 ruling 1, 6) — the fingerprint of the ONE per-type truth (TYPE_ON + TYPE_LOCKED_OFF): canonical
+ *  JSON over sorted types and sorted keys through cyrb53, so it is the same in any runtime and for any listing order. */
+export const typeTableHash = (): string => cyrb53(canonical({ locked_off: sortedTable(TYPE_LOCKED_OFF), on: sortedTable(TYPE_ON) }))
+/** PINNED: a table edit must change this literal in the same commit (the test asserts it), and Reserve's mirror (PR-2)
+ *  checks its own copy against it. */
+export const TYPE_TABLE_HASH = 'ff4025458512e739'

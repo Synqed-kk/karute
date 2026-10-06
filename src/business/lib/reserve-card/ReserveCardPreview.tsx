@@ -415,6 +415,7 @@ function StudioCover({
 const projected = (on: ReadonlySet<string>): CapRecord => ({
   v: 1,
   business_type: "other", // a type key (R171); ready() reads only the switches
+  defaults_type: "other",
   switches: Object.fromEntries(CAP_KEYS.map((k) => [k, { on: on.has(k), source: "TYPE_DEFAULT" }])) as CapRecord["switches"],
 });
 

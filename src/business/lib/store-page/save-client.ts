@@ -4,7 +4,8 @@
 
 import { parseInternalRecord, recordHash, type CapKey, type CapRecord } from './model'
 
-export type CapsSaveReason = 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core' | 'disconnected'
+/** S75 fix 1: 'locked' = the door's 'invalid' carrying `locked` (a key the 業種 locks OFF was sent ON) — its own line. */
+export type CapsSaveReason = 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core' | 'disconnected' | 'locked'
 export type CapsSaveResult = { ok: true; record: CapRecord; basedOn: string } | { ok: false; reason: CapsSaveReason }
 
 const CAPS_SAVE_URL = '/api/business/store-capabilities'
@@ -26,11 +27,12 @@ export async function putStoreCapabilities(
       body: JSON.stringify({ storeId: save.storeId, record: save.record, reset_keys: [...save.resetKeys], based_on: save.basedOn }),
     })
     const body: unknown = await res.json().catch(() => null)
-    const answer = (body ?? {}) as { ok?: unknown; record?: unknown; reason?: unknown }
+    const answer = (body ?? {}) as { ok?: unknown; record?: unknown; reason?: unknown; locked?: unknown }
     if (res.ok && answer.ok === true) {
       const record = parseInternalRecord(answer.record)
       return record === null ? { ok: false, reason: 'core' } : { ok: true, record, basedOn: recordHash(record) }
     }
+    if (answer.reason === 'invalid' && typeof answer.locked === 'string') return { ok: false, reason: 'locked' }
     const reason = CAPS_SAVE_REASONS.find((r) => r === answer.reason)
     return { ok: false, reason: reason ?? 'core' }
   } catch {

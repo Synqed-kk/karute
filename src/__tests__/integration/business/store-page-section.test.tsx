@@ -193,14 +193,14 @@ describe('S50 P3 — お店ページ payload: the per-store record, counts, ids 
     const p = (await page(STORE.tokyo)).storePage!
     expect(p).toMatchObject({ hasSaved: false, startFamily: 'SALON', disconnected: false })
     expect(p.saved).toEqual(seedRecord('beauty_chiropractic')) // テスト東京店's twin STORE_A (fixtures.ts:42)
-    expect(p.basedOn).toBe(recordHash(null))
+    expect(p.basedOn).toBe(recordHash(seedRecord('beauty_chiropractic'))) // S75: the hash of the seed shown, not of null
     expect(p.counts).toEqual(LA_ESTRO)
   })
 
   it('saved unreadable (wrong type inside) reads as absent: the seed, never the stored text (R90)', async () => {
     mockCore.settings = { [KEY(STORE.tokyo)]: { v: 1, business_type: 'yoga_studio', switches: { packs: { on: 'yes', source: 'OWNER' } } } }
     const p = (await page(STORE.tokyo)).storePage!
-    expect(p).toMatchObject({ hasSaved: false, basedOn: recordHash(null) })
+    expect(p).toMatchObject({ hasSaved: false, basedOn: recordHash(seedRecord('beauty_chiropractic')) })
     expect(p.saved).toEqual(seedRecord('beauty_chiropractic'))
   })
 
@@ -219,8 +219,8 @@ describe('S50 P3 — お店ページ payload: the per-store record, counts, ids 
 
   it('controlIdsOf: the card colour + the 業種 + one id per CAP key (17 new ids)', async () => {
     const ids = controlIdsOf(await page(STORE.tokyo))
-    expect(ids).toEqual(['reserve-card-look.color', 'reserve-store-page.family', ...CAP_KEYS.map((k) => `reserve-store-page.sw.${k}`)])
-    expect(new Set(ids).size).toBe(18)
+    expect(ids).toEqual(['reserve-card-look.color', 'reserve-store-page.family', 'reserve-store-page.defaults', ...CAP_KEYS.map((k) => `reserve-store-page.sw.${k}`)]) // S75 fix 1: + defaults_type
+    expect(new Set(ids).size).toBe(19)
   })
 
   it('all-stores lens: no per-store part, the room\'s noStore sentence in its place, no store id counted', async () => {
@@ -236,7 +236,7 @@ describe('S50 P3 — お店ページ payload: the per-store record, counts, ids 
     mockCore.settings = { [KEY(STORE.tokyo)]: serializeRecord(GYM_SAVED) }
     const s = await page('store-test-ginza')
     expect(mockCore.reaches).toBe(0)
-    expect(s.storePage).toMatchObject({ hasSaved: false, disconnected: true, basedOn: recordHash(null) })
+    expect(s.storePage).toMatchObject({ hasSaved: false, disconnected: true, basedOn: recordHash(s.storePage!.saved) })
     expect(s.storePage?.counts).toEqual({})
   })
 
