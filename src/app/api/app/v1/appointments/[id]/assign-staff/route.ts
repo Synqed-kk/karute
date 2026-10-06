@@ -13,7 +13,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
+import { resolveSynqedStaffIdForBusiness, StaffProfileNotFoundError } from '@/lib/synqed/staff-map'
 import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import { assignStaffToBooking, STAFF_NOT_ELIGIBLE } from '@/lib/appointments/mutations'
 
@@ -54,14 +54,19 @@ export const POST = facadeHandler<Params>('appointment.assignStaff', async (ctx)
   // The web action's resolveSynqedStaffId, Bearer-safe twin (same on-demand
   // creation of a core staff row; the core judges the resolved row).
   // An unknown profile, or one outside this business, makes the resolver
-  // throw: that is the caller's bad input, so a 4xx with the same refusal an
-  // ineligible staff gets — never a 500. A typed upstream failure stays itself.
+  // throw StaffProfileNotFoundError: that is the caller's bad input, so a 4xx
+  // with the same refusal an ineligible staff gets. Every other throw (a core
+  // 5xx, the network, a missing env) is rethrown as-is, so the facade answers
+  // its usual 5xx — never a 400 "cannot take this booking". Nothing is written
+  // either way.
   let staffId: string
   try {
     staffId = await resolveSynqedStaffIdForBusiness(parsed.data.staffProfileId, businessId)
   } catch (err) {
-    if (err instanceof AppApiError) throw err
-    throw new AppApiError('validation', STAFF_NOT_ELIGIBLE)
+    if (err instanceof StaffProfileNotFoundError) {
+      throw new AppApiError('validation', STAFF_NOT_ELIGIBLE)
+    }
+    throw err
   }
 
   const result = await assignStaffToBooking(

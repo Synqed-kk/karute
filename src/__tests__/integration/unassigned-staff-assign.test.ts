@@ -25,6 +25,9 @@ jest.mock('@/lib/auth/require-permission', () => {
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
 })
 jest.mock('@/lib/synqed/staff-map', () => ({
+  // The route maps ONLY this class to 400; the mock carries a stand-in so
+  // `instanceof` sees the same class the route imports.
+  StaffProfileNotFoundError: class StaffProfileNotFoundError extends Error {},
   resolveSynqedStaffIdForBusiness: jest.fn(async () => 'staff-new'),
   lookupSynqedStaffIdForBusiness: jest.fn(async () => 'staff-viewer'),
 }))
@@ -260,11 +263,29 @@ describe('fix round 1', () => {
   })
 
   it('an unknown / foreign staff profile → 400 { error }, never 500, nothing written', async () => {
-    resolveMock().mockRejectedValueOnce(new Error('Staff profile not found in this business'))
+    const { StaffProfileNotFoundError } = jest.requireMock('@/lib/synqed/staff-map')
+    resolveMock().mockRejectedValueOnce(new StaffProfileNotFoundError('no such profile'))
     const res = await assignPOST(post({ staffProfileId: 'profile-elsewhere' }), params)
     expect(res.status).toBe(400)
     expect(await res.json()).toHaveProperty('error')
     expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ FIX ROUND 2 item 6 (X3) — only the resolver's own "no such profile"
+  // refusal is the caller's bad input. A core 5xx, a network failure or a
+  // missing env during the lookup is the facade's usual 5xx, never a 400
+  // "cannot take this booking"; nothing is written either way.
+  it.each([
+    ['a core 5xx from the staff read', Object.assign(new Error('Service Unavailable'), { status: 503 })],
+    ['a network failure', new TypeError('fetch failed')],
+    ['a missing core env', new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')],
+  ])('%s during the staff lookup → 5xx (not 400), nothing written', async (_label, err) => {
+    resolveMock().mockRejectedValueOnce(err)
+    const res = await assignPOST(post({ staffProfileId: 'profile-new' }), params)
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect(res.status).not.toBe(400)
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(updateAudits()).toHaveLength(0)
   })
 
   it('no business on the actor → refused (never skipped), nothing written', async () => {

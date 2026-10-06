@@ -248,6 +248,17 @@ export async function resolveSynqedStaffId(staffProfileId: string): Promise<stri
   return resolveSynqedStaffIdForBusiness(staffProfileId, await getBusinessId())
 }
 
+/** The one refusal resolveSynqedStaffIdForBusiness owns: the profile does
+ *  not exist in THIS business (the read is scoped by customer_id). A facade
+ *  maps only this to a 4xx; every other throw (core/SDK, network, env) is an
+ *  upstream failure and stays one (PR-B fix round 2, X3). */
+export class StaffProfileNotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StaffProfileNotFoundError'
+  }
+}
+
 /** Bearer-safe twin of resolveSynqedStaffId — businessId from the verified
  *  token, never the cookie session. Same create-on-miss contract. */
 export async function resolveSynqedStaffIdForBusiness(
@@ -275,7 +286,7 @@ export async function resolveSynqedStaffIdForBusiness(
     | { full_name?: string | null; email?: string | null }
     | null
   if (!typedProfile) {
-    throw new Error(
+    throw new StaffProfileNotFoundError(
       `Could not link Supabase profile ${staffProfileId} to a synqed-core ` +
         `staff record: no such profile.`,
     )
