@@ -2,6 +2,7 @@
 // cleaning). No IO — everything here is unit-testable with plain objects.
 
 import type { DashboardTodayAppointment } from './cached'
+import { isRecordingTarget } from '@/lib/appointments/by-date'
 
 export interface HeroSlide {
   appointment: DashboardTodayAppointment
@@ -32,7 +33,8 @@ export function pickHeroSlides(
 }
 
 /** Sessions that ENDED without a karute — the 録音 todo. Soonest-ended first
- *  so the oldest miss is at the top. */
+ *  so the oldest miss is at the top. A 担当未定 booking is never a recording
+ *  target (isRecordingTarget, THE one rule), so it is never a 録音 todo. */
 export function pickKaruteTodos(
   appointments: DashboardTodayAppointment[],
   now: Date,
@@ -40,6 +42,7 @@ export function pickKaruteTodos(
   return appointments
     .filter((a) => {
       if (a.karute_record_id) return false
+      if (!isRecordingTarget(a)) return false
       const end = new Date(a.start_time).getTime() + a.duration_minutes * 60_000
       return end <= now.getTime()
     })
