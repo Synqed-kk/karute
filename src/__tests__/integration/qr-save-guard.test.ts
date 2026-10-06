@@ -204,8 +204,10 @@ describe('POST — each store saves only its own row', () => {
     mockClient([DAIKANYAMA_ROW], async () => {
       throw new Error('qr_store_already_linked')
     })
+    // 333 is linked nowhere Karute can see (fix round 2's local check passes),
+    // so core is the one refusing here.
     const res = await POST(
-      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '222' }),
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '333' }),
     )
     expect(res.status).toBe(502)
     expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
@@ -282,5 +284,52 @@ describe('fix round 2 — a blank form never blanks a live row', () => {
     expect((await POST(req({ username: '', password: '', enabled: true }))).status).toBe(200)
     expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'owner', karute_store_id: 'daikanyama' })
     expect(upsert.mock.calls[0][1]).not.toHaveProperty('password')
+  })
+})
+
+describe('fix round 2 — one Quick Reserve store, one of our stores', () => {
+  it("(p) 銀座's first save naming 代官山's QR store (222) → 409 qr_store_already_linked, nothing written", async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'LA-ESTRO ', qrStoreId: '222' }),
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('(p2) a clamped caller gets the same refusal, and the body never names the other store', async () => {
+    actorStore.current = 'ginza'
+    capabilities.current = new Set(['sync.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['ginza'] })
+    mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '222' }),
+    )
+    expect(res.status).toBe(409)
+    expect(JSON.stringify(await res.json())).not.toContain('daikanyama')
+  })
+
+  it('(p3) the same slug with a different QR store id is allowed (one owner login, several stores)', async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '250' }),
+    )
+    expect(res.status).toBe(200)
+    expect(upsert).toHaveBeenCalledTimes(1)
+  })
+
+  it("(q) core's object error carrying the code → 409 with the code (the screen localizes it)", async () => {
+    actorStore.current = 'ginza'
+    mockClient([DAIKANYAMA_ROW], async () => {
+      throw Object.assign(new Error('This Quick Reserve store is already linked'), { code: 'qr_store_already_linked' })
+    })
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '333' }),
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
   })
 })

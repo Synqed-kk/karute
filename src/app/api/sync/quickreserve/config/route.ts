@@ -128,7 +128,7 @@ export async function POST(request: Request) {
   // store this caller may not use is the run's 409 qr_store_not_ready.
   try {
     const storeId = await shownStore(synqed, capabilities, shown)
-    const { config: existing } = await qrConfigForStore(synqed, storeId)
+    const { config: existing, configs } = await qrConfigForStore(synqed, storeId)
 
     const slug = typeof qrStoreSlug === 'string' ? qrStoreSlug.trim() : ''
     const qrId = Number(qrStoreId)
@@ -138,6 +138,13 @@ export async function POST(request: Request) {
         { error: 'qr_store_required', message: 'A new store needs its Quick Reserve store and login.' },
         { status: 400 },
       )
+    }
+    // One Quick Reserve store crawls for ONE of our stores. Checked here across
+    // the whole business (a clamped caller included) without naming the other
+    // store; keyed on the numeric QR store id, never the slug (one owner
+    // login serves several stores).
+    if (!existing && configs.some((c) => c.karute_store_id !== storeId && Number(c.store_id) === qrId)) {
+      return NextResponse.json({ error: 'qr_store_already_linked' }, { status: 409 })
     }
 
     await synqed.sync.upsertConfig('QUICKRESERVE', {
@@ -160,7 +167,11 @@ export async function POST(request: Request) {
     savedStoreId = storeId
   } catch (e) {
     // Surface the real failure — whether it came from a read above or the
-    // write itself (the old route's "Config saved" false positive).
+    // write itself (the old route's "Config saved" false positive). Core's
+    // code is read from an object error too (the SDK keeps it on .code).
+    if ((e as { code?: unknown } | null)?.code === 'qr_store_already_linked') {
+      return NextResponse.json({ error: 'qr_store_already_linked' }, { status: 409 })
+    }
     return failure(e, 'Could not save QuickReserve settings')
   }
 
