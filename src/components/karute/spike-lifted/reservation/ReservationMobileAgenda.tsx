@@ -114,6 +114,18 @@ export const COMPACT_ROW = 'relative flex w-full items-center gap-2.5 px-4 py-2 
 export const COMPACT_ROW_TAG =
   'ml-auto inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[10px] font-medium'
 
+/** The 担当未定 mark — a booking with no staff yet. The same muted text on
+ *  the expanded card and the collapsed past row (one mark, one component).
+ *  Not a pill: it is not a warning, and there is no staff, so no colour. */
+function UnassignedMark({ className }: { className?: string }) {
+  const tUnassigned = useTranslations('unassignedStaff')
+  return (
+    <span className={cn('block truncate text-[12px] text-muted-foreground', className)}>
+      {tUnassigned('mark')}
+    </span>
+  )
+}
+
 export function CompactRowContent({
   reservation: r,
   tag,
@@ -303,7 +315,6 @@ function AgendaRow({
   const t = useTranslations('reservation.card')
   const tStatus = useTranslations('reservation.status')
   const tNoShow = useTranslations('customers.list')
-  const tUnassigned = useTranslations('unassignedStaff')
   const visuals = STATUS_VISUALS[r.displayStatus]
   const isLive = r.displayStatus === 'in_session'
   const isCompleted = r.displayStatus === 'completed'
@@ -376,7 +387,8 @@ function AgendaRow({
   }
 
   if (isCompleted && !expanded) {
-    // A 担当未定 row (no staff) is never a recording target: no 未録音.
+    // A 担当未定 row (no staff) is never a recording target: no 未録音. It
+    // carries the 担当未定 mark instead, collapsed too (the one mark component).
     const showUnrecorded = !r.isCancelled && !r.karuteRecordId && !!r.staffId
     return (
       <button
@@ -391,6 +403,8 @@ function AgendaRow({
               <span className={cn(COMPACT_ROW_TAG, BADGE_COLORS.amber.bg, BADGE_COLORS.amber.text, BADGE_COLORS.amber.border)}>
                 {t('unrecorded')}
               </span>
+            ) : r.staffId === null ? (
+              <UnassignedMark className="ml-auto shrink-0" />
             ) : null
           }
         />
@@ -489,11 +503,7 @@ function AgendaRow({
         )}
         {/* 担当未定 — a booking with no staff yet: the same muted line, no
          *  staff dot (no staff, no colour). Not a pill: it is not a warning. */}
-        {r.staffId === null && (
-          <div className="mt-0.5 truncate text-[12px] text-muted-foreground">
-            {tUnassigned('mark')}
-          </div>
-        )}
+        {r.staffId === null && <UnassignedMark className="mt-0.5" />}
       </div>
 
       {/* Status + 更新案内 — pinned to the TOP-RIGHT corner (self-start) and

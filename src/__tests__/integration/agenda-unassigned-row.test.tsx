@@ -68,6 +68,23 @@ describe('mobile agenda row — 担当未定', () => {
     expect(screen.queryByText('unrecorded')).toBeNull()
   })
 
+  it('a completed staff-less row, collapsed, carries the 担当未定 mark and no 未録音', () => {
+    render(
+      <ReservationMobileAgenda
+        reservations={[reservation({ staffId: null, staffName: '' })]}
+      />,
+    )
+    // Collapsed: the row is the single expand button, no 担当 line yet.
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByText('mark')).toBeTruthy()
+    expect(screen.queryByText('unrecorded')).toBeNull()
+  })
+
+  it('a completed staffed row, collapsed, carries no 担当未定 mark', () => {
+    render(<ReservationMobileAgenda reservations={[reservation({ karuteRecordId: 'k-1' })]} />)
+    expect(screen.queryByText('mark')).toBeNull()
+  })
+
   it('the same past staff-less row, expanded, still shows no 未録音 pill', () => {
     render(
       <ReservationMobileAgenda
