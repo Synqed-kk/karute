@@ -93,7 +93,7 @@ export async function POST(request: Request) {
         action: 'settings.sync_run_now',
         targetType: 'business',
         requestId,
-        storeId: storeId ?? null,
+        storeId,
         detail: { karute_store_id: storeId ?? null },
       })
       return NextResponse.json({
