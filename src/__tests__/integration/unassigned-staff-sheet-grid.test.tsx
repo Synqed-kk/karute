@@ -188,3 +188,37 @@ describe('BookingActionSheetWrapper — a staff-less booking never reaches a rec
     expect(screen.queryByText('unassignedStaff.sheetSubtitleReadOnly')).toBeNull()
   })
 })
+
+// ⚖ FIX ROUND 4 (R1a) — the wrapper's id filter is the only thing between the
+// sheet and the active store's whole roster: a booking missing from the map
+// offers nobody (fail closed), and canAssign false offers nobody either.
+describe('BookingActionSheetWrapper — the picker offers only the ids the server listed for the booking', () => {
+  beforeAll(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
+    })
+  })
+
+  it("map { 'appt-1': ['p2'] } → only p2's button", () => {
+    render(
+      <BookingActionSheetWrapper selected={booking} onClose={jest.fn()} forceMobile canAssign assignStaff={STAFF} assignStaffIdsByBooking={{ 'appt-1': ['p2'] }} />,
+    )
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Ren'])
+    expect(screen.queryByText('Mika')).toBeNull()
+  })
+
+  it('the booking missing from the map ({}) → the read-only lines, 0 buttons (never the whole roster)', () => {
+    render(<BookingActionSheetWrapper selected={booking} onClose={jest.fn()} forceMobile canAssign assignStaff={STAFF} assignStaffIdsByBooking={{}} />)
+    expect(screen.getByText('unassignedStaff.recordBlockedReadOnly')).toBeTruthy()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+  })
+
+  it('canAssign false → 0 buttons even with the booking in the map', () => {
+    render(
+      <BookingActionSheetWrapper selected={booking} onClose={jest.fn()} forceMobile canAssign={false} assignStaff={STAFF} assignStaffIdsByBooking={{ 'appt-1': ['p1', 'p2'] }} />,
+    )
+    expect(screen.getByText('unassignedStaff.sheetSubtitleReadOnly')).toBeTruthy()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+  })
+})
