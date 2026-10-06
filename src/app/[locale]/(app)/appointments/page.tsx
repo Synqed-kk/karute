@@ -163,8 +163,6 @@ export default async function AppointmentsPage({
             selectedDate.toISOString(),
             jstEndOfDay(selectedDate).toISOString(),
             staffFilter,
-            true,
-            true, // the day line: 件 == the rows the list shows (staff-less too)
           )
         : Promise.resolve(null),
     ),

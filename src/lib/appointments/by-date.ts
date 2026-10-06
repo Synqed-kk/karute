@@ -258,8 +258,10 @@ export function countedClientIds(
  * `staffId` is the CORE staff id (appointments.staff_id's id space), applied AT
  * THE FETCH so the 担当/自分 filter reaches the week and month numbers instead
  * of only the day list. Core filters by equality, so a staff-less booking is
- * NOT in such a window: the week/month per-day 件 under a staff filter leave
- * it out (core has no cheap "staff_id = X or none" count; left as is).
+ * NOT in such a window. `staffId` remains for callers that want core's exact
+ * filter; every 件 the appointments screen shows (day, week, month,
+ * 先月同期間比) uses `shownUnder` below, so staff-less bookings count under
+ * every staff filter, the day list's own rule.
  *
  * `shownUnder` (PR-B, 件 == rows) — the DAY line's mode: the window is read
  * WITHOUT a staff filter and kept by `isShownBooking(row, shownUnder)`, the day

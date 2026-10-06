@@ -45,8 +45,9 @@ import {
 export type AppointmentWindowPayload = AppointmentWindow & {
   hoursFacts: [string, DayHoursFact][]
   /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place, so
-   *  the window below is empty BY CONSTRUCTION. The screen needs to know, or
-   *  it reads those zero rows as a real day and divides them by one lane. */
+   *  the window below holds only the staff-less rows BY CONSTRUCTION. The
+   *  screen needs to know, or it reads them as a real day and divides them by
+   *  one lane. */
   staffFilterUnknown: boolean
   /** THIS STORE's vertical — the per-store column when core carries it, else
    *  the business-wide setting. It decides only one thing: whether a day is
@@ -73,11 +74,6 @@ export async function getAppointmentWindow(
    *  store clamp, the 担当 filter and the rows are identical either way; this
    *  only says whether to ask about opening hours. */
   withHours = true,
-  /** `true` = the DAY line's window (PR-B, 件 == rows): read without the staff
-   *  filter and kept by the day list's own predicate (isShownBooking), so the
-   *  day 件 counts the staff-less bookings the list shows under every filter.
-   *  Same store clamp; it can only add rows this caller's day list shows. */
-  dayLine = false,
 ): Promise<AppointmentWindowPayload> {
   const [synqed, scope, orgSettings, activeStaffId] = await Promise.all([
     getSynqedClient(),
@@ -128,18 +124,22 @@ export async function getAppointmentWindow(
   const fetchFromIso = new Date(Date.parse(fromIso) - 86_400_000).toISOString()
 
   const [window, policy, closed, store] = await Promise.all([
-    // A filter naming somebody the roster cannot place gets ZERO rows, not the
-    // whole salon's week — and neither does an actor who reaches NO store
-    // (`storeId` is undefined for them, which core reads as "every store";
-    // ⚖ Liam 2026-09-16, census: week/month window, FO).
-    reachesNoStore(scope) || (unknown && !dayLine)
+    // An actor who reaches NO store gets ZERO rows (`storeId` is undefined for
+    // them, which core reads as "every store"; ⚖ Liam 2026-09-16, census:
+    // week/month window, FO).
+    //
+    // 件 == rows (PR-B) for EVERY window this screen counts — day, week, month
+    // and 先月同期間比: read without the staff filter and kept by the day list's
+    // own predicate (isShownBooking via `shownUnder`), so a 担当未定 booking
+    // counts under every 担当 filter, as the list shows it. A filter the roster
+    // cannot place keeps only the staff-less rows, never the whole salon's
+    // week. Same store clamp; it can only add rows this caller's list shows.
+    reachesNoStore(scope)
       ? Promise.resolve(emptyAppointmentWindow())
-      : fetchAppointmentWindow(
-          synqed,
-          fetchFromIso,
-          toIso,
-          dayLine ? { storeId, shownUnder: unknown ? staffFilter : staffId } : { storeId, staffId },
-        ),
+      : fetchAppointmentWindow(synqed, fetchFromIso, toIso, {
+          storeId,
+          shownUnder: unknown ? staffFilter : staffId,
+        }),
     // No catch on purpose. `storePolicies.get` answers the PLATFORM DEFAULTS for
     // a store with no row of its own (`source: 'default'` —
     // @synqed-kk/client dist/store-policies.d.ts), so "no policy row" is a

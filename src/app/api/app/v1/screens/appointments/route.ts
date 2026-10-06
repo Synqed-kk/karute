@@ -191,9 +191,6 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       selfRow?.id ?? null,
       coreStaffByProfileId,
     )
-    // A filter naming somebody the roster cannot place gets ZERO rows, never
-    // the whole salon's week.
-    //
     // ⚖ S7 — the FETCH starts one JST day EARLY (C1's window-edge leak). A
     // booking that began at 23:00 the night before the range still occupies
     // minutes of day 1, and core filters by the row's own instant, so a window
@@ -202,21 +199,13 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     // rows land in a bucket outside the range and are read only by the
     // capacity model's intersection index. JST has no DST, so one day is
     // exactly 86,400,000 ms off the JST-midnight start every caller passes.
-    const windowFor = (fromIso: string, toIso: string) =>
-      unknown || blind
-        ? Promise.resolve(emptyAppointmentWindow())
-        : fetchAppointmentWindow(
-            synqed,
-            new Date(Date.parse(fromIso) - 86_400_000).toISOString(),
-            toIso,
-            { storeId, staffId },
-          )
-
-    // 件 == rows (PR-B): the DAY line counts exactly what the day list shows
-    // under this filter, staff-less bookings included — read unfiltered, kept
-    // by the list's own predicate (isShownBooking via `shownUnder`). A filter
-    // the roster cannot place keeps only the staff-less rows, as the list does.
-    const dayWindowFor = (fromIso: string, toIso: string) =>
+    // 件 == rows (PR-B) for EVERY window this screen counts — day, week, month
+    // and 先月同期間比: read unfiltered and kept by the day list's own predicate
+    // (isShownBooking via `shownUnder`), so a 担当未定 booking counts under
+    // every 担当 filter, as the list shows it. A filter the roster cannot place
+    // keeps only the staff-less rows, as the list does — never the whole
+    // salon's week.
+    const shownWindowFor = (fromIso: string, toIso: string) =>
       blind
         ? Promise.resolve(emptyAppointmentWindow())
         : fetchAppointmentWindow(
@@ -257,26 +246,26 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             includeCancelled: true,
           }),
       weekRange
-        ? windowFor(
+        ? shownWindowFor(
             weekRange.rangeFrom.toISOString(),
             weekRange.rangeTo.toISOString(),
           )
         : Promise.resolve(null),
       monthRange
-        ? windowFor(
+        ? shownWindowFor(
             monthRange.rangeFrom.toISOString(),
             monthRange.rangeTo.toISOString(),
           )
         : Promise.resolve(null),
       // Day view has no bigger window to read the day line's numbers out of.
       view === 'day'
-        ? dayWindowFor(
+        ? shownWindowFor(
             selectedDate.toISOString(),
             jstEndOfDay(selectedDate).toISOString(),
           )
         : Promise.resolve(null),
-      // The previous month's compared span — through the SAME windowFor as the
-      // month read above, so the two sides of the comparison carry one store
+      // The previous month's compared span — through the SAME shownWindowFor as
+      // the month read above, so the two sides of the comparison carry one store
       // clamp and one 担当 filter. In this wave, so it costs no waterfall.
       //
       // The ONE read in this wave that does not reach the 502. Every other one
@@ -285,7 +274,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       // exactly `null`, so a half-down core costs the phone one clause instead
       // of the whole 予約 screen.
       compareWindow
-        ? windowFor(compareWindow.fromIso, compareWindow.toIso).catch((err) => {
+        ? shownWindowFor(compareWindow.fromIso, compareWindow.toIso).catch((err) => {
             console.error('[appointments] 先月同期間比 read degraded:', err)
             return null
           })
