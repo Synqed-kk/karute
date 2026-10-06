@@ -1,13 +1,11 @@
-// Facade: assign the staff of a booking (PR-B, 担当未定). Single-source with
-// the web action updateAppointment via updateAppointmentCore — the store lock,
-// the terminal guard and the staff check (active, this business, works at the
-// booking's store) all live in the core, so neither transport can drift.
+// Facade: assign the staff of a booking that has none (PR-B, 担当未定).
+// Single-source with the web action assignAppointmentStaff via
+// assignStaffToBooking — the store lock, the terminal guard, the
+// already-has-a-staff refusal and the staff check (active, this business, works
+// at the booking's store) all live in the core, so neither transport can drift.
 // Shape copied from the sibling cancel / no-show / restore routes: capability
 // first, Idempotency-Key required, strict body, the store clamp resolved from
 // the ASSIGNMENT, RPC-style 200 body ({ success } | { error }).
-//
-// A staff-only patch never opens the core's time gate, so no hours are read
-// here: the hours argument is never consulted for it.
 
 import { z } from 'zod'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
@@ -17,7 +15,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
-import { updateAppointmentCore } from '@/lib/appointments/mutations'
+import { assignStaffToBooking, STAFF_NOT_ELIGIBLE } from '@/lib/appointments/mutations'
 
 export const runtime = 'nodejs'
 
@@ -55,12 +53,21 @@ export const POST = facadeHandler<Params>('appointment.assignStaff', async (ctx)
   })
   // The web action's resolveSynqedStaffId, Bearer-safe twin (same on-demand
   // creation of a core staff row; the core judges the resolved row).
-  const staffId = await resolveSynqedStaffIdForBusiness(parsed.data.staffProfileId, businessId)
+  // An unknown profile, or one outside this business, makes the resolver
+  // throw: that is the caller's bad input, so a 4xx with the same refusal an
+  // ineligible staff gets — never a 500. A typed upstream failure stays itself.
+  let staffId: string
+  try {
+    staffId = await resolveSynqedStaffIdForBusiness(parsed.data.staffProfileId, businessId)
+  } catch (err) {
+    if (err instanceof AppApiError) throw err
+    throw new AppApiError('validation', STAFF_NOT_ELIGIBLE)
+  }
 
-  const result = await updateAppointmentCore(
+  const result = await assignStaffToBooking(
     synqed,
     id,
-    { staffId },
+    staffId,
     {
       actorId: ctx.identity.authUserId,
       businessId,
@@ -68,7 +75,6 @@ export const POST = facadeHandler<Params>('appointment.assignStaff', async (ctx)
       requestId: ctx.meta.requestId,
       idempotencyKey,
     },
-    { operatingHours: undefined, orgSaved: undefined },
     scope,
   )
   return ok(ctx, result)

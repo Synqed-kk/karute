@@ -41,6 +41,7 @@ import {
   markNoShowAppointmentCore,
   restoreAppointmentCore,
   updateAppointmentCore,
+  assignStaffToBooking,
 } from '@/lib/appointments/mutations'
 
 export { validateAppointmentTime, type AppointmentInput }
@@ -50,6 +51,8 @@ export interface AppointmentRow {
   /** null = the booking has no staff yet (an import core could not match);
    *  shown as 担当未定, never a recording target (isRecordingTarget). */
   staff_profile_id: string | null
+  /** The booking's store (null = none) — the 担当未定 picker scopes by it. */
+  store_id?: string | null
   client_id: string
   start_time: string
   duration_minutes: number
@@ -520,10 +523,11 @@ export async function deleteAppointment(appointmentId: string) {
   }
 }
 
-// NOTE (2026-07-27): no caller anywhere yet (no UI, no facade twin, no
-// dynamic import — verified by exhaustive grep). Armed deliberately (Liam
-// ruling 2026-07-26: everything gets logged) so a future booking-edit
-// feature that picks this up is audited by default from day one.
+// NOTE (2026-10-06, PR-B): still no UI caller — the 担当未定 sheet assigns
+// through assignAppointmentStaff below (assign-only-empty), never this generic
+// edit; the facade has no twin of it. Armed deliberately (Liam ruling
+// 2026-07-26: everything gets logged) so a future booking-edit feature that
+// picks this up is audited by default from day one.
 export async function updateAppointment(
   appointmentId: string,
   updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number },
@@ -570,6 +574,37 @@ export async function updateAppointment(
         orgSaved: orgSettings?.operating_hours_saved,
       },
       scope, // store lock — see cancelAppointment (#948)
+    )
+    if ('success' in result) {
+      revalidatePath('/appointments')
+      updateTag('dashboard')
+    }
+    return result
+  } catch (err) {
+    return { error: (await coreFailureLine(err, '[appointments]')) ?? (err instanceof Error ? err.message : 'Unknown error') }
+  }
+}
+
+// 担当未定 (PR-B): the ONE write the staff-less booking's sheet makes — give a
+// booking that has NO staff its staff. assignStaffToBooking refuses a booking
+// that already has one (reassignment is out of PR-B), then runs the shared
+// store + active + business check and the staff-only write. The thin shell's
+// port of this name posts …/assign-staff, which calls the same core function.
+export async function assignAppointmentStaff(appointmentId: string, staffProfileId: string) {
+  try {
+    await requireCapability('bookings.manage')
+    const [synqed, auditActor, scope] = await Promise.all([
+      getSynqedClient(),
+      resolveWebAuditContext(),
+      resolveStoreScope(), // store lock — see cancelAppointment
+    ])
+    const staffId = await resolveSynqedStaffId(staffProfileId)
+    const result = await assignStaffToBooking(
+      synqed,
+      appointmentId,
+      staffId,
+      { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
+      scope,
     )
     if ('success' in result) {
       revalidatePath('/appointments')

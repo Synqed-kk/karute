@@ -2193,21 +2193,15 @@ export const restoreAppointment = (
     { success: true } | { error: string }
   >
 
-// WRITE: the facade carries ONE booking edit — assigning the staff of a
-// booking that has none (POST …/assign-staff → updateAppointmentCore, the web
-// action's own core). A reschedule has no facade door: it refuses with an
-// { error } instead of dropping the time fields on the floor.
-export const updateAppointment = async (
+// WRITE: 担当未定 — give a booking that has no staff its staff (POST
+// …/assign-staff → assignStaffToBooking, the web action's own core function).
+export const assignAppointmentStaff = (
   appointmentId: string,
-  updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number },
-): Promise<{ success: true } | { error: string }> => {
-  if (!updates.staffProfileId || updates.startTime || updates.durationMinutes) {
-    return { error: 'Only a staff assignment can be saved from this device.' }
-  }
-  return statusCall(`/api/app/v1/appointments/${enc(appointmentId)}/assign-staff`, {
-    staffProfileId: updates.staffProfileId,
+  staffProfileId: string,
+): Promise<{ success: true } | { error: string }> =>
+  statusCall(`/api/app/v1/appointments/${enc(appointmentId)}/assign-staff`, {
+    staffProfileId,
   }) as Promise<{ success: true } | { error: string }>
-}
 
 // READ: null = "no burnable pack" — the cancel sheet just hides its burn
 // toggle (the web action's own catch→null contract; never a throw).

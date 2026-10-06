@@ -49,7 +49,15 @@ const fakeClient = {
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn(() => fakeClient) }))
 
 import { POST as assignPOST } from '@/app/api/app/v1/appointments/[id]/assign-staff/route'
-import { updateAppointmentCore, STAFF_NOT_ELIGIBLE } from '@/lib/appointments/mutations'
+import {
+  assignStaffToBooking,
+  BOOKING_ALREADY_STAFFED,
+  updateAppointmentCore,
+  STAFF_NOT_ELIGIBLE,
+} from '@/lib/appointments/mutations'
+
+/** The store clamp reads the CALLER's assignment by auth user id. */
+const VIEWER_KEY = 'auth-user-1'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -83,7 +91,7 @@ const updateAudits = () =>
 beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['bookings.manage']))
-  assignments = { 'staff-new': ['store-1'], 'staff-viewer': [] }
+  assignments = { 'staff-new': ['store-1'], [VIEWER_KEY]: [] }
   staffRows = { 'staff-new': { is_active: true, business_id: 'business-1' } }
   staffStoresGet.mockImplementation(async (id: string) => ({ store_ids: assignments[id] ?? [] }))
   staffGet.mockImplementation(async (id: string) => {
@@ -208,3 +216,62 @@ describe('stress', () => {
 function resolveMock() {
   return jest.requireMock('@/lib/synqed/staff-map').resolveSynqedStaffIdForBusiness as jest.Mock
 }
+
+describe('fix round 1', () => {
+  const actor = { actorId: 'auth-user-1', businessId: 'business-1', source: 'web' as const, requestId: 'r' }
+  const scope = { storeId: null, allowedStoreIds: null } as unknown as Parameters<typeof assignStaffToBooking>[4]
+  const staffed = {
+    id: 'appt-1',
+    customer_id: 'cust-1',
+    store_id: 'store-1',
+    staff_id: 'staff-someone',
+    status: 'SCHEDULED',
+    starts_at: '2026-10-06T01:00:00.000Z',
+    ends_at: '2026-10-06T02:00:00.000Z',
+  }
+
+  it('a branch-restricted caller is stopped by the store lock first: nothing written, no staff read', async () => {
+    assignments[VIEWER_KEY] = ['store-2']
+    const res = await assignPOST(post({ staffProfileId: 'profile-new' }), params)
+    expect(await res.json()).toHaveProperty('error')
+    expect(staffGet).not.toHaveBeenCalled()
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  it('second tap (facade): the booking now has a staff → refused, nothing written', async () => {
+    apptGet.mockResolvedValue(staffed)
+    const res = await assignPOST(post({ staffProfileId: 'profile-new' }), params)
+    expect(await res.json()).toEqual({ error: BOOKING_ALREADY_STAFFED })
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(updateAudits()).toHaveLength(0)
+  })
+
+  it("second tap (web: the action's core function) → refused, nothing written", async () => {
+    apptGet.mockResolvedValue(staffed)
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({
+      error: BOOKING_ALREADY_STAFFED,
+    })
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  it('first tap through assignStaffToBooking writes the staff only', async () => {
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({ success: true })
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
+  })
+
+  it('an unknown / foreign staff profile → 400 { error }, never 500, nothing written', async () => {
+    resolveMock().mockRejectedValueOnce(new Error('Staff profile not found in this business'))
+    const res = await assignPOST(post({ staffProfileId: 'profile-elsewhere' }), params)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toHaveProperty('error')
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  it('no business on the actor → refused (never skipped), nothing written', async () => {
+    const noBiz = { ...actor, businessId: null } as unknown as typeof actor
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', noBiz, scope)).resolves.toEqual({
+      error: STAFF_NOT_ELIGIBLE,
+    })
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+})
