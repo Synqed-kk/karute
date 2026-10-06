@@ -555,3 +555,42 @@ describe("fix round 6 (Greptile P1) — the no-row slug pre-fill never names a s
     expect(JSON.stringify(body)).not.toContain('b-salon')
   })
 })
+
+describe('fix round 6 (Greptile P2) — the store number is accepted only as a number or digits', () => {
+  const GINZA = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
+  const firstSave = (qrStoreId: unknown) =>
+    req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId })
+
+  beforeEach(() => {
+    actorStore.current = GINZA
+  })
+
+  it.each([
+    ['true', true],
+    ['[250]', [250]],
+    ["'250.5'", '250.5'],
+    ['250.5', 250.5],
+    ["''", ''],
+    ['{}', {}],
+    ['null', null],
+  ])('qrStoreId %s → 400 invalid_body before any lookup, nothing written', async (_label, qrStoreId) => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(firstSave(qrStoreId))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'invalid_body' })
+    expect(client.getSynqedClient).not.toHaveBeenCalled()
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['250', 250],
+    ["'250'", '250'],
+  ])('qrStoreId %s → saved as 250', async (_label, qrStoreId) => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(firstSave(qrStoreId))
+    expect(res.status).toBe(200)
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ store_slug: 'la-estro', store_id: 250, karute_store_id: GINZA })
+  })
+})

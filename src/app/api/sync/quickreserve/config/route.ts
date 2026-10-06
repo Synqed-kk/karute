@@ -135,7 +135,20 @@ export async function POST(request: Request) {
   const { storeId: shown, username, password, enabled, qrStoreSlug, qrStoreId } = body
   // A field of the wrong type is the caller's error too — never passed to core.
   const notString = (v: unknown) => v !== undefined && typeof v !== 'string'
-  if (notString(username) || notString(password) || notString(qrStoreSlug) || (enabled !== undefined && typeof enabled !== 'boolean')) {
+  // The Quick Reserve store number is a whole number or a string of digits;
+  // anything else (boolean, array, object, float, empty) is refused here,
+  // never coerced by Number() (true → 1).
+  const notStoreNumber = (v: unknown) =>
+    v !== undefined &&
+    !(typeof v === 'number' && Number.isInteger(v)) &&
+    !(typeof v === 'string' && /^\d+$/.test(v.trim()))
+  if (
+    notString(username) ||
+    notString(password) ||
+    notString(qrStoreSlug) ||
+    (enabled !== undefined && typeof enabled !== 'boolean') ||
+    notStoreNumber(qrStoreId)
+  ) {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
   }
   // A save names the store its form shows; without one it is refused before
@@ -161,7 +174,7 @@ export async function POST(request: Request) {
     const { config: existing, configs } = await qrConfigForStore(synqed, storeId)
 
     const slug = typeof qrStoreSlug === 'string' ? qrStoreSlug.trim() : ''
-    const qrId = Number(qrStoreId)
+    const qrId = typeof qrStoreId === 'string' ? Number(qrStoreId.trim()) : Number(qrStoreId)
     const login = typeof username === 'string' ? username.trim() : ''
     if (!existing && (!slug || !Number.isInteger(qrId) || qrId <= 0 || qrId > QR_STORE_ID_MAX || !login || !password)) {
       return NextResponse.json(
