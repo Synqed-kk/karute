@@ -218,7 +218,7 @@ export function SyncAllStoresList({
           </thead>
           <tbody className="divide-y divide-border/60">
             {rows.map((row) => {
-              const state = syncStoreState(row, now)
+              const { state, reason } = syncStoreState(row, now)
               const result = rowResult[row.storeId]
               const pending = Boolean(running[row.storeId])
               const rowMessage = pending || runAll.pending
@@ -229,7 +229,9 @@ export function SyncAllStoresList({
                     : { ok: false, text: fixText(result.reason) }
                   : row.configured && row.lastRunStatus === 'ERROR'
                     ? { ok: false, text: fixText(row.lastRunReason ?? 'other') }
-                    : null
+                    : reason === 'window_empty'
+                      ? { ok: false, text: t('windowEmpty') }
+                      : null
               return (
                 <tr key={row.storeId} data-testid={`sync-row-${row.storeId}`} className="align-top">
                   <td className="px-3 py-2.5 font-medium">{row.storeName}</td>

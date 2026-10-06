@@ -82,6 +82,19 @@ describe('viewAll caller', () => {
     expect(b.queryByText('runNow')).toBeNull()
   })
 
+  it('an ON store with an empty 稼働時間帯 (9〜9) reads 停止 with the never-syncs line; the hours label stays 9〜9', async () => {
+    extraRows = [{ ...ROW, storeId: '7d0e1f2a-3b4c-4d5e-8f60-718293a4b5c6', storeName: '中目黒', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 270,
+      schedule: { ...SCHEDULE, hoursStart: 9, hoursEnd: 9 } }]
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    const row = within(screen.getByTestId('sync-row-7d0e1f2a-3b4c-4d5e-8f60-718293a4b5c6'))
+    expect(row.getByText('stateStopped')).toBeTruthy()
+    expect(row.getByText('windowEmpty')).toBeTruthy()
+    expect(row.getByText('hours{"start":9,"end":9}')).toBeTruthy()
+    // a normal window never shows it
+    expect(within(screen.getByTestId('sync-row-1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4')).queryByText('windowEmpty')).toBeNull()
+  })
+
   it('編集 selects that store, and the per-store form reloads for it (PR-A F1 harness)', async () => {
     const { rerender } = render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()

@@ -5,6 +5,9 @@
 //   not configured                         → notSet
 //   auto-sync OFF, or the last run failed  → stopped (lead ruling 10/6: 状態
 //                                            answers "is it syncing now")
+//   ON with an empty window (start === end) → stopped, reason window_empty:
+//                                            core never dispatches it, so it
+//                                            never syncs; no clock is walked
 //   ON, never ran                          → waiting
 //   otherwise, the age of the last run counted in window time only:
 //     > 4 × interval → stopped · > 2 × interval → delayed · else healthy.
@@ -14,6 +17,9 @@
 // is an EMPTY window and 0〜24 is all day — both exactly as core reads them
 // (see inWindow).
 export type SyncStoreState = 'notSet' | 'waiting' | 'healthy' | 'delayed' | 'stopped'
+/** Why a store is 停止 (null for every other state). */
+export type SyncStopReason = 'off' | 'failed' | 'window_empty' | 'overdue'
+export type SyncStoreStatus = { state: SyncStoreState; reason: SyncStopReason | null }
 
 export type SyncSchedule = {
   intervalMinutes: number
@@ -62,17 +68,21 @@ export function syncStoreState(
     schedule: SyncSchedule | null
   },
   nowMs: number,
-): SyncStoreState {
-  if (!row.configured || !row.schedule) return 'notSet'
-  if (!row.enabled || row.lastRunStatus === 'ERROR') return 'stopped'
-  if (!row.lastRunAt) return 'waiting'
+): SyncStoreStatus {
+  const is = (state: SyncStoreState, reason: SyncStopReason | null = null) => ({ state, reason })
+  if (!row.configured || !row.schedule) return is('notSet')
+  if (!row.enabled) return is('stopped', 'off')
+  // Before any clock walk: an empty window never syncs, whatever the last run.
+  if (row.schedule.hoursStart === row.schedule.hoursEnd) return is('stopped', 'window_empty')
+  if (row.lastRunStatus === 'ERROR') return is('stopped', 'failed')
+  if (!row.lastRunAt) return is('waiting')
   const lastMs = Date.parse(row.lastRunAt)
-  if (Number.isNaN(lastMs)) return 'stopped'
+  if (Number.isNaN(lastMs)) return is('stopped', 'overdue')
   const intervalMs = row.schedule.intervalMinutes * MINUTE_MS
   const age = windowTimeBetween(lastMs, nowMs, row.schedule, 4 * intervalMs)
-  if (age > 4 * intervalMs) return 'stopped'
-  if (age > 2 * intervalMs) return 'delayed'
-  return 'healthy'
+  if (age > 4 * intervalMs) return is('stopped', 'overdue')
+  if (age > 2 * intervalMs) return is('delayed')
+  return is('healthy')
 }
 
 export type SyncFailureReason = 'login' | 'store' | 'other'

@@ -17,7 +17,11 @@ const row = (over: Partial<Parameters<typeof syncStoreState>[0]>) => ({
   schedule: SCHEDULE as SyncSchedule | null,
   ...over,
 })
-const state = (over: Partial<Parameters<typeof syncStoreState>[0]>, now = NOON) => syncStoreState(row(over), now)
+const status = (over: Partial<Parameters<typeof syncStoreState>[0]>, now = NOON) => syncStoreState(row(over), now)
+const state = (over: Partial<Parameters<typeof syncStoreState>[0]>, now = NOON) => status(over, now).state
+// The clock walk is the only Intl formatting the state does: its call count is the walk's step count.
+const walkSteps = () => jest.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts')
+afterEach(() => jest.restoreAllMocks())
 
 describe('syncStoreState — the five states', () => {
   it('未設定: no config row', () => {
@@ -72,9 +76,18 @@ describe('syncStoreState — the five states', () => {
     const allDay = { ...SCHEDULE, hoursStart: 0, hoursEnd: 24 }
     expect(state({ schedule: allDay, lastRunAt: at(jst('2026-10-06T00:00')) }, jst('2026-10-06T03:00'))).toBe('stopped')
   })
-  it('start === end is an empty window (as core reads it): the clock never runs, the state stays as it was', () => {
+  it('start === end (9〜9) is an empty window core never dispatches: ON → 停止 for window_empty, before any clock walk', () => {
     const empty = { ...SCHEDULE, hoursStart: 9, hoursEnd: 9 }
-    expect(state({ schedule: empty, lastRunAt: at(jst('2026-10-06T00:00')) }, jst('2026-10-06T03:00'))).toBe('healthy')
+    const steps = walkSteps()
+    expect(status({ schedule: empty, lastRunStatus: 'OK', lastRunAt: at(jst('2026-10-06T00:00')) }, jst('2026-10-06T03:00')))
+      .toEqual({ state: 'stopped', reason: 'window_empty' })
+    expect(status({ schedule: empty, lastRunAt: at(jst('2025-09-01T00:00')) })).toEqual({ state: 'stopped', reason: 'window_empty' })
+    expect(status({ schedule: empty, lastRunStatus: null, lastRunAt: null })).toEqual({ state: 'stopped', reason: 'window_empty' })
+    expect(steps).not.toHaveBeenCalled()
+  })
+  it('OFF still wins over an empty window: 停止 for off', () => {
+    const empty = { ...SCHEDULE, hoursStart: 9, hoursEnd: 9 }
+    expect(status({ schedule: empty, enabled: false })).toEqual({ state: 'stopped', reason: 'off' })
   })
   it('an unreadable timestamp is stopped, never healthy', () => {
     expect(state({ lastRunAt: 'not a date' })).toBe('stopped')
