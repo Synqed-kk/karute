@@ -143,7 +143,7 @@ async function world() {
   const recipe = await loadRecipe('beauty_chiropractic')
   const p = plan(recipe, { storeId: STORE, weeklyHours: recipe.policy.weekly_hours }, TODAY, EPOCH)
   const rows: Appointment[] = p.appointments.map((a) => ({
-    id: `a-${a.key}`, business_id: DEV_SALON_BUSINESS_ID, customer_id: `c-${a.member}`, staff_id: `s-${a.staff}`, kind: 'BOOKING', store_id: STORE,
+    id: `a-${a.key}`, business_id: DEV_SALON_BUSINESS_ID, customer_id: `c-${a.member}`, staff_id: `s-${a.staff}`, kind: 'BOOKING', store_id: STORE, requires_private_room: false,
     starts_at: a.startsAt, ends_at: a.endsAt, duration_minutes: a.duration, title: null, notes: `テストデータ [${a.key}]`, menu_id: `m-${a.menu}`,
     resource_id: `r-${a.resource}`, occupied_until: new Date(Date.parse(a.endsAt) + 600_000).toISOString(), booked_price_amount: a.price, booked_price_currency: 'JPY',
     status: a.status, source: 'MANUAL', external_refs: {}, cancelled_at: null, status_source: 'SYSTEM', status_set_by: null, status_reason: null, status_set_at: null,

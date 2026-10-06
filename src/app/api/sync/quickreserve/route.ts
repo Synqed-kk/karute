@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
-import { getBusinessId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { auditWeb } from '@/lib/audit-web'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { errorBody, toAppApiError } from '@/lib/app-api/errors'
+import { resolveSyncRunStore, webSyncStoreError } from '@/lib/sync/resolve-run-store'
 
 export const maxDuration = 300
 
@@ -21,28 +22,53 @@ export const maxDuration = 300
  * contract §3.1, PR-M2: this business-wide trigger was reachable by ANY
  * signed-in staff before, ungated and unlogged.
  */
-export async function POST() {
+export async function POST(request: Request) {
   try {
     await getBusinessId()
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  let capabilities: Awaited<ReturnType<typeof getMyCapabilities>>
   try {
-    ensureCapability(await getMyCapabilities(), 'sync.view')
+    capabilities = await getMyCapabilities()
+    ensureCapability(capabilities, 'sync.view')
   } catch (err) {
     const apiErr = toAppApiError(err)
     return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
   }
+
+  // The store the form SHOWS, sent by SyncSection — never the cookie.
+  const body = (await request.json().catch(() => null)) as { storeId?: unknown } | null
+  const requestedStoreId = typeof body?.storeId === 'string' && body.storeId ? body.storeId : null
 
   const synqed = await getSynqedClient()
   // PR-M5: one id per request — both 2xx emit paths below carry it (this
   // route landed with PR-M2 mid-wave; the CP5 scan caught the missing
   // threading at the M5 rebase, exactly as designed).
   const requestId = crypto.randomUUID()
+  // Hoisted so the not-configured audit row below names the store too.
+  let storeId: string | undefined
   try {
-    const result = await synqed.sync.runNow('QUICKRESERVE')
-    await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
+    // CORE-43: crawl the shown store's own row — 銀座's button runs 銀座.
+    // The store is resolved by the ONE helper the phone run uses too; its
+    // mapping table (case × web × phone) heads src/lib/sync/resolve-run-store.ts.
+    ;({ storeId } = await resolveSyncRunStore({
+      synqed,
+      authUserId: await getCurrentUserStaffId(),
+      capabilities,
+      requestedStoreId,
+    }))
+    const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
+    await auditWeb({
+      category: 'settings',
+      action: 'settings.sync_run_now',
+      targetType: 'business',
+      requestId,
+      // The store_id column, like the phone's rows (fix round 4, Opus S3).
+      storeId,
+      detail: { karute_store_id: storeId },
+    })
     return NextResponse.json({
       success: true,
       ...result,
@@ -51,14 +77,28 @@ export async function POST() {
       skipped: result.skipped_no_staff + result.skipped_deleted,
     })
   } catch (e) {
+    // A store this caller may not run, or no store at all, is refused — never
+    // a fallback to another store's crawl (the same answer the config save
+    // gives). A store read that THREW is a dependency failure: 502.
+    const storeError = webSyncStoreError(e)
+    if (storeError) return NextResponse.json(storeError.body, { status: storeError.status })
     const message = e instanceof Error ? e.message : 'Sync failed'
     // Not-yet-configured is an expected state (owner hasn't saved their QR login),
     // not a failure — return a friendly message so the panel doesn't show a red
     // error, matching the pre-delegation behavior. Still a 2xx → still an
     // audit row (facade parity: FACADE_AUDIT_MAP fires on any 2xx).
     if (/config not found|no credentials/i.test(message)) {
-      await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
+      await auditWeb({
+        category: 'settings',
+        action: 'settings.sync_run_now',
+        targetType: 'business',
+        requestId,
+        storeId,
+        detail: { karute_store_id: storeId ?? null },
+      })
       return NextResponse.json({
+        // A code like the phone's, so the screen shows its localized line.
+        code: 'not_configured',
         message: 'QR sync not configured — save your Quick Reserve login first.',
       })
     }

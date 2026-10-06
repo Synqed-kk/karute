@@ -37,7 +37,12 @@ const runNow = jest.fn(async () => ({
   unmatched_staff: [],
   duration_ms: 1234,
 }))
-const fakeClient = { sync: { runNow } }
+// The primary store a headerless cross-store run resolves to (web parity:
+// resolveStoreScope's getPrimaryStoreId).
+const fakeClient = {
+  sync: { runNow },
+  stores: { list: async () => ({ stores: [{ id: 'store-primary', is_primary: true }] }) },
+}
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient }))
 
 // Spread the REAL module so FACADE_AUDIT_MAP stays live inside logFacadeAudit
@@ -46,6 +51,18 @@ const audit = jest.fn()
 jest.mock('@/lib/audit', () => ({
   ...jest.requireActual('@/lib/audit'),
   audit: (...a: unknown[]) => audit(...(a as [])),
+}))
+
+// CORE-43: the route resolves its store through the ONE sync-run helper
+// (src/lib/sync/resolve-run-store.ts), then runs that store's own row. The
+// helper's rules are pinned in resolve-sync-run-store.test.ts and every
+// mapping-table row in app-api-sync-run-store.test.ts; here it hands back the
+// requested store, else the primary store.
+jest.mock('@/lib/sync/resolve-run-store', () => ({
+  ...jest.requireActual('@/lib/sync/resolve-run-store'),
+  resolveSyncRunStore: async (a: { requestedStoreId: string | null }) => ({
+    storeId: a.requestedStoreId ?? 'store-primary',
+  }),
 }))
 
 import { POST } from '@/app/api/app/v1/sync/run/route'
@@ -71,6 +88,20 @@ beforeEach(() => {
 })
 
 describe('POST /api/app/v1/sync/run', () => {
+  it("CORE-43: the store-id header's store runs its own row", async () => {
+    const req = new Request('https://s/api/app/v1/sync/run', {
+      method: 'POST',
+      headers: { ...auth, 'store-id': 'store-ginza' },
+    })
+    expect((await POST(req, noRoute)).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
+  })
+
+  it('CORE-43: no store-id header → the primary store, sent explicitly (web parity)', async () => {
+    expect((await POST(post(), noRoute)).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-primary' })
+  })
+
   it('no sync.view grant → 403, runNow never called, no audit row', async () => {
     capabilities.current = new Set(['customers.view'])
     const res = await POST(post(), noRoute)
@@ -91,7 +122,7 @@ describe('POST /api/app/v1/sync/run', () => {
       skipped: 2, // skipped_no_staff (1) + skipped_deleted (1)
       duration_ms: 1234,
     })
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE')
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-primary' })
   })
 
   it('not-configured (upstream "config not found") → 200 friendly message, not a failure', async () => {
