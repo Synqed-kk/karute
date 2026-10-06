@@ -257,10 +257,16 @@ export async function buildRecordScreen(input: {
   // half-joined invite are documented prod states), which would re-open the
   // very cross-staff auto-bind this change closes. No identity → no target;
   // the screen then asks. Explicit entries above are untouched.
+  // An explicit ?appointmentId that resolves to no row (a 担当未定 booking —
+  // both resolvers refuse a staff-less row — or one core no longer has) opens
+  // NO recorder: a failed explicit lookup never falls through to the implicit
+  // pick (R9 — that would bind the viewer's own next booking, another customer).
   const unlinked =
     requestedRow ??
     customerRow ??
-    (requestedCustomerId || !activeStaffId ? undefined : findFirst(myRows))
+    (requestedAppointmentId || requestedCustomerId || !activeStaffId
+      ? undefined
+      : findFirst(myRows))
 
   if (unlinked) {
     const startMs = new Date(unlinked.start_time).getTime()
