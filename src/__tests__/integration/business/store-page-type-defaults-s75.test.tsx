@@ -9,7 +9,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { StorePageRows } from '@/app/[locale]/(business)/business/settings/StorePageRows'
 import { StorePageType } from '@/app/[locale]/(business)/business/settings/StorePageType'
-import { LOCKED, SAVE_FAIL } from '@/business/lib/store-page/copy'
+import { BLOCK_GUIDES, LOCKED, REG, SAVE_FAIL, TYPE_BLOCK } from '@/business/lib/store-page/copy'
 import { STORE_PAGE_DEFAULTS_ID, STORE_PAGE_FAMILY_ID, storePageSwitchId } from '@/business/lib/settings'
 import { storePageDraft, storePageEdits, storePageValues } from '@/business/lib/store-page/room-draft'
 import { saveFailLines } from '@/business/lib/store-page/save-lines'
@@ -274,6 +274,17 @@ describe('F5 — a save refused for a locked switch shows its own line', () => {
     expect(saveFailLines('unsent', 'locked', cardLines).caps).toBe(SAVE_FAIL.locked)
     expect(SAVE_FAIL.locked).not.toBe(SAVE_FAIL.core)
     expect(SAVE_FAIL.locked).toContain('再読み込み')
+    // S75 fix 2 (R-C): the reader's line, exactly
+    expect(SAVE_FAIL.locked).toBe('この業種ではオンにできない機能がオンのままだったため、保存できませんでした。ページを再読み込みしてから、もう一度変更してください（お客様のアプリに出る機能はこれまでのままです）。')
     expect(saveFailLines('unsent', 'invalid', cardLines).caps).toBe(SAVE_FAIL.core)
+  })
+})
+
+describe('S75 fix 2 (R-D) — the 業種 note names read_points by its row label', () => {
+  it('renders byte-identical to the ruled sentence, and the label is the row list\'s own', () => {
+    const NOTE = 'ただし、保険診療が関わる業種を選ぶと、読んでポイントはオフになります。'
+    expect(REG.find((r) => r.key === 'read_points')?.ja).toBe('読んでポイント')
+    expect(TYPE_BLOCK.sub.endsWith('その場では何も変わりません。' + NOTE)).toBe(true)
+    expect(BLOCK_GUIDES.find((g) => g.title === '業種')?.guide.endsWith('その場では何も変わりません。' + NOTE)).toBe(true)
   })
 })

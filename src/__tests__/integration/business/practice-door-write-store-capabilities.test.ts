@@ -569,3 +569,14 @@ describe('S49 P2 — the route: body exactly { storeId, record, reset_keys, base
     expect(await answer(await put())).toEqual({ status: 503, body: { ok: false, reason: 'core' } })
   })
 })
+
+// S75 fix 2 (R-B, READ-FIX1-SONNET-S75 SF2) — the door's additive `locked` reaches the client through the route (M4b)
+describe('S75 fix 2 — the route passes the door\'s `locked` on', () => {
+  beforeEach(() => { seed({ [K(S)]: W(SAVED) }) })
+  it('400 invalid + locked: a draft that turns a 業種-locked key ON → the body carries both reason and locked; nothing written', async () => {
+    const dental = seedRecord('dental_clinic')
+    const record = { ...dental, switches: { ...dental.switches, read_points: { ...dental.switches.read_points, on: true } } }
+    expect(await answer(await put({ body: bodyOf({ record }) }))).toEqual({ status: 400, body: { ok: false, reason: 'invalid', locked: 'read_points' } })
+    expect(mockCore.upsert).not.toHaveBeenCalled()
+  })
+})

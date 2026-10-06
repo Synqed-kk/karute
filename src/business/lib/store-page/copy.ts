@@ -107,7 +107,7 @@ export const LOCKED = {
 } as const
 
 /** S75 fix 1 (SF5) — the one exception to 「その場では何も変わりません」 (R269), a follow-on sentence in LOCKED.reason's words. */
-const TYPE_LOCK_NOTE = 'ただし、保険診療が関わる業種を選ぶと、読んでポイントはオフになります。'
+const TYPE_LOCK_NOTE = `ただし、保険診療が関わる業種を選ぶと、${REG.find((r) => r.key === 'read_points')?.ja}はオフになります。` // S75 fix 2 (R-D): the row's own label
 
 /** The 業種 block (:799-801): h3 (doubles as the seg's aria-label, :803) + its sub. */
 export const TYPE_BLOCK = {
@@ -137,7 +137,7 @@ export const SAVE_FAIL = {
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（お客様のアプリに出る機能はこれまでのままです）。',
   colourOnly: 'カードの色は保存しましたが、業種と機能の設定は保存できませんでした。時間をおいてもう一度保存してください（お客様のアプリに出る機能はこれまでのままです）。',
   /** S75 fix 1 (Sonnet SF3) — NOT from COPY-S49: the door refused a locked switch sent ON; a retry cannot pass, a reload does. */
-  locked: 'この業種ではオンにできない機能が、オンのまま送られたため、保存できませんでした。ページを再読み込みしてから、もう一度変更してください（お客様のアプリに出る機能はこれまでのままです）。',
+  locked: 'この業種ではオンにできない機能がオンのままだったため、保存できませんでした。ページを再読み込みしてから、もう一度変更してください（お客様のアプリに出る機能はこれまでのままです）。',
   switchesOnly: '業種と機能の設定は保存しましたが、カードの色は保存できませんでした。時間をおいてもう一度保存してください（お客様のアプリのカードはこれまでの色のままです）。',
 } as const
 

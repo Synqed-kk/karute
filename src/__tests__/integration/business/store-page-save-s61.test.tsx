@@ -192,7 +192,7 @@ describe('S61 P7B-2 — the split save', () => {
     expect(alerts()).toEqual([])
   })
 
-  it('s4 a 200 whose record differs from the draft → saved and the source lines follow the RESPONSE; the next body carries its hash and reset_keys []', async () => {
+  it('s4 a 200 whose record differs from the draft → saved, the values and the source lines follow the RESPONSE; the next body carries its hash and reset_keys []', async () => {
     let answer: CapRecord | null = null
     const calls = stub((b) => {
       if (answer === null) {
@@ -210,10 +210,14 @@ describe('S61 P7B-2 — the split save', () => {
     await press()
     expect(calls).toHaveLength(1)
     const got = answer as unknown as CapRecord
-    expect(count()).toBe('変更した設定 1件') // K2: core answered the other way; the screen kept the draft
-    expect(sw(K2).getAttribute('aria-checked')).toBe(k2Before)
+    // S75 fix 2 (R-A): K2 — core answered the other way; the saved record is the only truth, the room's value follows it
+    expect(count()).toMatch(/^✓ 保存しました /)
+    expect(sw(K2).getAttribute('aria-checked')).not.toBe(k2Before)
     expect(src(K)).toBe(sourceLine(got, K))
     expect(src(K)).not.toBe(sourceLine(payloadOf(p).saved, K))
+    await press()
+    expect(calls).toHaveLength(1) // nothing left to send
+    await flip(K)
     await press()
     expect(calls).toHaveLength(2)
     expect(calls[1].body.based_on).toBe(recordHash(got))
@@ -679,5 +683,56 @@ describe('S61 P7B-R1 — attack F1/F2: the three mutants that survived', () => {
     await press()
     expect(calls.filter((c) => c.url === CAPS)).toHaveLength(2)
     expect(alerts()).toEqual([])
+  })
+})
+
+// S75 fix 2 (R-A, READ-FIX1-SONNET-S75 SF1) — a save under the R269 lock leaves no phantom change: after the 200 the room's
+// values are the record core returned (the door's own stampSave answers here), so the count is 0 and a second press sends
+// nothing; a pick back then shows the SAVED read_points (OFF / TYPE_DEFAULT, the legal reset), never the owner's old ON.
+import { seedRecord, stampSave } from '@/business/lib/store-page/model'
+describe('S75 fix 2 — R-A the room follows a locked-type save', () => {
+  it('beauty_chiropractic read_points OWNER/ON → dental_clinic → 保存 → 0件, a second press no-ops → pick back → OFF / TYPE_DEFAULT', async () => {
+    const base = seedRecord('beauty_chiropractic')
+    const owned: CapRecord = { ...base, switches: { ...base.switches, read_points: { on: true, source: 'OWNER', changed_at: '2026-10-01T00:00:00.000Z', changed_by: 'staff-1' } } }
+    let answer: CapRecord | null = null
+    const calls = stub((b) => {
+      answer = stampSave(owned, b.record as CapRecord, b.reset_keys as CapKey[], new Date('2026-10-06T12:00:00.000Z'), 'staff-1')
+      return { status: 200, body: { ok: true, record: answer } }
+    })
+    const p = await propsFor(STORE.tokyo)
+    const sec = p.sections.find((s) => s.id === SP)!
+    ;(sec as { storePage: unknown }).storePage = { ...sec.storePage!, saved: owned }
+    await mount(p)
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('true')
+    await act(async () => { fireEvent.change(typeSelect(), { target: { value: 'dental_clinic' } }) })
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('false')
+    expect(count()).toBe('変更した設定 1件')
+    await press()
+    expect(calls).toHaveLength(1)
+    expect((calls[0].body.record as CapRecord).switches.read_points.on).toBe(false)
+    const got = answer as unknown as CapRecord
+    expect(got.switches.read_points).toMatchObject({ on: false, source: 'TYPE_DEFAULT' })
+    expect(alerts()).toEqual([])
+    expect(count()).toMatch(/^✓ 保存しました /) // 0 changes: no phantom 「変更した設定 1件」
+    await press()
+    expect(calls).toHaveLength(1) // the second press sends nothing
+    await act(async () => { fireEvent.change(typeSelect(), { target: { value: 'beauty_chiropractic' } }) })
+    expect(count()).toBe('変更した設定 1件') // the 業種 alone
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('false') // the saved reset, not the owner's old ON
+    expect(src('read_points')).toBe(sourceLine(got, 'read_points'))
+  })
+
+  it('an edit made while the save is in flight is kept (only ids still holding their sent value follow the 200)', async () => {
+    let release: (a: Answer) => void = () => {}
+    stub((b) => new Promise<Answer>((r) => { release = r }).then(() => echo(b)))
+    await mount(await propsFor(STORE.tokyo))
+    await flip(K)
+    await act(async () => { fireEvent.click(saveBtn()) })
+    await flip(K2)
+    const k2 = sw(K2).getAttribute('aria-checked')
+    await act(async () => { release({ status: 200, body: null }) })
+    await act(async () => {})
+    expect(sw(K2).getAttribute('aria-checked')).toBe(k2)
+    expect(count()).toBe('変更した設定 1件')
   })
 })

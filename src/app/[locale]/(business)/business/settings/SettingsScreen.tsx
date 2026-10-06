@@ -1385,7 +1385,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** S61 P7B-2 (R219) — お店ページ with the door ON: THE SPLIT SAVE. At the press: the colour is sent only if it differs
    *  from saved, the switches only if one of the 17 does; both may fly; each answer is handled alone; `cardSaving`
    *  (R221) is released when every sent half has answered. Switches' 200: saved for the 17 and `accepted` from the
-   *  RESPONSE (R222's hash), the reset keys emptied only if still the very list sent, `values` untouched, the stamp
+   *  RESPONSE (R222's hash), the reset keys emptied only if still the very list sent, `values` rewritten from the RESPONSE for every id still as sent (S75 fix 2, R-A), the stamp
    *  alone — never `commitSection`. A refusal: only its line; draft, saved, accepted, based_on, reset keys all stay. */
   const saveStorePageSection = async (target: SettingsSection, sp: NonNullable<SettingsSection['storePage']>, card: CardSave) => {
     if (cardSaving.current) return
@@ -1397,6 +1397,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
     setSpPress({ cardOk: false, caps: 'unsent' })
     const picked = String(values[CARD_COLOR_ID] ?? '')
     const sentKeys = resetKeys
+    // S75 fix 2 (R-A): the room's 17 values (+ defaults id) as sent — after a 200 an id still holding its sent value is rewritten
+    const sentValues = sendCaps ? Object.fromEntries(Object.keys(storePageValues(sp.saved, STORE_PAGE_IDS)).map((id) => [id, values[id]])) : {}
     const colour = sendColour
       ? putCardColor(card, picked === '' ? null : picked).then((result) => {
         if (!result.ok) {
@@ -1412,7 +1414,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
       ? putStoreCapabilities(card.businessId, { storeId: sp.storeId, record: spDraft, resetKeys: sentKeys, basedOn: accepted?.basedOn ?? sp.basedOn }).then((result) => {
         setSpPress((prev) => ({ ...prev, caps: result.ok ? 'ok' : result.reason }))
         if (!result.ok) return
-        setSaved((prev) => ({ ...prev, ...storePageValues(result.record, STORE_PAGE_IDS) }))
+        const got = storePageValues(result.record, STORE_PAGE_IDS)
+        setSaved((prev) => ({ ...prev, ...got }))
+        // S75 fix 2 (R-A): after a save the saved record is the only truth — an edit made during the flight is kept
+        setValues((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(got).filter(([id]) => prev[id] === sentValues[id])) }))
         setAccepted({ record: result.record, basedOn: result.basedOn })
         setResetKeys((prev) => (prev === sentKeys ? [] : prev)) // R182: a list changed during the flight is kept whole
         const at = jstClock(new Date()) // ⚖ R42 — the stamp alone (R219), its time read once, before the state update
