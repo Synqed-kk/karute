@@ -37,6 +37,11 @@ async function shownStore(
   return storeId
 }
 
+/** Core's save refusals the screen localizes. Core's PUT sends them as
+ *  400 { error: '<code>' }, which the SDK's responseError turns into the
+ *  error's MESSAGE (its .code stays undefined); an object error carries .code. */
+const CORE_SAVE_CODES: readonly string[] = ['qr_store_already_linked', 'store_not_in_business']
+
 /** The helper's errors as the run route answers them; anything else → 502. */
 function failure(e: unknown, fallback: string) {
   const storeError = webSyncStoreError(e)
@@ -178,10 +183,12 @@ export async function POST(request: Request) {
   } catch (e) {
     // Surface the real failure — whether it came from a read above or the
     // write itself (the old route's "Config saved" false positive). Core's
-    // code is read from an object error too (the SDK keeps it on .code).
-    if ((e as { code?: unknown } | null)?.code === 'qr_store_already_linked') {
-      return NextResponse.json({ error: 'qr_store_already_linked' }, { status: 409 })
-    }
+    // code is read from .code or, as core sends it today, the SDK message.
+    const err = e as { code?: unknown; message?: unknown } | null
+    const code = [err?.code, err?.message].find(
+      (c): c is string => typeof c === 'string' && CORE_SAVE_CODES.includes(c),
+    )
+    if (code) return NextResponse.json({ error: code }, { status: 409 })
     return failure(e, 'Could not save QuickReserve settings')
   }
 

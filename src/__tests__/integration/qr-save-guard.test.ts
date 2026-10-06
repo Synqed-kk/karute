@@ -13,7 +13,7 @@
  *        (f) 銀座's first save with its QR store → writes ONLY 銀座's row (250)
  *        (g) an existing row keeps its own QR store, whatever the body says
  *        (h) no resolvable store → 409 qr_store_not_ready, nothing written
- *        (i) core refuses a QR store already linked → 502 with core's code
+ *        (i) core refuses a QR store already linked → 409 with core's code
  *        (j) listConfigs / the store lookup throws → 502, nothing written
  * Fix round 2 (one rule): the store is the one the form SHOWS, sent by the
  * client (?storeId= / body storeId) and resolved ONLY through
@@ -205,17 +205,21 @@ describe('POST — each store saves only its own row', () => {
     expect(upsert).not.toHaveBeenCalled()
   })
 
-  it('(i) core refuses a QR store already linked → 502 carrying the code', async () => {
+  it("(i) core refuses a QR store already linked → 409 carrying the code (core's REAL shape, fix round 4 Opus N1)", async () => {
     actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
+    // Core's PUT answers 400 { error: 'qr_store_already_linked' }; the SDK's
+    // responseError makes that message = the code string, code = undefined.
     mockClient([DAIKANYAMA_ROW], async () => {
-      throw new Error('qr_store_already_linked')
+      throw Object.assign(new Error('qr_store_already_linked'), {
+        status: 400, code: undefined, body: { error: 'qr_store_already_linked' },
+      })
     })
     // 333 is linked nowhere Karute can see (fix round 2's local check passes),
     // so core is the one refusing here.
     const res = await POST(
       req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '333' }),
     )
-    expect(res.status).toBe(502)
+    expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
   })
 
@@ -409,5 +413,25 @@ describe('fix round 4 (Opus S3) — the config save audit row fills the store co
       action: 'settings.sync_config_update',
       storeId: 'ea093d52-2f54-4f01-8b08-c19e3d131894',
     })
+  })
+})
+
+describe('fix round 4 (Opus N1) — core\'s refusal codes arrive as the SDK message', () => {
+  it("core's 400 { error: 'store_not_in_business' } → 409 with the code, never a 502", async () => {
+    mockClient([DAIKANYAMA_ROW], async () => {
+      throw Object.assign(new Error('store_not_in_business'), {
+        status: 400, code: undefined, body: { error: 'store_not_in_business' },
+      })
+    })
+    const res = await POST(req({ username: 'owner', enabled: true }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'store_not_in_business' })
+  })
+
+  it('any other core message stays a 502', async () => {
+    mockClient([DAIKANYAMA_ROW], async () => {
+      throw Object.assign(new Error('Password too long'), { status: 400, code: undefined })
+    })
+    expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(502)
   })
 })
