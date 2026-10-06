@@ -3746,6 +3746,6 @@
     "lastRunToday": "今日 {time}",
     "lastRunFailed": "失敗",
     "lastRunCounts": "新規 {created} 件、更新 {updated} 件、キャンセル {cancelled} 件",
-    "windowEmpty": "稼働時間帯が0時間のため同期されません"
+    "windowEmpty": "稼働時間帯の開始と終了が同じため、自動では同期されません"
   }
 }

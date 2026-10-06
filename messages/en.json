@@ -3746,6 +3746,6 @@
     "lastRunToday": "Today {time}",
     "lastRunFailed": "Failed",
     "lastRunCounts": "{created} new, {updated} updated, {cancelled} cancelled",
-    "windowEmpty": "No active hours, so this store never syncs"
+    "windowEmpty": "The start and end of the active hours are the same, so this store does not sync automatically"
   }
 }
