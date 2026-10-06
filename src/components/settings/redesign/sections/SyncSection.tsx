@@ -81,11 +81,12 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   const [configured, setConfigured] = useState(true)
   const [qrStoreSlug, setQrStoreSlug] = useState('')
   const [qrStoreId, setQrStoreId] = useState('')
-  // WHICH store has a save or run in flight ('' = no store shown), so a
-  // request for one store never disables another store's form. The ref
-  // mirrors it: a request's finally clears it only while it is still its own.
-  const [syncingFor, setSyncingFor] = useState<string | null>(null)
-  const syncingRef = useRef<string | null>(null)
+  // EVERY store with a save or run in flight ('' = no store shown), so a
+  // request for one store never disables another store's form, and a store
+  // whose own request is still pending stays marked after a switch away and
+  // back. The ref mirrors the set; each request removes only its own store.
+  const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set())
+  const inFlightRef = useRef<ReadonlySet<string>>(inFlight)
   const [lastResult, setLastResult] = useState<{ text: string; error: boolean } | null>(null)
   // The store whose config is loaded (undefined = loading, or the load
   // failed). Save stays off until it is the shown store, so a blank or reset
@@ -155,15 +156,20 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   }
 
   function beginSyncing(key: string) {
-    syncingRef.current = key
-    setSyncingFor(key)
+    const next = new Set(inFlightRef.current)
+    next.add(key)
+    inFlightRef.current = next
+    setInFlight(next)
   }
-  // Never clears a newer request's store (a store switch does not cancel the
-  // old request; its late answer is dropped by the shownStore guard).
+  // Removes only this request's store, never another store's (a store switch
+  // does not cancel the old request; its late answer is dropped by the
+  // shownStore guard).
   function endSyncing(key: string) {
-    if (syncingRef.current !== key) return
-    syncingRef.current = null
-    setSyncingFor(null)
+    if (!inFlightRef.current.has(key)) return
+    const next = new Set(inFlightRef.current)
+    next.delete(key)
+    inFlightRef.current = next
+    setInFlight(next)
   }
 
   // Both actions capture the store at request time and ignore an answer that
@@ -237,7 +243,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
 
   const isError = lastResult?.error === true
   // Disabled only while THIS store's own save or run is in flight.
-  const syncing = syncingFor !== null && syncingFor === (storeId ?? '')
+  const syncing = inFlight.has(storeId ?? '')
   // Core keeps the OLD credentials when only the login changes, so a changed
   // login needs its password too (fix round 4, Opus C3; the route mirrors it).
   const loginNeedsPassword =

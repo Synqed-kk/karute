@@ -299,4 +299,33 @@ describe("fix round 6 (Greptile P2) — a run on one store never blocks another 
     await flush()
     expect(runButton('syncNow').disabled).toBe(false)
   })
+
+  // Fix round 7: one marker held only the LAST store started, so A's own
+  // pending run was forgotten once B's run began — A came back enabled and a
+  // second concurrent A run could start. Every in-flight store stays marked.
+  it("(r7) A's run pending, B's run pending, back to A → A stays disabled; each store frees only on its own answer", async () => {
+    const rerender = await runOnAThenSwitchToB()
+    await act(async () => { fireEvent.click(button('syncNow')) }) // B's run (posts[1])
+    expect(JSON.parse(String(posts[1].init!.body))).toEqual({ storeId: 'store-b' })
+
+    rerender(<SyncSection storeId="store-a" />)
+    pending[2].resolve(A)
+    await flush()
+    expect(runButton('syncing').disabled).toBe(true) // A's own run is still in flight
+    expect(button('saveConfig').disabled).toBe(true)
+
+    posts[0].resolve({ created: 1, updated: 0, skipped: 0 }) // A answers
+    await flush()
+    expect(runButton('syncNow').disabled).toBe(false)
+
+    rerender(<SyncSection storeId="store-b" />)
+    pending[3].resolve(B)
+    await flush()
+    expect(runButton('syncing').disabled).toBe(true) // B's run has not answered
+    expect(button('saveConfig').disabled).toBe(true)
+
+    posts[1].resolve({ created: 2, updated: 0, skipped: 0 }) // B answers
+    await flush()
+    expect(runButton('syncNow').disabled).toBe(false)
+  })
 })
