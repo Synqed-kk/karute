@@ -25,14 +25,14 @@ jest.mock('@/lib/synqed/client', () => ({
 jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn() }))
 // The cookie names a store no request here sends: the run route never reads it
 // (S54 merge of PR-A's rule — the store comes from the request, via the helper).
-jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => 'store-ginza') }))
+jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => 'a1f4b516-c6d3-4e45-95f7-08192a3b4c5d') }))
 
 import { GET } from '@/app/api/sync/quickreserve/configs/route'
 import { POST } from '@/app/api/sync/quickreserve/route'
 import { getBusinessId } from '@/lib/staff'
 
 const CONFIG = {
-  karute_store_id: 'store-daikanyama', username: 'secret-login-id', store_slug: 'la-estro', store_id: 222,
+  karute_store_id: '7fc182e3-93a0-4b12-a2c4-d5e6f708192a', username: 'secret-login-id', store_slug: 'la-estro', store_id: 222,
   enabled: true, interval_minutes: 15, business_hours_start: 8, business_hours_end: 22,
   timezone: 'Asia/Tokyo', last_run_at: '2026-10-06T11:50:00Z', last_run_status: 'OK', last_run_error: null,
   last_run_stats: { created: 1, updated: 2, cancelled: 0 }, has_credentials: true,
@@ -43,14 +43,15 @@ beforeEach(() => {
   capabilities.current = new Set(['sync.view', 'stores.viewAll'])
   storesList.mockResolvedValue({
     stores: [
-      { id: 'store-daikanyama', name: '代官山', active: true, is_primary: true },
-      { id: 'store-ginza', name: '銀座', active: true },
-      { id: 'store-closed', name: '閉店', active: false },
+      { id: '7fc182e3-93a0-4b12-a2c4-d5e6f708192a', name: '代官山', active: true, is_primary: true },
+      { id: '80d293f4-a4b1-4c23-b3d5-e6f708192a3b', name: '銀座', active: true },
+      { id: '91e3a405-b5c2-4d34-84e6-f708192a3b4c', name: '閉店', active: false },
     ],
   })
   listConfigs.mockResolvedValue([CONFIG])
-  storesGet.mockResolvedValue({ id: 'x' })
-  staffStoresGet.mockResolvedValue({ store_ids: ['store-daikanyama'] })
+  // core answers with the store it found; the route acts on that id (PR-A round 3).
+  storesGet.mockImplementation(async (id: string) => ({ id }))
+  staffStoresGet.mockResolvedValue({ store_ids: ['7fc182e3-93a0-4b12-a2c4-d5e6f708192a'] })
   runNow.mockResolvedValue({ created: 1, updated: 2, cancelled: 0, skipped_no_staff: 0, skipped_deleted: 0 })
 })
 
@@ -118,30 +119,30 @@ describe('POST /api/sync/quickreserve with a row store', () => {
     POST(new Request('http://x/api/sync/quickreserve', { method: 'POST', body: JSON.stringify(body) }))
 
   it("runs the named store's row, not the active store's", async () => {
-    const res = await post({ storeId: 'store-ginza' })
+    const res = await post({ storeId: '80d293f4-a4b1-4c23-b3d5-e6f708192a3b' })
     expect(res.status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '80d293f4-a4b1-4c23-b3d5-e6f708192a3b' })
   })
 
   it('a clamped caller naming a store outside their assignment is refused, nothing runs', async () => {
     capabilities.current = new Set(['sync.view'])
-    const res = await post({ storeId: 'store-ginza' })
+    const res = await post({ storeId: '80d293f4-a4b1-4c23-b3d5-e6f708192a3b' })
     expect(res.status).toBe(409)
     expect(runNow).not.toHaveBeenCalled()
   })
 
   it("no body, or a body without storeId, runs the helper's default (viewAll → the primary), never the cookie's store", async () => {
     await POST(new Request('http://x/api/sync/quickreserve', { method: 'POST' }))
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-daikanyama' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '7fc182e3-93a0-4b12-a2c4-d5e6f708192a' })
     runNow.mockClear()
     await post({})
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-daikanyama' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '7fc182e3-93a0-4b12-a2c4-d5e6f708192a' })
   })
 
   it.each([
     ['a number', { storeId: 5 }],
     ['an empty string', { storeId: '' }],
-    ['an array', { storeId: ['store-ginza'] }],
+    ['an array', { storeId: ['80d293f4-a4b1-4c23-b3d5-e6f708192a3b'] }],
     ['null', { storeId: null }],
   ])('a storeId that is %s is refused 400 — never a fallback to the active store', async (_label, body) => {
     const res = await post(body)
@@ -158,10 +159,9 @@ describe('POST /api/sync/quickreserve with a row store', () => {
     expect(runNow).not.toHaveBeenCalled()
   })
 
-  it('the store id is encoded into the core path: a traversal string is one unknown id', async () => {
-    storesGet.mockRejectedValueOnce(Object.assign(new Error('not found'), { status: 404 }))
+  it('a store id that is not a UUID (a traversal string) is refused before any core lookup', async () => {
     const res = await post({ storeId: 'store-a/../store-b' })
-    expect(storesGet).toHaveBeenCalledWith('store-a%2F..%2Fstore-b')
+    expect(storesGet).not.toHaveBeenCalled()
     expect(res.status).toBe(409)
     expect(runNow).not.toHaveBeenCalled()
   })

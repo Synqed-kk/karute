@@ -19,10 +19,10 @@ const reply = (body: unknown, status = 200) =>
 const SCHEDULE = { intervalMinutes: 15, hoursStart: 8, hoursEnd: 22, timezone: 'Asia/Tokyo' }
 const ROW = { enabled: true, lastRunStatus: 'OK', lastRunAt: new Date().toISOString(), lastRunReason: null, lastRunCounts: null, schedule: SCHEDULE }
 const STORES = [
-  { ...ROW, storeId: 'store-a', storeName: '代官山', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 222 },
-  { ...ROW, storeId: 'store-b', storeName: '銀座', configured: false, qrStoreSlug: null, qrStoreId: null, enabled: false, lastRunStatus: null, lastRunAt: null, schedule: null },
-  { ...ROW, storeId: 'store-c', storeName: '渋谷', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 250 },
-  { ...ROW, storeId: 'store-d', storeName: '恵比寿', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 260 },
+  { ...ROW, storeId: '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', storeName: '代官山', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 222 },
+  { ...ROW, storeId: '2a7c3d9f-4e5b-4c6d-9e7f-8091a2b3c4d5', storeName: '銀座', configured: false, qrStoreSlug: null, qrStoreId: null, enabled: false, lastRunStatus: null, lastRunAt: null, schedule: null },
+  { ...ROW, storeId: '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', storeName: '渋谷', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 250 },
+  { ...ROW, storeId: '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7', storeName: '恵比寿', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 260 },
 ]
 
 type Run = { storeId: string; resolve: (r: Response) => void }
@@ -54,7 +54,7 @@ beforeEach(() => {
 
 describe('store isolation — branch-restricted caller', () => {
   it('renders NO list, never asks for it, and no other store name is in the DOM', async () => {
-    render(<SyncSection storeId="store-a" showAllStores={false} selectStore={selectStore} />)
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores={false} selectStore={selectStore} />)
     await flush()
     expect(configsCalls()).toBe(0)
     expect(screen.queryByText('blockTitle')).toBeNull()
@@ -65,16 +65,16 @@ describe('store isolation — branch-restricted caller', () => {
 
 describe('viewAll caller', () => {
   it('lists every store with its state, Quick Reserve store and schedule', async () => {
-    render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
     expect(screen.getByText('scopeLine{"n":4}')).toBeTruthy()
-    const a = within(screen.getByTestId('sync-row-store-a'))
+    const a = within(screen.getByTestId('sync-row-1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'))
     expect(a.getByText('代官山')).toBeTruthy()
     expect(a.getByText('stateHealthy')).toBeTruthy()
     expect(a.getByText('storeNoCell{"id":222}')).toBeTruthy()
     expect(a.getByText('everyMinutes{"minutes":15}')).toBeTruthy()
     expect(a.getByText('hours{"start":8,"end":22}')).toBeTruthy()
-    const b = within(screen.getByTestId('sync-row-store-b'))
+    const b = within(screen.getByTestId('sync-row-2a7c3d9f-4e5b-4c6d-9e7f-8091a2b3c4d5'))
     expect(a.getByText(/^lastRunToday/)).toBeTruthy()
     expect(b.getByText('stateNotSet')).toBeTruthy()
     expect(b.getByText('notSetFact')).toBeTruthy()
@@ -83,32 +83,32 @@ describe('viewAll caller', () => {
   })
 
   it('編集 selects that store, and the per-store form reloads for it (PR-A F1 harness)', async () => {
-    const { rerender } = render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+    const { rerender } = render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
     // PR-A's rule (merged S54): every form load names the store it shows.
     const formLoads = () =>
       apiFetch.mock.calls.map(([u]) => String(u)).filter((u) => u.startsWith('/api/sync/quickreserve/config?'))
-    expect(formLoads()).toEqual(['/api/sync/quickreserve/config?storeId=store-a'])
-    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-store-c')).getByText('edit')) })
-    expect(selectStore).toHaveBeenCalledWith('store-c')
+    expect(formLoads()).toEqual(['/api/sync/quickreserve/config?storeId=1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'])
+    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6')).getByText('edit')) })
+    expect(selectStore).toHaveBeenCalledWith('3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6')
     expect(refresh).toHaveBeenCalledTimes(1)
-    rerender(<SyncSection storeId="store-c" showAllStores selectStore={selectStore} />)
+    rerender(<SyncSection storeId="3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6" showAllStores selectStore={selectStore} />)
     await flush()
     expect(formLoads()).toEqual([
-      '/api/sync/quickreserve/config?storeId=store-a',
-      '/api/sync/quickreserve/config?storeId=store-c',
+      '/api/sync/quickreserve/config?storeId=1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4',
+      '/api/sync/quickreserve/config?storeId=3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6',
     ])
     // 設定する drives the same selection (the form then opens in first-save mode).
-    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-store-b')).getByText('setUp')) })
-    expect(selectStore).toHaveBeenLastCalledWith('store-b')
+    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-2a7c3d9f-4e5b-4c6d-9e7f-8091a2b3c4d5')).getByText('setUp')) })
+    expect(selectStore).toHaveBeenLastCalledWith('2a7c3d9f-4e5b-4c6d-9e7f-8091a2b3c4d5')
   })
 
   it('今すぐ同期 runs that row only: 同期中… while pending, then the result; a login failure shows the fix line', async () => {
-    render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
-    const row = () => within(screen.getByTestId('sync-row-store-c'))
+    const row = () => within(screen.getByTestId('sync-row-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'))
     await act(async () => { fireEvent.click(row().getByText('runNow')) })
-    expect(runs.map((r) => r.storeId)).toEqual(['store-c'])
+    expect(runs.map((r) => r.storeId)).toEqual(['3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'])
     // 同期中… on the row's button and in its 最終同期 cell (mock bLastCell)
     expect(row().getByRole('button', { name: 'runNowPending' })).toBeTruthy()
     expect(row().getAllByText('runNowPending')).toHaveLength(2)
@@ -123,32 +123,32 @@ describe('viewAll caller', () => {
   })
 
   it('すべての店舗を同期 runs configured stores one at a time, continues past a failure, and reports counts', async () => {
-    render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
     await act(async () => { fireEvent.click(screen.getByText('runAll')) })
     expect(screen.getByRole('button', { name: 'runNowPending' })).toBeTruthy()
     // every row in the run shows 同期中… in its 最終同期 cell (mock bLastCell)
-    for (const id of ['store-a', 'store-c', 'store-d']) {
+    for (const id of ['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7']) {
       expect(within(screen.getByTestId(`sync-row-${id}`)).getByText('runNowPending')).toBeTruthy()
     }
     // Never in parallel: the next store starts only after the previous answers.
-    expect(runs.map((r) => r.storeId)).toEqual(['store-a'])
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'])
     await act(async () => { runs[0].resolve(ok) })
     await flush()
-    expect(runs.map((r) => r.storeId)).toEqual(['store-a', 'store-c'])
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'])
     await act(async () => { runs[1].resolve(loginFail) })
     await flush()
-    expect(runs.map((r) => r.storeId)).toEqual(['store-a', 'store-c', 'store-d'])
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'])
     await act(async () => { runs[2].resolve(ok) })
     await flush()
     expect(screen.getByText('runAllPartial{"total":3,"failed":1}')).toBeTruthy()
-    expect(within(screen.getByTestId('run-all-result-store-c')).getByText(/resultFailed\{"reason":"reasonLogin"\}/)).toBeTruthy()
-    expect(within(screen.getByTestId('run-all-result-store-d')).getByText(/runResult/)).toBeTruthy()
-    expect(screen.queryByTestId('run-all-result-store-b')).toBeNull() // not configured → not run
+    expect(within(screen.getByTestId('run-all-result-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6')).getByText(/resultFailed\{"reason":"reasonLogin"\}/)).toBeTruthy()
+    expect(within(screen.getByTestId('run-all-result-4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7')).getByText(/runResult/)).toBeTruthy()
+    expect(screen.queryByTestId('run-all-result-2a7c3d9f-4e5b-4c6d-9e7f-8091a2b3c4d5')).toBeNull() // not configured → not run
   })
 
   it('all succeed → runAllDone', async () => {
-    render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
     await act(async () => { fireEvent.click(screen.getByText('runAll')) })
     for (let i = 0; i < 3; i++) {
@@ -159,37 +159,37 @@ describe('viewAll caller', () => {
   })
 
   it('すべての店舗を同期 skips a store whose auto-sync is OFF (its own 今すぐ同期 stays)', async () => {
-    extraRows = [{ ...ROW, storeId: 'store-off', storeName: '銀座', configured: true, enabled: false, qrStoreSlug: 'ginza', qrStoreId: 300 }]
-    render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+    extraRows = [{ ...ROW, storeId: '6eb071d2-829f-4a01-91b3-c4d5e6f70819', storeName: '銀座', configured: true, enabled: false, qrStoreSlug: 'ginza', qrStoreId: 300 }]
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
-    expect(within(screen.getByTestId('sync-row-store-off')).getByText('runNow')).toBeTruthy()
+    expect(within(screen.getByTestId('sync-row-6eb071d2-829f-4a01-91b3-c4d5e6f70819')).getByText('runNow')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByText('runAll')) })
     for (let i = 0; i < 3; i++) {
       await act(async () => { runs[i].resolve(ok) })
       await flush()
     }
-    expect(runs.map((r) => r.storeId)).toEqual(['store-a', 'store-c', 'store-d'])
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'])
     expect(screen.getByText('runAllDone{"n":3}')).toBeTruthy()
-    expect(screen.queryByTestId('run-all-result-store-off')).toBeNull()
+    expect(screen.queryByTestId('run-all-result-6eb071d2-829f-4a01-91b3-c4d5e6f70819')).toBeNull()
   })
 
   it('never two crawls of one store: a row run blocks すべての店舗を同期, and sync-all blocks every row', async () => {
-    render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
-    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-store-a')).getByText('runNow')) })
+    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4')).getByText('runNow')) })
     const runAllButton = screen.getByText('runAll').closest('button')!
     expect(runAllButton.disabled).toBe(true)
     await act(async () => { fireEvent.click(runAllButton) })
-    expect(runs.map((r) => r.storeId)).toEqual(['store-a']) // the attack's ["a","a"] cannot happen
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4']) // the attack's ["a","a"] cannot happen
     await act(async () => { runs[0].resolve(ok) })
     await flush()
     await act(async () => { fireEvent.click(screen.getByText('runAll')) })
-    for (const id of ['store-a', 'store-c', 'store-d']) {
+    for (const id of ['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7']) {
       const button = within(screen.getByTestId(`sync-row-${id}`)).getByText('runNow').closest('button')!
       expect(button.disabled).toBe(true)
       await act(async () => { fireEvent.click(button) })
     }
-    expect(runs.map((r) => r.storeId)).toEqual(['store-a', 'store-a'])
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'])
   })
 
   it.each([
@@ -197,9 +197,9 @@ describe('viewAll caller', () => {
     ['answers an error', () => Promise.resolve({ error: 'denied' })],
   ])('編集 whose selection %s shows the generic error line, no refresh', async (_label, impl) => {
     selectStore.mockImplementationOnce(impl as never)
-    render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
-    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-store-c')).getByText('edit')) })
+    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6')).getByText('edit')) })
     await flush()
     expect(screen.getByRole('alert').textContent).toBe('somethingWentWrong')
     expect(refresh).not.toHaveBeenCalled()
@@ -209,10 +209,10 @@ describe('viewAll caller', () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-06T03:00:00Z') }) // 12:00 JST, inside the window
     try {
       const tick = () => act(async () => { await jest.advanceTimersByTimeAsync(0) })
-      extraRows = [{ ...ROW, storeId: 'store-e', storeName: '恵比寿2', configured: true, qrStoreSlug: 'e', qrStoreId: 1, lastRunAt: '2026-10-06T02:31:00Z' }]
-      render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
+      extraRows = [{ ...ROW, storeId: '5daf60c1-718e-4f90-80a2-b3c4d5e6f708', storeName: '恵比寿2', configured: true, qrStoreSlug: 'e', qrStoreId: 1, lastRunAt: '2026-10-06T02:31:00Z' }]
+      render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
       await tick()
-      const e = () => within(screen.getByTestId('sync-row-store-e'))
+      const e = () => within(screen.getByTestId('sync-row-5daf60c1-718e-4f90-80a2-b3c4d5e6f708'))
       expect(e().getByText('stateHealthy')).toBeTruthy() // 29 min, interval 15
       await act(async () => { await jest.advanceTimersByTimeAsync(2 * 60_000) })
       expect(e().getByText('stateDelayed')).toBeTruthy()
