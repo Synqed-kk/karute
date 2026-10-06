@@ -89,6 +89,20 @@ describe('syncStoreState — the five states', () => {
     const empty = { ...SCHEDULE, hoursStart: 9, hoursEnd: 9 }
     expect(status({ schedule: empty, enabled: false })).toEqual({ state: 'stopped', reason: 'off' })
   })
+  it('the walk stops at the 停止 threshold: a run 400 days old costs the same steps as one 2 days old', () => {
+    // 08:05, just after open: the walk crosses the whole night before it can pass 4 × 15 min.
+    const morning = jst('2026-10-06T08:05')
+    const steps = walkSteps()
+    expect(status({ lastRunAt: at(morning - 2 * 86_400_000) }, morning)).toEqual({ state: 'stopped', reason: 'overdue' })
+    const twoDays = steps.mock.calls.length
+    steps.mockClear()
+    expect(status({ lastRunAt: at(morning - 400 * 86_400_000) }, morning)).toEqual({ state: 'stopped', reason: 'overdue' })
+    const fourHundredDays = steps.mock.calls.length
+    expect(twoDays).toBeGreaterThan(0) // the counter sees the walk
+    expect(fourHundredDays).toBe(twoDays)
+    // 5 min + the night (10 h) + 1 h of the evening, at one step per quarter-hour: under one day's steps
+    expect(fourHundredDays).toBeLessThan((24 * 60) / 15)
+  })
   it('an unreadable timestamp is stopped, never healthy', () => {
     expect(state({ lastRunAt: 'not a date' })).toBe('stopped')
   })

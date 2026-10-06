@@ -32,6 +32,9 @@ const MINUTE_MS = 60_000
 // Every UTC offset is a whole quarter-hour, so a local hour boundary always
 // falls on a UTC quarter-hour: stepping on those never straddles a window edge.
 const STEP_MS = 15 * MINUTE_MS
+// Window time since the last run, in multiples of the store's interval (round-1 ruling 3).
+const DELAYED_MULTIPLE = 2
+const STOPPED_MULTIPLE = 4
 
 /** Mirrors core's isWithinBusinessHours (synqed-core
  *  src/services/sync.service.ts) exactly — core is the source of truth for
@@ -45,8 +48,14 @@ export function inWindow(hour: number, { hoursStart: start, hoursEnd: end }: Syn
   return hour >= start || hour < end
 }
 
-/** Milliseconds of window time between `fromMs` and `toMs`, counted up to `capMs`. */
+/** Milliseconds of window time between `fromMs` and `toMs`, counted until it
+ *  passes `capMs` (the 停止 threshold — past it the answer cannot change).
+ *  Bounded in every branch: an empty window has no time to count and is not
+ *  walked; any other window holds at least one hour of every local day, so the
+ *  count passes `capMs` within about cap ÷ 1 hour days of walking, however old
+ *  the run. */
 function windowTimeBetween(fromMs: number, toMs: number, schedule: SyncSchedule, capMs: number): number {
+  if (schedule.hoursStart === schedule.hoursEnd) return 0
   const fmt = new Intl.DateTimeFormat('en-US', { timeZone: schedule.timezone, hour: 'numeric', hourCycle: 'h23' })
   const hourAt = (ms: number) => Number(fmt.formatToParts(ms).find((p) => p.type === 'hour')?.value)
   let age = 0
@@ -79,9 +88,10 @@ export function syncStoreState(
   const lastMs = Date.parse(row.lastRunAt)
   if (Number.isNaN(lastMs)) return is('stopped', 'overdue')
   const intervalMs = row.schedule.intervalMinutes * MINUTE_MS
-  const age = windowTimeBetween(lastMs, nowMs, row.schedule, 4 * intervalMs)
-  if (age > 4 * intervalMs) return is('stopped', 'overdue')
-  if (age > 2 * intervalMs) return is('delayed')
+  const stoppedMs = STOPPED_MULTIPLE * intervalMs
+  const age = windowTimeBetween(lastMs, nowMs, row.schedule, stoppedMs)
+  if (age > stoppedMs) return is('stopped', 'overdue')
+  if (age > DELAYED_MULTIPLE * intervalMs) return is('delayed')
   return is('healthy')
 }
 
