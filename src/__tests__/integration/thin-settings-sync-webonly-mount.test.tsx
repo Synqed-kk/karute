@@ -252,4 +252,36 @@ describe('thin settings wiring — 今すぐ同期 (packet 32)', () => {
     expect(apiFetch).toHaveBeenCalledWith('/api/app/v1/sync/run', { method: 'POST' })
     await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1))
   })
+
+  // Round 5 (SHOULD-FIX 1): a refusal or an outage reads as the card's own
+  // ja line, never the facade's English error.message.
+  it.each([
+    [
+      403,
+      { error: { code: 'store_forbidden', reason: 'sync_store', message: 'Store is not assignable for sync' } },
+      'Store is not assignable for sync',
+    ],
+    [502, { error: { code: 'upstream_unavailable', message: 'Upstream sync service unavailable' } }, 'Upstream sync service unavailable'],
+  ])('a %i answer shows the localized 同期に失敗しました and never the server text', async (status, body, english) => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValue({ ok: false, status, json: async () => body } as unknown as Response)
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    const grantedDto: SettingsScreenDTOType = {
+      ...dto,
+      syncStatus: { enabled: true, lastRunAt: null, lastRunStatus: null, lastRunError: null },
+    }
+    render(<SettingsScreenInner dto={grantedDto} />)
+
+    fireEvent.click(screen.getAllByText('予約同期')[0])
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: '今すぐ同期' })[0])
+    })
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/app/v1/sync/run', { method: 'POST' })
+    expect((await screen.findAllByText('同期に失敗しました')).length).toBeGreaterThan(0)
+    expect(screen.queryByText(english)).toBeNull()
+    expect(screen.queryByText(new RegExp(`Request failed|${status}`))).toBeNull()
+  })
 })
