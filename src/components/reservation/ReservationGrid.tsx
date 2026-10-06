@@ -107,6 +107,7 @@ export function ReservationGrid({ staff, reservations, businessHours, colorRoste
               staff={{ id: UNASSIGNED_LANE_ID, name: tu('mark'), role: '', takesBookings: true, initials: '' }}
               staffColorKey="neutral"
               showAvatar={false}
+              packOverlaps
               reservations={unassigned}
               startHour={businessHours.start}
               ppm={ppm}

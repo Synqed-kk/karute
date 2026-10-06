@@ -58,7 +58,9 @@ describe('UnassignedBookingSheet', () => {
 describe('ReservationGrid 担当未定 lane', () => {
   const lanes = [{ id: 'p1', name: 'Mika', role: '', takesBookings: true, initials: 'MI' }]
   const hours = { start: 9, end: 20 } as never
-  const view = (id: string, staffId: string | null) => ({ id, staffId }) as unknown as ReservationView
+  // startTimeHm + durationMin: the 担当未定 lane packs by each booking's own span.
+  const view = (id: string, staffId: string | null) =>
+    ({ id, staffId, startTimeHm: '10:00', durationMin: 60 }) as unknown as ReservationView
 
   it('absent on a day where every booking has a staff', () => {
     render(<ReservationGrid staff={lanes} reservations={[view('a', 'p1')]} businessHours={hours} />)
