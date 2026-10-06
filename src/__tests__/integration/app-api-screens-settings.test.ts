@@ -523,24 +523,37 @@ describe('GET /api/app/v1/screens/settings', () => {
 // syncStatus: null WITHOUT 502ing the rest of the screen (soft-fail, this
 // read is a read-only extra, not load-bearing like staff/org-settings).
 describe('GET /api/app/v1/screens/settings — sync.view (packet 31)', () => {
-  it('no grant → syncStatus: null, getConfig never called', async () => {
+  // Fix round 4 (Opus S1): the card reads the store the RUN would crawl,
+  // resolved only by resolveSyncRunStore — never sync.getConfig's own default.
+  const PRIMARY = '405d5a2a-8ee1-4999-827a-ac178ae8d692'
+  const GINZA = '714d1196-5aa7-409d-8afc-5046aa19d031'
+  const row = (karute_store_id: string, o: Record<string, unknown> = {}) => ({
+    karute_store_id, enabled: true, last_run_at: '2026-07-24T03:00:00.000Z', last_run_status: 'OK', last_run_error: null, ...o,
+  })
+  // A non-viewAll caller floats in a one-store business. A listed store is a
+  // full row: viewAll and clamped callers also feed the list to the 店舗 tab.
+  const listed = (id: string, o: Record<string, unknown> = {}) => ({
+    id, name: id, address: null, phone: null, active: true, is_primary: false, business_type: null, ...o,
+  })
+  const ONE_STORE = { stores: [{ id: PRIMARY, is_primary: true }] }
+  beforeEach(() => {
+    ;(storesGet as jest.Mock).mockImplementation(async (id: string) => ({ id }))
+  })
+
+  it('no grant → syncStatus: null, no config read at all', async () => {
     const res = await GET(req(), route)
     const dto = await dtoOf(res)
     expect(dto.syncStatus).toBeNull()
     expect(syncGetConfig).not.toHaveBeenCalled()
+    expect(syncListConfigs).not.toHaveBeenCalled()
   })
 
-  it('owner → syncStatus fields populate from the real config, even without an explicit sync.view grant', async () => {
+  it("owner → syncStatus fields populate from the run store's own row, even without an explicit sync.view grant", async () => {
     staffListByBusinessOrThrow.mockResolvedValue([
       { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner', has_pin: true, created_at: '2026-01-01' },
     ])
-    syncGetConfig.mockResolvedValue({
-      username: 'should-never-leave-core',
-      enabled: true,
-      last_run_at: '2026-07-24T03:00:00.000Z',
-      last_run_status: 'OK',
-      last_run_error: null,
-    })
+    storesList.mockResolvedValue(ONE_STORE)
+    syncListConfigs.mockResolvedValue([row(PRIMARY, { username: 'should-never-leave-core' })])
     const res = await GET(req(), route)
     const dto = await dtoOf(res)
     expect(dto.syncStatus).toEqual({
@@ -551,16 +564,13 @@ describe('GET /api/app/v1/screens/settings — sync.view (packet 31)', () => {
     })
     // Least-data: username never rides the DTO out, even though the client mock returns it.
     expect(JSON.stringify(dto.syncStatus)).not.toContain('should-never-leave-core')
+    expect(syncGetConfig).not.toHaveBeenCalled()
   })
 
   it('explicit sync.view grant (non-owner) → syncStatus populates', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view']))
-    syncGetConfig.mockResolvedValue({
-      enabled: false,
-      last_run_at: null,
-      last_run_status: null,
-      last_run_error: null,
-    })
+    storesList.mockResolvedValue(ONE_STORE)
+    syncListConfigs.mockResolvedValue([row(PRIMARY, { enabled: false, last_run_at: null, last_run_status: null })])
     const res = await GET(req(), route)
     const dto = await dtoOf(res)
     expect(dto.syncStatus).toEqual({
@@ -571,23 +581,24 @@ describe('GET /api/app/v1/screens/settings — sync.view (packet 31)', () => {
     })
   })
 
-  it('getConfig throws → syncStatus: null, screen still 200 (soft-fail pin)', async () => {
+  it('the config read throws → syncStatus: null, screen still 200 (soft-fail pin)', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view']))
-    syncGetConfig.mockRejectedValueOnce(new Error('core down'))
+    storesList.mockResolvedValue(ONE_STORE)
+    syncListConfigs.mockRejectedValueOnce(new Error('core down'))
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     const dto = await dtoOf(res)
     expect(dto.syncStatus).toBeNull()
   })
 
-  // CORE-43: one config per store — the card shows the clamped store's own row.
-  it("CORE-43: store-id store-B → store-B's own row, never the primary row", async () => {
+  // CORE-43: one config per store — the card shows the pinned store's own row.
+  it("CORE-43: store-id 銀座 → 銀座's own row, never the primary row", async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view', 'stores.viewAll']))
     syncListConfigs.mockResolvedValue([
-      { karute_store_id: 'store-A', enabled: true, last_run_at: '2026-10-06T04:48:45.936Z', last_run_status: 'OK', last_run_error: null },
-      { karute_store_id: 'store-B', enabled: false, last_run_at: null, last_run_status: 'ERROR', last_run_error: 'QR login failed' },
+      row(PRIMARY),
+      row(GINZA, { enabled: false, last_run_at: null, last_run_status: 'ERROR', last_run_error: 'QR login failed' }),
     ])
-    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': 'store-B' }), route)
+    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': GINZA }), route)
     const dto = await dtoOf(res)
     expect(dto.syncStatus).toEqual({
       enabled: false,
@@ -600,20 +611,60 @@ describe('GET /api/app/v1/screens/settings — sync.view (packet 31)', () => {
 
   it('CORE-43: store-id for a store with no row yet → syncStatus: null', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view', 'stores.viewAll']))
-    syncListConfigs.mockResolvedValue([
-      { karute_store_id: 'store-A', enabled: true, last_run_at: null, last_run_status: 'OK', last_run_error: null },
-    ])
-    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': 'store-B' }), route)
+    syncListConfigs.mockResolvedValue([row(PRIMARY)])
+    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': GINZA }), route)
     expect((await dtoOf(res)).syncStatus).toBeNull()
   })
 
-  it('getConfig resolves null (no config saved yet) → syncStatus: null, screen still 200', async () => {
+  it('no row saved yet → syncStatus: null, screen still 200', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view']))
-    syncGetConfig.mockResolvedValue(null)
+    storesList.mockResolvedValue(ONE_STORE)
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     const dto = await dtoOf(res)
     expect(dto.syncStatus).toBeNull()
+  })
+
+  it("fix round 4 (Opus S1): viewAll, no pin, only 銀座 configured → the PRIMARY's (unconfigured) state, the store the run would use", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view', 'stores.viewAll']))
+    storesList.mockResolvedValue({ stores: [listed(PRIMARY, { is_primary: true }), listed(GINZA)] })
+    syncListConfigs.mockResolvedValue([row(GINZA)])
+    // core's own default (the only row) would be 銀座's — the card never asks it.
+    syncGetConfig.mockResolvedValue(row(GINZA))
+    const res = await GET(req(), route)
+    expect((await dtoOf(res)).syncStatus).toBeNull()
+    expect(syncListConfigs).toHaveBeenCalled() // the primary's row was looked for, and is absent
+    expect(syncGetConfig).not.toHaveBeenCalled()
+  })
+
+  it('fix round 4 (Opus S1): clamped, assigned[0] archived → the live store\'s row, the store the run would use', async () => {
+    const ARCHIVED = '1aa03fda-eae0-4850-8ddf-90c999f9ee1d'
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view']))
+    staffStoresGet.mockResolvedValue({ store_ids: [ARCHIVED, GINZA] })
+    storesList.mockResolvedValue({
+      stores: [listed(ARCHIVED, { active: false }), listed(GINZA), listed(PRIMARY, { is_primary: true })],
+    })
+    syncListConfigs.mockResolvedValue([
+      row(ARCHIVED),
+      row(GINZA, { enabled: false, last_run_status: 'ERROR', last_run_error: 'QR login failed' }),
+    ])
+    const res = await GET(req(), route)
+    expect((await dtoOf(res)).syncStatus).toEqual({
+      enabled: false,
+      lastRunAt: '2026-07-24T03:00:00.000Z',
+      lastRunStatus: 'ERROR',
+      lastRunError: 'QR login failed',
+    })
+  })
+
+  it('fix round 4 (Opus S1): a resolver error (archived pin) → the soft unconfigured state, no other store\'s row', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view', 'stores.viewAll']))
+    ;(storesGet as jest.Mock).mockImplementation(async (id: string) => ({ id, active: false }))
+    syncListConfigs.mockResolvedValue([row(PRIMARY), row(GINZA)])
+    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': GINZA }), route)
+    expect(res.status).toBe(200)
+    expect((await dtoOf(res)).syncStatus).toBeNull()
+    expect(syncGetConfig).not.toHaveBeenCalled()
   })
 })
 
