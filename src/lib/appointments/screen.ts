@@ -231,11 +231,12 @@ export interface AppointmentsScreen {
 }
 
 /**
- * Which CORE staff id should the window fetch filter on?
+ * Which CORE staff id does the window keep (`shownUnder`)?
  *
  * `appointments.staff_id` is a CORE staff id; the app's roster, the ?staff=
- * param and the viewer's own id are PROFILE (auth) ids. Sending a profile id as
- * `staff_id` would filter to nothing and read as "an empty week".
+ * param and the viewer's own id are PROFILE (auth) ids. Matching rows on a
+ * profile id would keep nothing and read as "an empty week". Core itself is
+ * never sent a staff filter; the store window is kept in the app.
  *
  *   'all'                        → no filter
  *   'self' with a viewer id      → that viewer's core id
@@ -584,6 +585,9 @@ export function buildAppointmentsScreen(
   // only X's rows, exactly as before the window collapse. Under such a window a
   // row with a staff IS X's (shownUnder kept nothing else), so "X's rows" is
   // the window's staffed rows: isRecordingTarget, the one staff-less rule.
+  // That equality needs a shownUnder-scoped window; the legacy raw-array
+  // weekRangeAppts/monthRangeAppts shape is unscoped, and no production
+  // caller passes it (both doors send null).
   // THE one place a window's rows are handed to the minutes; 件 and the list
   // never pass through it. 全員 (and 自分 with no viewer id) is unchanged.
   const workedRowsOf = (win: AppointmentWindow): Appointment[] =>

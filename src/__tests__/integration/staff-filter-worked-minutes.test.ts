@@ -63,8 +63,16 @@ function savedHours(): Map<string, DayHoursFact> {
 
 const ONE_PERSON_STORE = new Set(['s1'])
 
-function build(view: 'week' | 'month', staffFilter: string) {
+type Win = typeof WINDOW
+function build(
+  view: 'week' | 'month' | 'day',
+  staffFilter: string,
+  opts: { window?: Win; hours?: Map<string, DayHoursFact>; unknown?: boolean } = {},
+) {
+  const win = opts.window ?? WINDOW
   return buildAppointmentsScreen({
+    staffFilterUnknown: opts.unknown ?? false,
+    dayWindow: view === 'day' ? win : null,
     locale: 'ja',
     now: NOW,
     selectedDate: SELECTED,
@@ -80,9 +88,9 @@ function build(view: 'week' | 'month', staffFilter: string) {
     monthRange: view === 'month' ? computeMonthRange(SELECTED) : null,
     weekRangeAppts: null,
     monthRangeAppts: null,
-    weekWindow: view === 'week' ? WINDOW : null,
-    monthWindow: view === 'month' ? WINDOW : null,
-    hoursFacts: savedHours(),
+    weekWindow: view === 'week' ? win : null,
+    monthWindow: view === 'month' ? win : null,
+    hoursFacts: opts.hours ?? savedHours(),
     enrichment: new Map(),
     packUsage: new Map(),
   } as unknown as Parameters<typeof buildAppointmentsScreen>[0])
@@ -124,5 +132,39 @@ describe('month: the cell counts 担当未定, the staff filter facts do not', (
     expect(fact.bookedMinutes).toBe(120)
     expect(fact.availableMinutes).toBe(480)
     expect(fact.occupancyPct).toBe(20)
+  })
+})
+
+describe('unknown filter: the window holds only 担当未定 rows, nobody worked them', () => {
+  it('under an unplaceable 担当: 件 1, 予約時間 0, no capacity (no 稼働, no 空き)', () => {
+    const row = build('week', 'ghost', {
+      window: { counted: [UNASSIGNED], cancelled: [], noShow: [], truncated: false },
+      unknown: true,
+    }).weekData!.find((r) => r.dateIso === YMD)!
+    expect(row.count).toBe(1)
+    expect(row.bookedMinutes).toBe(0)
+    expect(row.capacityMinutes).toBeNull()
+    expect(row.occupancyPct).toBeNull()
+  })
+})
+
+describe('fallback denominator: staffOnDay counts worked rows only', () => {
+  it('no saved hours, under s1: availableMinutes = the business day x 1 (the 担当未定 row adds no chair)', () => {
+    const row = build('week', 's1', { hours: new Map() }).weekData!.find((r) => r.dateIso === YMD)!
+    const allRow = build('week', 'all', { hours: new Map() }).weekData!.find((r) => r.dateIso === YMD)!
+    expect(row.count).toBe(2)
+    expect(row.bookedMinutes).toBe(60)
+    expect(row.capacityMinutes).toBeNull()
+    // 全員 counts two "staff" ids (s1 + the null one); s1's fallback counts one.
+    expect(allRow.availableMinutes).toBe(2 * row.availableMinutes)
+  })
+})
+
+describe('day line: the selected day reads the same worked rows as the week row', () => {
+  it('under s1: dayTotals 件 2, 予約時間 60, 空き 540', () => {
+    const day = build('day', 's1').dayTotals!
+    expect(day.count).toBe(2)
+    expect(day.bookedMinutes).toBe(60)
+    expect(day.freeMinutes).toBe(540)
   })
 })

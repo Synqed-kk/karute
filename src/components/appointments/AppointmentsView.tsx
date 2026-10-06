@@ -395,8 +395,9 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     search.set('view', nextView)
     search.set('date', ymdInJst(nextDate))
     // ⚖ spec §1/§6: 自分 / 全スタッフ / 担当 feeds EVERY number on every
-    // surface — it is applied at the FETCH (`staff_id` on appointments.list),
-    // not at render. A move that dropped it would not look broken: the page
+    // surface — the server builds every number from it (the window's
+    // `shownUnder` keep and the worked-minutes scope), never this render. A
+    // move that dropped it would not look broken: the page
     // would simply show the whole salon's numbers under a 担当 pill that still
     // reads as selected, with nothing on screen saying the scope changed.
     // 'all' is left out on purpose — `parseStaffParam(undefined)` already
