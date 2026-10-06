@@ -271,6 +271,9 @@ interface SettingsShellProps {
    *  webOnlyTabIds so a grant-holding viewer sees the card instead of the
    *  "manage on web" panel. */
   syncStatus?: SyncStatusDTO | null
+  /** setActiveStore, for the 予約同期 all-stores list's 編集 / 設定する (web
+   *  page only; the list renders for stores.viewAll callers alone). */
+  selectSyncStore?: (storeId: string) => Promise<{ ok: true } | { error: string }>
   /** 今すぐ同期 (packet 32). OPTIONAL; omitted on web (SyncStatusCard renders
    *  zero interactive elements, same PRESENCE-gates-the-button idiom as
    *  syncStatus above) — only the thin caller (sync.view/owner grant) passes
@@ -316,6 +319,7 @@ export function SettingsShell({
   pendingTabIds,
   webOnlyTabIds,
   syncStatus,
+  selectSyncStore,
   onRunNow,
   featureStaffInvites,
   featureMultiStore,
@@ -493,7 +497,13 @@ export function SettingsShell({
         // Defense in depth alongside the tab filter above (same idiom as the
         // audit/stores sections) — the server routes enforce sync.view
         // regardless; this only stops a stray render.
-        return canViewSync ? <SyncSection storeId={assignableActiveStoreId ?? initialActiveStoreId} /> : null
+        return canViewSync ? (
+          <SyncSection
+            storeId={assignableActiveStoreId ?? initialActiveStoreId}
+            showAllStores={canViewAllStores}
+            selectStore={selectSyncStore}
+          />
+        ) : null
       case 'packs':
         return isOwner ? <PacksSection orgSettings={orgSettings} /> : null
       case 'menus':

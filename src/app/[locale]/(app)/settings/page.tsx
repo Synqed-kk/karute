@@ -3,7 +3,7 @@ import { NextIntlClientProvider } from 'next-intl'
 import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
-import { listStoresWithHours, getActiveStoreId } from '@/actions/stores'
+import { listStoresWithHours, getActiveStoreId, setActiveStore } from '@/actions/stores'
 import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
@@ -176,6 +176,7 @@ export default async function SettingsPage({
         locale={locale}
         isOwner={isOwner}
         canViewAllStores={canViewAllStores}
+        selectSyncStore={setActiveStore}
         canManageStaff={canManageStaff}
         canInviteStaff={canInviteStaff}
         canViewAudit={canViewAudit}

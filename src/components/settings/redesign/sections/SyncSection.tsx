@@ -5,6 +5,7 @@ import { getDataPort } from '@/lib/ports/data-port'
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
+import { SyncAllStoresList } from './SyncAllStoresList'
 
 type SyncResponse = {
   error?: string | { code?: string; message?: string }
@@ -54,7 +55,17 @@ const SYNC_ERROR_COPY = {
  *  switcher (setActiveStore + router.refresh) re-renders this section with a
  *  new one while its state lives on, and Save writes to the NEW store — so
  *  the form reloads per store and never carries the previous store's values. */
-export function SyncSection({ storeId = null }: { storeId?: string | null } = {}) {
+/** `showAllStores` = the caller holds stores.viewAll; only then does the
+ *  all-stores list render above the form (⚖ store isolation law). */
+export function SyncSection({
+  storeId = null,
+  showAllStores = false,
+  selectStore,
+}: {
+  storeId?: string | null
+  showAllStores?: boolean
+  selectStore?: (storeId: string) => Promise<{ ok: true } | { error: string }>
+} = {}) {
   const t = useTranslations('settings')
   const tAuth = useTranslations('auth')
   const [username, setUsername] = useState('')
@@ -166,6 +177,8 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
           {t('bookingSyncDescription')}
         </p>
       </div>
+
+      {showAllStores && selectStore && <SyncAllStoresList selectStore={selectStore} />}
 
       <div>
         <label className="text-sm font-medium mb-1.5 block">
