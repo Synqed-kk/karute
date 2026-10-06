@@ -1,8 +1,8 @@
 // FIXTURE — practice sample data for the お店ページ preview body, not product data.
-// Copied byte-for-byte from MOCK-SWITCHBOARD-v2.html :935-1004 (`var STORES`, the mock's two sample stores and
+// Copied from MOCK-SWITCHBOARD-v2.html; the staff member's name replaced by an invented one (S71) :935-1004 (`var STORES`, the mock's two sample stores and
 // their `rv` phone data); only the first line's `var STORES =` became `export const STORES =` and the closing
 // `};` became `} as const);` inside deepFreeze (R185: frozen at runtime, not only in the types). Never retyped, never edited: a new sample comes from the mock, not from here.
-// The dates/names (「9/14（月）14:30」, 篠原 夢果 …) are the approved mock's fixed sample (D-NOT-BUILT: never product data).
+// The dates/names (「9/14（月）14:30」, 水瀬 ことは — an invented person …) are the approved mock's fixed sample (D-NOT-BUILT: never product data).
 import type { Counts } from "@/business/lib/store-page/model";
 
 /** Freezes every object and array under `o` (R185): a write through a cast cannot change the sample. */
@@ -25,21 +25,21 @@ export const STORES = deepFreeze({
       rank:"GOLD MEMBER",
       next:{line:"次回のご予約", big:"9/14（月）14:30", side:"回数券 残り4回"},
       bookings:[
-        {t:"今日 14:30", s:"回数券消化・篠原 夢果・代官山院"},
-        {t:"9月22日 14:00", s:"回数券消化・篠原 夢果・代官山院"}
+        {t:"今日 14:30", s:"回数券消化・水瀬 ことは・代官山院"},
+        {t:"9月22日 14:00", s:"回数券消化・水瀬 ことは・代官山院"}
       ],
       posts:[
         {t:"秋のはじめ、頭皮と首まわりのケアについて", d:"9月11日（金）"},
         {t:"10月の営業時間について", d:"9月5日（土）"},
-        {t:"担当スタッフのご紹介 — 篠原", d:"8月24日（月）"},
+        {t:"担当スタッフのご紹介 — 水瀬", d:"8月24日（月）"},
         {t:"秋の新しいメニューのご案内", d:"8月10日（月）"}
       ],
       visits:[
-        {t:"回数券消化", badge:"回数券", d:"2026年9月7日（月） ・ 篠原 夢果 ・ 代官山院"},
-        {t:"VIP施術", money:"￥27,000", d:"2026年8月27日（木） ・ 篠原 夢果 ・ 代官山院"},
-        {t:"VIP施術", money:"￥27,000", d:"2026年7月24日（金） ・ 篠原 夢果 ・ 代官山院"},
-        {t:"VIP施術", money:"￥27,000", d:"2026年6月21日（日） ・ 篠原 夢果 ・ 代官山院"},
-        {t:"VIP施術", money:"￥27,000", d:"2026年5月18日（月） ・ 篠原 夢果 ・ 代官山院"}
+        {t:"回数券消化", badge:"回数券", d:"2026年9月7日（月） ・ 水瀬 ことは ・ 代官山院"},
+        {t:"VIP施術", money:"￥27,000", d:"2026年8月27日（木） ・ 水瀬 ことは ・ 代官山院"},
+        {t:"VIP施術", money:"￥27,000", d:"2026年7月24日（金） ・ 水瀬 ことは ・ 代官山院"},
+        {t:"VIP施術", money:"￥27,000", d:"2026年6月21日（日） ・ 水瀬 ことは ・ 代官山院"},
+        {t:"VIP施術", money:"￥27,000", d:"2026年5月18日（月） ・ 水瀬 ことは ・ 代官山院"}
       ],
       packs:[{t:"VIP施術 10回券", d:"残り4回 ・ 有効期限 2027年2月28日"}],
       care:[

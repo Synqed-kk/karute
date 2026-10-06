@@ -100,7 +100,7 @@ describe('わたしの記録 tabs (D23)', () => {
     expect(c.querySelectorAll('.visit-rows > div')).toHaveLength(5)
     expect(panel(c)).toContain('代官山院回数券VIP施術')
     expect(panel(c)).toContain('￥27,000 税込')
-    expect(panel(c)).toContain('2026年9月7日（月） ・ 篠原 夢果 ・ 代官山院')
+    expect(panel(c)).toContain('2026年9月7日（月） ・ 水瀬 ことは ・ 代官山院')
     expect(panel(c)).toContain('すべての来店履歴')
   })
   it('empty 来店履歴 prints the mock empty state with the sample line', () => {
