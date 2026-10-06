@@ -112,7 +112,17 @@ export async function POST(request: Request) {
     return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
   }
 
-  const { storeId: shown, username, password, enabled, qrStoreSlug, qrStoreId } = await request.json()
+  // A body that is not a JSON object is the caller's error (400), never a platform 500.
+  const body = await request.json().catch(() => null)
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
+  }
+  const { storeId: shown, username, password, enabled, qrStoreSlug, qrStoreId } = body
+  // A save names the store its form shows; without one it is refused before
+  // any lookup — never written onto a default store's row.
+  if (typeof shown !== 'string' || !shown) {
+    return NextResponse.json({ error: 'qr_store_not_ready' }, { status: 409 })
+  }
   const synqed = await getSynqedClient()
   // Which store's row this save changed — for the audit row below.
   let savedStoreId: string | null = null

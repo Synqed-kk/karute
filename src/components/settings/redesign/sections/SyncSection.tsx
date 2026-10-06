@@ -292,7 +292,7 @@ export function SyncSection({
         <button
           type="button"
           onClick={saveConfig}
-          disabled={syncing || loadedFor !== storeId}
+          disabled={syncing || !storeId || loadedFor !== storeId}
           className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {t('saveConfig')}

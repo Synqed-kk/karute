@@ -145,6 +145,14 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     expect(button('saveConfig').disabled).toBe(false)
   })
 
+  it('fix round 3 (Opus S2): with no store, Save stays off even after a load', async () => {
+    render(<SyncSection storeId={null} />)
+    pending[0].resolve(A)
+    await flush()
+    expect(loginInput().value).toBe('daikanyama-login')
+    expect(button('saveConfig').disabled).toBe(true)
+  })
+
   it('a failed load shows the error line and keeps Save off (no blank form over a live row)', async () => {
     render(<SyncSection storeId="store-a" />)
     pending[0].resolve({ error: 'could not resolve the sync store: core down' }, 502)

@@ -41,8 +41,8 @@ jest.mock('@/lib/audit-web', () => ({ auditWeb: (...a: unknown[]) => auditWeb(..
 // CORE-43 + fix round 2: 今すぐ同期 crawls the store the form SHOWS, sent in
 // the body (`activeStore` here = that shown store). The active-store cookie is
 // never read: it names a stale store throughout this suite.
-const activeStore = { current: 'store-ginza' as string | null }
-jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => 'store-cookie-stale') }))
+const activeStore = { current: '90ddfe47-6f7c-4927-8fde-7d9a05383a79' as string | null }
+jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => '4a3ca459-7251-44f7-8471-da2c36dd3481') }))
 const run = () =>
   new Request('https://app.test/api/sync/quickreserve', {
     method: 'POST',
@@ -60,11 +60,11 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['sync.view'])
   getBusinessIdMock.mockResolvedValue('business-1')
-  activeStore.current = 'store-ginza'
+  activeStore.current = '90ddfe47-6f7c-4927-8fde-7d9a05383a79'
   staffId.current = 'staff-1'
-  storesGet.mockResolvedValue({ id: 'x' })
-  storesList.mockResolvedValue({ stores: [{ id: 'store-ginza', is_primary: true }, { id: 'store-shibuya' }] })
-  staffStoresGet.mockResolvedValue({ store_ids: ['store-ginza', 'store-shibuya'] })
+  storesGet.mockImplementation(async (id: string) => ({ id }))
+  storesList.mockResolvedValue({ stores: [{ id: '90ddfe47-6f7c-4927-8fde-7d9a05383a79', is_primary: true }, { id: 'd5f78368-905a-4eb9-8985-af1924257893' }] })
+  staffStoresGet.mockResolvedValue({ store_ids: ['90ddfe47-6f7c-4927-8fde-7d9a05383a79', 'd5f78368-905a-4eb9-8985-af1924257893'] })
   runNow.mockResolvedValue({
     created: 2,
     updated: 3,
@@ -77,9 +77,9 @@ beforeEach(() => {
 
 describe('POST /api/sync/quickreserve — capability gate + audit parity', () => {
   it("CORE-43: runs the active store's own row, never another store's", async () => {
-    activeStore.current = 'store-ginza'
+    activeStore.current = '90ddfe47-6f7c-4927-8fde-7d9a05383a79'
     expect((await POST(run())).status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '90ddfe47-6f7c-4927-8fde-7d9a05383a79' })
   })
 
   it("CORE-43: no resolvable store → 409 qr_store_not_ready, never another store's crawl", async () => {
@@ -89,7 +89,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
     expect(runNow).not.toHaveBeenCalled()
-    activeStore.current = 'store-ginza'
+    activeStore.current = '90ddfe47-6f7c-4927-8fde-7d9a05383a79'
   })
 
   it('no sync.view grant → 403 {error:{code:"forbidden"}}, runNow never called, no audit emit', async () => {
@@ -114,7 +114,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
       skipped: 2, // skipped_no_staff (1) + skipped_deleted (1)
       duration_ms: 1234,
     })
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '90ddfe47-6f7c-4927-8fde-7d9a05383a79' })
     expect(auditWeb).toHaveBeenCalledTimes(1)
     expect(auditWeb).toHaveBeenCalledWith({
       category: 'settings',
@@ -123,7 +123,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
       // PR-M5: one server-minted id per request rides every emit.
       requestId: expect.any(String),
       // CORE-43: which store's crawl ran.
-      detail: { karute_store_id: 'store-ginza' },
+      detail: { karute_store_id: '90ddfe47-6f7c-4927-8fde-7d9a05383a79' },
     })
   })
 
@@ -203,11 +203,11 @@ describe('mapping table — web column (resolve-run-store.ts)', () => {
   const down = () => Promise.reject(new Error('core down'))
   const rows: [string, () => void, number, unknown][] = [
     ['requested store is not this business (404)', () => {
-      activeStore.current = 'store-elsewhere'
+      activeStore.current = '90765121-c851-4786-8fa5-46ce4ed39fb9'
       storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
     }, 409, { error: 'qr_store_not_ready' }],
     ['requested store outside the clamped assignment', () => {
-      activeStore.current = 'store-elsewhere'
+      activeStore.current = '90765121-c851-4786-8fa5-46ce4ed39fb9'
     }, 409, { error: 'qr_store_not_ready' }],
     ['caller reaches no store (unassigned, 2-store business)', () => {
       staffStoresGet.mockResolvedValue({ store_ids: [] })
@@ -248,21 +248,21 @@ describe('mapping table — web column (resolve-run-store.ts)', () => {
 
 describe('fix round 2 — the store is the one the form shows, never the cookie', () => {
   it("clamped caller, stale cookie: the shown store (the page's allowed[0]) runs — 今すぐ同期 works", async () => {
-    staffStoresGet.mockResolvedValue({ store_ids: ['store-ginza'] })
-    activeStore.current = 'store-ginza'
+    staffStoresGet.mockResolvedValue({ store_ids: ['90ddfe47-6f7c-4927-8fde-7d9a05383a79'] })
+    activeStore.current = '90ddfe47-6f7c-4927-8fde-7d9a05383a79'
     expect((await POST(run())).status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '90ddfe47-6f7c-4927-8fde-7d9a05383a79' })
   })
 
   it('the body names 代官山 while the cookie names another store → 代官山 runs', async () => {
-    activeStore.current = 'store-shibuya'
+    activeStore.current = 'd5f78368-905a-4eb9-8985-af1924257893'
     expect((await POST(run())).status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-shibuya' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'd5f78368-905a-4eb9-8985-af1924257893' })
   })
 
   it("viewAll caller naming another business's store → 409, nothing runs", async () => {
     capabilities.current = new Set(['sync.view', 'stores.viewAll'])
-    activeStore.current = 'store-foreign'
+    activeStore.current = '5b30aeb1-286c-4371-836d-a2ec7c2288ab'
     storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
     const res = await POST(run())
     expect(res.status).toBe(409)
@@ -273,12 +273,34 @@ describe('fix round 2 — the store is the one the form shows, never the cookie'
 describe('fix round 2 — every web run audit row carries the store', () => {
   it('not configured (a 2xx) → the audit row names the store', async () => {
     runNow.mockRejectedValue(new Error('config not found'))
-    activeStore.current = 'store-shibuya'
+    activeStore.current = 'd5f78368-905a-4eb9-8985-af1924257893'
     expect((await POST(run())).status).toBe(200)
     expect(auditWeb).toHaveBeenCalledTimes(1)
     expect(auditWeb.mock.calls[0][0]).toMatchObject({
       action: 'settings.sync_run_now',
-      detail: { karute_store_id: 'store-shibuya' },
+      detail: { karute_store_id: 'd5f78368-905a-4eb9-8985-af1924257893' },
     })
+  })
+})
+
+describe('fix round 3 (Opus S1) — the web run carries the id core returned', () => {
+  it("runNow and the audit row get core's id, not the body string", async () => {
+    capabilities.current = new Set(['sync.view', 'stores.viewAll'])
+    const canonical = '90ddfe47-6f7c-4927-8fde-7d9a05383a79'.toUpperCase()
+    storesGet.mockResolvedValue({ id: canonical })
+    expect((await POST(run())).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: canonical })
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0].detail).toEqual({ karute_store_id: canonical })
+  })
+
+  it('a body storeId that is not a store id → 409 qr_store_not_ready, no lookup, nothing runs', async () => {
+    activeStore.current = '../customers'
+    const res = await POST(run())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(runNow).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
   })
 })

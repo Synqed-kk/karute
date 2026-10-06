@@ -27,6 +27,8 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
 }))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn() }))
+const auditWeb = jest.fn()
+jest.mock('@/lib/audit-web', () => ({ auditWeb: (...a: unknown[]) => auditWeb(...(a as [])) }))
 const VIEW_ALL = new Set(['sync.view', 'stores.viewAll'])
 const capabilities = { current: VIEW_ALL }
 jest.mock('@/lib/auth/require-permission', () => ({
@@ -36,8 +38,8 @@ jest.mock('@/lib/auth/require-permission', () => ({
 
 // The store the form shows (sent by SyncSection). The cookie names 銀座 all
 // along and must never be what a request acts on.
-const actorStore = { current: 'daikanyama' as string | null }
-jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => 'ginza') }))
+const actorStore = { current: 'ea093d52-2f54-4f01-8b08-c19e3d131894' as string | null }
+jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => '2c1bb80d-a0e8-4821-876c-fc3e74480b26') }))
 const storesGet = jest.fn()
 const storesList = jest.fn()
 const staffStoresGet = jest.fn()
@@ -48,7 +50,7 @@ import { GET, POST } from '@/app/api/sync/quickreserve/config/route'
 const client = jest.requireMock('@/lib/synqed/client') as { getSynqedClient: jest.Mock }
 
 const DAIKANYAMA_ROW = {
-  karute_store_id: 'daikanyama',
+  karute_store_id: 'ea093d52-2f54-4f01-8b08-c19e3d131894',
   store_slug: 'la-estro',
   store_id: 222,
   username: 'owner',
@@ -57,7 +59,7 @@ const DAIKANYAMA_ROW = {
   last_run_error: null,
   last_run_at: '2026-10-06T04:48:45.936Z',
 }
-const GINZA_ROW = { ...DAIKANYAMA_ROW, karute_store_id: 'ginza', store_id: 250 }
+const GINZA_ROW = { ...DAIKANYAMA_ROW, karute_store_id: '2c1bb80d-a0e8-4821-876c-fc3e74480b26', store_id: 250 }
 
 function mockClient(rows: Record<string, unknown>[], upsert: () => Promise<unknown> = async () => ({})) {
   const upsertConfig = jest.fn((..._args: unknown[]) => upsert())
@@ -81,11 +83,11 @@ const getReq = () =>
 
 beforeEach(() => {
   jest.clearAllMocks()
-  actorStore.current = 'daikanyama'
+  actorStore.current = 'ea093d52-2f54-4f01-8b08-c19e3d131894'
   capabilities.current = VIEW_ALL
-  storesGet.mockResolvedValue({ id: 'x' })
-  storesList.mockResolvedValue({ stores: [{ id: 'daikanyama', is_primary: true }, { id: 'ginza' }] })
-  staffStoresGet.mockResolvedValue({ store_ids: ['daikanyama', 'ginza'] })
+  storesGet.mockImplementation(async (id: string) => ({ id }))
+  storesList.mockResolvedValue({ stores: [{ id: 'ea093d52-2f54-4f01-8b08-c19e3d131894', is_primary: true }, { id: '2c1bb80d-a0e8-4821-876c-fc3e74480b26' }] })
+  staffStoresGet.mockResolvedValue({ store_ids: ['ea093d52-2f54-4f01-8b08-c19e3d131894', '2c1bb80d-a0e8-4821-876c-fc3e74480b26'] })
 })
 
 describe('GET — the active store reads its own row', () => {
@@ -96,7 +98,7 @@ describe('GET — the active store reads its own row', () => {
   })
 
   it('(b) 銀座 with no row yet reads unconfigured, slug pre-filled from 代官山', async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     mockClient([DAIKANYAMA_ROW])
     const body = await (await GET(getReq())).json()
     expect(body).toEqual({
@@ -123,13 +125,13 @@ describe('POST — each store saves only its own row', () => {
         enabled: true,
         store_slug: 'la-estro',
         store_id: 222,
-        karute_store_id: 'daikanyama',
+        karute_store_id: 'ea093d52-2f54-4f01-8b08-c19e3d131894',
       },
     ])
   })
 
   it("(d) 銀座's first save without its QR store → 400 qr_store_required, nothing written", async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     const upsert = mockClient([DAIKANYAMA_ROW])
     const res = await POST(req({ username: 'owner', password: 'pw', enabled: true }))
     expect(res.status).toBe(400)
@@ -138,7 +140,7 @@ describe('POST — each store saves only its own row', () => {
   })
 
   it("(e) 銀座's first save without a password → 400, nothing written", async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     const upsert = mockClient([DAIKANYAMA_ROW])
     const res = await POST(
       req({ username: 'owner', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '250' }),
@@ -148,7 +150,7 @@ describe('POST — each store saves only its own row', () => {
   })
 
   it("(e2) 銀座's first save without a login ID → 400, nothing written", async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     const upsert = mockClient([DAIKANYAMA_ROW])
     const res = await POST(
       req({ username: '  ', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '250' }),
@@ -158,7 +160,7 @@ describe('POST — each store saves only its own row', () => {
   })
 
   it("(f) 銀座's first save with its QR store writes ONLY 銀座's row", async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     const upsert = mockClient([DAIKANYAMA_ROW])
     const res = await POST(
       req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: ' la-estro ', qrStoreId: '250' }),
@@ -173,19 +175,19 @@ describe('POST — each store saves only its own row', () => {
         enabled: true,
         store_slug: 'la-estro',
         store_id: 250,
-        karute_store_id: 'ginza',
+        karute_store_id: '2c1bb80d-a0e8-4821-876c-fc3e74480b26',
       },
     ])
   })
 
   it('(g) an existing row keeps its own QR store, whatever the body says', async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     const upsert = mockClient([DAIKANYAMA_ROW, GINZA_ROW])
     const res = await POST(
       req({ username: 'owner', enabled: false, qrStoreSlug: 'la-estro', qrStoreId: '222' }),
     )
     expect(res.status).toBe(200)
-    expect(upsert.mock.calls[0][1]).toMatchObject({ store_id: 250, karute_store_id: 'ginza' })
+    expect(upsert.mock.calls[0][1]).toMatchObject({ store_id: 250, karute_store_id: '2c1bb80d-a0e8-4821-876c-fc3e74480b26' })
   })
 
   it('(h) no resolvable store → 409 qr_store_not_ready, nothing written', async () => {
@@ -200,7 +202,7 @@ describe('POST — each store saves only its own row', () => {
   })
 
   it('(i) core refuses a QR store already linked → 502 carrying the code', async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     mockClient([DAIKANYAMA_ROW], async () => {
       throw new Error('qr_store_already_linked')
     })
@@ -229,7 +231,7 @@ describe('POST — each store saves only its own row', () => {
 
 describe('fix round 2 — the store is the one the form shows, resolved only by the helper', () => {
   it("(k) viewAll caller naming another business's store → GET and SAVE 409, nothing written", async () => {
-    actorStore.current = 'store-foreign'
+    actorStore.current = '5b30aeb1-286c-4371-836d-a2ec7c2288ab'
     storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
     const upsert = mockClient([DAIKANYAMA_ROW])
     const get = await GET(getReq())
@@ -244,22 +246,22 @@ describe('fix round 2 — the store is the one the form shows, resolved only by 
   it('(l) a save naming 代官山 while the cookie names 銀座 writes 代官山', async () => {
     const upsert = mockClient([DAIKANYAMA_ROW, GINZA_ROW])
     expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(200)
-    expect(upsert.mock.calls[0][1]).toMatchObject({ karute_store_id: 'daikanyama', store_id: 222 })
+    expect(upsert.mock.calls[0][1]).toMatchObject({ karute_store_id: 'ea093d52-2f54-4f01-8b08-c19e3d131894', store_id: 222 })
   })
 
   it("(m) clamped caller, stale cookie: the shown store (the page's allowed[0]) reads and saves", async () => {
     capabilities.current = new Set(['sync.view'])
-    staffStoresGet.mockResolvedValue({ store_ids: ['ginza'] })
-    actorStore.current = 'ginza'
+    staffStoresGet.mockResolvedValue({ store_ids: ['2c1bb80d-a0e8-4821-876c-fc3e74480b26'] })
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     const upsert = mockClient([DAIKANYAMA_ROW, GINZA_ROW])
     expect(await (await GET(getReq())).json()).toMatchObject({ configured: true, username: 'owner' })
     expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(200)
-    expect(upsert.mock.calls[0][1]).toMatchObject({ karute_store_id: 'ginza' })
+    expect(upsert.mock.calls[0][1]).toMatchObject({ karute_store_id: '2c1bb80d-a0e8-4821-876c-fc3e74480b26' })
   })
 
   it('(m2) clamped caller naming a store outside the assignment → 409, nothing written', async () => {
     capabilities.current = new Set(['sync.view'])
-    staffStoresGet.mockResolvedValue({ store_ids: ['ginza'] })
+    staffStoresGet.mockResolvedValue({ store_ids: ['2c1bb80d-a0e8-4821-876c-fc3e74480b26'] })
     const upsert = mockClient([DAIKANYAMA_ROW, GINZA_ROW])
     expect((await GET(getReq())).status).toBe(409)
     expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(409)
@@ -282,14 +284,14 @@ describe('fix round 2 — a blank form never blanks a live row', () => {
   it("(o) an existing row saved with a blank login keeps its stored login", async () => {
     const upsert = mockClient([DAIKANYAMA_ROW])
     expect((await POST(req({ username: '', password: '', enabled: true }))).status).toBe(200)
-    expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'owner', karute_store_id: 'daikanyama' })
+    expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'owner', karute_store_id: 'ea093d52-2f54-4f01-8b08-c19e3d131894' })
     expect(upsert.mock.calls[0][1]).not.toHaveProperty('password')
   })
 })
 
 describe('fix round 2 — one Quick Reserve store, one of our stores', () => {
   it("(p) 銀座's first save naming 代官山's QR store (222) → 409 qr_store_already_linked, nothing written", async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     const upsert = mockClient([DAIKANYAMA_ROW])
     const res = await POST(
       req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'LA-ESTRO ', qrStoreId: '222' }),
@@ -300,19 +302,19 @@ describe('fix round 2 — one Quick Reserve store, one of our stores', () => {
   })
 
   it('(p2) a clamped caller gets the same refusal, and the body never names the other store', async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     capabilities.current = new Set(['sync.view'])
-    staffStoresGet.mockResolvedValue({ store_ids: ['ginza'] })
+    staffStoresGet.mockResolvedValue({ store_ids: ['2c1bb80d-a0e8-4821-876c-fc3e74480b26'] })
     mockClient([DAIKANYAMA_ROW])
     const res = await POST(
       req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '222' }),
     )
     expect(res.status).toBe(409)
-    expect(JSON.stringify(await res.json())).not.toContain('daikanyama')
+    expect(JSON.stringify(await res.json())).not.toContain('ea093d52-2f54-4f01-8b08-c19e3d131894')
   })
 
   it('(p3) the same slug with a different QR store id is allowed (one owner login, several stores)', async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     const upsert = mockClient([DAIKANYAMA_ROW])
     const res = await POST(
       req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '250' }),
@@ -322,7 +324,7 @@ describe('fix round 2 — one Quick Reserve store, one of our stores', () => {
   })
 
   it("(q) core's object error carrying the code → 409 with the code (the screen localizes it)", async () => {
-    actorStore.current = 'ginza'
+    actorStore.current = '2c1bb80d-a0e8-4821-876c-fc3e74480b26'
     mockClient([DAIKANYAMA_ROW], async () => {
       throw Object.assign(new Error('This Quick Reserve store is already linked'), { code: 'qr_store_already_linked' })
     })
@@ -331,5 +333,65 @@ describe('fix round 2 — one Quick Reserve store, one of our stores', () => {
     )
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
+  })
+})
+
+describe('fix round 3 (Opus S1) — a save writes the id core returned', () => {
+  it("upsertConfig and the audit row get core's id, not the body string", async () => {
+    const canonical = 'ea093d52-2f54-4f01-8b08-c19e3d131894'.toUpperCase()
+    storesGet.mockResolvedValue({ id: canonical })
+    const upsert = mockClient([{ ...DAIKANYAMA_ROW, karute_store_id: canonical }])
+    expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ karute_store_id: canonical, store_id: 222 })
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0].detail).toMatchObject({ karute_store_id: canonical })
+  })
+
+  it('a storeId that is not a store id → GET and SAVE 409, no lookup, nothing written', async () => {
+    actorStore.current = '../customers'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    expect((await GET(getReq())).status).toBe(409)
+    expect((await POST(req({ username: 'owner', password: 'pw', enabled: true }))).status).toBe(409)
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 3 (Opus S2) — a save names its store or nothing is written', () => {
+  it.each([
+    ['no storeId', undefined],
+    ['storeId: []', []],
+    ['storeId: 123', 123],
+    ["storeId: ''", ''],
+  ])('%s → 409 qr_store_not_ready, no lookup, nothing written', async (_case, storeId) => {
+    actorStore.current = null
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(req({ storeId, username: 'owner', password: 'pw', enabled: true }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(storesList).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('the GET with no storeId keeps its default (the primary store reads its row)', async () => {
+    actorStore.current = null
+    mockClient([DAIKANYAMA_ROW])
+    expect(await (await GET(getReq())).json()).toMatchObject({ configured: true, username: 'owner' })
+  })
+})
+
+describe('fix round 3 (Opus N2) — a malformed save body is a 400, never a platform 500', () => {
+  it.each([
+    ['malformed JSON', '{"storeId":'],
+    ['JSON null', 'null'],
+    ['a JSON string', '"x"'],
+  ])('%s → 400 invalid_body, no lookup, nothing written', async (_case, raw) => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(new Request('https://app.test/api/sync/quickreserve/config', { method: 'POST', body: raw }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'invalid_body' })
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
   })
 })

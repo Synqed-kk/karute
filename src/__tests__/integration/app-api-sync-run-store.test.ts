@@ -65,41 +65,41 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['sync.view'])
   runNow.mockResolvedValue(RESULT)
-  storesGet.mockResolvedValue({ id: 'x' })
+  storesGet.mockImplementation(async (id: string) => ({ id }))
   storesList.mockResolvedValue({
     stores: [
-      { id: 'store-a', is_primary: false },
-      { id: 'store-primary', is_primary: true },
+      { id: '714d1196-5aa7-409d-8afc-5046aa19d031', is_primary: false },
+      { id: '405d5a2a-8ee1-4999-827a-ac178ae8d692', is_primary: true },
     ],
   })
-  staffStoresGet.mockResolvedValue({ store_ids: ['store-a', 'store-b'] })
+  staffStoresGet.mockResolvedValue({ store_ids: ['714d1196-5aa7-409d-8afc-5046aa19d031', '1aa03fda-eae0-4850-8ddf-90c999f9ee1d'] })
 })
 
 describe('F2 — headerless phone run resolves the store the web run would', () => {
   it('cross-store viewer, no header → the PRIMARY store explicitly (web: getPrimaryStoreId), never undefined', async () => {
     capabilities.current = new Set(['sync.view', 'stores.viewAll'])
     expect((await POST(post(), noRoute)).status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-primary' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '405d5a2a-8ee1-4999-827a-ac178ae8d692' })
   })
 
   it('clamped caller on two stores, no header → their first assigned store (web: allowed[0])', async () => {
     expect((await POST(post(), noRoute)).status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-a' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '714d1196-5aa7-409d-8afc-5046aa19d031' })
   })
 
   it('stress: first assignment has no config row → the not-configured answer names the web row, not another', async () => {
     runNow.mockImplementation(async (_p: string, o: { karute_store_id: string }) => {
-      if (o.karute_store_id === 'store-a') throw new Error('config not found')
+      if (o.karute_store_id === '714d1196-5aa7-409d-8afc-5046aa19d031') throw new Error('config not found')
       return RESULT
     })
     const res = await POST(post(), noRoute)
     expect(res.status).toBe(200)
     expect((await res.json()).code).toBe('not_configured')
     expect(runNow).toHaveBeenCalledTimes(1)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-a' })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: '714d1196-5aa7-409d-8afc-5046aa19d031' })
     // …and with the header the app sends for its selected store, that store runs.
-    expect((await POST(post('store-b'), noRoute)).status).toBe(200)
-    expect(runNow).toHaveBeenLastCalledWith('QUICKRESERVE', { karute_store_id: 'store-b' })
+    expect((await POST(post('1aa03fda-eae0-4850-8ddf-90c999f9ee1d'), noRoute)).status).toBe(200)
+    expect(runNow).toHaveBeenLastCalledWith('QUICKRESERVE', { karute_store_id: '1aa03fda-eae0-4850-8ddf-90c999f9ee1d' })
   })
 
   it('a caller who reaches no store is refused (store_unassigned), never handed the primary store', async () => {
@@ -123,7 +123,7 @@ describe('F3 — scope failures answer like the web run', () => {
 
   it('header store cannot be verified (core 503) → 502', async () => {
     storesGet.mockRejectedValue(Object.assign(new Error('unavailable'), { status: 503 }))
-    expect((await POST(post('store-b'), noRoute)).status).toBe(502)
+    expect((await POST(post('1aa03fda-eae0-4850-8ddf-90c999f9ee1d'), noRoute)).status).toBe(502)
   })
 
   it('primary store cannot be resolved → 502', async () => {
@@ -134,7 +134,7 @@ describe('F3 — scope failures answer like the web run', () => {
   })
 
   it('a genuine verdict stays 403 store_forbidden with its store_header marker', async () => {
-    const res = await POST(post('store-elsewhere'), noRoute)
+    const res = await POST(post('90765121-c851-4786-8fa5-46ce4ed39fb9'), noRoute)
     expect(res.status).toBe(403)
     const body = await res.json()
     expect(body.error.code).toBe('store_forbidden')
@@ -145,22 +145,22 @@ describe('F3 — scope failures answer like the web run', () => {
 
 describe('F4 — the phone run audit row carries the store', () => {
   it('success → one settings.sync_run_now row with storeId + detail.karute_store_id', async () => {
-    expect((await POST(post('store-b'), noRoute)).status).toBe(200)
+    expect((await POST(post('1aa03fda-eae0-4850-8ddf-90c999f9ee1d'), noRoute)).status).toBe(200)
     expect(audit).toHaveBeenCalledTimes(1)
     const row = audit.mock.calls[0][0]
-    expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: 'store-b' })
-    expect(row.detail).toMatchObject({ karute_store_id: 'store-b' })
+    expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: '1aa03fda-eae0-4850-8ddf-90c999f9ee1d' })
+    expect(row.detail).toMatchObject({ karute_store_id: '1aa03fda-eae0-4850-8ddf-90c999f9ee1d' })
   })
 
   it('not configured (a 2xx) → the audit row still carries the store (fix round 2)', async () => {
     runNow.mockRejectedValue(new Error('config not found'))
-    const res = await POST(post('store-b'), noRoute)
+    const res = await POST(post('1aa03fda-eae0-4850-8ddf-90c999f9ee1d'), noRoute)
     expect(res.status).toBe(200)
     expect((await res.json()).code).toBe('not_configured')
     expect(audit).toHaveBeenCalledTimes(1)
     const row = audit.mock.calls[0][0]
-    expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: 'store-b' })
-    expect(row.detail).toMatchObject({ karute_store_id: 'store-b' })
+    expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: '1aa03fda-eae0-4850-8ddf-90c999f9ee1d' })
+    expect(row.detail).toMatchObject({ karute_store_id: '1aa03fda-eae0-4850-8ddf-90c999f9ee1d' })
   })
 })
 
@@ -172,8 +172,8 @@ describe('mapping table — phone column (resolve-run-store.ts)', () => {
   const rows: [string, () => void, string | undefined, number, string, boolean][] = [
     ['requested store is not this business (404)', () => {
       storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
-    }, 'store-elsewhere', 403, 'store_forbidden', true],
-    ['requested store outside the clamped assignment', () => {}, 'store-elsewhere', 403, 'store_forbidden', true],
+    }, '90765121-c851-4786-8fa5-46ce4ed39fb9', 403, 'store_forbidden', true],
+    ['requested store outside the clamped assignment', () => {}, '90765121-c851-4786-8fa5-46ce4ed39fb9', 403, 'store_forbidden', true],
     ['caller reaches no store (unassigned, 2-store business)', () => {
       staffStoresGet.mockResolvedValue({ store_ids: [] })
     }, undefined, 403, 'store_unassigned', false],
@@ -183,7 +183,7 @@ describe('mapping table — phone column (resolve-run-store.ts)', () => {
     }, undefined, 403, 'store_unassigned', false],
     ['requested-store verify throws (503)', () => {
       storesGet.mockRejectedValue(Object.assign(new Error('core down'), { status: 503 }))
-    }, 'store-b', 502, 'upstream_unavailable', false],
+    }, '1aa03fda-eae0-4850-8ddf-90c999f9ee1d', 502, 'upstream_unavailable', false],
     ['staff-store read throws', () => {
       staffStoresGet.mockImplementation(down)
     }, undefined, 502, 'upstream_unavailable', false],
@@ -205,5 +205,33 @@ describe('mapping table — phone column (resolve-run-store.ts)', () => {
     expect(JSON.stringify(body).includes('store_header')).toBe(marker)
     expect(runNow).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 3 (Opus S1) — the store-id header is a store id, and the run carries the id core returned', () => {
+  it.each([
+    ['uppercase', '1aa03fda-eae0-4850-8ddf-90c999f9ee1d'.toUpperCase()],
+    ['a path', '../customers'],
+  ])('%s header → 403 store_forbidden (store_header), no lookup, nothing runs', async (_case, header) => {
+    const res = await POST(post(header), noRoute)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error.code).toBe('store_forbidden')
+    expect(JSON.stringify(body)).toContain('store_header')
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(runNow).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it("runNow and the audit row carry core's id, not the header string", async () => {
+    capabilities.current = new Set(['sync.view', 'stores.viewAll'])
+    const canonical = '1aa03fda-eae0-4850-8ddf-90c999f9ee1d'.toUpperCase()
+    storesGet.mockResolvedValue({ id: canonical })
+    expect((await POST(post('1aa03fda-eae0-4850-8ddf-90c999f9ee1d'), noRoute)).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: canonical })
+    expect(audit).toHaveBeenCalledTimes(1)
+    const row = audit.mock.calls[0][0]
+    expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: canonical })
+    expect(row.detail).toMatchObject({ karute_store_id: canonical })
   })
 })
