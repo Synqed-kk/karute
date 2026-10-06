@@ -5,7 +5,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { errorBody, toAppApiError } from '@/lib/app-api/errors'
 import { qrConfigForStore } from '@/lib/sync/qr-config'
-import { resolveSyncRunScope, webSyncStoreError } from '@/lib/sync/resolve-run-store'
+import { isActiveStore, resolveSyncRunScope, webSyncStoreError } from '@/lib/sync/resolve-run-store'
 
 // QuickReserve connection settings live in synqed-core (sync_configs; the
 // credentials are AES-encrypted server-side and never leave core). This route
@@ -73,6 +73,8 @@ export async function GET(request: Request) {
   // account slug from another row the caller may see (one owner login,
   // several stores): any row for an unrestricted caller, only rows of their
   // assigned stores for a clamped one — never a sibling store's account name.
+  // Only rows of the business's ACTIVE stores are candidates: an archived
+  // store's account never pre-fills (fix round 8, attack A-N1).
   const synqed = await getSynqedClient()
   let found: Awaited<ReturnType<typeof qrConfigForStore>>
   let assigned: string[] | null
@@ -85,7 +87,15 @@ export async function GET(request: Request) {
   }
   const { config, configs } = found
   if (!config) {
-    const visible = configs.filter((c) => assigned === null || assigned.includes(c.karute_store_id))
+    let active: Set<string>
+    try {
+      active = new Set((await synqed.stores.list()).stores.filter(isActiveStore).map((s) => s.id))
+    } catch (e) {
+      return failure(e, 'Could not read QuickReserve settings')
+    }
+    const visible = configs.filter(
+      (c) => active.has(c.karute_store_id) && (assigned === null || assigned.includes(c.karute_store_id)),
+    )
     return NextResponse.json({
       username: '',
       enabled: false,

@@ -549,10 +549,50 @@ describe("fix round 6 (Greptile P1) — the no-row slug pre-fill never names a s
   it("(r6-c) a clamped caller at A and C, A has no row, C configured → C's slug pre-fills, never B's", async () => {
     capabilities.current = CLAMPED as never
     staffStoresGet.mockResolvedValue({ store_ids: [STORE_A, STORE_C] })
+    // C is one of the business's stores (round 8: only listed, active stores' rows pre-fill).
+    storesList.mockResolvedValue({ stores: [{ id: STORE_B, is_primary: true }, { id: STORE_A }, { id: STORE_C }] })
     mockClient([B_ROW, C_ROW])
     const body = await (await GET(getReq())).json()
     expect(body).toMatchObject({ configured: false, qrStoreSlug: 'c-salon' })
     expect(JSON.stringify(body)).not.toContain('b-salon')
+  })
+})
+
+describe("fix round 8 (attack A-N1) — an archived store's account never pre-fills the form", () => {
+  const STORE_A = '2c1bb80d-a0e8-4821-876c-fc3e74480b26' // the one active store, no row yet
+  const STORE_B = 'ea093d52-2f54-4f01-8b08-c19e3d131894' // archived sibling, configured
+  const B_ROW = { ...DAIKANYAMA_ROW, karute_store_id: STORE_B, store_slug: 'sib-slug', username: 'sib-owner', store_id: 401 }
+
+  beforeEach(() => {
+    actorStore.current = STORE_A
+    storesList.mockResolvedValue({ stores: [{ id: STORE_A, is_primary: true }, { id: STORE_B, active: false }] })
+  })
+
+  it('(r8-a) a floating caller (one active store A + archived sibling B) → slug "", nothing of B in the body', async () => {
+    capabilities.current = new Set(['sync.view']) as never
+    staffStoresGet.mockResolvedValue({ store_ids: [] }) // floating: one active store → unclamped
+    mockClient([B_ROW])
+    const res = await GET(getReq())
+    expect(res.status).toBe(200)
+    const text = JSON.stringify(await res.json())
+    expect(text).not.toContain('sib-slug')
+    expect(text).not.toContain('sib-owner')
+    expect(JSON.parse(text)).toMatchObject({ configured: false, qrStoreSlug: '' })
+  })
+
+  it('(r8-b) a viewAll caller, same data → slug "" too', async () => {
+    mockClient([B_ROW])
+    const body = await (await GET(getReq())).json()
+    expect(body).toMatchObject({ configured: false, qrStoreSlug: '' })
+    expect(JSON.stringify(body)).not.toContain('sib-slug')
+  })
+
+  it('(r8-c) the store-list read throws on the no-row path → 502, never a pre-fill', async () => {
+    storesList.mockRejectedValue(new Error('core down'))
+    mockClient([B_ROW])
+    const res = await GET(getReq())
+    expect(res.status).toBe(502)
+    expect(JSON.stringify(await res.json())).not.toContain('sib-slug')
   })
 })
 

@@ -136,7 +136,7 @@ export async function resolveSyncRunScope(
     }
     return { storeId: canonicalId, assigned }
   }
-  const list = (await listStores()).filter((s) => s.active !== false)
+  const list = (await listStores()).filter(isActiveStore)
   // An archived store is never the default target.
   if (assigned) {
     const first = assigned.find((id) => list.some((s) => s.id === id))
@@ -146,6 +146,12 @@ export async function resolveSyncRunScope(
   const primary = list.find((s) => s.is_primary)?.id ?? list[0]?.id
   if (!primary) throw new SyncStoreUnassigned('this business has no store')
   return { storeId: primary, assigned }
+}
+
+/** THE ONE DEFINITION of an active store (archived = `active: false`): the
+ *  default target above and the config GET's no-row pre-fill both use it. */
+export function isActiveStore(s: { active?: boolean | null }): boolean {
+  return s.active !== false
 }
 
 /** The web column of the table above, shared by both web routes (run +
