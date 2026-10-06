@@ -1,8 +1,9 @@
 // FIXTURE — practice sample data for the お店ページ preview body, not product data.
-// Copied from MOCK-SWITCHBOARD-v2.html; the staff member's name replaced by an invented one (S71) :935-1004 (`var STORES`, the mock's two sample stores and
+// Copied from MOCK-SWITCHBOARD-v2.html :935-1004 (`var STORES`, the mock's two sample stores and
 // their `rv` phone data); only the first line's `var STORES =` became `export const STORES =` and the closing
-// `};` became `} as const);` inside deepFreeze (R185: frozen at runtime, not only in the types). Never retyped, never edited: a new sample comes from the mock, not from here.
-// The dates/names (「9/14（月）14:30」, 水瀬 ことは — an invented person …) are the approved mock's fixed sample (D-NOT-BUILT: never product data).
+// `};` became `} as const);` inside deepFreeze (R185: frozen at runtime, not only in the types). Not retyped: a new sample comes from the mock, not from here.
+// One deliberate edit (S71): the mock's staff name was a real person's; here it is the invented 水瀬 ことは. The mock file is an approved record and keeps its text.
+// The dates/names (「9/14（月）14:30」, 水瀬 ことは …) are the approved mock's fixed sample (D-NOT-BUILT: never product data).
 import type { Counts } from "@/business/lib/store-page/model";
 
 /** Freezes every object and array under `o` (R185): a write through a cast cannot change the sample. */
