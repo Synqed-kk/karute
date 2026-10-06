@@ -399,7 +399,8 @@ describe('wire codec (R121 = CORE-47 owner record)', () => {
       const k = internalKeyOf(wk) as CapKey
       expect(k).not.toBeNull()
       expect(wireKeyOf(k)).toBe(wk)
-      const allOff = CAP_KEYS.reduce((r, x) => flip(r, x, false), seedRecord('other'))
+      // S75 fix 3 (R-E): all-OFF as core stamps it — a TYPE_DEFAULT key set back to its standard stays TYPE_DEFAULT (unstamped)
+      const allOff = stampSave(seedRecord('other'), CAP_KEYS.reduce((r, x) => flip(r, x, false), seedRecord('other')), [], NOW, 'staff-0')
       const rec = stampSave(allOff, flip(allOff, k, true), [], NOW, `staff-${wk}`)
       const back = parseRecord(JSON.parse(JSON.stringify(serializeRecord(rec))))
       expect(back).toEqual(rec)

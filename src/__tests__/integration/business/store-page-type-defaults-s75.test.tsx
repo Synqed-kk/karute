@@ -11,7 +11,7 @@ import { StorePageRows } from '@/app/[locale]/(business)/business/settings/Store
 import { StorePageType } from '@/app/[locale]/(business)/business/settings/StorePageType'
 import { BLOCK_GUIDES, LOCKED, REG, SAVE_FAIL, TYPE_BLOCK } from '@/business/lib/store-page/copy'
 import { STORE_PAGE_DEFAULTS_ID, STORE_PAGE_FAMILY_ID, storePageSwitchId } from '@/business/lib/settings'
-import { storePageDraft, storePageEdits, storePageValues } from '@/business/lib/store-page/room-draft'
+import { flippedKeys, storePageDraft, storePageEdits, storePageValues } from '@/business/lib/store-page/room-draft'
 import { saveFailLines } from '@/business/lib/store-page/save-lines'
 import { putStoreCapabilities } from '@/business/lib/store-page/save-client'
 import {
@@ -172,8 +172,13 @@ const IDS = { family: STORE_PAGE_FAMILY_ID, sw: storePageSwitchId, defaults: STO
 /** The room, reduced: values (the one truth) → the draft (storePageDraft, with the overlay) → an edit writes only what moved. */
 function room(saved: CapRecord) {
   let values: Record<string, unknown> = storePageValues(saved, IDS)
-  const draft = () => storePageDraft(saved, values, IDS)
-  const apply = (next: CapRecord) => { values = { ...values, ...storePageEdits(draft(), next, IDS) } }
+  let touched: readonly CapKey[] = [] // S75 fix 3b (R-E′): as SettingsScreen — every key an edit flips becomes touched
+  const draft = () => storePageDraft(saved, values, IDS, touched)
+  const apply = (next: CapRecord) => {
+    const moved = flippedKeys(draft(), next)
+    values = { ...values, ...storePageEdits(draft(), next, IDS) }
+    touched = [...touched, ...moved.filter((k) => !touched.includes(k))]
+  }
   const pickType = (t: BusinessTypeKey) => {
     render(<StorePageType draft={draft()} saved={saved} canEdit onChange={apply} onResetKeys={() => {}} onToast={() => {}} />)
     fireEvent.change(screen.getByRole('combobox'), { target: { value: t } })
@@ -286,5 +291,52 @@ describe('S75 fix 2 (R-D) — the 業種 note names read_points by its row label
     expect(REG.find((r) => r.key === 'read_points')?.ja).toBe('読んでポイント')
     expect(TYPE_BLOCK.sub.endsWith('その場では何も変わりません。' + NOTE)).toBe(true)
     expect(BLOCK_GUIDES.find((g) => g.title === '業種')?.guide.endsWith('その場では何も変わりません。' + NOTE)).toBe(true)
+  })
+})
+
+// ── S75 FIX ROUND 3 (R-E, READ-FIX2-SONNET-S75 SF1) — a TYPE_DEFAULT key never gets a phantom OWNER stamp ─────────────
+describe('R-E — the lock is an overlay in BOTH directions; a TYPE_DEFAULT key at its standard stays TYPE_DEFAULT', () => {
+  it('(b) beauty_chiropractic OWNER/ON → dental_clinic → save → pick back: the draft reads the table ON → save: TYPE_DEFAULT/ON, no stamp', () => {
+    const owned = roundTrip(ownerOn('beauty_chiropractic'))
+    const r1 = room(owned)
+    r1.pickType('dental_clinic')
+    const s1 = roundTrip(save(owned, r1.draft()))
+    expect(s1.switches.read_points).toEqual({ on: false, source: 'TYPE_DEFAULT', changed_at: NOW.toISOString(), changed_by: 'staff-1' })
+    const r2 = room(s1)
+    r2.pickType('beauty_chiropractic')
+    expect(r2.draft().switches.read_points).toEqual({ ...s1.switches.read_points, on: true }) // the table's standard, still TYPE_DEFAULT
+    const s2 = save(s1, r2.draft()) // no reset_keys: R-E (2) needs none
+    expect(s2.switches.read_points).toEqual({ on: true, source: 'TYPE_DEFAULT' })
+    expect(roundTrip(s2).switches.read_points).toEqual({ on: true, source: 'TYPE_DEFAULT' })
+    expect(CAP_KEYS.filter((k) => s2.switches[k].source === 'OWNER')).toEqual([])
+  })
+  it('a key the owner touched keeps the room value: dental_clinic → pick beauty_chiropractic, read_points flipped OFF by hand → OWNER/OFF', () => {
+    const owned = roundTrip(ownerOn('beauty_chiropractic'))
+    const r0 = room(owned)
+    r0.pickType('dental_clinic')
+    const s1 = roundTrip(save(owned, r0.draft()))
+    const r = room(s1)
+    r.pickType('beauty_chiropractic')
+    expect(r.draft().switches.read_points.on).toBe(true)
+    r.apply(flip(r.draft(), 'read_points', false))
+    expect(r.draft().switches.read_points.on).toBe(false)
+    expect(save(s1, r.draft()).switches.read_points).toEqual({ on: false, source: 'OWNER', changed_at: NOW.toISOString(), changed_by: 'staff-1' })
+  })
+  it('D2(d) still holds: 戻す moved a key, the owner set it back by hand → OWNER (reset_keys or not); a 戻す key left alone → TYPE_DEFAULT without reset_keys', () => {
+    const saved = roundTrip(seedRecord('beauty_chiropractic'))
+    const r = room(saved)
+    r.pickType('hair_salon')
+    const reset = applyReset(r.draft())
+    const moved = CAP_KEYS.filter((k) => reset.switches[k].on !== saved.switches[k].on)
+    expect(moved.length).toBeGreaterThan(1)
+    r.apply(reset)
+    const [back, left] = moved
+    r.apply(flip(r.draft(), back, saved.switches[back].on))
+    expect(r.draft().switches[back].on).toBe(saved.switches[back].on)
+    for (const keys of [[], [back]] as CapKey[][]) {
+      const out = save(saved, r.draft(), keys)
+      expect(out.switches[back]).toEqual({ on: saved.switches[back].on, source: 'OWNER', changed_at: NOW.toISOString(), changed_by: 'staff-1' })
+      expect(out.switches[left]).toEqual({ on: reset.switches[left].on, source: 'TYPE_DEFAULT' })
+    }
   })
 })

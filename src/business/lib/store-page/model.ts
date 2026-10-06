@@ -104,7 +104,7 @@ export const TYPE_LOCKED_OFF: Readonly<Partial<Record<BusinessTypeKey, readonly 
 /** True when the store's 業種 locks `k` OFF (TYPE_LOCKED_OFF, read through typeKeyOf). */
 export const isLocked = (businessType: unknown, k: CapKey): boolean => TYPE_LOCKED_OFF[typeKeyOf(businessType)]?.includes(k) ?? false
 /** The value an untouched switch reads as: OFF when locked by the 業種, else the defaults type's table value. */
-const standardOn = (businessType: BusinessTypeKey, defaultsType: BusinessTypeKey, k: CapKey): boolean =>
+export const standardOn = (businessType: BusinessTypeKey, defaultsType: BusinessTypeKey, k: CapKey): boolean =>
   !isLocked(businessType, k) && defaultOn(defaultsType, k)
 
 const build = (typeKey: BusinessTypeKey, defaultsType: BusinessTypeKey, state: (k: CapKey) => SwitchState): CapRecord => ({
@@ -246,8 +246,9 @@ export function applyReset(record: CapRecord): CapRecord {
 
 /** What a successful save writes (R89 — the SERVER alone decides source; the draft's source/changed_at/changed_by
  *  are ignored). Unchanged keys keep their saved stamps exactly. A changed key stays TYPE_DEFAULT only when its SAVED
- *  source is TYPE_DEFAULT, the client lists it in resetKeys (keys 戻す flipped since the last save), and its new value
- *  equals the draft type's default; every other changed key becomes OWNER + changed_at + changed_by. An OWNER key
+ *  source is TYPE_DEFAULT and its new value equals the draft's standard; every other changed key becomes OWNER +
+ *  changed_at + changed_by. S75 fix 3 (R-E): resetKeys (keys 戻す flipped since the last save) is now informational —
+ *  kept in the signature and on the wire, no longer read by the stamp. An OWNER key
  *  never returns to TYPE_DEFAULT. Call only with what core accepted (D-SAVE). TYPE_DEFAULT means untouched by the owner, not
  *  equal to the current type's default: after a type change an untouched switch keeps its value until 戻す (D7). */
 /** S75 (R269) — a draft that turns a key ON that its 業種 locks OFF; the door answers 'invalid'. */
@@ -277,7 +278,8 @@ export function stampSave(
     // owner's earlier ON is not kept (a legally locked switch resets; after the lock lifts the key follows the table)
     if (isLocked(t, k)) return was.source === 'TYPE_DEFAULT' && !was.on ? was : { on: false, source: 'TYPE_DEFAULT', changed_at: at, changed_by: actingStaffId }
     if (on === was.on && (was.source === 'OWNER' || on === std)) return was
-    if (was.source === 'TYPE_DEFAULT' && on === std && resetKeys.includes(k)) return { on, source: 'TYPE_DEFAULT' }
+    // S75 fix 3 (R-E): a TYPE_DEFAULT key whose new value IS the standard stays TYPE_DEFAULT — never a phantom OWNER stamp
+    if (was.source === 'TYPE_DEFAULT' && on === std) return { on, source: 'TYPE_DEFAULT' }
     return { on, source: 'OWNER', changed_at: at, changed_by: actingStaffId }
   })
 }

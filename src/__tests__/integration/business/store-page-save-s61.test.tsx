@@ -197,7 +197,9 @@ describe('S61 P7B-2 — the split save', () => {
     const calls = stub((b) => {
       if (answer === null) {
         const sent = b.record as CapRecord
-        const other = flipped(sent, K2)
+        const o = flipped(sent, K2)
+        // S75 fix 3 (R-E): core stamps the key it moved OWNER (a TYPE_DEFAULT key off its standard is never a saved state)
+        const other = { ...o, switches: { ...o.switches, [K2]: { ...o.switches[K2], source: 'OWNER' as const, changed_at: '2026-10-03T01:02:03.000Z' } } }
         answer = { ...other, switches: { ...other.switches, [K]: { ...other.switches[K], source: 'OWNER', changed_at: '2026-10-03T01:02:03.000Z' } } }
         return { status: 200, body: { ok: true, record: answer } }
       }
@@ -247,7 +249,8 @@ describe('S61 P7B-2 — the split save', () => {
     let release: (a: Answer) => void = () => {}
     let held = true
     const calls = stub((b) => (held ? new Promise<Answer>((res) => { release = res }) : echo(b)))
-    await mount(await propsFor(STORE.tokyo))
+    const p6 = await propsFor(STORE.tokyo)
+    await mount(p6)
     await flip(K)
     const on = sw(K).getAttribute('aria-checked')
     await press()
@@ -257,7 +260,9 @@ describe('S61 P7B-2 — the split save', () => {
     expect(toastHost().textContent).toBe('')
     expect(sw(K).getAttribute('aria-checked')).toBe(on)
     held = false
-    await act(async () => { release(echo(calls[0].body)) })
+    // S75 fix 3 (R-E): core answers with its own stamp (K OWNER), not the draft echoed with K still TYPE_DEFAULT
+    const b0 = calls[0].body
+    await act(async () => { release({ status: 200, body: { ok: true, record: stampSave(payloadOf(p6).saved, b0.record as CapRecord, b0.reset_keys as CapKey[], new Date('2026-10-06T12:00:00.000Z'), 'staff-1') } }) })
     await act(async () => {})
     expect(count()).toMatch(/^✓ 保存しました /)
     await flip(K2)
@@ -688,15 +693,16 @@ describe('S61 P7B-R1 — attack F1/F2: the three mutants that survived', () => {
 
 // S75 fix 2 (R-A, READ-FIX1-SONNET-S75 SF1) — a save under the R269 lock leaves no phantom change: after the 200 the room's
 // values are the record core returned (the door's own stampSave answers here), so the count is 0 and a second press sends
-// nothing; a pick back then shows the SAVED read_points (OFF / TYPE_DEFAULT, the legal reset), never the owner's old ON.
+// nothing. S75 fix 3 (R-E, READ-FIX2-SONNET-S75 SF1): a pick back then shows the TABLE's standard (ON) under the true label
+// 「業種の標準」, and its save keeps read_points TYPE_DEFAULT/ON — never a phantom OWNER stamp (the owner's old ON is gone).
 import { seedRecord, stampSave } from '@/business/lib/store-page/model'
 describe('S75 fix 2 — R-A the room follows a locked-type save', () => {
-  it('beauty_chiropractic read_points OWNER/ON → dental_clinic → 保存 → 0件, a second press no-ops → pick back → OFF / TYPE_DEFAULT', async () => {
+  it('beauty_chiropractic read_points OWNER/ON → dental_clinic → 保存 → 0件, a second press no-ops → pick back → ON / 業種の標準 → 保存 → TYPE_DEFAULT/ON, no OWNER stamp', async () => {
     const base = seedRecord('beauty_chiropractic')
     const owned: CapRecord = { ...base, switches: { ...base.switches, read_points: { on: true, source: 'OWNER', changed_at: '2026-10-01T00:00:00.000Z', changed_by: 'staff-1' } } }
     let answer: CapRecord | null = null
     const calls = stub((b) => {
-      answer = stampSave(owned, b.record as CapRecord, b.reset_keys as CapKey[], new Date('2026-10-06T12:00:00.000Z'), 'staff-1')
+      answer = stampSave(answer ?? owned, b.record as CapRecord, b.reset_keys as CapKey[], new Date('2026-10-06T12:00:00.000Z'), 'staff-1')
       return { status: 200, body: { ok: true, record: answer } }
     })
     const p = await propsFor(STORE.tokyo)
@@ -718,8 +724,19 @@ describe('S75 fix 2 — R-A the room follows a locked-type save', () => {
     expect(calls).toHaveLength(1) // the second press sends nothing
     await act(async () => { fireEvent.change(typeSelect(), { target: { value: 'beauty_chiropractic' } }) })
     expect(count()).toBe('変更した設定 1件') // the 業種 alone
-    expect(sw('read_points').getAttribute('aria-checked')).toBe('false') // the saved reset, not the owner's old ON
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('true') // R-E: the table's standard, the lock lifted
+    expect(src('read_points')).toBe('業種の標準')
     expect(src('read_points')).toBe(sourceLine(got, 'read_points'))
+    await press()
+    expect(calls).toHaveLength(2)
+    expect((calls[1].body.record as CapRecord).switches.read_points.on).toBe(true)
+    const again = answer as unknown as CapRecord
+    expect(again.business_type).toBe('beauty_chiropractic')
+    expect(again.switches.read_points).toEqual({ on: true, source: 'TYPE_DEFAULT' }) // NO OWNER stamp
+    expect(alerts()).toEqual([])
+    expect(count()).toMatch(/^✓ 保存しました /)
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('true')
+    expect(src('read_points')).toBe('業種の標準')
   })
 
   it('an edit made while the save is in flight is kept (only ids still holding their sent value follow the 200)', async () => {
@@ -734,5 +751,95 @@ describe('S75 fix 2 — R-A the room follows a locked-type save', () => {
     await act(async () => {})
     expect(sw(K2).getAttribute('aria-checked')).toBe(k2)
     expect(count()).toBe('変更した設定 1件')
+  })
+})
+
+// S75 fix 3b (R-E′) — the room's TOUCHED set: a TYPE_DEFAULT key the owner (or 戻す) has not flipped since the last save
+// reads the draft type's standard; a touched key keeps the room's value; 元に戻す and a caps 200 clear it.
+describe('S75 fix 3b — R-E′ the touched set in the 設定 room', () => {
+  const at = new Date('2026-10-06T12:00:00.000Z')
+  const withSaved = async (rec: CapRecord) => {
+    const p = await propsFor(STORE.tokyo)
+    const sec = p.sections.find((s) => s.id === SP)!
+    ;(sec as { storePage: unknown }).storePage = { ...sec.storePage!, saved: rec }
+    return p
+  }
+  const pickType = async (t: string) => { await act(async () => { fireEvent.change(typeSelect(), { target: { value: t } }) }) }
+  const doorStub = (first: CapRecord) => {
+    const state: { answer: CapRecord | null } = { answer: null }
+    const calls = stub((b) => {
+      state.answer = stampSave(state.answer ?? first, b.record as CapRecord, b.reset_keys as CapKey[], at, 'staff-1')
+      return { status: 200, body: { ok: true, record: state.answer } }
+    })
+    return { calls, state }
+  }
+  const owned = (): CapRecord => {
+    const base = seedRecord('beauty_chiropractic')
+    return { ...base, switches: { ...base.switches, read_points: { on: true, source: 'OWNER', changed_at: '2026-10-01T00:00:00.000Z', changed_by: 'staff-1' } } }
+  }
+
+  it('(b) after the pick back the owner flips read_points OFF by hand → it stays OFF → 保存 → OWNER/false', async () => {
+    const { calls, state } = doorStub(owned())
+    await mount(await withSaved(owned()))
+    await pickType('dental_clinic')
+    await press()
+    await pickType('beauty_chiropractic')
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('true')
+    await flip('read_points')
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('false') // touched: the room's value, not the standard
+    await press()
+    expect(calls).toHaveLength(2)
+    expect((calls[1].body.record as CapRecord).switches.read_points.on).toBe(false)
+    expect(state.answer!.switches.read_points).toEqual({ on: false, source: 'OWNER', changed_at: at.toISOString(), changed_by: 'staff-1' })
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('(c) D2(d): 戻す hair_salon on beauty_chiropractic, one moved key set back by hand → it stays → 保存 → OWNER', async () => {
+    const saved = seedRecord('beauty_chiropractic')
+    const { calls, state } = doorStub(saved)
+    await mount(await withSaved(saved))
+    await pickType('hair_salon')
+    await typeReset()
+    const moved = resetDiff({ ...saved, business_type: 'hair_salon' }).flips.map((f) => f.key)
+    expect(moved.length).toBeGreaterThan(1)
+    const [back, left] = moved
+    expect(sw(back).getAttribute('aria-checked')).toBe(String(!saved.switches[back].on))
+    await flip(back)
+    expect(sw(back).getAttribute('aria-checked')).toBe(String(saved.switches[back].on)) // stays where the owner put it
+    await press()
+    expect(calls).toHaveLength(1)
+    expect(state.answer!.switches[back]).toEqual({ on: saved.switches[back].on, source: 'OWNER', changed_at: at.toISOString(), changed_by: 'staff-1' })
+    expect(state.answer!.switches[left]).toEqual({ on: !saved.switches[left].on, source: 'TYPE_DEFAULT' })
+    expect(sw(back).getAttribute('aria-checked')).toBe(String(saved.switches[back].on))
+  })
+
+  it('(d) an unsaved round trip with read_points TYPE_DEFAULT/ON: dental_clinic (OFF) → back → ON 「業種の標準」, nothing to send', async () => {
+    const saved = seedRecord('beauty_chiropractic')
+    expect(saved.switches.read_points).toEqual({ on: true, source: 'TYPE_DEFAULT' })
+    const { calls } = doorStub(saved)
+    await mount(await withSaved(saved))
+    await pickType('dental_clinic')
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('false')
+    await pickType('beauty_chiropractic')
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('true')
+    expect(src('read_points')).toBe('業種の標準')
+    await press()
+    expect(calls).toHaveLength(0)
+  })
+
+  it('(h) a hand flip, then 元に戻す, then the pick-back overlay works again (元に戻す clears touched)', async () => {
+    const { state } = doorStub(owned())
+    await mount(await withSaved(owned()))
+    await pickType('dental_clinic')
+    await press() // saved: dental_clinic, read_points TYPE_DEFAULT/OFF
+    expect(state.answer!.switches.read_points).toMatchObject({ on: false, source: 'TYPE_DEFAULT' })
+    await pickType('beauty_chiropractic')
+    await flip('read_points')
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('false')
+    await undo()
+    expect(typeSelect().value).toBe('dental_clinic')
+    await pickType('beauty_chiropractic')
+    expect(sw('read_points').getAttribute('aria-checked')).toBe('true') // untouched again: the standard
+    expect(src('read_points')).toBe('業種の標準')
   })
 })

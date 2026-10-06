@@ -83,7 +83,7 @@ import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSec
 import { STORE_PAGE_HEADINGS, TYPE_BLOCK, UNDO } from '@/business/lib/store-page/copy'
 // S60 P7A-R2b — the 業種 / 機能 blocks mounted under the card look, the room's one draft, and the room's toast (R207).
 import type { CapKey, CapRecord } from '@/business/lib/store-page/model'
-import { afterHandFlip, storePageDraft, storePageEdits, storePageValues, type StorePageIds } from '@/business/lib/store-page/room-draft'
+import { afterHandFlip, flippedKeys, storePageDraft, storePageEdits, storePageValues, type StorePageIds } from '@/business/lib/store-page/room-draft'
 import { putStoreCapabilities, type CapsSaveReason } from '@/business/lib/store-page/save-client'
 import { saveFailLines } from '@/business/lib/store-page/save-lines'
 // S61 P7B-R1 (R224) — the sample of the type core last accepted (pure; imports only copy/model types).
@@ -627,6 +627,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** S60 P7A-R2b (C4) — お店ページ's reset keys (R156); 戻す adds them, a hand flip removes its own (R182). S61 P7B-2:
    *  the switches' save body reads them. */
   const [resetKeys, setResetKeys] = useState<readonly CapKey[]>([])
+  /** S75 fix 3b (R-E′) — お店ページ's TOUCHED keys: the switches the owner hand-flipped or 戻す flipped since the last
+   *  successful save. Added in `typeChange` (a pick moves none), cleared for the ids a caps 200 rewrote and by the
+   *  section's 元に戻す. storePageDraft reads an untouched TYPE_DEFAULT key as the draft type's standard. */
+  const [touched, setTouched] = useState<readonly CapKey[]>([])
+  /** S75 fix 3b — the room's latest values, read by a caps 200 to clear `touched` for exactly the ids R-A rewrites. */
+  const valuesNow = useRef<Record<string, unknown>>({})
   /** S61 P7B-2 (R218) — the last save core ACCEPTED for お店ページ (null until the first 200), written ONLY from a 200's
    *  own record: the draft's base, both blocks' `saved`, and the next body's `based_on`. page.tsx keys the room by
    *  store, so it dies on a store switch. */
@@ -1349,7 +1355,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** S60 P7A-R2b (P2) — お店ページ's draft, ONE per render, from the saved record and the room's `values`. S61 P7B-2
    *  (R218): the saved record is core's last accepted one, else the payload's. */
   const spSaved = section?.storePage ? accepted?.record ?? section.storePage.saved : undefined
-  const spDraft = useMemo(() => (spSaved ? storePageDraft(spSaved, values, STORE_PAGE_IDS) : null), [spSaved, values])
+  const spDraft = useMemo(() => (spSaved ? storePageDraft(spSaved, values, STORE_PAGE_IDS, touched) : null), [spSaved, values, touched])
+  useEffect(() => { valuesNow.current = values }, [values])
   /** S61 P7B-R1 (R224, R189) — the section's sample, ONE definition: the SAVED type's. `accepted` (door ON only) →
    *  its type's sample; else the payload's. Read by the preview's `storeView` and by StorePageRows' `counts`. */
   const spSample = section?.storePage
@@ -1361,6 +1368,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  of the switches' half clears the switches' refusal line (the colour's line is the colour pick's to clear). */
   const typeChange = (next: CapRecord) => {
     setValues((prev) => ({ ...prev, ...storePageEdits(spDraft, next, STORE_PAGE_IDS) })) // S75 fix 1: only what moved
+    // S75 fix 3b (R-E′): a hand flip's key and 戻す's flips become touched (a 業種 pick flips none)
+    const moved = spDraft ? flippedKeys(spDraft, next) : []
+    if (moved.length > 0) setTouched((prev) => [...prev, ...moved.filter((k) => !prev.includes(k))])
     setSpPress((prev) => ({ ...prev, caps: 'unsent' }))
   }
   /** …a hand flip writes the record AND drops every key it flipped from the reset keys (C4). */
@@ -1378,6 +1388,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       return next
     })
     setResetKeys(() => [])
+    if (target.storePage) setTouched(() => []) // S75 fix 3b (R-E′): the 17 are back to saved — nothing touched
     setCardFail(null)
     setSpPress({ cardOk: false, caps: 'unsent' }) // S61 P7B-3 (R209): the switches' line too
     toast.show(UNDO.toast)
@@ -1418,6 +1429,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
         setSaved((prev) => ({ ...prev, ...got }))
         // S75 fix 2 (R-A): after a save the saved record is the only truth — an edit made during the flight is kept
         setValues((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(got).filter(([id]) => prev[id] === sentValues[id])) }))
+        // S75 fix 3b (R-E′): a key R-A rewrote is untouched again; a key edited during the flight stays touched
+        const now = valuesNow.current
+        setTouched((prev) => prev.filter((k) => now[STORE_PAGE_IDS.sw(k)] !== sentValues[STORE_PAGE_IDS.sw(k)]))
         setAccepted({ record: result.record, basedOn: result.basedOn })
         setResetKeys((prev) => (prev === sentKeys ? [] : prev)) // R182: a list changed during the flight is kept whole
         const at = jstClock(new Date()) // ⚖ R42 — the stamp alone (R219), its time read once, before the state update
