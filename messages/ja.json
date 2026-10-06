@@ -3740,6 +3740,11 @@
     "reasonStoreFix": "Quick Reserveの店舗が登録されていません。店舗IDと店舗番号をご確認ください。",
     "runFailed": "同期に失敗しました",
     "resultFailed": "同期に失敗しました（{reason}）",
-    "runResult": "同期完了：新規 {created} 件、更新 {updated} 件、キャンセル {cancelled} 件、スキップ {skipped} 件"
+    "runResult": "同期完了：新規 {created} 件、更新 {updated} 件、キャンセル {cancelled} 件、スキップ {skipped} 件",
+    "notSetFact": "Quick Reserveのログイン情報が未登録です",
+    "neverRun": "まだ同期していません",
+    "lastRunToday": "今日 {time}",
+    "lastRunFailed": "失敗",
+    "lastRunCounts": "新規 {created} 件、更新 {updated} 件、キャンセル {cancelled} 件"
   }
 }

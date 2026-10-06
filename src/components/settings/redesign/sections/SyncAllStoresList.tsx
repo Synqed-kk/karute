@@ -4,14 +4,14 @@ import { getDataPort } from '@/lib/ports/data-port'
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import type { SyncStoreRow } from '@/app/api/sync/quickreserve/configs/route'
-import { syncFailureReason, syncStoreState, type SyncStoreState } from '@/lib/sync/sync-store-state'
-import { readSyncResponse } from './SyncSection'
+import { syncFailureReason, syncStoreState, type SyncFailureReason, type SyncStoreState } from '@/lib/sync/sync-store-state'
+import { readSyncResponse } from '@/lib/sync/read-sync-response'
 
 type RunOutcome =
   | { ok: true; created: number; updated: number; cancelled: number; skipped: number }
-  | { ok: false; reason: 'login' | 'store' | 'other' }
+  | { ok: false; reason: SyncFailureReason }
 
 const STATE_KEY: Record<SyncStoreState, string> = {
   notSet: 'stateNotSet',
@@ -28,6 +28,9 @@ const STATE_TONE: Record<SyncStoreState, string> = {
   delayed: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20',
   stopped: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
 }
+// The state re-reads the clock this often while the list is mounted, so a tab
+// left open moves 正常 → 遅れ → 停止 on its own.
+const RETICK_MS = 60_000
 const OUTLINE_BUTTON =
   'rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50'
 
@@ -60,6 +63,8 @@ export function SyncAllStoresList({
   selectStore: (storeId: string) => Promise<{ ok: true } | { error: string }>
 }) {
   const t = useTranslations('syncAllStores')
+  const tCommon = useTranslations('common')
+  const locale = useLocale()
   const router = useRouter()
   const [rows, setRows] = useState<SyncStoreRow[] | null>(null)
   const [now, setNow] = useState(0)
@@ -69,6 +74,7 @@ export function SyncAllStoresList({
     pending: false,
     results: null,
   })
+  const [selectFailed, setSelectFailed] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -86,15 +92,32 @@ export function SyncAllStoresList({
     void load()
   }, [load])
 
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), RETICK_MS)
+    return () => clearInterval(id)
+  }, [])
+
   // 編集 / 設定する select the store the same way the store switcher does
   // (cookie + refresh), so SyncSection's storeId changes and the form reloads
   // for that store — first-save fields when it has no config yet.
+  // A refused or failed selection shows the surface's generic error line.
   async function editStore(storeId: string) {
-    const res = await selectStore(storeId)
-    if (!('error' in res)) router.refresh()
+    setSelectFailed(false)
+    try {
+      const res = await selectStore(storeId)
+      if ('error' in res) setSelectFailed(true)
+      else router.refresh()
+    } catch {
+      setSelectFailed(true)
+    }
   }
 
+  // ⚖ Never two crawls of one store at once: a row run and すべての店舗を同期
+  // lock each other out.
+  const anyRowRunning = Object.values(running).some(Boolean)
+
   async function runOne(row: SyncStoreRow) {
+    if (runAll.pending || running[row.storeId]) return
     setRunning((r) => ({ ...r, [row.storeId]: true }))
     const outcome = await runStoreSync(row.storeId)
     setRowResult((r) => ({ ...r, [row.storeId]: outcome }))
@@ -103,12 +126,14 @@ export function SyncAllStoresList({
   }
 
   // One store at a time, never in parallel against Quick Reserve; a failure
-  // never stops the next store.
+  // never stops the next store. Only stores whose auto-sync is ON: an owner
+  // who turned a store OFF is not overridden by a bulk click (the row's own
+  // 今すぐ同期 stays, a deliberate single action).
   async function runAllStores() {
-    if (!rows) return
+    if (!rows || runAll.pending || anyRowRunning) return
     setRunAll({ pending: true, results: null })
     const results: { row: SyncStoreRow; outcome: RunOutcome }[] = []
-    for (const row of rows.filter((r) => r.configured)) {
+    for (const row of rows.filter(syncsInRunAll)) {
       results.push({ row, outcome: await runStoreSync(row.storeId) })
     }
     setRowResult({})
@@ -117,10 +142,10 @@ export function SyncAllStoresList({
   }
 
   if (!rows) return null
-  const configuredCount = rows.filter((r) => r.configured).length
-  const reasonText = (r: 'login' | 'store' | 'other') =>
+  const runAllCount = rows.filter(syncsInRunAll).length
+  const reasonText = (r: SyncFailureReason) =>
     r === 'login' ? t('reasonLogin') : r === 'store' ? t('reasonStore') : null
-  const fixText = (r: 'login' | 'store' | 'other') =>
+  const fixText = (r: SyncFailureReason) =>
     r === 'login' ? t('reasonLoginFix') : r === 'store' ? t('reasonStoreFix') : t('runFailed')
   const successText = (o: Extract<RunOutcome, { ok: true }>) =>
     t('runResult', { created: o.created, updated: o.updated, cancelled: o.cancelled, skipped: o.skipped })
@@ -134,12 +159,18 @@ export function SyncAllStoresList({
       </div>
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">{t('scopeLine', { n: rows.length })}</span>
-        {configuredCount >= 2 && (
-          <button type="button" onClick={runAllStores} disabled={runAll.pending} className={OUTLINE_BUTTON}>
+        {runAllCount >= 2 && (
+          <button type="button" onClick={runAllStores} disabled={runAll.pending || anyRowRunning} className={OUTLINE_BUTTON}>
             {runAll.pending ? t('runNowPending') : t('runAll')}
           </button>
         )}
       </div>
+
+      {selectFailed && (
+        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          {tCommon('somethingWentWrong')}
+        </p>
+      )}
 
       {runAll.results && (
         <div
@@ -170,7 +201,7 @@ export function SyncAllStoresList({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="overflow-x-auto rounded-xl border border-border bg-card">
         <table className="w-full text-sm" aria-labelledby="sync-all-stores-title">
           <thead>
             <tr className="border-b border-border text-left text-xs font-semibold text-muted-foreground">
@@ -197,7 +228,7 @@ export function SyncAllStoresList({
                     ? { ok: true, text: successText(result) }
                     : { ok: false, text: fixText(result.reason) }
                   : row.configured && row.lastRunStatus === 'ERROR'
-                    ? { ok: false, text: fixText(syncFailureReason(row.lastRunError)) }
+                    ? { ok: false, text: fixText(row.lastRunReason ?? 'other') }
                     : null
               return (
                 <tr key={row.storeId} data-testid={`sync-row-${row.storeId}`} className="align-top">
@@ -228,16 +259,14 @@ export function SyncAllStoresList({
                     )}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">
-                    {row.lastRunAt ? new Date(row.lastRunAt).toLocaleString() : (
-                      <span className="text-xs text-muted-foreground">{t('none')}</span>
-                    )}
+                    <LastRunCell row={row} pending={pending || (runAll.pending && row.configured)} now={now} locale={locale} />
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">
-                    {row.configured && row.intervalMinutes != null ? (
+                    {row.schedule ? (
                       <>
-                        <span className="block">{t('everyMinutes', { minutes: row.intervalMinutes })}</span>
+                        <span className="block">{t('everyMinutes', { minutes: row.schedule.intervalMinutes })}</span>
                         <span className="block text-xs text-muted-foreground">
-                          {t('hours', { start: row.hoursStart ?? 0, end: row.hoursEnd ?? 0 })}
+                          {t('hours', { start: row.schedule.hoursStart, end: row.schedule.hoursEnd })}
                         </span>
                       </>
                     ) : (
@@ -273,5 +302,35 @@ export function SyncAllStoresList({
       </div>
       <p className="text-xs text-muted-foreground">{t('footnote')}</p>
     </section>
+  )
+}
+
+const syncsInRunAll = (r: SyncStoreRow) => r.configured && r.enabled
+
+/** 最終同期 as the mock's bLastCell: 同期中… while a run is pending; the
+ *  not-registered fact; まだ同期していません; else the time (今日 {time} on the
+ *  store's today, a short date otherwise) over 失敗 or the run's counts. */
+function LastRunCell({ row, pending, now, locale }: { row: SyncStoreRow; pending: boolean; now: number; locale: string }) {
+  const t = useTranslations('syncAllStores')
+  const sub = 'block text-xs text-muted-foreground'
+  if (pending) return <span className={sub}>{t('runNowPending')}</span>
+  if (!row.configured || !row.schedule) return <span className={sub}>{t('notSetFact')}</span>
+  if (!row.lastRunAt) return <span className={sub}>{t('neverRun')}</span>
+  const at = new Date(row.lastRunAt)
+  const timeZone = row.schedule.timezone
+  const day = (d: Date) => d.toLocaleDateString('en-CA', { timeZone })
+  const when =
+    now && day(at) === day(new Date(now))
+      ? t('lastRunToday', { time: at.toLocaleTimeString(locale, { timeZone, hour: '2-digit', minute: '2-digit' }) })
+      : at.toLocaleString(locale, { timeZone, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return (
+    <>
+      <span className="block font-medium">{when}</span>
+      {row.lastRunStatus === 'ERROR' ? (
+        <span className="block text-xs text-red-600 dark:text-red-400">{t('lastRunFailed')}</span>
+      ) : row.lastRunCounts ? (
+        <span className={sub}>{t('lastRunCounts', row.lastRunCounts)}</span>
+      ) : null}
+    </>
   )
 }
