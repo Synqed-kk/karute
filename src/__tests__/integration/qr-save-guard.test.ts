@@ -515,3 +515,43 @@ describe('fix round 4 (NIT1) — a JSON array save body', () => {
     expect(upsert).not.toHaveBeenCalled()
   })
 })
+
+describe("fix round 6 (Greptile P1) — the no-row slug pre-fill never names a store outside the caller's assignment", () => {
+  const STORE_A = '2c1bb80d-a0e8-4821-876c-fc3e74480b26' // shown, no row yet
+  const STORE_B = 'ea093d52-2f54-4f01-8b08-c19e3d131894' // sibling, configured
+  const STORE_C = '7d0f3b1e-5c2a-4e8b-9a61-3f2d8c4b5a10' // second assigned store
+  const B_ROW = { ...DAIKANYAMA_ROW, karute_store_id: STORE_B, store_slug: 'b-salon', username: 'b-owner', store_id: 301 }
+  const C_ROW = { ...DAIKANYAMA_ROW, karute_store_id: STORE_C, store_slug: 'c-salon', username: 'c-owner', store_id: 302 }
+  const CLAMPED = new Set(['sync.view'])
+
+  beforeEach(() => {
+    actorStore.current = STORE_A
+  })
+
+  it('(r6-a) a clamped caller at A only, sibling B configured → the body carries neither B slug nor B login', async () => {
+    capabilities.current = CLAMPED as never
+    staffStoresGet.mockResolvedValue({ store_ids: [STORE_A] })
+    mockClient([B_ROW])
+    const res = await GET(getReq())
+    expect(res.status).toBe(200)
+    const text = JSON.stringify(await res.json())
+    expect(text).not.toContain('b-salon')
+    expect(text).not.toContain('b-owner')
+    expect(JSON.parse(text)).toMatchObject({ configured: false, qrStoreSlug: '' })
+  })
+
+  it('(r6-b) a viewAll caller, same data → the sibling slug still pre-fills', async () => {
+    mockClient([B_ROW])
+    const body = await (await GET(getReq())).json()
+    expect(body).toMatchObject({ configured: false, qrStoreSlug: 'b-salon', username: '' })
+  })
+
+  it("(r6-c) a clamped caller at A and C, A has no row, C configured → C's slug pre-fills, never B's", async () => {
+    capabilities.current = CLAMPED as never
+    staffStoresGet.mockResolvedValue({ store_ids: [STORE_A, STORE_C] })
+    mockClient([B_ROW, C_ROW])
+    const body = await (await GET(getReq())).json()
+    expect(body).toMatchObject({ configured: false, qrStoreSlug: 'c-salon' })
+    expect(JSON.stringify(body)).not.toContain('b-salon')
+  })
+})

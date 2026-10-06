@@ -5,7 +5,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { errorBody, toAppApiError } from '@/lib/app-api/errors'
 import { qrConfigForStore } from '@/lib/sync/qr-config'
-import { resolveSyncRunStore, webSyncStoreError } from '@/lib/sync/resolve-run-store'
+import { resolveSyncRunScope, webSyncStoreError } from '@/lib/sync/resolve-run-store'
 
 // QuickReserve connection settings live in synqed-core (sync_configs; the
 // credentials are AES-encrypted server-side and never leave core). This route
@@ -22,19 +22,19 @@ type Capabilities = Awaited<ReturnType<typeof getMyCapabilities>>
 
 /** The store the form SHOWS (SyncSection sends it: ?storeId= on GET, body on
  *  POST), resolved ONLY through the helper the run uses — never the
- *  active-store cookie, so the screen, its save and its run agree. */
+ *  active-store cookie, so the screen, its save and its run agree. Also
+ *  returns the assignment that helper checked (null = unrestricted). */
 async function shownStore(
   synqed: Awaited<ReturnType<typeof getSynqedClient>>,
   capabilities: Capabilities,
   requested: unknown,
-): Promise<string> {
-  const { storeId } = await resolveSyncRunStore({
+): Promise<{ storeId: string; assigned: string[] | null }> {
+  return resolveSyncRunScope({
     synqed,
     authUserId: await getCurrentUserStaffId(),
     capabilities,
     requestedStoreId: typeof requested === 'string' && requested ? requested : null,
   })
-  return storeId
 }
 
 /** Core's save refusals the screen localizes. Core's PUT sends them as
@@ -70,23 +70,28 @@ export async function GET(request: Request) {
 
   // The shown store's own row (CORE-43: one config per store). A store with
   // no row yet reads as unconfigured; qrStoreSlug pre-fills the Quick Reserve
-  // account slug from a sibling store's row (one owner login, several stores).
+  // account slug from another row the caller may see (one owner login,
+  // several stores): any row for an unrestricted caller, only rows of their
+  // assigned stores for a clamped one — never a sibling store's account name.
   const synqed = await getSynqedClient()
   let found: Awaited<ReturnType<typeof qrConfigForStore>>
+  let assigned: string[] | null
   try {
-    const storeId = await shownStore(synqed, capabilities, new URL(request.url).searchParams.get('storeId'))
-    found = await qrConfigForStore(synqed, storeId)
+    const scope = await shownStore(synqed, capabilities, new URL(request.url).searchParams.get('storeId'))
+    assigned = scope.assigned
+    found = await qrConfigForStore(synqed, scope.storeId)
   } catch (e) {
     return failure(e, 'Could not read QuickReserve settings')
   }
   const { config, configs } = found
   if (!config) {
+    const visible = configs.filter((c) => assigned === null || assigned.includes(c.karute_store_id))
     return NextResponse.json({
       username: '',
       enabled: false,
       lastStatus: null,
       configured: false,
-      qrStoreSlug: configs.find((c) => c.store_slug)?.store_slug ?? '',
+      qrStoreSlug: visible.find((c) => c.store_slug)?.store_slug ?? '',
     })
   }
 
@@ -152,7 +157,7 @@ export async function POST(request: Request) {
   // a store-lookup failure returns the 502 shape the screen already shows; a
   // store this caller may not use is the run's 409 qr_store_not_ready.
   try {
-    const storeId = await shownStore(synqed, capabilities, shown)
+    const { storeId } = await shownStore(synqed, capabilities, shown)
     const { config: existing, configs } = await qrConfigForStore(synqed, storeId)
 
     const slug = typeof qrStoreSlug === 'string' ? qrStoreSlug.trim() : ''
