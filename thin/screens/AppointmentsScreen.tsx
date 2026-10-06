@@ -280,6 +280,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       reservationViews={dto.reservationViews as ReservationView[]}
       reservationStaff={dto.reservationStaff}
       canAssign={dto.canAssign ?? false}
+      assignStaffIdsByBooking={dto.assignStaffIdsByBooking ?? {}}
       colorRosterIds={dto.colorRosterIds}
       businessHours={dto.businessHours}
       staffFilter={dto.staffFilter}

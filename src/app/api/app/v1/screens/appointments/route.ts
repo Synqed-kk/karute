@@ -15,6 +15,7 @@
 // booking picker simply doesn't render, never a 502 on the whole agenda.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
+import { assignableStaffIdsByBooking } from '@/lib/appointments/assign-picker'
 import { AppApiError } from '@/lib/app-api/errors'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
 import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
@@ -212,6 +213,20 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             { storeId, staffId },
           )
 
+    // 件 == rows (PR-B): the DAY line counts exactly what the day list shows
+    // under this filter, staff-less bookings included — read unfiltered, kept
+    // by the list's own predicate (isShownBooking via `shownUnder`). A filter
+    // the roster cannot place keeps only the staff-less rows, as the list does.
+    const dayWindowFor = (fromIso: string, toIso: string) =>
+      blind
+        ? Promise.resolve(emptyAppointmentWindow())
+        : fetchAppointmentWindow(
+            synqed,
+            new Date(Date.parse(fromIso) - 86_400_000).toISOString(),
+            toIso,
+            { storeId, shownUnder: unknown ? staffFilter : staffId },
+          )
+
     // The one window this view actually reads — its days drive the hours facts
     // and the 臨時休業 range below.
     const spanFrom = weekRange?.rangeFrom ?? monthRange?.rangeFrom ?? selectedDate
@@ -256,7 +271,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         : Promise.resolve(null),
       // Day view has no bigger window to read the day line's numbers out of.
       view === 'day'
-        ? windowFor(
+        ? dayWindowFor(
             selectedDate.toISOString(),
             jstEndOfDay(selectedDate).toISOString(),
           )
@@ -397,10 +412,18 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       packUsage,
     })
 
+    // 担当未定 picker: per staff-less booking, the active staff of ITS store.
+    const assignStaffIdsByBooking = ctx.identity.capabilities.has('bookings.manage')
+      ? await assignableStaffIdsByBooking(dayAppointments, staffList, synqed, (sid) =>
+          storeStaffIdSetForBusiness(staffList, sid, businessId),
+        )
+      : {}
+
     return ok(
       ctx,
       AppointmentsScreenDTO.parse({
         canAssign: ctx.identity.capabilities.has('bookings.manage'),
+        assignStaffIdsByBooking,
         view,
         selectedDateIso: selectedDate.toISOString(),
         staffFilter,

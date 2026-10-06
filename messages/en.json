@@ -3703,12 +3703,9 @@
   },
   "unassignedStaff": {
     "mark": "Unassigned",
-    "assignAction": "Assign staff",
-    "assignActionHint": "Choose who takes this booking",
     "pickerTitle": "Choose staff",
     "pickerLead": "The person you pick takes this booking.",
     "assigned": "Assigned to {staff}",
-    "recordBlocked": "Assign a staff member before recording",
     "recordBlockedReadOnly": "Recording opens once staff is assigned",
     "sheetSubtitle": "No staff assigned yet. Choose who takes this booking.",
     "sheetSubtitleReadOnly": "No staff assigned yet."

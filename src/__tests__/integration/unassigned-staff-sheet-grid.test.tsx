@@ -11,13 +11,18 @@ jest.mock('next-intl', () => ({
 const refresh = jest.fn()
 jest.mock('@/i18n/navigation', () => ({ useRouter: () => ({ refresh, push: jest.fn() }) }))
 const mockUpdate = jest.fn()
-jest.mock('@/actions/appointments', () => ({ updateAppointment: (...a: unknown[]) => mockUpdate(...a) }))
+jest.mock('@/actions/appointments', () => ({ assignAppointmentStaff: (...a: unknown[]) => mockUpdate(...a) }))
 const toastSuccess = jest.fn()
 const toastError = jest.fn()
 jest.mock('sonner', () => ({ toast: { success: (...a: unknown[]) => toastSuccess(...a), error: (...a: unknown[]) => toastError(...a) } }))
 jest.mock('@synqed-kk/ui', () => {
-  const Box = ({ children, open }: { children?: React.ReactNode; open?: boolean }) =>
-    open === false ? null : <div>{children}</div>
+  const Box = ({ children, open, onOpenChange }: { children?: React.ReactNode; open?: boolean; onOpenChange?: (o: boolean) => void }) =>
+    open === false ? null : (
+      <div>
+        {onOpenChange ? <span data-testid="sheet-close" onClick={() => onOpenChange(false)} /> : null}
+        {children}
+      </div>
+    )
   return {
     Sheet: Box, SheetContent: Box, SheetHeader: Box, SheetTitle: Box, SheetDescription: Box,
     Dialog: Box, DialogContent: Box, DialogTitle: Box, DialogDescription: Box,
@@ -64,7 +69,7 @@ describe('UnassignedBookingSheet', () => {
     render(<UnassignedBookingSheet booking={booking} canAssign staff={STAFF} isMobile onClose={onClose} />)
     fireEvent.click(screen.getByText('Ren'))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
-    expect(mockUpdate).toHaveBeenCalledWith('appt-1', { staffProfileId: 'p2' })
+    expect(mockUpdate).toHaveBeenCalledWith('appt-1', 'p2')
     expect(toastSuccess).toHaveBeenCalledWith('unassignedStaff.assigned{"staff":"Ren"}')
     expect(refresh).toHaveBeenCalled()
   })
@@ -97,5 +102,25 @@ describe('ReservationGrid 担当未定 lane', () => {
     const names = Array.from(container.querySelectorAll('.truncate.text-sm.font-medium')).map((n) => n.textContent)
     expect(names).toEqual(['Mika', 'unassignedStaff.mark'])
     expect(screen.getAllByTestId('card').map((c) => c.textContent)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('UnassignedBookingSheet — fix round 1', () => {
+  it('a REJECTED request re-enables the rows, toasts, and the sheet still closes', async () => {
+    mockUpdate.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const onClose = jest.fn()
+    render(<UnassignedBookingSheet booking={booking} canAssign staff={STAFF} isMobile onClose={onClose} />)
+    fireEvent.click(screen.getByText('Ren'))
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('common.somethingWentWrong'))
+    for (const b of screen.getAllByRole('button')) expect((b as HTMLButtonElement).disabled).toBe(false)
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('sheet-close'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('an empty picker (nobody at the booking\'s store) → the read-only lines, no rows, no crash', () => {
+    render(<UnassignedBookingSheet booking={booking} canAssign staff={[]} isMobile onClose={jest.fn()} />)
+    expect(screen.getByText('unassignedStaff.sheetSubtitleReadOnly')).toBeTruthy()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
 })

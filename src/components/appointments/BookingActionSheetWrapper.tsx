@@ -20,6 +20,9 @@ interface BookingActionSheetWrapperProps {
   canAssign?: boolean
   /** The picker's list: the booking dialog's own store-scoped staff. */
   assignStaff?: readonly AssignableStaff[]
+  /** booking id → the staff ids the booking's own store may offer; a booking
+   *  missing here offers nobody (fail closed → the read-only lines). */
+  assignStaffIdsByBooking?: Readonly<Record<string, readonly string[]>>
 }
 
 // `deriveKaruteNumber` removed — the hex slice produced an
@@ -48,6 +51,7 @@ export function BookingActionSheetWrapper({
   forceMobile,
   canAssign = false,
   assignStaff = [],
+  assignStaffIdsByBooking = {},
 }: BookingActionSheetWrapperProps) {
   const isMobile = useIsMobile()
   const router = useRouter()
@@ -111,13 +115,15 @@ export function BookingActionSheetWrapper({
   // sheet below only ever sees a booking that has a staff.
   const unassigned = selected?.staffId === null
   const sheetSelected = unassigned ? null : selected
+  const offered = unassigned && selected ? (assignStaffIdsByBooking[selected.id] ?? []) : []
+  const pickerStaff = assignStaff.filter((m) => offered.includes(m.id))
 
   return (
     <>
       <UnassignedBookingSheet
         booking={unassigned ? selected : null}
         canAssign={canAssign}
-        staff={assignStaff}
+        staff={pickerStaff}
         isMobile={forceMobile ?? isMobile}
         onClose={onClose}
       />

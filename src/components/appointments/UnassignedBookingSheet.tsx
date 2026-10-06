@@ -8,8 +8,11 @@
 // one app. With bookings.manage: the picker, committing on tap. Without: the
 // two read-only lines and nothing else (no dead-end buttons).
 //
-// One component, two transports: `updateAppointment` is the web server
-// action; the thin shell's alias maps it to POST …/assign-staff.
+// One component, two transports: `assignAppointmentStaff` is the web server
+// action; the thin shell's alias maps it to POST …/assign-staff. Both refuse a
+// booking that already has a staff. A failed or rejected request re-enables
+// the rows and leaves the sheet closable. An empty picker (nobody at the
+// booking's store) falls back to the read-only lines.
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
@@ -26,7 +29,7 @@ import {
   SheetTitle,
 } from '@synqed-kk/ui'
 import { useRouter } from '@/i18n/navigation'
-import { updateAppointment } from '@/actions/appointments'
+import { assignAppointmentStaff } from '@/actions/appointments'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 
 export interface AssignableStaff {
@@ -64,10 +67,18 @@ export function UnassignedBookingSheet({
   async function assign(member: AssignableStaff) {
     if (!booking || pendingId !== null) return
     setPendingId(member.id)
-    const res = await updateAppointment(booking.id, { staffProfileId: member.id })
-    setPendingId(null)
-    if ('error' in res) {
+    let saved = false
+    try {
+      const res = await assignAppointmentStaff(booking.id, member.id)
+      saved = !('error' in res)
+    } catch {
+      saved = false // offline / 5xx / a stale server-action id after a deploy
+    } finally {
+      setPendingId(null)
+    }
+    if (!saved) {
       toast.error(tc('somethingWentWrong'))
+      router.refresh() // someone else may have assigned it: show the fresh row
       return
     }
     toast.success(tu('assigned', { staff: member.name }))
@@ -76,8 +87,9 @@ export function UnassignedBookingSheet({
   }
 
   const title = booking ? `${booking.customerName}${t('card.customerSuffix')}` : ''
-  const subtitle = canAssign ? tu('sheetSubtitle') : tu('sheetSubtitleReadOnly')
-  const body = canAssign ? (
+  const pickable = canAssign && staff.length > 0
+  const subtitle = pickable ? tu('sheetSubtitle') : tu('sheetSubtitleReadOnly')
+  const body = pickable ? (
     <div className="space-y-2 pt-2">
       <div>
         <div className="text-[15px] font-semibold text-[var(--color-text)]">{tu('pickerTitle')}</div>
