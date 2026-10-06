@@ -85,6 +85,7 @@ export function CardMarkBlock({ practice, onMark, measure = measureInBrowser, de
     e.target.value = ''
     if (!file) return
     const mine = ++turn.current
+    setRefusal(null)
     let head: Uint8Array
     try { head = await readHead(file) } catch { head = new Uint8Array(0) }
     if (mine !== turn.current) return

@@ -87,6 +87,18 @@ it('A4 外す while a pick is still measuring: the late pick never lands', async
   expect([...revoked].sort()).toEqual(['blob:mark-1', 'blob:mark-2'])
 })
 
+it('A5 S71: a refused pick, then a new pick still measuring → the refusal alert is gone while it measures; the result then lands', async () => {
+  const onMark = jest.fn(); const slow = deferred()
+  render(<CardMarkBlock practice onMark={onMark} measure={() => slow.p} />)
+  pickOn(fileOf(PNG_HEAD, 'big.png', 'image/png', 2_000_001))
+  expect(await screen.findByRole('alert')).toHaveTextContent(MARK_REFUSAL.bytes)
+  pickOn(fileOf(PNG_HEAD, 'next.png', 'image/png')); await waitFor(() => expect(made).toBe(1))
+  expect(screen.queryByRole('alert')).toBeNull()
+  await act(async () => { slow.res({ width: 512, height: 512 }) })
+  expect(await screen.findByText('next.png')).toBeInTheDocument()
+  expect(onMark).toHaveBeenLastCalledWith({ cause: 'picked', mark: { url: 'blob:mark-1', width: 512, height: 512 } })
+})
+
 it('A10 R193: a PNG-magic file declared text/html → the Blob handed to createObjectURL is image/png', async () => {
   const onMark = jest.fn()
   render(<CardMarkBlock practice onMark={onMark} measure={async () => ({ width: 300, height: 300 })} />)
