@@ -458,3 +458,59 @@ describe('diff — R3-3 a container kind is part of the answer (array ↔ object
     expect((await withZz({ 0: 600, 1: 900 }, { 0: 600, 1: 900 })).r.verdict).toBe('PASS')
   })
 })
+
+describe('collect — R3-4 an incomplete or doubled list read is an error (→ VOID), never a short answer', () => {
+  const errs = (run: Run) => (run.errors as Array<{ query: string; json: unknown }>).map((e) => `${e.query}: ${String(e.json)}`)
+  it('honest paging at 2 rows a page (the double ignores page_size 500) → no error, and PASS', async () => {
+    d.pageRowsCap = 2
+    const b = await collect(d, 'before')
+    expect(b.errors).toEqual([])
+    expect(b.watermark.appointments.pages_walked).toBe(5)
+    d.c0Fields = true
+    expect(judge(clone(await collect(d, 'after', b)), b).verdict).toBe('PASS')
+  })
+  it('(a) an empty page before total rows were read → error → VOID', async () => {
+    d.pageRowsCap = 2
+    d.shortPage = true
+    d.c0Fields = true
+    const after = await collect(d, 'after', before)
+    expect(errs(after)).toEqual(expect.arrayContaining(['watermark.appointments: an empty page before total rows were read (2 of 10)']))
+    expect(judge(after).verdict).toBe('VOID')
+    expect(judge(after).reasons.join('\n')).toContain('an empty page before total rows were read')
+  })
+  it('(b) an id repeated on one page → error → VOID', async () => {
+    d.repeatRow = 'onPage'
+    d.c0Fields = true
+    const after = await collect(d, 'after', before)
+    expect(errs(after).some((e) => /^watermark\.appointments: id \S+ repeats/.test(e))).toBe(true)
+    expect(judge(after).verdict).toBe('VOID')
+  })
+  it('(b) an id repeated across pages → error → VOID', async () => {
+    d.pageRowsCap = 2
+    d.repeatRow = 'acrossPages'
+    d.c0Fields = true
+    const after = await collect(d, 'after', before)
+    expect(errs(after).some((e) => /^watermark\.appointments: id \S+ repeats/.test(e))).toBe(true)
+    expect(judge(after).verdict).toBe('VOID')
+  })
+  it('(c) more unique rows than total → error; fewer (total one higher) → error → VOID', async () => {
+    d.c0Fields = true
+    d.totalSkew = -1
+    const more = await collect(d, 'after', before)
+    expect(errs(more)).toEqual(expect.arrayContaining(['watermark.appointments: the walk read 10 unique rows, total says 9']))
+    expect(judge(more).verdict).toBe('VOID')
+    d.totalSkew = 1
+    const fewer = await collect(d, 'after', before)
+    expect(errs(fewer)).toEqual(expect.arrayContaining(['watermark.appointments: an empty page before total rows were read (10 of 11)']))
+    expect(judge(fewer).verdict).toBe('VOID')
+  })
+  it('(d) the 100-page cap → capped AND an error line → VOID', async () => {
+    for (let i = 0; i < 101; i++) d.seedCustomer({ email: `cap${i}@example.test` })
+    d.pageRowsCap = 1
+    d.c0Fields = true
+    const after = await collect(d, 'after', before)
+    expect(after.capped).toEqual(expect.arrayContaining(['watermark.customers', 'Q6']))
+    expect(errs(after)).toEqual(expect.arrayContaining(['Q6: the 100-page cap was hit with 100 of 105 rows read']))
+    expect(judge(after).verdict).toBe('VOID')
+  })
+})

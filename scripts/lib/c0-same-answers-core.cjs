@@ -131,20 +131,37 @@ async function get(fetchImpl, cfg, pathAndQuery) {
 }
 
 /**
- * Walks a paged list: stops at an empty page or when page * page_size >= total;
- * page cap 100 → capped. A non-200 stops the walk and is recorded.
+ * Walks a paged list until the rows read reach `total` (R3-4); page cap 100.
+ * Every way the list can come back incomplete or doubled is an ERROR (→ VOID, R-3),
+ * never a short answer: a non-200 or non-list page; a row without a string id;
+ * an id repeated on a page or across pages; an empty page before `total` rows
+ * were read; a walk that ends with fewer or more unique rows than `total`;
+ * the 100-page cap (also flagged `capped`).
  */
 async function walk(fetchImpl, cfg, path, params, pageSize, listKey) {
   const pages = []
+  const seen = new Set()
+  const fail = (page, why, capped = false) => ({ pages, error: { page, status: 200, json: why }, capped })
   for (let page = 1; page <= PAGE_CAP; page++) {
     const r = await get(fetchImpl, cfg, `${path}${qs([...params, ['page', page], ['page_size', pageSize]])}`)
     if (r.status !== 200) return { pages, error: { page, status: r.status, json: r.json }, capped: false }
     // A 200 that is not a list (an HTML wall, a proxy page, `{}`) is an error, never an empty page.
-    if (!isListBody(r.json, listKey)) return { pages, error: { page, status: 200, json: 'not a list body' }, capped: false }
+    if (!isListBody(r.json, listKey)) return fail(page, 'not a list body')
     pages.push(r.json)
-    if (r.json[listKey].length === 0 || page * pageSize >= r.json.total) return { pages, error: null, capped: false }
+    const total = pages[0].total
+    const rows = r.json[listKey]
+    for (const row of rows) {
+      if (!isObj(row) || typeof row.id !== 'string') return fail(page, 'a row without a string id')
+      if (seen.has(row.id)) return fail(page, `id ${row.id} repeats (on this page or an earlier one)`)
+      seen.add(row.id)
+    }
+    if (rows.length === 0 && seen.size < total) return fail(page, `an empty page before total rows were read (${seen.size} of ${total})`)
+    if (rows.length === 0 || seen.size >= total) {
+      if (seen.size !== total) return fail(page, `the walk read ${seen.size} unique rows, total says ${total}`)
+      return { pages, error: null, capped: false }
+    }
   }
-  return { pages, error: null, capped: true }
+  return fail(PAGE_CAP, `the 100-page cap was hit with ${seen.size} of ${pages[0].total} rows read`, true)
 }
 
 const rowsOf = (pages, key) => pages.flatMap((p) => (p && Array.isArray(p[key]) ? p[key] : []))
@@ -345,7 +362,7 @@ function runVoidReasons(run) {
   const out = []
   const name = run.run || 'a'
   const errors = Array.isArray(run.errors) ? run.errors : []
-  if (errors.length) out.push(`the ${name} run had ${errors.length} request(s) answer an error or a wrong shape (${errors.slice(0, 5).map((e) => `${e.query}${e.id ? ` ${e.id}` : ''} → ${e.status}`).join('; ')})`)
+  if (errors.length) out.push(`the ${name} run had ${errors.length} request(s) answer an error or a wrong shape (${errors.slice(0, 5).map((e) => `${e.query}${e.id ? ` ${e.id}` : ''} → ${e.status}${typeof e.json === 'string' ? ` ${e.json}` : ''}`).join('; ')})`)
   const capped = (Array.isArray(run.capped) && run.capped.length) || Object.values(run.watermark || {}).some((w) => w && w.capped)
   if (capped) out.push(`the ${name} run hit the 100-page cap`)
   const end = run.watermark_end

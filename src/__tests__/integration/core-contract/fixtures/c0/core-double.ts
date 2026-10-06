@@ -84,6 +84,15 @@ export class CoreDouble {
   repeatCursor = false
   /** Test mode (R-6): customers with the same name come back in the reverse insertion order. */
   customerTiesReversed = false
+  /** Test modes (R3-4) for the three page-number lists (appointments from/to, customers, shifts):
+   *  pageRowsCap — the double answers at most N rows per page whatever page_size asked (honest paging at N);
+   *  shortPage — every page after the first answers an empty list while total says more;
+   *  repeatRow — 'onPage': a page's last row is its first row again; 'acrossPages': a later page's
+   *  first row is the previous page's last row again; totalSkew — added to the answered total. */
+  pageRowsCap: number | null = null
+  shortPage = false
+  repeatRow: 'onPage' | 'acrossPages' | null = null
+  totalSkew = 0
   readonly requests: Array<{ method: string; path: string; query: Query }> = []
 
   constructor(opts: { businessId?: string; storeIds?: string[]; start?: string } = {}) {
@@ -197,6 +206,15 @@ export class CoreDouble {
     return { generation: 0, switches: Object.fromEntries(this.switchKeys.map((k) => [k, 'OFF'])) }
   }
 
+  /** One page of `rows` under the R3-4 test modes. */
+  private pageOf<T>(rows: T[], page: number, pageSize: number): { slice: T[]; total: number } {
+    const size = this.pageRowsCap ?? pageSize
+    let slice = this.shortPage && page > 1 ? [] : rows.slice((page - 1) * size, page * size)
+    if (this.repeatRow === 'onPage' && slice.length >= 2) slice = [...slice.slice(0, -1), slice[0]]
+    if (this.repeatRow === 'acrossPages' && page > 1 && slice.length >= 1) slice = [rows[(page - 1) * size - 1], ...slice.slice(1)]
+    return { slice, total: rows.length + this.totalSkew }
+  }
+
   private listAppointments(q: Query): Answer {
     const overlaps = q.overlaps_from !== undefined || q.overlaps_to !== undefined
     const storeId = one(q, 'store_id')
@@ -215,7 +233,8 @@ export class CoreDouble {
       rows = rows
         .filter((r) => (!from || Date.parse(r.starts_at) >= Date.parse(from)) && (!to || Date.parse(r.starts_at) < Date.parse(to)))
         .sort((x, y) => Date.parse(x.starts_at) - Date.parse(y.starts_at) || (x.id < y.id ? -1 : 1))
-      return { status: 200, json: { appointments: rows.slice((page - 1) * pageSize, page * pageSize).map((r) => this.pubAppt(r)), total: rows.length, page, page_size: pageSize } }
+      const { slice, total } = this.pageOf(rows, page, pageSize)
+      return { status: 200, json: { appointments: slice.map((r) => this.pubAppt(r)), total, page, page_size: pageSize } }
     }
     if (q.from !== undefined || q.to !== undefined) return err(400, 'from/to cannot be combined with overlaps_from/overlaps_to')
     if (q.page !== undefined) return err(400, 'page cannot be combined with overlaps_from/overlaps_to')
@@ -298,7 +317,8 @@ export class CoreDouble {
       const base = [...this.customers.values()].filter((c) => includeDeleted || c.deleted_at === null)
       if (this.customerTiesReversed) base.reverse()
       const rows = base.sort((x, y) => String(x.name ?? '').localeCompare(String(y.name ?? '')))
-      return { status: 200, json: { customers: rows.slice((page - 1) * pageSize, page * pageSize).map((c) => this.pubCustomer(c)), total: rows.length, page, page_size: pageSize } }
+      const { slice, total } = this.pageOf(rows, page, pageSize)
+      return { status: 200, json: { customers: slice.map((c) => this.pubCustomer(c)), total, page, page_size: pageSize } }
     }
     if (method === 'GET' && id) { const c = this.customers.get(id); return c ? { status: 200, json: this.pubCustomer(c) } : err(404, 'Customer not found') }
     if (method === 'POST' && !id) {
@@ -331,7 +351,8 @@ export class CoreDouble {
       const rows = live
         .filter((s) => (!store || s.store_id === store) && (!staff || s.staff_id === staff) && (!date || s.date === date) && (!from || s.date >= from) && (!to || s.date < to))
         .sort((x, y) => x.date.localeCompare(y.date) || x.staff_id.localeCompare(y.staff_id) || x.id.localeCompare(y.id))
-      return { status: 200, json: { shifts: rows.slice((page - 1) * pageSize, page * pageSize).map((s) => this.pubShift(s)), total: rows.length, page, page_size: pageSize } }
+      const { slice, total } = this.pageOf(rows, page, pageSize)
+      return { status: 200, json: { shifts: slice.map((s) => this.pubShift(s)), total, page, page_size: pageSize } }
     }
     const row = id ? this.shifts.get(id) : undefined
     const liveRow = row && row.voided_at === null ? row : undefined
