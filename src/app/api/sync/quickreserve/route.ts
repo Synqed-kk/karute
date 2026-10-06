@@ -41,8 +41,9 @@ export async function POST(request: Request) {
   // The store the form SHOWS, sent by SyncSection (or a row's store, sent by
   // the all-stores list) — never the cookie. The same helper decides whether
   // this caller may run it. No body (or no storeId key) = the helper's own
-  // default. A body that is not a JSON object, or a storeId that is not a
-  // non-empty string, is refused — never a silent run of another store.
+  // default. A body that is not a JSON object is 400 invalid_body (the code
+  // the config route answers); a storeId that is not a non-empty string is
+  // 400 invalid_store_id — never a silent run of another store.
   const raw = await request.text()
   let body: Record<string, unknown> | null = null
   if (raw.trim()) {
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object')
       body = parsed as Record<string, unknown>
     } catch {
-      return NextResponse.json({ error: 'invalid_store_id' }, { status: 400 })
+      return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
     }
   }
   if (body && Object.hasOwn(body, 'storeId') && (typeof body.storeId !== 'string' || !body.storeId)) {

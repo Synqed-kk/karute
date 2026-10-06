@@ -24,6 +24,9 @@ const SYNC_ERROR_COPY = {
   qr_store_not_ready: 'bookingSyncStoreNotReady',
   qr_store_required: 'bookingSyncQrStoreRequired',
   qr_store_already_linked: 'bookingSyncQrStoreAlreadyLinked',
+  // A malformed request is nothing the owner can fix: the generic line.
+  invalid_body: null,
+  invalid_store_id: null,
 } as const
 
 /** `storeId` = the active store the page was rendered for. The store
@@ -44,6 +47,7 @@ export function SyncSection({
 } = {}) {
   const t = useTranslations('settings')
   const tAuth = useTranslations('auth')
+  const tCommon = useTranslations('common')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [enabled, setEnabled] = useState(false)
@@ -114,7 +118,9 @@ export function SyncSection({
     const code = (Object.keys(SYNC_ERROR_COPY) as (keyof typeof SYNC_ERROR_COPY)[]).find((c) =>
       text.includes(c),
     )
-    return status && code ? `Error (${status}): ${t(SYNC_ERROR_COPY[code])}` : text
+    if (!status || !code) return text
+    const key = SYNC_ERROR_COPY[code]
+    return `Error (${status}): ${key ? t(key) : tCommon('somethingWentWrong')}`
   }
 
   // Both actions capture the store at request time and ignore an answer that

@@ -160,10 +160,11 @@ describe('POST /api/sync/quickreserve with a row store', () => {
     expect(runNow).not.toHaveBeenCalled()
   })
 
-  it('a body that is not a JSON object is refused 400', async () => {
-    for (const raw of ['{not json', '[1]', '"store-ginza"']) {
+  it('a body that is not a JSON object is refused 400 invalid_body (the config route\'s code)', async () => {
+    for (const raw of ['{not json', '[1]', '"store-ginza"', 'null', '5']) {
       const res = await POST(new Request('http://x/api/sync/quickreserve', { method: 'POST', body: raw }))
       expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: 'invalid_body' })
     }
     expect(runNow).not.toHaveBeenCalled()
   })

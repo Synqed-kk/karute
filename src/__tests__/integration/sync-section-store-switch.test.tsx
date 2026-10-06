@@ -161,6 +161,17 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     expect(button('saveConfig').disabled).toBe(true)
   })
 
+  it.each(['invalid_body', 'invalid_store_id'])('a run refused 400 %s shows the generic localized line, never the raw code', async (code) => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    posts[0].resolve({ error: code }, 400)
+    await flush()
+    expect(screen.getByText('Error (400): somethingWentWrong')).toBeTruthy()
+    expect(screen.queryByText(new RegExp(code))).toBeNull()
+  })
+
   it('a refused load (409) shows the localized not-ready line and keeps Save off', async () => {
     render(<SyncSection storeId="store-a" />)
     pending[0].resolve({ error: 'qr_store_not_ready' }, 409)
