@@ -100,6 +100,12 @@ describe('viewAll caller', () => {
     expect(en.syncAllStores.windowEmpty).toBe('The start and end of the active hours are the same, so this store does not sync automatically')
   })
 
+  it('the block note writes かかわらず in kana', () => {
+    const ja = jest.requireActual('../../../messages/ja.json') as { syncAllStores: { blockNote: string } }
+    expect(ja.syncAllStores.blockNote).toContain('にかかわらず、')
+    expect(ja.syncAllStores.blockNote).not.toContain('関わらず')
+  })
+
   it('a failed last run shows 失敗 and never counts, even if counts reached the row', async () => {
     extraRows = [{ ...ROW, storeId: '8e1f2a3b-4c5d-4e6f-9a70-8192a3b4c5d6', storeName: '目黒', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 280,
       lastRunStatus: 'ERROR', lastRunReason: 'login', lastRunCounts: { created: 5, updated: 6, cancelled: 7 } }]

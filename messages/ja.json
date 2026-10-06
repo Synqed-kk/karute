@@ -3709,7 +3709,7 @@
   "syncAllStores": {
     "blockTitle": "店舗ごとの同期",
     "scopeLine": "対象：すべての店舗（{n}店舗）",
-    "blockNote": "店舗ごとに、その店舗のQuick Reserveのログイン情報で予約を取り込みます。左上で選んでいる店舗に関わらず、編集できる店舗をすべて表示しています。",
+    "blockNote": "店舗ごとに、その店舗のQuick Reserveのログイン情報で予約を取り込みます。左上で選んでいる店舗にかかわらず、編集できる店舗をすべて表示しています。",
     "colStore": "店舗",
     "colQrStore": "Quick Reserveの店舗",
     "colState": "状態",
