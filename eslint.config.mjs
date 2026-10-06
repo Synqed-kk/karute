@@ -35,8 +35,8 @@ const eslintConfig = defineConfig([
   },
   {
     // core-contract is tests-only until C2/B1 (CORE-59, today-impact C0): no
-    // door imports it. Proven by c0-door-import-lint.test.ts.
-    files: ["src/**/*.{ts,tsx,js,mjs}"],
+    // door imports it, in any import form. Proven by c0-door-import-lint.test.ts.
+    files: ["src/**/*.{ts,tsx,js,jsx,mjs,cjs}"],
     ignores: ["src/__tests__/**", "src/lib/core-contract/**"],
     rules: {
       "no-restricted-imports": [
@@ -44,15 +44,22 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             {
-              group: [
-                "@/lib/core-contract",
-                "@/lib/core-contract/*",
-                "**/lib/core-contract",
-                "**/lib/core-contract/*",
-              ],
+              // gitignore-style: a pattern matching the folder matches every file in it.
+              group: ["@/lib/core-contract", "**/core-contract"],
               message: "core-contract is tests-only until C2/B1 (CORE-59, today-impact C0)",
             },
           ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ImportExpression > Literal[value=/core-contract/]",
+          message: "core-contract is tests-only until C2/B1 (CORE-59, today-impact C0)",
+        },
+        {
+          selector: "CallExpression[callee.name=\"require\"] > Literal[value=/core-contract/]",
+          message: "core-contract is tests-only until C2/B1 (CORE-59, today-impact C0)",
         },
       ],
     },
