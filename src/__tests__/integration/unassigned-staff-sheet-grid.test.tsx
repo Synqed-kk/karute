@@ -94,6 +94,21 @@ describe('BookingActionSheetWrapper — a staff-less booking never reaches a rec
     expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
 
+  // ⚖ PR-B (h) — the wrapper decides on a FALSY staffId, so a staffId that
+  // arrives undefined or '' (a future producer, a wire quirk) still lands on
+  // the read-only sheet and can never reach the ui sheet's 録音開始.
+  it.each([
+    ['undefined', undefined],
+    ["''", ''],
+  ])('staffId %s → the read-only 担当未定 sheet; no ui sheet, no record row', (_label, staffId) => {
+    const odd = { id: 'appt-9', customerName: '佐藤', staffId } as unknown as ReservationView
+    render(<BookingActionSheetWrapper selected={odd} onClose={jest.fn()} forceMobile />)
+    expect(screen.getByText('unassignedStaff.sheetSubtitleReadOnly')).toBeTruthy()
+    expect(screen.getByText('unassignedStaff.recordBlockedReadOnly')).toBeTruthy()
+    expect(screen.queryByTestId('ui-booking-sheet')).toBeNull()
+    expect(screen.queryByText('record')).toBeNull()
+  })
+
   it('a staffed booking → the ui sheet as before (record row); the 担当未定 sheet stays closed', () => {
     const staffed = { id: 'appt-2', customerName: '鈴木', staffId: 'p1', isFirstTimeVisit: false } as unknown as ReservationView
     render(<BookingActionSheetWrapper selected={staffed} onClose={jest.fn()} forceMobile />)

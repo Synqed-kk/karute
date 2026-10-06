@@ -99,8 +99,9 @@ export function BookingActionSheetWrapper({
 
   // 担当未定 (PR-B Q2): a booking with no staff opens Karute's own sheet —
   // the staff picker for bookings.manage, a read-only note otherwise. The ui
-  // sheet below only ever sees a booking that has a staff.
-  const unassigned = selected?.staffId === null
+  // sheet below only ever sees a booking that has a staff. Falsy, not
+  // `=== null`: an undefined or '' staffId routes here too, never to 録音開始.
+  const unassigned = selected != null && !selected.staffId
   const sheetSelected = unassigned ? null : selected
 
   return (
