@@ -291,3 +291,69 @@ describe('the CLI diff subcommand (exit codes)', () => {
     expect(core.checkInputs(before, after)).toBeNull()
   })
 })
+
+describe('diff — R2-1 the verdict precedence (errors → mid-run → real write → FAIL → crawl-only → PASS)', () => {
+  const AT = '2026-10-07T03:30:00.000Z'
+  const firstOf = <T,>(m: Map<string, T>, pred: (x: T) => boolean = () => true) => [...m.values()].find(pred)!
+  const aFail = (a: Run) => { a.answers.Q5[0].appointments[0].status = 'CANCELLED' }
+  const none = () => {}
+  type World = (d: CoreDouble) => void
+  it.each<[string, World, (a: Run) => void, 'PASS' | 'FAIL' | 'VOID', string[]]>([
+    ['nothing moved', none, none, 'PASS', []],
+    ['a changed answer leaf alone', none, aFail, 'FAIL', ['existing answer(s) changed']],
+    ['an error + a FAIL (errors win)', none, (a) => { aFail(a); a.errors = [{ query: 'Q1', page: 1, status: 500 }] }, 'VOID', ['answer an error']],
+    ['a mid-run write + a FAIL', none, (a) => { aFail(a); const rows = a.watermark_end.appointments.rows; rows[Object.keys(rows)[0]] = AT }, 'VOID', ['a write landed mid-run']],
+    ['a row in one run only + a FAIL', (x) => { x.seedAppointment({ store_id: core.STORE_ID, starts_at: '2026-11-01T01:00:00.000Z', ends_at: '2026-11-01T02:00:00.000Z' }) }, aFail, 'VOID', ['in one run only']],
+    ['a non-updated_at change + a FAIL', (x) => { x.update(firstOf(x.appts, (a) => a.source === 'KARUTE').id, { notes: 'written' }) }, aFail, 'VOID', ['a field other than updated_at']],
+    ['E6: a back-fill rewrites updated_at on every appointment (one QUICKRESERVE row among them)', (x) => { for (const a of x.appts.values()) a.updated_at = AT }, none, 'FAIL', ['the back-fill must move updated_at on no row', 'the sync wrote; run again with the sync paused']],
+    ['only the QUICKRESERVE row moved', (x) => { firstOf(x.appts, (a) => a.source === 'QUICKRESERVE').updated_at = AT }, none, 'VOID', ['the sync wrote; run again with the sync paused']],
+    ['a crawl-only move + a FAIL (the FAIL is never hidden)', (x) => { firstOf(x.appts, (a) => a.source === 'QUICKRESERVE').updated_at = AT }, aFail, 'FAIL', ['existing answer(s) changed', 'the sync wrote']],
+    ['an error + a crawl-only move', (x) => { firstOf(x.appts, (a) => a.source === 'QUICKRESERVE').updated_at = AT }, (a) => { a.errors = [{ query: 'Q1', page: 1, status: 500 }] }, 'VOID', ['answer an error']],
+  ])('%s', async (_name, world, edit, verdict, says) => {
+    world(d)
+    const after = await afterC0()
+    edit(after)
+    const r = judge(after)
+    expect(r.verdict).toBe(verdict)
+    const text = core.summarize(r, before, after)
+    for (const s of says) expect(text).toContain(s)
+    if (verdict === 'FAIL' && says.some((s) => s.includes('the sync wrote'))) expect(r.reasons.indexOf(r.reasons.find((x) => x.includes('the sync wrote'))!)).toBeGreaterThan(0)
+  })
+})
+
+describe('diff — R2-2 the rows the crawl touches (QUICKRESERVE appointments, every customer; never a shift)', () => {
+  const AT = '2026-10-07T03:30:00.000Z'
+  it('a customer with only updated_at moved → the crawl note, not a FAIL (VOID)', async () => {
+    ;[...d.customers.values()][0].updated_at = AT
+    const after = await afterC0()
+    const r = judge(after)
+    expect(r.verdict).toBe('VOID')
+    expect(r.changed).toEqual([])
+    expect(core.summarize(r, before, after)).toContain('crawled customers row(s) (the QuickReserve crawl rewrites the matched customer on every reservation): the sync wrote')
+  })
+  it('a shift with only updated_at moved → FAIL', async () => {
+    ;[...d.shifts.values()][0].updated_at = AT
+    const r = judge(await afterC0())
+    expect(r.verdict).toBe('FAIL')
+    expect(r.reasons.join(' ')).toContain('staff_shifts row(s) whose every other field is equal — the back-fill must move updated_at on no row')
+  })
+  it('both together → FAIL, with the customer note printed under it', async () => {
+    ;[...d.customers.values()][0].updated_at = AT
+    ;[...d.shifts.values()][0].updated_at = AT
+    const after = await afterC0()
+    const r = judge(after)
+    expect(r.verdict).toBe('FAIL')
+    expect(core.summarize(r, before, after)).toContain('crawled customers row(s)')
+  })
+  it('NIT N-2: an array that grows inside a row is a new path → FAIL', async () => {
+    const after = await afterC0()
+    const b = clone(before)
+    const id = b.pins.appointment_ids[0]
+    b.answers.Q4[id].zz_list = ['x']
+    after.answers.Q4[id].zz_list = ['x', 'y']
+    const r = judge(after, b)
+    expect(r.verdict).toBe('FAIL')
+    expect(r.new_fields.odd).toContain('Q4.{id}.zz_list.[]')
+  })
+})
+

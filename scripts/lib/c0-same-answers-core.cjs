@@ -353,6 +353,8 @@ function runVoidReasons(run) {
 
 const LIST_QUERIES = [['Q1', 'appointments'], ['Q2', 'appointments'], ['Q3', 'appointments'], ['Q5', 'appointments'], ['Q7', 'shifts']]
 const APPT_GROUPS = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'watermark:appointments'])
+// Which watermark kind each answer group's rows belong to (R2-2: a crawl-only updated_at move is the crawl's, not a changed answer).
+const GROUP_KIND = { Q1: 'appointments', Q2: 'appointments', Q3: 'appointments', Q4: 'appointments', Q5: 'appointments', Q6: 'customers', 'Q6:customers': 'customers', Q7: 'staff_shifts' }
 
 /** R-6: every list answer as {id → row} (pages and order dropped) + its id order; singles as they are. */
 function normalize(run) {
@@ -387,9 +389,21 @@ const shape = (group, path) => `${group}.{id}${path.map((k) => (/^\d+$/.test(k) 
 const isAppointmentRow = (group, row) => APPT_GROUPS.has(group) && isObj(row) && typeof row.id === 'string' && !('status' in row && 'json' in row && Object.keys(row).length === 2)
 const listIds = (ids, n = 5) => `${ids.slice(0, n).join(', ')}${ids.length > n ? ` and ${ids.length - n} more` : ''}`
 
+/**
+ * R2-1 THE VERDICT, in this order and nowhere else:
+ *   (1) an error in either run (or a capped read) → VOID
+ *   (2) the watermark moved between the START and the END of either run (a write mid-run) → VOID
+ *   (3) a row in one run only, or a non-updated_at field changed on any row (a real write;
+ *       the dates/pins/count/date-guard mismatches sit here too: the two runs are not one read) → VOID
+ *   (4) ANY FAIL (R-1 new fields · a changed answer leaf · updated_at alone on a row the crawl
+ *       does not touch) → FAIL, the crawl-only notes still printed under it
+ *   (5) only crawl-only updated_at moves → VOID 「the sync wrote; run again with the sync paused」
+ *   (6) else PASS. A FAIL is never hidden by a crawl-only VOID.
+ */
 function diff(before, after, opts = {}) {
-  const voids = []
-  const fails = []
+  const voids = [] // (1)–(3)
+  const fails = [] // (4)
+  const crawlNotes = [] // (5)
   const notes = []
   const today = opts.today
 
@@ -403,6 +417,15 @@ function diff(before, after, opts = {}) {
   }
 
   // R-2: the watermark per row (business-wide), always compared.
+  // R2-2 the rows the crawl touches with updated_at alone (core @7d2f629):
+  //  - an appointment whose source is QUICKRESERVE: the crawl rewrites it on every pass
+  //    (sync.service.ts:891-894, Prisma @updatedAt);
+  //  - ANY customer: every crawled reservation runs findOrCreateCustomer (sync.service.ts:445),
+  //    a matched customer goes through reconcileExisting (:770-806), which always calls
+  //    prisma.customer.update (:798, retry :804) with externalRefs.quickreserve set — so
+  //    updated_at moves with every other field equal; customers carry no `source`.
+  //  Staff shifts have no crawl (only staff-shift.service.ts writes them): updated_at alone = FAIL.
+  const crawlIds = { appointments: new Set(), customers: new Set(), staff_shifts: new Set() }
   const moves = []
   for (const k of WATERMARK_KINDS) {
     const b = (before.watermark || {})[k] || {}
@@ -421,13 +444,13 @@ function diff(before, after, opts = {}) {
       const other = Object.keys(isObj(bb) ? bb : {}).find((f) => f !== 'updated_at' && canon(bb[f]) !== canon(isObj(ab) ? ab[f] : undefined))
       if (other !== undefined) { realWrite.push(`${id} (${other})`); continue }
       if (canon(bRows[id]) === canon(aRows[id])) continue
-      if (isObj(bb) && bb.source === CRAWL_SOURCE) crawled.push(id)
-      else backfill.push(id)
+      if (k === 'customers' || (k === 'appointments' && isObj(bb) && bb.source === CRAWL_SOURCE)) { crawled.push(id); crawlIds[k].add(id) } else backfill.push(id)
       moves.push({ kind: k, id, before: bRows[id], after: aRows[id], source: isObj(bb) ? bb.source : undefined })
     }
     if (oneSide.length) voids.push(`${oneSide.length} ${k} row(s) exist in one run only — a real write; run the check again (${listIds(oneSide)})`)
     if (realWrite.length) voids.push(`${realWrite.length} ${k} row(s) changed a field other than updated_at — a real write; run the check again (${listIds(realWrite)})`)
-    if (crawled.length) voids.push(`only updated_at moved on ${crawled.length} crawled ${k} row(s) (source ${CRAWL_SOURCE}): the sync wrote; run again with the sync paused (${listIds(crawled)})`)
+    const why = k === 'customers' ? 'the QuickReserve crawl rewrites the matched customer on every reservation' : `source ${CRAWL_SOURCE}`
+    if (crawled.length) crawlNotes.push(`only updated_at moved on ${crawled.length} crawled ${k} row(s) (${why}): the sync wrote; run again with the sync paused (${listIds(crawled)})`)
     if (backfill.length) fails.push(`updated_at moved on ${backfill.length} ${k} row(s) whose every other field is equal — the back-fill must move updated_at on no row (${listIds(backfill)})`)
   }
 
@@ -441,9 +464,11 @@ function diff(before, after, opts = {}) {
     const ag = A.groups[group] || {}
     for (const id of Object.keys(bg)) {
       if (!(id in ag)) { changed.push({ query: group, id, path: '(row)', before: 'present', after: '(missing)' }); continue }
+      const crawlOnly = crawlIds[GROUP_KIND[group]] && crawlIds[GROUP_KIND[group]].has(id)
       for (const [path, value] of leaves(bg[id])) {
         const got = at(ag[id], path)
         if (got.found && canon(got.value) === canon(value)) continue
+        if (crawlOnly && path.length === 1 && path[0] === 'updated_at') continue // the crawl's move, noted above
         changed.push({ query: group, id, path: path.join('.'), before: value, after: got.found ? got.value : '(missing)' })
         break
       }
@@ -470,7 +495,7 @@ function diff(before, after, opts = {}) {
           const pre = path.slice(0, i)
           if (at(bg[id], pre).found) continue
           const parent = at(ag[id], pre.slice(0, -1))
-          if (parent.found && !Array.isArray(parent.value)) {
+          if (parent.found) { // an array that grows is a new path too (NIT N-2)
             const p = shape(group, pre)
             newPaths.add(p)
             if (!(APPT_GROUPS.has(group) && pre.length === 1 && C0_NEW_FIELDS.includes(pre[0]))) odd.add(p)
@@ -484,10 +509,11 @@ function diff(before, after, opts = {}) {
   if (odd.size) fails.push(`a field other than the four C0 fields appeared: ${[...odd].sort().join(', ')}`)
   if (lacking.length) fails.push(`the four C0 fields are missing on ${lacking.length} appointment object(s) — the deploy does not serve the new shape (${listIds(lacking)})`)
 
-  const verdict = voids.length ? 'VOID' : fails.length ? 'FAIL' : 'PASS'
+  const verdict = voids.length ? 'VOID' : fails.length ? 'FAIL' : crawlNotes.length ? 'VOID' : 'PASS'
   return {
     verdict,
-    reasons: [...voids, ...fails],
+    reasons: [...voids, ...fails, ...crawlNotes],
+    crawl: crawlNotes,
     changed,
     notes,
     watermark_moves: moves,
