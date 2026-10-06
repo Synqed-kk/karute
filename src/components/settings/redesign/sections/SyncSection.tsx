@@ -358,7 +358,7 @@ export function SyncSection({
           type="button"
           onClick={() => setEnabled(!enabled)}
           disabled={syncing}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
             enabled ? 'bg-primary' : 'bg-muted'
           }`}
         >

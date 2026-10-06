@@ -166,6 +166,19 @@ describe('viewAll caller', () => {
     expect(row().getByText('reasonLoginFix')).toBeTruthy()
   })
 
+  it.each([
+    ['{ code: not_configured, message }', { code: 'not_configured', message: 'Sync not configured' }, 'runFailed'],
+    ['a success that also carries a message', { success: true, message: 'done', created: 1, updated: 2, cancelled: 3, skipped: 4 }, 'runResult{"created":1,"updated":2,"cancelled":3,"skipped":4}'],
+  ])('a 2xx run answer %s: not configured is decided by code only', async (_label, body, line) => {
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    const row = () => within(screen.getByTestId('sync-row-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'))
+    await act(async () => { fireEvent.click(row().getByText('runNow')) })
+    await act(async () => { runs[0].resolve(reply(body)) })
+    await flush()
+    expect(row().getByText(line)).toBeTruthy()
+  })
+
   it('すべての店舗を同期 runs configured stores one at a time, continues past a failure, and reports counts', async () => {
     render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()

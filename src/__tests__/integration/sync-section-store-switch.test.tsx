@@ -169,6 +169,9 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     const toggle = () => screen.getByText('autoSyncTitle').parentElement!.parentElement!.querySelector('button') as HTMLButtonElement
     expect(loginInput().disabled).toBe(false)
     expect(toggle().disabled).toBe(false)
+    // it LOOKS disabled while dead (Greptile P2): the folder's toggle disabled style
+    expect(toggle().className).toContain('disabled:opacity-50')
+    expect(toggle().className).toContain('disabled:cursor-not-allowed')
     await act(async () => { fireEvent.click(button('syncNow')) })
     expect(loginInput().disabled).toBe(true)
     expect(toggle().disabled).toBe(true)

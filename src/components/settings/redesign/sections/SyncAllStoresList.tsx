@@ -45,9 +45,10 @@ export async function runStoreSync(storeId: string): Promise<RunOutcome> {
     })
     const parsed = await readSyncResponse(res)
     if (!parsed.ok) return { ok: false, reason: syncFailureReason(parsed.message) }
-    const d = parsed.data as { message?: string; created?: number; updated?: number; cancelled?: number; skipped?: number }
-    // A 2xx { message } is the route's "not configured" answer — not a run.
-    if (d.message) return { ok: false, reason: 'other' }
+    const d = parsed.data as { code?: string; created?: number; updated?: number; cancelled?: number; skipped?: number }
+    // A 2xx { code: 'not_configured' } is the route's "not configured" answer
+    // — not a run (the same test as the form's 今すぐ同期).
+    if (d.code === 'not_configured') return { ok: false, reason: 'other' }
     return { ok: true, created: d.created ?? 0, updated: d.updated ?? 0, cancelled: d.cancelled ?? 0, skipped: d.skipped ?? 0 }
   } catch {
     return { ok: false, reason: 'other' }
