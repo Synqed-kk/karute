@@ -520,8 +520,12 @@ function AgendaRow({
         )}
         {/* Done-but-unrecorded: the forgot-to-record failure mode caught the
          *  same day, on the page staff already stare at. Cancelled rows have
-         *  nothing to record — excluded. */}
-        {r.displayStatus === 'completed' && !r.isCancelled && !r.karuteRecordId && (
+         *  nothing to record — excluded. A 担当未定 row (no staff) is never a
+         *  recording target — excluded too; it carries the 担当未定 mark only. */}
+        {r.displayStatus === 'completed' &&
+          !r.isCancelled &&
+          !r.karuteRecordId &&
+          !!r.staffId && (
           <span
             className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
           >
