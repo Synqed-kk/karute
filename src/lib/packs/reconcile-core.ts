@@ -81,9 +81,11 @@ export function findUnprocessedVisits(i: FindUnprocessedInput): ReconcileResult 
   for (const a of i.appointments) {
     if (a.isCancelled || a.isImport) continue
     // A 担当未定 booking is never a recording target (isRecordingTarget, THE one
-    // rule): nobody could have recorded it, so it is not 記録なし work. It
-    // shows again here the moment a staff is assigned.
-    if (!isRecordingTarget({ staff_profile_id: a.staffId })) continue
+    // rule): nobody could have recorded it, so with no karute it is not 記録なし
+    // work. It shows again here the moment a staff is assigned. A staff-less
+    // visit that DOES have a karute still falls through to 消化のみ: the ticket
+    // is owed either way, so only the 記録なし kind is skipped.
+    if (!a.hasKarute && !isRecordingTarget({ staff_profile_id: a.staffId })) continue
     if (a.visitDayJst < floor || a.visitDayJst > i.todayJst) continue
     // Same-day grace applies ONLY to full misses (no karute yet — staff may be
     // mid-flow). A visit recorded today with no burn is a finished flow whose
