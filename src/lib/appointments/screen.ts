@@ -24,7 +24,12 @@ import {
   type MonthCell,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
-import { countedClientIds, isShownBooking, type AppointmentWindow } from '@/lib/appointments/by-date'
+import {
+  countedClientIds,
+  isRecordingTarget,
+  isShownBooking,
+  type AppointmentWindow,
+} from '@/lib/appointments/by-date'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import { monthCompareDeltaFrom, monthCompareWindow } from '@/lib/appointments/month-compare'
 import type { DayHoursFact } from '@/lib/operating-hours'
@@ -565,11 +570,23 @@ export function buildAppointmentsScreen(
     !storeRowDegraded && isClassBoundBusinessType(businessType) ? 'none' : 'staff'
 
   // The week/month per-day 件 (weekData, monthData, and dayTotals when no day
-  // window was read) come from windows filtered AT CORE by staff: under a 担当
-  // or 自分 filter they leave out staff-less bookings, which the day list
-  // shows. Core cannot count "this staff or none" cheaply, so they stay as is
-  // (PR-B fix round 1); the day view's 件 reads the day window, which counts
-  // them (fetchAppointmentWindow `shownUnder`).
+  // window was read) come from windows read WITHOUT a core staff filter and
+  // kept by the day list's own predicate (fetchAppointmentWindow `shownUnder`
+  // = isShownBooking), so under a 担当 or 自分 filter they count the 担当未定
+  // bookings the list shows: 件 == rows under every filter.
+  //
+  // ⚖ Liam 10/6 — never a number that counts someone not working. Under a
+  // placed 担当/自分 filter X that window holds X's own rows AND the 担当未定
+  // ones; a 担当未定 booking is nobody's work yet, so X's 予約時間/稼働/空き read
+  // only X's rows, exactly as before the window collapse. Under such a window a
+  // row with a staff IS X's (shownUnder kept nothing else), so "X's rows" is
+  // the window's staffed rows: isRecordingTarget, the one staff-less rule.
+  // THE one place a window's rows are handed to the minutes; 件 and the list
+  // never pass through it. 全員 (and 自分 with no viewer id) is unchanged.
+  const workedRowsOf = (win: AppointmentWindow): Appointment[] =>
+    filteredToOnePerson
+      ? win.counted.filter((a) => isRecordingTarget({ staff_profile_id: a.staff_id }))
+      : win.counted
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
       win.counted,
@@ -582,7 +599,7 @@ export function buildAppointmentsScreen(
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
-      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
+      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded, workedRows: workedRowsOf(win) },
     )
 
   let weekData: WeekDayRowData[] | null = null
@@ -613,7 +630,7 @@ export function buildAppointmentsScreen(
       // The same rows, the same month, one call beside the other — the cells
       // and their facts cannot come from different reads.
       monthFacts = appointmentsToMonthFacts(
-        monthWin.counted,
+        workedRowsOf(monthWin),
         monthRange.monthStart,
         monthRange.monthEnd,
         { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
