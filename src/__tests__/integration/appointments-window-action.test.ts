@@ -326,3 +326,24 @@ describe('⚖ W0.5 — the window read carries 臨時営業日 into the hours fa
     expect(win.hoursFacts[0][1]).toMatchObject({ closed: true, kind: 'closed_date' })
   })
 })
+
+describe('getAppointmentWindow — the DAY line counts 担当未定 under every filter (PR-B)', () => {
+  it('自分: one own booking + one staff-less → 2 counted, read without staff_id', async () => {
+    const s = await spies()
+    s.list.mockResolvedValue({
+      appointments: [booking('a1'), { ...booking('nostaff'), staff_id: null }, { ...booking('theirs'), staff_id: COLLEAGUE_CORE }],
+      total: 3,
+      page: 1,
+      page_size: 500,
+    })
+    const win = await getAppointmentWindow(FROM, TO, 'self', true, true)
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA, staff_id: undefined }))
+    expect(win.counted.map((a) => a.id).sort()).toEqual(['a1', 'nostaff'])
+  })
+
+  it('without the day-line flag the week/month read still filters at core (unchanged)', async () => {
+    await getAppointmentWindow(FROM, TO, 'self')
+    const s = await spies()
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ staff_id: VIEWER_CORE }))
+  })
+})

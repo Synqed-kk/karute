@@ -13,6 +13,33 @@ import type { AppointmentRow } from '@/actions/appointments'
 type ByDateClient = Pick<SynqedClient, 'appointments' | 'karuteRecords' | 'staff'>
 
 /**
+ * A day-list row may be recorded against only once it has a staff. A karute
+ * recording is always one staff's session (only the logged-in staff's voice is
+ * kept), so a 担当未定 booking is shown but never offered as a target; assigning
+ * the staff makes it one. THE one predicate for every recording-target list:
+ * the record screen's nearbyBookings and the recovery banner's 保存先 picker
+ * (both transports). The deep-link resolver (getAppointmentById and its facade
+ * twin) applies the same rule as its strict staff_id check.
+ */
+export function isRecordingTarget(row: Pick<AppointmentRow, 'staff_profile_id'>): boolean {
+  return row.staff_profile_id != null
+}
+
+/**
+ * THE staff-filter rule for bookings: one definition for the rows a filter
+ * shows AND the 件 it prints (件 == rows under the current filter).
+ * `filterStaffId` null = no filter. A booking with no staff belongs to nobody
+ * yet, so every filter shows it and counts it. The id must be in the row's own
+ * id space: profile ids for the day list, core ids for a core window.
+ */
+export function isShownBooking(
+  row: { staffId?: string | null },
+  filterStaffId: string | null,
+): boolean {
+  return filterStaffId == null || row.staffId == null || row.staffId === filterStaffId
+}
+
+/**
  * Fetch + map one JST calendar day's bookings to AppointmentRow[] on the given
  * client. `nameById` is the caller's customer-name source (web: the cached list;
  * facade: listAllCustomers). Terminal (CANCELLED/NO_SHOW) rows are dropped unless
@@ -26,16 +53,6 @@ type ByDateClient = Pick<SynqedClient, 'appointments' | 'karuteRecords' | 'staff
  * the 件 count now agree (booking-count-parity.test.ts). Such a row is shown
  * as 担当未定 but is never a recording target — see isRecordingTarget.
  */
-/**
- * A day-list row may be recorded against only once it has a staff. A karute
- * recording is always one staff's session (only the logged-in staff's voice is
- * kept), so a 担当未定 booking is shown but never offered as a target; assigning
- * the staff makes it one.
- */
-export function isRecordingTarget(row: Pick<AppointmentRow, 'staff_profile_id'>): boolean {
-  return row.staff_profile_id != null
-}
-
 export async function getAppointmentsByDateWithClient(
   synqed: ByDateClient,
   dateStr: string,
@@ -102,6 +119,7 @@ export async function getAppointmentsByDateWithClient(
           ? profileByStaffId.get(a.staff_id) ?? a.staff_id
           : null,
         client_id: a.customer_id,
+        store_id: a.store_id ?? null,
         start_time: a.starts_at,
         duration_minutes: a.duration_minutes ?? 0,
         title: a.title,
@@ -173,8 +191,6 @@ const RANGE_PAGE_SIZE = 500
  *   status      — CANCELLED / NO_SHOW are tombstones (isTerminalStatus).
  *
  * Staff is deliberately OPTIONAL: an unassigned booking is still a booking.
- * (The day LIST separately requires a staff_id to draw a lane — a rendering
- * constraint, not a counting one.)
  */
 export function isCountedBooking(a: Appointment): boolean {
   return (
@@ -241,14 +257,23 @@ export function countedClientIds(
  *
  * `staffId` is the CORE staff id (appointments.staff_id's id space), applied AT
  * THE FETCH so the 担当/自分 filter reaches the week and month numbers instead
- * of only the day list.
+ * of only the day list. Core filters by equality, so a staff-less booking is
+ * NOT in such a window: the week/month per-day 件 under a staff filter leave
+ * it out (core has no cheap "staff_id = X or none" count; left as is).
+ *
+ * `shownUnder` (PR-B, 件 == rows) — the DAY line's mode: the window is read
+ * WITHOUT a staff filter and kept by `isShownBooking(row, shownUnder)`, the day
+ * list's own predicate, so the day 件 counts exactly the rows the list shows
+ * under the current filter, staff-less ones included. A core id, or null for
+ * "no filter".
  */
 export async function fetchAppointmentWindow(
   synqed: Pick<SynqedClient, 'appointments'>,
   fromIso: string,
   toIso: string,
-  opts: { storeId?: string; staffId?: string | null } = {},
+  opts: { storeId?: string; staffId?: string | null; shownUnder?: string | null } = {},
 ): Promise<AppointmentWindow> {
+  const appFiltered = opts.shownUnder !== undefined
   const rows: Appointment[] = []
   let total = 0
   for (let page = 1; page <= MAX_RANGE_PAGES; page++) {
@@ -258,7 +283,7 @@ export async function fetchAppointmentWindow(
       page,
       page_size: RANGE_PAGE_SIZE,
       store_id: opts.storeId ?? undefined,
-      staff_id: opts.staffId ?? undefined,
+      staff_id: appFiltered ? undefined : (opts.staffId ?? undefined),
     })
     total = res.total
     rows.push(...res.appointments)
@@ -273,6 +298,7 @@ export async function fetchAppointmentWindow(
   const cancelled: Appointment[] = []
   const noShow: Appointment[] = []
   for (const a of rows) {
+    if (appFiltered && !isShownBooking({ staffId: a.staff_id }, opts.shownUnder ?? null)) continue
     if (isCountedBooking(a)) {
       counted.push(a)
       continue

@@ -8,6 +8,7 @@ import {
   getAppointmentsByDateWithClient,
   isCountedBooking,
   isRecordingTarget,
+  fetchAppointmentWindow,
 } from '@/lib/appointments/by-date'
 import { buildAppointmentsScreen } from '@/lib/appointments/screen'
 
@@ -156,5 +157,65 @@ describe('the Self / All / one-staff filter never hides 担当未定', () => {
     expect(ns.staffId).toBeNull()
     expect(ns.staffName).toBe('')
     expect(ns.staffColorKey).toBe('neutral')
+  })
+})
+
+describe('件 == rows under the current filter (PR-B fix round 1)', () => {
+  const mine = appt({ id: 'mine', staff_id: 's1' })
+  const noStaff = appt({ id: 'no-staff', staff_id: null, customer_id: 'c9', starts_at: '2026-09-15T04:00:00Z' })
+  const theirs = appt({ id: 'theirs', staff_id: 's2', customer_id: 'c2', starts_at: '2026-09-15T03:00:00Z' })
+
+  function windowClient(rows: Appointment[]) {
+    const listFn = jest.fn(async (_q: Record<string, unknown>) => ({ appointments: rows, total: rows.length }))
+    return { client: { appointments: { list: listFn } } as never, listFn }
+  }
+  async function shownRows(rows: Appointment[], staffFilter: string, activeStaffId: string | null) {
+    const screen = buildAppointmentsScreen({
+      locale: 'ja',
+      now: NOW,
+      selectedDate: DAY,
+      staffFilter,
+      staffList: [
+        { id: 'p1', full_name: '佐藤' },
+        { id: 'p2', full_name: '鈴木' },
+      ] as never,
+      activeStaffId,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: [],
+      dayAppointments: await list(rows),
+      weekRange: null,
+      monthRange: null,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      dayWindow: null,
+      enrichment: new Map(),
+      packUsage: new Map(),
+    } as never)
+    return (screen as unknown as { reservationViews: Array<{ id: string }> }).reservationViews.map((v) => v.id).sort()
+  }
+  const counted = async (rows: Appointment[], shownUnder: string | null) =>
+    (await fetchAppointmentWindow(windowClient(rows).client, 'f', 't', { shownUnder })).counted.map((a) => a.id).sort()
+
+  it("the attacker's case: 自分, one own booking + one 担当未定 → 件 2, rows 2", async () => {
+    const rows = [mine, noStaff]
+    expect(await counted(rows, 's1')).toEqual(['mine', 'no-staff'])
+    expect(await shownRows(rows, 'self', 'p1')).toEqual(['mine', 'no-staff'])
+  })
+
+  it.each([
+    ['all', null, null],
+    ['self', 'p1', 's1'],
+    ['p2', 'p1', 's2'],
+    ['somebody-unplaceable', 'p1', 'somebody-unplaceable'],
+  ])('filter %s: the day 件 counts exactly the rows the list shows', async (filter, self, core) => {
+    const rows = [mine, noStaff, theirs]
+    expect(await counted(rows, core)).toEqual(await shownRows(rows, filter, self))
+  })
+
+  it('the day window under a filter is read WITHOUT staff_id (core cannot match "none")', async () => {
+    const { client, listFn } = windowClient([mine, noStaff])
+    await fetchAppointmentWindow(client, 'f', 't', { storeId: 'st', shownUnder: 's1' })
+    expect(listFn.mock.calls[0][0]).toMatchObject({ store_id: 'st', staff_id: undefined })
   })
 })

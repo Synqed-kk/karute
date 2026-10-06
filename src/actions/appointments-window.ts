@@ -73,6 +73,11 @@ export async function getAppointmentWindow(
    *  store clamp, the 担当 filter and the rows are identical either way; this
    *  only says whether to ask about opening hours. */
   withHours = true,
+  /** `true` = the DAY line's window (PR-B, 件 == rows): read without the staff
+   *  filter and kept by the day list's own predicate (isShownBooking), so the
+   *  day 件 counts the staff-less bookings the list shows under every filter.
+   *  Same store clamp; it can only add rows this caller's day list shows. */
+  dayLine = false,
 ): Promise<AppointmentWindowPayload> {
   const [synqed, scope, orgSettings, activeStaffId] = await Promise.all([
     getSynqedClient(),
@@ -127,9 +132,14 @@ export async function getAppointmentWindow(
     // whole salon's week — and neither does an actor who reaches NO store
     // (`storeId` is undefined for them, which core reads as "every store";
     // ⚖ Liam 2026-09-16, census: week/month window, FO).
-    unknown || reachesNoStore(scope)
+    reachesNoStore(scope) || (unknown && !dayLine)
       ? Promise.resolve(emptyAppointmentWindow())
-      : fetchAppointmentWindow(synqed, fetchFromIso, toIso, { storeId, staffId }),
+      : fetchAppointmentWindow(
+          synqed,
+          fetchFromIso,
+          toIso,
+          dayLine ? { storeId, shownUnder: unknown ? staffFilter : staffId } : { storeId, staffId },
+        ),
     // No catch on purpose. `storePolicies.get` answers the PLATFORM DEFAULTS for
     // a store with no row of its own (`source: 'default'` —
     // @synqed-kk/client dist/store-policies.d.ts), so "no policy row" is a
