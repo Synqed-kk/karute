@@ -55,8 +55,13 @@ describe('SyncSection — store switch (Greptile #1135 F1)', () => {
     await act(async () => { fireEvent.click(screen.getByText('saveConfig')) })
     const post = apiFetch.mock.calls.find(([, init]) => init?.method === 'POST')!
     expect(JSON.parse(String(post[1]!.body))).toEqual({
-      username: 'b-login', password: '', enabled: false, qrStoreSlug: '', qrStoreId: '',
+      storeId: 'store-b', username: 'b-login', password: '', enabled: false, qrStoreSlug: '', qrStoreId: '',
     })
+    // Each load names the store it is for (fix round 2: never the cookie).
+    expect(pending.map((p) => p.url)).toEqual([
+      '/api/sync/quickreserve/config?storeId=store-a',
+      '/api/sync/quickreserve/config?storeId=store-b',
+    ])
 
     // Back to A reloads A's values.
     rerender(<SyncSection storeId="store-a" />)

@@ -1,7 +1,10 @@
 // THE ONE DEFINITION of "which store does a QuickReserve sync run use"
 // (Greptile #1135 F3, fix round 1). Both transports call only this:
-//   web   src/app/api/sync/quickreserve/route.ts  (requested = active-store cookie)
-//   phone src/app/api/app/v1/sync/run/route.ts    (requested = `store-id` header)
+//   web   src/app/api/sync/quickreserve/route.ts         (requested = body storeId)
+//   web   src/app/api/sync/quickreserve/config/route.ts  (requested = ?storeId / body storeId)
+//   phone src/app/api/app/v1/sync/run/route.ts           (requested = `store-id` header)
+// The web requests name the store the 予約同期 form SHOWS (SyncSection sends
+// it); the active-store cookie is never the input of a sync request.
 // Each route maps the three errors below to ITS transport's established code:
 //
 // | Case                                                   | Error                    | Web                       | Phone                                          |
@@ -99,4 +102,14 @@ export async function resolveSyncRunStore(args: {
   const primary = list.find((s) => s.is_primary)?.id ?? list[0]?.id
   if (!primary) throw new SyncStoreUnassigned('this business has no store')
   return { storeId: primary }
+}
+
+/** The web column of the table above, shared by both web routes (run +
+ *  config GET/POST). null = not one of the helper's errors. */
+export function webSyncStoreError(e: unknown): { status: number; body: { error: string } } | null {
+  if (e instanceof SyncStoreForbidden || e instanceof SyncStoreUnassigned) {
+    return { status: 409, body: { error: 'qr_store_not_ready' } }
+  }
+  if (e instanceof SyncStoreDependencyError) return { status: 502, body: { error: e.message } }
+  return null
 }

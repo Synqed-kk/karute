@@ -52,8 +52,9 @@ const SYNC_ERROR_COPY = {
 
 /** `storeId` = the active store the page was rendered for. The store
  *  switcher (setActiveStore + router.refresh) re-renders this section with a
- *  new one while its state lives on, and Save writes to the NEW store — so
- *  the form reloads per store and never carries the previous store's values. */
+ *  new one while its state lives on — so the form reloads per store and never
+ *  carries the previous store's values. Every request (load · save · run)
+ *  names this store explicitly; the server never acts on the cookie. */
 export function SyncSection({ storeId = null }: { storeId?: string | null } = {}) {
   const t = useTranslations('settings')
   const tAuth = useTranslations('auth')
@@ -78,7 +79,9 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
     setQrStoreSlug('')
     setQrStoreId('')
     setLastResult(null)
-    getDataPort().apiFetch('/api/sync/quickreserve/config')
+    getDataPort().apiFetch(
+      `/api/sync/quickreserve/config${storeId ? `?storeId=${encodeURIComponent(storeId)}` : ''}`,
+    )
       .then((r) => r.json())
       .then((data) => {
         if (!current) return
@@ -117,6 +120,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ...(storeId ? { storeId } : {}),
           username,
           password,
           enabled,
@@ -136,7 +140,11 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
     setSyncing(true)
     setLastResult('Syncing...')
     try {
-      const res = await getDataPort().apiFetch('/api/sync/quickreserve', { method: 'POST' })
+      const res = await getDataPort().apiFetch('/api/sync/quickreserve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(storeId ? { storeId } : {}),
+      })
       const parsed = await readSyncResponse(res)
       if (!parsed.ok) {
         setLastResult(localizeSyncError(res.status, parsed.message))
