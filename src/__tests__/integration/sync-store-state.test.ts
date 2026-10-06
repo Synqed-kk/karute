@@ -3,7 +3,7 @@ import { syncFailureReason, syncStoreState } from '@/lib/sync/sync-store-state'
 
 const NOW = Date.parse('2026-10-06T12:00:00Z')
 const ago = (min: number) => new Date(NOW - min * 60000).toISOString()
-const row = (over: Partial<Parameters<typeof syncStoreState>[0] & { enabled: boolean }>) => ({
+const row = (over: Partial<Parameters<typeof syncStoreState>[0]>) => ({
   configured: true, enabled: true, lastRunStatus: 'OK' as 'OK' | 'ERROR' | 'RUNNING' | null, lastRunAt: ago(5) as string | null, ...over,
 })
 
@@ -26,9 +26,9 @@ describe('syncStoreState — the five states', () => {
     expect(syncStoreState(row({ lastRunStatus: 'ERROR', lastRunAt: ago(1) }), NOW)).toBe('stopped')
     expect(syncStoreState(row({ lastRunAt: ago(61) }), NOW)).toBe('stopped')
   })
-  it("auto-sync OFF is not an input (mock v1.3 health()): an OFF store reads by its last run", () => {
-    expect(syncStoreState(row({ enabled: false, lastRunAt: ago(5) }), NOW)).toBe('healthy')
-    expect(syncStoreState(row({ enabled: false, lastRunAt: ago(61) }), NOW)).toBe('stopped')
+  it('同期が停止しています: auto-sync OFF, whether it never ran or has run (lead ruling 10/6)', () => {
+    expect(syncStoreState(row({ enabled: false, lastRunStatus: null, lastRunAt: null }), NOW)).toBe('stopped')
+    expect(syncStoreState(row({ enabled: false, lastRunAt: ago(5) }), NOW)).toBe('stopped')
   })
 })
 

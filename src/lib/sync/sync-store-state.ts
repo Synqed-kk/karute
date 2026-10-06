@@ -1,20 +1,21 @@
 // The 予約同期 all-stores list's five states (mock v1.3 Business tab). Same
 // thresholds as SyncStatusCard's syncHealth: an ERROR beats a fresh timestamp,
 // RUNNING reads by time like OK, < 30 min healthy, ≤ 60 min delayed, then
-// stopped. Like the mock's health(), the auto-sync switch is not an input: an
-// OFF store reads by its last run (it drifts to stopped once no run comes).
+// stopped. Lead ruling 10/6: auto-sync OFF is stopped regardless of its last
+// run (状態 answers "is it syncing now"); never 初回の同期待ち for an OFF store.
 export type SyncStoreState = 'notSet' | 'waiting' | 'healthy' | 'delayed' | 'stopped'
 
 export function syncStoreState(
   row: {
     configured: boolean
+    enabled: boolean
     lastRunStatus: 'OK' | 'ERROR' | 'RUNNING' | null
     lastRunAt: string | null
   },
   nowMs: number,
 ): SyncStoreState {
   if (!row.configured) return 'notSet'
-  if (row.lastRunStatus === 'ERROR') return 'stopped'
+  if (!row.enabled || row.lastRunStatus === 'ERROR') return 'stopped'
   if (!row.lastRunAt) return 'waiting'
   const minutes = (nowMs - new Date(row.lastRunAt).getTime()) / 60000
   if (minutes < 30) return 'healthy'
