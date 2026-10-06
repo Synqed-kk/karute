@@ -570,7 +570,6 @@ describe('fix round 6 (Greptile P2) — the store number is accepted only as a n
     ['[250]', [250]],
     ["'250.5'", '250.5'],
     ['250.5', 250.5],
-    ["''", ''],
     ['{}', {}],
     ['null', null],
   ])('qrStoreId %s → 400 invalid_body before any lookup, nothing written', async (_label, qrStoreId) => {
@@ -592,5 +591,19 @@ describe('fix round 6 (Greptile P2) — the store number is accepted only as a n
     expect(res.status).toBe(200)
     expect(upsert).toHaveBeenCalledTimes(1)
     expect(upsert.mock.calls[0][1]).toMatchObject({ store_slug: 'la-estro', store_id: 250, karute_store_id: GINZA })
+  })
+
+  // Fix round 7: the form posts '' when the field is empty — that is a
+  // MISSING store number (the localized qr_store_required line), never a
+  // wrong type (the generic invalid_body line).
+  it.each([
+    ["''", ''],
+    ["'   '", '   '],
+  ])('(r7) qrStoreId %s on a first save → 400 qr_store_required, nothing written', async (_label, qrStoreId) => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(firstSave(qrStoreId))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('qr_store_required')
+    expect(upsert).not.toHaveBeenCalled()
   })
 })

@@ -136,12 +136,14 @@ export async function POST(request: Request) {
   // A field of the wrong type is the caller's error too — never passed to core.
   const notString = (v: unknown) => v !== undefined && typeof v !== 'string'
   // The Quick Reserve store number is a whole number or a string of digits;
-  // anything else (boolean, array, object, float, empty) is refused here,
-  // never coerced by Number() (true → 1).
+  // anything else (null, boolean, array, object, float) is refused here,
+  // never coerced by Number() (true → 1). An empty or blank string is the
+  // form's empty field: MISSING, not a wrong type — it falls through to the
+  // first-save check below (qr_store_required).
   const notStoreNumber = (v: unknown) =>
     v !== undefined &&
     !(typeof v === 'number' && Number.isInteger(v)) &&
-    !(typeof v === 'string' && /^\d+$/.test(v.trim()))
+    !(typeof v === 'string' && /^\d*$/.test(v.trim()))
   if (
     notString(username) ||
     notString(password) ||
