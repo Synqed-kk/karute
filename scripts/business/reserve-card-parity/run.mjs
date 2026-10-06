@@ -117,6 +117,9 @@ const CASES = [
   { id: 'long', label: `long name (${[...LONG].length} chars), seed colour`, name: LONG, card: null, gymCard: null },
   { id: 'seed', label: 'seed #285643 (legacy, off-palette)', name: SEED.la.name, card: null, gymCard: null },
 ]
+// each case's written mock.ts carries its id as a marker (seedMock), so ids must be unique by construction
+for (const [i, c] of CASES.entries()) if (CASES.findIndex((x) => x.id === c.id) !== i) throw new Error(`CASES: duplicate case id ${JSON.stringify(c.id)}`)
+const caseMarker = (id) => JSON.stringify(`parity-case:${id}`) // a string literal: survives Vite's esbuild transform verbatim
 const ONLY = process.env.PARITY_ONLY ? process.env.PARITY_ONLY.split(',') : null
 const RUN = CASES.filter((x) => !ONLY || ONLY.includes(x.id))
 const PARTIAL = RUN.length < CASES.length // a subset never certifies: nothing is emitted into the port checkout
@@ -181,6 +184,7 @@ function seedMock(pristine, c) {
   if (c.name !== SEED.la.name) swap(SEED.orgName, `name: ${JSON.stringify(c.name)},`)
   if (c.card) swap(SEED.laCard, `  cardColor: "${c.card}",`)
   if (c.gymCard) swap(SEED.gymCard, `  cardColor: "${c.gymCard}",`)
+  t += `${t.endsWith('\n') ? '' : '\n'}export const PARITY_CASE = ${caseMarker(c.id)}\n` // unused; only the served-case check reads it
   writeFileSync(join(COPY, 'src/lib/mock.ts'), t)
   return t
 }
@@ -427,11 +431,12 @@ async function main() {
       for (const f of sh('git', ['-C', COPY, 'diff', '--name-only']).split('\n').filter(Boolean)) touched.add(f)
       if (c.card) fenceStat = sh('git', ['-C', COPY, 'diff', '--stat']).trim().split('\n').join(' / ')
       const laCard = c.card ?? SEED.la.card, gymCard = c.gymCard ?? SEED.gym.card
-      // wait until Reserve's dev server serves the rewritten seed (never screenshot a stale module)
+      // wait until Reserve's dev server serves THIS case's file, proven by its unique marker (fields alone cannot
+      // tell: long and seed share both colours, so a colour probe passed on the stale long file at that hand-over)
       for (let i = 0; ; i++) {
         const served = await (await fetch(`${reserve.url}/src/lib/mock.ts`)).text()
-        if (served.includes(`cardColor: "${laCard}"`) && served.includes(`cardColor: "${gymCard}"`)) break
-        if (i > 100) throw new Error(`reserve never served the ${c.id} seed`)
+        if (served.includes(caseMarker(c.id))) { if (process.env.PARITY_DIAG) log(`served ${c.id} after ${i} waits`); break }
+        if (i > 100) throw new Error(`reserve never served the ${c.id} case (still serving ${served.match(/"parity-case:([^"]*)"/)?.[1] ?? 'no case marker'})`)
         await new Promise((r) => setTimeout(r, 100))
       }
       // …and the page must show it: the name, and the satin Reserve's own module emits for each colour
