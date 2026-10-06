@@ -58,6 +58,8 @@ const resolveStoreScope = jest.fn(async () => ({
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: () => resolveStoreScope(),
   customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,
+  // The REAL store rule the staff check (PR-B Q1) judges with.
+  filterStaffIdsToStore: jest.requireActual('@/lib/auth/store-scope').filterStaffIdsToStore,
 }))
 
 /** Open 10:00–24:00 every weekday, SAVED — the business-wide blob. */
@@ -108,6 +110,7 @@ const listClosedDays = jest.fn(
 const fakeClient = {
   appointments: { create: apptCreate, get: apptGet, update: apptUpdate, delete: jest.fn() },
   packs: { listRecentRedemptions: jest.fn(async () => []) },
+  staff: { get: jest.fn(async (id: string) => ({ id, business_id: 'business-1', is_active: true })) },
   staffStores: { get: jest.fn(async () => ({ store_ids: ['store-ginza'] })) },
   stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-ginza', is_primary: true }] })) },
   storePolicies: {

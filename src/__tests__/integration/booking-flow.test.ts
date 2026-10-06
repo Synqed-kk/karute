@@ -141,6 +141,11 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
     appointments,
     packs: { listRecentRedemptions: (since: string) => listRecentRedemptions(since) },
+    // updateAppointmentCore's staff check (PR-B Q1) reads the staff it writes:
+    // an ACTIVE row of this business (the booking rows here carry no store).
+    staff: {
+      get: async (id: string) => ({ id, business_id: '00000000-0000-0000-0000-000000000001', is_active: true }),
+    },
   })),
 }))
 
