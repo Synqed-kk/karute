@@ -2,7 +2,7 @@
 
 import { getDataPort } from '@/lib/ports/data-port'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 
@@ -44,6 +44,15 @@ export async function readSyncResponse(
   return { ok: true, data: data ?? {} }
 }
 
+type ConfigResponse = {
+  username?: string
+  enabled?: boolean
+  configured?: boolean
+  qrStoreSlug?: string
+  lastStatus?: string | null
+  lastRunAt?: string | null
+}
+
 const SYNC_ERROR_COPY = {
   qr_store_not_ready: 'bookingSyncStoreNotReady',
   qr_store_required: 'bookingSyncQrStoreRequired',
@@ -67,11 +76,19 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   const [qrStoreId, setQrStoreId] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [lastResult, setLastResult] = useState<string | null>(null)
+  // The store whose config is loaded (undefined = loading, or the load
+  // failed). Save stays off until it is the shown store, so a blank or reset
+  // form can never be posted over a live row.
+  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined)
+  // The store shown NOW: a save or run answer for another store is dropped.
+  const shownStore = useRef(storeId)
 
   useEffect(() => {
     // Reset BEFORE the load, and drop a late answer for a store no longer
     // selected, so another store's values can never reach this store's Save.
+    shownStore.current = storeId
     let current = true
+    setLoadedFor(undefined)
     setUsername('')
     setPassword('')
     setEnabled(false)
@@ -82,9 +99,14 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
     getDataPort().apiFetch(
       `/api/sync/quickreserve/config${storeId ? `?storeId=${encodeURIComponent(storeId)}` : ''}`,
     )
-      .then((r) => r.json())
-      .then((data) => {
+      .then(async (r) => {
+        const parsed = await readSyncResponse(r)
         if (!current) return
+        if (!parsed.ok) {
+          setLastResult(parsed.message) // the surface's error line; Save stays off
+          return
+        }
+        const data = parsed.data as unknown as ConfigResponse
         if (data.username) setUsername(data.username)
         if (data.enabled !== undefined) setEnabled(data.enabled)
         if (data.configured === false) {
@@ -97,23 +119,31 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
               ? `${data.lastStatus} (${new Date(data.lastRunAt).toLocaleString()})`
               : data.lastStatus,
           )
+        setLoadedFor(storeId)
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (current) setLastResult(`Failed: ${err instanceof Error ? err.message : 'Unknown'}`)
+      })
     return () => {
       current = false
     }
   }, [storeId])
 
   // The routes' stable error codes, not messages meant for display — show OUR
-  // localized copy so it follows the language toggle.
-  function localizeSyncError(status: number, message: string): string {
+  // localized copy so it follows the language toggle. Applied when the line
+  // renders, so the load, save and run errors all go through it.
+  function localizeSyncError(text: string): string {
+    const status = /^Error \((\d+)\)/.exec(text)?.[1]
     const code = (Object.keys(SYNC_ERROR_COPY) as (keyof typeof SYNC_ERROR_COPY)[]).find((c) =>
-      message.includes(c),
+      text.includes(c),
     )
-    return code ? `Error (${status}): ${t(SYNC_ERROR_COPY[code])}` : message
+    return status && code ? `Error (${status}): ${t(SYNC_ERROR_COPY[code])}` : text
   }
 
+  // Both actions capture the store at request time and ignore an answer that
+  // lands after the form moved to another store.
   async function saveConfig() {
+    const forStore = storeId
     setSyncing(true)
     try {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve/config', {
@@ -128,15 +158,18 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         }),
       })
       const parsed = await readSyncResponse(res)
+      if (shownStore.current !== forStore) return
       if (parsed.ok) setConfigured(true)
-      setLastResult(parsed.ok ? 'Config saved' : localizeSyncError(res.status, parsed.message))
+      setLastResult(parsed.ok ? 'Config saved' : parsed.message)
     } catch {
-      setLastResult('Failed to save')
+      if (shownStore.current === forStore) setLastResult('Failed to save')
+    } finally {
+      setSyncing(false)
     }
-    setSyncing(false)
   }
 
   async function syncNow() {
+    const forStore = storeId
     setSyncing(true)
     setLastResult('Syncing...')
     try {
@@ -146,8 +179,9 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         body: JSON.stringify(storeId ? { storeId } : {}),
       })
       const parsed = await readSyncResponse(res)
+      if (shownStore.current !== forStore) return
       if (!parsed.ok) {
-        setLastResult(localizeSyncError(res.status, parsed.message))
+        setLastResult(parsed.message)
       } else {
         const d = parsed.data
         setLastResult(
@@ -156,11 +190,13 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         )
       }
     } catch (err) {
+      if (shownStore.current !== forStore) return
       setLastResult(
         `Failed: ${err instanceof Error ? err.message : 'Unknown'}`,
       )
+    } finally {
+      setSyncing(false)
     }
-    setSyncing(false)
   }
 
   const isError =
@@ -277,7 +313,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         <button
           type="button"
           onClick={saveConfig}
-          disabled={syncing}
+          disabled={syncing || loadedFor !== storeId}
           className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {t('saveConfig')}
@@ -305,7 +341,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
           ) : (
             <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
           )}
-          <span>{lastResult}</span>
+          <span>{localizeSyncError(lastResult)}</span>
         </div>
       )}
     </div>

@@ -141,7 +141,8 @@ export async function POST(request: Request) {
     }
 
     await synqed.sync.upsertConfig('QUICKRESERVE', {
-      username,
+      // A blank login never overwrites a live row's stored one.
+      username: existing && !login ? existing.username : username,
       // Only send the password when the owner typed one — core keeps the stored
       // credential otherwise (the field renders blank on load by design).
       ...(password ? { password } : {}),

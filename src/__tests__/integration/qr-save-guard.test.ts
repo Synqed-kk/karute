@@ -275,3 +275,12 @@ describe('fix round 2 — the store is the one the form shows, resolved only by 
     expect(upsert).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 2 — a blank form never blanks a live row', () => {
+  it("(o) an existing row saved with a blank login keeps its stored login", async () => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    expect((await POST(req({ username: '', password: '', enabled: true }))).status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'owner', karute_store_id: 'daikanyama' })
+    expect(upsert.mock.calls[0][1]).not.toHaveProperty('password')
+  })
+})
