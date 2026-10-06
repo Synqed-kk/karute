@@ -418,13 +418,16 @@ export function buildAppointmentsScreen(
   // Apply the Self/All/specific-staff filter. URL is the source of truth so
   // the back button restores the scope and links can deep-link a specific
   // staff's day (?staff=<id>).
+  // A booking with no staff (担当未定, staffId null) belongs to nobody yet, so
+  // no filter value hides it: the manager never loses it, and a stylist on
+  // 自分 still sees 「10:00 担当未定」 and can take it.
   const reservationViews = (() => {
     if (staffFilter === 'all') return allReservationViews
     if (staffFilter === 'self') {
       if (!activeStaffId) return allReservationViews
-      return allReservationViews.filter((r) => r.staffId === activeStaffId)
+      return allReservationViews.filter((r) => r.staffId === null || r.staffId === activeStaffId)
     }
-    return allReservationViews.filter((r) => r.staffId === staffFilter)
+    return allReservationViews.filter((r) => r.staffId === null || r.staffId === staffFilter)
   })()
 
   const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, selectedDate)

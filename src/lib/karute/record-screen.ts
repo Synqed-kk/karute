@@ -33,6 +33,7 @@ import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { memoContent } from '@/lib/sync/qr-notes'
 import type { OrgSettings, PackPreset } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
+import { isRecordingTarget } from '@/lib/appointments/by-date'
 import type { KaruteRecord, KaruteEntry } from '@synqed-kk/client'
 import { effectiveSummary } from '@/lib/karute/effective-summary'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
@@ -201,7 +202,8 @@ export async function buildRecordScreen(input: {
   let nearbyBookings: RecordTargetBooking[] = []
 
   // Today's bookings from synqed-core, ordered by start time.
-  const list: AppointmentRow[] = [...todayAppts].sort((a, b) =>
+  // 担当未定 bookings are on the day list but are never recording targets.
+  const list: AppointmentRow[] = todayAppts.filter(isRecordingTarget).sort((a, b) =>
     a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0,
   )
 

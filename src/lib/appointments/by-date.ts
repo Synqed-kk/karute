@@ -19,11 +19,23 @@ type ByDateClient = Pick<SynqedClient, 'appointments' | 'karuteRecords' | 'staff
  * `includeCancelled` — the recording-target picker must never auto-select one.
  *
  * BLOCK rows never come back: a capacity hold is not a visit (isCountedBooking's
- * first clause, one rule). A booking with NO staff_id still does not come back
- * either — this list draws lanes, and a lane needs a staffer. That is the one
- * place the day list and the 件 count deliberately differ, and it is pinned in
- * booking-count-parity.test.ts.
+ * first clause, one rule). A booking with NO staff_id DOES come back, with
+ * staff_profile_id null: core imports a Quick Reserve booking whose staff it
+ * cannot match with no staff, and 件 already counts it, so hiding it here left
+ * the customer at the counter with no row anyone could see. The day list and
+ * the 件 count now agree (booking-count-parity.test.ts). Such a row is shown
+ * as 担当未定 but is never a recording target — see isRecordingTarget.
  */
+/**
+ * A day-list row may be recorded against only once it has a staff. A karute
+ * recording is always one staff's session (only the logged-in staff's voice is
+ * kept), so a 担当未定 booking is shown but never offered as a target; assigning
+ * the staff makes it one.
+ */
+export function isRecordingTarget(row: Pick<AppointmentRow, 'staff_profile_id'>): boolean {
+  return row.staff_profile_id != null
+}
+
 export async function getAppointmentsByDateWithClient(
   synqed: ByDateClient,
   dateStr: string,
@@ -68,22 +80,27 @@ export async function getAppointmentsByDateWithClient(
   const nameByStaffId = new Map(staffList.staff.map((s) => [s.id, s.name]))
 
   return list.appointments
-    .filter((a): a is typeof a & { staff_id: string; customer_id: string } =>
+    .filter((a): a is typeof a & { customer_id: string } =>
       // `kind` is the guard every day surface was missing. AppointmentRow has
       // no kind field, so a BLOCK hold (「オーナー業務」) that happens to carry a
       // customer rendered as an ordinary visit here — on the agenda, in the
       // recorder's booking picker and on the phone — and pushed
       // 「本日の予約 N件」 one above the week row's 件 for the same day (L4-3).
       // One guard in the function every day caller routes through.
+      // staff_id is NOT required: a booking core could not give a staff is
+      // still a visit at its time (shown as 担当未定 until someone assigns it).
+      // customer_id is: a BOOKING without a customer is not a booking.
       (a.kind ?? 'BOOKING') === 'BOOKING' &&
-      a.staff_id != null && a.customer_id != null &&
+      a.customer_id != null &&
       (includeCancelled ? true : !isTerminalStatus(a.status)))
     .map((a) => {
       const statusSetBy =
         (a as typeof a & { status_set_by?: string | null }).status_set_by ?? null
       return {
         id: a.id,
-        staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
+        staff_profile_id: a.staff_id
+          ? profileByStaffId.get(a.staff_id) ?? a.staff_id
+          : null,
         client_id: a.customer_id,
         start_time: a.starts_at,
         duration_minutes: a.duration_minutes ?? 0,
