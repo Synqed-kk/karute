@@ -3700,5 +3700,17 @@
     "title": "スタッフから削除されました",
     "body": "このアカウントは管理者によってスタッフから削除されたため、お客様やカルテの情報は表示されません。ログアウトしてください。誤りと思われる場合は、管理者に確認してください。",
     "logout": "ログアウト"
+  },
+  "unassignedStaff": {
+    "mark": "担当未定",
+    "assignAction": "担当を選択",
+    "assignActionHint": "この予約を担当するスタッフを選びます",
+    "pickerTitle": "担当スタッフを選択",
+    "pickerLead": "選んだスタッフがこの予約の担当になります",
+    "assigned": "担当を{staff}に設定しました",
+    "recordBlocked": "担当を選んでから録音を始めてください",
+    "recordBlockedReadOnly": "担当が決まると録音を開始できます",
+    "sheetSubtitle": "担当がまだ決まっていない予約です。担当を選択してください。",
+    "sheetSubtitleReadOnly": "担当がまだ決まっていない予約です。"
   }
 }

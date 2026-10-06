@@ -43,6 +43,7 @@ export function BookingActionSheetWrapper({
   const router = useRouter()
   const t = useTranslations('reservation')
   const ta = useTranslations('reservation.actionSheet')
+  const tu = useTranslations('unassignedStaff')
 
   const open = selected !== null
   // Show "view karute" when THIS booking already has one, OR when it's a returning
@@ -96,6 +97,22 @@ export function BookingActionSheetWrapper({
     firstTimeNote: ta('firstTimeNote'),
   }
 
+  // 担当未定: a booking with no staff yet is not a recording target (a
+  // recording is always one staff's session), so the sheet says so where the
+  // subtitle and the record hint sit, and neither karute action navigates to
+  // the recorder. The assign control is not in this sheet yet, so every viewer
+  // gets the read-only lines (no instruction they cannot follow here).
+  const unassigned = selected?.staffId === null
+  const sheetCopy: Partial<BookingActionSheetCopy> = unassigned
+    ? {
+        ...copy,
+        subtitleFirst: tu('sheetSubtitleReadOnly'),
+        subtitleReturn: tu('sheetSubtitleReadOnly'),
+        startRecordingHint: tu('recordBlockedReadOnly'),
+        startRecordingHintFirst: tu('recordBlockedReadOnly'),
+      }
+    : copy
+
   if (!selected) {
     // Render the sheet closed so transitions don't snap.
     return (
@@ -125,9 +142,9 @@ export function BookingActionSheetWrapper({
       isFirstTimeVisit={selected.isFirstTimeVisit}
       isMobile={forceMobile ?? isMobile}
       onViewKarute={onViewKarute}
-      onNewKarute={goToRecord}
-      onStartRecording={goToRecord}
-      copy={copy}
+      onNewKarute={unassigned ? undefined : goToRecord}
+      onStartRecording={unassigned ? undefined : goToRecord}
+      copy={sheetCopy}
     />
   )
 }

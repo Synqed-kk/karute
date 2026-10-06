@@ -303,6 +303,7 @@ function AgendaRow({
   const t = useTranslations('reservation.card')
   const tStatus = useTranslations('reservation.status')
   const tNoShow = useTranslations('customers.list')
+  const tUnassigned = useTranslations('unassignedStaff')
   const visuals = STATUS_VISUALS[r.displayStatus]
   const isLive = r.displayStatus === 'in_session'
   const isCompleted = r.displayStatus === 'completed'
@@ -483,6 +484,13 @@ function AgendaRow({
             <span className="truncate">
               {t('tantou', { name: r.staffName })}
             </span>
+          </div>
+        )}
+        {/* 担当未定 — a booking with no staff yet: the same muted line, no
+         *  staff dot (no staff, no colour). Not a pill: it is not a warning. */}
+        {r.staffId === null && (
+          <div className="mt-0.5 truncate text-[12px] text-muted-foreground">
+            {tUnassigned('mark')}
           </div>
         )}
       </div>
