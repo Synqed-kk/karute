@@ -296,3 +296,38 @@ describe('fix round 1', () => {
     expect(apptUpdate).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 3', () => {
+  const actor = { actorId: 'auth-user-1', businessId: 'business-1', source: 'web' as const, requestId: 'r' }
+  const scope = { storeId: null, allowedStoreIds: null } as unknown as Parameters<typeof assignStaffToBooking>[4]
+  const base = {
+    id: 'appt-1',
+    customer_id: 'cust-1',
+    store_id: 'store-1',
+    staff_id: null,
+    status: 'SCHEDULED',
+    starts_at: '2026-10-06T01:00:00.000Z',
+    ends_at: '2026-10-06T02:00:00.000Z',
+  }
+
+  it('item 8: a BLOCK row (kind BLOCK, no staff) → refused like "not found", nothing written', async () => {
+    apptGet.mockResolvedValue({ ...base, kind: 'BLOCK' })
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({
+      error: 'Booking not found.',
+    })
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  it('item 8: a BLOCK row through the facade door → refused, nothing written, no audit', async () => {
+    apptGet.mockResolvedValue({ ...base, kind: 'BLOCK' })
+    const res = await assignPOST(post({ staffProfileId: 'profile-new' }), params)
+    expect(await res.json()).toHaveProperty('error')
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(updateAudits()).toHaveLength(0)
+  })
+
+  it('item 8: a pre-kind row (kind absent) still reads as a BOOKING and is assigned', async () => {
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({ success: true })
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
+  })
+})

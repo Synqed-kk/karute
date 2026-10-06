@@ -37,6 +37,7 @@ import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
 import type { WeekdayKey } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
+import { isCountedBooking } from '@/lib/appointments/by-date'
 import { type RecordStoreScope } from '@/lib/auth/store-lock'
 import { filterStaffIdsToStore } from '@/lib/auth/store-scope'
 import { audit, type AuditSeverity } from '@/lib/audit'
@@ -762,6 +763,11 @@ export async function updateAppointmentCore(
     if (isTerminalStatus(appt.status)) {
       return { error: 'A cancelled or no-show booking cannot be edited.' }
     }
+    // ⚖ FIX ROUND 3 item 8 (B2-1) — the assign door takes only a counted
+    // BOOKING: a BLOCK (オーナー業務, a bed hold) is not a booking, so it reads as
+    // "not found", the same shape as the guards above. The kind rule is
+    // by-date's isCountedBooking — never a second literal here.
+    if (only.unassigned && !isCountedBooking(appt)) return { error: 'Booking not found.' }
     if (only.unassigned && appt.staff_id) return { error: BOOKING_ALREADY_STAFFED }
 
     // ⚖ PR-B Q1 — the staff written must be able to take THIS booking. Both
