@@ -21,21 +21,34 @@ export async function assignableStaffIdsByBooking(
 
   // A member whose core staff row is inactive cannot take a booking (matched by
   // core id and by linked profile id). A profile with no core row yet is not
-  // excluded: the assignment creates an active one.
-  let core: Awaited<ReturnType<typeof listAllCoreStaff<{ id: string; is_active?: boolean }>>>
+  // excluded: the assignment creates an active one. A profile with NO row
+  // linked by user_id is matched by email (case-insensitive, first row wins),
+  // the same fallback the write gate's resolver uses, so the picker never
+  // offers someone the gate will refuse (fix round 2, X4).
+  type CoreRow = { id: string; is_active?: boolean; user_id?: string | null; email?: string | null }
+  let core: Awaited<ReturnType<typeof listAllCoreStaff<CoreRow>>>
   try {
-    core = await listAllCoreStaff(synqed.staff)
+    core = await listAllCoreStaff<CoreRow>(synqed.staff)
   } catch {
     return {}
   }
   const inactive = new Set<string>()
+  const linked = new Set<string>()
+  const firstByEmail = new Map<string, CoreRow>()
   for (const m of core) {
+    if (m.user_id) linked.add(m.user_id)
+    const email = m.email?.toLowerCase()
+    if (email && !firstByEmail.has(email)) firstByEmail.set(email, m)
     if (m.is_active !== false) continue
     inactive.add(m.id)
-    const profileId = (m as { user_id?: string | null }).user_id
-    if (profileId) inactive.add(profileId)
+    if (m.user_id) inactive.add(m.user_id)
   }
-  const active = staff.filter((s) => !inactive.has(s.id))
+  const active = staff.filter((s) => {
+    if (inactive.has(s.id)) return false
+    if (linked.has(s.id)) return true
+    const email = s.email?.toLowerCase()
+    return !email || firstByEmail.get(email)?.is_active !== false
+  })
 
   const byStore = new Map<string, string[]>()
   const out: Record<string, string[]> = {}

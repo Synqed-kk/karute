@@ -35,6 +35,34 @@ describe('assignableStaffIdsByBooking', () => {
     await expect(assignableStaffIdsByBooking(rows, STAFF, core(true), async () => GINZA)).resolves.toEqual({})
   })
 
+  // ⚖ FIX ROUND 2 item 7 (X4) — the write gate's resolver links a profile to
+  // its core row by user_id first, then by email (case-insensitive). A
+  // profile whose only core row is inactive and linked by EMAIL would be
+  // refused at write time, so the picker must not offer it either.
+  it('a profile whose inactive core row is linked by email only is not offered', async () => {
+    const c = {
+      staff: {
+        list: jest.fn(async () => {
+          const staff = [
+            { id: 's-mail', user_id: null, email: 'Old.Hand@Example.com', is_active: false },
+            { id: 's-ginza', user_id: 'p-ginza', email: 'same@example.com', is_active: true },
+            { id: 's-dup', user_id: null, email: 'same@example.com', is_active: false },
+          ]
+          return { staff, total: staff.length }
+        }),
+      },
+    } as never
+    const people = [
+      { id: 'p-mail', email: 'old.hand@example.com' },
+      // Linked by user_id to an ACTIVE row: an inactive row sharing the email
+      // does not hide them (the resolver never reaches its email fallback).
+      { id: 'p-ginza', email: 'same@example.com' },
+      { id: 'p-float', email: null },
+    ]
+    const out = await assignableStaffIdsByBooking(rows, people, c, async () => new Set(['p-mail', 'p-ginza', 'p-float']))
+    expect(out).toEqual({ 'b-ginza': ['p-ginza', 'p-float'] })
+  })
+
   it('a day with no staff-less booking reads nothing', async () => {
     const c = core()
     await expect(assignableStaffIdsByBooking([rows[1]], STAFF, c, async () => GINZA)).resolves.toEqual({})
