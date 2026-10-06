@@ -100,6 +100,16 @@ describe('viewAll caller', () => {
     expect(en.syncAllStores.windowEmpty).toBe('The start and end of the active hours are the same, so this store does not sync automatically')
   })
 
+  it('the lead text says auto-sync OFF stores are left out of すべての店舗を同期 (each can still run alone)', async () => {
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    expect(screen.getByText('runAllOffNote')).toBeTruthy()
+    const ja = jest.requireActual('../../../messages/ja.json') as { syncAllStores: { runAllOffNote: string } }
+    const en = jest.requireActual('../../../messages/en.json') as { syncAllStores: { runAllOffNote: string } }
+    expect(ja.syncAllStores.runAllOffNote).toBe('自動同期がオフの店舗は、「すべての店舗を同期」では同期されません。各店舗の「今すぐ同期」から1店舗ずつ同期できます。')
+    expect(en.syncAllStores.runAllOffNote).toBe('Stores with auto-sync off are left out of "Sync all stores". You can still sync each one with its own "Sync now".')
+  })
+
   it('the block note writes かかわらず in kana', () => {
     const ja = jest.requireActual('../../../messages/ja.json') as { syncAllStores: { blockNote: string } }
     expect(ja.syncAllStores.blockNote).toContain('にかかわらず、')

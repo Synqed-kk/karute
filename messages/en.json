@@ -3730,6 +3730,7 @@
     "runNow": "Sync now",
     "runNowPending": "Syncing…",
     "runAll": "Sync all stores",
+    "runAllOffNote": "Stores with auto-sync off are left out of \"Sync all stores\". You can still sync each one with its own \"Sync now\".",
     "runAllDone": "All {n} stores synced",
     "runAllPartial": "Sync failed for {failed} of {total} stores",
     "footnote": "Each store syncs separately, with its own login. With \"Sync all stores\", one store's failure never stops the other stores' syncs.",

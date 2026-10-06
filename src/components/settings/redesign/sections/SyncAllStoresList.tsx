@@ -173,6 +173,7 @@ export function SyncAllStoresList({
       <div>
         <h4 id="sync-all-stores-title" className="text-sm font-medium">{t('blockTitle')}</h4>
         <p className="text-xs text-muted-foreground mt-0.5">{t('blockNote')}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{t('runAllOffNote')}</p>
       </div>
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">{t('scopeLine', { n: rows.length })}</span>
