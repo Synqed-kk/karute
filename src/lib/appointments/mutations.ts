@@ -38,6 +38,7 @@ import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
 import type { WeekdayKey } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
 import { type RecordStoreScope } from '@/lib/auth/store-lock'
+import { filterStaffIdsToStore } from '@/lib/auth/store-scope'
 import { audit, type AuditSeverity } from '@/lib/audit'
 import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 
@@ -127,7 +128,7 @@ function bookingAuditSeverity(kind: 'no_show' | 'cancel', reason?: string): Audi
 
 type MutationClient = Pick<
   SynqedClient,
-  'appointments' | 'packs' | 'staffStores' | 'stores' | 'storePolicies'
+  'appointments' | 'packs' | 'staff' | 'staffStores' | 'stores' | 'storePolicies'
 >
 
 export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
@@ -155,6 +156,39 @@ async function defaultBookingStore(
   } catch {
     return undefined
   }
+}
+
+/** The one refusal for a staff who may not take this booking (inactive, of
+ *  another business, or not working at the booking's store). The house
+ *  `{ error }` shape every booking refusal uses (BookingTimeRefusal). */
+export const STAFF_NOT_ELIGIBLE = 'This staff member cannot take this booking.'
+
+/**
+ * ⚖ PR-B Q1 — may this CORE staff take a booking in this store? Active, of
+ * this business, and working at the store: a staff_stores row for it or no
+ * rows at all (floating) — the picker's own rule, `filterStaffIdsToStore`,
+ * never a second one. A booking with no store has no store to judge. Every
+ * failed read refuses (fail closed): this is a write gate, not a picker.
+ */
+async function refuseIneligibleStaff(
+  synqed: MutationClient,
+  synqedStaffId: string,
+  storeId: string | null,
+  businessId: string | null,
+): Promise<BookingTimeRefusal | null> {
+  const refusal = { error: STAFF_NOT_ELIGIBLE }
+  const staff = await synqed.staff.get(synqedStaffId).catch(() => null)
+  if (!staff || !staff.is_active) return refusal
+  if (businessId && staff.business_id !== businessId) return refusal
+  if (!storeId) return null
+  const storeIds = await synqed.staffStores
+    .get(synqedStaffId)
+    .then((a) => a.store_ids)
+    .catch(() => null)
+  if (!storeIds) return refusal
+  const assignment = { id: synqedStaffId, user_id: null, email: null, store_ids: storeIds }
+  const kept = filterStaffIdsToStore([{ id: synqedStaffId }], [assignment], storeId)
+  return kept.has(synqedStaffId) ? null : refusal
 }
 
 /**
@@ -691,6 +725,19 @@ export async function updateAppointmentCore(
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'A cancelled or no-show booking cannot be edited.' }
+    }
+
+    // ⚖ PR-B Q1 — the staff written must be able to take THIS booking. Both
+    // transports (the web action and the facade's assign-staff) land here,
+    // after the staff id is resolved and before anything reaches core.
+    if (patch.staffId !== undefined) {
+      const staffRefusal = await refuseIneligibleStaff(
+        synqed,
+        patch.staffId,
+        appt.store_id ?? null,
+        actor.businessId,
+      )
+      if (staffRefusal) return staffRefusal
     }
 
     // ⚖ W0.5 fix 1 — the interval judged below is the interval core stores.
