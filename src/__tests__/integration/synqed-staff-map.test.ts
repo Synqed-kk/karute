@@ -443,6 +443,26 @@ describe('resolveSynqedStaffId — no profile', () => {
     )
     expect(staffCreate).not.toHaveBeenCalled()
   })
+
+  // ⚖ FIX ROUND 3 item 9 (S1) — the assign route maps ONLY this class to 400,
+  // so the unknown-profile throw must BE it (the real module, not a mock). The
+  // class and the resolvers come from the same isolated module load.
+  it('the unknown-profile throw is a StaffProfileNotFoundError (both resolvers)', async () => {
+    mockDeps({
+      staff: [{ id: 'staff-A', user_id: 'other', email: 'other@x.com' }],
+    })
+    let mod!: typeof import('@/lib/synqed/staff-map')
+    await jest.isolateModulesAsync(async () => {
+      mod = await import('@/lib/synqed/staff-map')
+    })
+    await expect(mod.resolveSynqedStaffId('profile-missing')).rejects.toBeInstanceOf(
+      mod.StaffProfileNotFoundError,
+    )
+    await expect(mod.resolveSynqedStaffIdForBusiness('profile-missing', BIZ)).rejects.toBeInstanceOf(
+      mod.StaffProfileNotFoundError,
+    )
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
 })
 
 describe('resolveSynqedStaffId — env validation', () => {
