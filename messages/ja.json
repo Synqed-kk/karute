@@ -3712,7 +3712,11 @@
   },
   "unassignedStaff": {
     "mark": "担当未定",
+    "pickerTitle": "担当スタッフを選択",
+    "pickerLead": "選んだスタッフがこの予約の担当になります",
+    "assigned": "担当を{staff}に設定しました",
     "recordBlockedReadOnly": "担当が決まると録音を開始できます",
+    "sheetSubtitle": "担当がまだ決まっていない予約です。担当を選択してください。",
     "sheetSubtitleReadOnly": "担当がまだ決まっていない予約です。"
   }
 }

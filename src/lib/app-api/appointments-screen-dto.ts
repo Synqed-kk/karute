@@ -173,6 +173,11 @@ export const AppointmentsScreenDTO = z.object({
   view: z.enum(['day', 'week', 'month']),
   selectedDateIso: z.string(),
   staffFilter: z.string(),
+  /** bookings.manage — the 担当未定 sheet shows the staff picker. Optional so
+   *  an older server fails CLOSED (read-only sheet). */
+  canAssign: z.boolean().optional(),
+  /** 担当未定 picker: booking id → the staff ids its store's picker may offer. */
+  assignStaffIdsByBooking: z.record(z.string(), z.array(z.string())).optional(),
   staff: z.array(
     z.object({
       id: z.string(),

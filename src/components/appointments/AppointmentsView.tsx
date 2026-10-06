@@ -110,6 +110,11 @@ interface AppointmentsViewProps {
   soloMode: boolean
   reservationViews: ReservationView[]
   reservationStaff: ReservationStaff[]
+  /** bookings.manage, resolved server-side: the 担当未定 sheet offers the
+   *  staff picker (`staff` above, the booking dialog's own store list). */
+  canAssign?: boolean
+  /** 担当未定 picker: booking id → the staff ids its own store may offer. */
+  assignStaffIdsByBooking?: Readonly<Record<string, readonly string[]>>
   /** The ACTIVE STORE's staff ids — the grid's color palette source (a
    *  経営メンバー dropping out of the lanes must not repaint anyone). */
   colorRosterIds?: readonly string[]
@@ -1112,6 +1117,9 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <BookingActionSheetWrapper
         selected={selected}
         onClose={() => setSelected(null)}
+        canAssign={props.canAssign ?? false}
+        assignStaff={props.staff}
+        assignStaffIdsByBooking={props.assignStaffIdsByBooking}
       />
 
       <CancelBookingSheet
