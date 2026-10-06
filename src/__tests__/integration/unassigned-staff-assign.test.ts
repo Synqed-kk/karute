@@ -330,4 +330,23 @@ describe('fix round 3', () => {
     await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({ success: true })
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
   })
+
+  // ⚖ item 11 — a booking with NO store (legacy import): pinned as today.
+  it('item 11: store-less booking + unclamped caller → any active staff of the business may take it (no store question)', async () => {
+    apptGet.mockResolvedValue({ ...base, store_id: null })
+    assignments['staff-new'] = ['store-elsewhere']
+    await expect(assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, scope)).resolves.toEqual({ success: true })
+    expect(staffStoresGet).not.toHaveBeenCalled()
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
+  })
+
+  it('item 11: store-less booking + clamped caller → stopped by the store lock, no staff read, nothing written', async () => {
+    apptGet.mockResolvedValue({ ...base, store_id: null })
+    const clamped = { allowedStoreIds: ['store-1'] } as unknown as Parameters<typeof assignStaffToBooking>[4]
+    const res = await assignStaffToBooking(fakeClient as never, 'appt-1', 'staff-new', actor, clamped)
+    expect(res).toHaveProperty('error')
+    expect(res).not.toEqual({ success: true })
+    expect(staffGet).not.toHaveBeenCalled()
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
 })
