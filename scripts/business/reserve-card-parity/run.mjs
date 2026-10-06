@@ -36,6 +36,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tsconfigAliases } from './tsconfig-aliases.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // The manifest is checked whole at load: every key the harness reads, each failure a named error, so a
@@ -207,19 +208,6 @@ function emitExpectedSatin() {
 }
 
 // ---- 3. the port app (Business's globals.css + the module) ----
-// The app's module aliases, from ONE definition: tsconfig.json compilerOptions.paths (what Next resolves), so
-// the throwaway vite resolves "@/…" exactly as the app does. Each "X/*": ["./Y/*"] becomes alias X → <ROOT>/Y;
-// any other shape stops the run rather than being guessed.
-function tsconfigAliases() {
-  const file = join(ROOT, 'tsconfig.json')
-  let co
-  try { co = JSON.parse(readFileSync(file, 'utf8')).compilerOptions ?? {} } catch (e) { throw new Error(`tsconfig.json: cannot be read as plain JSON (${file}): ${e.message}`) }
-  const base = resolve(ROOT, co.baseUrl ?? '.')
-  return Object.entries(co.paths ?? {}).map(([from, to]) => {
-    if (!from.endsWith('/*') || !Array.isArray(to) || to.length !== 1 || !to[0].endsWith('/*')) throw new Error(`tsconfig.json paths: cannot map ${JSON.stringify(from)}: ${JSON.stringify(to)} one-to-one to a vite alias`)
-    return { find: from.slice(0, -2), replacement: resolve(base, to[0].slice(0, -2)) }
-  })
-}
 function writePortApp() {
   mkdirSync(APP, { recursive: true })
   symlinkSync(join(ROOT, 'node_modules'), join(APP, 'node_modules')) // scratch only: resolve react from Business
@@ -248,7 +236,7 @@ export default {
   server: { fs: { allow: [${JSON.stringify(APP)}, ${JSON.stringify(ROOT)}] } },
   css: { postcss: { plugins: [tailwind({ base: ${JSON.stringify(ROOT)} })] } },
   esbuild: { jsx: 'automatic' },
-  resolve: { alias: ${JSON.stringify(tsconfigAliases())} },
+  resolve: { alias: ${JSON.stringify(tsconfigAliases(ROOT))} },
 }
 `)
 }
