@@ -376,7 +376,8 @@ function AgendaRow({
   }
 
   if (isCompleted && !expanded) {
-    const showUnrecorded = !r.isCancelled && !r.karuteRecordId
+    // A 担当未定 row (no staff) is never a recording target: no 未録音.
+    const showUnrecorded = !r.isCancelled && !r.karuteRecordId && !!r.staffId
     return (
       <button
         type="button"

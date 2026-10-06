@@ -7,7 +7,7 @@
  * mark only. A staffed past unrecorded row keeps the pill.
  * next-intl mocked key-echo style (matches agenda-noshow-chip.test.tsx).
  */
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string, vals?: Record<string, unknown>) =>
@@ -50,6 +50,16 @@ describe('mobile agenda row — 担当未定', () => {
         reservations={[reservation({ staffId: null, staffName: '' })]}
       />,
     )
+    expect(screen.queryByText('unrecorded')).toBeNull()
+  })
+
+  it('the same past staff-less row, expanded, still shows no 未録音 pill', () => {
+    render(
+      <ReservationMobileAgenda
+        reservations={[reservation({ staffId: null, staffName: '' })]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button'))
     expect(screen.queryByText('unrecorded')).toBeNull()
   })
 
