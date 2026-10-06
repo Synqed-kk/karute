@@ -105,7 +105,7 @@ export class CoreDouble {
   }
 
   /** An UPDATE of one row by any writer (route or raw SQL): trigger + revision rule. */
-  update(id: string, patch: Partial<Appt>): Appt {
+  applyPatch(id: string, patch: Partial<Appt>): Appt {
     const old = this.appts.get(id)
     if (!old) throw new Error(`no row ${id}`)
     const next: Appt = { ...old, ...patch }
@@ -177,7 +177,7 @@ export class CoreDouble {
       if (method === 'DELETE' && id) {
         if (!this.liveAppt(id)) return err(404, 'Appointment not found')
         // OR-2: voided_by / void_reason stay NULL in C0.
-        this.update(id, { voided_at: new Date(this.clock + 1000).toISOString() })
+        this.applyPatch(id, { voided_at: new Date(this.clock + 1000).toISOString() })
         return { status: 200, json: { success: true } }
       }
     }
@@ -285,7 +285,7 @@ export class CoreDouble {
       else if (!terminal && row.cancelled_at) patch.cancelled_at = null
       if (b.status !== row.status) this.events.get(id)?.push({ status: b.status, at: this.now() })
     }
-    return { status: 200, json: this.pubAppt(this.update(id, patch)) }
+    return { status: 200, json: this.pubAppt(this.applyPatch(id, patch)) }
   }
 
   private customersRoute(method: string, id: string | undefined, q: Query, body: unknown): Answer {

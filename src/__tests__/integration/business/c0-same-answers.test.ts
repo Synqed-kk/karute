@@ -202,7 +202,7 @@ describe('diff — R-2 the watermark per row', () => {
     let n = 0
     const racing: FetchLike = async (url, init) => {
       n += 1
-      if (n === 4) d.update(apptOf((a) => a.source === 'KARUTE').id, { title: 'mid-run' })
+      if (n === 4) d.applyPatch(apptOf((a) => a.source === 'KARUTE').id, { title: 'mid-run' })
       return base(url, init)
     }
     d.c0Fields = true
@@ -217,7 +217,7 @@ describe('diff — R-2 the watermark per row', () => {
     expect(r.reasons.join(' ')).toContain('in one run only')
   })
   it('a field other than updated_at changed on a row → VOID (a real write)', async () => {
-    d.update(apptOf((a) => a.source === 'KARUTE').id, { notes: 'written' })
+    d.applyPatch(apptOf((a) => a.source === 'KARUTE').id, { notes: 'written' })
     const r = judge(await afterC0())
     expect(r.verdict).toBe('VOID')
     expect(r.reasons.join(' ')).toContain('a field other than updated_at')
@@ -304,7 +304,7 @@ describe('diff — R2-1 the verdict precedence (errors → mid-run → real writ
     ['an error + a FAIL (errors win)', none, (a) => { aFail(a); a.errors = [{ query: 'Q1', page: 1, status: 500 }] }, 'VOID', ['answer an error']],
     ['a mid-run write + a FAIL', none, (a) => { aFail(a); const rows = a.watermark_end.appointments.rows; rows[Object.keys(rows)[0]] = AT }, 'VOID', ['a write landed mid-run']],
     ['a row in one run only + a FAIL', (x) => { x.seedAppointment({ store_id: core.STORE_ID, starts_at: '2026-11-01T01:00:00.000Z', ends_at: '2026-11-01T02:00:00.000Z' }) }, aFail, 'VOID', ['in one run only']],
-    ['a non-updated_at change + a FAIL', (x) => { x.update(firstOf(x.appts, (a) => a.source === 'KARUTE').id, { notes: 'written' }) }, aFail, 'VOID', ['a field other than updated_at']],
+    ['a non-updated_at change + a FAIL', (x) => { x.applyPatch(firstOf(x.appts, (a) => a.source === 'KARUTE').id, { notes: 'written' }) }, aFail, 'VOID', ['a field other than updated_at']],
     ['E6: a back-fill rewrites updated_at on every appointment (one QUICKRESERVE row among them)', (x) => { for (const a of x.appts.values()) a.updated_at = AT }, none, 'FAIL', ['the back-fill must move updated_at on no row', 'the sync wrote; run again with the sync paused']],
     ['only the QUICKRESERVE row moved', (x) => { firstOf(x.appts, (a) => a.source === 'QUICKRESERVE').updated_at = AT }, none, 'VOID', ['the sync wrote; run again with the sync paused']],
     ['a crawl-only move + a FAIL (the FAIL is never hidden)', (x) => { firstOf(x.appts, (a) => a.source === 'QUICKRESERVE').updated_at = AT }, aFail, 'FAIL', ['existing answer(s) changed', 'the sync wrote']],

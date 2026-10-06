@@ -151,13 +151,13 @@ describe('THE REVISION RULE (order § 4 (d))', () => {
   })
   it('a written revision = OLD+1 is kept; OLD+5 is ignored', () => {
     const r = seed()
-    expect(core.update(r.id, { revision: 1 }).revision).toBe(1)
-    expect(core.update(r.id, { revision: 6 }).revision).toBe(1)
+    expect(core.applyPatch(r.id, { revision: 1 }).revision).toBe(1)
+    expect(core.applyPatch(r.id, { revision: 6 }).revision).toBe(1)
   })
   it('the back-fill of a NULL hold row (touching only hold_*) leaves revision unmoved', () => {
     const r = core.seedAppointment({ starts_at: '2026-10-20T01:00:00.000Z', ends_at: '2026-10-20T02:00:00.000Z' }, { preApply: true })
     expect(r.hold_from).toBeNull()
-    const after = core.update(r.id, { hold_from: null })
+    const after = core.applyPatch(r.id, { hold_from: null })
     expect(after.hold_from).toBe('2026-10-20T01:00:00.000Z')
     expect(after.hold_until).toBe('2026-10-20T02:00:00.000Z')
     expect(after.revision).toBe(0)
@@ -317,8 +317,8 @@ describe('R-11 (NIT-1) the overlap read is half-open on both sides', () => {
 describe('R-10 the double matches core', () => {
   it('an update that changes a counted column AND supplies revision → OLD+1, the supplied value ignored', () => {
     const r = core.seedAppointment({ starts_at: '2026-10-20T01:00:00.000Z', ends_at: '2026-10-20T02:00:00.000Z' })
-    expect(core.update(r.id, { title: 'x', revision: 6 }).revision).toBe(1)
-    expect(core.update(r.id, { title: 'y', revision: 2 }).revision).toBe(2)
+    expect(core.applyPatch(r.id, { title: 'x', revision: 6 }).revision).toBe(1)
+    expect(core.applyPatch(r.id, { title: 'y', revision: 2 }).revision).toBe(2)
   })
   it('a shift delete moves updated_at', async () => {
     const s = core.seedShift({ staff_id: 'st-1', date: '2026-10-21' })
