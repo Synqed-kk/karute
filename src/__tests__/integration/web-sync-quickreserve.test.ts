@@ -122,6 +122,8 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
       targetType: 'business',
       // PR-M5: one server-minted id per request rides every emit.
       requestId: expect.any(String),
+      // Fix round 4 (Opus S3): the store_id column, like the phone's rows.
+      storeId: '90ddfe47-6f7c-4927-8fde-7d9a05383a79',
       // CORE-43: which store's crawl ran.
       detail: { karute_store_id: '90ddfe47-6f7c-4927-8fde-7d9a05383a79' },
     })
@@ -278,6 +280,7 @@ describe('fix round 2 — every web run audit row carries the store', () => {
     expect(auditWeb).toHaveBeenCalledTimes(1)
     expect(auditWeb.mock.calls[0][0]).toMatchObject({
       action: 'settings.sync_run_now',
+      storeId: 'd5f78368-905a-4eb9-8985-af1924257893',
       detail: { karute_store_id: 'd5f78368-905a-4eb9-8985-af1924257893' },
     })
   })
@@ -292,6 +295,7 @@ describe('fix round 3 (Opus S1) — the web run carries the id core returned', (
     expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: canonical })
     expect(auditWeb).toHaveBeenCalledTimes(1)
     expect(auditWeb.mock.calls[0][0].detail).toEqual({ karute_store_id: canonical })
+    expect(auditWeb.mock.calls[0][0].storeId).toBe(canonical)
   })
 
   it('a body storeId that is not a store id → 409 qr_store_not_ready, no lookup, nothing runs', async () => {

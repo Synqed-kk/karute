@@ -399,3 +399,15 @@ describe('fix round 3 (Opus N2) — a malformed save body is a 400, never a plat
     expect(upsert).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 4 (Opus S3) — the config save audit row fills the store column', () => {
+  it('auditWeb gets storeId = the saved store (the canonical id)', async () => {
+    mockClient([DAIKANYAMA_ROW])
+    expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(200)
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0]).toMatchObject({
+      action: 'settings.sync_config_update',
+      storeId: 'ea093d52-2f54-4f01-8b08-c19e3d131894',
+    })
+  })
+})

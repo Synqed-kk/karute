@@ -192,6 +192,8 @@ export async function POST(request: Request) {
     severity: 'notice',
     targetType: 'business',
     requestId: crypto.randomUUID(),
+    // The store_id column, like the phone's rows (fix round 4, Opus S3).
+    storeId: savedStoreId,
     detail: {
       enabled: Boolean(enabled),
       password_changed: Boolean(password),

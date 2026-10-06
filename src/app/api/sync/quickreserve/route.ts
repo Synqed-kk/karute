@@ -65,6 +65,8 @@ export async function POST(request: Request) {
       action: 'settings.sync_run_now',
       targetType: 'business',
       requestId,
+      // The store_id column, like the phone's rows (fix round 4, Opus S3).
+      storeId,
       detail: { karute_store_id: storeId },
     })
     return NextResponse.json({
@@ -91,6 +93,7 @@ export async function POST(request: Request) {
         action: 'settings.sync_run_now',
         targetType: 'business',
         requestId,
+        storeId: storeId ?? null,
         detail: { karute_store_id: storeId ?? null },
       })
       return NextResponse.json({
