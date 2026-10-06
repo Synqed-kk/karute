@@ -29,10 +29,15 @@ jest.mock('@synqed-kk/ui', () => {
       ) : null,
   }
 })
+jest.mock('@/components/reservation/AppointmentCard', () => ({
+  AppointmentCard: ({ view }: { view: { id: string } }) => <div data-testid="card">{view.id}</div>,
+}))
+jest.mock('@/components/reservation/TimeAxis', () => ({ TimeAxis: () => null, CurrentTimeIndicator: () => null }))
 
 import { UnassignedBookingSheet } from '@/components/appointments/UnassignedBookingSheet'
-import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
+import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
 
 const booking = { id: 'appt-1', customerName: '佐藤', staffId: null } as unknown as ReservationView
 
@@ -47,6 +52,27 @@ describe('UnassignedBookingSheet', () => {
     expect(screen.getByText('unassignedStaff.sheetSubtitleReadOnly')).toBeTruthy()
     expect(screen.getByText('unassignedStaff.recordBlockedReadOnly')).toBeTruthy()
     expect(screen.queryAllByRole('button')).toHaveLength(0)
+  })
+})
+
+describe('ReservationGrid 担当未定 lane', () => {
+  const lanes = [{ id: 'p1', name: 'Mika', role: '', takesBookings: true, initials: 'MI' }]
+  const hours = { start: 9, end: 20 } as never
+  const view = (id: string, staffId: string | null) => ({ id, staffId }) as unknown as ReservationView
+
+  it('absent on a day where every booking has a staff', () => {
+    render(<ReservationGrid staff={lanes} reservations={[view('a', 'p1')]} businessHours={hours} />)
+    expect(screen.queryByText('unassignedStaff.mark')).toBeNull()
+  })
+
+  it('one extra lane, LAST, holding exactly the staff-less bookings', () => {
+    const { container } = render(
+      <ReservationGrid staff={lanes} reservations={[view('a', 'p1'), view('b', null), view('c', null)]} businessHours={hours} />,
+    )
+    expect(screen.getAllByText('unassignedStaff.mark')).toHaveLength(1)
+    const names = Array.from(container.querySelectorAll('.truncate.text-sm.font-medium')).map((n) => n.textContent)
+    expect(names).toEqual(['Mika', 'unassignedStaff.mark'])
+    expect(screen.getAllByTestId('card').map((c) => c.textContent)).toEqual(['a', 'b', 'c'])
   })
 })
 
