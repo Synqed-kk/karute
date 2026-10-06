@@ -24,7 +24,7 @@ import {
   type MonthCell,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
-import { countedClientIds, type AppointmentWindow } from '@/lib/appointments/by-date'
+import { countedClientIds, isShownBooking, type AppointmentWindow } from '@/lib/appointments/by-date'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import { monthCompareDeltaFrom, monthCompareWindow } from '@/lib/appointments/month-compare'
 import type { DayHoursFact } from '@/lib/operating-hours'
@@ -418,14 +418,14 @@ export function buildAppointmentsScreen(
   // Apply the Self/All/specific-staff filter. URL is the source of truth so
   // the back button restores the scope and links can deep-link a specific
   // staff's day (?staff=<id>).
-  const reservationViews = (() => {
-    if (staffFilter === 'all') return allReservationViews
-    if (staffFilter === 'self') {
-      if (!activeStaffId) return allReservationViews
-      return allReservationViews.filter((r) => r.staffId === activeStaffId)
-    }
-    return allReservationViews.filter((r) => r.staffId === staffFilter)
-  })()
+  // A booking with no staff (担当未定, staffId null) belongs to nobody yet, so
+  // no filter value hides it: the manager never loses it, and a stylist on
+  // 自分 still sees 「10:00 担当未定」 and can take it.
+  // ONE predicate with the day 件 (isShownBooking; the day window is kept by
+  // it too), so 件 == rows under every filter.
+  const listFilterId =
+    staffFilter === 'all' ? null : staffFilter === 'self' ? activeStaffId || null : staffFilter
+  const reservationViews = allReservationViews.filter((r) => isShownBooking(r, listFilterId))
 
   const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, selectedDate)
   const businessHours = {
@@ -564,6 +564,12 @@ export function buildAppointmentsScreen(
   const laneKind: LaneKind =
     !storeRowDegraded && isClassBoundBusinessType(businessType) ? 'none' : 'staff'
 
+  // The week/month per-day 件 (weekData, monthData, and dayTotals when no day
+  // window was read) come from windows filtered AT CORE by staff: under a 担当
+  // or 自分 filter they leave out staff-less bookings, which the day list
+  // shows. Core cannot count "this staff or none" cheaply, so they stay as is
+  // (PR-B fix round 1); the day view's 件 reads the day window, which counts
+  // them (fetchAppointmentWindow `shownUnder`).
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
       win.counted,
