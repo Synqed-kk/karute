@@ -322,12 +322,12 @@ function checkInputs(before, after) {
   }
   if (before.run !== 'before') return `The --before file is a "${before.run}" run, not a "before" run.`
   if (after.run !== 'after') return `The --after file is a "${after.run}" run, not an "after" run.`
-  if (!(Date.parse(after.written_at) > Date.parse(before.written_at))) return 'The after file was not written later than the before file.'
+  if (!(Date.parse(after.written_at) > Date.parse(before.written_at))) return 'The after file\'s written_at is not later than the before file\'s written_at.'
   for (const k of ['core_host', 'business_id', 'store_id']) {
     if (before[k] !== after[k]) return `The two files read a different ${k}.`
   }
   if (canon(before.dates) !== canon(after.dates)) return 'The two files read different dates.'
-  if (canon(before.pins) !== canon(after.pins)) return 'The two files pinned different ids.'
+  if (canon(before.pins) !== canon(after.pins)) return 'The two files carry different pins (pinned ids).'
   return null
 }
 

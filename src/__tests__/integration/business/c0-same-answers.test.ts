@@ -357,3 +357,26 @@ describe('diff — R2-2 the rows the crawl touches (QUICKRESERVE appointments, e
   })
 })
 
+describe('the CLI — R2-3 every checkInputs branch → exit 3 naming the field · R2-4 the usage text', () => {
+  const cli = (args: string[]) => spawnSync(process.execPath, [path.join(ROOT, 'scripts/c0-same-answers.mjs'), ...args], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' } })
+  it.each<[string, (b: Run, a: Run) => void, RegExp]>([
+    ['before.run is not "before"', (b) => { b.run = 'after' }, /^The --before file is a "after" run, not a "before" run\.$/],
+    ['after.run is not "after"', (_b, a) => { a.run = 'before' }, /^The --after file is a "before" run, not an "after" run\.$/],
+    ['after.written_at is not later', (b, a) => { a.written_at = b.written_at }, /written_at is not later/],
+    ['core_host differs', (_b, a) => { a.core_host = 'other.invalid' }, /different core_host\.$/],
+    ['business_id differs', (_b, a) => { a.business_id = 'other' }, /different business_id\.$/],
+    ['store_id differs', (_b, a) => { a.store_id = 'other' }, /different store_id\.$/],
+    ['dates differ', (_b, a) => { a.dates = ['2026-10-15', '2026-10-16', '2026-10-17'] }, /different dates\.$/],
+    ['pins differ', (_b, a) => { a.pins = { ...a.pins, appointment_ids: a.pins.appointment_ids.slice(1) } }, /different pins/],
+  ])('%s → exit 3, the sentence names it', async (_name, edit, says) => {
+    const after = await afterC0()
+    const b = clone(before)
+    edit(b, after)
+    const tmp = mkdtempSync(path.join(os.tmpdir(), 'c0-same-answers-'))
+    writeFileSync(path.join(tmp, 'b.json'), JSON.stringify(b))
+    writeFileSync(path.join(tmp, 'a.json'), JSON.stringify(after))
+    const r = cli(['diff', '--before', path.join(tmp, 'b.json'), '--after', path.join(tmp, 'a.json')])
+    expect(r.status).toBe(3)
+    expect(r.stderr.split('\n')[0]).toMatch(says)
+  })
+})
