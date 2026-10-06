@@ -44,10 +44,11 @@ export const POST = facadeHandler('sync.run', async (ctx: FacadeContext) => {
       capabilities: ctx.identity.capabilities,
       requestedStoreId: ctx.req.headers.get('store-id'),
     })
-    const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
-    // Web parity: the run's audit row names the store that ran.
+    // Web parity: every run audit row names the store — set before the run,
+    // so the not-configured 200 below carries it too.
     ctx.auditStoreId = storeId
     ctx.auditDetail = { karute_store_id: storeId }
+    const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
     return ok(ctx, {
       success: true,
       ...result,

@@ -269,3 +269,16 @@ describe('fix round 2 — the store is the one the form shows, never the cookie'
     expect(runNow).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 2 — every web run audit row carries the store', () => {
+  it('not configured (a 2xx) → the audit row names the store', async () => {
+    runNow.mockRejectedValue(new Error('config not found'))
+    activeStore.current = 'store-shibuya'
+    expect((await POST(run())).status).toBe(200)
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0]).toMatchObject({
+      action: 'settings.sync_run_now',
+      detail: { karute_store_id: 'store-shibuya' },
+    })
+  })
+})

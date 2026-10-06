@@ -47,16 +47,18 @@ export async function POST(request: Request) {
   // route landed with PR-M2 mid-wave; the CP5 scan caught the missing
   // threading at the M5 rebase, exactly as designed).
   const requestId = crypto.randomUUID()
+  // Hoisted so the not-configured audit row below names the store too.
+  let storeId: string | undefined
   try {
     // CORE-43: crawl the shown store's own row — 銀座's button runs 銀座.
     // The store is resolved by the ONE helper the phone run uses too; its
     // mapping table (case × web × phone) heads src/lib/sync/resolve-run-store.ts.
-    const { storeId } = await resolveSyncRunStore({
+    ;({ storeId } = await resolveSyncRunStore({
       synqed,
       authUserId: await getCurrentUserStaffId(),
       capabilities,
       requestedStoreId,
-    })
+    }))
     const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
     await auditWeb({
       category: 'settings',
@@ -84,7 +86,13 @@ export async function POST(request: Request) {
     // error, matching the pre-delegation behavior. Still a 2xx → still an
     // audit row (facade parity: FACADE_AUDIT_MAP fires on any 2xx).
     if (/config not found|no credentials/i.test(message)) {
-      await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
+      await auditWeb({
+        category: 'settings',
+        action: 'settings.sync_run_now',
+        targetType: 'business',
+        requestId,
+        detail: { karute_store_id: storeId ?? null },
+      })
       return NextResponse.json({
         message: 'QR sync not configured — save your Quick Reserve login first.',
       })
