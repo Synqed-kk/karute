@@ -13,7 +13,7 @@ Verbatim check (last run): 31/31 identical
 Scoped blocks (declarations after prefix strip): 3/3 identical
 
 ## Declared edits (not verbatim)
-- `reserve-card.css` ← `src/index.css` 214–221 · 237–246 · 254–263 (.pressable, .tap44) — SCOPED: selectors prefixed `.member-ground `, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
+- `reserve-card.css` ← `src/index.css` 214–221 · 237–246 · 254–263 (.pressable, .tap44, .rank-chip) — SCOPED: selectors prefixed `.member-ground `, declarations byte-identical to Reserve. Reserve keeps these three idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
 - `ReserveCardPreview.tsx` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 - `ReserveCardPreview.tsx` + `card-color.ts` — Colour inputs are normalised at the boundary (card-color.ts): only `#RRGGBB` reaches the satin math; anything else counts as absent — identical on server and client, no hydration drift.
 
@@ -40,7 +40,7 @@ The unit test (src/__tests__/integration/business/reserve-card.test.ts) reads `r
 Reserve's small card at the pin is STUDIO FORCE (its name lives outside mock.ts), so the port's small card is compared under that name and colour pair; Reserve's store page hides `.salon-rankfloat` (a sibling overlapping the cover's bottom edge) for the capture; the port's sample context is Reserve's demo member at 2026-09-14 10:00 JST, so Reserve's clock is frozen there.
 
 ## Shipping
-`reserve-card.css` is imported by the client component; it ships in a route chunk only once a route imports `ReserveCardPreview` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: `.tap44` and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
+`reserve-card.css` is imported by the client component; it ships in a route chunk only once a route imports `ReserveCardPreview` (Turbopack drops the unused import). Proven 2026-09-24 with a temporary probe route: the scoped tap-box rule and every port rule landed in the route chunk; absent from every chunk on the unwired tip.
 
 ## Keeping it in step
 When Reserve changes any of these ranges, re-run the harness against the new pin; a diff = re-port, never patch.

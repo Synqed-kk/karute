@@ -1,10 +1,11 @@
 /* Verified port of Synqed-kk/reserve src/index.css @ 4db48b73ba70 — the rules the member card's three
    surfaces (.mcard, .tcard, .salon-cover) and the Home greeting render from. Every block below a
    `reserve index.css:A–B` marker is byte-identical to those lines; never edit one — re-port (PARITY.md).
-   Two blocks are SCOPED, not verbatim (Reserve keeps .pressable / .tap44 global in its own app; here a
-   global rule would reach any Business element carrying the class), and their markers say so:
+   Three blocks are SCOPED, not verbatim (Reserve keeps .pressable / .tap44 / .rank-chip global in its own app;
+   here a global rule would reach any Business element carrying the class), and their markers say so:
    - index.css:214–221 (.pressable): selectors prefixed `.member-ground `, declarations byte-identical to Reserve.
    - index.css:237–246 (.tap44): selectors prefixed `.member-ground `, declarations byte-identical to Reserve.
+   - index.css:254–263 (.rank-chip): selectors prefixed `.member-ground `, declarations byte-identical to Reserve.
    Fonts: the wordmarks are Georgia, then "Reserve Card JP" for Japanese glyphs — Reserve's own @font-face
    (index.css:929, inside the 905–960 block) that names platform mincho faces by local() only: no import,
    no webfont, no asset; everything else is --font-sans, Reserve's system stack, re-declared in the context
