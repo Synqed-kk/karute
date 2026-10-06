@@ -37,7 +37,12 @@ const runNow = jest.fn(async () => ({
   unmatched_staff: [],
   duration_ms: 1234,
 }))
-const fakeClient = { sync: { runNow } }
+// The primary store a headerless cross-store run resolves to (web parity:
+// resolveStoreScope's getPrimaryStoreId).
+const fakeClient = {
+  sync: { runNow },
+  stores: { list: async () => ({ stores: [{ id: 'store-primary', is_primary: true }] }) },
+}
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient }))
 
 // Spread the REAL module so FACADE_AUDIT_MAP stays live inside logFacadeAudit
@@ -56,6 +61,7 @@ const resolveStoreForRequest = jest.fn(async (a: { requestedStoreId: string | nu
   allowedStoreIds: null,
 }))
 jest.mock('@/lib/app-api/store-clamp', () => ({
+  ...jest.requireActual('@/lib/app-api/store-clamp'),
   resolveStoreForRequest: (a: { requestedStoreId: string | null }) => resolveStoreForRequest(a),
 }))
 
@@ -91,9 +97,9 @@ describe('POST /api/app/v1/sync/run', () => {
     expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
   })
 
-  it('CORE-43: no store-id header → core default (the primary row), no store sent', async () => {
+  it('CORE-43: no store-id header → the primary store, sent explicitly (web parity)', async () => {
     expect((await POST(post(), noRoute)).status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: undefined })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-primary' })
   })
 
   it('no sync.view grant → 403, runNow never called, no audit row', async () => {
@@ -116,7 +122,7 @@ describe('POST /api/app/v1/sync/run', () => {
       skipped: 2, // skipped_no_staff (1) + skipped_deleted (1)
       duration_ms: 1234,
     })
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: undefined })
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-primary' })
   })
 
   it('not-configured (upstream "config not found") → 200 friendly message, not a failure', async () => {

@@ -41,6 +41,7 @@ jest.mock('@/lib/auth/store-scope', () => ({
 import { POST } from '@/app/api/sync/quickreserve/route'
 import { getBusinessId } from '@/lib/staff'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 
 const getBusinessIdMock = getBusinessId as jest.Mock
 const getMyCapabilitiesMock = getMyCapabilities as jest.Mock
@@ -117,6 +118,14 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
     const body = await res.json()
     expect(body.message).toMatch(/QR sync not configured/)
     expect(auditWeb).toHaveBeenCalledTimes(1)
+  })
+
+  it('store scope lookup throws → 502, never a store denial (the phone twin matches: Greptile #1135 F3)', async () => {
+    ;(resolveStoreScope as jest.Mock).mockRejectedValueOnce(new Error('core down'))
+    const res = await POST()
+    expect(res.status).toBe(502)
+    expect(runNow).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
   })
 
   it('other upstream failure → 502, no audit emit', async () => {
