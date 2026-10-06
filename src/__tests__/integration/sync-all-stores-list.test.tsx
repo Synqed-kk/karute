@@ -170,10 +170,12 @@ describe('viewAll caller', () => {
     render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
     await act(async () => { fireEvent.click(screen.getByText('runAll')) })
-    expect(screen.getByRole('button', { name: 'runNowPending' })).toBeTruthy()
+    // the sync-all button reads 同期中… (the store running now also shows it on its row button)
+    expect(screen.getAllByRole('button', { name: 'runNowPending' }).filter((el) => !el.closest('table'))).toHaveLength(1)
     // every row in the run shows 同期中… in its 最終同期 cell (mock bLastCell)
     for (const id of ['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7']) {
-      expect(within(screen.getByTestId(`sync-row-${id}`)).getByText('runNowPending')).toBeTruthy()
+      // (the store running now reads 同期中… on its button too: it is in flight)
+      expect(within(screen.getByTestId(`sync-row-${id}`)).getAllByText('runNowPending').length).toBeGreaterThanOrEqual(1)
     }
     // Never in parallel: the next store starts only after the previous answers.
     expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'])
@@ -209,7 +211,8 @@ describe('viewAll caller', () => {
     expect(within(screen.getByTestId('sync-row-6eb071d2-829f-4a01-91b3-c4d5e6f70819')).getByText('runNow')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByText('runAll')) })
     // while the run is pending, the OFF row is not in it: its 最終同期 cell never reads 同期中…
-    expect(screen.getByRole('button', { name: 'runNowPending' })).toBeTruthy()
+    // the sync-all button reads 同期中… (the store running now also shows it on its row button)
+    expect(screen.getAllByRole('button', { name: 'runNowPending' }).filter((el) => !el.closest('table'))).toHaveLength(1)
     expect(within(screen.getByTestId('sync-row-6eb071d2-829f-4a01-91b3-c4d5e6f70819')).queryByText('runNowPending')).toBeNull()
     for (let i = 0; i < 3; i++) {
       await act(async () => { runs[i].resolve(ok) })
@@ -255,23 +258,67 @@ describe('viewAll caller', () => {
     expect(screen.getByText('runAll').closest('button')!.disabled).toBe(false)
   })
 
-  it('never two crawls of one store: a row run blocks すべての店舗を同期, and sync-all blocks every row', async () => {
-    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+  it('never two crawls of one store: sync-all skips a store whose row run is in flight, and blocks every row', async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
     await flush()
-    await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4')).getByText('runNow')) })
-    const runAllButton = screen.getByText('runAll').closest('button')!
-    expect(runAllButton.disabled).toBe(true)
-    await act(async () => { fireEvent.click(runAllButton) })
-    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4']) // the attack's ["a","a"] cannot happen
-    await act(async () => { runs[0].resolve(ok) })
-    await flush()
+    await act(async () => { fireEvent.click(within(screen.getByTestId(`sync-row-${daikanyama}`)).getByText('runNow')) })
     await act(async () => { fireEvent.click(screen.getByText('runAll')) })
-    for (const id of ['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7']) {
-      const button = within(screen.getByTestId(`sync-row-${id}`)).getByText('runNow').closest('button')!
+    await flush()
+    // 代官山 is in flight from its row: sync-all goes straight to the next store
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'])
+    // while sync-all runs, no row can start
+    for (const id of [daikanyama, '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7']) {
+      const button = within(screen.getByTestId(`sync-row-${id}`)).getByRole('button', { name: /runNow/ }) as HTMLButtonElement
       expect(button.disabled).toBe(true)
       await act(async () => { fireEvent.click(button) })
     }
-    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'])
+    expect(runs).toHaveLength(2)
+    await act(async () => { runs[0].resolve(ok) })
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    await act(async () => { runs[2].resolve(ok) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'])
+    expect(screen.getByText('runAllDone{"n":2}')).toBeTruthy() // the skipped store is not reported
+  })
+
+  it("one in-flight set: the form's 今すぐ同期 for a store disables that row and sync-all never POSTs for it", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    const row = within(screen.getByTestId(`sync-row-${daikanyama}`))
+    expect((row.getByRole('button', { name: 'runNowPending' }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { fireEvent.click(row.getByRole('button', { name: 'runNowPending' })) })
+    expect(runs).toHaveLength(1)
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'])
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    await act(async () => { runs[2].resolve(ok) })
+    await flush()
+    expect(runs.filter((r) => r.storeId === daikanyama)).toHaveLength(1)
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+  })
+
+  it("one in-flight set: a row run disables the form's 今すぐ同期 and save for that store until it answers", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    expect((screen.getByRole('button', { name: 'syncNow' }) as HTMLButtonElement).disabled).toBe(false)
+    await act(async () => { fireEvent.click(within(screen.getByTestId(`sync-row-${daikanyama}`)).getByText('runNow')) })
+    const formButton = screen.getByRole('button', { name: 'syncing' }) as HTMLButtonElement
+    expect(formButton.disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'saveConfig' }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { fireEvent.click(formButton) })
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect((screen.getByRole('button', { name: 'syncNow' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it.each([

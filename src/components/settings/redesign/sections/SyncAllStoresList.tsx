@@ -70,9 +70,18 @@ async function fetchStoreRows(): Promise<SyncStoreRow[] | null> {
  *  names every store. Everyone else keeps the single-store form alone. */
 export function SyncAllStoresList({
   selectStore,
+  inFlight,
+  beginSyncing,
+  endSyncing,
 }: {
   /** setActiveStore (server action, handed down from the settings page). */
   selectStore: (storeId: string) => Promise<{ ok: true } | { error: string }>
+  /** SyncSection's ONE in-flight set: every store with a save or run pending,
+   *  from the form or from this list. */
+  inFlight: ReadonlySet<string>
+  /** Marks a store in flight; false (and nothing marked) when it already is. */
+  beginSyncing: (storeId: string) => boolean
+  endSyncing: (storeId: string) => void
 }) {
   const t = useTranslations('syncAllStores')
   const tCommon = useTranslations('common')
@@ -80,7 +89,6 @@ export function SyncAllStoresList({
   const router = useRouter()
   const [rows, setRows] = useState<SyncStoreRow[] | null>(null)
   const [now, setNow] = useState(0)
-  const [running, setRunning] = useState<Record<string, boolean>>({})
   const [rowResult, setRowResult] = useState<Record<string, RunOutcome>>({})
   const [runAll, setRunAll] = useState<{ pending: boolean; results: { row: SyncStoreRow; outcome: RunOutcome }[] | null }>({
     pending: false,
@@ -119,16 +127,14 @@ export function SyncAllStoresList({
     }
   }
 
-  // ⚖ Never two crawls of one store at once: a row run and すべての店舗を同期
-  // lock each other out.
-  const anyRowRunning = Object.values(running).some(Boolean)
-
+  // ⚖ Never two crawls of one store at once: the row runs, すべての店舗を同期
+  // and the form's own save / 今すぐ同期 all mark the store in SyncSection's
+  // one in-flight set, and none starts a store that is already in it.
   async function runOne(row: SyncStoreRow) {
-    if (runAll.pending || running[row.storeId]) return
-    setRunning((r) => ({ ...r, [row.storeId]: true }))
+    if (runAll.pending || !beginSyncing(row.storeId)) return
     const outcome = await runStoreSync(row.storeId)
+    endSyncing(row.storeId)
     setRowResult((r) => ({ ...r, [row.storeId]: outcome }))
-    setRunning((r) => ({ ...r, [row.storeId]: false }))
     await load()
   }
 
@@ -140,7 +146,7 @@ export function SyncAllStoresList({
   // turned OFF after the list loaded (the form below, another session) is
   // never crawled. A failed re-read runs nothing — no run on stale rows.
   async function runAllStores() {
-    if (!rows || runAll.pending || anyRowRunning) return
+    if (!rows || runAll.pending) return
     setRunAll({ pending: true, results: null })
     const fresh = await fetchStoreRows()
     if (!fresh) {
@@ -151,7 +157,11 @@ export function SyncAllStoresList({
     setNow(Date.now())
     const results: { row: SyncStoreRow; outcome: RunOutcome }[] = []
     for (const row of fresh.filter(syncsInRunAll)) {
-      results.push({ row, outcome: await runStoreSync(row.storeId) })
+      // A store already in flight (its row run, the form) is skipped, not queued.
+      if (!beginSyncing(row.storeId)) continue
+      const outcome = await runStoreSync(row.storeId)
+      endSyncing(row.storeId)
+      results.push({ row, outcome })
     }
     setRowResult({})
     setRunAll({ pending: false, results })
@@ -178,7 +188,7 @@ export function SyncAllStoresList({
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground">{t('scopeLine', { n: rows.length })}</span>
         {runAllCount >= 2 && (
-          <button type="button" onClick={runAllStores} disabled={runAll.pending || anyRowRunning} className={OUTLINE_BUTTON}>
+          <button type="button" onClick={runAllStores} disabled={runAll.pending} className={OUTLINE_BUTTON}>
             {runAll.pending ? t('runNowPending') : t('runAll')}
           </button>
         )}
@@ -238,7 +248,7 @@ export function SyncAllStoresList({
             {rows.map((row) => {
               const { state, reason } = syncStoreState(row, now)
               const result = rowResult[row.storeId]
-              const pending = Boolean(running[row.storeId])
+              const pending = inFlight.has(row.storeId)
               const rowMessage = pending || runAll.pending
                 ? null
                 : result

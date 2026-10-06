@@ -155,6 +155,15 @@ export function SyncSection({
     setInFlight(next)
   }
 
+  // The all-stores list's row runs and すべての店舗を同期 share THIS set, so the
+  // form and the list never crawl one store twice at once: a claim is refused
+  // (false) while the store is already in flight here or in the list.
+  function claimSyncing(key: string) {
+    if (inFlightRef.current.has(key)) return false
+    beginSyncing(key)
+    return true
+  }
+
   // Both actions capture the store at request time and ignore an answer that
   // lands after the form moved to another store.
   async function saveConfig() {
@@ -253,7 +262,9 @@ export function SyncSection({
         </p>
       </div>
 
-      {showAllStores && selectStore && <SyncAllStoresList selectStore={selectStore} />}
+      {showAllStores && selectStore && (
+        <SyncAllStoresList selectStore={selectStore} inFlight={inFlight} beginSyncing={claimSyncing} endSyncing={endSyncing} />
+      )}
 
       <div>
         <label className="text-sm font-medium mb-1.5 block">
