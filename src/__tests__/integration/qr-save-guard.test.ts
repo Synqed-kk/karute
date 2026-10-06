@@ -133,6 +133,16 @@ describe('POST — each store saves only its own row', () => {
     expect(upsert).not.toHaveBeenCalled()
   })
 
+  it("(e2) 銀座's first save without a login ID → 400, nothing written", async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: '  ', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '250' }),
+    )
+    expect(res.status).toBe(400)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
   it("(f) 銀座's first save with its QR store writes ONLY 銀座's row", async () => {
     actorStore.current = 'ginza'
     const upsert = mockClient([DAIKANYAMA_ROW])

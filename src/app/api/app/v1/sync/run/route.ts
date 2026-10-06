@@ -38,10 +38,9 @@ export const POST = facadeHandler('sync.run', async (ctx: FacadeContext) => {
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
   try {
-    const result = await synqed.sync.runNow(
-      'QUICKRESERVE',
-      clamp.storeId ? { karute_store_id: clamp.storeId } : undefined,
-    )
+    const result = await synqed.sync.runNow('QUICKRESERVE', {
+      karute_store_id: clamp.storeId ?? undefined,
+    })
     return ok(ctx, {
       success: true,
       ...result,

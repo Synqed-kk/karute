@@ -44,6 +44,12 @@ export async function readSyncResponse(
   return { ok: true, data: data ?? {} }
 }
 
+const SYNC_ERROR_COPY = {
+  qr_store_not_ready: 'bookingSyncStoreNotReady',
+  qr_store_required: 'bookingSyncQrStoreRequired',
+  qr_store_already_linked: 'bookingSyncQrStoreAlreadyLinked',
+} as const
+
 export function SyncSection() {
   const t = useTranslations('settings')
   const tAuth = useTranslations('auth')
@@ -77,6 +83,15 @@ export function SyncSection() {
       .catch(() => {})
   }, [])
 
+  // The routes' stable error codes, not messages meant for display — show OUR
+  // localized copy so it follows the language toggle.
+  function localizeSyncError(status: number, message: string): string {
+    const code = (Object.keys(SYNC_ERROR_COPY) as (keyof typeof SYNC_ERROR_COPY)[]).find((c) =>
+      message.includes(c),
+    )
+    return code ? `Error (${status}): ${t(SYNC_ERROR_COPY[code])}` : message
+  }
+
   async function saveConfig() {
     setSyncing(true)
     try {
@@ -90,28 +105,9 @@ export function SyncSection() {
           ...(configured ? {} : { qrStoreSlug, qrStoreId }),
         }),
       })
-      // The save guard's 409 (PKT-P0) carries a stable code, not a message
-      // meant for display — show OUR localized copy so it follows the
-      // language toggle, in the same error slot as any other failure.
-      if (res.status === 409) {
-        const body: { error?: string } = await res.json().catch(() => ({}))
-        if (body.error === 'qr_store_not_ready') {
-          setLastResult(`Error (409): ${t('bookingSyncStoreNotReady')}`)
-          setSyncing(false)
-          return
-        }
-      }
       const parsed = await readSyncResponse(res)
       if (parsed.ok) setConfigured(true)
-      setLastResult(
-        parsed.ok
-          ? 'Config saved'
-          : /qr_store_required/.test(parsed.message)
-            ? `Error (${res.status}): ${t('bookingSyncQrStoreRequired')}`
-            : /qr_store_already_linked/.test(parsed.message)
-              ? `Error (${res.status}): ${t('bookingSyncQrStoreAlreadyLinked')}`
-              : parsed.message,
-      )
+      setLastResult(parsed.ok ? 'Config saved' : localizeSyncError(res.status, parsed.message))
     } catch {
       setLastResult('Failed to save')
     }
@@ -125,7 +121,7 @@ export function SyncSection() {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve', { method: 'POST' })
       const parsed = await readSyncResponse(res)
       if (!parsed.ok) {
-        setLastResult(parsed.message)
+        setLastResult(localizeSyncError(res.status, parsed.message))
       } else {
         const d = parsed.data
         setLastResult(

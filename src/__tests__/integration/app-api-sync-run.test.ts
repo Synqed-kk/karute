@@ -93,7 +93,7 @@ describe('POST /api/app/v1/sync/run', () => {
 
   it('CORE-43: no store-id header → core default (the primary row), no store sent', async () => {
     expect((await POST(post(), noRoute)).status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', undefined)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: undefined })
   })
 
   it('no sync.view grant → 403, runNow never called, no audit row', async () => {
@@ -116,7 +116,7 @@ describe('POST /api/app/v1/sync/run', () => {
       skipped: 2, // skipped_no_staff (1) + skipped_deleted (1)
       duration_ms: 1234,
     })
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', undefined)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: undefined })
   })
 
   it('not-configured (upstream "config not found") → 200 friendly message, not a failure', async () => {

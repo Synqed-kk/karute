@@ -43,12 +43,20 @@ export async function POST() {
   const requestId = crypto.randomUUID()
   try {
     // CORE-43: crawl the ACTIVE store's own row — 銀座's button runs 銀座.
+    // No resolvable store (a degraded scope) is refused, never a fallback to
+    // another store's crawl — the same answer the config save gives.
     const { storeId } = await resolveStoreScope()
-    const result = await synqed.sync.runNow(
-      'QUICKRESERVE',
-      storeId ? { karute_store_id: storeId } : undefined,
-    )
-    await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
+    if (!storeId) {
+      return NextResponse.json({ error: 'qr_store_not_ready' }, { status: 409 })
+    }
+    const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
+    await auditWeb({
+      category: 'settings',
+      action: 'settings.sync_run_now',
+      targetType: 'business',
+      requestId,
+      detail: { karute_store_id: storeId },
+    })
     return NextResponse.json({
       success: true,
       ...result,

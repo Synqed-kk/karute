@@ -80,6 +80,8 @@ export async function POST(request: Request) {
 
   const { username, password, enabled, qrStoreSlug, qrStoreId } = await request.json()
   const synqed = await getSynqedClient()
+  // Which store's row this save changed — for the audit row below.
+  let savedStoreId: string | null = null
 
   // CORE-43: each Karute store saves ITS OWN row (core keys configs by
   // business + provider + karute_store_id), so a 銀座 save can never rebind
@@ -106,7 +108,8 @@ export async function POST(request: Request) {
 
     const slug = typeof qrStoreSlug === 'string' ? qrStoreSlug.trim() : ''
     const qrId = Number(qrStoreId)
-    if (!existing && (!slug || !Number.isInteger(qrId) || qrId <= 0 || !password)) {
+    const login = typeof username === 'string' ? username.trim() : ''
+    if (!existing && (!slug || !Number.isInteger(qrId) || qrId <= 0 || !login || !password)) {
       return NextResponse.json(
         { error: 'qr_store_required', message: 'A new store needs its Quick Reserve store and login.' },
         { status: 400 },
@@ -129,6 +132,7 @@ export async function POST(request: Request) {
         : { store_slug: slug, store_id: qrId }),
       karute_store_id: storeId,
     })
+    savedStoreId = storeId
   } catch (e) {
     // Surface the real failure — whether it came from a read above or the
     // write itself (the old route's "Config saved" false positive).
@@ -145,7 +149,11 @@ export async function POST(request: Request) {
     severity: 'notice',
     targetType: 'business',
     requestId: crypto.randomUUID(),
-    detail: { enabled: Boolean(enabled), password_changed: Boolean(password) },
+    detail: {
+      enabled: Boolean(enabled),
+      password_changed: Boolean(password),
+      karute_store_id: savedStoreId,
+    },
   })
 
   return NextResponse.json({ success: true })

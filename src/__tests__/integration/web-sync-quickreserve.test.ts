@@ -66,10 +66,12 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
     expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
   })
 
-  it('CORE-43: no resolved store → core default (the primary row), no store sent', async () => {
+  it("CORE-43: no resolvable store → 409 qr_store_not_ready, never another store's crawl", async () => {
     activeStore.current = null
-    expect((await POST()).status).toBe(200)
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', undefined)
+    const res = await POST()
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(runNow).not.toHaveBeenCalled()
     activeStore.current = 'store-ginza'
   })
 
@@ -103,6 +105,8 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
       targetType: 'business',
       // PR-M5: one server-minted id per request rides every emit.
       requestId: expect.any(String),
+      // CORE-43: which store's crawl ran.
+      detail: { karute_store_id: 'store-ginza' },
     })
   })
 
