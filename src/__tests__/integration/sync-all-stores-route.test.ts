@@ -108,6 +108,15 @@ describe('GET /api/sync/quickreserve/configs', () => {
     expect(JSON.parse(body).stores[0].lastRunReason).toBe('login')
   })
 
+  it('counts travel only for an OK run: an ERROR row with stats and a RUNNING row both read lastRunCounts null', async () => {
+    for (const last_run_status of ['ERROR', 'RUNNING']) {
+      listConfigs.mockResolvedValueOnce([{ ...CONFIG, last_run_status, last_run_error: last_run_status === 'ERROR' ? 'boom' : null }])
+      const { stores } = await (await GET()).json()
+      expect(CONFIG.last_run_stats).toEqual({ created: 1, updated: 2, cancelled: 0 }) // the row HAS stats
+      expect(stores[0]).toMatchObject({ lastRunStatus: last_run_status, lastRunCounts: null })
+    }
+  })
+
   it('502 when core cannot be read', async () => {
     listConfigs.mockRejectedValueOnce(new Error('core down'))
     expect((await GET()).status).toBe(502)

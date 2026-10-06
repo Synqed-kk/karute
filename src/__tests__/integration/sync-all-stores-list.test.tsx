@@ -100,6 +100,16 @@ describe('viewAll caller', () => {
     expect(en.syncAllStores.windowEmpty).toBe('The start and end of the active hours are the same, so this store does not sync automatically')
   })
 
+  it('a failed last run shows 失敗 and never counts, even if counts reached the row', async () => {
+    extraRows = [{ ...ROW, storeId: '8e1f2a3b-4c5d-4e6f-9a70-8192a3b4c5d6', storeName: '目黒', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 280,
+      lastRunStatus: 'ERROR', lastRunReason: 'login', lastRunCounts: { created: 5, updated: 6, cancelled: 7 } }]
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    const row = within(screen.getByTestId('sync-row-8e1f2a3b-4c5d-4e6f-9a70-8192a3b4c5d6'))
+    expect(row.getByText('lastRunFailed')).toBeTruthy()
+    expect(row.queryByText(/lastRunCounts/)).toBeNull()
+  })
+
   it('編集 selects that store, and the per-store form reloads for it (PR-A F1 harness)', async () => {
     const { rerender } = render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
