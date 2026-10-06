@@ -32,7 +32,8 @@
  *     dialog.css). Every rule above is shared, untouched. Without it the DOM is
  *     exactly what it was.
  * 10. ⚖ S63 R235 — the trap's list is only what Tab can reach: never a negative
- *     `tabIndex`, never anything under `aria-hidden="true"` or `inert` within the box. */
+ *     `tabIndex`, never anything under `aria-hidden="true"` or `inert` within the box.
+ *     Tab is always handled while the dialog is top-most, so a control under aria-hidden can be reached by a click but never by Tab, and Tab from it continues in DOM order (S71). */
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
@@ -170,9 +171,18 @@ export function Dialog({
       if (list.length === 0) { e.preventDefault(); box.focus(); return }
       const first = list[0]
       const last = list[list.length - 1]
-      const inside = active instanceof HTMLElement && list.includes(active)
-      if (e.shiftKey && (active === first || !inside)) { e.preventDefault(); last.focus() }
-      else if (!e.shiftKey && (active === last || !inside)) { e.preventDefault(); first.focus() }
+      const n = list.length
+      const idx = active instanceof HTMLElement ? list.indexOf(active) : -1
+      let next: HTMLElement
+      if (idx >= 0) next = list[(idx + (e.shiftKey ? -1 : 1) + n) % n]
+      else if (active instanceof HTMLElement && box.contains(active)) {
+        // Inside the box but not in the list (the box, or a control Tab cannot reach): continue in DOM order.
+        next = e.shiftKey
+          ? ([...list].reverse().find((el) => active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) ?? last)
+          : (list.find((el) => active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) ?? first)
+      } else next = e.shiftKey ? last : first
+      e.preventDefault()
+      next.focus()
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)

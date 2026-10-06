@@ -208,6 +208,33 @@ describe('d5 - S63 R235: the Tab trap holds only what Tab can reach', () => {
     expect(notPrevented).toBe(false)
     expect(document.activeElement).toBe(byText('last'))
   })
+  /** ⚖ S71 - Tab is always handled while top-most: a native Tab cannot land under aria-hidden, and a
+   *  click there (B.focus()) continues in DOM order, so C after it stays reachable by forward Tab. */
+  it('t7 S71: A, B under aria-hidden, C - Tab skips B; from a clicked B Tab goes on to C, Shift+Tab back to A; C wraps to A', () => {
+    render(
+      <div className="page pg-settings">
+        <Dialog open onClose={() => {}} labelledBy="s71-t">
+          <h2 id="s71-t">s71</h2>
+          <button type="button">A</button>
+          <div aria-hidden="true"><button type="button">B</button></div>
+          <button type="button">C</button>
+        </Dialog>
+      </div>,
+    )
+    byText('A').focus()
+    expect(fireEvent.keyDown(document, { key: 'Tab' })).toBe(false)
+    expect(document.activeElement).toBe(byText('C'))
+    byText('B').focus()
+    expect(document.activeElement).toBe(byText('B'))
+    expect(fireEvent.keyDown(document, { key: 'Tab' })).toBe(false)
+    expect(document.activeElement).toBe(byText('C'))
+    byText('B').focus()
+    expect(fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })).toBe(false)
+    expect(document.activeElement).toBe(byText('A'))
+    byText('C').focus()
+    expect(fireEvent.keyDown(document, { key: 'Tab' })).toBe(false)
+    expect(document.activeElement).toBe(byText('A'))
+  })
   /** ⚖ S63 R238 - rule 10 is bounded to the box: an `aria-hidden="true"` / `inert` ancestor ABOVE the box
    *  (here the wrapper around `.page.pg-settings`, the room root the Dialog portals into) hides nothing. */
   function OuterHiddenRoom({ how }: { how: 'aria-hidden' | 'inert' }) {

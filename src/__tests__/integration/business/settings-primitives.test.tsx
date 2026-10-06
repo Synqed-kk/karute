@@ -572,9 +572,9 @@ describe('⚖ S54 R165 — scrim release, the dialog stack, the live onClose, th
     const r = openTwo([])
     const b1 = r.getByText('b1'); const b2 = r.getByText('b2')
     expect(document.activeElement).toBe(b1)
-    // Tab from a middle control is the browser's own move: no trap (A's least of all) cancels it
-    expect(fireEvent.keyDown(b1, { key: 'Tab' })).toBe(true)
-    expect(document.activeElement).toBe(b1)
+    // S71: Tab is always handled inside the top-most dialog — the trap moves focus itself, so a mid-list Tab is cancelled and lands on the next control.
+    expect(fireEvent.keyDown(b1, { key: 'Tab' })).toBe(false)
+    expect(document.activeElement).toBe(b2)
     b2.focus()
     fireEvent.keyDown(b2, { key: 'Tab' })
     expect(document.activeElement).toBe(b1)
