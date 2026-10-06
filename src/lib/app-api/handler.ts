@@ -17,12 +17,11 @@ import { audit, FACADE_AUDIT_MAP, type FacadeEndpointKey } from '@/lib/audit'
 import { withRequestId } from '@/lib/observability/request-context'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 import type { GetUserFn } from '@/lib/auth/revocation'
-
-// Mirrors src/actions/audit-log.ts's UUID_RE (can't import — that file is
-// 'use server', which only permits async function exports). Root-cause fix,
-// 2026-08-29 packet: a non-UUID params.id (e.g. thin/ports/actions.vite.ts's
-// MEMORY_ITEM_ID_SENTINEL '-') must never stamp a target — see logFacadeAudit.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// The one UUID shape, shared with the sync store resolver (src/lib/uuid-shape.ts).
+// src/actions/audit-log.ts still keeps its own copy of the pattern (queued).
+// A non-UUID params.id (e.g. thin/ports/actions.vite.ts's MEMORY_ITEM_ID_SENTINEL
+// '-') must never stamp a target — see logFacadeAudit.
+import { UUID_RE } from '@/lib/uuid-shape'
 
 export interface RouteContext<P = Record<string, string>> {
   params: Promise<P>

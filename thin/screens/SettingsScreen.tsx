@@ -47,20 +47,24 @@ const WEB_ONLY_TAB_IDS: readonly SettingsTabId[] = ['sync', 'menus']
 /** 今すぐ同期 (packet 32). Any 2xx (a real run OR the facade's friendly
  *  not-configured message) reads as "the request landed" — the card's own
  *  onRunNow contract folds both into `ok: true`, differing only in whether
- *  `message` is set. A non-2xx (403/502) surfaces the facade's error message. */
+ *  `message` is set. A non-2xx (403/502) returns `{ ok: false }` with no
+ *  message: the card shows its own localized runFailed line, never the
+ *  facade's English error text. */
 async function runSyncNow(): Promise<{ ok: boolean; message?: string; code?: string }> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/sync/run', { method: 'POST' })
     const body = (await res.json().catch(() => null)) as
-      | { code?: string; message?: string; error?: { message?: string } }
+      | { code?: string; message?: string }
       | null
     if (!res.ok) {
-      return { ok: false, message: body?.error?.message ?? `Request failed (${res.status})` }
+      return { ok: false }
     }
     emitRefresh()
     return { ok: true, message: body?.message, code: body?.code }
-  } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : 'Network error' }
+  } catch {
+    // A failed fetch too: the card's localized runFailed line, never the
+    // browser's English error text.
+    return { ok: false }
   }
 }
 
