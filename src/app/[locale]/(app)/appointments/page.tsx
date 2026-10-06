@@ -11,6 +11,7 @@ import {
 } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMonthCells } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
@@ -354,6 +355,7 @@ export default async function AppointmentsPage({
         soloMode={screen.soloMode}
         reservationViews={screen.reservationViews}
         reservationStaff={screen.reservationStaff}
+        canAssign={await getMyCapabilities().then((c) => c.has('bookings.manage'), () => false)}
         colorRosterIds={screen.colorRosterIds}
         businessHours={screen.businessHours}
         staffFilter={staffFilter}

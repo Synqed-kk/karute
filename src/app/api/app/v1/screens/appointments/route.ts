@@ -400,6 +400,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     return ok(
       ctx,
       AppointmentsScreenDTO.parse({
+        canAssign: ctx.identity.capabilities.has('bookings.manage'),
         view,
         selectedDateIso: selectedDate.toISOString(),
         staffFilter,
