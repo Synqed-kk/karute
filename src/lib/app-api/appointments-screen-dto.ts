@@ -11,7 +11,7 @@ import { z } from 'zod'
 
 export const ReservationViewDTO = z.object({
   id: z.string(),
-  staffId: z.string(),
+  staffId: z.string().nullable(),
   staffName: z.string(),
   startTimeHm: z.string(),
   durationMin: z.number(),

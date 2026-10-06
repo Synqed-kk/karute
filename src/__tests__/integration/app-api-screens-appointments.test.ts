@@ -501,6 +501,37 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.monthData).toBeNull()
   })
 
+  // ⚖ PR-B X1 — a 担当未定 booking (core staff_id null) must ride the phone's
+  // wire: ReservationViewDTO.staffId is nullable, never '' or absent (the
+  // sheet wrapper routes on a falsy staffId; '' or undefined must never be the
+  // only thing between a staff-less booking and 録音開始).
+  it('a day with a staff-less booking → 200 and its reservationView carries staffId null', async () => {
+    const staffLess = {
+      id: 'appt-3',
+      staff_id: null,
+      customer_id: 'cust-1',
+      starts_at: inMs(180),
+      duration_minutes: 45,
+      title: 'カラー',
+      notes: null,
+      created_at: inMs(-600),
+      status: 'SCHEDULED',
+      source: 'MANUAL',
+    }
+    const rows = [...dayRows, staffLess]
+    listAppointments.mockResolvedValue({
+      appointments: rows as typeof dayRows,
+      total: rows.length,
+    })
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    const view = dto.reservationViews.find((r) => r.id === 'appt-3')
+    expect(view).toBeDefined()
+    expect(view!.staffId).toBeNull()
+    expect(dto.reservationViews.map((r) => r.id).sort()).toEqual(['appt-1', 'appt-2', 'appt-3'])
+  })
+
   it('?staff=self returns only the viewer\'s rows', async () => {
     const res = await GET(
       req({}, 'https://s/api/app/v1/screens/appointments?staff=self'),
