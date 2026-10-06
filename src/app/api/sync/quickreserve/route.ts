@@ -55,13 +55,30 @@ export async function POST(request?: Request) {
     // mapping table (case × web × phone) heads src/lib/sync/resolve-run-store.ts.
     // The all-stores list (viewAll callers) names a row's store in the body;
     // the same helper still decides whether this caller may run it.
-    const body = (await request?.json().catch(() => null)) as { storeId?: unknown } | null
+    // No body (or no storeId key) = the active store, as before. A body that
+    // is not JSON, or a storeId that is not a non-empty string, is refused —
+    // never a silent run of the active store under another row's name.
+    const raw = request ? await request.text() : ''
+    let body: Record<string, unknown> | null = null
+    if (raw.trim()) {
+      try {
+        const parsed: unknown = JSON.parse(raw)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object')
+        body = parsed as Record<string, unknown>
+      } catch {
+        return NextResponse.json({ error: 'invalid_store_id' }, { status: 400 })
+      }
+    }
+    if (body && Object.hasOwn(body, 'storeId') && (typeof body.storeId !== 'string' || !body.storeId)) {
+      return NextResponse.json({ error: 'invalid_store_id' }, { status: 400 })
+    }
+    const requested = typeof body?.storeId === 'string' ? body.storeId : null
     const [staffId, activeStore] = await Promise.all([getCurrentUserStaffId(), getActiveStoreId()])
     const { storeId } = await resolveSyncRunStore({
       synqed,
       authUserId: staffId,
       capabilities,
-      requestedStoreId: typeof body?.storeId === 'string' && body.storeId ? body.storeId : activeStore,
+      requestedStoreId: requested ?? activeStore,
     })
     const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
     await auditWeb({

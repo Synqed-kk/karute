@@ -62,7 +62,9 @@ export async function resolveSyncRunStore(args: {
 
   if (requestedStoreId) {
     try {
-      await synqed.stores.get(requestedStoreId)
+      // Encoded: the client builds `/stores/${id}`, so a raw id like
+      // `a/../b` would address another path; encoded, it is one (unknown) id.
+      await synqed.stores.get(encodeURIComponent(requestedStoreId))
     } catch (err) {
       const status = (err as { status?: unknown } | null)?.status
       if (status === 404 || status === 403) throw new SyncStoreForbidden('store-id does not belong to this business')
