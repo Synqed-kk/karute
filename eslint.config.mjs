@@ -33,6 +33,30 @@ const eslintConfig = defineConfig([
       "react-hooks/globals": "off",
     },
   },
+  {
+    // core-contract is tests-only until C2/B1 (CORE-59, today-impact C0): no
+    // door imports it. Proven by c0-door-import-lint.test.ts.
+    files: ["src/**/*.{ts,tsx,js,mjs}"],
+    ignores: ["src/__tests__/**", "src/lib/core-contract/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "@/lib/core-contract",
+                "@/lib/core-contract/*",
+                "**/lib/core-contract",
+                "**/lib/core-contract/*",
+              ],
+              message: "core-contract is tests-only until C2/B1 (CORE-59, today-impact C0)",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
