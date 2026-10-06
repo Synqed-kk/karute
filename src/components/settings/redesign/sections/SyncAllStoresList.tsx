@@ -261,7 +261,7 @@ export function SyncAllStoresList({
                     )}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">
-                    <LastRunCell row={row} pending={pending || (runAll.pending && row.configured)} now={now} locale={locale} />
+                    <LastRunCell row={row} pending={pending || (runAll.pending && syncsInRunAll(row))} now={now} locale={locale} />
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">
                     {row.schedule ? (

@@ -177,6 +177,9 @@ describe('viewAll caller', () => {
     await flush()
     expect(within(screen.getByTestId('sync-row-6eb071d2-829f-4a01-91b3-c4d5e6f70819')).getByText('runNow')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    // while the run is pending, the OFF row is not in it: its 最終同期 cell never reads 同期中…
+    expect(screen.getByRole('button', { name: 'runNowPending' })).toBeTruthy()
+    expect(within(screen.getByTestId('sync-row-6eb071d2-829f-4a01-91b3-c4d5e6f70819')).queryByText('runNowPending')).toBeNull()
     for (let i = 0; i < 3; i++) {
       await act(async () => { runs[i].resolve(ok) })
       await flush()
