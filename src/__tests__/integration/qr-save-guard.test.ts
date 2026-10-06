@@ -488,6 +488,23 @@ describe('fix round 4 (Opus C3 app side) — a changed login needs its password'
   })
 })
 
+describe('fix round 5 (N-c) — a login that only differs by whitespace is not a login change', () => {
+  it("stored 'owner ' + typed 'owner' + no password → saves (no 409), the trimmed login written", async () => {
+    const upsert = mockClient([{ ...DAIKANYAMA_ROW, username: 'owner ' }])
+    const res = await POST(req({ username: 'owner', enabled: true }))
+    expect(res.status).toBe(200)
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'owner' })
+    expect(upsert.mock.calls[0][1]).not.toHaveProperty('password')
+  })
+
+  it("a typed '  new-login  ' with its password writes 'new-login', never the raw text", async () => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    expect((await POST(req({ username: '  new-login  ', password: 'pw', enabled: true }))).status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'new-login', password: 'pw' })
+  })
+})
+
 describe('fix round 4 (NIT1) — a JSON array save body', () => {
   it("'[]' names no store → 409 qr_store_not_ready, no lookup, nothing written", async () => {
     const upsert = mockClient([DAIKANYAMA_ROW])

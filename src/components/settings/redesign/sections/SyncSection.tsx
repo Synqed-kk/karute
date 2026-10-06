@@ -221,7 +221,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   // Core keeps the OLD credentials when only the login changes, so a changed
   // login needs its password too (fix round 4, Opus C3; the route mirrors it).
   const loginNeedsPassword =
-    configured && username.trim() !== '' && username.trim() !== loadedUsername && !password
+    configured && username.trim() !== '' && username.trim() !== loadedUsername.trim() && !password
 
   return (
     <div className="space-y-6">

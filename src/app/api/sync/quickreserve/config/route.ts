@@ -174,13 +174,13 @@ export async function POST(request: Request) {
     // A changed login without its password: core re-keys the credentials only
     // when a password is sent, so the crawl would keep the OLD login while the
     // screen says saved (fix round 4, Opus C3 app side; SyncSection mirrors it).
-    if (existing && login && login !== (existing.username ?? '') && !password) {
+    if (existing && login && login !== (existing.username ?? '').trim() && !password) {
       return NextResponse.json({ error: 'qr_password_required' }, { status: 409 })
     }
 
     await synqed.sync.upsertConfig('QUICKRESERVE', {
       // A blank login never overwrites a live row's stored one.
-      username: existing && !login ? existing.username : username,
+      username: existing && !login ? (existing.username ?? undefined) : login,
       // Only send the password when the owner typed one — core keeps the stored
       // credential otherwise (the field renders blank on load by design).
       ...(password ? { password } : {}),

@@ -240,3 +240,14 @@ describe('fix round 4 (Opus C3 app side) — a changed login needs its password'
     expect(screen.queryByText('bookingSyncPasswordRequired')).toBeNull()
   })
 })
+
+describe('fix round 5 (N-c) — a login that only differs by whitespace is not a login change', () => {
+  it("loaded 'owner ' + typed 'owner' → Save on, no password line", async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve({ username: 'owner ', enabled: true })
+    await flush()
+    fireEvent.change(loginInput(), { target: { value: 'owner' } })
+    expect(button('saveConfig').disabled).toBe(false)
+    expect(screen.queryByText('bookingSyncPasswordRequired')).toBeNull()
+  })
+})
