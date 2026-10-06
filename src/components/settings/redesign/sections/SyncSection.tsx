@@ -51,6 +51,7 @@ type ConfigResponse = {
   qrStoreSlug?: string
   lastStatus?: string | null
   lastRunAt?: string | null
+  lastRunStatus?: string | null
 }
 
 const SYNC_ERROR_COPY = {
@@ -75,7 +76,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   const [qrStoreSlug, setQrStoreSlug] = useState('')
   const [qrStoreId, setQrStoreId] = useState('')
   const [syncing, setSyncing] = useState(false)
-  const [lastResult, setLastResult] = useState<string | null>(null)
+  const [lastResult, setLastResult] = useState<{ text: string; error: boolean } | null>(null)
   // The store whose config is loaded (undefined = loading, or the load
   // failed). Save stays off until it is the shown store, so a blank or reset
   // form can never be posted over a live row.
@@ -103,7 +104,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         const parsed = await readSyncResponse(r)
         if (!current) return
         if (!parsed.ok) {
-          setLastResult(parsed.message) // the surface's error line; Save stays off
+          setLastResult({ text: parsed.message, error: true }) // the surface's error line; Save stays off
           return
         }
         const data = parsed.data as unknown as ConfigResponse
@@ -114,15 +115,17 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
           setQrStoreSlug(data.qrStoreSlug ?? '')
         }
         if (data.lastStatus)
-          setLastResult(
-            data.lastRunAt
+          setLastResult({
+            text: data.lastRunAt
               ? `${data.lastStatus} (${new Date(data.lastRunAt).toLocaleString()})`
               : data.lastStatus,
-          )
+            // The run's own status — never the case of a free-text prefix.
+            error: data.lastRunStatus === 'ERROR',
+          })
         setLoadedFor(storeId)
       })
       .catch((err) => {
-        if (current) setLastResult(`Failed: ${err instanceof Error ? err.message : 'Unknown'}`)
+        if (current) setLastResult({ text: `Failed: ${err instanceof Error ? err.message : 'Unknown'}`, error: true })
       })
     return () => {
       current = false
@@ -160,9 +163,9 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
       const parsed = await readSyncResponse(res)
       if (shownStore.current !== forStore) return
       if (parsed.ok) setConfigured(true)
-      setLastResult(parsed.ok ? 'Config saved' : parsed.message)
+      setLastResult(parsed.ok ? { text: 'Config saved', error: false } : { text: parsed.message, error: true })
     } catch {
-      if (shownStore.current === forStore) setLastResult('Failed to save')
+      if (shownStore.current === forStore) setLastResult({ text: 'Failed to save', error: true })
     } finally {
       setSyncing(false)
     }
@@ -171,7 +174,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   async function syncNow() {
     const forStore = storeId
     setSyncing(true)
-    setLastResult('Syncing...')
+    setLastResult({ text: 'Syncing...', error: false })
     try {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve', {
         method: 'POST',
@@ -181,26 +184,25 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
       const parsed = await readSyncResponse(res)
       if (shownStore.current !== forStore) return
       if (!parsed.ok) {
-        setLastResult(parsed.message)
+        setLastResult({ text: parsed.message, error: true })
       } else {
         const d = parsed.data
-        setLastResult(
-          d.message ??
+        setLastResult({
+          text:
+            d.message ??
             `Synced: ${d.created ?? 0} created, ${d.updated ?? 0} updated, ${d.skipped ?? 0} skipped`,
-        )
+          error: false,
+        })
       }
     } catch (err) {
       if (shownStore.current !== forStore) return
-      setLastResult(
-        `Failed: ${err instanceof Error ? err.message : 'Unknown'}`,
-      )
+      setLastResult({ text: `Failed: ${err instanceof Error ? err.message : 'Unknown'}`, error: true })
     } finally {
       setSyncing(false)
     }
   }
 
-  const isError =
-    lastResult?.startsWith('Error') || lastResult?.startsWith('Failed')
+  const isError = lastResult?.error === true
 
   return (
     <div className="space-y-6">
@@ -341,7 +343,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
           ) : (
             <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
           )}
-          <span>{localizeSyncError(lastResult)}</span>
+          <span>{localizeSyncError(lastResult.text)}</span>
         </div>
       )}
     </div>

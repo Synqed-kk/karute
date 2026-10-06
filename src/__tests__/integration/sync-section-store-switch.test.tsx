@@ -169,3 +169,14 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     expect(button('saveConfig').disabled).toBe(true)
   })
 })
+
+describe('fix round 4 (Opus S4) — the error style follows the run status, not a text prefix', () => {
+  it('a last run "ERROR: …" renders the error style, not the emerald box', async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve({ ...A, lastStatus: 'ERROR: Store slug / id missing from QR config', lastRunStatus: 'ERROR' })
+    await flush()
+    const box = screen.getByText(/Store slug \/ id missing/).closest('div')!
+    expect(box.className).toContain('bg-red-500/10')
+    expect(box.className).not.toContain('emerald')
+  })
+})

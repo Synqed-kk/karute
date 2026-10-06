@@ -101,6 +101,8 @@ export async function GET(request: Request) {
     // timezone/locale. Formatting here ran in the lambda's zone: UTC-rendered
     // en-US dates on JST phones.
     lastRunAt: config.last_run_at ?? null,
+    // The run's own status, so the screen styles a failure by it (fix round 4, Opus S4).
+    lastRunStatus: config.last_run_status ?? null,
   })
 }
 
