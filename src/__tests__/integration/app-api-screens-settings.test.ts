@@ -110,6 +110,7 @@ const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, nu
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const entitlementsGet = jest.fn(async () => ({ tier: 'free', is_unlimited: false }))
 const syncGetConfig = jest.fn(async () => null as Record<string, unknown> | null)
+const syncListConfigs = jest.fn(async () => [] as Record<string, unknown>[])
 // 1c-D S1: the 設定 doors list store POLICIES once for the whole business so
 // the 店舗 tab can render each store's own 営業時間.
 const storePoliciesList = jest.fn(async () => ({
@@ -121,7 +122,7 @@ const fakeClient = {
   customers: { countsByStore: customersCountsByStore },
   entitlements: { get: entitlementsGet },
   storePolicies: { list: storePoliciesList },
-  sync: { getConfig: syncGetConfig },
+  sync: { getConfig: syncGetConfig, listConfigs: syncListConfigs },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
@@ -176,6 +177,7 @@ beforeEach(() => {
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'free', is_unlimited: false })
   syncGetConfig.mockResolvedValue(null)
+  syncListConfigs.mockResolvedValue([])
   delete process.env.KARUTE_BILLING_ENFORCEMENT
 })
 
@@ -576,6 +578,33 @@ describe('GET /api/app/v1/screens/settings — sync.view (packet 31)', () => {
     expect(res.status).toBe(200)
     const dto = await dtoOf(res)
     expect(dto.syncStatus).toBeNull()
+  })
+
+  // CORE-43: one config per store — the card shows the clamped store's own row.
+  it("CORE-43: store-id store-B → store-B's own row, never the primary row", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view', 'stores.viewAll']))
+    syncListConfigs.mockResolvedValue([
+      { karute_store_id: 'store-A', enabled: true, last_run_at: '2026-10-06T04:48:45.936Z', last_run_status: 'OK', last_run_error: null },
+      { karute_store_id: 'store-B', enabled: false, last_run_at: null, last_run_status: 'ERROR', last_run_error: 'QR login failed' },
+    ])
+    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': 'store-B' }), route)
+    const dto = await dtoOf(res)
+    expect(dto.syncStatus).toEqual({
+      enabled: false,
+      lastRunAt: null,
+      lastRunStatus: 'ERROR',
+      lastRunError: 'QR login failed',
+    })
+    expect(syncGetConfig).not.toHaveBeenCalled()
+  })
+
+  it('CORE-43: store-id for a store with no row yet → syncStatus: null', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view', 'stores.viewAll']))
+    syncListConfigs.mockResolvedValue([
+      { karute_store_id: 'store-A', enabled: true, last_run_at: null, last_run_status: 'OK', last_run_error: null },
+    ])
+    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': 'store-B' }), route)
+    expect((await dtoOf(res)).syncStatus).toBeNull()
   })
 
   it('getConfig resolves null (no config saved yet) → syncStatus: null, screen still 200', async () => {

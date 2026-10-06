@@ -27,6 +27,17 @@ jest.mock('@/lib/synqed/client', () => ({
 const auditWeb = jest.fn()
 jest.mock('@/lib/audit-web', () => ({ auditWeb: (...a: unknown[]) => auditWeb(...(a as [])) }))
 
+// CORE-43: 今すぐ同期 crawls the ACTIVE store's own row.
+const activeStore = { current: 'store-ginza' as string | null }
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: activeStore.current,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+}))
+
 import { POST } from '@/app/api/sync/quickreserve/route'
 import { getBusinessId } from '@/lib/staff'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
@@ -49,6 +60,21 @@ beforeEach(() => {
 })
 
 describe('POST /api/sync/quickreserve — capability gate + audit parity', () => {
+  it("CORE-43: runs the active store's own row, never another store's", async () => {
+    activeStore.current = 'store-ginza'
+    expect((await POST()).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
+  })
+
+  it("CORE-43: no resolvable store → 409 qr_store_not_ready, never another store's crawl", async () => {
+    activeStore.current = null
+    const res = await POST()
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(runNow).not.toHaveBeenCalled()
+    activeStore.current = 'store-ginza'
+  })
+
   it('no sync.view grant → 403 {error:{code:"forbidden"}}, runNow never called, no audit emit', async () => {
     capabilities.current = new Set(['customers.view'])
     const res = await POST()
@@ -71,7 +97,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
       skipped: 2, // skipped_no_staff (1) + skipped_deleted (1)
       duration_ms: 1234,
     })
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE')
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
     expect(auditWeb).toHaveBeenCalledTimes(1)
     expect(auditWeb).toHaveBeenCalledWith({
       category: 'settings',
@@ -79,6 +105,8 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
       targetType: 'business',
       // PR-M5: one server-minted id per request rides every emit.
       requestId: expect.any(String),
+      // CORE-43: which store's crawl ran.
+      detail: { karute_store_id: 'store-ginza' },
     })
   })
 

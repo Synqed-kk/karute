@@ -2246,7 +2246,12 @@
     "tableColors": "テーブル色",
     "bookingSync": "予約同期",
     "bookingSyncDescription": "Quick Reserve 等との同期",
-    "bookingSyncStoreNotReady": "この店舗の Quick Reserve 連携はまだ準備中です。店舗ごとの連携が入り次第ご案内します。",
+    "bookingSyncStoreNotReady": "店舗が選ばれていません。店舗を選んでから保存してください。",
+    "qrStoreSlug": "Quick Reserve アカウント名",
+    "qrStoreId": "Quick Reserve 店舗番号",
+    "qrStoreHint": "この店舗の Quick Reserve 店舗番号です。初回の保存で一度だけ入力します。",
+    "bookingSyncQrStoreRequired": "この店舗の初回保存には、ログインID・パスワード・アカウント名・店舗番号が必要です。",
+    "bookingSyncQrStoreAlreadyLinked": "この Quick Reserve 店舗は、すでに別の店舗に連携されています。",
     "sync": {
       "webOnly": "予約同期の設定はWeb版からご利用ください",
       "healthy": "正常に同期中",

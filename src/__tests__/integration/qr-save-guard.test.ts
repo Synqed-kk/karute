@@ -1,37 +1,20 @@
 /**
- * PKT-P0 — Quick Reserve save guard (2026-09-16), + fix round (same day).
+ * Quick Reserve config — one row per Karute store (CORE-43, 2026-10-06).
  *
- * Core keeps ONE QuickReserve config per business, and the route used to
- * stamp every save with La Estro's hardcoded store_slug/store_id. A 銀座
- * manager (or a brand-new company's owner) saving here would silently
- * rebind — or misfile — 代官山's live crawl. This pins the refusal:
- *   (a) an existing config already labeled for the actor's store → save ok
- *   (b) the same config, a DIFFERENT store's actor → 409
- *   (c) no config yet, a multi-store business → 409 (no safe store to bind)
- *   (d) no config yet, a single-store business → save ok, no store ids,
- *       AND now labeled with the actor's store (fix round)
- *
- * Fix round: the first cut above checked karute_store_id but never WROTE
- * it, so a fresh single-store business saved once (unlabeled) and was
- * refused on its very next save (the "existing" branch, keyed on the row
- * existing at all rather than on it being labeled, demanded a label that
- * was never written). Added:
- *   (e) legacy row (karute_store_id null) + single store → save ok, labeled
- *   (f) legacy row (karute_store_id null) + 2+ stores → 409 (still unknown)
- *   (g) the two-call sequence: a fresh save labels the row, and the SAME
- *       actor's very next save (reading that label back) is still allowed
- *   (h) the actor's own store lookup resolves null even though a store
- *       exists → refuse (never write a null label — that IS the bug, one
- *       save later)
- *
- * Greptile fold: the guard's own reads (getConfig, resolveStoreScope, the
- * conditional stores.list) ran BEFORE the try/catch, so a failure there
- * escaped as an opaque 500 instead of the 502 shape the settings screen
- * already knows how to render. Added:
- *   (i) sync.getConfig throws → 502
- *   (j) resolveStoreScope throws → 502
- *   (k) stores.list throws → 502
- * See PKT-P0-QR-SAVE-GUARD-2026-09-16.md.
+ * Core keeps one Quick Reserve config per (business, provider, karute store).
+ * The settings route reads, saves and labels ONLY the active store's own row,
+ * so a 銀座 save can never rebind 代官山's live crawl (the PKT-P0 bug the old
+ * save guard refused). Pinned:
+ *   GET  (a) 代官山 reads its own row
+ *        (b) 銀座 with no row yet reads unconfigured, slug pre-filled from 代官山
+ *   POST (c) 代官山 resaves its row: own store, its own QR store carried forward
+ *        (d) 銀座's first save without its QR store → 400, nothing written
+ *        (e) 銀座's first save without a password → 400, nothing written
+ *        (f) 銀座's first save with its QR store → writes ONLY 銀座's row (250)
+ *        (g) an existing row keeps its own QR store, whatever the body says
+ *        (h) no resolvable store → 409 qr_store_not_ready, nothing written
+ *        (i) core refuses a QR store already linked → 502 with core's code
+ *        (j) listConfigs / resolveStoreScope throws → 502, nothing written
  */
 
 jest.mock('@/lib/staff', () => ({
@@ -48,154 +31,179 @@ const actorStore = { current: 'daikanyama' as string | null }
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({
     storeId: actorStore.current,
-    viewAll: false,
-    allowedStoreIds: actorStore.current ? [actorStore.current] : null,
+    viewAll: true,
+    allowedStoreIds: null,
     degraded: false,
   })),
 }))
 
-import { POST } from '@/app/api/sync/quickreserve/config/route'
+import { GET, POST } from '@/app/api/sync/quickreserve/config/route'
 
 const client = jest.requireMock('@/lib/synqed/client') as { getSynqedClient: jest.Mock }
 const storeScope = jest.requireMock('@/lib/auth/store-scope') as { resolveStoreScope: jest.Mock }
 
-function mockClient(opts: {
-  existing: Record<string, unknown> | null
-  storeCount?: number
-}) {
-  const upsertConfig = jest.fn(async () => ({}))
+const DAIKANYAMA_ROW = {
+  karute_store_id: 'daikanyama',
+  store_slug: 'la-estro',
+  store_id: 222,
+  username: 'owner',
+  enabled: true,
+  last_run_status: 'OK',
+  last_run_error: null,
+  last_run_at: '2026-10-06T04:48:45.936Z',
+}
+const GINZA_ROW = { ...DAIKANYAMA_ROW, karute_store_id: 'ginza', store_id: 250 }
+
+function mockClient(rows: Record<string, unknown>[], upsert: () => Promise<unknown> = async () => ({})) {
+  const upsertConfig = jest.fn((..._args: unknown[]) => upsert())
   client.getSynqedClient.mockResolvedValue({
-    sync: { getConfig: jest.fn().mockResolvedValue(opts.existing), upsertConfig },
-    stores: {
-      list: jest.fn().mockResolvedValue({
-        stores: Array.from({ length: opts.storeCount ?? 1 }, (_, i) => ({ id: `store-${i}` })),
-      }),
-    },
+    sync: { listConfigs: jest.fn().mockResolvedValue(rows), upsertConfig },
   })
   return upsertConfig
 }
 
-function req() {
+function req(body: Record<string, unknown>) {
   return new Request('https://app.test/api/sync/quickreserve/config', {
     method: 'POST',
-    body: JSON.stringify({ username: 'velune', enabled: true }),
+    body: JSON.stringify(body),
   })
 }
 
-describe('POST /api/sync/quickreserve/config — save guard (PKT-P0)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-    actorStore.current = 'daikanyama'
+beforeEach(() => {
+  jest.clearAllMocks()
+  actorStore.current = 'daikanyama'
+})
+
+describe('GET — the active store reads its own row', () => {
+  it('(a) 代官山 reads its own row', async () => {
+    mockClient([DAIKANYAMA_ROW])
+    const body = await (await GET()).json()
+    expect(body).toMatchObject({ username: 'owner', enabled: true, configured: true, lastStatus: 'OK' })
   })
 
-  it('(a) La Estro-shaped existing config + actor on 代官山 → save ok, slug/id untouched', async () => {
-    const upsertConfig = mockClient({
-      existing: { karute_store_id: 'daikanyama', store_slug: 'la-estro', store_id: 222 },
-    })
-    const res = await POST(req())
-    expect(res.status).toBe(200)
-    expect(upsertConfig).toHaveBeenCalledWith(
-      'QUICKRESERVE',
-      expect.objectContaining({ store_slug: 'la-estro', store_id: 222, karute_store_id: 'daikanyama' }),
-    )
-  })
-
-  it('(b) same config + actor on 銀座 → 409', async () => {
-    mockClient({ existing: { karute_store_id: 'daikanyama', store_slug: 'la-estro', store_id: 222 } })
+  it('(b) 銀座 with no row yet reads unconfigured, slug pre-filled from 代官山', async () => {
     actorStore.current = 'ginza'
-    const res = await POST(req())
+    mockClient([DAIKANYAMA_ROW])
+    const body = await (await GET()).json()
+    expect(body).toEqual({
+      username: '',
+      enabled: false,
+      lastStatus: null,
+      configured: false,
+      qrStoreSlug: 'la-estro',
+    })
+  })
+})
+
+describe('POST — each store saves only its own row', () => {
+  it('(c) 代官山 resaves its row with its own QR store carried forward', async () => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(req({ username: 'owner', password: 'pw', enabled: true }))
+    expect(res.status).toBe(200)
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(upsert.mock.calls[0]).toEqual([
+      'QUICKRESERVE',
+      {
+        username: 'owner',
+        password: 'pw',
+        enabled: true,
+        store_slug: 'la-estro',
+        store_id: 222,
+        karute_store_id: 'daikanyama',
+      },
+    ])
+  })
+
+  it("(d) 銀座's first save without its QR store → 400 qr_store_required, nothing written", async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(req({ username: 'owner', password: 'pw', enabled: true }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ error: 'qr_store_required' })
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it("(e) 銀座's first save without a password → 400, nothing written", async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: 'owner', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '250' }),
+    )
+    expect(res.status).toBe(400)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it("(e2) 銀座's first save without a login ID → 400, nothing written", async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: '  ', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '250' }),
+    )
+    expect(res.status).toBe(400)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it("(f) 銀座's first save with its QR store writes ONLY 銀座's row", async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: ' la-estro ', qrStoreId: '250' }),
+    )
+    expect(res.status).toBe(200)
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(upsert.mock.calls[0]).toEqual([
+      'QUICKRESERVE',
+      {
+        username: 'owner',
+        password: 'pw',
+        enabled: true,
+        store_slug: 'la-estro',
+        store_id: 250,
+        karute_store_id: 'ginza',
+      },
+    ])
+  })
+
+  it('(g) an existing row keeps its own QR store, whatever the body says', async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW, GINZA_ROW])
+    const res = await POST(
+      req({ username: 'owner', enabled: false, qrStoreSlug: 'la-estro', qrStoreId: '222' }),
+    )
+    expect(res.status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ store_id: 250, karute_store_id: 'ginza' })
+  })
+
+  it('(h) no resolvable store → 409 qr_store_not_ready, nothing written', async () => {
+    actorStore.current = null
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(req({ username: 'owner', password: 'pw', enabled: true }))
     expect(res.status).toBe(409)
     expect(await res.json()).toMatchObject({ error: 'qr_store_not_ready' })
+    expect(upsert).not.toHaveBeenCalled()
   })
 
-  it('(c) no config + 2 stores → 409', async () => {
-    mockClient({ existing: null, storeCount: 2 })
-    const res = await POST(req())
-    expect(res.status).toBe(409)
-  })
-
-  it('(d) no config + 1 store → save ok WITHOUT slug/id, labeled with the actor\'s store', async () => {
-    const upsertConfig = mockClient({ existing: null, storeCount: 1 })
-    const res = await POST(req())
-    expect(res.status).toBe(200)
-    const [, input] = upsertConfig.mock.calls[0] as unknown as [string, Record<string, unknown>]
-    expect(input).not.toHaveProperty('store_slug')
-    expect(input).not.toHaveProperty('store_id')
-    expect(input.karute_store_id).toBe('daikanyama')
-  })
-
-  it('(e) legacy row (karute_store_id null) + single store → save ok, labeled', async () => {
-    const upsertConfig = mockClient({
-      existing: { karute_store_id: null, store_slug: 'la-estro', store_id: 222 },
-      storeCount: 1,
+  it('(i) core refuses a QR store already linked → 502 carrying the code', async () => {
+    actorStore.current = 'ginza'
+    mockClient([DAIKANYAMA_ROW], async () => {
+      throw new Error('qr_store_already_linked')
     })
-    const res = await POST(req())
-    expect(res.status).toBe(200)
-    const [, input] = upsertConfig.mock.calls[0] as unknown as [string, Record<string, unknown>]
-    expect(input).toMatchObject({ store_slug: 'la-estro', store_id: 222, karute_store_id: 'daikanyama' })
-  })
-
-  it('(f) legacy row (karute_store_id null) + 2+ stores → 409 (still unknown which store)', async () => {
-    mockClient({ existing: { karute_store_id: null, store_slug: 'la-estro', store_id: 222 }, storeCount: 2 })
-    const res = await POST(req())
-    expect(res.status).toBe(409)
-  })
-
-  it('(g) two-call sequence: a fresh single-store save labels the row, and the same actor\'s next save is still allowed', async () => {
-    let stored: Record<string, unknown> | null = null
-    const upsertConfig = jest.fn(async (_provider: unknown, input: Record<string, unknown>) => {
-      stored = { ...stored, ...input }
-      return {}
-    })
-    client.getSynqedClient.mockResolvedValue({
-      sync: { getConfig: jest.fn(async () => stored), upsertConfig },
-      stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-0' }] }) },
-    })
-
-    const first = await POST(req())
-    expect(first.status).toBe(200)
-    expect(stored).toMatchObject({ karute_store_id: 'daikanyama' })
-
-    const second = await POST(req())
-    expect(second.status).toBe(200)
-    expect(upsertConfig).toHaveBeenCalledTimes(2)
-  })
-
-  it('(h) actor store lookup resolves null despite a store existing → refuse (never write a null label)', async () => {
-    mockClient({ existing: null, storeCount: 1 })
-    actorStore.current = null
-    const res = await POST(req())
-    expect(res.status).toBe(409)
-  })
-
-  it('(i) sync.getConfig throws → 502, same shape as a failed write', async () => {
-    client.getSynqedClient.mockResolvedValue({
-      sync: {
-        getConfig: jest.fn(async () => { throw new Error('core down') }),
-        upsertConfig: jest.fn(async () => ({})),
-      },
-      stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-0' }] }) },
-    })
-    const res = await POST(req())
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '222' }),
+    )
     expect(res.status).toBe(502)
-    expect(await res.json()).toMatchObject({ error: 'core down' })
+    expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
   })
 
-  it('(j) resolveStoreScope throws → 502', async () => {
-    mockClient({ existing: null, storeCount: 1 })
-    storeScope.resolveStoreScope.mockRejectedValueOnce(new Error('scope lookup failed'))
-    const res = await POST(req())
-    expect(res.status).toBe(502)
-    expect(await res.json()).toMatchObject({ error: 'scope lookup failed' })
-  })
-
-  it('(k) stores.list throws (multi-store check) → 502', async () => {
+  it('(j) a failed read → 502, nothing written', async () => {
+    const upsertConfig = jest.fn()
     client.getSynqedClient.mockResolvedValue({
-      sync: { getConfig: jest.fn().mockResolvedValue(null), upsertConfig: jest.fn(async () => ({})) },
-      stores: { list: jest.fn(async () => { throw new Error('core down') }) },
+      sync: { listConfigs: jest.fn().mockRejectedValue(new Error('core down')), upsertConfig },
     })
-    const res = await POST(req())
-    expect(res.status).toBe(502)
-    expect(await res.json()).toMatchObject({ error: 'core down' })
+    expect((await POST(req({ username: 'owner', password: 'pw', enabled: true }))).status).toBe(502)
+
+    storeScope.resolveStoreScope.mockRejectedValueOnce(new Error('scope down'))
+    expect((await POST(req({ username: 'owner', password: 'pw', enabled: true }))).status).toBe(502)
+    expect(upsertConfig).not.toHaveBeenCalled()
   })
 })

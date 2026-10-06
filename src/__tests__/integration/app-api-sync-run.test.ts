@@ -48,6 +48,17 @@ jest.mock('@/lib/audit', () => ({
   audit: (...a: unknown[]) => audit(...(a as [])),
 }))
 
+// CORE-43: the route clamps to the request's store-id header, then runs that
+// store's own row. The clamp's verdicts are covered by its own suites; here it
+// hands back the requested store (null when the app sends none).
+const resolveStoreForRequest = jest.fn(async (a: { requestedStoreId: string | null }) => ({
+  storeId: a.requestedStoreId,
+  allowedStoreIds: null,
+}))
+jest.mock('@/lib/app-api/store-clamp', () => ({
+  resolveStoreForRequest: (a: { requestedStoreId: string | null }) => resolveStoreForRequest(a),
+}))
+
 import { POST } from '@/app/api/app/v1/sync/run/route'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -71,6 +82,20 @@ beforeEach(() => {
 })
 
 describe('POST /api/app/v1/sync/run', () => {
+  it("CORE-43: the store-id header's store runs its own row", async () => {
+    const req = new Request('https://s/api/app/v1/sync/run', {
+      method: 'POST',
+      headers: { ...auth, 'store-id': 'store-ginza' },
+    })
+    expect((await POST(req, noRoute)).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
+  })
+
+  it('CORE-43: no store-id header → core default (the primary row), no store sent', async () => {
+    expect((await POST(post(), noRoute)).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: undefined })
+  })
+
   it('no sync.view grant → 403, runNow never called, no audit row', async () => {
     capabilities.current = new Set(['customers.view'])
     const res = await POST(post(), noRoute)
@@ -91,7 +116,7 @@ describe('POST /api/app/v1/sync/run', () => {
       skipped: 2, // skipped_no_staff (1) + skipped_deleted (1)
       duration_ms: 1234,
     })
-    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE')
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: undefined })
   })
 
   it('not-configured (upstream "config not found") → 200 friendly message, not a failure', async () => {

@@ -62,6 +62,7 @@ function mockDraft() {
 function appt(overrides: Partial<Appointment> = {}): Appointment {
   return {
     id: 'appt-next',
+    requires_private_room: false,
     business_id: 'biz-1',
     customer_id: 'cust-1',
     staff_id: 'staff-1',

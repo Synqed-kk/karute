@@ -176,7 +176,7 @@ export const MENUS: Menu[] = [
 ]
 
 const customer = (id: string, name: string, member_number: string | null): Customer => ({
-  id, business_id: TENANT, name, furigana: null, email: null, phone: null, date_of_birth: null, gender: null,
+  id, business_id: TENANT, name, staff_badges: [], furigana: null, email: null, phone: null, date_of_birth: null, gender: null,
   guardian_customer_id: null, payer_note: null, occupation: null, member_number, postal_code: null, prefecture: null,
   address: null, phone2: null, dm_opt_in: false, comment: null, remarks2: null, total_sales: 0, installment_outstanding: 0,
   has_ticket_pack: false, first_visit_at: null, last_visit_at: null, locale: 'ja', notes: null, contact_info: null,
@@ -228,7 +228,7 @@ const booking = (
 ): Appointment => {
   const starts_at = jst(starts)
   return {
-    id, business_id: TENANT, customer_id, staff_id, kind: 'BOOKING', store_id, starts_at, ends_at: plus(starts_at, minutes),
+    id, business_id: TENANT, customer_id, staff_id, kind: 'BOOKING', store_id, requires_private_room: false, starts_at, ends_at: plus(starts_at, minutes),
     duration_minutes: minutes, title: null, notes: null, menu_id, resource_id: null, occupied_until: null,
     booked_price_amount: price, booked_price_currency: 'JPY', status, source: 'MANUAL', external_refs: {}, cancelled_at: null,
     status_source: 'STAFF', status_set_by: null, status_reason: null, status_set_at: null, rebooked_from_appointment_id: null,

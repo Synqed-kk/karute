@@ -5,6 +5,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { errorBody, toAppApiError } from '@/lib/app-api/errors'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { qrConfigForStore } from '@/lib/sync/qr-config'
 
 // QuickReserve connection settings live in synqed-core (sync_configs; the
 // credentials are AES-encrypted server-side and never leave core). This route
@@ -31,15 +32,28 @@ export async function GET() {
     return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
   }
 
+  // The ACTIVE store's own row (CORE-43: one config per store). A store with
+  // no row yet reads as unconfigured; qrStoreSlug pre-fills the Quick Reserve
+  // account slug from a sibling store's row (one owner login, several stores).
   const synqed = await getSynqedClient()
-  const config = await synqed.sync.getConfig('QUICKRESERVE')
+  const { storeId } = await resolveStoreScope()
+  const { config, configs } = storeId
+    ? await qrConfigForStore(synqed, storeId)
+    : { config: null, configs: [] }
   if (!config) {
-    return NextResponse.json({ username: '', enabled: false, lastStatus: null })
+    return NextResponse.json({
+      username: '',
+      enabled: false,
+      lastStatus: null,
+      configured: false,
+      qrStoreSlug: configs.find((c) => c.store_slug)?.store_slug ?? '',
+    })
   }
 
   return NextResponse.json({
     username: config.username ?? '',
     enabled: config.enabled,
+    configured: true,
     lastStatus: config.last_run_status
       ? `${config.last_run_status}${config.last_run_error ? ': ' + config.last_run_error : ''}`
       : null,
@@ -64,45 +78,41 @@ export async function POST(request: Request) {
     return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
   }
 
-  const { username, password, enabled } = await request.json()
+  const { username, password, enabled, qrStoreSlug, qrStoreId } = await request.json()
   const synqed = await getSynqedClient()
+  // Which store's row this save changed — for the audit row below.
+  let savedStoreId: string | null = null
 
-  // Save guard (PKT-P0): core keeps ONE QuickReserve config per business, and
-  // the old code always stamped it with La Estro's store_slug/store_id. A
-  // 銀座 manager (or a brand-new company's owner) saving here would silently
-  // rebind — or misfile — 代官山's live crawl. Per-store crawling is ordered
-  // from core; until it lands, refuse rather than misfile.
+  // CORE-43: each Karute store saves ITS OWN row (core keys configs by
+  // business + provider + karute_store_id), so a 銀座 save can never rebind
+  // 代官山's live crawl. A store's first save must also name its Quick
+  // Reserve store (slug + numeric id); core refuses a QR store another row
+  // already crawls (qr_store_already_linked).
   //
-  // Greptile fold: the guard's own reads (getConfig, resolveStoreScope, the
-  // conditional stores.list) used to run BEFORE this try, so a core outage or
-  // a scope-lookup failure escaped as an opaque 500 instead of the 502 shape
-  // the settings screen already knows how to show. They now share the same
-  // error boundary as the write below — one catch, one 502 shape either way.
+  // The guard's own reads share the write's error boundary: a core outage or
+  // a scope-lookup failure returns the 502 shape the screen already shows.
   try {
-    const existing = await synqed.sync.getConfig('QUICKRESERVE')
     const { storeId } = await resolveStoreScope()
-
-    // Labeled existing config: only the store it's already labeled for may
-    // resave it. Otherwise (no config yet, OR an existing config nobody ever
-    // labeled — a legacy row) this save is about to STAMP the label below, so
-    // it needs exactly one knowable store: refuse on a multi-store business
-    // (no safe store to bind to), and refuse if the actor's own store lookup
-    // came back null even though a store exists (a resolveStoreScope failure
-    // must never write a null label — that's the original bug one save later).
-    const misfiled = existing?.karute_store_id
-      ? existing.karute_store_id !== storeId
-      : (await synqed.stores.list()).stores.length > 1 || storeId === null
-
-    if (misfiled) {
+    if (!storeId) {
       return NextResponse.json(
         {
           error: 'qr_store_not_ready',
           // Dev/log-facing only — the settings UI shows its own localized
-          // copy (messages/*.json: settings.bookingSyncStoreNotReady) keyed
-          // off the error code above, never this string.
-          message: "Quick Reserve sync isn't wired up for this store yet.",
+          // copy (settings.bookingSyncStoreNotReady) keyed off the code.
+          message: 'No store is selected for this Quick Reserve config.',
         },
         { status: 409 },
+      )
+    }
+    const { config: existing } = await qrConfigForStore(synqed, storeId)
+
+    const slug = typeof qrStoreSlug === 'string' ? qrStoreSlug.trim() : ''
+    const qrId = Number(qrStoreId)
+    const login = typeof username === 'string' ? username.trim() : ''
+    if (!existing && (!slug || !Number.isInteger(qrId) || qrId <= 0 || !login || !password)) {
+      return NextResponse.json(
+        { error: 'qr_store_required', message: 'A new store needs its Quick Reserve store and login.' },
+        { status: 400 },
       )
     }
 
@@ -112,25 +122,20 @@ export async function POST(request: Request) {
       // credential otherwise (the field renders blank on load by design).
       ...(password ? { password } : {}),
       enabled,
-      // Carry forward whatever store identifiers the existing config already
-      // has (La Estro's row keeps its la-estro/222) — never invent/hardcode
-      // them for a config that doesn't already carry them (the guard above
-      // only lets a brand-new config through for a single-store business,
-      // which has no store_slug/store_id to give it).
-      ...(existing?.store_slug ? { store_slug: existing.store_slug } : {}),
-      ...(existing?.store_id ? { store_id: existing.store_id } : {}),
-      // Stamp the karute_store_id label the guard above reads on every
-      // future save — the bug the earlier fix round closes: the guard
-      // checked this field but nothing ever wrote it, so a fresh
-      // single-store business saved once (unlabeled) and was refused on its
-      // very next save. The guard already proved this value is non-null
-      // whenever we reach here.
-      karute_store_id: existing?.karute_store_id ?? storeId,
+      // An existing row keeps its own Quick Reserve store (代官山: la-estro/222);
+      // a new row takes the one the owner entered.
+      ...(existing
+        ? {
+            ...(existing.store_slug ? { store_slug: existing.store_slug } : {}),
+            ...(existing.store_id ? { store_id: existing.store_id } : {}),
+          }
+        : { store_slug: slug, store_id: qrId }),
+      karute_store_id: storeId,
     })
+    savedStoreId = storeId
   } catch (e) {
-    // The old route never checked the write and always returned success — the
-    // "Config saved" false positive. Surface the real failure now — whether
-    // it came from a guard read above or the write itself.
+    // Surface the real failure — whether it came from a read above or the
+    // write itself (the old route's "Config saved" false positive).
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Could not save QuickReserve settings' },
       { status: 502 },
@@ -144,7 +149,11 @@ export async function POST(request: Request) {
     severity: 'notice',
     targetType: 'business',
     requestId: crypto.randomUUID(),
-    detail: { enabled: Boolean(enabled), password_changed: Boolean(password) },
+    detail: {
+      enabled: Boolean(enabled),
+      password_changed: Boolean(password),
+      karute_store_id: savedStoreId,
+    },
   })
 
   return NextResponse.json({ success: true })
