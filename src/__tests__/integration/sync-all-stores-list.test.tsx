@@ -85,14 +85,19 @@ describe('viewAll caller', () => {
   it('編集 selects that store, and the per-store form reloads for it (PR-A F1 harness)', async () => {
     const { rerender } = render(<SyncSection storeId="store-a" showAllStores selectStore={selectStore} />)
     await flush()
-    const formLoads = () => apiFetch.mock.calls.filter(([u]) => u === '/api/sync/quickreserve/config').length
-    expect(formLoads()).toBe(1)
+    // PR-A's rule (merged S54): every form load names the store it shows.
+    const formLoads = () =>
+      apiFetch.mock.calls.map(([u]) => String(u)).filter((u) => u.startsWith('/api/sync/quickreserve/config?'))
+    expect(formLoads()).toEqual(['/api/sync/quickreserve/config?storeId=store-a'])
     await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-store-c')).getByText('edit')) })
     expect(selectStore).toHaveBeenCalledWith('store-c')
     expect(refresh).toHaveBeenCalledTimes(1)
     rerender(<SyncSection storeId="store-c" showAllStores selectStore={selectStore} />)
     await flush()
-    expect(formLoads()).toBe(2)
+    expect(formLoads()).toEqual([
+      '/api/sync/quickreserve/config?storeId=store-a',
+      '/api/sync/quickreserve/config?storeId=store-c',
+    ])
     // 設定する drives the same selection (the form then opens in first-save mode).
     await act(async () => { fireEvent.click(within(screen.getByTestId('sync-row-store-b')).getByText('setUp')) })
     expect(selectStore).toHaveBeenLastCalledWith('store-b')
