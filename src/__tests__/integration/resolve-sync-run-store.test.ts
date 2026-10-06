@@ -244,3 +244,10 @@ describe('fix round 4 (Sonnet SF1) — a store answer without an id is a depende
     expect(storesList).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 4 (NIT4) — clamped, no request, the store list throws', () => {
+  it('→ SyncStoreDependencyError (502), never Unassigned', async () => {
+    storesList.mockRejectedValue(new Error('core down'))
+    await expect(run({})).rejects.toBeInstanceOf(SyncStoreDependencyError)
+  })
+})

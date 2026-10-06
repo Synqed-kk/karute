@@ -487,3 +487,14 @@ describe('fix round 4 (Opus C3 app side) — a changed login needs its password'
     expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'new-login', password: 'pw' })
   })
 })
+
+describe('fix round 4 (NIT1) — a JSON array save body', () => {
+  it("'[]' names no store → 409 qr_store_not_ready, no lookup, nothing written", async () => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(new Request('https://app.test/api/sync/quickreserve/config', { method: 'POST', body: '[]' }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(storesGet).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+})
