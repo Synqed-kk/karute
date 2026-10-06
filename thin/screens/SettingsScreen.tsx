@@ -61,8 +61,10 @@ async function runSyncNow(): Promise<{ ok: boolean; message?: string; code?: str
     }
     emitRefresh()
     return { ok: true, message: body?.message, code: body?.code }
-  } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : 'Network error' }
+  } catch {
+    // A failed fetch too: the card's localized runFailed line, never the
+    // browser's English error text.
+    return { ok: false }
   }
 }
 

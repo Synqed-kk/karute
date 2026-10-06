@@ -253,19 +253,24 @@ describe('thin settings wiring — 今すぐ同期 (packet 32)', () => {
     await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1))
   })
 
-  // Round 5 (SHOULD-FIX 1): a refusal or an outage reads as the card's own
-  // ja line, never the facade's English error.message.
+  // Round 5 (SHOULD-FIX 1 + the network catch): a refusal, an outage or a
+  // failed fetch reads as the card's own ja line, never English text.
+  const answer = (status: number, body: unknown) => () =>
+    Promise.resolve({ ok: false, status, json: async () => body } as unknown as Response)
   it.each([
     [
-      403,
-      { error: { code: 'store_forbidden', reason: 'sync_store', message: 'Store is not assignable for sync' } },
-      'Store is not assignable for sync',
+      'a 403 answer',
+      answer(403, { error: { code: 'store_forbidden', reason: 'sync_store', message: 'Store is not assignable for sync' } }),
+      /Store is not assignable for sync|Request failed|403/,
     ],
-    [502, { error: { code: 'upstream_unavailable', message: 'Upstream sync service unavailable' } }, 'Upstream sync service unavailable'],
-  ])('a %i answer shows the localized 同期に失敗しました and never the server text', async (status, body, english) => {
-    const apiFetch = jest
-      .fn<Promise<Response>, unknown[]>()
-      .mockResolvedValue({ ok: false, status, json: async () => body } as unknown as Response)
+    [
+      'a 502 answer',
+      answer(502, { error: { code: 'upstream_unavailable', message: 'Upstream sync service unavailable' } }),
+      /Upstream sync service unavailable|Request failed|502/,
+    ],
+    ['a rejected fetch', () => Promise.reject(new TypeError('Failed to fetch')), /Failed to fetch|Network error/],
+  ])('%s shows the localized 同期に失敗しました and never English text', async (_case, impl, english) => {
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>().mockImplementation(impl)
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     const grantedDto: SettingsScreenDTOType = {
@@ -282,6 +287,5 @@ describe('thin settings wiring — 今すぐ同期 (packet 32)', () => {
     expect(apiFetch).toHaveBeenCalledWith('/api/app/v1/sync/run', { method: 'POST' })
     expect((await screen.findAllByText('同期に失敗しました')).length).toBeGreaterThan(0)
     expect(screen.queryByText(english)).toBeNull()
-    expect(screen.queryByText(new RegExp(`Request failed|${status}`))).toBeNull()
   })
 })
