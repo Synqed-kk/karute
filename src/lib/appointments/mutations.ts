@@ -38,6 +38,7 @@ import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
 import type { WeekdayKey } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
 import { isCountedBooking } from '@/lib/appointments/by-date'
+import { BOOKING_ALREADY_STAFFED } from '@/lib/appointments/assign-refusal'
 import { type RecordStoreScope } from '@/lib/auth/store-lock'
 import { filterStaffIdsToStore } from '@/lib/auth/store-scope'
 import { audit, type AuditSeverity } from '@/lib/audit'
@@ -658,8 +659,8 @@ export async function markNoShowAppointmentCore(
   }
 }
 
-/** Refusal for an assignment onto a booking that already has a staff. */
-export const BOOKING_ALREADY_STAFFED = 'Booking already has a staff member.'
+// One definition, client-safe (the 担当未定 sheet recognises it): re-exported.
+export { BOOKING_ALREADY_STAFFED }
 
 /**
  * ⚖ PR-B — give a booking that has NO staff its staff: the only write the

@@ -10,7 +10,8 @@
 //
 // One component, two transports: `assignAppointmentStaff` is the web server
 // action; the thin shell's alias maps it to POST …/assign-staff. Both refuse a
-// booking that already has a staff. A failed or rejected request re-enables
+// booking that already has a staff; that answer closes the sheet and
+// refreshes (no error toast). A failed or rejected request re-enables
 // the rows and leaves the sheet closable. An empty picker (nobody at the
 // booking's store) falls back to the read-only lines.
 
@@ -30,6 +31,7 @@ import {
 } from '@synqed-kk/ui'
 import { useRouter } from '@/i18n/navigation'
 import { assignAppointmentStaff } from '@/actions/appointments'
+import { BOOKING_ALREADY_STAFFED } from '@/lib/appointments/assign-refusal'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 
 export interface AssignableStaff {
@@ -68,13 +70,22 @@ export function UnassignedBookingSheet({
     if (!booking || pendingId !== null) return
     setPendingId(member.id)
     let saved = false
+    let alreadyStaffed = false
     try {
       const res = await assignAppointmentStaff(booking.id, member.id)
       saved = !('error' in res)
+      alreadyStaffed = 'error' in res && res.error === BOOKING_ALREADY_STAFFED
     } catch {
       saved = false // offline / 5xx / a stale server-action id after a deploy
     } finally {
       setPendingId(null)
+    }
+    if (alreadyStaffed) {
+      // ⚖ FIX ROUND 3 item 10 — someone else assigned it first: not an error.
+      // Close and refresh; the row then shows its real staff.
+      onClose()
+      router.refresh()
+      return
     }
     if (!saved) {
       toast.error(tc('somethingWentWrong'))

@@ -89,6 +89,19 @@ describe('UnassignedBookingSheet', () => {
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('common.somethingWentWrong'))
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  // ⚖ FIX ROUND 3 item 10 (B2-2) — someone else assigned it first.
+  it('an already-staffed answer → no error toast, no success toast, the sheet closes and refreshes', async () => {
+    const { BOOKING_ALREADY_STAFFED } = jest.requireActual('@/lib/appointments/assign-refusal')
+    mockUpdate.mockResolvedValue({ error: BOOKING_ALREADY_STAFFED })
+    const onClose = jest.fn()
+    render(<UnassignedBookingSheet booking={booking} canAssign staff={STAFF} isMobile onClose={onClose} />)
+    fireEvent.click(screen.getByText('Mika'))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect(refresh).toHaveBeenCalled()
+    expect(toastError).not.toHaveBeenCalled()
+    expect(toastSuccess).not.toHaveBeenCalled()
+  })
 })
 
 describe('ReservationGrid 担当未定 lane', () => {
