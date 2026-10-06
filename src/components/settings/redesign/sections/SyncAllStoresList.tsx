@@ -54,6 +54,18 @@ export async function runStoreSync(storeId: string): Promise<RunOutcome> {
   }
 }
 
+/** Every store's sync row (GET /configs); null when the read fails. */
+async function fetchStoreRows(): Promise<SyncStoreRow[] | null> {
+  try {
+    const res = await getDataPort().apiFetch('/api/sync/quickreserve/configs')
+    if (!res.ok) return null
+    const data = (await res.json()) as { stores?: SyncStoreRow[] }
+    return data.stores ?? []
+  } catch {
+    return null
+  }
+}
+
 /** ⚖ Store isolation law: render this ONLY for stores.viewAll callers — it
  *  names every store. Everyone else keeps the single-store form alone. */
 export function SyncAllStoresList({
@@ -77,15 +89,10 @@ export function SyncAllStoresList({
   const [selectFailed, setSelectFailed] = useState(false)
 
   const load = useCallback(async () => {
-    try {
-      const res = await getDataPort().apiFetch('/api/sync/quickreserve/configs')
-      if (!res.ok) return
-      const data = (await res.json()) as { stores?: SyncStoreRow[] }
-      setRows(data.stores ?? [])
-      setNow(Date.now())
-    } catch {
-      /* the per-store form below still works */
-    }
+    const fresh = await fetchStoreRows()
+    if (!fresh) return // the per-store form below still works
+    setRows(fresh)
+    setNow(Date.now())
   }, [])
 
   useEffect(() => {
@@ -129,11 +136,21 @@ export function SyncAllStoresList({
   // never stops the next store. Only stores whose auto-sync is ON: an owner
   // who turned a store OFF is not overridden by a bulk click (the row's own
   // 今すぐ同期 stays, a deliberate single action).
+  // The stores are re-read FIRST and the run uses only that answer: a store
+  // turned OFF after the list loaded (the form below, another session) is
+  // never crawled. A failed re-read runs nothing — no run on stale rows.
   async function runAllStores() {
     if (!rows || runAll.pending || anyRowRunning) return
     setRunAll({ pending: true, results: null })
+    const fresh = await fetchStoreRows()
+    if (!fresh) {
+      setRunAll({ pending: false, results: null })
+      return
+    }
+    setRows(fresh)
+    setNow(Date.now())
     const results: { row: SyncStoreRow; outcome: RunOutcome }[] = []
-    for (const row of rows.filter(syncsInRunAll)) {
+    for (const row of fresh.filter(syncsInRunAll)) {
       results.push({ row, outcome: await runStoreSync(row.storeId) })
     }
     setRowResult({})

@@ -210,6 +210,41 @@ describe('viewAll caller', () => {
     expect(screen.queryByTestId('run-all-result-6eb071d2-829f-4a01-91b3-c4d5e6f70819')).toBeNull()
   })
 
+  it('すべての店舗を同期 re-reads the stores first: a store turned OFF after the list loaded is never crawled', async () => {
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    // the list loaded with 渋谷 ON; the owner then turns it OFF (the form, another session)
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    extraRows = []
+    apiFetch.mockImplementationOnce((url: string) => {
+      expect(url).toBe('/api/sync/quickreserve/configs')
+      return Promise.resolve(reply({ stores: STORES.map((s) => (s.storeId === shibuya ? { ...s, enabled: false } : s)) }))
+    })
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    // the list shows the answer the run uses: 渋谷 now reads 停止 (OFF)
+    expect(within(screen.getByTestId(`sync-row-${shibuya}`)).getByText('stateStopped')).toBeTruthy()
+    for (let i = 0; i < 2; i++) {
+      await act(async () => { runs[i].resolve(ok) })
+      await flush()
+    }
+    expect(runs.map((r) => r.storeId)).toEqual(['1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4', '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'])
+    expect(screen.getByText('runAllDone{"n":2}')).toBeTruthy()
+  })
+
+  it.each([
+    ['answers 502', () => Promise.resolve(reply({ error: 'core down' }, 502))],
+    ['rejects', () => Promise.reject(new Error('network'))],
+  ])('すべての店舗を同期 whose store re-read %s runs NOTHING (no run on stale rows)', async (_label, impl) => {
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    apiFetch.mockImplementationOnce(impl as never)
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs).toHaveLength(0)
+    expect(screen.getByText('runAll').closest('button')!.disabled).toBe(false)
+  })
+
   it('never two crawls of one store: a row run blocks すべての店舗を同期, and sync-all blocks every row', async () => {
     render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
     await flush()
