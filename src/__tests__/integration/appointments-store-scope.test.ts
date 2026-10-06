@@ -447,3 +447,12 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
     expect(resolveSynqedStaffIdSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('getAppointmentById — strict for a 担当未定 booking (PR-B)', () => {
+  it('an own-store booking with no staff resolves to null (never a recording target)', async () => {
+    clampedToGinza()
+    const { get } = await appointmentsMock()
+    get.mockResolvedValueOnce({ ...makeSynqedAppointment(GINZA), staff_id: null })
+    expect(await getAppointmentById('appt-x')).toBeNull()
+  })
+})

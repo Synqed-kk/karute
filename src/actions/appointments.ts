@@ -47,7 +47,11 @@ export { validateAppointmentTime, type AppointmentInput }
 
 export interface AppointmentRow {
   id: string
-  staff_profile_id: string
+  /** null = the booking has no staff yet (an import core could not match);
+   *  shown as 担当未定, never a recording target (isRecordingTarget). */
+  staff_profile_id: string | null
+  /** The booking's store (null = none) — the 担当未定 picker scopes by it. */
+  store_id?: string | null
   client_id: string
   start_time: string
   duration_minutes: number
@@ -279,6 +283,9 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
     // (the record page falls back to the next candidate instead). Mirrors the
     // by-date hide.
     if (isTerminalStatus(a.status)) return null
+    // A booking with no staff (担当未定) is shown on the day list but is NOT a
+    // recording target: a recording is always one staff's session. Kept strict
+    // on purpose — the record page asks for the staff to be assigned first.
     if (!a.staff_id || !a.customer_id) return null
     // Store clamp: the list reads are store-filtered, but this per-id read would
     // otherwise let a branch-restricted staff resolve ANY booking by deep link.
