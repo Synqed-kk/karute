@@ -5,6 +5,7 @@
 export type SyncResponse = {
   error?: string | { code?: string; message?: string }
   message?: string
+  code?: string
   created?: number
   updated?: number
   skipped?: number

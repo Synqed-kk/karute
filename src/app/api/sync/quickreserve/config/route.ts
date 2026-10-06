@@ -5,7 +5,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { errorBody, toAppApiError } from '@/lib/app-api/errors'
 import { qrConfigForStore } from '@/lib/sync/qr-config'
-import { resolveSyncRunStore, webSyncStoreError } from '@/lib/sync/resolve-run-store'
+import { isActiveStore, resolveSyncRunScope, webSyncStoreError } from '@/lib/sync/resolve-run-store'
 
 // QuickReserve connection settings live in synqed-core (sync_configs; the
 // credentials are AES-encrypted server-side and never leave core). This route
@@ -22,20 +22,28 @@ type Capabilities = Awaited<ReturnType<typeof getMyCapabilities>>
 
 /** The store the form SHOWS (SyncSection sends it: ?storeId= on GET, body on
  *  POST), resolved ONLY through the helper the run uses — never the
- *  active-store cookie, so the screen, its save and its run agree. */
+ *  active-store cookie, so the screen, its save and its run agree. Also
+ *  returns the assignment that helper checked (null = unrestricted). */
 async function shownStore(
   synqed: Awaited<ReturnType<typeof getSynqedClient>>,
   capabilities: Capabilities,
   requested: unknown,
-): Promise<string> {
-  const { storeId } = await resolveSyncRunStore({
+): Promise<{ storeId: string; assigned: string[] | null }> {
+  return resolveSyncRunScope({
     synqed,
     authUserId: await getCurrentUserStaffId(),
     capabilities,
     requestedStoreId: typeof requested === 'string' && requested ? requested : null,
   })
-  return storeId
 }
+
+/** Core's save refusals the screen localizes. Core's PUT sends them as
+ *  400 { error: '<code>' }, which the SDK's responseError turns into the
+ *  error's MESSAGE (its .code stays undefined); an object error carries .code. */
+const CORE_SAVE_CODES: readonly string[] = ['qr_store_already_linked', 'store_not_in_business']
+
+/** The largest Quick Reserve store number a 32-bit integer column holds. */
+const QR_STORE_ID_MAX = 2147483647
 
 /** The helper's errors as the run route answers them; anything else → 502. */
 function failure(e: unknown, fallback: string) {
@@ -62,23 +70,38 @@ export async function GET(request: Request) {
 
   // The shown store's own row (CORE-43: one config per store). A store with
   // no row yet reads as unconfigured; qrStoreSlug pre-fills the Quick Reserve
-  // account slug from a sibling store's row (one owner login, several stores).
+  // account slug from another row the caller may see (one owner login,
+  // several stores): any row for an unrestricted caller, only rows of their
+  // assigned stores for a clamped one — never a sibling store's account name.
+  // Only rows of the business's ACTIVE stores are candidates: an archived
+  // store's account never pre-fills (fix round 8, attack A-N1).
   const synqed = await getSynqedClient()
   let found: Awaited<ReturnType<typeof qrConfigForStore>>
+  let assigned: string[] | null
   try {
-    const storeId = await shownStore(synqed, capabilities, new URL(request.url).searchParams.get('storeId'))
-    found = await qrConfigForStore(synqed, storeId)
+    const scope = await shownStore(synqed, capabilities, new URL(request.url).searchParams.get('storeId'))
+    assigned = scope.assigned
+    found = await qrConfigForStore(synqed, scope.storeId)
   } catch (e) {
     return failure(e, 'Could not read QuickReserve settings')
   }
   const { config, configs } = found
   if (!config) {
+    let active: Set<string>
+    try {
+      active = new Set((await synqed.stores.list()).stores.filter(isActiveStore).map((s) => s.id))
+    } catch (e) {
+      return failure(e, 'Could not read QuickReserve settings')
+    }
+    const visible = configs.filter(
+      (c) => active.has(c.karute_store_id) && (assigned === null || assigned.includes(c.karute_store_id)),
+    )
     return NextResponse.json({
       username: '',
       enabled: false,
       lastStatus: null,
       configured: false,
-      qrStoreSlug: configs.find((c) => c.store_slug)?.store_slug ?? '',
+      qrStoreSlug: visible.find((c) => c.store_slug)?.store_slug ?? '',
     })
   }
 
@@ -93,6 +116,8 @@ export async function GET(request: Request) {
     // timezone/locale. Formatting here ran in the lambda's zone: UTC-rendered
     // en-US dates on JST phones.
     lastRunAt: config.last_run_at ?? null,
+    // The run's own status, so the screen styles a failure by it (fix round 4, Opus S4).
+    lastRunStatus: config.last_run_status ?? null,
   })
 }
 
@@ -118,6 +143,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
   }
   const { storeId: shown, username, password, enabled, qrStoreSlug, qrStoreId } = body
+  // A field of the wrong type is the caller's error too — never passed to core.
+  const notString = (v: unknown) => v !== undefined && typeof v !== 'string'
+  // The Quick Reserve store number is a whole number or a string of digits;
+  // anything else (null, boolean, array, object, float) is refused here,
+  // never coerced by Number() (true → 1). An empty or blank string is the
+  // form's empty field: MISSING, not a wrong type — it falls through to the
+  // first-save check below (qr_store_required).
+  const notStoreNumber = (v: unknown) =>
+    v !== undefined &&
+    !(typeof v === 'number' && Number.isInteger(v)) &&
+    !(typeof v === 'string' && /^\d*$/.test(v.trim()))
+  if (
+    notString(username) ||
+    notString(password) ||
+    notString(qrStoreSlug) ||
+    (enabled !== undefined && typeof enabled !== 'boolean') ||
+    notStoreNumber(qrStoreId)
+  ) {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
+  }
   // A save names the store its form shows; without one it is refused before
   // any lookup — never written onto a default store's row.
   if (typeof shown !== 'string' || !shown) {
@@ -137,13 +182,13 @@ export async function POST(request: Request) {
   // a store-lookup failure returns the 502 shape the screen already shows; a
   // store this caller may not use is the run's 409 qr_store_not_ready.
   try {
-    const storeId = await shownStore(synqed, capabilities, shown)
+    const { storeId } = await shownStore(synqed, capabilities, shown)
     const { config: existing, configs } = await qrConfigForStore(synqed, storeId)
 
     const slug = typeof qrStoreSlug === 'string' ? qrStoreSlug.trim() : ''
-    const qrId = Number(qrStoreId)
+    const qrId = typeof qrStoreId === 'string' ? Number(qrStoreId.trim()) : Number(qrStoreId)
     const login = typeof username === 'string' ? username.trim() : ''
-    if (!existing && (!slug || !Number.isInteger(qrId) || qrId <= 0 || !login || !password)) {
+    if (!existing && (!slug || !Number.isInteger(qrId) || qrId <= 0 || qrId > QR_STORE_ID_MAX || !login || !password)) {
       return NextResponse.json(
         { error: 'qr_store_required', message: 'A new store needs its Quick Reserve store and login.' },
         { status: 400 },
@@ -156,10 +201,16 @@ export async function POST(request: Request) {
     if (!existing && configs.some((c) => c.karute_store_id !== storeId && Number(c.store_id) === qrId)) {
       return NextResponse.json({ error: 'qr_store_already_linked' }, { status: 409 })
     }
+    // A changed login without its password: core re-keys the credentials only
+    // when a password is sent, so the crawl would keep the OLD login while the
+    // screen says saved (fix round 4, Opus C3 app side; SyncSection mirrors it).
+    if (existing && login && login !== (existing.username ?? '').trim() && !password) {
+      return NextResponse.json({ error: 'qr_password_required' }, { status: 409 })
+    }
 
     await synqed.sync.upsertConfig('QUICKRESERVE', {
       // A blank login never overwrites a live row's stored one.
-      username: existing && !login ? existing.username : username,
+      username: existing && !login ? (existing.username ?? undefined) : login,
       // Only send the password when the owner typed one — core keeps the stored
       // credential otherwise (the field renders blank on load by design).
       ...(password ? { password } : {}),
@@ -178,10 +229,12 @@ export async function POST(request: Request) {
   } catch (e) {
     // Surface the real failure — whether it came from a read above or the
     // write itself (the old route's "Config saved" false positive). Core's
-    // code is read from an object error too (the SDK keeps it on .code).
-    if ((e as { code?: unknown } | null)?.code === 'qr_store_already_linked') {
-      return NextResponse.json({ error: 'qr_store_already_linked' }, { status: 409 })
-    }
+    // code is read from .code or, as core sends it today, the SDK message.
+    const err = e as { code?: unknown; message?: unknown } | null
+    const code = [err?.code, err?.message].find(
+      (c): c is string => typeof c === 'string' && CORE_SAVE_CODES.includes(c),
+    )
+    if (code) return NextResponse.json({ error: code }, { status: 409 })
     return failure(e, 'Could not save QuickReserve settings')
   }
 
@@ -192,6 +245,8 @@ export async function POST(request: Request) {
     severity: 'notice',
     targetType: 'business',
     requestId: crypto.randomUUID(),
+    // The store_id column, like the phone's rows (fix round 4, Opus S3).
+    storeId: savedStoreId,
     detail: {
       enabled: Boolean(enabled),
       password_changed: Boolean(password),

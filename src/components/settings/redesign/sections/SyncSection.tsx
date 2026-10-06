@@ -18,15 +18,16 @@ type ConfigResponse = {
   qrStoreSlug?: string
   lastStatus?: string | null
   lastRunAt?: string | null
+  lastRunStatus?: string | null
 }
 
 const SYNC_ERROR_COPY = {
   qr_store_not_ready: 'bookingSyncStoreNotReady',
+  qr_store_unavailable: 'bookingSyncStoreUnavailable',
+  store_not_in_business: 'bookingSyncStoreUnavailable',
   qr_store_required: 'bookingSyncQrStoreRequired',
   qr_store_already_linked: 'bookingSyncQrStoreAlreadyLinked',
-  // A malformed request is nothing the owner can fix: the generic line.
-  invalid_body: null,
-  invalid_store_id: null,
+  qr_password_required: 'bookingSyncPasswordRequired',
 } as const
 
 /** `storeId` = the active store the page was rendered for. The store
@@ -47,30 +48,44 @@ export function SyncSection({
 } = {}) {
   const t = useTranslations('settings')
   const tAuth = useTranslations('auth')
-  const tCommon = useTranslations('common')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  // The login as loaded: a changed login needs its password too.
+  const [loadedUsername, setLoadedUsername] = useState('')
   const [enabled, setEnabled] = useState(false)
   // CORE-43: a store with no config yet names its own Quick Reserve store.
   const [configured, setConfigured] = useState(true)
   const [qrStoreSlug, setQrStoreSlug] = useState('')
   const [qrStoreId, setQrStoreId] = useState('')
-  const [syncing, setSyncing] = useState(false)
-  const [lastResult, setLastResult] = useState<string | null>(null)
+  // EVERY store with a save or run in flight ('' = no store shown), so a
+  // request for one store never disables another store's form, and a store
+  // whose own request is still pending stays marked after a switch away and
+  // back. The ref mirrors the set; each request removes only its own store.
+  const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set())
+  const inFlightRef = useRef<ReadonlySet<string>>(inFlight)
+  const [lastResult, setLastResult] = useState<{ text: string; error: boolean } | null>(null)
   // The store whose config is loaded (undefined = loading, or the load
   // failed). Save stays off until it is the shown store, so a blank or reset
   // form can never be posted over a live row.
   const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined)
   // The store shown NOW: a save or run answer for another store is dropped.
   const shownStore = useRef(storeId)
+  // Which config load is the latest: each load captures its own number, and
+  // its answer applies only while it is still the latest (and its store is
+  // still shown). A successful save bumps it too, so a load sent before the
+  // save answered can never put the old login back (fix round 8, attack A-6).
+  const loadGeneration = useRef(0)
 
   useEffect(() => {
     // Reset BEFORE the load, and drop a late answer for a store no longer
     // selected, so another store's values can never reach this store's Save.
     shownStore.current = storeId
-    let current = true
+    const generation = ++loadGeneration.current
+    let current = true // false once this effect is cleaned up (switch · unmount)
+    const latest = () => current && generation === loadGeneration.current && shownStore.current === storeId
     setLoadedFor(undefined)
     setUsername('')
+    setLoadedUsername('')
     setPassword('')
     setEnabled(false)
     setConfigured(true)
@@ -82,52 +97,73 @@ export function SyncSection({
     )
       .then(async (r) => {
         const parsed = await readSyncResponse(r)
-        if (!current) return
+        if (!latest()) return
         if (!parsed.ok) {
-          setLastResult(parsed.message) // the surface's error line; Save stays off
+          setLastResult({ text: failureLine(parsed.message), error: true }) // the surface's error line; Save stays off
           return
         }
         const data = parsed.data as unknown as ConfigResponse
         if (data.username) setUsername(data.username)
+        setLoadedUsername(data.username ?? '')
         if (data.enabled !== undefined) setEnabled(data.enabled)
         if (data.configured === false) {
           setConfigured(false)
           setQrStoreSlug(data.qrStoreSlug ?? '')
         }
         if (data.lastStatus)
-          setLastResult(
-            data.lastRunAt
+          setLastResult({
+            text: data.lastRunAt
               ? `${data.lastStatus} (${new Date(data.lastRunAt).toLocaleString()})`
               : data.lastStatus,
-          )
+            // The run's own status — never the case of a free-text prefix.
+            error: data.lastRunStatus === 'ERROR',
+          })
         setLoadedFor(storeId)
       })
-      .catch((err) => {
-        if (current) setLastResult(`Failed: ${err instanceof Error ? err.message : 'Unknown'}`)
+      .catch(() => {
+        if (latest()) setLastResult({ text: t('bookingSyncUnavailable'), error: true })
       })
     return () => {
       current = false
     }
   }, [storeId])
 
-  // The routes' stable error codes, not messages meant for display — show OUR
-  // localized copy so it follows the language toggle. Applied when the line
-  // renders, so the load, save and run errors all go through it.
-  function localizeSyncError(text: string): string {
-    const status = /^Error \((\d+)\)/.exec(text)?.[1]
-    const code = (Object.keys(SYNC_ERROR_COPY) as (keyof typeof SYNC_ERROR_COPY)[]).find((c) =>
-      text.includes(c),
-    )
-    if (!status || !code) return text
-    const key = SYNC_ERROR_COPY[code]
-    return `Error (${status}): ${key ? t(key) : tCommon('somethingWentWrong')}`
+  // A refusal's stable code shows OUR localized line, following the language
+  // toggle; anything else (a 5xx, an unknown error) shows ONE generic line.
+  // The raw cause stays in the response body for devtools and the audit.
+  function failureLine(message: string): string {
+    const detail = /^Error \(\d+\): ([\s\S]*)$/.exec(message)?.[1] ?? ''
+    return Object.prototype.hasOwnProperty.call(SYNC_ERROR_COPY, detail)
+      ? t(SYNC_ERROR_COPY[detail as keyof typeof SYNC_ERROR_COPY])
+      : t('bookingSyncUnavailable')
+  }
+
+  function beginSyncing(key: string) {
+    const next = new Set(inFlightRef.current)
+    next.add(key)
+    inFlightRef.current = next
+    setInFlight(next)
+  }
+  // Removes only this request's store, never another store's (a store switch
+  // does not cancel the old request; its late answer is dropped by the
+  // shownStore guard).
+  function endSyncing(key: string) {
+    if (!inFlightRef.current.has(key)) return
+    const next = new Set(inFlightRef.current)
+    next.delete(key)
+    inFlightRef.current = next
+    setInFlight(next)
   }
 
   // Both actions capture the store at request time and ignore an answer that
   // lands after the form moved to another store.
   async function saveConfig() {
     const forStore = storeId
-    setSyncing(true)
+    const key = forStore ?? ''
+    // What this save sends, so its answer can show exactly what was saved.
+    const savedLogin = username.trim()
+    const savedEnabled = enabled
+    beginSyncing(key)
     try {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve/config', {
         method: 'POST',
@@ -142,19 +178,36 @@ export function SyncSection({
       })
       const parsed = await readSyncResponse(res)
       if (shownStore.current !== forStore) return
-      if (parsed.ok) setConfigured(true)
-      setLastResult(parsed.ok ? 'Config saved' : parsed.message)
+      if (parsed.ok) {
+        // The saved values are now the store's row: any load sent before this
+        // answer is stale, and the form shows what was saved. A blank login
+        // keeps the stored one (the route never blanks it), so it is left as is.
+        loadGeneration.current++
+        setConfigured(true)
+        setEnabled(savedEnabled)
+        if (savedLogin) {
+          setUsername(savedLogin)
+          setLoadedUsername(savedLogin)
+        }
+        setLoadedFor(forStore)
+      }
+      setLastResult(
+        parsed.ok
+          ? { text: t('syncSection.configSaved'), error: false }
+          : { text: failureLine(parsed.message), error: true },
+      )
     } catch {
-      if (shownStore.current === forStore) setLastResult('Failed to save')
+      if (shownStore.current === forStore) setLastResult({ text: t('bookingSyncUnavailable'), error: true })
     } finally {
-      setSyncing(false)
+      endSyncing(key)
     }
   }
 
   async function syncNow() {
     const forStore = storeId
-    setSyncing(true)
-    setLastResult('Syncing...')
+    const key = forStore ?? ''
+    beginSyncing(key)
+    setLastResult({ text: t('syncing'), error: false })
     try {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve', {
         method: 'POST',
@@ -164,26 +217,32 @@ export function SyncSection({
       const parsed = await readSyncResponse(res)
       if (shownStore.current !== forStore) return
       if (!parsed.ok) {
-        setLastResult(parsed.message)
+        setLastResult({ text: failureLine(parsed.message), error: true })
       } else {
         const d = parsed.data
-        setLastResult(
-          d.message ??
-            `Synced: ${d.created ?? 0} created, ${d.updated ?? 0} updated, ${d.skipped ?? 0} skipped`,
-        )
+        setLastResult({
+          text:
+            d.code === 'not_configured'
+              ? t('bookingSyncNotConfigured')
+              : t('syncSection.result', { created: d.created ?? 0, updated: d.updated ?? 0, skipped: d.skipped ?? 0 }),
+          error: false,
+        })
       }
-    } catch (err) {
+    } catch {
       if (shownStore.current !== forStore) return
-      setLastResult(
-        `Failed: ${err instanceof Error ? err.message : 'Unknown'}`,
-      )
+      setLastResult({ text: t('bookingSyncUnavailable'), error: true })
     } finally {
-      setSyncing(false)
+      endSyncing(key)
     }
   }
 
-  const isError =
-    lastResult?.startsWith('Error') || lastResult?.startsWith('Failed')
+  const isError = lastResult?.error === true
+  // Disabled only while THIS store's own save or run is in flight.
+  const syncing = inFlight.has(storeId ?? '')
+  // Core keeps the OLD credentials when only the login changes, so a changed
+  // login needs its password too (fix round 4, Opus C3; the route mirrors it).
+  const loginNeedsPassword =
+    configured && username.trim() !== '' && username.trim() !== loadedUsername.trim() && !password
 
   return (
     <div className="space-y-6">
@@ -245,6 +304,10 @@ export function SyncSection({
         </div>
       </div>
 
+      {loginNeedsPassword && (
+        <p className="text-xs text-muted-foreground">{t('bookingSyncPasswordRequired')}</p>
+      )}
+
       {!configured && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -298,7 +361,7 @@ export function SyncSection({
         <button
           type="button"
           onClick={saveConfig}
-          disabled={syncing || !storeId || loadedFor !== storeId}
+          disabled={syncing || !storeId || loadedFor !== storeId || loginNeedsPassword}
           className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {t('saveConfig')}
@@ -326,7 +389,7 @@ export function SyncSection({
           ) : (
             <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
           )}
-          <span>{localizeSyncError(lastResult)}</span>
+          <span>{lastResult.text}</span>
         </div>
       )}
     </div>

@@ -231,3 +231,23 @@ describe('fix round 3 (Opus S3) — an archived store is never the default sync 
     await expect(run({ capabilities: VIEW_ALL })).resolves.toEqual({ storeId: LIVE })
   })
 })
+
+describe('fix round 4 (Sonnet SF1) — a store answer without an id is a dependency failure', () => {
+  it.each([
+    ['{}', {}],
+    ['an empty id', { id: '' }],
+  ])('stores.get answers %s → SyncStoreDependencyError, never the default store', async (_case, answer) => {
+    storesGet.mockResolvedValue(answer)
+    await expect(
+      run({ capabilities: VIEW_ALL, requestedStoreId: '57084027-db60-4552-8bb4-8acc48d592ef' }),
+    ).rejects.toBeInstanceOf(SyncStoreDependencyError)
+    expect(storesList).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 4 (NIT4) — clamped, no request, the store list throws', () => {
+  it('→ SyncStoreDependencyError (502), never Unassigned', async () => {
+    storesList.mockRejectedValue(new Error('core down'))
+    await expect(run({})).rejects.toBeInstanceOf(SyncStoreDependencyError)
+  })
+})

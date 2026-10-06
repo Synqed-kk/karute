@@ -58,8 +58,12 @@ export const POST = facadeHandler('sync.run', async (ctx: FacadeContext) => {
     })
   } catch (err) {
     // The facade's codes for the helper's three answers (web: 409 · 409 · 502).
+    // Never reason 'store_header' (fix round 4, Opus S2): that marker makes
+    // the phone's stranded-pin heal (thin/ports/facade-fetch.ts) clear the
+    // pin and retry unlensed, so an action would crawl ANOTHER store. The
+    // pin's repair is the next screen read's job, never an action's.
     if (err instanceof SyncStoreForbidden) {
-      throw new AppApiError('store_forbidden', err.message, { reason: 'store_header' })
+      throw new AppApiError('store_forbidden', err.message, { reason: 'sync_store' })
     }
     if (err instanceof SyncStoreUnassigned) {
       throw new AppApiError('store_unassigned', 'no store is assigned to your account yet')

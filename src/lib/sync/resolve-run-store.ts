@@ -9,16 +9,22 @@
 //
 // | Case                                                   | Error                    | Web                       | Phone                                          |
 // |--------------------------------------------------------|--------------------------|---------------------------|------------------------------------------------|
-// | requested store-id is not a lowercase UUID (no lookup)  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
-// | requested store is not this business's (404/403)       | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
-// | requested store outside a clamped caller's assignment  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason store_header)      |
+// | requested store-id is not a lowercase UUID (no lookup)  | SyncStoreForbidden       | 409 qr_store_unavailable  | 403 store_forbidden (reason sync_store)        |
+// | requested store is not this business's (404/403)       | SyncStoreForbidden       | 409 qr_store_unavailable  | 403 store_forbidden (reason sync_store)        |
+// | requested store outside a clamped caller's assignment  | SyncStoreForbidden       | 409 qr_store_unavailable  | 403 store_forbidden (reason sync_store)        |
+// | requested store is archived                            | SyncStoreForbidden       | 409 qr_store_unavailable  | 403 store_forbidden (reason sync_store)        |
 // | caller reaches no store (unassigned in a ≥2-store      | SyncStoreUnassigned      | 409 qr_store_not_ready    | 403 store_unassigned                           |
 // |   business · web: roster cannot place them · business  |                          |                           |                                                |
 // |   has no store at all)                                 |                          |                           |                                                |
 // | requested-store verify throws (5xx / 429 / network)    | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
+// | requested-store verify answers without a store id      | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
 // | staff-store read throws                                | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
 // | store-list read throws (store count · primary store)   | SyncStoreDependencyError | 502 { error: message }    | 502 upstream_unavailable                       |
 //
+// The phone never answers reason 'store_header' here: that marker triggers
+// the thin shell's stranded-pin heal (clear the pin, retry unlensed), and an
+// ACTION must never retry itself against a different store. 'sync_store'
+// leaves the pin alone; the next screen read repairs a stale pin.
 // A dependency failure is never swallowed into "no store": it is not the
 // caller's fault and not a store verdict, so it is reported as one (502).
 // Every answer carries the store id core returned (stores.get), never the
@@ -60,12 +66,25 @@ async function read<T>(call: () => Promise<T>): Promise<T> {
  * store-clamp.ts step 3). null = the roster cannot place the caller (the web's
  * getCurrentUserStaffId → null): without viewAll they reach no store.
  */
-export async function resolveSyncRunStore(args: {
+export async function resolveSyncRunStore(args: SyncRunStoreArgs): Promise<{ storeId: string }> {
+  const { storeId } = await resolveSyncRunScope(args)
+  return { storeId }
+}
+
+type SyncRunStoreArgs = {
   synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
   authUserId: string | null
   capabilities: Set<Capability>
   requestedStoreId: string | null
-}): Promise<{ storeId: string }> {
+}
+
+/** resolveSyncRunStore's answer plus the assignment it checked against:
+ *  `assigned` = the store ids a clamped caller may use; null = unrestricted
+ *  (viewAll, or floating staff). The config GET limits its no-row slug
+ *  pre-fill to these stores (fix round 6, Greptile P1). */
+export async function resolveSyncRunScope(
+  args: SyncRunStoreArgs,
+): Promise<{ storeId: string; assigned: string[] | null }> {
   const { synqed, authUserId, capabilities, requestedStoreId } = args
 
   // The store id downstream acts on: the one core returned, never the request string.
@@ -85,6 +104,11 @@ export async function resolveSyncRunStore(args: {
     }
     // An archived store is not one anybody may sync.
     if ((store as { active?: unknown } | null)?.active === false) throw new SyncStoreForbidden('store-id is archived')
+    // An answer without an id is core's failure, never "no store requested":
+    // falling through would act on the default store instead.
+    if (typeof store?.id !== 'string' || !store.id) {
+      throw new SyncStoreDependencyError(new Error('core returned a store without an id'))
+    }
     canonicalId = store.id
   }
 
@@ -110,26 +134,33 @@ export async function resolveSyncRunStore(args: {
     if (assigned && !assigned.includes(canonicalId)) {
       throw new SyncStoreForbidden('store-id outside your assignment')
     }
-    return { storeId: canonicalId }
+    return { storeId: canonicalId, assigned }
   }
-  const list = (await listStores()).filter((s) => s.active !== false)
+  const list = (await listStores()).filter(isActiveStore)
   // An archived store is never the default target.
   if (assigned) {
     const first = assigned.find((id) => list.some((s) => s.id === id))
     if (!first) throw new SyncStoreUnassigned('no active store is assigned to this caller')
-    return { storeId: first }
+    return { storeId: first, assigned }
   }
   const primary = list.find((s) => s.is_primary)?.id ?? list[0]?.id
   if (!primary) throw new SyncStoreUnassigned('this business has no store')
-  return { storeId: primary }
+  return { storeId: primary, assigned }
+}
+
+/** THE ONE DEFINITION of an active store (archived = `active: false`): the
+ *  default target above and the config GET's no-row pre-fill both use it. */
+export function isActiveStore(s: { active?: boolean | null }): boolean {
+  return s.active !== false
 }
 
 /** The web column of the table above, shared by both web routes (run +
  *  config GET/POST). null = not one of the helper's errors. */
 export function webSyncStoreError(e: unknown): { status: number; body: { error: string } } | null {
-  if (e instanceof SyncStoreForbidden || e instanceof SyncStoreUnassigned) {
-    return { status: 409, body: { error: 'qr_store_not_ready' } }
-  }
+  // A store that may not sync (shape · foreign · outside the assignment ·
+  // archived) has its own code, apart from "no store" (fix round 4, Opus N2).
+  if (e instanceof SyncStoreForbidden) return { status: 409, body: { error: 'qr_store_unavailable' } }
+  if (e instanceof SyncStoreUnassigned) return { status: 409, body: { error: 'qr_store_not_ready' } }
   if (e instanceof SyncStoreDependencyError) return { status: 502, body: { error: e.message } }
   return null
 }

@@ -122,6 +122,8 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
       targetType: 'business',
       // PR-M5: one server-minted id per request rides every emit.
       requestId: expect.any(String),
+      // Fix round 4 (Opus S3): the store_id column, like the phone's rows.
+      storeId: '90ddfe47-6f7c-4927-8fde-7d9a05383a79',
       // CORE-43: which store's crawl ran.
       detail: { karute_store_id: '90ddfe47-6f7c-4927-8fde-7d9a05383a79' },
     })
@@ -133,6 +135,8 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.message).toMatch(/QR sync not configured/)
+    // Fix round 4 (Opus N3): a code like the phone's, so the screen localizes it.
+    expect(body.code).toBe('not_configured')
     expect(auditWeb).toHaveBeenCalledTimes(1)
   })
 
@@ -205,10 +209,13 @@ describe('mapping table — web column (resolve-run-store.ts)', () => {
     ['requested store is not this business (404)', () => {
       activeStore.current = '90765121-c851-4786-8fa5-46ce4ed39fb9'
       storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
-    }, 409, { error: 'qr_store_not_ready' }],
+    }, 409, { error: 'qr_store_unavailable' }],
     ['requested store outside the clamped assignment', () => {
       activeStore.current = '90765121-c851-4786-8fa5-46ce4ed39fb9'
-    }, 409, { error: 'qr_store_not_ready' }],
+    }, 409, { error: 'qr_store_unavailable' }],
+    ['requested store is archived', () => {
+      storesGet.mockImplementation(async (id: string) => ({ id, active: false }))
+    }, 409, { error: 'qr_store_unavailable' }],
     ['caller reaches no store (unassigned, 2-store business)', () => {
       staffStoresGet.mockResolvedValue({ store_ids: [] })
     }, 409, { error: 'qr_store_not_ready' }],
@@ -278,6 +285,7 @@ describe('fix round 2 — every web run audit row carries the store', () => {
     expect(auditWeb).toHaveBeenCalledTimes(1)
     expect(auditWeb.mock.calls[0][0]).toMatchObject({
       action: 'settings.sync_run_now',
+      storeId: 'd5f78368-905a-4eb9-8985-af1924257893',
       detail: { karute_store_id: 'd5f78368-905a-4eb9-8985-af1924257893' },
     })
   })
@@ -292,14 +300,25 @@ describe('fix round 3 (Opus S1) — the web run carries the id core returned', (
     expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: canonical })
     expect(auditWeb).toHaveBeenCalledTimes(1)
     expect(auditWeb.mock.calls[0][0].detail).toEqual({ karute_store_id: canonical })
+    expect(auditWeb.mock.calls[0][0].storeId).toBe(canonical)
   })
 
-  it('a body storeId that is not a store id → 409 qr_store_not_ready, no lookup, nothing runs', async () => {
+  it('a body storeId that is not a store id → 409 qr_store_unavailable, no lookup, nothing runs', async () => {
     activeStore.current = '../customers'
     const res = await POST(run())
     expect(res.status).toBe(409)
-    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(await res.json()).toEqual({ error: 'qr_store_unavailable' })
     expect(storesGet).not.toHaveBeenCalled()
+    expect(runNow).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 4 (Sonnet SF1) — a store answer without an id never runs the default store', () => {
+  it('stores.get answers {} → 502, nothing runs, no audit row', async () => {
+    storesGet.mockResolvedValue({})
+    const res = await POST(run())
+    expect(res.status).toBe(502)
     expect(runNow).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
   })

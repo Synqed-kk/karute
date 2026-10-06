@@ -114,6 +114,20 @@ describe('facadeApiFetch stranded-pin self-heal', () => {
     expect(getThinActiveStore()).toBe('s-mine')
   })
 
+  it("fix round 4 (Opus S2): the sync run's refusal (reason sync_store) never heals — pin untouched, no retry", async () => {
+    setThinActiveStore('s-mine')
+    const fetchSpy = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValue(forbidden('store_forbidden', 'sync_store'))
+    global.fetch = fetchSpy as unknown as typeof fetch
+    const res = await facadeApiFetch(toUrl, '/api/app/v1/sync/run', { method: 'POST' })
+    await flushDynamicImport()
+    expect(res.status).toBe(403)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(getThinActiveStore()).toBe('s-mine')
+    expect(resyncChromeAfterHeal).not.toHaveBeenCalled()
+  })
+
   it('a 403 that is not store_forbidden passes through untouched', async () => {
     setThinActiveStore('s-mine')
     const fetchSpy = jest

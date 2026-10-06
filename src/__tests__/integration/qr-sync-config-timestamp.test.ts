@@ -135,7 +135,9 @@ describe('quickreserve config POST — audit writer (wave A part 3)', () => {
     })
     const req = new Request('https://app.test/api/sync/quickreserve/config', {
       method: 'POST',
-      body: JSON.stringify({ storeId: '8f26d62c-8ccc-4204-8e28-70c7569c7b64', username: 'velune', enabled: false }),
+      // With the password: a changed login without one is refused before the
+      // write (fix round 4, item 11), and this test is about the write failing.
+      body: JSON.stringify({ storeId: '8f26d62c-8ccc-4204-8e28-70c7569c7b64', username: 'velune', password: 'hunter2', enabled: false }),
     })
     const lines = await auditLines(async () => {
       expect((await POST(req)).status).toBe(502)
