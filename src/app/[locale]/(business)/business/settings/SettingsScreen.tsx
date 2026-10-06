@@ -83,7 +83,7 @@ import { CARD_LOOK_HEADINGS, ReserveCardLookSection } from './ReserveCardLookSec
 import { STORE_PAGE_HEADINGS, TYPE_BLOCK, UNDO } from '@/business/lib/store-page/copy'
 // S60 P7A-R2b — the 業種 / 機能 blocks mounted under the card look, the room's one draft, and the room's toast (R207).
 import type { CapKey, CapRecord } from '@/business/lib/store-page/model'
-import { afterHandFlip, storePageDraft, storePageValues, type StorePageIds } from '@/business/lib/store-page/room-draft'
+import { afterHandFlip, storePageDraft, storePageEdits, storePageValues, type StorePageIds } from '@/business/lib/store-page/room-draft'
 import { putStoreCapabilities, type CapsSaveReason } from '@/business/lib/store-page/save-client'
 import { saveFailLines } from '@/business/lib/store-page/save-lines'
 // S61 P7B-R1 (R224) — the sample of the type core last accepted (pure; imports only copy/model types).
@@ -123,6 +123,7 @@ import {
   BOOKING_GUARD_ID,
   CARD_COLOR_ID,
   STORE_PAGE_ID,
+  STORE_PAGE_DEFAULTS_ID,
   STORE_PAGE_FAMILY_ID,
   storePageSwitchId,
   hitOf,
@@ -169,7 +170,7 @@ import {
 const ROOT = 'page pg-settings'
 
 /** S60 P7A-R2b (P0) — お店ページ's value ids, the room's own (settings.ts), never retyped. */
-const STORE_PAGE_IDS: StorePageIds = { family: STORE_PAGE_FAMILY_ID, sw: storePageSwitchId }
+const STORE_PAGE_IDS: StorePageIds = { family: STORE_PAGE_FAMILY_ID, sw: storePageSwitchId, defaults: STORE_PAGE_DEFAULTS_ID }
 
 /** S60 P7A-R2c (R210) — THE ids a 保存する commits: the section's control ids EXCEPT お店ページ's 17.
  *  S61 P7B-2 (R223) — the permanent rule, no longer a stand-in: a page-level commit (`commitSection`) NEVER marks one
@@ -1359,7 +1360,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** S60 P7A-R2b (P6) — a type pick writes the record; it removes NO reset key (R182). S61 P7B-3 (R220, G7): an edit
    *  of the switches' half clears the switches' refusal line (the colour's line is the colour pick's to clear). */
   const typeChange = (next: CapRecord) => {
-    setValues((prev) => ({ ...prev, ...storePageValues(next, STORE_PAGE_IDS) }))
+    setValues((prev) => ({ ...prev, ...storePageEdits(spDraft, next, STORE_PAGE_IDS) })) // S75 fix 1: only what moved
     setSpPress((prev) => ({ ...prev, caps: 'unsent' }))
   }
   /** …a hand flip writes the record AND drops every key it flipped from the reset keys (C4). */

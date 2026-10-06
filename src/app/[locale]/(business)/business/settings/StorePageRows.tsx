@@ -110,7 +110,7 @@ export function StorePageRows({ draft, saved, counts, canEdit, onChange, roleOf,
                 <div className="spr-src">{typeLocked ? LOCKED.reason : sourceLine(saved, r.key, roleOf)}</div>
               </div>
               <Switch
-                on={draft.switches[r.key].on}
+                on={!typeLocked && draft.switches[r.key].on}
                 aria={r.ja}
                 inert={locked ? { 'aria-disabled': 'true' } : {}}
                 reduced={reduced ?? osReduced}

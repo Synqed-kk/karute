@@ -247,7 +247,8 @@ describe('D7 — a type change alone moves no switch; TYPE_DEFAULT = untouched b
   })
   it('E1b then 戻す: yoga_studio\'s defaults on the differing keys, those keys in reset_keys → exactly seedRecord(yoga_studio), 0 OWNER', () => {
     const typed = stampSave(A, { ...A, business_type: 'yoga_studio' }, [], NOW, 'staff-1')
-    const draft: CapRecord = { ...typed, switches: { ...typed.switches, ...Object.fromEntries(differing.map((k) => [k, { ...typed.switches[k], on: B.switches[k].on }])) } }
+    // S75 fix 1 (SF2/SF3): 戻す sets the draft's defaults_type to the type it reset to
+    const draft: CapRecord = { ...typed, defaults_type: 'yoga_studio', switches: { ...typed.switches, ...Object.fromEntries(differing.map((k) => [k, { ...typed.switches[k], on: B.switches[k].on }])) } }
     expect(stampSave(typed, draft, differing, NOW, 'staff-1')).toEqual(B)
   })
 })
@@ -315,7 +316,7 @@ describe('save stamp — the server decides source (R89)', () => {
   it('a hand toggle that lands on the default (not in reset_keys) → OWNER', () => {
     const gymDraft = { ...flip(salon, 'classes', true), business_type: 'yoga_studio' as const }
     expect(stampSave(salon, gymDraft, [], NOW, 's').switches.classes.source).toBe('OWNER')
-    expect(stampSave(salon, gymDraft, ['classes'], NOW, 's').switches.classes).toEqual({ on: true, source: 'TYPE_DEFAULT' })
+    expect(stampSave(salon, { ...gymDraft, defaults_type: 'yoga_studio' }, ['classes'], NOW, 's').switches.classes).toEqual({ on: true, source: 'TYPE_DEFAULT' }) // S75 fix 1: 戻す set the draft's defaults_type
   })
 })
 

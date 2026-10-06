@@ -139,7 +139,9 @@ export function resolveRecord(rec: UnresolvedRecord): CapRecord {
     return { ...s, on: standardOn(bt, dt, k), source: 'TYPE_DEFAULT' }
   })
 }
-/** The lock alone, for a DRAFT (resolveRecord would also undo the owner's unsaved flips): locked keys → OFF, nothing else moves. */
+/** The lock alone, as a READ-TIME OVERLAY on a draft (resolveRecord would also undo the owner's unsaved flips): locked
+ *  keys READ OFF, nothing else moves. S75 fix 1 (SF1): never written back into the draft, so a 業種 pick back restores
+ *  the switch the owner had (room-draft's storePageDraft applies it; the room's values keep the underlying `on`). */
 export const lockOff = (rec: CapRecord): CapRecord => {
   const bt = typeKeyOf(rec.business_type)
   return build(bt, typeKeyOf(rec.defaults_type), (k) => (isLocked(bt, k) ? { ...rec.switches[k], on: false } : rec.switches[k]))
@@ -256,23 +258,24 @@ export class LockedSwitchOn extends Error {
   }
 }
 /** S75: `saved` is the RESOLVED baseline (parseRecord, or the seed shown). A locked key turned ON throws LockedSwitchOn.
- *  defaults_type = the draft's FINAL 業種 when 戻す was pressed (its keys ride in resetKeys — the room's draft keeps
- *  only 業種 + the 16 `on`, so the reset path carries it, as R182 already reads the final type), else the saved
- *  record's — a 業種 pick alone moves no switch (D7). A key kept TYPE_DEFAULT always equals its standard, so the
+ *  defaults_type = the DRAFT's (S75 fix 1, SF2/SF3: the room's draft carries it and only 業種の標準に戻す sets it, flips
+ *  or not), else the saved record's, else its 業種 — a 業種 pick alone moves no switch (D7). A key kept TYPE_DEFAULT always equals its standard, so the
  *  next read shows exactly what was saved; an untouched key that 戻す moved away from and the owner set back is OWNER. */
 export function stampSave(
-  saved: CapRecord, draft: CapRecord, resetKeys: readonly CapKey[], now: Date, actingStaffId: string,
+  saved: CapRecord, draft: Omit<CapRecord, 'defaults_type'> & { readonly defaults_type?: BusinessTypeKey }, resetKeys: readonly CapKey[], now: Date, actingStaffId: string,
 ): CapRecord {
   const at = now.toISOString()
   const t = typeKeyOf(draft.business_type) // R155: a junk type stamps as 'other' and the record it returns says so
   const locked = CAP_KEYS.find((k) => isLocked(t, k) && draft.switches[k].on)
   if (locked !== undefined) throw new LockedSwitchOn(locked)
-  const dt = resetKeys.length > 0 ? t : typeKeyOf(saved.defaults_type)
+  const dt = typeKeyOf(draft.defaults_type ?? saved.defaults_type ?? saved.business_type)
   return build(t, dt, (k) => {
     const on = draft.switches[k].on
     const was = saved.switches[k]
     const std = standardOn(t, dt, k)
-    if (isLocked(t, k)) return { ...was, on: false }
+    // S75 fix 1 (SF4): a locked key is written OFF / TYPE_DEFAULT with THIS save's stamp — never an old OWNER stamp; the
+    // owner's earlier ON is not kept (a legally locked switch resets; after the lock lifts the key follows the table)
+    if (isLocked(t, k)) return was.source === 'TYPE_DEFAULT' && !was.on ? was : { on: false, source: 'TYPE_DEFAULT', changed_at: at, changed_by: actingStaffId }
     if (on === was.on && (was.source === 'OWNER' || on === std)) return was
     if (was.source === 'TYPE_DEFAULT' && on === std && resetKeys.includes(k)) return { on, source: 'TYPE_DEFAULT' }
     return { on, source: 'OWNER', changed_at: at, changed_by: actingStaffId }

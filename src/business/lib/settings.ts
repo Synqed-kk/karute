@@ -219,6 +219,8 @@ export const CARD_COLOR_ID = 'reserve-card-look.color'
  *  keeps its S50 spelling) and one boolean per CAP key, `reserve-store-page.sw.<snake_key>`. */
 export const STORE_PAGE_FAMILY_ID = 'reserve-store-page.family'
 export const storePageSwitchId = (key: string): string => `reserve-store-page.sw.${key}`
+/** S75 fix 1 — the draft's defaults_type (業種の標準に戻す sets it), so 元に戻す, dirty and the send see it. */
+export const STORE_PAGE_DEFAULTS_ID = 'reserve-store-page.defaults'
 
 // ⚖ S50 P3 / R173 — お店ページ's types are P1's own (store-page/model.ts), named here for the room. The ONE import
 // of this file is TYPE-ONLY (erased at compile time: no runtime dependency, foundation.test.ts pins it).
@@ -910,7 +912,7 @@ export function sameValue(a: RowValue | undefined, b: RowValue | undefined): boo
 export function controlIdsOf(section: SettingsSection): string[] {
   const ids = section.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls.map((c) => c.id)))
   // S50 P3 — お店ページ under a store lens: + the 業種 and the 16 switches (17 ids, the record's own key order).
-  const store = section.storePage ? [STORE_PAGE_FAMILY_ID, ...Object.keys(section.storePage.saved.switches).map(storePageSwitchId)] : []
+  const store = section.storePage ? [STORE_PAGE_FAMILY_ID, STORE_PAGE_DEFAULTS_ID, ...Object.keys(section.storePage.saved.switches).map(storePageSwitchId)] : []
   return section.cardLook ? [...ids, CARD_COLOR_ID, ...store] : [...ids, ...store]
 }
 

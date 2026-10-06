@@ -13,7 +13,7 @@
 import { useRef, useState } from 'react'
 import { REG, RESET, TYPE_BLOCK } from '@/business/lib/store-page/copy'
 import {
-  BUSINESS_TYPE_KEYS, applyReset, lockOff, resetDiff, typeKeyOf, type BusinessTypeKey, type CapKey, type CapRecord,
+  BUSINESS_TYPE_KEYS, applyReset, resetDiff, typeKeyOf, type BusinessTypeKey, type CapKey, type CapRecord,
 } from '@/business/lib/store-page/model'
 import { labelOf } from '@/business/lib/store-page/type-labels'
 import { Dialog } from './Dialog'
@@ -47,11 +47,13 @@ export function StorePageType({ draft, canEdit, onChange, onResetKeys, onToast, 
   const pick = (raw: string) => {
     if (!canEdit) return
     const t = typeKeyOf(raw)
-    onChange(lockOff({ ...draft, business_type: t })) // D7 / R183: the type alone — no dialog, the reset keys kept (R182); R269: a key the type locks goes OFF
+    onChange({ ...draft, business_type: t }) // D7 / R183: the type alone — no dialog, the reset keys kept (R182); R269's lock is the draft's read-time overlay (S75 fix 1)
   }
   // R144: the asked record carries the picked type before any diff / reset is computed from it.
   const asked: CapRecord | null = ask ? { ...draft, business_type: ask } : null
   const diff = asked ? resetDiff(asked) : null
+  // S75 fix 1 (SF2): 戻す always makes the asked type the defaults type — so it may confirm with zero flips when that moves
+  const nothing = !diff || (diff.none && draft.defaults_type === ask)
   // Editing withdrawn while the dialog is open: 戻す goes dead and confirm refuses, like pick (the opener is already disabled).
   const confirm = () => {
     if (!canEdit || !ask || !asked || !diff) return
@@ -110,7 +112,7 @@ export function StorePageType({ draft, canEdit, onChange, onResetKeys, onToast, 
             </div>
             <div className="sp-type-acts">
               <button type="button" className="btn" ref={cancelRef} onClick={() => setAsk(null)}>{RESET.cancel}</button>
-              <button type="button" className="btn primary" disabled={!canEdit || diff.none} onClick={confirm}>{RESET.confirm}</button>
+              <button type="button" className="btn primary" disabled={!canEdit || nothing} onClick={confirm}>{RESET.confirm}</button>
             </div>
           </>
         )}

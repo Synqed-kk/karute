@@ -103,13 +103,16 @@ export const RESET = {
 /** S75 (R269) — the line under a switch the 業種 locks OFF (in place of the source line). NOT from the mock: authored for
  *  this row in the register of its siblings (SAVE_FAIL's 「…ため、…できず」, HONEST's 「…ため、まだ…」). */
 export const LOCKED = {
-  reason: '保険診療を行う業種のため、いまはオンにできません。',
+  reason: '保険診療が関わる業種のため、いまはオンにできません。',
 } as const
+
+/** S75 fix 1 (SF5) — the one exception to 「その場では何も変わりません」 (R269), a follow-on sentence in LOCKED.reason's words. */
+const TYPE_LOCK_NOTE = 'ただし、保険診療が関わる業種を選ぶと、読んでポイントはオフになります。'
 
 /** The 業種 block (:799-801): h3 (doubles as the seg's aria-label, :803) + its sub. */
 export const TYPE_BLOCK = {
   title: '業種',
-  sub: '業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。',
+  sub: '業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。' + TYPE_LOCK_NOTE,
 } as const
 
 /** renderHonest (:1947-1958). */
@@ -133,12 +136,14 @@ export const SAVE_FAIL = {
   tenant: 'ここからはこの事業の設定を保存できないため、お客様のアプリに出る機能はこれまでのままです。',
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（お客様のアプリに出る機能はこれまでのままです）。',
   colourOnly: 'カードの色は保存しましたが、業種と機能の設定は保存できませんでした。時間をおいてもう一度保存してください（お客様のアプリに出る機能はこれまでのままです）。',
+  /** S75 fix 1 (Sonnet SF3) — NOT from COPY-S49: the door refused a locked switch sent ON; a retry cannot pass, a reload does. */
+  locked: 'この業種ではオンにできない機能が、オンのまま送られたため、保存できませんでした。ページを再読み込みしてから、もう一度変更してください（お客様のアプリに出る機能はこれまでのままです）。',
   switchesOnly: '業種と機能の設定は保存しましたが、カードの色は保存できませんでした。時間をおいてもう一度保存してください（お客様のアプリのカードはこれまでの色のままです）。',
 } as const
 
 /** The 業種 / 機能 blocks' headings (:800, :816) and their sub lines (:801, :817) — the tour's guide pair per block. */
 export const BLOCK_GUIDES: readonly { readonly title: string; readonly guide: string }[] = [
-  { title: '業種', guide: '業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。' },
+  { title: '業種', guide: '業種は、下の機能の「標準の組み合わせ」を決めるためのものです。選んでも、その場では何も変わりません。' + TYPE_LOCK_NOTE },
   { title: '機能', guide: 'オンにすると、お客様のアプリのお店ページにその場所が出ます。出すものがまだ無いときは、用意できるまでお客様には出ません。' },
 ]
 

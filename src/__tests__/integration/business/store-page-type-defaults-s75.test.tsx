@@ -6,9 +6,14 @@
  * points lock, defaults_type (D7 kept), the pinned table hash. Pure model + the 機能 rows; the door's half is in
  * practice-door-store-capabilities-s57.test.ts (S75 block).
  */
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { StorePageRows } from '@/app/[locale]/(business)/business/settings/StorePageRows'
-import { LOCKED } from '@/business/lib/store-page/copy'
+import { StorePageType } from '@/app/[locale]/(business)/business/settings/StorePageType'
+import { LOCKED, SAVE_FAIL } from '@/business/lib/store-page/copy'
+import { STORE_PAGE_DEFAULTS_ID, STORE_PAGE_FAMILY_ID, storePageSwitchId } from '@/business/lib/settings'
+import { storePageDraft, storePageEdits, storePageValues } from '@/business/lib/store-page/room-draft'
+import { saveFailLines } from '@/business/lib/store-page/save-lines'
+import { putStoreCapabilities } from '@/business/lib/store-page/save-client'
 import {
   BUSINESS_TYPE_KEYS, CAP_KEYS, LockedSwitchOn, TYPE_DEFAULTS, TYPE_LOCKED_OFF, TYPE_TABLE_HASH, applyReset, isLocked, lockOff,
   parseInternalRecord, parseRecord, resetDiff, resolveRecord, seedRecord, serializeRecord, stampSave, typeTableHash, wireKeyOf,
@@ -39,7 +44,7 @@ describe('D1 — the R269 lock', () => {
       expect(parseRecord({ ...serializeRecord(stored), defaults_type: 'hair_salon' })!.switches.read_points.on).toBe(false) // locked by business_type, whatever the defaults type
     }
   })
-  it('a draft that turns a locked key ON is refused (LockedSwitchOn); a 業種 pick onto a locked type turns it OFF (lockOff)', () => {
+  it('a draft that turns a locked key ON is refused (LockedSwitchOn); the overlay (lockOff) reads a locked key OFF', () => {
     for (const t of SIX) expect(() => save(seedRecord(t), flip(seedRecord(t), 'read_points', true))).toThrow(LockedSwitchOn)
     const hair = seedRecord('hair_salon')
     expect(hair.switches.read_points.on).toBe(true)
@@ -47,7 +52,7 @@ describe('D1 — the R269 lock', () => {
     expect(picked.switches.read_points.on).toBe(false)
     for (const k of CAP_KEYS) if (k !== 'read_points') expect(picked.switches[k]).toEqual(hair.switches[k]) // D7: nothing else moves
     const out = save(hair, picked)
-    expect(out.switches.read_points).toEqual({ on: false, source: 'TYPE_DEFAULT' })
+    expect(out.switches.read_points).toEqual({ on: false, source: 'TYPE_DEFAULT', changed_at: NOW.toISOString(), changed_by: 'staff-1' }) // fix 1 (F2): this save's stamp
     expect(out.defaults_type).toBe('hair_salon')
   })
   it('cosmetic_surgery and wellness_clinic default read_points OFF, and an owner may turn it ON', () => {
@@ -159,5 +164,116 @@ describe('C — the locked switch renders disabled with its reason', () => {
     fireEvent.click(sw)
     expect(onChange).not.toHaveBeenCalled()
     expect(container.querySelector('.spr-row[data-key="reactions"] [role="switch"]')?.getAttribute('aria-disabled')).toBeNull()
+  })
+})
+
+// ── S75 FIX ROUND 1 (PACKET-FIX1-PR1-S75 F1–F5) ──────────────────────────────────────────────────────────────────
+const IDS = { family: STORE_PAGE_FAMILY_ID, sw: storePageSwitchId, defaults: STORE_PAGE_DEFAULTS_ID }
+/** The room, reduced: values (the one truth) → the draft (storePageDraft, with the overlay) → an edit writes only what moved. */
+function room(saved: CapRecord) {
+  let values: Record<string, unknown> = storePageValues(saved, IDS)
+  const draft = () => storePageDraft(saved, values, IDS)
+  const apply = (next: CapRecord) => { values = { ...values, ...storePageEdits(draft(), next, IDS) } }
+  const pickType = (t: BusinessTypeKey) => {
+    render(<StorePageType draft={draft()} saved={saved} canEdit onChange={apply} onResetKeys={() => {}} onToast={() => {}} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: t } })
+    cleanup()
+  }
+  const dirty = () => Object.entries(storePageValues(saved, IDS)).some(([id, v]) => values[id] !== v)
+  return { draft, apply, pickType, dirty }
+}
+const ownerOn = (t: BusinessTypeKey): CapRecord => ({ ...seedRecord(t), switches: { ...seedRecord(t).switches, read_points: { on: true, source: 'OWNER', changed_at: '2026-01-01T00:00:00.000Z', changed_by: 'owner' } } })
+
+describe('F1 — the lock is a READ-TIME overlay: a 業種 round trip restores the switch', () => {
+  it('beauty_chiropractic OWNER/ON → dental_clinic (OFF, disabled) → back: ON again, and a save with no other edit stamps nothing', () => {
+    const saved = roundTrip(ownerOn('beauty_chiropractic'))
+    const r = room(saved)
+    r.pickType('dental_clinic')
+    expect(r.draft().switches.read_points.on).toBe(false)
+    const { container } = render(<StorePageRows draft={r.draft()} saved={saved} counts={{ posts: 1 }} canEdit onChange={() => {}} />)
+    const sw = container.querySelector('.spr-row[data-key="read_points"] [role="switch"]')!
+    expect(sw.getAttribute('aria-disabled')).toBe('true')
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    cleanup()
+    r.pickType('beauty_chiropractic')
+    expect(r.draft().switches.read_points).toEqual(saved.switches.read_points)
+    expect(r.dirty()).toBe(false) // the room sends nothing
+    expect(save(saved, r.draft())).toEqual(saved) // and the door would stamp nothing
+  })
+  it('hair_salon → dental_clinic → hair_salon, save: read_points source unchanged (the Sonnet case)', () => {
+    const saved = roundTrip(seedRecord('hair_salon'))
+    const r = room(saved)
+    r.pickType('dental_clinic')
+    r.pickType('hair_salon')
+    const out = save(saved, r.draft())
+    expect(out.switches.read_points).toEqual(saved.switches.read_points)
+    expect(out).toEqual(saved)
+  })
+})
+
+describe('F2 — a locked key on the wire: OFF / TYPE_DEFAULT / this save\'s stamp', () => {
+  it('OWNER/ON read_points + a locked type → on:false TYPE_DEFAULT with the new stamp; after a lock removal the key follows the table and an owner flip stamps OWNER', () => {
+    const saved = roundTrip(ownerOn('beauty_chiropractic'))
+    const out = save(saved, lockOff({ ...saved, business_type: 'dental_clinic' }))
+    expect(out.switches.read_points).toEqual({ on: false, source: 'TYPE_DEFAULT', changed_at: NOW.toISOString(), changed_by: 'staff-1' })
+    // the lock lifted (an isolated model whose lock table loses dental_clinic): the key resolves from the table
+    let m: typeof import('@/business/lib/store-page/model') | undefined
+    jest.isolateModules(() => {
+      const freeze = Object.freeze
+      Object.freeze = (<T,>(o: T): T => o) as typeof Object.freeze
+      try {
+        m = require('@/business/lib/store-page/model') // eslint-disable-line @typescript-eslint/no-require-imports -- an isolated, unfrozen model instance
+      } finally {
+        Object.freeze = freeze
+      }
+    })
+    delete (m!.TYPE_LOCKED_OFF as Record<string, unknown>).dental_clinic
+    const lifted = m!.parseRecord(JSON.parse(JSON.stringify(serializeRecord(out))))!
+    expect(lifted.switches.read_points).toMatchObject({ source: 'TYPE_DEFAULT', on: m!.TYPE_DEFAULTS.beauty_chiropractic.includes('read_points') })
+    const flipped = m!.stampSave(lifted, flip(lifted, 'read_points', !lifted.switches.read_points.on), [], NOW, 'staff-2')
+    expect(flipped.switches.read_points).toEqual({ on: !lifted.switches.read_points.on, source: 'OWNER', changed_at: NOW.toISOString(), changed_by: 'staff-2' })
+  })
+})
+
+describe('F3 — the draft carries defaults_type; 戻す sets it always', () => {
+  it('戻す foot_care on a beauty_chiropractic record with zero flips → defaults_type foot_care', () => {
+    const saved = roundTrip(seedRecord('beauty_chiropractic'))
+    expect(resetDiff({ ...saved, business_type: 'foot_care' }).none).toBe(true) // the same set: zero flips
+    const r = room(saved)
+    r.pickType('foot_care')
+    render(<StorePageType draft={r.draft()} saved={saved} canEdit onChange={r.apply} onResetKeys={() => {}} onToast={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: '業種の標準に戻す' }))
+    fireEvent.click(screen.getByRole('button', { name: '戻す' }))
+    expect(r.draft().defaults_type).toBe('foot_care')
+    expect(save(saved, r.draft()).defaults_type).toBe('foot_care')
+  })
+  it('戻す hair_salon then pick nail_salon (no second 戻す) → defaults_type hair_salon; 戻す\'s keys stay TYPE_DEFAULT; the record resolves to the page', () => {
+    const saved = roundTrip(seedRecord('beauty_chiropractic'))
+    const asked = { ...saved, business_type: 'hair_salon' as const }
+    const keys = resetDiff(asked).flips.map((f) => f.key)
+    expect(keys.length).toBeGreaterThan(0)
+    const page = lockOff({ ...applyReset(asked), business_type: 'nail_salon' })
+    const out = save(saved, page, keys)
+    expect(out.defaults_type).toBe('hair_salon')
+    for (const k of keys) expect(out.switches[k].source).toBe('TYPE_DEFAULT')
+    expect(CAP_KEYS.filter((k) => out.switches[k].source === 'OWNER')).toEqual([])
+    const read = roundTrip(out)
+    for (const k of CAP_KEYS) expect(read.switches[k].on).toBe(page.switches[k].on)
+  })
+})
+
+describe('F5 — a save refused for a locked switch shows its own line', () => {
+  const cardLines = { forbidden: 'f', tenant: 't', invalid: 'i', core: 'c' }
+  it('the client reads the door\'s additive `locked` as its own reason; save-lines picks SAVE_FAIL.locked (never core\'s retry)', async () => {
+    const answer = (body: unknown) => { global.fetch = jest.fn().mockResolvedValue({ ok: false, json: async () => body }) as unknown as typeof fetch }
+    const call = () => putStoreCapabilities('b', { storeId: 's', record: seedRecord('dental_clinic'), resetKeys: [], basedOn: 'h' })
+    answer({ ok: false, reason: 'invalid', locked: 'read_points' })
+    expect(await call()).toEqual({ ok: false, reason: 'locked' })
+    answer({ ok: false, reason: 'invalid' })
+    expect(await call()).toEqual({ ok: false, reason: 'invalid' })
+    expect(saveFailLines('unsent', 'locked', cardLines).caps).toBe(SAVE_FAIL.locked)
+    expect(SAVE_FAIL.locked).not.toBe(SAVE_FAIL.core)
+    expect(SAVE_FAIL.locked).toContain('再読み込み')
+    expect(saveFailLines('unsent', 'invalid', cardLines).caps).toBe(SAVE_FAIL.core)
   })
 })

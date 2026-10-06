@@ -219,8 +219,8 @@ describe('S50 P3 — お店ページ payload: the per-store record, counts, ids 
 
   it('controlIdsOf: the card colour + the 業種 + one id per CAP key (17 new ids)', async () => {
     const ids = controlIdsOf(await page(STORE.tokyo))
-    expect(ids).toEqual(['reserve-card-look.color', 'reserve-store-page.family', ...CAP_KEYS.map((k) => `reserve-store-page.sw.${k}`)])
-    expect(new Set(ids).size).toBe(18)
+    expect(ids).toEqual(['reserve-card-look.color', 'reserve-store-page.family', 'reserve-store-page.defaults', ...CAP_KEYS.map((k) => `reserve-store-page.sw.${k}`)]) // S75 fix 1: + defaults_type
+    expect(new Set(ids).size).toBe(19)
   })
 
   it('all-stores lens: no per-store part, the room\'s noStore sentence in its place, no store id counted', async () => {

@@ -17,7 +17,7 @@ export type { BusinessTypeKey, CapRecord }
 
 export type WriteStoreCapabilitiesResult =
   | { ok: true; record: CapRecord }
-  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core' }
+  | { ok: false; reason: 'forbidden' | 'tenant' | 'invalid' | 'stale' | 'core'; locked?: CapKey }
 
 /** R90 amended S68 — a faithful wire record is at most ≈4.4k chars (parse caps: changed_at 64, changed_by 128, 16 switches),
  *  so a stored record is always logged whole; the cut only guards a runaway value. */
@@ -107,7 +107,9 @@ export async function writeStoreCapabilities(
     const baseline = before ?? seedRecord(await seedTypeFor(storeId, settings))
     if (recordHash(baseline) !== basedOn) return { ok: false, reason: 'stale' }
     const staffId = actor.sheet.staff_id
-    const next = serializeRecord(stampSave(baseline, draft, resetKeys, renderNow(), staffId))
+    // S75 fix 1 (SF3): a body without defaults_type (a page from before it) takes the saved record's, never its 業種
+    const sentDt = Object.prototype.hasOwnProperty.call(record, 'defaults_type')
+    const next = serializeRecord(stampSave(baseline, sentDt ? draft : { ...draft, defaults_type: undefined }, resetKeys, renderNow(), staffId))
     // S75: compared with what core HOLDS, so a legacy record (no defaults_type) or a stored value the table moved is rewritten
     if (before !== null && sameJson(raw, next)) return { ok: true, record: before }
     const writer = reach.orgSettingsWriterFor({ businessId: actor.businessId })
@@ -137,7 +139,8 @@ export async function writeStoreCapabilities(
     return { ok: true, record: out }
   } catch (e) {
     if (e instanceof reach.PracticeTenantMismatch) return { ok: false, reason: 'tenant' }
-    if (e instanceof LockedSwitchOn) return { ok: false, reason: 'invalid' }
+    // S75 fix 1 (Sonnet SF3): additive — the reason stays 'invalid' (an old page reads it), `locked` names the key
+    if (e instanceof LockedSwitchOn) return { ok: false, reason: 'invalid', locked: e.key }
     console.error('[business store capabilities] core did not save:', e instanceof Error ? e.message : String(e))
     return { ok: false, reason: 'core' }
   }

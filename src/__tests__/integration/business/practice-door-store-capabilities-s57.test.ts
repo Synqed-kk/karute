@@ -339,8 +339,29 @@ describe('S75 — the door: seed-type stale, the lock, defaults_type', () => {
     seed({ [K(S)]: W(seedRecord('dental_clinic')) })
     const draft = toggle(seedRecord('dental_clinic'), 'read_points')
     expect(draft.switches.read_points.on).toBe(true)
-    expect(await save(draft)).toEqual({ ok: false, reason: 'invalid' })
+    expect(await save(draft)).toEqual({ ok: false, reason: 'invalid', locked: 'read_points' }) // S75 fix 1 (F5): additive — still 'invalid', + the key
     expect(mockCore.upsert).not.toHaveBeenCalled()
+  })
+  it('S75 fix 1 (F2, door level): an OWNER/ON read_points on a type that becomes locked is written OFF / TYPE_DEFAULT with THIS save\'s stamp', async () => {
+    const owned = { ...seedRecord('beauty_chiropractic'), switches: { ...seedRecord('beauty_chiropractic').switches, read_points: { on: true, source: 'OWNER' as const, changed_at: '2026-01-01T00:00:00.000Z', changed_by: 'old-staff' } } }
+    seed({ [K(S)]: W(owned) })
+    const page = parseRecord(W(owned))!
+    expect(page.switches.read_points).toMatchObject({ on: true, source: 'OWNER' })
+    const r = await save(lockOff({ ...page, business_type: 'dental_clinic' })) // the page sends the overlay (room-draft)
+    expect(r.ok).toBe(true)
+    const rp = sentRecord().switches.READ_POINTS
+    expect(rp).toMatchObject({ on: false, source: 'TYPE_DEFAULT' })
+    expect(rp.changed_at).toBeDefined()
+    expect(rp.changed_at).not.toBe('2026-01-01T00:00:00.000Z')
+    expect(rp.changed_by_staff_id).not.toBe('old-staff')
+    expect(sentRecord().defaults_type).toBe('beauty_chiropractic')
+  })
+  it('S75 fix 1 (F3, door level): a body without defaults_type takes the SAVED record\'s, never its 業種', async () => {
+    seed({ [K(S)]: W(seedRecord('beauty_chiropractic')) })
+    const { defaults_type: _d, ...old } = JSON.parse(JSON.stringify({ ...seedRecord('beauty_chiropractic'), business_type: 'hair_salon' })) // eslint-disable-line @typescript-eslint/no-unused-vars
+    expect((await save(old as CapRecord)).ok).toBe(true)
+    expect(sentRecord()).toMatchObject({ business_type: 'hair_salon', defaults_type: 'beauty_chiropractic' })
+    expect(sentRecord().switches.PACKS).toEqual({ on: true, source: 'TYPE_DEFAULT' })
   })
   it('legacy record (no defaults_type) + a 業種 pick, no 戻す → written with defaults_type = the SAVED type, packs kept ON', async () => {
     const legacy = (() => { const { defaults_type: _d, ...w } = JSON.parse(JSON.stringify(W(seedRecord('beauty_chiropractic')))); return w })() // eslint-disable-line @typescript-eslint/no-unused-vars
