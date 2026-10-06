@@ -23,6 +23,8 @@ interface StaffRowProps {
   /** Distinct staff color, assigned by the parent grid over the full roster
    *  (assignStaffColors). Resolved here via getStaffColorByKey. */
   staffColorKey: StaffColorKey | 'neutral'
+  /** False for the 担当未定 lane: no staff, so no avatar disc. */
+  showAvatar?: boolean
   reservations: ReservationView[]
   startHour: number
   ppm: number
@@ -30,7 +32,7 @@ interface StaffRowProps {
   onSelect?: (view: ReservationView) => void
 }
 
-export function StaffRow({ staff, staffColorKey, reservations, startHour, ppm, totalWidth, onSelect }: StaffRowProps) {
+export function StaffRow({ staff, staffColorKey, showAvatar = true, reservations, startHour, ppm, totalWidth, onSelect }: StaffRowProps) {
   const t = useTranslations('reservation')
   const color = getStaffColorByKey(staffColorKey)
   return (
@@ -39,16 +41,18 @@ export function StaffRow({ staff, staffColorKey, reservations, startHour, ppm, t
         className="flex shrink-0 items-center gap-2 border-r border-border px-3"
         style={{ width: STAFF_COL_WIDTH, height: STAFF_ROW_HEIGHT }}
       >
-        <div
-          className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
-            staff.takesBookings
-              ? cn(color.bg, color.text)
-              : 'bg-muted text-muted-foreground',
-          )}
-        >
-          {staff.initials}
-        </div>
+        {showAvatar && (
+          <div
+            className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
+              staff.takesBookings
+                ? cn(color.bg, color.text)
+                : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {staff.initials}
+          </div>
+        )}
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{staff.name}</div>
           <div className="truncate text-xs text-muted-foreground">

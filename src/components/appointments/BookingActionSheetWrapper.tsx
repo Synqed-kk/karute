@@ -5,6 +5,10 @@ import { useTranslations } from 'next-intl'
 import { BookingActionSheet, type BookingActionSheetCopy } from '@synqed-kk/ui'
 import { useRouter } from '@/i18n/navigation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import {
+  UnassignedBookingSheet,
+  type AssignableStaff,
+} from '@/components/appointments/UnassignedBookingSheet'
 
 interface BookingActionSheetWrapperProps {
   /** Currently selected booking — `null` keeps the sheet closed. */
@@ -12,6 +16,10 @@ interface BookingActionSheetWrapperProps {
   onClose: () => void
   /** Force the mobile bottom-sheet variant. Defaults to media-query detection. */
   forceMobile?: boolean
+  /** bookings.manage — a 担当未定 booking offers the staff picker. */
+  canAssign?: boolean
+  /** The picker's list: the booking dialog's own store-scoped staff. */
+  assignStaff?: readonly AssignableStaff[]
 }
 
 // `deriveKaruteNumber` removed — the hex slice produced an
@@ -38,12 +46,13 @@ export function BookingActionSheetWrapper({
   selected,
   onClose,
   forceMobile,
+  canAssign = false,
+  assignStaff = [],
 }: BookingActionSheetWrapperProps) {
   const isMobile = useIsMobile()
   const router = useRouter()
   const t = useTranslations('reservation')
   const ta = useTranslations('reservation.actionSheet')
-  const tu = useTranslations('unassignedStaff')
 
   const open = selected !== null
   // Show "view karute" when THIS booking already has one, OR when it's a returning
@@ -97,54 +106,51 @@ export function BookingActionSheetWrapper({
     firstTimeNote: ta('firstTimeNote'),
   }
 
-  // 担当未定: a booking with no staff yet is not a recording target (a
-  // recording is always one staff's session), so the sheet says so where the
-  // subtitle and the record hint sit, and neither karute action navigates to
-  // the recorder. The assign control is not in this sheet yet, so every viewer
-  // gets the read-only lines (no instruction they cannot follow here).
+  // 担当未定 (PR-B Q2): a booking with no staff opens Karute's own sheet —
+  // the staff picker for bookings.manage, a read-only note otherwise. The ui
+  // sheet below only ever sees a booking that has a staff.
   const unassigned = selected?.staffId === null
-  const sheetCopy: Partial<BookingActionSheetCopy> = unassigned
-    ? {
-        ...copy,
-        subtitleFirst: tu('sheetSubtitleReadOnly'),
-        subtitleReturn: tu('sheetSubtitleReadOnly'),
-        startRecordingHint: tu('recordBlockedReadOnly'),
-        startRecordingHintFirst: tu('recordBlockedReadOnly'),
-      }
-    : copy
-
-  if (!selected) {
-    // Render the sheet closed so transitions don't snap.
-    return (
-      <BookingActionSheet
-        open={false}
-        onOpenChange={(o) => {
-          if (!o) onClose()
-        }}
-        customerName=""
-        hasExistingKarute={false}
-        isFirstTimeVisit={false}
-        isMobile={forceMobile ?? isMobile}
-        copy={copy}
-      />
-    )
-  }
+  const sheetSelected = unassigned ? null : selected
 
   return (
-    <BookingActionSheet
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) onClose()
-      }}
-      customerName={selected.customerName}
-      karuteNumber={undefined}
-      hasExistingKarute={canViewKarute}
-      isFirstTimeVisit={selected.isFirstTimeVisit}
-      isMobile={forceMobile ?? isMobile}
-      onViewKarute={onViewKarute}
-      onNewKarute={unassigned ? undefined : goToRecord}
-      onStartRecording={unassigned ? undefined : goToRecord}
-      copy={sheetCopy}
-    />
+    <>
+      <UnassignedBookingSheet
+        booking={unassigned ? selected : null}
+        canAssign={canAssign}
+        staff={assignStaff}
+        isMobile={forceMobile ?? isMobile}
+        onClose={onClose}
+      />
+      {sheetSelected ? (
+        <BookingActionSheet
+          open={open}
+          onOpenChange={(o) => {
+            if (!o) onClose()
+          }}
+          customerName={sheetSelected.customerName}
+          karuteNumber={undefined}
+          hasExistingKarute={canViewKarute}
+          isFirstTimeVisit={sheetSelected.isFirstTimeVisit}
+          isMobile={forceMobile ?? isMobile}
+          onViewKarute={onViewKarute}
+          onNewKarute={goToRecord}
+          onStartRecording={goToRecord}
+          copy={copy}
+        />
+      ) : (
+        // Rendered closed so transitions don't snap.
+        <BookingActionSheet
+          open={false}
+          onOpenChange={(o) => {
+            if (!o) onClose()
+          }}
+          customerName=""
+          hasExistingKarute={false}
+          isFirstTimeVisit={false}
+          isMobile={forceMobile ?? isMobile}
+          copy={copy}
+        />
+      )}
+    </>
   )
 }

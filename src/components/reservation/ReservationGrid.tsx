@@ -19,6 +19,8 @@ import { assignStaffColors } from '@/lib/staff-colors'
 
 const HOUR_WIDTH = 140
 const AXIS_HEIGHT = 32
+/** The 担当未定 lane's key — never a staff id. */
+const UNASSIGNED_LANE_ID = 'unassigned-staff-lane'
 
 interface ReservationGridProps {
   staff: ReservationStaff[]
@@ -38,7 +40,12 @@ export function ReservationGrid({ staff, reservations, businessHours, colorRoste
   const t = useTranslations('reservation')
   const ppm = HOUR_WIDTH / 60
   const totalWidth = (businessHours.end - businessHours.start) * HOUR_WIDTH
-  const laneStackHeight = staff.length * STAFF_ROW_HEIGHT
+  const tu = useTranslations('unassignedStaff')
+  // 担当未定 (PR-B Q3): bookings with no staff get ONE extra lane, last, and
+  // only on a day that has one — they belong to no staff lane.
+  const unassigned = reservations.filter((r) => r.staffId === null)
+  const laneCount = staff.length + (unassigned.length > 0 ? 1 : 0)
+  const laneStackHeight = laneCount * STAFF_ROW_HEIGHT
   // Distinct color per staff over the ACTIVE STORE's roster (colorRosterIds) —
   // same sorted-index assignment the adapter uses, so the column avatar and
   // the appointment-card avatars line up on the same hue.
@@ -95,6 +102,18 @@ export function ReservationGrid({ staff, reservations, businessHours, colorRoste
               />
             )
           })}
+          {unassigned.length > 0 && (
+            <StaffRow
+              staff={{ id: UNASSIGNED_LANE_ID, name: tu('mark'), role: '', takesBookings: true, initials: '' }}
+              staffColorKey="neutral"
+              showAvatar={false}
+              reservations={unassigned}
+              startHour={businessHours.start}
+              ppm={ppm}
+              totalWidth={totalWidth}
+              onSelect={onSelect}
+            />
+          )}
         </div>
       </div>
     </div>
