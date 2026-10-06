@@ -831,6 +831,32 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.dayTotals!.hoursSaved).toBe(false)
   })
 
+  // Fix round 3 (reader S3): the phone route's day line under a staff filter —
+  // 件 == rows with a 担当未定 booking on the day (dayWindowFor's shownUnder).
+  it.each([
+    ['self', ['appt-1', 'appt-nostaff']],
+    ['profile-2', ['appt-2', 'appt-nostaff']],
+  ])('?staff=%s: dayTotals.count === reservationViews.length with a staff-less row', async (staff, ids) => {
+    const onDay = [
+      { ...dayRows[0], starts_at: '2026-09-15T01:00:00.000Z' },
+      { ...dayRows[1], status: 'SCHEDULED', status_reason: null, starts_at: '2026-09-15T02:00:00.000Z' },
+      { ...dayRows[0], id: 'appt-nostaff', staff_id: null, starts_at: '2026-09-15T03:00:00.000Z' },
+    ]
+    listAppointments.mockResolvedValue({
+      appointments: onDay as typeof dayRows,
+      total: onDay.length,
+    })
+    const res = await GET(
+      req({}, `https://s/api/app/v1/screens/appointments?view=day&date=2026-09-15&staff=${staff}`),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.reservationViews.map((r) => r.id).sort()).toEqual([...ids].sort())
+    expect(dto.dayTotals).not.toBeNull()
+    expect(dto.dayTotals!.count).toBe(dto.reservationViews.length)
+  })
+
   it('?view=month reads the PREVIOUS span as well and carries 先月同期間比 on the wire', async () => {
     // Core answers each window with rows that really lie inside it: two counted
     // bookings in last month's compared days (plus one BEFORE the window, which

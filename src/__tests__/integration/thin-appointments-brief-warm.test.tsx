@@ -164,11 +164,17 @@ it('a staff-less booking is skipped by both warms; the staffed ones still warm',
   mountWithDto(dto, '/appointments?date=2026-07-23')
   await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
 
+  expect(warmBriefsForToday).toHaveBeenCalledTimes(1)
   expect(warmBriefsForToday).toHaveBeenCalledWith([
     { customerId: 'c1', appointmentId: 'r-c1' },
     { customerId: 'c3', appointmentId: 'r-c3' },
   ])
+  expect(warmBriefsForToday).not.toHaveBeenCalledWith(
+    expect.arrayContaining([expect.objectContaining({ appointmentId: 'r-c2' })]),
+  )
+  expect(warmRecordForBookings).toHaveBeenCalledTimes(1)
   expect(warmRecordForBookings).toHaveBeenCalledWith(['r-c1', 'r-c3'])
+  expect(warmRecordForBookings).not.toHaveBeenCalledWith(expect.arrayContaining(['r-c2']))
 })
 
 // Fix round 3 (B1-4): staff-less = a FALSY staffId, the wrapper's own rule —

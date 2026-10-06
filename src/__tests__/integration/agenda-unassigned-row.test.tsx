@@ -44,6 +44,21 @@ const reservation = (over: Partial<ReservationView> = {}): ReservationView => ({
 })
 
 describe('mobile agenda row — 担当未定', () => {
+  it('a staffId null row renders the 担当未定 mark and no 担当 line', () => {
+    render(
+      <ReservationMobileAgenda
+        reservations={[reservation({ staffId: null, staffName: '', displayStatus: 'booked' })]}
+      />,
+    )
+    expect(screen.getByText('mark')).toBeTruthy()
+    expect(screen.queryByText(/^tantou/)).toBeNull()
+  })
+
+  it('a staffed row renders no 担当未定 mark', () => {
+    render(<ReservationMobileAgenda reservations={[reservation({ displayStatus: 'booked' })]} />)
+    expect(screen.queryByText('mark')).toBeNull()
+  })
+
   it('a past staff-less row shows no 未録音 pill (it cannot be recorded)', () => {
     render(
       <ReservationMobileAgenda

@@ -341,6 +341,29 @@ describe('getAppointmentWindow — the DAY line counts 担当未定 under every 
     expect(win.counted.map((a) => a.id).sort()).toEqual(['a1', 'nostaff'])
   })
 
+  // Fix round 3 (reader S2): the day-line flag never widens who reads.
+  it('an unassigned actor (no store, allowedStoreIds []) with the day-line flag reads NOTHING', async () => {
+    ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: null, allowedStoreIds: [] })
+    const win = await getAppointmentWindow(FROM, TO, 'all', true, true)
+    const s = await spies()
+    expect(s.list).not.toHaveBeenCalled()
+    expect(win.counted).toEqual([])
+  })
+
+  it('an unplaceable ?staff= id with the day-line flag reads unfiltered and keeps only the staff-less rows', async () => {
+    const s = await spies()
+    s.list.mockResolvedValue({
+      appointments: [booking('a1'), { ...booking('nostaff'), staff_id: null }, { ...booking('theirs'), staff_id: COLLEAGUE_CORE }],
+      total: 3,
+      page: 1,
+      page_size: 500,
+    })
+    const win = await getAppointmentWindow(FROM, TO, 'somebody-who-left', true, true)
+    expect(s.list).toHaveBeenCalledTimes(1)
+    expect(s.list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA, staff_id: undefined }))
+    expect(win.counted.map((a) => a.id)).toEqual(['nostaff'])
+  })
+
   it('without the day-line flag the week/month read still filters at core (unchanged)', async () => {
     await getAppointmentWindow(FROM, TO, 'self')
     const s = await spies()
