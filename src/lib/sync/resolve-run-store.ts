@@ -51,7 +51,8 @@ async function read<T>(call: () => Promise<T>): Promise<T> {
 /**
  * - requested store → it must belong to this business, and to a clamped
  *   caller's assignment; viewAll and floating callers may run any store.
- * - no request → a clamped caller's first assigned store; anyone else the
+ * - no request → a clamped caller's first assigned store that is active in
+ *   the store list (none active → SyncStoreUnassigned); anyone else the
  *   primary store.
  * - no store at all → SyncStoreUnassigned.
  *
@@ -111,8 +112,13 @@ export async function resolveSyncRunStore(args: {
     }
     return { storeId: canonicalId }
   }
-  if (assigned) return { storeId: assigned[0] }
   const list = (await listStores()).filter((s) => s.active !== false)
+  // An archived store is never the default target.
+  if (assigned) {
+    const first = assigned.find((id) => list.some((s) => s.id === id))
+    if (!first) throw new SyncStoreUnassigned('no active store is assigned to this caller')
+    return { storeId: first }
+  }
   const primary = list.find((s) => s.is_primary)?.id ?? list[0]?.id
   if (!primary) throw new SyncStoreUnassigned('this business has no store')
   return { storeId: primary }

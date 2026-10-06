@@ -67,9 +67,10 @@ describe('requested store', () => {
 })
 
 describe('no requested store', () => {
-  it("clamped caller → their FIRST assigned store (both transports' rule, kept)", async () => {
+  it("clamped caller → their FIRST active assigned store (both transports' rule), with ONE store-list read", async () => {
     await expect(run({})).resolves.toEqual({ storeId: '714d1196-5aa7-409d-8afc-5046aa19d031' })
-    expect(storesList).not.toHaveBeenCalled()
+    expect(storesList).toHaveBeenCalledTimes(1)
+    expect(storesGet).not.toHaveBeenCalled()
   })
 
   it('viewAll caller → the primary store', async () => {
@@ -204,5 +205,29 @@ describe('fix round 3 (Opus S1) — only a lowercase UUID is a store id; the ans
     staffStoresGet.mockResolvedValue({ store_ids: [ID] })
     storesGet.mockResolvedValue({ id: ID.toUpperCase() })
     await expect(run({ requestedStoreId: ID })).rejects.toBeInstanceOf(SyncStoreForbidden)
+  })
+})
+
+describe('fix round 3 (Opus S3) — an archived store is never the default sync target', () => {
+  const OLD = '1801dbe8-7803-4be1-8551-e3b80a69412d'
+  const LIVE = '3b454e1d-2cc1-44a6-85df-6d39f13eadbe'
+
+  it('clamped [archived, live], no request → the live one, ONE store-list read, no per-store lookup', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: [OLD, LIVE] })
+    storesList.mockResolvedValue({ stores: [{ id: OLD, active: false }, { id: LIVE, active: true }] })
+    await expect(run({})).resolves.toEqual({ storeId: LIVE })
+    expect(storesList).toHaveBeenCalledTimes(1)
+    expect(storesGet).not.toHaveBeenCalled()
+  })
+
+  it('clamped [archived only], no request → SyncStoreUnassigned', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: [OLD] })
+    storesList.mockResolvedValue({ stores: [{ id: OLD, active: false }, { id: LIVE, is_primary: true }] })
+    await expect(run({})).rejects.toBeInstanceOf(SyncStoreUnassigned)
+  })
+
+  it('viewAll, no request → still the active primary', async () => {
+    storesList.mockResolvedValue({ stores: [{ id: OLD, active: false }, { id: LIVE, is_primary: true, active: true }] })
+    await expect(run({ capabilities: VIEW_ALL })).resolves.toEqual({ storeId: LIVE })
   })
 })
