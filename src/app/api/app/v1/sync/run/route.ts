@@ -12,6 +12,7 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300 // the crawl itself can take minutes (web parity)
@@ -28,8 +29,19 @@ export const POST = facadeHandler('sync.run', async (ctx: FacadeContext) => {
   ensureCapability(ctx.identity.capabilities, 'sync.view')
 
   const synqed = newSynqedClient(ctx.identity.businessId)
+  // CORE-43: crawl the request's store row (the store-id header the app
+  // sends). No store resolved → core's default, the primary store's row.
+  const clamp = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: ctx.req.headers.get('store-id'),
+  })
   try {
-    const result = await synqed.sync.runNow('QUICKRESERVE')
+    const result = await synqed.sync.runNow(
+      'QUICKRESERVE',
+      clamp.storeId ? { karute_store_id: clamp.storeId } : undefined,
+    )
     return ok(ctx, {
       success: true,
       ...result,

@@ -48,7 +48,11 @@ beforeEach(() => {
 
 function mockConfig(config: Record<string, unknown> | null) {
   client.getSynqedClient.mockResolvedValue({
-    sync: { getConfig: jest.fn().mockResolvedValue(config) },
+    sync: {
+      getConfig: jest.fn().mockResolvedValue(config),
+      // CORE-43: GET reads the active store's own row (store-A, mocked above).
+      listConfigs: jest.fn().mockResolvedValue(config ? [{ ...config, karute_store_id: 'store-A' }] : []),
+    },
   })
 }
 
@@ -82,13 +86,16 @@ describe('quickreserve config GET — timestamp stays a raw instant', () => {
   })
 })
 
+// CORE-43: the active store's existing row (one config per store).
+const STORE_A_ROW = { karute_store_id: 'store-A', store_slug: 'la-estro', store_id: 222 }
+
 describe('quickreserve config POST — audit writer (wave A part 3)', () => {
   beforeEach(() => jest.clearAllMocks())
 
   it('a saved config emits settings.sync_config_update with flags only — never the credentials', async () => {
     const upsertConfig = jest.fn(async () => ({}))
     client.getSynqedClient.mockResolvedValue({
-      sync: { getConfig: jest.fn().mockResolvedValue(null), upsertConfig },
+      sync: { listConfigs: jest.fn().mockResolvedValue([STORE_A_ROW]), upsertConfig },
       stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-A' }] }) },
     })
     const req = new Request('https://app.test/api/sync/quickreserve/config', {
@@ -113,7 +120,7 @@ describe('quickreserve config POST — audit writer (wave A part 3)', () => {
   it('a failed core write emits nothing', async () => {
     client.getSynqedClient.mockResolvedValue({
       sync: {
-        getConfig: jest.fn().mockResolvedValue(null),
+        listConfigs: jest.fn().mockResolvedValue([STORE_A_ROW]),
         upsertConfig: jest.fn(async () => { throw new Error('core down') }),
       },
       stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-A' }] }) },

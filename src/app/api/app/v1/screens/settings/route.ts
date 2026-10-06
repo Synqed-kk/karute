@@ -38,6 +38,7 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { SettingsScreenDTO, type SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { qrConfigForStore } from '@/lib/sync/qr-config'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
@@ -165,7 +166,10 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     let syncStatus: SettingsScreenDTOType['syncStatus'] = null
     if (canViewSync) {
       try {
-        const config = await synqed.sync.getConfig('QUICKRESERVE')
+        // CORE-43: the clamped store's own row (one config per store).
+        const config = clamp.storeId
+          ? (await qrConfigForStore(synqed, clamp.storeId)).config
+          : await synqed.sync.getConfig('QUICKRESERVE')
         if (config) {
           syncStatus = {
             enabled: config.enabled,

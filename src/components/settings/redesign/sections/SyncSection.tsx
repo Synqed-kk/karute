@@ -50,6 +50,10 @@ export function SyncSection() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [enabled, setEnabled] = useState(false)
+  // CORE-43: a store with no config yet names its own Quick Reserve store.
+  const [configured, setConfigured] = useState(true)
+  const [qrStoreSlug, setQrStoreSlug] = useState('')
+  const [qrStoreId, setQrStoreId] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [lastResult, setLastResult] = useState<string | null>(null)
 
@@ -59,6 +63,10 @@ export function SyncSection() {
       .then((data) => {
         if (data.username) setUsername(data.username)
         if (data.enabled !== undefined) setEnabled(data.enabled)
+        if (data.configured === false) {
+          setConfigured(false)
+          setQrStoreSlug(data.qrStoreSlug ?? '')
+        }
         if (data.lastStatus)
           setLastResult(
             data.lastRunAt
@@ -75,7 +83,12 @@ export function SyncSection() {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, enabled }),
+        body: JSON.stringify({
+          username,
+          password,
+          enabled,
+          ...(configured ? {} : { qrStoreSlug, qrStoreId }),
+        }),
       })
       // The save guard's 409 (PKT-P0) carries a stable code, not a message
       // meant for display — show OUR localized copy so it follows the
@@ -89,7 +102,16 @@ export function SyncSection() {
         }
       }
       const parsed = await readSyncResponse(res)
-      setLastResult(parsed.ok ? 'Config saved' : parsed.message)
+      if (parsed.ok) setConfigured(true)
+      setLastResult(
+        parsed.ok
+          ? 'Config saved'
+          : /qr_store_required/.test(parsed.message)
+            ? `Error (${res.status}): ${t('bookingSyncQrStoreRequired')}`
+            : /qr_store_already_linked/.test(parsed.message)
+              ? `Error (${res.status}): ${t('bookingSyncQrStoreAlreadyLinked')}`
+              : parsed.message,
+      )
     } catch {
       setLastResult('Failed to save')
     }
@@ -179,6 +201,33 @@ export function SyncSection() {
           />
         </div>
       </div>
+
+      {!configured && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">{t('qrStoreSlug')}</label>
+            <input
+              type="text"
+              value={qrStoreSlug}
+              onChange={(e) => setQrStoreSlug(e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="la-estro"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">{t('qrStoreId')}</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={qrStoreId}
+              onChange={(e) => setQrStoreId(e.target.value.replace(/\D/g, ''))}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="250"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground md:col-span-2">{t('qrStoreHint')}</p>
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <div>

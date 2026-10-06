@@ -4,6 +4,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { auditWeb } from '@/lib/audit-web'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { errorBody, toAppApiError } from '@/lib/app-api/errors'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 
 export const maxDuration = 300
 
@@ -41,7 +42,12 @@ export async function POST() {
   // threading at the M5 rebase, exactly as designed).
   const requestId = crypto.randomUUID()
   try {
-    const result = await synqed.sync.runNow('QUICKRESERVE')
+    // CORE-43: crawl the ACTIVE store's own row — 銀座's button runs 銀座.
+    const { storeId } = await resolveStoreScope()
+    const result = await synqed.sync.runNow(
+      'QUICKRESERVE',
+      storeId ? { karute_store_id: storeId } : undefined,
+    )
     await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
     return NextResponse.json({
       success: true,
