@@ -251,3 +251,52 @@ describe('fix round 5 (N-c) — a login that only differs by whitespace is not a
     expect(screen.queryByText('bookingSyncPasswordRequired')).toBeNull()
   })
 })
+
+describe("fix round 6 (Greptile P2) — a run on one store never blocks another store's form", () => {
+  const runButton = (label: 'syncNow' | 'syncing') => screen.getByText(label, { selector: 'button' }) as HTMLButtonElement
+
+  async function runOnAThenSwitchToB() {
+    const { rerender } = render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    expect(runButton('syncing').disabled).toBe(true) // A's run is pending (posts[0])
+    rerender(<SyncSection storeId="store-b" />)
+    pending[1].resolve(B)
+    await flush()
+    return rerender
+  }
+
+  it("A's run pending, switch to B → once B loads, B's Save and run are enabled", async () => {
+    await runOnAThenSwitchToB()
+    expect(button('saveConfig').disabled).toBe(false)
+    expect(runButton('syncNow').disabled).toBe(false)
+  })
+
+  it("back to A while A's run is still pending → A shows 同期中 with its controls off again", async () => {
+    const rerender = await runOnAThenSwitchToB()
+    rerender(<SyncSection storeId="store-a" />)
+    pending[2].resolve(A)
+    await flush()
+    expect(runButton('syncing').disabled).toBe(true)
+    expect(button('saveConfig').disabled).toBe(true)
+    // A's run answers → A's controls come back.
+    posts[0].resolve({ created: 1, updated: 0, skipped: 0 })
+    await flush()
+    expect(runButton('syncNow').disabled).toBe(false)
+  })
+
+  it("A's run answering while B's own run is in flight leaves B disabled (A's finally never clears B)", async () => {
+    await runOnAThenSwitchToB()
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    expect(JSON.parse(String(posts[1].init!.body))).toEqual({ storeId: 'store-b' })
+    expect(runButton('syncing').disabled).toBe(true)
+    posts[0].resolve({ created: 7, updated: 0, skipped: 0 }) // A answers first
+    await flush()
+    expect(runButton('syncing').disabled).toBe(true)
+    expect(button('saveConfig').disabled).toBe(true)
+    posts[1].resolve({ created: 2, updated: 0, skipped: 0 }) // B answers
+    await flush()
+    expect(runButton('syncNow').disabled).toBe(false)
+  })
+})
