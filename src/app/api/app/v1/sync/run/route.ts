@@ -12,8 +12,12 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
-import { reachesNoStore } from '@/lib/auth/store-gate'
+import {
+  resolveSyncRunStore,
+  SyncStoreDependencyError,
+  SyncStoreForbidden,
+  SyncStoreUnassigned,
+} from '@/lib/sync/resolve-run-store'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300 // the crawl itself can take minutes (web parity)
@@ -31,23 +35,15 @@ export const POST = facadeHandler('sync.run', async (ctx: FacadeContext) => {
 
   const synqed = newSynqedClient(ctx.identity.businessId)
   try {
-    // CORE-43: crawl the request's store row, resolved exactly as the web
-    // run's resolveStoreScope does: the store-id header the app sends, else a
-    // clamped caller's first assigned store, else the business's primary
-    // store. A caller who reaches no store is refused, never handed another
-    // store's crawl. Inside the try so a scope lookup that THROWS answers 502,
-    // as a throw out of the web run's resolveStoreScope does, not a
-    // store-access denial.
-    const clamp = await resolveStoreForRequest({
+    // CORE-43: crawl the request's store row. The store is resolved by the
+    // ONE helper the web run uses too; its mapping table (case × web × phone)
+    // heads src/lib/sync/resolve-run-store.ts.
+    const { storeId } = await resolveSyncRunStore({
       synqed,
       authUserId: ctx.identity.authUserId,
       capabilities: ctx.identity.capabilities,
       requestedStoreId: ctx.req.headers.get('store-id'),
     })
-    if (reachesNoStore(clamp)) {
-      throw new AppApiError('store_unassigned', 'no store is assigned to your account yet')
-    }
-    const storeId = clamp.storeId ?? (await resolvePrimaryStoreId(synqed))
     const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
     // Web parity: the run's audit row names the store that ran.
     ctx.auditStoreId = storeId
@@ -60,12 +56,14 @@ export const POST = facadeHandler('sync.run', async (ctx: FacadeContext) => {
       skipped: result.skipped_no_staff + result.skipped_deleted,
     })
   } catch (err) {
-    // A store VERDICT keeps its own 403 (the header names a store this caller
-    // may not use · they reach no store); every other failure, including a
-    // fail-closed scope lookup, is the web run's 502.
-    if (err instanceof AppApiError && (err.code === 'store_unassigned' || err.detail?.reason === 'store_header')) {
-      throw err
+    // The facade's codes for the helper's three answers (web: 409 · 409 · 502).
+    if (err instanceof SyncStoreForbidden) {
+      throw new AppApiError('store_forbidden', err.message, { reason: 'store_header' })
     }
+    if (err instanceof SyncStoreUnassigned) {
+      throw new AppApiError('store_unassigned', 'no store is assigned to your account yet')
+    }
+    if (err instanceof SyncStoreDependencyError) throw new AppApiError('upstream_unavailable', err.message)
     const message = err instanceof Error ? err.message : 'Sync failed'
     // Not-yet-configured is an expected state (owner hasn't saved their QR
     // login), not a failure — friendly 200 message, matching the web route.

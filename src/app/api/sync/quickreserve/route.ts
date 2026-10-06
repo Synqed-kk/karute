@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server'
-import { getBusinessId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { auditWeb } from '@/lib/audit-web'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { errorBody, toAppApiError } from '@/lib/app-api/errors'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { getActiveStoreId } from '@/actions/stores'
+import {
+  resolveSyncRunStore,
+  SyncStoreDependencyError,
+  SyncStoreForbidden,
+  SyncStoreUnassigned,
+} from '@/lib/sync/resolve-run-store'
 
 export const maxDuration = 300
 
@@ -29,8 +35,10 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  let capabilities: Awaited<ReturnType<typeof getMyCapabilities>>
   try {
-    ensureCapability(await getMyCapabilities(), 'sync.view')
+    capabilities = await getMyCapabilities()
+    ensureCapability(capabilities, 'sync.view')
   } catch (err) {
     const apiErr = toAppApiError(err)
     return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
@@ -43,12 +51,15 @@ export async function POST() {
   const requestId = crypto.randomUUID()
   try {
     // CORE-43: crawl the ACTIVE store's own row — 銀座's button runs 銀座.
-    // No resolvable store (a degraded scope) is refused, never a fallback to
-    // another store's crawl — the same answer the config save gives.
-    const { storeId } = await resolveStoreScope()
-    if (!storeId) {
-      return NextResponse.json({ error: 'qr_store_not_ready' }, { status: 409 })
-    }
+    // The store is resolved by the ONE helper the phone run uses too; its
+    // mapping table (case × web × phone) heads src/lib/sync/resolve-run-store.ts.
+    const [staffId, activeStore] = await Promise.all([getCurrentUserStaffId(), getActiveStoreId()])
+    const { storeId } = await resolveSyncRunStore({
+      synqed,
+      authUserId: staffId,
+      capabilities,
+      requestedStoreId: activeStore,
+    })
     const result = await synqed.sync.runNow('QUICKRESERVE', { karute_store_id: storeId })
     await auditWeb({
       category: 'settings',
@@ -65,6 +76,15 @@ export async function POST() {
       skipped: result.skipped_no_staff + result.skipped_deleted,
     })
   } catch (e) {
+    // A store this caller may not run, or no store at all, is refused — never
+    // a fallback to another store's crawl (the same answer the config save
+    // gives). A store read that THREW is a dependency failure: 502.
+    if (e instanceof SyncStoreForbidden || e instanceof SyncStoreUnassigned) {
+      return NextResponse.json({ error: 'qr_store_not_ready' }, { status: 409 })
+    }
+    if (e instanceof SyncStoreDependencyError) {
+      return NextResponse.json({ error: e.message }, { status: 502 })
+    }
     const message = e instanceof Error ? e.message : 'Sync failed'
     // Not-yet-configured is an expected state (owner hasn't saved their QR login),
     // not a failure — return a friendly message so the panel doesn't show a red

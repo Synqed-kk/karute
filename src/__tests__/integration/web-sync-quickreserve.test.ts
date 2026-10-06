@@ -9,8 +9,10 @@
 // gate. auditWeb mocked directly (not the console-line auditLines helper) —
 // this suite only needs to assert WHICH calls happen, not the sink shape.
 
+const staffId = { current: 'staff-1' as string | null }
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(),
+  getCurrentUserStaffId: jest.fn(async () => staffId.current),
 }))
 
 const capabilities = { current: new Set<string>() }
@@ -20,28 +22,29 @@ jest.mock('@/lib/auth/require-permission', () => ({
 }))
 
 const runNow = jest.fn()
+// The REAL store helper (src/lib/sync/resolve-run-store.ts) runs; only the
+// network edges are faked.
+const storesGet = jest.fn()
+const storesList = jest.fn()
+const staffStoresGet = jest.fn()
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ sync: { runNow } })),
+  getSynqedClient: jest.fn(async () => ({
+    sync: { runNow },
+    stores: { get: storesGet, list: storesList },
+    staffStores: { get: staffStoresGet },
+  })),
 }))
 
 const auditWeb = jest.fn()
 jest.mock('@/lib/audit-web', () => ({ auditWeb: (...a: unknown[]) => auditWeb(...(a as [])) }))
 
-// CORE-43: 今すぐ同期 crawls the ACTIVE store's own row.
+// CORE-43: 今すぐ同期 crawls the ACTIVE store's own row (the cookie).
 const activeStore = { current: 'store-ginza' as string | null }
-jest.mock('@/lib/auth/store-scope', () => ({
-  resolveStoreScope: jest.fn(async () => ({
-    storeId: activeStore.current,
-    viewAll: true,
-    allowedStoreIds: null,
-    degraded: false,
-  })),
-}))
+jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => activeStore.current) }))
 
 import { POST } from '@/app/api/sync/quickreserve/route'
-import { getBusinessId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
 
 const getBusinessIdMock = getBusinessId as jest.Mock
 const getMyCapabilitiesMock = getMyCapabilities as jest.Mock
@@ -50,6 +53,11 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['sync.view'])
   getBusinessIdMock.mockResolvedValue('business-1')
+  activeStore.current = 'store-ginza'
+  staffId.current = 'staff-1'
+  storesGet.mockResolvedValue({ id: 'x' })
+  storesList.mockResolvedValue({ stores: [{ id: 'store-ginza', is_primary: true }, { id: 'store-shibuya' }] })
+  staffStoresGet.mockResolvedValue({ store_ids: ['store-ginza', 'store-shibuya'] })
   runNow.mockResolvedValue({
     created: 2,
     updated: 3,
@@ -69,6 +77,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
 
   it("CORE-43: no resolvable store → 409 qr_store_not_ready, never another store's crawl", async () => {
     activeStore.current = null
+    staffStoresGet.mockResolvedValue({ store_ids: [] }) // unassigned in a 2-store business
     const res = await POST()
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
@@ -121,9 +130,18 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
   })
 
   it('store scope lookup throws → 502, never a store denial (the phone twin matches: Greptile #1135 F3)', async () => {
-    ;(resolveStoreScope as jest.Mock).mockRejectedValueOnce(new Error('core down'))
+    ;(getCurrentUserStaffId as jest.Mock).mockRejectedValueOnce(new Error('core down'))
     const res = await POST()
     expect(res.status).toBe(502)
+    expect(runNow).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('staff-store read throws → 502 (was 409: a dependency failure is no longer reported as not-ready)', async () => {
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    const res = await POST()
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).toMatch(/core down/)
     expect(runNow).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
   })
@@ -167,6 +185,55 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body).toMatchObject({ error: { code: 'internal' } })
+    expect(runNow).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+})
+
+// Every row of the mapping table at the top of src/lib/sync/resolve-run-store.ts,
+// web column. The phone column is pinned row for row in app-api-sync-run-store.test.ts.
+describe('mapping table — web column (resolve-run-store.ts)', () => {
+  const down = () => Promise.reject(new Error('core down'))
+  const rows: [string, () => void, number, unknown][] = [
+    ['requested store is not this business (404)', () => {
+      activeStore.current = 'store-elsewhere'
+      storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    }, 409, { error: 'qr_store_not_ready' }],
+    ['requested store outside the clamped assignment', () => {
+      activeStore.current = 'store-elsewhere'
+    }, 409, { error: 'qr_store_not_ready' }],
+    ['caller reaches no store (unassigned, 2-store business)', () => {
+      staffStoresGet.mockResolvedValue({ store_ids: [] })
+    }, 409, { error: 'qr_store_not_ready' }],
+    ['caller reaches no store (business has no store)', () => {
+      activeStore.current = null
+      capabilities.current = new Set(['sync.view', 'stores.viewAll'])
+      storesList.mockResolvedValue({ stores: [] })
+    }, 409, { error: 'qr_store_not_ready' }],
+    ['caller reaches no store (web only: the roster cannot place them)', () => {
+      staffId.current = null
+    }, 409, { error: 'qr_store_not_ready' }],
+    ['requested-store verify throws (503)', () => {
+      storesGet.mockRejectedValue(Object.assign(new Error('core down'), { status: 503 }))
+    }, 502, { error: expect.stringMatching(/core down/) }],
+    ['staff-store read throws', () => {
+      staffStoresGet.mockImplementation(down)
+    }, 502, { error: expect.stringMatching(/core down/) }],
+    ['store-list read throws (primary store)', () => {
+      activeStore.current = null
+      capabilities.current = new Set(['sync.view', 'stores.viewAll'])
+      storesList.mockImplementation(down)
+    }, 502, { error: expect.stringMatching(/core down/) }],
+    ['store-list read throws (store count)', () => {
+      staffStoresGet.mockResolvedValue({ store_ids: [] })
+      storesList.mockImplementation(down)
+    }, 502, { error: expect.stringMatching(/core down/) }],
+  ]
+  it.each(rows)('%s', async (_case, arrange, status, body) => {
+    arrange()
+    const res = await POST()
+    expect(res.status).toBe(status)
+    expect(await res.json()).toEqual(body)
     expect(runNow).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
   })

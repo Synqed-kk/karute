@@ -53,16 +53,16 @@ jest.mock('@/lib/audit', () => ({
   audit: (...a: unknown[]) => audit(...(a as [])),
 }))
 
-// CORE-43: the route clamps to the request's store-id header, then runs that
-// store's own row. The clamp's verdicts are covered by its own suites; here it
-// hands back the requested store (null when the app sends none).
-const resolveStoreForRequest = jest.fn(async (a: { requestedStoreId: string | null }) => ({
-  storeId: a.requestedStoreId,
-  allowedStoreIds: null,
-}))
-jest.mock('@/lib/app-api/store-clamp', () => ({
-  ...jest.requireActual('@/lib/app-api/store-clamp'),
-  resolveStoreForRequest: (a: { requestedStoreId: string | null }) => resolveStoreForRequest(a),
+// CORE-43: the route resolves its store through the ONE sync-run helper
+// (src/lib/sync/resolve-run-store.ts), then runs that store's own row. The
+// helper's rules are pinned in resolve-sync-run-store.test.ts and every
+// mapping-table row in app-api-sync-run-store.test.ts; here it hands back the
+// requested store, else the primary store.
+jest.mock('@/lib/sync/resolve-run-store', () => ({
+  ...jest.requireActual('@/lib/sync/resolve-run-store'),
+  resolveSyncRunStore: async (a: { requestedStoreId: string | null }) => ({
+    storeId: a.requestedStoreId ?? 'store-primary',
+  }),
 }))
 
 import { POST } from '@/app/api/app/v1/sync/run/route'

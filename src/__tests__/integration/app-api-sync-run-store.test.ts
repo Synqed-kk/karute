@@ -2,9 +2,10 @@
 // the web run (src/app/api/sync/quickreserve/route.ts → resolveStoreScope):
 //   store-id header · else a clamped caller's FIRST assigned store (web:
 //   `allowed[0]`) · else the business's PRIMARY store (web: getPrimaryStoreId);
-// a failed scope lookup is the web's 502, never a 403 store denial (F3); the
-// audit row names the store that ran (F4). The REAL clamp runs here
-// (store-clamp.ts); only the network edges are faked.
+// a store read that THROWS is a 502 on both transports, never a store denial
+// (F3, fix round 1: both routes resolve through src/lib/sync/resolve-run-store.ts);
+// the audit row names the store that ran (F4). The REAL helper runs here; only
+// the network edges are faked.
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
 process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
@@ -149,5 +150,49 @@ describe('F4 — the phone run audit row carries the store', () => {
     const row = audit.mock.calls[0][0]
     expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: 'store-b' })
     expect(row.detail).toMatchObject({ karute_store_id: 'store-b' })
+  })
+})
+
+// Every row of the mapping table at the top of src/lib/sync/resolve-run-store.ts,
+// phone column. The web column is pinned row for row in web-sync-quickreserve.test.ts.
+describe('mapping table — phone column (resolve-run-store.ts)', () => {
+  const down = () => Promise.reject(new Error('core down'))
+  const VIEW_ALL = new Set(['sync.view', 'stores.viewAll'])
+  const rows: [string, () => void, string | undefined, number, string, boolean][] = [
+    ['requested store is not this business (404)', () => {
+      storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    }, 'store-elsewhere', 403, 'store_forbidden', true],
+    ['requested store outside the clamped assignment', () => {}, 'store-elsewhere', 403, 'store_forbidden', true],
+    ['caller reaches no store (unassigned, 2-store business)', () => {
+      staffStoresGet.mockResolvedValue({ store_ids: [] })
+    }, undefined, 403, 'store_unassigned', false],
+    ['caller reaches no store (business has no store)', () => {
+      capabilities.current = VIEW_ALL
+      storesList.mockResolvedValue({ stores: [] })
+    }, undefined, 403, 'store_unassigned', false],
+    ['requested-store verify throws (503)', () => {
+      storesGet.mockRejectedValue(Object.assign(new Error('core down'), { status: 503 }))
+    }, 'store-b', 502, 'upstream_unavailable', false],
+    ['staff-store read throws', () => {
+      staffStoresGet.mockImplementation(down)
+    }, undefined, 502, 'upstream_unavailable', false],
+    ['store-list read throws (primary store)', () => {
+      capabilities.current = VIEW_ALL
+      storesList.mockImplementation(down)
+    }, undefined, 502, 'upstream_unavailable', false],
+    ['store-list read throws (store count)', () => {
+      staffStoresGet.mockResolvedValue({ store_ids: [] })
+      storesList.mockImplementation(down)
+    }, undefined, 502, 'upstream_unavailable', false],
+  ]
+  it.each(rows)('%s', async (_case, arrange, header, status, code, marker) => {
+    arrange()
+    const res = await POST(post(header), noRoute)
+    expect(res.status).toBe(status)
+    const body = await res.json()
+    expect(body.error.code).toBe(code)
+    expect(JSON.stringify(body).includes('store_header')).toBe(marker)
+    expect(runNow).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
   })
 })
