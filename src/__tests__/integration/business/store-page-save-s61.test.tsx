@@ -843,3 +843,48 @@ describe('S75 fix 3b — R-E′ the touched set in the 設定 room', () => {
     expect(src('read_points')).toBe('業種の標準')
   })
 })
+
+// S75 fix 4 (R-F, GREPTILE-1138 P1) — a caps 200 clears `touched` by EDIT, not by value: a key edited during the flight
+// stays touched even when the edit lands on the value that was sent.
+describe('S75 fix 4 — R-F an edit during the flight keeps its key touched', () => {
+  it('(1) 戻す hair_salon (packs OFF) → 保存 → in flight 戻す beauty_chiropractic + hand flip packs OFF → 200 → packs stays OFF → 保存 → OWNER/false', async () => {
+    const at = new Date('2026-10-06T12:00:00.000Z')
+    const saved = seedRecord('beauty_chiropractic')
+    expect(saved.switches.packs).toEqual({ on: true, source: 'TYPE_DEFAULT' })
+    let answer: CapRecord | null = null
+    let release: () => void = () => {}
+    let held = true
+    const calls = stub((b) => {
+      const stamp = (): Answer => {
+        answer = stampSave(answer ?? saved, b.record as CapRecord, b.reset_keys as CapKey[], at, 'staff-1')
+        return { status: 200, body: { ok: true, record: answer } }
+      }
+      return held ? new Promise<Answer>((res) => { release = () => res(stamp()) }) : stamp()
+    })
+    const p = await propsFor(STORE.tokyo)
+    const sec = p.sections.find((s) => s.id === SP)!
+    ;(sec as { storePage: unknown }).storePage = { ...sec.storePage!, saved }
+    await mount(p)
+    await act(async () => { fireEvent.change(typeSelect(), { target: { value: 'hair_salon' } }) })
+    await typeReset()
+    expect(sw('packs').getAttribute('aria-checked')).toBe('false')
+    await act(async () => { fireEvent.click(saveBtn()) })
+    expect(calls).toHaveLength(1)
+    expect((calls[0].body.record as CapRecord).switches.packs.on).toBe(false)
+    await act(async () => { fireEvent.change(typeSelect(), { target: { value: 'beauty_chiropractic' } }) })
+    await typeReset()
+    expect(sw('packs').getAttribute('aria-checked')).toBe('true')
+    await flip('packs')
+    expect(sw('packs').getAttribute('aria-checked')).toBe('false') // = the value sent
+    held = false
+    await act(async () => { release() })
+    await act(async () => {})
+    expect(alerts()).toEqual([])
+    expect(sw('packs').getAttribute('aria-checked')).toBe('false') // still touched: the owner's choice, not the standard
+    await press()
+    expect(calls).toHaveLength(2)
+    expect((calls[1].body.record as CapRecord).switches.packs.on).toBe(false)
+    expect(answer!.switches.packs).toEqual({ on: false, source: 'OWNER', changed_at: at.toISOString(), changed_by: 'staff-1' })
+    expect(sw('packs').getAttribute('aria-checked')).toBe('false')
+  })
+})
