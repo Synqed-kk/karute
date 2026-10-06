@@ -10,15 +10,16 @@ import { SyncSection } from '@/components/settings/redesign/sections/SyncSection
 
 jest.mock('next-intl', () => ({ useTranslations: () => (k: string) => k }))
 
-type Pending = { url: string; init?: RequestInit; resolve: (body: unknown) => void }
-let pending: Pending[] = []
+type Pending = { url: string; init?: RequestInit; resolve: (body: unknown, status?: number) => void }
+let pending: Pending[] = [] // config loads (GET)
+let posts: Pending[] = [] // saves and runs (POST), answered by the test
 // jsdom has no fetch Response — the section reads only these four members.
-const reply = (body: unknown) =>
-  ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+const reply = (body: unknown, status = 200) =>
+  ({ ok: status < 400, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
 const apiFetch = jest.fn((url: string, init?: RequestInit) => {
-  if (init?.method === 'POST') return Promise.resolve(reply({ success: true }))
+  const queue = init?.method === 'POST' ? posts : pending
   return new Promise<Response>((res) => {
-    pending.push({ url, init, resolve: (body) => res(reply(body)) })
+    queue.push({ url, init, resolve: (body, status) => res(reply(body, status)) })
   })
 })
 
@@ -29,8 +30,11 @@ const C = { username: 'ginza-login', enabled: false }
 const loginInput = () => screen.getByPlaceholderText('loginIdPlaceholder') as HTMLInputElement
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)) })
 
+const button = (label: string) => screen.getByText(label) as HTMLButtonElement
+
 beforeEach(() => {
   pending = []
+  posts = []
   apiFetch.mockClear()
   setDataPort({ apiFetch } as never)
 })
@@ -55,8 +59,13 @@ describe('SyncSection — store switch (Greptile #1135 F1)', () => {
     await act(async () => { fireEvent.click(screen.getByText('saveConfig')) })
     const post = apiFetch.mock.calls.find(([, init]) => init?.method === 'POST')!
     expect(JSON.parse(String(post[1]!.body))).toEqual({
-      username: 'b-login', password: '', enabled: false, qrStoreSlug: '', qrStoreId: '',
+      storeId: 'store-b', username: 'b-login', password: '', enabled: false, qrStoreSlug: '', qrStoreId: '',
     })
+    // Each load names the store it is for (fix round 2: never the cookie).
+    expect(pending.map((p) => p.url)).toEqual([
+      '/api/sync/quickreserve/config?storeId=store-a',
+      '/api/sync/quickreserve/config?storeId=store-b',
+    ])
 
     // Back to A reloads A's values.
     rerender(<SyncSection storeId="store-a" />)
@@ -90,5 +99,65 @@ describe('SyncSection — store switch (Greptile #1135 F1)', () => {
     await flush()
     expect(loginInput().value).toBe('ginza-login')
     expect(screen.queryByPlaceholderText('la-estro')).toBeNull()
+  })
+})
+
+describe('SyncSection — late save/run answers and unloaded forms (fix round 2)', () => {
+  it("a save for 代官山 answering after the switch to 銀座 leaves 銀座's form untouched", async () => {
+    const { rerender } = render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    await act(async () => { fireEvent.click(button('saveConfig')) })
+    expect(JSON.parse(String(posts[0].init!.body)).storeId).toBe('store-a')
+
+    rerender(<SyncSection storeId="store-b" />)
+    pending[1].resolve(B)
+    await flush()
+    posts[0].resolve({ success: true }) // 代官山's answer lands late
+    await flush()
+    expect(screen.getByPlaceholderText('la-estro')).toBeTruthy() // 銀座's first-save fields stay
+    expect(screen.queryByText('Config saved')).toBeNull()
+
+    // 銀座's own first save still names its Quick Reserve store (no 400 dead end).
+    await act(async () => { fireEvent.click(button('saveConfig')) })
+    expect(JSON.parse(String(posts[1].init!.body))).toMatchObject({ storeId: 'store-b', qrStoreSlug: '', qrStoreId: '' })
+  })
+
+  it("a run for 代官山 answering after the switch is never shown under 銀座", async () => {
+    const { rerender } = render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    expect(JSON.parse(String(posts[0].init!.body))).toEqual({ storeId: 'store-a' })
+    rerender(<SyncSection storeId="store-b" />)
+    pending[1].resolve(B)
+    await flush()
+    posts[0].resolve({ created: 7, updated: 0, skipped: 0 })
+    await flush()
+    expect(screen.queryByText(/Synced: 7/)).toBeNull()
+  })
+
+  it('Save is off while the load is in flight, on again once this store loaded', async () => {
+    render(<SyncSection storeId="store-a" />)
+    expect(button('saveConfig').disabled).toBe(true)
+    pending[0].resolve(A)
+    await flush()
+    expect(button('saveConfig').disabled).toBe(false)
+  })
+
+  it('a failed load shows the error line and keeps Save off (no blank form over a live row)', async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve({ error: 'could not resolve the sync store: core down' }, 502)
+    await flush()
+    expect(screen.getByText(/Error \(502\): could not resolve the sync store/)).toBeTruthy()
+    expect(button('saveConfig').disabled).toBe(true)
+  })
+
+  it('a refused load (409) shows the localized not-ready line and keeps Save off', async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve({ error: 'qr_store_not_ready' }, 409)
+    await flush()
+    expect(screen.getByText('Error (409): bookingSyncStoreNotReady')).toBeTruthy()
+    expect(button('saveConfig').disabled).toBe(true)
   })
 })

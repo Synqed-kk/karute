@@ -154,3 +154,22 @@ describe('a dependency that THROWS propagates as SyncStoreDependencyError, never
     expect((err as Error).cause).toBe(blip)
   })
 })
+
+describe('fix round 2 (Opus nit N3) — an archived store is never synced', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+  })
+
+  it('a requested archived store → SyncStoreForbidden', async () => {
+    storesGet.mockResolvedValue({ id: 'store-a', active: false })
+    await expect(run({ capabilities: VIEW_ALL, requestedStoreId: 'store-a' })).rejects.toBeInstanceOf(SyncStoreForbidden)
+  })
+
+  it('no request, archived primary → the first ACTIVE store, never the archived one', async () => {
+    storesList.mockResolvedValue({
+      stores: [{ id: 'store-old', is_primary: true, active: false }, { id: 'store-live', active: true }],
+    })
+    await expect(run({ capabilities: VIEW_ALL })).resolves.toEqual({ storeId: 'store-live' })
+  })
+})

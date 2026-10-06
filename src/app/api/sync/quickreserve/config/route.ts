@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { auditWeb } from '@/lib/audit-web'
-import { getBusinessId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { errorBody, toAppApiError } from '@/lib/app-api/errors'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { qrConfigForStore } from '@/lib/sync/qr-config'
+import { resolveSyncRunStore, webSyncStoreError } from '@/lib/sync/resolve-run-store'
 
 // QuickReserve connection settings live in synqed-core (sync_configs; the
 // credentials are AES-encrypted server-side and never leave core). This route
@@ -18,28 +18,60 @@ import { qrConfigForStore } from '@/lib/sync/qr-config'
 // a Wave M4 decision-table item, not preempted here. POST's write audit
 // (below) is unchanged.
 
-export async function GET() {
+type Capabilities = Awaited<ReturnType<typeof getMyCapabilities>>
+
+/** The store the form SHOWS (SyncSection sends it: ?storeId= on GET, body on
+ *  POST), resolved ONLY through the helper the run uses — never the
+ *  active-store cookie, so the screen, its save and its run agree. */
+async function shownStore(
+  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
+  capabilities: Capabilities,
+  requested: unknown,
+): Promise<string> {
+  const { storeId } = await resolveSyncRunStore({
+    synqed,
+    authUserId: await getCurrentUserStaffId(),
+    capabilities,
+    requestedStoreId: typeof requested === 'string' && requested ? requested : null,
+  })
+  return storeId
+}
+
+/** The helper's errors as the run route answers them; anything else → 502. */
+function failure(e: unknown, fallback: string) {
+  const storeError = webSyncStoreError(e)
+  if (storeError) return NextResponse.json(storeError.body, { status: storeError.status })
+  return NextResponse.json({ error: e instanceof Error ? e.message : fallback }, { status: 502 })
+}
+
+export async function GET(request: Request) {
   try {
     await getBusinessId()
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  let capabilities: Capabilities
   try {
-    ensureCapability(await getMyCapabilities(), 'sync.view')
+    capabilities = await getMyCapabilities()
+    ensureCapability(capabilities, 'sync.view')
   } catch (err) {
     const apiErr = toAppApiError(err)
     return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
   }
 
-  // The ACTIVE store's own row (CORE-43: one config per store). A store with
+  // The shown store's own row (CORE-43: one config per store). A store with
   // no row yet reads as unconfigured; qrStoreSlug pre-fills the Quick Reserve
   // account slug from a sibling store's row (one owner login, several stores).
   const synqed = await getSynqedClient()
-  const { storeId } = await resolveStoreScope()
-  const { config, configs } = storeId
-    ? await qrConfigForStore(synqed, storeId)
-    : { config: null, configs: [] }
+  let found: Awaited<ReturnType<typeof qrConfigForStore>>
+  try {
+    const storeId = await shownStore(synqed, capabilities, new URL(request.url).searchParams.get('storeId'))
+    found = await qrConfigForStore(synqed, storeId)
+  } catch (e) {
+    return failure(e, 'Could not read QuickReserve settings')
+  }
+  const { config, configs } = found
   if (!config) {
     return NextResponse.json({
       username: '',
@@ -71,14 +103,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  let capabilities: Capabilities
   try {
-    ensureCapability(await getMyCapabilities(), 'sync.view')
+    capabilities = await getMyCapabilities()
+    ensureCapability(capabilities, 'sync.view')
   } catch (err) {
     const apiErr = toAppApiError(err)
     return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
   }
 
-  const { username, password, enabled, qrStoreSlug, qrStoreId } = await request.json()
+  const { storeId: shown, username, password, enabled, qrStoreSlug, qrStoreId } = await request.json()
   const synqed = await getSynqedClient()
   // Which store's row this save changed — for the audit row below.
   let savedStoreId: string | null = null
@@ -90,21 +124,11 @@ export async function POST(request: Request) {
   // already crawls (qr_store_already_linked).
   //
   // The guard's own reads share the write's error boundary: a core outage or
-  // a scope-lookup failure returns the 502 shape the screen already shows.
+  // a store-lookup failure returns the 502 shape the screen already shows; a
+  // store this caller may not use is the run's 409 qr_store_not_ready.
   try {
-    const { storeId } = await resolveStoreScope()
-    if (!storeId) {
-      return NextResponse.json(
-        {
-          error: 'qr_store_not_ready',
-          // Dev/log-facing only — the settings UI shows its own localized
-          // copy (settings.bookingSyncStoreNotReady) keyed off the code.
-          message: 'No store is selected for this Quick Reserve config.',
-        },
-        { status: 409 },
-      )
-    }
-    const { config: existing } = await qrConfigForStore(synqed, storeId)
+    const storeId = await shownStore(synqed, capabilities, shown)
+    const { config: existing, configs } = await qrConfigForStore(synqed, storeId)
 
     const slug = typeof qrStoreSlug === 'string' ? qrStoreSlug.trim() : ''
     const qrId = Number(qrStoreId)
@@ -115,9 +139,17 @@ export async function POST(request: Request) {
         { status: 400 },
       )
     }
+    // One Quick Reserve store crawls for ONE of our stores. Checked here across
+    // the whole business (a clamped caller included) without naming the other
+    // store; keyed on the numeric QR store id, never the slug (one owner
+    // login serves several stores).
+    if (!existing && configs.some((c) => c.karute_store_id !== storeId && Number(c.store_id) === qrId)) {
+      return NextResponse.json({ error: 'qr_store_already_linked' }, { status: 409 })
+    }
 
     await synqed.sync.upsertConfig('QUICKRESERVE', {
-      username,
+      // A blank login never overwrites a live row's stored one.
+      username: existing && !login ? existing.username : username,
       // Only send the password when the owner typed one — core keeps the stored
       // credential otherwise (the field renders blank on load by design).
       ...(password ? { password } : {}),
@@ -135,11 +167,12 @@ export async function POST(request: Request) {
     savedStoreId = storeId
   } catch (e) {
     // Surface the real failure — whether it came from a read above or the
-    // write itself (the old route's "Config saved" false positive).
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : 'Could not save QuickReserve settings' },
-      { status: 502 },
-    )
+    // write itself (the old route's "Config saved" false positive). Core's
+    // code is read from an object error too (the SDK keeps it on .code).
+    if ((e as { code?: unknown } | null)?.code === 'qr_store_already_linked') {
+      return NextResponse.json({ error: 'qr_store_already_linked' }, { status: 409 })
+    }
+    return failure(e, 'Could not save QuickReserve settings')
   }
 
   // Credential-bearing config write; flags only, never the values.

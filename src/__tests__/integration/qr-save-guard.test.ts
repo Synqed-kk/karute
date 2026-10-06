@@ -14,33 +14,38 @@
  *        (g) an existing row keeps its own QR store, whatever the body says
  *        (h) no resolvable store → 409 qr_store_not_ready, nothing written
  *        (i) core refuses a QR store already linked → 502 with core's code
- *        (j) listConfigs / resolveStoreScope throws → 502, nothing written
+ *        (j) listConfigs / the store lookup throws → 502, nothing written
+ * Fix round 2 (one rule): the store is the one the form SHOWS, sent by the
+ * client (?storeId= / body storeId) and resolved ONLY through
+ * resolveSyncRunStore — the REAL helper runs here, only network edges are
+ * faked; the active-store cookie is never read (it names another store).
  */
 
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn().mockResolvedValue('biz-A'),
   resolveUserId: jest.fn().mockResolvedValue('user-1'),
+  getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
 }))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn() }))
+const VIEW_ALL = new Set(['sync.view', 'stores.viewAll'])
+const capabilities = { current: VIEW_ALL }
 jest.mock('@/lib/auth/require-permission', () => ({
-  getMyCapabilities: jest.fn(async () => new Set(['sync.view'])),
+  getMyCapabilities: jest.fn(async () => capabilities.current),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
 
+// The store the form shows (sent by SyncSection). The cookie names 銀座 all
+// along and must never be what a request acts on.
 const actorStore = { current: 'daikanyama' as string | null }
-jest.mock('@/lib/auth/store-scope', () => ({
-  resolveStoreScope: jest.fn(async () => ({
-    storeId: actorStore.current,
-    viewAll: true,
-    allowedStoreIds: null,
-    degraded: false,
-  })),
-}))
+jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => 'ginza') }))
+const storesGet = jest.fn()
+const storesList = jest.fn()
+const staffStoresGet = jest.fn()
+const storeReads = { stores: { get: storesGet, list: storesList }, staffStores: { get: staffStoresGet } }
 
 import { GET, POST } from '@/app/api/sync/quickreserve/config/route'
 
 const client = jest.requireMock('@/lib/synqed/client') as { getSynqedClient: jest.Mock }
-const storeScope = jest.requireMock('@/lib/auth/store-scope') as { resolveStoreScope: jest.Mock }
 
 const DAIKANYAMA_ROW = {
   karute_store_id: 'daikanyama',
@@ -58,6 +63,7 @@ function mockClient(rows: Record<string, unknown>[], upsert: () => Promise<unkno
   const upsertConfig = jest.fn((..._args: unknown[]) => upsert())
   client.getSynqedClient.mockResolvedValue({
     sync: { listConfigs: jest.fn().mockResolvedValue(rows), upsertConfig },
+    ...storeReads,
   })
   return upsertConfig
 }
@@ -65,26 +71,34 @@ function mockClient(rows: Record<string, unknown>[], upsert: () => Promise<unkno
 function req(body: Record<string, unknown>) {
   return new Request('https://app.test/api/sync/quickreserve/config', {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...(actorStore.current ? { storeId: actorStore.current } : {}), ...body }),
   })
 }
+const getReq = () =>
+  new Request(
+    `https://app.test/api/sync/quickreserve/config${actorStore.current ? `?storeId=${actorStore.current}` : ''}`,
+  )
 
 beforeEach(() => {
   jest.clearAllMocks()
   actorStore.current = 'daikanyama'
+  capabilities.current = VIEW_ALL
+  storesGet.mockResolvedValue({ id: 'x' })
+  storesList.mockResolvedValue({ stores: [{ id: 'daikanyama', is_primary: true }, { id: 'ginza' }] })
+  staffStoresGet.mockResolvedValue({ store_ids: ['daikanyama', 'ginza'] })
 })
 
 describe('GET — the active store reads its own row', () => {
   it('(a) 代官山 reads its own row', async () => {
     mockClient([DAIKANYAMA_ROW])
-    const body = await (await GET()).json()
+    const body = await (await GET(getReq())).json()
     expect(body).toMatchObject({ username: 'owner', enabled: true, configured: true, lastStatus: 'OK' })
   })
 
   it('(b) 銀座 with no row yet reads unconfigured, slug pre-filled from 代官山', async () => {
     actorStore.current = 'ginza'
     mockClient([DAIKANYAMA_ROW])
-    const body = await (await GET()).json()
+    const body = await (await GET(getReq())).json()
     expect(body).toEqual({
       username: '',
       enabled: false,
@@ -176,6 +190,8 @@ describe('POST — each store saves only its own row', () => {
 
   it('(h) no resolvable store → 409 qr_store_not_ready, nothing written', async () => {
     actorStore.current = null
+    capabilities.current = new Set(['sync.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: [] }) // unassigned in a 2-store business
     const upsert = mockClient([DAIKANYAMA_ROW])
     const res = await POST(req({ username: 'owner', password: 'pw', enabled: true }))
     expect(res.status).toBe(409)
@@ -188,8 +204,10 @@ describe('POST — each store saves only its own row', () => {
     mockClient([DAIKANYAMA_ROW], async () => {
       throw new Error('qr_store_already_linked')
     })
+    // 333 is linked nowhere Karute can see (fix round 2's local check passes),
+    // so core is the one refusing here.
     const res = await POST(
-      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '222' }),
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '333' }),
     )
     expect(res.status).toBe(502)
     expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
@@ -199,11 +217,119 @@ describe('POST — each store saves only its own row', () => {
     const upsertConfig = jest.fn()
     client.getSynqedClient.mockResolvedValue({
       sync: { listConfigs: jest.fn().mockRejectedValue(new Error('core down')), upsertConfig },
+      ...storeReads,
     })
     expect((await POST(req({ username: 'owner', password: 'pw', enabled: true }))).status).toBe(502)
 
-    storeScope.resolveStoreScope.mockRejectedValueOnce(new Error('scope down'))
+    storesGet.mockRejectedValueOnce(Object.assign(new Error('store lookup down'), { status: 503 }))
     expect((await POST(req({ username: 'owner', password: 'pw', enabled: true }))).status).toBe(502)
     expect(upsertConfig).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 2 — the store is the one the form shows, resolved only by the helper', () => {
+  it("(k) viewAll caller naming another business's store → GET and SAVE 409, nothing written", async () => {
+    actorStore.current = 'store-foreign'
+    storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const get = await GET(getReq())
+    expect(get.status).toBe(409)
+    expect(await get.json()).toEqual({ error: 'qr_store_not_ready' })
+    const res = await POST(req({ username: 'owner', password: 'pw', enabled: true }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('(l) a save naming 代官山 while the cookie names 銀座 writes 代官山', async () => {
+    const upsert = mockClient([DAIKANYAMA_ROW, GINZA_ROW])
+    expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ karute_store_id: 'daikanyama', store_id: 222 })
+  })
+
+  it("(m) clamped caller, stale cookie: the shown store (the page's allowed[0]) reads and saves", async () => {
+    capabilities.current = new Set(['sync.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['ginza'] })
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW, GINZA_ROW])
+    expect(await (await GET(getReq())).json()).toMatchObject({ configured: true, username: 'owner' })
+    expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ karute_store_id: 'ginza' })
+  })
+
+  it('(m2) clamped caller naming a store outside the assignment → 409, nothing written', async () => {
+    capabilities.current = new Set(['sync.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['ginza'] })
+    const upsert = mockClient([DAIKANYAMA_ROW, GINZA_ROW])
+    expect((await GET(getReq())).status).toBe(409)
+    expect((await POST(req({ username: 'owner', enabled: true }))).status).toBe(409)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('(n) the staff-store read throws → GET and SAVE 502, never "unconfigured" or "not ready"', async () => {
+    capabilities.current = new Set(['sync.view'])
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const get = await GET(getReq())
+    expect(get.status).toBe(502)
+    expect((await get.json()).configured).toBeUndefined()
+    expect((await POST(req({ username: 'owner', password: 'pw', enabled: true }))).status).toBe(502)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 2 — a blank form never blanks a live row', () => {
+  it("(o) an existing row saved with a blank login keeps its stored login", async () => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    expect((await POST(req({ username: '', password: '', enabled: true }))).status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'owner', karute_store_id: 'daikanyama' })
+    expect(upsert.mock.calls[0][1]).not.toHaveProperty('password')
+  })
+})
+
+describe('fix round 2 — one Quick Reserve store, one of our stores', () => {
+  it("(p) 銀座's first save naming 代官山's QR store (222) → 409 qr_store_already_linked, nothing written", async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'LA-ESTRO ', qrStoreId: '222' }),
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('(p2) a clamped caller gets the same refusal, and the body never names the other store', async () => {
+    actorStore.current = 'ginza'
+    capabilities.current = new Set(['sync.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['ginza'] })
+    mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '222' }),
+    )
+    expect(res.status).toBe(409)
+    expect(JSON.stringify(await res.json())).not.toContain('daikanyama')
+  })
+
+  it('(p3) the same slug with a different QR store id is allowed (one owner login, several stores)', async () => {
+    actorStore.current = 'ginza'
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '250' }),
+    )
+    expect(res.status).toBe(200)
+    expect(upsert).toHaveBeenCalledTimes(1)
+  })
+
+  it("(q) core's object error carrying the code → 409 with the code (the screen localizes it)", async () => {
+    actorStore.current = 'ginza'
+    mockClient([DAIKANYAMA_ROW], async () => {
+      throw Object.assign(new Error('This Quick Reserve store is already linked'), { code: 'qr_store_already_linked' })
+    })
+    const res = await POST(
+      req({ username: 'owner', password: 'pw', enabled: true, qrStoreSlug: 'la-estro', qrStoreId: '333' }),
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_store_already_linked' })
   })
 })

@@ -8,6 +8,7 @@
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn().mockResolvedValue('biz-A'),
   resolveUserId: jest.fn().mockResolvedValue('user-1'),
+  getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
 }))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn() }))
 // PKT-P0 save guard: the POST route now also resolves the actor's store —
@@ -53,8 +54,13 @@ function mockConfig(config: Record<string, unknown> | null) {
       // CORE-43: GET reads the active store's own row (store-A, mocked above).
       listConfigs: jest.fn().mockResolvedValue(config ? [{ ...config, karute_store_id: 'store-A' }] : []),
     },
+    // Fix round 2: the shown store (?storeId=store-A) resolves through the
+    // real sync-store helper; these are its reads.
+    stores: { get: jest.fn().mockResolvedValue({ id: 'store-A' }) },
+    staffStores: { get: jest.fn().mockResolvedValue({ store_ids: ['store-A'] }) },
   })
 }
+const getReq = () => new Request('https://app.test/api/sync/quickreserve/config?storeId=store-A')
 
 describe('quickreserve config GET — timestamp stays a raw instant', () => {
   beforeEach(() => jest.clearAllMocks())
@@ -67,7 +73,7 @@ describe('quickreserve config GET — timestamp stays a raw instant', () => {
       last_run_error: null,
       last_run_at: '2026-07-17T16:56:08.000Z',
     })
-    const body = await (await GET()).json()
+    const body = await (await GET(getReq())).json()
     expect(body.lastRunAt).toBe('2026-07-17T16:56:08.000Z')
     expect(body.lastStatus).toBe('OK')
   })
@@ -80,7 +86,7 @@ describe('quickreserve config GET — timestamp stays a raw instant', () => {
       last_run_error: 'login failed',
       last_run_at: null,
     })
-    const body = await (await GET()).json()
+    const body = await (await GET(getReq())).json()
     expect(body.lastStatus).toBe('ERROR: login failed')
     expect(body.lastRunAt).toBeNull()
   })
@@ -96,11 +102,12 @@ describe('quickreserve config POST — audit writer (wave A part 3)', () => {
     const upsertConfig = jest.fn(async () => ({}))
     client.getSynqedClient.mockResolvedValue({
       sync: { listConfigs: jest.fn().mockResolvedValue([STORE_A_ROW]), upsertConfig },
-      stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-A' }] }) },
+      stores: { get: jest.fn().mockResolvedValue({ id: 'store-A' }), list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-A' }] }) },
+      staffStores: { get: jest.fn().mockResolvedValue({ store_ids: ['store-A'] }) },
     })
     const req = new Request('https://app.test/api/sync/quickreserve/config', {
       method: 'POST',
-      body: JSON.stringify({ username: 'velune', password: 'hunter2', enabled: true }),
+      body: JSON.stringify({ storeId: 'store-A', username: 'velune', password: 'hunter2', enabled: true }),
     })
     const lines = await auditLines(async () => {
       expect((await POST(req)).status).toBe(200)
@@ -123,11 +130,12 @@ describe('quickreserve config POST — audit writer (wave A part 3)', () => {
         listConfigs: jest.fn().mockResolvedValue([STORE_A_ROW]),
         upsertConfig: jest.fn(async () => { throw new Error('core down') }),
       },
-      stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-A' }] }) },
+      stores: { get: jest.fn().mockResolvedValue({ id: 'store-A' }), list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-A' }] }) },
+      staffStores: { get: jest.fn().mockResolvedValue({ store_ids: ['store-A'] }) },
     })
     const req = new Request('https://app.test/api/sync/quickreserve/config', {
       method: 'POST',
-      body: JSON.stringify({ username: 'velune', enabled: false }),
+      body: JSON.stringify({ storeId: 'store-A', username: 'velune', enabled: false }),
     })
     const lines = await auditLines(async () => {
       expect((await POST(req)).status).toBe(502)
@@ -153,7 +161,7 @@ describe('quickreserve config — capability gate (PR-M2 fix round)', () => {
 
   it('GET without sync.view → 403 {error:{code:"forbidden"}}, core never touched', async () => {
     capabilities.current = new Set(['customers.view'])
-    const res = await GET()
+    const res = await GET(getReq())
     expect(res.status).toBe(403)
     const body = await res.json()
     expect(body).toMatchObject({ error: { code: 'forbidden' } })
@@ -164,7 +172,7 @@ describe('quickreserve config — capability gate (PR-M2 fix round)', () => {
     capabilities.current = new Set(['customers.view'])
     const req = new Request('https://app.test/api/sync/quickreserve/config', {
       method: 'POST',
-      body: JSON.stringify({ username: 'velune', password: 'hunter2', enabled: true }),
+      body: JSON.stringify({ storeId: 'store-A', username: 'velune', password: 'hunter2', enabled: true }),
     })
     const lines = await auditLines(async () => {
       const res = await POST(req)
@@ -182,7 +190,7 @@ describe('quickreserve config — capability gate (PR-M2 fix round)', () => {
       getMyCapabilities: jest.Mock
     }
     getBusinessId.mockRejectedValueOnce(new Error('no session'))
-    const res = await GET()
+    const res = await GET(getReq())
     expect(res.status).toBe(401)
     const body = await res.json()
     expect(body).toEqual({ error: 'Unauthorized' })

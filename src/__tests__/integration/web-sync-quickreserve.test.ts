@@ -38,9 +38,16 @@ jest.mock('@/lib/synqed/client', () => ({
 const auditWeb = jest.fn()
 jest.mock('@/lib/audit-web', () => ({ auditWeb: (...a: unknown[]) => auditWeb(...(a as [])) }))
 
-// CORE-43: 今すぐ同期 crawls the ACTIVE store's own row (the cookie).
+// CORE-43 + fix round 2: 今すぐ同期 crawls the store the form SHOWS, sent in
+// the body (`activeStore` here = that shown store). The active-store cookie is
+// never read: it names a stale store throughout this suite.
 const activeStore = { current: 'store-ginza' as string | null }
-jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => activeStore.current) }))
+jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => 'store-cookie-stale') }))
+const run = () =>
+  new Request('https://app.test/api/sync/quickreserve', {
+    method: 'POST',
+    body: JSON.stringify(activeStore.current ? { storeId: activeStore.current } : {}),
+  })
 
 import { POST } from '@/app/api/sync/quickreserve/route'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
@@ -71,14 +78,14 @@ beforeEach(() => {
 describe('POST /api/sync/quickreserve — capability gate + audit parity', () => {
   it("CORE-43: runs the active store's own row, never another store's", async () => {
     activeStore.current = 'store-ginza'
-    expect((await POST()).status).toBe(200)
+    expect((await POST(run())).status).toBe(200)
     expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
   })
 
   it("CORE-43: no resolvable store → 409 qr_store_not_ready, never another store's crawl", async () => {
     activeStore.current = null
     staffStoresGet.mockResolvedValue({ store_ids: [] }) // unassigned in a 2-store business
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
     expect(runNow).not.toHaveBeenCalled()
@@ -87,7 +94,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
 
   it('no sync.view grant → 403 {error:{code:"forbidden"}}, runNow never called, no audit emit', async () => {
     capabilities.current = new Set(['customers.view'])
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(403)
     const body = await res.json()
     expect(body).toMatchObject({ error: { code: 'forbidden' } })
@@ -96,7 +103,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
   })
 
   it('granted, sync succeeds → 200 success spread + folded skipped, exactly one audit row', async () => {
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body).toMatchObject({
@@ -122,7 +129,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
 
   it('not-configured upstream error → friendly 200, audit row still emits (facade 2xx parity)', async () => {
     runNow.mockRejectedValueOnce(new Error('config not found for business'))
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.message).toMatch(/QR sync not configured/)
@@ -131,7 +138,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
 
   it('store scope lookup throws → 502, never a store denial (the phone twin matches: Greptile #1135 F3)', async () => {
     ;(getCurrentUserStaffId as jest.Mock).mockRejectedValueOnce(new Error('core down'))
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(502)
     expect(runNow).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
@@ -139,7 +146,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
 
   it('staff-store read throws → 502 (was 409: a dependency failure is no longer reported as not-ready)', async () => {
     staffStoresGet.mockRejectedValue(new Error('core down'))
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(502)
     expect((await res.json()).error).toMatch(/core down/)
     expect(runNow).not.toHaveBeenCalled()
@@ -148,14 +155,14 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
 
   it('other upstream failure → 502, no audit emit', async () => {
     runNow.mockRejectedValueOnce(new Error('QuickReserve login expired'))
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(502)
     expect(auditWeb).not.toHaveBeenCalled()
   })
 
   it('anon (getBusinessId throws) → 401, no capability check reached, no audit', async () => {
     getBusinessIdMock.mockRejectedValueOnce(new Error('no session'))
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(401)
     expect(runNow).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
@@ -163,7 +170,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
 
   it('401 body is the flat legacy shape, byte-exact', async () => {
     getBusinessIdMock.mockRejectedValueOnce(new Error('no session'))
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(401)
     const body = await res.json()
     expect(body).toEqual({ error: 'Unauthorized' })
@@ -172,7 +179,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
   it('order pin: anon AND capability-denied together still resolve as 401 with getMyCapabilities never called — kills the order-swap mutant', async () => {
     getBusinessIdMock.mockRejectedValueOnce(new Error('no session'))
     capabilities.current = new Set()
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(401)
     expect(getMyCapabilitiesMock).not.toHaveBeenCalled()
     expect(runNow).not.toHaveBeenCalled()
@@ -181,7 +188,7 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
 
   it('infra failure resolving capabilities → 500 {error:{code:"internal"}}, never 403; runNow/audit untouched', async () => {
     getMyCapabilitiesMock.mockRejectedValueOnce(new Error('capability service unreachable'))
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body).toMatchObject({ error: { code: 'internal' } })
@@ -231,10 +238,47 @@ describe('mapping table — web column (resolve-run-store.ts)', () => {
   ]
   it.each(rows)('%s', async (_case, arrange, status, body) => {
     arrange()
-    const res = await POST()
+    const res = await POST(run())
     expect(res.status).toBe(status)
     expect(await res.json()).toEqual(body)
     expect(runNow).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 2 — the store is the one the form shows, never the cookie', () => {
+  it("clamped caller, stale cookie: the shown store (the page's allowed[0]) runs — 今すぐ同期 works", async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-ginza'] })
+    activeStore.current = 'store-ginza'
+    expect((await POST(run())).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-ginza' })
+  })
+
+  it('the body names 代官山 while the cookie names another store → 代官山 runs', async () => {
+    activeStore.current = 'store-shibuya'
+    expect((await POST(run())).status).toBe(200)
+    expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-shibuya' })
+  })
+
+  it("viewAll caller naming another business's store → 409, nothing runs", async () => {
+    capabilities.current = new Set(['sync.view', 'stores.viewAll'])
+    activeStore.current = 'store-foreign'
+    storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
+    const res = await POST(run())
+    expect(res.status).toBe(409)
+    expect(runNow).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 2 — every web run audit row carries the store', () => {
+  it('not configured (a 2xx) → the audit row names the store', async () => {
+    runNow.mockRejectedValue(new Error('config not found'))
+    activeStore.current = 'store-shibuya'
+    expect((await POST(run())).status).toBe(200)
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0]).toMatchObject({
+      action: 'settings.sync_run_now',
+      detail: { karute_store_id: 'store-shibuya' },
+    })
   })
 })

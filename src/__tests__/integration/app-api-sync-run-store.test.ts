@@ -151,6 +151,17 @@ describe('F4 — the phone run audit row carries the store', () => {
     expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: 'store-b' })
     expect(row.detail).toMatchObject({ karute_store_id: 'store-b' })
   })
+
+  it('not configured (a 2xx) → the audit row still carries the store (fix round 2)', async () => {
+    runNow.mockRejectedValue(new Error('config not found'))
+    const res = await POST(post('store-b'), noRoute)
+    expect(res.status).toBe(200)
+    expect((await res.json()).code).toBe('not_configured')
+    expect(audit).toHaveBeenCalledTimes(1)
+    const row = audit.mock.calls[0][0]
+    expect(row).toMatchObject({ action: 'settings.sync_run_now', storeId: 'store-b' })
+    expect(row.detail).toMatchObject({ karute_store_id: 'store-b' })
+  })
 })
 
 // Every row of the mapping table at the top of src/lib/sync/resolve-run-store.ts,

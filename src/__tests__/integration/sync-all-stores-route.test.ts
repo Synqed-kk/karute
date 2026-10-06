@@ -23,7 +23,9 @@ jest.mock('@/lib/synqed/client', () => ({
   })),
 }))
 jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn() }))
-jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => 'store-daikanyama') }))
+// The cookie names a store no request here sends: the run route never reads it
+// (S54 merge of PR-A's rule — the store comes from the request, via the helper).
+jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => 'store-ginza') }))
 
 import { GET } from '@/app/api/sync/quickreserve/configs/route'
 import { POST } from '@/app/api/sync/quickreserve/route'
@@ -128,7 +130,7 @@ describe('POST /api/sync/quickreserve with a row store', () => {
     expect(runNow).not.toHaveBeenCalled()
   })
 
-  it('no body, or a body without storeId, still runs the active store (PR-A behaviour unchanged)', async () => {
+  it("no body, or a body without storeId, runs the helper's default (viewAll → the primary), never the cookie's store", async () => {
     await POST(new Request('http://x/api/sync/quickreserve', { method: 'POST' }))
     expect(runNow).toHaveBeenCalledWith('QUICKRESERVE', { karute_store_id: 'store-daikanyama' })
     runNow.mockClear()
