@@ -116,7 +116,7 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     posts[0].resolve({ success: true }) // 代官山's answer lands late
     await flush()
     expect(screen.getByPlaceholderText('la-estro')).toBeTruthy() // 銀座's first-save fields stay
-    expect(screen.queryByText('Config saved')).toBeNull()
+    expect(screen.queryByText('syncSection.configSaved')).toBeNull()
 
     // 銀座's own first save still names its Quick Reserve store (no 400 dead end).
     await act(async () => { fireEvent.click(button('saveConfig')) })
@@ -134,7 +134,7 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     await flush()
     posts[0].resolve({ created: 7, updated: 0, skipped: 0 })
     await flush()
-    expect(screen.queryByText(/Synced: 7/)).toBeNull()
+    expect(screen.queryByText('syncSection.result')).toBeNull()
   })
 
   it('Save is off while the load is in flight, on again once this store loaded', async () => {
@@ -157,7 +157,8 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     render(<SyncSection storeId="store-a" />)
     pending[0].resolve({ error: 'could not resolve the sync store: core down' }, 502)
     await flush()
-    expect(screen.getByText(/Error \(502\): could not resolve the sync store/)).toBeTruthy()
+    expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy()
+    expect(screen.queryByText(/could not resolve/)).toBeNull()
     expect(button('saveConfig').disabled).toBe(true)
   })
 
@@ -165,7 +166,7 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     render(<SyncSection storeId="store-a" />)
     pending[0].resolve({ error: 'qr_store_not_ready' }, 409)
     await flush()
-    expect(screen.getByText('Error (409): bookingSyncStoreNotReady')).toBeTruthy()
+    expect(screen.getByText('bookingSyncStoreNotReady')).toBeTruthy()
     expect(button('saveConfig').disabled).toBe(true)
   })
 })
@@ -178,5 +179,40 @@ describe('fix round 4 (Opus S4) — the error style follows the run status, not 
     const box = screen.getByText(/Store slug \/ id missing/).closest('div')!
     expect(box.className).toContain('bg-red-500/10')
     expect(box.className).not.toContain('emerald')
+  })
+})
+
+describe('fix round 4 (Opus N3) — staff never see raw English', () => {
+  const loaded = async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+  }
+  it('a run answering not_configured shows the localized line, not the English message', async () => {
+    await loaded()
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    posts[0].resolve({ code: 'not_configured', message: 'QR sync not configured — save your Quick Reserve login first.' })
+    await flush()
+    expect(screen.getByText('bookingSyncNotConfigured')).toBeTruthy()
+    expect(screen.queryByText(/QR sync not configured/)).toBeNull()
+  })
+  it('a run 502 shows ONE generic line; the raw cause stays off screen', async () => {
+    await loaded()
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    posts[0].resolve({ error: 'could not resolve the sync store: core down' }, 502)
+    await flush()
+    expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy()
+    expect(screen.queryByText(/core down/)).toBeNull()
+  })
+  it('a save and a run that succeed show the localized lines', async () => {
+    await loaded()
+    await act(async () => { fireEvent.click(button('saveConfig')) })
+    posts[0].resolve({ success: true })
+    await flush()
+    expect(screen.getByText('syncSection.configSaved')).toBeTruthy()
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    posts[1].resolve({ success: true, created: 1, updated: 0, skipped: 0 })
+    await flush()
+    expect(screen.getByText('syncSection.result')).toBeTruthy()
   })
 })

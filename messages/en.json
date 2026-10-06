@@ -2252,6 +2252,8 @@
     "qrStoreHint": "This store's number in Quick Reserve. You enter it once, on the first save.",
     "bookingSyncQrStoreRequired": "This store's first save needs the login ID, the password, the account name and the store number.",
     "bookingSyncQrStoreAlreadyLinked": "This Quick Reserve store is already linked to another store.",
+    "bookingSyncUnavailable": "Could not reach the sync service. Please try again in a moment.",
+    "bookingSyncNotConfigured": "Sync is not set up yet — save your Quick Reserve login first.",
     "sync": {
       "webOnly": "Reservation sync is managed from the web version's settings",
       "healthy": "Syncing normally",

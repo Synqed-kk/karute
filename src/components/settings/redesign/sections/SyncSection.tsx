@@ -9,6 +9,7 @@ import { CheckCircle2, AlertCircle } from 'lucide-react'
 type SyncResponse = {
   error?: string | { code?: string; message?: string }
   message?: string
+  code?: string
   created?: number
   updated?: number
   skipped?: number
@@ -104,7 +105,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         const parsed = await readSyncResponse(r)
         if (!current) return
         if (!parsed.ok) {
-          setLastResult({ text: parsed.message, error: true }) // the surface's error line; Save stays off
+          setLastResult({ text: failureLine(parsed.message), error: true }) // the surface's error line; Save stays off
           return
         }
         const data = parsed.data as unknown as ConfigResponse
@@ -124,23 +125,22 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
           })
         setLoadedFor(storeId)
       })
-      .catch((err) => {
-        if (current) setLastResult({ text: `Failed: ${err instanceof Error ? err.message : 'Unknown'}`, error: true })
+      .catch(() => {
+        if (current) setLastResult({ text: t('bookingSyncUnavailable'), error: true })
       })
     return () => {
       current = false
     }
   }, [storeId])
 
-  // The routes' stable error codes, not messages meant for display — show OUR
-  // localized copy so it follows the language toggle. Applied when the line
-  // renders, so the load, save and run errors all go through it.
-  function localizeSyncError(text: string): string {
-    const status = /^Error \((\d+)\)/.exec(text)?.[1]
-    const code = (Object.keys(SYNC_ERROR_COPY) as (keyof typeof SYNC_ERROR_COPY)[]).find((c) =>
-      text.includes(c),
-    )
-    return status && code ? `Error (${status}): ${t(SYNC_ERROR_COPY[code])}` : text
+  // A refusal's stable code shows OUR localized line, following the language
+  // toggle; anything else (a 5xx, an unknown error) shows ONE generic line.
+  // The raw cause stays in the response body for devtools and the audit.
+  function failureLine(message: string): string {
+    const detail = /^Error \(\d+\): ([\s\S]*)$/.exec(message)?.[1] ?? ''
+    return Object.prototype.hasOwnProperty.call(SYNC_ERROR_COPY, detail)
+      ? t(SYNC_ERROR_COPY[detail as keyof typeof SYNC_ERROR_COPY])
+      : t('bookingSyncUnavailable')
   }
 
   // Both actions capture the store at request time and ignore an answer that
@@ -163,9 +163,13 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
       const parsed = await readSyncResponse(res)
       if (shownStore.current !== forStore) return
       if (parsed.ok) setConfigured(true)
-      setLastResult(parsed.ok ? { text: 'Config saved', error: false } : { text: parsed.message, error: true })
+      setLastResult(
+        parsed.ok
+          ? { text: t('syncSection.configSaved'), error: false }
+          : { text: failureLine(parsed.message), error: true },
+      )
     } catch {
-      if (shownStore.current === forStore) setLastResult({ text: 'Failed to save', error: true })
+      if (shownStore.current === forStore) setLastResult({ text: t('bookingSyncUnavailable'), error: true })
     } finally {
       setSyncing(false)
     }
@@ -174,7 +178,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   async function syncNow() {
     const forStore = storeId
     setSyncing(true)
-    setLastResult({ text: 'Syncing...', error: false })
+    setLastResult({ text: t('syncing'), error: false })
     try {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve', {
         method: 'POST',
@@ -184,19 +188,20 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
       const parsed = await readSyncResponse(res)
       if (shownStore.current !== forStore) return
       if (!parsed.ok) {
-        setLastResult({ text: parsed.message, error: true })
+        setLastResult({ text: failureLine(parsed.message), error: true })
       } else {
         const d = parsed.data
         setLastResult({
           text:
-            d.message ??
-            `Synced: ${d.created ?? 0} created, ${d.updated ?? 0} updated, ${d.skipped ?? 0} skipped`,
+            d.code === 'not_configured'
+              ? t('bookingSyncNotConfigured')
+              : t('syncSection.result', { created: d.created ?? 0, updated: d.updated ?? 0, skipped: d.skipped ?? 0 }),
           error: false,
         })
       }
-    } catch (err) {
+    } catch {
       if (shownStore.current !== forStore) return
-      setLastResult({ text: `Failed: ${err instanceof Error ? err.message : 'Unknown'}`, error: true })
+      setLastResult({ text: t('bookingSyncUnavailable'), error: true })
     } finally {
       setSyncing(false)
     }
@@ -343,7 +348,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
           ) : (
             <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
           )}
-          <span>{localizeSyncError(lastResult.text)}</span>
+          <span>{lastResult.text}</span>
         </div>
       )}
     </div>

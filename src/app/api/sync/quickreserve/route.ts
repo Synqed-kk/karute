@@ -97,6 +97,8 @@ export async function POST(request: Request) {
         detail: { karute_store_id: storeId ?? null },
       })
       return NextResponse.json({
+        // A code like the phone's, so the screen shows its localized line.
+        code: 'not_configured',
         message: 'QR sync not configured — save your Quick Reserve login first.',
       })
     }

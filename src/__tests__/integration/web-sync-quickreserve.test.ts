@@ -135,6 +135,8 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.message).toMatch(/QR sync not configured/)
+    // Fix round 4 (Opus N3): a code like the phone's, so the screen localizes it.
+    expect(body.code).toBe('not_configured')
     expect(auditWeb).toHaveBeenCalledTimes(1)
   })
 
