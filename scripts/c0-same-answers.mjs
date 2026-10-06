@@ -12,20 +12,31 @@
  */
 import { createRequire } from 'node:module'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const core = require('./lib/c0-same-answers-core.cjs')
 
 const DEFAULT_BEFORE = 'tmp/c0-same-answers-before.json'
 const DEFAULT_AFTER = 'tmp/c0-same-answers-after.json'
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+// R3-6: a run file holds the Dev Salon's rows, customers included, and only this
+// pattern is gitignored (.gitignore: tmp/c0-same-answers-*.json, root-anchored).
+const RUN_FILE = /^tmp\/c0-same-answers-[^/]*\.json$/
+const RUN_FILE_REFUSAL = 'run files must stay under tmp/c0-same-answers-*.json — they hold customer rows and only that pattern is gitignored'
+// R3-5: the only flags any mode reads.
+const FLAGS = new Set(['days-ahead', 'before', 'after', 'out'])
 
 function usage(msg) {
   process.stderr.write(`${msg}\nUsage: node scripts/c0-same-answers.mjs <before|after|diff> [--days-ahead N] [--before <file>] [--after <file>] [--out <file>]\n` +
     `  --days-ahead N (before only): D1 = the JST today + N, default ${core.DEFAULT_DAYS_AHEAD}, from 1 to ${core.MAX_DAYS_AHEAD}; set N to the announced apply → deploy gap + 2.\n` +
     `  ${core.MAX_DAYS_AHEAD} is a conservative ceiling derived from Reserve's default grid (14 days when the store sets no 予約受付期間), measured from the requested day.\n` +
     '  A store\'s own 予約受付期間 (booking_open_days) can make the real limit lower (N <= booking_open_days - 2): the operator checks it.\n' +
-    '  The after run reads the dates from the before file. --out: keep run files under tmp/ (gitignored) — they hold the Dev Salon\'s rows, customers included.\n')
+    '  The after run reads the dates from the before file.\n' +
+    '  --out / --before / --after: a run file path must match tmp/c0-same-answers-*.json under the repo root (the only gitignored run-file pattern) —\n' +
+    '  run files hold the Dev Salon\'s rows, customers included; any other path is refused.\n' +
+    '  Flags: only --days-ahead, --before, --after, --out; any other --name is refused.\n')
   process.exit(core.EXIT.USAGE)
 }
 
@@ -34,6 +45,7 @@ function flags(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (!a.startsWith('--')) usage(`Unknown argument: ${a}`)
+    if (!FLAGS.has(a.slice(2))) usage(`Unknown flag: ${a}`)
     const v = argv[i + 1]
     if (v === undefined || v.startsWith('--')) usage(`Missing value for ${a}`)
     out[a.slice(2)] = v
@@ -42,7 +54,15 @@ function flags(argv) {
   return out
 }
 
+/** R3-6: the path (resolved against the working directory) as it sits under the repo root, or usage exit 3. */
+function runFile(path) {
+  const rel = relative(REPO_ROOT, resolve(path)).split(sep).join('/')
+  if (!RUN_FILE.test(rel)) usage(`${RUN_FILE_REFUSAL} (got ${path}).`)
+  return path
+}
+
 function readRun(path) {
+  runFile(path)
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
   } catch {
@@ -51,6 +71,7 @@ function readRun(path) {
 }
 
 function writeRun(path, run) {
+  runFile(path)
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify(run, null, 2)}\n`)
 }
@@ -98,6 +119,7 @@ const f = flags(rest)
 if (mode === 'before') {
   const daysAhead = f['days-ahead'] === undefined ? core.DEFAULT_DAYS_AHEAD : Number(f['days-ahead'])
   if (!core.daysAheadOk(daysAhead)) usage(`--days-ahead must be a whole number from 1 to ${core.MAX_DAYS_AHEAD}.`)
+  runFile(f.out || DEFAULT_BEFORE) // refused before core is read, never after
   const cfg = coreConfig()
   const run = await collectOrUsage({ ...cfg, run: 'before', daysAhead, now: Date.now() })
   const out = f.out || DEFAULT_BEFORE
@@ -107,6 +129,7 @@ if (mode === 'before') {
   process.exit(code)
 } else if (mode === 'after') {
   const beforePath = f.before || DEFAULT_BEFORE
+  runFile(f.out || DEFAULT_AFTER) // refused before core is read, never after
   const before = readRun(beforePath)
   const today = core.jstToday(Date.now())
   const g = core.guardDates(before, today)
@@ -122,6 +145,8 @@ if (mode === 'before') {
   process.stdout.write(`Wrote ${out}. Next: node scripts/c0-same-answers.mjs diff\n`)
   process.exit(code)
 } else if (mode === 'diff') {
+  runFile(f.before || DEFAULT_BEFORE) // both paths judged before either file is read
+  runFile(f.after || DEFAULT_AFTER)
   const before = readRun(f.before || DEFAULT_BEFORE)
   const after = readRun(f.after || DEFAULT_AFTER)
   const bad = core.checkInputs(before, after)

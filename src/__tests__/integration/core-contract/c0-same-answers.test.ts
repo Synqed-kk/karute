@@ -4,8 +4,7 @@
  * the CLI's diff subcommand end-to-end (exit 0 / 1 / 2 / 3). No network, no core key.
  */
 import path from 'node:path'
-import os from 'node:os'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
 import { CoreDouble } from './fixtures/c0/core-double'
@@ -54,6 +53,20 @@ const collect = (d: CoreDouble, run: 'before' | 'after', before?: Run) => collec
 const clone = (r: Run): Run => JSON.parse(JSON.stringify(r))
 const afterC0 = async () => { d.c0Fields = true; return clone(await collect(d, 'after', before)) }
 const judge = (after: Run, b: Run = before) => core.diff(b, after, { today: TODAY })
+
+// R3-6: the CLI reads and writes run files only at tmp/c0-same-answers-*.json under the repo
+// root (the one gitignored pattern), so the CLI tests write theirs there and remove them after.
+const RUN_DIR = path.join(ROOT, 'tmp')
+const runDirExisted = existsSync(RUN_DIR)
+const madeRunFiles: string[] = []
+let runFileSeq = 0
+/** A fresh prefix under ROOT/tmp; `${prefix}${name}` matches tmp/c0-same-answers-*.json. */
+const runFilePrefix = () => { mkdirSync(RUN_DIR, { recursive: true }); return path.join(RUN_DIR, `c0-same-answers-jest-${process.pid}-${runFileSeq++}-`) }
+const writeRunFile = (prefix: string, name: string, body: string) => { const p = `${prefix}${name}`; writeFileSync(p, body); madeRunFiles.push(p); return p }
+afterAll(() => {
+  for (const p of madeRunFiles) rmSync(p, { force: true })
+  if (!runDirExisted) rmdirSync(RUN_DIR) // only the folder this suite created, and only when empty
+})
 
 let d: CoreDouble
 let before: Run
@@ -260,12 +273,12 @@ describe('diff — R-3 errors are never silent', () => {
 })
 
 describe('the CLI diff subcommand (exit codes)', () => {
-  const dir = () => mkdtempSync(path.join(os.tmpdir(), 'c0-same-answers-'))
+  const dir = runFilePrefix
   const cli = (b: string, a: string) => spawnSync(process.execPath, [path.join(ROOT, 'scripts/c0-same-answers.mjs'), 'diff', '--before', b, '--after', a], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' } })
   it('exits 0 PASS · 1 FAIL · 2 VOID on saved run files', async () => {
     const after = await afterC0()
     const tmp = dir()
-    const write = (name: string, run: Run) => { const p = path.join(tmp, name); writeFileSync(p, JSON.stringify(run)); return p }
+    const write = (name: string, run: Run) => writeRunFile(tmp, name, JSON.stringify(run))
     const b = write('before.json', before)
     const fail = clone(after); fail.answers.Q5[0].appointments[0].status = 'CANCELLED'
     const voided = clone(after); voided.watermark.appointments.count += 1
@@ -278,7 +291,7 @@ describe('the CLI diff subcommand (exit codes)', () => {
   it('R-4: {} vs {} · a file vs itself · null · an after written first → exit 3 with one plain sentence', async () => {
     const after = await afterC0()
     const tmp = dir()
-    const write = (name: string, body: string) => { const p = path.join(tmp, name); writeFileSync(p, body); return p }
+    const write = (name: string, body: string) => writeRunFile(tmp, name, body)
     const empty = write('empty.json', '{}')
     const a = write('after.json', JSON.stringify(after))
     const b = write('before.json', JSON.stringify(before))
@@ -414,10 +427,8 @@ describe('the CLI — R2-3 every checkInputs branch → exit 3 naming the field 
     const after = await afterC0()
     const b = clone(before)
     edit(b, after)
-    const tmp = mkdtempSync(path.join(os.tmpdir(), 'c0-same-answers-'))
-    writeFileSync(path.join(tmp, 'b.json'), JSON.stringify(b))
-    writeFileSync(path.join(tmp, 'a.json'), JSON.stringify(after))
-    const r = cli(['diff', '--before', path.join(tmp, 'b.json'), '--after', path.join(tmp, 'a.json')])
+    const tmp = runFilePrefix()
+    const r = cli(['diff', '--before', writeRunFile(tmp, 'b.json', JSON.stringify(b)), '--after', writeRunFile(tmp, 'a.json', JSON.stringify(after))])
     expect(r.status).toBe(3)
     expect(r.stderr.split('\n')[0]).toMatch(says)
   })
@@ -512,5 +523,43 @@ describe('collect — R3-4 an incomplete or doubled list read is an error (→ V
     expect(after.capped).toEqual(expect.arrayContaining(['watermark.customers', 'Q6']))
     expect(errs(after)).toEqual(expect.arrayContaining(['Q6: the 100-page cap was hit with 100 of 105 rows read']))
     expect(judge(after).verdict).toBe('VOID')
+  })
+})
+
+describe('the CLI — R3-5 only the four flags · R3-6 run files only at tmp/c0-same-answers-*.json', () => {
+  // No network in any case here: the env carries no core URL or key, so a run that gets past
+  // its argument checks stops at the config check (exit 3, its own sentence).
+  const cli = (args: string[]) => spawnSync(process.execPath, [path.join(ROOT, 'scripts/c0-same-answers.mjs'), ...args], { encoding: 'utf8', cwd: ROOT, env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' } })
+  const REFUSAL = 'run files must stay under tmp/c0-same-answers-*.json — they hold customer rows and only that pattern is gitignored'
+  const NO_CONFIG = 'SYNQED_CORE_URL and SYNQED_CORE_API_KEY must both be set to read core.'
+  it.each([['diff', '--bfore'], ['before', '--day-ahead'], ['after', '--output']])('%s %s x → exit 3 naming the flag', (mode, flag) => {
+    const r = cli([mode, flag, 'x'])
+    expect(r.status).toBe(3)
+    expect(r.stderr.split('\n')[0]).toBe(`Unknown flag: ${flag}`)
+  })
+  it('the usage text names the four flags and the run-file rule', () => {
+    const r = cli([])
+    expect(r.stderr).toContain('Flags: only --days-ahead, --before, --after, --out; any other --name is refused.')
+    expect(r.stderr).toContain('a run file path must match tmp/c0-same-answers-*.json under the repo root')
+  })
+  it.each([
+    ['before', '--out', 'tmp/before.json'],
+    ['before', '--out', 'c0-same-answers-x.json'],
+    ['before', '--out', 'tmp/sub/c0-same-answers-x.json'],
+    ['after', '--out', 'tmp/after.json'],
+    ['after', '--before', 'tmp/before.json'],
+    ['diff', '--before', 'tmp/before.json'],
+    ['diff', '--after', '/etc/c0-same-answers-x.json'],
+  ])('%s %s %s → exit 3 with the run-file refusal, before core is read', (mode, flag, p) => {
+    const r = cli([mode, flag, p])
+    expect(r.status).toBe(3)
+    expect(r.stderr.split('\n')[0]).toBe(`${REFUSAL} (got ${p}).`)
+    expect(r.stderr).not.toContain(NO_CONFIG)
+  })
+  it('before --out tmp/c0-same-answers-x.json → accepted: it passes the path check and stops at the config check', () => {
+    const r = cli(['before', '--out', 'tmp/c0-same-answers-x.json'])
+    expect(r.status).toBe(3)
+    expect(r.stderr).toBe(`${NO_CONFIG}\n`)
+    expect(existsSync(path.join(ROOT, 'tmp/c0-same-answers-x.json'))).toBe(false)
   })
 })
