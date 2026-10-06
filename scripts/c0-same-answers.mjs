@@ -2,7 +2,7 @@
 /**
  * C0 same-answers CLI — `before` | `after` | `diff` (build order #1 § 3, § 5 SAME).
  *
- *   node scripts/c0-same-answers.mjs before [--out tmp/c0-same-answers-before.json]
+ *   node scripts/c0-same-answers.mjs before [--days-ahead N] [--out tmp/c0-same-answers-before.json]
  *   node scripts/c0-same-answers.mjs after  [--before tmp/c0-same-answers-before.json] [--out tmp/c0-same-answers-after.json]
  *   node scripts/c0-same-answers.mjs diff   [--before <file>] [--after <file>]
  *
@@ -21,7 +21,10 @@ const DEFAULT_BEFORE = 'tmp/c0-same-answers-before.json'
 const DEFAULT_AFTER = 'tmp/c0-same-answers-after.json'
 
 function usage(msg) {
-  process.stderr.write(`${msg}\nUsage: node scripts/c0-same-answers.mjs <before|after|diff> [--before <file>] [--after <file>] [--out <file>]\n`)
+  process.stderr.write(`${msg}\nUsage: node scripts/c0-same-answers.mjs <before|after|diff> [--days-ahead N] [--before <file>] [--after <file>] [--out <file>]\n` +
+    `  --days-ahead N (before only): D1 = the JST today + N, default ${core.DEFAULT_DAYS_AHEAD}, from 1 to ${core.MAX_DAYS_AHEAD} —\n` +
+    `  ${core.MAX_DAYS_AHEAD} is the widest that keeps D1..D3 inside Reserve's booking grid (14 days from today when the store sets no\n` +
+    '  booking_open_days); set N to the announced apply → deploy gap + 2. The after run reads the dates from the before file.\n')
   process.exit(core.EXIT.USAGE)
 }
 
@@ -71,19 +74,31 @@ function report(run) {
   process.stdout.write(`Read ${host} for the Dev Salon on ${run.dates.join(', ')} (today ${run.today} JST).\n`)
   if (run.thin) process.stdout.write('Thin: the store list (Q1) returned no bookings on D1..D2 — the check still runs, but proves less.\n')
   if (run.pins.unmet.length) process.stdout.write(`Pins could not cover: ${run.pins.unmet.join('; ')}.\n`)
-  if (run.errors.length || run.capped.length) {
-    process.stdout.write(`VOID (not run): ${[...run.errors.map((e) => `${e.query} answered ${e.status}`), ...run.capped.map((c) => `${c} hit the page cap`)].join('; ')}.\n`)
+  const voids = core.runVoidReasons(run)
+  if (voids.length) {
+    process.stdout.write(`VOID (not run): ${voids.join('; ')}.\n`)
     return core.EXIT.VOID
   }
   return core.EXIT.PASS
+}
+
+async function collectOrUsage(cfg) {
+  try {
+    return await core.collect(fetch, cfg)
+  } catch (err) {
+    if (err && err.code === 'USAGE') usage(err.message)
+    throw err
+  }
 }
 
 const [mode, ...rest] = process.argv.slice(2)
 const f = flags(rest)
 
 if (mode === 'before') {
+  const daysAhead = f['days-ahead'] === undefined ? core.DEFAULT_DAYS_AHEAD : Number(f['days-ahead'])
+  if (!core.daysAheadOk(daysAhead)) usage(`--days-ahead must be a whole number from 1 to ${core.MAX_DAYS_AHEAD}.`)
   const cfg = coreConfig()
-  const run = await core.collect(fetch, { ...cfg, run: 'before', now: Date.now() })
+  const run = await collectOrUsage({ ...cfg, run: 'before', daysAhead, now: Date.now() })
   const out = f.out || DEFAULT_BEFORE
   writeRun(out, run)
   const code = report(run)
@@ -99,7 +114,7 @@ if (mode === 'before') {
     process.exit(core.EXIT.VOID)
   }
   const cfg = coreConfig()
-  const run = await core.collect(fetch, { ...cfg, run: 'after', before, now: Date.now() })
+  const run = await collectOrUsage({ ...cfg, run: 'after', before, now: Date.now() })
   const out = f.out || DEFAULT_AFTER
   writeRun(out, run)
   const code = report(run)
@@ -108,6 +123,8 @@ if (mode === 'before') {
 } else if (mode === 'diff') {
   const before = readRun(f.before || DEFAULT_BEFORE)
   const after = readRun(f.after || DEFAULT_AFTER)
+  const bad = core.checkInputs(before, after)
+  if (bad) usage(bad)
   // The date guard is judged at the moment the after run read core (after.today), so a
   // diff of two saved files gives the same verdict on any later day.
   const result = core.diff(before, after, { today: after.today })

@@ -23,6 +23,15 @@ const RESERVE_PAGE_SIZE = 500 // reserve api/_lib/core.ts APPOINTMENT_PAGE_SIZE
 const CUSTOMER_PAGE_SIZE = 500 // karute src/business/lib/practice-door/door.ts:336
 const SHIFT_PAGE_SIZE = 200 // core src/validations/staff-shift.ts:41 max(200) @7d2f629
 const C0_NEW_FIELDS = ['hold_from', 'hold_until', 'holds_managed', 'revision']
+// R-7: D1 = today + N (default 7). The widest N keeps D1..D3 inside every door's read window:
+// Reserve's grid reads gridDays whole JST days (reserve api/_lib/storeRules.ts:169-170 windowCap,
+// applied at api/public/availability.ts:178-180; gridDays = booking_open_days + 1, else 14 —
+// storeRules.ts:122, :151-154), and the picker asks from today (availability.ts:77-82), so
+// D3 = today + N + 2 <= today + 13 → N <= 11. karute's range read takes any from/to
+// (src/lib/appointments/by-date.ts:229-245) — no tighter bound.
+const DEFAULT_DAYS_AHEAD = 7
+const MAX_DAYS_AHEAD = 11
+const WATERMARK_KINDS = ['appointments', 'customers', 'staff_shifts']
 
 // ── dates ──────────────────────────────────────────────────────────────────
 
@@ -37,10 +46,12 @@ function addDays(ymd, n) {
   return d.toISOString().slice(0, 10)
 }
 
-/** D1..D3 = today+7, +8, +9 (UTC calendar arithmetic on the JST date). */
-function datesAfter(today) {
-  return [addDays(today, 7), addDays(today, 8), addDays(today, 9)]
+/** D1..D3 = today+N, +N+1, +N+2, N default 7 (UTC calendar arithmetic on the JST date). */
+function datesAfter(today, daysAhead = DEFAULT_DAYS_AHEAD) {
+  return [addDays(today, daysAhead), addDays(today, daysAhead + 1), addDays(today, daysAhead + 2)]
 }
+
+const daysAheadOk = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_DAYS_AHEAD
 
 /** VOID unless D1 is still strictly after `today`. */
 function guardDates(run, today) {
@@ -86,6 +97,17 @@ function qs(params) {
   return s ? `?${s}` : ''
 }
 
+const isObj = (v) => typeof v === 'object' && v !== null
+const isListBody = (j, key) => isObj(j) && Array.isArray(j[key]) && Number.isInteger(j.total)
+
+/** A stored error text never carries the key value or the auth header's name (R-11). */
+function scrub(text, cfg) {
+  let out = String(text)
+  const headers = (cfg && cfg.headers) || {}
+  for (const [k, v] of Object.entries(headers)) if (k.toLowerCase() === 'x-api-key' && v) out = out.split(String(v)).join('[key]')
+  return out.replace(/x-api-key/gi, '[auth header]')
+}
+
 /** One GET; one immediate retry on a network error only (never on an HTTP answer). */
 async function get(fetchImpl, cfg, pathAndQuery) {
   const url = `${cfg.baseUrl.replace(/\/$/, '')}${pathAndQuery}`
@@ -104,7 +126,7 @@ async function get(fetchImpl, cfg, pathAndQuery) {
       clearTimeout(timer)
     }
   }
-  return { status: 0, json: { network_error: String(lastErr && lastErr.message ? lastErr.message : lastErr) } }
+  return { status: 0, json: { network_error: scrub(lastErr && lastErr.message ? lastErr.message : lastErr, cfg) } }
 }
 
 /**
@@ -116,38 +138,52 @@ async function walk(fetchImpl, cfg, path, params, pageSize, listKey) {
   for (let page = 1; page <= PAGE_CAP; page++) {
     const r = await get(fetchImpl, cfg, `${path}${qs([...params, ['page', page], ['page_size', pageSize]])}`)
     if (r.status !== 200) return { pages, error: { page, status: r.status, json: r.json }, capped: false }
+    // A 200 that is not a list (an HTML wall, a proxy page, `{}`) is an error, never an empty page.
+    if (!isListBody(r.json, listKey)) return { pages, error: { page, status: 200, json: 'not a list body' }, capped: false }
     pages.push(r.json)
-    const rows = r.json && Array.isArray(r.json[listKey]) ? r.json[listKey] : []
-    const total = r.json && typeof r.json.total === 'number' ? r.json.total : 0
-    if (rows.length === 0 || page * pageSize >= total) return { pages, error: null, capped: false }
+    if (r.json[listKey].length === 0 || page * pageSize >= r.json.total) return { pages, error: null, capped: false }
   }
   return { pages, error: null, capped: true }
 }
 
 const rowsOf = (pages, key) => pages.flatMap((p) => (p && Array.isArray(p[key]) ? p[key] : []))
 
-function maxOf(rows, field) {
-  let m = null
-  for (const r of rows) {
-    const v = r ? r[field] : undefined
-    if (v === undefined || v === null) continue
-    if (m === null || v > m) m = v
-  }
-  return m
+/** One single-row GET; anything but a 200 row with a string id is pushed to errors (R-3). */
+async function single(fetchImpl, cfg, path, query, id, errors) {
+  const r = await get(fetchImpl, cfg, path)
+  if (r.status === 200 && isObj(r.json) && !Array.isArray(r.json) && typeof r.json.id === 'string') return r.json
+  errors.push({ query, id, status: r.status, json: r.status === 200 ? 'not a single-row body' : r.json })
+  return { status: r.status, json: r.json }
 }
 
+/** R-2: the business-wide list, per row — rows {id → updated_at} + the verbatim bodies. */
 async function watermark(fetchImpl, cfg, path, pageSize, listKey) {
   const w = await walk(fetchImpl, cfg, path, [], pageSize, listKey)
-  const rows = rowsOf(w.pages, listKey)
+  const rows = {}
+  const bodies = {}
+  for (const r of rowsOf(w.pages, listKey)) {
+    if (!isObj(r) || typeof r.id !== 'string') continue
+    rows[r.id] = r.updated_at === undefined ? null : r.updated_at
+    bodies[r.id] = r
+  }
   const first = w.pages[0]
-  const hasRevision = rows.some((r) => r && 'revision' in r)
   return {
-    count: first && typeof first.total === 'number' ? first.total : rows.length,
-    max_updated_at: maxOf(rows, 'updated_at'),
-    max_revision: hasRevision ? maxOf(rows, 'revision') : null,
+    count: first ? first.total : 0,
+    rows,
+    bodies,
     pages_walked: w.pages.length,
     capped: w.capped,
     ...(w.error ? { error: w.error } : {}),
+  }
+}
+
+async function watermarks(fetchImpl, cfg) {
+  return {
+    appointments: await watermark(fetchImpl, cfg, '/v1/appointments', APPT_RANGE_PAGE_SIZE, 'appointments'),
+    customers: await watermark(fetchImpl, cfg, '/v1/customers', CUSTOMER_PAGE_SIZE, 'customers'),
+    // core's staff-shift list has a business-wide form (store_id optional,
+    // src/validations/staff-shift.ts:38 @7d2f629) — no per-store walk needed.
+    staff_shifts: await watermark(fetchImpl, cfg, '/v1/staff-shifts', SHIFT_PAGE_SIZE, 'shifts'),
   }
 }
 
@@ -159,7 +195,10 @@ async function collect(fetchImpl, cfg) {
   const now = typeof cfg.now === 'number' ? cfg.now : Date.now()
   const today = jstToday(now)
   const run = cfg.run || 'before'
-  const dates = run === 'after' && cfg.before ? cfg.before.dates.slice() : datesAfter(today)
+  if (run === 'after' && !cfg.before) throw Object.assign(new Error('An after run needs the before run file.'), { code: 'USAGE' })
+  const daysAhead = run === 'after' ? cfg.before.days_ahead : cfg.daysAhead === undefined ? DEFAULT_DAYS_AHEAD : cfg.daysAhead
+  if (run === 'before' && !daysAheadOk(daysAhead)) throw Object.assign(new Error(`--days-ahead must be a whole number from 1 to ${MAX_DAYS_AHEAD}.`), { code: 'USAGE' })
+  const dates = run === 'after' ? cfg.before.dates.slice() : datesAfter(today, daysAhead)
   const [D1, D2, D3] = dates
   const errors = []
   const capped = []
@@ -169,18 +208,15 @@ async function collect(fetchImpl, cfg) {
     return w.pages
   }
 
-  // Watermark first (business-wide, no date filter), each list walked at the door's maximum page size.
-  const wm = {
-    appointments: await watermark(fetchImpl, cfg, '/v1/appointments', APPT_RANGE_PAGE_SIZE, 'appointments'),
-    customers: await watermark(fetchImpl, cfg, '/v1/customers', CUSTOMER_PAGE_SIZE, 'customers'),
-    // core's staff-shift list has a business-wide form (store_id optional,
-    // src/validations/staff-shift.ts:38 @7d2f629) — no per-store walk needed.
-    staff_shifts: await watermark(fetchImpl, cfg, '/v1/staff-shifts', SHIFT_PAGE_SIZE, 'shifts'),
+  const noteWalls = (wm, label) => {
+    for (const [k, w] of Object.entries(wm)) {
+      if (w.capped) capped.push(`${label}.${k}`)
+      if (w.error) errors.push({ query: `${label}.${k}`, ...w.error })
+    }
   }
-  for (const [k, w] of Object.entries(wm)) {
-    if (w.capped) capped.push(`watermark.${k}`)
-    if (w.error) errors.push({ query: `watermark.${k}`, ...w.error })
-  }
+  // Watermark at the START (business-wide, no date filter), each list walked at the door's maximum page size.
+  const wm = await watermarks(fetchImpl, cfg)
+  noteWalls(wm, 'watermark')
 
   const window12 = [['from', jstStart(D1)], ['to', jstEnd(D2)]]
   // Q1 — karute's range read: from/to + page + page_size RANGE_PAGE_SIZE + store_id
@@ -204,10 +240,7 @@ async function collect(fetchImpl, cfg) {
 
   // Q4 — GET /v1/appointments/:id (the client's appointments.get) for every pinned id.
   const Q4 = {}
-  for (const id of pins.appointment_ids) {
-    const r = await get(fetchImpl, cfg, `/v1/appointments/${encodeURIComponent(id)}`)
-    Q4[id] = r.status === 200 ? r.json : { status: r.status, json: r.json }
-  }
+  for (const id of pins.appointment_ids) Q4[id] = await single(fetchImpl, cfg, `/v1/appointments/${encodeURIComponent(id)}`, 'Q4', id, errors)
 
   // Q5 — Reserve's read: listAllAppointments (reserve api/_lib/core.ts, page + page_size 500)
   // with store_id + from/to as ISO instants (api/public/availability.ts:183-187), over D1..D3.
@@ -216,10 +249,7 @@ async function collect(fetchImpl, cfg) {
 
   // Q6 — GET /v1/customers/:id for the pinned customers.
   const Q6customers = {}
-  for (const id of pins.customer_ids) {
-    const r = await get(fetchImpl, cfg, `/v1/customers/${encodeURIComponent(id)}`)
-    Q6customers[id] = r.status === 200 ? r.json : { status: r.status, json: r.json }
-  }
+  for (const id of pins.customer_ids) Q6customers[id] = await single(fetchImpl, cfg, `/v1/customers/${encodeURIComponent(id)}`, 'Q6', id, errors)
 
   // Q7 — staff shifts per day D1..D3 (core GET /v1/staff-shifts?date=, src/validations/staff-shift.ts:37-41 @7d2f629).
   // karute has no staff-shift core module (no door lists shifts from core today) — the route's own shape.
@@ -227,6 +257,11 @@ async function collect(fetchImpl, cfg) {
   for (const d of dates) {
     Q7.push(...listed(`Q7:${d}`, await walk(fetchImpl, cfg, '/v1/staff-shifts', [['date', d], ['store_id', STORE_ID]], SHIFT_PAGE_SIZE, 'shifts')))
   }
+
+  // Watermark again at the END: any difference from the start = a write landed mid-run (VOID).
+  const wmEnd = await watermarks(fetchImpl, cfg)
+  noteWalls(wmEnd, 'watermark_end')
+  const watermarkEnd = Object.fromEntries(Object.entries(wmEnd).map(([k, w]) => [k, { count: w.count, rows: w.rows, pages_walked: w.pages_walked, capped: w.capped }]))
 
   let coreHost = null
   try { coreHost = new URL(cfg.baseUrl).host } catch { coreHost = null }
@@ -238,9 +273,11 @@ async function collect(fetchImpl, cfg) {
     business_id: BUSINESS_ID,
     store_id: STORE_ID,
     today,
+    days_ahead: daysAhead,
     dates,
     pins,
     watermark: wm,
+    watermark_end: watermarkEnd,
     answers: { Q1, Q2, Q3, Q4, Q5, Q6: { list: Q6list, customers: Q6customers }, Q7 },
     thin: rowsOf(Q1, 'appointments').length === 0,
     capped,
@@ -250,7 +287,6 @@ async function collect(fetchImpl, cfg) {
 
 // ── diff ───────────────────────────────────────────────────────────────────
 
-const isObj = (v) => typeof v === 'object' && v !== null
 const canon = (v) => JSON.stringify(v === undefined ? null : sortKeys(v))
 function sortKeys(v) {
   if (Array.isArray(v)) return v.map(sortKeys)
@@ -275,120 +311,206 @@ function at(root, path) {
   return { found: true, value: cur }
 }
 
-/** The id of the innermost object on the path that carries a string `id`. */
-function rowIdOf(root, path) {
-  let cur = root
-  let id = null
-  for (const k of path) {
-    if (!isObj(cur)) break
-    if (typeof cur.id === 'string') id = cur.id
-    cur = cur[k]
+const RUN_KEYS = ['run', 'written_at', 'core_host', 'business_id', 'store_id', 'dates', 'pins', 'watermark', 'answers']
+
+/** R-4: null when the two files are a before run and a later after run of the same read; else one plain sentence. */
+function checkInputs(before, after) {
+  for (const [name, r] of [['before', before], ['after', after]]) {
+    if (!isObj(r) || Array.isArray(r)) return `The ${name} file is not a run file (it is not a JSON object).`
+    const missing = RUN_KEYS.filter((k) => !(k in r))
+    if (missing.length) return `The ${name} file is not a run file (it lacks ${missing.join(', ')}).`
   }
-  if (isObj(cur) && typeof cur.id === 'string') id = cur.id
-  return id
+  if (before.run !== 'before') return `The --before file is a "${before.run}" run, not a "before" run.`
+  if (after.run !== 'after') return `The --after file is a "${after.run}" run, not an "after" run.`
+  if (!(Date.parse(after.written_at) > Date.parse(before.written_at))) return 'The after file was not written later than the before file.'
+  for (const k of ['core_host', 'business_id', 'store_id']) {
+    if (before[k] !== after[k]) return `The two files read a different ${k}.`
+  }
+  if (canon(before.dates) !== canon(after.dates)) return 'The two files read different dates.'
+  if (canon(before.pins) !== canon(after.pins)) return 'The two files pinned different ids.'
+  return null
 }
 
-// Array indices → [], and the id keys of Q4 / Q6.customers → {id}, so one new field reads as one path.
-const pattern = (path) => path
-  .map((k, i) => (/^\d+$/.test(k) ? '[]' : (path[0] === 'Q4' && i === 1) || (path[0] === 'Q6' && path[1] === 'customers' && i === 2) ? '{id}' : k))
-  .join('.')
-
-/** Every appointment object of every query of a run. */
-function appointmentObjects(answers) {
+/** Why ONE run cannot be trusted on its own: errors, a cap, or a write between its start and end watermark. */
+function runVoidReasons(run) {
   const out = []
-  for (const q of ['Q1', 'Q2', 'Q3', 'Q5']) for (const p of answers[q] || []) if (p && Array.isArray(p.appointments)) out.push(...p.appointments)
-  for (const v of Object.values(answers.Q4 || {})) if (isObj(v) && typeof v.id === 'string' && !('json' in v && 'status' in v)) out.push(v)
+  const name = run.run || 'a'
+  const errors = Array.isArray(run.errors) ? run.errors : []
+  if (errors.length) out.push(`the ${name} run had ${errors.length} request(s) answer an error or a wrong shape (${errors.slice(0, 5).map((e) => `${e.query}${e.id ? ` ${e.id}` : ''} → ${e.status}`).join('; ')})`)
+  const capped = (Array.isArray(run.capped) && run.capped.length) || Object.values(run.watermark || {}).some((w) => w && w.capped)
+  if (capped) out.push(`the ${name} run hit the 100-page cap`)
+  const end = run.watermark_end
+  if (!isObj(end)) out.push(`the ${name} run carries no end-of-run watermark`)
+  else {
+    for (const k of WATERMARK_KINDS) {
+      const s = (run.watermark || {})[k] || {}
+      const e = end[k] || {}
+      if (s.count !== e.count || canon(s.rows) !== canon(e.rows)) out.push(`the Dev Salon's ${k} changed while the ${name} run was reading (a write landed mid-run)`)
+    }
+  }
   return out
 }
 
-function hasCapped(run) {
-  if (Array.isArray(run.capped) && run.capped.length) return true
-  return Object.values(run.watermark || {}).some((w) => w && w.capped)
+const LIST_QUERIES = [['Q1', 'appointments'], ['Q2', 'appointments'], ['Q3', 'appointments'], ['Q5', 'appointments'], ['Q7', 'shifts']]
+const APPT_GROUPS = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'watermark:appointments'])
+
+/** R-6: every list answer as {id → row} (pages and order dropped) + its id order; singles as they are. */
+function normalize(run) {
+  const ans = isObj(run.answers) ? run.answers : {}
+  const groups = {}
+  const order = {}
+  const list = (name, pages, key) => {
+    const rows = {}
+    const seq = []
+    for (const p of Array.isArray(pages) ? pages : []) {
+      for (const r of isObj(p) && Array.isArray(p[key]) ? p[key] : []) {
+        const id = isObj(r) && typeof r.id === 'string' ? r.id : `#${seq.length}`
+        rows[id] = r
+        seq.push(id)
+      }
+    }
+    groups[name] = rows
+    order[name] = seq
+  }
+  for (const [q, key] of LIST_QUERIES) list(q, ans[q], key)
+  list('Q6', isObj(ans.Q6) ? ans.Q6.list : [], 'customers')
+  groups.Q4 = isObj(ans.Q4) ? ans.Q4 : {}
+  groups['Q6:customers'] = isObj(ans.Q6) && isObj(ans.Q6.customers) ? ans.Q6.customers : {}
+  for (const k of WATERMARK_KINDS) {
+    const w = (run.watermark || {})[k]
+    groups[`watermark:${k}`] = isObj(w) && isObj(w.bodies) ? w.bodies : {}
+  }
+  return { groups, order }
 }
 
+const shape = (group, path) => `${group}.{id}${path.map((k) => (/^\d+$/.test(k) ? '.[]' : `.${k}`)).join('')}`
+const isAppointmentRow = (group, row) => APPT_GROUPS.has(group) && isObj(row) && typeof row.id === 'string' && !('status' in row && 'json' in row && Object.keys(row).length === 2)
+const listIds = (ids, n = 5) => `${ids.slice(0, n).join(', ')}${ids.length > n ? ` and ${ids.length - n} more` : ''}`
+
 function diff(before, after, opts = {}) {
-  const reasons = []
+  const voids = []
+  const fails = []
+  const notes = []
   const today = opts.today
-  // VOID first.
-  for (const k of ['appointments', 'customers', 'staff_shifts']) {
-    const b = (before.watermark || {})[k] || {}
-    const a = (after.watermark || {})[k] || {}
-    if (b.count !== a.count) reasons.push(`the ${k} count moved (${b.count} → ${a.count})`)
-    if (b.max_updated_at !== a.max_updated_at) reasons.push(`the ${k} newest updated_at moved (${b.max_updated_at} → ${a.max_updated_at})`)
-  }
-  if (hasCapped(before) || hasCapped(after)) reasons.push('a read hit the 100-page cap')
-  if ((before.errors || []).length || (after.errors || []).length) reasons.push('a list query answered an error (not run)')
-  if (canon(before.dates) !== canon(after.dates)) reasons.push('the two runs read different dates')
-  if (canon(before.pins) !== canon(after.pins)) reasons.push('the two runs pinned different ids')
+
+  // VOID: either run on its own, then the two runs against each other.
+  voids.push(...runVoidReasons(before), ...runVoidReasons(after))
+  if (canon(before.dates) !== canon(after.dates)) voids.push('the two runs read different dates')
+  if (canon(before.pins) !== canon(after.pins)) voids.push('the two runs pinned different ids')
   if (today !== undefined) {
     const g = guardDates(after, today)
-    if (!g.ok) reasons.push(g.reason)
-  }
-  const result = { verdict: 'PASS', reasons, changed: [], new_fields: { expected: true, paths: [] } }
-  if (reasons.length) { result.verdict = 'VOID'; return result }
-
-  // Every path in BEFORE must be byte-equal in AFTER; first difference per row, all rows.
-  const seen = new Set()
-  for (const [path, value] of leaves(before.answers)) {
-    const query = path[0]
-    const got = at(after.answers, path)
-    if (got.found && canon(got.value) === canon(value)) continue
-    const id = rowIdOf(before.answers, path)
-    const key = `${query}|${id || path.join('.')}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.changed.push({ query, ...(id ? { id } : {}), path: path.join('.'), before: value, after: got.found ? got.value : '(missing)' })
+    if (!g.ok) voids.push(g.reason)
   }
 
-  // Paths only in AFTER → new fields (never a failure).
-  const newPatterns = new Set()
-  const newNames = new Set()
-  for (const [path] of leaves(after.answers)) {
-    // walk down to the first path prefix absent in BEFORE
-    for (let i = 1; i <= path.length; i++) {
-      const pre = path.slice(0, i)
-      if (!at(before.answers, pre).found) {
-        // only object-key additions count as new fields; a new array element is a row difference already caught above
-        const parent = at(after.answers, pre.slice(0, -1))
-        if (parent.found && !Array.isArray(parent.value)) { newPatterns.add(pattern(pre)); newNames.add(pre[pre.length - 1]) }
+  // R-2: the watermark per row (business-wide), always compared.
+  const moves = []
+  for (const k of WATERMARK_KINDS) {
+    const b = (before.watermark || {})[k] || {}
+    const a = (after.watermark || {})[k] || {}
+    if (b.count !== a.count) voids.push(`the ${k} count moved (${b.count} → ${a.count})`)
+    const bRows = isObj(b.rows) ? b.rows : {}
+    const aRows = isObj(a.rows) ? a.rows : {}
+    const oneSide = []
+    const realWrite = []
+    const crawled = []
+    const backfill = []
+    for (const id of new Set([...Object.keys(bRows), ...Object.keys(aRows)])) {
+      if (!(id in bRows) || !(id in aRows)) { oneSide.push(id); continue }
+      const bb = (b.bodies || {})[id]
+      const ab = (a.bodies || {})[id]
+      const other = Object.keys(isObj(bb) ? bb : {}).find((f) => f !== 'updated_at' && canon(bb[f]) !== canon(isObj(ab) ? ab[f] : undefined))
+      if (other !== undefined) { realWrite.push(`${id} (${other})`); continue }
+      if (canon(bRows[id]) === canon(aRows[id])) continue
+      if (isObj(bb) && bb.source === CRAWL_SOURCE) crawled.push(id)
+      else backfill.push(id)
+      moves.push({ kind: k, id, before: bRows[id], after: aRows[id], source: isObj(bb) ? bb.source : undefined })
+    }
+    if (oneSide.length) voids.push(`${oneSide.length} ${k} row(s) exist in one run only — a real write; run the check again (${listIds(oneSide)})`)
+    if (realWrite.length) voids.push(`${realWrite.length} ${k} row(s) changed a field other than updated_at — a real write; run the check again (${listIds(realWrite)})`)
+    if (crawled.length) voids.push(`only updated_at moved on ${crawled.length} crawled ${k} row(s) (source ${CRAWL_SOURCE}): the sync wrote; run again with the sync paused (${listIds(crawled)})`)
+    if (backfill.length) fails.push(`updated_at moved on ${backfill.length} ${k} row(s) whose every other field is equal — the back-fill must move updated_at on no row (${listIds(backfill)})`)
+  }
+
+  // The answers: every BEFORE leaf byte-equal in AFTER; lists as sets keyed by id; first difference per row.
+  const B = normalize(before)
+  const A = normalize(after)
+  const changed = []
+  for (const group of Object.keys(B.groups)) {
+    if (group.startsWith('watermark:')) continue
+    const bg = B.groups[group]
+    const ag = A.groups[group] || {}
+    for (const id of Object.keys(bg)) {
+      if (!(id in ag)) { changed.push({ query: group, id, path: '(row)', before: 'present', after: '(missing)' }); continue }
+      for (const [path, value] of leaves(bg[id])) {
+        const got = at(ag[id], path)
+        if (got.found && canon(got.value) === canon(value)) continue
+        changed.push({ query: group, id, path: path.join('.'), before: value, after: got.found ? got.value : '(missing)' })
         break
       }
     }
-  }
-  result.new_fields.paths = [...newPatterns].sort()
-  if (newNames.size === 0) {
-    result.new_fields.expected = false
-  } else {
-    const onlyC0 = [...newNames].every((n) => C0_NEW_FIELDS.includes(n))
-    const everywhere = appointmentObjects(after.answers).every((o) => C0_NEW_FIELDS.every((f) => f in o))
-    result.new_fields.expected = onlyC0 && everywhere
-    if (!result.new_fields.expected) {
-      result.new_fields.odd = result.new_fields.paths.filter((p) => !C0_NEW_FIELDS.includes(p.split('.').pop()))
+    for (const id of Object.keys(ag)) if (!(id in bg)) changed.push({ query: group, id, path: '(row)', before: '(missing)', after: 'present' })
+    if (B.order[group] && canon(B.order[group]) !== canon(A.order[group]) && canon([...B.order[group]].sort()) === canon([...(A.order[group] || [])].sort())) {
+      notes.push(`${group}: order changed, rows equal`)
     }
   }
-  if (result.changed.length) {
-    result.verdict = 'FAIL'
-    reasons.push(`${result.changed.length} existing answer(s) changed`)
+  if (changed.length) fails.push(`${changed.length} existing answer(s) changed`)
+
+  // R-1: the appointment JSON gains EXACTLY the four C0 fields, on every appointment, and nothing else changes shape.
+  const newPaths = new Set()
+  const odd = new Set()
+  const lacking = []
+  for (const group of Object.keys(A.groups)) {
+    const bg = B.groups[group] || {}
+    const ag = A.groups[group]
+    for (const id of Object.keys(ag)) {
+      if (isAppointmentRow(group, ag[id]) && !C0_NEW_FIELDS.every((f) => f in ag[id])) lacking.push(`${group} ${id}`)
+      if (!(id in bg)) continue
+      for (const [path] of leaves(ag[id])) {
+        for (let i = 1; i <= path.length; i++) {
+          const pre = path.slice(0, i)
+          if (at(bg[id], pre).found) continue
+          const parent = at(ag[id], pre.slice(0, -1))
+          if (parent.found && !Array.isArray(parent.value)) {
+            const p = shape(group, pre)
+            newPaths.add(p)
+            if (!(APPT_GROUPS.has(group) && pre.length === 1 && C0_NEW_FIELDS.includes(pre[0]))) odd.add(p)
+          }
+          break
+        }
+      }
+    }
   }
-  return result
+  if (newPaths.size === 0) fails.push('no new field at all — the deploy does not serve the new shape')
+  if (odd.size) fails.push(`a field other than the four C0 fields appeared: ${[...odd].sort().join(', ')}`)
+  if (lacking.length) fails.push(`the four C0 fields are missing on ${lacking.length} appointment object(s) — the deploy does not serve the new shape (${listIds(lacking)})`)
+
+  const verdict = voids.length ? 'VOID' : fails.length ? 'FAIL' : 'PASS'
+  return {
+    verdict,
+    reasons: [...voids, ...fails],
+    changed,
+    notes,
+    watermark_moves: moves,
+    new_fields: { paths: [...newPaths].sort(), odd: [...odd].sort(), verdict: odd.size || lacking.length || !newPaths.size ? 'FAIL' : 'PASS' },
+  }
 }
 
 /** The plain-English block Liam reads. */
 function summarize(result, before, after) {
   const lines = [`SAME-ANSWERS VERDICT: ${result.verdict}`]
-  if (result.verdict === 'PASS') lines.push('Every existing field of every answer is unchanged.')
+  if (result.verdict === 'PASS') lines.push('Every existing field of every answer is unchanged, and the appointments gained exactly the four C0 fields.')
+  if (result.verdict === 'VOID') lines.push('Not run: the check could not be trusted this time (reasons below).')
   for (const r of result.reasons) lines.push(`- ${r}`)
+  for (const n of result.notes) lines.push(`  note: ${n}`)
   for (const c of result.changed.slice(0, 50)) lines.push(`  changed: ${c.query} ${c.id || ''} at ${c.path}: ${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}`)
   if (result.changed.length > 50) lines.push(`  … and ${result.changed.length - 50} more (see the JSON)`)
-  if (result.new_fields.paths.length) {
-    lines.push(`New fields: ${result.new_fields.expected ? 'exactly the four C0 fields, on every appointment' : 'NOT only the four C0 fields on every appointment'}`)
-    for (const p of (result.new_fields.odd || [])) lines.push(`  odd: ${p}`)
-  } else lines.push('New fields: none')
+  lines.push(`New fields: ${result.new_fields.paths.length ? result.new_fields.paths.join(', ') : 'none'} — ${result.new_fields.verdict}`)
   const wm = (run) => run && run.watermark
-    ? `appointments ${run.watermark.appointments && run.watermark.appointments.count}, customers ${run.watermark.customers && run.watermark.customers.count}, staff shifts ${run.watermark.staff_shifts && run.watermark.staff_shifts.count}`
+    ? WATERMARK_KINDS.map((k) => `${k.replace('_', ' ')} ${run.watermark[k] && run.watermark[k].count}`).join(', ')
     : '(none)'
   lines.push(`Counts before: ${wm(before)}`)
   lines.push(`Counts after:  ${wm(after)}`)
+  if ((before && before.thin) || (after && after.thin)) lines.push('Thin: the store list (Q1) returned no bookings on D1..D2 — the check still ran, but proves less.')
   return lines.join('\n')
 }
 
@@ -396,5 +518,6 @@ const EXIT = { PASS: 0, FAIL: 1, VOID: 2, USAGE: 3 }
 
 module.exports = {
   BUSINESS_ID, STORE_ID, PAGE_CAP, TIMEOUT_MS, PIN_COUNT, CUSTOMER_PIN_COUNT, CRAWL_SOURCE, C0_NEW_FIELDS, EXIT,
-  jstToday, datesAfter, guardDates, pickPins, collect, diff, summarize,
+  DEFAULT_DAYS_AHEAD, MAX_DAYS_AHEAD,
+  jstToday, datesAfter, daysAheadOk, guardDates, pickPins, collect, checkInputs, runVoidReasons, diff, summarize,
 }

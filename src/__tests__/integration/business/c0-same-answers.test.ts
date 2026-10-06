@@ -1,7 +1,7 @@
 /**
  * C0 (CORE-59) — the same-answers tool (scripts/lib/c0-same-answers-core.cjs) against
  * the order's double: collect builds the run file; diff answers PASS / FAIL / VOID;
- * the CLI's diff subcommand end-to-end (exit 0 / 1 / 2). No network, no core key.
+ * the CLI's diff subcommand end-to-end (exit 0 / 1 / 2 / 3). No network, no core key.
  */
 import path from 'node:path'
 import os from 'node:os'
@@ -11,13 +11,16 @@ import { spawnSync } from 'node:child_process'
 import { CoreDouble } from './fixtures/c0/core-double'
 
 type Run = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-type Diff = { verdict: 'PASS' | 'FAIL' | 'VOID'; reasons: string[]; changed: Array<{ query: string; id?: string; path: string }>; new_fields: { expected: boolean; paths: string[]; odd?: string[] } }
+type Diff = { verdict: 'PASS' | 'FAIL' | 'VOID'; reasons: string[]; notes: string[]; changed: Array<{ query: string; id?: string; path: string }>; new_fields: { paths: string[]; odd: string[]; verdict: string } }
+type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ status: number; ok: boolean; json: () => Promise<unknown> }>
 type CoreModule = {
-  BUSINESS_ID: string; STORE_ID: string
+  BUSINESS_ID: string; STORE_ID: string; MAX_DAYS_AHEAD: number
   collect(fetchImpl: unknown, cfg: Record<string, unknown>): Promise<Run>
   diff(before: Run, after: Run, opts?: { today?: string }): Diff
+  summarize(result: Diff, before: Run, after: Run): string
+  checkInputs(before: unknown, after: unknown): string | null
   pickPins(rows: unknown[], customers: unknown[]): { appointment_ids: string[]; customer_ids: string[]; unmet: string[] }
-  datesAfter(today: string): string[]
+  datesAfter(today: string, daysAhead?: number): string[]
   guardDates(run: Run, today: string): { ok: boolean; reason: string | null }
   jstToday(ms: number): string
 }
@@ -25,6 +28,8 @@ type CoreModule = {
 const ROOT = path.resolve(__dirname, '../../../..')
 const core = createRequire(__filename)(path.join(ROOT, 'scripts/lib/c0-same-answers-core.cjs')) as CoreModule
 const NOW = Date.parse('2026-10-07T03:00:00.000Z') // JST 2026-10-07 12:00
+const LATER = NOW + 3600_000
+const TODAY = '2026-10-07'
 const BASE = 'http://core.double.invalid'
 const OTHER_STORE = '50000000-0000-4000-8000-000000000002'
 
@@ -32,20 +37,23 @@ function seededDouble(): CoreDouble {
   const d = new CoreDouble({ businessId: core.BUSINESS_ID, storeIds: [core.STORE_ID, OTHER_STORE] })
   d.c0Fields = false // the "before" core
   const at = (day: string, hhmm: string) => new Date(`${day}T${hhmm}:00+09:00`).toISOString()
-  const [D1, D2] = core.datesAfter('2026-10-07')
+  const [D1, D2] = core.datesAfter(TODAY)
   const statuses = ['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'SCHEDULED', 'SCHEDULED']
   statuses.forEach((status, i) => d.seedAppointment({ store_id: core.STORE_ID, status, starts_at: at(i % 2 ? D2 : D1, `1${i}:00`), ends_at: at(i % 2 ? D2 : D1, `1${i}:45`) }))
   d.seedAppointment({ store_id: core.STORE_ID, starts_at: at(D1, '17:00'), ends_at: at(D1, '17:30'), occupied_until: at(D1, '17:45') })
   d.seedAppointment({ store_id: core.STORE_ID, source: 'QUICKRESERVE', starts_at: at(D2, '18:00'), ends_at: at(D2, '18:30') })
   d.seedAppointment({ store_id: OTHER_STORE, starts_at: at(D1, '11:00'), ends_at: at(D1, '12:00') })
-  for (let i = 0; i < 4; i++) d.seedCustomer({ email: `c${i}@example.test` })
-  for (const day of core.datesAfter('2026-10-07')) d.seedShift({ store_id: core.STORE_ID, staff_id: 'st-1', date: day })
+  for (let i = 0; i < 4; i++) d.seedCustomer({ email: `c${i}@example.test` }) // four customers, one name: core's sort has ties
+  for (const day of core.datesAfter(TODAY)) d.seedShift({ store_id: core.STORE_ID, staff_id: 'st-1', date: day })
   return d
 }
 
-const collect = (d: CoreDouble, run: 'before' | 'after', before?: Run, now = NOW) =>
-  core.collect(d.asFetch(), { baseUrl: BASE, headers: {}, run, before, now })
+const collectWith = (fetchImpl: unknown, run: 'before' | 'after', before?: Run, extra: Record<string, unknown> = {}) =>
+  core.collect(fetchImpl, { baseUrl: BASE, headers: {}, run, before, now: run === 'after' ? LATER : NOW, ...extra })
+const collect = (d: CoreDouble, run: 'before' | 'after', before?: Run) => collectWith(d.asFetch(), run, before)
 const clone = (r: Run): Run => JSON.parse(JSON.stringify(r))
+const afterC0 = async () => { d.c0Fields = true; return clone(await collect(d, 'after', before)) }
+const judge = (after: Run, b: Run = before) => core.diff(b, after, { today: TODAY })
 
 let d: CoreDouble
 let before: Run
@@ -55,14 +63,17 @@ beforeEach(async () => {
 })
 
 describe('collect', () => {
-  it('builds the run file: seven queries, the watermark, pins and dates — all GETs', async () => {
+  it('builds the run file: seven queries, the per-row watermark at start and end, pins and dates — all GETs', async () => {
     expect(Object.keys(before.answers).sort()).toEqual(['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7'])
     expect(before.dates).toEqual(['2026-10-14', '2026-10-15', '2026-10-16'])
-    expect(before.today).toBe('2026-10-07')
+    expect(before.days_ahead).toBe(7)
+    expect(before.today).toBe(TODAY)
     expect(before.core_host).toBe('core.double.invalid')
-    expect(before.watermark.appointments).toEqual(expect.objectContaining({ count: 10, capped: false, max_revision: null }))
+    expect(before.watermark.appointments).toEqual(expect.objectContaining({ count: 10, capped: false }))
+    expect(Object.keys(before.watermark.appointments.rows)).toHaveLength(10)
     expect(before.watermark.customers.count).toBe(4)
     expect(before.watermark.staff_shifts.count).toBe(3)
+    expect(before.watermark_end.appointments.rows).toEqual(before.watermark.appointments.rows)
     expect(before.thin).toBe(false)
     expect(before.errors).toEqual([])
     expect(before.answers.Q1[0].appointments).toHaveLength(9)
@@ -81,72 +92,202 @@ describe('collect', () => {
     expect(before.pins.unmet).toEqual([])
     expect(core.pickPins([{ id: 'a', status: 'SCHEDULED', occupied_until: null, source: 'KARUTE' }], []).unmet).toHaveLength(2)
   })
+  it('R-7: --days-ahead N moves D1 to today+N; 0 and MAX+1 are refused; the after run takes the before file\'s dates', async () => {
+    expect(core.MAX_DAYS_AHEAD).toBe(11)
+    expect((await collectWith(d.asFetch(), 'before', undefined, { daysAhead: 11 })).dates).toEqual(['2026-10-18', '2026-10-19', '2026-10-20'])
+    await expect(collectWith(d.asFetch(), 'before', undefined, { daysAhead: 12 })).rejects.toMatchObject({ code: 'USAGE' })
+    await expect(collectWith(d.asFetch(), 'before', undefined, { daysAhead: 0 })).rejects.toMatchObject({ code: 'USAGE' })
+    const short = await collectWith(d.asFetch(), 'before', undefined, { daysAhead: 1 })
+    expect((await collect(d, 'after', short)).dates).toEqual(['2026-10-08', '2026-10-09', '2026-10-10'])
+  })
+  it('R-11 (NIT-7): an after collect without the before run file is refused (USAGE)', async () => {
+    await expect(collect(d, 'after')).rejects.toMatchObject({ code: 'USAGE' })
+  })
+  it('R-11 (N1): a thrown fetch message is stored scrubbed of the key value and the auth header name', async () => {
+    const KEY = 'sk-fake-0123456789'
+    const throwing = async () => { throw new Error(`GET ${BASE}/v1/appointments failed: x-api-key: ${KEY} refused`) }
+    const run = await core.collect(throwing, { baseUrl: BASE, headers: { 'x-api-key': KEY }, run: 'before', now: NOW })
+    const text = JSON.stringify(run)
+    expect(run.errors.length).toBeGreaterThan(0)
+    expect(text).not.toContain(KEY)
+    expect(text.toLowerCase()).not.toContain('x-api-key')
+    expect(text).toContain('[key]')
+  })
 })
 
-describe('diff', () => {
-  it('identical runs → PASS, no new fields', async () => {
-    const r = core.diff(before, await collect(d, 'after', before), { today: '2026-10-07' })
+describe('diff — R-1 the appointment JSON gains exactly the four fields', () => {
+  it('exactly the four on every appointment → PASS', async () => {
+    const r = judge(await afterC0())
     expect(r.verdict).toBe('PASS')
-    expect(r.new_fields.paths).toEqual([])
+    expect(r.new_fields.paths).toEqual(expect.arrayContaining(['Q1.{id}.revision', 'Q4.{id}.hold_from', 'watermark:appointments.{id}.holds_managed']))
+    expect(r.new_fields.odd).toEqual([])
   })
-  it('the four C0 fields added on every appointment → PASS + expected', async () => {
-    d.c0Fields = true
-    const r = core.diff(before, await collect(d, 'after', before), { today: '2026-10-07' })
-    expect(r.verdict).toBe('PASS')
-    expect(r.new_fields.expected).toBe(true)
-    expect(r.new_fields.paths).toEqual(expect.arrayContaining(['Q1.[].appointments.[].revision', 'Q4.{id}.hold_from']))
-  })
-  it('a fifth new field → PASS + expected false, the path named', async () => {
-    d.c0Fields = true
-    const after = clone(await collect(d, 'after', before))
-    after.answers.Q2[0].appointments[0].surprise = 1
-    const r = core.diff(before, after, { today: '2026-10-07' })
-    expect(r.verdict).toBe('PASS')
-    expect(r.new_fields.expected).toBe(false)
-    expect(r.new_fields.odd).toEqual(['Q2.[].appointments.[].surprise'])
-  })
-  it('one changed leaf → FAIL naming the query and the row id', async () => {
-    const after = clone(await collect(d, 'after', before))
-    after.answers.Q1[0].appointments[2].title = 'changed'
-    const r = core.diff(before, after, { today: '2026-10-07' })
+  it('no new field at all → FAIL', async () => {
+    const r = judge(await collect(d, 'after', before))
     expect(r.verdict).toBe('FAIL')
-    expect(r.changed).toEqual([expect.objectContaining({ query: 'Q1', id: before.answers.Q1[0].appointments[2].id })])
+    expect(r.reasons.join(' ')).toContain('no new field at all')
+  })
+  it.each([
+    ['a fifth field on one appointment', (a: Run) => { a.answers.Q2[0].appointments[0].surprise = 1 }, 'Q2.{id}.surprise'],
+    ['voided_at on every appointment', (a: Run) => { for (const p of a.answers.Q1) for (const x of p.appointments) x.voided_at = null }, 'Q1.{id}.voided_at'],
+    ['deleted_by on every listed customer', (a: Run) => { for (const p of a.answers.Q6.list) for (const x of p.customers) x.deleted_by = null }, 'Q6.{id}.deleted_by'],
+    ['a fifth field on a shift', (a: Run) => { a.watermark.staff_shifts.bodies[Object.keys(a.watermark.staff_shifts.bodies)[0]].revision = 0 }, 'watermark:staff_shifts.{id}.revision'],
+  ])('%s → FAIL naming the path', async (_name, mutate, odd) => {
+    const after = await afterC0()
+    mutate(after)
+    const r = judge(after)
+    expect(r.verdict).toBe('FAIL')
+    expect(r.new_fields.odd).toContain(odd)
+  })
+  it('the four missing on one row → FAIL', async () => {
+    const after = await afterC0()
+    delete after.answers.Q1[0].appointments[0].revision
+    const r = judge(after)
+    expect(r.verdict).toBe('FAIL')
+    expect(r.reasons.join(' ')).toContain('missing on 1 appointment object')
+  })
+})
+
+describe('diff — the answers', () => {
+  it.each([
+    ['Q1', (a: Run) => { a.answers.Q1[0].appointments[2].title = 'changed' }],
+    ['Q2', (a: Run) => { a.answers.Q2[0].appointments[0].title = 'changed' }],
+    ['Q3', (a: Run) => { a.answers.Q3[0].appointments[0].title = 'changed' }],
+    ['Q4', (a: Run) => { a.answers.Q4[a.pins.appointment_ids[0]].title = 'changed' }],
+    ['Q5', (a: Run) => { a.answers.Q5[0].appointments[0].status = 'CANCELLED' }],
+    ['Q6', (a: Run) => { a.answers.Q6.list[0].customers[0].name = 'changed' }],
+    ['Q6:customers', (a: Run) => { a.answers.Q6.customers[a.pins.customer_ids[0]].name = 'changed' }],
+    ['Q7', (a: Run) => { a.answers.Q7[0].shifts[0].start = 0 }],
+  ])('one changed leaf in %s → FAIL naming the query and the row', async (query, mutate) => {
+    const after = await afterC0()
+    mutate(after)
+    const r = judge(after)
+    expect(r.verdict).toBe('FAIL')
+    expect(r.changed).toEqual([expect.objectContaining({ query, id: expect.any(String) })])
+  })
+  it('R-6: two same-name customers in the other order → PASS + "order changed, rows equal"', async () => {
+    d.customerTiesReversed = true
+    const after = await afterC0()
+    expect(after.answers.Q6.list[0].customers.map((c: Run) => c.id)).not.toEqual(before.answers.Q6.list[0].customers.map((c: Run) => c.id))
+    const r = judge(after)
+    expect(r.verdict).toBe('PASS')
+    expect(r.notes).toContain('Q6: order changed, rows equal')
+    expect(core.summarize(r, before, after)).toContain('order changed, rows equal')
   })
   it.each([
     ['the watermark count moved', (a: Run) => { a.watermark.appointments.count += 1 }],
-    ['max_updated_at moved', (a: Run) => { a.watermark.customers.max_updated_at = '2099-01-01T00:00:00.000Z' }],
     ['a read was capped', (a: Run) => { a.watermark.staff_shifts.capped = true }],
     ['the dates differ', (a: Run) => { a.dates = ['2026-10-15', '2026-10-16', '2026-10-17'] }],
     ['the pins differ', (a: Run) => { a.pins.appointment_ids = a.pins.appointment_ids.slice(1) }],
+    ['a list query answered an error', (a: Run) => { a.errors = [{ query: 'Q1', page: 1, status: 500 }] }],
   ])('%s → VOID', async (_name, mutate) => {
-    const after = clone(await collect(d, 'after', before))
+    const after = await afterC0()
     mutate(after)
-    expect(core.diff(before, after, { today: '2026-10-07' }).verdict).toBe('VOID')
+    expect(judge(after).verdict).toBe('VOID')
   })
   it('guardDates: today on or after D1 → VOID; datesAfter is strictly after today', async () => {
     expect(core.guardDates(before, '2026-10-14').ok).toBe(false)
     expect(core.guardDates(before, '2026-10-20').ok).toBe(false)
     expect(core.guardDates(before, '2026-10-13').ok).toBe(true)
-    expect(core.diff(before, await collect(d, 'after', before), { today: '2026-10-14' }).verdict).toBe('VOID')
-    for (const today of ['2026-12-31', '2027-02-28', '2026-10-07']) expect(core.datesAfter(today).every((x) => x > today)).toBe(true)
+    expect(core.diff(before, await afterC0(), { today: '2026-10-14' }).verdict).toBe('VOID')
+    for (const today of ['2026-12-31', '2027-02-28', TODAY]) expect(core.datesAfter(today).every((x) => x > today)).toBe(true)
     expect(core.jstToday(Date.parse('2026-10-07T15:30:00.000Z'))).toBe('2026-10-08')
   })
 })
 
-describe('the CLI diff subcommand (exit codes)', () => {
-  it('exits 0 PASS · 1 FAIL · 2 VOID on saved run files', async () => {
+describe('diff — R-2 the watermark per row', () => {
+  const apptOf = (pred: (a: Run) => boolean) => [...d.appts.values()].find(pred)!
+  it('a write between the start and the end of one run → VOID (mid-run)', async () => {
+    const base = d.asFetch()
+    let n = 0
+    const racing: FetchLike = async (url, init) => {
+      n += 1
+      if (n === 4) d.update(apptOf((a) => a.source === 'KARUTE').id, { title: 'mid-run' })
+      return base(url, init)
+    }
     d.c0Fields = true
-    const after = await collect(d, 'after', before)
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'c0-same-answers-'))
-    const write = (name: string, run: Run) => { const p = path.join(dir, name); writeFileSync(p, JSON.stringify(run)); return p }
+    const r = judge(await collectWith(racing, 'after', before))
+    expect(r.verdict).toBe('VOID')
+    expect(r.reasons.join(' ')).toContain('a write landed mid-run')
+  })
+  it('a row present in one run only → VOID', async () => {
+    d.seedAppointment({ store_id: core.STORE_ID, starts_at: '2026-11-01T01:00:00.000Z', ends_at: '2026-11-01T02:00:00.000Z' })
+    const r = judge(await afterC0())
+    expect(r.verdict).toBe('VOID')
+    expect(r.reasons.join(' ')).toContain('in one run only')
+  })
+  it('a field other than updated_at changed on a row → VOID (a real write)', async () => {
+    d.update(apptOf((a) => a.source === 'KARUTE').id, { notes: 'written' })
+    const r = judge(await afterC0())
+    expect(r.verdict).toBe('VOID')
+    expect(r.reasons.join(' ')).toContain('a field other than updated_at')
+  })
+  it('only updated_at moved on a QUICKRESERVE row → VOID, "the sync wrote" on stdout', async () => {
+    apptOf((a) => a.source === 'QUICKRESERVE').updated_at = '2026-10-07T03:30:00.000Z'
+    const after = await afterC0()
+    const r = judge(after)
+    expect(r.verdict).toBe('VOID')
+    expect(core.summarize(r, before, after)).toContain('the sync wrote; run again with the sync paused')
+  })
+  it('only updated_at moved on any other row → FAIL (the back-fill moved it)', async () => {
+    apptOf((a) => a.source === 'KARUTE' && a.store_id === OTHER_STORE).updated_at = '2026-10-07T03:30:00.000Z'
+    const r = judge(await afterC0())
+    expect(r.verdict).toBe('FAIL')
+    expect(r.reasons.join(' ')).toContain('the back-fill must move updated_at on no row')
+  })
+})
+
+describe('diff — R-3 errors are never silent', () => {
+  const failingSingles = (base: FetchLike): FetchLike => async (url, init) =>
+    /^\/v1\/appointments\/[^/]+$/.test(new URL(url).pathname) ? { status: 500, ok: false, json: async () => ({ error: 'boom' }) } : base(url, init)
+  it('a failing Q4 single in one run → VOID; in both → VOID', async () => {
+    d.c0Fields = true
+    const badAfter = await collectWith(failingSingles(d.asFetch()), 'after', before)
+    expect(badAfter.errors).toEqual(expect.arrayContaining([expect.objectContaining({ query: 'Q4', status: 500 })]))
+    expect(judge(badAfter).verdict).toBe('VOID')
+    d.c0Fields = false
+    const badBefore = await collectWith(failingSingles(d.asFetch()), 'before')
+    d.c0Fields = true
+    expect(judge(badAfter, badBefore).verdict).toBe('VOID')
+    expect(judge(await collect(d, 'after', badBefore), badBefore).verdict).toBe('VOID')
+  })
+  it('an HTML 200 (a body that is not JSON) → errors recorded → VOID', async () => {
+    const html: FetchLike = async () => ({ status: 200, ok: true, json: async () => { throw new SyntaxError('Unexpected token <') } })
+    const after = await collectWith(html, 'after', before)
+    expect(after.errors.length).toBeGreaterThan(0)
+    expect(judge(after).verdict).toBe('VOID')
+  })
+})
+
+describe('the CLI diff subcommand (exit codes)', () => {
+  const dir = () => mkdtempSync(path.join(os.tmpdir(), 'c0-same-answers-'))
+  const cli = (b: string, a: string) => spawnSync(process.execPath, [path.join(ROOT, 'scripts/c0-same-answers.mjs'), 'diff', '--before', b, '--after', a], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' } })
+  it('exits 0 PASS · 1 FAIL · 2 VOID on saved run files', async () => {
+    const after = await afterC0()
+    const tmp = dir()
+    const write = (name: string, run: Run) => { const p = path.join(tmp, name); writeFileSync(p, JSON.stringify(run)); return p }
     const b = write('before.json', before)
     const fail = clone(after); fail.answers.Q5[0].appointments[0].status = 'CANCELLED'
     const voided = clone(after); voided.watermark.appointments.count += 1
-    const run = (a: string) => spawnSync(process.execPath, [path.join(ROOT, 'scripts/c0-same-answers.mjs'), 'diff', '--before', b, '--after', a], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test' } })
-    const pass = run(write('after-pass.json', after))
+    const pass = cli(b, write('after-pass.json', after))
     expect(pass.status).toBe(0)
     expect(pass.stdout).toContain('SAME-ANSWERS VERDICT: PASS')
-    expect(run(write('after-fail.json', fail)).status).toBe(1)
-    expect(run(write('after-void.json', voided)).status).toBe(2)
+    expect(cli(b, write('after-fail.json', fail)).status).toBe(1)
+    expect(cli(b, write('after-void.json', voided)).status).toBe(2)
+  })
+  it('R-4: {} vs {} · a file vs itself · null · an after written first → exit 3 with one plain sentence', async () => {
+    const after = await afterC0()
+    const tmp = dir()
+    const write = (name: string, body: string) => { const p = path.join(tmp, name); writeFileSync(p, body); return p }
+    const empty = write('empty.json', '{}')
+    const a = write('after.json', JSON.stringify(after))
+    const b = write('before.json', JSON.stringify(before))
+    const early = write('early.json', JSON.stringify({ ...after, written_at: before.written_at }))
+    for (const [x, y] of [[empty, empty], [a, a], [b, b], [write('null.json', 'null'), a], [b, early]]) {
+      const r = cli(x, y)
+      expect(r.status).toBe(3)
+      expect(r.stderr.split('\n')[0]).toMatch(/^The .+\.$/)
+    }
+    expect(core.checkInputs(before, after)).toBeNull()
   })
 })
