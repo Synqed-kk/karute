@@ -122,7 +122,7 @@ describe('POST /api/app/v1/appointments/[id]/assign-staff (facade)', () => {
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-new' })
     const rows = updateAudits()
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ storeId: 'store-1', source: 'facade', detail: { changed: 'staff', store_id: 'store-1' } })
+    expect(rows[0]).toMatchObject({ storeId: 'store-1', source: 'facade', detail: { changed: 'staff', store_id: 'store-1', staff_id: 'staff-new' } })
   })
 
   it('no bookings.manage → 403 (the sibling doors\' status), no write, no audit', async () => {

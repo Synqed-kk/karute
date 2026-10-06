@@ -423,6 +423,8 @@ describe('updateAppointment — audit', () => {
       customer_id: 'cust-9',
       store_id: 'store-1',
       changed: 'staff',
+      // R6 (fix round 4): a staff change names the assigned core staff id.
+      staff_id: 'staff-2',
     })
   })
 

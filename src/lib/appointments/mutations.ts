@@ -937,6 +937,9 @@ export async function updateAppointmentCore(
         // (settings.staff_stores_change, src/actions/stores.ts) — AuditEvent's
         // detail values are scalar-only, so a multi-value field joins here.
         changed: changed.join(','),
+        // The assigned staff's core id (an id, never a name) — only when the
+        // staff changed, so an assign row says WHO was assigned.
+        ...(changed.includes('staff') ? { staff_id: patch.staffId } : {}),
       },
       requestId: actor.requestId,
       source: actor.source,
