@@ -1020,6 +1020,15 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       coveredBy: 'src/app/api/sync/quickreserve/config/route.ts#POST',
     },
   },
+  // S53 PR-C (2026-10-06): the 予約同期 all-stores list, stores.viewAll only.
+  'sync/quickreserve/configs': {
+    GET: {
+      kind: 'skip',
+      justification:
+        'sync-settings metadata read (state, Quick Reserve store, schedule per store); no password or login id leaves the route — same posture as the sibling config GET.',
+      dated: '2026-10-06',
+    },
+  },
   'sync/quickreserve-deep': {
     kind: 'skip',
     justification: 'retired stub, always 501, no action performed.',
