@@ -57,6 +57,8 @@ type ConfigResponse = {
 
 const SYNC_ERROR_COPY = {
   qr_store_not_ready: 'bookingSyncStoreNotReady',
+  qr_store_unavailable: 'bookingSyncStoreUnavailable',
+  store_not_in_business: 'bookingSyncStoreUnavailable',
   qr_store_required: 'bookingSyncQrStoreRequired',
   qr_store_already_linked: 'bookingSyncQrStoreAlreadyLinked',
 } as const

@@ -244,10 +244,10 @@ describe('fix round 2 — the store is the one the form shows, resolved only by 
     const upsert = mockClient([DAIKANYAMA_ROW])
     const get = await GET(getReq())
     expect(get.status).toBe(409)
-    expect(await get.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(await get.json()).toEqual({ error: 'qr_store_unavailable' })
     const res = await POST(req({ username: 'owner', password: 'pw', enabled: true }))
     expect(res.status).toBe(409)
-    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(await res.json()).toEqual({ error: 'qr_store_unavailable' })
     expect(upsert).not.toHaveBeenCalled()
   })
 

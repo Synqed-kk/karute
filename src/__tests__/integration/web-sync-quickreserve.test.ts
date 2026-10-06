@@ -209,10 +209,13 @@ describe('mapping table — web column (resolve-run-store.ts)', () => {
     ['requested store is not this business (404)', () => {
       activeStore.current = '90765121-c851-4786-8fa5-46ce4ed39fb9'
       storesGet.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }))
-    }, 409, { error: 'qr_store_not_ready' }],
+    }, 409, { error: 'qr_store_unavailable' }],
     ['requested store outside the clamped assignment', () => {
       activeStore.current = '90765121-c851-4786-8fa5-46ce4ed39fb9'
-    }, 409, { error: 'qr_store_not_ready' }],
+    }, 409, { error: 'qr_store_unavailable' }],
+    ['requested store is archived', () => {
+      storesGet.mockImplementation(async (id: string) => ({ id, active: false }))
+    }, 409, { error: 'qr_store_unavailable' }],
     ['caller reaches no store (unassigned, 2-store business)', () => {
       staffStoresGet.mockResolvedValue({ store_ids: [] })
     }, 409, { error: 'qr_store_not_ready' }],
@@ -300,11 +303,11 @@ describe('fix round 3 (Opus S1) — the web run carries the id core returned', (
     expect(auditWeb.mock.calls[0][0].storeId).toBe(canonical)
   })
 
-  it('a body storeId that is not a store id → 409 qr_store_not_ready, no lookup, nothing runs', async () => {
+  it('a body storeId that is not a store id → 409 qr_store_unavailable, no lookup, nothing runs', async () => {
     activeStore.current = '../customers'
     const res = await POST(run())
     expect(res.status).toBe(409)
-    expect(await res.json()).toEqual({ error: 'qr_store_not_ready' })
+    expect(await res.json()).toEqual({ error: 'qr_store_unavailable' })
     expect(storesGet).not.toHaveBeenCalled()
     expect(runNow).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()

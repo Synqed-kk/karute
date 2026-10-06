@@ -216,3 +216,13 @@ describe('fix round 4 (Opus N3) — staff never see raw English', () => {
     expect(screen.getByText('syncSection.result')).toBeTruthy()
   })
 })
+
+describe('fix round 4 (Opus N2) — a store that cannot sync has its own line', () => {
+  it('409 qr_store_unavailable shows the store-unavailable line, not "no store is selected"', async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve({ error: 'qr_store_unavailable' }, 409)
+    await flush()
+    expect(screen.getByText('bookingSyncStoreUnavailable')).toBeTruthy()
+    expect(screen.queryByText('bookingSyncStoreNotReady')).toBeNull()
+  })
+})

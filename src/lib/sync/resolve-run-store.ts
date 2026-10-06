@@ -9,10 +9,10 @@
 //
 // | Case                                                   | Error                    | Web                       | Phone                                          |
 // |--------------------------------------------------------|--------------------------|---------------------------|------------------------------------------------|
-// | requested store-id is not a lowercase UUID (no lookup)  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason sync_store)        |
-// | requested store is not this business's (404/403)       | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason sync_store)        |
-// | requested store outside a clamped caller's assignment  | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason sync_store)        |
-// | requested store is archived                            | SyncStoreForbidden       | 409 qr_store_not_ready    | 403 store_forbidden (reason sync_store)        |
+// | requested store-id is not a lowercase UUID (no lookup)  | SyncStoreForbidden       | 409 qr_store_unavailable  | 403 store_forbidden (reason sync_store)        |
+// | requested store is not this business's (404/403)       | SyncStoreForbidden       | 409 qr_store_unavailable  | 403 store_forbidden (reason sync_store)        |
+// | requested store outside a clamped caller's assignment  | SyncStoreForbidden       | 409 qr_store_unavailable  | 403 store_forbidden (reason sync_store)        |
+// | requested store is archived                            | SyncStoreForbidden       | 409 qr_store_unavailable  | 403 store_forbidden (reason sync_store)        |
 // | caller reaches no store (unassigned in a ≥2-store      | SyncStoreUnassigned      | 409 qr_store_not_ready    | 403 store_unassigned                           |
 // |   business · web: roster cannot place them · business  |                          |                           |                                                |
 // |   has no store at all)                                 |                          |                           |                                                |
@@ -138,9 +138,10 @@ export async function resolveSyncRunStore(args: {
 /** The web column of the table above, shared by both web routes (run +
  *  config GET/POST). null = not one of the helper's errors. */
 export function webSyncStoreError(e: unknown): { status: number; body: { error: string } } | null {
-  if (e instanceof SyncStoreForbidden || e instanceof SyncStoreUnassigned) {
-    return { status: 409, body: { error: 'qr_store_not_ready' } }
-  }
+  // A store that may not sync (shape · foreign · outside the assignment ·
+  // archived) has its own code, apart from "no store" (fix round 4, Opus N2).
+  if (e instanceof SyncStoreForbidden) return { status: 409, body: { error: 'qr_store_unavailable' } }
+  if (e instanceof SyncStoreUnassigned) return { status: 409, body: { error: 'qr_store_not_ready' } }
   if (e instanceof SyncStoreDependencyError) return { status: 502, body: { error: e.message } }
   return null
 }
