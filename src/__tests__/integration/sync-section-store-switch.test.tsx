@@ -329,3 +329,55 @@ describe("fix round 6 (Greptile P2) — a run on one store never blocks another 
     expect(runButton('syncNow').disabled).toBe(false)
   })
 })
+
+describe('fix round 8 (attack A-6) — a stale reload can no longer overwrite a login just saved', () => {
+  const passwordInput = () => document.querySelector('input[type="password"]') as HTMLInputElement
+
+  it("A's save pending, A → B → A, A's reload answers BEFORE the save → the form keeps the NEW login", async () => {
+    const { rerender } = render(<SyncSection storeId="store-a" />)
+    pending[0].resolve({ username: 'old-login', enabled: true })
+    await flush()
+    fireEvent.change(loginInput(), { target: { value: 'new-login' } })
+    fireEvent.change(passwordInput(), { target: { value: 'new-pw' } })
+    await act(async () => { fireEvent.click(button('saveConfig')) }) // posts[0], pending
+    expect(JSON.parse(String(posts[0].init!.body))).toMatchObject({ storeId: 'store-a', username: 'new-login' })
+
+    rerender(<SyncSection storeId="store-b" />)
+    pending[1].resolve(B)
+    await flush()
+    rerender(<SyncSection storeId="store-a" />)
+    pending[2].resolve({ username: 'old-login', enabled: true }) // read before core saved
+    await flush()
+
+    posts[0].resolve({ success: true }) // the save answers last
+    await flush()
+    expect(screen.getByText('syncSection.configSaved')).toBeTruthy()
+    expect(loginInput().value).toBe('new-login')
+    expect(screen.queryByText('bookingSyncPasswordRequired')).toBeNull()
+    expect(button('saveConfig').disabled).toBe(false)
+
+    // A later save sends the NEW login, never the old one back.
+    await act(async () => { fireEvent.click(button('saveConfig')) })
+    expect(JSON.parse(String(posts[1].init!.body))).toMatchObject({ storeId: 'store-a', username: 'new-login' })
+  })
+
+  it("a reload sent before the save answered and landing AFTER it is dropped (the save's values stand)", async () => {
+    const { rerender } = render(<SyncSection storeId="store-a" />)
+    pending[0].resolve({ username: 'old-login', enabled: true })
+    await flush()
+    fireEvent.change(loginInput(), { target: { value: 'new-login' } })
+    fireEvent.change(passwordInput(), { target: { value: 'new-pw' } })
+    await act(async () => { fireEvent.click(button('saveConfig')) })
+    rerender(<SyncSection storeId="store-b" />)
+    pending[1].resolve(B)
+    await flush()
+    rerender(<SyncSection storeId="store-a" />) // reload pending[2] in flight
+    posts[0].resolve({ success: true })
+    await flush()
+    pending[2].resolve({ username: 'old-login', enabled: true }) // stale, lands last
+    await flush()
+    expect(loginInput().value).toBe('new-login')
+    expect(screen.queryByText('bookingSyncPasswordRequired')).toBeNull()
+    expect(button('saveConfig').disabled).toBe(false)
+  })
+})

@@ -94,12 +94,19 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined)
   // The store shown NOW: a save or run answer for another store is dropped.
   const shownStore = useRef(storeId)
+  // Which config load is the latest: each load captures its own number, and
+  // its answer applies only while it is still the latest (and its store is
+  // still shown). A successful save bumps it too, so a load sent before the
+  // save answered can never put the old login back (fix round 8, attack A-6).
+  const loadGeneration = useRef(0)
 
   useEffect(() => {
     // Reset BEFORE the load, and drop a late answer for a store no longer
     // selected, so another store's values can never reach this store's Save.
     shownStore.current = storeId
-    let current = true
+    const generation = ++loadGeneration.current
+    let current = true // false once this effect is cleaned up (switch · unmount)
+    const latest = () => current && generation === loadGeneration.current && shownStore.current === storeId
     setLoadedFor(undefined)
     setUsername('')
     setLoadedUsername('')
@@ -114,7 +121,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
     )
       .then(async (r) => {
         const parsed = await readSyncResponse(r)
-        if (!current) return
+        if (!latest()) return
         if (!parsed.ok) {
           setLastResult({ text: failureLine(parsed.message), error: true }) // the surface's error line; Save stays off
           return
@@ -138,7 +145,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         setLoadedFor(storeId)
       })
       .catch(() => {
-        if (current) setLastResult({ text: t('bookingSyncUnavailable'), error: true })
+        if (latest()) setLastResult({ text: t('bookingSyncUnavailable'), error: true })
       })
     return () => {
       current = false
@@ -177,6 +184,9 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   async function saveConfig() {
     const forStore = storeId
     const key = forStore ?? ''
+    // What this save sends, so its answer can show exactly what was saved.
+    const savedLogin = username.trim()
+    const savedEnabled = enabled
     beginSyncing(key)
     try {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve/config', {
@@ -193,8 +203,17 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
       const parsed = await readSyncResponse(res)
       if (shownStore.current !== forStore) return
       if (parsed.ok) {
+        // The saved values are now the store's row: any load sent before this
+        // answer is stale, and the form shows what was saved. A blank login
+        // keeps the stored one (the route never blanks it), so it is left as is.
+        loadGeneration.current++
         setConfigured(true)
-        setLoadedUsername(username.trim())
+        setEnabled(savedEnabled)
+        if (savedLogin) {
+          setUsername(savedLogin)
+          setLoadedUsername(savedLogin)
+        }
+        setLoadedFor(forStore)
       }
       setLastResult(
         parsed.ok
