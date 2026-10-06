@@ -6,23 +6,20 @@ Emitted by `node scripts/business/reserve-card-parity/run.mjs` — do not edit b
 ## What is ported (file → Reserve range, byte-identical below each marker)
 - `satin-material.ts` ← `src/lib/satin-material.ts` 1–33 (whole file)
 - `member-card-vars.ts` ← `src/lib/types.ts` 170–193 (BrandTheme) · `src/lib/reserve-api/member-ia.ts` 257–272 (tenantGradientPair) · `src/components/customer/salon-surface.tsx` 36–61 (memberTenantVars)
-- `ReserveCardPreview.tsx` ← `studio-home.tsx` 434–472 (the card's measure effect) · `studio-salon.tsx` 75–121 (the cover's measure effect) · `membership-date.tsx` 1–6; the JSX is Reserve's (studio-home.tsx MembershipCard 482–538, TenantCard 680–705; studio-salon.tsx StudioCover 163–237), the cover's lines 2–3 take the SHAPE of `member-ia.ts` coverLines 458–479 (never its data), with the edits listed in its header
-- `reserve-card.css` ← `src/index.css` 871–884 · 905–960 · 1039–1051 · 1053–1104 · 1106–1126 · 1140–1140 · 1248–1503 · 1505–1533 · 1552–1579 · 1634–1666 · 3950–4020 · 4651–4660 · 4674–4682 · 4687–4687 · 4689–4690 · 4692–4727 · 4769–4822, plus ONE marked context block (not verbatim: --font-sans/--font-num from index.css 33–34, body 185–191, the page root's bg-background/text-foreground, and the inherited text defaults Reserve's page hands down — re-scoped to the preview root so a host's inherited type cannot leak in), and the SCOPED blocks listed under Declared edits
+- `ReserveCardPreview.tsx` ← `studio-home.tsx` 434–472 (the card's measure effect) · `studio-salon.tsx` 75–121 (the cover's measure effect) · `membership-date.tsx` 1–6; the JSX is Reserve's (studio-home.tsx MembershipCard 482–538, TenantCard 680–705; studio-salon.tsx StudioCover 163–237), the cover's lines 2–3 take the SHAPE of `member-ia.ts` coverLines 458–479 (never its data), with the edits listed in its header · the お店ページ body (StoreBody) takes Reserve's markup and classes @ 09841a6 = this pin for these files (`MemberSalonPage.tsx` 262–307, RankStreakChip 354–366, BookEntry 460–480, CheckinEntry 486–499; `studio-salon.tsx` IntakeBanner 401–436, SalonPosts 277–312) with the mock's words, edits listed at StoreBody · part 2 (P4b): `MemberSalonPage.tsx` UpcomingBookings 385–452, MyRecord 508–588; `studio-salon.tsx` ShopSection 327–352, RentalSection 361–390, SegTabs 448–531 (no spring); `visit-history-list.tsx` 21–72; index.css 4084–4111 (segmented control) and 4113–4176 (visit rows)
+- `reserve-card.css` ← `src/index.css` 871–884 · 905–960 · 1039–1051 · 1053–1104 · 1106–1126 · 1140–1140 · 1248–1503 · 1505–1533 · 1552–1579 · 1634–1666 · 3715–3755 · 3950–4020 · 4022–4082 · 4453–4471 · 4651–4660 · 4674–4682 · 4683–4686 · 4687–4687 · 4689–4690 · 4692–4727 · 4729–4767 · 4769–4822 · 4084–4111 · 4113–4176, plus ONE marked context block (not verbatim: --font-sans/--font-num from index.css 33–34, body 185–191, the page root's bg-background/text-foreground, and the inherited text defaults Reserve's page hands down — re-scoped to the preview root so a host's inherited type cannot leak in), and the SCOPED blocks listed under Declared edits
 
-Verbatim check (last run): 24/24 identical
-Scoped blocks (declarations after prefix strip): 2/2 identical
+Verbatim check (last run): 31/31 identical
+Scoped blocks (declarations after prefix strip): 3/3 identical
 
 ## Declared edits (not verbatim)
-- `reserve-card.css` ← `src/index.css` 214–221 · 237–246 (.pressable, .tap44) — SCOPED: selectors prefixed `.member-ground `, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
+- `reserve-card.css` ← `src/index.css` 214–221 · 237–246 · 254–263 (.pressable, .tap44) — SCOPED: selectors prefixed `.member-ground `, declarations byte-identical to Reserve. Reserve keeps both idioms global in its own app; here a global rule would reach any Business element carrying the class. Checked by the harness after stripping the prefix (see the scoped-blocks line above).
 - `ReserveCardPreview.tsx` StudioCover, the no-store branch — fallback branch: same markup as Reserve, not pixel-proven (no store-less case in the harness set). Its category line is fixed to GENERIC 「お店」: the port carries no business type.
 - `ReserveCardPreview.tsx` + `card-color.ts` — Colour inputs are normalised at the boundary (card-color.ts): only `#RRGGBB` reaches the satin math; anything else counts as absent — identical on server and client, no hydration drift.
 
 ## Left out of index.css 4650–4822, and why
 - 4661–4673 .member-minicard__stripe, .tameru-ticket__stub / .member-sheet__mark, .member-rc__wm — other tenant objects that wear the card's Satin (マイページ thumbnail, 回数券 stub, store sheet mark, 受付 wordmark), not a surface element
-- 4683 .salon-rankfloat — the rank chip under the cover (store page body), not a surface element
-- 4684–4686 .salon-next / __label / __date — the store page's 次回 block, not a surface element
 - 4728 .member-ground.salon-surface > main — the store page's main column
-- 4729–4767 .salon-rankfloat, .salon-next*, .salon-acts*, .salon-posts* — store page body (rank chip, next visit, points row, action buttons, posts) — the switchboard, LATER
 
 ## Other rules the surfaces match that are NOT ported
 - 69–103, 302–306, 858–869 :root / .dark — app-wide tokens; every one the surfaces read is re-pointed by the ported .member-ground blocks (871–884, 905–960)
