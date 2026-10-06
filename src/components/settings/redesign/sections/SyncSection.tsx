@@ -61,6 +61,7 @@ const SYNC_ERROR_COPY = {
   store_not_in_business: 'bookingSyncStoreUnavailable',
   qr_store_required: 'bookingSyncQrStoreRequired',
   qr_store_already_linked: 'bookingSyncQrStoreAlreadyLinked',
+  qr_password_required: 'bookingSyncPasswordRequired',
 } as const
 
 /** `storeId` = the active store the page was rendered for. The store
@@ -73,6 +74,8 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   const tAuth = useTranslations('auth')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  // The login as loaded: a changed login needs its password too.
+  const [loadedUsername, setLoadedUsername] = useState('')
   const [enabled, setEnabled] = useState(false)
   // CORE-43: a store with no config yet names its own Quick Reserve store.
   const [configured, setConfigured] = useState(true)
@@ -94,6 +97,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
     let current = true
     setLoadedFor(undefined)
     setUsername('')
+    setLoadedUsername('')
     setPassword('')
     setEnabled(false)
     setConfigured(true)
@@ -112,6 +116,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         }
         const data = parsed.data as unknown as ConfigResponse
         if (data.username) setUsername(data.username)
+        setLoadedUsername(data.username ?? '')
         if (data.enabled !== undefined) setEnabled(data.enabled)
         if (data.configured === false) {
           setConfigured(false)
@@ -164,7 +169,10 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
       })
       const parsed = await readSyncResponse(res)
       if (shownStore.current !== forStore) return
-      if (parsed.ok) setConfigured(true)
+      if (parsed.ok) {
+        setConfigured(true)
+        setLoadedUsername(username.trim())
+      }
       setLastResult(
         parsed.ok
           ? { text: t('syncSection.configSaved'), error: false }
@@ -210,6 +218,10 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   }
 
   const isError = lastResult?.error === true
+  // Core keeps the OLD credentials when only the login changes, so a changed
+  // login needs its password too (fix round 4, Opus C3; the route mirrors it).
+  const loginNeedsPassword =
+    configured && username.trim() !== '' && username.trim() !== loadedUsername && !password
 
   return (
     <div className="space-y-6">
@@ -269,6 +281,10 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         </div>
       </div>
 
+      {loginNeedsPassword && (
+        <p className="text-xs text-muted-foreground">{t('bookingSyncPasswordRequired')}</p>
+      )}
+
       {!configured && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -322,7 +338,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         <button
           type="button"
           onClick={saveConfig}
-          disabled={syncing || !storeId || loadedFor !== storeId}
+          disabled={syncing || !storeId || loadedFor !== storeId || loginNeedsPassword}
           className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {t('saveConfig')}

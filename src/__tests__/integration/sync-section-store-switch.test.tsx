@@ -226,3 +226,17 @@ describe('fix round 4 (Opus N2) — a store that cannot sync has its own line', 
     expect(screen.queryByText('bookingSyncStoreNotReady')).toBeNull()
   })
 })
+
+describe('fix round 4 (Opus C3 app side) — a changed login needs its password', () => {
+  it('Save is off with the localized line until the password is typed', async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    fireEvent.change(loginInput(), { target: { value: 'other-login' } })
+    expect(button('saveConfig').disabled).toBe(true)
+    expect(screen.getByText('bookingSyncPasswordRequired')).toBeTruthy()
+    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'pw' } })
+    expect(button('saveConfig').disabled).toBe(false)
+    expect(screen.queryByText('bookingSyncPasswordRequired')).toBeNull()
+  })
+})

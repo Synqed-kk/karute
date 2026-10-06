@@ -2252,6 +2252,7 @@
     "qrStoreHint": "この店舗の Quick Reserve 店舗番号です。初回の保存で一度だけ入力します。",
     "bookingSyncQrStoreRequired": "この店舗の初回保存には、ログインID・パスワード・アカウント名・店舗番号が必要です。",
     "bookingSyncQrStoreAlreadyLinked": "この Quick Reserve 店舗は、すでに別の店舗に連携されています。",
+    "bookingSyncPasswordRequired": "ログインIDを変更する場合はパスワードも入力してください。",
     "bookingSyncStoreUnavailable": "この店舗では同期できません。画面を更新して、店舗を選び直してください。",
     "bookingSyncUnavailable": "同期サービスに接続できませんでした。しばらくしてからもう一度お試しください。",
     "bookingSyncNotConfigured": "予約同期が未設定です。Quick Reserve のログイン情報を保存してください。",

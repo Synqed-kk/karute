@@ -471,3 +471,19 @@ describe('fix round 4 (Opus N5 + N6) — input bounds', () => {
     expect(upsert).not.toHaveBeenCalled()
   })
 })
+
+describe('fix round 4 (Opus C3 app side) — a changed login needs its password', () => {
+  it('existing row, new login, no password → 409 qr_password_required, nothing written', async () => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    const res = await POST(req({ username: 'new-login', enabled: true }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'qr_password_required' })
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('the same change WITH the password saves', async () => {
+    const upsert = mockClient([DAIKANYAMA_ROW])
+    expect((await POST(req({ username: 'new-login', password: 'pw', enabled: true }))).status).toBe(200)
+    expect(upsert.mock.calls[0][1]).toMatchObject({ username: 'new-login', password: 'pw' })
+  })
+})

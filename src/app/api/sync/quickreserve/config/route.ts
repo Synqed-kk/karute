@@ -171,6 +171,12 @@ export async function POST(request: Request) {
     if (!existing && configs.some((c) => c.karute_store_id !== storeId && Number(c.store_id) === qrId)) {
       return NextResponse.json({ error: 'qr_store_already_linked' }, { status: 409 })
     }
+    // A changed login without its password: core re-keys the credentials only
+    // when a password is sent, so the crawl would keep the OLD login while the
+    // screen says saved (fix round 4, Opus C3 app side; SyncSection mirrors it).
+    if (existing && login && login !== (existing.username ?? '') && !password) {
+      return NextResponse.json({ error: 'qr_password_required' }, { status: 409 })
+    }
 
     await synqed.sync.upsertConfig('QUICKRESERVE', {
       // A blank login never overwrites a live row's stored one.
