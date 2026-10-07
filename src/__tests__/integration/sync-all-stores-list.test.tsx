@@ -33,7 +33,10 @@ let extraRows: unknown[] = []
 let saved: Record<string, Record<string, unknown>> = {}
 // Set to [] to hold every /configs read until the test answers it (in order of the reads).
 let configsHold: ((r: Response) => void)[] | null = null
+// The nth /configs read (1-based) answers 500 when set.
+let failConfigsRead: number | null = null
 const apiFetch = jest.fn((url: string, init?: RequestInit) => {
+  if (url === '/api/sync/quickreserve/configs' && failConfigsRead === configsCalls()) return Promise.resolve(reply({}, 500))
   if (url === '/api/sync/quickreserve/configs' && configsHold)
     return new Promise<Response>((resolve) => configsHold!.push(resolve))
   if (url === '/api/sync/quickreserve/configs')
@@ -61,6 +64,7 @@ beforeEach(() => {
   extraRows = []
   saved = {}
   configsHold = null
+  failConfigsRead = null
   apiFetch.mockClear()
   selectStore.mockClear()
   refresh.mockClear()
@@ -625,5 +629,27 @@ describe('viewAll caller', () => {
     await flush()
     expect(row().queryByText('reasonLoginFix')).toBeNull()
     expect(row().getByText('stateHealthy')).toBeTruthy()
+  })
+
+  it("runAll over two stores; store 2's pre-start re-read fails → store 2 is skipped with NO POST, store 1 still runs, runAll finishes", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    saved['4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'] = { enabled: false } // 恵比寿 OFF: two stores in the run
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    // reads: 1 = mount, 2 = sync-all's first re-read (store 1 uses it), 3 = store 2's pre-start re-read
+    failConfigsRead = 3
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(configsCalls()).toBeGreaterThanOrEqual(3)
+    expect(runs.filter((r) => r.storeId === shibuya)).toHaveLength(0)
+    expect(runs).toHaveLength(1)
+    // silent skip (pinned as is; the alarm belongs to the black box): the run finishes with store 1 only
+    expect(screen.getByText('runAllDone{"n":1}')).toBeTruthy()
+    expect((screen.getByText('runAll').closest('button') as HTMLButtonElement).disabled).toBe(false)
+    expect(inFlightNow().size).toBe(0)
   })
 })
