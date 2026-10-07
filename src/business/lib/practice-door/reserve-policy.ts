@@ -46,6 +46,11 @@ export const RESERVE_POLICY_DEFAULTS: Readonly<ReservePolicy> = {
   no_show_pct: 0,
 }
 
+/** The unit factors the combination checks convert with, named once. */
+export const MIN_PER_DAY = 1440
+export const H_PER_DAY = 24
+export const MIN_PER_H = 60
+
 /** The step Reserve uses when the grid is unset (core null). */
 export const RESERVE_GRID_UNSET_STEP = 30
 
@@ -75,7 +80,7 @@ export function parseReservePolicy(draft: unknown): ReservePolicy | null {
   }
   const [open, cutoff, free, late, noShow] = [whole('booking_open_days'), whole('cutoff_minutes'), whole('cancel_free_until_hours'), whole('cancel_late_pct'), whole('no_show_pct')]
   const g = d.reserve_start_grid_min
-  const grid: ReserveGrid | undefined = g === null ? null : g === 15 || g === 30 || g === 60 ? g : undefined
+  const grid: ReserveGrid | undefined = g === null ? null : (RESERVE_GRID_CHOICES as readonly unknown[]).includes(g) ? (g as ReserveGrid) : undefined
   if (open === null || cutoff === null || free === null || late === null || noShow === null || grid === undefined) return null
   return { booking_open_days: open, cutoff_minutes: cutoff, reserve_start_grid_min: grid, cancel_free_until_hours: free, cancel_late_pct: late, no_show_pct: noShow }
 }
@@ -85,14 +90,14 @@ export type ReservePolicyProblem = 'cutoffOverOpen' | 'freeOverOpen'
 /** §4 combination checks — refusals, not notes. Bounded by open_days × a day; the furthest bookable
  *  day is open_days + 1 (Reserve storeRules.ts:110, :154), so this bound is the strict side. */
 export function reservePolicyProblem(p: ReservePolicy): ReservePolicyProblem | null {
-  if (p.cutoff_minutes > p.booking_open_days * 1440) return 'cutoffOverOpen'
-  if (p.cancel_free_until_hours > p.booking_open_days * 24) return 'freeOverOpen'
+  if (p.cutoff_minutes > p.booking_open_days * MIN_PER_DAY) return 'cutoffOverOpen'
+  if (p.cancel_free_until_hours > p.booking_open_days * H_PER_DAY) return 'freeOverOpen'
   return null
 }
 
 /** §9 R5 — a NOTE, never a refusal: a booking taken after the free deadline is late from the start. */
 export function lateFromBooking(p: ReservePolicy): boolean {
-  return p.cutoff_minutes < p.cancel_free_until_hours * 60
+  return p.cutoff_minutes < p.cancel_free_until_hours * MIN_PER_H
 }
 
 /** §9 R9 — the fingerprint a save is based on: the six values as read, in a fixed order. Six small
