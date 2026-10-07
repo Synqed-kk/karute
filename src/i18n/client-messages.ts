@@ -49,6 +49,7 @@ export const PAGE_PICKS = {
     'pin',
     'settings',
     'staff',
+    'syncAllStores',
     'voiceEnrollment',
   ],
   coaching: ['coaching'],

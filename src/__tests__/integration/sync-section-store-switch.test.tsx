@@ -7,6 +7,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { SyncSection } from '@/components/settings/redesign/sections/SyncSection'
+import { snapshot as inFlightNow } from '@/lib/sync/in-flight'
 
 jest.mock('next-intl', () => ({ useTranslations: () => (k: string) => k }))
 
@@ -37,6 +38,17 @@ beforeEach(() => {
   posts = []
   apiFetch.mockClear()
   setDataPort({ apiFetch } as never)
+})
+
+// The in-flight set lives for the page (src/lib/sync/in-flight.ts), so a save
+// or run a test leaves pending is answered here; no store stays claimed into
+// the next test.
+afterEach(async () => {
+  for (let i = 0; i < posts.length; i++) {
+    await act(async () => { posts[i].resolve({ success: true }) })
+    await flush()
+  }
+  expect(inFlightNow().size).toBe(0)
 })
 
 describe('SyncSection — store switch (Greptile #1135 F1)', () => {
@@ -160,6 +172,36 @@ describe('SyncSection — late save/run answers and unloaded forms (fix round 2)
     expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy()
     expect(screen.queryByText(/could not resolve/)).toBeNull()
     expect(button('saveConfig').disabled).toBe(true)
+  })
+
+  it('while a run is in flight the login field and the auto-sync toggle are disabled (Greptile P2 on #1140)', async () => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    const toggle = () => screen.getByText('autoSyncTitle').parentElement!.parentElement!.querySelector('button') as HTMLButtonElement
+    expect(loginInput().disabled).toBe(false)
+    expect(toggle().disabled).toBe(false)
+    // it LOOKS disabled while dead (Greptile P2): the folder's toggle disabled style
+    expect(toggle().className).toContain('disabled:opacity-50')
+    expect(toggle().className).toContain('disabled:cursor-not-allowed')
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    expect(loginInput().disabled).toBe(true)
+    expect(toggle().disabled).toBe(true)
+    posts[0].resolve({ created: 1, updated: 0, skipped: 0 })
+    await flush()
+    expect(loginInput().disabled).toBe(false)
+    expect(toggle().disabled).toBe(false)
+  })
+
+  it.each(['invalid_body', 'invalid_store_id'])('a run refused 400 %s shows the generic localized line, never the raw code', async (code) => {
+    render(<SyncSection storeId="store-a" />)
+    pending[0].resolve(A)
+    await flush()
+    await act(async () => { fireEvent.click(button('syncNow')) })
+    posts[0].resolve({ error: code }, 400)
+    await flush()
+    expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy() // PR-A's failureLine: one generic line for any code it has no copy for
+    expect(screen.queryByText(new RegExp(code))).toBeNull()
   })
 
   it('a refused load (409) shows the localized not-ready line and keeps Save off', async () => {

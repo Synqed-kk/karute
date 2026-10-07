@@ -2,48 +2,15 @@
 
 import { getDataPort } from '@/lib/ports/data-port'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
+import { SyncAllStoresList } from './SyncAllStoresList'
+import { readSyncResponse } from '@/lib/sync/read-sync-response'
+import * as syncInFlight from '@/lib/sync/in-flight'
 
-type SyncResponse = {
-  error?: string | { code?: string; message?: string }
-  message?: string
-  code?: string
-  created?: number
-  updated?: number
-  skipped?: number
-}
-
-/**
- * Read a sync API response defensively. On a HANDLED failure the route returns
- * clean JSON ({ error }); but on a platform CRASH/timeout Vercel returns PLAIN
- * TEXT ("Internal Server Error") — calling res.json() on that threw
- * "Unexpected token 'I'" and masked the real failure. So: read text first, parse
- * if we can, and ALWAYS surface the HTTP status so the true error is visible.
- */
-export async function readSyncResponse(
-  res: Response,
-): Promise<{ ok: true; data: SyncResponse } | { ok: false; message: string }> {
-  const raw = await res.text().catch(() => '')
-  let data: SyncResponse | null = null
-  try {
-    data = raw ? (JSON.parse(raw) as SyncResponse) : null
-  } catch {
-    /* non-JSON body (e.g. Vercel's plain "Internal Server Error" on a crash) */
-  }
-  if (!res.ok || data?.error) {
-    // The 403 body nests the message ({error:{code,message}}); older/other
-    // failures still send error as a plain string — prefer the object's
-    // message when present.
-    const err = data?.error
-    const detail =
-      (typeof err === 'object' && err !== null ? err.message : err) ??
-      (raw ? raw.slice(0, 160) : res.statusText)
-    return { ok: false, message: `Error (${res.status}): ${detail}` }
-  }
-  return { ok: true, data: data ?? {} }
-}
+// Re-exported: the reader moved to src/lib/sync/read-sync-response.ts.
+export { readSyncResponse }
 
 type ConfigResponse = {
   username?: string
@@ -69,7 +36,17 @@ const SYNC_ERROR_COPY = {
  *  new one while its state lives on — so the form reloads per store and never
  *  carries the previous store's values. Every request (load · save · run)
  *  names this store explicitly; the server never acts on the cookie. */
-export function SyncSection({ storeId = null }: { storeId?: string | null } = {}) {
+/** `showAllStores` = the caller holds stores.viewAll; only then does the
+ *  all-stores list render above the form (⚖ store isolation law). */
+export function SyncSection({
+  storeId = null,
+  showAllStores = false,
+  selectStore,
+}: {
+  storeId?: string | null
+  showAllStores?: boolean
+  selectStore?: (storeId: string) => Promise<{ ok: true } | { error: string }>
+} = {}) {
   const t = useTranslations('settings')
   const tAuth = useTranslations('auth')
   const [username, setUsername] = useState('')
@@ -84,9 +61,9 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   // EVERY store with a save or run in flight ('' = no store shown), so a
   // request for one store never disables another store's form, and a store
   // whose own request is still pending stays marked after a switch away and
-  // back. The ref mirrors the set; each request removes only its own store.
-  const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set())
-  const inFlightRef = useRef<ReadonlySet<string>>(inFlight)
+  // back. The set is the page's one in-flight set (src/lib/sync/in-flight.ts),
+  // so it also survives leaving the tab; each request removes only its own store.
+  const inFlight = useSyncExternalStore(syncInFlight.subscribe, syncInFlight.snapshot, syncInFlight.snapshot)
   const [lastResult, setLastResult] = useState<{ text: string; error: boolean } | null>(null)
   // The store whose config is loaded (undefined = loading, or the load
   // failed). Save stays off until it is the shown store, so a blank or reset
@@ -99,6 +76,9 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   // still shown). A successful save bumps it too, so a load sent before the
   // save answered can never put the old login back (fix round 8, attack A-6).
   const loadGeneration = useRef(0)
+  // Bumped when a store's sync config changed through this form (a save that
+  // succeeded, a 今すぐ同期 that answered): the all-stores list reloads on it.
+  const [listGeneration, setListGeneration] = useState(0)
 
   useEffect(() => {
     // Reset BEFORE the load, and drop a late answer for a store no longer
@@ -163,20 +143,20 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
   }
 
   function beginSyncing(key: string) {
-    const next = new Set(inFlightRef.current)
-    next.add(key)
-    inFlightRef.current = next
-    setInFlight(next)
+    syncInFlight.claim(key)
   }
   // Removes only this request's store, never another store's (a store switch
   // does not cancel the old request; its late answer is dropped by the
   // shownStore guard).
   function endSyncing(key: string) {
-    if (!inFlightRef.current.has(key)) return
-    const next = new Set(inFlightRef.current)
-    next.delete(key)
-    inFlightRef.current = next
-    setInFlight(next)
+    syncInFlight.release(key)
+  }
+
+  // The all-stores list's row runs and すべての店舗を同期 share THIS set, so the
+  // form and the list never crawl one store twice at once: a claim is refused
+  // (false) while the store is already in flight here or in the list.
+  function claimSyncing(key: string) {
+    return syncInFlight.claim(key)
   }
 
   // Both actions capture the store at request time and ignore an answer that
@@ -201,6 +181,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         }),
       })
       const parsed = await readSyncResponse(res)
+      if (parsed.ok) setListGeneration((g) => g + 1)
       if (shownStore.current !== forStore) return
       if (parsed.ok) {
         // The saved values are now the store's row: any load sent before this
@@ -239,6 +220,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         body: JSON.stringify(storeId ? { storeId } : {}),
       })
       const parsed = await readSyncResponse(res)
+      setListGeneration((g) => g + 1)
       if (shownStore.current !== forStore) return
       if (!parsed.ok) {
         setLastResult({ text: failureLine(parsed.message), error: true })
@@ -277,6 +259,10 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         </p>
       </div>
 
+      {showAllStores && selectStore && (
+        <SyncAllStoresList selectStore={selectStore} inFlight={inFlight} beginSyncing={claimSyncing} endSyncing={endSyncing} listGeneration={listGeneration} />
+      )}
+
       <div>
         <label className="text-sm font-medium mb-1.5 block">
           {t('provider')}
@@ -308,6 +294,7 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            disabled={syncing}
             className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             placeholder={t('loginIdPlaceholder')}
           />
@@ -367,7 +354,8 @@ export function SyncSection({ storeId = null }: { storeId?: string | null } = {}
         <button
           type="button"
           onClick={() => setEnabled(!enabled)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          disabled={syncing}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
             enabled ? 'bg-primary' : 'bg-muted'
           }`}
         >

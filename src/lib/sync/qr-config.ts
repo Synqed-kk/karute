@@ -9,5 +9,10 @@ export async function qrConfigForStore(
   storeId: string,
 ): Promise<{ config: SyncConfig | null; configs: SyncConfig[] }> {
   const configs = await synqed.sync.listConfigs('QUICKRESERVE')
-  return { config: configs.find((c) => c.karute_store_id === storeId) ?? null, configs }
+  return { config: configForStore(configs, storeId), configs }
+}
+
+/** The one lookup of a store's row among the business's configs. */
+export function configForStore(configs: SyncConfig[], storeId: string): SyncConfig | null {
+  return configs.find((c) => c.karute_store_id === storeId) ?? null
 }
