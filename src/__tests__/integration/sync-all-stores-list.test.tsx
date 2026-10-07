@@ -688,9 +688,12 @@ describe('viewAll caller', () => {
       expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
       await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
       expect(inFlightNow().has(daikanyama)).toBe(true)
+      const readsBefore = configsCalls()
       await act(async () => { await jest.advanceTimersByTimeAsync(1) })
       expect(inFlightNow().has(daikanyama)).toBe(false)
       expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy()
+      // The list re-reads after the deadline too: the server may have finished the run.
+      expect(configsCalls()).toBe(readsBefore + 1)
       expect((screen.getByRole('button', { name: 'syncNow' }) as HTMLButtonElement).disabled).toBe(false)
     } finally {
       jest.useRealTimers()

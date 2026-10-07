@@ -215,7 +215,8 @@ export function SyncSection({
     beginSyncing(key)
     setLastResult({ text: t('syncing'), error: false })
     // A run that never answers fails at the deadline (the abort lands in the
-    // catch), and finally releases the claim.
+    // catch). finally releases the claim and re-reads the list whatever the
+    // outcome: the server may have finished the run even when we saw an error.
     const deadline = new AbortController()
     const timer = setTimeout(() => deadline.abort(), SYNC_RUN_DEADLINE_MS)
     try {
@@ -226,7 +227,6 @@ export function SyncSection({
         signal: deadline.signal,
       })
       const parsed = await readSyncResponse(res)
-      setListGeneration((g) => g + 1)
       if (shownStore.current !== forStore) return
       if (!parsed.ok) {
         setLastResult({ text: failureLine(parsed.message), error: true })
@@ -246,6 +246,7 @@ export function SyncSection({
     } finally {
       clearTimeout(timer)
       endSyncing(key)
+      setListGeneration((g) => g + 1)
     }
   }
 
