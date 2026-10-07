@@ -131,8 +131,11 @@ export function SyncAllStoresList({
     setNow(Date.now())
   }, [])
 
-  // On mount, and again whenever the form below changed a store's sync.
+  // On mount, and again whenever the form below changed a store's sync. A
+  // row's manual result is cleared then, so each row shows the server's
+  // latest status, not an outcome from before the form's change.
   useEffect(() => {
+    setRowResult({})
     void load()
   }, [load, listGeneration])
 

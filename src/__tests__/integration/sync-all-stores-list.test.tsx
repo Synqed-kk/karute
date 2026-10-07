@@ -609,4 +609,21 @@ describe('viewAll caller', () => {
     expect(screen.queryByText('旧代官山')).toBeNull()
     expect(screen.queryByText('somethingWentWrong')).toBeNull() // the stale read's failure is ignored
   })
+
+  it("a row's manual failure is cleared when the form saves or runs: after the reload the row shows the server state", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    const row = () => within(screen.getByTestId('sync-row-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'))
+    await act(async () => { fireEvent.click(row().getByText('runNow')) })
+    await act(async () => { runs[0].resolve(loginFail) })
+    await flush()
+    expect(row().getByText('reasonLoginFix')).toBeTruthy()
+    // the form's 今すぐ同期 answers: listGeneration bumps, the list reloads
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    expect(row().queryByText('reasonLoginFix')).toBeNull()
+    expect(row().getByText('stateHealthy')).toBeTruthy()
+  })
 })
