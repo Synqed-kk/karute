@@ -1,6 +1,6 @@
 // Reserve S66 (DESIGN-BUILD2 §1, §4, §9 R9) — the store's six booking rules as core holds them on its
 // per-store row (StoreBookingPolicy): core's ranges, core's defaults, the combination checks and the
-// fingerprint a save is based on. The writer (door-writes.ts) and the screen's limits and 初期値 labels
+// fingerprint a save is based on. The writer (door-reserve-policy.ts) and the screen's limits and 初期値 labels
 // all read this one file; nothing here is typed twice. Pure: no SDK, no core call.
 
 /** The six fields Business writes, in the order the screen shows them. */

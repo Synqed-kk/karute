@@ -465,7 +465,8 @@ export async function removeClosedDay(storeId: string, id: string): Promise<Remo
 /** How the next array is computed from core's FRESH array (read immediately before the write). */
 type SpecialPlan = (current: SpecialOpenDay[]) => { next: SpecialOpenDay[] } | { unchanged: true } | Refusal
 
-/** R1's own primitive and the ONE place `storePolicies.set` is invoked. ⚖ PKT-S30 F7 — admit ONCE
+/** R1's own primitive and the ONE place in THIS file `storePolicies.set` is invoked (the Reserve policy
+ *  writer has its own call site in door-reserve-policy.ts). ⚖ PKT-S30 F7 — admit ONCE
  *  (a wrapper passes its own admission in; a direct caller is admitted here) → ONE fresh `get` →
  *  compute next → ONE `set` with the FULL array, sorted. ⚖ PKT-S31 R7 — NOT exported: no caller
  *  outside this file ever sent a whole array, so the array form is gone; the add/remove wrappers
@@ -504,8 +505,8 @@ async function setSpecialOpenDays(storeId: string, plan: SpecialPlan, admitted: 
 }
 
 /** Add one entry: validation (R3) before anything, ONE admission, then `setSpecialOpenDays`'s own
- *  get → next → set (never a second call site of `storePolicies.set` — CP3's writers row is keyed
- *  to `setSpecialOpenDays` alone). */
+ *  get → next → set (never a second call site of `storePolicies.set` in this file — one writers row
+ *  per call site; the Reserve policy writer has its own in door-reserve-policy.ts). */
 export async function addSpecialOpenDay(storeId: string, input: { date: string; open: string; close: string }): Promise<SetSpecialOpenDaysResult> {
   if (practiceTenant() === null) return TENANT_REFUSAL
   const problem = validateDate(input.date) ?? validateSpecialTimes(input.open, input.close)
