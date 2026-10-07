@@ -1505,6 +1505,24 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(shown.closed).toBe(false)
     expect(shown.fits!).toBeLessThan(plain.fits!)
   })
+  it('S81 F4 (M12) — the shown day\'s OWN window is the wall an unassigned booking is clipped to: one outside the 臨時営業日\'s window (inside the weekday\'s) eats nothing', async () => {
+    const special = (spy: Spied) =>
+      spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-21', open: '10:00', close: '13:00' }] } : POLICIES[id]))
+    special(withReads())
+    const without = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    const spy = withReads()
+    special(spy)
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      const a = r.appointments.find((x) => x.id === APT.a14)
+      // 15:00–16:00 JST on 9/21, nobody's lane: inside the weekday's 10–19, outside the special 10–13
+      return a ? { ...r, appointments: [...r.appointments, { ...a, id: 'm12-unassigned', staff_id: null, starts_at: '2026-09-21T06:00:00Z', ends_at: '2026-09-21T07:00:00Z' }] } : r
+    })
+    const withIt = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    expect(without.fits!).toBeGreaterThan(0)
+    expect([withIt.closed, withIt.fits]).toEqual([false, without.fits])
+  })
   it('S81 F1 (N1) — one board render asks core each hours read once per lens (+ range): policy 1 · 臨時休業 2 · org 1; total ≤ 60', async () => {
     const spy = withReads()
     await boardOn(STORE.tokyo, 0)
