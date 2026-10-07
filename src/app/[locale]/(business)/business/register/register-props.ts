@@ -11,7 +11,8 @@
 // differently from the server, and it cannot be handed a number and asked to
 // decide what it means.
 
-import { jstDayKey } from '@/business/lib/clock'
+import { sampleWhole } from '@/business/lib/practice-door/sample-facade'
+import { jstSlot, jstDayKey } from '@/business/lib/clock'
 import {
   defaultStoreId,
   listAppointments,
@@ -19,16 +20,16 @@ import {
   listMenus,
   listStoreOptions,
   readDayPlanes,
+  readRegisterPlanes,
   readReservationPlanes,
   renderNow,
+  sampleDateline,
+  practiceDoorOn,
   type StoreLens,
   readShellIdentity,
 } from '@/business/lib/data'
 import {
-  cashTolerance,
-  closing as closingPlane,
   MAX_CASH_TOLERANCE,
-  transactions as transactionPlane,
   type FixtureClosing,
   type FixtureTransaction,
 } from '@/business/lib/fixtures-register'
@@ -54,9 +55,6 @@ import {
 import { settingsHref } from '@/business/lib/settings-link'
 import { hhmm, yen } from '@/business/lib/today-board'
 import { type RegisterProps, type RegisterRowProps } from './RegisterScreen'
-
-const JST = { timeZone: 'Asia/Tokyo' } as const
-const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
 
 /** ⚠ THE REFUSALS, IN ONE PLACE. Every write this room can see is refused, and
  *  each one says WHY in its own words — a single generic sentence on four
@@ -133,16 +131,19 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   // ONE CLOCK READ PER RENDER (the cycle-1 law): the day, the ledger's own day
   // filter and the closing checks all derive from this one instant, so a render
   // crossing JST midnight cannot put two different days on one screen.
+  const doorOn = await practiceDoorOn()
   const now = renderNow()
   const todayKey = jstDayKey(now)
 
   const [customers, appointments, menus, dayPlanes, reservationPlanes] = await Promise.all([
     listCustomers(lens),
-    listAppointments(lens),
+    listAppointments(lens, doorOn ? { from: jstSlot(0, 0, 0, now), to: new Date(Date.parse(jstSlot(1, 0, 0, now)) - 1).toISOString() } : {}),
     listMenus(lens),
     readDayPlanes(lens, todayKey),
     readReservationPlanes(lens),
   ])
+
+  const plane = await readRegisterPlanes(lens, appointments)
 
   // ⚖ 8/17 — the held list carries no store of its own, so it is clamped through
   // the bookings it names before anything on this page reads it.
@@ -156,11 +157,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   // storeless `{viewAll:true}` lens there is no drawer to count and no day to
   // close, so the room says so instead of merging two stores' closes into a
   // figure no shop could act on.
-  const closing = world?.closing ?? (clamped ? (closingPlane[storeId!] ?? null) : null)
+  const closing = world?.closing ?? plane.closing
   // ⚖ THE DIAL SHIPS WITH ITS GUARDRAIL, AND THE CLAMP IS AT THE READ — one
   // place, so the ceiling holds for the settings control, for this room's own
   // worlds, and for whatever writes the dial after reconnect.
-  const tolerance = resolveTolerance(world?.tolerance ?? cashTolerance, MAX_CASH_TOLERANCE)
+  const tolerance = resolveTolerance(world?.tolerance ?? plane.cashTolerance, MAX_CASH_TOLERANCE)
   // The operator is the DOOR's (readShellIdentity: the admitted person under the
   // practice switch, the fixture operator when it is off) — never the fixture read directly.
   const { operator } = await readShellIdentity()
@@ -173,7 +174,7 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   const redactMoney = (value: string) => (access.redactSummary ? REDACTED : value)
 
   const models = buildLedger({
-    transactions: world?.transactions ?? transactionPlane,
+    transactions: world?.transactions ?? plane.transactions,
     lensStoreId: clamped ? storeId! : null,
     appointments,
     customers,
@@ -380,7 +381,8 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   })
 
   const props: RegisterProps = {
-    dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+    dateline: sampleDateline(now, lensLabel, doorOn),
+    sample: sampleWhole(doorOn, clamped ? storeId : storeOptions.map((s) => s.id), 'registerLedger'),
     lensLabel,
     subtitle: '取引、決済手段、未収、返金、現金差異、閉店承認を同じ台帳で照合します。',
     permissionNotice: permissionNotice(access),

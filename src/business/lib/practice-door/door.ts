@@ -14,6 +14,7 @@
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
+import { inboxFor, registerFor } from './door-inbox-register'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
 import { BOARD_REACH_DAYS, closedDaysRange, resolveStoreHours, sampleHours, type HoursReads, type StoreHours, type Window } from './store-hours'
@@ -851,6 +852,34 @@ export async function readReservationPlanes(lens: StoreLens) {
     // terminal_held included (as readDayPlanes).
     register: { cash_difference: 0, refunds: 0, terminal_held: [] },
   }
+}
+
+/** Supplied rows are the page's one listAppointments read. Standalone readers
+ *  reuse the board's dayRows memo, without liveRowsOf's fail-open wrapper. */
+async function planeBookings(actor: PracticeActor, lens: StoreLens, reach: number, supplied?: FixtureAppointment[]) {
+  const now = renderNow()
+  const from = jstDayKey(now)
+  const rows = supplied ?? (await dayRows(actor, lens, { from, to: from + reach })).rows
+    .filter((r) => r.kind === 'BOOKING').map((r) => toAppointment(r, appointments(now), now))
+  return clamp(rows, lens).filter((r) => {
+    const day = jstDayKey(r.starts_at)
+    return day >= from && day <= from + reach
+  })
+}
+
+export async function readInboxPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  return inboxFor(await planeBookings(actor, lens, 7, rows))
+}
+
+export async function readRegisterPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
+  const actor = await practiceActor()
+  assertLensVisible(actor, lens)
+  const cutoff = Date.parse(jstSlot(0, 0, boardNow, renderNow()))
+  const ended = (await planeBookings(actor, lens, 0, rows)).filter((a) =>
+    a.status !== 'cancelled' && a.board_state !== 'noshow' && Date.parse(a.ends_at) < cutoff)
+  return registerFor(ended, lensStore(lens) ?? null)
 }
 
 export async function readAnalyticsPlanes(lens: StoreLens) {

@@ -55,6 +55,8 @@ import {
   staffMix,
 } from './fixtures-analytics'
 import { auditTrail, reservations } from './fixtures-reservations'
+import { threads } from './fixtures-inbox'
+import { transactions, closing, cashTolerance } from './fixtures-register'
 import { storeDials } from './fixtures-settings'
 import {
   absence,
@@ -83,6 +85,12 @@ export type StoreLens = string | { viewAll: true }
 /** THE render clock lives in ./clock (one memoised function shared with the
  *  practice door); re-exported so every room's import keeps working. */
 export { renderNow }
+
+/** One dateline for sample-backed rooms; analytics supplies its existing span body. */
+export function sampleDateline(now: Date, lensLabel: string, door: boolean, body?: string): string {
+  const day = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', timeZone: 'Asia/Tokyo' }).format(now)
+  return `${door ? '' : 'サンプルデータ '}${body ?? `${day} / ${lensLabel}`}`
+}
 
 const lensStoreId = (lens: StoreLens): string | undefined =>
   typeof lens === 'string' ? lens : undefined
@@ -627,6 +635,18 @@ export async function readReservationPlanes(lens: StoreLens) {
     // one question; `heldInLens` is the one reading, so both doors make it.
     register: { ...register, terminal_held: heldInLens(register.terminal_held, lens) },
   }
+}
+
+export async function readInboxPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
+  if (await doorOn()) return door.readInboxPlanes(lens, rows)
+  assertLens(lens)
+  return { threads }
+}
+
+export async function readRegisterPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
+  if (await doorOn()) return door.readRegisterPlanes(lens, rows)
+  assertLens(lens)
+  return { transactions, closing: typeof lens === 'string' ? (closing[lens] ?? null) : null, cashTolerance }
 }
 
 /** The 売上分析 planes (canon's footnote: every figure derives from the 売上・
