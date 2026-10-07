@@ -212,7 +212,7 @@ describe('(1) OWNER — viewAll', () => {
     expect([by(APT.a03).status, by(APT.a03).board_state]).toEqual(['booked', 'confirmed']) // SCHEDULED
     expect([by(APT.a05).status, by(APT.a05).board_state]).toEqual(['cancelled', null]) // CANCELLED
     expect([by(APT.a09).status, by(APT.a09).board_state]).toEqual(['booked', 'noshow']) // NO_SHOW
-    expect([by(APT.a13).status, by(APT.a13).board_state]).toEqual(['booked', 'confirmed']) // IN_PROGRESS
+    expect([by(APT.a13).status, by(APT.a13).board_state]).toEqual(['in_progress', 'confirmed']) // IN_PROGRESS — ⚖ S81 R1 carried, board_state as SCHEDULED
     expect(by(APT.a14).display_no).toBe('R-4814')
     expect(by(APT.a14).updated_minute).toBe(15 * 60 + 30)
     expect(by(APT.a01).updated_minute).toBeNull()
@@ -1692,6 +1692,45 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect(served && [weekdayOfKey(last), served.start, served.end >= 30]).toEqual([1, 0, true])
     const { props } = await reservationsProps({ locale: 'ja', store: STORE.tokyo })
     expect(props.rows.filter((r) => r.id === row.id).map((r) => ({ dayKey: r.dayKey, shiftWarning: r.shiftWarning }))).toEqual([{ dayKey: last, shiftWarning: null }])
+  })
+
+  // ⚖ S81 R3 — IN_PROGRESS is DATA, never a look: the same live row read as SCHEDULED and as IN_PROGRESS builds the
+  // SAME board (every card field, every total) — only the row's own `status` differs.
+  it('S81 R3 — identity: one live row as SCHEDULED and as IN_PROGRESS → the board is deep-equal except the row\'s status', async () => {
+    const boardWith = async (status: 'SCHEDULED' | 'IN_PROGRESS') => {
+      const spy = withReads()
+      const base = recordedReads().appointmentsList
+      spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+        const r = await base(q)
+        return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status } : a)) }
+      })
+      const appointments = await data.listAppointments(STORE.tokyo, {})
+      const input = {
+        appointments, customers: await data.listCustomers(STORE.tokyo), menus: await data.listMenus(STORE.tokyo), staff: await data.listStaff(STORE.tokyo),
+        resources: await data.listResources(STORE.tokyo), absence: null, blocks: [], sellSlots: [], decisions: [], dayKey: TODAY,
+      } as unknown as BuildInput
+      return { appointments, cards: dayBookings(input), totals: dayTotals(appointments.filter((a) => jstDayKey(a.starts_at) === TODAY), 0) }
+    }
+    const scheduled = await boardWith('SCHEDULED')
+    const live = await boardWith('IN_PROGRESS')
+    const row = (b: typeof live) => b.appointments.find((a) => a.id === APT.a14)!
+    expect([row(scheduled).status, row(live).status]).toEqual(['booked', 'in_progress'])
+    expect(live.cards.some((c) => c.id === APT.a14)).toBe(true) // the row IS on the board
+    const sansStatus = (b: typeof live) => b.appointments.map((a) => (a.id === APT.a14 ? { ...a, status: 'X' } : a))
+    expect(sansStatus(live)).toEqual(sansStatus(scheduled))
+    expect(live.cards).toEqual(scheduled.cards)
+    expect(live.totals).toEqual(scheduled.totals)
+  })
+
+  it('S81 R3 — an IN_PROGRESS row with no staff, through the door: carried as in_progress, staff_id null (the 担当未定 read-only sheet decides on staff alone)', async () => {
+    const spy = withReads()
+    const base = recordedReads().appointmentsList
+    spy.appointmentsList.mockImplementation(async (q?: Parameters<CoreReads['appointmentsList']>[0]) => {
+      const r = await base(q)
+      return { ...r, appointments: r.appointments.map((a) => (a.id === APT.a14 ? { ...a, status: 'IN_PROGRESS' as const, staff_id: null } : a)) }
+    })
+    const a = (await data.listAppointments(STORE.tokyo, {})).find((x) => x.id === APT.a14)!
+    expect([a.status, a.staff_id, a.board_state]).toEqual(['in_progress', null, 'confirmed'])
   })
 
   it('§v11 V11-8 — the door\'s drawn-row predicate IS the board\'s filter, status by status, through the door and dayBookings', async () => {

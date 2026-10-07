@@ -132,7 +132,8 @@ function toAppointment(row: CoreAppointment, fixtureRows: FixtureAppointment[], 
         ? ['cancelled', null]
         : row.status === 'NO_SHOW'
           ? ['booked', 'noshow']
-          : ['booked', twin?.board_state ?? 'confirmed'] // SCHEDULED | IN_PROGRESS
+          : // ⚖ S81 R1 — IN_PROGRESS is CARRIED as data; its board_state is exactly a SCHEDULED row's (the board paints it as 'booked').
+            [row.status === 'IN_PROGRESS' ? 'in_progress' : 'booked', twin?.board_state ?? 'confirmed'] // SCHEDULED | IN_PROGRESS
   return {
     id: row.id,
     store_id: row.store_id,
