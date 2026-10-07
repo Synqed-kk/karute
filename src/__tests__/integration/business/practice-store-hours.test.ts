@@ -27,7 +27,7 @@ const reads = (policy: Partial<NonNullable<HoursReads['policy']>>, o: Partial<Ho
 })
 const closedOn = (date: string) => ({ closed_days: [{ id: 'c', store_id: 's', date, reason: null }] }) as unknown as HoursReads['closedDays']
 const every = (open: string, close: string) => ({ mon: { open, close }, tue: { open, close }, wed: { open, close }, thu: { open, close }, fri: { open, close }, sat: { open, close }, sun: { open, close } })
-const at = (dayKey: number, h = reads({})) => resolveStoreHours(h, dayKey, NOW, sample(dayKey), 'store-x')
+const at = (dayKey: number, h = reads({})) => resolveStoreHours(h, { from: dayKey, to: dayKey }, NOW, sample, 'store-x')[0]
 
 describe('store-hours — the ONE resolver behind a practice store\'s 営業時間 (§v11 · S81)', () => {
   // The table is resolveDayHours's own output for these weekly_hours (the lane's equivalence-resolveDayHours.json, 9/27) —
@@ -40,7 +40,7 @@ describe('store-hours — the ONE resolver behind a practice store\'s 営業時�
       [STORE.yokohama]: week('sample'), [STORE.laEstro]: week('sample'), [STORE.devSalon]: week('sample'), [STORE.devGinza]: week('sample'),
     }
     for (const [id, days] of Object.entries(TABLE)) {
-      const h = resolveStoreHours({ policy: POLICIES[id] as HoursReads['policy'], closedDays: { closed_days: [] } as unknown as HoursReads['closedDays'], org: NO_ORG }, MON, NOW, sample(MON), id)
+      const h = resolveStoreHours({ policy: POLICIES[id] as HoursReads['policy'], closedDays: { closed_days: [] } as unknown as HoursReads['closedDays'], org: NO_ORG }, { from: MON, to: MON }, NOW, sample, id)[0]
       if (days[0] === 'sample') {
         expect({ id, h }).toEqual({ id, h: sample(MON) }) // R6 — no store week, no org blob: the sample set, exactly as before
         continue
@@ -96,5 +96,41 @@ describe('store-hours — the ONE resolver behind a practice store\'s 営業時�
     expect(usualPairOf([null, null, null, null, null, null, null])).toBeNull()
     expect([weekdayOfKey(MON), weekdayOfKey(MON - 1), weekdayOfKey(TUE)]).toEqual([1, 0, 2])
     expect(weekdayOfKey(jstDayKey(new Date('2026-09-13T15:30:00Z')))).toBe(1) // 00:30 JST Monday — the JST day, never the UTC one
+  })
+
+  // ⚖ S81 F1 (ATTACK B1/S1) — a RANGE resolves every day with THAT day's layers: each day its own key, closure and window.
+  it('F1 — a range: the 臨時営業日 on a 定休日 opens ITS day, the 臨時休業 closes ITS day, every other day keeps its weekday', () => {
+    const quiet = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const memo = {}
+      const h = reads(
+        { weekly_hours: { ...every('09:00', '20:00'), tue: null, mon: { open: '10:00', close: '25:00' } }, special_open_days: [{ date: '2026-09-15', open: '11:00', close: '15:00' }] },
+        { closedDays: closedOn('2026-09-17') },
+      )
+      const days = resolveStoreHours(h, { from: MON, to: MON + 8 }, NOW, sample, 'store-x', memo)
+      expect(days.map((d) => d.shownDayKey)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => MON + i))
+      expect(days.map((d) => d.shownDayClosed)).toEqual([null, null, null, 'closed_date', null, null, null, null, 'weekday'])
+      expect([days[1].operatingHours, days[2].operatingHours, days[8].closedWeekdays]).toEqual([{ open: 660, close: 900 }, { open: 540, close: 1200 }, [2]])
+      // N2 — one memo per store per request: a second range names the malformed Monday no second time
+      resolveStoreHours(h, { from: MON, to: MON }, NOW, sample, 'store-x', memo)
+      expect(quiet.mock.calls.filter((c) => String(c[0]).startsWith('[practice hours] malformed'))).toHaveLength(1)
+    } finally {
+      quiet.mockRestore()
+    }
+    expect(closedDaysRange(MON - 30, NOW, MON + 30)).toEqual({ from: '2026-08-15', to: '2026-10-15' })
+  })
+
+  // ⚖ S81 F4(d) (COLD NIT) — the week strip when the shown day is a Saturday and a Sunday: the strip is that day's own
+  // Sunday-first JST week, every index its own weekday.
+  it.each([['Saturday 9/19', MON + 5, 6], ['Sunday 9/20', MON + 6, 0]])('F4 — the week strip on a %s', (_l, dayKey, wd) => {
+    const wk = { sun: { open: '08:00', close: '12:00' }, mon: null, tue: { open: '09:00', close: '18:00' }, wed: null, thu: null, fri: null, sat: { open: '13:00', close: '17:00' } }
+    const h = at(dayKey, reads({ weekly_hours: wk }))
+    expect(weekdayOfKey(dayKey)).toBe(wd)
+    expect([h.weeklyHours, h.closedWeekdays, h.operatingHours, h.shownDayClosed]).toEqual([
+      [{ open: 480, close: 720 }, null, { open: 540, close: 1080 }, null, null, null, { open: 780, close: 1020 }],
+      [1, 3, 4, 5],
+      wd === 6 ? { open: 780, close: 1020 } : { open: 480, close: 720 },
+      null,
+    ])
   })
 })

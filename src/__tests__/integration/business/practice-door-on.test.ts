@@ -935,12 +935,16 @@ describe('⚖ A1b — カードの見た目 under ON: the colour comes from org 
 })
 
 describe('(12) PR-3 — 今日の運営 marks its SAMPLE planes under the door', () => {
-  it.each([['twin 東京', STORE.tokyo], ['Dev Salon (borrows 東京)', STORE.devSalon]])('%s: the board carries its marks; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store) => {
+  // ⚖ S81 F5 — 営業時間 is named only when the hours painted ARE the sample set: 東京's come from its own core week.
+  it.each([
+    ['twin 東京 (hours from core)', STORE.tokyo, ['シフトと休み', '販売可能枠']],
+    ['Dev Salon (borrows 東京; hours sample)', STORE.devSalon, ['シフトと休み', '販売可能枠', '営業時間']],
+  ])('%s: the board carries its marks; no 「お客様様」, no raw enum with a dangling 「/」', async (_label, store, labels) => {
     const TodayPage = (await import('@/app/[locale]/(business)/business/today/page')).default
     const el = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store }) })
     const props = (el as unknown as { props: Record<string, unknown> }).props
     // ⚖ §v3 — the grid head names its planes (D2 order); the decisions + 勤務不可 marks are whole.
-    expect(props.boardMark).toEqual({ form: 'part', labels: ['シフトと休み', '販売可能枠', '営業時間'] })
+    expect(props.boardMark).toEqual({ form: 'part', labels })
     expect(props.decisionsMark).toEqual({ form: 'whole' })
     expect(props.absenceMark).toEqual({ form: 'whole' })
     expect(props).not.toHaveProperty('marked')
@@ -1438,6 +1442,78 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     expect([day.shownDayClosed, day.operatingHours, day.closedWeekdays]).toEqual([null, { open: 660, close: 900 }, [2]])
     const b = await boardOn(STORE.tokyo, 1)
     expect([cell(b, 15), cell(b, 22), b.closedWeekdayLabel]).toEqual([false, true, '火曜'])
+  })
+
+  // ⚖ S81 F1/F2/F4 — the fold of the cold read + attack: every calendar day resolves through ITS OWN layers.
+  type Cell = { m: number; d: number; closed?: boolean; fits?: number }
+  const cellOf = (b: Awaited<ReturnType<typeof boardOn>>, d: number) => (b.calendar as Cell[]).find((c) => c.m === 9 && c.d === d)!
+  const notLive = async (store: string, dayKey: number, shifts: Array<{ staff_id: string }>) => {
+    const live = new Set((await data.listAppointments(store, {})).filter((a) => jstDayKey(a.starts_at) === dayKey).map((a) => a.staff_id))
+    return shifts.filter((x) => !live.has(x.staff_id))
+  }
+  it('S81 F1 (ATTACK B1) — a 臨時営業日 on a 定休日, shown ≠ today: the window is its own AND the calendar day seats staff (fits > 0, never 満)', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-15', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const day = await data.readDayPlanes(STORE.tokyo, TODAY + 1)
+    expect([day.shownDayClosed, day.operatingHours]).toEqual([null, { open: 660, close: 900 }])
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY - 7, to: TODAY + 7 })).get(TODAY + 1)!
+    expect(seated.length).toBeGreaterThan(0)
+    expect(seated.every((x) => x.start >= 660 && x.end <= 900)).toBe(true)
+    expect((await data.listClosedByDay(STORE.tokyo, { from: TODAY, to: TODAY + 8 })).get(TODAY + 1)).toBeNull()
+    for (const shownDay of [1, 0]) {
+      const c = cellOf(await boardOn(STORE.tokyo, shownDay), 15) // shown, and seen from today
+      expect([c.closed, c.fits! > 0]).toEqual([false, true])
+    }
+  })
+  it('S81 F1 (ATTACK S1) — a 臨時休業 TODAY seen from another day: today\'s cell is closed, nobody seated, the same answer as when shown', async () => {
+    const row = { id: 'c1', store_id: STORE.tokyo, date: '2026-09-14', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    withReads({ closedDays: { [STORE.tokyo]: [row] } })
+    expect((await data.listClosedByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)).toBe('closed_date')
+    const seated = (await data.listShiftsByDay(STORE.tokyo, { from: TODAY - 3, to: TODAY + 3 })).get(TODAY)!
+    expect(await notLive(STORE.tokyo, TODAY, seated)).toEqual([])
+    for (const shownDay of [2, 0]) {
+      const c = cellOf(await boardOn(STORE.tokyo, shownDay), 14)
+      expect([c.closed, c.fits]).toEqual([true, 0])
+    }
+  })
+  it('S81 F2 (ATTACK S2) — a no-week store (sample hours): the day\'s REAL 臨時休業 seats nobody; its REAL 臨時営業日 clips the sample shifts to its window', async () => {
+    const row = { id: 'c2', store_id: STORE.yokohama, date: '2026-09-16', reason: null, created_by: null, created_at: '2026-09-01T00:00:00Z' }
+    const spy = withReads({ closedDays: { [STORE.yokohama]: [row] } })
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.yokohama ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-17', open: '11:00', close: '15:00' }] } : POLICIES[id]))
+    const closed = await data.readDayPlanes(STORE.yokohama, TODAY + 2)
+    expect([hoursSource(closed), closed.shownDayClosed]).toEqual(['sample', 'closed_date'])
+    expect(await notLive(STORE.yokohama, TODAY + 2, closed.shifts)).toEqual([])
+    const special = await data.readDayPlanes(STORE.yokohama, TODAY + 3)
+    expect([hoursSource(special), special.shownDayClosed, special.operatingHours]).toEqual(['sample', null, { open: 660, close: 900 }])
+    expect(special.shifts.length).toBeGreaterThan(0)
+    expect(special.shifts.every((x) => x.start >= 660 && x.end <= 900)).toBe(true)
+    // a plain sample day keeps the sample fiction, unclipped (as before)
+    const plain = await data.readDayPlanes(STORE.yokohama, TODAY + 4)
+    expect(plain.shifts.some((x) => x.start < 660 || x.end > 900)).toBe(true)
+  })
+  it('S81 F4 (M21) — the door asks core for the SHOWN day\'s 臨時休業 rows (to exclusive), never today\'s', async () => {
+    const spy = withReads()
+    await data.readDayPlanes(STORE.tokyo, TODAY + 3)
+    expect(spy.storePolicyListClosedDays).toHaveBeenCalledWith(STORE.tokyo, { from: '2026-09-17', to: '2026-09-18' })
+    expect(spy.storePolicyListClosedDays).not.toHaveBeenCalledWith(STORE.tokyo, { from: '2026-09-14', to: '2026-09-15' })
+  })
+  it('S81 F4 (M12) — a 臨時営業日 on an OPEN weekday, shown: the cell counts in ITS window, not the weekday\'s', async () => {
+    const spy = withReads()
+    spy.storePolicyGet.mockImplementation(async (id: string) => (id === STORE.tokyo ? { ...POLICIES[id], special_open_days: [{ date: '2026-09-21', open: '10:00', close: '11:00' }] } : POLICIES[id]))
+    const shown = cellOf(await boardOn(STORE.tokyo, 7), 21)
+    const plain = cellOf(await boardOn(STORE.tokyo, 7), 28)
+    expect(shown.closed).toBe(false)
+    expect(shown.fits!).toBeLessThan(plain.fits!)
+  })
+  it('S81 F1 (N1) — one board render asks core each hours read once per lens (+ range): policy 1 · 臨時休業 2 · org 1; total ≤ 60', async () => {
+    const spy = withReads()
+    await boardOn(STORE.tokyo, 0)
+    const n = (k: keyof Spied) => spy[k].mock.calls.length
+    const total = (Object.keys(spy) as Array<keyof Spied>).reduce((a, k) => a + n(k), 0)
+    // BEFORE S81 (base 1154b3aec, the attacker's count): 60 = policy 3 · org 1 · 56 others. The hours reads are now 4 (were 7);
+    // the 59 others = the 56 + the new listClosedByDay reader's own practiceActor() admission reads, which React's cache()
+    // dedupes in a real request and this harness does not.
+    expect({ policy: n('storePolicyGet'), closed: n('storePolicyListClosedDays'), org: n('orgSettingsGet'), total }).toEqual({ policy: 1, closed: 2, org: 1, total: 63 })
   })
 
   it('§v11 V11-7 — the month calendar counts each day in its OWN window: Thursday (11–22) and Monday (10–19) fit different numbers of courses', async () => {
