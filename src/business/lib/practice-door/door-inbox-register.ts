@@ -53,11 +53,13 @@ export function inboxFor(bookings: FixtureAppointment[]): { threads: FixtureThre
     const audit = twin === null ? [] : (auditTrail[twin] ?? [])
     return [{
       ...template, id: `smp-thr-${booking.id}`, appointment_id: booking.id, customer_id: booking.customer_id,
-      delivery_state: decision ? null : template.delivery_state,
+      // The 'delivery' template IS a failed 予約確認SMS (未達 / 不達), so without a card its plane says so and 配信失敗 counts it.
+      delivery_state: decision ? null : template.category === 'delivery' ? 'undelivered' : template.delivery_state,
       delivery_detail: decision ? null : template.delivery_detail,
       // A templated seat never carries the fixture's own source proof (its names belong to the fixture world).
       source_proof: !own || decision || exception ? null : template.source_proof,
-      due: exception ? null : template.due,
+      // A seated reply is wanted before the customer arrives: with no template deadline, the deadline is the booking's own start.
+      due: exception ? null : (template.due ?? jstMinuteOfDay(booking.starts_at)),
       events: template.events.filter((event) => !audit.some((row) => row.every((s, i) => s === event[i]))),
     }]
   })
