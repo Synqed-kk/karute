@@ -608,6 +608,103 @@ it('⚖ S26 Round E (E4) — MOUNTED: at the scroll limit one zero-move frame en
   }
 })
 
+/** ⚖ S26 Round F — the track gets a width (jsdom's is 0, which `deltaPctIn` reads as "no travel") and the card's own
+ *  lane a height (so the lane hunt answers at clientY 10 and the ghost draws); the drop ghost's --x is the span the
+ *  drag frame computed. */
+function trackWide(width: number, lane: Element) {
+  const inner = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this.classList.contains('track')) return { left: 0, right: width, top: 0, bottom: 0, width, height: 0, x: 0, y: 0 } as DOMRect
+    if (this === lane) return { left: 0, right: 952, top: 0, bottom: 72, width: 952, height: 72, x: 0, y: 0 } as DOMRect
+    return inner.call(this)
+  }
+}
+async function mountRigged(limit: number | null) {
+  const r = rig(limit)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+  await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+  r.box.at = 0
+  const el = host.querySelector<HTMLElement>('.timeline-scroll')!
+  const card = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+  trackWide(600, card.closest('.lane')!)
+  const ghostX = () => { const g = host.querySelector<HTMLElement>('.drop-ghost'); return g ? parseFloat(g.style.getPropertyValue('--x')) : NaN }
+  const scrollTo = (v: number) => { r.box.at = v; act(() => { el.dispatchEvent(new Event('scroll')) }) }
+  const frame = () => act(() => { jest.advanceTimersByTime(16) })
+  const done = () => { act(() => root.unmount()); host.remove(); r.restore() }
+  return { ...r, host, card, ghostX, scrollTo, frame, done }
+}
+
+it('⚖ S26 Round F (Greptile P1) — MOUNTED: a MANUAL sideways scroll during a card drag (scrollLeft +60, one scroll event, one frame) moves the drag frame\'s span exactly as carrying the pointer 60 px further would', async () => {
+  const m = await mountRigged(null)
+  try {
+    act(() => { m.card.dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 520, 1)) })
+    m.frame()
+    const before = m.ghostX()
+    m.scrollTo(60) // trackpad / shift-wheel / scrollbar: no pointer move, no edge loop
+    m.frame()
+    const scrolled = m.ghostX()
+    m.scrollTo(0) // the control, same gesture: no scroll, the pointer carried the same 60 px instead
+    act(() => { window.dispatchEvent(m.ev('pointermove', 580, 1)) })
+    m.frame()
+    const carried = m.ghostX()
+    expect([Number.isFinite(before), scrolled !== before, scrolled]).toEqual([true, true, carried])
+    act(() => { window.dispatchEvent(m.ev('pointercancel', 580, 0)) })
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ S26 Round F (Greptile P1) — MOUNTED: the RELEASE after a manual scroll lands where the frame showed (the drop span includes the +60)', async () => {
+  const m = await mountRigged(null)
+  try {
+    const id = m.card.getAttribute('data-book')!
+    const at = () => parseFloat(m.host.querySelector<HTMLElement>(`.lane .track .event[data-book="${id}"]:not(.drag-proxy)`)!.style.getPropertyValue('--x'))
+    const home = at()
+    act(() => { m.card.dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 520, 1)) })
+    m.frame()
+    const unscrolled = m.ghostX()
+    m.scrollTo(60)
+    m.frame()
+    const shown = m.ghostX()
+    act(() => { window.dispatchEvent(m.ev('pointerup', 520, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    expect([shown !== unscrolled, at() !== home, at()]).toEqual([true, true, shown])
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ S26 Round F (Greptile P1) — MOUNTED: the edge loop and the scroll listener do not double-count — after 3 edge frames (each followed by the browser\'s scroll event) the span equals a plain 3 × DRAG_EDGE_STEP_PX carry, not 2×', async () => {
+  const m = await mountRigged(null)
+  try {
+    act(() => { m.card.dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 940, 1)) }) // the right edge zone
+    for (let i = 0; i < 3; i++) {
+      m.frame()
+      act(() => { m.host.querySelector('.timeline-scroll')!.dispatchEvent(new Event('scroll')) }) // what the browser fires after each step
+    }
+    const edged = m.box.at
+    act(() => { window.dispatchEvent(m.ev('pointermove', 500, 1)) }) // back where it started: dx is the scrolled distance alone
+    m.frame()
+    const viaEdge = m.ghostX()
+    m.scrollTo(0)
+    act(() => { window.dispatchEvent(m.ev('pointermove', 500 + 3 * DRAG_EDGE_STEP_PX, 1)) })
+    m.frame()
+    const once = m.ghostX()
+    act(() => { window.dispatchEvent(m.ev('pointermove', 500 + 6 * DRAG_EDGE_STEP_PX, 1)) })
+    m.frame()
+    const twice = m.ghostX()
+    expect([edged, viaEdge, viaEdge !== twice]).toEqual([3 * DRAG_EDGE_STEP_PX, once, true])
+    act(() => { window.dispatchEvent(m.ev('pointercancel', 500, 0)) })
+  } finally {
+    m.done()
+  }
+})
+
 it('⚖ S26 Round E3b — MOUNTED 10:00–21:30 (テスト自由が丘店, its recorded policy widened to 21:30 for this test only): ruler 「10」…「20」 + the edge 「21:30」, no 「21」 column, gridlines on the whole 11.5-hour span', async () => {
   const saved = POLICIES[STORE.jiyugaoka].weekly_hours
   const day = { open: '10:00', close: '21:30' }

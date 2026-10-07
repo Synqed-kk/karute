@@ -888,7 +888,12 @@ interface DragCtx {
   /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL runs on the board's ONE loop (`edgeStart` / `edgeAim` /
    *  `edgeStop`, `edgeRef`). `scrolled` is how far the box moved under the held card: it is added to the pointer's
    *  travel, so the card stays under the pointer and the drop lands where it shows. `at` = the last pointer position,
-   *  re-applied each scrolled frame while the pointer rests in the zone. */
+   *  re-applied each scrolled frame while the pointer rests in the zone.
+   *  ⚖ S26 Round F (Greptile P1) — `scrolled` is DERIVED, never accumulated: `box.scrollLeft − scrollLeft0` (the
+   *  `.timeline-scroll` box and its scrollLeft at pickup, kept even when the track does not overflow), so the edge
+   *  loop and a manual sideways scroll (trackpad, shift-wheel, scrollbar) are one source and cannot double-count. */
+  box: HTMLElement | null
+  scrollLeft0: number
   scrolled: number
   at: { clientX: number; clientY: number } | null
   moved: boolean
@@ -980,7 +985,10 @@ interface BlockDragCtx {
   grab: { dx: number; dy: number; w: number; h: number }
   pending: { clientX: number; clientY: number } | null
   frame: number | null
-  /** ⚖ Liam S25-17 (2) — the block drag rides the same edge loop; the card's `scrolled` / `at`, same meaning. */
+  /** ⚖ Liam S25-17 (2) — the block drag rides the same edge loop; the card's `box` / `scrollLeft0` / `scrolled` /
+   *  `at`, same meaning (S26 Round F: `scrolled` derived from the box, never accumulated). */
+  box: HTMLElement | null
+  scrollLeft0: number
   scrolled: number
   at: { clientX: number; clientY: number } | null
   detach: () => void
@@ -5669,7 +5677,37 @@ export function TodayScreen(props: TodayProps) {
   }
   useEffect(() => () => edgeStop(), [])
 
-  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'scrolled' | 'at'>) {
+  /** ⚖ S26 Round F (Greptile P1) — ONE SOURCE for how far the board scrolled under a held card or block: the box's
+   *  scrollLeft now minus at pickup. Read by the edge loop's step, by a `scroll` listener on the box (a manual
+   *  sideways scroll mid-drag; reading scrollLeft inside a scroll handler forces no layout, and the re-apply rides the
+   *  gesture's own `frame` rAF so a scroll burst coalesces), and by the release. The shelf chip needs none of this: its
+   *  landing reads the track's LIVE rect at the pointer (`fractionIn`), which already moves with any scroll. */
+  function scrolledNow(c: Pick<DragCtx, 'box' | 'scrollLeft0'>) {
+    return c.box ? c.box.scrollLeft - c.scrollLeft0 : 0
+  }
+  function followScroll(track: Element, current: () => DragCtx | BlockDragCtx | null, apply: () => void) {
+    const box = track.closest<HTMLElement>('.timeline-scroll')
+    edgeStart(track, () => {
+      const c = current()
+      if (!c) return
+      c.scrolled = scrolledNow(c)
+      c.pending = c.at
+      apply()
+    })
+    const onScroll = () => {
+      const c = current()
+      if (!c) return
+      const scrolled = scrolledNow(c)
+      if (scrolled === c.scrolled) return // the edge loop's own step already applied this distance
+      c.scrolled = scrolled
+      c.pending = c.at
+      if (c.frame == null) c.frame = requestAnimationFrame(() => { c.frame = null; apply() })
+    }
+    box?.addEventListener('scroll', onScroll, { passive: true })
+    return { box, scrollLeft0: box?.scrollLeft ?? 0, unfollow: () => box?.removeEventListener('scroll', onScroll) }
+  }
+
+  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'box' | 'scrollLeft0' | 'scrolled' | 'at'>) {
     // ⚖ LIVE-WHILE-DRAGGING §3.6 — THE GESTURE'S MEMO IS OPENED HERE, eagerly,
     // because this is the one place that knows the gesture's mode, group and id;
     // a lazy creation would put that decision at a call site instead of at the
@@ -5701,13 +5739,8 @@ export function TodayScreen(props: TodayProps) {
       })
     }
     // ⚖ S25-15 (4) — the board's one edge loop; each scrolled frame re-applies the last pointer position.
-    edgeStart(ctx.track, (moved) => {
-      const c = dragRef.current
-      if (!c) return
-      c.scrolled += moved
-      c.pending = c.at
-      applyDragFrame()
-    })
+    // ⚖ S26 Round F — and a manual sideways scroll does the same (`followScroll`: one derived distance).
+    const follow = followScroll(ctx.track, () => dragRef.current, applyDragFrame)
     const onMove = (e: PointerEvent) => {
       const c = dragRef.current
       if (!c) return
@@ -5755,11 +5788,14 @@ export function TodayScreen(props: TodayProps) {
       ...ctx,
       pending: null,
       frame: null,
+      box: follow.box,
+      scrollLeft0: follow.scrollLeft0,
       scrolled: 0,
       at: null,
       detach: () => {
         // ⚖ S25-15 (4) — every ending (up, cancel, blur, the self-heal, unmount) detaches: the edge loop stops here.
         edgeStop()
+        follow.unfollow()
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
         window.removeEventListener('pointercancel', onCancel)
@@ -6048,7 +6084,7 @@ export function TodayScreen(props: TodayProps) {
     openClickWindow(upAt, ctx.nodes[0] ?? null)
     // canon (:4567): the release position is authoritative — recompute once more
     // rather than trusting the last move Chrome delivered.
-    const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX + ctx.scrolled, STEP)
+    const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX + scrolledNow(ctx), STEP) // ⚖ S26 Round F: derived
     if (ctx.origin.mode === 'move' && isOverShelf(shelfRef.current, clientY)) {
       clearDrag()
       restoreSides(ctx.id, from)
@@ -6544,15 +6580,10 @@ export function TodayScreen(props: TodayProps) {
    *  canon binds both through one `bindBlock` (:4276) so a box can never end up
    *  movable but unopenable. `suppressClickUntil` keeps the release's synthetic
    *  click out of it, exactly as the cards already do. */
-  function beginBlockDrag(ctx: Omit<BlockDragCtx, 'detach' | 'pending' | 'frame' | 'scrolled' | 'at'>) {
+  function beginBlockDrag(ctx: Omit<BlockDragCtx, 'detach' | 'pending' | 'frame' | 'box' | 'scrollLeft0' | 'scrolled' | 'at'>) {
     // ⚖ Liam S25-17 (2) — the same edge loop as the card's, the same re-apply of the last pointer position.
-    edgeStart(ctx.track, (moved) => {
-      const c = blockDragRef.current
-      if (!c) return
-      c.scrolled += moved
-      c.pending = c.at
-      applyBlockFrame()
-    })
+    // ⚖ S26 Round F — and the same manual-scroll follow (`followScroll`).
+    const follow = followScroll(ctx.track, () => blockDragRef.current, applyBlockFrame)
     const onMove = (e: PointerEvent) => {
       const c = blockDragRef.current
       if (!c) return
@@ -6588,10 +6619,13 @@ export function TodayScreen(props: TodayProps) {
       ...ctx,
       pending: null,
       frame: null,
+      box: follow.box,
+      scrollLeft0: follow.scrollLeft0,
       scrolled: 0,
       at: null,
       detach: () => {
         edgeStop() // ⚖ Liam S25-17 (2) — every ending of a block drag stops the edge loop too.
+        follow.unfollow()
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
         window.removeEventListener('pointercancel', onCancel)
@@ -6680,7 +6714,7 @@ export function TodayScreen(props: TodayProps) {
     // Read off the event's own clock, the same monotonic origin the board's
     // click checks use — nothing in this component reads the wall clock.
     openClickWindow(e.timeStamp, ctx.node)
-    const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX + ctx.scrolled, BLOCK_STEP) // ⚖ S25-17 (2)
+    const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX + scrolledNow(ctx), BLOCK_STEP) // ⚖ S25-17 (2), S26 Round F
     let targetLane = ctx.targetLane
     if (ctx.origin.mode === 'move') {
       const laneKey = laneKeyAtY(boardRef.current, null, e.clientY)
@@ -7147,6 +7181,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ Liam S25-17 (2) — the board's one edge loop. The chip's landing is read off the track's LIVE rect at the
     // pointer (`fractionIn`), which moves with the scroll, so nothing is added to it; each scrolled frame only
     // repaints the verdict under the resting pointer.
+    // ⚖ S26 Round F — no `followScroll` here: a manual scroll moves that live rect too, so the drop already includes it.
     edgeStart(scrollRef.current, () => {
       const c = chipDragRef.current
       const chip = c ? parkChips.find((p) => p.id === c.id) : undefined
