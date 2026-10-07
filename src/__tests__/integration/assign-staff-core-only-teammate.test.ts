@@ -25,6 +25,11 @@ jest.mock('next/cache', () => ({
   revalidateTag: jest.fn(),
   updateTag: jest.fn(),
 }))
+// The REAL ja dictionary behind coreFailureLine's getTranslations (lazy import).
+jest.mock('next-intl/server', () => {
+  const ja = jest.requireActual<Record<string, Record<string, unknown>>>('../../../messages/ja.json')
+  return { getTranslations: jest.fn(async (ns: string) => (key: string) => ja[ns]?.[key]) }
+})
 jest.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: 'auth-user-1' } }, error: null }) },
@@ -130,6 +135,11 @@ jest.mock('@/lib/synqed/client', () => ({
 import { POST as assignPOST } from '@/app/api/app/v1/appointments/[id]/assign-staff/route'
 import { assignAppointmentStaff } from '@/actions/appointments'
 import { STAFF_NOT_ELIGIBLE } from '@/lib/appointments/mutations'
+import ja from '../../../messages/ja.json'
+
+const FAILURE_LINE: string = ja.common.somethingWentWrong
+/** The PostgREST error the profiles read returns — its detail must never leave the server. */
+const PROFILES_OUTAGE = { message: 'canceling statement due to statement timeout', code: '57014' }
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -211,23 +221,29 @@ describe('P1 — an id the doors cannot resolve is refused', () => {
   })
 })
 
-// ⚖ Greptile pass 1 P2 — a profiles outage is the facade's generic 5xx, never
-// the 400 an ineligible staff gets; a read that succeeded with no row stays 400.
+// ⚖ Greptile pass 1 P2 — a profiles outage is upstream_unavailable (fix round 6
+// F2): the facade's 502 with no detail, the web action's localized failure line;
+// never the 400 an ineligible staff gets. A read that succeeded with no row stays 400.
 describe('P2 — a profiles read failure is an outage, not bad input', () => {
-  it('facade: profiles read error → 5xx (not 400 STAFF_NOT_ELIGIBLE), nothing written or created', async () => {
-    profilesResult = { data: null, error: { message: 'profiles read failed', code: '57014' } }
+  it('facade: profiles read error → 502 upstream_unavailable, no leak of the cause, nothing written or created', async () => {
+    profilesResult = { data: null, error: PROFILES_OUTAGE }
     const res = await post('profile-unlinked')
-    expect(res.status).toBeGreaterThanOrEqual(500)
-    expect(JSON.stringify(await res.json())).not.toContain(STAFF_NOT_ELIGIBLE)
+    expect(res.status).toBe(502)
+    const body = JSON.stringify(await res.json())
+    expect(body).toContain('upstream_unavailable')
+    expect(body).not.toContain(STAFF_NOT_ELIGIBLE)
+    expect(body).not.toContain(PROFILES_OUTAGE.message)
+    expect(body).not.toContain(PROFILES_OUTAGE.code)
     expect(apptUpdate).not.toHaveBeenCalled()
     expect(staffCreate).not.toHaveBeenCalled()
   })
 
-  it('web action: profiles read error → the generic failure, never STAFF_NOT_ELIGIBLE, nothing written', async () => {
-    profilesResult = { data: null, error: { message: 'profiles read failed', code: '57014' } }
+  it('web action: profiles read error → the localized failure line, never "Unknown error" or STAFF_NOT_ELIGIBLE, nothing written', async () => {
+    profilesResult = { data: null, error: PROFILES_OUTAGE }
     const result = await assignAppointmentStaff('appt-1', 'profile-unlinked')
-    expect(result).toHaveProperty('error')
-    expect(result).not.toEqual({ error: STAFF_NOT_ELIGIBLE })
+    expect(FAILURE_LINE).toBeTruthy()
+    expect(result).toEqual({ error: FAILURE_LINE })
+    expect(result).not.toEqual({ error: 'Unknown error' })
     expect(apptUpdate).not.toHaveBeenCalled()
   })
 

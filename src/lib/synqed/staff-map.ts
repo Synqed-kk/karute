@@ -1,6 +1,7 @@
 import { unstable_cache, updateTag } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
+import { AppApiError } from '@/lib/app-api/errors'
 import { createServiceClient } from '@/lib/supabase/service'
 
 // profiles.id → synqed staff.id. synqed-core's appointments.staff_id FKs to
@@ -127,9 +128,11 @@ export async function lookupSynqedStaffIdForBusiness(
     .eq('id', staffProfileId)
     .eq('customer_id', businessId)
     .maybeSingle()
-  // A failed read is an outage, never "no such profile": thrown as-is, so no
-  // caller reads it as the caller's bad input (Greptile pass 1 P2, B2 #1143).
-  if (error) throw error
+  // A failed read is an outage, never "no such profile": typed upstream_unavailable
+  // (the house pattern, src/lib/staff.ts staffListCore) so the facade answers 502
+  // and a web action the localized failure line; the detail rides `cause` only
+  // (Greptile pass 1 P2, B2 #1143; fix round 6 F2).
+  if (error) throw new AppApiError('upstream_unavailable', 'profiles read failed', undefined, error)
   const profileEmail = (
     profile as { email?: string | null } | null
   )?.email?.toLowerCase()
@@ -329,8 +332,9 @@ export async function resolveSynqedStaffIdForBusiness(
     .maybeSingle()
   // An outage is thrown BEFORE the null check: only a read that succeeded and
   // found nothing is StaffProfileNotFoundError (the facade's 400). Every other
-  // failure stays the door's generic 5xx / failure line (Greptile pass 1 P2).
-  if (error) throw error
+  // failure is upstream_unavailable: the facade's 502, the web failure line
+  // (Greptile pass 1 P2; fix round 6 F2 — typed, as in the email read above).
+  if (error) throw new AppApiError('upstream_unavailable', 'profiles read failed', undefined, error)
   const typedProfile = profile as
     | { full_name?: string | null; email?: string | null }
     | null

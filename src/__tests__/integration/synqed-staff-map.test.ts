@@ -11,6 +11,8 @@
  * jest.isolateModulesAsync so unstable_cache memoization can't bleed
  * between scenarios. SYNQED_CORE_* env is set so the SynqedClient path runs.
  */
+// The module is re-imported in isolation per case, so AppApiError is matched by
+// its class name, not instanceof (a fresh class per isolated registry).
 const BIZ = 'biz-1'
 
 interface SynqedStaff {
@@ -636,13 +638,16 @@ describe('resolveSynqedStaffIdForBusiness — a core-only teammate the picker of
 // "no such profile": both reads (the email fallback and create-on-miss) throw
 // the read's error before their null check.
 describe('profiles read failure — an outage, never StaffProfileNotFoundError', () => {
-  it('lookupSynqedStaffIdForBusiness rejects with the read error (never resolves null)', async () => {
+  it('lookupSynqedStaffIdForBusiness rejects upstream_unavailable carrying the read error (never resolves null)', async () => {
     mockDeps({ staff: [{ id: 'staff-A', user_id: 'other', email: 'a@x.com' }], profileReadFails: true })
     const lookup = await loadLookupForBusinessFn()
-    await expect(lookup('profile-1', BIZ)).rejects.toEqual({ message: 'profiles read failed' })
+    const err = await lookup('profile-1', BIZ).then(() => null, (e: unknown) => e)
+    expect((err as Error).constructor.name).toBe('AppApiError')
+    expect(err).toMatchObject({ code: 'upstream_unavailable', message: 'profiles read failed' })
+    expect((err as Error).cause).toEqual({ message: 'profiles read failed' })
   })
 
-  it('both resolvers reject with the read error, not StaffProfileNotFoundError; nothing created', async () => {
+  it('both resolvers reject upstream_unavailable, not StaffProfileNotFoundError; nothing created', async () => {
     mockDeps({ staff: [{ id: 'staff-A', user_id: 'other', email: 'a@x.com' }], profileReadFails: true })
     let mod!: typeof import('@/lib/synqed/staff-map')
     await jest.isolateModulesAsync(async () => {
@@ -650,7 +655,8 @@ describe('profiles read failure — an outage, never StaffProfileNotFoundError',
     })
     for (const run of [() => mod.resolveSynqedStaffId('profile-1'), () => mod.resolveSynqedStaffIdForBusiness('profile-1', BIZ)]) {
       const err = await run().then(() => null, (e: unknown) => e)
-      expect(err).toEqual({ message: 'profiles read failed' })
+      expect((err as Error).constructor.name).toBe('AppApiError')
+      expect(err).toMatchObject({ code: 'upstream_unavailable', message: 'profiles read failed' })
       expect(err).not.toBeInstanceOf(mod.StaffProfileNotFoundError)
     }
     expect(staffCreate).not.toHaveBeenCalled()
