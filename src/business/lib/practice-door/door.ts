@@ -263,8 +263,8 @@ async function rosterOrderOf(actor: PracticeActor, lens: StoreLens): Promise<Ros
   const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   return Promise.all((typeof lens === 'string' ? [lens] : visibleIds(actor)).map(async (store) => ({
     store,
-    // ⚖ R9 — each seat's live name, for the borrowed free text
-    roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => ({ id: row.id, name: row.name })).sort(byId),
+    // ⚖ R9 — each seat's live name, for the borrowed free text; ⚖ S87 ruling (a) — and its core role, off the SAME row (no extra read)
+    roster: rows.filter((row) => worksAt(assignments[row.id], store)).map((row) => ({ id: row.id, name: row.name, role: row.role })).sort(byId),
     // ⚖ R8' — a borrower's own active rooms: the read listResources makes, once per store; an exact twin: none read (V9-3)
     rooms: borrows(store) ? (await actor.reads.resourcesList({ store_id: store, active: true })).resources.map((r) => ({ id: r.id, name: r.name })).sort(byId) : [],
   })))
@@ -661,8 +661,9 @@ function servedDay(seats: RosterSeats[], rows: CoreAppointment[], hours: StoreHo
   const policy = seats.length === 1 ? samplePolicyFor(seats[0].store) : null
   const type = policy?.kind === 'twin' ? policy.type : undefined
   const names = seats.flatMap((s) => s.roster.map((p) => p.name))
+  const roles = seats.flatMap((s) => s.roster.map((p) => p.role)) // ⚖ S87 ruling (a): parallel to `roster`, as `names`
   const prices = type ? SAMPLE_SLOT_PRICES[type] ?? null : null // ⚖ R16: the store's own menu prices, never the 整体 fixture's
-  const result = serveDay({ ...seated, type, names, prices, pin: boardNow, fixtureTwin: seats.length === 1 && !borrows(seats[0].store), roster, rows: live, carried, taken: slots, hours, sample, dayKey,
+  const result = serveDay({ ...seated, type, names, roles, prices, pin: boardNow, fixtureTwin: seats.length === 1 && !borrows(seats[0].store), roster, rows: live, carried, taken: slots, hours, sample, dayKey,
     sellSlots: slots, slotTemplates: rekeyRows(sellSlots, seats, 'attribute'), roomsBusy: busy })
   const ids = new Set(result.sellSlots?.map((s) => s.id))
   return { ...result, sellSlots: result.sellSlots ?? slots, decisions: served.filter((d) => d.sell_slot_id === null || ids.has(d.sell_slot_id)) }

@@ -88,7 +88,7 @@ export function sidesOf(names: readonly string[], pair: Window): Map<string, Spa
 
 /** One generator for all practice trades: shifts by the side rule (sidesOf), staggered breaks, one absence (two people
  *  on), and the store's two 販売可能枠 AFTER the pinned board minute (as the fixture's 16:00 / 17:30) at the store's own prices. */
-export function shiftDay(type: string, people: ReadonlyArray<{ id: string; name: string }>, pair: Window, absence: FixtureAbsence | null,
+export function shiftDay(type: string, people: ReadonlyArray<{ id: string; name: string; role?: string }>, pair: Window, absence: FixtureAbsence | null,
   templates: readonly FixtureSellSlot[], prices: { price_low: number; price_high: number } | null = null, pin = 13 * 60 + 24, rows: readonly LiveSpan[] = []) {
   const hash = (id: string) => [...id].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0, 2166136261)
   const sides = sidesOf(people.map((p) => p.name), pair)
@@ -136,6 +136,7 @@ export function shiftDay(type: string, people: ReadonlyArray<{ id: string; name:
 export function serveDay(input: {
   type?: string
   names?: readonly string[] // the roster's display names, parallel to `roster` (the side rule sorts by name)
+  roles?: ReadonlyArray<string | undefined> // ⚖ S87 ruling (a): the roster's core roles, parallel to `roster`
   prices?: { price_low: number; price_high: number } | null
   pin?: number
   fixtureTwin?: boolean
@@ -165,7 +166,7 @@ export function serveDay(input: {
   const closed = (core || real) && (shown ? input.hours.shownDayClosed !== null : input.hours.closedWeekdays.includes(wd))
   // The 10–19 six-person twin, fixture world and all-store fallback keep their exact seated data.
   const generate = input.type && (core || real) && !(pair.open === 600 && pair.close === 1140 && (input.roster.length === 6 || (input.fixtureTwin && input.shifts.length === 6)))
-  const generated = generate ? shiftDay(input.type!, input.roster.map((id, i) => ({ id, name: input.names?.[i] ?? id })), pair, input.absence, input.slotTemplates ?? input.sellSlots ?? [], input.prices ?? null, input.pin, input.rows) : null
+  const generated = generate ? shiftDay(input.type!, input.roster.map((id, i) => ({ id, name: input.names?.[i] ?? id, role: input.roles?.[i] })), pair, input.absence, input.slotTemplates ?? input.sellSlots ?? [], input.prices ?? null, input.pin, input.rows) : null
   const seated = closed ? [] : generated?.shifts ?? (!core && !real ? input.shifts : input.shifts.map((s) => ownHours(s, input.sample, pair)).filter((s) => s.start < s.end))
   const absence = closed ? null : generated ? generated.absence : input.absence
   // ⚖ R15: a closed day keeps the slots it always had (no `[]` special case); a generated day yields to busy people and rooms
