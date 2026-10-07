@@ -53,7 +53,7 @@ interface Registry {
 export const registry: Registry = JSON.parse(readFileSync(join(__dirname, 'registry.json'), 'utf8'))
 
 /** The recipe for a registry type: data from recipes/<id>.ts, counts and realism values from registry.json. */
-export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)[0]): Promise<Recipe> {
+export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)[0], recordedPastDays?: number): Promise<Recipe> {
   const counts = registry.types[id]?.recipe
   if (!/^[a-z_]+$/.test(id) || !counts) throw new Error(`type ${id} has no recipe in registry.json`)
   const mod = (await import(`./recipes/${id}`)) as { recipe: RecipeData }
@@ -63,7 +63,8 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
   const size = counts.customers
   const original = entry.keyPrefix === id
   const storeIndex = Object.keys(registry.stores).indexOf(storeId)
-  const pastDays = registry.pastDays ?? 105
+  // ⚖ R6/Q2: an applied store sizes its window AND its 新規 first visits by the pastDays its manifest recorded; registry.json only for a new store
+  const pastDays = recordedPastDays ?? registry.pastDays ?? 105
   const legacyCount = original ? data.customers.length : 0
   // ⚖ R9: the type's surname × given-name pool (names.ts), seeded order, a disjoint slice per store
   const names = namePoolFor(id).slice(entry.namePool * size, (entry.namePool + 1) * size) // never a hand-written customer's name, of any type
@@ -421,8 +422,8 @@ if (process.argv[1]?.endsWith('fill.ts')) {
       const m = load()
       for (const storeId of targets) {
         const t = registry.stores[storeId].type
-        const r = await loadRecipe(t, storeId)
         const st = m.stores[storeId]
+        const r = await loadRecipe(t, storeId, st?.pastDays)
         const hours = st?.weeklyHours ?? r.policy.weekly_hours
         const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays, legacyThrough: st?.legacyThrough }, m.runs), today, st?.epoch ?? today)
         console.log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
@@ -444,7 +445,7 @@ if (process.argv[1]?.endsWith('fill.ts')) {
     let code = 0
     try {
       for (const storeId of targets) {
-        const recipe = await loadRecipe(registry.stores[storeId].type, storeId)
+        const recipe = await loadRecipe(registry.stores[storeId].type, storeId, m.stores[storeId]?.pastDays)
         const result = await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true })
         if (result === 2) return 2 // a refusal stops the whole run, including --store all
         code = Math.max(code, result)

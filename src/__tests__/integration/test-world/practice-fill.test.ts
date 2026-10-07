@@ -121,13 +121,28 @@ it('T4/T5 (R7/R17): today every profile row across 13:24 is IN_PROGRESS (≥ 1),
   }
 })
 
-it('R6: a manifest that recorded pastDays keeps every key when registry pastDays changes; without it the keys move', () => {
-  for (const [id, { r, p }] of plans) {
-    const moved = { ...r, counts: { ...r.counts, pastDays: r.counts.pastDays + 7 } }
-    const ctx = ctxOf(id, r)
-    const keys = (q: Plan) => q.appointments.filter((a) => a.date >= p.window.from).map((a) => a.key).sort()
-    expect(keys(plan(moved, { ...ctx, pastDays: r.counts.pastDays }, TODAY, TODAY))).toEqual(keys(p))
-    expect(keys(plan(moved, ctx, TODAY, TODAY))).not.toEqual(keys(p)) // the negative: an unrecorded pastDays re-draws keys
+it('R6: a recorded pastDays keeps every key and every 新規 start when registry.json pastDays changes and the recipe is RELOADED; without it they move', async () => {
+  const before = registry.pastDays
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    for (const [id, { r, p }] of plans) {
+      const recorded = r.counts.pastDays
+      registry.pastDays = recorded + 7
+      const kept = await loadRecipe(r.id, id, recorded) // ⚖ Q2: the caller passes the manifest's recorded value, as storeCtx does
+      const ctx = storeCtx(id, { weeklyHours: r.policy.weekly_hours, pastDays: recorded, legacyThrough: ctxOf(id, r).legacyThrough })
+      const keys = (q: Plan) => q.appointments.map((a) => a.key).sort()
+      const starts = (q: Recipe) => q.customers.filter((c) => c.isNew).map((c) => `${c.member}@${c.start}`)
+      expect(keys(plan(kept, ctx, TODAY, TODAY))).toEqual(keys(p))
+      expect(starts(kept)).toEqual(starts(r))
+      expect(warn).toHaveBeenLastCalledWith(`store ${id}: manifest pastDays ${recorded} kept, registry.json pastDays ${recorded + 7} ignored`)
+      // the negative: no recorded value → the reload sizes the window and the 新規 first visits by the new registry value
+      const unrecorded = await loadRecipe(r.id, id)
+      expect(keys(plan(unrecorded, ctxOf(id, r), TODAY, TODAY))).not.toEqual(keys(p))
+      expect(starts(unrecorded)).not.toEqual(starts(r))
+    }
+  } finally {
+    registry.pastDays = before
+    warn.mockRestore()
   }
 })
 
