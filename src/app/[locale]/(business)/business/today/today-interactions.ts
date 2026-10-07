@@ -4526,6 +4526,7 @@ export function foreignStoreRefusal(
 
 /** canon `createAtCell` (:6005) via the F25 empty-slot click: the half hour the
  *  pointer landed on, clamped so a created booking cannot start after closing.
+ *  ⚖ Q-25 (2026-10-07) — the 「half hour」 is the store's booking step (opsConfig.bookingStepMin, default 30); an unusable step falls back to 30.
  *
  *  ⚖ Liam flag 62 (2026-08-22) — FLOOR, NOT ROUND. Canon's `ghostCellX`
  *  (:5989-5993) floors: a click anywhere in [11:00, 11:30) seeds 11:00. We
@@ -4533,9 +4534,10 @@ export function foreignStoreRefusal(
  *  seeded there ran into the next booking — Liam's 「the left half works, the
  *  right half fires 時間帯が重複」. One token, canon parity. */
 export function slotStartAt(track: Element, clientX: number, hours: Hours, bounds: Hours = hours, stepMin = 30): number {
+  const step = Number.isFinite(stepMin) && stepMin > 0 ? stepMin : 30 // ⚖ Q-25 — an unusable step falls back to the default, as the parameter default does
   // ⚖ §v11 V11-15 B4 — the pixel is read on the AXIS (`hours`); the start is bounded by the STORE's hours (`bounds`).
   const minute = hours.open + fractionIn(track, clientX) * (hours.close - hours.open)
-  return Math.max(bounds.open, Math.min(bounds.close - stepMin, Math.floor(minute / stepMin) * stepMin))
+  return Math.max(bounds.open, Math.min(bounds.close - step, Math.floor(minute / step) * step))
 }
 
 /** ⚖ Liam flag 62 (2026-08-22) — THE SEED IS CLAMPED INTO THE POCKET IT LANDED IN.

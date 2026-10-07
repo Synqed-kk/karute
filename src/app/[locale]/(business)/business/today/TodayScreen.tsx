@@ -2110,6 +2110,7 @@ export function TodayScreen(props: TodayProps) {
     : live && !live.overShelf && !live.offLane
       ? { laneKey: live.targetLane, x: live.x, w: live.w }
       : null
+  const step = props.guard.bookingStepMin
   /** ⚖ Liam flag 50(c) — THE RAIL CHIP THE DRAG IS AIMED AT, highlighted in sync
    *  with the landing preview. Canon's `updateAimedTarget` (:7599-7606) marks the
    *  hovered start's cell `.aimed` and its CSS gives it the hover treatment
@@ -2117,9 +2118,12 @@ export function TodayScreen(props: TodayProps) {
    *  selector, so the label and the strip never agreed during a drag. The only
    *  genuine parity gap study 50 found. Floored to the 30-minute rail lattice for
    *  flag 48's reason: an off-lattice landing belongs to the cell it starts
-   *  INSIDE, and rounding would name the next chip along. */
+   *  INSIDE, and rounding would name the next chip along.
+   *  ⚖ Q-25 (2026-10-07) — the rail lattice is the store's booking step (opsConfig.bookingStepMin), never a fixed 30;
+   *  it steps from the axis edge, so for whole-hour opens and steps dividing 60 the click's floor lands on the same cell.
+   */
   const aimed = landing && landing.w > 0
-    ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / 30) * 30 }
+    ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / step) * step }
     : null
   /** ⚖ R8 GAP-11 — THE SAME LANDING, IN MINUTES, FOR THE CARD IN HAND.
    *
@@ -4837,7 +4841,10 @@ export function TodayScreen(props: TodayProps) {
    *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
    *  lattice can put a card on 14:05) belongs to the cell it starts inside. Read
    *  as a selector rather than a rect, because the rect has to be measured in
-   *  the same frame as the popover's own. */
+   *  the same frame as the popover's own.
+   *  ⚖ Q-25 (2026-10-07) — the rail lattice is the store's booking step (opsConfig.bookingStepMin), never a fixed 30;
+   *  it steps from the axis edge, so for whole-hour opens and steps dividing 60 the click's floor lands on the same cell.
+   */
   const holdRailSel = useMemo(() => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not batch-7's day-only test — this
     // builds a selector into the board ON SCREEN, so a 仮押さえ staged in another
@@ -4845,9 +4852,9 @@ export function TodayScreen(props: TodayProps) {
     if (!pending || pendingOffBoard) return null
     const at = moves[pending.id]
     if (!at) return null
-    const start = Math.floor(minuteOf(at.x, hours) / 30) * 30
+    const start = Math.floor(minuteOf(at.x, hours) / step) * step
     return `.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`
-  }, [pending, pendingOffBoard, moves, hours])
+  }, [pending, pendingOffBoard, moves, hours, step])
   useLayoutEffect(() => {
     const anchorId = holdAnchorId
     const pin = () => {
@@ -8030,7 +8037,8 @@ export function TodayScreen(props: TodayProps) {
                 return
               }
             }
-            const start = slotStartAt(e.currentTarget, e.clientX, hours, business)
+            // ⚖ Q-25 (2026-10-07) — the click snaps on the store's booking step (opsConfig.bookingStepMin), never slotStartAt's default 30.
+            const start = slotStartAt(e.currentTarget, e.clientX, hours, business, props.guard.bookingStepMin)
             const at = { x: e.clientX, y: e.clientY, t: e.timeStamp }
             // ⚖ Liam flag 31c — the consult belongs HERE. The operator is
             // proposing a start that does not exist yet, so the guard's better
@@ -9978,6 +9986,7 @@ export function TodayScreen(props: TodayProps) {
         data={dialogs.create}
         hours={hours}
         business={business}
+        stepMin={props.guard.bookingStepMin}
         seed={seed}
         onCreate={(laneKey, item, message, priced) => {
           setAdded((was) => [...was, { ...board, laneKey, item, priced }])
@@ -10699,6 +10708,7 @@ function CreateDialog({
   data,
   hours,
   business,
+  stepMin,
   seed,
   onCreate,
   turnoverWord,
@@ -10708,6 +10718,7 @@ function CreateDialog({
   hours: TodayProps['hours']
   /** ⚖ §v11 V11-15(b) — the store's own hours: every 営業時間 check below. `hours` only places the card. */
   business: { open: number; close: number }
+  stepMin: number
   seed: { staffId: string; start: number; nonce: number } | null
   onCreate: (laneKey: string, item: BoardItem, message: string, priced: boolean) => void
   /** ⚖ D-53 (n) R-N2-4 — #28's already-resolved 「休憩・◯◯」 example word: the
@@ -10737,9 +10748,10 @@ function CreateDialog({
   useEffect(() => {
     if (!seed) return
     setStaffId(seed.staffId)
-    setStart(Math.max(business.open, Math.min(business.close - 30, seed.start)))
+    // ⚖ Q-25 (2026-10-07) — the form's clamp and its ‹ › steppers move by the store's booking step, never a fixed 30 (Greptile #1150 P1).
+    setStart(Math.max(business.open, Math.min(business.close - stepMin, seed.start)))
     setTab('book')
-  }, [seed, business.open, business.close])
+  }, [seed, business.open, business.close, stepMin])
 
   const everyone = useMemo(() => [...localCustomers, ...data.customers], [localCustomers, data.customers])
   const customer = everyone.find((c) => c.id === customerId) ?? null
@@ -10846,9 +10858,9 @@ function CreateDialog({
             <div className="cc-field">
               開始・時間
               <span className="stepper">
-                <button type="button" aria-label="30分早く" onClick={() => setStart((s) => Math.max(business.open, s - 30))}>‹</button>
+                <button type="button" aria-label={`${stepMin}分早く`} onClick={() => setStart((s) => Math.max(business.open, s - stepMin))}>‹</button>
                 <b>{hhmm(start)}–{hhmm(end)}</b>
-                <button type="button" aria-label="30分遅く" onClick={() => setStart((s) => Math.min(business.close - duration, s + 30))}>›</button>
+                <button type="button" aria-label={`${stepMin}分遅く`} onClick={() => setStart((s) => Math.min(business.close - duration, s + stepMin))}>›</button>
               </span>
             </div>
             <div className="cc-field">
