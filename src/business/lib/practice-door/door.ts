@@ -13,7 +13,7 @@
 // `orgSettingsOf` and `canManageSettings`, exported here for it and nothing else.
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
-import { fixtureIdOf, samplePolicyFor } from './registry'
+import { fixtureIdOf, SAMPLE_SLOT_PRICES, samplePolicyFor } from './registry'
 import { INBOX_WINDOW_DAYS, inboxFor, registerFor } from './door-inbox-register'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
@@ -658,20 +658,30 @@ function servedDay(seats: RosterSeats[], rows: CoreAppointment[], hours: StoreHo
   const carried = new Set(served.flatMap((d) => (d.state === 'open' && d.appointment_id !== null ? [d.appointment_id] : [])))
   const roster = seats.flatMap((s) => s.roster.map((p) => p.id))
   const seated = { shifts: rekeyRows(shifts, seats, 'identity'), absence: rekeyRows(today ? [absence] : [], seats, 'identity')[0] ?? null }
-  return { ...serveDay({ ...seated, roster, rows: live, carried, taken: slots, hours, sample, dayKey }), sellSlots: slots, decisions: served }
+  const policy = seats.length === 1 ? samplePolicyFor(seats[0].store) : null
+  const type = policy?.kind === 'twin' ? policy.type : undefined
+  const names = seats.flatMap((s) => s.roster.map((p) => p.name))
+  const prices = type ? SAMPLE_SLOT_PRICES[type] ?? null : null // ⚖ R16: the store's own menu prices, never the 整体 fixture's
+  const result = serveDay({ ...seated, type, names, prices, pin: boardNow, fixtureTwin: seats.length === 1 && !borrows(seats[0].store), roster, rows: live, carried, taken: slots, hours, sample, dayKey,
+    sellSlots: slots, slotTemplates: rekeyRows(sellSlots, seats, 'attribute'), roomsBusy: busy })
+  const ids = new Set(result.sellSlots?.map((s) => s.id))
+  return { ...result, sellSlots: result.sellSlots ?? slots, decisions: served.filter((d) => d.sell_slot_id === null || ids.has(d.sell_slot_id)) }
 }
 
 export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
   const actor = await practiceActor()
-  const open = decisions.filter((d) => d.state === 'open')
   const byStore: Record<string, number> = {}
   // ⚖ PR-4a — per store, its OWN re-key of the open family: a borrower counts the rows it is served
   // (R10: today's busy rooms). ⚖ §v11 V11-11 — today's rows by ONE read, twins and borrowers alike, each store its own.
   const todayKey = jstDayKey(renderNow())
   const [all, day] = await Promise.all([rosterOrderOf(actor, { viewAll: true }), liveRowsOf(actor, { viewAll: true }, { from: todayKey, to: todayKey })])
-  for (const seats of all) {
+  // ⚖ R15: every store's hours in parallel, never one store after another
+  const hoursAll = await Promise.all(all.map((seats) => storeHoursOf(actor, seats.store, todayKey, singletonsOf(samplePolicyFor(seats.store)))))
+  for (const [i, seats] of all.entries()) {
     const rows = day.filter((r) => r.store_id === seats.store)
-    byStore[seats.store] = servedDecisions(open, [seats], roomsBusy(rows, todayKey), liveSpans(rows, todayKey)).length
+    const sample = singletonsOf(samplePolicyFor(seats.store))
+    const hours = hoursAll[i]
+    byStore[seats.store] = servedDay([seats], rows, hours, sample.operatingHours, todayKey).decisions.filter((d) => d.state === 'open').length
   }
   // A store the actor cannot see never counts.
   return { byStore, all: Object.values(byStore).reduce((a, b) => a + b, 0) }
