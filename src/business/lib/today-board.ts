@@ -130,29 +130,40 @@ export interface RulerLabel { hour: number; text: string; leftPct: number; width
 
 /** ⚖ 10/7 S25-1 (Liam: 「we do compress it as far as we can, but when it just becomes impossible, we introduce
  *  scrolling」) — THE READABLE FLOOR, px per grid cell (one opsConfig.bookingStepMin): the width at which a one-cell
- *  card still shows a two-kanji family name whole at the card's OWN type. Measured in headless Chromium: 「山本」 at
- *  `.biz .page-today .event[data-book] > strong` (today.css, 13px / 700) = 26.0 px (a CJK ideograph is 1 em);
+ *  card still shows a two-kanji family name whole at the card's OWN type. RE-MEASURED 10/7 (the lead's ruling, round 2
+ *  item 3) in Playwright's own headless Chromium 148: a blank page, no app code, `font-family` = today.css's stack byte
+ *  for byte ("Hiragino Sans", "Hiragino Kaku Gothic ProN", … sans-serif; the computed family read back), at the card
+ *  name's type `.biz .page-today .event[data-book] > strong` (13px / 700): 「山本」 26.00 px · 「山」 13.00 · 「佐々木」
+ *  39.00 · 「ブラウン」 52.00 · 「ジョーンズ」 64.09 (a CJK ideograph is 1 em; round 1's 26 holds, so FAMILY_NAME_PX = 26);
  *  + the tightest padding + border the card allows (S0 「tight」: left 4 = the 3 px category stripe + 1, right 1,
- *  border 1 + 1 = 7 px) → 33 px. One number for every store and every type. */
+ *  border 1 + 1 = 7 px) → 33 px. One number for every store and every type. A wider family name (「佐々木」 39 px)
+ *  ellipsises at the floor — a known limit, not a bug. */
 export const FAMILY_NAME_PX = 26
 export const CARD_TIGHT_PAD_PX = 7
 export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
 
-/** ⚖ 10/7 S25-2 (D5) — LABEL TIERS by a card's drawn width (duration × px per hour / 60), measured at the card's own
- *  type: WIDE = name · HH:MM〜 · menu/price · MID = name · HH:MM〜 (below a one-hour card at the floor) · NARROW = the
- *  family name, padding tightened to CARD_TIGHT_PAD_PX (below the width 「07:00〜」 needs: .e-time 11.5px measured
- *  37.70 → 38 px + today's padding 10 + 6 + border 1 + 1 = 18 px) · SLIVER = the coloured bar, full text in `title`
- *  (below one kanji + the tight padding). today.css mirrors these as @container rules (content-box px; pinned by test). */
-export const CARD_TIME_PX = 38
+/** ⚖ 10/7 S25-2 (D5) + the lead's ruling, round 2 item 4 — LABEL TIERS by a card's drawn width (duration × px per
+ *  hour / 60), at the card's own type. The four boundaries, low to high:
+ *  · SLIVER below LABEL_TIER_PX.sliver = one character (FAMILY_NAME_PX / 2 = 13, 1 em) + CARD_TIGHT_PAD_PX 7 = 20 px:
+ *    the coloured bar only; the full text stays in the card's hover/tap detail.
+ *  · NARROW from 20 px: the family name only, tight padding; from the floor (minPxPer30 33) a two-kanji name is whole.
+ *  · MID from LABEL_TIER_PX.mid = the width that fits name + time line = FAMILY_NAME_PX 26 + CARD_TIME_PX 46 +
+ *    CARD_TIGHT_PAD_PX 7 = 79 px: name · HH:MM〜, tight padding, the menu/price line dropped. CARD_TIME_PX = 「07:00〜」
+ *    at `.e-time` (11.5px; no rule sets a weight on `.biz .event small`, so the inherited 400) measured 45.34 px in the
+ *    same run (500: 46.22 · 600: 47.36 · 700: 48.89) → 46. Round 1's 37.70 was Chromium's default font, not the stack.
+ *  · WIDE from LABEL_TIER_PX.wide = the same name + time at TODAY's padding (CARD_PAD_PX 18 = 10 + 6 + border 1 + 1)
+ *    = 90 px: today's full card, unchanged.
+ *  today.css mirrors these as @container rules in content-box px (px − CARD_PAD_PX: 72 · 61 · 2), pinned by test. */
+export const CARD_TIME_PX = 46
 export const CARD_PAD_PX = 18
 export const LABEL_TIER_PX = {
   sliver: FAMILY_NAME_PX / 2 + CARD_TIGHT_PAD_PX,
-  narrow: CARD_TIME_PX + CARD_PAD_PX,
-  mid: 2 * minPxPer30,
+  mid: FAMILY_NAME_PX + CARD_TIME_PX + CARD_TIGHT_PAD_PX,
+  wide: FAMILY_NAME_PX + CARD_TIME_PX + CARD_PAD_PX,
 } as const
 export type LabelTier = 'wide' | 'mid' | 'narrow' | 'sliver'
 export function labelTier(px: number): LabelTier {
-  return px < LABEL_TIER_PX.sliver ? 'sliver' : px < LABEL_TIER_PX.narrow ? 'narrow' : px < LABEL_TIER_PX.mid ? 'mid' : 'wide'
+  return px < LABEL_TIER_PX.sliver ? 'sliver' : px < LABEL_TIER_PX.mid ? 'narrow' : px < LABEL_TIER_PX.wide ? 'mid' : 'wide'
 }
 
 /** The cells of the board's day on its grid unit — the strip's cell count and the CSS floor's multiplier. */

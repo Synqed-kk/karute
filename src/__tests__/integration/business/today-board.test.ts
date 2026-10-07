@@ -68,6 +68,10 @@ import {
   minPxPer30,
   trackOverflows,
   edgeText,
+  FAMILY_NAME_PX,
+  CARD_TIGHT_PAD_PX,
+  CARD_TIME_PX,
+  CARD_PAD_PX,
   cleanupBlocks,
   effectiveShift,
   openDecisions,
@@ -1812,11 +1816,11 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
     expect(labelTier(minPxPer30)).toBe('narrow') // a one-cell card at the floor shows its family name
     expect(FRAMES.map((px) => trackOverflows(got, step, px))).toEqual(overflow)
   })
-  it('the floor and the tiers: 33 px = 「山本」 26 + tight padding 7; the CSS @container rules mirror LABEL_TIER_PX in content-box px', () => {
-    expect(minPxPer30).toBe(33)
-    expect(LABEL_TIER_PX).toEqual({ sliver: 20, narrow: 56, mid: 66 })
-    expect([19, 20, 55, 56, 65, 66].map(labelTier)).toEqual(['sliver', 'narrow', 'narrow', 'mid', 'mid', 'wide'])
+  it('the floor and the four tier boundaries (round 2 item 4): floor 33 = 「山本」 26 + tight 7 · SLIVER < 20 · NARROW from 20 (name whole from 33) · MID from 79 = 26 + 「07:00〜」 46 + 7 · WIDE from 90 = 26 + 46 + 18; the CSS @container rules mirror them in content-box px', () => {
+    expect([FAMILY_NAME_PX, CARD_TIGHT_PAD_PX, minPxPer30, CARD_TIME_PX, CARD_PAD_PX]).toEqual([26, 7, 33, 46, 18])
+    expect(LABEL_TIER_PX).toEqual({ sliver: 20, mid: 79, wide: 90 })
+    expect([19, 20, 32, 33, 78, 79, 89, 90].map(labelTier)).toEqual(['sliver', 'narrow', 'narrow', 'narrow', 'narrow', 'mid', 'mid', 'wide'])
     const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
-    for (const px of [LABEL_TIER_PX.mid, LABEL_TIER_PX.narrow, LABEL_TIER_PX.sliver]) expect(css).toContain(`@container (width < ${px - 18}px)`)
+    for (const px of [LABEL_TIER_PX.wide, LABEL_TIER_PX.mid, LABEL_TIER_PX.sliver]) expect(css).toContain(`@container (width < ${px - CARD_PAD_PX}px)`)
   })
 })
