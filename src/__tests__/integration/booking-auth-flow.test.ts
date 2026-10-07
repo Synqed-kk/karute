@@ -138,7 +138,7 @@ jest.mock('@synqed-kk/client', () => ({
   // makes (fix round 6 F3) — no core-only cards; the profiles are the roster.
   SynqedClient: jest.fn().mockImplementation(() => ({
     appointments,
-    staff: { list: async () => ({ staff: [], total: 0 }) },
+    staff: { list: async () => ({ staff: [], total: 0 }), get: jest.fn(async (id: string) => ({ id, is_active: true, business_id: 'biz-1' })) },
   })),
   SynqedError: class SynqedError extends Error {
     status: number

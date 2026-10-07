@@ -41,6 +41,7 @@ import { isCountedBooking } from '@/lib/appointments/by-date'
 import { BOOKING_ALREADY_STAFFED } from '@/lib/appointments/assign-refusal'
 import { type RecordStoreScope } from '@/lib/auth/store-lock'
 import { filterStaffIdsToStore } from '@/lib/auth/store-scope'
+import { AppApiError } from '@/lib/app-api/errors'
 import { audit, type AuditSeverity } from '@/lib/audit'
 import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 
@@ -165,6 +166,29 @@ async function defaultBookingStore(
  *  `{ error }` shape every booking refusal uses (BookingTimeRefusal). */
 export const STAFF_NOT_ELIGIBLE = 'This staff member cannot take this booking.'
 
+/** The create door's refusal of a staff id that is not a bookable member of
+ *  this business — the facade create's sentence since #566, and the web
+ *  action's since fix round 6 F3. One definition for both doors. */
+export const STAFF_NOT_ON_ROSTER = 'staffProfileId is not a staff member of this business'
+
+/**
+ * ⚖ Greptile pass 2 P1 (B2 #1143, fix round 7) — the LIVE active + business
+ * judgement of a CORE staff id: one read of core's staff row, never a cache.
+ * Shared by the assign gate (refuseIneligibleStaff) and the create core, so a
+ * card switched off within any roster cache's TTL is refused on both doors.
+ * Throws whatever the read throws: each caller decides what a failed read
+ * means (assign refuses; create answers upstream_unavailable). No business on
+ * the actor = nothing to judge the staff against = false.
+ */
+async function staffIsActiveInBusiness(
+  synqed: MutationClient,
+  synqedStaffId: string,
+  businessId: string | null,
+): Promise<boolean> {
+  const staff = await synqed.staff.get(synqedStaffId)
+  return !!staff && !!staff.is_active && !!businessId && staff.business_id === businessId
+}
+
 /**
  * ⚖ PR-B Q1 — may this CORE staff take a booking in this store? Active, of
  * this business, and working at the store: a staff_stores row for it or no
@@ -179,10 +203,9 @@ async function refuseIneligibleStaff(
   businessId: string | null,
 ): Promise<BookingTimeRefusal | null> {
   const refusal = { error: STAFF_NOT_ELIGIBLE }
-  const staff = await synqed.staff.get(synqedStaffId).catch(() => null)
-  if (!staff || !staff.is_active) return refusal
-  // No business on the actor = nothing to judge the staff against: refuse.
-  if (!businessId || staff.business_id !== businessId) return refusal
+  // A failed read refuses here (fail closed): this is a write gate.
+  const active = await staffIsActiveInBusiness(synqed, synqedStaffId, businessId).catch(() => false)
+  if (!active) return refusal
   if (!storeId) return null
   const storeIds = await synqed.staffStores
     .get(synqedStaffId)
@@ -222,6 +245,24 @@ export async function createAppointmentCore(
   // that forgets its own pre-check is still refused.
   const inputError = validateAppointmentInput(input)
   if (inputError) return inputError
+
+  // ⚖ Greptile pass 2 P1 (fix round 7) — the LIVE judgement of the resolved
+  // core id, before any read of hours and before any write: an inactive card,
+  // or one of another business, is refused with the doors' own roster refusal
+  // (a validation AppApiError: the facade's 400, the web action's { error }).
+  // The doors' roster gates are cached first checks; this is the authority.
+  // OUTSIDE the try below on purpose: that catch flattens every throw into a
+  // 200 { error }, and a failed read must stay an outage (facade 502, web
+  // failure line), never a refusal and never a booking.
+  let staffActive: boolean
+  try {
+    staffActive = await staffIsActiveInBusiness(synqed, deps.synqedStaffId, deps.actor.businessId)
+  } catch (err) {
+    throw err instanceof AppApiError
+      ? err
+      : new AppApiError('upstream_unavailable', 'staff read failed', undefined, err)
+  }
+  if (!staffActive) throw new AppApiError('validation', STAFF_NOT_ON_ROSTER)
 
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)

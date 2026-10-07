@@ -37,6 +37,7 @@ import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import {
   cancelAppointmentCore,
   createAppointmentCore,
+  STAFF_NOT_ON_ROSTER,
   deleteAppointmentCore,
   markNoShowAppointmentCore,
   restoreAppointmentCore,
@@ -165,13 +166,13 @@ export async function createAppointment(input: AppointmentInput): Promise<Create
     // Fix round 6 F3 (attack read #4) — THE WEB TWIN of the facade create's
     // roster gate (app/api/app/v1/appointments/route.ts): the dialog can only
     // submit ROSTER staff, so the action enforces the same set, above the
-    // create-on-miss resolver. The resolver takes any card of this business
-    // as-is (departed ones included); the roster (staffListCore) carries only
-    // ACTIVE core-only cards, so an inactive card is refused here too, with the
-    // facade's own words. Nothing is resolved, created or written.
+    // create-on-miss resolver. Nothing is resolved, created or written.
+    // This is the CHEAP FIRST check only: getStaffList is a 24 h cache, so a
+    // card switched off inside that window still passes here. The authority is
+    // the live active + business check in createAppointmentCore (fix round 7).
     const roster = await getStaffList()
     if (!roster.some((s) => s.id === input.staffProfileId)) {
-      return { error: 'staffProfileId is not a staff member of this business' }
+      return { error: STAFF_NOT_ON_ROSTER }
     }
     // The active-store cookie is an ISOLATION input, not just a view label:
     // it is clamped below against the viewer's RBAC scope so a stale /

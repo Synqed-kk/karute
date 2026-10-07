@@ -18,6 +18,17 @@ process.env.SYNQED_CORE_URL = 'https://core.test'
 process.env.SYNQED_CORE_API_KEY = 'key-123'
 
 const BIZ = 'business-1'
+/** What a roster read served (a cache, for round 7: the switched-off cards are
+ *  still on it). The inactive card 'core-inactive' is not. */
+const WEB_ROSTER_IDS = [
+  'auth-user-1',
+  'core-only-1',
+  'core-store-2',
+  'core-stores-unreadable',
+  'core-switched-off',
+  'profile-linked-off',
+  'core-get-fails',
+]
 
 jest.mock('next/cache', () => ({
   unstable_cache: (fn: unknown) => fn,
@@ -45,6 +56,12 @@ const ROSTERS: Record<string, Array<{ id: string; user_id: string | null; email:
     { id: 'core-store-2', user_id: null, email: null, name: 'Other Branch' },
     { id: 'core-inactive', user_id: null, email: null, name: 'Departed' },
     { id: 'core-stores-unreadable', user_id: null, email: null, name: 'Unreadable' },
+    // Round 7: still on every CACHED roster, switched off in core since.
+    { id: 'core-switched-off', user_id: null, email: null, name: 'Switched Off' },
+    // Round 7: a signed-up staffer whose core card is switched off.
+    { id: 'core-linked-off', user_id: 'profile-linked-off', email: null, name: 'Linked Off' },
+    // Round 7: a card whose live staff.get fails.
+    { id: 'core-get-fails', user_id: null, email: null, name: 'Unreadable Card' },
   ],
   'business-2': [{ id: 'core-of-business-2', user_id: null, email: null, name: 'Elsewhere' }],
 }
@@ -88,15 +105,14 @@ jest.mock('@/lib/supabase/service', () => ({
 
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => BIZ),
-  staffListByBusinessOrThrow: jest.fn(async () => [{ id: 'auth-user-1', full_name: 'Viewer' }]),
+  // The facade create's roster (uncached in prod) — the cached web one below plus nothing else.
+  staffListByBusinessOrThrow: jest.fn(async () => WEB_ROSTER_IDS.map((id) => ({ id, full_name: id }))),
   getBusinessId: jest.fn(async () => BIZ),
   getCurrentUserStaffId: jest.fn(async () => 'auth-user-1'),
   // The web roster as staffListCore builds it: the profile, plus the ACTIVE
   // core-only cards (synqedStaffWithoutProfile drops is_active false), so the
   // inactive card 'core-inactive' is not on it.
-  getStaffList: jest.fn(async () =>
-    ['auth-user-1', 'core-only-1', 'core-store-2', 'core-stores-unreadable'].map((id) => ({ id, full_name: id })),
-  ),
+  getStaffList: jest.fn(async () => WEB_ROSTER_IDS.map((id) => ({ id, full_name: id }))),
   resolveUserId: jest.fn(async () => 'auth-user-1'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
@@ -112,7 +128,11 @@ jest.mock('@/lib/auth/store-scope', () => ({
 }))
 jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: jest.fn(async () => ({ id: 'cust-1' })) }))
 jest.mock('@/lib/customers/cached', () => ({ getCachedCustomerList: jest.fn(async () => []) }))
-jest.mock('@/actions/org-settings', () => ({ getOrgSettings: jest.fn(async () => ({ operating_hours: null })) }))
+jest.mock('@/actions/org-settings', () => ({
+  getOrgSettings: jest.fn(async () => ({ operating_hours: null })),
+  // The facade create's twin read (round 7 tests).
+  orgSettingsWithClient: jest.fn(async () => ({ operating_hours: null })),
+}))
 jest.mock('@/actions/stores', () => ({ getActiveStoreId: jest.fn(async () => null) }))
 jest.mock('@/lib/audit', () => ({ ...jest.requireActual('@/lib/audit'), audit: jest.fn() }))
 
@@ -123,6 +143,9 @@ const STAFF_ROWS: Record<string, { is_active: boolean; business_id: string }> = 
   'core-store-2': { is_active: true, business_id: BIZ },
   'core-inactive': { is_active: false, business_id: BIZ },
   'core-stores-unreadable': { is_active: true, business_id: BIZ },
+  'core-switched-off': { is_active: false, business_id: BIZ },
+  'core-linked-off': { is_active: false, business_id: BIZ },
+  // 'core-get-fails' has no row: staff.get rejects for it.
 }
 const STORE_IDS: Record<string, string[]> = {
   'core-only-1': ['store-1'],
@@ -157,8 +180,9 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { POST as assignPOST } from '@/app/api/app/v1/appointments/[id]/assign-staff/route'
+import { POST as createPOST } from '@/app/api/app/v1/appointments/route'
 import { assignAppointmentStaff, createAppointment } from '@/actions/appointments'
-import { STAFF_NOT_ELIGIBLE } from '@/lib/appointments/mutations'
+import { STAFF_NOT_ELIGIBLE, STAFF_NOT_ON_ROSTER } from '@/lib/appointments/mutations'
 import ja from '../../../messages/ja.json'
 import { getStaffList } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -349,5 +373,76 @@ describe('F3 — web createAppointment: roster gate, as the facade create', () =
     expect(apptCreate).toHaveBeenCalledTimes(1)
     expect(apptCreate).toHaveBeenCalledWith(expect.objectContaining({ staff_id: 'core-only-1' }))
     expect(staffCreate).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ Greptile pass 2 P1 (fix round 7) — booking CREATE gets the assign door's
+// LIVE judgement: the roster gates are cached first checks, and
+// createAppointmentCore reads core's staff row (active + business) after the
+// id is resolved and before any write, on both doors.
+describe('Round 7 — create judges the resolved core id live, on both doors', () => {
+  const body = (staffProfileId: string) => ({
+    staffProfileId,
+    clientId: 'cust-1',
+    startTime: '2026-10-06T01:00:00.000Z',
+    durationMinutes: 60,
+  })
+  const postCreate = (staffProfileId: string) =>
+    createPOST(
+      new Request('https://s/api/app/v1/appointments', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${bearer()}`,
+          'idempotency-key': 'k-create',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body(staffProfileId)),
+      }),
+      { params: Promise.resolve({}) },
+    )
+
+  it.each([
+    ['a core-only card switched off since the roster was cached', 'core-switched-off'],
+    ['a profile-linked staffer whose core card is inactive (pre-existing hole)', 'profile-linked-off'],
+  ])('web create: %s → { error: STAFF_NOT_ON_ROSTER }, nothing written', async (_label, id) => {
+    await expect(createAppointment(body(id))).resolves.toEqual({ error: STAFF_NOT_ON_ROSTER })
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a core-only card switched off since the roster was cached', 'core-switched-off'],
+    ['a profile-linked staffer whose core card is inactive (pre-existing hole)', 'profile-linked-off'],
+  ])('facade create: %s → 400 STAFF_NOT_ON_ROSTER, nothing written', async (_label, id) => {
+    const res = await postCreate(id)
+    expect(res.status).toBe(400)
+    expect(JSON.stringify(await res.json())).toContain(STAFF_NOT_ON_ROSTER)
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it('web create: staff.get rejecting → the localized failure line (fail closed), nothing written', async () => {
+    await expect(createAppointment(body('core-get-fails'))).resolves.toEqual({ error: FAILURE_LINE })
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it('facade create: staff.get rejecting → 502 upstream_unavailable (fail closed), nothing written', async () => {
+    const res = await postCreate('core-get-fails')
+    expect(res.status).toBe(502)
+    expect(JSON.stringify(await res.json())).toContain('upstream_unavailable')
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it('web create: an active card passes the live check and books under its core id', async () => {
+    const result = await createAppointment(body('core-only-1'))
+    expect(result).not.toHaveProperty('error')
+    expect(apptCreate).toHaveBeenCalledTimes(1)
+    expect(apptCreate).toHaveBeenCalledWith(expect.objectContaining({ staff_id: 'core-only-1' }))
+  })
+
+  it('facade create: an active card passes the live check and books under its core id', async () => {
+    const res = await postCreate('core-only-1')
+    expect(res.status).toBe(201)
+    expect(await res.json()).not.toHaveProperty('error')
+    expect(apptCreate).toHaveBeenCalledTimes(1)
+    expect(apptCreate).toHaveBeenCalledWith(expect.objectContaining({ staff_id: 'core-only-1' }))
   })
 })

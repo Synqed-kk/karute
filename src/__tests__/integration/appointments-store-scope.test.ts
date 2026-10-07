@@ -62,6 +62,8 @@ jest.mock('@/lib/staff', () => ({
   ...jest.requireActual('@/lib/staff'),
   // createAppointment's roster gate (fix round 6 F3): the staff these tests book.
   getStaffList: jest.fn(async () => [{ id: 'staff-1' }]),
+  // The actor's business, which the live staff check (fix round 7) judges against.
+  getBusinessId: jest.fn(async () => 'business-1'),
 }))
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: jest.fn(async (id: string) => id),
@@ -79,7 +81,8 @@ jest.mock('@/lib/synqed/client', () => {
     delete: jest.fn(async () => ({})),
   }
   const karuteRecords = { list: jest.fn(async () => ({ karute_records: [] })) }
-  const staff = { list: jest.fn(async () => ({ staff: [] })) }
+  // createAppointmentCore's live active + business check (fix round 7).
+  const staff = { list: jest.fn(async () => ({ staff: [] })), get: jest.fn(async (id: string) => ({ id, is_active: true, business_id: 'business-1' })) }
   // defaultBookingStore (createAppointment's unset/rejected-cookie fallback)
   // resolves the booked staff's single assigned store — store-ginza here.
   const staffStores = { get: jest.fn(async () => ({ store_ids: ['store-ginza'] })) }

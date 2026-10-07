@@ -75,6 +75,8 @@ const karuteRecords = {
 }
 const staff = {
   list: jest.fn(),
+  // createAppointmentCore's live active + business check (fix round 7).
+  get: jest.fn(async (id: string) => ({ id, is_active: true, business_id: '00000000-0000-0000-0000-000000000001' })),
 }
 // deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
 // delete — mirrors cancel-appointment.test.ts's packs mock. Signature must
