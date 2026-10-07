@@ -46,6 +46,11 @@ function mockDeps(opts: {
   businessIdThrows?: boolean
   /** Force the profiles read to fail (models a Supabase outage). */
   profileReadFails?: boolean
+  /** What the 24h unstable_cache serves (a STALE roster); omitted = the cache
+   *  is transparent and serves the live list. */
+  cachedStaff?: SynqedStaff[]
+  /** Force updateTag to throw (as Next does outside a Server Action). */
+  updateTagThrows?: boolean
 }) {
   mockStaff = opts.staff
   mockProfileEmail = opts.profileEmail
@@ -72,7 +77,9 @@ function mockDeps(opts: {
     if (opts.businessIdThrows) throw new Error('session broken')
     return BIZ
   })
-  mockUpdateTag = jest.fn()
+  mockUpdateTag = jest.fn(() => {
+    if (opts.updateTagThrows) throw new Error('updateTag can only be called from within a Server Action.')
+  })
   mockProfileQueries = []
 
   mockSynqedClient = jest.fn().mockImplementation(() => ({
@@ -115,7 +122,11 @@ function mockDeps(opts: {
   }))
 
   jest.doMock('next/cache', () => ({
-    unstable_cache: (fn: unknown) => fn,
+    unstable_cache: (fn: unknown) =>
+      opts.cachedStaff
+        ? async () =>
+            opts.cachedStaff!.map((c) => ({ id: c.id, user_id: c.user_id ?? null, email: c.email ?? null, name: null }))
+        : fn,
     updateTag: mockUpdateTag,
     revalidateTag: jest.fn(),
     revalidatePath: jest.fn(),
@@ -317,7 +328,9 @@ describe('email fallback — business scope', () => {
     expect(query.eq).toHaveBeenCalledWith('id', 'profile-token')
     expect(query.eq).toHaveBeenCalledWith('customer_id', tokenBusinessId)
     expect(query.eq).not.toHaveBeenCalledWith('customer_id', BIZ)
-    expect(mockSynqedClient).toHaveBeenCalledTimes(2)
+    // roster + self-heal write; the resolver adds its one live re-read on a
+    // roster miss (F1) — every client on the token business
+    expect(mockSynqedClient).toHaveBeenCalledTimes(_name === 'resolve' ? 3 : 2)
     for (const [options] of mockSynqedClient.mock.calls) {
       expect(options.businessId).toBe(tokenBusinessId)
     }
@@ -390,7 +403,8 @@ describe('resolveSynqedStaffId — create-on-miss', () => {
     )
     expect(query!.eq).toHaveBeenCalledWith('customer_id', tokenBusinessId)
     expect(query!.eq).not.toHaveBeenCalledWith('customer_id', BIZ)
-    expect(mockSynqedClient).toHaveBeenCalledTimes(2)
+    // cached roster + the one live re-read on a roster miss (F1) + the write
+    expect(mockSynqedClient).toHaveBeenCalledTimes(3)
     for (const [options] of mockSynqedClient.mock.calls) {
       expect(options.businessId).toBe(tokenBusinessId)
     }
@@ -640,5 +654,55 @@ describe('profiles read failure — an outage, never StaffProfileNotFoundError',
       expect(err).not.toBeInstanceOf(mod.StaffProfileNotFoundError)
     }
     expect(staffCreate).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ 10/3 (fix round 6 F1) — the phone picker reads the roster live, the
+// resolver through the 24h cache. A card the cache has not seen yet is re-read
+// ONCE live before the profile path, with the same businessId.
+describe('resolveSynqedStaffIdForBusiness — a card the cached roster has not seen yet', () => {
+  it('F1: a card present live but absent from the cached roster is resolved as-is: no profiles read, no create, staff-list refreshed', async () => {
+    mockDeps({
+      cachedStaff: [{ id: 'staff-A', user_id: 'profile-1', email: 'a@x.com' }],
+      staff: [
+        { id: 'staff-A', user_id: 'profile-1', email: 'a@x.com' },
+        { id: 'core-new-1', user_id: null, email: 'new@x.com' },
+      ],
+    })
+    const resolve = await loadResolveForBusinessFn()
+    await expect(resolve('core-new-1', 'biz-token')).resolves.toBe('core-new-1')
+    expect(staffListMock).toHaveBeenCalledTimes(1)
+    expect(mockSynqedClient.mock.calls.map(([o]) => o.businessId)).toEqual(['biz-token'])
+    expect(mockProfileQueries).toHaveLength(0)
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(mockUpdateTag.mock.calls).toEqual([['staff-list']])
+  })
+
+  it('F1: the refresh failing (updateTag outside a Server Action — the facade) never fails the resolve', async () => {
+    mockDeps({ cachedStaff: [], staff: [{ id: 'core-new-1', user_id: null, email: null }], updateTagThrows: true })
+    const resolve = await loadResolveForBusinessFn()
+    await expect(resolve('core-new-1', BIZ)).resolves.toBe('core-new-1')
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+
+  it('F1: a card absent from both rosters falls to the profile path as before (StaffProfileNotFoundError, nothing created)', async () => {
+    mockDeps({ cachedStaff: [], staff: [{ id: 'core-new-1', user_id: null, email: null }] })
+    let mod!: typeof import('@/lib/synqed/staff-map')
+    await jest.isolateModulesAsync(async () => {
+      mod = await import('@/lib/synqed/staff-map')
+    })
+    await expect(mod.resolveSynqedStaffIdForBusiness('nobody-1', BIZ)).rejects.toBeInstanceOf(mod.StaffProfileNotFoundError)
+    expect(staffListMock).toHaveBeenCalledTimes(1)
+    expect(mockProfileQueries.length).toBeGreaterThan(0)
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(mockUpdateTag).not.toHaveBeenCalled()
+  })
+
+  it('F1: a profile the cached roster already links costs no live re-read', async () => {
+    mockDeps({ cachedStaff: [{ id: 'staff-A', user_id: 'profile-1', email: 'a@x.com' }], staff: [] })
+    const resolve = await loadResolveForBusinessFn()
+    await expect(resolve('profile-1', BIZ)).resolves.toBe('staff-A')
+    expect(staffListMock).not.toHaveBeenCalled()
+    expect(mockProfileQueries).toHaveLength(0)
   })
 })

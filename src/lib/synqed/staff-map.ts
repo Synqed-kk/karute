@@ -37,40 +37,45 @@ const PAGE_SIZE = 200
  *  truncation only ever costs a NAME, never the read itself. */
 const MAX_PAGES = 25
 
-const synqedStaffListByBusiness = unstable_cache(
-  async (businessId: string): Promise<StaffEntry[]> => {
-    const baseUrl = process.env.SYNQED_CORE_URL
-    const apiKey = process.env.SYNQED_CORE_API_KEY
-    if (!baseUrl || !apiKey) {
-      throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
-    }
-    const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    const staff: StaffEntry[] = []
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      const result = await client.staff.list({ page, page_size: PAGE_SIZE })
-      const batch = result.staff.map((s) => ({
-        id: s.id,
-        user_id: (s as { user_id?: string | null }).user_id ?? null,
-        email: (s as { email?: string | null }).email ?? null,
-        name: (s as { name?: string | null }).name ?? null,
+/** The core roster read itself, UNCACHED — one home for the cached list below
+ *  and the resolver's one live re-read on a cache miss (⚖ 10/3). Same client,
+ *  same businessId scoping, same paging. */
+async function readSynqedStaffRoster(businessId: string): Promise<StaffEntry[]> {
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) {
+    throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+  }
+  const client = new SynqedClient({ baseUrl, apiKey, businessId })
+  const staff: StaffEntry[] = []
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const result = await client.staff.list({ page, page_size: PAGE_SIZE })
+    const batch = result.staff.map((s) => ({
+      id: s.id,
+      user_id: (s as { user_id?: string | null }).user_id ?? null,
+      email: (s as { email?: string | null }).email ?? null,
+      name: (s as { name?: string | null }).name ?? null,
+    }))
+    staff.push(...batch)
+    // `?? 0` mirrors recording-discards.ts's listDiscardReasons loop: a
+    // fixture/response with no `total` field defaults to 0, so a non-empty
+    // first batch still terminates the loop after one call — the existing
+    // single-page callers keep their exactly-one-call contract.
+    if (batch.length === 0 || staff.length >= (result.total ?? 0)) break
+    if (page === MAX_PAGES) {
+      console.warn(JSON.stringify({
+        msg: '[staff-map] staff roster truncated at the page cap — cards past this point degrade to "name unknown", the read itself never fails',
+        businessId,
+        pages: MAX_PAGES,
+        cardsRead: staff.length,
       }))
-      staff.push(...batch)
-      // `?? 0` mirrors recording-discards.ts's listDiscardReasons loop: a
-      // fixture/response with no `total` field defaults to 0, so a non-empty
-      // first batch still terminates the loop after one call — the existing
-      // single-page callers keep their exactly-one-call contract.
-      if (batch.length === 0 || staff.length >= (result.total ?? 0)) break
-      if (page === MAX_PAGES) {
-        console.warn(JSON.stringify({
-          msg: '[staff-map] staff roster truncated at the page cap — cards past this point degrade to "name unknown", the read itself never fails',
-          businessId,
-          pages: MAX_PAGES,
-          cardsRead: staff.length,
-        }))
-      }
     }
-    return staff
-  },
+  }
+  return staff
+}
+
+const synqedStaffListByBusiness = unstable_cache(
+  readSynqedStaffRoster,
   // Mirrors the staff-list cache TTL in src/lib/staff.ts — staff churn is
   // a once-in-a-while admin event, and every staff mutation already bumps
   // the 'staff-list' tag, so the day-long TTL is just a backstop.
@@ -280,8 +285,30 @@ export async function resolveSynqedStaffIdForBusiness(
   staffProfileId: string,
   businessId: string,
 ): Promise<string> {
-  const roster = await synqedStaffListByBusiness(businessId)
+  let roster = await synqedStaffListByBusiness(businessId)
   if (roster.some((s) => s.id === staffProfileId)) return staffProfileId
+
+  // ⚖ 10/3 (fix round 6 F1): the phone picker reads the roster UNCACHED
+  // (staffListByBusinessOrThrow), this one is the 24h cache. A card added in
+  // core by a path that never bumps 'staff-list' is offered at once and would be
+  // refused here for up to a day. So on a miss, read the roster ONCE live — the
+  // same call, same businessId — before the profile path. Skipped when the id is
+  // a profile the cached roster already links (the common booking case), so a
+  // profile id costs no extra core read.
+  if (!roster.some((s) => s.user_id === staffProfileId)) {
+    roster = await readSynqedStaffRoster(businessId)
+    if (roster.some((s) => s.id === staffProfileId)) {
+      // Refill the stale cache. Best-effort: updateTag throws outside a Server
+      // Action (a Route Handler — the phone facade), and a refresh that cannot
+      // run must never fail the resolve; the next miss re-reads live again.
+      try {
+        updateTag('staff-list')
+      } catch (err) {
+        console.warn('[staff-map] staff-list refresh after a live roster hit failed', err)
+      }
+      return staffProfileId
+    }
+  }
 
   const found = await lookupSynqedStaffIdForBusiness(staffProfileId, businessId, roster)
   if (found) return found
