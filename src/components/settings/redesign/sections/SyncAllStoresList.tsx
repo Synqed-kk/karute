@@ -2,7 +2,7 @@
 
 import { getDataPort } from '@/lib/ports/data-port'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import type { SyncStoreRow } from '@/app/api/sync/quickreserve/configs/route'
@@ -96,6 +96,16 @@ export function SyncAllStoresList({
     results: null,
   })
   const [selectFailed, setSelectFailed] = useState(false)
+  // false once the list is unmounted (the sync tab was left): a bulk run that
+  // is still going finishes the store in flight (it releases itself) and
+  // starts no queued store.
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
 
   const load = useCallback(async () => {
     const fresh = await fetchStoreRows()
@@ -158,12 +168,15 @@ export function SyncAllStoresList({
     setNow(Date.now())
     const results: { row: SyncStoreRow; outcome: RunOutcome }[] = []
     for (const row of fresh.filter(syncsInRunAll)) {
+      // The screen was abandoned: no queued store starts.
+      if (!alive.current) return
       // A store already in flight (its row run, the form) is skipped, not queued.
       if (!beginSyncing(row.storeId)) continue
       const outcome = await runStoreSync(row.storeId)
       endSyncing(row.storeId)
       results.push({ row, outcome })
     }
+    if (!alive.current) return
     setRowResult({})
     setRunAll({ pending: false, results })
     await load()

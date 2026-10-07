@@ -7,6 +7,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { SyncSection } from '@/components/settings/redesign/sections/SyncSection'
+import { snapshot as inFlightNow } from '@/lib/sync/in-flight'
 
 jest.mock('next-intl', () => ({ useTranslations: () => (k: string) => k }))
 
@@ -37,6 +38,17 @@ beforeEach(() => {
   posts = []
   apiFetch.mockClear()
   setDataPort({ apiFetch } as never)
+})
+
+// The in-flight set lives for the page (src/lib/sync/in-flight.ts), so a save
+// or run a test leaves pending is answered here; no store stays claimed into
+// the next test.
+afterEach(async () => {
+  for (let i = 0; i < posts.length; i++) {
+    await act(async () => { posts[i].resolve({ success: true }) })
+    await flush()
+  }
+  expect(inFlightNow().size).toBe(0)
 })
 
 describe('SyncSection — store switch (Greptile #1135 F1)', () => {

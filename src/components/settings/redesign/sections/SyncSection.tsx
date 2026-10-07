@@ -2,11 +2,12 @@
 
 import { getDataPort } from '@/lib/ports/data-port'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 import { SyncAllStoresList } from './SyncAllStoresList'
 import { readSyncResponse } from '@/lib/sync/read-sync-response'
+import * as syncInFlight from '@/lib/sync/in-flight'
 
 // Re-exported: the reader moved to src/lib/sync/read-sync-response.ts.
 export { readSyncResponse }
@@ -60,9 +61,9 @@ export function SyncSection({
   // EVERY store with a save or run in flight ('' = no store shown), so a
   // request for one store never disables another store's form, and a store
   // whose own request is still pending stays marked after a switch away and
-  // back. The ref mirrors the set; each request removes only its own store.
-  const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set())
-  const inFlightRef = useRef<ReadonlySet<string>>(inFlight)
+  // back. The set is the page's one in-flight set (src/lib/sync/in-flight.ts),
+  // so it also survives leaving the tab; each request removes only its own store.
+  const inFlight = useSyncExternalStore(syncInFlight.subscribe, syncInFlight.snapshot, syncInFlight.snapshot)
   const [lastResult, setLastResult] = useState<{ text: string; error: boolean } | null>(null)
   // The store whose config is loaded (undefined = loading, or the load
   // failed). Save stays off until it is the shown store, so a blank or reset
@@ -139,29 +140,20 @@ export function SyncSection({
   }
 
   function beginSyncing(key: string) {
-    const next = new Set(inFlightRef.current)
-    next.add(key)
-    inFlightRef.current = next
-    setInFlight(next)
+    syncInFlight.claim(key)
   }
   // Removes only this request's store, never another store's (a store switch
   // does not cancel the old request; its late answer is dropped by the
   // shownStore guard).
   function endSyncing(key: string) {
-    if (!inFlightRef.current.has(key)) return
-    const next = new Set(inFlightRef.current)
-    next.delete(key)
-    inFlightRef.current = next
-    setInFlight(next)
+    syncInFlight.release(key)
   }
 
   // The all-stores list's row runs and すべての店舗を同期 share THIS set, so the
   // form and the list never crawl one store twice at once: a claim is refused
   // (false) while the store is already in flight here or in the list.
   function claimSyncing(key: string) {
-    if (inFlightRef.current.has(key)) return false
-    beginSyncing(key)
-    return true
+    return syncInFlight.claim(key)
   }
 
   // Both actions capture the store at request time and ignore an answer that

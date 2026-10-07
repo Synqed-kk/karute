@@ -6,6 +6,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { SyncSection } from '@/components/settings/redesign/sections/SyncSection'
+import { snapshot as inFlightNow } from '@/lib/sync/in-flight'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (k: string, p?: Record<string, unknown>) => (p ? `${k}${JSON.stringify(p)}` : k),
@@ -50,6 +51,16 @@ beforeEach(() => {
   selectStore.mockClear()
   refresh.mockClear()
   setDataPort({ apiFetch } as never)
+})
+
+// The in-flight set lives for the page (the module), so a test that leaves a
+// run pending answers it here; no store stays claimed into the next test.
+afterEach(async () => {
+  for (let i = 0; i < runs.length; i++) {
+    await act(async () => { runs[i].resolve(ok) })
+    await flush()
+  }
+  expect(inFlightNow().size).toBe(0)
 })
 
 describe('store isolation — branch-restricted caller', () => {
@@ -358,6 +369,50 @@ describe('viewAll caller', () => {
     await act(async () => { runs[0].resolve(ok) })
     await flush()
     expect((screen.getByRole('button', { name: 'syncNow' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('leaving the tab mid-run keeps the claim: a remount never posts the in-flight store again, and the old loop starts no queued store', async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    const ebisu = '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'
+    const first = render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    first.unmount() // the owner leaves the sync tab while 代官山 is posting
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    // back on the tab: 代官山 is still in flight (its form and row read pending)
+    expect((screen.getByRole('button', { name: 'syncing' }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, shibuya])
+    await act(async () => { runs[0].resolve(ok) }) // the old loop's store answers
+    await flush()
+    // the abandoned loop starts neither 渋谷 nor 恵比寿
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, shibuya])
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, shibuya, ebisu])
+    await act(async () => { runs[2].resolve(ok) })
+    await flush()
+    expect(runs.filter((r) => r.storeId === daikanyama)).toHaveLength(1)
+    expect(screen.getByText('runAllDone{"n":2}')).toBeTruthy()
+  })
+
+  it("an abandoned loop's store is released when its POST answers (the set is empty afterwards)", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    const first = render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    first.unmount()
+    expect([...inFlightNow()]).toEqual([daikanyama])
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(inFlightNow().size).toBe(0)
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
   })
 
   it.each([
