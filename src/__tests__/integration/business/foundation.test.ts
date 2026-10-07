@@ -787,6 +787,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-inbox',
         '@/business/lib/fixtures-today',
         '@/business/lib/inbox',
+        '@/business/lib/practice-door/sample-facade',
       ],
       'src/app/[locale]/(business)/business/inbox/InboxScreen.tsx': [
         // ⚖ Liam 8/23 — the room's ? opens the family's guided tour, so it wires
@@ -816,6 +817,7 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/data',
         // PR-2 (Greptile on #992): the operator now comes from the door (readShellIdentity).
+        '@/business/lib/practice-door/sample-facade',
         '@/business/lib/fixtures-register',
         '@/business/lib/register',
         '@/business/lib/settings-link',
