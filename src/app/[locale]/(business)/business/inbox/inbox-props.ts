@@ -32,7 +32,7 @@ import {
 } from '@/business/lib/data'
 import { threads as threadPlane, type FixtureThread } from '@/business/lib/fixtures-inbox'
 import { type FixtureDecision } from '@/business/lib/fixtures-today'
-import { buildThreads, FILTERS, summarize } from '@/business/lib/inbox'
+import { buildThreads, FILTERS, INBOX_WINDOW_DAYS, summarize } from '@/business/lib/inbox'
 import { type InboxProps } from './InboxScreen'
 
 const JST = { timeZone: 'Asia/Tokyo' } as const
@@ -81,7 +81,7 @@ export async function inboxProps({ locale, store, world }: InboxPropsInput): Pro
 
   const [customers, appointments, menus, dayPlanes, reservationPlanes] = await Promise.all([
     listCustomers(lens),
-    listAppointments(lens, doorOn ? { from: jstSlot(0, 0, 0, now), to: new Date(Date.parse(jstSlot(8, 0, 0, now)) - 1).toISOString() } : {}),
+    listAppointments(lens, doorOn ? { from: jstSlot(0, 0, 0, now), to: new Date(Date.parse(jstSlot(INBOX_WINDOW_DAYS, 0, 0, now)) - 1).toISOString() } : {}),
     listMenus(lens),
     readDayPlanes(lens, todayKey),
     readReservationPlanes(lens),

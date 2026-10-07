@@ -5,8 +5,11 @@ import { cashTolerance, closing, transactions, type FixtureTransaction } from '.
 import { decisions } from '../fixtures-today'
 import { auditTrail, reservations } from '../fixtures-reservations'
 import { jstMinuteOfDay } from '../clock'
+import { INBOX_WINDOW_DAYS } from '../inbox'
 import { tenderChannel } from '../register'
 import { fixtureIdOf, liveIdOf, samplePolicyFor } from './registry'
+
+export { INBOX_WINDOW_DAYS }
 
 /** FNV-1a over the entire id: every per-booking choice below reads this alone. */
 export const hash = (id: string): number => {

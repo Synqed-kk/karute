@@ -35,6 +35,8 @@ import { join } from 'node:path'
 import * as data from '@/business/lib/data'
 import * as door from '@/business/lib/practice-door/door'
 import { hash } from '@/business/lib/practice-door/door-inbox-register'
+import { INBOX_WINDOW_DAYS } from '@/business/lib/inbox'
+import { WINDOW_DAYS as RESERVATIONS_WINDOW_DAYS } from '@/app/[locale]/(business)/business/reservations/reservations-props'
 import { threads as fixtureThreads } from '@/business/lib/fixtures-inbox'
 import { transactions as fixtureTransactions, closing as fixtureClosing, cashTolerance, type FixtureTransaction } from '@/business/lib/fixtures-register'
 import { buildLedger, ledgerTotals, expectedCash, denominationTotal } from '@/business/lib/register'
@@ -633,7 +635,7 @@ describe('(9b) ⚖ PR-3 §v3 — the plane table, ONE home per store × plane', 
     expect(planesOf('toString')).toEqual(PRACTICE_PLANES)
   })
   it('every plane names its CONTRACT-MAP row (the lane harness reads the map against this table)', () => {
-    expect(PLANE_ROW).toMatchObject({ inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureTransaction.appointment_id' })
+    expect(PLANE_ROW).toMatchObject({ inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureBookingTransaction.appointment_id' })
     expect(PRACTICE_PLANES).toMatchObject({ inboxThreads: 'sample', registerLedger: 'sample' })
     expect(Object.keys(PLANE_ROW).sort()).toEqual(Object.keys(PRACTICE_PLANES).sort())
     expect(Object.values(PLANE_ROW).every((r) => r.length > 0)).toBe(true)
@@ -2370,9 +2372,10 @@ describe('S84 — live-keyed inbox and register planes', () => {
     const live = liveIdOf('appointments', twin.appointment_id!)!
     serve([row(live, { customer_id: liveIdOf('customers', twin.customer_id)! })])
     expect((await door.readInboxPlanes(STORE.tokyo)).threads).toEqual([{ ...twin, id: `smp-thr-${live}`, appointment_id: live, customer_id: liveIdOf('customers', twin.customer_id) }])
-    serve([row('day7', { starts_at: '2026-09-21T01:00:00Z' }), row('day8', { starts_at: '2026-09-22T01:00:00Z' }),
-      row('yesterday', { starts_at: '2026-09-13T01:00:00Z' })])
-    expect((await door.readInboxPlanes(STORE.tokyo)).threads.map((t) => t.appointment_id)).toEqual(['day7'])
+    expect(INBOX_WINDOW_DAYS).toBe(RESERVATIONS_WINDOW_DAYS)
+    const [d6, d7, before] = [pick('s85-d6', true)[0], pick('s85-d7', true)[0], pick('s85-y', true)[0]]
+    serve([row(d6, { starts_at: '2026-09-20T14:59:00Z' }), row(d7, { starts_at: '2026-09-20T15:00:00Z' }), row(before, { starts_at: '2026-09-13T14:59:00Z' })])
+    expect((await door.readInboxPlanes(STORE.tokyo)).threads.map((t) => t.appointment_id)).toEqual([d6])
     const wait = fixtureThreads.find((t) => t.appointment_id === null)!
     serve([row('affiliated', { customer_id: liveIdOf('customers', wait.customer_id)! })])
     expect((await door.readInboxPlanes(STORE.tokyo)).threads).toContainEqual({ ...wait, id: `smp-thr-${wait.id}`, customer_id: liveIdOf('customers', wait.customer_id) })

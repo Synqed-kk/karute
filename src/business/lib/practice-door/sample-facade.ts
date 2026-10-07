@@ -321,7 +321,7 @@ const anySample = (planes: Readonly<Record<PlaneKey, PlaneState>>) => Object.val
  *  exists) while Business still reads the fixture — sample ON SCREEN until the
  *  read is connected. The lane's harness reads the map itself against this. */
 export const PLANE_ROW: Readonly<Record<PlaneKey, string>> = {
-  inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureTransaction.appointment_id',
+  inboxThreads: 'FixtureThread.id', registerLedger: 'FixtureBookingTransaction.appointment_id',
   operatingHours: 'operatingHours.open', shifts: 'FixtureShift.staff_id', absence: 'FixtureAbsence.staff_id',
   sellSlots: 'FixtureSellSlot.id', decisions: 'FixtureDecision.id', recoverySteps: 'recoverySteps',
   storeProfile: 'profile.photo', closures: 'closures[].dayOffset', opsConfig: 'opsConfig.bookingStepMin',

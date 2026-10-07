@@ -33,6 +33,9 @@ export type { ThreadCategory }
 import { deadlineOf, lifecycleOf } from './reservations'
 import { customerStoreAffiliation, hhmm, yen } from './today-board'
 
+/** The inbox covers the same days as 予約一覧 (today..+6): one reach constant. */
+export const INBOX_WINDOW_DAYS = 7
+
 export type ThreadStatus = 'new' | 'attention' | 'waiting' | 'resolved'
 
 /** ONE label per status — canon spells its 空き待ち row 未提案 and every other

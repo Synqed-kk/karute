@@ -329,7 +329,7 @@ export function InboxScreen(props: InboxProps) {
         data-guide-title="受信トレイ"
         data-guide="メッセージの数ではなく、店舗が次に行う対応を並べる画面です。顧客カルテの施術内容はここには表示しません。期限、予約への影響、同意済みの連絡先、配信の証跡を確認してから送信します。"
       >
-        <div className="ib-eyebrow">{props.dateline} {props.sample && <span className="sample-mark" title={sampleMarkLines(props.sample).pop1}>{businessStrings.sampleMark.chip}</span>}</div>
+        <div className="ib-eyebrow">{props.dateline}{props.sample && <> <span className="sample-mark" title={sampleMarkLines(props.sample).pop1}>{businessStrings.sampleMark.chip}</span></>}</div>
         <div className="ib-titleline">
           <h1>受信トレイ</h1>
           {/* ⚖ Liam 8/23 — the ? opens the GUIDED TOUR, the same one 今日の運営

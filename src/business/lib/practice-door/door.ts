@@ -14,7 +14,7 @@
 
 import { assertLensVisible, pageAll, practiceActor, visibleIds, type PracticeActor } from './actor'
 import { fixtureIdOf, samplePolicyFor } from './registry'
-import { inboxFor, registerFor } from './door-inbox-register'
+import { INBOX_WINDOW_DAYS, inboxFor, registerFor } from './door-inbox-register'
 import { borrows, rekeyKeys, rekeyRows, sampleFor, sampleKeys, sampleRows, singletonsOf, type RosterSeats } from './sample-facade'
 import { liveSpans, serveDay, type LiveSpan } from './sample-day'
 import { BOARD_REACH_DAYS, closedDaysRange, resolveStoreHours, sampleHours, type HoursReads, type StoreHours, type Window } from './store-hours'
@@ -873,7 +873,7 @@ async function planeBookings(actor: PracticeActor, lens: StoreLens, reach: numbe
 export async function readInboxPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
   const actor = await practiceActor()
   assertLensVisible(actor, lens)
-  return inboxFor(await planeBookings(actor, lens, 7, rows))
+  return inboxFor(await planeBookings(actor, lens, INBOX_WINDOW_DAYS - 1, rows))
 }
 
 export async function readRegisterPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
