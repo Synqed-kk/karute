@@ -54,7 +54,7 @@ export function inboxFor(
     const twin = fixtureIdOf('appointments', booking.id)
     const decision = twin !== null && decisions.some((d) => d.appointment_id === twin)
     const exception = twin !== null && reservations.some((r) => r.appointment_id === twin)
-    const audit = twin === null ? [] : (auditTrail[twin] ?? [])
+    const auditRows = twin === null ? [] : (auditTrail[twin] ?? [])
     return [{
       ...template, id: `smp-thr-${booking.id}`, appointment_id: booking.id, customer_id: booking.customer_id,
       // The 'delivery' template IS a failed 予約確認SMS (未達 / 不達), so without a card its plane says so and 配信失敗 counts it.
@@ -65,7 +65,7 @@ export function inboxFor(
       // A seated reply is wanted before the customer arrives: with no template deadline, the deadline is the booking's own
       // start — today only (a later day cannot be said in a minute-of-day), and never on a no-show record.
       due: exception || template.category === 'noshow' ? null : (template.due ?? (isToday(booking) ? jstMinuteOfDay(booking.starts_at) : null)),
-      events: template.events.filter((event) => !audit.some((row) => row.every((s, i) => s === event[i]))),
+      events: template.events.filter((event) => !auditRows.some((row) => row.every((s, i) => s === event[i]))),
     }]
   })
   return { threads: [...seated, ...customerOnly] }
