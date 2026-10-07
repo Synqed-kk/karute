@@ -700,4 +700,68 @@ describe('viewAll caller', () => {
     }
     await flush()
   })
+
+  it("during runAll, the form's run triggers a list read that answers BEFORE the bulk loop's pre-start re-read; the rows show the form-triggered answer; the older bulk answer does not overwrite it", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    const ebisu = '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'
+    render(<SyncSection storeId={ebisu} showAllStores selectStore={selectStore} />)
+    await flush()
+    configsHold = []
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(configsHold).toHaveLength(1) // sync-all's first re-read
+    await act(async () => { configsHold![0](reply({ stores: STORES })) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    // the form's 今すぐ同期 (恵比寿) starts while 代官山 runs
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, ebisu])
+    // 代官山 answers: the bulk loop asks for 渋谷's pre-start re-read (older)
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(configsHold).toHaveLength(2)
+    // the form's run answers: listGeneration bumps, a newer list read
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    expect(configsHold).toHaveLength(3)
+    // the form-triggered read answers first, the bulk re-read last
+    await act(async () => { configsHold![2](reply({ stores: [{ ...STORES[0], storeName: '新代官山' }, ...STORES.slice(1)] })) })
+    await flush()
+    expect(screen.getByText('新代官山')).toBeTruthy()
+    await act(async () => { configsHold![1](reply({ stores: [{ ...STORES[0], storeName: '旧代官山' }, ...STORES.slice(1)] })) })
+    await flush()
+    expect(screen.getByText('新代官山')).toBeTruthy()
+    expect(screen.queryByText('旧代官山')).toBeNull()
+    // the run itself still decides on the bulk answer: 渋谷 starts
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, ebisu, shibuya])
+  })
+
+  it('row has a manual failure result; listGeneration bumps; the reload FAILS (500) → the row still shows its manual failure text and the read-failed line is shown; the next successful reload clears it and shows the server state', async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    const row = () => within(screen.getByTestId('sync-row-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'))
+    await act(async () => { fireEvent.click(row().getByText('runNow')) })
+    await act(async () => { runs[0].resolve(loginFail) })
+    await flush()
+    expect(row().getByText('reasonLoginFix')).toBeTruthy()
+    // reads: 1 = mount, 2 = after the row run; 3 = the form run's reload, which fails
+    expect(configsCalls()).toBe(2)
+    failConfigsRead = 3
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    expect(configsCalls()).toBe(3)
+    expect(row().getByText('reasonLoginFix')).toBeTruthy()
+    expect(screen.getByText('somethingWentWrong')).toBeTruthy()
+    // the next form run's reload succeeds: the manual result clears, the server state shows
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[2].resolve(ok) })
+    await flush()
+    expect(configsCalls()).toBe(4)
+    expect(row().queryByText('reasonLoginFix')).toBeNull()
+    expect(row().getByText('stateHealthy')).toBeTruthy()
+    expect(screen.queryByText('somethingWentWrong')).toBeNull()
+  })
 })
