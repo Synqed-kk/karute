@@ -268,7 +268,9 @@ it('⚖ S25 round 2 item 8 — MOUNTED 07–22 (テスト恵比寿ジム): the 2
     const css = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
     expect(css).toContain('.biz .timeline-scroll { overflow-x: auto;')
     expect(css).toContain('.biz .timeline-scroll > .timeline { min-width: calc(var(--label) + var(--board-cells, 0) * var(--cell-floor, 0px)); }')
-    expect(Array.from(host.querySelectorAll('.cell-held')).filter((h) => !h.getAttribute('title')).length).toBe(0)
+    const held = Array.from(host.querySelectorAll('.cell-held'))
+    expect(held.length).toBeGreaterThan(0) // the gym's recorded day draws 確保 boxes, else the next line tests nothing
+    expect(held.filter((h) => !h.getAttribute('title')).length).toBe(0)
     expect(writes.length).toBe(1) // today, overflowing, on mount: once
     const other = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.yokohama }) })
     await act(async () => root.render(<BusinessSessionEdits>{other}</BusinessSessionEdits>))

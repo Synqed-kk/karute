@@ -489,22 +489,23 @@
 .biz .page-today .hours span.edge { left: auto; right: 0; padding: 19px 4px 0 0; border-left: 0; text-align: right; }
 
 /* ⚖ 10/7 S25-2 (D5) + round 2 item 4 — LABEL TIERS by the card's drawn width, from today-board.ts LABEL_TIER_PX. A
-   container query measures the CONTENT box (width − CARD_PAD_PX 18), so: below WIDE 90 → 72 · below MID 79 → 61 ·
-   SLIVER below 20 → 2. Below WIDE the menu/price line goes and the padding is given back down to CARD_TIGHT_PAD_PX
+   container query measures the CONTENT box (width − CARD_PAD_PX 18), so: below WIDE 64 → 46 · below MID 53 → 35 ·
+   SLIVER below 20 → 2 (the name and time lines stack, so a tier needs its widest line, not the sum). Below WIDE the menu/price line goes and the padding is given back down to CARD_TIGHT_PAD_PX
    (left 4, right 1: −6 / −5 px on the text lines, never on the absolute resize grips); below MID the time line goes
    too (NARROW: the family name); SLIVER keeps only the coloured bar (the full text stays in the hover/tap detail).
    CSS ellipsis stays as the last-resort overflow. */
 .biz .page-today .event { container-type: inline-size; }
-@container (width < 72px) {
+@container (width < 46px) {
   .biz .page-today .event > .e-tkt { display: none; }
   .biz .page-today .event > strong, .biz .page-today .event > small { margin-left: -6px; margin-right: -5px; }
 }
-@container (width < 61px) { .biz .page-today .event > .e-time { display: none; } }
+@container (width < 35px) { .biz .page-today .event > .e-time { display: none; } }
 @container (width < 2px) { .biz .page-today .event > strong, .biz .page-today .event > small { visibility: hidden; } }
 /* ⚖ 10/7 S25-2 (D5) + round 2 item 7 (a) — THE OFFERS TAKE THE SAME TIERS (LABEL_TIER_PX): 確保 (.cell-held),
    詰め込み / スキマ枠 (.cell-packed / .cell-gapfill) and 販売可能枠 (.cell-price), on staff and booth rows alike. An offer
    has no time or menu line, so WIDE · MID · NARROW keep today's kind word + price (clipped as today); SLIVER (below
-   20 px drawn = content box below 20 − OFFER_PAD_PX 10) keeps only the coloured bar. */
+   20 px drawn = content box below 20 − OFFER_PAD_PX 10) keeps only the coloured bar. No price `title` on 販売可能枠 /
+   詰め込み / スキマ枠 (pointer-events: none, aria-hidden, and 価格を隠す must hold); only the pressable 確保 keeps its title. */
 .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) { container-type: inline-size; }
 @container (width < 10px) { .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) > * { visibility: hidden; } }
 

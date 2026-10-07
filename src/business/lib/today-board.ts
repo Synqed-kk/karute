@@ -136,8 +136,9 @@ export interface RulerLabel { hour: number; text: string; leftPct: number; width
  *  name's type `.biz .page-today .event[data-book] > strong` (13px / 700): 「山本」 26.00 px · 「山」 13.00 · 「佐々木」
  *  39.00 · 「ブラウン」 52.00 · 「ジョーンズ」 64.09 (a CJK ideograph is 1 em; round 1's 26 holds, so FAMILY_NAME_PX = 26);
  *  + the tightest padding + border the card allows (S0 「tight」: left 4 = the 3 px category stripe + 1, right 1,
- *  border 1 + 1 = 7 px) → 33 px. One number for every store and every type. A wider family name (「佐々木」 39 px)
- *  ellipsises at the floor — a known limit, not a bug. */
+ *  border 1 + 1 = 7 px) → 33 px. One number for every store and every type. A 3+-kanji family name (「佐々木」 39 px)
+ *  ellipsises at the floor — a known limit, not a bug: the card carries NO `title` (flag 8, Liam 2026-08-20: the
+ *  browser's tooltip fired mid-drag), so the full name is in the card's tap/hover detail and its aria-label. */
 export const FAMILY_NAME_PX = 26
 export const CARD_TIGHT_PAD_PX = 7
 export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
@@ -147,19 +148,22 @@ export const minPxPer30 = FAMILY_NAME_PX + CARD_TIGHT_PAD_PX
  *  · SLIVER below LABEL_TIER_PX.sliver = one character (FAMILY_NAME_PX / 2 = 13, 1 em) + CARD_TIGHT_PAD_PX 7 = 20 px:
  *    the coloured bar only; the full text stays in the card's hover/tap detail.
  *  · NARROW from 20 px: the family name only, tight padding; from the floor (minPxPer30 33) a two-kanji name is whole.
- *  · MID from LABEL_TIER_PX.mid = the width that fits name + time line = FAMILY_NAME_PX 26 + CARD_TIME_PX 46 +
- *    CARD_TIGHT_PAD_PX 7 = 79 px: name · HH:MM〜, tight padding, the menu/price line dropped. CARD_TIME_PX = 「07:00〜」
+ *  THE LINES STACK (`.biz .event strong` / `small` are display: block, one line each), so a tier needs the WIDEST
+ *  of its lines, not the sum of them (round 2B, the lead's D-3 ruling).
+ *  · MID from LABEL_TIER_PX.mid = the width that fits the wider of the name and time lines = max(FAMILY_NAME_PX 26,
+ *    CARD_TIME_PX 46) + CARD_TIGHT_PAD_PX 7 = 53 px: name · HH:MM〜, tight padding, the menu/price line dropped (a
+ *    60-minute card at the floor, 66 px, keeps its time line). CARD_TIME_PX = 「07:00〜」
  *    at `.e-time` (11.5px; no rule sets a weight on `.biz .event small`, so the inherited 400) measured 45.34 px in the
  *    same run (500: 46.22 · 600: 47.36 · 700: 48.89) → 46. Round 1's 37.70 was Chromium's default font, not the stack.
- *  · WIDE from LABEL_TIER_PX.wide = the same name + time at TODAY's padding (CARD_PAD_PX 18 = 10 + 6 + border 1 + 1)
- *    = 90 px: today's full card, unchanged.
- *  today.css mirrors these as @container rules in content-box px (px − CARD_PAD_PX: 72 · 61 · 2), pinned by test. */
+ *  · WIDE from LABEL_TIER_PX.wide = the same widest line at TODAY's padding (CARD_PAD_PX 18 = 10 + 6 + border 1 + 1)
+ *    = max(26, 46) + 18 = 64 px: today's full card, unchanged; the menu/price line below it ellipsises as today.
+ *  today.css mirrors these as @container rules in content-box px (px − CARD_PAD_PX: 46 · 35 · 2), pinned by test. */
 export const CARD_TIME_PX = 46
 export const CARD_PAD_PX = 18
 export const LABEL_TIER_PX = {
   sliver: FAMILY_NAME_PX / 2 + CARD_TIGHT_PAD_PX,
-  mid: FAMILY_NAME_PX + CARD_TIME_PX + CARD_TIGHT_PAD_PX,
-  wide: FAMILY_NAME_PX + CARD_TIME_PX + CARD_PAD_PX,
+  mid: Math.max(FAMILY_NAME_PX, CARD_TIME_PX) + CARD_TIGHT_PAD_PX,
+  wide: Math.max(FAMILY_NAME_PX, CARD_TIME_PX) + CARD_PAD_PX,
 } as const
 /** The offers' own padding + border (`.cell-price` / `.cell-packed` / `.cell-gapfill` 5 + 5; `.cell-held` 4 + 4 +
  *  border 1 + 1): today.css's offer @container rule measures the content box, so SLIVER there is below
