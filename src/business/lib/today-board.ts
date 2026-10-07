@@ -116,13 +116,13 @@ export function boardRows(
  *  today's equal columns (open/60 + i at i/count·100 %, width 100/count %).
  *  ⚖ 10/7 S25-2 (Liam; P20's 「never the closing hour」 was the lead's rule) — the closing edge is printed as an EDGE
  *  TICK (`edge`, at 100 %, no column) labelled with the closing hour, so 「is 21:30 inside the day?」 is on the screen.
- *  An hour past midnight reads 翌0, 翌1 … (`hourText`). */
+ *  An hour past midnight reads 翌0, 翌1 … (`hourText`); the edge tick's word is `edgeText` (a 24:00 close reads 「24」). */
 export function rulerLabels(axis: Hours): ReadonlyArray<RulerLabel> {
   const span = axis.close - axis.open
   if (!(span > 0)) return []
   const out: RulerLabel[] = []
   for (let h = Math.ceil(axis.open / HOUR_MIN); h * HOUR_MIN < axis.close; h++) out.push({ hour: h, text: hourText(h), leftPct: ((h * HOUR_MIN - axis.open) / span) * 100, widthPct: (Math.min(HOUR_MIN, axis.close - h * HOUR_MIN) / span) * 100 })
-  out.push({ hour: axis.close / HOUR_MIN, text: axis.close % HOUR_MIN === 0 ? hourText(axis.close / HOUR_MIN) : hhmm(axis.close), leftPct: 100, widthPct: 0, edge: true })
+  out.push({ hour: axis.close / HOUR_MIN, text: edgeText(axis.close), leftPct: 100, widthPct: 0, edge: true })
   return out
 }
 
@@ -169,6 +169,17 @@ export function trackOverflows(day: Hours, stepMin: number, trackPx: number): bo
 const HOURS_PER_DAY = 24
 /** The ruler's word for an hour: the bare number, and 翌 + the hour for one past midnight (D2). */
 export const hourText = (h: number): string => (h >= HOURS_PER_DAY ? `翌${h - HOURS_PER_DAY}` : String(h))
+
+/** ⚖ 10/7 S25-2 (the lead's ruling, round 2 item 2) — A MIDNIGHT CLOSE READS 「24」: the closing EDGE of a day that closes
+ *  at exactly 24:00 is labelled 24, the way the settings room prints a midnight close (特別営業日's 「24:00閉店」 and its
+ *  read-only 24:00 box, SettingsScreen.tsx:2778; store-days-state.ts:92); 翌N starts only PAST it (25:00 → 翌1), for a
+ *  day that truly crosses midnight. A fractional close prints its HH:MM. The edge tick's word only — an hour COLUMN at
+ *  24 inside a day that runs on (a bar 18–26) is still 翌0 (`hourText`). */
+export function edgeText(closeMin: number): string {
+  if (closeMin % HOUR_MIN !== 0) return hhmm(closeMin)
+  const h = closeMin / HOUR_MIN
+  return h === HOURS_PER_DAY ? String(h) : hourText(h)
+}
 
 /** ⚖ §v11 V11-15 P20 — the track's gridlines take the ruler's lead: the share of the axis (percent) before its first
  *  whole hour, so the lines start where the first label does. 0 on a whole-hour axis (nothing is added to the DOM). */

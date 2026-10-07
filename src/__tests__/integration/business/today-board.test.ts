@@ -67,6 +67,7 @@ import {
   LABEL_TIER_PX,
   minPxPer30,
   trackOverflows,
+  edgeText,
   cleanupBlocks,
   effectiveShift,
   openDecisions,
@@ -454,9 +455,13 @@ describe('board derivations', () => {
     // ⚖ 10/7 S25-2 — the closing hour is PRINTED: one edge tick at 100 %, labelled with the closing hour (翌 past 24:00).
     expect(rulerLabels({ open: 540, close: 1140 }).at(-1)).toEqual({ hour: 19, text: '19', leftPct: 100, widthPct: 0, edge: true })
     expect(rulerLabels({ open: 420, close: 1320 }).filter((l) => l.edge).map((l) => l.text)).toEqual(['22'])
-    expect(rulerLabels({ open: 570, close: 1440 }).at(-1)!.text).toBe('翌0')
+    expect(rulerLabels({ open: 570, close: 1440 }).at(-1)!.text).toBe('24') // ⚖ S25-2 R2: a 24:00 close reads 「24」
     expect(rulerLabels({ open: 1080, close: 1560 }).map((l) => l.text)).toEqual(['18', '19', '20', '21', '22', '23', '翌0', '翌1', '翌2'])
     expect(rulerLabels({ open: 570, close: 1350 }).at(-1)!.text).toBe('22:30')
+    // ⚖ 10/7 S25-2 (the lead's ruling, round 2 item 2) — a close at exactly 24:00 reads 「24」; 翌N starts past it.
+    expect([1380, 1440, 1500, 1560].map(edgeText)).toEqual(['23', '24', '翌1', '翌2'])
+    expect([1380, 1440, 1500, 1560].map((close) => rulerLabels({ open: 1080, close }).at(-1)!.text)).toEqual(['23', '24', '翌1', '翌2'])
+    expect(rulerLabels({ open: 1080, close: 1560 }).find((l) => l.hour === 24)!.text).toBe('翌0') // a COLUMN at 24 inside a day that runs on
     expect(rulerLabels({ open: 600, close: 600 })).toEqual([])
     expect(rulerLabels({ open: 660, close: 600 })).toEqual([])
   })
@@ -1790,10 +1795,10 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
   const shapes: Array<[string, { open: number; close: number }, Array<{ start: number; end: number }>, { open: number; close: number }, string, number, boolean[]]> = [
     ['salon 10–19', salon, [], salon, '19', 18, [false, false, false]],
     ['gym 07–22', gym, [], gym, '22', 30, [true, true, false]],
-    ['24 h 00–24', { open: 0, close: 1440 }, [], { open: 0, close: 1440 }, '翌0', 48, [true, true, true]],
+    ['24 h 00–24', { open: 0, close: 1440 }, [], { open: 0, close: 1440 }, '24', 48, [true, true, true]],
     ['bar 18–26 (model + ruler only)', { open: 1080, close: 1560 }, [], { open: 1080, close: 1560 }, '翌2', 16, [false, false, false]],
     ['split 10–14 + 17–22: one span', { open: 600, close: 1320 }, [{ start: 840, end: 1020 }], { open: 600, close: 1320 }, '22', 24, [false, true, false]],
-    ['a shift ending after close (23:20)', gym, [{ start: 660, end: 1400 }], { open: 420, close: 1440 }, '翌0', 34, [true, true, true]],
+    ['a shift ending after close (23:20)', gym, [{ start: 660, end: 1400 }], { open: 420, close: 1440 }, '24', 34, [true, true, true]],
     ['a 06:30 booking before open', gym, [{ start: 390, end: 420 }], { open: 360, close: 1320 }, '22', 32, [true, true, true]],
     ['勤務不可 13:00〜閉店', gym, [{ start: 780, end: 780 }], gym, '22', 30, [true, true, false]],
     ['a closed day with no rows (the served pair, no rows)', salon, [], salon, '19', 18, [false, false, false]],

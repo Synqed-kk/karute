@@ -135,8 +135,9 @@ it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is dra
     const card = host.querySelector(`.lane[data-lane="${GYM.rina}"] .track .event[data-book="00000000-0000-4000-8000-00000000c399"]`)!
     expect([pct(card, '--w') > 0, pct(card, '--x') + pct(card, '--w') <= 100 + 1e-9]).toEqual([true, true])
     const ruler = Array.from(host.querySelectorAll('.time-head .hours span'))
-    expect([ruler[0].textContent, ruler.at(-1)!.textContent, ruler.length]).toEqual(['7', '23', 17]) // 07:00–24:00: ceil60 of 23:15
-    expect(ruler.filter((r) => r.classList.contains('off')).map((r) => r.textContent)).toEqual(['22', '23'])
+    // ⚖ 10/7 S25-2: the closing edge is printed — 17 hour columns + the closing edge tick 「24」 (a 24:00 close reads 24), muted after close.
+    expect([ruler[0].textContent, ruler.at(-1)!.textContent, ruler.length]).toEqual(['7', '24', 18]) // 07:00–24:00: ceil60 of 23:15
+    expect(ruler.filter((r) => r.classList.contains('off')).map((r) => r.textContent)).toEqual(['22', '23', '24'])
     // The band is a LAYER of every track (A5): the timeline carries each side's share; the ruler says it once, after close only.
     const timeline = host.querySelector<HTMLElement>('.timeline.off-hours')!
     expect([timeline.style.getPropertyValue('--off-before'), Math.abs(parseFloat(timeline.style.getPropertyValue('--off-after')) - 120 / 1020) < 1e-12]).toEqual(['0', true])
@@ -181,7 +182,8 @@ it('§v11 V11-15 P13 — MOUNTED: a booking wholly after the gym\'s close is dra
     const { host } = yokohama
     const card = host.querySelector('.lane .track .event[data-book="00000000-0000-4000-8000-00000000c398"]')!
     expect([pct(card, '--w') > 0, pct(card, '--x') + pct(card, '--w') <= 100 + 1e-9]).toEqual([true, true])
-    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('20') // 10:00–21:00
+    // ⚖ 10/7 S25-2: the closing edge is printed
+    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('21') // 10:00–21:00
     expect([host.querySelectorAll('.timeline.off-hours').length, host.querySelectorAll('.off-caption').length, host.querySelectorAll('.hours span.off').length]).toEqual([0, 0, 0])
   } finally {
     yokohama.done()
@@ -192,7 +194,8 @@ it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) whil
   jest.clearAllMocks()
   const { host, done } = await mountGymOutOfHours()
   try {
-    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('23') // the axis DID grow (the precondition)
+    // ⚖ 10/7 S25-2: the closing edge is printed
+    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).toBe('24') // the axis DID grow (the precondition)
     type Call = unknown[]
     const argsOf = (fn: unknown) => (fn as jest.Mock).mock.calls as Call[]
     const closes = <C,>(calls: C[], read: (c: C) => unknown) => [calls.length > 0, [...new Set(calls.map(read))]]
