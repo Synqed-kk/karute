@@ -848,7 +848,7 @@ describe('(11) PR-2b — 設定 reads its ROWS through the door; SAMPLE follows 
 
 describe('(12) PR-2b — the register plane under ON is neutral, never fixture money (LIVE-PROOF M-A)', () => {
   it('S84 settlements preserve the full M-A/FE-1 aggregate', async () => {
-    await data.readRegisterPlanes(STORE.tokyo)
+    await data.readRegisterPlanes(STORE.tokyo, undefined, { transactions: [], closing: null, cashTolerance: 0 })
     expect((await data.readDayPlanes(STORE.tokyo, TODAY)).register).toEqual({ cash_difference: 0, refunds: 0, terminal_held: [] })
   })
   it('readDayPlanes + readReservationPlanes: refunds and cash_difference are 0, whatever the fixture holds', async () => {
@@ -2365,8 +2365,8 @@ describe('S84 — live-keyed inbox and register planes', () => {
     expect(() => assertMoney(mutant)).toThrow()
     expect((await door.readRegisterPlanes(VIEW_ALL, bookings)).closing).toBeNull()
     const calls = spy.appointmentsList.mock.calls.length
-    await data.readRegisterPlanes(STORE.tokyo, bookings)
-    await data.readInboxPlanes(STORE.tokyo, bookings)
+    await data.readRegisterPlanes(STORE.tokyo, bookings, { transactions: [], closing: null, cashTolerance: 0 })
+    await data.readInboxPlanes(STORE.tokyo, bookings, { threads: [] })
     expect(spy.appointmentsList).toHaveBeenCalledTimes(calls)
   })
   it('retains a safe twin payment, replaces a mismatched twin, and propagates failed reads', async () => {
@@ -2384,14 +2384,18 @@ describe('S84 — live-keyed inbox and register planes', () => {
     await expect(door.readInboxPlanes(STORE.tokyo)).rejects.toBeInstanceOf(PracticeLensRefused)
     await expect(door.readRegisterPlanes(STORE.tokyo)).rejects.toBeInstanceOf(PracticeLensRefused)
   })
-  it('routes OFF to the identical fixtures and ON to the door readers; props keep overrides and table marks', async () => {
+  it('OFF returns exactly the `off` object passed and ON ignores it for the door readers; props keep overrides and table marks', async () => {
+    const offInbox = { threads: fixtureThreads }
+    const offRegister = { transactions: fixtureTransactions, closing: fixtureClosing[STORE_A], cashTolerance }
     delete process.env.BUSINESS_PRACTICE_TENANT
-    expect((await data.readInboxPlanes(STORE_A)).threads).toBe(fixtureThreads)
-    expect(await data.readRegisterPlanes(STORE_A)).toEqual({ transactions: fixtureTransactions, closing: fixtureClosing[STORE_A], cashTolerance })
-    expect((await data.readRegisterPlanes(VIEW_ALL)).closing).toBeNull()
+    expect(await data.readInboxPlanes(STORE_A, undefined, offInbox)).toBe(offInbox)
+    expect(await data.readRegisterPlanes(STORE_A, undefined, offRegister)).toBe(offRegister)
+    expect(await data.readRegisterPlanes(VIEW_ALL, undefined, offRegister)).toBe(offRegister)
     process.env.BUSINESS_PRACTICE_TENANT = TENANT
-    expect(await data.readInboxPlanes(STORE.tokyo)).toEqual(await door.readInboxPlanes(STORE.tokyo))
-    expect(await data.readRegisterPlanes(STORE.tokyo)).toEqual(await door.readRegisterPlanes(STORE.tokyo))
+    const onInbox = await data.readInboxPlanes(STORE.tokyo, undefined, offInbox)
+    expect(onInbox).not.toBe(offInbox)
+    expect(onInbox).toEqual(await door.readInboxPlanes(STORE.tokyo))
+    expect(await data.readRegisterPlanes(STORE.tokyo, undefined, offRegister)).toEqual(await door.readRegisterPlanes(STORE.tokyo))
     const inbox = (await inboxProps({ locale: 'ja', store: STORE.tokyo })).props
     const register = (await registerProps({ locale: 'ja', store: STORE.tokyo })).props
     expect(inbox.threads.length).toBeGreaterThan(0)

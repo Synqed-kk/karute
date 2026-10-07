@@ -55,8 +55,6 @@ import {
   staffMix,
 } from './fixtures-analytics'
 import { auditTrail, reservations } from './fixtures-reservations'
-import { threads } from './fixtures-inbox'
-import { transactions, closing, cashTolerance } from './fixtures-register'
 import { storeDials } from './fixtures-settings'
 import {
   absence,
@@ -637,16 +635,22 @@ export async function readReservationPlanes(lens: StoreLens) {
   }
 }
 
-export async function readInboxPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
+type InboxPlanes = Awaited<ReturnType<typeof door.readInboxPlanes>>
+type RegisterPlanes = Awaited<ReturnType<typeof door.readRegisterPlanes>>
+
+/** ON → the door seats the sample world on the live rows (`off` is ignored);
+ *  OFF → the caller's own fixture plane, returned as passed. The props import
+ *  their fixture plane themselves, so this file's import list stays sealed. */
+export async function readInboxPlanes(lens: StoreLens, rows: FixtureAppointment[] | undefined, off: InboxPlanes): Promise<InboxPlanes> {
   if (await doorOn()) return door.readInboxPlanes(lens, rows)
   assertLens(lens)
-  return { threads }
+  return off
 }
 
-export async function readRegisterPlanes(lens: StoreLens, rows?: FixtureAppointment[]) {
+export async function readRegisterPlanes(lens: StoreLens, rows: FixtureAppointment[] | undefined, off: RegisterPlanes): Promise<RegisterPlanes> {
   if (await doorOn()) return door.readRegisterPlanes(lens, rows)
   assertLens(lens)
-  return { transactions, closing: typeof lens === 'string' ? (closing[lens] ?? null) : null, cashTolerance }
+  return off
 }
 
 /** The 売上分析 planes (canon's footnote: every figure derives from the 売上・

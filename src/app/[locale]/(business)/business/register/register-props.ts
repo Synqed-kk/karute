@@ -29,7 +29,10 @@ import {
   readShellIdentity,
 } from '@/business/lib/data'
 import {
+  cashTolerance,
+  closing as closingPlane,
   MAX_CASH_TOLERANCE,
+  transactions as transactionPlane,
   type FixtureClosing,
   type FixtureTransaction,
 } from '@/business/lib/fixtures-register'
@@ -143,7 +146,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
     readReservationPlanes(lens),
   ])
 
-  const plane = await readRegisterPlanes(lens, appointments)
+  const plane = await readRegisterPlanes(lens, appointments, {
+    transactions: transactionPlane,
+    closing: clamped ? (closingPlane[storeId!] ?? null) : null,
+    cashTolerance,
+  })
 
   // ⚖ 8/17 — the held list carries no store of its own, so it is clamped through
   // the bookings it names before anything on this page reads it.

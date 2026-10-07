@@ -30,7 +30,7 @@ import {
   practiceDoorOn,
   type StoreLens,
 } from '@/business/lib/data'
-import { type FixtureThread } from '@/business/lib/fixtures-inbox'
+import { threads as threadPlane, type FixtureThread } from '@/business/lib/fixtures-inbox'
 import { type FixtureDecision } from '@/business/lib/fixtures-today'
 import { buildThreads, FILTERS, summarize } from '@/business/lib/inbox'
 import { type InboxProps } from './InboxScreen'
@@ -87,7 +87,7 @@ export async function inboxProps({ locale, store, world }: InboxPropsInput): Pro
     readReservationPlanes(lens),
   ])
 
-  const plane = await readInboxPlanes(lens, appointments)
+  const plane = await readInboxPlanes(lens, appointments, { threads: threadPlane })
 
   const models = buildThreads({
     threads: world?.threads ?? plane.threads,
