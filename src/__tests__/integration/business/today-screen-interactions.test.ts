@@ -3631,8 +3631,7 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
     // three endings (:5640) and a teardown that cannot see the timestamp would
     // have to read a clock instead.
     for (const fn of ['function clearDrag()', 'function clearChipDrag(']) {
-      // DISCLOSED WINDOW MOVE — S27 Q-23: 800 → 1000; clearDrag gained the per-node label write-back and its one ⚖ line.
-      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 1000)
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
       expect(body).toContain('setDragLen(null)')
     }
     // …including the two lost-pointer self-heals, which route into those two.
@@ -3766,8 +3765,7 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
     // (⚖ BATCH-6 flag 43 — RENEGOTIATED to the open paren; see the emphasis
     // teardown suite for why `clearChipDrag` gained its event.)
     for (const fn of ['function clearDrag()', 'function clearChipDrag(']) {
-      // DISCLOSED WINDOW MOVE — S27 Q-23: 800 → 1000; clearDrag gained the per-node label write-back and its one ⚖ line.
-      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 1000)
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
       expect(body).toContain('setProxy(null)')
     }
     // The dashed outline is now drawn for EVERY live drag, not only a lane
@@ -5368,6 +5366,9 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     expect(restore).toContain('setMoves((was) => put(was, staged.staff))')
     expect(restore).toContain('setBedMoves((was) => put(was, staged.bed))')
     expect(restore).toContain('if (!(id in was)) return was')
+    // ⚖ Round 4 (FIX-2) — and both branches of `put`: a pointerdown value is written back, an absent key is deleted.
+    expect(restore).toContain('{ ...was, [id]: m }')
+    expect(restore).toContain('delete next[id]')
     const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
     // ⚖ BATCH-8 flag 51 — RENEGOTIATED: 3 → 4. The 満室 refusal is a fourth
     // abandoned landing and restores the pair for the same reason the other

@@ -889,9 +889,6 @@ interface DragCtx {
    *  a key that was absent is deleted, a value that was there is written back — so a cancelled drag
    *  leaves nothing staged behind, and a cancelled re-drag of a staged card keeps its staged span. */
   staged: { staff: Move | null; bed: Move | null }
-  /** ⚖ Q-23 (S27) — each node's `.e-time` text before the first live write (`null` = no line); `clearDrag`
-   *  writes these back, for the ending whose state restore causes no re-render. */
-  labels: (string | null)[]
   track: Element
   /** ⚖ S25-15 (4) / Liam S25-17 (2) — EDGE AUTO-SCROLL runs on the board's ONE loop (`edgeStart` / `edgeAim` /
    *  `edgeStop`, `edgeRef`). `scrolled` is how far the box moved under the held card: it is added to the pointer's
@@ -5719,7 +5716,7 @@ export function TodayScreen(props: TodayProps) {
     return { box, scrollLeft0: box?.scrollLeft ?? 0, unfollow: () => box?.removeEventListener('scroll', onScroll) }
   }
 
-  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'box' | 'scrollLeft0' | 'scrolled' | 'at' | 'staged' | 'labels'>) {
+  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'box' | 'scrollLeft0' | 'scrolled' | 'at' | 'staged'>) {
     // ⚖ LIVE-WHILE-DRAGGING §3.6 — THE GESTURE'S MEMO IS OPENED HERE, eagerly,
     // because this is the one place that knows the gesture's mode, group and id;
     // a lazy creation would put that decision at a call site instead of at the
@@ -5799,7 +5796,6 @@ export function TodayScreen(props: TodayProps) {
     dragRef.current = {
       ...ctx,
       staged: { staff: moves[ctx.id] ?? null, bed: bedMoves[ctx.id] ?? null },
-      labels: ctx.nodes.map((n) => n.querySelector('.e-time')?.textContent ?? null),
       pending: null,
       frame: null,
       box: follow.box,
@@ -6491,9 +6487,8 @@ export function TodayScreen(props: TodayProps) {
       // re-render; a release that changes nothing gets no re-render at all, and
       // without this the card would simply stay stretched. (canon does the same
       // on its cancel path: `evSet(el, ctx.orig.x, ctx.orig.w)`, :4142.)
-      // ⚖ Q-23 (S27): each label back to its pointerdown text.
       stretchOrCarry(ctx.nodes, ctx.origin.mode, ctx.origin)
-      ctx.nodes.forEach((n, i) => liveTimeLabel([n], ctx.labels[i] ?? ''))
+      liveTimeLabel(ctx.nodes, ctx.item.time)
       ctx.detach()
     }
     dragRef.current = null

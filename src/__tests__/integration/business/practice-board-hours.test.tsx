@@ -752,7 +752,8 @@ async function mountProbed(wide: boolean) {
     act(() => { jest.advanceTimersByTime(16) })
   }
   const done = () => { act(() => root.unmount()); host.remove(); r.restore() }
-  return { ...r, host, id, card, lines, staged, session, stretch, done }
+  const edits = () => seen.edits!
+  return { ...r, host, id, card, lines, staged, session, stretch, edits, done }
 }
 
 it('⚖ Q-23 (S27) — MOUNTED: a stretch cancelled by window blur puts the label back (「07:00〜」) and leaves no staged entry for the card', async () => {
@@ -816,6 +817,45 @@ it('⚖ Q-23 (S27) step 4 — MOUNTED: after a blur-cancelled stretch AND a no-c
     act(() => { jest.advanceTimersByTime(1000) })
     const none = { moves: [], bedMoves: [], pending: null, confirm: false }
     expect([before, afterCancel, m.session()]).toEqual([none, none, none])
+  } finally {
+    m.done()
+  }
+})
+
+// ⚖ Q-23 (S27) — THE RESTORE BRANCHES, made real. No reachable drag path writes `moves` / `bedMoves` mid-gesture, so
+// these write them through the provider's own setters while a real gesture is held, then cancel through the real
+// blur handler: `restoreSides` must put back the pointerdown entries whatever happened meanwhile. STAFF SIDE ONLY:
+// the gym rig draws no bed lane (`.lane[data-group="beds"]` is absent), so a bed entry has no real lane to name here.
+it('⚖ Q-23 (S27) — the restore branches: an UNSTAGED card staged mid-drag and cancelled has no key (the delete branch)', async () => {
+  const m = await mountProbed(false)
+  try {
+    const lane = m.card().closest('.lane')!.getAttribute('data-lane')!
+    m.stretch()
+    act(() => { m.edits().setMoves((was) => ({ ...was, [m.id]: { laneKey: lane, x: 40, w: 5 } })) })
+    const mid = m.staged()
+    act(() => { window.dispatchEvent(new Event('blur')) })
+    expect([mid.staff, m.staged()]).toEqual([{ laneKey: lane, x: 40, w: 5 }, { staff: null, bed: null, pending: null }])
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ Q-23 (S27) — the restore branches: a card STAGED at span A by a real landing, re-staged to span B mid-drag and cancelled, gets span A back (the write branch)', async () => {
+  const m = await mountProbed(true)
+  try {
+    act(() => { m.card().dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 780, 1)) }) // +280 px = 14:00, the first free start (see above)
+    act(() => { jest.advanceTimersByTime(16) })
+    act(() => { window.dispatchEvent(m.ev('pointerup', 780, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    const a = m.staged()
+    act(() => { m.card().dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 520, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    act(() => { m.edits().setMoves((was) => ({ ...was, [m.id]: { ...was[m.id], x: 70 } })) })
+    const b = m.staged()
+    act(() => { window.dispatchEvent(new Event('blur')) })
+    expect([a.staff !== null && a.pending === m.id, a.staff?.x !== 70, b.staff?.x, m.staged()]).toEqual([true, true, 70, a])
   } finally {
     m.done()
   }
