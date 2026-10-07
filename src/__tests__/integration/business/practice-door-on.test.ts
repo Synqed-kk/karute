@@ -1803,7 +1803,7 @@ describe('(13) PR-4a — every store\'s board is filled: a borrower is served th
     const day = (await data.readDayPlanes(STORE.gym, TODAY)).absence
     const cal = (await data.listAbsenceByDay(STORE.gym, { from: TODAY, to: TODAY })).get(TODAY)
     const res = (await data.readReservationPlanes(STORE.gym)).absence
-    // ⚖ S87 Q4: けんた carries it — the opening side's STYLISTs are だいち, けんた and なつみ (こはる opens too but is the ASSISTANT);
+    // ⚖ S87 Q4: けんた carries it — the opening side's STYLISTs are けんた and なつみ (こはる opens too but is the ASSISTANT);
     // けんた's and なつみ's rows end first (21:30), けんた first by name; give-way moved its `from` from 11:30 to his last row's end
     expect([day?.staff_id, day?.from]).toEqual(['8dd49f39-7ae7-4464-b2f7-f2d0cf7f5461', 21 * 60 + 30]) // GYM.kenta, 21:30
     expect([cal, res]).toEqual([day, day])
