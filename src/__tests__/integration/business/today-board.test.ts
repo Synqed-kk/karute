@@ -72,6 +72,7 @@ import {
   CARD_TIGHT_PAD_PX,
   CARD_TIME_PX,
   CARD_PAD_PX,
+  OFFER_PAD_PX,
   cleanupBlocks,
   effectiveShift,
   openDecisions,
@@ -1822,5 +1823,18 @@ describe('⚖ S25 D6 (a) — every day shape on the one day model', () => {
     expect([19, 20, 32, 33, 78, 79, 89, 90].map(labelTier)).toEqual(['sliver', 'narrow', 'narrow', 'narrow', 'narrow', 'mid', 'mid', 'wide'])
     const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
     for (const px of [LABEL_TIER_PX.wide, LABEL_TIER_PX.mid, LABEL_TIER_PX.sliver]) expect(css).toContain(`@container (width < ${px - CARD_PAD_PX}px)`)
+    // the offers (確保 · 詰め込み · スキマ枠 · 販売可能枠) take the same SLIVER boundary on their own padding + border.
+    expect(css).toContain(`@container (width < ${LABEL_TIER_PX.sliver - OFFER_PAD_PX}px) { .biz .page-today :is(.cell-price, .cell-packed, .cell-gapfill, .cell-held) > * { visibility: hidden; } }`)
+  })
+  it('round 2 item 8 — the strip has one cell per grid unit of the ruler span (gym 07–22 · the 06:30-widened day · 24 h), and the overflow arithmetic at the floor', () => {
+    const perHour = 60 / step
+    for (const [day, cells] of [[gym, 30], [{ open: 360, close: 1320 }, 32], [{ open: 0, close: 1440 }, 48]] as const) {
+      const columns = rulerLabels(day).filter((l) => !l.edge).length
+      expect([boardCells(day, step), columns * perHour, (day.close - day.open) / step]).toEqual([cells, cells, cells])
+    }
+    // the gym at the floor: 30 × 33 = 990 px → 150 px over at 840, 250 over at 740, fits at 1028; the salon 18 × 33 = 594 never.
+    const over = (day: { open: number; close: number }) => FRAMES.map((px) => [px, Math.max(0, boardCells(day, step) * minPxPer30 - px), trackOverflows(day, step, px)])
+    expect([boardCells(gym, step) * minPxPer30, over(gym)]).toEqual([990, [[840, 150, true], [740, 250, true], [1028, 0, false]]])
+    expect([boardCells(salon, step) * minPxPer30, over(salon)]).toEqual([594, [[840, 0, false], [740, 0, false], [1028, 0, false]]])
   })
 })

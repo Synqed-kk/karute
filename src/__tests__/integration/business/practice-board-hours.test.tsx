@@ -42,6 +42,7 @@ import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallb
 import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import { guardRailsFor, guardVerdictAt, nearestFreeStarts, seedSpanIn, sellLayerFor, slotStartAt, windowsOn } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { GYM, LOGIN, recordedReads, STORE, TENANT, type RecordedOptions } from './practice-door-recorded'
+import { minPxPer30 } from '@/business/lib/today-board'
 
 let mockOptions: RecordedOptions = {}
 const mockReads = () => recordedReads(mockOptions)
@@ -240,5 +241,42 @@ it('§v11 V11-15 P14 (A8) — the RULES keep the store\'s own close (22:00) whil
     expect([dialog.textContent!.includes('営業時間内'), dialog.textContent!.includes('営業時間を超えます')]).toEqual([true, false])
   } finally {
     done()
+  }
+})
+
+it('⚖ S25 round 2 item 8 — MOUNTED 07–22 (テスト恵比寿ジム): the 22 edge label, 30 strip cells per lane, the track floor from the day model, and ONE now-line scroll that a store switch never repeats', async () => {
+  // jsdom lays nothing out: the scroll box is made to overflow (the floor's 990 + the 112 label > 952) and its scrollLeft writes are counted.
+  const writes: number[] = []
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>
+  const isBox = (el: Element) => el.classList.contains('timeline-scroll')
+  Object.defineProperty(proto, 'scrollWidth', { configurable: true, get(this: Element) { return isBox(this) ? 1102 : 0 } })
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: Element) { return isBox(this) ? 952 : 0 } })
+  Object.defineProperty(proto, 'scrollLeft', { configurable: true, get: () => 0, set(this: Element, v: number) { if (isBox(this)) writes.push(v) } })
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+    await act(async () => root.render(<BusinessSessionEdits>{board}</BusinessSessionEdits>))
+    const ruler = Array.from(host.querySelectorAll('.time-head .hours span'))
+    expect([ruler[0].textContent, ruler.at(-1)!.textContent, ruler.at(-1)!.classList.contains('edge'), ruler.length]).toEqual(['7', '22', true, 16])
+    const strips = Array.from(host.querySelectorAll('.guard-rail-track')).map((t) => t.querySelectorAll('.guard-rail-cell').length)
+    expect([strips.length > 0, [...new Set(strips)]]).toEqual([true, [30]])
+    // The floor is CSS: the day model's cells × the floor ride the timeline's style; the rule turns them into its min-width
+    // (here calc(112px + 30 × 33px) = 1102 px) and the scroll box, not the page, takes the overflow.
+    const timeline = host.querySelector<HTMLElement>('.timeline-scroll > .timeline')!
+    expect([timeline.style.getPropertyValue('--board-cells'), timeline.style.getPropertyValue('--cell-floor')]).toEqual(['30', `${minPxPer30}px`])
+    const css = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
+    expect(css).toContain('.biz .timeline-scroll { overflow-x: auto;')
+    expect(css).toContain('.biz .timeline-scroll > .timeline { min-width: calc(var(--label) + var(--board-cells, 0) * var(--cell-floor, 0px)); }')
+    expect(Array.from(host.querySelectorAll('.cell-held')).filter((h) => !h.getAttribute('title')).length).toBe(0)
+    expect(writes.length).toBe(1) // today, overflowing, on mount: once
+    const other = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.yokohama }) })
+    await act(async () => root.render(<BusinessSessionEdits>{other}</BusinessSessionEdits>))
+    expect(host.querySelector('.time-head .hours span:last-child')!.textContent).not.toBe('22') // the switch landed
+    expect(writes.length).toBe(1) // the same instance re-rendered for another store: never again
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft']) delete proto[k]
   }
 })
