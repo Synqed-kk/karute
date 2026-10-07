@@ -18,10 +18,10 @@ import { addDays, jstIso, plan } from './plan'
 export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'customers' | 'appointments'>, storeId: string, m: Manifest, now: Date, apply: boolean, log: (l: string) => void): Promise<number> {
   if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
   await assertDevSalon(core) // a Refused throws: exit 1 before any booking is read
-  const [type, st, today] = [registry.stores[storeId], m.stores[storeId], jstToday(now)]
+  const [type, st, today] = [registry.stores[storeId]?.type, m.stores[storeId], jstToday(now)]
   if (!type || !st) throw new Error(`store ${storeId} is not in registry.json or not in the manifest`)
   if (st.type !== type) throw new Error(`store ${storeId}: manifest type ${st.type} ≠ registry type ${type}`) // else the keys would not match
-  const p = plan(await loadRecipe(type), storeCtx(storeId, st), today, st.epoch)
+  const p = plan(await loadRecipe(type, storeId), storeCtx(storeId, st), today, st.epoch)
   const planned = new Map(p.appointments.map((a) => [a.key, a]))
   const all = await pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 }))
   const custId = new Map(all.filter((c) => c.member_number && !(c as { deleted_at?: string | null }).deleted_at).map((c) => [c.member_number!, c.id]))

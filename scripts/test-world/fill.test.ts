@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { DEV_SALON_BUSINESS_ID } from './count-baseline'
-import { apply, assertOneStore, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
+import { apply, targetsFor, loadRecipe, registry, withRetry, type FillCore, type Manifest } from './fill'
 import { addDays, bookingNotes, DEFAULT_SLOT_MINUTES, hoursOn, jstIso, plan, preferredStart, type Plan } from './plan'
 
 const STORE = 'aa36d5fe-8e35-46bb-8c9b-ac92a8aa816f'
@@ -150,6 +150,12 @@ async function main() {
   const apptKeys = f.t.appts.map((a) => a.idempotencyKey)
   assert.deepEqual(apptKeys, f.t.appts.map((a) => `test-world:${tagOf(a)}`), 'booking key = test-world:<its tag>')
   assert.equal(new Set(apptKeys).size, apptKeys.length, 'booking keys are distinct')
+  for (const a of f.t.appts) {
+    const planned = p1.appointments.find((p) => p.key === tagOf(a))!
+    assert.equal(a.booked_price_amount, planned.booked_price, 'the create payload carries the menu price')
+    assert.equal(a.booked_price_currency, 'JPY')
+    assert.equal(a.status, planned.status, 'the create payload carries the planned status')
+  }
   const apptById = new Map(f.t.appts.map((a) => [a.id, a]))
   const burnKeys = f.t.burns.map((b) => b.idempotencyKey)
   assert.ok(burnKeys.length > 0, 'the run burnt 回数券')
@@ -160,7 +166,7 @@ async function main() {
   assert.equal(f.t.links.get('st-0'), undefined, 'a practitioner of every store is never narrowed to one')
   assert.equal(m.stores[STORE].epoch, TODAY)
   assert.deepEqual(f.t.customers.filter((c) => c.member_number === 'BC-0003').map((c) => c.id), ['binned'], 'a binned customer is never re-created')
-  assert.equal(m.runs[0].created.customers, 29)
+  assert.equal(m.runs[0].created.customers, recipe.customers.length - 1)
   assert.equal(await apply(f.core, opts(m)), 0)
   assert.equal(f.stats.writes, first, 'second run: 0 writes')
   assert.equal(m.runs.length, 2)
@@ -366,8 +372,8 @@ async function main() {
   assert.deepEqual(prefer('09:05', '19:25'), [545, 855, 1075], 'preferredStart: 09:05–19:25 (mid 14:15, off the grid) → am 09:05 · pm 14:15 (the true midpoint) · eve 17:55')
   const types = Object.keys(registry.types).filter((t) => registry.types[t].recipe)
   assert.ok(types.length >= 3, 'every registry type with a recipe runs')
-  const storeOf = new Map(types.map((t) => [t, Object.keys(registry.stores).find((id) => registry.stores[id] === t) ?? `store-${t}`]))
-  const mapped = [...storeOf].filter(([t, id]) => registry.stores[id] !== t).map(([t, id]) => ((registry.stores[id] = t), id))
+  const storeOf = new Map(types.map((t) => [t, targetsFor(undefined, t)[0]]))
+  const mapped: string[] = []
   const owner = new Map<string, string>()
   const at = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
   const startMinute = (a: Plan['appointments'][number]) => (Date.parse(a.startsAt) - Date.parse(jstIso(a.date, 0))) / 60_000
@@ -388,8 +394,12 @@ async function main() {
 
       const q1 = plan(r, ctxT, TODAY, TODAY)
       assert.deepEqual(plan(r, ctxT, TODAY, TODAY), q1, `${type}: same inputs → same plan`)
-      // load-bearing: the r() draw order (weights before the role filter). A change here = the plan drifted from the live テスト東京店 — do not re-pin without checking the live rows.
-      const perBed = q1.appointments.reduce<Record<string, number>>((n, a) => ((n[a.resource] = (n[a.resource] ?? 0) + 1), n), {})
+      // Keep the original bed/part-of-day characterization intact on its original thirty-person recipe.
+      // The expanded profile's keys are checked separately against the captured pre-change golden.
+      const legacy = { ...r, customers: r.customers.slice(0, 30), profile: undefined, legacyMembers: undefined,
+        counts: { ...r.counts, customers: 30, pastDays: r.legacyPastDays!, cancelShare: .08 } }
+      const legacyPlans = [plan(legacy, ctxT, TODAY, TODAY), plan(legacy, ctxT, addDays(TODAY, 7), TODAY)]
+      const perBed = legacyPlans[0].appointments.reduce<Record<string, number>>((n, a) => ((n[a.resource] = (n[a.resource] ?? 0) + 1), n), {})
       if (type === 'beauty_chiropractic') assert.deepEqual(perBed, { 'ベッド1': 74, 'ベッド2': 68, 'ベッド3': 79, '個室': 14 }, `${type}: q1 bookings per bed`)
       assert.equal(q1.packs.length, r.packs.length, `${type}: every 回数券 is bought in the window`)
       assert.ok(q1.appointments.length >= r.customers.length && q1.karutes.length > 0, `${type}: the plan fills the store`)
@@ -423,7 +433,7 @@ async function main() {
       for (const q of [q1, q2]) for (const a of overflow(q)) assert.equal(r.staff.find((s) => s.name === a.staff)!.role !== 'ASSISTANT', true, `${type} ${a.key}: an ASSISTANT holds an overflow booking`)
       if (type === 'personal_gym') assert.ok(overflow(q1).length > 0, `${type}: the plan has overflow bookings`)
       // Preferred starts follow the store's own hours: am visits early (one takes the first slot), eve visits late.
-      const starts = (part: string) => q1.appointments.filter((a) => cust.get(a.member)!.time === part).map(startMinute)
+      const starts = (part: string) => legacyPlans[0].appointments.filter((a) => cust.get(a.member)!.time === part).map(startMinute)
       const median = (xs: number[]) => ((s) => (s[(s.length - 1) >> 1] + s[s.length >> 1]) / 2)([...xs].sort((a, b) => a - b))
       const [am, pm, eve] = [starts('am'), starts('pm'), starts('eve')]
       assert.ok(median(am) < median(pm) && median(pm) < median(eve), `${type}: median start am ${median(am)} < pm ${median(pm)} < eve ${median(eve)}`)
@@ -432,7 +442,7 @@ async function main() {
       const longest = Math.max(...r.menus.map((x) => x.duration))
       assert.ok(Math.max(...eve) >= Math.max(...days.map((h) => at(h.close) - longest - 2 * DEFAULT_SLOT_MINUTES)), `${type}: an eve visit starts near closing`)
       // ...and per visit: every am visit starts before its own day's midpoint, every eve visit at or after it (pm sits on it).
-      for (const q of [q1, q2]) for (const a of q.appointments) {
+      for (const q of legacyPlans) for (const a of q.appointments) {
         const [part, h] = [cust.get(a.member)!.time, hoursOn(r.policy.weekly_hours, a.date)!]
         const [mid, start] = [(at(h.open) + at(h.close)) / 2, startMinute(a)]
         if (part !== 'pm') assert.ok(part === 'am' ? start < mid : start >= mid, `${type} ${a.key}: an ${part} visit in the wrong half of its own day (${start} vs mid ${mid})`)
@@ -475,18 +485,17 @@ async function main() {
   // Every registry store id is a whole core uuid (a truncated one passed every other check).
   for (const id of Object.keys(registry.stores)) assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, `registry store id ${id}: 8-4-4-4-12 lowercase hex`)
 
-  // One recipe = one store: the guard itself, and apply calling it (a second store mapped to the type, removed again).
-  assert.throws(() => assertOneStore({ a: 'x', b: 'x' }, 'x'), /must map exactly one store/)
-  assert.doesNotThrow(() => assertOneStore({ a: 'x' }, 'x'))
-  assert.throws(() => assertOneStore({}, 'x'), /must map exactly one store/)
-  const twice = fakeCore()
-  registry.stores['store-second-of-type'] = recipe.id
-  try {
-    await assert.rejects(apply(twice.core, opts(empty())), /must map exactly one store/)
-  } finally {
-    delete registry.stores['store-second-of-type']
-  }
-  assert.equal(twice.stats.writes, 0, 'a type mapped to two stores gets no write')
+  // Per-store targeting replaces the removed one-store-per-type restriction. Same-type stores
+  // are accepted, while unknown stores, type mismatches and foreign manifests still write nothing.
+  const second = Object.keys(registry.stores).find((id) => registry.stores[id].type === recipe.id && id !== STORE)!
+  const twice = fakeCore({ stores: [second] })
+  const secondRecipe = await loadRecipe(recipe.id, second)
+  assert.equal(await apply(twice.core, { ...opts(empty()), storeId: second, recipe: secondRecipe, dry: true }), 0)
+  await assert.rejects(apply(twice.core, { ...opts(empty()), storeId: second }), /prepared for store/)
+  await assert.rejects(apply(twice.core, { ...opts(empty()), storeId: 'unmapped' }), /not mapped|prepared for store/)
+  await assert.rejects(apply(twice.core, { ...opts(empty()), recipe: await loadRecipe('hair_salon') }), /not mapped|prepared for store/)
+  await assert.rejects(apply(twice.core, opts({ ...empty(), businessId: 'foreign' })), /not a Dev Salon manifest/)
+  assert.equal(twice.stats.writes, 0, 'dry-run and rejected targets never write')
 
   console.log('✓ fill: all assertions passed')
 }

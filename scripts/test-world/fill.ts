@@ -2,8 +2,8 @@
 // type (registry.json maps store → type; recipes/<type>.ts holds the data; plan.ts turns it into rows).
 //
 //   npx --no -- ts-node --transpile-only -O '{"module":"commonjs","moduleResolution":"node"}' scripts/test-world/fill.ts <cmd>
-//     plan  [--type <id>] [--manifest <path>]           counts per section, no network
-//     apply --type <id> --manifest <path> [--dry-run]  live; --dry-run does every READ and writes nothing
+//     plan  --store <uuid|all> [--rows] [--type <id>] [--manifest <path>]           counts per section, no network
+//     apply --store <uuid|all> --manifest <path> [--dry-run]  live; --dry-run does every READ and writes nothing
 //   CADENCE: re-run `apply` WEEKLY. The window is epoch − pastDays … today + futureDays; a re-run only
 //   adds the days that appeared since (the top-up). Rows are matched by stable keys, so a re-run of
 //   an unchanged window creates 0.
@@ -26,7 +26,7 @@ import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
-import { addDays, bookingNotes, hoursOn, jstIso, plan, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
+import { addDays, bookingNotes, hoursOn, jstIso, plan, rng, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
 
 export type FillCore = Pick<
   SynqedClient,
@@ -42,7 +42,9 @@ export interface Manifest {
 }
 interface Registry {
   types: Record<string, { label: string; sections: string[]; recipe: Recipe['counts'] | null; realism?: Realism }>
-  stores: Record<string, string>
+  stores: Record<string, { type: string; keyPrefix: string; namePool: number }>
+  pastDays: number
+  futureDays: number
   slotMinutes: Record<string, number>
   cancelReasons: Record<string, number>
 }
@@ -50,20 +52,59 @@ interface Registry {
 export const registry: Registry = JSON.parse(readFileSync(join(__dirname, 'registry.json'), 'utf8'))
 
 /** The recipe for a registry type: data from recipes/<id>.ts, counts and realism values from registry.json. */
-export async function loadRecipe(id: string): Promise<Recipe> {
+export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)[0]): Promise<Recipe> {
   const counts = registry.types[id]?.recipe
   if (!/^[a-z_]+$/.test(id) || !counts) throw new Error(`type ${id} has no recipe in registry.json`)
   const mod = (await import(`./recipes/${id}`)) as { recipe: RecipeData }
-  return { ...mod.recipe, id, counts, realism: registry.types[id].realism }
+  const entry = registry.stores[storeId]
+  if (!entry || entry.type !== id) throw new Error(`store ${storeId} is not mapped to ${id}`)
+  const data = mod.recipe
+  const size = counts.customers
+  const names = data.namePool?.slice(entry.namePool * size, (entry.namePool + 1) * size)
+  if (!names || names.length !== size) throw new Error(`recipe ${id}: namePool too short for store ${storeId}`)
+  const original = entry.keyPrefix === id
+  const storeIndex = Object.keys(registry.stores).indexOf(storeId)
+  const practitioners = data.staff.filter((s) => s.role !== 'ASSISTANT')
+  const staffName = (name: string) => original ? name : `${name}（${storeId.slice(0, 8)}）`
+  const member = (i: number) => original ? `${data.customers[0].member.slice(0, 3)}${String(i + 1).padStart(4, '0')}` : `${data.customers[0].member.slice(0, 3)}${storeId.slice(0, 8)}-${String(i + 1).padStart(4, '0')}`
+  const customers = names.map(([name, kana, gender], i) => {
+    if (original && i < 30) return data.customers[i]
+    const templates = data.customers.filter((c) => c.gender === gender)
+    const c = i < 30 ? data.customers[i] : templates[i % templates.length]
+    const r = rng(`${entry.keyPrefix}|customer|${i}`)
+    const [lo, hi] = data.profile!.cadence
+    const every = lo + Math.floor(r() * (hi - lo + 1))
+    const menus = data.menus.filter((m) => m.duration >= data.profile!.menuMinutes[0] && m.duration <= data.profile!.menuMinutes[1])
+    const usual = menus.find((m) => m.name === c.menu) ?? menus[i % menus.length]
+    const alt = menus.find((m) => m.name === c.alt) ?? usual
+    const staff = practitioners.find((s) => s.name === c.staff) ?? practitioners[i % practitioners.length]
+    return { ...c, member: member(i), name, kana, gender, staff: staffName(staff.name), menu: usual.name, alt: alt.name,
+      every, start: Math.floor(r() * every), isNew: false,
+      phone: `090-0000-${String(4000 + storeIndex * 700 + i + 1).padStart(4, '0')}`, email: `${id}.${entry.namePool}.${i + 1}@example.jp` }
+  })
+  return { ...data, id, storeId, customers, staff: data.staff.map((s) => ({ ...s, name: staffName(s.name) })),
+    packs: data.packs.map((p) => ({ ...p, member: member(data.customers.findIndex((c) => c.member === p.member)) })),
+    counts: { ...counts, pastDays: registry.pastDays ?? 105, futureDays: registry.futureDays },
+    legacyMembers: original ? data.customers.map((c) => c.member) : [], legacyPastDays: counts.pastDays,
+    realism: registry.types[id].realism }
+
 }
 
 /** What plan() needs of one store: its hours snapshot (manifest), booking step (registry.json) and realismFrom (manifest). */
 export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string }): StoreCtx =>
-  ({ storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], realismFrom: st.realismFrom })
+  ({ storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], keyPrefix: registry.stores[storeId]?.keyPrefix, realismFrom: st.realismFrom })
 
-/** One recipe = one store: a recipe's member numbers and keys belong to exactly one store in registry.json. */
-export function assertOneStore(stores: Record<string, string>, type: string): void {
-  if (Object.values(stores).filter((t) => t === type).length !== 1) throw new Error(`type ${type} must map exactly one store in registry.json (one recipe = one store; a second store of a type needs its own recipe and member-number series)`)
+/** --type is the original store alias; --store all preserves registry order. Unknown selectors fail closed. */
+export function targetsFor(store?: string, type?: string): string[] {
+  if (store && type) throw new Error('choose --store or --type, not both')
+  if (type) {
+    const original = Object.keys(registry.stores).find((id) => registry.stores[id].type === type && registry.stores[id].keyPrefix === type)
+    if (!original) throw new Error(`unknown type ${type}`)
+    return [original]
+  }
+  if (!store || store === 'all') return Object.keys(registry.stores)
+  if (!Object.hasOwn(registry.stores, store)) throw new Error(`unmapped store ${store}`)
+  return [store]
 }
 
 export const jstToday = (now = new Date()) => new Date(now.getTime() + 9 * 3_600_000).toISOString().slice(0, 10)
@@ -97,6 +138,7 @@ export interface ApplyOpts { recipe: Recipe; storeId: string; manifest: Manifest
 /** One store of one type. Mutates opts.manifest (the caller saves it, even after a throw). */
 export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const { recipe, storeId, today, dry, log } = o
+  if (o.manifest.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
   const read = <T,>(fn: () => Promise<T>) => withRetry(fn, false, o.wait)
   let cards: Awaited<ReturnType<typeof assertDevSalon>>
   try {
@@ -106,8 +148,8 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     log(`REFUSED: ${e.message}`)
     return 2
   }
-  if (registry.stores[storeId] !== recipe.id) throw new Error(`store ${storeId} is not mapped to ${recipe.id} in registry.json`)
-  assertOneStore(registry.stores, recipe.id)
+  if (registry.stores[storeId]?.type !== recipe.id) throw new Error(`store ${storeId} is not mapped to ${recipe.id} in registry.json`)
+  if (recipe.storeId && recipe.storeId !== storeId) throw new Error(`recipe was prepared for store ${recipe.storeId}, not ${storeId}`)
   const { stores } = await read(() => core.stores.list())
   if (!stores.some((s) => s.id === storeId)) throw new Error(`store ${storeId} is not in core`)
   const dev = cards.find((s) => s.email?.toLowerCase() === DEV_EMAIL)!
@@ -115,6 +157,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const m = o.manifest
   const policy = await read(() => core.storePolicies.get(storeId))
   const prior = m.stores[storeId]
+  if (prior && prior.type !== recipe.id) throw new Error(`manifest type ${prior.type} ≠ registry type ${recipe.id}`)
   const st = prior ?? { type: recipe.id, epoch: today, weeklyHours: policy.source === 'default' ? recipe.policy.weekly_hours : policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
   if (!dry) m.stores[storeId] = st
   const run: Run = { at: new Date().toISOString(), type: recipe.id, store: storeId, today, created: {}, skipped: [], conflicts409: [], errors: [] }
@@ -237,7 +280,8 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (other) return void run.skipped.push(`appointments ${a.key}: overlaps existing booking ${other.id}`)
       const row = await write('appointments', a.key, () => core.appointments.create({
         customer_id: cid, staff_id: sid, store_id: storeId, menu_id: mid, resource_id: rid, starts_at: a.startsAt, ends_at: a.endsAt,
-        duration_minutes: a.duration, booked_price_amount: a.price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
+        duration_minutes: a.duration, booked_price_amount: a.booked_price, booked_price_currency: 'JPY', status: a.status, source: 'MANUAL',
+        // Create has no status_reason in this SDK; keep the taxonomy in notes without an update.
         title: null, notes: bookingNotes(a),
       }, { idempotencyKey: `test-world:${a.key}` }))
       if (row?.id) apptRow.set(a.key, { id: row.id, status: (row as { status?: string }).status ?? a.status })
@@ -339,22 +383,26 @@ export function summarize(p: Plan, today: string, hours: WeeklyHours) {
 if (process.argv[1]?.endsWith('fill.ts')) {
   const [cmd, ...rest] = process.argv.slice(2)
   const flag = (name: string) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
-  const [type, path, dry, today] = [flag('--type'), flag('--manifest'), rest.includes('--dry-run'), jstToday()]
+  const [store, type, path, dry, today] = [flag('--store'), flag('--type'), flag('--manifest'), rest.includes('--dry-run'), jstToday()]
   const load = (): Manifest => (path && existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { businessId: DEV_SALON_BUSINESS_ID, stores: {}, runs: [] })
   const main = async (): Promise<number> => {
-    const targets = Object.entries(registry.stores).filter(([, t]) => (type ? t === type : registry.types[t]?.recipe))
+    const targets = targetsFor(store, type)
     if (cmd === 'plan') {
       const m = load()
-      for (const [storeId, t] of targets) {
-        const r = await loadRecipe(t)
+      for (const storeId of targets) {
+        const t = registry.stores[storeId].type
+        const r = await loadRecipe(t, storeId)
         const st = m.stores[storeId]
         const hours = st?.weeklyHours ?? r.policy.weekly_hours
-        console.log(storeId, t, JSON.stringify(summarize(plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom }), today, st?.epoch ?? today), today, hours), null, 1))
+        const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom }), today, st?.epoch ?? today)
+        console.log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
+        if (rest.includes('--rows')) for (const a of p.appointments)
+          console.log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))
       }
       return 0
     }
-    if (cmd !== 'apply' || !type || !path) {
-      console.log('usage: fill.ts plan [--type <id>] [--manifest <path>] | apply --type <id> --manifest <path> [--dry-run]')
+    if (cmd !== 'apply' || (!store && !type) || !path) {
+      console.log('usage: fill.ts plan [--store <uuid|all> | --type <id>] [--manifest <path>] [--rows] | apply (--store <uuid|all> | --type <id>) --manifest <path> [--dry-run]')
       return 1
     }
     const { SYNQED_CORE_URL: baseUrl, SYNQED_CORE_API_KEY: apiKey } = process.env
@@ -363,10 +411,14 @@ if (process.argv[1]?.endsWith('fill.ts')) {
     const core = new SynqedClient({ baseUrl, apiKey, businessId: DEV_SALON_BUSINESS_ID })
     const m = load()
     if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
-    const recipe = await loadRecipe(type)
     let code = 0
     try {
-      for (const [storeId] of targets) code = Math.max(code, await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true }))
+      for (const storeId of targets) {
+        const recipe = await loadRecipe(registry.stores[storeId].type, storeId)
+        const result = await apply(core, { recipe, storeId, manifest: m, today, dry, log: console.log, readBack: true })
+        if (result === 2) return 2 // a refusal stops the whole run, including --store all
+        code = Math.max(code, result)
+      }
     } finally {
       if (!dry) writeFileSync(path, JSON.stringify(m, null, 1) + '\n')
     }
@@ -374,10 +426,10 @@ if (process.argv[1]?.endsWith('fill.ts')) {
     return code
   }
   main().then(
-    (code) => process.exit(code),
+    (code) => { process.exitCode = code },
     (e) => {
       console.error('fill failed:', message(e))
-      process.exit(1)
+      process.exitCode = 1
     },
   )
 }

@@ -210,11 +210,11 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
   const changes: Change[] = []
   const realismFrom: Ledger['realismFrom'] = []
   for (const storeId of o.stores) {
-    const type = registry.stores[storeId]
+    const type = registry.stores[storeId]?.type
     const st = o.manifest.stores[storeId]
     if (!type) return (log(`REFUSED: store ${storeId} is not a managed test store (registry.json)`), 2)
     if (!st || st.type !== type) throw new Error(`store ${storeId}: not in the manifest as ${type}`)
-    const recipe = await loadRecipe(type)
+    const recipe = await loadRecipe(type, storeId)
     const p = plan(recipe, storeCtx(storeId, st), today, st.epoch)
     const rows = await read(() => pageAll('appointments', (page) => core.appointments.list({ store_id: storeId, page, page_size: 500 })))
     const karuted = new Set((await read(() => pageAll('karute_records', (page) => core.karuteRecords.list({ store_id: storeId, page, page_size: 200 })))).map((k) => k.appointment_id))
