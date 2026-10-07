@@ -90,6 +90,7 @@ export interface RecipeData {
   profile?: DayProfile
   legacyMembers?: string[]
   legacyPastDays?: number
+  addedStaff?: string[] // ⚖ R5: staff added after the store's first load — a legacy member never draws them
   policy: { weekly_hours: WeeklyHours }
   staff: { name: string; role: StaffRole }[]
   resources: { name: string; room_class: 'standard' | 'private'; cleanup_minutes: number; display_order: number }[]
@@ -175,7 +176,9 @@ export function requestFor(recipe: Recipe, c: RecipeCustomer, key: string, first
 }
 
 /** A loader booking's notes: the tag first (every reader matches /\[(tw:[^\]]+)\]/ or '[tw:'), then the ご要望 line. */
-export const bookingNotes = (a: Pick<PlannedAppointment, 'key' | 'request'> & { cancelReason?: string | null }) => `テストデータ [${a.key}]${a.request ? `\n${a.request}` : ''}${a.cancelReason ? `\n取消理由: ${a.cancelReason}` : ''}`
+/** ⚖ R17: the cancel reason in notes is the app's own Japanese label (messages/ja.json), never the slug; realism.ts stays the status_reason writer. */
+export const CANCEL_LABELS: Record<string, string> = { 'cancel-advance-contact': '事前連絡あり', 'cancel-same-day-contact': '当日連絡あり', 'cancel-salon-initiated': '店舗都合' }
+export const bookingNotes = (a: Pick<PlannedAppointment, 'key' | 'request'> & { cancelReason?: string | null }) => `テストデータ [${a.key}]${a.request ? `\n${a.request}` : ''}${a.cancelReason ? `\nキャンセル理由：${CANCEL_LABELS[a.cancelReason] ?? a.cancelReason}` : ''}`
 
 /** The minute a customer of that day-part prefers, from the day's own hours: am = opening, pm = the middle of the day
  *  (the sort picks the nearest real start), eve = the last start that leaves one slot before closing. No fixed clock times. */
@@ -191,6 +194,7 @@ export interface StoreCtx {
   slotMinutes?: number // registry.json slotMinutes[storeId]; absent = DEFAULT_SLOT_MINUTES
   boardMinute?: number // defaults to the fixture board pin, 13:24 JST
   realismFrom?: string // the manifest's; absent = the plan as it always was
+  pastDays?: number // ⚖ R6: the manifest's recorded pastDays (set at first apply); absent = the recipe's
 }
 
 export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: string): Plan {
@@ -200,7 +204,8 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
   const hours = store.weeklyHours
   if (!WEEKDAY.some((d) => hours[d])) throw new Error('the store has no open weekday')
   const step = slotStep(hours, store.slotMinutes)
-  const from = addDays(epoch, -n.pastDays)
+  const pastDays = store.pastDays ?? n.pastDays // ⚖ R6: an applied store keeps the pastDays its manifest recorded
+  const from = addDays(epoch, -pastDays)
   const to = addDays(today, n.futureDays)
   const span = (utc(to) - utc(from)) / DAY
   const menu = (name: string) => recipe.menus.find((m) => m.name === name) ?? fail(`menu ${name} not in recipe ${id}`)
@@ -212,17 +217,25 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
   // 1. Visits: customer → days (closed days roll to the next open day). Before the cut: the customer's own cadence,
   // exactly as always. From the cut: the type's rhythm (their cadence clamped into it, ± jitter per visit).
   const byDay = new Map<number, { c: RecipeCustomer; k: number }[]>()
+  const legacy = new Set(recipe.legacyMembers ?? []) // ⚖ R5: a legacy member keeps the origin/main planner's paths
+  const open = (day: number) => !!hoursOn(hours, addDays(from, day))
   for (const c of recipe.customers) {
     const customerCut = recipe.profile && !recipe.legacyMembers?.includes(c.member) ? Infinity : cut
     const r = rng(`${id}|visits|${c.member}`)
-    const offset = recipe.legacyMembers?.includes(c.member) ? n.pastDays - (recipe.legacyPastDays ?? n.pastDays) : 0
+    const offset = recipe.legacyMembers?.includes(c.member) ? pastDays - (recipe.legacyPastDays ?? pastDays) : 0
     const jitter = c.every ? Math.max(1, Math.floor(c.every / 5)) : 0
     const add = (day: number, k: number) => byDay.set(day, [...(byDay.get(day) ?? []), { c, k }])
     let [k, last] = [0, -1]
     for (; k === 0 || c.every; k++) {
       let day = offset + c.start + k * (c.every ?? 0) + (k ? Math.round((r() * 2 - 1) * jitter) : 0)
       day = Math.max(day, last + 1)
-      while (!hoursOn(hours, addDays(from, day))) day++
+      // ⚖ R11: a profile visit on a closed day moves to the open day before or after it, by key hash (no Wednesday pile-up)
+      if (recipe.profile && !legacy.has(c.member) && !open(day) && rng(`${id}|roll|${c.member}|${k}`)() < 0.5) {
+        let back = day - 1
+        while (back > last && !open(back)) back--
+        if (back > last) day = back
+      }
+      while (!open(day)) day++
       if (day > span || (k > 0 && day >= customerCut)) break
       add(day, k)
       last = day
@@ -250,36 +263,45 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
       for (let i = 0; i < cells; i++) if (busy.has(`${who}@${start + i * step}`)) return false
       return true
     }
+    if (!recipe.menus.some((x) => x.duration <= mins(h.close) - mins(h.open))) { noMenuFits(store.storeId, h); continue } // ⚖ R19
     const realDay = d >= cut
     const boardMinute = store.boardMinute ?? 13 * 60 + 24
+    // ⚖ R7: no pin rule on any day — rows cross 13:24 freely; the day's first profile visit only PREFERS a start across it,
+    // so today has at least one live row. Day-invariant on purpose: a later `today` re-plans this day identically
+    // (fill.test.ts "a week later, strictly a superset of keys" / "the past never shifts").
+    const pinDay = !!recipe.profile
+    const visits = byDay.get(d) ?? []
+    // ⚖ R13: the coverage pass (an hour without a start first) takes at most a quarter of the day's visits
+    const coverQuota = recipe.profile?.coverHours ? Math.floor(visits.length / 4) : 0
+    let covered = 0
     let uncovered = new Set(Array.from({ length: Math.ceil((mins(h.close) - mins(h.open)) / 60) }, (_, i) => Math.floor(mins(h.open) / 60) + i))
     let pinTaken = false
-    for (const { c, k } of byDay.get(d) ?? []) {
+    const sides = sidesOf(recipe.staff.map((s) => s.name), mins(h.open), mins(h.close))
+    for (const { c, k } of visits) {
+      const profiled = !!recipe.profile && !legacy.has(c.member)
       const r = rng(`${id}|${c.member}|${date}`)
       const first = k === 0 && c.isNew
       const m = menu(first ? recipe.firstMenu : r() < 0.75 ? c.menu : c.alt)
       const u = r()
       const [noShow, cancel] = realDay ? [real!.noShowShare, real!.cancelShare] : [n.noShowShare, n.cancelShare]
       const key = `tw:${store.keyPrefix ?? id}:${c.member}:${date}`
-      const outcome = recipe.profile ? rng(`${key}|status`)() : u
-      const status: AppointmentStatus = date >= today ? 'SCHEDULED' : outcome < (recipe.profile ? 0.02 : noShow) ? 'NO_SHOW' : outcome < (recipe.profile ? 0.06 : noShow + cancel) ? 'CANCELLED' : 'COMPLETED'
+      const outcome = profiled ? rng(`${key}|status`)() : u
+      const status: AppointmentStatus = date >= today ? 'SCHEDULED' : outcome < (profiled ? 0.02 : noShow) ? 'NO_SHOW' : outcome < (profiled ? 0.06 : noShow + cancel) ? 'CANCELLED' : 'COMPLETED'
       const cells = Math.ceil((m.duration + cleanup) / step) // the bed is reset before the next guest
+      const crosses = (s: number) => s <= boardMinute && boardMinute < s + m.duration
       const starts: number[] = []
       for (let s = mins(h.open); s + m.duration <= mins(h.close); s += step) {
-        // A single live treatment crosses the board pin; other rows finish before it or start after it.
-        if (recipe.profile && pinTaken && s <= boardMinute && s + m.duration > boardMinute) continue
         starts.push(s)
       }
       if (!starts.length) continue // the menu cannot fit this store's day
-      const pin = !pinTaken ? starts.find((s) => s <= boardMinute && boardMinute < s + m.duration) : undefined
-      const want = !recipe.profile ? preferredStart(h, c.time, m.duration, step)
-        : pin ?? weightedStart(h, m.duration, recipe.profile, key, recipe.profile.coverHours ? uncovered : undefined)
-      starts.sort((a, b) => (recipe.profile?.coverHours && pinTaken
-        ? Number(!uncovered.has(Math.floor(a / 60))) - Number(!uncovered.has(Math.floor(b / 60))) : 0)
+      const pin = pinDay && profiled && !pinTaken ? starts.find(crosses) : undefined
+      const cover = profiled && covered < coverQuota && pin === undefined
+      const want = !profiled ? preferredStart(h, c.time, m.duration, step) : pin ?? weightedStart(h, m.duration, recipe.profile!, key, cover ? uncovered : undefined)
+      starts.sort((a, b) => (cover ? Number(!uncovered.has(Math.floor(a / 60))) - Number(!uncovered.has(Math.floor(b / 60))) : 0)
         || Math.abs(a - want) - Math.abs(b - want) || a - b)
       // weights drawn for every other card BEFORE the role filter: the same r() count as before keeps the bed picks stable;
       // the 受付 (ASSISTANT) never takes an overflow visit; the customer's own 担当 may be anyone
-      const others = recipe.staff.filter((s) => s.name !== c.staff).map((s) => ({ s, w: r() })).filter((x) => x.s.role !== 'ASSISTANT').sort((a, b) => a.w - b.w).map((x) => x.s.name)
+      const others = (profiled ? recipe.staff : recipe.staff.filter((s) => !recipe.addedStaff?.includes(s.name))).filter((s) => s.name !== c.staff).map((s) => ({ s, w: r() })).filter((x) => x.s.role !== 'ASSISTANT').sort((a, b) => a.w - b.w).map((x) => x.s.name)
       const beds = recipe.resources.filter((x) => x.room_class === 'private' || !m.private).map((x) => ({ x, w: Number(x.room_class === 'private') + r() })).sort((a, b) => a.w - b.w).map((b) => b.x) // private room last
       // From the cut: a 指名 visit (a nominating customer, a menu that takes 指名) waits for their 担当 — no one else;
       // a フリー visit goes to whoever the seeded order puts first, their 担当 included.
@@ -288,6 +310,8 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
       let slot: { s: number; staff: string; bed: string } | undefined
       for (const s of starts) {
         for (const staff of pool) {
+          const side = profiled ? sides?.get(staff) : undefined // ⚖ R4: a profile visit only inside the person's side
+          if (side && (s < side.start || s + m.duration > side.end)) continue
           if (!free(staff, s, cells)) continue
           const bed = beds.find((b) => free(b.name, s, cells))
           if (bed) slot = { s, staff, bed: bed.name }
@@ -297,7 +321,8 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
       }
       if (!slot) continue // a full day: this visit is not planned (same answer on every run)
       for (let i = 0; i < cells; i++) for (const who of [slot.staff, slot.bed]) busy.add(`${who}@${slot.s + i * step}`)
-      if (slot.s <= boardMinute && boardMinute < slot.s + m.duration) pinTaken = true
+      if (pinDay && profiled && crosses(slot.s)) pinTaken = true
+      if (cover) covered++
       uncovered = new Set([...uncovered].filter((hour) => hour !== Math.floor(slot.s / 60)))
       appointments.push({
         key, member: c.member, staff: slot.staff, resource: slot.bed, menu: m.name, date,
@@ -310,9 +335,9 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
 
   if (recipe.profile) {
     const now = jstIso(today, store.boardMinute ?? 13 * 60 + 24)
-    const todays = appointments.filter((a) => a.date === today)
-    const active = todays.find((a) => a.startsAt <= now && now < a.endsAt)
-    for (const a of todays) a.status = a === active ? 'IN_PROGRESS' : a.startsAt < now ? 'COMPLETED' : 'SCHEDULED'
+    // ⚖ R7: today only, every profile row across the pin is IN_PROGRESS; a legacy row keeps the status it was written with
+    for (const a of appointments) if (a.date === today && !legacy.has(a.member))
+      a.status = a.startsAt <= now && now < a.endsAt ? 'IN_PROGRESS' : a.startsAt < now ? 'COMPLETED' : 'SCHEDULED'
   }
 
   // 3. Karutes (share of completed visits) and 回数券 (bought at the Nth completed visit, burnt on the next ones).
@@ -345,6 +370,24 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
   }
 
   return { window: { from, to }, staff: recipe.staff, resources: recipe.resources, menus: recipe.menus, customers: recipe.customers, packs, appointments, karutes }
+}
+
+/** ⚖ R4 — THE SIDE RULE (one rule, two halves; the other half is src/business/lib/practice-door/sample-day.ts shiftDay):
+ *  on a day longer than 10 h the store's staff, sorted by NAME, alternate early (open..open+9h) and late (close−9h..close)
+ *  by index parity — both sides staffed from two people on, one person = early; a day longer than 18 h adds a middle side
+ *  (index % 3). The planner gives a profile visit to a person only inside their side. ≤ 10 h: no sides. */
+export function sidesOf(names: readonly string[], open: number, close: number): Map<string, { start: number; end: number }> | null {
+  if (close - open <= 10 * 60) return null
+  const mid = Math.floor((open + close) / 2)
+  const sides = [{ start: open, end: open + 540 }, { start: close - 540, end: close }, ...(close - open > 18 * 60 ? [{ start: mid - 270, end: mid + 270 }] : [])]
+  return new Map([...names].sort().map((name, i) => [name, sides[i % sides.length]]))
+}
+
+const warned = new Set<string>()
+/** ⚖ R19: one line per store and hours when an open day fits no menu (an overnight or too-short day plans nothing). */
+function noMenuFits(storeId: string, h: { open: string; close: string }) {
+  const k = `${storeId} ${h.open}–${h.close}`
+  if (!warned.has(k)) (warned.add(k), console.warn(`plan: store ${k}: no menu fits the open day, nothing planned on it`))
 }
 
 function fail(msg: string): never {

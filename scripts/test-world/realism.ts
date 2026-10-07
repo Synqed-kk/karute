@@ -222,7 +222,7 @@ export async function realism(core: RealismCore, o: RealismOpts): Promise<number
     for (const cid of new Set(rows.map((a) => a.customer_id).filter((x): x is string => !!x)))
       // SDK skew: core sends appointment_id (packs.service listRedemptionsByCustomer); the SDK type does not declare it
       for (const b of (await read(() => core.packs.listRedemptions(cid))) as { appointment_id?: string | null }[]) if (b.appointment_id) burnt.add(b.appointment_id)
-    const lastPlanned = [...o.manifest.runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, recipe.counts.futureDays)), ...rows.filter((a) => TAG.exec(a.notes ?? '')?.[1].startsWith(`tw:${type}:`)).map((a) => jstDate(a.starts_at))].sort().pop() ?? addDays(st.epoch, recipe.counts.futureDays)
+    const lastPlanned = [...o.manifest.runs.filter((r) => r.store === storeId).map((r) => addDays(r.today, recipe.counts.futureDays)), ...rows.filter((a) => TAG.exec(a.notes ?? '')?.[1].startsWith(`tw:${registry.stores[storeId].keyPrefix}:`)).map((a) => jstDate(a.starts_at))].sort().pop() ?? addDays(st.epoch, recipe.counts.futureDays)
     let out: ReturnType<typeof planStore>
     try {
       out = planStore({ recipe, storeId, plan: p, rows, custId, karuted: karuted as Set<string>, burnt, today, lastPlanned, realismFrom: st.realismFrom ?? null, repairForeign: o.repairForeign })
@@ -337,7 +337,7 @@ if (process.argv[1]?.endsWith('realism.ts')) {
       if (m && path && JSON.stringify(m) !== before) writeFileSync(path, JSON.stringify(m, null, 1) + '\n')
       return code
     }
-    const stores = store ? [store] : Object.keys(registry.stores)
+    const stores = store ? [store] : Object.keys(m?.stores ?? {}) // the stores this manifest has applied
     const before = JSON.stringify(m)
     try {
       return await realism(core, {

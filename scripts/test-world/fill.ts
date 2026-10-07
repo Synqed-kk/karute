@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
+import { namePoolFor, STAFF_NAMES } from './names'
 import { addDays, bookingNotes, hoursOn, jstIso, plan, rng, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
 
 export type FillCore = Pick<
@@ -37,7 +38,7 @@ interface Run { at: string; type: string; store: string; today: string; created:
 export interface Manifest {
   businessId: string
   // realismFrom: set by realism.ts --apply — the first day the plan follows the type's realism recipe (see plan.ts)
-  stores: Record<string, { type: string; epoch: string; weeklyHours: WeeklyHours; realismFrom?: string; created: Partial<Record<Section, Record<string, string>>> }>
+  stores: Record<string, { type: string; epoch: string; pastDays?: number; weeklyHours: WeeklyHours; realismFrom?: string; created: Partial<Record<Section, Record<string, string>>> }>
   runs: Run[]
 }
 interface Registry {
@@ -60,39 +61,57 @@ export async function loadRecipe(id: string, storeId = targetsFor(undefined, id)
   if (!entry || entry.type !== id) throw new Error(`store ${storeId} is not mapped to ${id}`)
   const data = mod.recipe
   const size = counts.customers
-  const names = data.namePool?.slice(entry.namePool * size, (entry.namePool + 1) * size)
-  if (!names || names.length !== size) throw new Error(`recipe ${id}: namePool too short for store ${storeId}`)
   const original = entry.keyPrefix === id
   const storeIndex = Object.keys(registry.stores).indexOf(storeId)
+  const pastDays = registry.pastDays ?? 105
+  const legacyCount = original ? data.customers.length : 0
+  // ⚖ R9: the type's surname × given-name pool (names.ts), seeded order, a disjoint slice per store
+  const names = namePoolFor(id).slice(entry.namePool * size, (entry.namePool + 1) * size) // never a hand-written customer's name, of any type
+  if (names.length !== size) throw new Error(`recipe ${id}: name pool too short for store ${storeId}`)
   const practitioners = data.staff.filter((s) => s.role !== 'ASSISTANT')
-  const staffName = (name: string) => original ? name : `${name}（${storeId.slice(0, 8)}）`
-  const member = (i: number) => original ? `${data.customers[0].member.slice(0, 3)}${String(i + 1).padStart(4, '0')}` : `${data.customers[0].member.slice(0, 3)}${storeId.slice(0, 8)}-${String(i + 1).padStart(4, '0')}`
-  const customers = names.map(([name, kana, gender], i) => {
-    if (original && i < 30) return data.customers[i]
-    const templates = data.customers.filter((c) => c.gender === gender)
-    const c = i < 30 ? data.customers[i] : templates[i % templates.length]
+  // ⚖ R8: a generated store's staff are plain names from its own slice of STAFF_NAMES (disjoint by registry position)
+  const staffOf = new Map(data.staff.map((s, i) => [s.name, original ? s.name : STAFF_NAMES[storeIndex * data.staff.length + i]]))
+  const series = data.customers[0].member.split('-')[0]
+  const pad = (n: number, w = 4) => String(n).padStart(w, '0')
+  const member = (i: number) => (original ? `${series}-${pad(i + 1)}` : `${series}${storeIndex + 1}-${pad(i + 1)}`)
+  const customers: Recipe['customers'] = names.map(([name, kana, gender], i) => {
+    if (i < legacyCount) return data.customers[i]
     const r = rng(`${entry.keyPrefix}|customer|${i}`)
+    const t = rng(`${entry.keyPrefix}|template|${i}`)
+    const templates = data.customers.filter((c) => c.gender === gender)
+    // the first thirty keep their template by index (the 回数券 holders' menus); the rest pick theirs by seed
+    const c = i < data.customers.length && data.customers[i].gender === gender ? data.customers[i] : templates[Math.floor(t() * templates.length)]
     const [lo, hi] = data.profile!.cadence
     const every = lo + Math.floor(r() * (hi - lo + 1))
     const menus = data.menus.filter((m) => m.duration >= data.profile!.menuMinutes[0] && m.duration <= data.profile!.menuMinutes[1])
     const usual = menus.find((m) => m.name === c.menu) ?? menus[i % menus.length]
     const alt = menus.find((m) => m.name === c.alt) ?? usual
     const staff = practitioners.find((s) => s.name === c.staff) ?? practitioners[i % practitioners.length]
-    return { ...c, member: member(i), name, kana, gender, staff: staffName(staff.name), menu: usual.name, alt: alt.name,
+    const birth = `${Number(c.birth.slice(0, 4)) + Math.floor(t() * 9) - 4}-${pad(1 + Math.floor(t() * 12), 2)}-${pad(1 + Math.floor(t() * 28), 2)}`
+    return { ...c, member: member(i), name, kana, gender, birth, staff: staffOf.get(staff.name)!, menu: usual.name, alt: alt.name,
       every, start: Math.floor(r() * every), isNew: false,
       phone: `090-0000-${String(4000 + storeIndex * 700 + i + 1).padStart(4, '0')}`, email: `${id}.${entry.namePool}.${i + 1}@example.jp` }
   })
-  return { ...data, id, storeId, customers, staff: data.staff.map((s) => ({ ...s, name: staffName(s.name) })),
+  // ⚖ R10: 9 % of every store's members are 新規 — their first visit (the 初回 menu) falls inside the window
+  const holders = new Set(data.packs.map((p) => data.customers.findIndex((c) => c.member === p.member)))
+  const owed = Math.round(size * 0.09) - customers.filter((c) => c.isNew).length
+  const fresh = customers.map((_, i) => ({ i, w: rng(`${entry.keyPrefix}|new|${i}`)() })).filter(({ i }) => i >= legacyCount && !holders.has(i))
+    .sort((a, b) => a.w - b.w).slice(0, Math.max(0, owed))
+  for (const { i } of fresh) customers[i] = { ...customers[i], isNew: true, start: Math.floor(rng(`${entry.keyPrefix}|new-start|${i}`)() * (pastDays + registry.futureDays)) }
+  return { ...data, id, storeId, customers, staff: data.staff.map((s) => ({ ...s, name: staffOf.get(s.name)! })),
     packs: data.packs.map((p) => ({ ...p, member: member(data.customers.findIndex((c) => c.member === p.member)) })),
-    counts: { ...counts, pastDays: registry.pastDays ?? 105, futureDays: registry.futureDays },
+    counts: { ...counts, pastDays, futureDays: registry.futureDays },
+    addedStaff: data.addedStaff?.map((n) => staffOf.get(n)!),
     legacyMembers: original ? data.customers.map((c) => c.member) : [], legacyPastDays: counts.pastDays,
     realism: registry.types[id].realism }
-
 }
 
 /** What plan() needs of one store: its hours snapshot (manifest), booking step (registry.json) and realismFrom (manifest). */
-export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string }): StoreCtx =>
-  ({ storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], keyPrefix: registry.stores[storeId]?.keyPrefix, realismFrom: st.realismFrom })
+export const storeCtx = (storeId: string, st: { weeklyHours: WeeklyHours; realismFrom?: string; pastDays?: number }): StoreCtx => {
+  // ⚖ R6: an applied store plans from the pastDays its manifest recorded at first apply; a differing registry value is logged and ignored
+  if (st.pastDays !== undefined && st.pastDays !== registry.pastDays) console.warn(`store ${storeId}: manifest pastDays ${st.pastDays} kept, registry.json pastDays ${registry.pastDays} ignored`)
+  return { storeId, weeklyHours: st.weeklyHours, slotMinutes: registry.slotMinutes[storeId], keyPrefix: registry.stores[storeId]?.keyPrefix, realismFrom: st.realismFrom, pastDays: st.pastDays }
+}
 
 /** --type is the original store alias; --store all preserves registry order. Unknown selectors fail closed. */
 export function targetsFor(store?: string, type?: string): string[] {
@@ -158,8 +177,9 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
   const policy = await read(() => core.storePolicies.get(storeId))
   const prior = m.stores[storeId]
   if (prior && prior.type !== recipe.id) throw new Error(`manifest type ${prior.type} ≠ registry type ${recipe.id}`)
-  const st = prior ?? { type: recipe.id, epoch: today, weeklyHours: policy.source === 'default' ? recipe.policy.weekly_hours : policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
+  const st = prior ?? { type: recipe.id, epoch: today, pastDays: registry.pastDays ?? 105, weeklyHours: policy.source === 'default' ? recipe.policy.weekly_hours : policy.weekly_hours ?? recipe.policy.weekly_hours, created: {} }
   if (!dry) m.stores[storeId] = st
+  if (!dry && st.pastDays === undefined) st.pastDays = registry.pastDays ?? 105 // ⚖ R6: recorded once, at the first apply of this code
   const run: Run = { at: new Date().toISOString(), type: recipe.id, store: storeId, today, created: {}, skipped: [], conflicts409: [], errors: [] }
   if (!dry) m.runs.push(run)
   let sent = 0
@@ -249,7 +269,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     // ours = the id this loader recorded, else the notes/tag (a staff edit of the notes must not make a second row).
     // A foreign booking at the same customer + start is never adopted: it either clashes (skipped below) or the loader
     // makes its own tagged one beside it.
-    const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
+    const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ store_id: storeId, from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
     const mine = new Map<string, { id: string; status: string; customer_id: string | null }>()
     for (const a of window) {
       const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
@@ -305,12 +325,15 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (!pid) return
       const cid = custId.get(k.member)! // a pack id is only set for a customer that exists
       const burnt = pid.startsWith('dry:') ? new Set<string>() : new Set((await read(() => core.packs.listRedemptions(cid))).map((r) => `${r.pack_id}|${r.redeemed_on}`))
+      let used = [...burnt].filter((b) => b.startsWith(`${pid}|`)).length
       for (const key of k.redeem) {
+        if (used >= k.size) break // ⚖ R5: never more burns than the pack holds (never 6 on a 5)
         const aid = done(key)
         if (!aid || burnt.has(`${pid}|${dateOf.get(key)}`)) continue
         await write('redemptions', key, () => core.packs.addRedemption({
           pack_id: pid, customer_id: cid, redeemed_on: dateOf.get(key)!, appointment_id: aid, source: 'manual', created_by: staffId.get(k.staff) ?? null,
         }, { idempotencyKey: `test-world:${key}:redeem` }))
+        used++
       }
     })
 
@@ -394,7 +417,7 @@ if (process.argv[1]?.endsWith('fill.ts')) {
         const r = await loadRecipe(t, storeId)
         const st = m.stores[storeId]
         const hours = st?.weeklyHours ?? r.policy.weekly_hours
-        const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom }), today, st?.epoch ?? today)
+        const p = plan(r, storeCtx(storeId, { weeklyHours: hours, realismFrom: st?.realismFrom, pastDays: st?.pastDays }), today, st?.epoch ?? today)
         console.log(storeId, t, JSON.stringify(summarize(p, today, hours), null, 1))
         if (rest.includes('--rows')) for (const a of p.appointments)
           console.log([a.date, a.startsAt, a.endsAt, a.staff, a.resource, a.menu, a.booked_price, a.status, a.key].join(' · '))

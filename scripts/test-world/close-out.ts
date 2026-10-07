@@ -26,7 +26,7 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
   const all = await pageAll('customers', (page) => core.customers.list({ include_deleted: true, page, page_size: 500 }))
   const custId = new Map(all.filter((c) => c.member_number && !(c as { deleted_at?: string | null }).deleted_at).map((c) => [c.member_number!, c.id]))
   const window = await pageAll('appointments', (page) => core.appointments.list({ from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 }))
-  const counts: Record<string, [planned: number, written: number]> = { COMPLETED: [0, 0], CANCELLED: [0, 0], NO_SHOW: [0, 0] }
+  const counts: Record<string, [planned: number, written: number]> = { COMPLETED: [0, 0], CANCELLED: [0, 0], NO_SHOW: [0, 0], IN_PROGRESS: [0, 0] }
   const skipped: string[] = []
   let failed = 0
   // fill.ts's rule for "ours": the manifest's recorded id wins over a tag; with no recorded id, a tag on 2+ bookings is ambiguous
@@ -35,11 +35,13 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
   for (const t of window.filter((r) => r.store_id === storeId).map(tagOf)) if (t) seen.set(t, (seen.get(t) ?? 0) + 1) // this store only
   for (const r of window) {
     const tag = tagOf(r)
-    if (!tag || r.store_id !== storeId || r.status !== 'SCHEDULED' || Date.parse(r.starts_at) >= now.getTime()) continue
+    // ⚖ R2: a SCHEDULED row that has started, or an IN_PROGRESS row of a day before today, is closed out
+    const pastDay = jstToday(new Date(r.starts_at)) < today
+    if (!tag || r.store_id !== storeId || !((r.status === 'SCHEDULED' && Date.parse(r.starts_at) < now.getTime()) || (r.status === 'IN_PROGRESS' && pastDay))) continue
     const rec = st.created?.appointments?.[tag]
     if (rec ? rec !== r.id : seen.get(tag)! > 1) { skipped.push(`appointments ${tag}: booking ${r.id} ${rec ? 'is not the booking the manifest records for this key' : `carries a tag seen on ${seen.get(tag)} bookings`}, left alone`); continue }
     const a = planned.get(tag)
-    if (!a || a.status === 'SCHEDULED') { skipped.push(`appointments ${tag}: booking ${r.id} is ${a ? 'still SCHEDULED in the plan' : 'not in the plan'}, left alone`); continue }
+    if (!a || a.status === 'SCHEDULED' || a.status === 'IN_PROGRESS') { skipped.push(`appointments ${tag}: booking ${r.id} is ${a ? `still ${a.status} in the plan` : 'not in the plan'}, left alone`); continue }
     if (r.customer_id !== custId.get(a.member)) { skipped.push(`appointments ${tag}: booking ${r.id}'s customer differs from the planned customer, left alone`); continue }
     counts[a.status][0]++
     if (!apply) continue
