@@ -201,7 +201,8 @@ export function SyncAllStoresList({
         </p>
       )}
 
-      {runAll.results && (
+      {/* A run that synced no store (all OFF or in flight at re-read) shows nothing. */}
+      {runAll.results && runAll.results.length > 0 && (
         <div
           role="status"
           className={`rounded-lg px-4 py-3 text-sm border ${

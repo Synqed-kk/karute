@@ -258,6 +258,32 @@ describe('viewAll caller', () => {
     expect(screen.getByText('runAllDone{"n":2}')).toBeTruthy()
   })
 
+  it('すべての店舗を同期 that syncs no store (every store OFF at re-read) shows no result banner', async () => {
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    apiFetch.mockImplementationOnce(() => Promise.resolve(reply({ stores: STORES.map((s) => ({ ...s, enabled: false })) })))
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs).toHaveLength(0)
+    expect(screen.queryByText(/^runAllDone/)).toBeNull()
+    expect(screen.queryByText(/^runAllPartial/)).toBeNull()
+    expect(screen.queryByTestId(/^run-all-result-/)).toBeNull()
+  })
+
+  it('すべての店舗を同期 that syncs exactly one store shows the banner with n = 1', async () => {
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    apiFetch.mockImplementationOnce(() => Promise.resolve(reply({ stores: STORES.map((s) => (s.storeId === daikanyama ? s : { ...s, enabled: false })) })))
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    expect(screen.getByText('runAllDone{"n":1}')).toBeTruthy()
+    expect(screen.getByTestId(`run-all-result-${daikanyama}`)).toBeTruthy()
+  })
+
   it.each([
     ['answers 502', () => Promise.resolve(reply({ error: 'core down' }, 502))],
     ['rejects', () => Promise.reject(new Error('network'))],
