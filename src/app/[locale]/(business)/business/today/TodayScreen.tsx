@@ -3519,7 +3519,7 @@ export function TodayScreen(props: TodayProps) {
         ? guardVerdictAt(lanes, laneKey, start, {
             open: business.open,
             close: business.close,
-            stepMin: 30,
+            stepMin: props.guard.bookingStepMin,
             dur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,

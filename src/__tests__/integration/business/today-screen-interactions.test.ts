@@ -2184,7 +2184,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       '? guardVerdictAt(lanes, laneKey, start, {',
       'open: business.open,',
       'close: business.close,',
-      'stepMin: 30,',
+      // ⚖ S27 — DISCLOSED PIN MOVE: the verdict snaps on the rails' step (railDay, opsConfig.bookingStepMin).
+      'stepMin: props.guard.bookingStepMin,',
       'dur,',
       'protectedDur: props.guard.protectedDurationMin,',
       'nowMinute: props.sell.nowMinute,',
