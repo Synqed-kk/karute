@@ -8,6 +8,7 @@ import { CheckCircle2, AlertCircle } from 'lucide-react'
 import { SyncAllStoresList } from './SyncAllStoresList'
 import { readSyncResponse } from '@/lib/sync/read-sync-response'
 import * as syncInFlight from '@/lib/sync/in-flight'
+import { SYNC_RUN_DEADLINE_MS } from '@/lib/sync/run-deadline'
 
 // Re-exported: the reader moved to src/lib/sync/read-sync-response.ts.
 export { readSyncResponse }
@@ -213,14 +214,19 @@ export function SyncSection({
     const key = forStore ?? ''
     beginSyncing(key)
     setLastResult({ text: t('syncing'), error: false })
+    // A run that never answers fails at the deadline (the abort lands in the
+    // catch). finally releases the claim and re-reads the list whatever the
+    // outcome: the server may have finished the run even when we saw an error.
+    const deadline = new AbortController()
+    const timer = setTimeout(() => deadline.abort(), SYNC_RUN_DEADLINE_MS)
     try {
       const res = await getDataPort().apiFetch('/api/sync/quickreserve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(storeId ? { storeId } : {}),
+        signal: deadline.signal,
       })
       const parsed = await readSyncResponse(res)
-      setListGeneration((g) => g + 1)
       if (shownStore.current !== forStore) return
       if (!parsed.ok) {
         setLastResult({ text: failureLine(parsed.message), error: true })
@@ -238,13 +244,17 @@ export function SyncSection({
       if (shownStore.current !== forStore) return
       setLastResult({ text: t('bookingSyncUnavailable'), error: true })
     } finally {
+      clearTimeout(timer)
       endSyncing(key)
+      setListGeneration((g) => g + 1)
     }
   }
 
   const isError = lastResult?.error === true
-  // Disabled only while THIS store's own save or run is in flight.
-  const syncing = inFlight.has(storeId ?? '')
+  // Disabled only while THIS store's own save or run is in flight. With no
+  // store shown (its read failed), a run here would hit the route's default
+  // store, which may be the one a list run has claimed: any claim disables it.
+  const syncing = storeId ? inFlight.has(storeId) : inFlight.size > 0
   // Core keeps the OLD credentials when only the login changes, so a changed
   // login needs its password too (fix round 4, Opus C3; the route mirrors it).
   const loginNeedsPassword =
@@ -353,6 +363,9 @@ export function SyncSection({
         </div>
         <button
           type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={t('autoSyncTitle')}
           onClick={() => setEnabled(!enabled)}
           disabled={syncing}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${

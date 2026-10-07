@@ -7,6 +7,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { SyncSection } from '@/components/settings/redesign/sections/SyncSection'
 import { claim, release, snapshot as inFlightNow } from '@/lib/sync/in-flight'
+import { SYNC_RUN_DEADLINE_MS } from '@/lib/sync/run-deadline'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (k: string, p?: Record<string, unknown>) => (p ? `${k}${JSON.stringify(p)}` : k),
@@ -26,12 +27,19 @@ const STORES = [
   { ...ROW, storeId: '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7', storeName: '恵比寿', configured: true, qrStoreSlug: 'la-estro', qrStoreId: 260 },
 ]
 
-type Run = { storeId: string; resolve: (r: Response) => void }
+type Run = { storeId: string; resolve: (r: Response) => void; signal?: AbortSignal | null }
 let runs: Run[] = []
 let extraRows: unknown[] = []
 // What the form's saves wrote: the next /configs read shows it (store id → row fields).
 let saved: Record<string, Record<string, unknown>> = {}
+// Set to [] to hold every /configs read until the test answers it (in order of the reads).
+let configsHold: ((r: Response) => void)[] | null = null
+// The nth /configs read (1-based) answers 500 when set.
+let failConfigsRead: number | null = null
 const apiFetch = jest.fn((url: string, init?: RequestInit) => {
+  if (url === '/api/sync/quickreserve/configs' && failConfigsRead === configsCalls()) return Promise.resolve(reply({}, 500))
+  if (url === '/api/sync/quickreserve/configs' && configsHold)
+    return new Promise<Response>((resolve) => configsHold!.push(resolve))
   if (url === '/api/sync/quickreserve/configs')
     return Promise.resolve(reply({ stores: [...STORES, ...extraRows].map((s) => ({ ...(s as object), ...saved[(s as { storeId: string }).storeId] })) }))
   if (url === '/api/sync/quickreserve/config' && init?.method === 'POST') {
@@ -42,11 +50,25 @@ const apiFetch = jest.fn((url: string, init?: RequestInit) => {
   if (url.startsWith('/api/sync/quickreserve/config?')) return Promise.resolve(reply({ username: 'form-login', enabled: true }))
   if (url === '/api/sync/quickreserve' && init?.method === 'POST') {
     const { storeId } = JSON.parse(String(init.body))
-    return new Promise<Response>((resolve) => runs.push({ storeId, resolve }))
+    // A run answers only when the test resolves it; an abort (the run deadline) rejects it like fetch does.
+    return new Promise<Response>((resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+      runs.push({ storeId, resolve, signal: init.signal })
+    })
   }
   return Promise.reject(new Error(`unexpected ${url}`))
 })
 const ok = reply({ success: true, created: 1, updated: 2, cancelled: 3, skipped: 4 })
+// A 2xx whose body stalls: text() stays pending until the request's signal aborts, then rejects like fetch does.
+const stalledBody = (signal?: AbortSignal | null) =>
+  ({
+    ok: true,
+    status: 200,
+    text: () =>
+      new Promise<string>((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+      }),
+  }) as unknown as Response
 const loginFail = reply({ error: 'QR login failed: 401' }, 502)
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)) })
 const selectStore = jest.fn(async () => ({ ok: true as const }))
@@ -56,6 +78,8 @@ beforeEach(() => {
   runs = []
   extraRows = []
   saved = {}
+  configsHold = null
+  failConfigsRead = null
   apiFetch.mockClear()
   selectStore.mockClear()
   refresh.mockClear()
@@ -480,7 +504,7 @@ describe('viewAll caller', () => {
     await flush()
     expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
     // while 代官山 runs, the owner turns 渋谷's auto-sync OFF in the form and saves
-    await act(async () => { fireEvent.click(document.querySelector('button.w-11') as HTMLButtonElement) })
+    await act(async () => { fireEvent.click(screen.getByRole('switch', { name: 'autoSyncTitle' })) })
     await act(async () => { fireEvent.click(screen.getByText('saveConfig')) })
     await flush()
     expect(saved[shibuya]).toMatchObject({ enabled: false })
@@ -581,5 +605,218 @@ describe('viewAll caller', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+
+  it.each([
+    ['older rows', reply({ stores: [{ ...STORES[0], storeName: '旧代官山' }] })],
+    ['a failed read', reply({}, 500)],
+  ])('latest answer wins: two overlapping list reads, the first answering last with %s → the rows show the SECOND answer', async (_label, stale) => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    configsHold = []
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    expect(configsHold).toHaveLength(1) // the mount read, still unanswered
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(configsHold).toHaveLength(2) // the form's run answered: a second read
+    await act(async () => { configsHold![1](reply({ stores: [{ ...STORES[0], storeName: '新代官山' }] })) })
+    await flush()
+    await act(async () => { configsHold![0](stale) })
+    await flush()
+    expect(screen.getByText('新代官山')).toBeTruthy()
+    expect(screen.queryByText('旧代官山')).toBeNull()
+    expect(screen.queryByText('somethingWentWrong')).toBeNull() // the stale read's failure is ignored
+  })
+
+  it("a row's manual failure is cleared when the form saves or runs: after the reload the row shows the server state", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    const row = () => within(screen.getByTestId('sync-row-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'))
+    await act(async () => { fireEvent.click(row().getByText('runNow')) })
+    await act(async () => { runs[0].resolve(loginFail) })
+    await flush()
+    expect(row().getByText('reasonLoginFix')).toBeTruthy()
+    // the form's 今すぐ同期 answers: listGeneration bumps, the list reloads
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    expect(row().queryByText('reasonLoginFix')).toBeNull()
+    expect(row().getByText('stateHealthy')).toBeTruthy()
+  })
+
+  it("runAll over two stores; store 2's pre-start re-read fails → store 2 is skipped with NO POST, store 1 still runs, runAll finishes", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    saved['4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'] = { enabled: false } // 恵比寿 OFF: two stores in the run
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    // reads: 1 = mount, 2 = sync-all's first re-read (store 1 uses it), 3 = store 2's pre-start re-read
+    failConfigsRead = 3
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(configsCalls()).toBeGreaterThanOrEqual(3)
+    expect(runs.filter((r) => r.storeId === shibuya)).toHaveLength(0)
+    expect(runs).toHaveLength(1)
+    // silent skip (pinned as is; the alarm belongs to the black box): the run finishes with store 1 only
+    expect(screen.getByText('runAllDone{"n":1}')).toBeTruthy()
+    expect((screen.getByText('runAll').closest('button') as HTMLButtonElement).disabled).toBe(false)
+    expect(inFlightNow().size).toBe(0)
+  })
+
+  it('a row run whose POST never resolves: after the deadline the row shows failed and the claim is released', async () => {
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    jest.useFakeTimers()
+    try {
+      const row = () => within(screen.getByTestId(`sync-row-${shibuya}`))
+      await act(async () => { fireEvent.click(row().getByText('runNow')) })
+      expect(runs.map((r) => r.storeId)).toEqual([shibuya])
+      await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
+      expect(inFlightNow().has(shibuya)).toBe(true) // still waiting, one ms before the deadline
+      await act(async () => { await jest.advanceTimersByTimeAsync(1) })
+      expect(inFlightNow().has(shibuya)).toBe(false)
+      expect(row().getByText('runFailed')).toBeTruthy()
+    } finally {
+      jest.useRealTimers()
+    }
+    await flush()
+  })
+
+  it("the form's 今すぐ同期 whose POST never resolves: after the deadline it shows the failure line and the claim is released", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    jest.useFakeTimers()
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+      expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+      await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
+      expect(inFlightNow().has(daikanyama)).toBe(true)
+      const readsBefore = configsCalls()
+      await act(async () => { await jest.advanceTimersByTimeAsync(1) })
+      expect(inFlightNow().has(daikanyama)).toBe(false)
+      expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy()
+      // The list re-reads after the deadline too: the server may have finished the run.
+      expect(configsCalls()).toBe(readsBefore + 1)
+      expect((screen.getByRole('button', { name: 'syncNow' }) as HTMLButtonElement).disabled).toBe(false)
+    } finally {
+      jest.useRealTimers()
+    }
+    await flush()
+  })
+
+  it('a row run answered 2xx whose body stalls: at the deadline the row shows failed (never a zero-count result) and the claim is released', async () => {
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    render(<SyncSection storeId="1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4" showAllStores selectStore={selectStore} />)
+    await flush()
+    jest.useFakeTimers()
+    try {
+      const row = () => within(screen.getByTestId(`sync-row-${shibuya}`))
+      await act(async () => { fireEvent.click(row().getByText('runNow')) })
+      expect(runs.map((r) => r.storeId)).toEqual([shibuya])
+      await act(async () => { runs[0].resolve(stalledBody(runs[0].signal)) })
+      await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
+      expect(inFlightNow().has(shibuya)).toBe(true) // the body is still pending one ms before the deadline
+      await act(async () => { await jest.advanceTimersByTimeAsync(1) })
+      expect(inFlightNow().has(shibuya)).toBe(false)
+      expect(row().getByText('runFailed')).toBeTruthy()
+      expect(row().queryByText(/^runResult/)).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+    await flush()
+  })
+
+  it("the form's 今すぐ同期 answered 2xx whose body stalls: at the deadline it shows the failure line (never 同期完了), the claim is released and the list re-reads once", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    jest.useFakeTimers()
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+      expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+      await act(async () => { runs[0].resolve(stalledBody(runs[0].signal)) })
+      await act(async () => { await jest.advanceTimersByTimeAsync(SYNC_RUN_DEADLINE_MS - 1) })
+      expect(inFlightNow().has(daikanyama)).toBe(true)
+      const readsBefore = configsCalls()
+      await act(async () => { await jest.advanceTimersByTimeAsync(1) })
+      expect(inFlightNow().has(daikanyama)).toBe(false)
+      expect(screen.getByText('bookingSyncUnavailable')).toBeTruthy()
+      expect(screen.queryByText(/^result\{/)).toBeNull()
+      expect(configsCalls()).toBe(readsBefore + 1)
+    } finally {
+      jest.useRealTimers()
+    }
+    await flush()
+  })
+
+  it("during runAll, the form's run triggers a list read that answers BEFORE the bulk loop's pre-start re-read; the rows show the form-triggered answer; the older bulk answer does not overwrite it", async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    const shibuya = '3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'
+    const ebisu = '4c9e5fb0-607d-4e8f-b091-a2b3c4d5e6f7'
+    render(<SyncSection storeId={ebisu} showAllStores selectStore={selectStore} />)
+    await flush()
+    configsHold = []
+    await act(async () => { fireEvent.click(screen.getByText('runAll')) })
+    await flush()
+    expect(configsHold).toHaveLength(1) // sync-all's first re-read
+    await act(async () => { configsHold![0](reply({ stores: STORES })) })
+    await flush()
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama])
+    // the form's 今すぐ同期 (恵比寿) starts while 代官山 runs
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, ebisu])
+    // 代官山 answers: the bulk loop asks for 渋谷's pre-start re-read (older)
+    await act(async () => { runs[0].resolve(ok) })
+    await flush()
+    expect(configsHold).toHaveLength(2)
+    // the form's run answers: listGeneration bumps, a newer list read
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    expect(configsHold).toHaveLength(3)
+    // the form-triggered read answers first, the bulk re-read last
+    await act(async () => { configsHold![2](reply({ stores: [{ ...STORES[0], storeName: '新代官山' }, ...STORES.slice(1)] })) })
+    await flush()
+    expect(screen.getByText('新代官山')).toBeTruthy()
+    await act(async () => { configsHold![1](reply({ stores: [{ ...STORES[0], storeName: '旧代官山' }, ...STORES.slice(1)] })) })
+    await flush()
+    expect(screen.getByText('新代官山')).toBeTruthy()
+    expect(screen.queryByText('旧代官山')).toBeNull()
+    // the run itself still decides on the bulk answer: 渋谷 starts
+    expect(runs.map((r) => r.storeId)).toEqual([daikanyama, ebisu, shibuya])
+  })
+
+  it('row has a manual failure result; listGeneration bumps; the reload FAILS (500) → the row still shows its manual failure text and the read-failed line is shown; the next successful reload clears it and shows the server state', async () => {
+    const daikanyama = '1f6b2c8e-3d4a-4b5c-8d6e-7f8091a2b3c4'
+    render(<SyncSection storeId={daikanyama} showAllStores selectStore={selectStore} />)
+    await flush()
+    const row = () => within(screen.getByTestId('sync-row-3b8d4eaf-5f6c-4d7e-af80-91a2b3c4d5e6'))
+    await act(async () => { fireEvent.click(row().getByText('runNow')) })
+    await act(async () => { runs[0].resolve(loginFail) })
+    await flush()
+    expect(row().getByText('reasonLoginFix')).toBeTruthy()
+    // reads: 1 = mount, 2 = after the row run; 3 = the form run's reload, which fails
+    expect(configsCalls()).toBe(2)
+    failConfigsRead = 3
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[1].resolve(ok) })
+    await flush()
+    expect(configsCalls()).toBe(3)
+    expect(row().getByText('reasonLoginFix')).toBeTruthy()
+    expect(screen.getByText('somethingWentWrong')).toBeTruthy()
+    // the next form run's reload succeeds: the manual result clears, the server state shows
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'syncNow' })) })
+    await act(async () => { runs[2].resolve(ok) })
+    await flush()
+    expect(configsCalls()).toBe(4)
+    expect(row().queryByText('reasonLoginFix')).toBeNull()
+    expect(row().getByText('stateHealthy')).toBeTruthy()
+    expect(screen.queryByText('somethingWentWrong')).toBeNull()
   })
 })

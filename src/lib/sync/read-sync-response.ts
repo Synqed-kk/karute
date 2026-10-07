@@ -21,7 +21,12 @@ export type SyncResponse = {
 export async function readSyncResponse(
   res: Response,
 ): Promise<{ ok: true; data: SyncResponse } | { ok: false; message: string }> {
-  const raw = await res.text().catch(() => '')
+  // The run deadline's abort can land while the body is still arriving; it must
+  // reach the caller's failure path, never read as an empty 2xx (a false 同期完了).
+  const raw = await res.text().catch((e: unknown) => {
+    if (e instanceof Error && e.name === 'AbortError') throw e
+    return ''
+  })
   let data: SyncResponse | null = null
   try {
     data = raw ? (JSON.parse(raw) as SyncResponse) : null
