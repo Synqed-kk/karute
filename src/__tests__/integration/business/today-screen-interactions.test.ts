@@ -3631,7 +3631,8 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
     // three endings (:5640) and a teardown that cannot see the timestamp would
     // have to read a clock instead.
     for (const fn of ['function clearDrag()', 'function clearChipDrag(']) {
-      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
+      // DISCLOSED WINDOW MOVE — S27 Q-23: 800 → 1000; clearDrag gained the per-node label write-back and its one ⚖ line.
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 1000)
       expect(body).toContain('setDragLen(null)')
     }
     // …including the two lost-pointer self-heals, which route into those two.
@@ -3765,7 +3766,8 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
     // (⚖ BATCH-6 flag 43 — RENEGOTIATED to the open paren; see the emphasis
     // teardown suite for why `clearChipDrag` gained its event.)
     for (const fn of ['function clearDrag()', 'function clearChipDrag(']) {
-      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
+      // DISCLOSED WINDOW MOVE — S27 Q-23: 800 → 1000; clearDrag gained the per-node label write-back and its one ⚖ line.
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 1000)
       expect(body).toContain('setProxy(null)')
     }
     // The dashed outline is now drawn for EVERY live drag, not only a lane
@@ -5360,8 +5362,12 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // either one is the half-undo the two-sided snapshot exists to stop — a
     // person put back into a room the booking has already left, or the reverse.
     const restore = SRC.slice(SRC.indexOf('function restoreSides('), SRC.indexOf('function revertPending()'))
-    expect(restore).toContain('if (home.staff) setMoves((was) => ({ ...was, [id]: home.staff! }))')
-    expect(restore).toContain('if (home.bed) return { ...was, [id]: home.bed }')
+    // DISCLOSED PIN MOVE — S27 Q-23: restoreSides now puts the staged entries back as they were on BOTH sides —
+    // put(was, staged.staff) / put(was, staged.bed); the two-sided law of flag 45 is unchanged, the body text moved.
+    // The same move carries the call sites below: `ctx.staged` (the pointerdown entries) replaces `from` / `ctx.home`.
+    expect(restore).toContain('setMoves((was) => put(was, staged.staff))')
+    expect(restore).toContain('setBedMoves((was) => put(was, staged.bed))')
+    expect(restore).toContain('if (!(id in was)) return was')
     const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
     // ⚖ BATCH-8 flag 51 — RENEGOTIATED: 3 → 4. The 満室 refusal is a fourth
     // abandoned landing and restores the pair for the same reason the other
@@ -5373,11 +5379,11 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // ADDED a no-op `moves` entry that then survived a day flip. A refusal now
     // writes nothing at all. The card is still drawn at its origin the moment
     // the advice clears, because `moves` is where it is drawn from.
-    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(3)
+    expect(finish.match(/restoreSides\(ctx\.id, ctx\.staged\)/g)).toHaveLength(3)
     expect(finish).not.toContain('setMoves(')
     expect(finish).not.toContain('setBedMoves(')
     const cancel = SRC.slice(SRC.indexOf('function cancelDrag('), SRC.indexOf('function clearDrag()'))
-    expect(cancel).toContain('restoreSides(ctx.id, ctx.home)')
+    expect(cancel).toContain('restoreSides(ctx.id, ctx.staged)')
     // …and 元に戻す answers for the room as well as the person.
     const revert = SRC.slice(SRC.indexOf('function revertPending()'), SRC.indexOf('function confirmPending()'))
     expect(revert).toContain('if (bedOrigin) next[id] = bedOrigin')

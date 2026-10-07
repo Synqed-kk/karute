@@ -35,7 +35,7 @@ import { readFileSync } from 'node:fs'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { BusinessSessionEdits } from '@/app/[locale]/(business)/BusinessSessionEdits'
+import { BusinessSessionEdits, useSessionEdits } from '@/app/[locale]/(business)/BusinessSessionEdits'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
 import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallback-cells'
@@ -725,5 +725,98 @@ it('⚖ S26 Round E3b — MOUNTED 10:00–21:30 (テスト自由が丘店, its r
     act(() => root.unmount())
     host.remove()
     POLICIES[STORE.jiyugaoka].weekly_hours = saved
+  }
+})
+
+/** ⚖ Q-23 (S27) — A CANCELLED DRAG LEAVES NOTHING BEHIND. The round-1 rig (`rig(null)`: the track is jsdom's 0 wide,
+ *  so a stretch travels nothing) on the gym's first staff card, with a probe on the session-edit provider so the
+ *  test reads the staged state itself, not only the label. `wide` gives the track 600 px so a carry really lands. */
+async function mountProbed(wide: boolean) {
+  const r = rig(null)
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const seen: { edits: ReturnType<typeof useSessionEdits> | null } = { edits: null }
+  function Probe() { seen.edits = useSessionEdits(); return null }
+  const board = await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE.gym }) })
+  await act(async () => root.render(<BusinessSessionEdits><Probe />{board}</BusinessSessionEdits>))
+  const first = host.querySelector<HTMLElement>('.lane[data-group="staff"] .track .event[data-book]:not(.cleanup)')!
+  const id = first.getAttribute('data-book')!
+  if (wide) trackWide(600, first.closest('.lane')!)
+  const card = () => host.querySelector<HTMLElement>(`.lane[data-group="staff"] .track .event[data-book="${id}"]:not(.drag-proxy)`)!
+  const lines = () => Array.from(host.querySelectorAll(`.lane .track .event[data-book="${id}"]:not(.drag-proxy) .e-time`)).map((n) => n.textContent)
+  const staged = () => ({ staff: seen.edits!.moves[id] ?? null, bed: seen.edits!.bedMoves[id] ?? null, pending: seen.edits!.pending?.id ?? null })
+  const session = () => ({ moves: Object.keys(seen.edits!.moves), bedMoves: Object.keys(seen.edits!.bedMoves), pending: seen.edits!.pending, confirm: (host.textContent ?? '').includes('この内容で確定') })
+  const stretch = () => {
+    act(() => { card().dispatchEvent(r.ev('pointerdown', 595, 1)) }) // 5 px inside the right edge: a resize
+    act(() => { window.dispatchEvent(r.ev('pointermove', 625, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+  }
+  const done = () => { act(() => root.unmount()); host.remove(); r.restore() }
+  return { ...r, host, id, card, lines, staged, session, stretch, done }
+}
+
+it('⚖ Q-23 (S27) — MOUNTED: a stretch cancelled by window blur puts the label back (「07:00〜」) and leaves no staged entry for the card', async () => {
+  const m = await mountProbed(false)
+  try {
+    const rest = m.lines()
+    m.stretch()
+    const mid = m.lines()
+    act(() => { window.dispatchEvent(new Event('blur')) })
+    expect([rest, mid[0] !== rest[0], m.lines(), m.staged()]).toEqual([['07:00〜'], true, rest, { staff: null, bed: null, pending: null }])
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ Q-23 (S27) — MOUNTED: a stretch released with no change (pointerup over the home span) puts the label back and leaves no staged entry', async () => {
+  const m = await mountProbed(false)
+  try {
+    const rest = m.lines()
+    m.stretch()
+    act(() => { window.dispatchEvent(m.ev('pointerup', 625, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    expect([rest, m.lines(), m.staged()]).toEqual([['07:00〜'], rest, { staff: null, bed: null, pending: null }])
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ Q-23 (S27) — MOUNTED: an ALREADY-STAGED card dragged again and cancelled keeps the earlier staged span and its label', async () => {
+  const m = await mountProbed(true)
+  try {
+    const rest = m.lines()
+    act(() => { m.card().dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 780, 1)) }) // +280 px on the 600 px track = 14:00, a free start on this lane (07:30–13:30 refuse)
+    act(() => { jest.advanceTimersByTime(16) })
+    act(() => { window.dispatchEvent(m.ev('pointerup', 780, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    const first = m.staged()
+    const firstLines = m.lines()
+    expect([first.staff !== null, first.pending, firstLines[0] !== rest[0]]).toEqual([true, m.id, true]) // a real stage, never a vacuous pass
+    act(() => { m.card().dispatchEvent(m.ev('pointerdown', 500, 1)) })
+    act(() => { window.dispatchEvent(m.ev('pointermove', 560, 1)) })
+    act(() => { jest.advanceTimersByTime(16) })
+    act(() => { window.dispatchEvent(new Event('blur')) })
+    expect([m.staged(), m.lines()]).toEqual([first, firstLines])
+  } finally {
+    m.done()
+  }
+})
+
+it('⚖ Q-23 (S27) step 4 — MOUNTED: after a blur-cancelled stretch AND a no-change release the session holds no edit at all (no moves key, no bed key, no pending, no 「この内容で確定」)', async () => {
+  const m = await mountProbed(false)
+  try {
+    const before = m.session()
+    m.stretch()
+    act(() => { window.dispatchEvent(new Event('blur')) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    const afterCancel = m.session()
+    m.stretch()
+    act(() => { window.dispatchEvent(m.ev('pointerup', 625, 0)) })
+    act(() => { jest.advanceTimersByTime(1000) })
+    const none = { moves: [], bedMoves: [], pending: null, confirm: false }
+    expect([before, afterCancel, m.session()]).toEqual([none, none, none])
+  } finally {
+    m.done()
   }
 })
