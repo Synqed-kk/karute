@@ -44,7 +44,7 @@ import {
 } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
 import { jstToday, loadRecipe, registry, storeCtx, withRetry, type FillCore, type Manifest } from './fill'
-import { addDays, bookingNotes, plan, rng, type Plan, type Recipe } from './plan'
+import { addDays, bookingNotes, loaderSet, plan, rng, type Plan, type Recipe } from './plan'
 
 export type RealismCore = Pick<FillCore, 'orgSettings' | 'stores' | 'staff' | 'customers' | 'appointments' | 'karuteRecords' | 'packs'>
 export type Fields = { notes?: string | null; status?: AppointmentStatus; status_reason?: string | null; duration_minutes?: number | null }
@@ -54,7 +54,6 @@ export interface Ledger { businessId: string; at: string; planHash: string; mani
 const TAG = /\[(tw:[^\]]+)\]/
 const jstDate = (iso: string) => new Date(Date.parse(iso) + 9 * 3_600_000).toISOString().slice(0, 10)
 /** A status the loader (fill's create, close-out) or this script set — never one a person set in the app. */
-const loaderSet = (a: Appointment) => a.status_set_by == null || (a.status_reason ?? '').startsWith('テストデータ')
 /** Seeded order: the same rows, the same pick, on every run (the rate sampler). */
 const seeded = <T extends { id: string }>(xs: T[], seed: string) => xs.map((x) => ({ x, w: rng(`${seed}|${x.id}`)() })).sort((a, b) => a.w - b.w).map((y) => y.x)
 /** Every field of f holds on the row as read (apply's and revert's check before a write). */

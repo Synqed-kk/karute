@@ -24,7 +24,7 @@ const conflict = (msg: string) => Object.assign(new Error(msg), { status: 409 })
 function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; defaultHours?: Record<string, unknown>; stores?: string[] } = {}) {
   let n = 0
   const t = { staff: [] as Row[], links: new Map<string, string[]>(), resources: [] as Row[], menus: [] as Row[], customers: [] as Row[], packs: [] as Row[], burns: [] as Row[], appts: [] as Row[], karutes: [] as Row[] }
-  const stats = { writes: 0, policy: null as null | Record<string, unknown> }
+  const stats = { writes: 0, policy: null as null | Record<string, unknown>, updates: [] as { id: string; status: unknown }[] }
   const add = (table: Row[], row: Record<string, unknown>) => {
     stats.writes++
     const r = { id: `id-${++n}`, business_id: o.business ?? DEV_SALON_BUSINESS_ID, ...row }
@@ -71,6 +71,13 @@ function fakeCore(o: { business?: string; devEmail?: string; fail409?: boolean; 
         if (o.fail409) throw conflict('RESOURCE_TAKEN')
         if (t.appts.some((a) => !isTerminalStatus(a.status as string) && overlaps(a, i) && (a.staff_id === i.staff_id || a.resource_id === i.resource_id))) throw conflict('double-booked')
         return add(t.appts, { ...i, occupied_until: null, idempotencyKey: opts?.idempotencyKey })
+      },
+      // like core: a status write stamps who set it (status_set_by) and its reason
+      update: async (id: string, i: Record<string, unknown>) => {
+        stats.writes++
+        stats.updates.push({ id, status: i.status })
+        const r = t.appts.find((a) => a.id === id)!
+        return Object.assign(r, { status: i.status, status_reason: i.status_reason, status_set_by: i.acting_staff_id })
       },
     },
     karuteRecords: {
@@ -176,6 +183,42 @@ async function main() {
   assert.equal(await apply(f.core, opts(m, addDays(TODAY, 7))), 0)
   assert.equal(new Set(f.t.appts.map((a) => `${a.customer_id}|${a.starts_at}`)).size, f.t.appts.length, 'no duplicate booking after the top-up')
   assert.equal(f.t.appts.length, p2.appointments.length - binnedOnly(p2.appointments).length)
+
+  // ⚖ G1 (S87): a later apply reconciles TODAY's owned rows to the plan's status (the 13:24 pin → IN_PROGRESS) — exactly
+  // the non-legacy, loader-set ones still SCHEDULED; a legacy row and a staff-edited row of the same day stay as they were.
+  {
+    const g = fakeCore()
+    const gm = empty()
+    assert.equal(await apply(g.core, opts(gm)), 0)
+    const planOn = (d: string) => new Map(plan(recipe, { ...ctx, legacyThrough: gm.stores[STORE].legacyThrough }, d, TODAY).appointments.map((a) => [a.key, a]))
+    // the first future day with a legacy row and a non-legacy session across the pin
+    const day = [...Array(14).keys()].map((i) => addDays(TODAY, i + 1)).find((d) => {
+      const k = planOn(d)
+      const of = g.t.appts.map((r) => k.get(tagOf(r))).filter((a) => a?.date === d)
+      return of.some((a) => recipe.legacyMembers!.includes(a!.member)) && of.some((a) => a!.status === 'IN_PROGRESS')
+    })!
+    assert.ok(day, 'a future day carries both a legacy row and a session across the pin')
+    const byKey = planOn(day)
+    const rowsOfDay = g.t.appts.filter((r) => byKey.get(tagOf(r))?.date === day)
+    assert.ok(rowsOfDay.length > 0 && rowsOfDay.every((r) => r.status === 'SCHEDULED'), 'the first fill wrote that future day SCHEDULED')
+    const legacyRow = rowsOfDay.find((r) => recipe.legacyMembers!.includes(byKey.get(tagOf(r))!.member))!
+    const moving = rowsOfDay.filter((r) => !recipe.legacyMembers!.includes(byKey.get(tagOf(r))!.member) && byKey.get(tagOf(r))!.status !== 'SCHEDULED')
+    assert.ok(legacyRow && moving.some((r) => byKey.get(tagOf(r))!.status === 'IN_PROGRESS') && moving.length >= 2, `that day has a legacy row and ${moving.length} non-legacy rows the plan moves`)
+    const edited = moving.find((r) => byKey.get(tagOf(r))!.status !== 'IN_PROGRESS') ?? moving[moving.length - 1]
+    Object.assign(edited, { status_set_by: 'st-1', status_reason: null }) // a staff member set it back to 予約済み
+    const legacyBefore = { ...legacyRow }
+    const editedBefore = { ...edited }
+    assert.equal(await apply(g.core, opts(gm, day)), 0)
+    const want = moving.filter((r) => r !== edited).map((r) => ({ id: r.id, status: byKey.get(tagOf(r))!.status })).sort((a, b) => a.id.localeCompare(b.id))
+    assert.deepEqual([...g.stats.updates].sort((a, b) => a.id.localeCompare(b.id)), want, 'exactly the owned non-legacy loader-set SCHEDULED rows of today were updated, to the plan\'s status')
+    assert.ok(want.some((w) => w.status === 'IN_PROGRESS'), 'the session across the pin is IN_PROGRESS')
+    assert.deepEqual(legacyRow, legacyBefore, 'a legacy row stays as it was')
+    assert.deepEqual(edited, editedBefore, 'a staff-edited row stays as it was')
+    assert.equal(gm.runs[1].created.todayStatus, want.length)
+    assert.equal(await apply(g.core, opts(gm, day)), 0)
+    assert.equal(g.stats.updates.length, want.length, 'a third run the same day: no further status write')
+    console.log(`✓ G1: today's reconcile updated ${want.length} rows (${want.filter((w) => w.status === 'IN_PROGRESS').length} IN_PROGRESS); legacy + staff-edited untouched`)
+  }
 
   // A default policy may echo platform hours: the snapshot is still the recipe's hours, the ones the loader sets.
   const nine = Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, { open: '09:00', close: '18:00' }]))

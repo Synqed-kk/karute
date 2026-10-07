@@ -13,7 +13,23 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { assertDevSalon, DEV_SALON_BUSINESS_ID, pageAll } from './count-baseline'
 import { jstToday, loadRecipe, registry, storeCtx, type FillCore, type Manifest } from './fill'
-import { addDays, jstIso, plan } from './plan'
+import type { Appointment } from '@synqed-kk/client'
+import { addDays, isLegacyMember, jstIso, loaderSet, plan, type PlannedAppointment, type Recipe } from './plan'
+
+/** The status_reason every loader status write carries (loaderSet() reads its prefix: the row stays the loader's). */
+export const CLOSE_OUT_REASON = 'テストデータ close-out'
+
+/** The ONE status write of the test world: the planned status, acted by the booking's own staff, close-out's reason. */
+export const setPlannedStatus = (core: Pick<FillCore, 'appointments'>, r: Pick<Appointment, 'id' | 'staff_id'>, status: PlannedAppointment['status']) =>
+  core.appointments.update(r.id, { status, acting_staff_id: r.staff_id, status_reason: CLOSE_OUT_REASON })
+
+/** ⚖ G1 (S87): apply's today reconcile. Of the rows apply already owns (its own ownership rule), the ones dated TODAY that
+ *  are still SCHEDULED take the status the plan gives them (across the 13:24 pin → IN_PROGRESS, earlier → as planned) —
+ *  never a legacy member's row (isLegacyMember), never one a person set (loaderSet), never another day (future rows stay
+ *  SCHEDULED, past rows are closeOut's). Only SCHEDULED moves, so realism's future cancels are never undone. */
+export const todayStatusFixes = <R extends Pick<Appointment, 'id' | 'staff_id' | 'status' | 'status_set_by' | 'status_reason'>>(
+  owned: readonly { row: R; planned: PlannedAppointment }[], recipe: Pick<Recipe, 'legacyMembers'>, today: string,
+) => owned.filter(({ row, planned: p }) => p.date === today && row.status === 'SCHEDULED' && p.status !== 'SCHEDULED' && !isLegacyMember(recipe, p.member) && loaderSet(row))
 
 export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'customers' | 'appointments'>, storeId: string, m: Manifest, now: Date, apply: boolean, log: (l: string) => void): Promise<number> {
   if (m.businessId !== DEV_SALON_BUSINESS_ID) throw new Error('the manifest is not a Dev Salon manifest')
@@ -46,7 +62,7 @@ export async function closeOut(core: Pick<FillCore, 'orgSettings' | 'staff' | 'c
     counts[a.status][0]++
     if (!apply) continue
     try {
-      await core.appointments.update(r.id, { status: a.status, acting_staff_id: r.staff_id, status_reason: 'テストデータ close-out' })
+      await setPlannedStatus(core, r, a.status)
       counts[a.status][1]++
     } catch (e) {
       failed++

@@ -176,6 +176,15 @@ export function requestFor(recipe: Recipe, c: RecipeCustomer, key: string, first
   return fits.find((l) => (u -= l.themes ? 3 : 1) < 0)?.text ?? null
 }
 
+/** ⚖ R5: the ONE legacy predicate — a member of an original store from before FILL 2 (the planner, apply's today
+ *  reconcile and every reader ask this, never their own copy). */
+export const isLegacyMember = (recipe: Pick<Recipe, 'legacyMembers'>, member: string): boolean => !!recipe.legacyMembers?.includes(member)
+
+/** The ONE manual-edit guard on a booking's status: no person set it (status_set_by empty), or the loader's own scripts
+ *  did (a status_reason starting テストデータ — close-out's write). realism.ts and apply's today reconcile both ask this. */
+export const loaderSet = (a: { status_set_by?: string | null; status_reason?: string | null }): boolean =>
+  a.status_set_by == null || (a.status_reason ?? '').startsWith('テストデータ')
+
 /** A loader booking's notes: the tag first (every reader matches /\[(tw:[^\]]+)\]/ or '[tw:'), then the ご要望 line. */
 /** ⚖ R17: the cancel reason in notes is the app's own Japanese label (messages/ja.json), never the slug; realism.ts stays the status_reason writer. */
 export const CANCEL_LABELS: Record<string, string> = { 'cancel-advance-contact': '事前連絡あり', 'cancel-same-day-contact': '当日連絡あり', 'cancel-salon-initiated': '店舗都合' }
@@ -221,12 +230,12 @@ export function plan(recipe: Recipe, store: StoreCtx, today: string, epoch: stri
   // 1. Visits: customer → days (closed days roll to the next open day). Before the cut: the customer's own cadence,
   // exactly as always. From the cut: the type's rhythm (their cadence clamped into it, ± jitter per visit).
   const byDay = new Map<number, { c: RecipeCustomer; k: number }[]>()
-  const legacy = new Set(recipe.legacyMembers ?? []) // ⚖ R5: a legacy member keeps the origin/main planner's paths
+  const legacy = { has: (member: string) => isLegacyMember(recipe, member) } // ⚖ R5: a legacy member keeps the origin/main planner's paths
   const open = (day: number) => !!hoursOn(hours, addDays(from, day))
   for (const c of recipe.customers) {
-    const customerCut = recipe.profile && !recipe.legacyMembers?.includes(c.member) ? Infinity : cut
+    const customerCut = recipe.profile && !isLegacyMember(recipe, c.member) ? Infinity : cut
     const r = rng(`${id}|visits|${c.member}`)
-    const offset = recipe.legacyMembers?.includes(c.member) ? pastDays - (recipe.legacyPastDays ?? pastDays) : 0
+    const offset = isLegacyMember(recipe, c.member) ? pastDays - (recipe.legacyPastDays ?? pastDays) : 0
     const jitter = c.every ? Math.max(1, Math.floor(c.every / 5)) : 0
     const add = (day: number, k: number) => byDay.set(day, [...(byDay.get(day) ?? []), { c, k }])
     let [k, last] = [0, -1]

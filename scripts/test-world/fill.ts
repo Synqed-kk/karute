@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import type { Appointment, SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { isTerminalStatus } from '../../src/lib/appointments/status'
 import { assertDevSalon, DEV_EMAIL, DEV_SALON_BUSINESS_ID, pageAll, Refused } from './count-baseline'
+import { setPlannedStatus, todayStatusFixes } from './close-out'
 import { namePoolFor, STAFF_NAMES } from './names'
 import { addDays, bookingNotes, hoursOn, jstIso, plan, rng, type Plan, type Realism, type Recipe, type RecipeData, type StoreCtx } from './plan'
 
@@ -33,7 +34,7 @@ export type FillCore = Pick<
   SynqedClient,
   'orgSettings' | 'stores' | 'staff' | 'staffStores' | 'storePolicies' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords'
 >
-type Section = 'storePolicies' | 'staff' | 'staffStores' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords' | 'redemptions'
+type Section = 'storePolicies' | 'staff' | 'staffStores' | 'resources' | 'menus' | 'customers' | 'packs' | 'appointments' | 'karuteRecords' | 'redemptions' | 'todayStatus'
 interface Run { at: string; type: string; store: string; today: string; created: Partial<Record<Section, number>>; skipped: string[]; conflicts409: string[]; errors: string[] }
 export interface Manifest {
   businessId: string
@@ -278,7 +279,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
     // A foreign booking at the same customer + start is never adopted: it either clashes (skipped below) or the loader
     // makes its own tagged one beside it.
     const window = await read(() => pageAll('appointments', (page) => core.appointments.list({ store_id: storeId, from: jstIso(p.window.from, 0), to: jstIso(addDays(p.window.to, 1), 0), page, page_size: 500 })))
-    const mine = new Map<string, { id: string; status: string; customer_id: string | null }>()
+    const mine = new Map<string, Appointment>()
     for (const a of window) {
       const tag = /\[(tw:[^\]]+)\]/.exec(a.notes ?? '')?.[1]
       if (tag && a.store_id === storeId) mine.set(tag, a)
@@ -293,6 +294,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       return window.find((x: Appointment) => !isTerminalStatus(x.status) && Date.parse(x.starts_at) < end && start < Date.parse(x.occupied_until ?? x.ends_at) && (x.staff_id === sid || x.resource_id === rid))
     }
     const apptRow = new Map<string, { id: string; status: string }>()
+    const ownedRows: { row: Appointment; planned: Plan['appointments'][number] }[] = []
     await pool(p.appointments, async (a) => {
       const [cid, sid, rid, mid] = [custId.get(a.member), staffId.get(a.staff), resId.get(a.resource), menuOf.get(a.menu)]
       if (!cid && binned.has(a.member)) return void run.skipped.push(`appointments ${a.key}: customer ${a.member} is in the bin`)
@@ -302,6 +304,7 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       if (have && have.customer_id !== cid) return void run.skipped.push(`appointments ${a.key}: booking ${have.id}'s customer differs from the planned customer, left alone`)
       if (have) {
         if (!dry) (st.created.appointments ??= {})[a.key] = have.id
+        ownedRows.push({ row: have, planned: a })
         return void apptRow.set(a.key, have)
       }
       const other = clash(a, sid, rid)
@@ -314,6 +317,21 @@ export async function apply(core: FillCore, o: ApplyOpts): Promise<number> {
       }, { idempotencyKey: `test-world:${a.key}` }))
       if (row?.id) apptRow.set(a.key, { id: row.id, status: (row as { status?: string }).status ?? a.status })
     })
+
+    // ⚖ G1 (S87): today's owned rows still SCHEDULED take the plan's status, on EVERY run (the board's live session is
+    // not a first-fill-only state). The write is close-out.ts's one status write; this file still has no update call.
+    for (const { row, planned } of todayStatusFixes(ownedRows, recipe, today)) {
+      run.created.todayStatus = (run.created.todayStatus ?? 0) + 1
+      if (dry) continue
+      try {
+        sent++
+        await withRetry(() => setPlannedStatus(core, row, planned.status), 'keyed', o.wait) // an update restated is the same update
+        apptRow.set(planned.key, { id: row.id, status: planned.status })
+      } catch (e) {
+        run.created.todayStatus!--
+        run.errors.push(`todayStatus ${planned.key}: ${message(e)}`)
+      }
+    }
 
     // Karutes and 回数券 burns only for bookings that are COMPLETED in core (a top-up never closes a booking out).
     const done = (key: string) => (apptRow.get(key)?.status === 'COMPLETED' ? apptRow.get(key)!.id : null)
