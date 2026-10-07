@@ -518,7 +518,7 @@ const RESERVE_SAVE_FAIL = {
   core: 'いまは保存できないため、時間をおいてもう一度保存してください（受付ルールはこれまでのままです）。',
 } as const
 const reserveFallback = (reason: string): string => (reason === 'forbidden' || reason === 'tenant' || reason === 'invalid' ? RESERVE_SAVE_FAIL[reason] : RESERVE_SAVE_FAIL.core)
-export type ReservePolicyAnswer = { ok: true; row: ReservePolicy; basedOn: string } | { ok: false; reason: string; message: string }
+export type ReservePolicyAnswer = { ok: true; row: ReservePolicy; basedOn: string } | { ok: false; reason: string; message: string; basedOn?: string }
 /** The route's answer → the room's: core's six and the next `basedOn` on 200, else the door's own line. */
 export async function putReservePolicy(save: ReservePolicySave, policy: ReservePolicy, basedOn: string): Promise<ReservePolicyAnswer> {
   try {
@@ -533,7 +533,9 @@ export async function putReservePolicy(save: ReservePolicySave, policy: ReserveP
       return { ok: true, row: Object.fromEntries(RESERVE_FIELDS.map((k) => [k, row[k]])) as unknown as ReservePolicy, basedOn: answer.basedOn }
     }
     const reason = typeof answer.reason === 'string' ? answer.reason : 'core'
-    return { ok: false, reason, message: typeof answer.message === 'string' && answer.message !== '' ? answer.message : reserveFallback(reason) }
+    const message = typeof answer.message === 'string' && answer.message !== '' ? answer.message : reserveFallback(reason)
+    // A 'stale' 409 carries the fingerprint of core's current six: the next press is measured against it.
+    return reason === 'stale' && typeof answer.basedOn === 'string' ? { ok: false, reason, message, basedOn: answer.basedOn } : { ok: false, reason, message }
   } catch {
     return { ok: false, reason: 'core', message: RESERVE_SAVE_FAIL.core }
   }
@@ -1093,7 +1095,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
     reserveSaving.current = false
     if (!result.ok) {
       setReserveFail(result.message)
-      // stale: the line asks for a look at the latest rules; the draft stays, like お店ページ's stale (s5) — a reload re-reads.
+      // stale (lead's ruling): the draft stays and the line says another save happened; the fingerprint moves to
+      // core's current six, so a second press saves the draft over them — no re-read, no refresh.
+      if (result.basedOn !== undefined) reserveBasedOn.current = result.basedOn
       return
     }
     reserveBasedOn.current = result.basedOn
